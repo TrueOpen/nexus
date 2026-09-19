@@ -1,0 +1,58 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// MsgSettleTask is the only normal-settlement entry point. The exact request wire
+// is frozen by keeper_api_contract.md §9.6a and §10.10a: task_id is the only business
+// locator, and submitter_address exists solely for Cosmos Tx authorization,
+// account sequence and gas. submitter_address never enters the settlement ID, the
+// facts hash, the plan hash or any Store row.
+//
+// The caller does NOT submit expected_task_state_version, verdict, consensus
+// cluster, receipt refs, payout, refund, fault, evidence root, plan hash, actual
+// fees, completion height or a Builder identity copy. All of those are derived by
+// the Keeper from authoritative state through the single pure function
+// BuildSettlementFacts.
+//
+// Authorization: while any Task Builder SETTLE grace window is still open,
+// submitter_address must be the current duty Builder's current service account.
+// After every grace window the message is permissionless - any canonical Cosmos
+// signer may pay gas - but responsibility still resolves to the frozen
+// TaskBuilderSelection rank, which yields settlement_duty_builder_operator. No
+// detached Builder signature is required.
+//
+// Heights: the public Msg requires current_height <= settlement_deadline_height
+// and uses settlement_facts_cutoff_height = current_height - 1. The deadline
+// EndBlock runner uses the frozen settlement_deadline_height as the cutoff, and a
+// permissionless MsgSweepDeadline may only stand in once
+// current_height > settlement_deadline_height. The caller never submits a
+// trigger, cutoff or height.
+//
+// Idempotency class OBJECT_RECEIPT: an exact replay returns the first accepted
+// receipt with MUTATION_STATUS_V1_NOOP. There is no pending settlement writer,
+// MsgFailSettle, or caller-authored plan.
+// MsgSettleTask defines the MsgSettleTask wire type.
+message MsgSettleTask {
+  bytes task_id = 1;
+  string submitter_address = 2;
+}
+
+// MsgSettleTaskResponse is the settlement receipt. Field numbers are frozen by
+// keeper_api_contract.md §9.6a. Every field is Keeper-derived.
+// MsgSettleTaskResponse defines the MsgSettleTaskResponse wire type.
+message MsgSettleTaskResponse {
+  bytes task_id = 1;
+  bytes settlement_id = 2;
+  bytes settlement_facts_hash = 3;
+  bytes settlement_plan_hash = 4;
+  TaskVerdict verdict = 5;
+  shared.v1.Amount refund_amount = 6;
+  uint64 settlement_height = 7;
+  uint64 task_finality_height = 8;
+  shared.v1.MutationStatusV1 status = 9;
+}

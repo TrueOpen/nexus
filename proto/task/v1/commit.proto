@@ -1,0 +1,85 @@
+syntax = "proto3";
+package task.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// CommitStatusV1 is the lifecycle of one accepted verifier commit row.
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md §6.6 declares CommitState.status =
+// ACCEPTED as the only value, and keeper_api_contract.md §9.6b does not register this
+// enum. The single non-zero value below is exactly what the frozen schema names.
+// CommitStatusV1 defines the CommitStatusV1 wire type.
+enum CommitStatusV1 {
+  // Never written; rejects zero-value rows.
+  // COMMIT_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  COMMIT_STATUS_V1_UNSPECIFIED = 0;
+  // First accepted commit for this commit_key; duplicates are a noop.
+  // COMMIT_STATUS_V1_ACCEPTED identifies the corresponding protocol value.
+  COMMIT_STATUS_V1_ACCEPTED = 1;
+}
+
+// VerifyCommitV1 is the verifier-signed result commitment carried by
+// MsgSubmitVerifyCommit and MsgBatchSubmitVerifyCommit. Field numbers, types and
+// order are frozen by keeper_api_contract.md §5.14 and are the length-framed preimage
+// of
+//
+//   verify_commit_signing_digest = H_FIELDS_V1("TRUEOPEN_COMMIT_V1",
+//     schema_version, chain_id, task_id, verify_round,
+//     verifier_operator_address, service_authorization_nonce,
+//     commit_hash, expiry_height)
+//
+// commit_hash must be a canonical 32-byte SHA-256 value produced by
+//
+//   commit_hash = H_FIELDS_V1("TRUEOPEN_RESULT_COMMITMENT_V2", chain_id, task_id,
+//     task_hash, verify_round, verifier_operator_address, result_payload_hash,
+//     salt)
+//
+// Non-canonical placeholder values are rejected at the entry point; there is no
+// "looks like a hash" conditional branch and no optional commitment field.
+//
+// schema_version is 1, the same value as every other §5.14 stage wire and §4.1
+// handraise wire. The single normative statement of that value, its derivation and
+// its schema-version rule lives on InferReceiptV2 in task/v1/infer_receipt.proto;
+// this file does not restate them.
+// VerifyCommitV1 defines the VerifyCommitV1 wire type.
+message VerifyCommitV1 {
+  // Always 1; InferReceiptV2 alone uses schema version 2.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 4;
+  string verifier_operator_address = 5;
+  uint64 service_authorization_nonce = 6;
+  bytes commit_hash = 7;
+  uint64 expiry_height = 8;
+  bytes service_signature = 9;
+}
+
+// CommitState is the first accepted verifier commit, keyed by commit_key
+// (keeper_data_structure_contract.md §6.6). commit_key has exactly one ordered preimage in
+// the whole repository (keeper_api_contract.md §10.9):
+//
+//   commit_key = H_FIELDS_V1("TRUEOPEN_COMMIT_KEY_V1",
+//     chain_id, task_id, verify_round, verifier_operator_address)
+//
+// with verify_round encoded as uint32_be and verifier_operator_address as stable
+// operator address codec bytes.
+// CommitState defines the CommitState wire type.
+message CommitState {
+  bytes commit_key = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string verifier_operator_address = 4;
+  bytes commit_hash = 5;
+  bytes commit_signing_digest = 6;
+  // SHA256(raw_signature_64), retained as a 32-byte audit/exact-replay fingerprint.
+  // The 64-byte signature was verified before initial live acceptance and is not retained.
+  // This digest is not authorization state and never enters a signing/business digest;
+  // replay compares it only to identify the same previously accepted signature.
+  bytes signature_digest = 7;
+  uint64 commit_height = 8;
+  CommitStatusV1 status = 9;
+}

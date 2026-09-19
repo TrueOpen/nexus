@@ -1,0 +1,17 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// Amount is the public wire representation of a non-negative amount in the
+// chain's single native settlement denomination.
+// Amount defines the Amount wire type.
+message Amount {
+  string atomic_units = 1;
+}
+
+// SignedAmount is used only for bounded deltas; zero is encoded as "0".
+message SignedAmount {
+  string atomic_units = 1;
+}

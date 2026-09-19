@@ -1,0 +1,55 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// This file is the single home of the global Query pagination wire of
+// keeper_api_contract.md §16.1. The three types below are declared there as the only
+// pagination request/response/token shapes of the whole protocol, so they must
+// exist exactly once. They previously existed twice (hub/v1/query_registry.proto
+// and task/v1/query_session.proto); both copies are deleted and both modules
+// now import this file. x/shared is chosen because x/hub must not import
+// x/task (module-split import direction) and neither module owns global Query
+// wire.
+
+// QueryPageRequestV1 is the only pagination request wire (§16.1). V1 allows
+// keyset pagination only: there is no offset and no count_total. limit = 0 uses
+// max_query_page_limit; a non-zero value above that cap is InvalidArgument and
+// must not be silently clamped. page_token is the optional canonical PageTokenV1
+// encoding bounded by max_query_page_token_bytes.
+// QueryPageRequestV1 defines the QueryPageRequestV1 wire type.
+message QueryPageRequestV1 {
+  // page_token is empty on the first page and otherwise a canonical PageTokenV1.
+  // It is an opaque variable-length cursor blob, not a Hash32, so REST projects it
+  // as ProtoJSON Base64.
+  bytes page_token = 1;
+  // limit is 0 for max_query_page_limit, otherwise <= that cap.
+  uint32 limit = 2;
+}
+
+// QueryPageResponseV1 returns the next keyset token; it is empty when no next
+// item exists (§16.1). A non-empty token is only returned when the server has
+// actually seen a next item.
+// QueryPageResponseV1 defines the QueryPageResponseV1 wire type.
+message QueryPageResponseV1 {
+  // next_page_token is empty when the walk is complete. Same opaque PageTokenV1
+  // blob as page_token, so REST projects it as ProtoJSON Base64.
+  bytes next_page_token = 1;
+}
+
+// PageTokenV1 is the canonical decoded form of page_token (§16.1). The server
+// recomputes rpc_method_digest and selector_digest and rejects cross-RPC,
+// cross-selector, non-canonical or oversized tokens. query_height pins every
+// later page to the consensus height read by the first page.
+// PageTokenV1 defines the PageTokenV1 wire type.
+message PageTokenV1 {
+  // rpc_method_digest = H_FIELDS_V1("TRUEOPEN_QUERY_RPC_V1", method full name).
+  bytes rpc_method_digest = 1;
+  // selector_digest = H_FIELDS_V1("TRUEOPEN_QUERY_SELECTOR_V1", chain_id, rpc_method_digest, selectors).
+  bytes selector_digest = 2;
+  // last_primary_key is the canonical store key of the previous page's last item.
+  bytes last_primary_key = 3;
+  // query_height is the consensus height the first page actually read.
+  uint64 query_height = 4;
+}

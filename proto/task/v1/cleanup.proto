@@ -1,0 +1,107 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+import "shared/v1/model_profile.proto";
+import "shared/v1/round_economics.proto";
+import "task/v1/assignment.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskCleanupPhase is the mandatory monotonic Task compaction order.
+enum TaskCleanupPhase {
+  // Unset; rejected.
+  // TASK_CLEANUP_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_UNSPECIFIED = 0;
+  // Deleting round bodies and applied economic effects; the round summary survives.
+  // TASK_CLEANUP_PHASE_ROUND_STATE_AND_EFFECTS identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_ROUND_STATE_AND_EFFECTS = 1;
+  // Deleting Builder stage proposals and their handraise unions.
+  // TASK_CLEANUP_PHASE_PROPOSALS identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_PROPOSALS = 2;
+  // Deleting the frozen per-candidate selection facts.
+  // TASK_CLEANUP_PHASE_CANDIDATE_FACTS identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_CANDIDATE_FACTS = 3;
+  // Deleting the Verifier candidate window and its eligibility segments.
+  // TASK_CLEANUP_PHASE_VERIFIER_WINDOW identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_VERIFIER_WINDOW = 4;
+  // Deleting commit and result receipt bodies; the refs hash keeps them auditable.
+  // TASK_CLEANUP_PHASE_RECEIPT_DETAILS identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_RECEIPT_DETAILS = 5;
+  // Deleting data unavailability reports and their per-Builder aggregates.
+  // TASK_CLEANUP_PHASE_DATA_UNAVAILABLE identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_DATA_UNAVAILABLE = 6;
+  // Removing active task indexes and releasing the liability reservations.
+  // TASK_CLEANUP_PHASE_ACTIVE_INDEXES_AND_LIABILITIES identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_ACTIVE_INDEXES_AND_LIABILITIES = 7;
+  // Collapsing the task into its terminal summary. Terminal phase.
+  // TASK_CLEANUP_PHASE_TASK_COMPACTION identifies the corresponding protocol value.
+  TASK_CLEANUP_PHASE_TASK_COMPACTION = 8;
+}
+
+// TaskTerminalSummaryState is the sole Task authority after detail compaction.
+// Every *_or_zero32 field is a required raw Hash32 and never uses omission.
+// TaskTerminalSummaryState defines the TaskTerminalSummaryState wire type.
+message TaskTerminalSummaryState {
+  bytes task_id = 1;
+  bytes session_id = 2;
+  uint64 order_sequence = 3;
+  bytes task_hash = 4;
+  TaskPhase terminal_phase = 5;
+  TaskVerdict verdict = 6;
+  TaskFailureClass failure_class = 7;
+  SettlementStatus settlement_status = 8;
+  shared.v1.TaskFinalityStatusV1 finality_status = 9;
+  uint32 effective_verify_round = 10;
+  string model_id = 11;
+  uint32 profile_version = 12;
+  shared.v1.TaskType task_type = 13;
+  bytes candidate_pool_snapshot_id = 14;
+  bytes candidate_pool_hash = 15;
+  bytes assignment_candidate_set_hash = 16;
+  bool candidate_pool_ref_released = 17;
+  optional string winner_worker = 18;
+  bytes round1_selected_verifiers_hash_or_zero32 = 19;
+  bytes round2_selected_verifiers_hash_or_zero32 = 20;
+  uint64 builder_set_version = 21;
+  string builder_set_id = 22;
+  bytes builder_set_hash = 23;
+  bytes selected_task_builders_hash = 24;
+  bytes profile_execution_snapshot_hash = 25;
+  bytes generation_params_digest = 26;
+  bytes infer_receipt_ref_or_zero32 = 27;
+  uint64 generated_token_count = 28;
+  bytes settlement_id = 29;
+  uint64 settlement_facts_cutoff_height = 30;
+  uint64 settlement_height = 31;
+  uint64 task_finality_height = 32;
+  bytes settlement_facts_hash = 33;
+  bytes settlement_plan_hash = 34;
+  bytes settlement_bill_hash_or_zero32 = 35;
+  bytes task_round_summary_hash = 36;
+  bytes round1_facts_hash_or_zero32 = 37;
+  bytes round2_facts_hash_or_zero32 = 38;
+  optional shared.v1.RoundOutcomeV1 round2_outcome = 39;
+  bytes round_effect_root = 40;
+  bytes round2_funding_resolution_hash_or_zero32 = 41;
+  bytes fault_summary_hash = 42;
+  uint64 created_height = 43;
+  uint64 compacted_height = 44;
+  bytes summary_hash = 45;
+}
+
+// TaskCleanupCursorState is the single restart-safe cursor for one Task.
+message TaskCleanupCursorState {
+  bytes task_id = 1;
+  TaskCleanupPhase phase = 2;
+  bytes last_processed_key = 3;
+  uint64 visited_count = 4;
+  uint64 deleted_count = 5;
+}
+
+// TaskTerminalSummaryPruneIndex is rebuilt from retained terminal summaries.
+message TaskTerminalSummaryPruneIndex {
+  uint64 prune_height = 1;
+  bytes task_id = 2;
+}

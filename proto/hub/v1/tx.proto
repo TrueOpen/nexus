@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package hub.v1;
+
+import "hub/v1/msg_builder.proto";
+import "hub/v1/msg_governance.proto";
+import "hub/v1/msg_identity.proto";
+import "hub/v1/msg_model_profile.proto";
+import "hub/v1/msg_registry.proto";
+import "hub/v1/msg_rewards.proto";
+import "hub/v1/msg_vrf.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// Msg defines Hub-owned transactions. Task lifecycle transactions live in task.v1.Msg.
+service Msg {
+  // UpdateHubParams applies one governance Hub params version.
+  rpc UpdateHubParams(MsgUpdateHubParams) returns (MsgUpdateHubParamsResponse);
+  // ClaimEarnings is the single pull-payment entry (§9.6a). The former
+  // per-class MsgClaimServiceReward / MsgClaimBuilderReward /
+  // MsgClaimInfrastructureReward are deleted: ClaimClassV1 selects the class.
+  // ClaimEarnings executes the ClaimEarnings operation.
+  rpc ClaimEarnings(MsgClaimEarnings) returns (MsgClaimEarningsResponse);
+  // RegisterBuilder creates one Builder primary row.
+  rpc RegisterBuilder(MsgRegisterBuilder) returns (MsgRegisterBuilderResponse);
+  // SubmitBuilderEvidence moved to task.v1.Msg by ADR-0013 / §5.5: the Task
+  // module owns the BusEnvelope payload and the Task authority check and only
+  // hands the Hub fault kernel a shared objective fact. No deprecated stub, no
+  // alias and no forwarding rpc is kept here.
+
+  // RunBuilderTerm advances the due Builder term under a caller-supplied cap.
+  // Phase 0 predeclares this wire but the Node handler always returns
+  // FailedPrecondition/FEATURE_DISABLED with no writes or events.
+  // RunBuilderTerm executes the RunBuilderTerm operation.
+  rpc RunBuilderTerm(MsgRunBuilderTerm) returns (MsgRunBuilderTermResponse);
+  // RegisterVrfKey installs the validator operator's next-epoch VRF key.
+  rpc RegisterVrfKey(MsgRegisterVrfKey) returns (MsgRegisterVrfKeyResponse);
+  // RotateServiceKey replaces the current service key binding.
+  rpc RotateServiceKey(MsgRotateServiceKey) returns (MsgRotateServiceKeyResponse);
+  // RevokeServiceKey revokes the current service key binding.
+  rpc RevokeServiceKey(MsgRevokeServiceKey) returns (MsgRevokeServiceKeyResponse);
+  // UpdateServiceDescriptor publishes one bounded descriptor version.
+  rpc UpdateServiceDescriptor(MsgUpdateServiceDescriptor) returns (MsgUpdateServiceDescriptorResponse);
+  // RegisterModelProfile registers one on-chain model profile projection.
+  rpc RegisterModelProfile(MsgRegisterModelProfile) returns (MsgRegisterModelProfileResponse);
+  // SetModelStatus applies one governance model status transition.
+  rpc SetModelStatus(MsgSetModelStatus) returns (MsgSetModelStatusResponse);
+  // SetProfileStatus applies one governance profile status transition.
+  rpc SetProfileStatus(MsgSetProfileStatus) returns (MsgSetProfileStatusResponse);
+  // StakeService registers a Cortex service or tops up its bond.
+  rpc StakeService(MsgStakeService) returns (MsgStakeServiceResponse);
+  // BeginServiceUnstake opens one service unbonding entry.
+  rpc BeginServiceUnstake(MsgBeginServiceUnstake) returns (MsgBeginServiceUnstakeResponse);
+  // WithdrawServiceUnbonded withdraws matured service unbondings.
+  rpc WithdrawServiceUnbonded(MsgWithdrawServiceUnbonded) returns (MsgWithdrawServiceUnbondedResponse);
+  // DeclareModelSupport declares one operator/profile support row.
+  rpc DeclareModelSupport(MsgDeclareModelSupport) returns (MsgDeclareModelSupportResponse);
+  // BatchConfirmModelSupport refreshes support rows in one atomic batch.
+  rpc BatchConfirmModelSupport(MsgBatchConfirmModelSupport) returns (MsgBatchConfirmModelSupportResponse);
+  // SubmitFreezeSignal is the permissionless freeze-risk trigger.
+  rpc SubmitFreezeSignal(MsgSubmitFreezeSignal) returns (MsgSubmitFreezeSignalResponse);
+  // EmergencyFreezeVote records one validator ballot.
+  rpc EmergencyFreezeVote(MsgEmergencyFreezeVote) returns (MsgEmergencyFreezeVoteResponse);
+  // UpdateTimeoutBucket moved here from task.v1.Msg: keeper_data_structure_contract.md
+  // §2.4 names the Hub governance handler the only writer of parameter bucket
+  // versions, and x/task only reference-counts them.
+  // UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
+  rpc UpdateTimeoutBucket(MsgUpdateTimeoutBucket) returns (MsgUpdateTimeoutBucketResponse);
+  // RunRewardEpoch is the single bounded reward runner (§9.6a); the former
+  // MsgRunBuilderRewardEpoch and MsgRunTreasuryEpoch are deleted because
+  // reward_bucket selects the competition bucket and treasury flow is not a
+  // separate epoch runner. It may only trigger event codes 40 and 70 (§5.11); no
+  // runner-level summary event exists.
+  // RunRewardEpoch executes the RunRewardEpoch operation.
+  rpc RunRewardEpoch(MsgRunRewardEpoch) returns (MsgRunRewardEpochResponse);
+}
+
+// ExecuteTreasurySpendV1 deliberately has NO rpc here: keeper_api_contract.md §9.6c
+// registers it as an internal x/gov typed action with no signer, no Tx RPC, no
+// AutoCLI entry and no permissionless event.

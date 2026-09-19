@@ -1,0 +1,90 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/emergency_freeze.proto";
+import "hub/v1/reward.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// MsgSubmitFreezeSignal is a permissionless trigger that asks the Keeper to
+// aggregate one profile risk window into a votable object (keeper_api_contract.md
+// §9.6a / §10.0a).
+//
+// The request carries only the profile locator plus the gas payer. Every field
+// the previous wire accepted was Keeper-derived and has been removed:
+// risk_window_start_height / risk_window_end_height (derived from the single
+// next closed risk_window_id), included_failure_task_refs and evidence_digest
+// (built by the bounded cursor from TaskFailureClassByProfileWindowIndex),
+// validator_snapshot_height / validator_set_hash / total_voting_power_snapshot
+// (frozen from the staking snapshot when the signal opens) and
+// submitter_signature (the Cosmos Tx signer already authorizes the trigger and
+// there is no relay actor). EndBlock automatic risk discovery calls the same
+// enqueue function, so liveness does not depend on an external gas payer.
+// MsgSubmitFreezeSignal defines the MsgSubmitFreezeSignal wire type.
+message MsgSubmitFreezeSignal {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  string submitter_address = 3;
+}
+
+// MsgSubmitFreezeSignalResponse reports which fixed window was selected and
+// whether it produced a vote object. freeze_signal_id is absent while BUILDING
+// and when the window closes below min_freeze_signal_failure_count.
+// MsgSubmitFreezeSignalResponse defines the MsgSubmitFreezeSignalResponse wire type.
+message MsgSubmitFreezeSignalResponse {
+  FreezeSignalBuildStatus build_status = 1;
+  uint64 risk_window_id = 2;
+  optional bytes freeze_signal_id = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgEmergencyFreezeVote records one validator ballot (keeper_api_contract.md
+// §9.6a / §10.0a).
+//
+// validator_address is the validator operator account and the sole Cosmos
+// signer. validator_consensus_address, voting_power_snapshot and
+// signature_digest were removed: the first two are resolved from the frozen
+// validator snapshot through the staking keeper, and §10.0a no longer requires a
+// same-account detached signature. Same validator plus same vote is an exact
+// replay noop; same validator plus a different vote is a conflict.
+// MsgEmergencyFreezeVote defines the MsgEmergencyFreezeVote wire type.
+message MsgEmergencyFreezeVote {
+  bytes freeze_signal_id = 1;
+  EmergencyFreezeVote vote = 2;
+  string validator_address = 3;
+}
+
+// MsgEmergencyFreezeVoteResponse echoes the incrementally maintained tallies and
+// the resulting signal status. Both threshold comparisons use checked wide
+// integers.
+// MsgEmergencyFreezeVoteResponse defines the MsgEmergencyFreezeVoteResponse wire type.
+message MsgEmergencyFreezeVoteResponse {
+  uint64 accepted_voting_power = 1;
+  uint64 rejected_voting_power = 2;
+  FreezeSignalStatus signal_status = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgUpdateTimeoutBucket applies one x/gov accepted timeout bucket version
+// (keeper_api_contract.md §9.6a / §5.2). It is registered on the Hub Msg service
+// because keeper_data_structure_contract.md §2.4 makes the Hub governance handler the only
+// writer of the TimeoutBucket version and pointer rows. The
+// resulting timeout combination must cover the complete task window, so a
+// missing tail bucket cannot create a local fallback.
+// MsgUpdateTimeoutBucket defines the MsgUpdateTimeoutBucket wire type.
+message MsgUpdateTimeoutBucket {
+  TimeoutBucketUpdateV1 update = 1;
+  string authority = 2;
+}
+
+// MsgUpdateTimeoutBucketResponse returns the derived version, activation height,
+// and TRUEOPEN_PARAMETER_BUCKET_V1 commitment.
+// MsgUpdateTimeoutBucketResponse defines the MsgUpdateTimeoutBucketResponse wire type.
+message MsgUpdateTimeoutBucketResponse {
+  string bucket_key = 1;
+  uint64 new_version = 2;
+  uint64 effective_height = 3;
+  bytes bucket_hash = 4;
+  shared.v1.MutationStatusV1 status = 5;
+}

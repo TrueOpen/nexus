@@ -1,0 +1,29 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// ProfilePriceSampleV1 is the sole typed Task-to-Hub input to the transient
+// Profile reference-price sampler. Direction and counters are Hub-derived.
+// ProfilePriceSampleV1 defines the ProfilePriceSampleV1 wire type.
+message ProfilePriceSampleV1 {
+  bytes task_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 price_bid = 4;
+}
+
+// EpochTaskSummary is the bounded U1 summary emitted by Task at epoch close.
+// It is the only legacy cross-module payload still consumed by the Phase 0
+// contract. Round economics and settlement are Task-owned and use their typed
+// state, plans and receipts instead of cross-module optimistic-settlement
+// payloads.
+// EpochTaskSummary defines the EpochTaskSummary wire type.
+message EpochTaskSummary {
+  uint64 epoch = 1;
+  uint64 task_count = 2;
+  uint64 valid_task_count = 3;
+  repeated uint64 histogram = 4;
+  repeated string support_candidates = 5;
+}

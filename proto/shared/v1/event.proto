@@ -1,0 +1,298 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// This file is the single home of the public event-stream common wire of
+// ADR-0013: the one protocol event code registry plus the stream metadata shared
+// by every public event service. task.v1.TaskEventService and
+// hub.v1.HubEventService both reference these declarations, so the
+// module-split closure rule (§5.3 shared symbol manifest) makes them shared.
+// Owner packages keep their own typed payload oneofs: Hub-owned payloads,
+// locators and the chain event envelope stay in hub.v1 and Task-owned
+// payload/event messages stay in task.v1.
+//
+// Every stream envelope orders events by the total position
+// (chain_height, source_order, tx_index, event_index). source_order is derived
+// from the TaskEventSource enum number, TX(1) < FINALIZE_BLOCK(2); it is a
+// derived quantity and never a wire field, which is why a FinalizeBlock event
+// with tx_index = 0 can never collide with a Tx position. If an event at a
+// position matches a subscriber's filter it is sent before the checkpoint for
+// that position, and every service emits byte-identical cursor checkpoints for
+// the same position even when one side had no matching event.
+
+// ProtocolEventCodeV1 is the single stable public event code registry of
+// keeper_api_contract.md §5.11 for the whole protocol; §17 forbids any second event
+// code authority. Codes are sparse on purpose and are never renumbered.
+//
+// Hub-domain and Task-domain codes are both registered here, while their typed
+// payload messages stay with their owning module: Hub payloads in
+// hub/v1/event.proto and Task payloads in task/v1/event.proto.
+// keeper_api_contract.md §9.6b requires one numeric definition per closed enum, and
+// the module split forbids x/hub from importing x/task, so the shared
+// code enum lives in shared.v1 and the payload oneof is split by owner.
+// ProtocolEventCodeV1 defines the ProtocolEventCodeV1 wire type.
+enum ProtocolEventCodeV1 {
+  // Never emitted; rejects zero-value envelopes and filters.
+  // PROTOCOL_EVENT_CODE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_UNSPECIFIED = 0;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_SESSION_CREATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SESSION_CREATED = 1;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_ORDER_CANCELLED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_ORDER_CANCELLED = 2;
+  // Hub-domain payload: a new profile and its registration fee committed.
+  // PROTOCOL_EVENT_CODE_V1_MODEL_PROFILE_REGISTERED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_MODEL_PROFILE_REGISTERED = 3;
+  // Hub-domain payload: a profile status actually changed.
+  // PROTOCOL_EVENT_CODE_V1_MODEL_PROFILE_STATE_CHANGED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_MODEL_PROFILE_STATE_CHANGED = 4;
+  // Hub-domain payload: a governance bucket version first committed.
+  // PROTOCOL_EVENT_CODE_V1_PARAMETER_BUCKET_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_PARAMETER_BUCKET_UPDATED = 5;
+  // Hub-domain payload: a service bond actually changed.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_STAKE_CHANGED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_STAKE_CHANGED = 6;
+  // Hub-domain payload: a new unbonding row and its fund lock committed.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_UNBONDING_STARTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_UNBONDING_STARTED = 7;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_REVEAL_PHASE_STARTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_REVEAL_PHASE_STARTED = 8;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_TASK_FAILURE_CLASS_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TASK_FAILURE_CLASS_UPDATED = 9;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED = 10;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED = 11;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_INFER_RECEIPT_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_INFER_RECEIPT_ACCEPTED = 12;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED = 13;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_DATA_UNAVAILABLE_REPORTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_DATA_UNAVAILABLE_REPORTED = 14;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_BUILDER_DATA_UNAVAILABLE identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_DATA_UNAVAILABLE = 15;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_COMMIT_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_COMMIT_ACCEPTED = 16;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED = 17;
+  // Task-domain payload; declared in task/v1/event.proto. K-BLOCK-16: the
+  // number is frozen but nothing may emit this code until final settlement
+  // PROTOCOL_EVENT_CODE_V1_TASK_SETTLED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TASK_SETTLED = 19;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_DEADLINE_SWEPT identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_DEADLINE_SWEPT = 20;
+  // Hub-domain payload: a Phase 0 epoch closed; all incentive counters are zero.
+  // PROTOCOL_EVENT_CODE_V1_REWARD_EPOCH_CLOSED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_REWARD_EPOCH_CLOSED = 21;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED = 22;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_WORKER_TIMEOUT identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_WORKER_TIMEOUT = 23;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_VERIFY_OPEN_TIMEOUT identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_VERIFY_OPEN_TIMEOUT = 24;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_COMMIT_DEADLINE_CLOSED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_COMMIT_DEADLINE_CLOSED = 25;
+  // Task-domain payload; round 2 funding and verification state committed.
+  // PROTOCOL_EVENT_CODE_V1_CHALLENGE_ROUND_OPENED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_CHALLENGE_ROUND_OPENED = 26;
+  // Task-domain payload; one verification round and its effect plan closed.
+  // PROTOCOL_EVENT_CODE_V1_VERIFICATION_ROUND_CLOSED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_VERIFICATION_ROUND_CLOSED = 27;
+  // Task-domain payload; one post-handler reimbursement receipt committed.
+  // PROTOCOL_EVENT_CODE_V1_TASK_GAS_REIMBURSEMENT_RECORDED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TASK_GAS_REIMBURSEMENT_RECORDED = 28;
+  // Task-domain payload; one Worker output-equivocation receipt committed.
+  // PROTOCOL_EVENT_CODE_V1_WORKER_EVIDENCE_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_WORKER_EVIDENCE_ACCEPTED = 29;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_VERIFIER_HANDRAISES_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_VERIFIER_HANDRAISES_ACCEPTED = 34;
+  // Hub-domain payload: an accrual first landed in the earnings ledger.
+  // PROTOCOL_EVENT_CODE_V1_EARNINGS_ACCRUED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_EARNINGS_ACCRUED = 40;
+  // Hub-domain payload: a non-zero claim transfer committed.
+  // PROTOCOL_EVENT_CODE_V1_EARNINGS_CLAIMED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_EARNINGS_CLAIMED = 41;
+  // Hub-domain payload: a RoleFault receipt was first written.
+  // PROTOCOL_EVENT_CODE_V1_FAULT_RECORDED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_FAULT_RECORDED = 50;
+  // Hub-domain payload: an operator jail count actually increased.
+  // PROTOCOL_EVENT_CODE_V1_ROLE_JAILED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_ROLE_JAILED = 51;
+  // Hub-domain payload: fault and bond slash committed atomically.
+  // PROTOCOL_EVENT_CODE_V1_ROLE_SLASHED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_ROLE_SLASHED = 52;
+  // Hub-domain payload: an operator-global jail count decreased after a normal duty release.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_JAIL_RECOVERED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_JAIL_RECOVERED = 53;
+  // Hub-domain payload: a new BuilderSet became effective.
+  // PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED = 60;
+  // Hub-domain payload: non-zero treasury income committed.
+  // PROTOCOL_EVENT_CODE_V1_TREASURY_COLLECTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TREASURY_COLLECTED = 80;
+  // Hub-domain payload: a governance treasury spend item executed.
+  // PROTOCOL_EVENT_CODE_V1_TREASURY_ADJUSTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TREASURY_ADJUSTED = 81;
+  // Hub-domain payload: a candidate pool became the current ACTIVE snapshot.
+  // PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED = 90;
+  // Hub-domain payload: the current candidate pool expired.
+  // PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED = 91;
+  // Hub-domain payload: a retained candidate pool body or header was pruned.
+  // PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PRUNED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PRUNED = 92;
+  // Hub-domain payload: the single support row actually changed.
+  // PROTOCOL_EVENT_CODE_V1_MODEL_SUPPORT_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_MODEL_SUPPORT_UPDATED = 93;
+  // Hub-domain payload: support_active first became true.
+  // PROTOCOL_EVENT_CODE_V1_MODEL_SUPPORT_ACTIVATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_MODEL_SUPPORT_ACTIVATED = 94;
+  // Hub-domain payload: the first OPEN freeze signal was written.
+  // PROTOCOL_EVENT_CODE_V1_FREEZE_SIGNAL_SUBMITTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_FREEZE_SIGNAL_SUBMITTED = 95;
+  // Hub-domain payload: one validator ballot first committed.
+  // PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_VOTE_RECORDED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_VOTE_RECORDED = 96;
+  // Hub-domain payload: ACCEPT first reached 2/3 and froze the profile.
+  // PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_ACCEPTED = 97;
+  // Hub-domain payload: a 2/3 ACCEPT became unreachable.
+  // PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_REJECTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_EMERGENCY_FREEZE_REJECTED = 98;
+  // Hub-domain payload: a still OPEN signal moved to EXPIRED.
+  // PROTOCOL_EVENT_CODE_V1_FREEZE_SIGNAL_EXPIRED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_FREEZE_SIGNAL_EXPIRED = 99;
+  // Hub-domain payload: a model status actually changed.
+  // PROTOCOL_EVENT_CODE_V1_MODEL_STATE_CHANGED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_MODEL_STATE_CHANGED = 100;
+  // Hub-domain payload: the current key binding switched atomically.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED = 101;
+  // Hub-domain payload: the current key binding was first revoked.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_REVOKED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_REVOKED = 102;
+  // Hub-domain payload: a non-zero matured withdrawal committed.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_UNBONDING_WITHDRAWN identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_UNBONDING_WITHDRAWN = 103;
+  // Hub-domain payload: a new descriptor version and pointer committed.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_DESCRIPTOR_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_DESCRIPTOR_UPDATED = 104;
+  // Hub-domain payload: a Builder primary row first committed.
+  // PROTOCOL_EVENT_CODE_V1_BUILDER_REGISTERED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_REGISTERED = 105;
+  // Hub-domain payload: typed Builder evidence was first accepted.
+  // PROTOCOL_EVENT_CODE_V1_BUILDER_EVIDENCE_ACCEPTED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_EVIDENCE_ACCEPTED = 109;
+  // Hub-domain payload: a new Hub params version took effect.
+  // PROTOCOL_EVENT_CODE_V1_HUB_PARAMS_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_HUB_PARAMS_UPDATED = 110;
+  // Task-domain payload; declared in task/v1/event.proto.
+  // PROTOCOL_EVENT_CODE_V1_TASK_PARAMS_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_TASK_PARAMS_UPDATED = 111;
+  // Hub-domain payload: Cortex primary, current key and first stake committed.
+  // PROTOCOL_EVENT_CODE_V1_SERVICE_REGISTERED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_REGISTERED = 112;
+  // Hub-domain payload: one Profile reference price changed at block end.
+  // PROTOCOL_EVENT_CODE_V1_PROFILE_REFERENCE_PRICE_UPDATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_PROFILE_REFERENCE_PRICE_UPDATED = 113;
+  // Hub-domain payload: a guarded canonical USDC inbound mint committed.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_INBOUND_PROCESSED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_INBOUND_PROCESSED = 120;
+  // Hub-domain payload: a guarded canonical USDC outbound burn and dispatch committed.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_OUTBOUND_DISPATCHED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_OUTBOUND_DISPATCHED = 121;
+  // Hub-domain payload: bridge frozen state actually changed.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_FREEZE_CHANGED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_FREEZE_CHANGED = 122;
+  // Hub-domain payload: a local cutover began while the bridge remained frozen.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_CUTOVER_BEGUN identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_CUTOVER_BEGUN = 123;
+  // Hub-domain payload: governance confirmed the remote cutover manifest.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_CUTOVER_CONFIRMED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_CUTOVER_CONFIRMED = 124;
+  // Hub-domain payload: next-epoch bridge limits were scheduled.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_LIMITS_SCHEDULED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_LIMITS_SCHEDULED = 125;
+  // Hub-domain payload: scheduled bridge limits became active.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_LIMITS_ACTIVATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_LIMITS_ACTIVATED = 126;
+  // Hub-domain payload: one validator bridge signer rotated during cutover.
+  // PROTOCOL_EVENT_CODE_V1_BRIDGE_SIGNER_ROTATED identifies the corresponding protocol value.
+  PROTOCOL_EVENT_CODE_V1_BRIDGE_SIGNER_ROTATED = 127;
+}
+
+// StreamCheckpoint advances a subscriber cursor even when no event matches its
+// filters. It identifies the boundary after the committed global event position
+// it reports, so a subscriber can cross a range with no matching event.
+//
+// cursor is an opaque global chain-position token produced by one Node. A
+// consumer may only use it as an equality barrier and as a resume token; it must
+// never be compared lexicographically. Cross-stream ordering uses the explicit
+// (chain_height, source_order, tx_index, event_index) position instead.
+// StreamCheckpoint defines the StreamCheckpoint wire type.
+message StreamCheckpoint {
+  string cursor = 1;
+  uint64 chain_height = 2;
+}
+
+// TaskEventSource identifies the BlockResults section that emitted an event. Its
+// enum number is also the source_order component of the total event position:
+// TX(1) sorts before FINALIZE_BLOCK(2) at the same chain_height. source_order is
+// derived from this number and is never carried as a separate wire field.
+// TaskEventSource defines the TaskEventSource wire type.
+enum TaskEventSource {
+  // TASK_EVENT_SOURCE_UNSPECIFIED is never emitted.
+  TASK_EVENT_SOURCE_UNSPECIFIED = 0;
+  // TASK_EVENT_SOURCE_TX identifies an event in a successful transaction.
+  TASK_EVENT_SOURCE_TX = 1;
+  // TASK_EVENT_SOURCE_FINALIZE_BLOCK identifies a finalization event.
+  TASK_EVENT_SOURCE_FINALIZE_BLOCK = 2;
+}
+
+// EventRole identifies why an operator is a target of an event.
+enum EventRole {
+  // EVENT_ROLE_UNSPECIFIED is never accepted as a filter or emitted as a target.
+  EVENT_ROLE_UNSPECIFIED = 0;
+  // EVENT_ROLE_WORKER identifies an inference worker.
+  EVENT_ROLE_WORKER = 1;
+  // EVENT_ROLE_VERIFIER identifies a verification worker.
+  EVENT_ROLE_VERIFIER = 2;
+  // EVENT_ROLE_BUILDER identifies a task builder.
+  EVENT_ROLE_BUILDER = 3;
+  // EVENT_ROLE_USER identifies a task owner.
+  EVENT_ROLE_USER = 4;
+  // EVENT_ROLE_OPERATOR identifies a service operator without a narrower role.
+  EVENT_ROLE_OPERATOR = 5;
+  // EVENT_ROLE_VALIDATOR identifies a consensus validator.
+  EVENT_ROLE_VALIDATOR = 6;
+  // EVENT_ROLE_ACCOUNT identifies an account without a narrower known role.
+  EVENT_ROLE_ACCOUNT = 7;
+}
+
+// EventTarget identifies one intended event recipient. Targets are routing
+// metadata only and do not grant authority.
+// EventTarget defines the EventTarget wire type.
+message EventTarget {
+  EventRole role = 1;
+  string address = 2;
+}

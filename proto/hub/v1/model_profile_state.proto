@@ -1,0 +1,115 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/model_profile.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// ModelProfileStatus is the shared model and profile lifecycle status; numbers are frozen by the upstream model registry projection referenced from 9.6b.
+enum ModelProfileStatus {
+  // Never written; rejects zero-value rows.
+  // MODEL_PROFILE_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_UNSPECIFIED = 0;
+  // Registered but not yet usable for new tasks.
+  // MODEL_PROFILE_STATUS_REGISTERED identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_REGISTERED = 1;
+  // Usable for new tasks.
+  // MODEL_PROFILE_STATUS_ACTIVE identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_ACTIVE = 2;
+  // Governance frozen; unfreezing returns to REGISTERED.
+  // MODEL_PROFILE_STATUS_FROZEN identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_FROZEN = 3;
+  // Frozen by the validator emergency freeze quorum.
+  // MODEL_PROFILE_STATUS_EMERGENCY_FROZEN identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_EMERGENCY_FROZEN = 4;
+  // Terminal; never returns to a usable status.
+  // MODEL_PROFILE_STATUS_DELISTED identifies the corresponding protocol value.
+  MODEL_PROFILE_STATUS_DELISTED = 5;
+}
+
+// ModelStatusSource attributes one model status transition to its trigger.
+enum ModelStatusSource {
+  // Never written.
+  // MODEL_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
+  MODEL_STATUS_SOURCE_UNSPECIFIED = 0;
+  // Derived from the aggregate profile status.
+  // MODEL_STATUS_SOURCE_AUTO_PROFILE identifies the corresponding protocol value.
+  MODEL_STATUS_SOURCE_AUTO_PROFILE = 1;
+  // Applied by a governance transition.
+  // MODEL_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
+  MODEL_STATUS_SOURCE_GOVERNANCE = 2;
+  // Applied by the emergency freeze path.
+  // MODEL_STATUS_SOURCE_EMERGENCY identifies the corresponding protocol value.
+  MODEL_STATUS_SOURCE_EMERGENCY = 3;
+}
+
+// ProfileStatusSource attributes one profile status transition to its trigger.
+enum ProfileStatusSource {
+  // Never written.
+  // PROFILE_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
+  PROFILE_STATUS_SOURCE_UNSPECIFIED = 0;
+  // Derived from the roleless support aggregate.
+  // PROFILE_STATUS_SOURCE_AUTO_SUPPORT identifies the corresponding protocol value.
+  PROFILE_STATUS_SOURCE_AUTO_SUPPORT = 1;
+  // Applied by a governance transition.
+  // PROFILE_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
+  PROFILE_STATUS_SOURCE_GOVERNANCE = 2;
+  // Applied by the emergency freeze path.
+  // PROFILE_STATUS_SOURCE_EMERGENCY identifies the corresponding protocol value.
+  PROFILE_STATUS_SOURCE_EMERGENCY = 3;
+}
+
+// ModelState is one registered model primary row (data-structure contract 6.3).
+message ModelState {
+  string model_id = 1;
+  string proposer_address = 2;
+  ModelProfileStatus status = 3;
+  uint32 active_profile_count = 4;
+  uint32 latest_profile_version = 5;
+  ModelStatusSource status_source = 6;
+  uint64 registration_fee_paid = 7;
+  uint64 created_height = 8;
+  uint64 updated_height = 9;
+}
+
+// ProfileState is one registered model profile primary row plus its roleless support aggregate (6.3).
+message ProfileState {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  bytes manifest_hash = 3;
+  bytes tokenizer_hash = 4;
+  string runtime_class = 5;
+  uint32 required_top_k = 6;
+  repeated shared.v1.TaskType task_types = 7;
+  shared.v1.GenerationType generation_type = 8;
+  uint32 resource_tier = 9;
+  uint64 min_stake = 10;
+  uint64 challenge_open_window_blocks = 11;
+  shared.v1.VerificationProfile verification_profile = 12;
+  shared.v1.VerificationThresholds verification_thresholds = 13;
+  shared.v1.BatchVerification batch_verification = 14;
+  shared.v1.PricingProfile pricing_profile = 15;
+  shared.v1.TimeoutBootstrapProfile timeout_bootstrap_profile = 16;
+  bytes schema_hash = 17;
+  ModelProfileStatus status = 18;
+  uint64 active_support_stake = 19;
+  uint64 eligible_support_stake = 20;
+  uint32 active_supporter_count = 21;
+  ProfileStatusSource status_source = 22;
+  uint64 registration_fee_paid = 23;
+  uint32 previous_profile_version = 24;
+  string proposer_address = 25;
+  bytes registration_digest = 26;
+  uint64 created_height = 27;
+  uint64 updated_height = 28;
+  optional uint64 last_freeze_risk_window_evaluated = 29;
+  uint64 ref_price = 30;
+}
+
+// RegistrationReceipt is the minimal replay locator stored under the
+// registration digest key. The remaining receipt facts live in ProfileState.
+// RegistrationReceipt defines the RegistrationReceipt wire type.
+message RegistrationReceipt {
+  string model_id = 1;
+  uint32 profile_version = 2;
+}

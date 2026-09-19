@@ -1,0 +1,215 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+import "task/v1/commit.proto";
+import "task/v1/evidence.proto";
+import "task/v1/infer_receipt.proto";
+import "task/v1/open_verify.proto";
+import "task/v1/result.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// BatchItemResultV1 is the per-item result of a batch submission
+// (keeper_api_contract.md §9.6b). object_id only echoes the item's existing
+// authoritative business primary key, which is commit_key for both the commit and
+// the result batch; it introduces no new ID or hash semantics. Batches are
+// all-or-nothing: structural and business failures reject the whole batch, so
+// MUTATION_STATUS_V1_REJECTED does not exist. Exact replay items return NOOP.
+//
+//   batch_digest = H_FIELDS_V1("TRUEOPEN_BATCH_RESULT_V1",
+//     chain_id, batch_kind, item_count, repeated(object_id, status))
+// BatchItemResultV1 defines the BatchItemResultV1 wire type.
+message BatchItemResultV1 {
+  uint32 item_index = 1;
+  bytes object_id = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgSubmitInferReceipt accepts the selected worker's signed InferReceipt
+// (keeper_api_contract.md §9.6a, §10.3). The normal path is a Task Builder relay; if
+// the Builder is late the selected worker self-submits the same message.
+// submitter_address is the Cosmos signer and must be either this task's Task
+// Builder current service address or the winner worker's current service address;
+// it never rewrites the worker-signed receipt and never enters the receipt digest.
+//
+// Accepting the receipt freezes, in the same cache transaction, the VERIFIER
+// eligibility bitmap and the whole verifier clock
+// (h_window < h_builder_close < h_handraise_close < h_selection <
+// h_assignment_due) before beacon A is knowable.
+// MsgSubmitInferReceipt defines the MsgSubmitInferReceipt wire type.
+message MsgSubmitInferReceipt {
+  InferReceiptV2 receipt = 1;
+  string submitter_address = 2;
+}
+
+// MsgSubmitInferReceiptResponse is the receipt acknowledgement
+// (keeper_api_contract.md §9.6a).
+// MsgSubmitInferReceiptResponse defines the MsgSubmitInferReceiptResponse wire type.
+message MsgSubmitInferReceiptResponse {
+  bytes task_id = 1;
+  bytes infer_receipt_hash = 2;
+  uint64 verify_open_deadline_height = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgSubmitWorkerEvidence accepts exact strict-encoded WorkerEvidenceV1 bytes.
+// The submitter is only the transaction signer; evidence authority is derived
+// from the accepted receipt and its retained service-key responsibility.
+// MsgSubmitWorkerEvidence defines the MsgSubmitWorkerEvidence wire type.
+message MsgSubmitWorkerEvidence {
+  bytes evidence_bytes = 1;
+  string submitter_address = 2;
+}
+
+// MsgSubmitWorkerEvidenceResponse returns the compact accepted receipt identity.
+message MsgSubmitWorkerEvidenceResponse {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  bytes evidence_digest = 3;
+  bytes fault_id = 4;
+  shared.v1.MutationStatusV1 status = 5;
+}
+
+// MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
+// round (keeper_api_contract.md §4.2.1, §10.4). The Keeper maintains the authoritative
+// verifier union bitmap and only ever flips candidate bits from 0 to 1.
+//
+// submitter_address is the Cosmos signer: the Task Builder inside
+// [window READY, h_builder_close], or the winner worker as self-rescue in
+// (h_builder_close, h_handraise_close] when no Builder proposal was accepted by
+// h_builder_close. It never enters the handraise or proposal digest.
+//
+// The request carries no selected_verifiers, no selected_verifier_count, no pool
+// hash, no candidate weight, no legal-set hash, no round, no deadline and no
+// threshold: the selected set can only be derived from the frozen bitmap after
+// h_handraise_close, using the second future beacon at h_selection.
+// MsgSubmitVerifierHandraises defines the MsgSubmitVerifierHandraises wire type.
+message MsgSubmitVerifierHandraises {
+  bytes task_id = 1;
+  repeated VerifierHandraiseV1 handraises = 2;
+  string submitter_address = 3;
+}
+
+// MsgSubmitVerifierHandraisesResponse reports the committed union state
+// (keeper_api_contract.md §4.2.1). added_member_count is the number of bits flipped
+// from 0 to 1 by this proposal and is 0 for an exact replay noop.
+//
+//   proposal_digest = H_FIELDS_V1("TRUEOPEN_OPEN_VERIFY_PROPOSAL_V1",
+//     chain_id, task_id, task_hash, stage, candidate_pool_snapshot_id,
+//     candidate_pool_hash, proposer_operator_or_empty,
+//     data_ready_attestation_or_empty, handraise_count,
+//     repeated(handraise_signing_digest in slot order))
+// MsgSubmitVerifierHandraisesResponse defines the MsgSubmitVerifierHandraisesResponse wire type.
+message MsgSubmitVerifierHandraisesResponse {
+  bytes task_id = 1;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 2;
+  bytes proposal_digest = 3;
+  uint32 added_member_count = 4;
+  uint32 union_count = 5;
+}
+
+// MsgReportDataUnavailable lets a selected verifier report on chain that the fixed
+// Task Builders did not deliver a complete, commitment-checked input/output/
+// required-evidence set before the commit deadline (keeper_api_contract.md §9.6a,
+// §10.5). There is no relay path: the Cosmos Tx signer must be the current service
+// address of a selected verifier operator for this round. chain_id, the stable
+// operator and the current service binding version are derived by the Keeper, and
+// no detached signature from the same service key is accepted.
+//
+// The bitmap uses the frozen TaskBuilderSelectionState order, must be non-empty and
+// must have no trailing or out-of-range bits. HTTP errors, endpoints and local logs
+// are not accepted as fields. One canonical report per (task, round, verifier); an
+// identical repeat is a noop and the bitmap can never be rewritten.
+// MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
+message MsgReportDataUnavailable {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  bytes unavailable_task_builder_bitmap = 3;
+  string submitter_address = 4;
+}
+
+// MsgReportDataUnavailableResponse returns the canonical report digest
+// (keeper_api_contract.md §9.6a).
+// MsgReportDataUnavailableResponse defines the MsgReportDataUnavailableResponse wire type.
+message MsgReportDataUnavailableResponse {
+  bytes report_digest = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+
+// MsgSubmitVerifyCommit submits one verifier result commitment before the commit
+// deadline (keeper_api_contract.md §9.6a, §10.6). Relay is allowed: for the self-rescue
+// path the outer Cosmos signer is the same verifier operator's current Cortex
+// service address, never an operator key or a relayer key. commit_hash must be a
+// canonical Hash32; the signature is verified only on first accept.
+// MsgSubmitVerifyCommit defines the MsgSubmitVerifyCommit wire type.
+message MsgSubmitVerifyCommit {
+  VerifyCommitV1 commit = 1;
+  string submitter_address = 2;
+}
+
+// MsgSubmitVerifyCommitResponse returns the recomputed commit primary key and
+// signing digest (keeper_api_contract.md §9.6a).
+// MsgSubmitVerifyCommitResponse defines the MsgSubmitVerifyCommitResponse wire type.
+message MsgSubmitVerifyCommitResponse {
+  bytes commit_key = 1;
+  bytes verify_commit_signing_digest = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgBatchSubmitVerifyCommit submits several verifier commitments in one tx
+// (keeper_api_contract.md §9.6a, §10.6). The outer Cosmos signer is the current Builder
+// service address. Item count and encoded bytes are hard-capped, item_index must be
+// dense, business keys must be unique, and the whole batch is atomic.
+// MsgBatchSubmitVerifyCommit defines the MsgBatchSubmitVerifyCommit wire type.
+message MsgBatchSubmitVerifyCommit {
+  repeated VerifyCommitV1 commits = 1;
+  string submitter_address = 2;
+}
+
+// MsgBatchSubmitVerifyCommitResponse returns per-item results and the batch digest
+// (keeper_api_contract.md §9.6a). No free-form error strings are returned.
+// MsgBatchSubmitVerifyCommitResponse defines the MsgBatchSubmitVerifyCommitResponse wire type.
+message MsgBatchSubmitVerifyCommitResponse {
+  repeated BatchItemResultV1 results = 1;
+  bytes batch_digest = 2;
+}
+
+// MsgSubmitVerifyResult submits one verifier result credential before the reveal
+// deadline (keeper_api_contract.md §9.6a, §10.9). The credential binds the metric root,
+// the typed summary and the aggregate proof digest; it carries no full metric
+// leaves and no final verdict. For the self-rescue path the outer Cosmos signer is
+// the same verifier operator's current Cortex service address.
+// MsgSubmitVerifyResult defines the MsgSubmitVerifyResult wire type.
+message MsgSubmitVerifyResult {
+  ResultReceiptV2 receipt = 1;
+  string submitter_address = 2;
+}
+
+// MsgSubmitVerifyResultResponse returns the recomputed signing digest and result
+// commitment (keeper_api_contract.md §9.6a).
+// MsgSubmitVerifyResultResponse defines the MsgSubmitVerifyResultResponse wire type.
+message MsgSubmitVerifyResultResponse {
+  bytes result_receipt_signing_digest = 1;
+  bytes result_payload_hash = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgBatchSubmitVerifyResult submits several result credentials in one tx
+// (keeper_api_contract.md §9.6a, §10.9). Same boundaries and atomicity as the commit
+// batch; the outer Cosmos signer is the current Builder service address.
+// MsgBatchSubmitVerifyResult defines the MsgBatchSubmitVerifyResult wire type.
+message MsgBatchSubmitVerifyResult {
+  repeated ResultReceiptV2 receipts = 1;
+  string submitter_address = 2;
+}
+
+// MsgBatchSubmitVerifyResultResponse returns per-item results and the batch digest
+// (keeper_api_contract.md §9.6a).
+// MsgBatchSubmitVerifyResultResponse defines the MsgBatchSubmitVerifyResultResponse wire type.
+message MsgBatchSubmitVerifyResultResponse {
+  repeated BatchItemResultV1 results = 1;
+  bytes batch_digest = 2;
+}

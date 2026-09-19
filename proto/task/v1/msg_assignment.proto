@@ -1,0 +1,191 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "shared/v1/model_profile.proto";
+import "task/v1/assignment.proto";
+import "task/v1/open_verify.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// DeadlineLatencyClass is the only latency class set. Values are frozen by
+// keeper_api_contract.md §9.6b because they enter the user-signed task_hash through
+// TaskOrderV2.deadline_policy (§5.13 field 20).
+// DeadlineLatencyClass defines the DeadlineLatencyClass wire type.
+enum DeadlineLatencyClass {
+  // Never accepted in a signed order.
+  // DEADLINE_LATENCY_CLASS_UNSPECIFIED identifies the corresponding protocol value.
+  DEADLINE_LATENCY_CLASS_UNSPECIFIED = 0;
+  // Cheapest, longest timeout combination.
+  // DEADLINE_LATENCY_CLASS_ECONOMY identifies the corresponding protocol value.
+  DEADLINE_LATENCY_CLASS_ECONOMY = 1;
+  // Default timeout combination.
+  // DEADLINE_LATENCY_CLASS_STANDARD identifies the corresponding protocol value.
+  DEADLINE_LATENCY_CLASS_STANDARD = 2;
+  // Shortened timeout combination.
+  // DEADLINE_LATENCY_CLASS_FAST identifies the corresponding protocol value.
+  DEADLINE_LATENCY_CLASS_FAST = 3;
+  // Shortest timeout combination.
+  // DEADLINE_LATENCY_CLASS_EXPRESS identifies the corresponding protocol value.
+  DEADLINE_LATENCY_CLASS_EXPRESS = 4;
+}
+
+// DeadlinePolicyV1 carries only the protocol-allowed latency class (§5.13).
+// Keeper recomputes the concrete timeout blocks from timeout_bucket_version and
+// rejects out-of-range combinations; callers never submit absolute deadlines.
+// DeadlinePolicyV1 defines the DeadlinePolicyV1 wire type.
+message DeadlinePolicyV1 {
+  DeadlineLatencyClass latency_class = 1;
+}
+
+// DecodingParamsV1 is the frozen decoding parameter set of api_contract §5.6. SDKs
+// fill defaults explicitly before signing; stop_sequences ascend by UTF-8 bytes
+// and stop_token_ids ascend numerically. Unknown fields, floats and out-of-range
+// values are rejected.
+// DecodingParamsV1 defines the DecodingParamsV1 wire type.
+message DecodingParamsV1 {
+  bool sampling_enabled = 1;
+  uint32 temperature_milli = 2;
+  uint32 top_p_ppm = 3;
+  // 0 disables top-k.
+  uint32 top_k = 4;
+  uint64 seed = 5;
+  int32 presence_penalty_milli = 6;
+  int32 frequency_penalty_milli = 7;
+  uint32 repetition_penalty_ppm = 8;
+  repeated string stop_sequences = 9;
+  repeated uint32 stop_token_ids = 10;
+}
+
+// GenerationParamsV1 is the typed order-side generation parameter set (§5.6).
+// generation_params_digest is derived by Keeper from the canonical JSON
+// projection (TRUEOPEN_TASK_GENERATION_PARAMS_V1); callers must not submit it.
+// GenerationParamsV1 defines the GenerationParamsV1 wire type.
+message GenerationParamsV1 {
+  uint32 generation_params_schema_version = 1;
+  uint64 max_output_tokens = 2;
+  // Milliseconds.
+  uint64 max_output_duration = 3;
+  DecodingParamsV1 decoding_params = 4;
+}
+
+// TaskOrderV2 is the user-authored order (api_contract §5.13). The user signs the
+// order-domain EIP-712 digest whose taskHash commits
+// H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2). Keeper
+// derives task_id, task_hash, generation_params_digest, order_value,
+// task_builder_seed, reward bucket, resource tier and the Task Builders; none of
+// them may be submitted here.
+// TaskOrderV2 defines the TaskOrderV2 wire type.
+message TaskOrderV2 {
+  // Always 2; V1 orders are not accepted by the fresh v0.3.0 schema.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  string user_address = 3;
+  bytes session_id = 4;
+  uint64 order_sequence = 5;
+  string model_id = 6;
+  uint32 profile_version = 7;
+  shared.v1.TaskType task_type = 8;
+  bytes input_hash = 9;
+  uint64 input_size_bytes = 10;
+  uint32 input_bucket = 11;
+  uint32 output_budget_bucket = 12;
+  GenerationParamsV1 generation_params = 13;
+  shared.v1.Amount price_bid = 14;
+  shared.v1.Amount max_fee = 15;
+  shared.v1.Amount assignment_priority_fee = 16;
+  shared.v1.Amount tx_fee_reserve = 17;
+  uint64 earliest_submit_height = 18;
+  uint64 order_expire_height = 19;
+  DeadlinePolicyV1 deadline_policy = 20;
+  uint64 timeout_bucket_version = 21;
+  uint64 session_anchor_height = 22;
+  bytes session_anchor_block_hash = 23;
+  string builder_set_id = 24;
+  bytes builder_set_hash = 25;
+}
+
+// SignedOrderV2 is the upstream-locked signed order envelope (§5.13).
+// signature_scheme accepts exactly lowercase "eip712" and is not persisted on
+// Task state. user_signature is recoverable 65-byte R||S||V with V in {27,28}
+// and low-S.
+// SignedOrderV2 defines the SignedOrderV2 wire type.
+message SignedOrderV2 {
+  TaskOrderV2 order = 1;
+  string signature_scheme = 2;
+  bytes user_signature = 3;
+}
+
+// ExistingTaskRefV1 addresses an already accepted task for a follow-up proposal
+// (api_contract §4.2.1). task_hash is an immutable conflict guard and must equal the
+// authoritative task value.
+// ExistingTaskRefV1 defines the ExistingTaskRefV1 wire type.
+message ExistingTaskRefV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+}
+
+// WorkerHandraiseScopeV1 is the exactly-one proposal scope of §4.2.1. The first
+// proposal must carry signed_order; any later proposal must carry existing_task.
+// Both filled or both empty is rejected.
+// WorkerHandraiseScopeV1 defines the WorkerHandraiseScopeV1 wire type.
+message WorkerHandraiseScopeV1 {
+  // Exactly one branch must be present.
+  // scope selects one supported variant.
+  oneof scope {
+    SignedOrderV2 signed_order = 1;
+    ExistingTaskRefV1 existing_task = 2;
+  }
+}
+
+// WorkerHandraiseV1 is one Cortex-signed Worker handraise (api_contract §4.1). Its
+// `member` field uses the single module-wide CandidateMemberRefV1, declared in
+// task/v1/open_verify.proto. The
+// signing digest is H_FIELDS_V1("TRUEOPEN_WORKER_HANDRAISE_V1", all fields except
+// service_signature) in exactly this field order. service_authorization_nonce
+// must equal the operator's current service binding nonce; it is not a
+// per-message counter. Raw handraises are never persisted.
+//
+// schema_version is 1: §4.1 writes `schema_version: uint32 = 1` literally for this
+// wire. InferReceiptV2 is the only sibling receipt that uses schema version 2.
+// WorkerHandraiseV1 defines the WorkerHandraiseV1 wire type.
+message WorkerHandraiseV1 {
+  // Always 1; §4.1 pins it literally.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  string model_id = 5;
+  uint32 profile_version = 6;
+  CandidateMemberRefV1 member = 7;
+  shared.v1.Duty duty = 8;
+  uint64 service_authorization_nonce = 9;
+  uint64 expiry_height = 10;
+  bytes service_signature = 11;
+}
+
+// MsgSubmitWorkerHandraises accepts the order plus Worker handraises and ORs the
+// legal bits into the authoritative stage union (api_contract §4.2.1 / §10.1).
+// submitter_address is the Cosmos signer only: it pays gas, never enters the
+// proposal digest or any frozen candidate fact. Builder operator, BuilderSet,
+// Task Builders, pool hash, candidate weights, legal-set hash and deadlines are
+// all Keeper-derived and must not appear as request copies.
+// MsgSubmitWorkerHandraises defines the MsgSubmitWorkerHandraises wire type.
+message MsgSubmitWorkerHandraises {
+  WorkerHandraiseScopeV1 scope = 1;
+  repeated WorkerHandraiseV1 handraises = 2;
+  string submitter_address = 3;
+}
+
+// MsgSubmitWorkerHandraisesResponse reports the Keeper-derived proposal receipt
+// (§4.2.1). added_member_count is the number of 0->1 bits in this proposal and is
+// 0 for an exact replay noop; union_count is the committed authoritative count.
+// MsgSubmitWorkerHandraisesResponse defines the MsgSubmitWorkerHandraisesResponse wire type.
+message MsgSubmitWorkerHandraisesResponse {
+  bytes task_id = 1;
+  bytes proposal_digest = 2;
+  uint32 added_member_count = 3;
+  uint32 union_count = 4;
+  TaskCandidateStageStatusV1 stage_status = 5;
+}

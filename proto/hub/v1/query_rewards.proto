@@ -1,0 +1,159 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/emergency_freeze.proto";
+import "hub/v1/query_registry.proto";
+import "hub/v1/reward.proto";
+import "hub/v1/treasury.proto";
+import "shared/v1/common.proto";
+import "shared/v1/query_page.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// RewardEpochProgressViewV1 is the public projection of RewardEpochCursorState
+// (keeper_api_contract.md §16.5). The internal cursor keys
+// last_order_value_bucket / last_task_id are deliberately not exposed, and the
+// cursor is deleted on completion, so a finished epoch returns NotFound instead
+// of a fabricated total or root.
+// RewardEpochProgressViewV1 defines the RewardEpochProgressViewV1 wire type.
+message RewardEpochProgressViewV1 {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+  RewardEpochPhase phase = 3;
+  uint64 visited_count = 4;
+  uint64 applied_count = 5;
+}
+
+// ParameterBucketVersionViewV1 projects the public content of one timeout
+// bucket version (keeper_api_contract.md §16.5). It hides task_ref_count and store
+// keys, and bucket_hash is the same value ParameterBucketVersionState stores as
+// content_hash.
+// ParameterBucketVersionViewV1 defines the ParameterBucketVersionViewV1 wire type.
+message ParameterBucketVersionViewV1 {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 version = 3;
+  uint32 schema_version = 4;
+  uint64 effective_height = 5;
+  bytes bucket_hash = 6;
+  TimeoutBucketEntriesV1 timeout_entries = 7;
+  uint32 entry_count = 8;
+  uint32 encoded_size_bytes = 9;
+}
+
+// QueryCompetitionEpochRequest selects one competition bucket epoch
+// (keeper_api_contract.md §16.4); reward_bucket is checked against the allowlist.
+// QueryCompetitionEpochRequest defines the QueryCompetitionEpochRequest wire type.
+message QueryCompetitionEpochRequest {
+  RewardBucket reward_bucket = 1;
+  uint64 epoch = 2;
+}
+
+// QueryCompetitionEpochResponse returns the authoritative competition aggregate.
+message QueryCompetitionEpochResponse {
+  RewardCompetitionEpochState epoch_state = 1;
+}
+
+// QueryRewardEpochCursorRequest selects one bounded runner cursor
+// (keeper_api_contract.md §16.4).
+// QueryRewardEpochCursorRequest defines the QueryRewardEpochCursorRequest wire type.
+message QueryRewardEpochCursorRequest {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+}
+
+// QueryRewardEpochCursorResponse exposes only phase and the visited/applied
+// counts.
+// QueryRewardEpochCursorResponse defines the QueryRewardEpochCursorResponse wire type.
+message QueryRewardEpochCursorResponse {
+  RewardEpochProgressViewV1 cursor = 1;
+}
+
+// QueryRewardEpochAuditRequest selects one retained epoch audit by source epoch
+// and reward bucket.
+// QueryRewardEpochAuditRequest defines the QueryRewardEpochAuditRequest wire type.
+message QueryRewardEpochAuditRequest {
+  uint64 source_epoch = 1;
+  RewardBucket reward_bucket = 2;
+}
+
+// QueryRewardEpochAuditResponse returns the immutable root left after bounded
+// reward-body pruning.
+// QueryRewardEpochAuditResponse defines the QueryRewardEpochAuditResponse wire type.
+message QueryRewardEpochAuditResponse {
+  RewardEpochAuditState audit = 1;
+}
+
+// QueryTreasuryRequest has no selector (keeper_api_contract.md §16.4).
+message QueryTreasuryRequest {}
+
+// QueryTreasuryResponse returns the treasury row; a mismatch between the module
+// account balance and the logical sub-ledgers is Internal.
+// QueryTreasuryResponse defines the QueryTreasuryResponse wire type.
+message QueryTreasuryResponse {
+  TreasuryState treasury = 1;
+}
+
+// QueryFreezeSignalRequest selects one freeze signal (keeper_api_contract.md §16.3).
+message QueryFreezeSignalRequest {
+  bytes freeze_signal_id = 1;
+}
+
+// QueryFreezeSignalResponse returns the retained signal header; after the
+// summary retention it is NotFound.
+// QueryFreezeSignalResponse defines the QueryFreezeSignalResponse wire type.
+message QueryFreezeSignalResponse {
+  FreezeSignalState signal = 1;
+}
+
+// QueryFreezeSignalsRequest pages one profile's signals by status
+// (keeper_api_contract.md §16.3).
+// QueryFreezeSignalsRequest defines the QueryFreezeSignalsRequest wire type.
+message QueryFreezeSignalsRequest {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  FreezeSignalStatus status = 3;
+  shared.v1.QueryPageRequestV1 page = 4;
+}
+
+// QueryFreezeSignalsResponse walks only the profile index in ascending
+// (risk_window_end_height, freeze_signal_id) order.
+// QueryFreezeSignalsResponse defines the QueryFreezeSignalsResponse wire type.
+message QueryFreezeSignalsResponse {
+  repeated FreezeSignalState signals = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryEmergencyFreezeVotesRequest pages one signal's ballots
+// (keeper_api_contract.md §16.3).
+// QueryEmergencyFreezeVotesRequest defines the QueryEmergencyFreezeVotesRequest wire type.
+message QueryEmergencyFreezeVotesRequest {
+  bytes freeze_signal_id = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QueryEmergencyFreezeVotesResponse pages the primary map prefix directly in
+// ascending validator consensus address bytes order; no same-key KeySet exists.
+// QueryEmergencyFreezeVotesResponse defines the QueryEmergencyFreezeVotesResponse wire type.
+message QueryEmergencyFreezeVotesResponse {
+  repeated EmergencyFreezeVoteState votes = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryTimeoutBucketRequest reads one timeout bucket. An absent version returns
+// the current version; a present version must be greater than zero and is read
+// by exact primary key. There is no height selector.
+// QueryTimeoutBucketRequest defines the QueryTimeoutBucketRequest wire type.
+message QueryTimeoutBucketRequest {
+  string bucket_key = 1;
+  optional uint64 version = 2;
+}
+
+// QueryTimeoutBucketResponse returns the version body plus current and pending
+// metadata. bucket_kind is always TIMEOUT.
+// QueryTimeoutBucketResponse defines the QueryTimeoutBucketResponse wire type.
+message QueryTimeoutBucketResponse {
+  ParameterBucketVersionViewV1 bucket = 1;
+  uint64 current_version = 2;
+  optional uint64 pending_version = 3;
+}

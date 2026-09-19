@@ -1,0 +1,39 @@
+syntax = "proto3";
+package hub.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// VrfKeyState is the current and at-most-one pending proposer-VRF key for a
+// stable validator operator. VRF keys are independent from consensus keys.
+// VrfKeyState defines the VrfKeyState wire type.
+message VrfKeyState {
+  string operator_address = 1;
+  bytes active_vrf_pubkey = 2;
+  uint64 active_from_epoch = 3;
+  optional bytes pending_vrf_pubkey = 4;
+  optional uint64 pending_from_epoch = 5;
+  uint64 vrf_authorization_nonce = 6;
+  uint64 registered_height = 7;
+}
+
+// VrfKeyHistoryState retains one retired active key for beacon audit.
+message VrfKeyHistoryState {
+  string operator_address = 1;
+  uint64 effective_from_epoch = 2;
+  bytes vrf_pubkey = 3;
+  uint64 retired_at_epoch = 4;
+}
+
+// VrfKeyActivationIndex schedules a pending key at an epoch boundary.
+message VrfKeyActivationIndex {
+  uint64 pending_from_epoch = 1;
+  string operator_address = 2;
+}
+
+// VrfKeyPruneIndex schedules one retired key after its audit window.
+message VrfKeyPruneIndex {
+  uint64 prune_epoch = 1;
+  string operator_address = 2;
+  uint64 effective_from_epoch = 3;
+}

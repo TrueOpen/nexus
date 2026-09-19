@@ -1,0 +1,425 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// BridgeLifecycleV1 is the canonical USDC bridge lifecycle.
+enum BridgeLifecycleV1 {
+  // Unset; rejected on any read or write path.
+  // BRIDGE_LIFECYCLE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_LIFECYCLE_V1_UNSPECIFIED = 0;
+  // Normal operation: the confirmed local and EVM ISM agree.
+  // BRIDGE_LIFECYCLE_V1_ACTIVE identifies the corresponding protocol value.
+  BRIDGE_LIFECYCLE_V1_ACTIVE = 1;
+  // A cutover has begun and the bridge stays frozen until the EVM side is confirmed.
+  // BRIDGE_LIFECYCLE_V1_PENDING_EVM_CONFIRMATION identifies the corresponding protocol value.
+  BRIDGE_LIFECYCLE_V1_PENDING_EVM_CONFIRMATION = 2;
+}
+
+// BridgeBootstrapModeV1 is the irreversible first-inbound fee-bootstrap state.
+enum BridgeBootstrapModeV1 {
+  // Unset; rejected.
+  // BRIDGE_BOOTSTRAP_MODE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_BOOTSTRAP_MODE_V1_UNSPECIFIED = 0;
+  // No bootstrap is armed; every optional bootstrap field must be absent.
+  // BRIDGE_BOOTSTRAP_MODE_V1_DISABLED identifies the corresponding protocol value.
+  BRIDGE_BOOTSTRAP_MODE_V1_DISABLED = 1;
+  // One first inbound transfer may bypass the fee; all binding fields must be present.
+  // BRIDGE_BOOTSTRAP_MODE_V1_ARMED identifies the corresponding protocol value.
+  BRIDGE_BOOTSTRAP_MODE_V1_ARMED = 2;
+  // The single bootstrap transfer has been used. Terminal and irreversible.
+  // BRIDGE_BOOTSTRAP_MODE_V1_CONSUMED identifies the corresponding protocol value.
+  BRIDGE_BOOTSTRAP_MODE_V1_CONSUMED = 3;
+}
+
+// BridgeCutoverReasonV1 classifies a governance bridge cutover.
+enum BridgeCutoverReasonV1 {
+  // Unset; rejected.
+  // BRIDGE_CUTOVER_REASON_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_CUTOVER_REASON_V1_UNSPECIFIED = 0;
+  // A validator joined the set, so the signer set and threshold change.
+  // BRIDGE_CUTOVER_REASON_V1_VALIDATOR_ADD identifies the corresponding protocol value.
+  BRIDGE_CUTOVER_REASON_V1_VALIDATOR_ADD = 1;
+  // A validator left the set, so the signer set and threshold change.
+  // BRIDGE_CUTOVER_REASON_V1_VALIDATOR_REMOVE identifies the corresponding protocol value.
+  BRIDGE_CUTOVER_REASON_V1_VALIDATOR_REMOVE = 2;
+  // A planned bridge signer key rotation with the set unchanged.
+  // BRIDGE_CUTOVER_REASON_V1_KEY_ROTATION identifies the corresponding protocol value.
+  BRIDGE_CUTOVER_REASON_V1_KEY_ROTATION = 3;
+  // An emergency rotation: the previous key is treated as compromised.
+  // BRIDGE_CUTOVER_REASON_V1_KEY_COMPROMISE identifies the corresponding protocol value.
+  BRIDGE_CUTOVER_REASON_V1_KEY_COMPROMISE = 4;
+}
+
+// BridgeDirectionV1 identifies the direction of an in-flight message.
+enum BridgeDirectionV1 {
+  // Unset; rejected.
+  // BRIDGE_DIRECTION_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_DIRECTION_V1_UNSPECIFIED = 0;
+  // Origin chain to TrueOpen.
+  // BRIDGE_DIRECTION_V1_INBOUND identifies the corresponding protocol value.
+  BRIDGE_DIRECTION_V1_INBOUND = 1;
+  // TrueOpen to origin chain. Every in-flight manifest item is OUTBOUND.
+  // BRIDGE_DIRECTION_V1_OUTBOUND identifies the corresponding protocol value.
+  BRIDGE_DIRECTION_V1_OUTBOUND = 2;
+}
+
+// BridgeInflightDispositionV1 is the terminal cutover disposition.
+enum BridgeInflightDispositionV1 {
+  // Unset; rejected.
+  // BRIDGE_INFLIGHT_DISPOSITION_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_INFLIGHT_DISPOSITION_V1_UNSPECIFIED = 0;
+  // Delivered under the pre-cutover ISM. Confirm requires every item to be in this state.
+  // BRIDGE_INFLIGHT_DISPOSITION_V1_DELIVERED_OLD_ISM identifies the corresponding protocol value.
+  BRIDGE_INFLIGHT_DISPOSITION_V1_DELIVERED_OLD_ISM = 1;
+  // Re-signed and delivered under the new ISM after the cutover.
+  // BRIDGE_INFLIGHT_DISPOSITION_V1_RESIGNED_DELIVERED_NEW_ISM identifies the corresponding protocol value.
+  BRIDGE_INFLIGHT_DISPOSITION_V1_RESIGNED_DELIVERED_NEW_ISM = 2;
+}
+
+// BridgeOriginFinalitySourceV1 identifies the approved EVM finality source.
+enum BridgeOriginFinalitySourceV1 {
+  // Unset; rejected.
+  // BRIDGE_ORIGIN_FINALITY_SOURCE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BRIDGE_ORIGIN_FINALITY_SOURCE_V1_UNSPECIFIED = 0;
+  // Finality comes from the origin RPC finalized tag.
+  // BRIDGE_ORIGIN_FINALITY_SOURCE_V1_FINALIZED_RPC identifies the corresponding protocol value.
+  BRIDGE_ORIGIN_FINALITY_SOURCE_V1_FINALIZED_RPC = 1;
+  // Finality comes from a finalized checkpoint, with the depth in finality_parameter.
+  // BRIDGE_ORIGIN_FINALITY_SOURCE_V1_FINALIZED_CHECKPOINT identifies the corresponding protocol value.
+  BRIDGE_ORIGIN_FINALITY_SOURCE_V1_FINALIZED_CHECKPOINT = 2;
+}
+
+// ValidatorBridgeSignerState binds one stable validator operator to a distinct
+// 20-byte bridge signing address and its possession proof.
+// ValidatorBridgeSignerState defines the ValidatorBridgeSignerState wire type.
+message ValidatorBridgeSignerState {
+  string operator_address = 1;
+  bytes bridge_signer_address_raw20 = 2;
+  uint64 key_version = 3;
+  bytes pop_signature = 4;
+  uint64 registered_height = 5;
+}
+
+// BridgeRouteV1 is the immutable canonical USDC route.
+message BridgeRouteV1 {
+  bytes usdc_route_id = 1;
+  uint32 hyperlane_local_domain = 2;
+  uint32 origin_domain = 3;
+  bytes origin_token_address = 4;
+  bytes origin_warp_router_address = 5;
+  bytes origin_mailbox_address = 6;
+  uint32 origin_decimals = 7;
+  string business_denom = 8;
+  bytes local_mailbox_id = 9;
+  bytes local_warp_token_id = 10;
+  string local_origin_denom = 11;
+}
+
+// BridgeRouteState is the immutable persisted route singleton.
+message BridgeRouteState {
+  bytes usdc_route_id = 1;
+  uint32 hyperlane_local_domain = 2;
+  uint32 origin_domain = 3;
+  bytes origin_token_address = 4;
+  bytes origin_warp_router_address = 5;
+  bytes origin_mailbox_address = 6;
+  uint32 origin_decimals = 7;
+  string business_denom = 8;
+  bytes local_mailbox_id = 9;
+  bytes local_warp_token_id = 10;
+  string local_origin_denom = 11;
+}
+
+// BridgeSignerSetState is the local and last-confirmed EVM signer projection.
+message BridgeSignerSetState {
+  bytes local_ism_id = 1;
+  bytes local_signer_set_hash = 2;
+  bytes confirmed_evm_ism_address = 3;
+  bytes confirmed_evm_signer_set_hash = 4;
+  uint32 threshold = 5;
+  uint32 signer_count = 6;
+  uint64 updated_height = 7;
+}
+
+// BridgeControlState controls freeze and cutover lifecycle.
+message BridgeControlState {
+  BridgeLifecycleV1 lifecycle = 1;
+  bool frozen = 2;
+  bytes deployment_manifest_hash = 3;
+  uint64 updated_height = 4;
+}
+
+// BridgeCutoverState is present only while EVM confirmation is pending.
+message BridgeCutoverState {
+  uint64 proposal_id = 1;
+  bytes next_local_ism_id = 2;
+  bytes next_signer_set_hash = 3;
+  uint32 next_threshold = 4;
+  uint32 next_signer_count = 5;
+  bytes evm_ingress_pause_tx_hash = 6;
+  uint64 evm_ingress_pause_block_number = 7;
+  bytes evm_ingress_pause_block_hash = 8;
+  optional bytes last_delivered_inbound_message_id = 9;
+  uint64 freeze_height = 10;
+  optional bytes inflight_manifest_hash = 11;
+  optional uint32 inflight_message_count = 12;
+  optional bytes confirmed_evm_ism_address = 13;
+  optional bytes confirmed_evm_signer_set_hash = 14;
+  optional uint64 evm_confirmation_chain_id = 15;
+  optional uint64 evm_confirmation_block_number = 16;
+  optional bytes evm_confirmation_block_hash = 17;
+}
+
+// BridgeLimitState is the active per-epoch bridge limit singleton.
+message BridgeLimitState {
+  shared.v1.Amount bridge_limit_hard_max = 1;
+  shared.v1.Amount inbound_limit_per_epoch = 2;
+  shared.v1.Amount outbound_limit_per_epoch = 3;
+  uint64 effective_epoch = 4;
+}
+
+// BridgePendingLimitState is the at-most-one next-epoch limit update.
+message BridgePendingLimitState {
+  uint64 proposal_id = 1;
+  shared.v1.Amount inbound_limit_per_epoch = 2;
+  shared.v1.Amount outbound_limit_per_epoch = 3;
+  uint64 effective_epoch = 4;
+}
+
+// BridgeEpochUsageState accounts one reward epoch's guarded bridge volume.
+message BridgeEpochUsageState {
+  uint64 reward_epoch = 1;
+  shared.v1.Amount inbound_used = 2;
+  shared.v1.Amount outbound_used = 3;
+  bool closed = 4;
+  uint64 prune_epoch = 5;
+}
+
+// BridgeEpochUsagePruneIndex schedules a closed usage row.
+message BridgeEpochUsagePruneIndex {
+  uint64 prune_epoch = 1;
+  uint64 reward_epoch = 2;
+}
+
+// BridgeSupplyState is the local business-denom supply audit singleton.
+message BridgeSupplyState {
+  shared.v1.Amount genesis_allocated = 1;
+  shared.v1.Amount cumulative_bridge_minted = 2;
+  shared.v1.Amount cumulative_bridge_burned = 3;
+}
+
+// BridgeBootstrapState binds the optional one-time zero-supply inbound Tx.
+message BridgeBootstrapState {
+  BridgeBootstrapModeV1 mode = 1;
+  optional bytes message_id = 2;
+  optional bytes route_id = 3;
+  optional string recipient = 4;
+  shared.v1.Amount amount = 5;
+  optional string fee_payer = 6;
+  optional uint64 max_gas = 7;
+  optional uint64 consumed_height = 8;
+}
+
+// MintBondV1 is an internal x/gov validator-add action.
+message MintBondV1 {
+  uint64 proposal_id = 1;
+  string target_operator = 2;
+  bytes consensus_pubkey = 3;
+  bytes disclosure_digest = 4;
+  bytes bridge_signer_address_raw20 = 5;
+  bytes bridge_signer_pop_signature = 6;
+}
+
+// BurnBondV1 is an internal x/gov validator-remove action.
+message BurnBondV1 {
+  uint64 proposal_id = 1;
+  string target_operator = 2;
+}
+
+// RotateBridgeSignerV1 is an internal x/gov bridge-key action.
+message RotateBridgeSignerV1 {
+  uint64 proposal_id = 1;
+  string target_operator = 2;
+  uint64 expected_key_version = 3;
+  bytes next_bridge_signer_address_raw20 = 4;
+  bytes next_bridge_signer_pop_signature = 5;
+}
+
+// BeginBridgeCutoverV1 atomically starts the local half of a bridge cutover.
+message BeginBridgeCutoverV1 {
+  uint64 proposal_id = 1;
+  bytes expected_current_ism_id = 2;
+  bytes expected_current_signer_set_hash = 3;
+  repeated bytes next_signer_set = 4;
+  uint32 next_threshold = 5;
+  bytes evm_ingress_pause_tx_hash = 6;
+  uint64 evm_ingress_pause_block_number = 7;
+  bytes evm_ingress_pause_block_hash = 8;
+  optional bytes last_delivered_inbound_message_id = 9;
+  BridgeCutoverReasonV1 reason = 10;
+}
+
+// ConfirmBridgeCutoverV1 records the finalized EVM deployment and in-flight manifest.
+message ConfirmBridgeCutoverV1 {
+  uint64 proposal_id = 1;
+  uint64 cutover_proposal_id = 2;
+  bytes expected_local_ism_id = 3;
+  bytes expected_signer_set_hash = 4;
+  bytes evm_ism_address = 5;
+  bytes evm_signer_set_hash = 6;
+  uint64 evm_chain_id = 7;
+  uint64 evm_block_number = 8;
+  bytes evm_block_hash = 9;
+  bytes deployment_manifest_hash = 10;
+  bytes inflight_manifest_hash = 11;
+  uint32 inflight_message_count = 12;
+}
+
+// SetBridgeFreezeV1 is an internal x/gov freeze transition.
+message SetBridgeFreezeV1 {
+  uint64 proposal_id = 1;
+  bool frozen = 2;
+  BridgeLifecycleV1 expected_lifecycle = 3;
+}
+
+// SetBridgeLimitV1 schedules complete next-epoch inbound and outbound limits.
+message SetBridgeLimitV1 {
+  uint64 proposal_id = 1;
+  shared.v1.Amount expected_inbound_limit_per_epoch = 2;
+  shared.v1.Amount expected_outbound_limit_per_epoch = 3;
+  shared.v1.Amount next_inbound_limit_per_epoch = 4;
+  shared.v1.Amount next_outbound_limit_per_epoch = 5;
+}
+
+// BridgeInflightItemV1 is one finalized outbound cutover disposition.
+message BridgeInflightItemV1 {
+  bytes message_id = 1;
+  BridgeDirectionV1 direction = 2;
+  shared.v1.Amount amount = 3;
+  bytes origin_tx_hash = 4;
+  optional bytes destination_tx_hash = 5;
+  BridgeInflightDispositionV1 disposition = 6;
+}
+
+// BridgeAgentDeploymentV1 locates one validator bridge signing key.
+message BridgeAgentDeploymentV1 {
+  string operator_address = 1;
+  bytes bridge_signer_address_raw20 = 2;
+  string storage_location = 3;
+}
+
+// BridgeDeploymentManifestV1 is the canonical release/deployment commitment body.
+message BridgeDeploymentManifestV1 {
+  uint32 schema_version = 1;
+  BridgeRouteV1 route = 2;
+  uint64 origin_eip155_chain_id = 3;
+  string hyperlane_source_release = 4;
+  string node_cosmos_sdk_release = 5;
+  bytes local_ism_id = 6;
+  bytes evm_ism_address = 7;
+  string local_owner = 8;
+  bytes evm_owner_or_proxy_admin = 9;
+  BridgeOriginFinalitySourceV1 finality_source = 10;
+  uint64 finality_parameter = 11;
+  bytes local_signer_set_hash = 12;
+  bytes evm_signer_set_hash = 13;
+  repeated BridgeAgentDeploymentV1 agents = 14;
+  repeated string relayers = 15;
+  bytes evm_mailbox_code_hash = 16;
+  bytes evm_warp_router_code_hash = 17;
+  bytes evm_ism_code_hash = 18;
+  bytes evm_deployment_tx_hash = 19;
+  uint64 evm_deployment_block_number = 20;
+  bytes evm_deployment_block_hash = 21;
+  bytes evm_ingress_pause_controller = 22;
+  bytes evm_ingress_pause_controller_code_hash = 23;
+}
+
+// BridgeLimitGenesisV1 exports the complete active limit state.
+message BridgeLimitGenesisV1 {
+  shared.v1.Amount bridge_limit_hard_max = 1;
+  shared.v1.Amount inbound_limit_per_epoch = 2;
+  shared.v1.Amount outbound_limit_per_epoch = 3;
+  uint64 effective_epoch = 4;
+}
+
+// BridgeSupplyGenesisV1 exports the fixed allocation and cumulative deltas.
+message BridgeSupplyGenesisV1 {
+  shared.v1.Amount genesis_allocated = 1;
+  shared.v1.Amount cumulative_bridge_minted = 2;
+  shared.v1.Amount cumulative_bridge_burned = 3;
+}
+
+// BridgeBootstrapGenesisV1 exports the irreversible bootstrap state.
+message BridgeBootstrapGenesisV1 {
+  BridgeBootstrapModeV1 mode = 1;
+  optional bytes message_id = 2;
+  optional bytes route_id = 3;
+  optional string recipient = 4;
+  shared.v1.Amount amount = 5;
+  optional string fee_payer = 6;
+  optional uint64 max_gas = 7;
+  optional uint64 consumed_height = 8;
+}
+
+// BridgeEpochUsageGenesisV1 exports one retained usage row.
+message BridgeEpochUsageGenesisV1 {
+  uint64 reward_epoch = 1;
+  shared.v1.Amount inbound_used = 2;
+  shared.v1.Amount outbound_used = 3;
+  bool closed = 4;
+  optional uint64 prune_epoch = 5;
+}
+
+// BridgePendingLimitGenesisV1 exports the optional next-epoch limit.
+message BridgePendingLimitGenesisV1 {
+  uint64 proposal_id = 1;
+  shared.v1.Amount inbound_limit_per_epoch = 2;
+  shared.v1.Amount outbound_limit_per_epoch = 3;
+  uint64 effective_epoch = 4;
+}
+
+// BridgeCutoverGenesisV1 exports the optional in-progress cutover.
+message BridgeCutoverGenesisV1 {
+  uint64 proposal_id = 1;
+  bytes next_local_ism_id = 2;
+  bytes next_signer_set_hash = 3;
+  uint32 next_threshold = 4;
+  uint32 next_signer_count = 5;
+  bytes evm_ingress_pause_tx_hash = 6;
+  uint64 evm_ingress_pause_block_number = 7;
+  bytes evm_ingress_pause_block_hash = 8;
+  optional bytes last_delivered_inbound_message_id = 9;
+  uint64 freeze_height = 10;
+  optional bytes inflight_manifest_hash = 11;
+  optional uint32 inflight_message_count = 12;
+  optional bytes confirmed_evm_ism_address = 13;
+  optional bytes confirmed_evm_signer_set_hash = 14;
+  optional uint64 evm_confirmation_chain_id = 15;
+  optional uint64 evm_confirmation_block_number = 16;
+  optional bytes evm_confirmation_block_hash = 17;
+}
+
+// BridgeGenesisV1 is the required complete bridge substate of Hub genesis.
+message BridgeGenesisV1 {
+  uint32 schema_version = 1;
+  BridgeRouteV1 route = 2;
+  bytes local_ism_id = 3;
+  bytes local_signer_set_hash = 4;
+  bytes confirmed_evm_ism_address = 5;
+  bytes confirmed_evm_signer_set_hash = 6;
+  uint32 threshold = 7;
+  uint32 signer_count = 8;
+  BridgeLifecycleV1 lifecycle = 9;
+  bool frozen = 10;
+  bytes deployment_manifest_hash = 11;
+  BridgeLimitGenesisV1 limits = 12;
+  BridgeSupplyGenesisV1 supply = 13;
+  BridgeBootstrapGenesisV1 bootstrap = 14;
+  repeated BridgeEpochUsageGenesisV1 usages = 15;
+  BridgePendingLimitGenesisV1 pending_limit = 16;
+  BridgeCutoverGenesisV1 cutover = 17;
+}

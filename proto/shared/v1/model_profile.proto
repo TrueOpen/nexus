@@ -1,0 +1,172 @@
+syntax = "proto3";
+package shared.v1;
+
+import "cosmos/base/v1beta1/coin.proto";
+import "shared/v1/evidence.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// TaskType identifies a task family accepted by a profile.
+enum TaskType {
+  // TASK_TYPE_UNSPECIFIED is invalid in a registered profile.
+  TASK_TYPE_UNSPECIFIED = 0;
+  // TASK_TYPE_TEXT_GENERATION accepts text completion tasks.
+  TASK_TYPE_TEXT_GENERATION = 1;
+  // TASK_TYPE_CHAT accepts structured conversational tasks.
+  TASK_TYPE_CHAT = 2;
+  // Values 3..6 are reserved for future profile generations. Phase 0 profile
+  // admission accepts only TEXT_GENERATION and CHAT; enabling any value below
+  // requires a new Wire release and matching execution/verification contract.
+  // TASK_TYPE_EMBEDDING accepts embedding tasks.
+  TASK_TYPE_EMBEDDING = 3;
+  // TASK_TYPE_CLASSIFICATION accepts classification tasks.
+  TASK_TYPE_CLASSIFICATION = 4;
+  // TASK_TYPE_IMAGE_GENERATION accepts image generation tasks.
+  TASK_TYPE_IMAGE_GENERATION = 5;
+  // TASK_TYPE_MULTIMODAL accepts multimodal tasks.
+  TASK_TYPE_MULTIMODAL = 6;
+}
+
+// GenerationType defines whether output generation uses deterministic or sampled decoding.
+enum GenerationType {
+  // GENERATION_TYPE_UNSPECIFIED is invalid in a registered profile.
+  GENERATION_TYPE_UNSPECIFIED = 0;
+  // GENERATION_TYPE_DETERMINISTIC requires deterministic decoding.
+  GENERATION_TYPE_DETERMINISTIC = 1;
+  // GENERATION_TYPE_SAMPLED permits seed-bound sampled decoding.
+  GENERATION_TYPE_SAMPLED = 2;
+}
+
+// VerificationMode selects the profile verification aggregation mode.
+enum VerificationMode {
+  // VERIFICATION_MODE_UNSPECIFIED is invalid in a registered profile.
+  VERIFICATION_MODE_UNSPECIFIED = 0;
+  // VERIFICATION_MODE_SINGLE_SAMPLE verifies one bound sample.
+  VERIFICATION_MODE_SINGLE_SAMPLE = 1;
+  // VERIFICATION_MODE_BATCH_SAMPLES verifies an aggregate of samples.
+  VERIFICATION_MODE_BATCH_SAMPLES = 2;
+}
+
+// TokenScope defines which tokens contribute to verification metrics.
+enum TokenScope {
+  // TOKEN_SCOPE_UNSPECIFIED is invalid in a registered profile.
+  TOKEN_SCOPE_UNSPECIFIED = 0;
+  // TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS covers every generated output token.
+  TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS = 1;
+}
+
+// NumericScale defines the fixed-point encoding used by verification metrics.
+enum NumericScale {
+  // NUMERIC_SCALE_UNSPECIFIED is invalid in a registered profile.
+  NUMERIC_SCALE_UNSPECIFIED = 0;
+  // NUMERIC_SCALE_FP_1E6 stores values in fixed point with scale 1e6.
+  NUMERIC_SCALE_FP_1E6 = 1;
+}
+
+// MetricSpec selects deterministic verification metrics and their numeric scale.
+message MetricSpec {
+  bool compare_logprob_diff = 1;
+  bool compare_rank_delta = 2;
+  bool compare_topk_jaccard = 3;
+  bool compare_union_js = 4;
+  uint32 compared_top_k = 5;
+  NumericScale numeric_scale = 6;
+}
+
+// VerificationProfile freezes the evidence and judgment wire identifiers.
+message VerificationProfile {
+  uint32 verification_profile_id = 1;
+  string judgment_function_version = 2;
+  VerificationMode verification_mode = 3;
+  TokenScope token_scope = 4;
+  bool include_generated_special_tokens = 5;
+  bool include_prompt_tokens = 6;
+  bool include_padding_tokens = 7;
+  bool require_output_token_ids = 8;
+  bool require_finish_reason = 9;
+  MetricSpec metrics = 10;
+  string canonical_encoding_version = 11;
+  bytes evidence_schema_hash = 12;
+  string metric_aggregate_proof_version = 13;
+  // evidence_schema is the typed immutable descriptor committed by
+  // evidence_schema_hash. A hash-only profile is invalid in fresh V1.
+  EvidenceSchemaV1 evidence_schema = 14;
+}
+
+// VerificationThresholds freezes pass and reject boundaries for all metrics.
+message VerificationThresholds {
+  uint32 pass_min_finite_count = 1;
+  uint32 pass_max_missing_compared_count = 2;
+  uint32 pass_mean_abs_logprob_diff_max = 3;
+  uint32 pass_abs_logprob_diff_p95_max = 4;
+  uint32 pass_abs_logprob_diff_p99_max = 5;
+  uint32 pass_rank_delta_nonzero_rate_max = 6;
+  uint32 pass_topk_jaccard_mean_min = 7;
+  uint32 pass_union_js_p99_max = 8;
+  uint32 reject_mean_abs_logprob_diff_min = 9;
+  uint32 reject_abs_logprob_diff_p95_min = 10;
+  uint32 reject_abs_logprob_diff_p99_min = 11;
+  uint32 reject_rank_delta_nonzero_rate_min = 12;
+  uint32 reject_topk_jaccard_mean_max = 13;
+  uint32 reject_union_js_p99_min = 14;
+}
+
+// BatchVerification defines bounded multi-sample aggregation when enabled.
+message BatchVerification {
+  bool enabled = 1;
+  uint32 min_sample_count = 2;
+  uint32 min_valid_sample_count = 3;
+  uint32 pass_min_sample_pass_ratio_bps = 4;
+  uint32 reject_min_sample_reject_ratio_bps = 5;
+}
+
+// PricingProfile freezes the immutable inputs to Phase 0 output-token pricing.
+message PricingProfile {
+  uint64 initial_output_price = 1;
+  uint32 verify_ratio_bps = 2;
+  uint64 min_order_value = 3;
+}
+
+// TimeoutBootstrapProfile supplies bounded timeout values during profile bootstrap.
+message TimeoutBootstrapProfile {
+  uint32 infer_timeout_bootstrap_blocks = 1;
+  uint32 verify_timeout_bootstrap_blocks = 2;
+  uint32 commit_timeout_bootstrap_blocks = 3;
+  uint64 bootstrap_valid_until_epoch = 4;
+}
+
+// ModelProfileProjection is the canonical signed registration payload.
+message ModelProfileProjection {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  bytes manifest_hash = 3;
+  bytes tokenizer_hash = 4;
+  string runtime_class = 5;
+  uint32 required_top_k = 6;
+  repeated TaskType task_types = 7;
+  GenerationType generation_type = 8;
+  uint32 resource_tier = 9;
+  cosmos.base.v1beta1.Coin min_stake = 10;
+  uint64 challenge_open_window_blocks = 11;
+  VerificationProfile verification_profile = 12;
+  VerificationThresholds verification_thresholds = 13;
+  BatchVerification batch_verification = 14;
+  PricingProfile pricing_profile = 15;
+  TimeoutBootstrapProfile timeout_bootstrap_profile = 16;
+  bytes schema_hash = 17;
+  uint32 previous_profile_version = 18;
+  cosmos.base.v1beta1.Coin registration_fee = 19;
+}
+
+// ProfileExecutionSnapshot is the immutable execution subset copied into assignments.
+message ProfileExecutionSnapshot {
+  bytes manifest_hash = 1;
+  bytes tokenizer_hash = 2;
+  string runtime_class = 3;
+  uint32 required_top_k = 4;
+  GenerationType generation_type = 5;
+  VerificationProfile verification_profile = 6;
+  VerificationThresholds verification_thresholds = 7;
+  BatchVerification batch_verification = 8;
+  bytes schema_hash = 9;
+}

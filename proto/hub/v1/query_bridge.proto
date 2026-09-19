@@ -1,0 +1,100 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/bridge.proto";
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// QueryVrfKeyRequest selects the proposer-VRF key of one stable operator.
+message QueryVrfKeyRequest {
+  string operator_address = 1;
+}
+
+// QueryVrfKeyResponse returns the active key and optional next-epoch key.
+message QueryVrfKeyResponse {
+  bytes active_vrf_pubkey = 1;
+  uint64 active_from_epoch = 2;
+  optional bytes pending_vrf_pubkey = 3;
+  optional uint64 pending_from_epoch = 4;
+  uint64 vrf_authorization_nonce = 5;
+}
+
+// QueryBridgeStatusRequest has no selector.
+message QueryBridgeStatusRequest {}
+
+// QueryBridgeStatusResponse returns a same-height bridge invariant join.
+message QueryBridgeStatusResponse {
+  BridgeStatusViewV1 status = 1;
+}
+
+// QueryValidatorBridgeSignerRequest selects one validator operator.
+message QueryValidatorBridgeSignerRequest {
+  string operator_address = 1;
+}
+
+// QueryValidatorBridgeSignerResponse returns the registered bridge signer.
+message QueryValidatorBridgeSignerResponse {
+  ValidatorBridgeSignerViewV1 signer = 1;
+}
+
+// ValidatorBridgeSignerViewV1 is the public bridge signer projection.
+message ValidatorBridgeSignerViewV1 {
+  string operator_address = 1;
+  bytes bridge_signer_address_raw20 = 2;
+  uint64 key_version = 3;
+  uint64 registered_height = 4;
+}
+
+// BridgeStatusViewV1 joins TrueOpen state, upstream Hyperlane state, and bank supply.
+message BridgeStatusViewV1 {
+  bytes usdc_route_id = 1;
+  BridgeLifecycleV1 lifecycle = 2;
+  bool frozen = 3;
+  uint32 hyperlane_local_domain = 4;
+  uint32 origin_domain = 5;
+  bytes origin_token_address = 6;
+  bytes origin_warp_router_address = 7;
+  bytes origin_mailbox_address = 8;
+  uint32 origin_decimals = 9;
+  string business_denom = 10;
+  bytes local_mailbox_id = 11;
+  bytes local_warp_token_id = 12;
+  string local_origin_denom = 13;
+  bytes local_ism_id = 14;
+  bytes local_signer_set_hash = 15;
+  bytes confirmed_evm_ism_address = 16;
+  bytes confirmed_evm_signer_set_hash = 17;
+  uint32 threshold = 18;
+  uint32 signer_count = 19;
+  bytes deployment_manifest_hash = 20;
+  shared.v1.Amount active_inbound_limit_per_epoch = 21;
+  shared.v1.Amount active_outbound_limit_per_epoch = 22;
+  uint64 active_limit_effective_epoch = 23;
+  shared.v1.Amount pending_inbound_limit_per_epoch = 24;
+  shared.v1.Amount pending_outbound_limit_per_epoch = 25;
+  optional uint64 pending_limit_effective_epoch = 26;
+  uint64 current_reward_epoch = 27;
+  shared.v1.Amount current_inbound_used = 28;
+  shared.v1.Amount current_outbound_used = 29;
+  shared.v1.Amount genesis_allocated = 30;
+  shared.v1.Amount cumulative_bridge_minted = 31;
+  shared.v1.Amount cumulative_bridge_burned = 32;
+  shared.v1.Amount current_bank_supply = 33;
+  BridgeBootstrapModeV1 bootstrap_mode = 34;
+  optional bytes bootstrap_message_id = 35;
+  optional bytes bootstrap_route_id = 36;
+  optional string bootstrap_recipient = 37;
+  shared.v1.Amount bootstrap_amount = 38;
+  optional string bootstrap_fee_payer = 39;
+  optional uint64 bootstrap_max_gas = 40;
+  optional uint64 bootstrap_consumed_height = 41;
+  optional uint64 cutover_proposal_id = 42;
+  optional bytes inflight_manifest_hash = 43;
+  optional uint32 inflight_message_count = 44;
+  optional uint64 evm_confirmation_block_number = 45;
+  optional bytes evm_confirmation_block_hash = 46;
+  bool invariant_bridge_1_ok = 47;
+  bool invariant_bridge_2_ok = 48;
+  bool invariant_bridge_3_ok = 49;
+}

@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/query_page.proto";
+import "task/v1/challenge.proto";
+import "task/v1/commit.proto";
+import "task/v1/infer_receipt.proto";
+import "task/v1/open_verify.proto";
+import "task/v1/result.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// This file carries the V1 verification Query wire of keeper_api_contract.md §16.2.
+//
+// There is no settlement-build preview RPC. Settlement queries expose only a
+// committed TaskSettlementState/SettlementPlanV1 or retained facts.
+//
+// Every request/response below follows §16.1: single-object responses are exactly
+// `1=<state>`, list responses are exactly `1=repeated <item>, 2=page`, only keyset
+// pagination exists, and no RPC in this file accepts an offset or count_total.
+// RENAME NOTE: the file name is kept only because query.proto (shared lock)
+// imports it; it should become query_verification.proto during integration.
+
+// QueryInferReceiptRequest selects one task's accepted inference receipt.
+message QueryInferReceiptRequest {
+  bytes task_id = 1;
+}
+
+// QueryInferReceiptResponse returns the authoritative receipt row. After cleanup
+// required_evidence_commitments is shorter than evidence_commitment_count, which
+// means the body was pruned while the hash and count stay auditable.
+// QueryInferReceiptResponse defines the QueryInferReceiptResponse wire type.
+message QueryInferReceiptResponse {
+  InferReceiptState receipt = 1;
+}
+
+// QueryVerifierCandidateWindowRequest selects one task round's verifier window.
+message QueryVerifierCandidateWindowRequest {
+  bytes task_id = 1;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 2;
+}
+
+// QueryVerifierCandidateWindowResponse returns the authoritative header plus the
+// bounded members in dense ascending rank_index order. SOURCE_FROZEN returns
+// FailedPrecondition, READY returns exactly window_size members, PRUNED returns the
+// header with no members. The eligibility bitmap is never returned and the window is
+// never recomputed on the fly.
+// QueryVerifierCandidateWindowResponse defines the QueryVerifierCandidateWindowResponse wire type.
+message QueryVerifierCandidateWindowResponse {
+  VerifierCandidateWindowState window = 1;
+  repeated VerifierCandidateWindowMemberState members = 2;
+}
+
+// QueryVerifierAssignmentRequest selects one of the two Phase 0 rounds.
+message QueryVerifierAssignmentRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+}
+
+// QueryVerifierAssignmentResponse returns the authoritative round-1 assignment.
+message QueryVerifierAssignmentResponse {
+  VerifierAssignmentState assignment = 1;
+}
+
+// QueryVerifyCommitRequest selects one verifier's commit by canonical scope.
+message QueryVerifyCommitRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string verifier_operator_address = 3;
+}
+
+// QueryVerifyCommitResponse returns the authoritative commit row. Once the detail is
+// deleted the RPC returns NotFound; a commit is never fabricated from settlement
+// aggregates.
+// QueryVerifyCommitResponse defines the QueryVerifyCommitResponse wire type.
+message QueryVerifyCommitResponse {
+  CommitState commit = 1;
+}
+
+// QueryResultReceiptRequest selects one verifier's result credential by canonical
+// scope; the Keeper recomputes commit_key from it.
+// QueryResultReceiptRequest defines the QueryResultReceiptRequest wire type.
+message QueryResultReceiptRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string verifier_operator_address = 3;
+}
+
+// QueryResultReceiptResponse returns the authoritative (task, round, verifier)
+// credential. A settlement aggregate is never substituted for it; once the detail is
+// deleted the RPC returns NotFound.
+// QueryResultReceiptResponse defines the QueryResultReceiptResponse wire type.
+message QueryResultReceiptResponse {
+  ResultReceiptState receipt = 1;
+}
+
+// QueryDataUnavailableReportsRequest pages one (task, round) report list
+// (keeper_api_contract.md §16.2). The §16.1 pagination wire now lives in exactly one
+// place, shared/v1/query_page.proto, so this RPC can finally be declared.
+// QueryDataUnavailableReportsRequest defines the QueryDataUnavailableReportsRequest wire type.
+message QueryDataUnavailableReportsRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  shared.v1.QueryPageRequestV1 page = 3;
+}
+
+// QueryDataUnavailableReportsResponse walks the fixed verifier-slot order; after
+// terminal task compaction the RPC returns NotFound.
+// QueryDataUnavailableReportsResponse defines the QueryDataUnavailableReportsResponse wire type.
+message QueryDataUnavailableReportsResponse {
+  repeated DataUnavailableReportState reports = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryBuilderDataUnavailableRequest selects one (task, round, builder) aggregate.
+message QueryBuilderDataUnavailableRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string builder_operator_address = 3;
+}
+
+// QueryBuilderDataUnavailableResponse returns the authoritative aggregate. Caller
+// supplied counts or thresholds are never accepted. PRUNED returns an empty digest
+// vector while count and aggregate_hash are retained; after task compaction the RPC
+// returns NotFound.
+// QueryBuilderDataUnavailableResponse defines the QueryBuilderDataUnavailableResponse wire type.
+message QueryBuilderDataUnavailableResponse {
+  BuilderDataUnavailableAggregateState aggregate = 1;
+}
+
+// QuerySettlementFactsRequest selects retained immutable settlement facts.
+message QuerySettlementFactsRequest {
+  bytes task_id = 1;
+}
+
+// QuerySettlementFactsResponse returns the retained fact authority.
+message QuerySettlementFactsResponse {
+  SettlementFactsRetainedState facts = 1;
+}
+
+// QuerySettlementRequest selects the sole committed settlement of one Task.
+message QuerySettlementRequest {
+  bytes task_id = 1;
+}
+
+// QuerySettlementResponse returns state and the byte-identical reconstructed plan.
+message QuerySettlementResponse {
+  TaskSettlementState settlement = 1;
+  SettlementPlanV1 plan = 2;
+}
+
+// QueryVerificationRoundRequest selects round 1 or 2.
+message QueryVerificationRoundRequest {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+}
+
+// QueryVerificationRoundResponse returns the Task-owned round authority.
+message QueryVerificationRoundResponse {
+  VerificationRoundState round = 1;
+}
+
+// QueryTaskGasReimbursementsRequest pages the Task's reimbursement receipts.
+message QueryTaskGasReimbursementsRequest {
+  bytes task_id = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QueryTaskGasReimbursementsResponse is ordered by (tx_hash, item_index).
+message QueryTaskGasReimbursementsResponse {
+  repeated TaskGasReimbursementV1 items = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}

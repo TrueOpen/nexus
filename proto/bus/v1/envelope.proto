@@ -1,0 +1,208 @@
+syntax = "proto3";
+package bus.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
+
+// BusMessageKind is the closed business-kind set of the trueopen.* task-control
+// subjects (TrueOpen/nexus#52). Kind decides the sender permission matrix and
+// maps 1:1 to BusPayloadType; receivers reject any kind/payload_type pair that
+// is not in the frozen mapping documented on BusPayloadType.
+// BusMessageKind defines the BusMessageKind wire type.
+enum BusMessageKind {
+  // Never sent; rejects zero-value envelopes.
+  // BUS_MESSAGE_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_UNSPECIFIED = 0;
+  // Builder broadcasts the complete user-signed order exactly once.
+  // BUS_MESSAGE_KIND_ORDER_BROADCAST identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_ORDER_BROADCAST = 1;
+  // Cortex worker offers to take the inference duty.
+  // BUS_MESSAGE_KIND_WORKER_HANDRAISE identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_WORKER_HANDRAISE = 2;
+  // Builder notifies the finalized worker assignment.
+  // BUS_MESSAGE_KIND_WORKER_ASSIGNMENT_NOTIFY identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_WORKER_ASSIGNMENT_NOTIFY = 3;
+  // Winner announces the output commitment is available.
+  // BUS_MESSAGE_KIND_OUTPUT_AVAILABLE identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_OUTPUT_AVAILABLE = 4;
+  // Builder opens the verify stage with receipt metadata only.
+  // BUS_MESSAGE_KIND_OPEN_VERIFY identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_OPEN_VERIFY = 5;
+  // Cortex verifier offers to take a verify duty.
+  // BUS_MESSAGE_KIND_VERIFIER_HANDRAISE identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_VERIFIER_HANDRAISE = 6;
+  // Builder notifies the selected verifier set.
+  // BUS_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY = 7;
+  // Selected verifier delivers its signed result receipt.
+  // BUS_MESSAGE_KIND_VERIFY_RESULT identifies the corresponding protocol value.
+  BUS_MESSAGE_KIND_VERIFY_RESULT = 8;
+}
+
+// BusPayloadType names the exact protobuf message type carried in
+// BusEnvelopeV1.payload. The frozen kind -> payload_type mapping is:
+//
+//   ORDER_BROADCAST            -> ORDER_BROADCAST_V1        (bus.v1.OrderBroadcastV1)
+//   WORKER_HANDRAISE           -> WORKER_HANDRAISE_V1       (task.v1.WorkerHandraiseV1)
+//   WORKER_ASSIGNMENT_NOTIFY   -> WORKER_ASSIGNMENT_NOTIFY_V1 (bus.v1.WorkerAssignmentNotifyV1)
+//   OUTPUT_AVAILABLE           -> OUTPUT_AVAILABLE_V1       (bus.v1.OutputAvailableV1)
+//   OPEN_VERIFY                -> OPEN_VERIFY_V1            (bus.v1.OpenVerifyV1)
+//   VERIFIER_HANDRAISE         -> VERIFIER_HANDRAISE_V1     (task.v1.VerifierHandraiseV1)
+//   VERIFIER_ASSIGNMENT_NOTIFY -> VERIFIER_ASSIGNMENT_NOTIFY_V1 (bus.v1.VerifierAssignmentNotifyV1)
+//   VERIFY_RESULT              -> VERIFY_RESULT_V1          (task.v1.ResultReceiptV2)
+//
+// Chain-bound payloads reuse the frozen task.v1 messages verbatim: the
+// bytes a cortex signs and puts on the bus are the bytes the builder submits
+// on chain, with no re-declaration and no second field-number authority.
+// BusPayloadType defines the BusPayloadType wire type.
+enum BusPayloadType {
+  // Never sent; rejects zero-value envelopes.
+  // BUS_PAYLOAD_TYPE_UNSPECIFIED identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_UNSPECIFIED = 0;
+  // bus.v1.OrderBroadcastV1.
+  // BUS_PAYLOAD_TYPE_ORDER_BROADCAST_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_ORDER_BROADCAST_V1 = 1;
+  // task.v1.WorkerHandraiseV1, reused verbatim.
+  // BUS_PAYLOAD_TYPE_WORKER_HANDRAISE_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_WORKER_HANDRAISE_V1 = 2;
+  // bus.v1.WorkerAssignmentNotifyV1.
+  // BUS_PAYLOAD_TYPE_WORKER_ASSIGNMENT_NOTIFY_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_WORKER_ASSIGNMENT_NOTIFY_V1 = 3;
+  // bus.v1.OutputAvailableV1.
+  // BUS_PAYLOAD_TYPE_OUTPUT_AVAILABLE_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_OUTPUT_AVAILABLE_V1 = 4;
+  // bus.v1.OpenVerifyV1.
+  // BUS_PAYLOAD_TYPE_OPEN_VERIFY_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_OPEN_VERIFY_V1 = 5;
+  // task.v1.VerifierHandraiseV1, reused verbatim.
+  // BUS_PAYLOAD_TYPE_VERIFIER_HANDRAISE_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_VERIFIER_HANDRAISE_V1 = 6;
+  // bus.v1.VerifierAssignmentNotifyV1.
+  // BUS_PAYLOAD_TYPE_VERIFIER_ASSIGNMENT_NOTIFY_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_VERIFIER_ASSIGNMENT_NOTIFY_V1 = 7;
+  // task.v1.ResultReceiptV2, reused verbatim.
+  // BUS_PAYLOAD_TYPE_VERIFY_RESULT_V1 identifies the corresponding protocol value.
+  BUS_PAYLOAD_TYPE_VERIFY_RESULT_V1 = 8;
+}
+
+// BusEnvelopeV1 is the transport envelope of every trueopen.* task-control NATS
+// message between nexus and cortex (TrueOpen/nexus#52). It replaces the
+// trueopen-cjson-v1 JSON envelope; there is no JSON fallback and no codec probing.
+//
+// Signing projection (typed H_FIELDS_V1, direct-digest secp256k1):
+//
+//   bus_signing_digest = H_FIELDS_V1("TRUEOPEN_BUS_ENVELOPE_V2",
+//     schema_version, chain_id, subject, kind,
+//     sender_participant_type, sender_operator_address,
+//     service_authorization_nonce, message_id, nonce,
+//     issued_at_unix_ms, expires_at_unix_ms,
+//     payload_type, payload_digest)
+//
+//   service_signature = sign_digest(current service key, bus_signing_digest)
+//
+// The domain is TRUEOPEN_BUS_ENVELOPE_V2, not V1: the V1 domain already names the
+// retired 20-field cjson projection, and one domain must never cover two
+// different signed field sets (see the review notes on TrueOpen/nexus#52).
+//
+// payload (field 13) does not enter the projection directly; payload_digest
+// (field 14) is the registered H_V1("TRUEOPEN_BUS_PAYLOAD_V2", exact transmitted
+// payload bytes) commitment, so the signature transitively pins every payload
+// byte. It is deliberately NOT a bare SHA-256: canonical_encoding_and_domain_hashing.md §9.3
+// allows exactly three bare SHA-256 producers and ADR-0013 decision 2 refuses to
+// create a fourth for an opaque transport byte string. The digest only proves
+// the received bytes equal the bytes the sender first published; it does not
+// promote protobuf transport bytes to a business identity. Senders serialize the
+// payload once, persist the exact bytes, and reuse them together with message_id
+// and nonce on every retry. Receivers hash the received payload bytes before any
+// decoding and never re-marshal to recompute the digest. Receivers decode the
+// payload only after the envelope signature verifies.
+//
+// Sender authentication follows the declared-address rule: the operator
+// address is inside the signed projection, and the verifying key is the
+// on-chain current service key looked up by (sender_participant_type,
+// sender_operator_address); envelopes never carry a public key.
+//
+// Two fixed protocol constants bound every envelope (07-task_builder_coordination.md §7.3
+// and the parameter table). Neither may be overridden by validator-local or
+// service-local configuration:
+//
+//   max_bus_envelope_bytes_v1  = 1,048,576  encoded BusEnvelopeV1 bytes. The
+//     sender enforces it before signing and the receiver enforces the same
+//     constant before protobuf allocation/parsing, so no hop can accept a frame
+//     another hop would reject.
+//   max_bus_envelope_ttl_ms_v1 = 60,000     with
+//     0 < expires_at_unix_ms - issued_at_unix_ms <= 60,000. A sender may choose
+//     a shorter TTL; a receiver accepts only spans inside that closed interval.
+//     A clock-skew warning margin may be local operational configuration but
+//     must never change the accept/reject decision.
+//
+// Live receiver verification order is fixed to these eight steps
+// (07-task_builder_coordination.md lines 140-147):
+//
+//   1. envelope size / schema / field structure
+//   2. actual subject / kind / payload_type routing
+//   3. chain_id / issued_at / expires_at freshness against the fixed TTL bound
+//   4. registered H_V1 digest over the exact received payload bytes
+//   5. current service binding/status/authorization_nonce for
+//      (sender_participant_type, sender_operator_address)
+//   6. direct-digest compact low-S signature over bus_signing_digest
+//   7. durable dual-key replay StoreOnce
+//   8. only after the signature verifies: decode the typed payload, reject
+//      unknown fields, and check task / task_hash / stage / BuilderSet scope
+//
+// On-chain Builder evidence uses a different, proof-only 7-step profile
+// (keeper_api_contract.md §5.5 lines 879-890): it has no actual NATS subject and no
+// receive-time wall clock, so it never rejects an already signed objective fact
+// for being past expires_at_unix_ms, it never writes the live replay store
+// (outer canonical evidence digest/ID does the exact-replay check instead), and
+// it accepts either an ACTIVE binding or a REVOKED binding at the same
+// authorization nonce as a historical proof key - while a REVOKED key still
+// authorizes no new live envelope or transaction, and a rotation to a new
+// nonce/key fails closed.
+// BusEnvelopeV1 defines the BusEnvelopeV1 wire type.
+message BusEnvelopeV1 {
+  // Always 1 for this envelope generation.
+  uint32 schema_version = 1;
+  // Must equal the local task chain; rejects cross-chain replay.
+  string chain_id = 2;
+  // Must equal the actual NATS subject byte-for-byte. For task-scoped
+  // subjects the embedded task locator must equal the task_id recomputed
+  // from the payload.
+  string subject = 3;
+  // Business kind; fixed sender matrix and payload_type mapping.
+  BusMessageKind kind = 4;
+  // Identity domain used for the current service key lookup.
+  shared.v1.ParticipantType sender_participant_type = 5;
+  // Stable protocol identity of the sender; part of the signed projection.
+  string sender_operator_address = 6;
+  // Must equal the current service binding nonce at verification time; no
+  // historical-key fallback.
+  uint64 service_authorization_nonce = 7;
+  // UUIDv7, generated once and reused on every retry; replay key one.
+  string message_id = 8;
+  // 32-byte CSPRNG value, generated once and reused on every retry; replay
+  // key two.
+  bytes nonce = 9;
+  // Sender clock at first publication, Unix milliseconds; redelivery never
+  // refreshes it.
+  uint64 issued_at_unix_ms = 10;
+  // Application freshness bound, Unix milliseconds; live delivery rejects
+  // expired envelopes outright and requires
+  // 0 < expires_at_unix_ms - issued_at_unix_ms <= max_bus_envelope_ttl_ms_v1.
+  // It bounds live transport delivery only: the on-chain proof-only profile does
+  // not re-reject an already signed objective fact on wall clock.
+  uint64 expires_at_unix_ms = 11;
+  // Names the exact payload message type; must match kind per the frozen
+  // mapping on BusPayloadType.
+  BusPayloadType payload_type = 12;
+  // Exact protobuf bytes of the payload message; transmitted and stored
+  // verbatim, never re-marshaled by any hop.
+  bytes payload = 13;
+  // H_V1("TRUEOPEN_BUS_PAYLOAD_V2", field 13 exactly as transmitted); the
+  // payload's entry into the signed projection. Not a bare SHA-256.
+  bytes payload_digest = 14;
+  // 64-byte compact low-S R||S over bus_signing_digest; DER, 65-byte
+  // recoverable and high-S encodings are rejected.
+  bytes service_signature = 15;
+}

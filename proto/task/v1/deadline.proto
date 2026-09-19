@@ -1,0 +1,192 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// This file carries the single sweep-locator contract of keeper_api_contract.md §5.9
+// plus the MsgSweepDeadline entry registered ACTIVE by §9.6a.
+//
+// MsgSweepDeadline is the ONLY public deadline runner of V1. The abandoned
+// MsgSweepExpiredTask and MsgSessionSweep are deleted with no alias and no
+// reserved field number: every failure and expiry (session lifecycle, worker
+// assignment, inference, verify open/commit/reveal/final, settlement, finality,
+// evidence cleanup) is routed through this one Msg, and EndBlock calls the same
+// internal executor directly instead of constructing a Msg.
+//
+// ByIDV1 / BatchV1 are imported from shared/v1/common.proto because §9.6b
+// declares exactly one definition of those base types and ADR-0013 makes a
+// declaration referenced by two domains shared instead of Hub-owned.
+
+// DeadlineKindV1 selects which deadline of a primary object is being swept.
+//
+// keeper_api_contract.md §5.9 is the ONLY numeric definition of this enum in the
+// whole contract: the sweep locator, the Query projection
+// TaskStageViewV1.next_deadline_kind and §5.11 event code 20 `deadline_swept`
+// all share these numbers. The values are bound column-by-column to the locator
+// type and the same-height kind_priority of that table and are copied verbatim.
+//
+// DeadlineKindV1 defines the DeadlineKindV1 wire type.
+enum DeadlineKindV1 {
+  // Never written; rejects zero-value rows and locators.
+  // DEADLINE_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_UNSPECIFIED = 0;
+  // Optimistic finality window of one task; kind_priority 30.
+  // DEADLINE_KIND_V1_TASK_FINALITY identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_TASK_FINALITY = 1;
+  // Settlement deadline of one task; kind_priority 40.
+  // DEADLINE_KIND_V1_TASK_SETTLEMENT identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_TASK_SETTLEMENT = 2;
+  // Verification-round close deadline; kind_priority 20.
+  // DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE = 4;
+  // Verifier result reveal deadline; kind_priority 50.
+  // DEADLINE_KIND_V1_VERIFY_REVEAL identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_VERIFY_REVEAL = 5;
+  // Verifier commit deadline; kind_priority 60.
+  // DEADLINE_KIND_V1_VERIFY_COMMIT identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_VERIFY_COMMIT = 6;
+  // Open Verify handraise window deadline; kind_priority 70.
+  // DEADLINE_KIND_V1_VERIFY_OPEN identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_VERIFY_OPEN = 7;
+  // Winner worker inference deadline; kind_priority 80.
+  // DEADLINE_KIND_V1_WORKER_INFER identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_WORKER_INFER = 8;
+  // Assignment randomness expiry; kind_priority 90.
+  // DEADLINE_KIND_V1_WORKER_ASSIGNMENT identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_WORKER_ASSIGNMENT = 9;
+  // Session idle / close lifecycle sweep; kind_priority 100.
+  // DEADLINE_KIND_V1_SESSION_LIFECYCLE identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_SESSION_LIFECYCLE = 10;
+  // Final verification deadline; kind_priority 45.
+  // DEADLINE_KIND_V1_VERIFY_FINAL identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_VERIFY_FINAL = 11;
+  // Window in which the funded second verification round may be opened.
+  // DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE = 12;
+  // EvidenceCleanupIndex bounded cursor; kind_priority 110.
+  // DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
+  DEADLINE_KIND_V1_EVIDENCE_CLEANUP = 13;
+}
+
+// DeadlineTransitionCode is the closed transition reason carried by §5.11 event
+// code 20 `deadline_swept`. Numbers come from the §9.6b enum registry.
+//
+// DeadlineTransitionCode defines the DeadlineTransitionCode wire type.
+enum DeadlineTransitionCode {
+  // Never written; rejects zero-value transitions.
+  // DEADLINE_TRANSITION_CODE_UNSPECIFIED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_UNSPECIFIED = 0;
+  // StreamState moved ACTIVE -> IDLE.
+  // DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE = 1;
+  // StreamState moved IDLE -> CLOSED.
+  // DEADLINE_TRANSITION_CODE_SESSION_IDLE_TO_CLOSED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_SESSION_IDLE_TO_CLOSED = 2;
+  // Worker assignment could not be completed.
+  // DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED = 3;
+  // Winner worker missed the inference deadline.
+  // DEADLINE_TRANSITION_CODE_WORKER_TIMEOUT identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_WORKER_TIMEOUT = 4;
+  // Open Verify window closed without a usable verifier set.
+  // DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT = 5;
+  // Commit window closed and reveal started or verification failed.
+  // DEADLINE_TRANSITION_CODE_COMMIT_CLOSED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_COMMIT_CLOSED = 6;
+  // Reveal window closed.
+  // DEADLINE_TRANSITION_CODE_REVEAL_CLOSED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_REVEAL_CLOSED = 7;
+  // One verification round closed.
+  // DEADLINE_TRANSITION_CODE_VERIFY_ROUND_CLOSED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_VERIFY_ROUND_CLOSED = 8;
+  // The round-2 open window closed.
+  // DEADLINE_TRANSITION_CODE_CHALLENGE_WINDOW_CLOSED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_CHALLENGE_WINDOW_CLOSED = 9;
+  // Settlement completed through the shared deadline/settlement runner.
+  // DEADLINE_TRANSITION_CODE_SETTLEMENT_EXECUTED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_SETTLEMENT_EXECUTED = 10;
+  // Evidence cleanup advanced its bounded cursor.
+  // DEADLINE_TRANSITION_CODE_EVIDENCE_CLEANUP_ADVANCED identifies the corresponding protocol value.
+  DEADLINE_TRANSITION_CODE_EVIDENCE_CLEANUP_ADVANCED = 11;
+}
+
+// TaskDeadlineLocator selects one task-scoped deadline (§5.9).
+message TaskDeadlineLocator {
+  // task_id is the canonical 32-byte Task ID.
+  bytes task_id = 1;
+  // deadline_kind must be a TaskDeadlineLocator kind of the §5.9 table.
+  DeadlineKindV1 deadline_kind = 2;
+}
+
+// TaskRoundDeadlineLocator selects a deadline owned by one Task verification round.
+message TaskRoundDeadlineLocator {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  DeadlineKindV1 deadline_kind = 3;
+}
+
+// SessionLifecycleLocator selects the session idle/close sweep (§5.9). §5.9
+// freezes exactly this shape: a message-typed oneof reusing the §9.6b ByIDV1 /
+// BatchV1 base types. No second scalar oneof shape exists and §10.0b1 only
+// references this one.
+// SessionLifecycleLocator defines the SessionLifecycleLocator wire type.
+message SessionLifecycleLocator {
+  // Exactly one target must be set.
+  // target selects one supported variant.
+  oneof target {
+    // by_id.id is the session_id.
+    shared.v1.ByIDV1 by_id = 1;
+    // batch.max_items is bounded by the per-tx hard cap.
+    shared.v1.BatchV1 batch = 2;
+  }
+}
+
+// DeadlineLocatorV1 identifies exactly one primary object and one of its
+// deadlines (§5.9). The locator must uniquely hit one primary state and its
+// deadline: a scope mismatch is InvalidArgument, a not-yet-due deadline is
+// FailedPrecondition and an already completed transition is a noop. The deadline
+// is inclusive, so current_height >= deadline_height is executable.
+// DeadlineLocatorV1 defines the DeadlineLocatorV1 wire type.
+message DeadlineLocatorV1 {
+  // Exactly one locator must be set.
+  // locator selects one supported variant.
+  oneof locator {
+    // Task-scoped deadline.
+    TaskDeadlineLocator task = 1;
+    // Verification-round close deadline.
+    TaskRoundDeadlineLocator task_round = 2;
+    // Session lifecycle sweep.
+    SessionLifecycleLocator session_lifecycle = 4;
+  }
+}
+
+// MsgSweepDeadline is the single ACTIVE public deadline runner (§9.6a,
+// BOUNDED_RUNNER). It replaces the deleted MsgSweepExpiredTask and
+// MsgSessionSweep. The public Msg and EndBlock share one internal executor and
+// one same-height order (deadline_height, kind_priority, primary_id). The public
+// runner pays its own gas; there is no automatic reimbursement unless the
+// parameter table registers one.
+// MsgSweepDeadline defines the MsgSweepDeadline wire type.
+message MsgSweepDeadline {
+  // locator selects exactly one primary object and deadline (§5.9).
+  DeadlineLocatorV1 locator = 1;
+  // submitter_address is the Cosmos signer only; it never enters the locator
+  // digest, business facts, hashes or Store.
+  string submitter_address = 2;
+}
+
+// MsgSweepDeadlineResponse reports this invocation's bounded work (§9.6a). It
+// counts visited work, not successful mutations, and never pretends to be a
+// first-time receipt.
+// MsgSweepDeadlineResponse defines the MsgSweepDeadlineResponse wire type.
+message MsgSweepDeadlineResponse {
+  // visited is the number of items this call examined.
+  uint32 visited = 1;
+  // advanced is the number of items whose state actually moved.
+  uint32 advanced = 2;
+  // status is APPLIED or NOOP; rejects use gRPC errors.
+  shared.v1.MutationStatusV1 status = 3;
+}

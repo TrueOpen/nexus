@@ -1,0 +1,213 @@
+syntax = "proto3";
+package task.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// keeper_api_contract.md §5.5 (lines 813-814) fixes this file as the only home of
+// BuilderEvidenceV2 and its Msg wrapper, and makes the public Msg
+// task.v1.Msg: the Task module owns the payload and the Task authority, so
+// it verifies the evidence and then calls the Hub fault kernel with a shared
+// fact. The Hub never reads the Task Store in the other direction.
+//
+// Import boundary (ADR-0013 decision 6 and its rejected-alternatives section):
+// this file must not import bus/v1/*. Embedding the generated
+// bus.v1.BusEnvelopeV1 was explicitly rejected because the Bus generated
+// package already carries payload types that reference task.v1 messages,
+// which would form a Task -> Bus -> Task import cycle in the Node Go packages.
+// The evidence wire therefore carries exact serialized envelope bytes and a
+// strict decoder/verifier with no generated-code dependency resolves them
+// against a pinned descriptor. It must not import hub/v1/* either: §5.3 of
+// the module-split design forbids any direct or indirect task.v1 ->
+// hub.v1 proto import.
+//
+// Size bounds are fixed protocol constants, not validator-local configuration
+// (§5.5 lines 879-881):
+//   each envelope bytes field  <= max_bus_envelope_bytes_v1     = 1,048,576
+//   encoded BuilderEvidenceV2  <= max_builder_evidence_bytes_v2 = 2,100,000
+// and the transaction still has to fit the chain max_tx_bytes. Both bounds are
+// checked before allocation, decoding is strict, and unknown fields, duplicate
+// singular fields and wrong wire types are rejected.
+//
+// Evidence identity (§5.5 lines 905-913, 970-982): the raw ECDSA signature is
+// proof only. It never enters canonical_evidence_digest, the ordering of the
+// equivocation pair, evidence_id or fault_id, so two distinct valid low-S
+// signatures over the same bus_signing_digest must derive one and the same
+// evidence identity. The
+// three registered domains are TRUEOPEN_BUILDER_EVIDENCE_CONTENT_V2,
+// TRUEOPEN_BUILDER_EVIDENCE_ID_V2 and TRUEOPEN_BUILDER_FAULT_V2; their byte-exact
+// preimages live only in keeper_api_contract.md §5.5 and are not copied here, because
+// a second copy of a consensus formula is a second authority.
+//
+// Hash32 values are declared as raw 32-byte `bytes`; this repo has no Hash32
+// message type.
+
+// BuilderProtocolViolation is the closed invalid-stage violation registry whose
+// numbers keeper_api_contract.md §9.6b (lines 1804-1805) freezes as UNSPECIFIED=0 /
+// WRONG_TASK_SCOPE=1 / WRONG_STAGE=2 / WRONG_BUILDER_SET=3 /
+// NON_CANONICAL_BITMAP=4 / BIT_CLEAR_ATTEMPT=5 /
+// CONFLICTING_ACCEPTED_MATERIAL=6. Only values 1 and 2 are ACTIVE in V1.
+// Values 3-6 retain their numbers but are non-active and fail closed until a
+// future typed evidence schema freezes their complete authority facts.
+// Evidence never accepts an implementation-defined reason or stage string.
+//
+// OWNERSHIP: the enum used to be declared in hub.v1 next to the retired
+// SignedEnvelopeProtocolFaultV1. Its only remaining reference is field 2 of
+// SignedEnvelopeProtocolFaultV2 below, and task.v1 may not import
+// hub.v1, so the declaration moves here rather than into shared.v1:
+// the ADR-0013 closure rule sends a declaration to shared because two domains
+// reference it, and the Hub fault kernel never sees a violation value. The Hub
+// receives only shared.v1.BuilderObjectiveEvidenceFactV2, which carries the
+// recomputed canonical_evidence_digest and no violation field. The numbers are
+// unchanged; only the protobuf FQN moved, and no alias is kept in hub.v1.
+// The violation value enters the content digest as enum_u32_be, so this must
+// stay the single numeric definition repo-wide.
+// BuilderProtocolViolation defines the BuilderProtocolViolation wire type.
+enum BuilderProtocolViolation {
+  // Never accepted as a protocol violation.
+  // BUILDER_PROTOCOL_VIOLATION_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_UNSPECIFIED = 0;
+  // Envelope identifies a task outside the signed duty scope.
+  // BUILDER_PROTOCOL_VIOLATION_WRONG_TASK_SCOPE identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_WRONG_TASK_SCOPE = 1;
+  // Envelope kind and declared task stage disagree.
+  // BUILDER_PROTOCOL_VIOLATION_WRONG_STAGE identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_WRONG_STAGE = 2;
+  // NON-ACTIVE in V1. Envelope references a BuilderSet other than the task's
+  // frozen set.
+  // BUILDER_PROTOCOL_VIOLATION_WRONG_BUILDER_SET identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_WRONG_BUILDER_SET = 3;
+  // NON-ACTIVE in V1. Envelope carries a bitmap outside its unique canonical
+  // encoding.
+  // BUILDER_PROTOCOL_VIOLATION_NON_CANONICAL_BITMAP identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_NON_CANONICAL_BITMAP = 4;
+  // NON-ACTIVE in V1. Envelope attempts to clear an already accepted monotonic
+  // bit.
+  // BUILDER_PROTOCOL_VIOLATION_BIT_CLEAR_ATTEMPT identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_BIT_CLEAR_ATTEMPT = 5;
+  // NON-ACTIVE in V1. Envelope conflicts with immutable material already
+  // accepted for its key.
+  // BUILDER_PROTOCOL_VIOLATION_CONFLICTING_ACCEPTED_MATERIAL identifies the corresponding protocol value.
+  BUILDER_PROTOCOL_VIOLATION_CONFLICTING_ACCEPTED_MATERIAL = 6;
+}
+
+// SignedEnvelopeEquivocationV2 carries the two conflicting BusEnvelope frames of
+// one protocol scope as exact serialized bytes (§5.5 lines 822, 827-829).
+//
+// Both frames must share chain_id, subject, kind, sender operator, service
+// authorization nonce, message_id, payload_type and expiry and must derive the
+// same payload-based action scope, must both verify under the proof-only
+// profile, must have different bus_signing_digest values, and must collide on
+// the (message_id, nonce) dual replay key (§5.5 lines 900-902).
+//
+// Canonical selected fields for the content digest are
+// (lower_bus_signing_digest, higher_bus_signing_digest): the two raw32 digests
+// sorted lexicographically ascending by bytes, so swapping the submission order
+// of the two envelopes cannot produce a second evidence identity.
+// SignedEnvelopeEquivocationV2 defines the SignedEnvelopeEquivocationV2 wire type.
+message SignedEnvelopeEquivocationV2 {
+  // Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes;
+  // never re-marshaled and never decoded into a Task-local envelope struct.
+  bytes envelope_a = 1;
+  // Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes.
+  bytes envelope_b = 2;
+}
+
+// SignedEnvelopeProtocolFaultV2 binds one exact serialized BusEnvelope frame to
+// one closed violation (§5.5 lines 823, 831-833). The envelope must verify, its
+// action scope must be recomputable from the typed payload plus Task/BuilderSet
+// state, and it must land on exactly one closed violation value; malformed,
+// unknown-kind and unattributable material is rejected rather than downgraded
+// (§5.5 lines 902-903, 1052-1053).
+//
+// Canonical selected fields for the content digest are
+// (bus_signing_digest, violation as enum_u32_be).
+// SignedEnvelopeProtocolFaultV2 defines the SignedEnvelopeProtocolFaultV2 wire type.
+message SignedEnvelopeProtocolFaultV2 {
+  // Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes.
+  bytes envelope = 1;
+  // Closed violation the verified envelope provably hits.
+  BuilderProtocolViolation violation = 2;
+}
+
+// DataUnavailableStateReferenceV1 locates one already CONFIRMED Task-owned
+// round-1 data-unavailable aggregate for a Builder that made the actual
+// data-ready attestation (§5.5). Worker self-rescue and challenge-round
+// aggregates never produce this evidence branch. It submits stable primary keys
+// only: the deadline, accepted version, report hash, counts, threshold and
+// verdict are loaded and recomputed by the Keeper, never carried here.
+//
+// Canonical selected fields for the content digest are
+// (task_id, verify_round, builder_operator).
+// DataUnavailableStateReferenceV1 defines the DataUnavailableStateReferenceV1 wire type.
+message DataUnavailableStateReferenceV1 {
+  // Charged task, raw32; also the scope_id of the derived fact.
+  bytes task_id = 1;
+  // Must be 1. Zero is invalid/unspecified and any other round fails closed
+  // without producing a Builder fault.
+  uint32 verify_round = 2;
+  // Stable Builder operator charged by the aggregate; never a service address.
+  string builder_operator = 3;
+}
+
+// BuilderEvidenceV2 is the only accepted public Builder objective-evidence wire
+// of fresh genesis (§5.5 lines 811-839). Free-text reasons, arbitrary
+// evidence_hash values and "a proposal was rejected" never form a fault.
+//
+// The ACTIVE oneof is the closed set of tags 2, 3 and 5 (§5.5 lines 1050-1053),
+// and each branch maps to exactly one shared.v1.BuilderEvidenceKind
+// (§5.5 lines 965-967):
+//   tag 2 equivocation             -> BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION      (1)
+//   tag 3 invalid_stage_submission -> BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION    (2)
+//   tag 5 data_unavailable         -> BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE  (4)
+// Tags 2 and 3 are checked by the proof-only profile of §5.5 (lines 879-890)
+// plus the Task authority state; tag 5 accepts only an already CONFIRMED round-1
+// aggregate for an actual data-ready attesting Builder. A handler must not write
+// a BuilderFault merely because the oneof structure is present.
+//
+// Field number 4 is permanently reserved (§5.5 lines 820 and 967-968). It used
+// to be the missed-duty branch, and BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY (3) is now
+// kept exclusively for an internal fault the Keeper may in future derive from an
+// authoritative duty receipt. This Msg accepts no missed-duty branch, the old
+// tag 4 is never reused, and any future public missed-duty wire must use a new
+// schema and a new tag.
+//
+// scope_id of the derived fact is the existing authoritative primary key of the
+// charged fact, which is task_id for all three branches; evidence introduces no
+// new hash semantics (§5.5 lines 1046-1048).
+// BuilderEvidenceV2 defines the BuilderEvidenceV2 wire type.
+message BuilderEvidenceV2 {
+  // Always 2 for this evidence generation.
+  uint32 schema_version = 1;
+  // Retired missed-duty branch; never reused on the public wire.
+  reserved 4;
+  // Exactly one typed evidence branch must be present; the branch selects the
+  // evidence kind and the canonical selected fields of the content digest.
+  oneof evidence {
+    // Two conflicting signed envelopes for one scope.
+    SignedEnvelopeEquivocationV2 equivocation = 2;
+    // One signed envelope that provably violates its stage contract.
+    SignedEnvelopeProtocolFaultV2 invalid_stage_submission = 3;
+    // One CONFIRMED data-unavailable aggregate reference.
+    DataUnavailableStateReferenceV1 data_unavailable = 5;
+  }
+}
+
+// MsgSubmitBuilderEvidence is the permissionless Builder objective-evidence
+// entry owned by task.v1.Msg. evidence_bytes preserves the exact serialized
+// BuilderEvidenceV2 so the Wire strict decoder can reject unknown fields,
+// duplicate singular/oneof fields and wrong wire types before gogo decoding can
+// discard or collapse them. submitter_address is the only Cosmos signer and
+// never enters any digest; anyone may submit. The Msg must not carry
+// Keeper-derived BPS, thresholds, deadlines or counts.
+//
+// The RPC returns shared.v1.BuilderObjectiveEvidenceReceiptV2 directly
+// (§5.5 line 960): there is deliberately no MsgSubmitBuilderEvidenceResponse
+// wrapper, because a per-module wrapper would be a second copy of the shared
+// receipt shape. evidence_id is the idempotency key: exact replay is a NOOP and
+// the same key with different evidence is a conflict.
+// MsgSubmitBuilderEvidence defines the MsgSubmitBuilderEvidence wire type.
+message MsgSubmitBuilderEvidence {
+  bytes evidence_bytes = 1;
+  string submitter_address = 2;
+}

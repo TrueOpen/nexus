@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/evidence_responsibility.proto";
+import "task/v1/builder_evidence.proto";
+import "task/v1/deadline.proto";
+import "task/v1/msg_assignment.proto";
+import "task/v1/msg_challenge.proto";
+import "task/v1/msg_session.proto";
+import "task/v1/msg_settlement.proto";
+import "task/v1/msg_verification.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// Msg defines Task-owned session, execution, verification and settlement
+// transactions. Every rpc below is registered ACTIVE by keeper_api_contract.md §9.6a
+// and its request carries exactly one explicit canonical Address field bound by
+// option (cosmos.msg.v1.signer).
+// Msg defines the Msg wire type.
+service Msg {
+  // UpdateTaskParams applies one governance Task params version.
+  rpc UpdateTaskParams(MsgUpdateTaskParams) returns (MsgUpdateTaskParamsResponse);
+  // CreateSession derives one new session from the signer's SessionNonce.
+  rpc CreateSession(MsgCreateSession) returns (MsgCreateSessionResponse);
+  // CancelOrder skips one unused order sequence.
+  rpc CancelOrder(MsgCancelOrder) returns (MsgCancelOrderResponse);
+  // SubmitWorkerHandraises is the single Task admission and Worker candidate
+  // entry; it replaces the deleted MsgAssign.
+  // SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
+  rpc SubmitWorkerHandraises(MsgSubmitWorkerHandraises) returns (MsgSubmitWorkerHandraisesResponse);
+  // SubmitInferReceipt accepts the winner Worker's inference receipt; it
+  // replaces the deleted MsgInferReceiptCommitOnly.
+  // SubmitInferReceipt executes the SubmitInferReceipt operation.
+  rpc SubmitInferReceipt(MsgSubmitInferReceipt) returns (MsgSubmitInferReceiptResponse);
+  // SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
+  rpc SubmitWorkerEvidence(MsgSubmitWorkerEvidence) returns (MsgSubmitWorkerEvidenceResponse);
+  // SubmitVerifierHandraises is the single Open Verify entry; it replaces the
+  // deleted MsgOpenVerify.
+  // SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
+  rpc SubmitVerifierHandraises(MsgSubmitVerifierHandraises) returns (MsgSubmitVerifierHandraisesResponse);
+  // ReportDataUnavailable records one selected Verifier's data-availability report.
+  rpc ReportDataUnavailable(MsgReportDataUnavailable) returns (MsgReportDataUnavailableResponse);
+  // SubmitBuilderEvidence accepts one closed typed objective Builder proof.
+  // ADR-0013 moved it here from hub.v1.Msg: the Task module owns the
+  // envelope payload and the Task authority, and it returns the shared receipt
+  // directly instead of a module-local Response wrapper (§5.5, §9.4).
+  // SubmitBuilderEvidence executes the SubmitBuilderEvidence operation.
+  rpc SubmitBuilderEvidence(MsgSubmitBuilderEvidence) returns (shared.v1.BuilderObjectiveEvidenceReceiptV2);
+  // SubmitVerifyCommit replaces the deleted MsgCommit.
+  rpc SubmitVerifyCommit(MsgSubmitVerifyCommit) returns (MsgSubmitVerifyCommitResponse);
+  // BatchSubmitVerifyCommit replaces the deleted MsgBatchCommit.
+  rpc BatchSubmitVerifyCommit(MsgBatchSubmitVerifyCommit) returns (MsgBatchSubmitVerifyCommitResponse);
+  // SubmitVerifyResult replaces the deleted MsgResult.
+  rpc SubmitVerifyResult(MsgSubmitVerifyResult) returns (MsgSubmitVerifyResultResponse);
+  // BatchSubmitVerifyResult replaces the deleted MsgBatchResult.
+  rpc BatchSubmitVerifyResult(MsgBatchSubmitVerifyResult) returns (MsgBatchSubmitVerifyResultResponse);
+  // OpenChallengeRound opens the fixed funded verification round 2.
+  rpc OpenChallengeRound(MsgOpenChallengeRound) returns (MsgOpenChallengeRoundResponse);
+  // SettleTask derives and atomically applies the sole Phase 0 settlement plan.
+  rpc SettleTask(MsgSettleTask) returns (MsgSettleTaskResponse);
+  // SweepDeadline is the single bounded deadline runner; it replaces the deleted
+  // MsgSweepExpiredTask and MsgSessionSweep (§5.9/§9.6a).
+  // SweepDeadline executes the SweepDeadline operation.
+  rpc SweepDeadline(MsgSweepDeadline) returns (MsgSweepDeadlineResponse);
+}
+
+// Removed development messages have no alias or compatibility decoder in the
+// fresh v0.3.0 schema:
+//   MsgSessionSweep, MsgSweepExpiredTask   -> MsgSweepDeadline (§5.9)
+//   MsgAssign                              -> MsgSubmitWorkerHandraises (§10.1)
+//   MsgOpenVerify                          -> MsgSubmitVerifierHandraises (§10.4)
+//   MsgInferReceiptCommitOnly              -> MsgSubmitInferReceipt (§10.3)
+//   MsgSettle                              -> MsgSettleTask (§10.10a)
+//   MsgCommit / MsgBatchCommit             -> MsgSubmitVerifyCommit / batch
+//   MsgResult / MsgBatchResult             -> MsgSubmitVerifyResult / batch
+//   MsgWorkerReveal                        -> deleted; §9.6a registers no
+//                                             separate worker reveal Msg
+//   MsgUserChallenge, MsgChallengeCommit, MsgChallengeResult,
+//   MsgSubmitChallengeFullResultReveal     -> replaced by the round-2 protocol;
+//                                             proof/opening messages remain absent
+//   MsgUpdateTimeoutBucket                 -> moved to hub.v1.Msg, whose
+//                                             governance handler is the only
+//                                             parameter bucket writer (§2.4)

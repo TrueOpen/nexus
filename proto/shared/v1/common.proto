@@ -1,0 +1,158 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// This file is the single home of the cross-domain common values of ADR-0013.
+// Every declaration below is referenced by more than one domain or transport, so
+// the closure rule of the module-split design (§5.3 shared symbol manifest) puts
+// it in shared.v1 instead of the package that used to hold the file it came
+// from. The enum numbers, message field numbers and business meanings are the
+// ones frozen by keeper_api_contract.md §9.6b; the migration only changed the
+// protobuf FQN, the generated symbol and the import path. No alias, duplicate
+// enum or compatibility shim is kept in hub.v1.
+
+// MutationStatusV1 is the accepted-mutation outcome of every ACTIVE Msg response; only APPLIED and NOOP may be returned and a reject uses a gRPC error instead (9.6a/9.6b).
+enum MutationStatusV1 {
+  // Never returned.
+  // MUTATION_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  MUTATION_STATUS_V1_UNSPECIFIED = 0;
+  // State actually advanced in this call.
+  // MUTATION_STATUS_V1_APPLIED identifies the corresponding protocol value.
+  MUTATION_STATUS_V1_APPLIED = 1;
+  // Exact replay or already-final state; nothing was written.
+  // MUTATION_STATUS_V1_NOOP identifies the corresponding protocol value.
+  MUTATION_STATUS_V1_NOOP = 2;
+}
+
+// ParticipantType selects the Hub identity domain a service key or descriptor belongs to (9.6b).
+enum ParticipantType {
+  // Never written; rejects zero-value rows and selectors.
+  // PARTICIPANT_TYPE_UNSPECIFIED identifies the corresponding protocol value.
+  PARTICIPANT_TYPE_UNSPECIFIED = 0;
+  // Cortex node identity domain.
+  // PARTICIPANT_TYPE_CORTEX identifies the corresponding protocol value.
+  PARTICIPANT_TYPE_CORTEX = 1;
+  // Builder identity domain.
+  // PARTICIPANT_TYPE_BUILDER identifies the corresponding protocol value.
+  PARTICIPANT_TYPE_BUILDER = 2;
+}
+
+// Duty is the task role an operator can be selected for (9.6b).
+enum Duty {
+  // Never written; rejects zero-value rows and selectors.
+  // DUTY_UNSPECIFIED identifies the corresponding protocol value.
+  DUTY_UNSPECIFIED = 0;
+  // Inference worker duty.
+  // DUTY_WORKER identifies the corresponding protocol value.
+  DUTY_WORKER = 1;
+  // Verification duty.
+  // DUTY_VERIFIER identifies the corresponding protocol value.
+  DUTY_VERIFIER = 2;
+}
+
+// FailureClassificationSource attributes one task failure classification to its trigger. 9.6b is the sole numeric authority for these four values.
+enum FailureClassificationSource {
+  // Never written.
+  // FAILURE_CLASSIFICATION_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
+  FAILURE_CLASSIFICATION_SOURCE_UNSPECIFIED = 0;
+  // Classified by a deadline sweep.
+  // FAILURE_CLASSIFICATION_SOURCE_DEADLINE identifies the corresponding protocol value.
+  FAILURE_CLASSIFICATION_SOURCE_DEADLINE = 1;
+  // Classified by the settlement verdict.
+  // FAILURE_CLASSIFICATION_SOURCE_SETTLEMENT identifies the corresponding protocol value.
+  FAILURE_CLASSIFICATION_SOURCE_SETTLEMENT = 2;
+  // Classified by a verification-round close or supersession.
+  // FAILURE_CLASSIFICATION_SOURCE_VERIFICATION_ROUND identifies the corresponding protocol value.
+  FAILURE_CLASSIFICATION_SOURCE_VERIFICATION_ROUND = 3;
+  // Attributed from independently verified objective evidence.
+  // FAILURE_CLASSIFICATION_SOURCE_OBJECTIVE_EVIDENCE identifies the corresponding protocol value.
+  FAILURE_CLASSIFICATION_SOURCE_OBJECTIVE_EVIDENCE = 4;
+}
+
+// StoredBodyStatus tells whether the bounded member body of a committed
+// collection row is still resident or has been pruned while its count and hash
+// stay auditable. keeper_api_contract.md §16.5 registers the two values (and §9.6b
+// lists §16.5 as the numeric authority for them).
+//
+// CONTRACT-GAP: §16.5 calls this a Query-only projection enum that never lands in
+// Store, yet keeper_data_structure_contract.md §6.5 gives both BuilderSetState and
+// TaskBuilderSelectionState a stored `body_status = ACTIVE / PRUNED` field with
+// exactly these two values. Declaring a second Store-only enum would break the
+// §9.6b rule of one numeric definition per closed enum, so the single definition
+// lives here and is shared by the Store rows and the §16.5 views. It is declared
+// in shared/v1 because both x/hub and x/task store and project it,
+// and the ADR-0013 closure rule makes a declaration referenced by two domains
+// shared. The contract must either drop the "Query-only" wording or register a
+// Store twin.
+// StoredBodyStatus defines the StoredBodyStatus wire type.
+enum StoredBodyStatus {
+  // Never written; rejects zero-value rows and views.
+  // STORED_BODY_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  STORED_BODY_STATUS_UNSPECIFIED = 0;
+  // Bounded member body is resident.
+  // STORED_BODY_STATUS_ACTIVE identifies the corresponding protocol value.
+  STORED_BODY_STATUS_ACTIVE = 1;
+  // Member body deleted; count and hash retained.
+  // STORED_BODY_STATUS_PRUNED identifies the corresponding protocol value.
+  STORED_BODY_STATUS_PRUNED = 2;
+}
+
+// BucketKind identifies the sole Phase 0 parameter-bucket family.
+enum BucketKind {
+  // Never written; rejects zero-value bucket rows.
+  // BUCKET_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  BUCKET_KIND_UNSPECIFIED = 0;
+  // Timeout buckets consumed by task deadline derivation.
+  // BUCKET_KIND_TIMEOUT identifies the corresponding protocol value.
+  BUCKET_KIND_TIMEOUT = 1;
+}
+
+// TaskFinalityStatusV1 is the single-settlement finality state shared by Task
+// state and Hub audit consumers. Round close is not finality: PENDING changes
+// to FINAL only when ApplySettlementPlan commits the funds and terminal task
+// state atomically.
+// TaskFinalityStatusV1 defines the TaskFinalityStatusV1 wire type.
+enum TaskFinalityStatusV1 {
+  // Never persisted.
+  // TASK_FINALITY_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_FINALITY_STATUS_V1_UNSPECIFIED = 0;
+  // The Task has not committed its unique settlement.
+  // TASK_FINALITY_STATUS_V1_PENDING identifies the corresponding protocol value.
+  TASK_FINALITY_STATUS_V1_PENDING = 1;
+  // The unique settlement and all funds committed.
+  // TASK_FINALITY_STATUS_V1_FINAL identifies the corresponding protocol value.
+  TASK_FINALITY_STATUS_V1_FINAL = 2;
+}
+
+// BuilderEvidenceKind is the closed typed Builder evidence registry frozen by
+// keeper_api_contract.md §9.6b and consumed by the ACTIVE evidence submission API.
+// BuilderEvidenceKind defines the BuilderEvidenceKind wire type.
+enum BuilderEvidenceKind {
+  reserved 3;
+  reserved "BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY";
+
+  // Never accepted as evidence.
+  // BUILDER_EVIDENCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_EVIDENCE_KIND_UNSPECIFIED = 0;
+  // The Builder signed conflicting proposals for one protocol scope.
+  // BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION identifies the corresponding protocol value.
+  BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION = 1;
+  // The Builder submitted an invalid payload for its assigned stage.
+  // BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION identifies the corresponding protocol value.
+  BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION = 2;
+  // The Builder failed the frozen data-availability requirement.
+  // BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE identifies the corresponding protocol value.
+  BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE = 4;
+}
+
+// ByIDV1 selects exactly one object by its canonical 32-byte ID (9.6b).
+message ByIDV1 {
+  bytes id = 1;
+}
+
+// BatchV1 selects a bounded batch; max_items is capped per transaction (9.6b).
+message BatchV1 {
+  uint32 max_items = 1;
+}

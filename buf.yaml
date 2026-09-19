@@ -1,0 +1,31 @@
+version: v2
+modules:
+  - path: proto
+deps:
+  - buf.build/cosmos/cosmos-proto
+  - buf.build/cosmos/cosmos-sdk
+  - buf.build/cosmos/gogo-proto
+  - buf.build/cosmos/ics23
+  - buf.build/googleapis/googleapis
+  - buf.build/protocolbuffers/wellknowntypes
+lint:
+  use:
+    - STANDARD
+  ignore:
+    # hub/task are wire-compatible mirrors of Node application
+    # services. Their Query service names are fixed by the deployed gRPC ABI.
+    - proto/hub
+    - proto/task
+    # shared mirrors Node profile execution types; wire-compatible names
+    # must match upstream exactly.
+    - proto/shared
+    # cosmos/evm ethsecp256k1 PubKey mirror: package name is fixed upstream.
+    - proto/cosmos
+  # IngressAPI is an already published Nexus SDK service name. Keep checking
+  # every other STANDARD rule without introducing a breaking service rename.
+  ignore_only:
+    SERVICE_SUFFIX:
+      - proto/nexus/v1/ingress.proto
+breaking:
+  use:
+    - FILE

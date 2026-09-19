@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "task/v1/evidence.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// InferReceiptV2 is the worker-signed inference receipt carried by
+// MsgSubmitInferReceipt. Field numbers, types and order are frozen by
+// keeper_api_contract.md §5.14; the same order is the length-framed preimage of
+//
+//   infer_receipt_hash = infer_receipt_signing_digest =
+//     H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V2", schema_version, chain_id, task_id,
+//       task_hash, worker_operator_address, service_authorization_nonce,
+//       generation_params_digest, output_hash, output_size_bytes,
+//       evidence_commitments_hash, expiry_height, generated_token_count,
+//       output_leaf_count)
+//
+// Note that service_signature (field 12) is excluded and that
+// evidence_commitments_hash is NOT a wire field: it is derived by the Keeper from
+// required_evidence_commitments (field 10) by the single formula below and is
+// never submitted by the caller. Caller-reported completion heights, raw
+// availability endpoints and
+// evidence_availability_endpoint_hash are not part of this wire; the work-unit
+// landing point is the SETTLEMENT_BILL leaf in task/v1/settlement.proto.
+//
+// schema_version is exactly 2. InferReceiptV1 and its old domain have no decoder
+// or alias in this fresh contract.
+//
+// The locked Profile carries a typed EvidenceSchemaV1 descriptor and its
+// evidence_schema_hash. The Keeper requires this list to match the descriptor
+// exactly; callers cannot supply an empty set, subset, superset, or unknown kind.
+// InferReceiptV2 defines the InferReceiptV2 wire type.
+message InferReceiptV2 {
+  // Always 2 in the fresh Phase 0 contract.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  string worker_operator_address = 5;
+  uint64 service_authorization_nonce = 6;
+  bytes generation_params_digest = 7;
+  bytes output_hash = 8;
+  uint64 output_size_bytes = 9;
+  repeated EvidenceCommitmentV1 required_evidence_commitments = 10;
+  uint64 expiry_height = 11;
+  bytes service_signature = 12;
+  // Worker-signed generated output token count. Settlement accepts it only when
+  // the threshold result cluster independently derives the same value.
+  uint64 generated_token_count = 13;
+  uint64 output_leaf_count = 14;
+}
+
+// evidence_commitments_hash is the Keeper-derived commitment over
+// InferReceiptV2.required_evidence_commitments. keeper_api_contract.md §1.4 registers
+// the domain (row "Infer evidence commitments", producer "selected Worker / Task
+// Keeper recompute", consumers "Open Verify, settlement, challenge") and points at
+// §5.14 as the one place the ordered preimage may live. This comment is that one
+// place inside the repository; no other file may carry a second copy.
+//
+//   evidence_commitments_hash =
+//     H_FIELDS_V1("TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+//       uint32_be(count), commitment[0], commitment[1], ... commitment[count-1])
+//
+// Expanded byte-exactly through the §1.2 FieldFrameV1 rules, where every top-level
+// field carries its own u64_be length prefix and a repeated field writes
+// uint32_be(count) first and then length-frames each element:
+//
+//   preimage =
+//     u64_be(35) || "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"   // 35 ASCII bytes
+//     u64_be(4)  || uint32_be(count)
+//     for i in 0..count-1:
+//       u64_be(len(frame_i)) || frame_i
+//
+//   frame_i = FieldFrameV1 over EvidenceCommitmentV1 with NO domain prefix, its
+//   three fields in ascending schema field-number order (§1.2: "required nested
+//   message recursively encodes its field frame in ascending schema field number
+//   order"):
+//     u64_be(4)  || uint32_be(evidence_kind)        // enum -> uint32_be (§1.2)
+//     u64_be(32) || evidence_hash_or_root           // raw Hash32 bytes, no hex
+//     u64_be(8)  || uint64_be(encoded_size_bytes)
+//   so len(frame_i) is exactly 68 bytes for every element.
+//
+//   digest = SHA256(preimage)
+//
+// The domain literal is 35 ASCII bytes; an implementation must measure the UTF-8
+// length of the constant rather than hard-code the number.
+//
+// Element order is NOT chosen by the caller: §5.14 and task/v1/evidence.proto
+// freeze the list as ascending by evidence_kind with unique kinds, and the list
+// must exactly equal the kind set required by the locked profile, with count <=
+// max_infer_evidence_commitments_per_receipt and the canonical typed wire <=
+// max_infer_receipt_commitment_bytes. A reordered or duplicated list is rejected
+// before hashing, never silently re-sorted.
+//
+// The preimage deliberately carries NO chain_id and NO task_id, unlike the sibling
+// list domains TRUEOPEN_RESULT_RECEIPT_REFS_V1 / TRUEOPEN_CONSENSUS_CLUSTER_V1 which
+// bind both. That is exactly what §5.14 freezes: this value is a pure content
+// commitment whose only consumer is the TRUEOPEN_INFER_RECEIPT_V2 preimage, and that
+// outer digest already binds chain_id, task_id, task_hash and the worker operator.
+// An implementation must not "helpfully" prepend scope fields.
+//
+// Empty list: the formula has no special case. count = 0 writes uint32_be(0) and no
+// element frames, which is a well-defined non-zero digest -
+// SHA256(u64_be(35) || domain || u64_be(4) || 00000000) - and must NEVER be
+// replaced by 32 zero bytes, by an empty byte string or by skipping the count
+// field. §1.2 normalises a nil and an empty required list to the same empty value,
+// so nil and [] are the same digest.
+//
+// Admission still requires the list to equal the locked Profile requirement set.
+// The Phase 0 TEXT profile requires exactly WORKER_VALUE_OPENING with commitment
+// schema version 2, so an empty list has a defined digest but is not admissible.
+
+// InferReceiptState is the authoritative accepted receipt row keyed by task_id
+// (keeper_data_structure_contract.md §6.6). Field numbers follow the frozen field order of
+// that section. required_evidence_commitments is deleted once every challenge
+// and evidence consumer has finished; evidence_commitments_hash and
+// evidence_commitment_count stay for audit, so a shorter list than
+// evidence_commitment_count means the body was pruned.
+// InferReceiptState defines the InferReceiptState wire type.
+message InferReceiptState {
+  bytes task_id = 1;
+  string winner_worker = 2;
+  bytes infer_receipt_hash = 3;
+  bytes generation_params_digest = 4;
+  bytes output_hash = 5;
+  uint64 output_size_bytes = 6;
+  uint64 generated_token_count = 7;
+  bytes evidence_commitments_hash = 8;
+  repeated EvidenceCommitmentV1 required_evidence_commitments = 9;
+  uint32 evidence_commitment_count = 10;
+  bytes infer_receipt_signing_digest = 11;
+  // SHA256(raw_signature_64), retained as a 32-byte audit/exact-replay fingerprint.
+  // The 64-byte signature was verified before initial live acceptance and is not retained.
+  // This digest is not authorization state and never enters a signing/business digest;
+  // replay compares it only to identify the same previously accepted signature.
+  bytes signature_digest = 12;
+  uint64 expiry_height = 13;
+  uint64 receipt_height = 14;
+  uint64 output_leaf_count = 15;
+}

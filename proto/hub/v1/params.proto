@@ -1,0 +1,229 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// HubParamsV2 is the single Hub parameter root of keeper_api_contract.md §18.0.
+message HubParamsV2 {
+  uint32 schema_version = 1;
+  EpochParamsV1 epoch = 2;
+  SupportParamsV1 support = 3;
+  CandidatePoolParamsV1 candidate_pool = 4;
+  ServiceParamsV1 service = 5;
+  BuilderParamsV1 builder = 6;
+  RewardParamsV1 reward = 7;
+  FreezeParamsV1 freeze = 8;
+  TreasuryParamsV1 treasury = 9;
+  ParameterBucketParamsV1 bucket = 10;
+  QueryEventParamsV1 query_event = 11;
+  PriceParamsV1 price = 12;
+  BeaconParamsV1 beacon = 13;
+  Phase0ParamsV1 phase0 = 14;
+  BridgeParamsV1 bridge = 15;
+}
+
+// HubParamsMetaState is the authoritative Hub params version pointer. It is a
+// singleton written atomically with HubParamsV2 so MsgUpdateHubParams can reject
+// a stale expected_version and so QueryParams can return the frozen
+// params_hash without recomputing it.
+//
+// params_hash is the §18.0 digest
+// H_FIELDS_V1("TRUEOPEN_HUB_PARAMS_V2", chain_id, new_version, canonical HubParamsV2).
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md registers no State row for the params
+// version/hash even though keeper_api_contract.md §18.0 and §5.11 code 110 both
+// require a persisted current version and hash. The shape below is the minimal
+// row that satisfies those two requirements and nothing more.
+// HubParamsMetaState defines the HubParamsMetaState wire type.
+message HubParamsMetaState {
+  uint64 params_version = 1;
+  bytes params_hash = 2;
+  uint64 updated_height = 3;
+}
+
+// EpochParamsV1 groups epoch length and boundary parameters (§18.0).
+message EpochParamsV1 {
+  uint64 epoch_length_blocks = 1;
+  uint64 delta_w_blocks = 2;
+  uint64 delta_m_blocks = 3;
+}
+
+// SupportParamsV1 groups model support and heartbeat parameters (§18.0).
+message SupportParamsV1 {
+  uint32 support_window_epochs = 1;
+  uint32 active_supporter_min_count = 2;
+  uint32 active_support_stake_ratio_numerator = 3;
+  uint32 active_support_stake_ratio_denominator = 4;
+  uint32 active_support_stake_cap_multiplier = 5;
+  uint32 max_supported_profiles_per_operator = 6;
+  uint32 max_daily_support_confirmations_per_batch = 7;
+  uint32 max_daily_support_items_per_batch = 8;
+  uint64 max_daily_support_batch_bytes = 9;
+  uint32 daily_support_retention_epochs = 10;
+  uint32 model_support_row_retention_epochs = 11;
+  uint32 max_model_support_prune_items_per_block = 12;
+  uint32 max_support_expiry_items_per_block = 13;
+}
+
+// CandidatePoolParamsV1 groups global candidate pool parameters (§18.0).
+message CandidatePoolParamsV1 {
+  uint32 candidate_slot_hard_capacity = 1;
+  uint32 candidate_bitmap_segment_bytes = 2;
+  uint64 candidate_pool_build_lead_blocks = 3;
+  uint32 max_candidate_pool_build_members_per_block = 4;
+  uint32 max_candidate_pool_prune_items_per_block = 5;
+  uint32 candidate_pool_header_retention_epochs = 6;
+  uint32 candidate_slot_binding_retention_epochs = 7;
+  uint32 max_candidate_slot_binding_prune_items_per_block = 8;
+  uint32 candidate_pool_query_default_limit = 9;
+  uint32 candidate_pool_query_hard_limit = 10;
+}
+
+// ServiceParamsV1 groups service bond, unbonding and jail parameters (§18.0).
+message ServiceParamsV1 {
+  uint64 service_unbonding_period_blocks = 1;
+  uint64 unbonding_slash_safety_margin_blocks = 2;
+  uint32 max_open_unbonding_entries_per_operator = 3;
+  uint64 unbonding_receipt_retention_blocks = 4;
+  uint32 max_unbonding_receipt_prune_items_per_block = 5;
+  uint32 jail_clear_normal_action_count = 6;
+  uint32 tombstone_jail_count_threshold = 7;
+  uint32 max_service_descriptor_endpoints = 8;
+  uint64 max_service_descriptor_bytes = 9;
+  uint32 max_service_endpoint_uri_bytes = 10;
+  uint32 max_service_endpoint_protocol_version_bytes = 11;
+  shared.v1.Amount service_bond_min_initial = 12;
+  uint64 max_service_material_expiry_blocks = 13;
+  uint32 max_unbonding_withdraw_items_per_tx = 14;
+  uint32 max_unbonding_maturity_items_per_block = 15;
+  // Retains task-attributed RoleFault receipts through every slash/challenge
+  // consumer, then bounds the derived RoleFaultPruneIndex sweep.
+  uint64 record_retention_blocks = 16;
+  uint32 max_role_fault_prune_items_per_block = 17;
+  uint32 objective_forgery_slash_bps = 18;
+  shared.v1.Amount min_task_liability = 19;
+  uint32 max_service_bond_effective_items_per_block = 20;
+  uint32 task_liability_order_coverage_bps = 21;
+}
+
+// BuilderParamsV1 groups governed fixed-set and duty parameters.
+message BuilderParamsV1 {
+  uint32 builder_set_cap = 1;
+  uint32 builders_per_task = 2;
+  uint64 builder_set_update_lead_blocks = 3;
+  uint64 assignment_builder_proposal_window_blocks = 4;
+  uint64 open_verify_builder_proposal_window_blocks = 5;
+  uint64 settlement_builder_grace_blocks = 6;
+  uint32 builder_set_retention_epochs = 7;
+  uint32 builder_set_header_retention_epochs = 8;
+  uint32 max_builder_set_prune_items_per_block = 9;
+  uint64 builder_fault_retention_blocks = 10;
+  uint32 max_builder_fault_prune_items_per_block = 11;
+}
+
+// RewardParamsV1 groups reward competition and accrual parameters (§18.0).
+message RewardParamsV1 {
+  uint32 max_order_value_histogram_buckets = 1;
+  repeated shared.v1.Amount order_value_bucket_boundaries = 2;
+  shared.v1.Amount p30_bootstrap_order_value_floor = 3;
+  uint32 min_epoch_sample = 4;
+  uint32 max_reward_epoch_items_per_block = 8;
+  uint32 reward_audit_retention_epochs = 9;
+  shared.v1.Amount min_claim_amount = 11;
+}
+
+// FreezeParamsV1 groups emergency freeze window and quorum parameters (§18.0).
+message FreezeParamsV1 {
+  uint64 freeze_risk_window_blocks = 1;
+  uint32 min_freeze_signal_failure_count = 2;
+  uint64 freeze_signal_vote_window_blocks = 3;
+  uint64 freeze_signal_detail_retention_blocks = 4;
+  uint64 freeze_signal_summary_retention_blocks = 5;
+  uint64 freeze_failure_index_retention_blocks = 6;
+  uint32 max_freeze_signal_schedule_items_per_block = 7;
+  uint32 max_freeze_signal_build_items_per_block = 8;
+  uint32 max_freeze_signal_prune_items_per_block = 9;
+  uint32 max_freeze_failure_index_prune_items_per_block = 10;
+  uint32 max_freeze_signal_build_items_per_tx = 12;
+}
+
+// TreasuryParamsV1 groups treasury split and retention parameters (§18.0).
+message TreasuryParamsV1 {
+  uint64 governance_action_replay_window_blocks = 1;
+  uint32 max_treasury_spend_receipt_prune_items_per_block = 2;
+  shared.v1.Amount model_profile_registration_fee = 3;
+  shared.v1.Amount profile_version_update_fee = 4;
+  shared.v1.Amount treasury_spend_limit_per_proposal = 5;
+  shared.v1.Amount treasury_spend_limit_per_epoch = 6;
+  shared.v1.Amount treasury_spend_limit_per_recipient = 7;
+}
+
+// ParameterBucketParamsV1 groups versioned bucket caps and retention (§18.0).
+message ParameterBucketParamsV1 {
+  uint32 max_parameter_bucket_entries = 1;
+  uint64 max_parameter_bucket_update_bytes = 2;
+  uint64 parameter_bucket_version_retention_blocks = 3;
+  uint32 max_parameter_bucket_prune_items_per_block = 4;
+}
+
+// QueryEventParamsV1 groups Query pagination and event payload caps (§18.0).
+message QueryEventParamsV1 {
+  uint32 max_query_page_token_bytes = 1;
+  uint32 max_query_page_limit = 2;
+  uint64 max_query_response_bytes = 3;
+  uint32 max_protocol_event_payload_bytes = 4;
+  uint32 max_endblock_visited_items_total = 5;
+}
+
+// PriceParamsV1 fixes the Phase 0 Profile Ref step and arithmetic boundaries.
+// All fields are genesis-only.
+// PriceParamsV1 defines the PriceParamsV1 wire type.
+message PriceParamsV1 {
+  uint32 price_step_ppm = 1;
+  uint32 price_max_steps_per_block = 2;
+  uint32 price_floor_bps = 3;
+  uint64 price_hard_min = 4;
+  uint64 price_hard_max = 5;
+}
+
+// BeaconParamsV1 controls retained beacon history and VRF activation policy.
+message BeaconParamsV1 {
+  uint64 beacon_retention_blocks = 1;
+  uint64 beacon_checkpoint_interval_blocks = 2;
+  uint32 max_beacon_prune_items_per_block = 3;
+  uint64 vrf_required_from_height = 4;
+  uint32 max_beacon_carrier_bytes = 5;
+  // max_vrf_key_history_epochs is genesis/upgrade-only and must cover the
+  // beacon audit and replay window. The activation delay is the fixed V1
+  // constant 1 and is deliberately not a parameter.
+  uint32 max_vrf_key_history_epochs = 6;
+}
+
+// Phase0ParamsV1 freezes the tokenless-mainnet denomination and fee profile.
+message Phase0ParamsV1 {
+  string business_denom = 1;
+  string consensus_bond_denom = 2;
+  string validator_bond_unit = 3;
+  bool native_token_enabled = 4;
+  shared.v1.Amount epoch_block_reward = 5;
+  uint64 fee_policy_version = 6;
+  uint64 min_fee_per_gas_numerator = 7;
+  uint64 min_fee_per_gas_denominator = 8;
+  repeated string fee_bypass_type_urls = 9;
+  uint64 max_bypass_gas_per_block = 10;
+  // Numeric EIP-712 chain ID. It is independent from the Cosmos chain-id.
+  uint64 evm_chain_id = 11;
+}
+
+// BridgeParamsV1 bounds the canonical USDC guard and governance lifecycle.
+message BridgeParamsV1 {
+  shared.v1.Amount bridge_limit_hard_max = 1;
+  shared.v1.Amount initial_inbound_limit_per_epoch = 2;
+  shared.v1.Amount initial_outbound_limit_per_epoch = 3;
+  uint32 bridge_usage_retention_epochs = 4;
+  uint32 max_bridge_usage_prune_items_per_block = 5;
+  uint32 max_bridge_cutover_inflight_messages = 6;
+  uint64 bridge_bootstrap_max_gas = 7;
+}

@@ -1,0 +1,255 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// ClaimClassV1 selects the sub-ledger drained by MsgClaimEarnings.
+enum ClaimClassV1 {
+  // Unset; rejected.
+  // CLAIM_CLASS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  CLAIM_CLASS_V1_UNSPECIFIED = 0;
+  // Claim every matured class in one transaction.
+  // CLAIM_CLASS_V1_ALL identifies the corresponding protocol value.
+  CLAIM_CLASS_V1_ALL = 1;
+  // Claim only task fee earnings.
+  // CLAIM_CLASS_V1_TASK_FEE identifies the corresponding protocol value.
+  CLAIM_CLASS_V1_TASK_FEE = 2;
+  // Claim only Cortex service earnings.
+  // CLAIM_CLASS_V1_SERVICE identifies the corresponding protocol value.
+  CLAIM_CLASS_V1_SERVICE = 3;
+  // Claim only Builder earnings.
+  // CLAIM_CLASS_V1_BUILDER identifies the corresponding protocol value.
+  CLAIM_CLASS_V1_BUILDER = 4;
+}
+
+// RewardBucket is the independent order-value competition bucket.
+enum RewardBucket {
+  // Unset; rejected.
+  // REWARD_BUCKET_UNSPECIFIED identifies the corresponding protocol value.
+  REWARD_BUCKET_UNSPECIFIED = 0;
+  // Order value bucket 0, the lowest band.
+  // REWARD_BUCKET_P0 identifies the corresponding protocol value.
+  REWARD_BUCKET_P0 = 1;
+  // Order value bucket 1.
+  // REWARD_BUCKET_P1 identifies the corresponding protocol value.
+  REWARD_BUCKET_P1 = 2;
+  // Order value bucket 2.
+  // REWARD_BUCKET_P2 identifies the corresponding protocol value.
+  REWARD_BUCKET_P2 = 3;
+  // Order value bucket 3.
+  // REWARD_BUCKET_P3 identifies the corresponding protocol value.
+  REWARD_BUCKET_P3 = 4;
+  // Order value bucket 4, the highest band.
+  // REWARD_BUCKET_P4 identifies the corresponding protocol value.
+  REWARD_BUCKET_P4 = 5;
+}
+
+// RewardEpochPhase is the public bounded-runner phase registry. Phase 0 only
+// persists HISTOGRAM_OPEN and CUTOFF_DERIVED; COMPLETE is response-only.
+// RewardEpochPhase defines the RewardEpochPhase wire type.
+enum RewardEpochPhase {
+  // Unset; rejected.
+  // REWARD_EPOCH_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_UNSPECIFIED = 0;
+  // The epoch is still accumulating its order value histogram.
+  // REWARD_EPOCH_PHASE_HISTOGRAM_OPEN identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_HISTOGRAM_OPEN = 1;
+  // The P30 cutoff has been derived from the closed histogram.
+  // REWARD_EPOCH_PHASE_CUTOFF_DERIVED identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_CUTOFF_DERIVED = 2;
+  // The bounded eligibility scan is in progress.
+  // REWARD_EPOCH_PHASE_ELIGIBILITY_RUNNING identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_ELIGIBILITY_RUNNING = 3;
+  // Waiting for the future beacon height the epoch draw is bound to.
+  // REWARD_EPOCH_PHASE_RANDOMNESS_WAIT identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_RANDOMNESS_WAIT = 4;
+  // Reserved for the mark runner. Phase 0 never enters it: ADR-0020 keeps RewardMark and MarkGate switched off.
+  // REWARD_EPOCH_PHASE_MARK_RUNNING identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_MARK_RUNNING = 5;
+  // The epoch is closed and its audit root is frozen. Terminal.
+  // REWARD_EPOCH_PHASE_COMPLETE identifies the corresponding protocol value.
+  REWARD_EPOCH_PHASE_COMPLETE = 6;
+}
+
+// RewardClass partitions earnings and event locators. Phase 0 only accrues
+// TASK_FEE; SERVICE and BUILDER remain fixed-zero queryable sub-ledgers.
+// RewardClass defines the RewardClass wire type.
+enum RewardClass {
+  // Unset; rejected.
+  // REWARD_CLASS_UNSPECIFIED identifies the corresponding protocol value.
+  REWARD_CLASS_UNSPECIFIED = 0;
+  // Earnings accrued from task fees.
+  // REWARD_CLASS_TASK_FEE identifies the corresponding protocol value.
+  REWARD_CLASS_TASK_FEE = 1;
+  // Earnings accrued by a Cortex service operator.
+  // REWARD_CLASS_SERVICE identifies the corresponding protocol value.
+  REWARD_CLASS_SERVICE = 2;
+  // Earnings accrued by a Builder.
+  // REWARD_CLASS_BUILDER identifies the corresponding protocol value.
+  REWARD_CLASS_BUILDER = 3;
+}
+
+// RewardCompetitionBootstrapStatus selects bootstrap or measured P30 cutoff.
+enum RewardCompetitionBootstrapStatus {
+  // Unset; rejected.
+  // REWARD_COMPETITION_BOOTSTRAP_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  REWARD_COMPETITION_BOOTSTRAP_STATUS_UNSPECIFIED = 0;
+  // Too few samples for a real cutoff, so the configured bootstrap floor applies.
+  // REWARD_COMPETITION_BOOTSTRAP_STATUS_BOOTSTRAP identifies the corresponding protocol value.
+  REWARD_COMPETITION_BOOTSTRAP_STATUS_BOOTSTRAP = 1;
+  // The epoch met the minimum sample count and uses its own derived cutoff.
+  // REWARD_COMPETITION_BOOTSTRAP_STATUS_ACTIVE identifies the corresponding protocol value.
+  REWARD_COMPETITION_BOOTSTRAP_STATUS_ACTIVE = 2;
+}
+
+// RewardEpochPrunePhaseV1 preserves the frozen retention phase numbers. Phase 0
+// creates no BuilderContributionState rows.
+// RewardEpochPrunePhaseV1 defines the RewardEpochPrunePhaseV1 wire type.
+enum RewardEpochPrunePhaseV1 {
+  // Unset; rejected.
+  // REWARD_EPOCH_PRUNE_PHASE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  REWARD_EPOCH_PRUNE_PHASE_V1_UNSPECIFIED = 0;
+  // Pruning the closed competition rows of the source epoch.
+  // REWARD_EPOCH_PRUNE_PHASE_V1_COMPETITION identifies the corresponding protocol value.
+  REWARD_EPOCH_PRUNE_PHASE_V1_COMPETITION = 1;
+  // Reserved operational phase; Phase 0 visits no contribution rows.
+  // REWARD_EPOCH_PRUNE_PHASE_V1_CONTRIBUTIONS identifies the corresponding protocol value.
+  REWARD_EPOCH_PRUNE_PHASE_V1_CONTRIBUTIONS = 2;
+}
+
+// TimeoutBucketEntryV1 is one ordered timeout step.
+message TimeoutBucketEntryV1 {
+  uint64 upper_work_units_inclusive = 1;
+  uint64 timeout_blocks = 2;
+}
+
+// TimeoutBucketEntriesV1 wraps the TIMEOUT bucket branch.
+message TimeoutBucketEntriesV1 {
+  repeated TimeoutBucketEntryV1 entries = 1;
+}
+
+// TimeoutBucketUpdateV1 is the complete future-effective governance update.
+message TimeoutBucketUpdateV1 {
+  string bucket_key = 1;
+  uint64 expected_current_version = 2;
+  uint64 effective_height = 3;
+  repeated TimeoutBucketEntryV1 entries = 4;
+}
+
+// ParameterBucketVersionState stores one immutable typed bucket version.
+message ParameterBucketVersionState {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 version = 3;
+  uint32 schema_version = 4;
+  uint64 effective_height = 5;
+  bytes content_hash = 6;
+  TimeoutBucketEntriesV1 timeout_entries = 7;
+  uint32 entry_count = 8;
+  uint32 encoded_size_bytes = 9;
+  uint64 task_ref_count = 10;
+  uint64 created_height = 11;
+}
+
+// ParameterBucketCurrentPointerState resolves the version used by new tasks.
+message ParameterBucketCurrentPointerState {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 current_version = 3;
+  bytes current_content_hash = 4;
+}
+
+// ParameterBucketPendingPointerState is the at-most-one future version.
+message ParameterBucketPendingPointerState {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 pending_version = 3;
+  uint64 effective_height = 4;
+  bytes pending_content_hash = 5;
+}
+
+// RewardCompetitionEpochState is the Phase 0 P30/support aggregate.
+message RewardCompetitionEpochState {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+  repeated uint64 order_value_hist = 3;
+  bytes order_value_bucket_boundaries_hash = 4;
+  uint64 total_tasks = 5;
+  uint64 unique_payer_count = 6;
+  uint64 unique_worker_count = 7;
+  shared.v1.Amount cumulative_fee_amount = 8;
+  RewardCompetitionBootstrapStatus bootstrap_status = 9;
+  shared.v1.Amount p30_cutoff = 10;
+  bool reward_epoch_closed = 11;
+}
+
+// RewardP30CutoffPointerState is rebuilt from closed competition rows.
+message RewardP30CutoffPointerState {
+  RewardBucket reward_bucket = 1;
+  uint64 cutoff_epoch = 2;
+  shared.v1.Amount p30_cutoff = 3;
+}
+
+// RewardEpochCursorState makes P30 and retention work resumable.
+message RewardEpochCursorState {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+  RewardEpochPhase phase = 3;
+  uint32 last_order_value_bucket = 4;
+  bytes last_task_id = 5;
+  uint64 visited_count = 6;
+  uint64 applied_count = 7;
+}
+
+// RewardEpochPruneIndex preserves the frozen retention schedule for a closed
+// competition until its bounded prune cursor starts.
+// RewardEpochPruneIndex defines the RewardEpochPruneIndex wire type.
+message RewardEpochPruneIndex {
+  uint64 prune_epoch = 1;
+  uint64 source_epoch = 2;
+  RewardBucket reward_bucket = 3;
+}
+
+// RewardEpochPruneCursorState resumes the bounded retention pass. The retained
+// contribution fields remain zero in Phase 0.
+// RewardEpochPruneCursorState defines the RewardEpochPruneCursorState wire type.
+message RewardEpochPruneCursorState {
+  uint64 source_epoch = 1;
+  RewardBucket reward_bucket = 2;
+  RewardEpochPrunePhaseV1 phase = 3;
+  bytes last_processed_key = 4;
+  uint64 visited_count = 5;
+  uint64 deleted_count = 6;
+  bytes folded_root = 7;
+  uint64 contribution_count = 8;
+}
+
+// RewardEpochAuditState is the immutable result of bounded retention pruning.
+// Phase 0 requires eligible_task_count, mark_count, and accrual_count to be zero.
+// RewardEpochAuditState defines the RewardEpochAuditState wire type.
+message RewardEpochAuditState {
+  uint64 source_epoch = 1;
+  RewardBucket reward_bucket = 2;
+  bytes audit_root = 3;
+  bytes folded_root = 4;
+  uint64 eligible_task_count = 5;
+  uint64 mark_count = 6;
+  uint64 accrual_count = 7;
+  uint64 contribution_count = 8;
+  uint64 total_count = 9;
+  uint64 completed_height = 10;
+}
+
+// EarningsState is the direct-finality pull-payment ledger.
+message EarningsState {
+  string address = 1;
+  shared.v1.Amount claimable_task_fee = 2;
+  shared.v1.Amount claimable_service_reward = 3;
+  shared.v1.Amount claimable_builder_reward = 4;
+  shared.v1.Amount claimable_amount = 5;
+  uint64 earnings_version = 6;
+  uint64 last_updated_height = 7;
+}

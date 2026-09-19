@@ -1,0 +1,64 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// ServiceBondState is the single operator-global service bond row, including the operator-global jail counters (data-structure contract 6.4).
+message ServiceBondState {
+  string operator_address = 1;
+  uint64 active_bond = 2;
+  uint64 effective_active_bond = 3;
+  uint64 reserved_liability = 4;
+  uint64 pending_unbonding_total = 5;
+  uint64 bond_version = 6;
+  uint64 effective_bond_epoch = 7;
+  ServiceBondStatus status = 8;
+  uint32 jail_count = 9;
+  uint32 normal_action_count_since_jail = 10;
+  uint64 last_stake_height = 11;
+  uint64 last_unstake_height = 12;
+}
+
+// UnbondingState is one open or matured service unbonding entry (6.4).
+message UnbondingState {
+  reserved 7;
+  reserved "pending_slash_hold";
+
+  bytes unbonding_id = 1;
+  string operator_address = 2;
+  uint64 amount = 3;
+  uint64 request_height = 4;
+  uint64 mature_height = 5;
+  UnbondingStatus status = 6;
+  uint64 slash_applied_amount = 8;
+}
+
+// UnbondingReceiptState is the terminal receipt of one withdrawn or slashed unbonding (6.4).
+message UnbondingReceiptState {
+  bytes unbonding_id = 1;
+  string operator_address = 2;
+  uint64 original_amount = 3;
+  uint64 withdrawn_amount = 4;
+  uint64 slashed_amount = 5;
+  UnbondingReceiptTerminalStatus terminal_status = 6;
+  uint64 terminal_height = 7;
+  bytes receipt_hash = 8;
+}
+
+// TaskLiabilityReservationState is one per-task bond reservation held while a duty is outstanding (6.4/B.1.3).
+message TaskLiabilityReservationState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  string operator_address = 3;
+  shared.v1.Duty duty = 4;
+  uint64 bond_version = 5;
+  uint64 capability_version = 6;
+  uint64 reserved_amount = 7;
+  LiabilityStatus status = 8;
+  bytes candidate_pool_snapshot_id = 9;
+  uint32 slot = 10;
+  uint64 slot_version = 11;
+}

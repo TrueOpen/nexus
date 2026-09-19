@@ -1,0 +1,342 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/beacon.proto";
+import "hub/v1/builder.proto";
+import "hub/v1/candidate_pool.proto";
+import "hub/v1/common.proto";
+import "hub/v1/daily_support.proto";
+import "hub/v1/fault.proto";
+import "hub/v1/model_profile_state.proto";
+import "hub/v1/params.proto";
+import "hub/v1/participant_identity.proto";
+import "hub/v1/reward.proto";
+import "hub/v1/service_bond.proto";
+import "shared/v1/common.proto";
+import "shared/v1/query_page.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+// QueryHubParamsRequest has no selector.
+message QueryHubParamsRequest {}
+
+// QueryHubParamsResponse is response type for the Query/Params RPC method.
+message QueryHubParamsResponse {
+  // params holds all the parameters of this module.
+  HubParamsV2 params = 1;
+  // meta carries this module's own params version/hash/updated height. Params
+  // ownership stays per module: a client that needs a joint view calls
+  // hub.v1.Query/Params and task.v1.Query/Params at the same
+  // x-cosmos-block-height. Wire adds no app-level package importing both.
+  HubParamsMetaState meta = 2;
+}
+
+// QueryBeaconRequest is request type for Query/Beacon.
+message QueryBeaconRequest {
+  uint64 height = 1;
+}
+
+// QueryBeaconResponse is response type for Query/Beacon.
+message QueryBeaconResponse {
+  BeaconState beacon = 1;
+}
+
+// QueryBuilderSetRequest is request type for Query/BuilderSet.
+message QueryBuilderSetRequest {
+  // Exactly one retained BuilderSet locator must be supplied.
+  // selector selects one supported variant.
+  oneof selector {
+    uint64 height = 1;
+    string builder_set_id = 2;
+  }
+}
+
+// QueryBuilderSetResponse is response type for Query/BuilderSet.
+message QueryBuilderSetResponse {
+  BuilderSetViewV1 set = 1;
+}
+
+// BuilderSetViewV1 projects the public BuilderSet header and bounded body.
+message BuilderSetViewV1 {
+  uint64 builder_set_version = 1;
+  string builder_set_id = 2;
+  bytes builder_set_hash = 3;
+  uint64 effective_height = 4;
+  repeated string active_builders = 5;
+  uint32 active_builder_count = 6;
+  shared.v1.StoredBodyStatus body_status = 7;
+  optional uint64 pruned_height = 8;
+}
+
+// QueryBuilderRequest selects one Builder identity.
+message QueryBuilderRequest {
+  string builder_address = 1;
+}
+
+// QueryBuilderResponse returns the Builder primary row.
+message QueryBuilderResponse {
+  BuilderState builder = 1;
+}
+
+// QueryBuildersRequest pages the builder registry. It carries no selector: the
+// walk is the whole primary map, so the page token's selector digest binds only
+// the chain id and the RPC name.
+// QueryBuildersRequest defines the QueryBuildersRequest wire type.
+message QueryBuildersRequest {
+  shared.v1.QueryPageRequestV1 page = 1;
+}
+
+// QueryBuildersResponse walks the builder primary map in canonical store key
+// byte order. That is the Bech32 string key order, which is not guaranteed to
+// match raw address byte order; the contract fixes the key order so no handler
+// has to collect the whole table to re-sort it.
+// QueryBuildersResponse defines the QueryBuildersResponse wire type.
+message QueryBuildersResponse {
+  repeated BuilderState builders = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryFaultRequest selects one immutable role fault by Hash32.
+message QueryFaultRequest {
+  bytes fault_id = 1;
+}
+
+// QueryFaultResponse returns the authoritative role fault row.
+message QueryFaultResponse {
+  RoleFaultState fault = 1;
+  SlashSummaryState slash_summary = 2;
+}
+
+// QueryTaskRequest is request type for Query/Task.
+// QueryEarningsRequest defines the QueryEarningsRequest wire type.
+message QueryEarningsRequest {
+  string address = 1;
+}
+
+// QueryEarningsResponse is response type for Query/Earnings.
+message QueryEarningsResponse {
+  EarningsState earnings = 1;
+}
+// QueryModelRequest is request type for Query/Model.
+message QueryModelRequest {
+  string model_id = 1;
+}
+
+// QueryModelResponse is response type for Query/Model.
+message QueryModelResponse {
+  ModelState model = 1;
+}
+
+// QueryModelsRequest pages the model registry. It carries no selector: the walk
+// is the whole primary map, so the page token's selector digest binds only the
+// chain id and the RPC name.
+// QueryModelsRequest defines the QueryModelsRequest wire type.
+message QueryModelsRequest {
+  shared.v1.QueryPageRequestV1 page = 1;
+}
+
+// QueryModelsResponse walks the model primary map in canonical store key byte
+// order. An empty registry is an empty list, not NotFound.
+// QueryModelsResponse defines the QueryModelsResponse wire type.
+message QueryModelsResponse {
+  repeated ModelState models = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryProfileRequest is request type for Query/Profile.
+message QueryProfileRequest {
+  string model_id = 1;
+  uint32 profile_version = 2;
+}
+
+// QueryProfileResponse is response type for Query/Profile.
+message QueryProfileResponse {
+  ProfileState profile = 1;
+}
+
+// QueryCortexNodeRequest selects one stable Cortex identity.
+message QueryCortexNodeRequest {
+  string operator_address = 1;
+}
+
+// QueryCortexNodeResponse returns the Cortex primary row.
+message QueryCortexNodeResponse {
+  CortexNodeState node = 1;
+}
+
+// QueryServiceBondRequest selects one operator service bond.
+message QueryServiceBondRequest {
+  string operator_address = 1;
+}
+
+// QueryServiceBondResponse returns the bond with recomputed invariants.
+message QueryServiceBondResponse {
+  ServiceBondState bond = 1;
+}
+
+// QueryServiceUnbondingsRequest pages one operator status slice.
+message QueryServiceUnbondingsRequest {
+  string operator_address = 1;
+  UnbondingStatus status = 2;
+  shared.v1.QueryPageRequestV1 page = 3;
+}
+
+// QueryServiceUnbondingsResponse walks the operator/status index.
+message QueryServiceUnbondingsResponse {
+  repeated UnbondingState entries = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryCurrentServiceKeyRequest identifies the sole current binding for an operator.
+message QueryCurrentServiceKeyRequest {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+}
+
+// QueryCurrentServiceKeyResponse returns the authoritative binding lifecycle.
+message QueryCurrentServiceKeyResponse {
+  CurrentServiceKeyViewV1 binding = 1;
+}
+
+// QueryServiceDescriptorRequest selects one current descriptor.
+message QueryServiceDescriptorRequest {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+}
+
+// QueryServiceDescriptorResponse returns the bounded descriptor row.
+message QueryServiceDescriptorResponse {
+  ServiceDescriptorState descriptor = 1;
+}
+// QueryProfileCapabilityRequest selects one operator/profile capability.
+message QueryProfileCapabilityRequest {
+  string operator_address = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+}
+
+// QueryProfileCapabilityResponse returns the capability row.
+message QueryProfileCapabilityResponse {
+  ProfileCapabilityState capability = 1;
+}
+
+// QueryModelSupportRequest identifies one node-level P30 support row.
+message QueryModelSupportRequest {
+  string operator_address = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+}
+
+// QueryModelSupportResponse returns one node-level P30 support row.
+message QueryModelSupportResponse {
+  ModelSupportState support = 1;
+}
+
+// QueryDailySupportRequest selects one operator/epoch heartbeat.
+message QueryDailySupportRequest {
+  string operator_address = 1;
+  uint64 epoch = 2;
+}
+
+// QueryDailySupportResponse returns the retained heartbeat row.
+message QueryDailySupportResponse {
+  DailySupportState support = 1;
+}
+
+// QueryServiceLifecycleRequest selects one operator lifecycle view.
+message QueryServiceLifecycleRequest {
+  string operator_address = 1;
+}
+
+// QueryServiceLifecycleResponse combines identity and bond only.
+message QueryServiceLifecycleResponse {
+  ServiceLifecycleViewV1 lifecycle = 1;
+}
+
+// QueryCurrentCandidatePoolRequest has no selector (api_contract §16.3): the single
+// global pool is resolved from the current pointer. The old per-profile
+// model_id/profile_version/duty selectors are deleted because per-profile pools no
+// longer exist.
+// QueryCurrentCandidatePoolRequest defines the QueryCurrentCandidatePoolRequest wire type.
+message QueryCurrentCandidatePoolRequest {}
+
+// QueryCurrentCandidatePoolResponse returns the one ACTIVE snapshot the current
+// pointer resolves to; a missing pointer is NotFound and the Query never triggers
+// a build.
+// QueryCurrentCandidatePoolResponse defines the QueryCurrentCandidatePoolResponse wire type.
+message QueryCurrentCandidatePoolResponse {
+  CandidatePoolSnapshotViewV1 snapshot = 1;
+}
+
+// QueryCandidatePoolSnapshotRequest identifies one immutable pool snapshot
+// (§16.3).
+// QueryCandidatePoolSnapshotRequest defines the QueryCandidatePoolSnapshotRequest wire type.
+message QueryCandidatePoolSnapshotRequest {
+  bytes snapshot_id = 1;
+}
+
+// QueryCandidatePoolSnapshotResponse projects the public header and hides build
+// and refcount fields. status = PRUNED does not mean an empty pool; member
+// queries must then return FailedPrecondition.
+// QueryCandidatePoolSnapshotResponse defines the QueryCandidatePoolSnapshotResponse wire type.
+message QueryCandidatePoolSnapshotResponse {
+  CandidatePoolSnapshotViewV1 snapshot = 1;
+}
+
+// QueryCandidatePoolMemberRequest selects one stable slot of one snapshot
+// (§16.3).
+// QueryCandidatePoolMemberRequest defines the QueryCandidatePoolMemberRequest wire type.
+message QueryCandidatePoolMemberRequest {
+  bytes snapshot_id = 1;
+  uint32 candidate_slot = 2;
+}
+
+// QueryCandidatePoolMemberResponse returns the verifiable member/binding join.
+// A pruned body is FailedPrecondition; only an unknown snapshot or member is
+// NotFound.
+//
+// CONTRACT-GAP: api_contract §3.6 describes this response as "member +
+// membership_binding" while §16.3 registers exactly `1=member` and §16.5 freezes
+// CandidatePoolMemberViewV1 at four fields with no membership_binding. The
+// §16.3/§16.5 shape is implemented.
+// QueryCandidatePoolMemberResponse defines the QueryCandidatePoolMemberResponse wire type.
+message QueryCandidatePoolMemberResponse {
+  CandidatePoolMemberViewV1 member = 1;
+}
+
+// QueryCandidatePoolMembersRequest pages one snapshot's members (§16.3).
+message QueryCandidatePoolMembersRequest {
+  bytes snapshot_id = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QueryCandidatePoolMembersResponse walks slots in ascending order under the
+// count and bytes caps; a pruned snapshot body is FailedPrecondition for the whole
+// call.
+// QueryCandidatePoolMembersResponse defines the QueryCandidatePoolMembersResponse wire type.
+message QueryCandidatePoolMembersResponse {
+  repeated CandidatePoolMemberViewV1 members = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// CurrentServiceKeyViewV1 is the current key binding projection of §16.5.
+message CurrentServiceKeyViewV1 {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+  string service_address = 3;
+  // 33-byte compressed secp256k1 service key, not a digest; REST uses Base64.
+  bytes service_pubkey = 4;
+  uint64 service_authorization_nonce = 5;
+  // Exactly one status matching participant_type is set.
+  // participant_status selects one supported variant.
+  oneof participant_status {
+    ServiceKeyStatus cortex_service_key_status = 6;
+    ServiceKeyStatus builder_service_key_status = 7;
+  }
+  uint64 current_descriptor_version = 8;
+}
+
+// ServiceLifecycleViewV1 joins the identity and bond authorities (§16.5).
+message ServiceLifecycleViewV1 {
+  optional CortexNodeState node = 1;
+  ServiceBondState bond = 2;
+}

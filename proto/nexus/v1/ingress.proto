@@ -1,0 +1,940 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "task/v1/commit.proto";
+import "task/v1/infer_receipt.proto";
+import "task/v1/result.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
+
+// IngressAPI is the single external interface of nexus (toward SDK / Worker / Verifier).
+//
+// The method table follows 20-Service Design/nexus/Interface & Topic Catalogue.md §4.2; the
+// Task data-plane messages and digests follow Task Data Interface Design.md §6; the OUTPUT
+// frame stream follows Streaming Output Delivery Design.md §5.
+//
+// BREAKING (first version after v0.3.0): the Task data plane is replaced wholesale per the two
+// documents above, with no compatibility layer:
+//   - the three relay RPCs embed the authoritative task.v1 messages directly and no
+//     longer declare a second set of field authorities such as
+//     SignedInferReceiptV1 / VerifyMetricSummaryV1;
+//   - object addressing is unified as TaskDataObjectRefV1; evidence is located by
+//     (evidence_producer_kind, verify_round, producer_operator);
+//     DataKind / EvidenceSelectorV1 / EvidenceKind / EvidenceCommitmentV1 are removed;
+//   - request authentication is unified as the 11-field TaskDataRequestAuthV1;
+//     SignedTaskDataRangeV1 is removed;
+//   - UploadTaskResultData is renamed and reworked into UploadTaskResultObject;
+//     FinalizeTaskResult / FinalizeVerifierEvidence are added;
+//   - BuilderStorageConfirmationV1 becomes 9 fields, signed under TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1.
+// The ADR-0017 frame-stream messages keep their v0.3.0 shape; only the referenced types are
+// swapped for the new ones above.
+// SubmitOrder / FetchOutputRef / RefreshCredential, superseded by the contract, are kept as is;
+// the removal date is pending a team decision.
+//
+// Dependency direction: this file importing task.v1 is an explicit requirement of
+// Interface & Topic Catalogue.md §4.2 ("Nexus derives the locator from the imported Task
+// message and places the very same protobuf message verbatim into the corresponding
+// Msg/Batch or Bus payload"). Nested Task messages keep Hash32 as raw bytes; this file's own
+// Hash32 fields remain 64-char lowercase hex strings.
+//
+// Cross-cutting concerns (access log / api-key / IP allowlist) are handled uniformly by a
+// Connect unary interceptor.
+service IngressAPI {
+  // ---- SDK (User side) ----
+
+  // §3.1 The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
+  // after the input is fully received, input_hash / input_size_bytes are verified, the bytes
+  // are persisted and the storage confirmation is signed.
+  rpc OpenTask(stream OpenTaskRequest) returns (OpenTaskResponse);
+  // §3.2 Records the cross-Builder input storage confirmations collected by the SDK, for
+  // reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
+  // the V1 baseline does not require calling it.
+  rpc ConfirmOpenTask(ConfirmOpenTaskRequest) returns (ConfirmOpenTaskResponse);
+  // §3.5 The user SDK subscribes to the signed OUTPUT frame stream (ADR-0017). The Builder
+  // forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
+  // the User verifies each frame's signature and recomputes the root itself.
+  rpc SubscribeOutput(SubscribeOutputRequest) returns (stream SubscribeOutputResponse);
+  // §3.6 Only records local delivery progress (task, last_seq); takes no part in settlement /
+  // retention / fault attribution.
+  rpc AckOutput(AckOutputRequest) returns (AckOutputResponse);
+  // §3.7 Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
+  // signature required.
+  rpc GetTaskStatus(GetTaskStatusRequest) returns (GetTaskStatusResponse);
+  // §3.8 Historical events after the cursor plus live events.
+  rpc GetTaskEvents(GetTaskEventsRequest) returns (stream GetTaskEventsResponse);
+  // §3.9 Returns the challenge plan; submits no transaction.
+  rpc PrepareChallenge(PrepareChallengeRequest) returns (PrepareChallengeResponse);
+
+  // ---- Task data plane (Cortex and authenticated Users) ----
+  // The six methods below are authenticated by TaskDataRequestAuthV1, see
+  // Interface & Topic Catalogue.md §4.2.1.
+
+  // Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
+  // Only the first-frame header is signed; the following chunks must in the end exactly
+  // satisfy the signed content_hash and size_bytes.
+  // accepted only means this object is STORED, not that the whole Task Result is complete.
+  rpc UploadTaskResultObject(stream UploadTaskResultObjectRequest) returns (UploadTaskResultObjectResponse);
+  // The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
+  // InferReceipt (ADR-0017).
+  // Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
+  // mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
+  // 04-Task/05-Verification Algorithm §8.1.
+  // The Builder verifies each frame's signature, computes the leaf itself and appends to its
+  // own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
+  // The frame is not modified and no Builder signature is added. Chunks are not acknowledged
+  // per frame; the Builder replies only on Header and Fin.
+  //
+  // Any error closes the stream; the rejection reason is carried by the gRPC status code with
+  // no separate reason field: two sources of error truth on one stream will diverge sooner or
+  // later. 04-Task/02-Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+  // "own cause" from "external cause" -- resending the former yields the same result however
+  // many times, resending the latter may succeed -- and the two call for opposite responses,
+  // so this mapping is a contract shared by both sides, not a Builder implementation detail.
+  //
+  //   Own cause (the same Builder must not receive the same frame again; matching rejections
+  //   from three Builders stop sending):
+  //     PermissionDenied   sender is not the Task's winner_worker, or service key signature fails
+  //     InvalidArgument    seq is not the expected next one (first frame must be 0), Chunk before
+  //                        Header, frame after Fin, a non-final frame shorter than the per-frame
+  //                        minimum byte count, attachment signature without an attachment
+  //     DataLoss           the root the Builder computes after appending the leaf differs from
+  //                        the frame's mmr_root
+  //     ResourceExhausted  a single message exceeds the frame limit plus attachment limit, or the
+  //                        cumulative bytes / leaf count exceed their limits
+  //     FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
+  //     DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
+  //
+  //   External cause (may resend Header and resume per §9.5):
+  //     Unavailable        transport interrupted, Builder process or storage unavailable
+  //     AlreadyExists      an object already exists for this key or the stream is finalized.
+  //                        Resend Header to get the progress reply first, then decide: if the
+  //                        root in the progress equals your own root at the same chunk, resume;
+  //                        otherwise switch to another Builder
+  //
+  // Before resuming, the mmr_root in the progress reply must equal your own root at the same
+  // chunk; if not, received chunks must not be overwritten. Builder-side idempotency is
+  // guaranteed by "a newly arrived Header takes over the Task's write stream; received chunks
+  // are never rewritten".
+  rpc UploadTaskOutputStream(stream UploadTaskOutputStreamRequest) returns (stream UploadTaskOutputStreamResponse);
+  // Queries the boundary metadata of a single object; returns no content, locator or download
+  // authorization, and is not a prerequisite for Fetch.
+  rpc GetTaskDataMetadata(GetTaskDataMetadataRequest) returns (GetTaskDataMetadataResponse);
+  // Streams bytes by object ref and optional range. Permission comes from the on-chain role assignment:
+  // every range is re-authorized against the Task/round assignment at the current pinned
+  // height; no pre-signed download credential is used.
+  rpc FetchTaskData(FetchTaskDataRequest) returns (stream FetchTaskDataResponse);
+  // Atomically publishes the OUTPUT and the Worker evidence bundle and returns the two Builder
+  // storage confirmations. On success the OUTPUT, the manifest, the artifacts it references and
+  // the TaskData state switch to READY/FROZEN together.
+  rpc FinalizeTaskResult(FinalizeTaskResultRequest) returns (FinalizeTaskResultResponse);
+  // Atomically publishes the Verifier evidence bundle of that producer/round.
+  // Only that bundle is switched; the readiness of the Worker OUTPUT or the Worker evidence is
+  // unchanged, and it does not mean the on-chain Result is accepted.
+  rpc FinalizeVerifierEvidence(FinalizeVerifierEvidenceRequest) returns (FinalizeVerifierEvidenceResponse);
+
+  // ---- On-chain message relay (Cortex) ----
+  // All three rely on the message's own current service signature as the application-level
+  // role authentication; TaskDataRequestAuthV1 is not layered on top, and duplicate
+  // copies of locator / hash / signature are not accepted.
+  // A retry with the same material digest returns the original digest with idempotent=true;
+  // a different message under the same business key must CONFLICT and must not be overwritten
+  // or treated as an idempotent success.
+
+  // Relays a Worker-signed InferReceipt. accepted does not mean accepted on chain.
+  rpc SubmitInferReceipt(SubmitInferReceiptRequest) returns (SubmitInferReceiptResponse);
+  // Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
+  rpc SubmitVerifyCommit(SubmitVerifyCommitRequest) returns (SubmitVerifyCommitResponse);
+  // Relays a Verifier-signed ResultReceiptV2. accepted does not mean accepted on chain.
+  rpc SubmitVerifyResult(SubmitVerifyResultRequest) returns (SubmitVerifyResultResponse);
+
+  // ---- Legacy SDK methods superseded by the contract: marked deprecated, removal pending a team decision ----
+
+  // Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
+  rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse) {
+    option deprecated = true;
+  }
+  // Superseded by GetTaskDataMetadata + FetchTaskData: the contract returns no locator and issues
+  // no fetch credential. This method has no reference left to return, only CredentialV1;
+  // whether to keep it is still an open item.
+  rpc FetchOutputRef(FetchOutputRefRequest) returns (FetchOutputRefResponse) {
+    option deprecated = true;
+  }
+  // Fetch credential refresh: the contract has no counterpart (the CredentialV1 route as a whole
+  // is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
+  // download credentials; whether to keep it is pending a team decision.
+  rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse) {
+    option deprecated = true;
+  }
+}
+
+// TaskDataObjectKind is the closed set of Task data objects. INPUT / OUTPUT keep the values
+// of the old DataKind; the former generic EVIDENCE=3 narrows to MANIFEST=3, ARTIFACT takes
+// the new value 4.
+enum TaskDataObjectKind {
+  // Unspecified; rejected when it appears in a request.
+  TASK_DATA_OBJECT_KIND_UNSPECIFIED = 0;
+  // User input, uploaded only via the OpenTask client stream.
+  TASK_DATA_OBJECT_KIND_INPUT = 1;
+  // Worker output, uploadable only by the selected Worker.
+  TASK_DATA_OBJECT_KIND_OUTPUT = 2;
+  // The manifest object of an evidence bundle; its exact bytes are the preimage of the bundle hash.
+  TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST = 3;
+  // A single artifact referenced by the manifest; no media_type is provided, the codec is
+  // defined by the evidence schema.
+  TASK_DATA_OBJECT_KIND_EVIDENCE_ARTIFACT = 4;
+}
+
+// TaskDataObjectReadinessV1 is the visibility stage of a single object: STORED only once the
+// bytes are persisted and hash/size are verified, READY only via the atomic switch on Finalize.
+//
+// The _V1_ prefix in value names is required by buf lint ENUM_VALUE_PREFIX, consistent with the
+// other V1 enums in this repo; document §6.2 omits that segment, values and semantics match
+// item by item. The same applies to the three enums below.
+enum TaskDataObjectReadinessV1 {
+  // Unspecified; treated as a broken invariant when it appears in a response.
+  TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED = 0;
+  // Bytes persisted and hash and size verified, but the owning bundle is not yet finalized.
+  TASK_DATA_OBJECT_READINESS_V1_STORED = 1;
+  // The owning bundle has been atomically switched to readable.
+  TASK_DATA_OBJECT_READINESS_V1_READY = 2;
+}
+
+// TaskDataReadinessV1 is the stage of the whole Task data set.
+enum TaskDataReadinessV1 {
+  // Unspecified; treated as a broken invariant when it appears in a response.
+  TASK_DATA_READINESS_V1_UNSPECIFIED = 0;
+  // INPUT is ready and can be served to authorized Workers and Verifiers.
+  TASK_DATA_READINESS_V1_INPUT_READY = 1;
+  // Result objects are being STORED one by one, not yet finalized.
+  TASK_DATA_READINESS_V1_RESULT_STAGING = 2;
+  // Both OUTPUT and Worker evidence are READY.
+  TASK_DATA_READINESS_V1_READY = 3;
+}
+
+// EvidenceProducerKindV1 identifies the producer of an evidence bundle.
+enum EvidenceProducerKindV1 {
+  // Non-evidence objects always use this value.
+  EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED = 0;
+  // The selected Worker's bundle, always verify_round=1.
+  EVIDENCE_PRODUCER_KIND_V1_WORKER = 1;
+  // The bundle of a selected Verifier of some round; verify_round is 1 or 2.
+  EVIDENCE_PRODUCER_KIND_V1_VERIFIER = 2;
+}
+
+// TaskDataRequesterKindV1 alone determines the signature verification path of
+// TaskDataRequestAuthV1. Never sniff by signature length, and never trust a caller-supplied public key.
+enum TaskDataRequesterKindV1 {
+  // Unspecified; rejected when it appears in a request.
+  TASK_DATA_REQUESTER_KIND_V1_UNSPECIFIED = 0;
+  // The original ordering user, via EIP-712 v4 typed data; signature is exactly 65 bytes.
+  TASK_DATA_REQUESTER_KIND_V1_USER = 1;
+  // Cortex service key, via the TRUEOPEN_TASK_DATA_REQUEST_V1 direct digest; signature is exactly 64 bytes.
+  TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE = 2;
+}
+
+// TaskDataObjectRefV1 is the only way to address a Task data object.
+//
+// When entering a body digest, use the canonical projection of Interface & Topic
+// Catalogue.md §4.2.1: the eight fields in the order of this table; Hash32 is a lowercase hex
+// string on the transport and must be decoded to raw32 before entering the preimage.
+// Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
+// producer_operator absent.
+message TaskDataObjectRefV1 {
+  string task_hash = 1;
+  string session_id = 2;
+  string task_id = 3;
+  TaskDataObjectKind object_kind = 4;
+  // INPUT/OUTPUT use the content hash; EVIDENCE_MANIFEST uses the bundle hash of the
+  // corresponding Worker commitment or Verifier receipt; EVIDENCE_ARTIFACT uses the artifact
+  // hash from the manifest.
+  string content_hash = 5;
+  EvidenceProducerKindV1 evidence_producer_kind = 6;
+  uint32 verify_round = 7;
+  optional string producer_operator = 8;
+}
+
+// TaskDataObjectMetadataV1 is the boundary metadata of a single object; it contains no local
+// path or locator.
+message TaskDataObjectMetadataV1 {
+  TaskDataObjectRefV1 object_ref = 1;
+  uint64 size_bytes = 2;
+  // Optional transport hint only, usable for INPUT/OUTPUT. It is not part of the content hash,
+  // signature or model verification semantics; EVIDENCE_ARTIFACT must leave it empty, its codec
+  // is defined solely by the evidence schema.
+  string media_type = 3;
+  TaskDataObjectReadinessV1 readiness = 4;
+  // ADR-0017: OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
+  // leaves from it to rebuild the MMR and check output_hash and output_leaf_count. Returned only
+  // for READY OUTPUT objects; not part of the receipt.
+  repeated uint32 chunk_lengths = 5;
+  // ADR-0017: OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
+  // length 0, not an empty tree.
+  uint64 output_leaf_count = 6;
+}
+
+// EvidenceBundleSummaryV1 is returned only when querying an EVIDENCE_MANIFEST; artifact details
+// must be taken from the verified manifest and are not stuffed into this response.
+message EvidenceBundleSummaryV1 {
+  string evidence_bundle_hash = 1;
+  string evidence_schema_hash = 2;
+  uint32 artifact_count = 3;
+  uint64 artifact_total_size_bytes = 4;
+  uint64 manifest_size_bytes = 5;
+}
+
+// ByteRangeV1 is the optional segment of FetchTaskData. When present, length must be greater
+// than 0 and offset+length must neither overflow nor exceed the object size.
+message ByteRangeV1 {
+  uint64 offset = 1;
+  uint64 length = 2;
+}
+
+// BuilderStorageConfirmationV1 is the storage confirmation shared by INPUT, OUTPUT and complete
+// evidence bundles (Task Data Interface Design.md §6.3a). Object differences are expressed only
+// by object_ref; there is no separate, highly repetitive confirmation type per object kind.
+//
+// The single signing digest (service_signature itself is not included):
+//   builder_storage_confirmation_digest =
+//     H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1",
+//       u32_be(schema_version), utf8(chain_id),
+//       address_codec_bytes(builder_operator_address),
+//       u64_be(service_authorization_nonce), canonical TaskDataObjectRefV1,
+//       u64_be(size_bytes), u64_be(artifact_total_size_bytes),
+//       u64_be(retention_until_height))
+//   service_signature = SignRaw64(current Builder service key, digest above)
+//
+// At signing time the nonce must equal the Builder operator's current ACTIVE service binding
+// and be non-zero; the receiver verifies immediately and stores the service identity verified
+// at that time. Later key rotation neither invalidates verified confirmations nor authorizes
+// the old key to sign new ones. retention_until_height is the retention lower bound promised at
+// signing time; later extension of the retention window does not require re-signing.
+//
+// Closed-set semantics by object_kind:
+//   INPUT / OUTPUT           content_hash is input_hash / output_hash;
+//                            producer_kind=UNSPECIFIED, verify_round=0,
+//                            producer_operator absent, artifact_total_size_bytes=0.
+//   EVIDENCE_MANIFEST        content_hash is evidence_bundle_hash; producer_kind is WORKER or
+//                            VERIFIER; verify_round and producer_operator must match the
+//                            authoritative role assignment of that Task/round; size_bytes is the
+//                            exact manifest byte size; artifact_total_size_bytes is the checked
+//                            sum of all artifact sizes in the manifest.
+//   EVIDENCE_ARTIFACT        no standalone confirmation is signed; it is committed only by the
+//                            owning manifest hash and the bundle confirmation.
+message BuilderStorageConfirmationV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  string builder_operator_address = 3;
+  uint64 service_authorization_nonce = 4;
+  TaskDataObjectRefV1 object_ref = 5;
+  uint64 size_bytes = 6;
+  uint64 artifact_total_size_bytes = 7;
+  uint64 retention_until_height = 8;
+  // compact low-S raw64.
+  bytes service_signature = 9;
+}
+
+// TaskDataRequestAuthV1 authenticates Task data-plane upload, finalize, metadata and fetch
+// requests. It replaces neither the Task receipt signature nor the on-chain role check.
+//
+// The field order is the ordered preimage of TRUEOPEN_TASK_DATA_REQUEST_V1 (fields 1..10; the
+// signature itself is not included) and also the typed field order of the USER path's EIP-712
+// TaskDataRequest.
+//
+// requester_kind alone determines the verification path:
+//   USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "1",
+//                   signature exactly 65 bytes R||S||V, V in {27,28}, low-S;
+//                   service_authorization_nonce must be 0;
+//                   personal_sign, eth_sign and raw64 are rejected.
+//   CORTEX_SERVICE  direct digest H_FIELDS_V1("TRUEOPEN_TASK_DATA_REQUEST_V1", fields 1..10),
+//                   signature exactly 64 bytes compact low-S R||S;
+//                   nonce must equal the non-zero nonce of the operator's current ACTIVE service binding.
+// Neither path carries a caller pubkey, service address, endpoint or session/task copy, and both
+// re-verify the Task/round role assignment at the same pinned committed height -- the signature
+// only proves the request identity and grants no read/write permission beyond the
+// authoritative state.
+message TaskDataRequestAuthV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  // Must equal the Builder operator bound to the current TLS endpoint at the same query height.
+  string builder_operator_address = 3;
+  // Must equal, byte for byte, the ASCII "/nexus.v1.IngressAPI/<Method>" actually called.
+  string rpc_method = 4;
+  // Digest under one of the five body domains, see Interface & Topic Catalogue.md §4.2.1.
+  string body_digest = 5;
+  TaskDataRequesterKindV1 requester_kind = 6;
+  string requester_address = 7;
+  uint64 service_authorization_nonce = 8;
+  // 32 raw bytes from a CSPRNG.
+  bytes request_nonce = 9;
+  // current_height <= expiry_height <= current_height + max_service_material_expiry_blocks;
+  // the addition must be checked; never mix in Unix time or guess the unit from the magnitude.
+  uint64 expiry_height = 10;
+  // USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
+  bytes signature = 11;
+}
+
+// SDKRequestEnvelopeV1 is the signed envelope of User-side SDK requests, used by OpenTask /
+// ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
+// Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
+//
+// SignBytes (concatenated in order, each with a 4-byte big-endian length prefix):
+//   TRUEOPEN_SDK_REQUEST_V1, chain_id, method, endpoint, session_id, task_id,
+//   request_nonce, i64be(expiry_height_or_time), body_digest
+// Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
+// SignBytes does not cover signer_address; the address is checked via bech32(signer_pubkey).
+message SDKRequestEnvelopeV1 {
+  string request_domain = 1;        // fixed "TRUEOPEN_SDK_REQUEST_V1"
+  string chain_id = 2;              // prevents cross-chain replay
+  string method = 3;                // IngressAPI method name
+  string endpoint = 4;              // endpoint being accessed
+  string session_id = 5;            // required for requests that have a session
+  string task_id = 6;               // required for requests that have a task
+  bytes request_nonce = 7;          // client request nonce
+  int64 expiry_height_or_time = 8;  // expiry height or Unix milliseconds
+  bytes body_digest = 9;            // canonical digest of the request body
+  string signer_address = 10;       // on-chain address of the SDK user
+  bytes signature = 11;             // covers the fields above (sha256 then secp256k1, 64B r||s)
+  bytes signer_pubkey = 12;         // compressed public key (for verification)
+}
+
+// OpenTaskHeader is the first frame of OpenTask (contract §3.1). order_envelope +
+// signature_scheme + signature together form what the contract calls the SignedOrder.
+message OpenTaskHeader {
+  bytes order_envelope = 1;
+  string payload_ref = 2;
+  bytes signature = 3;
+  SDKRequestEnvelopeV1 request_envelope = 4;
+  string session_id = 5;
+  uint64 order_sequence = 6;
+  string user_address = 7;
+  string signature_scheme = 8;
+  uint64 input_size_bytes = 9;
+  string input_hash = 10;
+  string input_media_type = 11;
+  // Required by contract §3.1: the User keeps it unchanged across retries; same key + same
+  // input_hash returns the same result, same key + different input_hash is rejected.
+  string idempotency_key = 12;
+}
+
+// OpenTask client stream frame: header first, then input chunks.
+message OpenTaskRequest {
+  // Frame content: header or data chunk.
+  oneof frame {
+    OpenTaskHeader header = 1;
+    bytes chunk = 2;
+  }
+}
+
+// OpenTask acceptance response; accepted only means this Builder accepted it, not accepted on chain.
+// When accepted=true, fields 5 and 6 must be present; when false, field 6 must be absent.
+message OpenTaskResponse {
+  string task_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+  string session_id = 4;
+  TaskDataObjectMetadataV1 input_metadata = 5;
+  BuilderStorageConfirmationV1 input_confirmation = 6;
+}
+
+// ConfirmOpenTaskRequest, contract §3.2.
+message ConfirmOpenTaskRequest {
+  string session_id = 1;
+  string task_id = 2;
+  SDKRequestEnvelopeV1 request_envelope = 3;
+  // Strictly ascending and unique by Builder operator raw bytes, and all must reference the
+  // same INPUT object ref. Confirmations for an old RBF task_hash do not count toward the new version.
+  repeated BuilderStorageConfirmationV1 input_confirmations = 4;
+}
+
+// ConfirmOpenTask response.
+message ConfirmOpenTaskResponse {
+  bool recorded = 1;
+  string reason = 2;
+}
+
+// UploadTaskResultObjectHeaderV1 is the first upload frame and the only signed part.
+// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1(canonical object_ref,
+// size_bytes, media_type).
+message UploadTaskResultObjectHeaderV1 {
+  TaskDataObjectRefV1 object_ref = 1;
+  uint64 size_bytes = 2;
+  string media_type = 3;
+  TaskDataRequestAuthV1 request_auth = 4;
+}
+
+// UploadTaskResultObject client stream frame: header first, then data chunks.
+message UploadTaskResultObjectRequest {
+  // Frame content: header or data chunk.
+  oneof frame {
+    UploadTaskResultObjectHeaderV1 header = 1;
+    bytes chunk = 2;
+  }
+}
+
+// UploadTaskResultObject response. It only proves the single object is fully saved as STORED;
+// it neither proves the whole Task Result is complete nor issues the final StorageConfirmation.
+message UploadTaskResultObjectResponse {
+  bool accepted = 1;
+  bool idempotent = 2;
+  TaskDataObjectMetadataV1 metadata = 3;
+}
+
+// First frame of UploadTaskOutputStream: opens an OUTPUT stream (ADR-0017).
+//
+// Carries neither a receipt nor a starting chunk index -- the starting point is given by the
+// Builder's OutputStreamProgressV1 reply. On disconnect, resend this frame to reconnect.
+// request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
+// domain is not yet in the closed set of five body domains of Interface & Topic
+// Catalogue.md §4.2.1 and will be registered here once the document is completed.
+message OutputStreamHeaderV1 {
+  string session_id = 1;
+  string task_id = 2;
+  // Routing and verification copy; must equal the on-chain accepted_task_hash.
+  string task_hash = 3;
+  TaskDataRequestAuthV1 request_auth = 4;
+}
+
+// One chunk of OUTPUT text and its cumulative commitment
+// (04-Task/02-Data Plane & Evidence Transport §9.2).
+//
+// The same message is used both for Worker->Builder upload and Builder->User forwarding: the
+// Builder forwards it verbatim, without modifying the frame or adding its own signature.
+message OutputChunkV1 {
+  // Leaf index; the first frame must be 0, each following frame adds 1.
+  uint64 seq = 1;
+  // UTF-8 bytes of this chunk's TEXT component. It is exactly one MMR leaf.
+  bytes text = 2;
+  // Cumulative MMR root after appending this leaf, i.e. the root over the first seq + 1 leaves.
+  bytes mmr_root = 3;
+  // Worker service key raw64 signature (R||S, low-S) over the TRUEOPEN_OUTPUT_CHUNK_V1 digest.
+  bytes worker_signature = 4;
+  // Phase 0 requires this field to be empty; any non-empty value fails closed.
+  // A future activation requires a new domain, limits, vectors and Wire release.
+  bytes attachment = 5;
+  // Phase 0 requires this field to be empty together with attachment.
+  bytes attachment_signature = 6;
+}
+
+// Closing frame of an OUTPUT stream (04-Task/02-Data Plane & Evidence Transport §9.2).
+//
+// Carries no signature. The authoritative commitment to the final root is
+// InferReceipt.output_hash; output_mmr_root here only lets the receiver detect early that it
+// disagrees with the Worker.
+message OutputFinV1 {
+  uint64 final_seq = 1;
+  bytes output_mmr_root = 2;
+}
+
+// Upstream frame of UploadTaskOutputStream: one Header, then consecutive Chunks, finally Fin.
+message UploadTaskOutputStreamRequest {
+  // Exactly one of three frame kinds. No Chunk is accepted before Header, and no frame after Fin.
+  oneof frame {
+    OutputStreamHeaderV1 header = 1;
+    OutputChunkV1 chunk = 2;
+    OutputFinV1 fin = 3;
+  }
+}
+
+// Progress the Builder replies after receiving Header: the Worker decides from which chunk to resume.
+message OutputStreamProgressV1 {
+  // Index of the last chunk the Builder has received. Absent means none received; the Worker
+  // starts from seq = 0.
+  optional uint64 last_seq = 1;
+  // The current root computed by the Builder. The Worker must check it equals its own root at
+  // the same chunk before resuming; if not, switch to another Builder and never overwrite
+  // received chunks.
+  bytes mmr_root = 2;
+  // Whether the previous chunk was already shorter than the per-frame minimum byte count.
+  // When true, the stream can only receive the final frame.
+  bool last_frame_short = 3;
+}
+
+// Result the Builder replies after receiving Fin.
+message OutputStreamResultV1 {
+  reserved 5;
+  reserved "storage_confirmation";
+
+  bool accepted = 1;
+  uint64 last_seq = 2;
+  // The final root computed by the Builder, i.e. the object's output_hash.
+  bytes output_mmr_root = 3;
+  // Leaf count, i.e. chunk count, written to TaskDataObjectMetadataV1.output_leaf_count.
+  uint64 leaf_count = 4;
+}
+
+// Downstream frame of UploadTaskOutputStream: the Builder replies only on Header and Fin;
+// Chunks are not acknowledged per frame; any error closes the stream.
+message UploadTaskOutputStreamResponse {
+  // Exactly one of two replies.
+  oneof reply {
+    OutputStreamProgressV1 progress = 1;
+    OutputStreamResultV1 result = 2;
+  }
+}
+
+// GetTaskDataMetadataRequest queries one object at a time; it does not enumerate the whole Task.
+// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V1(canonical object_ref).
+message GetTaskDataMetadataRequest {
+  TaskDataObjectRefV1 object_ref = 1;
+  TaskDataRequestAuthV1 request_auth = 2;
+}
+
+// GetTaskDataMetadataResponse returns boundary metadata only; no content, Builder-internal
+// locator or download authorization.
+message GetTaskDataMetadataResponse {
+  TaskDataObjectMetadataV1 metadata = 1;
+  // Returned only when querying an EVIDENCE_MANIFEST.
+  EvidenceBundleSummaryV1 evidence_bundle = 2;
+  // Convenience copy; the caller must compare it against the on-chain accepted receipt before trusting it.
+  task.v1.InferReceiptV2 infer_receipt = 3;
+  uint64 retain_until_height = 4;
+}
+
+// FetchTaskDataRequest fetches bytes by object ref and optional range.
+// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V1(canonical object_ref, optional range).
+// A full read must be signed with range absent; it must not be rewritten as a present range
+// with both offset/length zero.
+message FetchTaskDataRequest {
+  TaskDataObjectRefV1 object_ref = 1;
+  optional ByteRangeV1 range = 2;
+  TaskDataRequestAuthV1 request_auth = 3;
+}
+
+// First frame of FetchTaskData: binds the object ref, total size, optional media type and the
+// range actually served. media_type is empty for EVIDENCE_ARTIFACT.
+message FetchTaskDataHeaderV1 {
+  TaskDataObjectRefV1 object_ref = 1;
+  uint64 total_size_bytes = 2;
+  string media_type = 3;
+  // Echoes the range actually served; when the request range is absent it is offset=0,
+  // length=total_size_bytes.
+  ByteRangeV1 served_range = 4;
+}
+
+// Data frame of FetchTaskData: offset is the absolute byte offset from the start of the whole
+// object, frames are contiguous, and the last frame has eof=true.
+message FetchTaskDataChunkV1 {
+  uint64 offset = 1;
+  bytes data = 2;
+  bool eof = 3;
+}
+
+// FetchTaskData server stream frame: the first frame must be header, followed by chunks.
+message FetchTaskDataResponse {
+  // Frame content: header or data chunk.
+  oneof frame {
+    FetchTaskDataHeaderV1 header = 1;
+    FetchTaskDataChunkV1 chunk = 2;
+  }
+}
+
+// FinalizeTaskResultRequest is initiated by the selected Worker. Before accepting, Nexus must
+// check: the requester is the current selected Worker; the receipt signature, Task identity and
+// Worker identity are valid; the OUTPUT is STORED and its hash/size match the receipt; the
+// manifest is STORED and parses strictly; the bundle hash and size computed over the exact
+// manifest bytes both match the receipt; all artifacts referenced by the manifest are STORED
+// with matching hash/size; manifest.evidence_schema_hash matches the locked Verification
+// Profile; when an accepted receipt already exists on chain, the local one must match it.
+// Nexus does not interpret artifact IDs, parse model evidence semantics or recompute
+// model-internal roots.
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1(task_hash, session_id,
+// task_id, infer_receipt_hash, SHA256(receipt.service_signature)).
+message FinalizeTaskResultRequest {
+  string task_hash = 1;
+  string session_id = 2;
+  string task_id = 3;
+  task.v1.InferReceiptV2 receipt = 4;
+  TaskDataRequestAuthV1 request_auth = 5;
+}
+
+// FinalizeTaskResult response. The confirmation must be present when accepted and absent on
+// failure; an exact replay returns the originally persisted bytes and signature without re-signing.
+message FinalizeTaskResultResponse {
+  bool accepted = 1;
+  bool idempotent = 2;
+  BuilderStorageConfirmationV1 output_confirmation = 3;
+  // Nexus signs a confirmation for the OUTPUT and for each complete Worker evidence bundle
+  // separately, not for individual artifacts within a bundle. This field is ordered by the
+  // evidence_kind of the corresponding required_evidence_commitments[] ascending, with exactly
+  // the same count.
+  repeated BuilderStorageConfirmationV1 evidence_bundle_confirmations = 4;
+}
+
+// FinalizeVerifierEvidenceRequest is initiated by a selected Verifier of some round. Nexus must
+// confirm the requester/producer is the selected Verifier of that round, that the
+// ResultReceiptV2's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
+// fully match the manifest, and that all artifacts are STORED with correct hash/size.
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1(task_hash, session_id,
+// task_id, verify_round, verifier_operator, result_receipt_signing_digest,
+// SHA256(receipt.service_signature)).
+message FinalizeVerifierEvidenceRequest {
+  string task_hash = 1;
+  string session_id = 2;
+  string task_id = 3;
+  uint32 verify_round = 4;
+  string verifier_operator = 5;
+  task.v1.ResultReceiptV2 receipt = 6;
+  TaskDataRequestAuthV1 request_auth = 7;
+}
+
+// FinalizeVerifierEvidence response. Only the bundle of that producer/round is switched; the
+// readiness of the Worker OUTPUT or the Worker evidence is unchanged.
+message FinalizeVerifierEvidenceResponse {
+  bool accepted = 1;
+  bool idempotent = 2;
+  BuilderStorageConfirmationV1 evidence_bundle_confirmation = 3;
+}
+
+// SubmitInferReceiptRequest carries only the authoritative message itself. Nexus derives the
+// task/round/operator locator from it and accepts no duplicate copies of locator or hash.
+message SubmitInferReceiptRequest {
+  task.v1.InferReceiptV2 receipt = 1;
+}
+
+// SubmitInferReceipt response: by accepting, the Builder commits to relaying it; it
+// does not mean accepted on chain.
+message SubmitInferReceiptResponse {
+  reserved 4;
+  reserved "output_storage_confirmation";
+
+  bool relay_accepted = 1;
+  string infer_receipt_hash = 2;
+  bool idempotent = 3;
+}
+
+// SubmitVerifyCommitRequest carries only the authoritative message itself.
+message SubmitVerifyCommitRequest {
+  task.v1.VerifyCommitV1 commit = 1;
+}
+
+// SubmitVerifyCommit response.
+message SubmitVerifyCommitResponse {
+  bool relay_accepted = 1;
+  string commit_key = 2;
+  string verify_commit_signing_digest = 3;
+  bool idempotent = 4;
+}
+
+// SubmitVerifyResultRequest carries only the authoritative message itself.
+message SubmitVerifyResultRequest {
+  task.v1.ResultReceiptV2 receipt = 1;
+}
+
+// SubmitVerifyResult response.
+message SubmitVerifyResultResponse {
+  bool relay_accepted = 1;
+  string result_receipt_signing_digest = 2;
+  string result_payload_hash = 3;
+  bool idempotent = 4;
+}
+
+// CredentialV1 fetch credential (v1.5 §3.2/§3.5): bound to task/recipient/usage/expiry, issued
+// by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
+message CredentialV1 {
+  string credential_id = 1;    // = hex(sha256(sign_bytes))
+  string session_id = 2;
+  string task_id = 3;
+  string recipient = 4;        // target recipient address
+  string usage = 5;            // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
+  AccessLevel access_level = 6;
+  int64 valid_until = 7;       // Unix milliseconds (chain-height binding pending chain-side support)
+  string issuer = 8;           // issuing Builder address
+  bytes issuer_sig = 9;        // Builder signature (may be empty in dev mode)
+}
+
+// SubmitOrder request (legacy JSON-envelope order path, kept for compatibility).
+message SubmitOrderRequest {
+  bytes order_envelope = 1; // signed order (contains model_id/price/timeout/nonce)
+  string payload_ref = 2;   // nexus://sha256/<hex>; must match the payload content
+  bytes signature = 3;      // user signature
+  SDKRequestEnvelopeV1 request_envelope = 4; // request signature envelope (required in v1.5; may be absent in lenient mode)
+  string session_id = 5;
+  uint64 order_sequence = 6;
+  string user_address = 7;
+  string signature_scheme = 8;
+  bytes payload = 9; // encrypted input body; its sha256 must match both payload_ref and the order's payload_hash
+}
+
+// SubmitOrder acceptance response.
+message SubmitOrderResponse {
+  string task_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+  string session_id = 4; // session identifier (generated on chain as session_id=hash(user,nonce); composite key)
+}
+
+// AccessLevel is the fetch authorization level (v1.5 §3.2).
+enum AccessLevel {
+  // Fetch the canonical output package + commitments (for candidate Verifier checks before
+  // hand-raise); no sealed key is given.
+  ACCESS_LEVEL_PACKAGE_UNSPECIFIED = 0;
+  // Fetch the sealed key (the ordering user / the selected Verifier chosen by verify-select).
+  ACCESS_LEVEL_SEALED_KEY = 1;
+}
+
+// FetchOutputRef request (RESERVED: contract v0.2 removed the output reference object).
+message FetchOutputRefRequest {
+  string task_id = 1;
+  string requester = 2; // requester identity (SDK user / candidate Verifier / selected Verifier)
+  bytes signature = 3;
+  string session_id = 4;      // session identifier (composite key)
+  AccessLevel access_level = 5; // fetch authorization level (default PACKAGE: no sealed key)
+  string usage = 6;             // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
+  SDKRequestEnvelopeV1 request_envelope = 7; // for SDK users; Verifiers use the role signature (signature)
+  bytes requester_pubkey = 8; // compressed public key for the role-signature path; check bech32(pubkey)==requester
+}
+
+// FetchOutputRef response (RESERVED).
+message FetchOutputRefResponse {
+  reserved 1; // former output_ref: the OutputRef object was removed by the Cortex contract "target-state baseline"
+  reserved "output_ref";
+  CredentialV1 credential = 2; // fetch credential bound to task/recipient/usage/expiry
+}
+
+// SubscribeOutputRequest, contract §3.5.
+// BodyDigest = BodyDigest(session_id, task_id), frozen and consistent with the implementation.
+message SubscribeOutputRequest {
+  string session_id = 1;
+  string task_id = 2;
+  SDKRequestEnvelopeV1 request_envelope = 3;
+  // ADR-0017: resume point; only frames with seq greater than this value are replayed. Leave
+  // unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
+  // any Task Builder with the last locally verified chunk index to resume.
+  uint64 resume_after_seq = 4;
+}
+
+// SubscribeOutputResponse is the forwarded stream of Worker-signed frames (ADR-0017).
+//
+// The Builder forwards OutputChunkV1 / OutputFinV1 verbatim, without modifying frames, adding
+// its own signature or waiting for the receipt.
+// The User checks each frame itself: seq is contiguous, the recomputed root after appending the
+// leaf equals the frame's mmr_root, and the Worker signature verifies; after Fin, wait for the
+// on-chain receipt and only mark confirmed once receipt.output_hash equals the local final root.
+// Fields 1-7 are the pre-chunking whole-plaintext delivery; deprecated, new implementations
+// neither set nor read them.
+message SubscribeOutputResponse {
+  string output_id = 1 [deprecated = true];
+  string session_id = 2 [deprecated = true];
+  string task_id = 3 [deprecated = true];
+  string output_text = 4 [deprecated = true];
+  bytes output_hash = 5 [deprecated = true];
+  int64 created_at = 6 [deprecated = true];
+  int64 expires_at = 7 [deprecated = true];
+  // Exactly one of two forwarded frames.
+  oneof frame {
+    OutputChunkV1 chunk = 8;
+    OutputFinV1 fin = 9;
+  }
+}
+
+// AckOutputRequest, contract §3.6.
+//
+// After ADR-0017 the delivery progress is just (task, last_seq); stream_id or output_hash is no
+// longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
+// an input to settlement, challenge, fault attribution or deletion permission
+// (04-Task/02-Data Plane & Evidence Transport §9.4).
+message AckOutputRequest {
+  string session_id = 1;
+  string task_id = 2;
+  string output_id = 3 [deprecated = true];
+  SDKRequestEnvelopeV1 request_envelope = 4;
+  // Index of the last chunk the User has verified locally.
+  uint64 last_seq = 5;
+}
+
+// AckOutput response.
+message AckOutputResponse {
+  bool acked = 1;
+  bool already_acked = 2;
+  int64 acked_at = 3;
+}
+
+// GetTaskEventsRequest, contract §3.8.
+// The BodyDigest order session_id, task_id, from_cursor is frozen and consistent with the implementation.
+message GetTaskEventsRequest {
+  string session_id = 1;
+  string task_id = 2;
+  string from_cursor = 3; // resume cursor after disconnect (last received cursor; empty = from the beginning)
+  SDKRequestEnvelopeV1 request_envelope = 4;
+}
+
+// GetTaskEventsResponse, contract §3.8: at most 256 events per task, events may be dropped when
+// the channel is full, replay from the cursor on reconnect.
+//
+// Full set of stable event_code values (Interface & Topic Catalogue.md §4.10):
+//   ORDER_RECEIVED, WORKER_HANDRAISES_ACCEPTED, WORKER_ASSIGNMENT_FINALIZED,
+//   OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
+//   TASK_SETTLED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED
+// The old names OUTPUT_REF_RECEIVED / FULL_RESULT_REVEAL_ACCEPTED are not kept as aliases.
+message GetTaskEventsResponse {
+  string cursor = 1;      // resumable cursor (decimal, increasing per task)
+  string state = 2;       // TaskState coarse state
+  string task_phase = 3;  // fine-grained TaskPhase
+  string event_code = 4;  // stable event code
+  int64 chain_height = 5; // set when the event comes from chain; 0 for local events
+}
+
+// RefreshCredential request: refreshes a fetch credential.
+message RefreshCredentialRequest {
+  CredentialV1 credential = 1;              // original credential (stateless check: signature + credential still held)
+  string session_id = 2;
+  string task_id = 3;
+  string recipient = 4;                     // target recipient (must match the original credential)
+  string usage = 5;                         // fetch usage (must match the original credential)
+  int64 requested_valid_until = 6;          // requested extension time (Unix milliseconds; clamped to the upper bound)
+  SDKRequestEnvelopeV1 request_envelope = 7;
+}
+
+// RefreshCredential response: the new fetch credential.
+message RefreshCredentialResponse {
+  CredentialV1 credential = 1; // new credential
+  reserved 2; // former output_ref: the OutputRef object was removed by the Cortex contract "target-state baseline"
+  reserved "output_ref";
+}
+
+// PrepareChallengeRequest, contract §3.9. The BodyDigest order
+// session_id, task_id, challenge_kind, local_evidence_digest is frozen and consistent with the implementation.
+message PrepareChallengeRequest {
+  string session_id = 1;
+  string task_id = 2;
+  string challenge_kind = 3;        // the challenge kind planned to be submitted
+  bytes local_evidence_digest = 4;  // evidence digest already computed locally by the SDK (optional)
+  SDKRequestEnvelopeV1 request_envelope = 5;
+}
+
+// PrepareChallenge response.
+message PrepareChallengeResponse {
+  bool challenge_open = 1;
+  // Interface & Topic Catalogue.md §4.11 calls this field challenge_close; the unit (block
+  // height vs Unix ms) is still to be unified. Here it is named by block height and typed
+  // uint64; the rename will be handled together with the unit decision.
+  uint64 challenge_close_height = 2;     // last block height at which a new challenge can still be opened
+  repeated string required_evidence = 3; // suggested evidence categories to collect/request
+  Coin estimated_bond = 4;               // estimated challenge bond
+  uint64 estimated_gas = 5;              // estimated gas
+}
+
+// Amount: denom plus the quantity in atomic units as a decimal string.
+message Coin {
+  string denom = 1;
+  string amount = 2;
+}
+
+// GetTaskStatus request: queries local task status by session_id and task_id.
+message GetTaskStatusRequest {
+  string task_id = 1;
+  string session_id = 2; // session identifier (composite key)
+}
+
+// GetTaskStatusResponse, contract §3.7: local FSM snapshot, not on-chain authority.
+// stage / set_id / updated_at are reserved in the proto and not populated by the implementation.
+//
+// The contract's state values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
+message GetTaskStatusResponse {
+  string state = 1;      // TaskState coarse state
+  string stage = 2;      // Stage (reserved, not populated)
+  string set_id = 3;     // reserved, not populated
+  int64 updated_at = 4;  // unix ms (reserved, not populated)
+  string task_phase = 5; // fine-grained TaskPhase
+}

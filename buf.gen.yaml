@@ -1,0 +1,11 @@
+version: v2
+plugins:
+  # The output directory is decided by each file's go_package (with the module prefix stripped):
+  #   trueopen/nexus, task, shared, hub -> gen/trueopen/... (standalone contract module; consumers only take the contract)
+  #   bus                                      -> gen/...       (root module; only for the Builder-to-Builder and Cortex bus)
+  - local: protoc-gen-go
+    out: gen
+    opt: module=github.com/TrueOpen/nexus/gen
+  - local: protoc-gen-connect-go
+    out: gen
+    opt: module=github.com/TrueOpen/nexus/gen

@@ -1,0 +1,697 @@
+package chaincli
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+	"testing"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+)
+
+// TestNodeMirrorDescriptorFingerprint pins the whole hub/shared/task mirror so any
+// accidental wire drift fails loudly.
+//
+// The value is pinned to TrueOpen/node branch contract/proto-v1-all-domains
+// (commit 3fe6598 "freeze all-domain V1 wire"): all three packages were regenerated wholesale from the
+// frozen contract, the event model unified on hub.v1.ProtocolEventCodeV1 + typed payload oneof, every
+// free-form string status replaced by a closed enum, every ID/hash switched to bytes, and the
+// hardware_tier / migration / model files deleted. This is a breaking change against the PR#85 baseline
+// and requires Node / Nexus / SDK / Cortex to deploy in the same batch.
+//
+// This update (TrueOpen/wire v0.1.1 resync, tools/mirror_wire.py): the proto packages were renamed
+// (hub.v1 / task.v1 / shared.v1 / bus.v1); messages, fields, field numbers, enums and methods are
+// unchanged, so only the fully qualified names moved the fingerprint.
+//
+// Previous update (full wire v0.4.1 resync, tools/mirror_wire.py): the four packages hub / task /
+// shared / bus are mirrored field by field from the wire v0.4.1 protos (only the gogoproto /
+// cosmos_proto / amino / cosmos.msg / rest_encoding / google.api options stripped); ParticipantType /
+// Duty / StoredBodyStatus / BucketKind / ProtocolEventCodeV1 / StreamCheckpoint moved to shared;
+// BuilderState dropped the admission status and BuilderSetViewV1 became builder_set_version +
+// effective_height; all Builder bond Query / Msg removed (Phase 0 BuilderBond is fixed at zero);
+// the protocol event stream is now served by HubEventService; FullResultReveal Query / Msg / events removed.
+//
+// Previous update (wire v0.4.1 / monorepo 08-TaskOrder Hashing and Signing §4): TaskOrderV1 replaced in
+// place by TaskOrderV2: the five prices in fields 14-18 collapse into a single `price_bid = 14`,
+// `reference_bucket_version` is removed and later fields shift forward, 30 fields → 25 fields,
+// `schema_version` is always 2; SignedOrderV1 replaced by SignedOrderV2 (`signature_scheme` is always
+// "eip712", `user_signature` is 65-byte R||S||V); `WorkerHandraiseScopeV1.signed_order` now points at V2.
+// Domain bumped to `TRUEOPEN_TASK_ORDER_V2`; Phase 0 keeps no V1 alias or dual decoder.
+//
+// Previous update (wire v0.4.0-v0.4.1): ResultReceiptV1 replaced in place by ResultReceiptV2:
+// the single result_reveal_hash became the three fields verifier_evidence_bundle_hash,
+// verifier_evidence_manifest_size_bytes and salt, expiry_height / service_signature moved back to
+// 14 / 15, domain bumped to TRUEOPEN_RESULT_V2, schema_version is always 2. ResultReceiptState gained the
+// scope and result_payload_hash fields Node had already published (16 fields). MsgSubmitVerifyResult and
+// MsgBatchSubmitVerifyResult now point at V2. The nexus mirror had been stuck on V1 all along; it did not
+// fall behind only at v0.4.1.
+//
+// Same batch (wire v0.4.1 / monorepo#142): InferReceiptV1 replaced in place by InferReceiptV2:
+// `generated_token_count` and `output_leaf_count` appended to the signature preimage, domain bumped to
+// `TRUEOPEN_INFER_RECEIPT_V2`, Phase 0 keeps no V1 alias or dual decoder. `InferReceiptState` inserts
+// `generated_token_count = 7`, fields 8-14 shift back by one, and `output_leaf_count = 15` is appended;
+// `MsgSubmitInferReceipt.receipt` now points at V2.
+//
+// Previous update (nexus#74): task.v1.Query gained `TaskBuilders` (wire v0.1.2):
+// `QueryTaskBuildersRequest{task_id}` / `QueryTaskBuildersResponse{selection}` /
+// `TaskBuilderSelectionViewV1` (9 fields). Settlement submission rights rotate in the frozen order of
+// `selected_task_builders` (§10.10a); the hub StageBuilderSelection nexus used to call does not exist on-chain.
+//
+// Previous update (WORK-42): the BuilderSet query surface aligned with §16.3/§16.5:
+// `QueryBuilderSetRequest` moved from a bare `term_id` to `oneof selector {height, term,
+// builder_set_id}`, `QueryBuilderSetResponse` became `BuilderSetViewV1 set`, `BuilderSetViewV1`
+// (11 fields) was added, and `BuilderState` gained the fault counter fields 13-18 Node had already
+// published. `BuilderSetSnapshot` (the Store row mirror) was not synced this time, pending the full
+// mirror audit.
+//
+// Earlier: the Msg layer aligned wholesale with node main@addbd56. The 10 Builder messages in
+// msg_builder.proto (Amount/UnbondingLocatorV1/BuilderEvidenceV1 payloads + builder_operator_address /
+// submitter_address signer fields), MsgUpdateTaskParams in msg_session.proto (expected_version +
+// TaskParamsV1 + params_hash response) and the two RPCs SubmitBuilderEvidence / RunBuilderTerm restored
+// on hub.v1.Msg all changed shape; EvidenceCommitmentV1.evidence_kind now points at
+// shared.v1.EvidenceKind instead of task.v1.EvidenceKind (same value range, different Go type).
+func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
+	got, messages, enums, methods := nodeMirrorDescriptorFingerprint(t)
+	const want = "29de0eeb7a6567d5929467cc15183121c42cb8ea15096b374464c0733dc59f96"
+	if got != want {
+		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, messages, enums, methods)
+	}
+}
+
+// TestNodeDescriptorKeeperContract pins the Task Msg wire against
+// the Keeper Interface Contract. It replaces the former PR#85 assignment/open-verify
+// assertions: §9.4 renamed the whole Task Msg surface and §4.2.1/§5.14 replaced
+// the flat string requests with typed sub-messages, so the PR#85 baseline can no
+// longer be satisfied at the same time.
+func TestNodeDescriptorKeeperContract(t *testing.T) {
+	t.Run("worker handraise proposal wire", func(t *testing.T) {
+		// §4.2.1: scope is the WorkerHandraiseScopeV1 carrier (the oneof lives in the sub-message),
+		// handraises=2, submitter_address=3.
+		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 1, "scope", protoreflect.MessageKind, false)
+		assertContractOneof(t, "task.v1.WorkerHandraiseScopeV1", "scope", 1, 2)
+		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 2, "handraises", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 3, "submitter_address", protoreflect.StringKind, false)
+		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 2, "proposal_digest", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 5, "stage_status", protoreflect.EnumKind, false)
+		// §4.1: handraise field order is part of the signing digest preimage.
+		assertContractField(t, "task.v1.WorkerHandraiseV1", 7, "member", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.WorkerHandraiseV1", 8, "duty", protoreflect.EnumKind, false)
+		assertContractField(t, "task.v1.WorkerHandraiseV1", 9, "service_authorization_nonce", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.WorkerHandraiseV1", 11, "service_signature", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
+		// Since wire v0.4.1 the sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
+		assertContractFieldEnumType(t, "task.v1.WorkerHandraiseV1", 8, "shared.v1.Duty")
+		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
+	})
+
+	t.Run("verifier handraise proposal wire", func(t *testing.T) {
+		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 1, "task_id", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 3, "submitter_address", protoreflect.StringKind, false)
+		assertContractField(t, "task.v1.VerifierHandraiseV1", 5, "infer_receipt_hash", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.VerifierHandraiseV1", 13, "service_signature", protoreflect.BytesKind, false)
+	})
+
+	t.Run("typed stage receipts", func(t *testing.T) {
+		// §5.14: the single receipt/commit/result wire (since wire v0.4.1 FullResultReveal was removed
+		// together with MsgSubmitFullResultReveal; the only Verifier result left is ResultReceiptV2).
+		assertContractField(t, "task.v1.MsgSubmitInferReceipt", 1, "receipt", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.InferReceiptV2", 9, "output_size_bytes", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.InferReceiptV2", 10, "required_evidence_commitments", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.VerifyCommitV1", 7, "commit_hash", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.ResultReceiptV2", 9, "metric_summary", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.ResultReceiptV2", 11, "verifier_evidence_bundle_hash", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MetricSummaryV1", 7, "topk_jaccard_mean_fp_1e6", protoreflect.Uint32Kind, false)
+	})
+
+	t.Run("settlement and sweep wire", func(t *testing.T) {
+		// §10.10a: the public request is exactly task_id + submitter_address.
+		assertContractField(t, "task.v1.MsgSettleTask", 1, "task_id", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MsgSettleTask", 2, "submitter_address", protoreflect.StringKind, false)
+		assertContractField(t, "task.v1.MsgSettleTask", 3, "", protoreflect.StringKind, true)
+		// wire v0.4.1: after registered_full_result_refs_hash was removed, challenge_close_height moved forward to 13.
+		assertContractField(t, "task.v1.SettlementFactsV1", 13, "challenge_close_height", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.SettlementFactsV1", 14, "", protoreflect.Uint64Kind, true)
+		// §5.9: locator is task(1) / task_round(2) / session_lifecycle(4); the old
+		// challenge(2) / evidence_request(3) were removed with the Phase 0 challenge Msgs, so 3 must be empty.
+		assertContractOneof(t, "task.v1.DeadlineLocatorV1", "locator", 1, 4)
+		assertContractField(t, "task.v1.DeadlineLocatorV1", 2, "task_round", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.DeadlineLocatorV1", 3, "", protoreflect.MessageKind, true)
+		assertContractField(t, "task.v1.DeadlineLocatorV1", 4, "session_lifecycle", protoreflect.MessageKind, false)
+		// §5.11: DeadlineKindV1 4/11/12/13 are the kinds the nexus submit gate rejects by name
+		// (validateTaskDeadlineKind); EVIDENCE_REQUEST(3) / CHALLENGE_RESOLVE /
+		// CHALLENGE_CLOSE were removed.
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE", 4)
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_FINAL", 11)
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE", 12)
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_EVIDENCE_CLEANUP", 13)
+		for _, name := range []string{
+			"DEADLINE_KIND_V1_EVIDENCE_REQUEST", "DEADLINE_KIND_V1_CHALLENGE_RESOLVE", "DEADLINE_KIND_V1_CHALLENGE_CLOSE",
+		} {
+			assertContractEnumValueAbsent(t, "task.v1.DeadlineKindV1", name)
+		}
+	})
+
+	t.Run("blocked entries stay unregistered", func(t *testing.T) {
+		// §9.5 + keeper implementation blockers §3: no ACTIVE public Challenge Msg.
+		for _, name := range []string{
+			"task.v1.MsgUserChallenge",
+			"task.v1.MsgChallengeCommit",
+			"task.v1.MsgChallengeResult",
+			"task.v1.MsgSubmitChallengeFullResultReveal",
+			// §9.4: no Worker reveal Msg and no MsgFailSettle / alias.
+			"task.v1.MsgWorkerReveal",
+			"task.v1.MsgSweepExpiredTask",
+			"task.v1.MsgFailSettle",
+			"task.v1.MsgAssign",
+			"task.v1.MsgOpenVerify",
+			"task.v1.MsgSettle",
+			// Local event enums and old States removed by the frozen contract (§17: event codes have a single authority).
+			"task.v1.TaskEventCode",
+			"task.v1.ProtocolEventCode",
+			"task.v1.TaskAssignment",
+			"hub.v1.ServiceKeyBindingState",
+			// hardware_tier.proto was deleted as a whole file (ModelState still exists, it only moved to
+			// model_profile_state.proto, so it is not a deletion).
+			"hub.v1.HardwareTierState",
+			// wire v0.4.1: all Builder bond Query / Msg removed (Phase 0 BuilderBond is fixed at zero).
+			"hub.v1.MsgBondBuilder",
+			"hub.v1.MsgBeginBuilderUnbonding",
+			"hub.v1.MsgWithdrawBuilderUnbonded",
+			"hub.v1.BuilderBondState",
+			"hub.v1.QueryBuilderBondRequest",
+			// wire v0.4.1: FullResultReveal Query / Msg / events removed.
+			"task.v1.MsgSubmitFullResultReveal",
+			"task.v1.FullResultRevealV1",
+			"task.v1.EventFullResultRevealAccepted",
+			"task.v1.QueryFullResultRevealRequest",
+			// wire v0.4.1: these enums / messages moved to shared.v1; hub / task must not
+			// keep a same-range copy (§9.6b: a closed enum has exactly one numeric definition).
+			"hub.v1.ParticipantType",
+			"hub.v1.Duty",
+			"hub.v1.StoredBodyStatus",
+			"hub.v1.BucketKind",
+			"hub.v1.ProtocolEventCodeV1",
+			"task.v1.StreamCheckpoint",
+			"task.v1.TaskEventSource",
+			"task.v1.EventTarget",
+			"task.v1.SubscribeProtocolEventsRequest",
+			"task.v1.ProtocolEvent",
+		} {
+			if _, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(name)); err == nil {
+				t.Fatalf("%s must not be registered in the V1 mirror", name)
+			}
+		}
+	})
+
+	t.Run("typed task events", func(t *testing.T) {
+		// §5.11: the envelope carries only code + one typed payload sub-message; each payload oneof
+		// member's field number equals the code itself, and the event code registry lives in shared.v1 (ADR-0013).
+		assertContractField(t, "task.v1.TaskEvent", 8, "session_id", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.TaskEvent", 9, "task_id", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.TaskEvent", 15, "code", protoreflect.EnumKind, false)
+		assertContractFieldEnumType(t, "task.v1.TaskEvent", 15, "shared.v1.ProtocolEventCodeV1")
+		assertContractField(t, "task.v1.TaskEvent", 17, "payload", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.TaskEvent", 20, "", protoreflect.MessageKind, true)
+		assertContractOneof(t, "task.v1.TaskProtocolEventPayloadV1", "typed_event", 1, 111)
+		assertContractOneof(t, "task.v1.SubscribeTaskEventsResponse", "item", 1, 2)
+		assertContractFieldMessageType(t, "task.v1.SubscribeTaskEventsResponse", 2, "shared.v1.StreamCheckpoint")
+		assertContractField(t, "shared.v1.StreamCheckpoint", 2, "chain_height", protoreflect.Uint64Kind, false)
+		// payload oneof field number == ProtocolEventCodeV1 value.
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED", 11)
+		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 11, "worker_assignment_finalized", protoreflect.MessageKind, false)
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED", 17)
+		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 17, "result_accepted", protoreflect.MessageKind, false)
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_TASK_SETTLED", 19)
+		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 19, "task_settled", protoreflect.MessageKind, false)
+		assertContractField(t, "task.v1.EventTaskSettled", 11, "settlement_height", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.EventTaskSettled", 12, "task_finality_height", protoreflect.Uint64Kind, false)
+	})
+
+	t.Run("hub protocol event stream", func(t *testing.T) {
+		// ADR-0013: the non-Task protocol event stream moved from TaskEventService to hub.v1.HubEventService,
+		// keeping field numbers; nexus subscribes only to BUILDER_SET_UPDATED(60), payload oneof field number equals code.
+		assertContractMethod(t, "hub.v1.HubEventService", "SubscribeProtocolEvents",
+			"hub.v1.SubscribeProtocolEventsRequest", "hub.v1.SubscribeProtocolEventsResponse")
+		assertContractField(t, "hub.v1.SubscribeProtocolEventsRequest", 2, "after_cursor", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.SubscribeProtocolEventsRequest", 3, "from_height", protoreflect.Uint64Kind, false)
+		assertContractField(t, "hub.v1.SubscribeProtocolEventsRequest", 5, "codes", protoreflect.EnumKind, false)
+		assertContractFieldEnumType(t, "hub.v1.SubscribeProtocolEventsRequest", 5, "shared.v1.ProtocolEventCodeV1")
+		assertContractField(t, "hub.v1.SubscribeProtocolEventsRequest", 6, "target_address", protoreflect.StringKind, false)
+		assertContractOneof(t, "hub.v1.SubscribeProtocolEventsResponse", "item", 1, 2)
+		assertContractFieldMessageType(t, "hub.v1.SubscribeProtocolEventsResponse", 1, "hub.v1.ProtocolEvent")
+		assertContractFieldMessageType(t, "hub.v1.SubscribeProtocolEventsResponse", 2, "shared.v1.StreamCheckpoint")
+		assertContractField(t, "hub.v1.ProtocolEvent", 1, "cursor", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.ProtocolEvent", 12, "code", protoreflect.EnumKind, false)
+		assertContractFieldEnumType(t, "hub.v1.ProtocolEvent", 12, "shared.v1.ProtocolEventCodeV1")
+		assertContractField(t, "hub.v1.ProtocolEvent", 14, "payload", protoreflect.MessageKind, false)
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED", 60)
+		assertContractField(t, "hub.v1.ProtocolEventPayloadV1", 60, "builder_set_updated", protoreflect.MessageKind, false)
+		assertContractField(t, "hub.v1.EventBuilderSetUpdated", 2, "new_version", protoreflect.Uint64Kind, false)
+		assertContractField(t, "hub.v1.EventBuilderSetUpdated", 6, "effective_height", protoreflect.Uint64Kind, false)
+		// TaskEventService must no longer have SubscribeProtocolEvents.
+		descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("task.v1.TaskEventService")
+		if err != nil {
+			t.Fatalf("Node service task.v1.TaskEventService is missing: %v", err)
+		}
+		if descriptor.(protoreflect.ServiceDescriptor).Methods().ByName("SubscribeProtocolEvents") != nil {
+			t.Fatal("task.v1.TaskEventService must not expose SubscribeProtocolEvents after ADR-0013")
+		}
+	})
+
+	t.Run("builder msg wire", func(t *testing.T) {
+		// §9.6a/§9.6b: since wire v0.4.1 Builders have no bond/unbond/withdraw Msgs (Phase 0
+		// BuilderBond is fixed at zero), only evidence and term rotation remain; the signer field is submitter_address.
+		// The Builder evidence Msg belongs to task.v1, the payload is canonical bytes, and the response is directly
+		// shared.v1.BuilderObjectiveEvidenceReceiptV2.
+		assertContractField(t, "task.v1.MsgSubmitBuilderEvidence", 1, "evidence_bytes", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MsgSubmitBuilderEvidence", 2, "submitter_address", protoreflect.StringKind, false)
+
+		// Term rotation is "advance to target term + per-call cap", not submitting a term-boundary snapshot.
+		assertContractField(t, "hub.v1.MsgRunBuilderTerm", 1, "target_term", protoreflect.Uint64Kind, false)
+		assertContractField(t, "hub.v1.MsgRunBuilderTerm", 2, "max_items", protoreflect.Uint32Kind, false)
+		assertContractField(t, "hub.v1.MsgRunBuilderTerm", 3, "submitter_address", protoreflect.StringKind, false)
+
+		// Both RPCs must be mounted on their respective Msg services: a message defined but missing from the service means Nexus cannot send it.
+		assertContractMethod(t, "task.v1.Msg", "SubmitBuilderEvidence",
+			"task.v1.MsgSubmitBuilderEvidence", "shared.v1.BuilderObjectiveEvidenceReceiptV2")
+		assertContractMethod(t, "hub.v1.Msg", "RunBuilderTerm",
+			"hub.v1.MsgRunBuilderTerm", "hub.v1.MsgRunBuilderTermResponse")
+		// hub.v1.Msg must no longer have the three bond Msgs.
+		descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("hub.v1.Msg")
+		if err != nil {
+			t.Fatalf("Node service hub.v1.Msg is missing: %v", err)
+		}
+		for _, name := range []string{"BondBuilder", "BeginBuilderUnbonding", "WithdrawBuilderUnbonded"} {
+			if descriptor.(protoreflect.ServiceDescriptor).Methods().ByName(protoreflect.Name(name)) != nil {
+				t.Fatalf("hub.v1.Msg must not expose rpc %s: Phase 0 BuilderBond is fixed at zero", name)
+			}
+		}
+	})
+
+	t.Run("service descriptor msg wire", func(t *testing.T) {
+		// §9.6a/§9.6b: the descriptor payload is ServiceDescriptorV1{repeated ServiceEndpointV1},
+		// with no descriptor_uri / descriptor_hash / descriptor_schema_version /
+		// effective_height / expires_height and no controller_signature.
+		// The nexus submit point assembles by this field order; a field-order change must blow up here first.
+		assertContractField(t, "hub.v1.MsgRegisterBuilder", 1, "service_pubkey", protoreflect.BytesKind, false)
+		assertContractField(t, "hub.v1.MsgRegisterBuilder", 2, "service_key_proof", protoreflect.BytesKind, false)
+		assertContractField(t, "hub.v1.MsgRegisterBuilder", 3, "descriptor", protoreflect.MessageKind, false)
+		assertContractFieldMessageType(t, "hub.v1.MsgRegisterBuilder", 3, "hub.v1.ServiceDescriptorV1")
+		assertContractField(t, "hub.v1.MsgRegisterBuilder", 4, "builder_operator_address", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.MsgRegisterBuilderResponse", 3, "descriptor_version", protoreflect.Uint64Kind, false)
+
+		// expected_descriptor_version is the current version; the Keeper asserts equality, then writes current+1.
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptor", 1, "participant_type", protoreflect.EnumKind, false)
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptor", 2, "expected_descriptor_version", protoreflect.Uint64Kind, false)
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptor", 3, "descriptor", protoreflect.MessageKind, false)
+		assertContractFieldMessageType(t, "hub.v1.MsgUpdateServiceDescriptor", 3, "hub.v1.ServiceDescriptorV1")
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptor", 4, "operator_address", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptorResponse", 1, "new_descriptor_version", protoreflect.Uint64Kind, false)
+		assertContractField(t, "hub.v1.MsgUpdateServiceDescriptorResponse", 2, "descriptor_hash", protoreflect.BytesKind, false)
+
+		// The order of the endpoint's four fields is the descriptor_hash preimage order.
+		assertContractField(t, "hub.v1.ServiceDescriptorV1", 1, "endpoints", protoreflect.MessageKind, false)
+		assertContractField(t, "hub.v1.ServiceEndpointV1", 1, "endpoint_kind", protoreflect.EnumKind, false)
+		assertContractFieldEnumType(t, "hub.v1.ServiceEndpointV1", 1, "hub.v1.ServiceEndpointKind")
+		assertContractField(t, "hub.v1.ServiceEndpointV1", 2, "uri", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.ServiceEndpointV1", 3, "protocol_version", protoreflect.StringKind, false)
+		assertContractField(t, "hub.v1.ServiceEndpointV1", 4, "tls_pubkey_hash", protoreflect.BytesKind, false)
+
+		// The state row also stores endpoints directly; the nexus "is an update needed" decision reads it.
+		assertContractField(t, "hub.v1.ServiceDescriptorState", 4, "endpoint_count", protoreflect.Uint32Kind, false)
+		assertContractField(t, "hub.v1.ServiceDescriptorState", 5, "endpoints", protoreflect.MessageKind, false)
+		assertContractField(t, "hub.v1.ServiceDescriptorState", 6, "descriptor_hash", protoreflect.BytesKind, false)
+
+		// The three-value closed enum of §9.6b: the numbers are frozen, no reordering or additions.
+		assertServiceEndpointKindValues(t)
+	})
+
+	t.Run("task params msg wire", func(t *testing.T) {
+		// §9.6a: governance param updates are an expected_version check + grouped TaskParamsV1 payload,
+		// responding with the new version and params_hash, not the Cosmos default authority+params empty response.
+		assertContractField(t, "task.v1.MsgUpdateTaskParams", 1, "expected_version", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.MsgUpdateTaskParams", 2, "params", protoreflect.MessageKind, false)
+		assertContractFieldMessageType(t, "task.v1.MsgUpdateTaskParams", 2, "task.v1.TaskParamsV1")
+		assertContractField(t, "task.v1.MsgUpdateTaskParams", 3, "authority", protoreflect.StringKind, false)
+		assertContractField(t, "task.v1.MsgUpdateTaskParamsResponse", 1, "new_version", protoreflect.Uint64Kind, false)
+		assertContractField(t, "task.v1.MsgUpdateTaskParamsResponse", 2, "params_hash", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.MsgUpdateTaskParamsResponse", 3, "status", protoreflect.EnumKind, false)
+	})
+
+	t.Run("evidence kind belongs to shared", func(t *testing.T) {
+		// §9.6b: the sole numeric authority for evidence_kind is shared.v1; the Task package no longer
+		// carries a same-range copy (same value range but different generated Go type, which comparing kind alone misses).
+		assertContractFieldEnumType(t, "task.v1.EvidenceCommitmentV1", 1, "shared.v1.EvidenceKind")
+		assertContractFieldEnumType(t, "shared.v1.InferEvidenceRequirementV1", 1, "shared.v1.EvidenceKind")
+		if _, err := protoregistry.GlobalFiles.FindDescriptorByName("task.v1.EvidenceKind"); err == nil {
+			t.Fatal("task.v1.EvidenceKind must not be registered; shared.v1.EvidenceKind is the sole authority")
+		}
+	})
+
+	t.Run("protocol event envelope and participant type", func(t *testing.T) {
+		// Hub-side envelope + ParticipantType enum (since wire v0.4.1 ParticipantType lives in shared.v1).
+		assertContractField(t, "hub.v1.ProtocolEventEnvelopeV1", 2, "event_code", protoreflect.EnumKind, false)
+		assertContractFieldEnumType(t, "hub.v1.ProtocolEventEnvelopeV1", 2, "shared.v1.ProtocolEventCodeV1")
+		assertContractField(t, "hub.v1.ProtocolEventEnvelopeV1", 7, "primary_locator", protoreflect.MessageKind, false)
+		assertContractField(t, "hub.v1.ProtocolEventEnvelopeV1", 8, "payload", protoreflect.MessageKind, false)
+		assertContractOneof(t, "hub.v1.ProtocolEventPayloadV1", "typed_event", 3, 127)
+		assertContractEnumValue(t, "shared.v1.ParticipantType", "PARTICIPANT_TYPE_CORTEX", 1)
+		assertContractEnumValue(t, "shared.v1.ParticipantType", "PARTICIPANT_TYPE_BUILDER", 2)
+		assertContractFieldEnumType(t, "hub.v1.QueryCurrentServiceKeyRequest", 1, "shared.v1.ParticipantType")
+		assertContractFieldEnumType(t, "hub.v1.MsgUpdateServiceDescriptor", 1, "shared.v1.ParticipantType")
+	})
+}
+
+func TestNodeOperatorIdentityFieldContract(t *testing.T) {
+	tests := []struct {
+		message string
+		number  protoreflect.FieldNumber
+		name    protoreflect.Name
+		kind    protoreflect.Kind
+		absent  bool
+	}{
+		// wire v0.4.1: BuilderState carries only identity + current service key + descriptor version +
+		// three pending counters; neither the admission status nor the fault counters are on this State.
+		// Everything after 12 must be empty, so the mirror cannot quietly grow a field with no authoritative source.
+		{message: "hub.v1.BuilderState", number: 2, name: "builder_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.BuilderState", number: 3, name: "current_service_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.BuilderState", number: 5, name: "current_service_key_status", kind: protoreflect.EnumKind},
+		{message: "hub.v1.BuilderState", number: 6, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 8, name: "registered_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 11, name: "pending_evidence_submission_count", kind: protoreflect.Uint32Kind},
+		{message: "hub.v1.BuilderState", number: 12, absent: true},
+		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 1, name: "participant_type", kind: protoreflect.EnumKind},
+		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 3, name: "descriptor", kind: protoreflect.MessageKind},
+		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 4, name: "operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.MsgRegisterBuilder", number: 3, name: "descriptor", kind: protoreflect.MessageKind},
+		{message: "hub.v1.MsgRegisterBuilder", number: 4, name: "builder_operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 2, name: "operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 4, name: "service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 5, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, absent: true},
+		{message: "hub.v1.ServiceDescriptorState", number: 2, name: "operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.ServiceDescriptorState", number: 6, name: "descriptor_hash", kind: protoreflect.BytesKind},
+		{message: "hub.v1.ServiceDescriptorState", number: 8, absent: true},
+		{message: "hub.v1.QueryCurrentServiceKeyRequest", number: 1, name: "participant_type", kind: protoreflect.EnumKind},
+		{message: "hub.v1.QueryCurrentServiceKeyRequest", number: 2, name: "operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.QueryCurrentServiceKeyRequest", number: 3, absent: true},
+		{message: "hub.v1.QueryServiceDescriptorRequest", number: 1, name: "participant_type", kind: protoreflect.EnumKind},
+		{message: "hub.v1.QueryServiceDescriptorRequest", number: 2, name: "operator_address", kind: protoreflect.StringKind},
+		{message: "hub.v1.QueryServiceDescriptorRequest", number: 3, absent: true},
+
+		// §1.3: every ACTIVE Task Msg names its stable operator/submitter address
+		// field explicitly; §4.2.1/§10.3/§10.10a forbid Builder identity copies.
+		{message: "task.v1.MsgSubmitWorkerHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.MsgSubmitInferReceipt", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.MsgSubmitVerifierHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.MsgReportDataUnavailable", number: 4, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.MsgSettleTask", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.MsgSweepDeadline", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
+		{message: "task.v1.WorkerHandraiseV1", number: 2, name: "chain_id", kind: protoreflect.StringKind},
+		{message: "task.v1.InferReceiptV2", number: 5, name: "worker_operator_address", kind: protoreflect.StringKind},
+		{message: "task.v1.VerifyCommitV1", number: 5, name: "verifier_operator_address", kind: protoreflect.StringKind},
+		{message: "task.v1.SettlementFactsV1", number: 5, name: "settlement_duty_builder_operator", kind: protoreflect.StringKind},
+
+		// The three-part QueryTask projection replaces the old giant TaskAssignment / TaskSettlementState.
+		{message: "task.v1.TaskCoreState", number: 2, name: "user_address", kind: protoreflect.StringKind},
+		{message: "task.v1.TaskCoreState", number: 3, name: "session_id", kind: protoreflect.BytesKind},
+		// wire v0.4.1: TaskCoreState inserts order_value = 11, task_phase moves back to 12.
+		{message: "task.v1.TaskCoreState", number: 11, name: "order_value", kind: protoreflect.MessageKind},
+		{message: "task.v1.TaskCoreState", number: 12, name: "task_phase", kind: protoreflect.EnumKind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 10, name: "winner_worker", kind: protoreflect.StringKind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 18, name: "assignment_status", kind: protoreflect.EnumKind},
+		// 19 / 20 are the two slash bps snapshots added in wire v0.4.1; everything after 21 must be empty.
+		{message: "task.v1.TaskAssignmentViewV1", number: 19, name: "worker_infer_timeout_slash_bps", kind: protoreflect.Uint32Kind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 20, name: "result_reveal_missing_slash_bps", kind: protoreflect.Uint32Kind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 21, absent: true},
+		{message: "task.v1.InferReceiptState", number: 2, name: "winner_worker", kind: protoreflect.StringKind},
+		// generated_token_count is inserted at 7 and later fields shift back by one; 15 is the new output_leaf_count.
+		{message: "task.v1.InferReceiptState", number: 7, name: "generated_token_count", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.InferReceiptState", number: 11, name: "infer_receipt_signing_digest", kind: protoreflect.BytesKind},
+		{message: "task.v1.InferReceiptState", number: 15, name: "output_leaf_count", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.InferReceiptState", number: 16, absent: true},
+		{message: "task.v1.VerifierAssignmentState", number: 9, name: "selected_verifiers", kind: protoreflect.MessageKind},
+		{message: "task.v1.VerifierAssignmentState", number: 15, absent: true},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("%s/%d", test.message, test.number), func(t *testing.T) {
+			message := nodeMessage(t, protoreflect.FullName(test.message))
+			field := message.Fields().ByNumber(test.number)
+			if test.absent {
+				if field != nil {
+					t.Fatalf("%s field %d = %s, want absent/reserved", message.FullName(), test.number, field.Name())
+				}
+				return
+			}
+			if field == nil {
+				t.Fatalf("%s field %d is missing", message.FullName(), test.number)
+			}
+			if field.Name() != test.name || field.Kind() != test.kind {
+				t.Fatalf("%s field %d = %s/%s, want %s/%s",
+					message.FullName(), test.number, field.Name(), field.Kind(), test.name, test.kind)
+			}
+		})
+	}
+}
+
+func nodeMessage(t *testing.T, name protoreflect.FullName) protoreflect.MessageDescriptor {
+	t.Helper()
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(name)
+	if err != nil {
+		t.Fatalf("Node message %s is missing: %v", name, err)
+	}
+	message, ok := descriptor.(protoreflect.MessageDescriptor)
+	if !ok {
+		t.Fatalf("Node descriptor %s is %T, want message", name, descriptor)
+	}
+	return message
+}
+
+func assertContractField(t *testing.T, messageName string, number protoreflect.FieldNumber, name protoreflect.Name, kind protoreflect.Kind, absent bool) {
+	t.Helper()
+	message := nodeMessage(t, protoreflect.FullName(messageName))
+	field := message.Fields().ByNumber(number)
+	if absent {
+		if field != nil {
+			t.Fatalf("%s field %d = %s, want absent/reserved", message.FullName(), number, field.Name())
+		}
+		return
+	}
+	if field == nil {
+		t.Fatalf("%s field %d is missing", message.FullName(), number)
+	}
+	if field.Name() != name || field.Kind() != kind {
+		t.Fatalf("%s field %d = %s/%s, want %s/%s", message.FullName(), number, field.Name(), field.Kind(), name, kind)
+	}
+}
+
+// assertContractFieldEnumType asserts the concrete enum type an enum field points at: enums with the
+// same value range but a different owner (e.g. Duty moving from shared.v1 to hub.v1) generate
+// different Go types, which comparing only field name/kind misses.
+func assertContractFieldEnumType(t *testing.T, messageName string, number protoreflect.FieldNumber, enumName protoreflect.FullName) {
+	t.Helper()
+	message := nodeMessage(t, protoreflect.FullName(messageName))
+	field := message.Fields().ByNumber(number)
+	if field == nil || field.Kind() != protoreflect.EnumKind {
+		t.Fatalf("%s field %d is not an enum field", message.FullName(), number)
+	}
+	if got := field.Enum().FullName(); got != enumName {
+		t.Fatalf("%s field %d enum = %s, want %s", message.FullName(), number, got, enumName)
+	}
+}
+
+// assertServiceEndpointKindValues pins the §9.6b ServiceEndpointKind numbers:
+// they enter the descriptor_hash preimage (enum → uint32_be), so a reorder would silently fork the
+// locally recomputed digest from the Keeper's.
+func assertServiceEndpointKindValues(t *testing.T) {
+	t.Helper()
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName("hub.v1.ServiceEndpointKind")
+	if err != nil {
+		t.Fatalf("Node enum hub.v1.ServiceEndpointKind is missing: %v", err)
+	}
+	enum, ok := descriptor.(protoreflect.EnumDescriptor)
+	if !ok {
+		t.Fatalf("Node descriptor hub.v1.ServiceEndpointKind is %T, want enum", descriptor)
+	}
+	want := map[protoreflect.EnumNumber]protoreflect.Name{
+		0: "SERVICE_ENDPOINT_KIND_UNSPECIFIED",
+		1: "SERVICE_ENDPOINT_KIND_NEXUS_GRPC",
+		2: "SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS",
+		3: "SERVICE_ENDPOINT_KIND_HEALTH_HTTPS",
+	}
+	if enum.Values().Len() != len(want) {
+		t.Fatalf("ServiceEndpointKind has %d values, want the closed set of %d", enum.Values().Len(), len(want))
+	}
+	for number, name := range want {
+		value := enum.Values().ByNumber(number)
+		if value == nil || value.Name() != name {
+			t.Fatalf("ServiceEndpointKind %d = %v, want %s", number, value, name)
+		}
+	}
+}
+
+// assertContractFieldMessageType asserts the concrete type a message field points at: a payload swap
+// (e.g. Amount → uint64, BuilderEvidenceV1 → a run of string fields) is missed by comparing only field
+// name/kind, so the full name must be checked.
+func assertContractFieldMessageType(t *testing.T, messageName string, number protoreflect.FieldNumber, typeName protoreflect.FullName) {
+	t.Helper()
+	message := nodeMessage(t, protoreflect.FullName(messageName))
+	field := message.Fields().ByNumber(number)
+	if field == nil || field.Kind() != protoreflect.MessageKind {
+		t.Fatalf("%s field %d is not a message field", message.FullName(), number)
+	}
+	if got := field.Message().FullName(); got != typeName {
+		t.Fatalf("%s field %d message = %s, want %s", message.FullName(), number, got, typeName)
+	}
+}
+
+// assertContractMethod asserts an RPC is mounted on the service with the right input/output: a message
+// defined but not mounted on the service means Nexus cannot send that transaction.
+func assertContractMethod(t *testing.T, serviceName, methodName string, inputName, outputName protoreflect.FullName) {
+	t.Helper()
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(serviceName))
+	if err != nil {
+		t.Fatalf("Node service %s is missing: %v", serviceName, err)
+	}
+	service, ok := descriptor.(protoreflect.ServiceDescriptor)
+	if !ok {
+		t.Fatalf("Node descriptor %s is %T, want service", serviceName, descriptor)
+	}
+	method := service.Methods().ByName(protoreflect.Name(methodName))
+	if method == nil {
+		t.Fatalf("%s does not expose rpc %s", serviceName, methodName)
+	}
+	if method.Input().FullName() != inputName || method.Output().FullName() != outputName {
+		t.Fatalf("%s/%s = (%s) -> (%s), want (%s) -> (%s)", serviceName, methodName,
+			method.Input().FullName(), method.Output().FullName(), inputName, outputName)
+	}
+}
+
+func assertContractReservedName(t *testing.T, messageName string, name protoreflect.Name) {
+	t.Helper()
+	message := nodeMessage(t, protoreflect.FullName(messageName))
+	if !message.ReservedNames().Has(name) {
+		t.Fatalf("%s reserved names do not contain %q", message.FullName(), name)
+	}
+}
+
+func assertContractOneof(t *testing.T, messageName string, oneofName protoreflect.Name, first, last protoreflect.FieldNumber) {
+	t.Helper()
+	message := nodeMessage(t, protoreflect.FullName(messageName))
+	oneof := message.Oneofs().ByName(oneofName)
+	if oneof == nil {
+		t.Fatalf("%s oneof %q is missing", message.FullName(), oneofName)
+	}
+	if oneof.Fields().ByNumber(first) == nil || oneof.Fields().ByNumber(last) == nil {
+		t.Fatalf("%s oneof %q does not contain fields %d and %d", message.FullName(), oneofName, first, last)
+	}
+}
+
+func assertContractEnumValue(t *testing.T, enumName, valueName string, number protoreflect.EnumNumber) {
+	t.Helper()
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(enumName))
+	if err != nil {
+		t.Fatalf("Node enum %s is missing: %v", enumName, err)
+	}
+	enum, ok := descriptor.(protoreflect.EnumDescriptor)
+	if !ok {
+		t.Fatalf("Node descriptor %s is %T, want enum", enumName, descriptor)
+	}
+	value := enum.Values().ByName(protoreflect.Name(valueName))
+	if value == nil || value.Number() != number {
+		t.Fatalf("%s value %s = %v, want %d", enumName, valueName, value, number)
+	}
+}
+
+// assertContractEnumValueAbsent asserts an enum value was removed from the closed enum: keeping it would
+// still let a value the chain does not recognize compile and be sent.
+func assertContractEnumValueAbsent(t *testing.T, enumName, valueName string) {
+	t.Helper()
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(enumName))
+	if err != nil {
+		t.Fatalf("Node enum %s is missing: %v", enumName, err)
+	}
+	enum, ok := descriptor.(protoreflect.EnumDescriptor)
+	if !ok {
+		t.Fatalf("Node descriptor %s is %T, want enum", enumName, descriptor)
+	}
+	if value := enum.Values().ByName(protoreflect.Name(valueName)); value != nil {
+		t.Fatalf("%s value %s = %d, want absent", enumName, valueName, value.Number())
+	}
+}
+
+func nodeMirrorDescriptorFingerprint(t *testing.T) (string, int, int, int) {
+	t.Helper()
+	var (
+		lines                   []string
+		messageCount, enumCount int
+		methodCount             int
+	)
+	protoregistry.GlobalFiles.RangeFiles(func(file protoreflect.FileDescriptor) bool {
+		if !strings.HasPrefix(file.Path(), "hub/v1/") &&
+			!strings.HasPrefix(file.Path(), "shared/v1/") &&
+			!strings.HasPrefix(file.Path(), "task/v1/") {
+			return true
+		}
+		for i := 0; i < file.Messages().Len(); i++ {
+			appendMessageFingerprint(file.Messages().Get(i), &lines, &messageCount, &enumCount)
+		}
+		for i := 0; i < file.Enums().Len(); i++ {
+			appendEnumFingerprint(file.Enums().Get(i), &lines, &enumCount)
+		}
+		for i := 0; i < file.Services().Len(); i++ {
+			service := file.Services().Get(i)
+			for j := 0; j < service.Methods().Len(); j++ {
+				method := service.Methods().Get(j)
+				lines = append(lines, fmt.Sprintf("service|%s|%s|%s|%s|%t|%t",
+					service.FullName(), method.Name(), method.Input().FullName(), method.Output().FullName(),
+					method.IsStreamingClient(), method.IsStreamingServer()))
+				methodCount++
+			}
+		}
+		return true
+	})
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:]), messageCount, enumCount, methodCount
+}
+
+func appendMessageFingerprint(message protoreflect.MessageDescriptor, lines *[]string, messageCount, enumCount *int) {
+	(*messageCount)++
+	*lines = append(*lines, "message|"+string(message.FullName()))
+	for i := 0; i < message.Fields().Len(); i++ {
+		field := message.Fields().Get(i)
+		typeName := ""
+		switch field.Kind() {
+		case protoreflect.MessageKind, protoreflect.GroupKind:
+			typeName = string(field.Message().FullName())
+		case protoreflect.EnumKind:
+			typeName = string(field.Enum().FullName())
+		}
+		oneof := ""
+		if field.ContainingOneof() != nil {
+			oneof = string(field.ContainingOneof().Name())
+		}
+		*lines = append(*lines, fmt.Sprintf("field|%s|%d|%s|%s|%s|%s|%s|%t",
+			message.FullName(), field.Number(), field.Name(), field.Cardinality(), field.Kind(), typeName, oneof, field.HasOptionalKeyword()))
+	}
+	for i := 0; i < message.Messages().Len(); i++ {
+		appendMessageFingerprint(message.Messages().Get(i), lines, messageCount, enumCount)
+	}
+	for i := 0; i < message.Enums().Len(); i++ {
+		appendEnumFingerprint(message.Enums().Get(i), lines, enumCount)
+	}
+}
+
+func appendEnumFingerprint(enum protoreflect.EnumDescriptor, lines *[]string, enumCount *int) {
+	(*enumCount)++
+	*lines = append(*lines, "enum|"+string(enum.FullName()))
+	for i := 0; i < enum.Values().Len(); i++ {
+		value := enum.Values().Get(i)
+		*lines = append(*lines, fmt.Sprintf("enum_value|%s|%d|%s", enum.FullName(), value.Number(), value.Name()))
+	}
+}

@@ -1,0 +1,134 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/evidence.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// FinishReasonV1 is the closed successful termination set committed by the
+// selected Worker. Error and cancellation outcomes cannot produce an accepted
+// InferReceipt.
+// FinishReasonV1 defines the FinishReasonV1 wire type.
+enum FinishReasonV1 {
+  // Never committed; an unset or unsuccessful finish is not receiptable.
+  // FINISH_REASON_V1_UNSPECIFIED identifies the corresponding protocol value.
+  FINISH_REASON_V1_UNSPECIFIED = 0;
+  // Generation emitted the model/tokenizer EOS token.
+  // FINISH_REASON_V1_EOS_TOKEN identifies the corresponding protocol value.
+  FINISH_REASON_V1_EOS_TOKEN = 1;
+  // Generation matched one frozen stop sequence.
+  // FINISH_REASON_V1_STOP_SEQUENCE identifies the corresponding protocol value.
+  FINISH_REASON_V1_STOP_SEQUENCE = 2;
+  // Generation reached the accepted maximum output token count.
+  // FINISH_REASON_V1_MAX_OUTPUT_TOKENS identifies the corresponding protocol value.
+  FINISH_REASON_V1_MAX_OUTPUT_TOKENS = 3;
+  // Generation reached the accepted maximum output duration.
+  // FINISH_REASON_V1_MAX_OUTPUT_DURATION identifies the corresponding protocol value.
+  FINISH_REASON_V1_MAX_OUTPUT_DURATION = 4;
+}
+
+// EvidenceCommitmentV1 is one worker-authored evidence commitment carried by
+// InferReceiptV2 (keeper_api_contract.md §5.14). The list is sorted by evidence_kind
+// ascending with unique kinds and must exactly equal the kind set required by
+// the locked profile.
+//
+// The list's commitment - evidence_commitments_hash, domain
+// TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (§1.4) - has exactly one ordered preimage in
+// this repository, defined in task/v1/infer_receipt.proto next to the
+// TRUEOPEN_INFER_RECEIPT_V2 formula that consumes it. It covers the per-element frame
+// layout of the three fields below, the leading uint32_be(count) and the empty-list
+// case. §1.4 rule 1 forbids a second copy, so this file only points at it.
+// EvidenceCommitmentV1 defines the EvidenceCommitmentV1 wire type.
+message EvidenceCommitmentV1 {
+  shared.v1.EvidenceKind evidence_kind = 1;
+  bytes evidence_hash_or_root = 2;
+  uint64 encoded_size_bytes = 3;
+}
+
+// WorkerValueCommitmentV2 is the canonical fixed-field commitment behind the
+// single WORKER_VALUE_OPENING evidence item. trace_root and checkpoint_root are
+// the two Hash32 commitments Cortex already produces; this message folds them
+// into one evidence kind without making either artifact's private file format
+// part of consensus. EvidenceCommitmentV1.encoded_size_bytes is exactly the
+// checked sum of trace/checkpoint/input-token/generated-token artifact sizes.
+// WorkerValueCommitmentV2 defines the WorkerValueCommitmentV2 wire type.
+message WorkerValueCommitmentV2 {
+  // Always 2 in the fresh Phase 0 contract.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes accepted_task_hash = 4;
+  string worker_operator_address = 5;
+  bytes generation_params_digest = 6;
+  bytes evidence_schema_hash = 7;
+  bytes output_hash = 8;
+  uint64 output_size_bytes = 9;
+  FinishReasonV1 finish_reason = 10;
+  bytes trace_root = 11;
+  uint64 trace_encoded_size_bytes = 12;
+  bytes checkpoint_root = 13;
+  uint64 checkpoint_encoded_size_bytes = 14;
+  uint64 generated_token_count = 15;
+  uint64 output_leaf_count = 16;
+  bytes input_token_ids_hash = 17;
+  bytes generated_token_ids_hash = 18;
+  uint64 input_token_ids_size_bytes = 19;
+  uint64 generated_token_ids_size_bytes = 20;
+}
+
+// WorkerEvidenceKindV1 is the closed set of objective Worker evidence.
+enum WorkerEvidenceKindV1 {
+  // Never written; rejects an unset evidence branch.
+  // WORKER_EVIDENCE_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
+  WORKER_EVIDENCE_KIND_V1_UNSPECIFIED = 0;
+  // A valid signed output prefix conflicts with the accepted final MMR root.
+  // WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION identifies the corresponding protocol value.
+  WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION = 1;
+}
+
+// OutputMMRPeakProofV1 proves one prefix peak into the accepted final MMR root.
+// Position and direction are derived from the receipt leaf count and seq; they
+// are deliberately not caller-supplied fields.
+// OutputMMRPeakProofV1 defines the OutputMMRPeakProofV1 wire type.
+message OutputMMRPeakProofV1 {
+  bytes peak_hash = 1;
+  repeated bytes final_inclusion_path = 2;
+}
+
+// OutputChunkEquivocationV1 proves that a valid Worker-signed streamed prefix
+// conflicts with the final MMR root bound by an accepted InferReceiptV2.
+// OutputChunkEquivocationV1 defines the OutputChunkEquivocationV1 wire type.
+message OutputChunkEquivocationV1 {
+  bytes task_id = 1;
+  bytes accepted_infer_receipt_hash = 2;
+  uint64 seq = 3;
+  bytes streamed_mmr_root = 4;
+  // Raw64 R||S low-S signature; REST uses canonical protobuf Base64.
+  bytes worker_signature = 5;
+  repeated OutputMMRPeakProofV1 prefix_peak_proofs = 6;
+}
+
+// WorkerEvidenceV1 is strict-decoded from MsgSubmitWorkerEvidence.evidence_bytes.
+message WorkerEvidenceV1 {
+  uint32 schema_version = 1;
+  // Exactly one branch matching the objective evidence kind must be present.
+  // evidence selects one supported variant.
+  oneof evidence {
+    OutputChunkEquivocationV1 output_chunk_equivocation = 2;
+  }
+}
+
+// WorkerEvidenceReceiptState is the compact auditable receipt retained on chain;
+// raw signatures and MMR proof nodes are never persisted here.
+// WorkerEvidenceReceiptState defines the WorkerEvidenceReceiptState wire type.
+message WorkerEvidenceReceiptState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  string worker_operator_address = 3;
+  WorkerEvidenceKindV1 evidence_kind = 4;
+  uint64 seq = 5;
+  bytes accepted_infer_receipt_hash = 6;
+  bytes evidence_digest = 7;
+  bytes fault_id = 8;
+  uint64 accepted_height = 9;
+}

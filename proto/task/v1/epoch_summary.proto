@@ -1,0 +1,42 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/payload.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// EpochTaskSummaryCursorState is the bounded, restart-safe fold over finalized
+// task summaries whose settlement height belongs to one epoch.
+// EpochTaskSummaryCursorState defines the EpochTaskSummaryCursorState wire type.
+message EpochTaskSummaryCursorState {
+  uint64 epoch = 1;
+  uint64 start_height = 2;
+  uint64 end_height = 3;
+  uint64 due_height = 4;
+  uint64 last_settlement_height = 5;
+  bytes last_task_id = 6;
+  uint64 task_count = 7;
+  uint64 valid_task_count = 8;
+  repeated uint64 histogram = 9;
+  repeated string support_candidates = 10;
+  uint64 support_candidate_seen_count = 11;
+  bytes running_root = 12;
+  uint64 visited_count = 13;
+}
+
+// EpochTaskSummaryReceiptState prevents replay from dispatching an epoch twice
+// and retains the bounded payload plus its complete source commitment.
+// EpochTaskSummaryReceiptState defines the EpochTaskSummaryReceiptState wire type.
+message EpochTaskSummaryReceiptState {
+  uint64 epoch = 1;
+  uint64 start_height = 2;
+  uint64 end_height = 3;
+  uint64 due_height = 4;
+  uint64 dispatched_height = 5;
+  shared.v1.EpochTaskSummary summary = 6;
+  uint64 source_count = 7;
+  uint64 support_candidate_seen_count = 8;
+  uint32 retained_support_candidate_count = 9;
+  bytes source_root = 10;
+  bytes receipt_hash = 11;
+}

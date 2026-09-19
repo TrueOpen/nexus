@@ -1,0 +1,653 @@
+syntax = "proto3";
+
+package hub.v1;
+
+import "hub/v1/bridge.proto";
+import "hub/v1/common.proto";
+import "hub/v1/emergency_freeze.proto";
+import "hub/v1/model_profile_state.proto";
+import "hub/v1/reward.proto";
+import "hub/v1/treasury.proto";
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "shared/v1/event.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// ProtocolEventCodeV1 moved to shared/v1/event.proto by ADR-0013: both
+// TaskEventService and HubEventService filter on it, so the one §5.11 code
+// registry is shared. Numbers are unchanged and no alias is kept here.
+
+// ProtocolEventEnvelopeV1 carries one typed protocol event. A payload oneof
+// member's field number is identical to its ProtocolEventCodeV1 value.
+// ProtocolEventEnvelopeV1 defines the ProtocolEventEnvelopeV1 wire type.
+message ProtocolEventEnvelopeV1 {
+  uint32 schema_version = 1;
+  shared.v1.ProtocolEventCodeV1 event_code = 2;
+  uint64 block_height = 3;
+  optional bytes tx_hash = 4;
+  uint32 msg_index = 5;
+  uint32 event_index = 6;
+  ProtocolEventPrimaryLocatorV1 primary_locator = 7;
+  ProtocolEventPayloadV1 payload = 8;
+}
+
+// ProtocolEventPayloadV1 holds the Hub-owned typed payloads. Task-owned payloads
+// use task.v1.TaskProtocolEventPayloadV1 with the same field numbers, since
+// x/hub must not import x/task.
+// ProtocolEventPayloadV1 defines the ProtocolEventPayloadV1 wire type.
+message ProtocolEventPayloadV1 {
+  // Exactly one payload matching event_code is set.
+  // typed_event selects one supported variant.
+  oneof typed_event {
+    EventModelProfileRegistered model_profile_registered = 3;
+    EventModelProfileStateChanged model_profile_state_changed = 4;
+    EventParameterBucketUpdated parameter_bucket_updated = 5;
+    EventServiceStakeChanged service_stake_changed = 6;
+    EventServiceUnbondingStarted service_unbonding_started = 7;
+    EventRewardEpochClosed reward_epoch_closed = 21;
+    EventEarningsAccrued earnings_accrued = 40;
+    EventEarningsClaimed earnings_claimed = 41;
+    EventFaultRecorded fault_recorded = 50;
+    EventRoleJailed role_jailed = 51;
+    EventRoleSlashed role_slashed = 52;
+    EventServiceJailRecovered service_jail_recovered = 53;
+    EventBuilderSetUpdated builder_set_updated = 60;
+    EventTreasuryCollected treasury_collected = 80;
+    EventTreasuryAdjusted treasury_adjusted = 81;
+    EventCandidatePoolPublished candidate_pool_published = 90;
+    EventCandidatePoolExpired candidate_pool_expired = 91;
+    EventCandidatePoolPruned candidate_pool_pruned = 92;
+    EventModelSupportUpdated model_support_updated = 93;
+    EventModelSupportActivated model_support_activated = 94;
+    EventFreezeSignalSubmitted freeze_signal_submitted = 95;
+    EventEmergencyFreezeVoteRecorded emergency_freeze_vote_recorded = 96;
+    EventEmergencyFreezeAccepted emergency_freeze_accepted = 97;
+    EventEmergencyFreezeRejected emergency_freeze_rejected = 98;
+    EventFreezeSignalExpired freeze_signal_expired = 99;
+    EventModelStateChanged model_state_changed = 100;
+    EventServiceKeyRotated service_key_rotated = 101;
+    EventServiceKeyRevoked service_key_revoked = 102;
+    EventServiceUnbondingWithdrawn service_unbonding_withdrawn = 103;
+    EventServiceDescriptorUpdated service_descriptor_updated = 104;
+    EventBuilderRegistered builder_registered = 105;
+    EventBuilderEvidenceAccepted builder_evidence_accepted = 109;
+    EventHubParamsUpdated hub_params_updated = 110;
+    EventServiceRegistered service_registered = 112;
+    EventProfileReferencePriceUpdated profile_reference_price_updated = 113;
+    EventBridgeInboundProcessed bridge_inbound_processed = 120;
+    EventBridgeOutboundDispatched bridge_outbound_dispatched = 121;
+    EventBridgeFreezeChanged bridge_freeze_changed = 122;
+    EventBridgeCutoverBegun bridge_cutover_begun = 123;
+    EventBridgeCutoverConfirmed bridge_cutover_confirmed = 124;
+    EventBridgeLimitsScheduled bridge_limits_scheduled = 125;
+    EventBridgeLimitsActivated bridge_limits_activated = 126;
+    EventBridgeSignerRotated bridge_signer_rotated = 127;
+  }
+}
+
+// ProtocolEventPrimaryLocatorV1 anchors one event to the Query that returns its
+// authoritative state (§5.11).
+// ProtocolEventPrimaryLocatorV1 defines the ProtocolEventPrimaryLocatorV1 wire type.
+message ProtocolEventPrimaryLocatorV1 {
+  // Exactly one locator is set.
+  // key selects one supported variant.
+  oneof key {
+    SessionLocatorV1 session = 1;
+    TaskLocatorV1 task = 2;
+    TaskRoundLocatorV1 task_round = 3;
+    ProfileLocatorV1 profile = 4;
+    OperatorLocatorV1 operator = 5;
+    EarningLocatorV1 earning = 6;
+    BuilderSetLocatorV1 builder_set = 7;
+    BucketLocatorV1 bucket = 8;
+    CandidatePoolLocatorV1 candidate_pool = 9;
+    FreezeSignalLocatorV1 freeze_signal = 10;
+    TreasuryLocatorV1 treasury = 11;
+    BridgeLocatorV1 bridge = 12;
+    EpochLocatorV1 epoch = 13;
+    ParamsLocatorV1 params = 14;
+  }
+}
+
+// SessionLocatorV1 anchors a session-scoped event.
+message SessionLocatorV1 {
+  bytes session_id = 1;
+}
+
+// TaskLocatorV1 anchors a task-scoped event.
+message TaskLocatorV1 {
+  bytes task_id = 1;
+}
+
+// TaskRoundLocatorV1 anchors one task verification round.
+message TaskRoundLocatorV1 {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+}
+
+// ProfileLocatorV1 anchors a model/profile-scoped event.
+message ProfileLocatorV1 {
+  string model_id = 1;
+  uint32 profile_version = 2;
+}
+
+// OperatorLocatorV1 anchors an operator-scoped event.
+message OperatorLocatorV1 {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+}
+
+// EarningLocatorV1 anchors an earnings-ledger event.
+message EarningLocatorV1 {
+  string beneficiary = 1;
+  RewardClass reward_class = 2;
+}
+
+// BuilderSetLocatorV1 anchors one effective BuilderSet snapshot.
+message BuilderSetLocatorV1 {
+  string builder_set_id = 1;
+}
+
+// BucketLocatorV1 anchors a governance parameter bucket version event.
+message BucketLocatorV1 {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 version = 3;
+}
+
+// CandidatePoolLocatorV1 anchors one candidate pool snapshot.
+message CandidatePoolLocatorV1 {
+  bytes snapshot_id = 1;
+}
+
+// FreezeSignalLocatorV1 anchors an emergency freeze event.
+message FreezeSignalLocatorV1 {
+  bytes freeze_signal_id = 1;
+}
+
+// TreasuryLocatorV1 anchors the treasury singleton; singleton is always true.
+message TreasuryLocatorV1 {
+  bool singleton = 1;
+}
+
+// BridgeLocatorV1 anchors the bridge singleton.
+message BridgeLocatorV1 {
+  bool singleton = 1;
+}
+
+// EpochLocatorV1 anchors one reward epoch and bucket.
+message EpochLocatorV1 {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+}
+
+// ParamsLocatorV1 anchors one module's effective parameter version.
+message ParamsLocatorV1 {
+  ParamsModuleV1 module = 1;
+  uint64 params_version = 2;
+}
+
+// EventModelProfileRegistered is event code 3.
+message EventModelProfileRegistered {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  bytes manifest_hash = 3;
+  string proposer = 4;
+  shared.v1.Amount registration_fee_amount = 5;
+}
+
+// EventModelProfileStateChanged is event code 4.
+message EventModelProfileStateChanged {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  ModelProfileStatus old_status = 3;
+  ModelProfileStatus new_status = 4;
+  ProfileStatusSource source = 5;
+}
+
+// EventServiceStakeChanged is event code 6.
+message EventServiceStakeChanged {
+  string operator = 1;
+  shared.v1.Amount amount = 2;
+  shared.v1.Amount active_bond_amount = 3;
+  uint64 bond_version = 4;
+  uint64 effective_epoch = 5;
+}
+
+// EventServiceUnbondingStarted is event code 7.
+message EventServiceUnbondingStarted {
+  bytes unbonding_id = 1;
+  string operator = 2;
+  shared.v1.Amount amount = 3;
+  uint64 mature_height = 4;
+}
+
+// EventRewardEpochClosed is event code 21. Phase 0 requires fields 2 through 5
+// to be zero while preserving an auditable epoch-close fact.
+// EventRewardEpochClosed defines the EventRewardEpochClosed wire type.
+message EventRewardEpochClosed {
+  uint64 epoch = 1;
+  uint64 eligible_task_count = 2;
+  uint64 mark_count = 3;
+  uint64 performance_update_count = 4;
+  shared.v1.Amount emission_amount = 5;
+}
+
+// EventFaultRecorded is event code 50, emitted once when a RoleFault receipt is
+// first written. Field order and types are copied verbatim from
+// keeper_api_contract.md §5.11 code 50.
+// EventFaultRecorded defines the EventFaultRecorded wire type.
+message EventFaultRecorded {
+  shared.v1.Duty duty = 1;
+  string operator = 2;
+  bytes fault_id = 3;
+  FaultKind fault_kind = 4;
+  optional bytes session_id_or_empty = 5;
+  optional bytes task_id_or_empty = 6;
+}
+
+// EventRoleJailed is event code 51.
+message EventRoleJailed {
+  shared.v1.Duty duty = 1;
+  string operator = 2;
+  uint32 old_jail_count = 3;
+  uint32 new_jail_count = 4;
+  EventLifecycleReason reason = 5;
+}
+
+// EventRoleSlashed is event code 52, emitted once when the RoleFault and the
+// ServiceBond slash commit atomically. Field order and types are copied verbatim
+// from keeper_api_contract.md §5.11 code 52.
+// EventRoleSlashed defines the EventRoleSlashed wire type.
+message EventRoleSlashed {
+  shared.v1.Duty duty = 1;
+  string operator = 2;
+  bytes fault_id = 3;
+  shared.v1.Amount applied_amount = 4;
+  shared.v1.Amount unfilled_amount = 5;
+  EventLifecycleReason reason = 6;
+  uint64 bond_version = 7;
+}
+
+// EventServiceJailRecovered is event code 53.
+message EventServiceJailRecovered {
+  string operator = 1;
+  uint32 old_jail_count = 2;
+  uint32 new_jail_count = 3;
+  shared.v1.Duty trigger_duty = 4;
+  uint32 normal_action_count = 5;
+  ServiceBondStatus bond_status = 6;
+}
+
+// EventBuilderSetUpdated is event code 60, emitted after a new BuilderSet
+// becomes effective.
+// EventBuilderSetUpdated defines the EventBuilderSetUpdated wire type.
+message EventBuilderSetUpdated {
+  uint64 old_version = 1;
+  uint64 new_version = 2;
+  string builder_set_id = 3;
+  bytes builder_set_hash = 4;
+  bytes builder_set_members_hash = 5;
+  uint64 effective_height = 6;
+}
+
+// EventCandidatePoolPublished is event code 90, emitted after a READY snapshot
+// becomes ACTIVE and the current pointer is committed.
+// EventCandidatePoolPublished defines the EventCandidatePoolPublished wire type.
+message EventCandidatePoolPublished {
+  uint64 epoch = 1;
+  bytes snapshot_id = 2;
+  bytes pool_hash = 3;
+  uint32 active_count = 4;
+  uint64 effective_height = 5;
+  uint64 expires_height = 6;
+}
+
+// EventCandidatePoolExpired is event code 91, emitted after the ACTIVE snapshot
+// becomes EXPIRED and its current pointer is cleared.
+// EventCandidatePoolExpired defines the EventCandidatePoolExpired wire type.
+message EventCandidatePoolExpired {
+  uint64 epoch = 1;
+  bytes snapshot_id = 2;
+  bytes pool_hash = 3;
+  uint64 expires_height = 4;
+}
+
+// EventCandidatePoolPruned is event code 92, emitted after a snapshot body or
+// header is actually removed.
+// EventCandidatePoolPruned defines the EventCandidatePoolPruned wire type.
+message EventCandidatePoolPruned {
+  uint64 epoch = 1;
+  bytes snapshot_id = 2;
+  bytes pool_hash = 3;
+  uint64 pruned_height = 4;
+}
+
+// EventModelSupportUpdated is event code 93.
+message EventModelSupportUpdated {
+  string operator = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 support_version = 4;
+  ModelSupportStatus old_status = 5;
+  ModelSupportStatus new_status = 6;
+  uint64 expiry_epoch = 7;
+}
+
+// EventModelSupportActivated is event code 94.
+message EventModelSupportActivated {
+  string operator = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  bytes activation_task_id = 4;
+  shared.v1.Duty activation_duty = 5;
+  uint64 support_version = 6;
+  uint64 expiry_epoch = 7;
+}
+
+// EventModelStateChanged is event code 100.
+message EventModelStateChanged {
+  string model_id = 1;
+  ModelProfileStatus old_status = 2;
+  ModelProfileStatus new_status = 3;
+  ModelStatusSource source = 4;
+  GovernanceReason reason = 5;
+}
+
+// EventServiceKeyRotated is event code 101.
+message EventServiceKeyRotated {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator = 2;
+  string old_service_address = 3;
+  string new_service_address = 4;
+  uint64 authorization_nonce = 5;
+}
+
+// EventServiceKeyRevoked is event code 102.
+message EventServiceKeyRevoked {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator = 2;
+  string revoked_service_address = 3;
+  uint64 authorization_nonce = 4;
+  ServiceKeyRevocationReason reason = 5;
+}
+
+// EventServiceUnbondingWithdrawn is event code 103.
+message EventServiceUnbondingWithdrawn {
+  string operator = 1;
+  shared.v1.Amount withdrawn_amount = 2;
+  uint32 withdrawn_items = 3;
+  uint64 bond_version = 4;
+}
+
+// EventServiceDescriptorUpdated is event code 104.
+message EventServiceDescriptorUpdated {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator = 2;
+  uint64 descriptor_version = 3;
+  bytes descriptor_hash = 4;
+}
+
+// EventBuilderRegistered (105) fires once the Builder primary row, its current
+// service binding and its descriptor commit atomically. Phase 0 keeps the
+// BuilderSet itself governance-fixed, so registration only establishes the
+// identity and does not admit the operator into the active set.
+// EventBuilderRegistered defines the EventBuilderRegistered wire type.
+message EventBuilderRegistered {
+  string builder_operator = 1;
+  string service_address = 2;
+  uint64 service_authorization_nonce = 3;
+  uint64 descriptor_version = 4;
+  bytes descriptor_hash = 5;
+}
+
+// EventBuilderEvidenceAccepted is event code 109, emitted after typed Builder
+// evidence is first accepted. Exact replay does not emit a second event.
+// EventBuilderEvidenceAccepted defines the EventBuilderEvidenceAccepted wire type.
+message EventBuilderEvidenceAccepted {
+  bytes evidence_id = 1;
+  string builder_operator = 2;
+  shared.v1.BuilderEvidenceKind evidence_kind = 3;
+  optional bytes fault_id_or_empty = 4;
+}
+
+// EventHubParamsUpdated is event code 110, emitted once when a new Hub params
+// version takes effect atomically. Field order and types are copied verbatim
+// from keeper_api_contract.md §5.11 code 110; params_hash is the §18.0
+// TRUEOPEN_HUB_PARAMS_V2 digest.
+// EventHubParamsUpdated defines the EventHubParamsUpdated wire type.
+message EventHubParamsUpdated {
+  uint64 old_version = 1;
+  uint64 new_version = 2;
+  bytes params_hash = 3;
+}
+
+// EventServiceRegistered is event code 112, emitted once when the Cortex primary
+// row, the current service key and the first stake commit in the same
+// transaction. Field order and types are copied verbatim from
+// keeper_api_contract.md §5.11 code 112.
+// EventServiceRegistered defines the EventServiceRegistered wire type.
+message EventServiceRegistered {
+  string operator = 1;
+  string service_address = 2;
+  uint64 authorization_nonce = 3;
+  shared.v1.Amount active_bond = 4;
+  uint64 bond_version = 5;
+  uint64 effective_epoch = 6;
+}
+
+// EventProfileReferencePriceUpdated is event code 113, emitted only when Hub
+// EndBlock commits an actual reference-price change for one Profile.
+// EventProfileReferencePriceUpdated defines the EventProfileReferencePriceUpdated wire type.
+message EventProfileReferencePriceUpdated {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  uint64 old_ref_price = 3;
+  uint64 new_ref_price = 4;
+  uint32 above_count = 5;
+  uint32 below_count = 6;
+  uint32 applied_step_count = 7;
+}
+
+// EventParameterBucketUpdated is event code 5, emitted once when a governance
+// versioned bucket first commits. Fields are copied verbatim from
+// keeper_api_contract.md §5.11 code 5; bucket_hash is the §5.2
+// TRUEOPEN_PARAMETER_BUCKET_V1 commitment stored as
+// ParameterBucketVersionState.content_hash.
+// EventParameterBucketUpdated defines the EventParameterBucketUpdated wire type.
+message EventParameterBucketUpdated {
+  shared.v1.BucketKind bucket_kind = 1;
+  string bucket_key = 2;
+  uint64 old_version = 3;
+  uint64 new_version = 4;
+  uint64 effective_height = 5;
+  bytes bucket_hash = 6;
+}
+
+// EventEarningsAccrued is event code 40, emitted once when an accrual first
+// lands in the earnings ledger. MsgRunRewardEpoch may only trigger this code and
+// code 70; no runner-level summary event exists (§5.11 runner table).
+// EventEarningsAccrued defines the EventEarningsAccrued wire type.
+message EventEarningsAccrued {
+  string beneficiary = 1;
+  shared.v1.Amount amount = 2;
+  RewardClass reward_class = 3;
+  optional bytes session_id_or_empty = 4;
+  optional bytes task_id_or_empty = 5;
+  uint64 earnings_version = 6;
+}
+
+// EventEarningsClaimed is event code 41, emitted once when a non-zero claim
+// transfer commits.
+// EventEarningsClaimed defines the EventEarningsClaimed wire type.
+message EventEarningsClaimed {
+  string beneficiary = 1;
+  shared.v1.Amount amount = 2;
+  RewardClass reward_class = 3;
+  uint64 earnings_version = 4;
+}
+
+// EventTreasuryCollected is event code 80, emitted once when non-zero treasury
+// income commits. source_id takes the existing authoritative ID selected by
+// source_kind: settlement_id for TASK_FEE, fault_id for SLASH_RESIDUAL and the
+// §9.6c treasury action_digest for GOVERNANCE.
+// EventTreasuryCollected defines the EventTreasuryCollected wire type.
+message EventTreasuryCollected {
+  shared.v1.Amount amount = 1;
+  TreasurySourceKind source_kind = 2;
+  bytes source_id = 3;
+  uint64 treasury_version = 4;
+}
+
+// EventTreasuryAdjusted is event code 81, emitted once when a governance
+// TreasurySpend item actually executes. The spend itself is the internal §9.6c
+// typed action, which registers no signer and no Tx RPC.
+// EventTreasuryAdjusted defines the EventTreasuryAdjusted wire type.
+message EventTreasuryAdjusted {
+  uint64 proposal_id = 1;
+  uint32 item_index = 2;
+  shared.v1.Amount amount = 3;
+  TreasuryPurposeCode purpose_code = 4;
+  optional string recipient_or_empty = 5;
+  uint64 treasury_version = 6;
+}
+
+// EventFreezeSignalSubmitted is event code 95, emitted once when the build cursor
+// completes and the first OPEN signal is written. MsgSubmitFreezeSignal returning
+// BUILDING or BELOW_THRESHOLD_NOOP emits nothing (§5.11).
+// EventFreezeSignalSubmitted defines the EventFreezeSignalSubmitted wire type.
+message EventFreezeSignalSubmitted {
+  bytes freeze_signal_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 risk_window_id = 4;
+  uint64 risk_window_start_height = 5;
+  uint64 risk_window_end_height = 6;
+  bytes failure_refs_hash = 7;
+  uint32 failure_ref_count = 8;
+  uint64 vote_deadline_height = 9;
+}
+
+// EventEmergencyFreezeVoteRecorded is event code 96, emitted once per validator
+// ballot. validator_consensus_address is ConsensusAddressBytes resolved by the
+// Keeper from the frozen validator snapshot, never a caller field.
+// EventEmergencyFreezeVoteRecorded defines the EventEmergencyFreezeVoteRecorded wire type.
+message EventEmergencyFreezeVoteRecorded {
+  bytes freeze_signal_id = 1;
+  bytes validator_consensus_address = 2;
+  EmergencyFreezeVote vote = 3;
+  uint64 voting_power_snapshot = 4;
+  uint64 accepted_voting_power = 5;
+  uint64 rejected_voting_power = 6;
+}
+
+// EventEmergencyFreezeAccepted is event code 97, emitted once when ACCEPT first
+// reaches 2/3 and the profile is frozen.
+// EventEmergencyFreezeAccepted defines the EventEmergencyFreezeAccepted wire type.
+message EventEmergencyFreezeAccepted {
+  bytes freeze_signal_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 accepted_voting_power = 4;
+  uint64 total_voting_power_snapshot = 5;
+  bytes validator_set_hash = 6;
+}
+
+// EventEmergencyFreezeRejected is event code 98, emitted once when REJECT votes
+// make a 2/3 ACCEPT unreachable.
+// EventEmergencyFreezeRejected defines the EventEmergencyFreezeRejected wire type.
+message EventEmergencyFreezeRejected {
+  bytes freeze_signal_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 rejected_voting_power = 4;
+  uint64 total_voting_power_snapshot = 5;
+}
+
+// EventFreezeSignalExpired is event code 99, emitted once when the deadline
+// runner moves a still OPEN signal to EXPIRED.
+// EventFreezeSignalExpired defines the EventFreezeSignalExpired wire type.
+message EventFreezeSignalExpired {
+  bytes freeze_signal_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 vote_deadline_height = 4;
+}
+
+// EventBridgeInboundProcessed is event code 120.
+message EventBridgeInboundProcessed {
+  bytes message_id = 1;
+  bytes usdc_route_id = 2;
+  string recipient = 3;
+  shared.v1.Amount amount = 4;
+  uint64 reward_epoch = 5;
+  shared.v1.Amount cumulative_bridge_minted = 6;
+  bool bootstrap_consumed = 7;
+}
+
+// EventBridgeOutboundDispatched is event code 121.
+message EventBridgeOutboundDispatched {
+  bytes message_id = 1;
+  bytes usdc_route_id = 2;
+  string sender = 3;
+  bytes destination_recipient = 4;
+  shared.v1.Amount amount = 5;
+  uint64 reward_epoch = 6;
+  shared.v1.Amount cumulative_bridge_burned = 7;
+}
+
+// EventBridgeFreezeChanged is event code 122.
+message EventBridgeFreezeChanged {
+  uint64 proposal_id = 1;
+  bool old_frozen = 2;
+  bool new_frozen = 3;
+  BridgeLifecycleV1 lifecycle = 4;
+}
+
+// EventBridgeCutoverBegun is event code 123.
+message EventBridgeCutoverBegun {
+  uint64 proposal_id = 1;
+  bytes local_ism_id = 2;
+  bytes next_signer_set_hash = 3;
+  uint32 threshold = 4;
+  uint64 freeze_height = 5;
+  uint64 evm_ingress_pause_block_number = 6;
+  bytes evm_ingress_pause_block_hash = 7;
+}
+
+// EventBridgeCutoverConfirmed is event code 124.
+message EventBridgeCutoverConfirmed {
+  uint64 proposal_id = 1;
+  bytes evm_ism_address = 2;
+  bytes evm_signer_set_hash = 3;
+  uint64 evm_block_number = 4;
+  bytes evm_block_hash = 5;
+  bytes deployment_manifest_hash = 6;
+  bytes inflight_manifest_hash = 7;
+  uint32 inflight_message_count = 8;
+}
+
+// EventBridgeLimitsScheduled is event code 125.
+message EventBridgeLimitsScheduled {
+  uint64 proposal_id = 1;
+  shared.v1.Amount inbound_limit = 2;
+  shared.v1.Amount outbound_limit = 3;
+  uint64 effective_epoch = 4;
+}
+
+// EventBridgeLimitsActivated is event code 126.
+message EventBridgeLimitsActivated {
+  shared.v1.Amount inbound_limit = 1;
+  shared.v1.Amount outbound_limit = 2;
+  uint64 effective_epoch = 3;
+}
+
+// EventBridgeSignerRotated is event code 127.
+message EventBridgeSignerRotated {
+  string operator = 1;
+  bytes old_signer = 2;
+  bytes new_signer = 3;
+  uint64 key_version = 4;
+  uint64 proposal_id = 5;
+}

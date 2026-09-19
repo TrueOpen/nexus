@@ -1,0 +1,76 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// DailySupportState is one operator/epoch support heartbeat row (data-structure contract 6.1).
+message DailySupportState {
+  uint64 epoch = 1;
+  string operator_address = 2;
+  bytes supported_profiles_hash = 3;
+  // SHA256(raw_signature_64), retained as a 32-byte audit/exact-replay fingerprint.
+  // The 64-byte signature was verified before initial live acceptance and is not retained.
+  // This digest is not authorization state and never enters a signing/business digest;
+  // replay compares it only to identify the same previously accepted signature.
+  bytes signature_digest = 4;
+  uint64 accepted_height = 5;
+}
+
+// ProfileCapabilityState is one operator/profile declared capability row (6.1).
+message ProfileCapabilityState {
+  string operator_address = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  bool inference_capability = 4;
+  bool verification_capability = 5;
+  uint64 capability_version = 6;
+}
+
+// SupportDeactivateCursorState makes profile-wide support deactivation bounded.
+// MsgSetProfileStatus / MsgSetModelStatus no longer walk every supporter inside
+// the handler; they enqueue exactly one cursor row per affected profile and the
+// EndBlock processor resumes from last_operator_address under the global visited
+// budget (node_context.md §9.4: every visited row, including stale ones, costs
+// one unit).
+//
+// reason carries the existing ModelSupportDeactivate* value so the EndBlock
+// processor can call the same DeactivateModelSupport path as the synchronous
+// bond/jail callers, with no second reason vocabulary.
+// SupportDeactivateCursorState defines the SupportDeactivateCursorState wire type.
+message SupportDeactivateCursorState {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  string reason = 3;
+  string last_operator_address = 4;
+  uint64 visited_count = 5;
+  uint64 enqueued_height = 6;
+}
+
+// ModelSupportState is the single roleless operator/profile support row (6.1); it carries no duty selector.
+message ModelSupportState {
+  string operator_address = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  bool declared_support = 4;
+  bool support_active = 5;
+  ModelSupportActivationKind activation_kind = 6;
+  shared.v1.Duty first_activation_duty = 7;
+  bytes first_support_task_id = 8;
+  uint64 first_support_order_value = 9;
+  // Worker activation records exactly one source. Epoch zero is valid and is
+  // distinguished from bootstrap by oneof presence.
+  // p30_source selects one supported variant.
+  oneof p30_source {
+    uint64 p30_cutoff_epoch = 10;
+    bool p30_bootstrap = 17;
+  }
+  uint64 support_fresh_until_epoch = 11;
+  bytes last_refresh_task_id = 12;
+  uint64 last_refresh_height = 13;
+  uint64 active_support_stake_snapshot = 14;
+  uint64 eligible_support_stake_snapshot = 15;
+  uint64 support_version = 16;
+}

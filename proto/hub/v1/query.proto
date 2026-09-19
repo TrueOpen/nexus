@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package hub.v1;
+
+import "hub/v1/query_bridge.proto";
+import "hub/v1/query_registry.proto";
+import "hub/v1/query_rewards.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// Query defines Hub-owned global registry, custody, reward, and governance queries.
+service Query {
+  // Params returns Hub parameters.
+  rpc Params(QueryHubParamsRequest) returns (QueryHubParamsResponse);
+  // Beacon returns one verified beacon by height.
+  rpc Beacon(QueryBeaconRequest) returns (QueryBeaconResponse);
+  // VrfKey returns one validator operator's active and pending VRF key.
+  rpc VrfKey(QueryVrfKeyRequest) returns (QueryVrfKeyResponse);
+  // BuilderSet returns one builder set selected by exactly one stable selector.
+  rpc BuilderSet(QueryBuilderSetRequest) returns (QueryBuilderSetResponse);
+  // Builder returns one builder identity.
+  rpc Builder(QueryBuilderRequest) returns (QueryBuilderResponse);
+  // Builders pages the whole builder registry. It is the only way to enumerate
+  // builders: Query/Builder needs an address the caller already knows, so
+  // without this RPC a fresh client cannot discover one. V1 takes no status
+  // selector because BuilderState has no status index (api_contract §16.3).
+  // Builders executes the Builders operation.
+  rpc Builders(QueryBuildersRequest) returns (QueryBuildersResponse);
+  // Fault returns one immutable role-fault attribution row.
+  rpc Fault(QueryFaultRequest) returns (QueryFaultResponse);
+  // Earnings returns one address earnings ledger.
+  rpc Earnings(QueryEarningsRequest) returns (QueryEarningsResponse);
+  // Model returns one registered model.
+  rpc Model(QueryModelRequest) returns (QueryModelResponse);
+  // Models pages the whole model registry. It is the only way to enumerate
+  // models: Query/Model needs a model_id the caller already knows, so without
+  // this RPC a fresh client cannot discover one. V1 takes no status selector
+  // because ModelState has no status index (api_contract §16.3).
+  // Models executes the Models operation.
+  rpc Models(QueryModelsRequest) returns (QueryModelsResponse);
+  // Profile returns one model profile.
+  rpc Profile(QueryProfileRequest) returns (QueryProfileResponse);
+  // CortexNode returns one stable service identity.
+  rpc CortexNode(QueryCortexNodeRequest) returns (QueryCortexNodeResponse);
+  // ServiceBond returns the node's single service bond and reserved liability.
+  rpc ServiceBond(QueryServiceBondRequest) returns (QueryServiceBondResponse);
+  // ServiceUnbondings pages one operator's unbonding entries by status.
+  rpc ServiceUnbondings(QueryServiceUnbondingsRequest) returns (QueryServiceUnbondingsResponse);
+  // CurrentServiceKey returns the sole current key binding for one operator,
+  // including its ACTIVE or REVOKED lifecycle status.
+  // CurrentServiceKey executes the CurrentServiceKey operation.
+  rpc CurrentServiceKey(QueryCurrentServiceKeyRequest) returns (QueryCurrentServiceKeyResponse);
+  // ServiceDescriptor returns one current bounded service descriptor.
+  rpc ServiceDescriptor(QueryServiceDescriptorRequest) returns (QueryServiceDescriptorResponse);
+  // ServiceLifecycle combines the identity and bond authorities of one operator.
+  rpc ServiceLifecycle(QueryServiceLifecycleRequest) returns (QueryServiceLifecycleResponse);
+  // ProfileCapability returns one operator/profile capability row.
+  rpc ProfileCapability(QueryProfileCapabilityRequest) returns (QueryProfileCapabilityResponse);
+  // ModelSupport returns one P30 support row.
+  rpc ModelSupport(QueryModelSupportRequest) returns (QueryModelSupportResponse);
+  // DailySupport returns one operator/epoch heartbeat row.
+  rpc DailySupport(QueryDailySupportRequest) returns (QueryDailySupportResponse);
+  // CurrentCandidatePool returns the single global pool the current pointer
+  // resolves to (api_contract §16.3, empty request). Per-profile pools no longer
+  // exist, so the old model_id/profile_version/duty path variables are gone.
+  // CurrentCandidatePool executes the CurrentCandidatePool operation.
+  rpc CurrentCandidatePool(QueryCurrentCandidatePoolRequest) returns (QueryCurrentCandidatePoolResponse);
+  // CandidatePoolSnapshot returns a retained snapshot header by immutable ID.
+  rpc CandidatePoolSnapshot(QueryCandidatePoolSnapshotRequest) returns (QueryCandidatePoolSnapshotResponse);
+  // CandidatePoolMember returns one stable slot of one snapshot.
+  rpc CandidatePoolMember(QueryCandidatePoolMemberRequest) returns (QueryCandidatePoolMemberResponse);
+  // CandidatePoolMembers pages one snapshot's members in slot order.
+  rpc CandidatePoolMembers(QueryCandidatePoolMembersRequest) returns (QueryCandidatePoolMembersResponse);
+  // CompetitionEpoch returns one reward competition epoch.
+  rpc CompetitionEpoch(QueryCompetitionEpochRequest) returns (QueryCompetitionEpochResponse);
+  // RewardEpochCursor returns bounded reward processing progress.
+  rpc RewardEpochCursor(QueryRewardEpochCursorRequest) returns (QueryRewardEpochCursorResponse);
+  // RewardEpochAudit returns the immutable root retained after bounded prune.
+  rpc RewardEpochAudit(QueryRewardEpochAuditRequest) returns (QueryRewardEpochAuditResponse);
+  // Treasury returns the single treasury row.
+  rpc Treasury(QueryTreasuryRequest) returns (QueryTreasuryResponse);
+  // BridgeStatus returns the canonical route, controls, usage, supply, and live invariants.
+  rpc BridgeStatus(QueryBridgeStatusRequest) returns (QueryBridgeStatusResponse);
+  // ValidatorBridgeSigner returns one validator's registered bridge signer.
+  rpc ValidatorBridgeSigner(QueryValidatorBridgeSignerRequest) returns (QueryValidatorBridgeSignerResponse);
+  // FreezeSignal returns one retained freeze signal header.
+  rpc FreezeSignal(QueryFreezeSignalRequest) returns (QueryFreezeSignalResponse);
+  // FreezeSignals pages one profile's freeze signals; status is a closed enum.
+  rpc FreezeSignals(QueryFreezeSignalsRequest) returns (QueryFreezeSignalsResponse);
+  // EmergencyFreezeVotes lists votes for one signal.
+  rpc EmergencyFreezeVotes(QueryEmergencyFreezeVotesRequest) returns (QueryEmergencyFreezeVotesResponse);
+  // TimeoutBucket returns an exact or effective timeout bucket. The RPC moved
+  // here from task.v1.Query with the governance writer (§2.4).
+  // TimeoutBucket executes the TimeoutBucket operation.
+  rpc TimeoutBucket(QueryTimeoutBucketRequest) returns (QueryTimeoutBucketResponse);
+}
+
+// De-registered on purpose (no alias, no compatibility projection):
+//   QueryPerformanceScore   - keeper_api_contract.md §16 registers no performance
+//     Query and there is no production PerformanceScoreState collection.
+//   QueryChallengeEffectPool - K-BLOCK-03/04: V1 registers no public challenge
+//     custody Query.
+//   QueryBuilderRewardEpoch / QueryTreasuryEpoch - the per-epoch builder reward
+//     and treasury epoch ledgers are deleted; QueryCompetitionEpoch and
+//     QueryTreasury are the registered surfaces.
+//   QueryCandidatePool      - replaced by QueryCandidatePoolSnapshot (§16.3).

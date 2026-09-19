@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/event.proto";
+import "task/v1/event.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskEventService exposes committed typed Task-owned events as resumable server
+// streams. Events are notifications only; clients must reconcile them with an
+// authoritative Query before acting on a state transition, and they deduplicate
+// with (chain_height, tx_hash, tx_index, event_index).
+//
+// The two local TaskEventCode / ProtocolEventCode enums are deleted: they were a
+// second numeric authority for the same event facts, which keeper_api_contract.md
+// §9.6b (one numeric definition per closed enum) and §17 (§5.11 is the only event
+// code registry) both forbid. Filters and envelopes now use
+// shared.v1.ProtocolEventCodeV1 and the two §5.11 typed payload oneofs. Every
+// untyped string status, string hash and attribute map is gone with them, and no
+// reserved field number is kept.
+//
+// ADR-0013 moved SubscribeProtocolEvents to hub.v1.HubEventService: the
+// non-task operating-state stream carries Hub-owned payloads, so the Hub owns the
+// RPC. Nothing is left behind here, not even a deprecated stub.
+//
+// Both RPCs are gRPC server-streaming only. V1 registers no google.api.http
+// binding, grpc-gateway chunked JSON or SSE transport, so they have no OpenAPI
+// projection. Their request/response bytes still belong to the public-service
+// descriptor metadata closure and must carry rest_bytes_encoding.
+// TaskEventService defines the TaskEventService wire type.
+service TaskEventService {
+  // SubscribeTaskEvents streams events for one task or every task in a session.
+  rpc SubscribeTaskEvents(SubscribeTaskEventsRequest) returns (stream SubscribeTaskEventsResponse);
+
+  // SubscribeRoleEvents streams task-discovery events addressed to one service
+  // operator in its worker, verifier, or builder role.
+  // SubscribeRoleEvents executes the SubscribeRoleEvents operation.
+  rpc SubscribeRoleEvents(SubscribeRoleEventsRequest) returns (stream SubscribeRoleEventsResponse);
+}
+
+// SubscribeTaskEventsRequest identifies a task event stream. Field number 5 is
+// deliberately unallocated and must not be filled by a later field.
+// SubscribeTaskEventsRequest defines the SubscribeTaskEventsRequest wire type.
+message SubscribeTaskEventsRequest {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  // after_cursor resumes strictly after the identified event or checkpoint. It is
+  // an opaque token produced by this same Node; when it is non-empty from_height
+  // must be 0.
+  string after_cursor = 3;
+  // from_height is inclusive and is used only when after_cursor is empty. Zero
+  // starts at the next committed block observed after subscription.
+  uint64 from_height = 4;
+  // Empty selects every Task-owned event code. This service accepts Task-owned
+  // codes only; a Hub-owned code returns InvalidArgument and is never silently
+  // ignored.
+  repeated shared.v1.ProtocolEventCodeV1 codes = 6;
+}
+
+// SubscribeRoleEventsRequest identifies task-discovery events for one operator.
+// Field numbers 2 and 5 are deliberately unallocated and must not be filled by a
+// later field.
+// SubscribeRoleEventsRequest defines the SubscribeRoleEventsRequest wire type.
+message SubscribeRoleEventsRequest {
+  string operator_address = 1;
+  // after_cursor resumes strictly after the identified event or checkpoint. It is
+  // an opaque token produced by this same Node; when it is non-empty from_height
+  // must be 0.
+  string after_cursor = 3;
+  // from_height is inclusive and is used only when after_cursor is empty.
+  uint64 from_height = 4;
+  // target_role narrows delivery to one role of the operator.
+  shared.v1.EventRole target_role = 6;
+  // Empty selects every Task-owned event code addressed to the role. This service
+  // accepts Task-owned codes only; a Hub-owned code returns InvalidArgument and is
+  // never silently ignored.
+  repeated shared.v1.ProtocolEventCodeV1 codes = 7;
+}
+
+// SubscribeTaskEventsResponse carries one committed task event.
+message SubscribeTaskEventsResponse {
+  // item is either a matching task event or a committed position checkpoint.
+  oneof item {
+    TaskEvent event = 1;
+    shared.v1.StreamCheckpoint checkpoint = 2;
+  }
+}
+
+// SubscribeRoleEventsResponse carries one committed role-discovery event.
+message SubscribeRoleEventsResponse {
+  // item is either a matching role event or a committed position checkpoint.
+  oneof item {
+    TaskEvent event = 1;
+    shared.v1.StreamCheckpoint checkpoint = 2;
+  }
+}
+
+// TaskEvent is a stable stream envelope around one committed Task-owned §5.11
+// event. Field numbers 10 to 14 are deliberately unallocated.
+//
+// cursor is an opaque global chain-position token produced by one Node. The total
+// order of a position is (chain_height, source_order, tx_index, event_index),
+// where source_order is derived from the shared.v1.TaskEventSource enum
+// number (TX(1) < FINALIZE_BLOCK(2)) and is never carried as a wire field. A
+// consumer may use the cursor only as an equality barrier and as a resume token;
+// it must never compare cursors lexicographically and must use the explicit
+// position tuple when ordering events across streams.
+// TaskEvent defines the TaskEvent wire type.
+message TaskEvent {
+  string cursor = 1;
+  uint64 chain_height = 2;
+  bytes block_hash = 3;
+  // tx_hash must be present and exactly 32 raw bytes when source is
+  // TASK_EVENT_SOURCE_TX, and must be absent when source is
+  // TASK_EVENT_SOURCE_FINALIZE_BLOCK. A present but empty bytes value and a JSON
+  // null are both invalid: presence, not an empty sentinel, carries the
+  // distinction.
+  optional bytes tx_hash = 4;
+  uint32 tx_index = 5;
+  uint32 event_index = 6;
+  shared.v1.TaskEventSource source = 7;
+  bytes session_id = 8;
+  bytes task_id = 9;
+  shared.v1.ProtocolEventCodeV1 code = 15;
+  repeated shared.v1.EventTarget targets = 16;
+  // payload carries exactly one Task-owned typed event whose oneof field number
+  // equals code.
+  TaskProtocolEventPayloadV1 payload = 17;
+}

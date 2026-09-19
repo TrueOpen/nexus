@@ -1,0 +1,530 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "shared/v1/model_profile.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskPhase is the aggregate task phase. Numeric values are frozen by
+// keeper_api_contract.md §9.6b; ascending order is the mandatory forward order, so
+// transition checks are monotonic with no rollback and no skipping.
+// TaskPhase defines the TaskPhase wire type.
+enum TaskPhase {
+  // Never written; rejects zero-value rows.
+  // TASK_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_PHASE_UNSPECIFIED = 0;
+  // First Worker proposal accepted; candidate union still open.
+  // TASK_PHASE_WORKER_ASSIGNMENT_PENDING identifies the corresponding protocol value.
+  TASK_PHASE_WORKER_ASSIGNMENT_PENDING = 1;
+  // Winner Worker finalized from the frozen legal set.
+  // TASK_PHASE_WORKER_ASSIGNED identifies the corresponding protocol value.
+  TASK_PHASE_WORKER_ASSIGNED = 2;
+  // Infer receipt accepted.
+  // TASK_PHASE_RECEIPT_COMMITTED identifies the corresponding protocol value.
+  TASK_PHASE_RECEIPT_COMMITTED = 3;
+  // Verifier set selected for the current round.
+  // TASK_PHASE_VERIFIER_ASSIGNED identifies the corresponding protocol value.
+  TASK_PHASE_VERIFIER_ASSIGNED = 4;
+  // Verify commit collection.
+  // TASK_PHASE_COMMITTING identifies the corresponding protocol value.
+  TASK_PHASE_COMMITTING = 5;
+  // Verify reveal collection.
+  // TASK_PHASE_REVEALING identifies the corresponding protocol value.
+  TASK_PHASE_REVEALING = 6;
+  // Settlement in progress.
+  // TASK_PHASE_SETTLING identifies the corresponding protocol value.
+  TASK_PHASE_SETTLING = 7;
+  // Settled terminal phase.
+  // TASK_PHASE_SETTLED identifies the corresponding protocol value.
+  TASK_PHASE_SETTLED = 8;
+  // Failed terminal phase.
+  // TASK_PHASE_FAILED identifies the corresponding protocol value.
+  TASK_PHASE_FAILED = 9;
+}
+
+// AssignmentStatus is the Worker assignment sub-state. Values are frozen by
+// §9.6b. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
+// copy (node_context.md §5.2).
+// AssignmentStatus defines the AssignmentStatus wire type.
+enum AssignmentStatus {
+  // Never written; rejects zero-value rows.
+  // ASSIGNMENT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_UNSPECIFIED = 0;
+  // No assignment activity yet.
+  // ASSIGNMENT_STATUS_NONE identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_NONE = 1;
+  // Legal set frozen, waiting for the future beacon.
+  // ASSIGNMENT_STATUS_RANDOMNESS_PENDING identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_RANDOMNESS_PENDING = 2;
+  // Winner finalized and liability reserved.
+  // ASSIGNMENT_STATUS_WORKER_ASSIGNED identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_WORKER_ASSIGNED = 3;
+  // Assignment could not be completed.
+  // ASSIGNMENT_STATUS_ASSIGN_TIMEOUT identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_ASSIGN_TIMEOUT = 4;
+  // Winner missed the inference deadline.
+  // ASSIGNMENT_STATUS_WORKER_TIMEOUT identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_WORKER_TIMEOUT = 5;
+}
+
+// ReceiptStatus is the inference receipt sub-state, frozen by §9.6b.
+enum ReceiptStatus {
+  // Never written; rejects zero-value rows.
+  // RECEIPT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  RECEIPT_STATUS_UNSPECIFIED = 0;
+  // No receipt activity yet.
+  // RECEIPT_STATUS_NONE identifies the corresponding protocol value.
+  RECEIPT_STATUS_NONE = 1;
+  // Worker receipt accepted.
+  // RECEIPT_STATUS_RECEIPT_ACCEPTED identifies the corresponding protocol value.
+  RECEIPT_STATUS_RECEIPT_ACCEPTED = 2;
+  // Receipt deadline passed with no accepted receipt.
+  // RECEIPT_STATUS_RECEIPT_TIMEOUT identifies the corresponding protocol value.
+  RECEIPT_STATUS_RECEIPT_TIMEOUT = 3;
+}
+
+// VerificationStatus is the verification sub-state, frozen by §9.6b.
+enum VerificationStatus {
+  // Never written; rejects zero-value rows.
+  // VERIFICATION_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  VERIFICATION_STATUS_UNSPECIFIED = 0;
+  // No verification activity yet.
+  // VERIFICATION_STATUS_NONE identifies the corresponding protocol value.
+  VERIFICATION_STATUS_NONE = 1;
+  // Verifier handraise collection open.
+  // VERIFICATION_STATUS_VERIFY_COLLECTION_OPEN identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFY_COLLECTION_OPEN = 2;
+  // Verifier set selected.
+  // VERIFICATION_STATUS_VERIFIER_ASSIGNED identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFIER_ASSIGNED = 3;
+  // Commit collection.
+  // VERIFICATION_STATUS_COMMITTING identifies the corresponding protocol value.
+  VERIFICATION_STATUS_COMMITTING = 4;
+  // Reveal collection.
+  // VERIFICATION_STATUS_REVEALING identifies the corresponding protocol value.
+  VERIFICATION_STATUS_REVEALING = 5;
+  // Not enough consistent results.
+  // VERIFICATION_STATUS_NO_CONSENSUS identifies the corresponding protocol value.
+  VERIFICATION_STATUS_NO_CONSENSUS = 6;
+  // Verification concluded as failed.
+  // VERIFICATION_STATUS_VERIFY_FAILED identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFY_FAILED = 7;
+  // Verification concluded as passed.
+  // VERIFICATION_STATUS_VERIFICATION_PASSED identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFICATION_PASSED = 8;
+  // Eligibility source frozen, window beacon pending.
+  // VERIFICATION_STATUS_VERIFIER_WINDOW_PENDING identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFIER_WINDOW_PENDING = 9;
+  // Legal set frozen, selection beacon pending.
+  // VERIFICATION_STATUS_VERIFIER_SELECTION_PENDING identifies the corresponding protocol value.
+  VERIFICATION_STATUS_VERIFIER_SELECTION_PENDING = 10;
+}
+
+// SettlementStatus is the settlement sub-state, frozen by §9.6b.
+enum SettlementStatus {
+  // Never written; rejects zero-value rows.
+  // SETTLEMENT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  SETTLEMENT_STATUS_UNSPECIFIED = 0;
+  // No settlement activity yet.
+  // SETTLEMENT_STATUS_NONE identifies the corresponding protocol value.
+  SETTLEMENT_STATUS_NONE = 1;
+  // One settlement plan was applied and committed.
+  // SETTLEMENT_STATUS_FINALIZED identifies the corresponding protocol value.
+  SETTLEMENT_STATUS_FINALIZED = 2;
+  // The terminal plan paid no role and refunded the remaining budget.
+  // SETTLEMENT_STATUS_REFUNDED identifies the corresponding protocol value.
+  SETTLEMENT_STATUS_REFUNDED = 3;
+}
+
+// AssignmentFailureReason is the single closed reason for a failed Worker
+// assignment, frozen by §9.6b.
+// AssignmentFailureReason defines the AssignmentFailureReason wire type.
+enum AssignmentFailureReason {
+  // No failure recorded.
+  // ASSIGNMENT_FAILURE_REASON_UNSPECIFIED identifies the corresponding protocol value.
+  ASSIGNMENT_FAILURE_REASON_UNSPECIFIED = 0;
+  // Frozen union bitmap held no usable candidate.
+  // ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET identifies the corresponding protocol value.
+  ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET = 1;
+  // Required future beacon never became available.
+  // ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE identifies the corresponding protocol value.
+  ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE = 2;
+  // Drawn winner could no longer reserve task liability.
+  // ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE identifies the corresponding protocol value.
+  ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE = 3;
+  // Order expired before assignment completed.
+  // ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED identifies the corresponding protocol value.
+  ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED = 4;
+}
+
+// TaskCandidateStage selects the handraise stage of one task.
+//
+// CONTRACT-GAP: data_structure_contract §4.2 types the field as `TaskCandidateStage` but
+// §9.6b does not register it; api_contract §1.4 instead states that the `stage` field
+// inside TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 / TRUEOPEN_TASK_STAGE_ADDED_BITMAP_V1 uses
+// the §5.10 `BuilderDutyStageV1` numbers. The values below therefore keep the
+// §4.2 type name with the §5.10 numbers (OPEN_TASK=1, OPEN_VERIFY=2); SETTLE=3
+// is intentionally absent because it is not a candidate stage. The type name vs.
+// numbering-authority conflict must be resolved in the contract.
+// TaskCandidateStage defines the TaskCandidateStage wire type.
+enum TaskCandidateStage {
+  // Never written; rejects zero-value rows and keys.
+  // TASK_CANDIDATE_STAGE_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_UNSPECIFIED = 0;
+  // Worker handraise stage.
+  // TASK_CANDIDATE_STAGE_OPEN_TASK identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_OPEN_TASK = 1;
+  // Verifier handraise stage.
+  // TASK_CANDIDATE_STAGE_OPEN_VERIFY identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_OPEN_VERIFY = 2;
+}
+
+// TaskCandidateStageStatusV1 is the handraise window status, frozen by §9.6b.
+enum TaskCandidateStageStatusV1 {
+  // Never written; rejects zero-value rows.
+  // TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED = 0;
+  // Accepting proposals.
+  // TASK_CANDIDATE_STAGE_STATUS_V1_OPEN identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_STATUS_V1_OPEN = 1;
+  // Window closed, bounded finalize running.
+  // TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZING identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZING = 2;
+  // Commitment written; segment bodies deleted.
+  // TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZED identifies the corresponding protocol value.
+  TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZED = 3;
+}
+
+// FinalizeCursorStatusV1 is the bounded finalize cursor status, frozen by §9.6b.
+enum FinalizeCursorStatusV1 {
+  // Never written; rejects zero-value rows.
+  // FINALIZE_CURSOR_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  FINALIZE_CURSOR_STATUS_V1_UNSPECIFIED = 0;
+  // Advancing over frozen candidate facts.
+  // FINALIZE_CURSOR_STATUS_V1_RUNNING identifies the corresponding protocol value.
+  FINALIZE_CURSOR_STATUS_V1_RUNNING = 1;
+  // Legal set frozen, waiting for the selection beacon.
+  // FINALIZE_CURSOR_STATUS_V1_WAITING_RANDOMNESS identifies the corresponding protocol value.
+  FINALIZE_CURSOR_STATUS_V1_WAITING_RANDOMNESS = 2;
+}
+
+// CandidateMemberRefV1 (api_contract §4.1) is the member reference shared by
+// WorkerHandraiseV1 and VerifierHandraiseV1. It must exist exactly once in this
+// module and is currently declared in task/v1/open_verify.proto by the
+// verifier slice, so msg_assignment.proto imports it from there instead of
+// re-declaring it here.
+
+// TaskCoreState is the only primary of the six task sub-states (data_structure_contract
+// §6.6, key = task_id). Stage tables store stage-local facts only and must not
+// copy these sub-states. The abandoned TaskStatus projection and the
+// SessionEscrow double ledger are deleted.
+// TaskCoreState defines the TaskCoreState wire type.
+message TaskCoreState {
+  bytes task_id = 1;
+  string user_address = 2;
+  bytes session_id = 3;
+  uint64 order_sequence = 4;
+  bytes accepted_task_hash = 5;
+  bytes accepted_input_hash = 6;
+  bytes accepted_order_opening_hash = 7;
+  string model_id = 8;
+  uint32 profile_version = 9;
+  // order_value is the immutable keeper-derived worker_max + verify_max from
+  // the accepted TaskOrderV2. It is not TaskBudgetState.original_reserved_amount,
+  // which is max_fee.
+  shared.v1.TaskType task_type = 10;
+  shared.v1.Amount order_value = 11;
+  TaskPhase task_phase = 12;
+  AssignmentStatus assignment_status = 13;
+  ReceiptStatus receipt_status = 14;
+  VerificationStatus verification_status = 15;
+  SettlementStatus settlement_status = 16;
+  shared.v1.TaskFinalityStatusV1 finality_status = 17;
+  uint32 effective_verify_round = 18;
+  optional uint64 task_finality_height = 19;
+  uint64 created_height = 20;
+  uint64 updated_height = 21;
+  // Frozen from TaskParamsV1.evidence.max_evidence_retention_blocks when the
+  // first Task state is accepted; later parameter changes do not reinterpret it.
+  uint64 evidence_retention_blocks_snapshot = 22;
+  // Frozen from Hub ServiceParamsV1.objective_forgery_slash_bps in the same
+  // transaction and used by objective Worker evidence.
+  uint32 objective_forgery_slash_bps_snapshot = 23;
+}
+
+// TaskAssignmentState holds Worker assignment facts only (§6.6, key = task_id).
+// assignment_status is NOT duplicated here. winner_draw_digest is derived at
+// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (api_contract §10.2).
+// candidate_pool_ref_released makes the CandidatePoolTaskRefState release
+// idempotent (data_structure_contract §3.3).
+// TaskAssignmentState defines the TaskAssignmentState wire type.
+message TaskAssignmentState {
+  bytes task_id = 1;
+  uint64 assign_accept_height = 2;
+  uint64 assignment_randomness_height = 3;
+  uint64 winner_confirm_height = 4;
+  uint64 infer_deadline_height = 5;
+  AssignmentFailureReason assignment_fail_reason = 6;
+  bytes candidate_pool_snapshot_id = 7;
+  bytes candidate_pool_hash = 8;
+  bytes assignment_candidate_set_hash = 9;
+  string winner_worker = 10;
+  bytes winner_draw_digest = 11;
+  bytes profile_execution_snapshot_hash = 12;
+  string judgment_function_version = 13;
+  bytes evidence_schema_hash = 14;
+  string canonical_encoding_version = 15;
+  bytes generation_params_digest = 16;
+  string metric_aggregate_proof_version = 17;
+  bool candidate_pool_ref_released = 18;
+  // Timeout interval selected at admission from the exact retained Hub bucket.
+  uint64 infer_timeout_blocks = 19;
+  // Profile-local challenge window frozen at admission.
+  uint64 challenge_open_window_blocks_snapshot = 20;
+  // Fault consequences are frozen at first Task admission so a later params
+  // update cannot reinterpret an in-flight duty.
+  uint32 worker_infer_timeout_slash_bps = 21;
+  uint32 result_reveal_missing_slash_bps = 22;
+}
+
+// AssignmentCandidateSetState is the task-local dual commitment header
+// (data_structure_contract §4.3, key = task_id). The pool commitment and the task legal-set
+// commitment are separate: candidate_pool_snapshot_id/pool_hash commit to the
+// public candidate source, union_bitmap_hash plus
+// assignment_candidate_set_hash commit to the accepted handraise subset. No
+// second candidate vector is materialized; rows stay in TaskCandidateFactState.
+// AssignmentCandidateSetState defines the AssignmentCandidateSetState wire type.
+message AssignmentCandidateSetState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  bytes task_hash = 3;
+  bytes candidate_pool_snapshot_id = 4;
+  bytes candidate_pool_hash = 5;
+  bytes union_bitmap_hash = 6;
+  uint32 candidate_count = 7;
+  bytes assignment_candidate_set_hash = 8;
+}
+
+// TaskCandidateFactState is the immutable accepted-time frozen fact for one
+// candidate bit (data_structure_contract §4.2, key = (task_id, stage, slot)). It is written
+// in the same Tx that flips the bit; later bond, support, jail or performance
+// changes must never write back. Raw handraise JSON is never stored: only these
+// typed facts, the signing digest, bitmaps, counts and commitments.
+//
+// Thirteen of these fields enter the TRUEOPEN_ASSIGNMENT_LEGAL_SET_V1 preimage per
+// frozen candidate slot, so they are consensus critical and part of the
+// cross-language vector. WARNING: the preimage order is NOT this message's field
+// number order. api_contract §4.3 freezes the repeated block explicitly as
+//
+//   repeated(slot, slot_version, operator_address,
+//            candidate_weight, active_bond_snapshot, available_bond_snapshot,
+//            required_task_liability_snapshot, min_stake_snapshot,
+//            performance_score_snapshot_ppm, performance_method_version,
+//            candidate_jail_factor_snapshot_ppm,
+//            bond_version_snapshot, support_version_snapshot)
+//
+// so candidate_weight - field 17 here - is hashed FOURTH, right after
+// operator_address, and duty (field 7) does NOT enter the preimage at all, nor do
+// schema_version, task_id, stage or handraise_signing_digest. §1.2's default
+// "ascending schema field number" rule applies only where a section gives no
+// explicit order; §4.3 gives one, so §4.3 wins. An implementation that encodes this
+// message by field number produces a different assignment_candidate_set_hash.
+//
+// CONTRACT-GAP (performance_score_snapshot_ppm = 12,
+// performance_method_version = 13): both values are frozen into that preimage, but
+// no State in either keeper contract produces them. The candidate weight formula's
+//
+//   WorkerCandidateWeight   = (0.30*stake_score + 0.70*performance_score) * jail
+//   VerifierCandidateWeight = (0.20*stake_score + 0.80*performance_score) * jail
+//
+// and it sources performance_score from a "PerformanceState" mapped through
+// performance_method_version - a State that keeper_data_structure_contract.md never declares
+// and that keeper_api_contract.md §16 never exposes (no PerformanceScoreState, no
+// QueryPerformanceScore; §16.3 QueryServiceLifecycle explicitly must not compute
+// performance on the fly). §9.6b also registers no numbering for
+// performance_method_version even though its uint32 value is hashed.
+//
+// V1 resolution (Decision 21, do not deviate): every accepted-time snapshot writes
+//   performance_score_snapshot_ppm = 1000000   // 1.0 in ppm, the §1.1 ppm scale
+//   performance_method_version     = 1         // denotes PERFORMANCE_RAW_Q16_V1
+// PERFORMANCE_RAW_Q16_V1 is the only registered method
+// [0,1]) and 1.0 is the frozen default for a node with no track record, so no
+// candidate is excluded for lacking history.
+//
+// The value must NEVER be written as 0. performance_score_snapshot_ppm = 0 makes
+// the weighted term 0; with 1.0 stake_score the Worker weight collapses to
+// 0.30*jail and with a jailed or zero-stake candidate it collapses to 0 outright.
+// Once every candidate in the frozen legal set weighs 0, §4.5's checked uint64
+// weight sum is 0, the unbiased draw has no positive cumulative weight to select
+// against and the handler must raise an invariant error and hold the Task pending
+// - i.e. a zero here disables Worker and Verifier selection chain-wide rather than
+// merely de-prioritising a candidate. A future real performance feed must clamp
+// into the §1.1 range 0..1000000 with a floor above 0, and must arrive together
+// with the missing State, its §9.6b method numbering and a new
+// performance_method_version - never by silently reinterpreting version 1.
+// TaskCandidateFactState defines the TaskCandidateFactState wire type.
+message TaskCandidateFactState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  TaskCandidateStage stage = 3;
+  uint32 slot = 4;
+  uint64 slot_version = 5;
+  string operator_address = 6;
+  shared.v1.Duty duty = 7;
+  shared.v1.Amount active_bond_snapshot = 8;
+  shared.v1.Amount available_bond_snapshot = 9;
+  shared.v1.Amount required_task_liability_snapshot = 10;
+  shared.v1.Amount min_stake_snapshot = 11;
+  uint32 performance_score_snapshot_ppm = 12;
+  uint32 performance_method_version = 13;
+  uint32 candidate_jail_factor_snapshot_ppm = 14;
+  uint64 bond_version_snapshot = 15;
+  uint64 support_version_snapshot = 16;
+  uint32 candidate_weight = 17;
+  bytes handraise_signing_digest = 18;
+  // Frozen capability receipt used by Hub liability admission. It does not
+  // enter the V1 legal-set preimage, whose thirteen fields are fixed above.
+  uint64 capability_version_snapshot = 19;
+}
+
+// BuilderStageProposalState is one accepted proposal receipt (data_structure_contract §4.2,
+// key = (task_id, stage, proposal_digest)). data_ready_attestation is only set
+// for Builder Open Verify proposals.
+// BuilderStageProposalState defines the BuilderStageProposalState wire type.
+message BuilderStageProposalState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  TaskCandidateStage stage = 3;
+  bytes proposal_digest = 4;
+  string proposer_operator = 5;
+  uint64 accepted_height = 6;
+  uint32 new_member_count = 7;
+  bool data_ready_attestation = 8;
+}
+
+// TaskStageHandraiseUnionState is the authoritative stage union header
+// (data_structure_contract §4.2, key = (task_id, stage)). union_bitmap_hash is the single
+// TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 value shared with AssignmentCandidateSetState;
+// there is no separate bitmap_hash field. After finalize the segment bodies are
+// deleted and only hash/count/status remain.
+// TaskStageHandraiseUnionState defines the TaskStageHandraiseUnionState wire type.
+message TaskStageHandraiseUnionState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  TaskCandidateStage stage = 3;
+  bytes candidate_pool_snapshot_id = 4;
+  bytes candidate_pool_hash = 5;
+  uint32 union_count = 6;
+  uint32 accepted_proposal_count = 7;
+  TaskCandidateStageStatusV1 status = 8;
+  uint64 window_close_height = 9;
+  bytes union_bitmap_hash = 10;
+  // Required after OPEN_VERIFY finalize.
+  optional bytes verifier_legal_set_hash = 11;
+  // OPEN_VERIFY only; copied from the frozen window clock.
+  optional uint64 selection_randomness_height = 12;
+  // OPEN_VERIFY only; fixed Task Builder order.
+  bytes data_ready_attesting_builder_bitmap = 13;
+}
+
+// TaskStageHandraiseUnionSegmentState is one fixed-width union bitmap segment
+// (data_structure_contract §4.2, key = (task_id, stage, segment_index)). bitmap length is
+// exactly candidate_bitmap_segment_bytes; the body is deleted at finalize.
+// TaskStageHandraiseUnionSegmentState defines the TaskStageHandraiseUnionSegmentState wire type.
+message TaskStageHandraiseUnionSegmentState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  TaskCandidateStage stage = 3;
+  uint32 segment_index = 4;
+  bytes bitmap = 5;
+}
+
+// TaskBuilderSelectionState is the frozen Task Builder selection of one Task
+// (keeper_data_structure_contract.md §6.5, key = task_id). Task admission is the only writer
+// of its frozen selection content; terminal and EvidenceCleanup helpers may only
+// advance the lifecycle fields described below. Every later Task stage reads it:
+// §10.1 writes it together with the first accepted Worker proposal, §10.4/§10.5
+// derive the fixed Builder bitmap order from selected_task_builders, and §10.10a
+// derives the stable SETTLE duty Builder from the same frozen order and rank.
+//
+// Lifecycle: admission does a checked +1 on the referenced
+// BuilderSetState.task_ref_count (exact replay must not add twice). Task finality
+// only does the checked -1 and sets builder_set_ref_released=true; it retains
+// selected_task_builders and builder_fault_slash_bps_snapshot for objective
+// evidence. EvidenceCleanup releases every BUS_OBJECTIVE_EVIDENCE responsibility,
+// then clears selected_task_builders and changes body_status to PRUNED in the
+// same transaction. keeper_data_structure_contract.md §6.6 later deletes this whole row in
+// TASK_COMPACTION, so the PRUNED header exists only before compaction; after
+// compaction the read path returns NotFound.
+//
+// Read path: rpc Query.TaskBuilders (§16.2), declared in task/v1/query.proto
+// with QueryTaskBuildersRequest/Response and the projected
+// TaskBuilderSelectionViewV1 in task/v1/query_task.proto. That response
+// message carries the single normative statement of the ACTIVE / PRUNED /
+// post-compaction semantics summarised above, and of the bitmap order below; this
+// comment does not duplicate a second copy.
+//
+// Bitmap order: the frozen index of a Builder inside selected_task_builders is
+// also the bit index of MsgReportDataUnavailable /
+// DataUnavailableReportState.unavailable_task_builder_bitmap (§10.5) and of
+// TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap (§10.4). Both
+// bitmaps become unreplayable once the body is pruned, which is why
+// selected_task_builders_hash is retained.
+//
+// selected_task_builders_hash = H_FIELDS_V1("TRUEOPEN_SELECTED_TASK_BUILDERS_V1",
+// chain_id, task_id, builder_set_id, builder_set_hash, ordered builders).
+//
+// CONTRACT-GAP: §6.5 lists this row inside the Builder-set chapter and names no
+// owning module, while every writer and reader named above is a Task handler and
+// x/hub must not import x/task. It is therefore declared in
+// task/v1; §6.5 should state the owning module explicitly. Field numbers
+// follow the §6.5 listing order (the systematic no-field-number gap of the State
+// chapters).
+// TaskBuilderSelectionState defines the TaskBuilderSelectionState wire type.
+message TaskBuilderSelectionState {
+  bytes task_id = 1;
+  bytes session_anchor_block_hash = 2;
+  string builder_set_id = 3;
+  bytes builder_set_hash = 4;
+  // Frozen order; length equals builders_per_task while body_status is ACTIVE
+  // and is empty once the body is pruned.
+  repeated string selected_task_builders = 5;
+  // Unchanged by pruning.
+  uint32 selected_task_builder_count = 6;
+  // Ordered-member commitment; retained after pruning.
+  bytes selected_task_builders_hash = 7;
+  uint64 created_height = 8;
+  shared.v1.StoredBodyStatus body_status = 9;
+  // Makes the BuilderSet ref release idempotent.
+  bool builder_set_ref_released = 10;
+  // TaskParamsV1.verification.builder_fault_slash_bps frozen when this
+  // selection is first locked. Evidence copies this value to the shared Hub
+  // fact; range is 0..10000 and later parameter updates cannot reinterpret the
+  // Task.
+  uint32 builder_fault_slash_bps_snapshot = 11;
+}
+
+// TaskCandidateFinalizeCursorState is the shared EndBlock / public runner cursor
+// (data_structure_contract §4.6, key = (task_id, stage)). A partial exit persists only the
+// cursor and already validated frozen rows, never the final commitment, winner or
+// selected verifiers. The cursor is deleted on completion; no DONE row is kept.
+// TaskCandidateFinalizeCursorState defines the TaskCandidateFinalizeCursorState wire type.
+message TaskCandidateFinalizeCursorState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  TaskCandidateStage stage = 3;
+  uint32 next_slot = 4;
+  uint64 visited_count = 5;
+  uint32 materialized_count = 6;
+  bytes running_commitment = 7;
+  // OPEN_VERIFY: equals the frozen selection_randomness_height.
+  optional uint64 randomness_height = 8;
+  FinalizeCursorStatusV1 status = 9;
+  // Canonical, slot-ordered immutable fact chunks accumulated by the bounded
+  // OPEN_VERIFY legal-set runner. running_commitment is a registered fold over
+  // these chunks; finalization uses their embedded legal-set frames so a
+  // restart produces the same flat verifier_legal_set_hash as a single pass.
+  repeated bytes materialized_fact_chunks = 10;
+}

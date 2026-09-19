@@ -1,0 +1,105 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/round_economics.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// VerificationRoundState is the sole Task-owned authority for one verification
+// round. Phase 0 permits round 1 and at most one funded round 2.
+// VerificationRoundState defines the VerificationRoundState wire type.
+message VerificationRoundState {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  uint32 verify_round = 3;
+  bytes round_id = 4;
+  optional string opener_address = 5;
+  optional bytes prev_round_facts_hash = 6;
+  optional TaskVerdict prev_round_verdict = 7;
+  uint64 round_open_height = 8;
+  uint64 round_close_deadline_height = 9;
+  optional uint64 closed_height = 10;
+  bytes infer_receipt_ref = 11;
+  optional bytes result_receipt_refs_hash = 12;
+  optional bytes consensus_cluster_hash = 13;
+  uint64 generated_token_count = 14;
+  optional TaskVerdict verdict = 15;
+  optional TaskFailureClass failure_class = 16;
+  optional shared.v1.RoundOutcomeV1 round_outcome = 17;
+  bytes profile_execution_snapshot_hash = 18;
+  bytes generation_params_digest = 19;
+  optional bytes round_facts_hash = 20;
+  uint32 round_effect_count = 21;
+  optional bytes round_effect_plan_root = 22;
+  optional bytes round_effect_root = 23;
+  optional bytes funding_lock_hash = 24;
+  optional bytes funding_resolution_hash = 25;
+}
+
+// RoundFundingState is the round-2 custody authority. Round 1 has no funding
+// row. Terminal resolution fields are written once and remain mutually closed
+// with the corresponding VerificationRoundState.
+// RoundFundingState defines the RoundFundingState wire type.
+message RoundFundingState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string opener_address = 3;
+  shared.v1.Amount challenge_open_bond = 4;
+  shared.v1.Amount challenge_slot_fee = 5;
+  uint32 challenge_verifier_count = 6;
+  shared.v1.Amount verifier_budget = 7;
+  shared.v1.Amount total_lock = 8;
+  shared.v1.Amount bond_locked_amount = 9;
+  shared.v1.Amount verifier_budget_remaining = 10;
+  shared.v1.Amount verifier_paid = 11;
+  shared.v1.Amount bond_refund = 12;
+  shared.v1.Amount bond_slash = 13;
+  shared.v1.Amount opener_recovery = 14;
+  shared.v1.Amount treasury_residual = 15;
+  uint32 challenge_inconclusive_bond_slash_bps_snapshot = 16;
+  uint32 challenge_fault_slash_bps_snapshot = 17;
+  bytes funding_lock_hash = 18;
+  optional shared.v1.RoundOutcomeV1 round_outcome = 19;
+  optional bytes funding_resolution_hash = 20;
+  optional uint64 closed_height = 21;
+}
+
+// RoundEconomicEffectState scopes one shared effect value to a Task round.
+message RoundEconomicEffectState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  shared.v1.RoundEconomicEffectV1 effect = 3;
+}
+
+// RoundEconomicEffectApplyCursorState is the restart-safe bounded apply cursor.
+message RoundEconomicEffectApplyCursorState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  uint32 next_effect_index = 3;
+  uint64 next_apply_height = 4;
+  uint64 visited_count = 5;
+  uint64 applied_count = 6;
+  shared.v1.Amount effect_pool_balance = 7;
+}
+
+// TaskRoundSummaryState is the fixed Task-level summary of round 1 and optional
+// round 2. The *_or_zero32 fields are always present raw Hash32 values. They use
+// exactly 32 zero bytes only when the corresponding round does not exist.
+// TaskRoundSummaryState defines the TaskRoundSummaryState wire type.
+message TaskRoundSummaryState {
+  bytes task_id = 1;
+  uint32 max_closed_round = 2;
+  uint32 open_round_count = 3;
+  uint32 effective_verify_round = 4;
+  optional uint64 challenge_open_height = 5;
+  optional uint64 challenge_close_height = 6;
+  optional uint64 rounds_closed_height = 7;
+  optional uint64 settlement_facts_cutoff_height = 8;
+  bytes round1_facts_hash_or_zero32 = 9;
+  bytes round2_facts_hash_or_zero32 = 10;
+  optional shared.v1.RoundOutcomeV1 round2_outcome = 11;
+  bytes round2_effect_root_or_zero32 = 12;
+  optional bytes task_round_summary_hash = 13;
+}

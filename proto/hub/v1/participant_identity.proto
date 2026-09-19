@@ -1,0 +1,100 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// ServiceEndpointKind is the closed descriptor endpoint kind; numbers are frozen by 9.6b.
+enum ServiceEndpointKind {
+  // Never written; rejects zero-value endpoints.
+  // SERVICE_ENDPOINT_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  SERVICE_ENDPOINT_KIND_UNSPECIFIED = 0;
+  // Nexus gRPC endpoint.
+  // SERVICE_ENDPOINT_KIND_NEXUS_GRPC identifies the corresponding protocol value.
+  SERVICE_ENDPOINT_KIND_NEXUS_GRPC = 1;
+  // Object gateway HTTPS endpoint.
+  // SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS identifies the corresponding protocol value.
+  SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS = 2;
+  // Health probe HTTPS endpoint.
+  // SERVICE_ENDPOINT_KIND_HEALTH_HTTPS identifies the corresponding protocol value.
+  SERVICE_ENDPOINT_KIND_HEALTH_HTTPS = 3;
+}
+
+// ServiceEndpointV1 is one bounded descriptor endpoint (9.6b).
+message ServiceEndpointV1 {
+  ServiceEndpointKind endpoint_kind = 1;
+  string uri = 2;
+  string protocol_version = 3;
+  optional bytes tls_pubkey_hash = 4;
+}
+
+// ServiceDescriptorV1 is the bounded endpoint list submitted by an operator; endpoints are ascending by (kind, uri bytes) with unique kinds (9.6b).
+message ServiceDescriptorV1 {
+  repeated ServiceEndpointV1 endpoints = 1;
+}
+
+// CortexNodeState is the single stable Cortex identity row (§6.4). Fields 10-12
+// are the three online-responsibility counters that keeper_api_contract.md §B.1.2 /
+// §10.0c1 require MsgRotateServiceKey to see at zero; they replace the previous
+// string-keyed TASK_LIABILITY_* responsibility rows.
+// CortexNodeState defines the CortexNodeState wire type.
+message CortexNodeState {
+  uint32 schema_version = 1;
+  string operator_address = 2;
+  string current_service_address = 3;
+  // 33-byte compressed secp256k1 service key, not a digest; REST uses Base64.
+  bytes current_service_pubkey = 4;
+  uint64 service_authorization_nonce = 5;
+  ServiceKeyStatus service_key_status = 6;
+  uint64 current_descriptor_version = 7;
+  uint64 registered_height = 8;
+  uint64 updated_height = 9;
+  uint32 active_task_liability_count = 10;
+  uint32 pending_stage_duty_count = 11;
+  uint32 pending_evidence_submission_count = 12;
+}
+
+// CurrentServiceAddressIndexState is the rebuildable reverse-index value for
+// key (participant_type, service_address).
+// CurrentServiceAddressIndexState defines the CurrentServiceAddressIndexState wire type.
+message CurrentServiceAddressIndexState {
+  string operator_address = 1;
+  uint64 service_authorization_nonce = 2;
+}
+
+// ServiceDescriptorState is the sole current bounded descriptor row for one
+// participant. Historical descriptor versions are not retained.
+// ServiceDescriptorState defines the ServiceDescriptorState wire type.
+message ServiceDescriptorState {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+  uint64 descriptor_version = 3;
+  uint32 endpoint_count = 4;
+  repeated ServiceEndpointV1 endpoints = 5;
+  bytes descriptor_hash = 6;
+  uint64 updated_height = 7;
+}
+
+// ServiceKeyResponsibilityState is an active protocol guard, not key history.
+// It remains until every current stage/evidence writer is replaced
+// with an equivalent bounded counter or typed responsibility state.
+//
+// responsibility_id is a Keeper-derived Hash32, not a delimiter-joined string:
+// node_context.md §1.2 forbids building a consensus primary key by string
+// concatenation.
+// ServiceKeyResponsibilityState defines the ServiceKeyResponsibilityState wire type.
+message ServiceKeyResponsibilityState {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+  bytes responsibility_id = 3;
+  ServiceKeyResponsibilityKind responsibility_kind = 4;
+  string session_id = 5;
+  string task_id = 6;
+  uint64 created_height = 7;
+  // Service-key generation that acquired this responsibility. It distinguishes
+  // an exact acquire replay from the same responsibility ID presented under a
+  // different key generation; it is deliberately not part of the ID itself.
+  uint64 service_authorization_nonce = 8;
+}

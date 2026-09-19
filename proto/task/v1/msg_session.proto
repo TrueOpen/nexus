@@ -1,0 +1,78 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+import "task/v1/params.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// MsgUpdateTaskParams updates the Task module parameters.
+// The expected-version compare and grouped TaskParamsV1 body are frozen by
+// api_contract §9.6a. The response returns the newly committed version and hash.
+// MsgUpdateTaskParams defines the MsgUpdateTaskParams wire type.
+message MsgUpdateTaskParams {
+  uint64 expected_version = 1;
+  TaskParamsV1 params = 2;
+  string authority = 3;
+}
+
+// MsgUpdateTaskParamsResponse defines the response structure for executing a
+// MsgUpdateTaskParams message.
+// MsgUpdateTaskParamsResponse defines the MsgUpdateTaskParamsResponse wire type.
+message MsgUpdateTaskParamsResponse {
+  uint64 new_version = 1;
+  bytes params_hash = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgCreateSession opens one session namespace and locks its owner
+// (api_contract §10.0b). Besides the required Cosmos signer there is no business
+// input: the nonce comes from SessionNonceState and session_id is derived on
+// chain by TRUEOPEN_SESSION_V1. Model A: creating a session never moves funds, and
+// no unbounded metadata is accepted.
+// MsgCreateSession defines the MsgCreateSession wire type.
+message MsgCreateSession {
+  string signer_address = 1;
+}
+
+// MsgCreateSessionResponse returns the chain-derived session identity
+// (§9.6a). Clients may also recompute session_id off chain from the same
+// formula; the owner is not derivable from session_id, hence StreamState still
+// stores it.
+// MsgCreateSessionResponse defines the MsgCreateSessionResponse wire type.
+message MsgCreateSessionResponse {
+  bytes session_id = 1;
+  uint64 session_nonce = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgCancelOrder skips the next unconsumed order sequence so an off-chain order
+// stops occupying it (api_contract §10.0b1). signer_address is the Cosmos signer and
+// must equal the stream owner; no duplicate detached owner signature is required.
+// It may only cancel next_expected_sequence, never a sequence already accepted by
+// MsgSubmitWorkerHandraises, and it moves no funds.
+// MsgCancelOrder defines the MsgCancelOrder wire type.
+message MsgCancelOrder {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  string signer_address = 3;
+}
+
+// MsgCancelOrderResponse reports the cancelled sequence and the advanced counter
+// (§9.6a). task_id stays empty because a cancelled sequence never created a task.
+// MsgCancelOrderResponse defines the MsgCancelOrderResponse wire type.
+message MsgCancelOrderResponse {
+  bytes task_id = 1;
+  uint64 cancelled_sequence = 2;
+  uint64 next_expected_sequence = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// REMOVED: MsgUpdateTimeoutBucket / MsgUpdateTimeoutBucketResponse. They lived in
+// this file but belong to the bucket domain, and their response referenced
+// TimeoutBucketState, which the bucket owner has already deleted. api_contract §9.6a
+// freezes the replacement as
+// `MsgUpdateTimeoutBucket{1=update:TimeoutBucketUpdateV1,2=authority:Address}`;
+// it must be re-registered by the owner of the timeout bucket wire (§5.2), not
+// here. The governed ReferenceBucket path is gone entirely as of monorepo#97, so
+// the replacement takes no shape from it.

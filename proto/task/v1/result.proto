@@ -1,0 +1,114 @@
+syntax = "proto3";
+package task.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// MetricSampleVerdictV1 is the per-sample judgment produced by JudgeMetricSample
+// from the task-snapshot verification thresholds. Frozen values:
+// keeper_api_contract.md §9.6b. Verifiers never submit a verdict field, and
+// METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE can never become a final task verdict.
+// MetricSampleVerdictV1 defines the MetricSampleVerdictV1 wire type.
+enum MetricSampleVerdictV1 {
+  // Never written; rejects zero-value cluster members.
+  // METRIC_SAMPLE_VERDICT_V1_UNSPECIFIED identifies the corresponding protocol value.
+  METRIC_SAMPLE_VERDICT_V1_UNSPECIFIED = 0;
+  // Summary satisfies every locked threshold.
+  // METRIC_SAMPLE_VERDICT_V1_PASS identifies the corresponding protocol value.
+  METRIC_SAMPLE_VERDICT_V1_PASS = 1;
+  // Summary breaches at least one locked threshold.
+  // METRIC_SAMPLE_VERDICT_V1_REJECT identifies the corresponding protocol value.
+  METRIC_SAMPLE_VERDICT_V1_REJECT = 2;
+  // Intermediate sample verdict only; never a final task verdict.
+  // METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE identifies the corresponding protocol value.
+  METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE = 3;
+}
+
+// MetricSummaryV1 is the typed canonical verification summary. Field numbers and
+// order are frozen by keeper_api_contract.md §9.7 because they are part of both
+// metric_summary_hash = H_FIELDS_V1("TRUEOPEN_METRIC_SUMMARY_V1", canonical
+// MetricSummaryV1) and result_receipt_signing_digest. Maps, free JSON, floats and
+// implementation-defined extensions are forbidden; whether fields 7 and 8 are
+// present is decided solely by the locked profile MetricSpec.
+// MetricSummaryV1 defines the MetricSummaryV1 wire type.
+message MetricSummaryV1 {
+  uint32 finite_count = 1;
+  uint32 missing_compared_count = 2;
+  uint32 mean_abs_logprob_diff_fp_1e6 = 3;
+  uint32 abs_logprob_diff_p95_fp_1e6 = 4;
+  uint32 abs_logprob_diff_p99_fp_1e6 = 5;
+  uint32 rank_delta_nonzero_rate_fp_1e6 = 6;
+  optional uint32 topk_jaccard_mean_fp_1e6 = 7;
+  optional uint32 union_js_p99_fp_1e6 = 8;
+  uint32 compared_topk_count = 9;
+  uint32 compared_rank_count = 10;
+}
+
+// ResultReceiptV2 is the verifier-signed result credential carried by
+// MsgSubmitVerifyResult and MsgBatchSubmitVerifyResult. Field numbers, types and
+// order are frozen by keeper_api_contract.md §5.14 and are the length-framed preimage
+// of
+//
+//   result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V2",
+//     schema_version, chain_id, task_id, verify_round,
+//     verifier_operator_address, service_authorization_nonce,
+//     generation_params_digest, metric_root, canonical metric_summary,
+//     aggregate_proof_hash, verifier_evidence_bundle_hash,
+//     verifier_evidence_manifest_size_bytes, salt, expiry_height)
+//
+// commit_key is recomputed by the Keeper and is not a caller field.
+// metric_root, aggregate_proof_hash, verifier_evidence_bundle_hash and salt must
+// all be canonical non-zero Hash32 values; metric_summary_hash and
+// result_payload_hash are recomputed by the Keeper and are never asserted by the
+// request. No final verdict field is accepted.
+//
+// schema_version is 2. V1 receipts are not accepted by the fresh v0.3.0 schema.
+// ResultReceiptV2 defines the ResultReceiptV2 wire type.
+message ResultReceiptV2 {
+  // Always 2.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 4;
+  string verifier_operator_address = 5;
+  uint64 service_authorization_nonce = 6;
+  bytes generation_params_digest = 7;
+  bytes metric_root = 8;
+  MetricSummaryV1 metric_summary = 9;
+  bytes aggregate_proof_hash = 10;
+  bytes verifier_evidence_bundle_hash = 11;
+  uint64 verifier_evidence_manifest_size_bytes = 12;
+  bytes salt = 13;
+  uint64 expiry_height = 14;
+  bytes service_signature = 15;
+}
+
+// ResultReceiptState is the first accepted verifier result credential keyed by
+// commit_key (keeper_data_structure_contract.md §6.6). It retains enough authoritative scope
+// and commitments to reconstruct result_payload_hash and verify the accepted
+// TRUEOPEN_RESULT_COMMITMENT_V2 without storing a full-result body on chain.
+// ResultReceiptState defines the ResultReceiptState wire type.
+message ResultReceiptState {
+  bytes commit_key = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string verifier_operator_address = 4;
+  uint32 selected_verifier_index = 5;
+  bytes metric_root = 6;
+  MetricSummaryV1 metric_summary = 7;
+  bytes metric_summary_hash = 8;
+  bytes aggregate_proof_hash = 9;
+  bytes verifier_evidence_bundle_hash = 10;
+  uint64 verifier_evidence_manifest_size_bytes = 11;
+  bytes salt = 12;
+  bytes result_payload_hash = 13;
+  bytes result_receipt_signing_digest = 14;
+  // SHA256(raw_signature_64), retained as a 32-byte audit/exact-replay fingerprint.
+  // The 64-byte signature was verified before initial live acceptance and is not retained.
+  // This digest is not authorization state and never enters a signing/business digest;
+  // replay compares it only to identify the same previously accepted signature.
+  bytes signature_digest = 15;
+  uint64 accepted_height = 16;
+}

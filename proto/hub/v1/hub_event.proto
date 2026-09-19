@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package hub.v1;
+
+import "hub/v1/event.proto";
+import "shared/v1/event.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// HubEventService exposes committed typed Hub-owned events as a resumable server
+// stream. Events are notifications only; clients must reconcile them with an
+// authoritative Query before acting on a state transition, and they deduplicate
+// with (chain_height, tx_hash, tx_index, event_index).
+//
+// ADR-0013 moved SubscribeProtocolEvents here from task.v1.TaskEventService:
+// the non-task operating-state stream carries Hub-owned typed payloads, so the
+// Hub owns the RPC. The message field and oneof numbers below are the ones the
+// Task service already used; only the owning service and package changed.
+//
+// The RPC is gRPC server-streaming only. V1 registers no google.api.http
+// binding, grpc-gateway chunked JSON or SSE transport, so it has no OpenAPI
+// projection. Its request/response bytes still belong to the public-service
+// descriptor metadata closure and must carry rest_bytes_encoding.
+// HubEventService defines the HubEventService wire type.
+service HubEventService {
+  // SubscribeProtocolEvents streams non-task operating-state events.
+  rpc SubscribeProtocolEvents(SubscribeProtocolEventsRequest) returns (stream SubscribeProtocolEventsResponse);
+}
+
+// SubscribeProtocolEventsRequest optionally limits protocol events to one
+// target. An empty target_address receives all protocol events. Field numbers 1
+// and 4 are permanently reserved and must not be filled by a later field.
+// SubscribeProtocolEventsRequest defines the SubscribeProtocolEventsRequest wire type.
+message SubscribeProtocolEventsRequest {
+  reserved 1, 4;
+  // after_cursor resumes strictly after the identified event or checkpoint. It is
+  // an opaque token produced by this same Node; when it is non-empty from_height
+  // must be 0.
+  string after_cursor = 2;
+  // from_height is inclusive and is used only when after_cursor is empty.
+  uint64 from_height = 3;
+  // Empty selects every Hub-owned event code. This service accepts Hub-owned
+  // codes only; a Task-owned code returns InvalidArgument and is never silently
+  // ignored.
+  repeated shared.v1.ProtocolEventCodeV1 codes = 5;
+  // target_address limits delivery to one account, operator, or validator.
+  string target_address = 6;
+}
+
+// SubscribeProtocolEventsResponse carries one committed protocol event.
+message SubscribeProtocolEventsResponse {
+  // item is either a matching protocol event or a committed position checkpoint.
+  oneof item {
+    ProtocolEvent event = 1;
+    shared.v1.StreamCheckpoint checkpoint = 2;
+  }
+}
+
+// ProtocolEvent is a stable stream envelope around one committed Hub-owned §5.11
+// event. It carries no session or task field, and field numbers 8 to 11 are
+// deliberately unallocated.
+//
+// cursor is an opaque global chain-position token produced by one Node. The total
+// order of a position is (chain_height, source_order, tx_index, event_index),
+// where source_order is derived from the shared.v1.TaskEventSource enum
+// number (TX(1) < FINALIZE_BLOCK(2)) and is never carried as a wire field. A
+// consumer may use the cursor only as an equality barrier and as a resume token;
+// it must never compare cursors lexicographically and must use the explicit
+// position tuple when ordering events across streams.
+// ProtocolEvent defines the ProtocolEvent wire type.
+message ProtocolEvent {
+  string cursor = 1;
+  uint64 chain_height = 2;
+  bytes block_hash = 3;
+  // tx_hash must be present and exactly 32 raw bytes when source is
+  // TASK_EVENT_SOURCE_TX, and must be absent when source is
+  // TASK_EVENT_SOURCE_FINALIZE_BLOCK. A present but empty bytes value and a JSON
+  // null are both invalid: presence, not an empty sentinel, carries the
+  // distinction.
+  optional bytes tx_hash = 4;
+  uint32 tx_index = 5;
+  uint32 event_index = 6;
+  shared.v1.TaskEventSource source = 7;
+  shared.v1.ProtocolEventCodeV1 code = 12;
+  repeated shared.v1.EventTarget targets = 13;
+  // payload carries exactly one Hub-owned typed event whose oneof field number
+  // equals code.
+  ProtocolEventPayloadV1 payload = 14;
+}

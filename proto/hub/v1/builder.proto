@@ -1,0 +1,207 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// BuilderStatus is the Phase 0 governance admission lifecycle. Builder
+// identity and service-key lifecycle are carried independently by BuilderState.
+// BuilderStatus defines the BuilderStatus wire type.
+enum BuilderStatus {
+  // Never written; rejects an unset admission status.
+  // BUILDER_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_STATUS_UNSPECIFIED = 0;
+  // The Builder is admitted to the current governed fixed BuilderSet.
+  // BUILDER_STATUS_ADMITTED identifies the corresponding protocol value.
+  BUILDER_STATUS_ADMITTED = 1;
+  // The Builder remains known but is not admitted for new tasks.
+  // BUILDER_STATUS_REVOKED identifies the corresponding protocol value.
+  BUILDER_STATUS_REVOKED = 2;
+}
+
+// BuilderFaultKind mirrors shared.v1.BuilderEvidenceKind value-for-value.
+enum BuilderFaultKind {
+  reserved 3;
+  reserved "BUILDER_FAULT_KIND_OBJECTIVE_MISSED_DUTY";
+
+  // Unset; rejected.
+  // BUILDER_FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_FAULT_KIND_UNSPECIFIED = 0;
+  // Two conflicting signed envelopes for the same task stage.
+  // BUILDER_FAULT_KIND_PROPOSAL_EQUIVOCATION identifies the corresponding protocol value.
+  BUILDER_FAULT_KIND_PROPOSAL_EQUIVOCATION = 1;
+  // A signed submission that violates the stage protocol.
+  // BUILDER_FAULT_KIND_INVALID_STAGE_SUBMISSION identifies the corresponding protocol value.
+  BUILDER_FAULT_KIND_INVALID_STAGE_SUBMISSION = 2;
+  // Enough Verifiers reported the Builder could not serve the required data.
+  // BUILDER_FAULT_KIND_OBJECTIVE_DATA_UNAVAILABLE identifies the corresponding protocol value.
+  BUILDER_FAULT_KIND_OBJECTIVE_DATA_UNAVAILABLE = 4;
+}
+
+// BuilderFaultStatus is the terminal status of an objective Builder fault.
+enum BuilderFaultStatus {
+  // Unset; rejected.
+  // BUILDER_FAULT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_FAULT_STATUS_UNSPECIFIED = 0;
+  // The fault is recorded and its receipt is retained; no stake has moved yet.
+  // BUILDER_FAULT_STATUS_RECORDED identifies the corresponding protocol value.
+  BUILDER_FAULT_STATUS_RECORDED = 1;
+  // The slash has been applied. Terminal.
+  // BUILDER_FAULT_STATUS_SLASHED identifies the corresponding protocol value.
+  BUILDER_FAULT_STATUS_SLASHED = 2;
+}
+
+// BuilderSetPrunePhase drives bounded body-then-header pruning.
+enum BuilderSetPrunePhase {
+  // Unset; rejected.
+  // BUILDER_SET_PRUNE_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_SET_PRUNE_PHASE_UNSPECIFIED = 0;
+  // Deleting the member list while the header stays queryable.
+  // BUILDER_SET_PRUNE_PHASE_BODY identifies the corresponding protocol value.
+  BUILDER_SET_PRUNE_PHASE_BODY = 1;
+  // Deleting the header once no task reference remains.
+  // BUILDER_SET_PRUNE_PHASE_HEADER identifies the corresponding protocol value.
+  BUILDER_SET_PRUNE_PHASE_HEADER = 2;
+}
+
+// BuilderState is the stable Builder identity and current service binding.
+// Phase 0 registration creates only this identity and its descriptor; it does
+// not create admission, bond, score, term, or set membership.
+// BuilderState defines the BuilderState wire type.
+message BuilderState {
+  uint32 schema_version = 1;
+  string builder_address = 2;
+  string current_service_address = 3;
+  bytes current_service_pubkey = 4;
+  ServiceKeyStatus current_service_key_status = 5;
+  uint64 service_authorization_nonce = 6;
+  uint64 current_descriptor_version = 7;
+  uint64 registered_height = 8;
+  uint32 active_task_liability_count = 9;
+  uint32 pending_stage_duty_count = 10;
+  uint32 pending_evidence_submission_count = 11;
+}
+
+// BuilderAdmissionState is the governance-owned admission projection for one
+// Builder. Genesis admission has no source_proposal_id.
+// BuilderAdmissionState defines the BuilderAdmissionState wire type.
+message BuilderAdmissionState {
+  string builder_address = 1;
+  BuilderStatus status = 2;
+  uint64 current_builder_set_version = 3;
+  optional uint64 source_proposal_id = 4;
+  uint64 updated_height = 5;
+}
+
+// CurrentBuilderSetState is the singleton pointer to the governed fixed set.
+// mode is the exact literal GOVERNED_FIXED_V1 in Phase 0.
+// CurrentBuilderSetState defines the CurrentBuilderSetState wire type.
+message CurrentBuilderSetState {
+  string mode = 1;
+  uint64 builder_set_version = 2;
+  string builder_set_id = 3;
+  bytes builder_set_hash = 4;
+  bytes builder_set_members_hash = 5;
+  uint64 effective_height = 6;
+}
+
+// BuilderSetPendingReplacementState is the sole future-effective replacement.
+message BuilderSetPendingReplacementState {
+  uint64 proposal_id = 1;
+  bytes action_digest = 2;
+  uint64 expected_current_version = 3;
+  bytes expected_current_set_hash = 4;
+  uint64 next_builder_set_version = 5;
+  string next_builder_set_id = 6;
+  bytes next_builder_set_hash = 7;
+  bytes next_builder_set_members_hash = 8;
+  repeated string next_active_builders = 9;
+  uint32 next_active_builder_count = 10;
+  uint64 accepted_height = 11;
+  uint64 effective_height = 12;
+}
+
+// BuilderSetState is one immutable governed snapshot plus bounded retention
+// metadata. A PRUNED row keeps the header and an empty active_builders body.
+// BuilderSetState defines the BuilderSetState wire type.
+message BuilderSetState {
+  uint64 builder_set_version = 1;
+  string builder_set_id = 2;
+  bytes builder_set_hash = 3;
+  bytes builder_set_members_hash = 4;
+  uint64 effective_height = 5;
+  repeated string active_builders = 6;
+  uint32 active_builder_count = 7;
+  uint32 task_ref_count = 8;
+  optional uint64 superseded_height = 9;
+  optional uint64 source_proposal_id = 10;
+  shared.v1.StoredBodyStatus body_status = 11;
+  optional uint64 pruned_height = 12;
+}
+
+// BuilderSetReplacementIndex schedules the one pending replacement.
+message BuilderSetReplacementIndex {
+  uint64 effective_height = 1;
+  uint64 next_builder_set_version = 2;
+  uint64 proposal_id = 3;
+}
+
+// BuilderSetByIDIndex resolves a stable ID to its version.
+message BuilderSetByIDIndex {
+  string builder_set_id = 1;
+  uint64 builder_set_version = 2;
+}
+
+// BuilderSetByHeightIndex resolves one effective height/version entry.
+message BuilderSetByHeightIndex {
+  uint64 effective_height = 1;
+  uint64 builder_set_version = 2;
+  string builder_set_id = 3;
+}
+
+// BuilderSetTaskRefState keeps a historical set body while a task references it.
+message BuilderSetTaskRefState {
+  bytes task_id = 1;
+  uint64 builder_set_version = 2;
+  uint64 acquired_height = 3;
+}
+
+// BuilderSetPruneIndex schedules bounded body and header pruning.
+message BuilderSetPruneIndex {
+  uint64 prune_epoch = 1;
+  uint64 builder_set_version = 2;
+  BuilderSetPrunePhase phase = 3;
+}
+
+// BuilderFaultState records an immutable objective Builder fault receipt.
+message BuilderFaultState {
+  string builder_address = 1;
+  bytes fault_id = 2;
+  BuilderFaultKind fault_kind = 3;
+  BuilderFaultStatus fault_status = 4;
+  uint64 fault_height = 5;
+  bytes evidence_id = 6;
+  bytes canonical_evidence_digest = 7;
+  bytes scope_id = 8;
+  uint64 prune_height = 9;
+  uint32 frozen_slash_bps = 14;
+}
+
+// BuilderFaultPruneIndex schedules one immutable fault receipt for deletion.
+message BuilderFaultPruneIndex {
+  uint64 prune_height = 1;
+  string builder_address = 2;
+  bytes fault_id = 3;
+}
+
+// ReplaceBuilderSetV1 is an internal x/gov action, not a public Tx Msg.
+message ReplaceBuilderSetV1 {
+  uint64 proposal_id = 1;
+  uint64 expected_current_version = 2;
+  bytes expected_current_set_hash = 3;
+  string next_builder_set_id = 4;
+  repeated string members = 5;
+  uint64 effective_height = 6;
+}

@@ -1,0 +1,390 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+import "shared/v1/query_page.proto";
+import "task/v1/assignment.proto";
+import "task/v1/challenge.proto";
+import "task/v1/cleanup.proto";
+import "task/v1/deadline.proto";
+import "task/v1/epoch_summary.proto";
+import "task/v1/evidence.proto";
+import "task/v1/open_verify.proto";
+import "task/v1/session.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// This file carries the Task-scoped Query wire of keeper_api_contract.md §16.2/§16.4
+// and the Task-scoped read-only views frozen field by field in §16.5. Views never
+// land in the Store, never become a second authority and are never expanded with
+// google.protobuf.Struct, a JSON blob or reflection.
+//
+// Every request selects a Task by `task_id` only: session_id is no longer part of
+// any Task selector because task_id is the single Task primary key (§6.6).
+//
+// De-registered on purpose (fresh genesis: no alias, no reserved field number):
+//   QuerySettlement / QuerySettlementFinality / QuerySettlementBuildFacts
+//     - K-BLOCK-16 (and K-BLOCK-03/04 for finality); §16.2 forbids dressing
+//       SettlementFactsV1 up as a committed settlement or finality response.
+//   QueryChallenge / QueryChallengeByID and every challenge sub-query
+//     - K-BLOCK-03/04; V1 registers no public challenge or proof Query.
+//   QueryTimeoutBucket
+//     - moved to hub.v1.Query with the single governance bucket writer.
+
+// TaskCleanupStatus is the Query-only tri-state of the Task cleanup projection
+// (§16.5). It never lands in the Store and never enters a Msg or Event.
+// TaskCleanupStatus defines the TaskCleanupStatus wire type.
+enum TaskCleanupStatus {
+  // Never returned.
+  // TASK_CLEANUP_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_CLEANUP_STATUS_UNSPECIFIED = 0;
+  // Active Task with no cleanup cursor.
+  // TASK_CLEANUP_STATUS_NOT_SCHEDULED identifies the corresponding protocol value.
+  TASK_CLEANUP_STATUS_NOT_SCHEDULED = 1;
+  // A bounded cleanup cursor exists.
+  // TASK_CLEANUP_STATUS_RUNNING identifies the corresponding protocol value.
+  TASK_CLEANUP_STATUS_RUNNING = 2;
+  // A terminal summary exists.
+  // TASK_CLEANUP_STATUS_COMPACTED identifies the corresponding protocol value.
+  TASK_CLEANUP_STATUS_COMPACTED = 3;
+}
+
+// TaskAssignmentViewV1 projects one TaskAssignmentState and hides the internal
+// candidate_pool_ref_released field (§16.5). Fields 1-17 and 19-20 come from
+// that single State; field 18 assignment_status is joined from TaskCoreState because
+// TaskCoreState is the only primary of the six sub-states and TaskAssignmentState
+// keeps no copy - the same value stored twice is Internal. The three winner
+// optional fields (4, 10, 11) must be present together or absent together, so a
+// pending assignment never reports a default winner.
+// TaskAssignmentViewV1 defines the TaskAssignmentViewV1 wire type.
+message TaskAssignmentViewV1 {
+  bytes task_id = 1;
+  uint64 assign_accept_height = 2;
+  uint64 assignment_randomness_height = 3;
+  optional uint64 winner_confirm_height = 4;
+  optional uint64 infer_deadline_height = 5;
+  optional AssignmentFailureReason assignment_fail_reason = 6;
+  bytes candidate_pool_snapshot_id = 7;
+  bytes candidate_pool_hash = 8;
+  bytes assignment_candidate_set_hash = 9;
+  optional string winner_worker = 10;
+  optional bytes winner_draw_digest = 11;
+  bytes profile_execution_snapshot_hash = 12;
+  string judgment_function_version = 13;
+  bytes evidence_schema_hash = 14;
+  string canonical_encoding_version = 15;
+  // Immutable assignment fact. Worker, Verifier and settlement consumers copy
+  // this value through unchanged and never recompute it from current defaults.
+  bytes generation_params_digest = 16;
+  string metric_aggregate_proof_version = 17;
+  AssignmentStatus assignment_status = 18;
+  uint32 worker_infer_timeout_slash_bps = 19;
+  uint32 result_reveal_missing_slash_bps = 20;
+}
+
+// TaskBuilderSelectionViewV1 projects one TaskBuilderSelectionState and hides the
+// internal builder_set_ref_released and builder_fault_slash_bps_snapshot fields
+// (§16.5). Fields 1-9 are the frozen public prefix of the
+// keeper_data_structure_contract.md §6.5 State field order.
+//
+// This view is the ONLY read path for the per-Task Builder identity. The Worker
+// fetches INPUT from and uploads OUTPUT to exactly these Builders, the
+// three-Builder fan-out and the 2-of-3 data-ready confirmation address exactly
+// this list, and keeper_api_contract.md §10.10a derives the stable SETTLE duty Builder
+// from the same frozen order and rank. No other surface carries it: the abandoned
+// AssignmentState.builder_operator_address is deleted, TaskCoreState and
+// TaskAssignmentState hold no Builder field, and EventWorkerAssignmentFinalized
+// (event code 11, §5.11) does not emit one.
+//
+// BITMAP ORDER: the index of a Builder inside selected_task_builders IS the bit
+// index of both frozen Builder bitmaps, so a consumer must align them against
+// this list and never against its own sort:
+//   - MsgReportDataUnavailable.unavailable_task_builder_bitmap and
+//     DataUnavailableReportState.unavailable_task_builder_bitmap (§10.5)
+//   - TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap (§10.4)
+// Bit i addresses selected_task_builders[i]; byte_index = i / 8 and
+// bit_mask = 1 << (i % 8).
+//
+// CONTRACT-GAP: §10.4 and §10.5 state only that the two Builder bitmaps use "the
+// frozen TaskBuilderSelectionState order" and that trailing/out-of-range bits are
+// rejected; neither restates the byte/bit layout, and §3.1 registers a bit order
+// (`bit_mask = 1 << (bit_in_segment % 8)`, little-bit order in each byte) only for
+// the segmented CandidatePool bitmap. The unsegmented Builder bitmap therefore
+// reuses that same §3.1 little-bit order, because §3.1 is the only bitmap codec
+// registered anywhere in the contract and a second bit order would silently fork
+// TRUEOPEN_DATA_UNAVAILABLE_BITMAP_V1 across languages. The contract must either
+// widen §3.1 to all bitmaps or restate the layout in §10.4/§10.5.
+// TaskBuilderSelectionViewV1 defines the TaskBuilderSelectionViewV1 wire type.
+message TaskBuilderSelectionViewV1 {
+  bytes task_id = 1;
+  bytes session_anchor_block_hash = 2;
+  string builder_set_id = 3;
+  bytes builder_set_hash = 4;
+  // Frozen order; length equals builders_per_task while body_status is ACTIVE and
+  // is empty once the body is pruned.
+  repeated string selected_task_builders = 5;
+  // Unchanged by pruning.
+  uint32 selected_task_builder_count = 6;
+  // Ordered-member commitment; retained after pruning.
+  bytes selected_task_builders_hash = 7;
+  uint64 created_height = 8;
+  shared.v1.StoredBodyStatus body_status = 9;
+}
+
+// TaskActiveBundleV1 is the composite view of one not-yet-compacted Task
+// (§16.5). core is required; assignment appears once the Task entered assignment
+// and verifier_assignment once Open Verify finalized.
+// TaskActiveBundleV1 defines the TaskActiveBundleV1 wire type.
+message TaskActiveBundleV1 {
+  TaskCoreState core = 1;
+  TaskAssignmentViewV1 assignment = 2;
+  TaskRoundSummaryState round_summary = 3;
+  VerifierAssignmentState round1_verifier_assignment = 4;
+  VerifierAssignmentState round2_verifier_assignment = 5;
+}
+
+// TaskViewV1 is the single QueryTask response body (§16.5).
+//
+// TaskViewV1 defines the TaskViewV1 wire type.
+message TaskViewV1 {
+  // Exactly one value is set.
+  // value selects one supported variant.
+  oneof value {
+    // Current composite view of an uncompacted Task.
+    TaskActiveBundleV1 active = 1;
+    // Retained fixed-size authority after cleanup compaction.
+    TaskTerminalSummaryState terminal = 2;
+  }
+}
+
+// TaskStageViewV1 projects TaskCoreState plus the earliest unprocessed deadline
+// of the current stage (§16.5). The two deadline fields are present together or
+// absent together; a missing required sub-state is Internal.
+// TaskStageViewV1 defines the TaskStageViewV1 wire type.
+message TaskStageViewV1 {
+  bytes task_id = 1;
+  TaskPhase task_phase = 2;
+  AssignmentStatus assignment_status = 3;
+  ReceiptStatus receipt_status = 4;
+  VerificationStatus verification_status = 5;
+  SettlementStatus settlement_status = 6;
+  shared.v1.TaskFinalityStatusV1 finality_status = 7;
+  optional DeadlineKindV1 next_deadline_kind = 8;
+  optional uint64 next_deadline_height = 9;
+  uint64 updated_height = 10;
+  uint32 effective_verify_round = 11;
+}
+
+// AssignmentRandomnessViewV1 joins TaskAssignmentState with the BeaconState of
+// its exact randomness height (§16.5). A scope or hash mismatch is Internal and
+// the Beacon must not be pruned while a consumer exists. Field 5 is present for
+// proposer-VRF and absent for a dev placeholder. Fields 6-8 are present together
+// or absent together.
+// AssignmentRandomnessViewV1 defines the AssignmentRandomnessViewV1 wire type.
+message AssignmentRandomnessViewV1 {
+  bytes task_id = 1;
+  uint64 assignment_randomness_height = 2;
+  bytes assignment_candidate_set_hash = 3;
+  bytes beacon_randomness = 4;
+  optional bytes beacon_proof_digest = 5;
+  optional string winner_worker = 6;
+  optional bytes winner_draw_digest = 7;
+  optional uint64 winner_confirm_height = 8;
+}
+
+// ActiveTaskRefV1 is the compact active-duty Task reference of §16.5.
+message ActiveTaskRefV1 {
+  bytes task_id = 1;
+  TaskPhase task_phase = 2;
+  string model_id = 3;
+  uint32 profile_version = 4;
+  uint64 created_height = 5;
+  uint64 updated_height = 6;
+}
+
+// TaskCleanupProgressViewV1 reads exactly one of the active Task, the cleanup
+// cursor or the terminal summary (§16.5). A cursor and a terminal summary
+// existing at once is Internal; the counts are zero unless status is RUNNING.
+// TaskCleanupProgressViewV1 defines the TaskCleanupProgressViewV1 wire type.
+message TaskCleanupProgressViewV1 {
+  bytes task_id = 1;
+  TaskCleanupStatus status = 2;
+  optional TaskCleanupPhase phase = 3;
+  uint64 visited_count = 4;
+  uint64 deleted_count = 5;
+}
+
+// QueryTaskRequest selects one Task (§16.2).
+message QueryTaskRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskResponse returns the composite Task view.
+message QueryTaskResponse {
+  TaskViewV1 task = 1;
+}
+
+// QueryTaskStageRequest selects one Task's stage projection (§16.2).
+message QueryTaskStageRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskStageResponse returns the stage and deadline projection.
+message QueryTaskStageResponse {
+  TaskStageViewV1 stage = 1;
+}
+
+// QueryTaskAssignmentRequest selects one Task's Worker assignment (§16.2).
+message QueryTaskAssignmentRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskAssignmentResponse returns the assignment projection.
+message QueryTaskAssignmentResponse {
+  TaskAssignmentViewV1 assignment = 1;
+}
+
+// QueryAssignmentRandomnessRequest selects one Task's frozen assignment
+// randomness (§16.4).
+// QueryAssignmentRandomnessRequest defines the QueryAssignmentRandomnessRequest wire type.
+message QueryAssignmentRandomnessRequest {
+  bytes task_id = 1;
+}
+
+// QueryAssignmentRandomnessResponse returns only the frozen height, beacon and
+// draw digest facts.
+// QueryAssignmentRandomnessResponse defines the QueryAssignmentRandomnessResponse wire type.
+message QueryAssignmentRandomnessResponse {
+  AssignmentRandomnessViewV1 randomness = 1;
+}
+
+// QueryTaskBudgetRequest selects the single per-task fund ledger (§16.2).
+//
+// CONTRACT-GAP: §16.2 registers the request as `1=task_id` only. The abandoned
+// path also carried session_id; it is removed here because task_id is the sole
+// TaskBudgetState primary key.
+// QueryTaskBudgetRequest defines the QueryTaskBudgetRequest wire type.
+message QueryTaskBudgetRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskBudgetResponse returns the authoritative budget row; an amount
+// conservation failure is Internal.
+// QueryTaskBudgetResponse defines the QueryTaskBudgetResponse wire type.
+message QueryTaskBudgetResponse {
+  TaskBudgetState budget = 1;
+}
+
+// QueryTaskBuildersRequest selects one Task's frozen Task Builder selection
+// (§16.2, request is exactly `1=task_id`).
+// QueryTaskBuildersRequest defines the QueryTaskBuildersRequest wire type.
+message QueryTaskBuildersRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskBuildersResponse returns the frozen Builder selection projected in
+// commitment order (§16.2). It is the read path that makes the per-Task Builder
+// identity reachable at all; see TaskBuilderSelectionViewV1 for the bitmap-order
+// contract the two Builder bitmaps depend on.
+//
+// Pruning and compaction semantics, exactly as frozen by §16.2 and
+// keeper_data_structure_contract.md §6.6:
+//   - body_status = ACTIVE: selected_task_builders has exactly
+//     selected_task_builder_count == builders_per_task members in frozen order.
+//   - body_status = PRUNED: the cleanup runner's ACTIVE_INDEXES_AND_LIABILITIES
+//     phase (§6.6 step 7), after finality and the evidence-retention window,
+//     released every BUS_OBJECTIVE_EVIDENCE responsibility and cleared the member
+//     body. selected_task_builders MUST be empty while count/hash and the other
+//     public header fields remain auditable. The RPC is NOT NotFound in this
+//     window, and an empty member array with body_status = ACTIVE is Internal.
+//   - After the TASK_COMPACTION phase (§6.6 step 8) the whole
+//     TaskBuilderSelectionState row is deleted together with the rest of the Task
+//     detail, so the RPC returns NotFound and the long-lived commitment must be
+//     read from TaskTerminalSummaryState.selected_task_builders_hash instead. The
+//     PRUNED body therefore only exists between step 7 and step 8; a compacted
+//     Task must never be answered with a fabricated header.
+//   - An unknown task_id is NotFound; a non-canonical task_id is InvalidArgument;
+//     a header whose retained selected_task_builders_hash does not recompute from
+//     a still-resident body is Internal.
+// QueryTaskBuildersResponse defines the QueryTaskBuildersResponse wire type.
+message QueryTaskBuildersResponse {
+  TaskBuilderSelectionViewV1 selection = 1;
+}
+
+// QueryTaskFailureClassRequest selects one Task's failure classification
+// (§16.2).
+// QueryTaskFailureClassRequest defines the QueryTaskFailureClassRequest wire type.
+message QueryTaskFailureClassRequest {
+  bytes task_id = 1;
+  // verify_round selects which round's classification to read and accepts only
+  // 1 or 2. TaskFailureClassState is keyed by (task_id, verify_round) because a
+  // round 2 outcome supersedes the round 1 class rather than overwriting it.
+  uint32 verify_round = 2;
+}
+
+// QueryTaskFailureClassResponse returns the classification row. It does not
+// disappear with Task compaction: it survives until the
+// TaskFailureClassWindowPruneIndex retention expires.
+// QueryTaskFailureClassResponse defines the QueryTaskFailureClassResponse wire type.
+message QueryTaskFailureClassResponse {
+  TaskFailureClassState failure = 1;
+}
+
+// QueryEvidenceCleanupRequest selects one Task's cleanup progress (§16.4).
+message QueryEvidenceCleanupRequest {
+  bytes task_id = 1;
+}
+
+// QueryEvidenceCleanupResponse distinguishes not-scheduled, running and
+// compacted; no DONE row is persisted.
+// QueryEvidenceCleanupResponse defines the QueryEvidenceCleanupResponse wire type.
+message QueryEvidenceCleanupResponse {
+  TaskCleanupProgressViewV1 cleanup = 1;
+}
+
+// QueryEpochTaskSummaryRequest selects one task-summary epoch.
+message QueryEpochTaskSummaryRequest {
+  uint64 epoch = 1;
+}
+
+// QueryEpochTaskSummaryResponse returns either in-progress fold state or the
+// immutable dispatch receipt.
+// QueryEpochTaskSummaryResponse defines the QueryEpochTaskSummaryResponse wire type.
+message QueryEpochTaskSummaryResponse {
+  // value distinguishes a resumable cursor from a completed receipt.
+  oneof value {
+    EpochTaskSummaryCursorState running = 1;
+    EpochTaskSummaryReceiptState receipt = 2;
+  }
+}
+
+// QueryRoleActiveTasksRequest pages one operator's active duty Tasks (§16.3).
+// duty only allows WORKER or VERIFIER; an invalid address is InvalidArgument and
+// never an empty page.
+// QueryRoleActiveTasksRequest defines the QueryRoleActiveTasksRequest wire type.
+message QueryRoleActiveTasksRequest {
+  string operator_address = 1;
+  shared.v1.Duty duty = 2;
+  shared.v1.QueryPageRequestV1 page = 3;
+}
+
+// QueryRoleActiveTasksResponse walks the duty index in ascending canonical
+// task_id byte order.
+// QueryRoleActiveTasksResponse defines the QueryRoleActiveTasksResponse wire type.
+message QueryRoleActiveTasksResponse {
+  repeated ActiveTaskRefV1 tasks = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryWorkerEvidenceRequest selects one compact objective-evidence receipt.
+message QueryWorkerEvidenceRequest {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  uint64 seq = 3;
+}
+
+// QueryWorkerEvidenceResponse returns no raw signature or MMR proof material.
+message QueryWorkerEvidenceResponse {
+  WorkerEvidenceReceiptState receipt = 1;
+}

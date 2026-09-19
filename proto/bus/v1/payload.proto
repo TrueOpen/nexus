@@ -1,0 +1,118 @@
+syntax = "proto3";
+package bus.v1;
+
+import "task/v1/msg_assignment.proto";
+import "task/v1/open_verify.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
+
+// Bus payload boundary (TrueOpen/nexus#52): the complete order travels exactly
+// once, inside OrderBroadcastV1. Every follow-up message carries only the
+// stable locator (task_id), the exact order version it acts on (task_hash) and
+// its own action fields; no follow-up repeats TaskOrderV2. Payloads that also
+// go on chain (worker/verifier handraises, verify result receipts) reuse the
+// frozen task.v1 messages verbatim and are therefore not re-declared in
+// this file; see the mapping table on BusPayloadType in envelope.proto.
+
+// OrderBroadcastV1 opens a task on the bus. Receivers recompute from
+// signed_order.order:
+//
+//   task_id   = H_FIELDS_V1("TRUEOPEN_TASK_ID_V1", session_id, u64be(order_sequence))
+//   task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
+//
+// and verify the user's order-domain EIP-712 signature, whose taskHash field is
+// the value above, against the user's on-chain account key before acting.
+// task_id only locates; task_hash is the complete order commitment every
+// follow-up binds.
+// OrderBroadcastV1 defines the OrderBroadcastV1 wire type.
+message OrderBroadcastV1 {
+  // Complete user-signed order, forwarded byte-identically by the builder.
+  task.v1.SignedOrderV2 signed_order = 1;
+}
+
+// WorkerAssignmentNotifyV1 tells the losing workers to stop and the winner to
+// start; it is informational and creates no consensus fact on its own. The
+// authoritative assignment is the on-chain finalize event at finalized_height.
+// WorkerAssignmentNotifyV1 defines the WorkerAssignmentNotifyV1 wire type.
+message WorkerAssignmentNotifyV1 {
+  // Stable task locator.
+  bytes task_id = 1;
+  // Order version the assignment belongs to.
+  bytes task_hash = 2;
+  // The single winning worker; every other worker stops.
+  string winner_operator_address = 3;
+  // Height of the on-chain worker-assignment finalize event.
+  uint64 finalized_height = 4;
+  // Assignment randomness, republished so workers can audit the draw.
+  bytes assign_seed = 5;
+  // Input commitment; must match TaskOrderV2.input_hash of task_hash.
+  bytes input_hash = 6;
+  // Chain-height deadline for the winner to deliver output.
+  uint64 infer_deadline_height = 7;
+}
+
+// OutputAvailableV1 announces that the winner's output commitment exists and
+// the data plane can be queried. Delivery guarantees are optimistic; missing
+// this message is recovered from chain queries, never replayed as authority.
+// OutputAvailableV1 defines the OutputAvailableV1 wire type.
+message OutputAvailableV1 {
+  // Stable task locator.
+  bytes task_id = 1;
+  // Order version the output belongs to.
+  bytes task_hash = 2;
+  // Output commitment; must match the on-chain accepted InferReceipt.
+  bytes output_hash = 3;
+  // Publisher; must match the assigned winner.
+  string worker_operator_address = 4;
+  // Publication time, Unix milliseconds.
+  uint64 published_at_unix_ms = 5;
+}
+
+// OpenVerifyV1 opens the verify stage with receipt metadata only; verifier
+// candidates fetch INPUT/OUTPUT through the authenticated data plane, and the
+// only receipt authority is the on-chain accepted InferReceipt.
+// OpenVerifyV1 defines the OpenVerifyV1 wire type.
+message OpenVerifyV1 {
+  // Stable task locator.
+  bytes task_id = 1;
+  // Order version under verification.
+  bytes task_hash = 2;
+  // Model the locked profile pins.
+  string model_id = 3;
+  // Profile version the locked profile pins.
+  uint32 profile_version = 4;
+  // On-chain accepted receipt this verify round targets.
+  bytes infer_receipt_hash = 5;
+  // Output commitment from the accepted receipt.
+  bytes output_hash = 6;
+  // Worker whose receipt is being verified.
+  string worker_operator_address = 7;
+  // Verification round this opening starts. Normal verification is 1; zero is
+  // invalid/unspecified. Challenge rounds start at 2 but are not active here.
+  uint32 verify_round = 8;
+}
+
+// VerifierAssignmentNotifyV1 announces the selected verifier set and the
+// verification clock; the authoritative set is the on-chain
+// VerifierAssignmentState, this message only accelerates coordination.
+// VerifierAssignmentNotifyV1 defines the VerifierAssignmentNotifyV1 wire type.
+message VerifierAssignmentNotifyV1 {
+  // Stable task locator.
+  bytes task_id = 1;
+  // Order version under verification.
+  bytes task_hash = 2;
+  // Verification round the set belongs to. Zero is invalid/unspecified.
+  uint32 verify_round = 3;
+  // Selected verifier slots, mirrored from the on-chain assignment state.
+  repeated task.v1.SelectedVerifierV1 verifiers = 4;
+  // Output commitment under verification.
+  bytes output_hash = 5;
+  // Height at which the verify stage opened on chain.
+  uint64 open_verify_height = 6;
+  // Chain-height deadline for verifier commits.
+  uint64 commit_deadline_height = 7;
+  // Chain-height deadline for reveals; zero until the reveal phase starts.
+  uint64 reveal_deadline_height = 8;
+  // Chain-height deadline for verify results.
+  uint64 verify_deadline_height = 9;
+}

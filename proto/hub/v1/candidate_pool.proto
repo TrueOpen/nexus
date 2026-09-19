@@ -1,0 +1,308 @@
+syntax = "proto3";
+package hub.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// CandidatePoolSnapshotStatus is the snapshot lifecycle. Numeric values are
+// frozen by keeper_api_contract.md §9.6b (sole closed-enum authority).
+// CandidatePoolSnapshotStatus defines the CandidatePoolSnapshotStatus wire type.
+enum CandidatePoolSnapshotStatus {
+  // Never written; rejects zero-value rows.
+  // CANDIDATE_POOL_SNAPSHOT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_SNAPSHOT_STATUS_UNSPECIFIED = 0;
+  // Published header, not yet effective_height.
+  // CANDIDATE_POOL_SNAPSHOT_STATUS_READY identifies the corresponding protocol value.
+  CANDIDATE_POOL_SNAPSHOT_STATUS_READY = 1;
+  // Current pool; the only snapshot a first Worker proposal may lock.
+  // CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE identifies the corresponding protocol value.
+  CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE = 2;
+  // Past expires_height; still usable by tasks that already locked it.
+  // CANDIDATE_POOL_SNAPSHOT_STATUS_EXPIRED identifies the corresponding protocol value.
+  CANDIDATE_POOL_SNAPSHOT_STATUS_EXPIRED = 3;
+  // Body deleted; only the retained header answers by-ID queries.
+  // CANDIDATE_POOL_SNAPSHOT_STATUS_PRUNED identifies the corresponding protocol value.
+  CANDIDATE_POOL_SNAPSHOT_STATUS_PRUNED = 4;
+}
+
+// CandidateSlotStatus is the stable slot lifecycle of data_structure_contract §3.2.
+//
+// CONTRACT-GAP: §3.2 names the three values and their order but §9.6b does not
+// register the enum, so the numbers below are derived from that listing order
+// with the mandatory UNSPECIFIED=0. They must be confirmed when §9.6b is
+// extended; no value is invented beyond the contract listing.
+// CandidateSlotStatus defines the CandidateSlotStatus wire type.
+enum CandidateSlotStatus {
+  // Never written; rejects zero-value rows.
+  // CANDIDATE_SLOT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_SLOT_STATUS_UNSPECIFIED = 0;
+  // Bound to one operator and present in the next epoch bitmap.
+  // CANDIDATE_SLOT_STATUS_ALLOCATED identifies the corresponding protocol value.
+  CANDIDATE_SLOT_STATUS_ALLOCATED = 1;
+  // Operator exited; cleared from the next bitmap, release conditions pending.
+  // CANDIDATE_SLOT_STATUS_RETIRING identifies the corresponding protocol value.
+  CANDIDATE_SLOT_STATUS_RETIRING = 2;
+  // Released and reusable by the lowest-free-slot rule.
+  // CANDIDATE_SLOT_STATUS_FREE identifies the corresponding protocol value.
+  CANDIDATE_SLOT_STATUS_FREE = 3;
+}
+
+// CandidatePoolBuildCursorStatus is the bounded build cursor state of §3.2/§3.4.
+//
+// CONTRACT-GAP: value names and order come from §3.2; §9.6b does not register
+// the enum, so the numbers are derived from that listing order.
+// CandidatePoolBuildCursorStatus defines the CandidatePoolBuildCursorStatus wire type.
+enum CandidatePoolBuildCursorStatus {
+  // Never written; rejects zero-value rows.
+  // CANDIDATE_POOL_BUILD_CURSOR_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_CURSOR_STATUS_UNSPECIFIED = 0;
+  // Incrementally rebuilding dirty segments for target_epoch.
+  // CANDIDATE_POOL_BUILD_CURSOR_STATUS_BUILDING identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_CURSOR_STATUS_BUILDING = 1;
+  // Bounded deletion of the failed draft member/segment rows.
+  // CANDIDATE_POOL_BUILD_CURSOR_STATUS_CLEANING_FAILED_DRAFT identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_CURSOR_STATUS_CLEANING_FAILED_DRAFT = 2;
+}
+
+// CandidatePoolBuildStatus is the singleton build diagnosis of §3.2/§3.4.
+//
+// CONTRACT-GAP: value names and order come from §3.2; §9.6b does not register
+// the enum, so the numbers are derived from that listing order.
+// CandidatePoolBuildStatus defines the CandidatePoolBuildStatus wire type.
+enum CandidatePoolBuildStatus {
+  // Never written; rejects zero-value rows.
+  // CANDIDATE_POOL_BUILD_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_STATUS_UNSPECIFIED = 0;
+  // No build in flight for the next epoch.
+  // CANDIDATE_POOL_BUILD_STATUS_IDLE identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_STATUS_IDLE = 1;
+  // Bounded build running.
+  // CANDIDATE_POOL_BUILD_STATUS_BUILDING identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_STATUS_BUILDING = 2;
+  // Build refused: slot capacity exhausted or no publishable window.
+  // CANDIDATE_POOL_BUILD_STATUS_FAILED_CAPACITY identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_STATUS_FAILED_CAPACITY = 3;
+  // READY snapshot header written for target_epoch.
+  // CANDIDATE_POOL_BUILD_STATUS_PUBLISHED identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_STATUS_PUBLISHED = 4;
+}
+
+// CandidatePoolBuildFailureReason explains a FAILED build without free text.
+//
+// §9.6b registers a reason enum or field type. The two values below are those
+// two prose modes; nothing else is invented. Confirm before mainnet.
+// CandidatePoolBuildFailureReason defines the CandidatePoolBuildFailureReason wire type.
+enum CandidatePoolBuildFailureReason {
+  // No failure recorded.
+  // CANDIDATE_POOL_BUILD_FAILURE_REASON_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_FAILURE_REASON_UNSPECIFIED = 0;
+  // No FREE slot and candidate_slot_hard_capacity already reached.
+  // CANDIDATE_POOL_BUILD_FAILURE_REASON_CAPACITY_EXHAUSTED identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_FAILURE_REASON_CAPACITY_EXHAUSTED = 1;
+  // effective_height >= expires_height, so the epoch has no usable window.
+  // CANDIDATE_POOL_BUILD_FAILURE_REASON_NO_EFFECTIVE_WINDOW identifies the corresponding protocol value.
+  CANDIDATE_POOL_BUILD_FAILURE_REASON_NO_EFFECTIVE_WINDOW = 2;
+}
+
+// CandidatePoolPrunePhase is the phase component of the CandidatePoolPruneIndex
+// key (§3.2). The index itself is key-only and is rebuilt from primaries at
+// genesis, so no value message exists; this enum is its canonical key codec.
+//
+// CONTRACT-GAP: §3.2 names BODY / HEADER; §9.6b does not register the enum.
+// CandidatePoolPrunePhase defines the CandidatePoolPrunePhase wire type.
+enum CandidatePoolPrunePhase {
+  // Never written; rejects zero-value keys.
+  // CANDIDATE_POOL_PRUNE_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_PRUNE_PHASE_UNSPECIFIED = 0;
+  // Bitmap segments and member rows.
+  // CANDIDATE_POOL_PRUNE_PHASE_BODY identifies the corresponding protocol value.
+  CANDIDATE_POOL_PRUNE_PHASE_BODY = 1;
+  // Retained snapshot header.
+  // CANDIDATE_POOL_PRUNE_PHASE_HEADER identifies the corresponding protocol value.
+  CANDIDATE_POOL_PRUNE_PHASE_HEADER = 2;
+}
+
+// CandidatePoolTaskRefStatus is the single acquired state of the per-task
+// snapshot reference (§3.2/§3.3).
+//
+// CONTRACT-GAP: §3.2 fixes the row to `status = ACQUIRED`; §9.6b does not
+// register the enum.
+// CandidatePoolTaskRefStatus defines the CandidatePoolTaskRefStatus wire type.
+enum CandidatePoolTaskRefStatus {
+  // Never written; rejects zero-value rows.
+  // CANDIDATE_POOL_TASK_REF_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  CANDIDATE_POOL_TASK_REF_STATUS_UNSPECIFIED = 0;
+  // Task holds exactly one reference on the snapshot body.
+  // CANDIDATE_POOL_TASK_REF_STATUS_ACQUIRED identifies the corresponding protocol value.
+  CANDIDATE_POOL_TASK_REF_STATUS_ACQUIRED = 1;
+}
+
+// CandidateSlotCurrentState is the current binding of one stable global slot
+// (data_structure_contract §3.2, key = slot). Eligibility (profile, duty, bond, support,
+// jail, capability) is NOT pre-judged here; it is checked and frozen when a Task
+// accepts a handraise (§3.3 / api_contract §4.1).
+// CandidateSlotCurrentState defines the CandidateSlotCurrentState wire type.
+message CandidateSlotCurrentState {
+  uint32 schema_version = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+  string operator_address = 4;
+  CandidateSlotStatus status = 5;
+  uint64 allocated_epoch = 6;
+  uint64 retired_height = 7;
+  uint32 active_task_refs = 8;
+}
+
+// CandidateSlotBindingState is the immutable (slot, slot_version) identity
+// history (§3.2, key = (slot, slot_version)). snapshot_ref_count counts each
+// READY/ACTIVE/EXPIRED snapshot body that still references this binding; the
+// safe-reuse release rule is §3.3.
+// CandidateSlotBindingState defines the CandidateSlotBindingState wire type.
+message CandidateSlotBindingState {
+  uint32 slot = 1;
+  uint64 slot_version = 2;
+  string operator_address = 3;
+  uint64 allocated_epoch = 4;
+  uint64 released_height = 5;
+  uint32 snapshot_ref_count = 6;
+  bytes binding_hash = 7;
+}
+
+// OperatorCandidateSlotState is the only reverse index of
+// CandidateSlotCurrentState (§3.2/§3.3, key = operator_address). Genesis
+// rebuilds it from the primary and validates both directions.
+// OperatorCandidateSlotState defines the OperatorCandidateSlotState wire type.
+message OperatorCandidateSlotState {
+  string operator_address = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+}
+
+// CandidatePoolSnapshotState is one epoch's global pool header (§3.2, key =
+// snapshot_id). There is exactly one pool per epoch shared by all profiles and
+// duties; hash preimages are api_contract §3.5. expires_height is exclusive.
+// CandidatePoolSnapshotState defines the CandidatePoolSnapshotState wire type.
+message CandidatePoolSnapshotState {
+  uint32 schema_version = 1;
+  uint64 epoch = 2;
+  bytes snapshot_id = 3;
+  bytes pool_hash = 4;
+  CandidatePoolSnapshotStatus status = 5;
+  uint32 slot_capacity = 6;
+  uint32 active_count = 7;
+  bytes active_bitmap_hash = 8;
+  bytes member_set_hash = 9;
+  // Audit only; never part of pool_hash.
+  uint64 source_revision = 10;
+  uint64 build_started_height = 11;
+  uint64 published_height = 12;
+  uint64 effective_height = 13;
+  uint64 expires_height = 14;
+  uint32 task_ref_count = 15;
+  uint64 pruned_height = 16;
+}
+
+// CandidatePoolActiveSegmentState is one fixed-width bitmap segment of an epoch
+// pool (§3.2, key = (epoch, segment_index)). bitmap length is exactly
+// candidate_bitmap_segment_bytes; missing segments read as all-zero bytes of the
+// same length (api_contract §3.1).
+// CandidatePoolActiveSegmentState defines the CandidatePoolActiveSegmentState wire type.
+message CandidatePoolActiveSegmentState {
+  uint64 epoch = 1;
+  uint32 segment_index = 2;
+  bytes bitmap = 3;
+  bytes segment_hash = 4;
+}
+
+// CandidatePoolMemberState resolves one active slot of an epoch pool to its
+// immutable binding (§3.2, key = (epoch, slot)). The bitmap carries no identity;
+// a full member reference is snapshot_id + pool_hash + slot + slot_version +
+// operator_address.
+// CandidatePoolMemberState defines the CandidatePoolMemberState wire type.
+message CandidatePoolMemberState {
+  uint64 epoch = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+  string operator_address = 4;
+  bytes binding_hash = 5;
+}
+
+// CandidatePoolBuildCursorState is the bounded automatic build cursor (§3.2/§3.4,
+// key = target_epoch). visited_count counts every visited slot/draft row,
+// including stale ones; there is no permissionless publish Msg.
+// CandidatePoolBuildCursorState defines the CandidatePoolBuildCursorState wire type.
+message CandidatePoolBuildCursorState {
+  uint64 target_epoch = 1;
+  uint64 source_revision = 2;
+  uint32 next_segment = 3;
+  // Bounded bitset over candidate_bitmap_segment_count segments.
+  bytes dirty_segments = 4;
+  uint64 visited_count = 5;
+  uint32 processed_members = 6;
+  CandidatePoolBuildCursorStatus status = 7;
+  bytes next_cleanup_key = 8;
+  CandidatePoolBuildFailureReason failure_reason = 9;
+}
+
+// CandidatePoolBuildStatusState is the singleton build diagnosis (§3.2/§3.4). A
+// new build overwrites it; failed builds never append history rows.
+// CandidatePoolBuildStatusState defines the CandidatePoolBuildStatusState wire type.
+message CandidatePoolBuildStatusState {
+  uint64 target_epoch = 1;
+  uint64 source_revision = 2;
+  CandidatePoolBuildStatus status = 3;
+  uint32 observed_members = 4;
+  uint64 updated_height = 5;
+  CandidatePoolBuildFailureReason failure_reason = 6;
+}
+
+// CurrentCandidatePoolState is the singleton pointer to the unique ACTIVE
+// snapshot (§3.2). It must never point at EXPIRED, PRUNED or body-less
+// snapshots (§3.4).
+// CurrentCandidatePoolState defines the CurrentCandidatePoolState wire type.
+message CurrentCandidatePoolState {
+  uint64 epoch = 1;
+  bytes snapshot_id = 2;
+  bytes pool_hash = 3;
+}
+
+// CandidatePoolTaskRefState is the idempotent per-task snapshot reference
+// (§3.2/§3.3, key = (task_id, snapshot_id)). It is created when the first legal
+// Worker proposal is accepted and released exactly once by task cleanup, guarded
+// by TaskAssignmentState.candidate_pool_ref_released.
+// CandidatePoolTaskRefState defines the CandidatePoolTaskRefState wire type.
+message CandidatePoolTaskRefState {
+  bytes task_id = 1;
+  bytes snapshot_id = 2;
+  uint64 acquired_height = 3;
+  CandidatePoolTaskRefStatus status = 4;
+}
+
+// CandidatePoolSnapshotViewV1 is the Query-only snapshot projection frozen by
+// api_contract §16.5. It hides source_revision and refcounts and never lands in the
+// Store. status = PRUNED does not mean an empty pool.
+// CandidatePoolSnapshotViewV1 defines the CandidatePoolSnapshotViewV1 wire type.
+message CandidatePoolSnapshotViewV1 {
+  uint64 epoch = 1;
+  bytes snapshot_id = 2;
+  bytes pool_hash = 3;
+  CandidatePoolSnapshotStatus status = 4;
+  uint32 slot_capacity = 5;
+  uint32 active_count = 6;
+  bytes active_bitmap_hash = 7;
+  bytes member_set_hash = 8;
+  optional uint64 published_height = 9;
+  uint64 effective_height = 10;
+  uint64 expires_height = 11;
+  optional uint64 pruned_height = 12;
+}
+
+// CandidatePoolMemberViewV1 is the Query-only verifiable join of one member row
+// and its immutable binding (§16.5). The snapshot scope comes from the request.
+// CandidatePoolMemberViewV1 defines the CandidatePoolMemberViewV1 wire type.
+message CandidatePoolMemberViewV1 {
+  uint32 candidate_slot = 1;
+  uint64 slot_version = 2;
+  string operator_address = 3;
+  bytes binding_hash = 4;
+}

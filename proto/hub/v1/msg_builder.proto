@@ -1,0 +1,45 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/builder.proto";
+import "hub/v1/participant_identity.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// MsgRegisterBuilder creates a Builder identity, active current service key,
+// and descriptor. It does not create admission, bond, or set membership.
+// MsgRegisterBuilder defines the MsgRegisterBuilder wire type.
+message MsgRegisterBuilder {
+  bytes service_pubkey = 1;
+  bytes service_key_proof = 2;
+  ServiceDescriptorV1 descriptor = 3;
+  string builder_operator_address = 4;
+}
+
+// MsgRegisterBuilderResponse returns the identity and current admission status.
+// A newly registered Phase 0 Builder is REVOKED until governance admits it.
+// MsgRegisterBuilderResponse defines the MsgRegisterBuilderResponse wire type.
+message MsgRegisterBuilderResponse {
+  string builder_address = 1;
+  BuilderStatus builder_status = 2;
+  uint64 descriptor_version = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgRunBuilderTerm is predeclared for a future dynamic Builder protocol.
+// Phase 0 keeps the wire stable but the Node always returns FEATURE_DISABLED.
+// MsgRunBuilderTerm defines the MsgRunBuilderTerm wire type.
+message MsgRunBuilderTerm {
+  uint64 target_term = 1;
+  uint32 max_items = 2;
+  string submitter_address = 3;
+}
+
+// MsgRunBuilderTermResponse is retained with the predeclared request.
+message MsgRunBuilderTermResponse {
+  uint32 visited = 1;
+  uint32 advanced = 2;
+  optional string builder_set_id = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}

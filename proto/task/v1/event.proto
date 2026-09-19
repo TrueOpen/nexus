@@ -1,0 +1,415 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "shared/v1/round_economics.proto";
+import "task/v1/assignment.proto";
+import "task/v1/deadline.proto";
+import "task/v1/settlement.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// This file carries the Task-owned typed event payloads of keeper_api_contract.md
+// §5.11. The event code numbers themselves are NOT redefined here: the single
+// registry is shared.v1.ProtocolEventCodeV1, because §9.6b allows one numeric
+// definition per closed enum and §17 forbids a second event code authority. The
+// payload oneof is split by owning module only because x/hub must not import
+// x/task.
+//
+// Every payload field number/type is copied verbatim from the §5.11 table.
+// block_height lives in the envelope and is never repeated in a payload. All
+// enums are the domain's closed protobuf enums; no free-form string status,
+// stringly-typed hash or untyped attribute map is used any more.
+//
+// Deleted in this revision (fresh genesis: no alias, no untyped twin):
+//   EventAssignAcceptedPendingRandomness, EventAssignmentFinalized
+//     -> codes 10/11 below.
+//   EventOpenVerifyAccepted, EventVerificationSampleSeedReady
+//     -> code 13 verifier_assignment_finalized; MsgOpenVerify is deleted.
+//   EventWorkerRevealAccepted, EventWorkerRevealDeadlineClosed
+//     -> no worker reveal Msg and no §5.11 code exist.
+//   EventVerifyOpenDeadlineClosed, EventRevealDeadlineClosed, EventWorkerTimeout
+//     -> codes 24/20/23 with the typed DeadlineTransitionCode.
+//   EventResultCredentialAccepted -> code 17 result_accepted.
+//   EventTaskEvidenceRootRecorded, EventTaskFinalityAdvanced,
+//   EventEvidenceCleanup, EventEvidenceCleanupDeferred, EventSessionLifecycle,
+//   EventTimeoutBucketUpdated, EventSettleAccepted,
+//   EventSettlementResultDispatched, EventFaultReportDispatched,
+//   EventEvidenceRootDispatched, EventEpochTaskSummaryDispatched
+//     -> §5.11 assigns them no code; runner/dispatch summary events are
+//        explicitly forbidden. Session idle/close is code 20 with
+//        SESSION_ACTIVE_TO_IDLE / SESSION_IDLE_TO_CLOSED.
+//   Every EventChallenge* / EventEvidenceRequest* message and the
+//   CommitDeadlineOutcome / EvidenceCleanupDeferReason / ChallengeExpiredReason /
+//   ChallengeBondAction enums
+//     -> K-BLOCK-03/04: no public challenge event code or enum may be assigned,
+//        and none of these four enums is registered in §9.6b.
+
+// RevealPhaseTrigger identifies why the reveal phase started. Values are the
+// §9.6b registry values; the previous ALL_COMMITTED / DEADLINE spellings are
+// replaced by the registered names.
+// RevealPhaseTrigger defines the RevealPhaseTrigger wire type.
+enum RevealPhaseTrigger {
+  // Never emitted.
+  // REVEAL_PHASE_TRIGGER_UNSPECIFIED identifies the corresponding protocol value.
+  REVEAL_PHASE_TRIGGER_UNSPECIFIED = 0;
+  // Every selected verifier committed.
+  // REVEAL_PHASE_TRIGGER_ALL_COMMITS identifies the corresponding protocol value.
+  REVEAL_PHASE_TRIGGER_ALL_COMMITS = 1;
+  // The commit deadline closed.
+  // REVEAL_PHASE_TRIGGER_COMMIT_DEADLINE identifies the corresponding protocol value.
+  REVEAL_PHASE_TRIGGER_COMMIT_DEADLINE = 2;
+}
+
+// EventSessionCreated is event code 1, emitted once after the first StreamState
+// commit.
+// EventSessionCreated defines the EventSessionCreated wire type.
+message EventSessionCreated {
+  bytes session_id = 1;
+  string owner = 2;
+  uint64 nonce = 3;
+}
+
+// EventOrderCancelled is event code 2, emitted once after one sequence
+// atomically becomes CANCELLED.
+// EventOrderCancelled defines the EventOrderCancelled wire type.
+message EventOrderCancelled {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  bytes task_id = 3;
+}
+
+// EventRevealPhaseStarted is event code 8, emitted once when StartRevealPhase
+// first advances.
+// EventRevealPhaseStarted defines the EventRevealPhaseStarted wire type.
+message EventRevealPhaseStarted {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 3;
+  uint64 reveal_deadline_height = 4;
+  RevealPhaseTrigger trigger = 5;
+}
+
+// EventTaskFailureClassUpdated is event code 9, emitted once when the final
+// failure class is first written or replaced by a challenge.
+//
+// CONTRACT-GAP: classification_source uses the 4-value §9.6b
+// FailureClassificationSource, which is the sole numeric authority and the type
+// this event row references. keeper_data_structure_contract.md §6.6 and §10.3/§10.7/§10.13
+// describe seven finer-grained sources with no numbers
+// (VERIFY_OPEN_DEADLINE / COMMIT_DEADLINE / VERIFY_DEADLINE / SETTLEMENT_VERDICT /
+// DATA_UNAVAILABLE_REPORT_THRESHOLD / CHALLENGE_OUTCOME / MANUAL_CORRECTION), so
+// the finer source cannot be encoded and it feeds the
+// TRUEOPEN_CLASSIFICATION_EVIDENCE_DIGEST_V1 cross-language vector.
+//
+// RULING 31 (user, unblock round): four values stand. §9.6b is the self-declared
+// sole numeric authority and this event - code 9 - already encodes the field with
+// those numbers, so the enum is confirmed as-is rather than renumbered; changing it
+// now would be a second breaking change for consumers that already pulled it. The
+// seven §6.6 names become descriptive prose, and the mapping table is backfilled
+// into the monorepo documentation. Because classification_source enters the
+// TRUEOPEN_CLASSIFICATION_EVIDENCE_DIGEST_V1 preimage as uint32_be (§10.12), the four
+// numbers are now consensus-frozen: a cross-language implementation must encode
+// exactly the §9.6b value and must never widen the enum to carry a finer reason. The
+// single normative record of this ruling, including which of the seven names map
+// unambiguously, is on TaskFailureClassState in task/v1/settlement.proto.
+// EventTaskFailureClassUpdated defines the EventTaskFailureClassUpdated wire type.
+message EventTaskFailureClassUpdated {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  // verify_round identifies which round produced this classification. A round 2
+  // outcome supersedes the round 1 class, so the round has to be on the event
+  // rather than inferred from the settlement id.
+  uint32 verify_round = 3;
+  optional bytes settlement_id_or_empty = 4;
+  TaskFailureClass failure_class = 5;
+  shared.v1.FailureClassificationSource classification_source = 6;
+  bytes evidence_digest = 7;
+  bool freeze_signal_eligible = 8;
+}
+
+// EventWorkerHandraisesAccepted is event code 10, emitted once per proposal that
+// added at least one candidate and committed.
+// EventWorkerHandraisesAccepted defines the EventWorkerHandraisesAccepted wire type.
+message EventWorkerHandraisesAccepted {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint64 order_sequence = 3;
+  bytes proposal_digest = 4;
+  bytes added_bitmap_hash = 5;
+  optional string builder_or_empty = 6;
+  uint32 union_count = 7;
+}
+
+// EventWorkerAssignmentFinalized is event code 11, emitted once when the winner
+// and its task liability commit in the same transaction.
+// EventWorkerAssignmentFinalized defines the EventWorkerAssignmentFinalized wire type.
+message EventWorkerAssignmentFinalized {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  string winner_worker = 3;
+  bytes assignment_candidate_set_hash = 4;
+  uint64 randomness_height = 5;
+  shared.v1.Amount reserved_amount = 6;
+  uint64 infer_deadline = 7;
+}
+
+// EventInferReceiptAccepted is event code 12, emitted once when the receipt is
+// first accepted and the verifier window build index is written.
+// EventInferReceiptAccepted defines the EventInferReceiptAccepted wire type.
+message EventInferReceiptAccepted {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  string worker = 3;
+  bytes infer_receipt_hash = 4;
+  bytes output_hash = 5;
+  uint64 generated_token_count = 6;
+  uint64 verifier_window_randomness_height = 7;
+  uint64 output_leaf_count = 8;
+}
+
+// EventVerifierAssignmentFinalized is event code 13, emitted once when the second
+// future Beacon completes the selected set and its liabilities.
+// EventVerifierAssignmentFinalized defines the EventVerifierAssignmentFinalized wire type.
+message EventVerifierAssignmentFinalized {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  bytes selected_verifiers_hash = 4;
+  bytes verifier_legal_set_hash = 5;
+  uint64 selection_randomness_height = 6;
+  uint64 commit_deadline = 7;
+  uint64 verify_deadline = 8;
+}
+
+// EventDataUnavailableReported is event code 14, emitted once per accepted valid
+// report.
+// EventDataUnavailableReported defines the EventDataUnavailableReported wire type.
+message EventDataUnavailableReported {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string verifier = 4;
+  bytes unavailable_builder_bitmap_hash = 5;
+  bytes report_digest = 6;
+}
+
+// EventBuilderDataUnavailable is event code 15, emitted once when the aggregate
+// first reaches its threshold.
+// EventBuilderDataUnavailable defines the EventBuilderDataUnavailable wire type.
+message EventBuilderDataUnavailable {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string builder = 4;
+  uint32 valid_report_count = 5;
+  uint32 threshold = 6;
+  bytes aggregate_hash = 7;
+}
+
+// EventCommitAccepted is event code 16, emitted once per first accepted commit.
+// MsgBatchSubmitVerifyCommit emits one per first-accepted item in item_index
+// order and nothing at all on a full replay.
+// EventCommitAccepted defines the EventCommitAccepted wire type.
+message EventCommitAccepted {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string verifier = 4;
+  bytes commit_hash = 5;
+}
+
+// EventResultAccepted is event code 17, emitted once per first accepted
+// ResultReceipt, with the same batch rule as code 16.
+// EventResultAccepted defines the EventResultAccepted wire type.
+message EventResultAccepted {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string verifier = 4;
+  bytes result_receipt_signing_digest = 5;
+  bytes result_payload_hash = 6;
+}
+
+// EventTaskSettled is event code 19.
+message EventTaskSettled {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  bytes settlement_id = 3;
+  TaskVerdict verdict = 4;
+  TaskFailureClass failure_class = 5;
+  uint32 effective_verify_round = 6;
+  bytes settlement_facts_hash = 7;
+  bytes settlement_plan_hash = 8;
+  bytes task_round_summary_hash = 9;
+  uint64 settlement_facts_cutoff_height = 10;
+  uint64 settlement_height = 11;
+  uint64 task_finality_height = 12;
+}
+
+// EventDeadlineSwept is event code 20, emitted once per sweep that actually
+// advanced state. MsgSweepDeadline may only emit this code plus the business
+// events the transition actually hit (22/23/24/25/...); a full noop emits nothing
+// and returns status = NOOP.
+// EventDeadlineSwept defines the EventDeadlineSwept wire type.
+message EventDeadlineSwept {
+  optional bytes session_id = 1;
+  optional bytes task_id = 2;
+  DeadlineKindV1 deadline_kind = 3;
+  DeadlineTransitionCode transition_code = 4;
+  TaskFailureClass failure_class = 5;
+}
+
+// EventAssignmentFailed is event code 22, emitted once when the assignment
+// failure and its refund commit together.
+// EventAssignmentFailed defines the EventAssignmentFailed wire type.
+message EventAssignmentFailed {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  AssignmentFailureReason reason = 3;
+  shared.v1.Amount refund_amount = 4;
+}
+
+// EventWorkerTimeout is event code 23, emitted once when the inference deadline
+// first closes the Task.
+// EventWorkerTimeout defines the EventWorkerTimeout wire type.
+message EventWorkerTimeout {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  string worker = 3;
+  TaskFailureClass failure_class = 4;
+  shared.v1.Amount refund_amount = 5;
+}
+
+// EventVerifyOpenTimeout is event code 24, emitted once when the Open Verify
+// deadline first closes the Task.
+// EventVerifyOpenTimeout defines the EventVerifyOpenTimeout wire type.
+message EventVerifyOpenTimeout {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  TaskFailureClass failure_class = 4;
+  shared.v1.Amount refund_amount = 5;
+}
+
+// EventCommitDeadlineClosed is event code 25, emitted once when the commit
+// deadline first closes and reveal starts.
+// EventCommitDeadlineClosed defines the EventCommitDeadlineClosed wire type.
+message EventCommitDeadlineClosed {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  uint32 missing_verifier_count = 4;
+  uint64 reveal_deadline_height = 5;
+}
+
+// EventChallengeRoundOpened is event code 26.
+message EventChallengeRoundOpened {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string opener = 3;
+  bytes prev_round_facts_hash = 4;
+  shared.v1.Amount bond = 5;
+  shared.v1.Amount verifier_budget = 6;
+  uint64 round_close_deadline_height = 7;
+}
+
+// EventVerificationRoundClosed is event code 27.
+message EventVerificationRoundClosed {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  // round_outcome is absent for round 1, which emits as soon as the round
+  // closes and carries ZERO32 in round_effect_root. Round 2 freezes its effect
+  // plan first and only emits once every effect is APPLIED, so it carries a
+  // present outcome, the real root, and the funding resolution in the same
+  // atomic commit; closed_height still projects that round's terminal height.
+  optional shared.v1.RoundOutcomeV1 round_outcome = 3;
+  TaskVerdict verdict = 4;
+  bytes round_facts_hash = 5;
+  bytes round_effect_root = 6;
+  uint64 closed_height = 7;
+}
+
+// EventTaskGasReimbursementRecorded is event code 28.
+message EventTaskGasReimbursementRecorded {
+  bytes task_id = 1;
+  bytes tx_hash = 2;
+  uint32 item_index = 3;
+  TaskReimbursementKindV1 reimbursement_kind = 4;
+  string fee_payer = 5;
+  uint64 gas_basis = 6;
+  shared.v1.Amount reimbursed_amount = 7;
+}
+
+// EventWorkerEvidenceAccepted is event code 29, emitted once per first accepted
+// compact Worker evidence receipt. Replays emit no event.
+// EventWorkerEvidenceAccepted defines the EventWorkerEvidenceAccepted wire type.
+message EventWorkerEvidenceAccepted {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  bytes evidence_digest = 3;
+  bytes fault_id = 4;
+  uint64 seq = 5;
+  uint64 accepted_height = 6;
+}
+
+// EventVerifierHandraisesAccepted is event code 34, emitted once per proposal
+// that added at least one verifier candidate and committed. §5.11 code 34 carries
+// no session_id.
+// EventVerifierHandraisesAccepted defines the EventVerifierHandraisesAccepted wire type.
+message EventVerifierHandraisesAccepted {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  bytes proposal_digest = 3;
+  bytes added_bitmap_hash = 4;
+  string builder_or_worker = 5;
+  uint32 union_count = 6;
+}
+
+// EventTaskParamsUpdated is event code 111, emitted once when a new Task params
+// version takes effect atomically.
+// EventTaskParamsUpdated defines the EventTaskParamsUpdated wire type.
+message EventTaskParamsUpdated {
+  uint64 old_version = 1;
+  uint64 new_version = 2;
+  bytes params_hash = 3;
+}
+
+// TaskProtocolEventPayloadV1 is the Task-owned half of the §5.11 payload oneof.
+// Each member's field number equals its shared.v1.ProtocolEventCodeV1 value,
+// exactly like hub.v1.ProtocolEventPayloadV1 does for Hub-owned codes.
+// TaskProtocolEventPayloadV1 defines the TaskProtocolEventPayloadV1 wire type.
+message TaskProtocolEventPayloadV1 {
+  // Exactly one payload matching the envelope event_code is set.
+  // typed_event selects one supported variant.
+  oneof typed_event {
+    EventSessionCreated session_created = 1;
+    EventOrderCancelled order_cancelled = 2;
+    EventRevealPhaseStarted reveal_phase_started = 8;
+    EventTaskFailureClassUpdated task_failure_class_updated = 9;
+    EventWorkerHandraisesAccepted worker_handraises_accepted = 10;
+    EventWorkerAssignmentFinalized worker_assignment_finalized = 11;
+    EventInferReceiptAccepted infer_receipt_accepted = 12;
+    EventVerifierAssignmentFinalized verifier_assignment_finalized = 13;
+    EventDataUnavailableReported data_unavailable_reported = 14;
+    EventBuilderDataUnavailable builder_data_unavailable = 15;
+    EventCommitAccepted commit_accepted = 16;
+    EventResultAccepted result_accepted = 17;
+    EventTaskSettled task_settled = 19;
+    EventDeadlineSwept deadline_swept = 20;
+    EventAssignmentFailed assignment_failed = 22;
+    EventWorkerTimeout worker_timeout = 23;
+    EventVerifyOpenTimeout verify_open_timeout = 24;
+    EventCommitDeadlineClosed commit_deadline_closed = 25;
+    EventChallengeRoundOpened challenge_round_opened = 26;
+    EventVerificationRoundClosed verification_round_closed = 27;
+    EventTaskGasReimbursementRecorded task_gas_reimbursement_recorded = 28;
+    EventWorkerEvidenceAccepted worker_evidence_accepted = 29;
+    EventVerifierHandraisesAccepted verifier_handraises_accepted = 34;
+    EventTaskParamsUpdated task_params_updated = 111;
+  }
+}

@@ -1,0 +1,41 @@
+syntax = "proto3";
+package shared.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// EvidenceKind is the single cross-module numeric authority for evidence
+// opening semantics. Engine-local artifacts such as trace files and checkpoints
+// are not evidence kinds.
+// EvidenceKind defines the EvidenceKind wire type.
+enum EvidenceKind {
+  // Never written; rejects an unset requirement or commitment.
+  // EVIDENCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  EVIDENCE_KIND_UNSPECIFIED = 0;
+  // Selected Worker four-artifact opening folded by WorkerValueCommitmentV2.
+  // EVIDENCE_KIND_WORKER_VALUE_OPENING identifies the corresponding protocol value.
+  EVIDENCE_KIND_WORKER_VALUE_OPENING = 1;
+  // Selected Verifier value and metric opening.
+  // EVIDENCE_KIND_VERIFIER_VALUE_OPENING identifies the corresponding protocol value.
+  EVIDENCE_KIND_VERIFIER_VALUE_OPENING = 2;
+  // Settlement duty Builder opening against task_evidence_root.
+  // EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING identifies the corresponding protocol value.
+  EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING = 3;
+}
+
+// InferEvidenceRequirementV1 freezes one evidence kind required from the
+// selected Worker at InferReceipt admission.
+// InferEvidenceRequirementV1 defines the InferEvidenceRequirementV1 wire type.
+message InferEvidenceRequirementV1 {
+  EvidenceKind evidence_kind = 1;
+  uint32 commitment_schema_version = 2;
+  uint64 max_encoded_size_bytes = 3;
+}
+
+// EvidenceSchemaV1 is the readable descriptor committed by
+// VerificationProfile.evidence_schema_hash.
+// EvidenceSchemaV1 defines the EvidenceSchemaV1 wire type.
+message EvidenceSchemaV1 {
+  uint32 schema_version = 1;
+  repeated InferEvidenceRequirementV1 required_infer_evidence = 2;
+}

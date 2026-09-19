@@ -1,0 +1,64 @@
+{
+  "binding_encoding": "bus.v1.NatsUserBindingV1 protobuf bytes, fields in number order, proto3 defaults omitted; at most 1024 bytes",
+  "cases": [
+    {
+      "expected": {
+        "binding_bytes": "08011201631801222f747275656f70656e31776c746d6b7036637076756c68397961377a30686877306370677773767364636364356d616e2801323855413557554a35345a32334b494c4c43554f554e414b545042565a574b4d51564f344f3645513547484c414552494d4c4c484e4354594d35380142403d84823f77ee958f4368487a98af3ba459044c81ced3efaf6029a08005d862796ceef1faf13085e7e78eac2a311f0e3e388c84dab8ccfe7567de246f323d2c24",
+        "signature": "3d84823f77ee958f4368487a98af3ba459044c81ced3efaf6029a08005d862796ceef1faf13085e7e78eac2a311f0e3e388c84dab8ccfe7567de246f323d2c24",
+        "signing_digest": "114c75653efeb0b8f316f8078bd4a50abb3f7c018716cbd5adf08e3ceb4ce917",
+        "signing_preimage": "000000000000001d545255454f50454e5f4e4154535f555345525f42494e44494e475f5631000000000000000400000001000000000000000163000000000000000400000001000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b800000000000000080000000000000001000000000000003855413557554a35345a32334b494c4c43554f554e414b545042565a574b4d51564f344f3645513547484c414552494d4c4c484e4354594d3500000000000000080000000000000001",
+        "token": "trueopen-nub1.CAESAWMYASIvdHJ1ZW9wZW4xd2x0bWtwNmNwdnVsaDl5YTd6MGhodzBjcGd3c3ZzZGNjZDVtYW4oATI4VUE1V1VKNTRaMjNLSUxMQ1VPVU5BS1RQQlZaV0tNUVZPNE82RVE1R0hMQUVSSU1MTEhOQ1RZTTU4AUJAPYSCP3fulY9DaEh6mK87pFkETIHO0--vYCmggAXYYnls7vH68TCF5-eOrCoxHw4-OIyE2rjM_nVn3iRvMj0sJA"
+      },
+      "fields": {
+        "chain_id": "c",
+        "issued_at_unix_ms": "1",
+        "nats_user_pubkey": "UA5WUJ54Z23KILLCUOUNAKTPBVZWKMQVO4O6EQ5GHLAERIMLLHNCTYM5",
+        "operator_address": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+        "participant_type": 1,
+        "schema_version": 1,
+        "service_authorization_nonce": "1"
+      },
+      "name": "minimum vector from 07-task_builder_coordination §7.5.4",
+      "operator_codec_bytes": "77d7bb07580b39fb949df09f7bb9f80a1d0641b8"
+    },
+    {
+      "expected": {
+        "binding_bytes": "08011213747275656f70656e2d6c6f63616c6e65742d311801222f747275656f70656e316a37723675386e77767739336c3274633077643735763037767538396c7879667166386675742807323855413557554a35345a32334b494c4c43554f554e414b545042565a574b4d51564f344f3645513547484c414552494d4c4c484e4354594d353880d095ffbc314240a277bb1e69ddd9f6dd254986010c6806dada2330d443c9dbb951a208a92056612439f44778085a3f09fb3f0ae6c22e7e5b6e07ffa12c6a70bfd2579fd2f52efc",
+        "signature": "a277bb1e69ddd9f6dd254986010c6806dada2330d443c9dbb951a208a92056612439f44778085a3f09fb3f0ae6c22e7e5b6e07ffa12c6a70bfd2579fd2f52efc",
+        "signing_digest": "553ee15f5261f94ee7fbb6ee609ac8d637aa0311e91b79a9560d64ea91ce24b9",
+        "signing_preimage": "000000000000001d545255454f50454e5f4e4154535f555345525f42494e44494e475f56310000000000000004000000010000000000000013747275656f70656e2d6c6f63616c6e65742d3100000000000000040000000100000000000000149787ae1e6e638b1fa9787b9bea31fe670e5f988900000000000000080000000000000007000000000000003855413557554a35345a32334b494c4c43554f554e414b545042565a574b4d51564f344f3645513547484c414552494d4c4c484e4354594d3500000000000000080000018bcfe56800",
+        "token": "trueopen-nub1.CAESE3RydWVvcGVuLWxvY2FsbmV0LTEYASIvdHJ1ZW9wZW4xajdyNnU4bnd2dzkzbDJ0YzB3ZDc1djA3dnU4OWx4eWZxZjhmdXQoBzI4VUE1V1VKNTRaMjNLSUxMQ1VPVU5BS1RQQlZaV0tNUVZPNE82RVE1R0hMQUVSSU1MTEhOQ1RZTTU4gNCV_7wxQkCid7sead3Z9t0lSYYBDGgG2tojMNRDydu5UaIIqSBWYSQ59Ed4CFo_Cfs_CubCLn5bbgf_oSxqcL_SV5_S9S78"
+      },
+      "fields": {
+        "chain_id": "trueopen-localnet-1",
+        "issued_at_unix_ms": "1700000000000",
+        "nats_user_pubkey": "UA5WUJ54Z23KILLCUOUNAKTPBVZWKMQVO4O6EQ5GHLAERIMLLHNCTYM5",
+        "operator_address": "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut",
+        "participant_type": 1,
+        "schema_version": 1,
+        "service_authorization_nonce": "7"
+      },
+      "name": "typical localnet cortex",
+      "operator_codec_bytes": "9787ae1e6e638b1fa9787b9bea31fe670e5f9889"
+    }
+  ],
+  "domain": "TRUEOPEN_NATS_USER_BINDING_V1",
+  "field_order": [
+    "schema_version:u32be",
+    "chain_id:utf8",
+    "participant_type:u32be",
+    "operator_address:bech32-decoded 20 codec bytes",
+    "service_authorization_nonce:u64be",
+    "nats_user_pubkey:utf8 text of the nkey public key, not the decoded 32 bytes",
+    "issued_at_unix_ms:u64be"
+  ],
+  "framing": "H_FIELDS_V1: sha256(u64be(len(domain))||domain || for each field u64be(len(field))||field)",
+  "nats_user_pubkey": "UA5WUJ54Z23KILLCUOUNAKTPBVZWKMQVO4O6EQ5GHLAERIMLLHNCTYM5",
+  "nats_user_seed": "SUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEQ",
+  "nats_user_seed_note": "test-only ed25519 nkey derived from an all-zero 32-byte raw seed; the public key text below is what enters the preimage",
+  "private_key": "985ad41a995234c367f70942668b8e2ee2ad95513098dec4ea963b2738de745c",
+  "public_key_compressed": "03a37e2aa46416e86bfa50a931e2278c541ee1da298dcd79f63693089ffb26c765",
+  "schema": "bus-nats-user-binding-v1-vectors-v1",
+  "signature": "secp256k1 direct over the 32-byte signing digest, RFC6979 deterministic, compact low-S R||S; field 8 of bus.v1.NatsUserBindingV1, never in its own preimage",
+  "token_encoding": "\"trueopen-nub1.\" || base64url_nopad(binding_bytes); carried in the NATS CONNECT auth_token field"
+}

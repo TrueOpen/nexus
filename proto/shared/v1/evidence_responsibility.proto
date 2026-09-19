@@ -1,0 +1,155 @@
+syntax = "proto3";
+package shared.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// This file holds the Builder objective-evidence values that cross the
+// Task -> Hub keeper boundary. keeper_api_contract.md §5.5 (lines 918-951) freezes
+// every field number below, and ADR-0013 decision 6 makes them shared: the Task
+// module owns the payload and the Task authority check, the Hub module owns the
+// fault kernel, so the locator/fact/receipt values are referenced by two domains
+// and cannot live in either one of them. shared.v1 stays an import leaf, so
+// this file imports only the cosmos_proto scalar option and its own package.
+//
+// The three HubKeeper method signatures are fixed by §5.5 (lines 953-954) to
+// exactly these values and nothing else:
+//
+//   acquire(BusObjectiveEvidenceResponsibilityV1)
+//     -> BusObjectiveEvidenceResponsibilityReceiptV1
+//   release(BusObjectiveEvidenceResponsibilityV1)
+//     -> BusObjectiveEvidenceResponsibilityReceiptV1
+//   apply(BuilderObjectiveEvidenceFactV2)
+//     -> BuilderObjectiveEvidenceReceiptV2
+//
+// Raw envelope bytes, payload bytes and raw signatures never cross the
+// HubKeeper interface and never enter the Hub Store (§5.5 lines 960-961). The
+// Hub only ever sees the recomputed canonical digest, so no Hub read path can
+// reinterpret transport material. When V2 splits the chains, these same values
+// become the packet payload while the Task authority check stays on the task
+// chain.
+//
+// Hash32 values are declared as raw 32-byte `bytes`; this repo has no Hash32
+// message type and never stores a hex projection of a digest.
+
+// BuilderObjectiveEvidenceFactV2 is the only value Task passes to the Hub fault
+// kernel (§5.5 lines 918-925). The Hub recomputes evidence_id and
+// fault_id from the local chain context plus this fact and never trusts a
+// caller-supplied ID copy: apply is a NOOP only when the same ID repeats the same
+// canonical fields and frozen_slash_bps; a different digest, kind, scope,
+// Builder or BPS is a conflict (§5.5).
+// The V2 domain generation is mandatory, not cosmetic: the BusEnvelope cutover
+// changed the nested evidence schema, the kind numbers and the signing rule, so
+// Canonical §7 requires new content/ID/fault domains instead of reinterpreting
+// the V1 ones.
+// BuilderObjectiveEvidenceFactV2 defines the BuilderObjectiveEvidenceFactV2 wire type.
+message BuilderObjectiveEvidenceFactV2 {
+  // Always 2 for this fact generation.
+  uint32 schema_version = 1;
+  // Stable Builder operator being charged; never a service address.
+  string builder_operator = 2;
+  // Closed evidence registry value of the accepted BuilderEvidenceV2 branch.
+  BuilderEvidenceKind evidence_kind = 3;
+  // Existing authoritative primary key of the charged fact, raw32; for all three
+  // ACTIVE branches this is the task_id. Evidence never mints a new hash
+  // semantics for scope.
+  bytes scope_id = 4;
+  // H_FIELDS_V1("TRUEOPEN_BUILDER_EVIDENCE_CONTENT_V2", ...) as recomputed by the
+  // Task module, raw32. Raw signatures are excluded from this digest.
+  bytes canonical_evidence_digest = 5;
+  // Task-owned builder fault slash rate frozen when the Task Builder selection
+  // was first locked. Range: 0..10000. It is never caller-authored and does not
+  // enter the canonical evidence digest, evidence_id, or fault_id. A replay of
+  // the same fault ID with a different value is a conflict, not a NOOP.
+  uint32 frozen_slash_bps = 6;
+}
+
+// WorkerObjectiveEvidenceFactV1 is the only value Task passes to the Hub role
+// fault kernel after validating one output-chunk equivocation proof. The Hub
+// derives the fault ID and fixed WORKER/EQUIVOCATION attribution from this fact.
+// WorkerObjectiveEvidenceFactV1 defines the WorkerObjectiveEvidenceFactV1 wire type.
+message WorkerObjectiveEvidenceFactV1 {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  string worker_operator_address = 3;
+  bytes evidence_digest = 4;
+  uint32 frozen_slash_bps = 5;
+}
+
+// BusObjectiveEvidenceResponsibilityV1 is the acquire/release locator of the
+// per-Builder objective-evidence responsibility row (§5.5 lines 929-935).
+//
+// The responsibility ID has exactly one registered preimage:
+//
+//   responsibility_id = TRUEOPEN_SERVICE_KEY_RESPONSIBILITY_ID_V1(
+//     BUILDER, BUS_OBJECTIVE_EVIDENCE, session_id, task_id,
+//     scope_id = task_id, builder_operator)
+//
+// service_authorization_nonce is carried in the row and echoed in the receipt
+// but it is deliberately not part of the ID (§5.5 lines 955-957): a second ID
+// per nonce would let a rotation create a fresh, unblocked row for the same
+// task. Consequently acquire with the same locator and the same nonce is an
+// exact replay that returns active=true / NOOP, while the same ID with a
+// different nonce is a conflict.
+//
+// release is called only by the Task EvidenceCleanup phase (§5.5 line 957 and
+// keeper_api_contract.md lines 4184-4186): the first call returns active=false /
+// APPLIED and every repeat returns active=false / NOOP.
+// BusObjectiveEvidenceResponsibilityV1 defines the BusObjectiveEvidenceResponsibilityV1 wire type.
+message BusObjectiveEvidenceResponsibilityV1 {
+  // Always 1 for this locator generation.
+  uint32 schema_version = 1;
+  // Stable Builder operator holding the responsibility.
+  string builder_operator = 2;
+  // Owning session, raw32; part of the registered ID preimage.
+  bytes session_id = 3;
+  // Owning task, raw32; also used as scope_id in the ID preimage.
+  bytes task_id = 4;
+  // Current authorization nonce of the Builder's service key binding. Stored on
+  // the row and echoed on the receipt; never part of the ID.
+  uint64 service_authorization_nonce = 5;
+}
+
+// BusObjectiveEvidenceResponsibilityReceiptV1 is the single receipt shape of
+// both acquire and release (§5.5 lines 937-944). active is the post-call state
+// of the row, so an acquire replay reports active=true / NOOP and a release
+// replay reports active=false / NOOP; status never carries a rejection, which is
+// a gRPC error instead.
+// BusObjectiveEvidenceResponsibilityReceiptV1 defines the BusObjectiveEvidenceResponsibilityReceiptV1 wire type.
+message BusObjectiveEvidenceResponsibilityReceiptV1 {
+  // Hub-recomputed responsibility ID, raw32; never copied from the caller.
+  bytes responsibility_id = 1;
+  // Stable Builder operator of the row.
+  string builder_operator = 2;
+  // Owning task, raw32.
+  bytes task_id = 3;
+  // Authorization nonce recorded on the row.
+  uint64 service_authorization_nonce = 4;
+  // Whether the responsibility row is held after this call.
+  bool active = 5;
+  // APPLIED when the row was created or removed by this call, NOOP on exact replay.
+  MutationStatusV1 status = 6;
+}
+
+// BuilderObjectiveEvidenceReceiptV2 is what apply returns and what
+// task.v1.Msg.SubmitBuilderEvidence returns directly: §5.5 line 960 fixes
+// the RPC to the shared receipt, so there is no per-module Response wrapper to
+// keep in sync.
+//
+// evidence_id is the idempotency key of the submission and fault_id is the
+// primary key of the punishable fact derived from it. The two use different
+// domains over different preimages (§5.5 lines 970-982) and must never be
+// substituted for each other. fault_id is optional because accepted evidence
+// that resolves to no new fault row leaves it absent; absence is expressed by
+// protobuf presence, never by a zero-length or all-zero digest.
+// BuilderObjectiveEvidenceReceiptV2 defines the BuilderObjectiveEvidenceReceiptV2 wire type.
+message BuilderObjectiveEvidenceReceiptV2 {
+  // H_FIELDS_V1("TRUEOPEN_BUILDER_EVIDENCE_ID_V2", ...) recomputed by the Hub, raw32.
+  bytes evidence_id = 1;
+  // H_FIELDS_V1("TRUEOPEN_BUILDER_FAULT_V2", ...) recomputed by the Hub, raw32;
+  // absent when the accepted evidence created no fault row.
+  optional bytes fault_id = 2;
+  // APPLIED on first acceptance, NOOP on exact replay of the same ID and digest.
+  MutationStatusV1 status = 3;
+}

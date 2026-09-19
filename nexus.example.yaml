@@ -1,0 +1,194 @@
+# Copy to nexus.yaml for local startup. Keep real secrets out of this file.
+data_dir: ./data
+
+log:
+  level: info
+  format: text
+  file: ""
+  max_size_mb: 100
+  max_backups: 7
+  max_age_days: 28
+  compress: true
+
+ingress:
+  listen_addr: ":8080"
+  api_keys: []
+  ip_whitelist: []
+  require_sdk_envelope: false
+  # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed (monorepo ADR-0015).
+  # Order: `nexus tls init` generates a self-signed certificate (default <data_dir>/tls/) and prints the public key fingerprint →
+  # the operator runs `nexus builder register` with the operator key to write the https address and fingerprint
+  # (tls_pubkey_hash = sha256(certificate public key)) into the on-chain descriptor → set enabled=true and start.
+  # start only loads the certificate and checks the on-chain fingerprint; it never generates a certificate or changes the descriptor:
+  # a missing certificate or a fingerprint not on chain refuses startup. When enabled, identity.public_endpoint must be https.
+  # Rotating the certificate = rotating the public key: init again (delete the old files first) → register → restart.
+  tls:
+    enabled: false
+    cert_file: ""   # optional: your own PEM certificate chain; paired with key_file, relative paths are relative to this file
+    key_file: ""
+
+# Encrypted task input is stored in local Pebble until chain deadline or task termination.
+# This limit also bounds decoded Ingress messages and raw HTTP request bodies.
+payload_storage:
+  max_bytes: 16777216
+
+# Final plaintext is stored unencrypted in local Pebble until SDK ACK or TTL.
+output_delivery:
+  require_plaintext_output: false
+  output_max_bytes: 1048576
+  plaintext_ttl: 4h
+  tombstone_ttl: 24h
+  sweep_interval: 1m
+
+# V1 plaintext task data is stored as content-addressed files below data_dir.
+# Capacity is reserved from the declared object size before Nexus accepts bytes.
+task_data:
+  inline_max_bytes: 1048576
+  chunk_size_bytes: 262144
+  max_range_bytes: 8388608
+  max_blob_bytes: 1073741824
+  spool_reservation_bytes: 4294967296
+  disk_accept_watermark_percent: 85
+  # Signed requests may expire at most this many Task Chain blocks ahead.
+  request_ttl_blocks: 20
+  # Fallback retention window for Builder storage confirmations
+  # (contract §5) when the object carries no authoritative retention height.
+  # Must outlast the verify + challenge windows (devnet: ~700 blocks after
+  # open verify), otherwise the Builder promises less than the chain requires.
+  retention_lease_blocks: 1000
+  # Rechecks quarantined objects and authoritative cleanup heights.
+  sweep_interval: 1m
+  # ADR-0017 streaming OUTPUT (UploadTaskOutputStream / frame-based SubscribeOutput).
+  # On by default: Cortex only delivers OUTPUT through this stream. Set
+  # enabled: false to make the three RPCs answer Unimplemented (no OUTPUT can
+  # then be uploaded at all).
+  #
+  # What decides whether a stream is valid — and therefore must be identical on
+  # every Nexus (deployment baseline until the chain parameters land) — is the
+  # first three settings below PLUS chunk_size_bytes above, which doubles as the
+  # per-frame text limit. Differing chunk_size_bytes means one Builder accepts a
+  # frame another rejects, and the Verifier then cannot fetch a complete object.
+  # subscriber_buffer_frames only affects local subscribers and may differ.
+  output_stream:
+    enabled: true
+    max_output_mmr_leaves: 65536
+    min_output_stream_frame_bytes: 16
+    max_attachment_bytes: 65536
+    subscriber_buffer_frames: 256
+
+nats:
+  servers:
+    - nats://127.0.0.1:4222         # production uses tls://host:4222 (ADR-0016 transitional state)
+  user: ""                          # dev only; production mode rejects username/password
+  password: ""
+  ca_file: ""                       # NATS server certificate / CA PEM; verified against it for tls://; dev empty = system root CAs, required in production
+  creds_file: ""                    # NATS creds (user JWT + nkey seed), replaces username/password; relative paths are relative to this file
+  sentinel_file: ""                 # AUTH account bearer user JWT (e.g. ./nats-sentinel.jwt), public, non-secret data, served to Cortex via GET /v1/nats/sentinel; relative paths are relative to this file; empty = route not served
+
+# Deployment Security Baseline switch: dev (default, behavior unchanged) | production.
+# production rejects: nats:// and user/password; non-loopback plaintext chain/hub grpc_addr;
+# private_key_hex / private_key / keystore_password / service_keystore_password in identity;
+# ingress.tls.enabled=false. Private keys and passphrases always come from files.
+security:
+  mode: dev
+
+chain:
+  # Task signanode requires NODED_TASK_EVENT_GRPC_ENABLED=true.
+  # With hub.enabled=false it also requires
+  # NODED_TASK_EVENT_GRPC_PROTOCOL_EVENTS_ENABLED=true.
+  grpc_addr: 127.0.0.1:9090         # once node has TLS enabled, use https://host:9090 (verified against system root CAs)
+  chain_id: trueopen-localnet
+  gas_limit: 200000
+  fee_denom: utrueopen
+  fee_amount: "5000"
+  # MsgSweepDeadline is the single public deadline runner (Keeper Interface Contract §9.6a):
+  # any account may submit it and the runner pays its own gas, so acting as that
+  # runner is an operational choice, not a protocol duty. Default off — nexus only
+  # observes DEADLINE_SWEPT events. When enabled, nexus sweeps only the verify
+  # deadlines the chain itself published for tasks this Builder is tracking.
+  deadline_sweep:
+    enabled: false
+    # Blocks to wait after a deadline passes before sweeping it yourself, so the
+    # EndBlock executor and other Builders get first crack. 0 = sweep on expiry,
+    # which makes every Builder race for the same mostly-NOOP transaction.
+    grace_blocks: 10
+
+# Hub is the sole source of truth for the Builder registry and stake when enabled. The chain block
+# above remains the Task Chain used for task execution and events.
+hub:
+  # When enabled, Hub signanode requires both
+  # NODED_TASK_EVENT_GRPC_ENABLED=true and
+  # NODED_TASK_EVENT_GRPC_PROTOCOL_EVENTS_ENABLED=true.
+  enabled: false
+  grpc_addr: ""
+  chain_id: ""
+  gas_limit: 200000
+  fee_denom: utrueopen
+  fee_amount: "5000"
+
+identity:
+  builder_address: ""
+  bech32_prefix: trueopen
+  private_key_file: ./builder.key
+  private_key: ""
+  private_key_hex: ""
+  keystore_file: ""
+  keystore_password: ""
+  keystore_password_file: ""
+  # Optional service key used for Node application-level builder signatures.
+  # When omitted, Nexus shares the account key and logs a startup warning.
+  service_keystore_file: ""
+  service_keystore_password: ""
+  service_keystore_password_file: ""
+  # Production endpoint must be absolute HTTPS: turn on ingress.tls so Nexus
+  # terminates TLS itself and clients can check tls_pubkey_hash (ADR-0015).
+  public_endpoint: ""
+  # Phase 0 has no BuilderBond: the former builder_bond block and the
+  # NEXUS_BUILDER_BOND_DENOM / NEXUS_BUILDER_BOND_AMOUNT variables are gone;
+  # a leftover builder_bond key in YAML fails startup (strict schema).
+  moniker: ""
+  p2p_hint: ""
+  # On-chain ServiceDescriptorV1.endpoints (Keeper Interface Contract §9.6b). Leave the list
+  # empty to derive three endpoints from public_endpoint: NEXUS_GRPC and
+  # OBJECT_GATEWAY_HTTPS point at it directly, HEALTH_HTTPS appends /healthz.
+  # Set it explicitly when the three services are not all on the Connect port.
+  #
+  # kind must be NEXUS_GRPC / OBJECT_GATEWAY_HTTPS / HEALTH_HTTPS, each at most
+  # once; the submitter sorts by kind. uri scheme is the closed set
+  # http/https/grpc/grpcs — despite the kind names, the Keeper does accept http.
+  # Credentials, query strings and fragments are rejected. protocol_version
+  # defaults to "v1" and only allows [A-Za-z0-9._-]. tls_pubkey_hash is optional;
+  # when set it must be 64 lowercase hex characters and not all zero.
+  service_endpoints: []
+  # service_endpoints:
+  #   - kind: NEXUS_GRPC
+  #     uri: "https://builder.example:8080"
+  #     protocol_version: "v1"
+  #   - kind: OBJECT_GATEWAY_HTTPS
+  #     uri: "https://builder.example:8080"
+  #   - kind: HEALTH_HTTPS
+  #     uri: "https://builder.example:8080/healthz"
+  # Deprecated and ignored: the frozen contract's on-chain descriptor has no
+  # effective/expires height, so there is no validity window to renew. Both keys
+  # are still accepted so existing nexus.yaml files keep passing strict parsing.
+  descriptor_validity_blocks: 100000
+  descriptor_renew_before_blocks: 10000
+
+# NATS auth-callout service (ADR-0016 decision 3; Interface & Topic Catalogue §5.14). Read only by `nexus natsauth`.
+# Runs on the same machine as NATS, started by whoever runs NATS. None of the three keys leaves the machine.
+# natsauth has no separate chain config: it reuses the top-level chain.chain_id / chain.grpc_addr to look up the Cortex on-chain identity
+# (Interface & Topic Catalogue §5.14.5); both are required; a non-loopback chain.grpc_addr must be https://.
+natsauth:
+  nats:
+    servers: [tls://127.0.0.1:4222]
+    ca_file: ./nats-cert.pem            # NATS server certificate, taken from the handshake (openssl s_client)
+    creds_file: ./nats-auth.creds       # AUTH account user creds (nsc generate creds --account AUTH)
+  # Public key of the application account Cortex users land in (TRUEOPEN, the same account as nexus). The A... below is only a length/prefix placeholder,
+  # not a real public key; the real value comes from `nsc describe account TRUEOPEN`.
+  cortex_account_public_key: ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+  cortex_account_signing_key_file: ./trueopen-account.nk    # TRUEOPEN account signing key seed (nsc generate nkey --account; its public key must be registered as a TRUEOPEN signing key)
+  auth_account_signing_key_file: ./auth-account.nk       # AUTH account signing key seed
+  user_jwt_ttl_ms: 3600000              # ≤ 3,600,000
+  chain_query_cache_ttl_ms: 60000       # ≤ 60,000; only successful results are cached
+  max_clock_skew_ms: 300000
+  # xkey_file: ./auth-account.xk        # response encryption, not implemented in this version; a non-empty value is rejected by natsauth

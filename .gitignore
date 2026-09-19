@@ -1,0 +1,12 @@
+bin
+tmp.txt
+.DS_Store
+.idea
+.claude
+.codex
+.worktrees/
+nexus.yaml
+local-chain.env
+.env.local
+*.local.env
+builder.key

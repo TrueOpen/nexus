@@ -1,0 +1,102 @@
+syntax = "proto3";
+package shared.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
+
+// RoundOutcomeV1 is the terminal outcome of the optional Phase 0 verification
+// round. The initial round has no RoundOutcomeV1; its verdict is carried by the
+// Task-owned VerificationRoundState.
+// RoundOutcomeV1 defines the RoundOutcomeV1 wire type.
+enum RoundOutcomeV1 {
+  // No round-2 outcome exists.
+  // ROUND_OUTCOME_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_UNSPECIFIED = 0;
+  // Round 2 reached the same explicit verdict as round 1.
+  // ROUND_OUTCOME_V1_CONCURRED identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_CONCURRED = 1;
+  // Round 2 reached the opposite explicit verdict from round 1.
+  // ROUND_OUTCOME_V1_DIVERGED identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_DIVERGED = 2;
+  // Enough material arrived, but no complete verdict/count key reached threshold.
+  // ROUND_OUTCOME_V1_UNRESOLVED identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_UNRESOLVED = 3;
+  // The round could not form a legal verifier set or reached data-unavailable threshold.
+  // ROUND_OUTCOME_V1_UNAVAILABLE identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_UNAVAILABLE = 4;
+  // The round-close deadline expired before another terminal branch completed.
+  // ROUND_OUTCOME_V1_EXPIRED identifies the corresponding protocol value.
+  ROUND_OUTCOME_V1_EXPIRED = 5;
+}
+
+// RoundEconomicEffectKindV1 identifies one deterministic economic action in a
+// round-2 effect plan. Effect order is fixed by the protocol, not by arrival.
+// RoundEconomicEffectKindV1 defines the RoundEconomicEffectKindV1 wire type.
+enum RoundEconomicEffectKindV1 {
+  // Never accepted or stored.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_UNSPECIFIED = 0;
+  // Remove one operator from the Task's final earning vector.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_EARNING_DISQUALIFICATION identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_EARNING_DISQUALIFICATION = 1;
+  // Slash one operator through the service-bond waterfall.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_SERVICE_SLASH identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_SERVICE_SLASH = 2;
+  // Recover the opener's verifier cost from actual slash proceeds.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_OPENER_COST_RECOVERY identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_OPENER_COST_RECOVERY = 3;
+  // Refund the opener's challenge bond.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_BOND_REFUND identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_BOND_REFUND = 4;
+  // Slash the opener's challenge bond.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_BOND_SLASH identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_BOND_SLASH = 5;
+  // Pay one selected round-2 verifier.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_VERIFIER_FEE identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_VERIFIER_FEE = 6;
+  // Sweep the remaining effect-pool balance to treasury.
+  // ROUND_ECONOMIC_EFFECT_KIND_V1_TREASURY_RESIDUAL identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_KIND_V1_TREASURY_RESIDUAL = 7;
+}
+
+// RoundEconomicEffectStatusV1 is the apply lifecycle of one immutable effect.
+enum RoundEconomicEffectStatusV1 {
+  // Never stored.
+  // ROUND_ECONOMIC_EFFECT_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_STATUS_V1_UNSPECIFIED = 0;
+  // The effect is frozen but has not been applied.
+  // ROUND_ECONOMIC_EFFECT_STATUS_V1_PENDING identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_STATUS_V1_PENDING = 1;
+  // The effect was applied exactly once.
+  // ROUND_ECONOMIC_EFFECT_STATUS_V1_APPLIED identifies the corresponding protocol value.
+  ROUND_ECONOMIC_EFFECT_STATUS_V1_APPLIED = 2;
+}
+
+// RoundFundingQuoteV1 is the Keeper-derived lock quote returned when round 2 is
+// opened. All amounts use the chain business denomination.
+// RoundFundingQuoteV1 defines the RoundFundingQuoteV1 wire type.
+message RoundFundingQuoteV1 {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  Amount challenge_open_bond = 3;
+  Amount challenge_slot_fee = 4;
+  uint32 challenge_verifier_count = 5;
+  Amount verifier_budget = 6;
+  Amount total_lock = 7;
+}
+
+// RoundEconomicEffectV1 is one immutable item in the cross-module round effect
+// plan. source_address and destination_address use presence because some kinds
+// have no account on one side.
+// RoundEconomicEffectV1 defines the RoundEconomicEffectV1 wire type.
+message RoundEconomicEffectV1 {
+  uint32 effect_index = 1;
+  RoundEconomicEffectKindV1 effect_kind = 2;
+  optional string source_address = 3;
+  optional string destination_address = 4;
+  Amount requested_amount = 5;
+  Amount applied_amount = 6;
+  Amount unfilled_amount = 7;
+  RoundEconomicEffectStatusV1 status = 8;
+}

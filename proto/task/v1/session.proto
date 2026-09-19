@@ -1,0 +1,195 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// SessionStatus is the StreamState lifecycle of data_structure_contract §6.2.
+//
+// CONTRACT-GAP: §6.2 names ACTIVE / IDLE / CLOSED and their order, but
+// keeper_api_contract.md §9.6b (the sole closed-enum registry) does not register the
+// enum, so the numbers are derived from that listing order with the mandatory
+// UNSPECIFIED=0.
+// SessionStatus defines the SessionStatus wire type.
+enum SessionStatus {
+  // Never written; rejects zero-value rows.
+  // SESSION_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  SESSION_STATUS_UNSPECIFIED = 0;
+  // Accepting new order sequences.
+  // SESSION_STATUS_ACTIVE identifies the corresponding protocol value.
+  SESSION_STATUS_ACTIVE = 1;
+  // Idle TTL reached with open_pending_count == 0; reactivation allowed.
+  // SESSION_STATUS_IDLE identifies the corresponding protocol value.
+  SESSION_STATUS_IDLE = 2;
+  // Close TTL reached; owner index and lifecycle index are deleted.
+  // SESSION_STATUS_CLOSED identifies the corresponding protocol value.
+  SESSION_STATUS_CLOSED = 3;
+}
+
+// SessionLifecycleAction is the action component of the SessionLifecycleIndex
+// key (§6.2/§10.0b1). The index is key-only and rebuilt from StreamState at
+// genesis, so it has no value message; this enum is its canonical key codec.
+//
+// CONTRACT-GAP: §6.2 names MARK_IDLE / CLOSE; §9.6b does not register the enum.
+// SessionLifecycleAction defines the SessionLifecycleAction wire type.
+enum SessionLifecycleAction {
+  // Never written; rejects zero-value keys.
+  // SESSION_LIFECYCLE_ACTION_UNSPECIFIED identifies the corresponding protocol value.
+  SESSION_LIFECYCLE_ACTION_UNSPECIFIED = 0;
+  // ACTIVE -> IDLE sweep.
+  // SESSION_LIFECYCLE_ACTION_MARK_IDLE identifies the corresponding protocol value.
+  SESSION_LIFECYCLE_ACTION_MARK_IDLE = 1;
+  // IDLE -> CLOSED sweep.
+  // SESSION_LIFECYCLE_ACTION_CLOSE identifies the corresponding protocol value.
+  SESSION_LIFECYCLE_ACTION_CLOSE = 2;
+}
+
+// OrderSequenceStatus is the per-sequence audit status of §6.2.
+//
+// CONTRACT-GAP: §6.2 names the five values and their order; §9.6b does not
+// register the enum, so the numbers are derived from that listing order.
+// OrderSequenceStatus defines the OrderSequenceStatus wire type.
+enum OrderSequenceStatus {
+  // Never written; an absent row is the unused state.
+  // ORDER_SEQUENCE_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_UNSPECIFIED = 0;
+  // Reserved sequence that no task has consumed yet.
+  // ORDER_SEQUENCE_STATUS_UNUSED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_UNUSED = 1;
+  // Consumed by an accepted first Worker proposal.
+  // ORDER_SEQUENCE_STATUS_CONSUMED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_CONSUMED = 2;
+  // Skipped by MsgCancelOrder; no funds moved.
+  // ORDER_SEQUENCE_STATUS_CANCELLED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_CANCELLED = 3;
+  // Task failed and the reserved budget was refunded.
+  // ORDER_SEQUENCE_STATUS_REFUNDED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_REFUNDED = 4;
+  // Task reached a settled terminal state.
+  // ORDER_SEQUENCE_STATUS_SETTLED identifies the corresponding protocol value.
+  ORDER_SEQUENCE_STATUS_SETTLED = 5;
+}
+
+// TaskBudgetStatus is the TaskBudgetState lifecycle of §6.2.
+//
+// CONTRACT-GAP: §6.2 names RESERVED / FINALIZED; §9.6b does not register the
+// enum, so the numbers are derived from that listing order.
+// TaskBudgetStatus defines the TaskBudgetStatus wire type.
+enum TaskBudgetStatus {
+  // Never written; rejects zero-value rows.
+  // TASK_BUDGET_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_BUDGET_STATUS_UNSPECIFIED = 0;
+  // reserved_amount is still held in the escrow module account.
+  // TASK_BUDGET_STATUS_RESERVED identifies the corresponding protocol value.
+  TASK_BUDGET_STATUS_RESERVED = 1;
+  // Terminal; no further deduction or release is allowed.
+  // TASK_BUDGET_STATUS_FINALIZED identifies the corresponding protocol value.
+  TASK_BUDGET_STATUS_FINALIZED = 2;
+}
+
+// SessionNonceState is the per-user session counter (§6.2, key = user_address).
+// It is retained long term so session_id is never reused.
+// SessionNonceState defines the SessionNonceState wire type.
+message SessionNonceState {
+  string user_address = 1;
+  uint64 next_session_nonce = 2;
+}
+
+// StreamState is one session: sequence counter, owner and in-flight count only
+// (§6.2, key = session_id). Model A: a session never holds a balance; the
+// abandoned SessionEscrowState double ledger is deleted, and funds live in the
+// user account and the escrow module account with TaskBudgetState as the only
+// per-task ledger.
+// StreamState defines the StreamState wire type.
+message StreamState {
+  bytes session_id = 1;
+  string owner_user_address = 2;
+  uint64 next_expected_sequence = 3;
+  uint64 last_active_height = 4;
+  uint32 open_pending_count = 5;
+  SessionStatus status = 6;
+}
+
+// OrderSequenceState records how one order sequence was used (§6.2, key =
+// (session_id, order_sequence)). StreamState.next_expected_sequence stays the
+// only authority for the next acceptable sequence.
+// OrderSequenceState defines the OrderSequenceState wire type.
+message OrderSequenceState {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  OrderSequenceStatus status = 3;
+  bytes task_id = 4;
+  uint64 consumed_height = 5;
+  uint64 cancelled_height = 6;
+}
+
+// SessionHistoryPruneCursorState folds order history after a session closed
+// (§6.2, key = session_id). rolling_sequence_root advances by
+// TRUEOPEN_SESSION_SEQUENCE_ROOT_V1; visited_count counts every visited row,
+// including already collapsed or missing ones. No DONE row is persisted.
+// SessionHistoryPruneCursorState defines the SessionHistoryPruneCursorState wire type.
+message SessionHistoryPruneCursorState {
+  bytes session_id = 1;
+  uint64 next_order_sequence = 2;
+  bytes rolling_sequence_root = 3;
+  uint32 consumed_count = 4;
+  uint32 cancelled_count = 5;
+  uint32 refunded_count = 6;
+  uint32 settled_count = 7;
+  uint64 visited_count = 8;
+}
+
+// SessionTerminalSummaryState replaces StreamState and the order rows once the
+// session is closed and every task reached a terminal compaction (§6.2, key =
+// session_id). It is deleted when its retention prune index fires.
+// SessionTerminalSummaryState defines the SessionTerminalSummaryState wire type.
+message SessionTerminalSummaryState {
+  bytes session_id = 1;
+  string owner_user_address = 2;
+  uint64 final_next_expected_sequence = 3;
+  uint32 sequence_count = 4;
+  bytes sequence_root = 5;
+  uint32 consumed_count = 6;
+  uint32 cancelled_count = 7;
+  uint32 refunded_count = 8;
+  uint32 settled_count = 9;
+  uint64 closed_height = 10;
+  uint64 compacted_height = 11;
+}
+
+// FeePerGasRateV1 is the frozen rational reimbursement ceiling. denominator
+// must be greater than zero; necessary fees use checked ceiling division.
+// FeePerGasRateV1 defines the FeePerGasRateV1 wire type.
+message FeePerGasRateV1 {
+  uint64 numerator = 1;
+  uint64 denominator = 2;
+}
+
+// TaskBudgetState is the only authoritative per-task fund ledger (§6.6, key =
+// task_id). Every payout, refund, maintenance and gas reimbursement must be
+// deducted or released here. reserved_amount is the only outstanding balance;
+// refund is derived inside a complete settlement plan, so no refund sub-account
+// and no maintenance cap derived from the max_fee residual exist.
+// TaskBudgetState defines the TaskBudgetState wire type.
+message TaskBudgetState {
+  bytes task_id = 1;
+  // Registered fee rule version only; there is no default value.
+  uint64 fee_rule_version = 2;
+  shared.v1.Amount original_reserved_amount = 3;
+  shared.v1.Amount reserved_amount = 4;
+  shared.v1.Amount tx_fee_reserve_remaining = 5;
+  shared.v1.Amount price_bid = 6;
+  shared.v1.Amount worker_max = 7;
+  shared.v1.Amount verify_max = 8;
+  uint32 verify_ratio_bps_snapshot = 9;
+  uint64 max_output_tokens = 10;
+  uint32 maintenance_rate_bps_snapshot = 11;
+  uint64 fee_policy_version_snapshot = 12;
+  FeePerGasRateV1 max_reimbursable_fee_per_gas_snapshot = 13;
+  shared.v1.Amount max_reimbursement_per_tx_snapshot = 14;
+  shared.v1.Amount max_reimbursement_per_task_snapshot = 15;
+  uint32 gas_reimbursement_count = 16;
+  shared.v1.Amount gas_reimbursed_total = 17;
+  TaskBudgetStatus budget_status = 18;
+}

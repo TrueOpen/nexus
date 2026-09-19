@@ -1,0 +1,132 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// TreasuryPurposeCode is the closed purpose set of a governance treasury spend.
+// Values are frozen by keeper_api_contract.md §9.6b.
+// TreasuryPurposeCode defines the TreasuryPurposeCode wire type.
+enum TreasuryPurposeCode {
+  // Never accepted; rejects an unset purpose.
+  // TREASURY_PURPOSE_CODE_UNSPECIFIED identifies the corresponding protocol value.
+  TREASURY_PURPOSE_CODE_UNSPECIFIED = 0;
+  // Public infrastructure funding.
+  // TREASURY_PURPOSE_CODE_INFRASTRUCTURE identifies the corresponding protocol value.
+  TREASURY_PURPOSE_CODE_INFRASTRUCTURE = 1;
+  // Security incident response.
+  // TREASURY_PURPOSE_CODE_SECURITY_RESPONSE identifies the corresponding protocol value.
+  TREASURY_PURPOSE_CODE_SECURITY_RESPONSE = 2;
+  // Governance operating expense.
+  // TREASURY_PURPOSE_CODE_GOVERNANCE_OPERATION identifies the corresponding protocol value.
+  TREASURY_PURPOSE_CODE_GOVERNANCE_OPERATION = 3;
+}
+
+// TreasurySourceKind identifies where a non-zero treasury inflow came from.
+// Values are frozen by keeper_api_contract.md §9.6b; §5.11 event code 80 binds each
+// value to the authoritative source ID it must carry (settlement_id, fault_id
+// or the §9.6c treasury action_digest).
+// TreasurySourceKind defines the TreasurySourceKind wire type.
+enum TreasurySourceKind {
+  // Never written; rejects an unset inflow source.
+  // TREASURY_SOURCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  TREASURY_SOURCE_KIND_UNSPECIFIED = 0;
+  // Task fee residual routed to Treasury.
+  // TREASURY_SOURCE_KIND_TASK_FEE identifies the corresponding protocol value.
+  TREASURY_SOURCE_KIND_TASK_FEE = 1;
+  // Slash residual that no other ledger absorbed.
+  // TREASURY_SOURCE_KIND_SLASH_RESIDUAL identifies the corresponding protocol value.
+  TREASURY_SOURCE_KIND_SLASH_RESIDUAL = 2;
+  // Governance inflow, including model/profile registration fees.
+  // TREASURY_SOURCE_KIND_GOVERNANCE identifies the corresponding protocol value.
+  TREASURY_SOURCE_KIND_GOVERNANCE = 3;
+}
+
+// TreasuryState is the protocol treasury balance and its monotonic version
+// (keeper_data_structure_contract.md §6.7).
+//
+// V1 has no maintenance-rate controller and no automatic infrastructure
+// reward: keeper_api_contract.md §5.4 restricts Treasury outflow to x/gov approved
+// typed TreasurySpend items, and unspent budget simply stays here. The
+// block-end invariant of §5.3 requires this balance to equal the treasury
+// module account balance.
+// TreasuryState defines the TreasuryState wire type.
+message TreasuryState {
+  shared.v1.Amount balance = 1;
+  uint64 treasury_version = 2;
+}
+
+// TreasurySpendReceiptState deduplicates one governance spend item inside the
+// x/gov replay window (keeper_data_structure_contract.md §6.7, key
+// (proposal_id, item_index)).
+//
+// prune_height and the action facts are stored explicitly so Genesis can rebuild
+// all three bounded spend accumulators without reversing action_digest.
+// TreasurySpendReceiptState defines the TreasurySpendReceiptState wire type.
+message TreasurySpendReceiptState {
+  uint64 proposal_id = 1;
+  uint32 item_index = 2;
+  uint64 executed_height = 3;
+  uint64 prune_height = 4;
+  bytes action_digest = 5;
+  uint64 treasury_version_after = 6;
+  string recipient = 7;
+  shared.v1.Amount amount = 8;
+  uint64 reward_epoch = 9;
+  TreasuryPurposeCode purpose_code = 10;
+}
+
+// TreasurySpendProposalState tracks the bounded total for one x/gov proposal.
+message TreasurySpendProposalState {
+  uint64 proposal_id = 1;
+  shared.v1.Amount spent_amount = 2;
+  uint32 active_receipt_count = 3;
+  uint64 updated_height = 4;
+}
+
+// TreasurySpendEpochState tracks the bounded total for one reward epoch.
+message TreasurySpendEpochState {
+  uint64 reward_epoch = 1;
+  shared.v1.Amount spent_amount = 2;
+  uint32 recipient_row_count = 3;
+  uint64 cleanup_height = 4;
+}
+
+// TreasurySpendRecipientEpochState tracks one recipient's epoch total.
+message TreasurySpendRecipientEpochState {
+  uint64 reward_epoch = 1;
+  string recipient_address = 2;
+  shared.v1.Amount spent_amount = 3;
+}
+
+// TreasurySpendEpochCleanupCursorState resumes bounded recipient-row cleanup.
+message TreasurySpendEpochCleanupCursorState {
+  uint64 reward_epoch = 1;
+  uint64 cleanup_height = 2;
+  optional string last_recipient_address = 3;
+  uint64 visited_count = 4;
+  uint64 deleted_count = 5;
+}
+
+// ExecuteTreasurySpendV1 is the internal typed governance action of
+// keeper_api_contract.md §9.6c. It is NOT a Tx Msg: it has no
+// cosmos.msg.v1.signer, no Tx RPC, no AutoCLI entry and no permissionless
+// event, and it is only invoked from an x/gov accepted proposal item.
+//
+// The Keeper must recompute the (proposal_id, item_index) locator from the
+// x/gov execution context and match it against these fields instead of
+// trusting a caller. The idempotency key is (proposal_id, item_index); several
+// spend items of one proposal must not share a receipt. The native denom is a
+// chain parameter and is never resubmitted here. Insufficient balance rejects
+// the whole item and never creates protocol debt.
+// ExecuteTreasurySpendV1 defines the ExecuteTreasurySpendV1 wire type.
+message ExecuteTreasurySpendV1 {
+  uint64 proposal_id = 1;
+  uint32 item_index = 2;
+  string recipient = 3;
+  shared.v1.Amount amount = 4;
+  TreasuryPurposeCode purpose_code = 5;
+  uint64 not_before_height = 6;
+  uint64 expiry_height = 7;
+}

@@ -1,0 +1,69 @@
+syntax = "proto3";
+package bus.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
+
+// NatsUserBindingV1 is the binding declaration a Cortex presents when it
+// connects to NATS (ADR-0016 decision three; 07-task_builder_coordination.md §7.5;
+// API_and_topic_catalog.md §5.14). It states that one locally generated NATS user
+// key (an ed25519 nkey) belongs to the Cortex whose current service key is
+// registered on chain, and it is signed by that service key. The Cortex holds
+// no credential issued by the NATS operator; the auth callout service verifies
+// this declaration against the chain and issues a short-lived user JWT.
+//
+// The signed projection is fields 1..7 in field-number order under the
+// H_FIELDS_V1 domain TRUEOPEN_NATS_USER_BINDING_V1; field 8 never enters its own
+// preimage:
+//
+//   binding_signing_digest = H_FIELDS_V1("TRUEOPEN_NATS_USER_BINDING_V1",
+//     schema_version:u32_be, chain_id:utf8, participant_type:enum_u32_be,
+//     operator_address:canonical_address_codec_bytes,
+//     service_authorization_nonce:u64_be, nats_user_pubkey:utf8,
+//     issued_at_unix_ms:u64_be)
+//
+// The declaration carries no expiry of its own. Its validity is the chain's
+// current service key binding: the verifier requires an ACTIVE binding whose
+// service_authorization_nonce equals field 5 before checking the signature, so
+// a rotated or revoked service key invalidates every binding it signed without
+// a revocation list. It proves ownership of the NATS user key, not possession;
+// possession is proven by the NATS-standard ed25519 signature over the server
+// nonce at connect time, and both are required.
+//
+// On the wire the encoded message travels as the NATS CONNECT auth_token:
+//
+//   auth_token = "trueopen-nub1." || base64url_nopad(encoded NatsUserBindingV1)
+//
+// The encoded message is at most 1024 bytes; a longer token is rejected before
+// it is decoded. Receivers decode strictly: unknown fields, duplicate singular
+// fields and wrong wire types are rejected.
+// NatsUserBindingV1 defines the NatsUserBindingV1 wire type.
+message NatsUserBindingV1 {
+  // Always 1 for this binding generation.
+  uint32 schema_version = 1;
+  // Must equal the auth callout service's local task chain; rejects
+  // cross-chain reuse.
+  string chain_id = 2;
+  // Identity domain of the operator. V1 accepts only PARTICIPANT_TYPE_CORTEX;
+  // Builder use of the same mechanism is deferred to ADR-0016 item 17.
+  shared.v1.ParticipantType participant_type = 3;
+  // Stable protocol identity of the Cortex; the same value BusEnvelopeV1
+  // carries as sender_operator_address. Selects the on-chain service key.
+  string operator_address = 4;
+  // The chain's current service key binding nonce at the time the binding was
+  // generated. Must equal the current binding nonce at verification time; no
+  // historical-key fallback.
+  uint64 service_authorization_nonce = 5;
+  // The Cortex's NATS user public key as nkey text (a 56-character
+  // base32 string starting with "U"). It must equal the CONNECT nkey field
+  // byte-for-byte, and it enters the preimage as this text, not as the decoded
+  // 32 raw bytes, so the preimage and the connect-time comparison agree.
+  string nats_user_pubkey = 6;
+  // Cortex clock when the binding was generated, Unix milliseconds. Only used
+  // to reject a binding dated in the future; it sets no maximum age.
+  uint64 issued_at_unix_ms = 7;
+  // 64-byte compact low-S R||S over binding_signing_digest by the current
+  // service key; DER, 65-byte recoverable and high-S encodings are rejected.
+  bytes service_signature = 8;
+}

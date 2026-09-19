@@ -1,0 +1,36 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskBucketRefState is the single reference row that pins one governance
+// parameter bucket version to one Task (keeper_data_structure_contract.md §6.7, key
+// (task_id, bucket_kind, bucket_key)).
+//
+// The version bodies, current pointer and pending pointer live in x/hub
+// because keeper_data_structure_contract.md §2.4 names the Hub governance handler their only
+// writer and leaves the Task module with reference counting only. BucketKind is
+// imported from shared/v1/common.proto instead of being redeclared:
+// keeper_api_contract.md §9.6b allows exactly one numeric definition per closed
+// enum, and ADR-0013 puts a declaration referenced by both Hub and Task in the
+// shared leaf package.
+//
+// Lifecycle: the first accepted order of a Task writes exactly one row per
+// bucket kind and does a checked +1 on that version's task_ref_count. Task
+// cleanup atomically deletes the row and does a checked -1. No released row is
+// retained in the terminal state. If that checked -1 reaches zero and the
+// version is neither current nor pending, the same transaction must write
+// ParameterBucketPruneIndex; deferring it to the next governance update or to a
+// full scan would leave the version body resident forever. Genesis recomputes
+// task_ref_count from the surviving rows per version and rejects any mismatch, a
+// ref to a missing version, or a ref still held by a terminal Task.
+// TaskBucketRefState defines the TaskBucketRefState wire type.
+message TaskBucketRefState {
+  bytes task_id = 1;
+  shared.v1.BucketKind bucket_kind = 2;
+  string bucket_key = 3;
+  uint64 version = 4;
+  uint64 acquired_height = 5;
+}

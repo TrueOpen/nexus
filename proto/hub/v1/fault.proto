@@ -1,0 +1,96 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// RoleFault is a single recorded fault attributed to one task duty.
+//
+// fault_id is deterministic and deduplicates the same observation across
+// re-runs. WORKER and VERIFIER describe the duty assigned by the protocol for
+// this task; they are not node-declared roles.
+// RoleFaultState defines the RoleFaultState wire type.
+message RoleFaultState {
+  bytes fault_id = 1;
+  bytes task_id = 2;
+  string operator_address = 3;
+  shared.v1.Duty duty = 4;
+  FaultKind fault_class = 5;
+  shared.v1.FailureClassificationSource classification_source = 6;
+  bytes evidence_digest = 7;
+  uint32 jail_delta = 8;
+  optional bytes slash_summary_id = 9;
+  uint64 recorded_height = 10;
+  RoleFaultStatus status = 11;
+}
+
+// SlashSourceKind is the closed idempotency namespace for one unified service
+// slash. The primary key is (source_kind, source_id, effect_index).
+// SlashSourceKind defines the SlashSourceKind wire type.
+enum SlashSourceKind {
+  // Never written.
+  // SLASH_SOURCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  SLASH_SOURCE_KIND_UNSPECIFIED = 0;
+  // Sourced by a role fault receipt; source_id is the raw fault Hash32 and
+  // effect_index is always 0.
+  // SLASH_SOURCE_KIND_ROLE_FAULT identifies the corresponding protocol value.
+  SLASH_SOURCE_KIND_ROLE_FAULT = 1;
+  // Sourced by an applied challenge economic effect; source_id is the raw
+  // challenge Hash32 and effect_index starts at 1.
+  // SLASH_SOURCE_KIND_CHALLENGE_EFFECT identifies the corresponding protocol value.
+  SLASH_SOURCE_KIND_CHALLENGE_EFFECT = 2;
+}
+
+// SlashDestination is the custody account that receives every layer debit.
+// Keeper code maps this enum to a module account; callers cannot supply an
+// arbitrary module name.
+// SlashDestination defines the SlashDestination wire type.
+enum SlashDestination {
+  // Never written.
+  // SLASH_DESTINATION_UNSPECIFIED identifies the corresponding protocol value.
+  SLASH_DESTINATION_UNSPECIFIED = 0;
+  // Treasury custody; the only destination allowed for a role-fault slash.
+  // SLASH_DESTINATION_TREASURY identifies the corresponding protocol value.
+  SLASH_DESTINATION_TREASURY = 1;
+  // Challenge effect pool custody; the only destination allowed for a challenge
+  // effect slash.
+  // SLASH_DESTINATION_CHALLENGE_EFFECT_POOL identifies the corresponding protocol value.
+  SLASH_DESTINATION_CHALLENGE_EFFECT_POOL = 2;
+}
+
+// SlashSummaryState is the authoritative audit receipt for one execution of
+// the four-layer service slash waterfall. slash_summary_id is a Hash32 replay
+// handle; source_kind/source_id/effect_index are the collection key.
+// SlashSummaryState defines the SlashSummaryState wire type.
+message SlashSummaryState {
+  bytes slash_summary_id = 1;
+  SlashSourceKind source_kind = 2;
+  // Raw Hash32 in both namespaces: the fault_id for ROLE_FAULT, the
+  // challenge_id for CHALLENGE_EFFECT. Never a hex projection.
+  bytes source_id = 3;
+  uint64 effect_index = 4;
+  string operator_address = 5;
+  shared.v1.Duty duty = 6;
+  optional bytes task_id = 7;
+  shared.v1.Amount requested_amount = 8;
+  shared.v1.Amount pending_task_earnings_debit = 9;
+  shared.v1.Amount active_bond_debit = 10;
+  shared.v1.Amount unbonding_debit = 11;
+  shared.v1.Amount claimable_earnings_debit = 12;
+  shared.v1.Amount applied_amount = 13;
+  shared.v1.Amount unfilled_amount = 14;
+  SlashDestination destination = 15;
+  uint32 unbonding_rows_visited = 16;
+  uint64 applied_height = 17;
+  uint64 bond_version = 18;
+}
+
+// Jail and tombstone state are deliberately absent from this file. Jail is
+// operator-global, not duty-scoped: keeper_data_structure_contract.md §6.4 places
+// jail_count and normal_action_count_since_jail on ServiceBondState, and §10.0c
+// requires tombstone checks to read that single row rather than a second
+// TombstoneState. Duty attribution for a fault lives in RoleFaultState.duty and
+// in the event code 51 payload.

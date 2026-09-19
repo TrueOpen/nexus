@@ -1,0 +1,281 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// VerifierCandidateWindowStatusV1 is the lifecycle of one task-round verifier
+// candidate window. Frozen values: keeper_api_contract.md §9.6b.
+// VerifierCandidateWindowStatusV1 defines the VerifierCandidateWindowStatusV1 wire type.
+enum VerifierCandidateWindowStatusV1 {
+  // Never written; rejects zero-value rows.
+  // VERIFIER_CANDIDATE_WINDOW_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  VERIFIER_CANDIDATE_WINDOW_STATUS_V1_UNSPECIFIED = 0;
+  // Eligibility bitmap frozen at InferReceipt accepted height; beacon A pending.
+  // VERIFIER_CANDIDATE_WINDOW_STATUS_V1_SOURCE_FROZEN identifies the corresponding protocol value.
+  VERIFIER_CANDIDATE_WINDOW_STATUS_V1_SOURCE_FROZEN = 1;
+  // Window materialized from beacon A; member rows equal window_size.
+  // VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY identifies the corresponding protocol value.
+  VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY = 2;
+  // Eligibility segments and member bodies deleted by task cleanup.
+  // VERIFIER_CANDIDATE_WINDOW_STATUS_V1_PRUNED identifies the corresponding protocol value.
+  VERIFIER_CANDIDATE_WINDOW_STATUS_V1_PRUNED = 3;
+}
+
+// BuilderDataUnavailableAggregateStatusV1 is the lifecycle of one
+// (task, round, builder) data-unavailable aggregate.
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md §6.6 names the three states
+// (COLLECTING / CONFIRMED / PRUNED) but keeper_api_contract.md §9.6b does not
+// register this enum, so the numbers below follow the declaration order of that
+// section and must be re-confirmed when §9.6b is extended.
+// BuilderDataUnavailableAggregateStatusV1 defines the BuilderDataUnavailableAggregateStatusV1 wire type.
+enum BuilderDataUnavailableAggregateStatusV1 {
+  // Never written; rejects zero-value rows.
+  // BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_UNSPECIFIED = 0;
+  // Reports are still being collected; threshold not reached.
+  // BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_COLLECTING identifies the corresponding protocol value.
+  BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_COLLECTING = 1;
+  // Threshold reached at threshold_reached_height; aggregate_hash written once.
+  // BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_CONFIRMED identifies the corresponding protocol value.
+  BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_CONFIRMED = 2;
+  // Digest vector deleted by task cleanup; counts and aggregate_hash retained.
+  // BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_PRUNED identifies the corresponding protocol value.
+  BUILDER_DATA_UNAVAILABLE_AGGREGATE_STATUS_V1_PRUNED = 3;
+}
+
+// CandidateMemberRefV1 is the caller-authored reference to one stable
+// CandidatePool slot (keeper_api_contract.md §4.1). Only the snapshot ID travels on
+// the wire: the snapshot ID already commits the pool hash, so no asserted pool
+// hash copy is submitted or signed.
+//
+// This value type is shared by WorkerHandraiseV1 (global CandidatePool /
+// assignment flow) and VerifierHandraiseV1 below, so it is defined exactly once
+// in the module.
+// CandidateMemberRefV1 defines the CandidateMemberRefV1 wire type.
+message CandidateMemberRefV1 {
+  bytes candidate_pool_snapshot_id = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+  string operator_address = 4;
+}
+
+// VerifierHandraiseV1 is one verifier-signed offer to take a verify duty on an
+// already accepted InferReceipt. Field numbers, types and order are frozen by
+// keeper_api_contract.md §4.1 and are the length-framed preimage of
+// H_FIELDS_V1("TRUEOPEN_VERIFIER_HANDRAISE_V1", canonical VerifierHandraiseV1
+// excluding service_signature). duty is always DUTY_VERIFIER;
+// service_authorization_nonce must equal the operator's current service binding
+// nonce at verification time.
+//
+// schema_version is 1: §4.1 writes `schema_version: uint32 = 1` literally for this
+// wire. InferReceiptV2 is the only sibling receipt that uses schema version 2.
+// VerifierHandraiseV1 defines the VerifierHandraiseV1 wire type.
+message VerifierHandraiseV1 {
+  // Always 1; §4.1 pins it literally.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
+  uint32 verify_round = 4;
+  bytes infer_receipt_hash = 5;
+  bytes output_hash = 6;
+  string model_id = 7;
+  uint32 profile_version = 8;
+  CandidateMemberRefV1 member = 9;
+  shared.v1.Duty duty = 10;
+  uint64 service_authorization_nonce = 11;
+  uint64 expiry_height = 12;
+  bytes service_signature = 13;
+}
+
+// VerifierCandidateWindowState is the per (task_id, verify_round) window header
+// (keeper_data_structure_contract.md §4.4). The eligibility source and the full clock are
+// frozen inside the same cache transaction that accepts the InferReceipt, before
+// beacon A is knowable:
+//
+//   h0 = receipt_height
+//   h_window          = h0 + delta_w_blocks
+//   h_builder_close   = h_window + open_verify_builder_proposal_window_blocks
+//   h_handraise_close = h_builder_close + self_rescue_margin_blocks
+//   h_selection       = h_handraise_close + delta_w_blocks
+//   h_assignment_due  = h0 + verify_open_deadline_blocks
+//   require h0 < h_window < h_builder_close < h_handraise_close
+//           < h_selection < h_assignment_due
+//
+// window_randomness_beacon and verifier_window_hash are absent until READY.
+// VerifierCandidateWindowState defines the VerifierCandidateWindowState wire type.
+message VerifierCandidateWindowState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  bytes infer_receipt_hash = 4;
+  bytes candidate_pool_snapshot_id = 5;
+  bytes candidate_pool_hash = 6;
+  uint64 eligibility_frozen_height = 7;
+  uint32 eligible_count = 8;
+  bytes verifier_window_source_hash = 9;
+  uint32 eligibility_segment_count = 10;
+  uint64 window_randomness_height = 11;
+  optional bytes window_randomness_beacon = 12;
+  uint64 builder_proposal_close_height = 13;
+  uint64 handraise_close_height = 14;
+  uint64 selection_randomness_height = 15;
+  uint64 assignment_deadline_height = 16;
+  uint32 window_size = 17;
+  optional bytes verifier_window_hash = 18;
+  VerifierCandidateWindowStatusV1 status = 19;
+  uint64 generated_height = 20;
+}
+
+// VerifierCandidateEligibilitySegmentState is one fixed-length segment of the
+// frozen VERIFIER eligibility bitmap keyed by
+// (task_id, verify_round, segment_index). Segment count and length equal the
+// locked pool layout byte for byte; an all-zero segment may be omitted from the
+// KV store and must be read back as the same length of zero bytes. Trailing bits
+// must be zero (keeper_data_structure_contract.md §4.4).
+// VerifierCandidateEligibilitySegmentState defines the VerifierCandidateEligibilitySegmentState wire type.
+message VerifierCandidateEligibilitySegmentState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  uint32 segment_index = 3;
+  bytes bitmap = 4;
+}
+
+// VerifierCandidateWindowMemberState is one ranked window member keyed by
+// (task_id, verify_round, rank_index). rank_index is dense from 0 and strictly
+// below window_size; ranking uses verifier_window_rank ascending with slot
+// ascending as tie-break (keeper_data_structure_contract.md §4.4, keeper_api_contract.md §4.4).
+// VerifierCandidateWindowMemberState defines the VerifierCandidateWindowMemberState wire type.
+message VerifierCandidateWindowMemberState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  uint32 rank_index = 4;
+  uint32 slot = 5;
+  uint64 slot_version = 6;
+  string operator_address = 7;
+  bytes verifier_window_rank = 8;
+}
+
+// SelectedVerifierV1 is one selected verifier slot reference inside
+// VerifierAssignmentState. Eligibility snapshots are not copied here: the only
+// authority is the immutable TaskCandidateFactState written at handraise
+// accepted time (keeper_data_structure_contract.md §6.6).
+// SelectedVerifierV1 defines the SelectedVerifierV1 wire type.
+message SelectedVerifierV1 {
+  string operator_address = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+}
+
+// VerifierAssignmentState is the formal verifier set and verification clock for
+// one task round (keeper_data_structure_contract.md §6.6). It is written only after the
+// second future beacon at the frozen selection_randomness_height is available;
+// selection_randomness_height must equal the height frozen at receipt accepted
+// time byte for byte, and the two beacon heights must be strictly increasing.
+// reveal_deadline_height is unset at Open Verify time and written when the
+// reveal phase starts.
+// VerifierAssignmentState defines the VerifierAssignmentState wire type.
+message VerifierAssignmentState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  uint64 open_verify_height = 3;
+  bytes verifier_candidate_window_hash = 4;
+  bytes verifier_legal_set_hash = 5;
+  bytes selected_verifiers_hash = 6;
+  uint64 selection_randomness_height = 7;
+  bytes selection_randomness_beacon = 8;
+  repeated SelectedVerifierV1 selected_verifiers = 9;
+  uint32 selected_verifier_count = 10;
+  uint32 verifier_handraise_count = 11;
+  uint64 commit_deadline_height = 12;
+  uint64 reveal_deadline_height = 13;
+  uint64 verify_deadline_height = 14;
+}
+
+// DataUnavailableReportState is one selected verifier's on-chain report that the
+// fixed Task Builders did not deliver a complete, commitment-checked data set
+// before the commit deadline (keeper_api_contract.md §10.5). The bitmap uses the
+// frozen TaskBuilderSelectionState order. The report does not pause the
+// deadline, does not by itself create a Builder fault and does not release the
+// verifier's duty.
+//
+//   report_digest = H_FIELDS_V1("TRUEOPEN_DATA_UNAVAILABLE_REPORT_V1",
+//     chain_id, task_id, verify_round, verifier_operator_address,
+//     unavailable_task_builder_bitmap, service_authorization_nonce_snapshot)
+// DataUnavailableReportState defines the DataUnavailableReportState wire type.
+message DataUnavailableReportState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string verifier_operator_address = 3;
+  // Fixed-length canonical bitmap over the locked Task Builders, not a digest;
+  // REST uses Base64.
+  bytes unavailable_task_builder_bitmap = 4;
+  uint64 service_authorization_nonce_snapshot = 5;
+  uint64 report_height = 6;
+  bytes report_digest = 7;
+}
+
+// BuilderDataUnavailableSlotV1 is one selected-verifier slot of the
+// data-unavailable aggregate. It exists so a slot that filed no valid report can
+// say so with field presence instead of with a zero-length Hash32.
+//
+// The two contracts used to disagree about how to spell an empty slot:
+// keeper_data_structure_contract.md line 1426 fixed the vector length to
+// selected_verifier_count and let an empty element mean "this verifier has not
+// reported", while keeper_api_contract.md §1.1a lines 107-108 reject a zero-length
+// element inside a repeated Hash32. TrueOpen/monorepo#77 resolved it in favour of
+// §1.1a: Store and Query projection both carry per-slot presence, so the schema
+// now says what the preimage always said.
+//
+// The aggregate_hash preimage does not move. It already framed this vector as
+// repeated(optional report_digest) with a 0x00 presence byte for an empty slot,
+// which is also how TRUEOPEN_DATA_UNAVAILABLE_AGGREGATE_V1 is registered; only the
+// proto declaration was expressing that presence as an empty bytes element.
+// BuilderDataUnavailableSlotV1 defines the BuilderDataUnavailableSlotV1 wire type.
+message BuilderDataUnavailableSlotV1 {
+  // Absent when this slot filed no valid report by the commit deadline. Never
+  // present-but-empty: an empty Hash32 has no REST spelling and is not a value.
+  optional bytes report_digest = 1;
+}
+
+// BuilderDataUnavailableAggregateState is the per
+// (task_id, verify_round, builder_operator_address) aggregate built at commit
+// deadline close. The slot vector length always equals the round's
+// VerifierAssignmentState.selected_verifier_count: for round 1 that is the
+// frozen selected_verifier_count parameter, while a challenge round freezes
+// challenge_verifier_count into the same state field. Slot i belongs to
+// VerifierAssignmentState.selected_verifiers[i]; a slot with no report_digest
+// means that verifier filed no valid report, encoded as presence byte 0x00 in
+// the preimage:
+//
+//   aggregate_hash = H_FIELDS_V1("TRUEOPEN_DATA_UNAVAILABLE_AGGREGATE_V1",
+//     chain_id, task_id, verify_round, builder_operator_address,
+//     valid_report_count, required_report_count,
+//     uint32_be(selected_verifier_count), repeated(optional report_digest))
+//
+// required_report_count is ceil(2 * the round's stored
+// selected_verifier_count / 3). status and threshold_reached_height are not
+// part of the hash. Only a confirmed round-1 row for an actual data-ready
+// attester may later produce tag 5; self-rescue and challenge-round rows remain
+// round failure/audit facts and never produce a Builder fault.
+// BuilderDataUnavailableAggregateState defines the BuilderDataUnavailableAggregateState wire type.
+message BuilderDataUnavailableAggregateState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string builder_operator_address = 3;
+  uint32 valid_report_count = 4;
+  uint32 required_report_count = 5;
+  // One slot per selected verifier, in selected Verifier slot order, always
+  // exactly selected_verifier_count of them. Slot i belongs to
+  // VerifierAssignmentState.selected_verifiers[i] and carries its digest only if
+  // that verifier filed a valid report.
+  repeated BuilderDataUnavailableSlotV1 report_digests_by_verifier_slot = 6;
+  bytes aggregate_hash = 7;
+  uint64 threshold_reached_height = 8;
+  BuilderDataUnavailableAggregateStatusV1 status = 9;
+}

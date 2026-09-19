@@ -1,0 +1,175 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/common.proto";
+import "hub/v1/model_profile_state.proto";
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// MsgSetModelStatus transitions a model's lifecycle status.
+message MsgSetModelStatus {
+  string model_id = 1;
+  ModelProfileStatus new_status = 2;
+  GovernanceReason reason_code = 3;
+  string authority = 4;
+}
+
+// MsgSetModelStatusResponse echoes the persisted state.
+message MsgSetModelStatusResponse {
+  ModelProfileStatus old_status = 1;
+  ModelProfileStatus new_status = 2;
+  uint64 last_status_change_height = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgSetProfileStatus transitions a profile's lifecycle status.
+message MsgSetProfileStatus {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  ModelProfileStatus new_status = 3;
+  GovernanceReason reason_code = 4;
+  string authority = 5;
+}
+
+// MsgSetProfileStatusResponse echoes the persisted state.
+message MsgSetProfileStatusResponse {
+  ModelProfileStatus old_status = 1;
+  ModelProfileStatus new_status = 2;
+  uint64 last_status_change_height = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// RegisterServiceV1 is the first-stake branch of MsgStakeService (9.6b).
+message RegisterServiceV1 {
+  bytes service_pubkey = 1;
+  bytes service_key_proof = 2;
+  shared.v1.Amount amount = 3;
+}
+
+// TopUpServiceV1 is the bond top-up branch of MsgStakeService (9.6b).
+message TopUpServiceV1 {
+  shared.v1.Amount amount = 1;
+}
+
+// ServiceStakeActionV1 selects exactly one MsgStakeService branch.
+message ServiceStakeActionV1 {
+  // Exactly one action branch must be set.
+  // action selects one supported variant.
+  oneof action {
+    RegisterServiceV1 register = 1;
+    TopUpServiceV1 top_up = 2;
+  }
+}
+
+// MsgStakeService registers a Cortex service or tops up its bond (10.0c).
+message MsgStakeService {
+  ServiceStakeActionV1 action = 1;
+  string operator_address = 2;
+}
+
+// MsgStakeServiceResponse echoes the Cortex Node and its single node-level
+// bond after staking.
+// MsgStakeServiceResponse defines the MsgStakeServiceResponse wire type.
+message MsgStakeServiceResponse {
+  string operator_address = 1;
+  shared.v1.Amount active_bond = 2;
+  uint64 bond_version = 3;
+  uint64 effective_epoch = 4;
+  shared.v1.MutationStatusV1 status = 5;
+}
+
+// MsgBeginServiceUnstake starts a slashable service-bond unbonding entry.
+message MsgBeginServiceUnstake {
+  shared.v1.Amount amount = 1;
+  string operator_address = 2;
+}
+
+// MsgBeginServiceUnstakeResponse echoes the created unbonding row.
+message MsgBeginServiceUnstakeResponse {
+  bytes unbonding_id = 1;
+  uint64 mature_height = 2;
+  shared.v1.Amount remaining_active_bond = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// UnbondingLocatorV1 selects unbondings by ID or bounded batch (9.6b).
+message UnbondingLocatorV1 {
+  // Exactly one locator must be set.
+  // locator selects one supported variant.
+  oneof locator {
+    shared.v1.ByIDV1 by_id = 1;
+    shared.v1.BatchV1 batch = 2;
+  }
+}
+
+// MsgWithdrawServiceUnbonded withdraws matured service unbondings (10.0c).
+message MsgWithdrawServiceUnbonded {
+  UnbondingLocatorV1 locator = 1;
+  string operator_address = 2;
+}
+
+// MsgWithdrawServiceUnbondedResponse echoes the released amount.
+message MsgWithdrawServiceUnbondedResponse {
+  shared.v1.Amount withdrawn_amount = 1;
+  uint32 withdrawn_items = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgDeclareModelSupport declares provisional support for one profile. It does
+// not activate P30 support or grant block reward eligibility by itself.
+// MsgDeclareModelSupport defines the MsgDeclareModelSupport wire type.
+message MsgDeclareModelSupport {
+  string operator_address = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  bool inference_capability = 4;
+  bool verification_capability = 5;
+}
+
+// MsgDeclareModelSupportResponse echoes the declared support row and version.
+message MsgDeclareModelSupportResponse {
+  uint64 support_version = 1;
+  bool support_active = 2;
+  uint64 fresh_until_epoch = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// SupportedProfileRef identifies one model/profile pair in a node support
+// confirmation.
+// ProfileKeyV1 defines the ProfileKeyV1 wire type.
+message ProfileKeyV1 {
+  string model_id = 1;
+  uint32 profile_version = 2;
+}
+
+// ModelSupportConfirmation is one node-signed, duty-independent support
+// refresh submitted by a relayer.
+// ModelSupportConfirmationV1 defines the ModelSupportConfirmationV1 wire type.
+message ModelSupportConfirmationV1 {
+  string operator_address = 1;
+  repeated ProfileKeyV1 supported_profiles = 2;
+  uint64 service_authorization_nonce = 3;
+  uint64 expiry_height = 4;
+  bytes service_signature = 5;
+}
+
+// MsgBatchConfirmModelSupport lets any relayer submit confirmations signed by
+// the Cortex Node service keys. One invalid item rejects the entire Tx.
+// MsgBatchConfirmModelSupport defines the MsgBatchConfirmModelSupport wire type.
+message MsgBatchConfirmModelSupport {
+  uint64 epoch_index = 1;
+  repeated ModelSupportConfirmationV1 confirmations = 2;
+  string submitter_address = 3;
+}
+
+// MsgBatchConfirmModelSupportResponse reports accepted node confirmations and
+// the number of profile rows actually refreshed.
+// MsgBatchConfirmModelSupportResponse defines the MsgBatchConfirmModelSupportResponse wire type.
+message MsgBatchConfirmModelSupportResponse {
+  uint32 accepted_confirmations = 1;
+  uint32 refreshed_profile_count = 2;
+  bytes batch_digest = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}

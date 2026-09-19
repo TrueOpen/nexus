@@ -1,0 +1,97 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/query_page.proto";
+import "task/v1/params.proto";
+import "task/v1/session.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// The §16.1 pagination wire (QueryPageRequestV1 / QueryPageResponseV1 /
+// PageTokenV1) is NOT declared here. It is global Query wire with exactly one
+// definition, now in shared/v1/query_page.proto; the former task and
+// hub copies are deleted.
+
+// QueryTaskParamsRequest is request type for Query/Params.
+//
+// The parameter query belongs to the params domain. It
+// is kept unchanged so query.proto keeps resolving; api_contract §16.2 requires a
+// single `QueryParams` returning `1=hub_params:HubParamsV1,2=task_params:TaskParamsV1`.
+// QueryTaskParamsRequest defines the QueryTaskParamsRequest wire type.
+message QueryTaskParamsRequest {}
+
+// QueryTaskParamsResponse is response type for the Query/Params RPC method.
+message QueryTaskParamsResponse {
+  // params holds all the parameters of this module.
+  TaskParamsV1 params = 1;
+  // meta carries this module's own params version/hash/updated height. Params
+  // ownership stays per module: a client that needs a joint view calls
+  // hub.v1.Query/Params and task.v1.Query/Params at the same
+  // x-cosmos-block-height. Wire adds no app-level package importing both.
+  TaskParamsMetaState meta = 2;
+}
+
+// QuerySessionRequest selects one session by ID (§16.2).
+message QuerySessionRequest {
+  bytes session_id = 1;
+}
+
+// QuerySessionResponse returns the authoritative StreamState for an
+// active/idle/closed retained row; after compaction the RPC returns NotFound and
+// callers must query the terminal summary instead (§16.2).
+// QuerySessionResponse defines the QuerySessionResponse wire type.
+message QuerySessionResponse {
+  StreamState session = 1;
+}
+
+// QuerySessionsByOwnerRequest lists the owner's active sessions (§16.2).
+message QuerySessionsByOwnerRequest {
+  string user_address = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QuerySessionsByOwnerResponse walks only the active owner index, ascending by
+// raw session_id bytes; closed history is never listed permanently (§16.2).
+// QuerySessionsByOwnerResponse defines the QuerySessionsByOwnerResponse wire type.
+message QuerySessionsByOwnerResponse {
+  repeated StreamState sessions = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QuerySessionTerminalSummaryRequest selects one collapsed session (§16.2).
+message QuerySessionTerminalSummaryRequest {
+  bytes session_id = 1;
+}
+
+// QuerySessionTerminalSummaryResponse returns the single terminal summary;
+// NotFound after its retention expires (§16.2).
+// QuerySessionTerminalSummaryResponse defines the QuerySessionTerminalSummaryResponse wire type.
+message QuerySessionTerminalSummaryResponse {
+  SessionTerminalSummaryState summary = 1;
+}
+
+// QuerySessionNonceRequest selects one user's session counter (§16.2).
+message QuerySessionNonceRequest {
+  string user_address = 1;
+}
+
+// QuerySessionNonceResponse returns 0 for an account with no session yet; an
+// invalid address is InvalidArgument, never empty state (§16.2).
+// QuerySessionNonceResponse defines the QuerySessionNonceResponse wire type.
+message QuerySessionNonceResponse {
+  uint64 next_session_nonce = 1;
+}
+
+// QueryOrderSequenceRequest selects one order sequence row (§16.2).
+message QueryOrderSequenceRequest {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+}
+
+// QueryOrderSequenceResponse returns the row only inside the detail retention
+// window; NotFound once it has been folded into sequence_root, which defines no
+// member proof (§16.2).
+// QueryOrderSequenceResponse defines the QueryOrderSequenceResponse wire type.
+message QueryOrderSequenceResponse {
+  OrderSequenceState sequence = 1;
+}

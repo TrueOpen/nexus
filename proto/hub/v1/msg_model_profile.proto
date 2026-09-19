@@ -1,0 +1,23 @@
+syntax = "proto3";
+package hub.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/model_profile.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// MsgRegisterModelProfile atomically registers one immutable profile projection.
+message MsgRegisterModelProfile {
+  string proposer_address = 1;
+  shared.v1.ModelProfileProjection profile = 2;
+}
+
+// MsgRegisterModelProfileResponse returns the committed registration receipt.
+message MsgRegisterModelProfileResponse {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  bytes registration_digest = 3;
+  bool idempotent_replay = 4;
+  uint64 registered_height = 5;
+  shared.v1.Amount registration_fee_paid = 6;
+}

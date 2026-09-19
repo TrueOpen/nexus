@@ -1,0 +1,82 @@
+syntax = "proto3";
+package hub.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// BeaconState records one height's randomness output.
+//
+// Dev chains may still write placeholder_blockhash_v1 entries for local
+// testing. Mainnet business randomness must use proposer_vrf_v1 entries that
+// carry the proof/proposer audit fields and verified=true.
+// BeaconState defines the BeaconState wire type.
+message BeaconState {
+  uint64 height = 1;
+  // randomness_hex is the canonical lower-case hex encoding of the 32-byte
+  // beacon value R_h.
+  string randomness_hex = 2;
+  // source_tag identifies how the value was derived:
+  // placeholder_blockhash_v1 or proposer_vrf_v1.
+  string source_tag = 3;
+  // proof_digest is SHA256(raw proof bytes) for proposer_vrf_v1 entries. The
+  // raw proof exists only while the proposal is verified and is never stored
+  // or exported. It is absent/omitted for dev-only placeholder entries;
+  // present-empty and all-zero values are invalid.
+  optional bytes proof_digest = 4;
+  // proposer_consensus_address is the consensus proposer identity checked by
+  // ProcessProposal / PreBlocker before this state is persisted.
+  string proposer_consensus_address = 5;
+  // verified is true only after the proposal validation path has verified
+  // proof_h against the operator's active VrfKeyState public key.
+  bool verified = 6;
+  // block_hash is the committed header hash at this exact height.
+  bytes block_hash = 7;
+}
+
+// BeaconCheckpointState commits one closed, fixed-width beacon interval. The
+// individual BeaconState rows can be pruned after their retention and consumer
+// obligations end; the interval commitment remains available to auditors.
+// BeaconCheckpointState defines the BeaconCheckpointState wire type.
+message BeaconCheckpointState {
+  uint64 checkpoint_index = 1;
+  uint64 start_height = 2;
+  uint64 end_height = 3;
+  uint64 beacon_count = 4;
+  bytes checkpoint_root = 5;
+}
+
+// BeaconCheckpointCursorState is the derived rolling state for the one open
+// interval. It is rebuilt from retained BeaconState rows on genesis import and
+// is replaced by an immutable BeaconCheckpointState when the interval closes.
+// BeaconCheckpointCursorState defines the BeaconCheckpointCursorState wire type.
+message BeaconCheckpointCursorState {
+  uint64 checkpoint_index = 1;
+  uint64 start_height = 2;
+  uint64 last_height = 3;
+  uint64 beacon_count = 4;
+  bytes rolling_root = 5;
+}
+
+// BeaconPruneIndex schedules one retained BeaconState row for deletion. The
+// row is exported verbatim because prune_height cannot be recomputed from
+// beacon_height plus retention: a consumer reference may already have moved it
+// deterministically forward. Fresh genesis carries an empty set; export keeps
+// the rows that are still pending or already rescheduled.
+// BeaconPruneIndex defines the BeaconPruneIndex wire type.
+message BeaconPruneIndex {
+  uint64 prune_height = 1;
+  uint64 beacon_height = 2;
+}
+
+// BeaconCarrier is the deterministic proposal-extension payload passed from
+// Node ABCI++ wiring into the Keeper verifier. Phase 0 accepts only the frozen
+// RFC 9381 suite 0x04 ELL2 codec identifier.
+// BeaconCarrier defines the BeaconCarrier wire type.
+message BeaconCarrier {
+  uint64 height = 1;
+  string randomness_hex = 2;
+  string proof_hex = 3;
+  string proposer_consensus_address = 4;
+  string source_tag = 5;
+  string proof_codec = 6;
+}

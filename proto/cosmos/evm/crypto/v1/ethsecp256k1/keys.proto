@@ -1,0 +1,18 @@
+syntax = "proto3";
+package cosmos.evm.crypto.v1.ethsecp256k1;
+
+option go_package = "github.com/TrueOpen/nexus/gen/cosmosevm/crypto/v1/ethsecp256k1;ethsecp256k1";
+
+// Wire mirror of the pinned cosmos/evm ethsecp256k1 public key
+// (Account & Signature Protocol §2.3):
+//
+//   pubkey_type_url = /cosmos.evm.crypto.v1.ethsecp256k1.PubKey
+//   pubkey_bytes    = 33-byte SEC1 compressed point
+//
+// The message shape is identical to cosmos.crypto.secp256k1.PubKey (a single
+// `bytes key = 1`), so it is wire compatible; the type URL is what makes it a
+// different key type. Nexus only needs it to pack SignerInfo.public_key on
+// SIGN_MODE_DIRECT transactions; PrivKey is intentionally not mirrored.
+message PubKey {
+  bytes key = 1;
+}

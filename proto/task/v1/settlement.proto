@@ -1,0 +1,305 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/result.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskVerdict is the closed non-money result of a Task.
+enum TaskVerdict {
+  // Unset; rejected.
+  // TASK_VERDICT_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_VERDICT_UNSPECIFIED = 0;
+  // The Verifier cluster reached the pass threshold.
+  // TASK_VERDICT_PASS identifies the corresponding protocol value.
+  TASK_VERDICT_PASS = 1;
+  // The cluster reached consensus that the output fails its profile thresholds.
+  // TASK_VERDICT_FAIL identifies the corresponding protocol value.
+  TASK_VERDICT_FAIL = 2;
+  // Enough results arrived but no threshold cluster formed.
+  // TASK_VERDICT_NO_CONSENSUS identifies the corresponding protocol value.
+  TASK_VERDICT_NO_CONSENSUS = 3;
+  // No Worker was assigned before the assignment deadline.
+  // TASK_VERDICT_ASSIGN_TIMEOUT identifies the corresponding protocol value.
+  TASK_VERDICT_ASSIGN_TIMEOUT = 4;
+  // The selected Worker missed the infer deadline.
+  // TASK_VERDICT_WORKER_TIMEOUT identifies the corresponding protocol value.
+  TASK_VERDICT_WORKER_TIMEOUT = 5;
+  // Verification could not complete, distinct from a FAIL judgment on the output.
+  // TASK_VERDICT_VERIFY_FAILED identifies the corresponding protocol value.
+  TASK_VERDICT_VERIFY_FAILED = 6;
+  // The settlement deadline passed with no plan committed.
+  // TASK_VERDICT_SETTLEMENT_TIMEOUT identifies the corresponding protocol value.
+  TASK_VERDICT_SETTLEMENT_TIMEOUT = 7;
+  // Verifiers could not obtain the data required to verify.
+  // TASK_VERDICT_VERIFY_UNAVAILABLE identifies the corresponding protocol value.
+  TASK_VERDICT_VERIFY_UNAVAILABLE = 8;
+}
+
+// TaskFailureClass is the closed correctness taxonomy used by settlement and
+// profile risk accounting.
+// TaskFailureClass defines the TaskFailureClass wire type.
+enum TaskFailureClass {
+  // Unset; rejected.
+  // TASK_FAILURE_CLASS_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_UNSPECIFIED = 0;
+  // The task did not fail, so no class applies.
+  // TASK_FAILURE_CLASS_NONE identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_NONE = 1;
+  // Too few Verifiers were selected or responded to reach a decision.
+  // TASK_FAILURE_CLASS_INSUFFICIENT_VERIFIER identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_INSUFFICIENT_VERIFIER = 2;
+  // Metrics breached the profile thresholds. This class can drive a freeze signal.
+  // TASK_FAILURE_CLASS_METRIC_THRESHOLD_BREACH identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_METRIC_THRESHOLD_BREACH = 3;
+  // An objectively provable protocol fault by a named role.
+  // TASK_FAILURE_CLASS_OBJECTIVE_FAULT identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_OBJECTIVE_FAULT = 4;
+  // Submitted material did not match the locked evidence schema.
+  // TASK_FAILURE_CLASS_SCHEMA_FAULT identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_SCHEMA_FAULT = 5;
+  // Worker evidence was missing, unopenable or inconsistent with its commitment.
+  // TASK_FAILURE_CLASS_WORKER_EVIDENCE_FAULT identifies the corresponding protocol value.
+  TASK_FAILURE_CLASS_WORKER_EVIDENCE_FAULT = 6;
+}
+
+// TaskReimbursementKindV1 identifies an accepted Task maintenance action whose
+// post-handler may record gas reimbursement.
+// TaskReimbursementKindV1 defines the TaskReimbursementKindV1 wire type.
+enum TaskReimbursementKindV1 {
+  // Unset; rejected.
+  // TASK_REIMBURSEMENT_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_UNSPECIFIED = 0;
+  // Gas for a Worker handraise submission.
+  // TASK_REIMBURSEMENT_KIND_V1_WORKER_HANDRAISE identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_WORKER_HANDRAISE = 1;
+  // Gas for an infer receipt submission.
+  // TASK_REIMBURSEMENT_KIND_V1_INFER_RECEIPT identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_INFER_RECEIPT = 2;
+  // Gas for a Verifier handraise submission, in either round.
+  // TASK_REIMBURSEMENT_KIND_V1_VERIFIER_HANDRAISE identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_VERIFIER_HANDRAISE = 3;
+  // Gas for a data unavailability report.
+  // TASK_REIMBURSEMENT_KIND_V1_DATA_UNAVAILABLE_REPORT identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_DATA_UNAVAILABLE_REPORT = 4;
+  // Gas for a verify commit, single or batched.
+  // TASK_REIMBURSEMENT_KIND_V1_VERIFY_COMMIT identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_VERIFY_COMMIT = 5;
+  // Gas for a verify result, single or batched.
+  // TASK_REIMBURSEMENT_KIND_V1_VERIFY_RESULT identifies the corresponding protocol value.
+  TASK_REIMBURSEMENT_KIND_V1_VERIFY_RESULT = 6;
+}
+
+// ConsensusClusterMemberV1 is one accepted result in the unique threshold
+// cluster. Members are ordered by selected_verifier_index.
+// ConsensusClusterMemberV1 defines the ConsensusClusterMemberV1 wire type.
+message ConsensusClusterMemberV1 {
+  uint32 selected_verifier_index = 1;
+  string verifier_operator_address = 2;
+  bytes commit_key = 3;
+  bytes result_receipt_signing_digest = 4;
+  bytes metric_summary_hash = 5;
+  MetricSampleVerdictV1 sample_verdict = 6;
+  uint64 accepted_height = 7;
+  uint64 generated_token_count = 8;
+}
+
+// PaidRoleV1 is one unique (duty, operator) pair recognized by settlement.
+message PaidRoleV1 {
+  shared.v1.Duty duty = 1;
+  string operator_address = 2;
+}
+
+// SettlementFactsV1 is the Keeper-derived, non-money input to the production
+// settlement plan.
+// SettlementFactsV1 defines the SettlementFactsV1 wire type.
+message SettlementFactsV1 {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  uint64 settlement_height = 3;
+  uint64 settlement_facts_cutoff_height = 4;
+  string settlement_duty_builder_operator = 5;
+  bytes consensus_cluster_hash = 6;
+  TaskVerdict verdict = 7;
+  TaskFailureClass failure_class = 8;
+  bytes fault_summary_hash = 9;
+  repeated PaidRoleV1 paid_roles = 10;
+  bytes infer_receipt_ref = 11;
+  // result_receipt_refs_hash commits only the threshold cluster;
+  // consensus_cluster_hash then commits its judgment and count. Every accepted
+  // receipt stays auditable through QueryResultReceipt until cleanup, after
+  // which the round facts/summary and the fault summary carry the terminal
+  // facts. The removed registered_full_result_refs_hash only ever described
+  // FullResultReveal rows and must not be renamed into an "all ResultReceipts"
+  // commitment; proving the minority receipts long-term would require a new
+  // domain, ordering and consumer, which Phase 0 does not carry.
+  bytes result_receipt_refs_hash = 12;
+  uint64 challenge_close_height = 13;
+}
+
+// TaskSettlementBillV1 is the Phase 0 PER_OUTPUT_TOKEN bill commitment.
+message TaskSettlementBillV1 {
+  string worker_operator_address = 1;
+  bytes infer_receipt_ref = 2;
+  uint64 fee_rule_version = 3;
+  uint64 generated_token_count = 4;
+  uint64 work_unit = 5;
+}
+
+// VerifierPayoutV1 is one round-1 verifier payout in selected-index order.
+message VerifierPayoutV1 {
+  string operator_address = 1;
+  uint32 selected_verifier_index = 2;
+  shared.v1.Amount gross = 3;
+  shared.v1.Amount maintenance = 4;
+  shared.v1.Amount net = 5;
+}
+
+// TaskGasReimbursementV1 is keyed by (task_id, tx_hash, item_index). A single
+// message uses item_index 0; verification batches retain their original item
+// indexes.
+// TaskGasReimbursementV1 defines the TaskGasReimbursementV1 wire type.
+message TaskGasReimbursementV1 {
+  bytes task_id = 1;
+  bytes tx_hash = 2;
+  uint32 item_index = 3;
+  TaskReimbursementKindV1 reimbursement_kind = 4;
+  string fee_payer = 5;
+  uint64 gas_basis = 6;
+  shared.v1.Amount actual_fee_paid = 7;
+  shared.v1.Amount necessary_fee = 8;
+  shared.v1.Amount reimbursed_amount = 9;
+  uint64 fee_policy_version = 10;
+  uint64 accepted_height = 11;
+}
+
+// SettlementPlanV1 is the complete immutable transfer plan applied at Task
+// finality. Callers never submit it.
+// SettlementPlanV1 defines the SettlementPlanV1 wire type.
+message SettlementPlanV1 {
+  bytes task_id = 1;
+  bytes settlement_id = 2;
+  uint64 fee_rule_version = 3;
+  uint32 effective_verify_round = 4;
+  uint64 generated_token_count = 5;
+  uint64 work_unit = 6;
+  shared.v1.Amount worker_gross = 7;
+  shared.v1.Amount worker_maintenance = 8;
+  shared.v1.Amount worker_net = 9;
+  shared.v1.Amount verifier_slot_gross = 10;
+  repeated VerifierPayoutV1 verifier_payouts = 11;
+  repeated TaskGasReimbursementV1 gas_reimbursements = 12;
+  bytes gas_reimbursements_hash = 13;
+  shared.v1.Amount maintenance_fee = 14;
+  shared.v1.Amount refund_amount = 15;
+  shared.v1.Amount original_reserved_amount = 16;
+  bytes settlement_facts_hash = 17;
+  bytes task_round_summary_hash = 18;
+  bytes settlement_bill_hash = 19;
+}
+
+// VerifierPayoutState is the Task-owned payout receipt keyed by
+// (task_id, selected_verifier_index).
+// VerifierPayoutState defines the VerifierPayoutState wire type.
+message VerifierPayoutState {
+  bytes task_id = 1;
+  bytes settlement_id = 2;
+  string operator_address = 3;
+  uint32 selected_verifier_index = 4;
+  shared.v1.Amount gross = 5;
+  shared.v1.Amount maintenance = 6;
+  shared.v1.Amount net = 7;
+}
+
+// TaskSettlementState is the single committed settlement authority.
+message TaskSettlementState {
+  bytes task_id = 1;
+  bytes settlement_id = 2;
+  uint64 fee_rule_version = 3;
+  uint32 effective_verify_round = 4;
+  TaskVerdict verdict = 5;
+  TaskFailureClass failure_class = 6;
+  uint64 settlement_facts_cutoff_height = 7;
+  uint64 settlement_height = 8;
+  uint64 task_finality_height = 9;
+  uint64 generated_token_count = 10;
+  uint64 work_unit = 11;
+  optional string worker_operator_address = 12;
+  bytes infer_receipt_ref_or_zero32 = 13;
+  shared.v1.Amount worker_gross = 14;
+  shared.v1.Amount worker_maintenance = 15;
+  shared.v1.Amount worker_net = 16;
+  shared.v1.Amount verifier_slot_gross = 17;
+  uint32 verifier_payout_count = 18;
+  uint32 gas_reimbursement_count = 19;
+  bytes gas_reimbursements_hash = 20;
+  shared.v1.Amount maintenance_fee = 21;
+  shared.v1.Amount refund_amount = 22;
+  shared.v1.Amount original_reserved_amount = 23;
+  bytes settlement_facts_hash = 24;
+  bytes task_round_summary_hash = 25;
+  bytes settlement_bill_hash_or_zero32 = 26;
+  bytes settlement_plan_hash = 27;
+  // Sum of TaskGasReimbursementV1.reimbursed_amount, frozen at settlement.
+  shared.v1.Amount gas_reimbursed_total = 28;
+}
+
+// SettlementFactsRetainedState keeps the fixed audit inputs needed after
+// settlement while detailed result rows remain subject to cleanup.
+// SettlementFactsRetainedState defines the SettlementFactsRetainedState wire type.
+message SettlementFactsRetainedState {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  bytes settlement_id = 3;
+  bytes settlement_facts_hash = 4;
+  uint64 settlement_facts_cutoff_height = 5;
+  uint64 settlement_height = 6;
+  string settlement_duty_builder_operator = 7;
+  bytes consensus_cluster_hash = 8;
+  TaskVerdict recomputed_verdict = 9;
+  TaskFailureClass failure_class = 10;
+  bytes fault_summary_hash = 11;
+  bytes paid_roles_hash = 12;
+  uint32 paid_role_count = 13;
+  bytes infer_receipt_ref_or_zero32 = 14;
+  bytes result_receipt_refs_hash = 15;
+  uint64 challenge_close_height = 16;
+  uint32 effective_verify_round = 17;
+  uint64 fee_rule_version = 18;
+  uint64 generated_token_count = 19;
+  uint64 work_unit = 20;
+  bytes settlement_bill_hash_or_zero32 = 21;
+  bytes task_round_summary_hash = 22;
+  bytes evidence_schema_hash = 23;
+  string judgment_function_version = 24;
+  string canonical_encoding_version = 25;
+  bytes profile_execution_snapshot_hash = 26;
+  bytes generation_params_digest = 27;
+  string metric_aggregate_proof_version = 28;
+}
+
+// TaskFailureClassState is retained independently of Task compaction until its
+// profile risk window expires.
+// TaskFailureClassState defines the TaskFailureClassState wire type.
+message TaskFailureClassState {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string model_id = 3;
+  uint32 profile_version = 4;
+  optional bytes settlement_id = 5;
+  TaskFailureClass failure_class = 6;
+  bool freeze_signal_eligible = 7;
+  shared.v1.FailureClassificationSource classification_source = 8;
+  uint64 classified_height = 9;
+  bytes infer_receipt_hash_or_zero32 = 10;
+  bytes settlement_facts_hash_or_zero32 = 11;
+  bytes settlement_id_or_zero32 = 12;
+  uint32 superseded_by_verify_round = 13;
+  uint32 accepted_commit_count = 14;
+  uint32 accepted_result_receipt_count = 15;
+  optional uint64 task_finality_height = 16;
+  optional uint64 prune_height = 17;
+  bytes evidence_digest = 18;
+}

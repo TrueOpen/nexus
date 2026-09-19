@@ -1,0 +1,164 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// TaskParamsV1 is the single Task parameter root.
+message TaskParamsV1 {
+  uint32 schema_version = 1;
+  SessionParamsV1 session = 2;
+  TaskDeadlineParamsV1 deadlines = 3;
+  TaskProposalParamsV1 proposals = 4;
+  CandidateWeightParamsV1 weights = 5;
+  VerificationParamsV1 verification = 6;
+  EvidenceLimitParamsV1 evidence = 7;
+  TaskCleanupParamsV1 cleanup = 8;
+  BatchParamsV1 batch = 9;
+  GenerationLimitParamsV1 generation = 10;
+  TaskFeeParamsV1 fee = 11;
+  ChallengeParamsV1 challenge = 12;
+}
+
+// TaskParamsMetaState is written atomically with TaskParamsV1.
+message TaskParamsMetaState {
+  uint64 params_version = 1;
+  bytes params_hash = 2;
+  uint64 updated_height = 3;
+}
+
+// SessionParamsV1 bounds session admission, lifecycle, and retention work.
+message SessionParamsV1 {
+  uint32 max_order_sequences_per_active_session = 1;
+  uint64 session_idle_ttl_blocks = 2;
+  uint64 session_close_ttl_blocks = 3;
+  uint64 session_order_retention_blocks = 4;
+  uint32 max_session_history_prune_items_per_block = 5;
+  uint64 session_terminal_summary_retention_blocks = 6;
+  uint32 max_session_terminal_summary_prune_items_per_block = 7;
+  uint32 max_session_sweep_per_block = 8;
+  uint64 cancel_order_min_gas = 9;
+  uint64 anchor_freshness_window_blocks = 10;
+}
+
+// TaskDeadlineParamsV1 defines verification clocks and deadline sweep work.
+message TaskDeadlineParamsV1 {
+  uint64 verify_open_deadline_blocks = 1;
+  uint64 commit_window_blocks = 2;
+  uint64 reveal_window_blocks = 3;
+  uint64 collection_window_blocks = 4;
+  uint64 settle_margin_blocks = 5;
+  uint64 self_rescue_margin_blocks = 6;
+  uint32 max_deadline_sweep_per_block = 7;
+}
+
+// TaskProposalParamsV1 bounds candidate proposal and finalize work.
+message TaskProposalParamsV1 {
+  uint32 max_candidate_handraises_per_proposal = 1;
+  uint64 max_candidate_proposal_bytes = 2;
+  uint32 max_candidate_accepted_proposals_per_stage = 3;
+  uint32 max_candidate_union_members_per_stage = 4;
+  uint32 max_candidate_stage_finalize_tasks_per_block = 5;
+  uint32 max_candidate_stage_finalize_members_per_block = 6;
+}
+
+// CandidateWeightParamsV1 defines deterministic worker and verifier selection.
+message CandidateWeightParamsV1 {
+  uint32 worker_stake_weight_ppm = 1;
+  uint32 worker_performance_weight_ppm = 2;
+  uint32 verifier_stake_weight_ppm = 3;
+  uint32 verifier_performance_weight_ppm = 4;
+  uint32 verifier_candidate_ratio_ppm = 5;
+  uint32 verifier_candidate_window_min = 6;
+  uint32 verifier_candidate_window_max = 7;
+  uint32 selected_verifier_count = 8;
+  uint32 k_stake = 9;
+  uint32 candidate_weight_ppm_max = 10;
+  uint32 max_weighted_draw_attempts_per_selection = 11;
+}
+
+// VerificationParamsV1 defines registered timeout and fault consequences.
+message VerificationParamsV1 {
+  reserved 2, 3, 6;
+  reserved "verifier_miss_jail_blocks", "verifier_result_missing_jail_blocks", "verifier_miss_clear_success_count";
+
+  uint32 worker_infer_timeout_slash_bps = 1;
+  uint32 result_reveal_missing_slash_bps = 4;
+  uint32 builder_fault_slash_bps = 5;
+}
+
+// EvidenceLimitParamsV1 bounds evidence payloads and supported version catalogs.
+message EvidenceLimitParamsV1 {
+  reserved 1;
+  reserved "max_full_result_reveal_bytes";
+
+  uint64 max_evidence_retention_blocks = 2;
+  uint32 max_infer_evidence_commitments_per_receipt = 3;
+  uint64 max_infer_receipt_commitment_bytes = 4;
+  uint32 max_supported_evidence_schema_versions = 5;
+  uint32 max_supported_leaf_ordering_versions = 6;
+  repeated string evidence_schema_version_supported = 7;
+  repeated string leaf_ordering_version_supported = 8;
+  uint64 max_output_mmr_leaves = 9;
+  uint32 min_output_stream_frame_bytes = 10;
+  uint64 max_worker_evidence_bytes_v1 = 11;
+}
+
+// TaskCleanupParamsV1 bounds terminal Task cleanup and summary retention.
+message TaskCleanupParamsV1 {
+  uint32 max_task_cleanup_items_per_block = 1;
+  uint64 task_terminal_summary_retention_blocks = 2;
+  uint32 max_task_terminal_summary_prune_items_per_block = 3;
+  uint32 max_epoch_task_summary_items_per_block = 4;
+  uint32 max_epoch_task_summary_support_candidates = 5;
+  uint64 max_epoch_task_summary_bytes = 6;
+  uint32 max_task_failure_class_prune_items_per_block = 7;
+}
+
+// BatchParamsV1 bounds verification batch item counts and canonical bytes.
+message BatchParamsV1 {
+  uint32 max_batch_commit_items = 1;
+  uint32 max_batch_result_items = 2;
+  uint64 max_batch_commit_bytes = 3;
+  uint64 max_batch_result_bytes = 4;
+}
+
+// GenerationLimitParamsV1 bounds GenerationParamsV1 wire collections.
+message GenerationLimitParamsV1 {
+  uint32 stop_sequence_max_items = 1;
+  uint32 stop_sequence_max_bytes_each = 2;
+  uint32 stop_sequence_max_total_bytes = 3;
+  uint32 stop_token_max_items = 4;
+  uint32 top_k_max = 5;
+  // Independent product limit; the canonical token-id raw field permits at
+  // most 8,388,607 IDs.
+  uint64 max_output_tokens = 6;
+}
+
+// TaskFeeParamsV1 freezes the only Phase 0 billing and reimbursement rule.
+message TaskFeeParamsV1 {
+  uint64 fee_rule_version = 1;
+  uint32 maintenance_rate_bps = 2;
+  uint64 fee_policy_version = 3;
+  uint64 max_reimbursable_fee_per_gas_numerator = 4;
+  uint64 max_reimbursable_fee_per_gas_denominator = 5;
+  shared.v1.Amount max_reimbursement_per_tx = 6;
+  shared.v1.Amount max_reimbursement_per_task = 7;
+}
+
+// ChallengeParamsV1 bounds the single optional funded verification round.
+message ChallengeParamsV1 {
+  uint32 max_verify_round = 1;
+  uint32 max_open_round_per_task = 2;
+  uint32 challenge_verifier_count = 3;
+  shared.v1.Amount challenge_open_bond = 4;
+  uint32 challenge_inconclusive_bond_slash_bps = 5;
+  uint32 challenge_fault_slash_bps = 6;
+  uint64 candidate_window_delay_blocks = 7;
+  uint64 handraise_window_blocks = 8;
+  uint64 assignment_delay_blocks = 9;
+  uint64 commit_window_blocks = 10;
+  uint64 reveal_window_blocks = 11;
+  uint32 max_round_effect_items_per_block = 12;
+}

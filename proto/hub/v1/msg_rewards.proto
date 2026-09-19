@@ -1,0 +1,80 @@
+syntax = "proto3";
+package hub.v1;
+
+import "hub/v1/params.proto";
+import "hub/v1/reward.proto";
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// MsgUpdateHubParams replaces the whole typed HubParamsV2 body
+// (keeper_api_contract.md §9.6a / §18.0). Cross-field clamps run before any write
+// and genesis-only fields must reject a runtime change.
+// MsgUpdateHubParams defines the MsgUpdateHubParams wire type.
+message MsgUpdateHubParams {
+  uint64 expected_version = 1;
+  HubParamsV2 params = 2;
+  string authority = 3;
+}
+
+// MsgUpdateHubParamsResponse echoes the new version and its
+// TRUEOPEN_HUB_PARAMS_V2 commitment.
+// MsgUpdateHubParamsResponse defines the MsgUpdateHubParamsResponse wire type.
+message MsgUpdateHubParamsResponse {
+  uint64 new_version = 1;
+  bytes params_hash = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgClaimEarnings is the single claim entry point (keeper_api_contract.md §9.6a,
+// §5.1 and §10.0b1).
+//
+// The request carries only the claim class and the Cosmos signer; the
+// beneficiary equals that signer. claim_id and source_epoch were removed because
+// they were caller-authored provenance and an unbounded permanent key, and no
+// permanent ClaimReceipt is created: idempotency comes from the balance state
+// plus the account sequence. Before draining, the handler matures at most
+// max_pending_earning_mature_per_claim pending rows through the same
+// deterministic maturity function the EndBlock runner uses. A zero sub-ledger is
+// a success noop with no event; a non-zero balance below min_claim_amount is
+// FailedPrecondition with zero writes.
+// MsgClaimEarnings defines the MsgClaimEarnings wire type.
+message MsgClaimEarnings {
+  ClaimClassV1 claim_class = 1;
+  string signer_address = 2;
+}
+
+// MsgClaimEarningsResponse reports the transferred amount, what is still
+// claimable and how many pending items this Tx matured.
+// MsgClaimEarningsResponse defines the MsgClaimEarningsResponse wire type.
+message MsgClaimEarningsResponse {
+  string beneficiary = 1;
+  shared.v1.Amount claimed_amount = 2;
+  shared.v1.Amount remaining_claimable = 3;
+  uint32 matured_items = 4;
+  shared.v1.MutationStatusV1 status = 5;
+}
+
+// MsgRunRewardEpoch is the permissionless entry point of the bounded
+// RewardEpoch runner (keeper_api_contract.md §9.6a). It is a BOUNDED_RUNNER: it
+// resumes from RewardEpochCursorState and reports this call's visited/advanced
+// counts instead of pretending to be a first receipt. Chain ID, current height
+// and rates come from context and params, never from the request.
+// MsgRunRewardEpoch defines the MsgRunRewardEpoch wire type.
+message MsgRunRewardEpoch {
+  uint64 epoch = 1;
+  RewardBucket reward_bucket = 2;
+  uint32 max_items = 3;
+  string submitter_address = 4;
+}
+
+// MsgRunRewardEpochResponse reports the phase after this call and the visited
+// and advanced work units; §5.11 forbids a runner-level summary event.
+// MsgRunRewardEpochResponse defines the MsgRunRewardEpochResponse wire type.
+message MsgRunRewardEpochResponse {
+  RewardEpochPhase phase = 1;
+  uint32 visited = 2;
+  uint32 advanced = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}

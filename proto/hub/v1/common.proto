@@ -1,0 +1,290 @@
+syntax = "proto3";
+package hub.v1;
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// This file keeps only the Hub-owned common enums. MutationStatusV1,
+// ParticipantType, Duty, FailureClassificationSource, StoredBodyStatus, ByIDV1
+// and BatchV1 moved to shared/v1/common.proto by ADR-0013 without any
+// number or semantic change; no alias or duplicate is kept here.
+
+// ServiceKeyStatus is the lifecycle of one current Cortex service key binding (9.6b).
+enum ServiceKeyStatus {
+  // Never written; rejects zero-value bindings.
+  // SERVICE_KEY_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  SERVICE_KEY_STATUS_UNSPECIFIED = 0;
+  // Binding may authorize service submissions.
+  // SERVICE_KEY_STATUS_ACTIVE identifies the corresponding protocol value.
+  SERVICE_KEY_STATUS_ACTIVE = 1;
+  // Binding is revoked and authorizes nothing.
+  // SERVICE_KEY_STATUS_REVOKED identifies the corresponding protocol value.
+  SERVICE_KEY_STATUS_REVOKED = 2;
+}
+
+// ServiceKeyRevocationReason is the closed reason set of MsgRevokeServiceKey (9.6b).
+enum ServiceKeyRevocationReason {
+  // Never written.
+  // SERVICE_KEY_REVOCATION_REASON_UNSPECIFIED identifies the corresponding protocol value.
+  SERVICE_KEY_REVOCATION_REASON_UNSPECIFIED = 0;
+  // Key material is believed compromised.
+  // SERVICE_KEY_REVOCATION_REASON_COMPROMISED identifies the corresponding protocol value.
+  SERVICE_KEY_REVOCATION_REASON_COMPROMISED = 1;
+  // Operator is shutting the service down.
+  // SERVICE_KEY_REVOCATION_REASON_OPERATOR_SHUTDOWN identifies the corresponding protocol value.
+  SERVICE_KEY_REVOCATION_REASON_OPERATOR_SHUTDOWN = 2;
+  // Revoked by a governance emergency action.
+  // SERVICE_KEY_REVOCATION_REASON_GOVERNANCE_EMERGENCY identifies the corresponding protocol value.
+  SERVICE_KEY_REVOCATION_REASON_GOVERNANCE_EMERGENCY = 3;
+}
+
+// ServiceKeyResponsibilityKind is the closed set of online responsibilities that
+// block MsgRotateServiceKey (keeper_api_contract.md §B.1.2 / §10.0c1). The builder
+// stage kinds feed BuilderState/CortexNodeState.pending_stage_duty_count and the
+// challenge/evidence kinds feed pending_evidence_submission_count; task duty
+// liability is counted by active_task_liability_count and no longer stored as a
+// responsibility row.
+//
+// Value 4 was reassigned in the fresh Phase 0 schema. The removed evidence
+// request protocol has no compatibility alias or writer.
+// ServiceKeyResponsibilityKind defines the ServiceKeyResponsibilityKind wire type.
+enum ServiceKeyResponsibilityKind {
+  // Never written; rejects zero-value rows.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_UNSPECIFIED = 0;
+  // Selected builder owes an Open Verify stage submission for one task.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_OPEN_VERIFY_BUILDER identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_OPEN_VERIFY_BUILDER = 1;
+  // Selected builder owes a settlement stage submission for one task.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_SETTLE_BUILDER identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_SETTLE_BUILDER = 2;
+  // Cortex node is assigned as verifier on an open challenge round.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_CHALLENGE_VERIFIER identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_CHALLENGE_VERIFIER = 3;
+  // The selected Worker key remains provable through the output-evidence window.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE = 4;
+  // Locked Task Builder is still exposed to objective BusEnvelope evidence for
+  // one task, so its service key must stay verifiable.
+  //
+  // Lifecycle (keeper_data_structure_contract.md lines 1094-1102 plus keeper_api_contract.md
+  // lines 2667-2668, 4184-4186 and 4711-4712), all inside one cache transaction
+  // with the participant counter and the ByTask index:
+  //   create  - when the first Task proposal is accepted and the Task Builders
+  //             are locked, exactly one row per Builder is created for that
+  //             Builder's current (operator, authorization_nonce) and
+  //             pending_evidence_submission_count is checked +1. An exact replay
+  //             of the accepted proposal creates nothing a second time.
+  //   keep    - ReleaseTaskTerminalRefsOnce on the terminal transition deletes
+  //             every other ServiceKeyResponsibilityState row of the task but
+  //             must preserve this one; the terminal transition may not
+  //             decrement the counter early.
+  //   release - only the EvidenceCleanupIndex sweep, once it reaches
+  //             task_finality_height + max_evidence_retention_blocks and the
+  //             evidence bodies are pruned, deletes the row/index and does the
+  //             checked -1. It is the only first-time decrement of this kind.
+  // Therefore MsgRotateServiceKey stays blocked for the whole objective-evidence
+  // admissibility window: an operator cannot clear the counter first and rotate
+  // the accusable key away afterwards.
+  // SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE identifies the corresponding protocol value.
+  SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE = 5;
+}
+
+// GovernanceReason is the closed reason set of a governance model or profile status transition (9.6b).
+enum GovernanceReason {
+  // Never written.
+  // GOVERNANCE_REASON_UNSPECIFIED identifies the corresponding protocol value.
+  GOVERNANCE_REASON_UNSPECIFIED = 0;
+  // Freeze the model or profile.
+  // GOVERNANCE_REASON_FREEZE identifies the corresponding protocol value.
+  GOVERNANCE_REASON_FREEZE = 1;
+  // Unfreeze back to REGISTERED.
+  // GOVERNANCE_REASON_UNFREEZE identifies the corresponding protocol value.
+  GOVERNANCE_REASON_UNFREEZE = 2;
+  // Terminal delisting.
+  // GOVERNANCE_REASON_DELIST identifies the corresponding protocol value.
+  GOVERNANCE_REASON_DELIST = 3;
+  // Recovery action after an emergency freeze.
+  // GOVERNANCE_REASON_EMERGENCY_RECOVERY identifies the corresponding protocol value.
+  GOVERNANCE_REASON_EMERGENCY_RECOVERY = 4;
+}
+
+// ServiceBondStatus is the operator-global service bond lifecycle (data-structure contract 6.4).
+enum ServiceBondStatus {
+  // Never written; rejects zero-value rows.
+  // SERVICE_BOND_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_UNSPECIFIED = 0;
+  // Bond row created but not yet effective.
+  // SERVICE_BOND_STATUS_REGISTERED identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_REGISTERED = 1;
+  // Bond is effective and may back duties.
+  // SERVICE_BOND_STATUS_ACTIVE identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_ACTIVE = 2;
+  // Operator is jailed; no new duty is assigned.
+  // SERVICE_BOND_STATUS_JAILED identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_JAILED = 3;
+  // Operator is unbonding to zero.
+  // SERVICE_BOND_STATUS_UNBONDING identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_UNBONDING = 4;
+  // Bond reached zero with no outstanding liability.
+  // SERVICE_BOND_STATUS_EXITED identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_EXITED = 5;
+  // Permanently excluded.
+  // SERVICE_BOND_STATUS_TOMBSTONED identifies the corresponding protocol value.
+  SERVICE_BOND_STATUS_TOMBSTONED = 6;
+}
+
+// UnbondingStatus is the lifecycle of one service unbonding row. The numeric
+// values are frozen by keeper_api_contract.md §9.6b, which is the sole authority for
+// closed enum values; §16.3 QueryServiceUnbondings filters on this exact set.
+// UnbondingStatus defines the UnbondingStatus wire type.
+enum UnbondingStatus {
+  // Never written; rejects zero-value rows.
+  // UNBONDING_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  UNBONDING_STATUS_UNSPECIFIED = 0;
+  // Created by MsgBeginServiceUnstake and still before mature_height.
+  // UNBONDING_STATUS_OPEN identifies the corresponding protocol value.
+  UNBONDING_STATUS_OPEN = 1;
+  // mature_height reached; withdrawable via MsgWithdrawServiceUnbonded.
+  // UNBONDING_STATUS_MATURE identifies the corresponding protocol value.
+  UNBONDING_STATUS_MATURE = 2;
+  // Fully withdrawn to the operator; row is replaced by UnbondingReceiptState.
+  // UNBONDING_STATUS_WITHDRAWN identifies the corresponding protocol value.
+  UNBONDING_STATUS_WITHDRAWN = 3;
+  // Fully consumed by ApplyServiceSlash; row is replaced by a receipt.
+  // UNBONDING_STATUS_SLASHED identifies the corresponding protocol value.
+  UNBONDING_STATUS_SLASHED = 4;
+}
+
+// UnbondingReceiptTerminalStatus is the terminal outcome recorded on an unbonding receipt (6.4).
+enum UnbondingReceiptTerminalStatus {
+  // Never written.
+  // UNBONDING_RECEIPT_TERMINAL_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  UNBONDING_RECEIPT_TERMINAL_STATUS_UNSPECIFIED = 0;
+  // Entry was fully withdrawn to the operator.
+  // UNBONDING_RECEIPT_TERMINAL_STATUS_WITHDRAWN identifies the corresponding protocol value.
+  UNBONDING_RECEIPT_TERMINAL_STATUS_WITHDRAWN = 1;
+  // Entry was fully consumed by a slash.
+  // UNBONDING_RECEIPT_TERMINAL_STATUS_FULLY_SLASHED identifies the corresponding protocol value.
+  UNBONDING_RECEIPT_TERMINAL_STATUS_FULLY_SLASHED = 2;
+}
+
+// LiabilityStatus is the lifecycle of one per-task bond reservation (6.4).
+enum LiabilityStatus {
+  // Never written; rejects zero-value rows.
+  // LIABILITY_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  LIABILITY_STATUS_UNSPECIFIED = 0;
+  // Reservation is held against the active bond.
+  // LIABILITY_STATUS_RESERVED identifies the corresponding protocol value.
+  LIABILITY_STATUS_RESERVED = 1;
+  // Duty ended without fault; reservation released.
+  // LIABILITY_STATUS_RELEASED identifies the corresponding protocol value.
+  LIABILITY_STATUS_RELEASED = 2;
+  // Reservation was consumed by a slash.
+  // LIABILITY_STATUS_SLASHED identifies the corresponding protocol value.
+  LIABILITY_STATUS_SLASHED = 3;
+}
+
+// ModelSupportActivationKind records which task fact first activated one support row (6.1).
+enum ModelSupportActivationKind {
+  // Never written.
+  // MODEL_SUPPORT_ACTIVATION_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  MODEL_SUPPORT_ACTIVATION_KIND_UNSPECIFIED = 0;
+  // Support row has not been activated by any task fact.
+  // MODEL_SUPPORT_ACTIVATION_KIND_NONE identifies the corresponding protocol value.
+  MODEL_SUPPORT_ACTIVATION_KIND_NONE = 1;
+  // Activated by a worker task at or above the P30 order value cutoff.
+  // MODEL_SUPPORT_ACTIVATION_KIND_WORKER_P30_ORDER_VALUE identifies the corresponding protocol value.
+  MODEL_SUPPORT_ACTIVATION_KIND_WORKER_P30_ORDER_VALUE = 2;
+  // Activated by an assigned verifier duty on a valid task.
+  // MODEL_SUPPORT_ACTIVATION_KIND_VERIFIER_ASSIGNED_VALID identifies the corresponding protocol value.
+  MODEL_SUPPORT_ACTIVATION_KIND_VERIFIER_ASSIGNED_VALID = 3;
+}
+
+// ModelSupportStatus is the single roleless support row lifecycle (9.6b).
+enum ModelSupportStatus {
+  // Never written; rejects zero-value rows.
+  // MODEL_SUPPORT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  MODEL_SUPPORT_STATUS_UNSPECIFIED = 0;
+  // Declared but not yet activated by a task fact.
+  // MODEL_SUPPORT_STATUS_DECLARED identifies the corresponding protocol value.
+  MODEL_SUPPORT_STATUS_DECLARED = 1;
+  // Active and fresh.
+  // MODEL_SUPPORT_STATUS_ACTIVE identifies the corresponding protocol value.
+  MODEL_SUPPORT_STATUS_ACTIVE = 2;
+  // Freshness window elapsed without a heartbeat.
+  // MODEL_SUPPORT_STATUS_STALE identifies the corresponding protocol value.
+  MODEL_SUPPORT_STATUS_STALE = 3;
+  // Deactivated; the operator no longer supports the profile.
+  // MODEL_SUPPORT_STATUS_INACTIVE identifies the corresponding protocol value.
+  MODEL_SUPPORT_STATUS_INACTIVE = 4;
+}
+
+// RoleFaultStatus is the lifecycle of one recorded role fault receipt (6.4).
+enum RoleFaultStatus {
+  // Never written; rejects zero-value rows.
+  // ROLE_FAULT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  ROLE_FAULT_STATUS_UNSPECIFIED = 0;
+  // Fault receipt is the current attribution.
+  // ROLE_FAULT_STATUS_CONFIRMED identifies the corresponding protocol value.
+  ROLE_FAULT_STATUS_CONFIRMED = 1;
+  // Replaced by a later attribution.
+  // ROLE_FAULT_STATUS_SUPERSEDED identifies the corresponding protocol value.
+  ROLE_FAULT_STATUS_SUPERSEDED = 2;
+}
+
+// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
+enum FaultKind {
+  reserved 4;
+  reserved "FAULT_KIND_EVIDENCE_DEFAULT";
+
+  // Never written; rejects zero-value receipts.
+  // FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  FAULT_KIND_UNSPECIFIED = 0;
+  // Assigned duty missed its deadline.
+  // FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
+  FAULT_KIND_TIMEOUT = 1;
+  // Submitted material was objectively invalid.
+  // FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
+  FAULT_KIND_INVALID_RESULT = 2;
+  // Two conflicting accepted submissions for one scope.
+  // FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
+  FAULT_KIND_EQUIVOCATION = 3;
+  // Builder objective evidence was accepted against the operator.
+  // FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
+  FAULT_KIND_BUILDER_OBJECTIVE_FAULT = 5;
+}
+
+// ParamsModuleV1 selects the owner of a parameter-update event.
+enum ParamsModuleV1 {
+  // Never emitted; rejects an unset parameter owner.
+  // PARAMS_MODULE_V1_UNSPECIFIED identifies the corresponding protocol value.
+  PARAMS_MODULE_V1_UNSPECIFIED = 0;
+  // Hub-owned parameter version.
+  // PARAMS_MODULE_V1_HUB identifies the corresponding protocol value.
+  PARAMS_MODULE_V1_HUB = 1;
+  // Task-owned parameter version.
+  // PARAMS_MODULE_V1_TASK identifies the corresponding protocol value.
+  PARAMS_MODULE_V1_TASK = 2;
+}
+
+// EventLifecycleReason is the closed lifecycle reason carried by jail, slash and exit events (9.6b).
+enum EventLifecycleReason {
+  // Never written.
+  // EVENT_LIFECYCLE_REASON_UNSPECIFIED identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_UNSPECIFIED = 0;
+  // Triggered by a missed deadline.
+  // EVENT_LIFECYCLE_REASON_TIMEOUT identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_TIMEOUT = 1;
+  // Triggered by an accepted objective fault.
+  // EVENT_LIFECYCLE_REASON_OBJECTIVE_FAULT identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_OBJECTIVE_FAULT = 2;
+  // Triggered by a governance action.
+  // EVENT_LIFECYCLE_REASON_GOVERNANCE identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_GOVERNANCE = 3;
+  // Triggered by a service key revocation.
+  // EVENT_LIFECYCLE_REASON_KEY_REVOKED identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_KEY_REVOKED = 4;
+  // Triggered by the bond dropping below the minimum.
+  // EVENT_LIFECYCLE_REASON_BOND_BELOW_MIN identifies the corresponding protocol value.
+  EVENT_LIFECYCLE_REASON_BOND_BELOW_MIN = 5;
+}

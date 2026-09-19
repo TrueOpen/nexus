@@ -1,0 +1,218 @@
+syntax = "proto3";
+package hub.v1;
+
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// EmergencyFreezeVote is one validator's ballot on a freeze signal. Values are
+// frozen by keeper_api_contract.md §9.6b.
+// EmergencyFreezeVote defines the EmergencyFreezeVote wire type.
+enum EmergencyFreezeVote {
+  // Never accepted; rejects an unset ballot.
+  // EMERGENCY_FREEZE_VOTE_UNSPECIFIED identifies the corresponding protocol value.
+  EMERGENCY_FREEZE_VOTE_UNSPECIFIED = 0;
+  // Vote to emergency-freeze the profile.
+  // EMERGENCY_FREEZE_VOTE_ACCEPT identifies the corresponding protocol value.
+  EMERGENCY_FREEZE_VOTE_ACCEPT = 1;
+  // Vote against emergency-freezing the profile.
+  // EMERGENCY_FREEZE_VOTE_REJECT identifies the corresponding protocol value.
+  EMERGENCY_FREEZE_VOTE_REJECT = 2;
+}
+
+// FreezeSignalBuildStatus is what MsgSubmitFreezeSignal reports back. Values are
+// frozen by keeper_api_contract.md §9.6b. BUILDING leaves freeze_signal_id absent
+// and BELOW_THRESHOLD_NOOP means the closed window did not reach
+// min_freeze_signal_failure_count, so no vote object or event was created.
+// FreezeSignalBuildStatus defines the FreezeSignalBuildStatus wire type.
+enum FreezeSignalBuildStatus {
+  // Never returned by an accepted Msg.
+  // FREEZE_SIGNAL_BUILD_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_BUILD_STATUS_UNSPECIFIED = 0;
+  // The bounded build cursor exists and has not finished the window scan.
+  // FREEZE_SIGNAL_BUILD_STATUS_BUILDING identifies the corresponding protocol value.
+  FREEZE_SIGNAL_BUILD_STATUS_BUILDING = 1;
+  // The scan finished above threshold and an OPEN signal now exists.
+  // FREEZE_SIGNAL_BUILD_STATUS_OPEN identifies the corresponding protocol value.
+  FREEZE_SIGNAL_BUILD_STATUS_OPEN = 2;
+  // The scan finished below threshold; cursor and window binding were deleted.
+  // FREEZE_SIGNAL_BUILD_STATUS_BELOW_THRESHOLD_NOOP identifies the corresponding protocol value.
+  FREEZE_SIGNAL_BUILD_STATUS_BELOW_THRESHOLD_NOOP = 3;
+}
+
+// FreezeSignalStatus is the freeze signal lifecycle. Values are frozen by
+// keeper_api_contract.md §9.6b.
+// FreezeSignalStatus defines the FreezeSignalStatus wire type.
+enum FreezeSignalStatus {
+  // Never written; rejects zero-value signal rows.
+  // FREEZE_SIGNAL_STATUS_UNSPECIFIED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_UNSPECIFIED = 0;
+  // Only the build cursor exists; no vote object yet.
+  // FREEZE_SIGNAL_STATUS_BUILDING identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_BUILDING = 1;
+  // Voting is open until vote_deadline_height.
+  // FREEZE_SIGNAL_STATUS_OPEN identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_OPEN = 2;
+  // ACCEPT voting power reached two thirds and the profile was frozen.
+  // FREEZE_SIGNAL_STATUS_ACCEPTED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_ACCEPTED = 3;
+  // REJECT voting power made two thirds ACCEPT unreachable.
+  // FREEZE_SIGNAL_STATUS_REJECTED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_REJECTED = 4;
+  // The deadline runner closed a still-OPEN signal.
+  // FREEZE_SIGNAL_STATUS_EXPIRED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_STATUS_EXPIRED = 5;
+}
+
+// FreezeSignalWindowPhase is the per-profile fixed-window binding phase.
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
+// `FreezeSignalByWindowIndex.phase = BUILDING / OPEN / CLOSED` but
+// keeper_api_contract.md §9.6b does not register the enum. The three registered
+// values are reproduced verbatim. CLOSED retains the terminal binding for a
+// signal until summary prune; a below-threshold window advances the profile
+// waterline and deletes its transient binding without creating a signal.
+// FreezeSignalWindowPhase defines the FreezeSignalWindowPhase wire type.
+enum FreezeSignalWindowPhase {
+  // Never written; rejects zero-value window bindings.
+  // FREEZE_SIGNAL_WINDOW_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_WINDOW_PHASE_UNSPECIFIED = 0;
+  // A build cursor is scanning this fixed window.
+  // FREEZE_SIGNAL_WINDOW_PHASE_BUILDING identifies the corresponding protocol value.
+  FREEZE_SIGNAL_WINDOW_PHASE_BUILDING = 1;
+  // This window produced the currently OPEN signal.
+  // FREEZE_SIGNAL_WINDOW_PHASE_OPEN identifies the corresponding protocol value.
+  FREEZE_SIGNAL_WINDOW_PHASE_OPEN = 2;
+  // This window produced a terminal retained signal.
+  // FREEZE_SIGNAL_WINDOW_PHASE_CLOSED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_WINDOW_PHASE_CLOSED = 3;
+}
+
+// FreezeSignalPrunePhase is the two-stage freeze signal retention order.
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
+// `FreezeSignalPruneIndex ... phase = VOTES / HEADER` but keeper_api_contract.md
+// §9.6b does not register the enum. Both registered values are reproduced
+// verbatim; ascending numbers are the mandatory order, because vote rows are
+// deleted at freeze_signal_detail_retention_blocks and the header only at
+// freeze_signal_summary_retention_blocks.
+// FreezeSignalPrunePhase defines the FreezeSignalPrunePhase wire type.
+enum FreezeSignalPrunePhase {
+  // Never written; rejects zero-value prune rows.
+  // FREEZE_SIGNAL_PRUNE_PHASE_UNSPECIFIED identifies the corresponding protocol value.
+  FREEZE_SIGNAL_PRUNE_PHASE_UNSPECIFIED = 0;
+  // Bounded deletion of EmergencyFreezeVoteState rows.
+  // FREEZE_SIGNAL_PRUNE_PHASE_VOTES identifies the corresponding protocol value.
+  FREEZE_SIGNAL_PRUNE_PHASE_VOTES = 1;
+  // Deletion of the signal header and its window binding.
+  // FREEZE_SIGNAL_PRUNE_PHASE_HEADER identifies the corresponding protocol value.
+  FREEZE_SIGNAL_PRUNE_PHASE_HEADER = 2;
+}
+
+// FreezeFailureClassCountsV1 is the per-class breakdown of the failures a freeze
+// signal aggregated.
+//
+// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
+// `included_failure_class_counts = METRIC_THRESHOLD_BREACH / OBJECTIVE_FAULT /
+// SCHEMA_FAULT / WORKER_EVIDENCE_FAULT` without giving a wire shape. The four
+// listed classes are exactly the freeze-eligible TaskFailureClass values, so
+// they are encoded as four fixed counters instead of an unbounded repeated
+// list; INSUFFICIENT_VERIFIER is deliberately absent because §6.1 and §10.12
+// keep it out of the freeze root and count it separately as
+// excluded_insufficient_verifier_count.
+// FreezeFailureClassCountsV1 defines the FreezeFailureClassCountsV1 wire type.
+message FreezeFailureClassCountsV1 {
+  uint32 metric_threshold_breach = 1;
+  uint32 objective_fault = 2;
+  uint32 schema_fault = 3;
+  uint32 worker_evidence_fault = 4;
+}
+
+// FreezeSignalState is the profile-level risk object validators vote on
+// (keeper_data_structure_contract.md §6.1).
+//
+// The Keeper builds it from the single next fully closed fixed risk window and
+// only from TaskFailureClassState rows with freeze_signal_eligible=true; the
+// caller never submits the window, the failure set, counters or hashes.
+// included_failure_task_refs_hash is the TRUEOPEN_FREEZE_FAILURE_REFS_V1 rolling
+// root, so the refs array itself is never stored. validator_snapshot_height,
+// validator_set_hash and total_voting_power_snapshot freeze at OPEN time so the
+// validator set cannot drift during voting.
+// FreezeSignalState defines the FreezeSignalState wire type.
+message FreezeSignalState {
+  bytes freeze_signal_id = 1;
+  string model_id = 2;
+  uint32 profile_version = 3;
+  uint64 risk_window_id = 4;
+  uint64 risk_window_start_height = 5;
+  uint64 risk_window_end_height = 6;
+  uint32 included_failure_task_ref_count = 7;
+  bytes included_failure_task_refs_hash = 8;
+  FreezeFailureClassCountsV1 included_failure_class_counts = 9;
+  uint32 excluded_insufficient_verifier_count = 10;
+  uint64 accepted_voting_power = 11;
+  uint64 rejected_voting_power = 12;
+  uint64 total_voting_power_snapshot = 13;
+  FreezeSignalStatus signal_status = 14;
+  uint64 validator_snapshot_height = 15;
+  bytes validator_set_hash = 16;
+  uint64 created_height = 17;
+  uint64 vote_deadline_height = 18;
+  uint64 closed_height = 19;
+}
+
+// FreezeSignalBuildCursorState makes the risk window scan resumable and bounded
+// (keeper_data_structure_contract.md §6.1, key (model_id, profile_version)).
+//
+// The cursor walks TaskFailureClassByProfileWindowIndex in stable
+// (task_finality_height, failure_class, task_id) order, revalidates finality,
+// challenge and supersede state from each primary, and folds
+// rolling_failure_refs_hash forward. Every visited row costs budget. The cursor
+// is deleted when the window finishes, whether or not a signal is created; a
+// profile never has more than one BUILDING or OPEN object.
+// FreezeSignalBuildCursorState defines the FreezeSignalBuildCursorState wire type.
+message FreezeSignalBuildCursorState {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  uint64 risk_window_id = 3;
+  uint64 risk_window_start_height = 4;
+  uint64 risk_window_end_height = 5;
+  bytes last_failure_index_key = 6;
+  bytes rolling_failure_refs_hash = 7;
+  uint32 included_failure_task_ref_count = 8;
+  FreezeFailureClassCountsV1 included_failure_class_counts = 9;
+  uint32 excluded_insufficient_verifier_count = 10;
+  uint64 visited_count = 11;
+}
+
+// EmergencyFreezeVoteState is one validator ballot
+// (keeper_data_structure_contract.md §6.1, key
+// (freeze_signal_id, validator_consensus_address)).
+//
+// validator_consensus_address is ConsensusAddressBytes resolved by the Keeper
+// from the Tx signer through the staking keeper; it is never a caller field and
+// never an account address. voting_power_snapshot is read from the frozen
+// validator snapshot. No signature digest is stored, because the Cosmos Tx
+// signer already authorizes the ballot and §10.0a removed the same-account
+// detached signature.
+// EmergencyFreezeVoteState defines the EmergencyFreezeVoteState wire type.
+message EmergencyFreezeVoteState {
+  bytes freeze_signal_id = 1;
+  // CometBFT consensus address bytes (20 bytes), not a Hash32; REST uses Base64.
+  bytes validator_consensus_address = 2;
+  uint64 voting_power_snapshot = 3;
+  EmergencyFreezeVote vote = 4;
+  uint64 accepted_height = 5;
+}
+
+// FreezeSignalByWindowIndex binds one profile fixed window to its outcome
+// (keeper_data_structure_contract.md §6.1, key (model_id, profile_version, risk_window_id)).
+// It is the exact-replay guard for MsgSubmitFreezeSignal: a window already
+// recorded here is a noop instead of a second signal.
+// FreezeSignalByWindowIndex defines the FreezeSignalByWindowIndex wire type.
+message FreezeSignalByWindowIndex {
+  string model_id = 1;
+  uint32 profile_version = 2;
+  uint64 risk_window_id = 3;
+  FreezeSignalWindowPhase phase = 4;
+  optional bytes freeze_signal_id = 5;
+}

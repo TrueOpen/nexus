@@ -1,0 +1,77 @@
+syntax = "proto3";
+package task.v1;
+
+import "task/v1/assignment.proto";
+import "task/v1/challenge.proto";
+import "task/v1/cleanup.proto";
+import "task/v1/commit.proto";
+import "task/v1/epoch_summary.proto";
+import "task/v1/evidence.proto";
+import "task/v1/infer_receipt.proto";
+import "task/v1/open_verify.proto";
+import "task/v1/params.proto";
+import "task/v1/result.proto";
+import "task/v1/session.proto";
+import "task/v1/settlement.proto";
+import "task/v1/timeout_bucket.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// GenesisState contains every Task primary/cursor needed for an exact
+// export/import round trip. Derived indexes are rebuilt and cross-checked.
+// GenesisState defines the GenesisState wire type.
+message GenesisState {
+  TaskParamsV1 params = 1;
+  TaskParamsMetaState params_meta = 2;
+
+  repeated SessionNonceState session_nonces = 10;
+  repeated StreamState streams = 11;
+  repeated OrderSequenceState order_sequences = 12;
+  repeated TaskBudgetState task_budgets = 14;
+  repeated SessionHistoryPruneCursorState session_history_prune_cursors = 15;
+  repeated SessionTerminalSummaryState session_terminal_summaries = 16;
+
+  // TaskCoreState is the only primary of the six Task sub-states.
+  repeated TaskCoreState task_cores = 19;
+  repeated TaskAssignmentState task_assignments = 21;
+  repeated AssignmentCandidateSetState assignment_candidate_sets = 22;
+  repeated InferReceiptState infer_receipts = 24;
+  repeated VerifierAssignmentState verifier_assignments = 26;
+  repeated CommitState commits = 27;
+  repeated ResultReceiptState result_receipts = 28;
+
+  // Handraise / candidate freeze rows (§4.2/§4.6).
+  repeated TaskCandidateFactState task_candidate_facts = 32;
+  repeated BuilderStageProposalState builder_stage_proposals = 33;
+  repeated TaskStageHandraiseUnionState task_stage_handraise_unions = 34;
+  repeated TaskStageHandraiseUnionSegmentState task_stage_handraise_union_segments = 35;
+  repeated TaskCandidateFinalizeCursorState task_candidate_finalize_cursors = 36;
+  repeated TaskBuilderSelectionState task_builder_selections = 37;
+
+  // Verifier window and verification rows (§4.4/§6.6).
+  repeated VerifierCandidateWindowState verifier_candidate_windows = 38;
+  repeated VerifierCandidateEligibilitySegmentState verifier_candidate_eligibility_segments = 39;
+  repeated VerifierCandidateWindowMemberState verifier_candidate_window_members = 46;
+  repeated DataUnavailableReportState data_unavailable_reports = 48;
+  repeated BuilderDataUnavailableAggregateState builder_data_unavailable_aggregates = 49;
+
+  repeated TaskFailureClassState task_failure_classes = 42;
+
+  // Governance parameter bucket references; task_ref_count is recomputed in
+  // x/hub from these rows and a mismatch is rejected (§6.7).
+  repeated TaskBucketRefState task_bucket_refs = 59;
+  repeated TaskCleanupCursorState task_cleanup_cursors = 60;
+  repeated TaskTerminalSummaryState task_terminal_summaries = 61;
+  repeated EpochTaskSummaryCursorState epoch_task_summary_cursors = 62;
+  repeated EpochTaskSummaryReceiptState epoch_task_summary_receipts = 63;
+  repeated TaskGasReimbursementV1 task_gas_reimbursements = 64;
+  repeated VerificationRoundState verification_rounds = 65;
+  repeated RoundFundingState round_fundings = 66;
+  repeated RoundEconomicEffectState round_economic_effects = 67;
+  repeated RoundEconomicEffectApplyCursorState round_economic_effect_apply_cursors = 68;
+  repeated TaskRoundSummaryState task_round_summaries = 69;
+  repeated VerifierPayoutState verifier_payouts = 70;
+  repeated TaskSettlementState task_settlements = 71;
+  repeated SettlementFactsRetainedState settlement_facts_retained = 72;
+  repeated WorkerEvidenceReceiptState worker_evidence_receipts = 73;
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "trueopen-task-data-plane-golden-v1",
+  "task_id": {
+    "session_id_raw_hex": "abababababababababababababababababababababababababababababababab",
+    "order_sequence": "42",
+    "preimage_hex": "0000000000000013545255454f50454e5f5441534b5f49445f56310000000000000020abababababababababababababababababababababababababababababababab0000000000000008000000000000002a",
+    "expected_hex": "0891a5c5704d4dff5671daab9b353f31c86f81ac53cf1b3c4ef5171322c19f50"
+  },
+  "signing_vectors": [
+    {
+      "name": "order",
+      "fields": ["chain-golden", "owner-golden", "session-golden", "42", "{\"schema_version\":\"trueopen-order-envelope-v1\",\"model_id\":\"model-golden\",\"profile_version\":1,\"task_type\":\"inference\",\"reward_bucket\":2,\"profile_resource_tier\":3,\"infer_input_unit_price_bid\":2,\"infer_output_unit_price_bid\":3,\"verify_unit_price_bid\":4,\"max_fee\":1000,\"tx_fee_reserve\":0,\"infer_fee_cap\":700,\"verify_fee_cap\":200,\"order_value\":900,\"valid_after_height\":11,\"deadline_height\":222,\"payload_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"infer_timeout_blocks\":33}"],
+      "expected_signing_bytes_hex": "723d1c261375ca282e4ba0f0d1f3d350807a317da823c13ed5fc76c99134e6a0"
+    },
+    {
+      "name": "assign_builder",
+      "fields": ["chain-golden", "task-golden", "order-golden", "candidates-golden", "handraises-golden", "builder-golden", "7"],
+      "expected_signing_bytes_hex": "4e1fd970db22216290fed0fdab3503715ae3f06e6ec25cbe9377bffd3d2d042a"
+    },
+    {
+      "name": "worker_handraise",
+      "fields": ["chain-golden", "task-golden", "order-golden", "snapshot-golden", "candidates-golden", "worker-golden", "303", "membership-golden"],
+      "expected_signing_bytes_hex": "7b7d7b713e3abc5a10777adb965527b1254f967d5114f44eca2caccc63c1d102"
+    },
+    {
+      "name": "open_verify_builder",
+      "fields": ["chain-golden", "task-golden", "worker-golden", "commit-golden", "receipt-golden", "builder-golden", "7"],
+      "expected_signing_bytes_hex": "bea539363d2e50417d853f37b29815457dde4fde239c90a9dcc804645d8f21bc"
+    },
+    {
+      "name": "verifier_handraise",
+      "fields": ["chain-golden", "task-golden", "receipt-golden", "output-golden", "snapshot-golden", "membership-golden", "verifier-golden", "303"],
+      "expected_signing_bytes_hex": "2023be633928fab75b03bd040546a2b27e78e559fcefb8332fa4067656acc426"
+    }
+  ]
+}

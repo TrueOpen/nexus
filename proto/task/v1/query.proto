@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "task/v1/query_session.proto";
+import "task/v1/query_settlement_build.proto";
+import "task/v1/query_task.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// Query defines Task-owned session, execution and verification queries. Every
+// rpc is registered in keeper_api_contract.md §16.2/§16.3/§16.4; the removed ones are
+// listed at the bottom of this file.
+// Query defines the Query wire type.
+service Query {
+  // Params returns Task parameters.
+  rpc Params(QueryTaskParamsRequest) returns (QueryTaskParamsResponse);
+  // Task returns the composite view of one task.
+  rpc Task(QueryTaskRequest) returns (QueryTaskResponse);
+  // TaskStage returns the stage and next-deadline projection of one task.
+  rpc TaskStage(QueryTaskStageRequest) returns (QueryTaskStageResponse);
+  // TaskAssignment returns the Worker assignment projection of one task.
+  rpc TaskAssignment(QueryTaskAssignmentRequest) returns (QueryTaskAssignmentResponse);
+  // AssignmentRandomness returns the frozen assignment randomness of one task.
+  rpc AssignmentRandomness(QueryAssignmentRandomnessRequest) returns (QueryAssignmentRandomnessResponse);
+  // TaskBudget returns the authoritative per-task accounting row.
+  rpc TaskBudget(QueryTaskBudgetRequest) returns (QueryTaskBudgetResponse);
+  // TaskBuilders returns the frozen Task Builder selection of one task. It is the
+  // only read path for the per-task Builder identity that Worker INPUT/OUTPUT
+  // transfer, the three-Builder fan-out, the 2-of-3 data-ready confirmation and
+  // the two Builder bitmaps all address; PRUNED and post-compaction semantics are
+  // frozen on QueryTaskBuildersResponse.
+  // TaskBuilders executes the TaskBuilders operation.
+  rpc TaskBuilders(QueryTaskBuildersRequest) returns (QueryTaskBuildersResponse);
+  // InferReceipt returns one task's accepted inference receipt.
+  rpc InferReceipt(QueryInferReceiptRequest) returns (QueryInferReceiptResponse);
+  // WorkerEvidence returns one compact objective-evidence receipt.
+  rpc WorkerEvidence(QueryWorkerEvidenceRequest) returns (QueryWorkerEvidenceResponse);
+  // VerifierCandidateWindow returns one round's frozen verifier window.
+  rpc VerifierCandidateWindow(QueryVerifierCandidateWindowRequest) returns (QueryVerifierCandidateWindowResponse);
+  // VerifierAssignment returns one round's verifier assignment.
+  rpc VerifierAssignment(QueryVerifierAssignmentRequest) returns (QueryVerifierAssignmentResponse);
+  // VerifyCommit returns one verifier's commit row.
+  rpc VerifyCommit(QueryVerifyCommitRequest) returns (QueryVerifyCommitResponse);
+  // ResultReceipt returns one verifier's result credential.
+  rpc ResultReceipt(QueryResultReceiptRequest) returns (QueryResultReceiptResponse);
+  // DataUnavailableReports pages one round's verifier reports.
+  rpc DataUnavailableReports(QueryDataUnavailableReportsRequest) returns (QueryDataUnavailableReportsResponse);
+  // BuilderDataUnavailable returns one (task, round, builder) aggregate.
+  rpc BuilderDataUnavailable(QueryBuilderDataUnavailableRequest) returns (QueryBuilderDataUnavailableResponse);
+  // SettlementFacts returns the retained immutable settlement facts.
+  rpc SettlementFacts(QuerySettlementFactsRequest) returns (QuerySettlementFactsResponse);
+  // Settlement returns the sole committed settlement state and plan.
+  rpc Settlement(QuerySettlementRequest) returns (QuerySettlementResponse);
+  // VerificationRound returns round 1 or round 2 state.
+  rpc VerificationRound(QueryVerificationRoundRequest) returns (QueryVerificationRoundResponse);
+  // TaskGasReimbursements pages receipts by (tx_hash, item_index).
+  rpc TaskGasReimbursements(QueryTaskGasReimbursementsRequest) returns (QueryTaskGasReimbursementsResponse);
+  // TaskFailureClass returns one task failure classification.
+  rpc TaskFailureClass(QueryTaskFailureClassRequest) returns (QueryTaskFailureClassResponse);
+  // EvidenceCleanup returns the bounded cleanup progress of one task.
+  rpc EvidenceCleanup(QueryEvidenceCleanupRequest) returns (QueryEvidenceCleanupResponse);
+  // EpochTaskSummary returns either the resumable fold or its retained receipt.
+  rpc EpochTaskSummary(QueryEpochTaskSummaryRequest) returns (QueryEpochTaskSummaryResponse);
+  // Session returns one stream session.
+  rpc Session(QuerySessionRequest) returns (QuerySessionResponse);
+  // SessionNonce returns the next nonce for one user.
+  rpc SessionNonce(QuerySessionNonceRequest) returns (QuerySessionNonceResponse);
+  // SessionsByOwner lists active sessions for one user.
+  rpc SessionsByOwner(QuerySessionsByOwnerRequest) returns (QuerySessionsByOwnerResponse);
+  // SessionTerminalSummary returns one collapsed session summary.
+  rpc SessionTerminalSummary(QuerySessionTerminalSummaryRequest) returns (QuerySessionTerminalSummaryResponse);
+  // OrderSequence returns one order sequence audit row.
+  rpc OrderSequence(QueryOrderSequenceRequest) returns (QueryOrderSequenceResponse);
+  // RoleActiveTasks lists active tasks for one worker or verifier.
+  rpc RoleActiveTasks(QueryRoleActiveTasksRequest) returns (QueryRoleActiveTasksResponse);
+}
+
+// Fresh Phase 0 has no settlement preview, challenge-id, proof, opening, or
+// full-result-reveal Query surface.
+//   QueryTimeoutBucket
+//     - moved to hub.v1.Query with the single governance bucket writer.
+// Hub and Task Params remain separate module queries; Phase 0 intentionally has
+// no app-level combined Params RPC.
