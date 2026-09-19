@@ -321,7 +321,7 @@ func (c *Coordinator) requestDueLifecycleReconcile(height uint64) {
 
 // reconcileSettleSelection reads two on-chain facts once settlement inputs are complete: the frozen Task Builder
 // order (task TaskBuilders) and the grace blocks per rank (Hub parameter). If either is unavailable the task
-// is kept for the next reconciliation; rank 1 is never assumed (nexus#74).
+// is kept for the next reconciliation; rank 1 is never assumed.
 func (c *Coordinator) reconcileSettleSelection(fsm *taskFSM) {
 	if c.selection == nil || !fsm.needsSettleSelection() {
 		return

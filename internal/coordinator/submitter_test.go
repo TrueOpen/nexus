@@ -721,7 +721,7 @@ func TestUnsignedFallbackRejectsMismatchedTypeURLBeforeBroadcast(t *testing.T) {
 // verifies them against the order-domain EIP-712 digest using the on-chain
 // account key.
 //
-// gh #42: nexus now **does** derive the task_hash itself (nodecontract.TaskOrderHashV2) and uses it
+// nexus **does** derive the task_hash itself (nodecontract.TaskOrderHashV2) and uses it
 // to bind the proposal scope to every hand-raise, so this order really has to be canonical --
 // user_address must be valid bech32 and amounts must be decimal with no leading zeros. Deriving a
 // digest is not verifying a signature: the user signature is still verified only by the keeper.
@@ -762,8 +762,7 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 // (Keeper Interface Contract §4.1/§4.2.2).
 func testWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
 	// task_hash is the canonical digest of the testSignedOrder(user) order: the proposal scope and
-	// every hand-raise must be bound to the same value, or validateScopeTaskHash rejects outright
-	// (gh #42 acceptance 6).
+	// every hand-raise must be bound to the same value, or validateScopeTaskHash rejects outright.
 	taskHash, err := nodecontract.TaskOrderHashV2(testSignedOrder(user).GetOrder())
 	if err != nil {
 		panic(err)

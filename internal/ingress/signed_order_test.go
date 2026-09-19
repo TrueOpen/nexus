@@ -14,7 +14,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
-// testFrozenUserAddress must be canonical bech32: since gh #42 ingress derives task_hash from this
+// testFrozenUserAddress must be canonical bech32: ingress derives task_hash from this
 // TaskOrderV2, and the preimage frames the address codec bytes of user_address
 // (§1.2 / ruling 24), so a value that cannot be decoded yields no digest.
 // Value = bech32("trueopen", 20 x 0x11).
@@ -25,7 +25,7 @@ const testFrozenUserAddress = "trueopen1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3rsxm9a"
 func testUserSignatureV2(fill byte) []byte { return append(bytes.Repeat([]byte{fill}, 64), 27) }
 
 // testFrozenSignedOrder is a §5.13 task order **complete enough to derive task_hash**.
-// Before gh #42 amounts / output_budget_bucket / the bucket version could be missing here, because
+// Previously amounts / output_budget_bucket / the bucket version could be missing here, because
 // the order identity was then sha256(envelope), which ignores the content; now a single missing item makes the canonical
 // task_hash uncomputable and the order is rejected at ingress -- which is exactly the fail-closed behaviour wanted.
 func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
@@ -93,7 +93,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	if order.PayloadHash != strings.Repeat("22", 32) {
 		t.Fatalf("payload hash = %q", order.PayloadHash)
 	}
-	// gh #42: the order identity is the canonical task_hash derived from the user-signed TaskOrderV2,
+	// The order identity is the canonical task_hash derived from the user-signed TaskOrderV2,
 	// not sha256(order_envelope).
 	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV2(signed.GetOrder())
 	if hashErr != nil {
@@ -108,7 +108,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	}
 }
 
-// TestParseOrderEnvelopeTaskHashIgnoresUserSignature is how gh #42 acceptance criterion 3 shows up at the ingress
+// TestParseOrderEnvelopeTaskHashIgnoresUserSignature is how the signature independence of task_hash shows up at the ingress
 // layer: the same TaskOrder with a different user signature keeps the same task_hash. The old
 // order_digest = sha256(order_envelope) could not do this -- the signature is inside the envelope, so changing it changed the identity.
 func TestParseOrderEnvelopeTaskHashIgnoresUserSignature(t *testing.T) {
@@ -167,7 +167,7 @@ func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
 // TestParseLegacyOrderEnvelopeCarriesNoTaskHash records the position of the old JSON envelope: it lacks
 // chain_id / session_anchor_* / builder_set_* / generation_params, so the TRUEOPEN_TASK_ORDER_V2 preimage cannot be
 // built and there is **no** task_hash to fill in. This used to be filled with
-// sha256(envelope) posing as the identity, which gh #42 removed; the consequence is that such orders cannot be broadcast
+// sha256(envelope) posing as the identity, which has been removed; the consequence is that such orders cannot be broadcast
 // (taskfsm.onOrder rejects them), and they never passed the first-proposal scope branch anyway.
 func TestParseLegacyOrderEnvelopeCarriesNoTaskHash(t *testing.T) {
 	legacy := []byte(`{"schema_version":"trueopen-order-envelope-v1","model_id":"model-1","profile_version":1,` +

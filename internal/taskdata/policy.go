@@ -91,7 +91,7 @@ func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, heigh
 			// The task is not settled yet and the chain has no cleanup height: keep the
 			// object's existing retention height (the lease signed in the storage
 			// confirmation). Returning 0 would let the periodic sweep erase a signed
-			// commitment (issue #66).
+			// commitment.
 			return RetentionDecision{Status: RetentionActive, RetainUntilHeight: metadata.RetainUntilHeight}, nil
 		}
 		if height < cleanupHeight {

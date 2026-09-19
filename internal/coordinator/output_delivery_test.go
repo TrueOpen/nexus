@@ -74,14 +74,11 @@ func driveOutputTestToAssigned(t *testing.T, c *Coordinator, session, task, user
 
 // deliverPlaintext drives the internal "plaintext delivery + accept receipt" flow.
 //
-// The Nexus<->Cortex contract "target-state baseline" removed SubmitOutputRef and its inline
-// output_text entry; the Worker no longer hands plaintext to the Builder. On the SDK side the
-// target state for plaintext delivery is FetchTaskData(OUTPUT), while SubscribeOutput / AckOutput
-// remain RESERVED (SDK contract §3.5/§3.6). Production code therefore has no caller of Prepare;
-// this helper stands in via the internal seam of outputdelivery + FSM, to keep coverage of the
-// still-valid semantics: terminal-state advance, recovery and snapshot isolation. Once the
-// delivery path is reconnected (see docs/nexus-cortex-contract-migration.md), replace this with
-// the real entry point.
+// The Worker no longer hands plaintext to the Builder: OUTPUT goes over the streaming data plane,
+// and the legacy whole-plaintext path (used only when task_data.output_stream is disabled) has no
+// production caller of Prepare. This helper stands in via the internal seam of outputdelivery +
+// FSM, to keep coverage of that path's semantics: terminal-state advance, recovery and snapshot
+// isolation.
 func deliverPlaintext(t *testing.T, c *Coordinator, session, task, user, text string) (types.InferReceiptSubmission, error) {
 	t.Helper()
 	receipt := plaintextReceipt(session, task, text)

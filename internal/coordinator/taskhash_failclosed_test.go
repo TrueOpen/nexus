@@ -1,4 +1,4 @@
-// Regression cases for gh #42 acceptance 4/6: now that Task identity is unified on the canonical
+// Regression cases: now that Task identity is unified on the canonical
 // task_hash, "the same candidate hash throughout" must be an executable assertion rather than a
 // verbal agreement.
 //

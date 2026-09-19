@@ -103,7 +103,7 @@ func TestRecoveryPolicyRetentionFailsClosedForMissingNonInputAndQueryOutage(t *t
 
 // While the task is unsettled, the retention decision must keep the object's existing
 // retention height (the one signed in the storage confirmation) and must not return 0:
-// otherwise the periodic sweep would erase a signed commitment (issue #66).
+// otherwise the periodic sweep would erase a signed commitment.
 func TestRecoveryPolicyRetentionKeepsLeaseWhileTaskUnsettled(t *testing.T) {
 	fx := newAuthorizerFixture(t)
 	policy, err := NewRecoveryPolicy(fx.authority, fx.authorizer, recoveryOrderState{accepted: true})

@@ -190,7 +190,7 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 	if receiptPB == nil {
 		return types.InferReceiptSubmission{}, fmt.Errorf("%w: receipt is required", types.ErrInvalidArgument)
 	}
-	// schema_version equality is an admission check, not part of hash derivation (node#90): derivation stays total,
+	// schema_version equality is an admission check, not part of hash derivation: derivation stays total,
 	// and non-1 is explicitly rejected here so Cortex never gets a receipt that "passes locally, never passes on-chain".
 	if receiptPB.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV2 {
 		return types.InferReceiptSubmission{}, fmt.Errorf(
@@ -244,7 +244,7 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 	// required_evidence_commitments[] is co-signed with the receipt (field 10). kind is a closed enum, and the
 	// list is strictly ascending by kind and unique -- both are enforced by the derivation function, not silently reordered here.
 	// "The kind set must equal the locked profile's requirements" still awaits the Verification Profile freeze (contract §8.5),
-	// so set contents are not asserted and no minimum count is set (node#89 CONTRACT-GAP).
+	// so set contents are not asserted and no minimum count is set (a known contract gap).
 	for _, commitment := range receiptPB.GetRequiredEvidenceCommitments() {
 		hashOrRoot := commitment.GetEvidenceHashOrRoot()
 		if len(hashOrRoot) != sha256.Size {

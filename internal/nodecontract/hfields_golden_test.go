@@ -10,11 +10,11 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-// task_domains_v1.json is the original x/task/types/testdata file from node 8b1dd79
-// (byte-for-byte copy, sha256 03396de0…86f6), the golden vectors of TrueOpen/node#91.
+// task_domains_v1.json is the original x/task/types/testdata file from node
+// (byte-for-byte copy, sha256 03396de0…86f6).
 // Every vector carries the full preimage_hex, so aligning the framing needs no guessing at digests.
 //
-// This fixture was previously pinned at node d1dbf81. The chain later changed repeated values to a
+// This fixture was previously pinned at an older node release. The chain later changed repeated values to a
 // "single nested frame" encoding, the fixture was not updated, and this repository's
 // implementation and the stale fixture confirmed each other, so evidence_commitments_hash was
 // not the value the chain computed: receipt signatures with evidence commitments were bound to be
@@ -119,7 +119,7 @@ func encodeGoldenField(t *testing.T, field goldenField) []byte {
 		return encoded
 	case "address":
 		// The fixture records both the bech32 text and the address codec bytes so cross-language
-		// implementations can verify their own decoding (ruling 24 / node#95). Only the codec bytes
+		// implementations can verify their own decoding (ruling 24). Only the codec bytes
 		// enter the preimage.
 		encoded, err := CanonicalOperatorAddressBytes(field.Name, field.Bech32)
 		if err != nil {
@@ -344,7 +344,7 @@ func TestEvidenceCommitmentsHashGoldenBinding(t *testing.T) {
 	}
 }
 
-// TestEvidenceCommitmentsHashEmptyIsFullyDefined pins the two easiest pitfalls of node#89:
+// TestEvidenceCommitmentsHashEmptyIsFullyDefined pins the two easiest pitfalls of evidence_commitments_hash:
 // an empty list has a definite digest (not 32 zero bytes), and nil and [] share the same digest.
 func TestEvidenceCommitmentsHashEmptyIsFullyDefined(t *testing.T) {
 	const wantEmpty = "f029302b7f33dd77ad8e5217897a4e8386bf321dde9a510c1c6a287e408b9873"
@@ -366,7 +366,7 @@ func TestEvidenceCommitmentsHashEmptyIsFullyDefined(t *testing.T) {
 }
 
 // TestInferReceiptSigningDigestGoldenBinding is the receipt-side value-level production binding
-// and pins the cross-vector link of node#91: the 10th field (index 9) of infer_receipt_v2 equals
+// and pins the cross-vector link: the 10th field (index 9) of infer_receipt_v2 equals
 // the digest of infer_evidence_commitments_v1_pair, so both chains can be recomputed end to end.
 func TestInferReceiptSigningDigestGoldenBinding(t *testing.T) {
 	fixture := loadTaskDomainsFixture(t)

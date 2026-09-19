@@ -1857,7 +1857,7 @@ func (x *OutputStreamHeaderV1) GetRequestAuth() *TaskDataRequestAuthV1 {
 }
 
 // One chunk of OUTPUT text and its cumulative commitment
-// (04-Task/02-Data Plane & Evidence Transport §9.2).
+// (Data Plane & Evidence Transport §9.2).
 //
 // The same message is used both for Worker->Builder upload and Builder->User forwarding: the
 // Builder forwards it verbatim, without modifying the frame or adding its own signature.
@@ -1952,7 +1952,7 @@ func (x *OutputChunkV1) GetAttachmentSignature() []byte {
 	return nil
 }
 
-// Closing frame of an OUTPUT stream (04-Task/02-Data Plane & Evidence Transport §9.2).
+// Closing frame of an OUTPUT stream (Data Plane & Evidence Transport §9.2).
 //
 // Carries no signature. The authoritative commitment to the final root is
 // InferReceipt.output_hash; output_mmr_root here only lets the receiver detect early that it
@@ -4077,7 +4077,7 @@ func (*SubscribeOutputResponse_Fin) isSubscribeOutputResponse_Frame() {}
 // After ADR-0017 the delivery progress is just (task, last_seq); stream_id or output_hash is no
 // longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
 // an input to settlement, challenge, fault attribution or deletion permission
-// (04-Task/02-Data Plane & Evidence Transport §9.4).
+// (Data Plane & Evidence Transport §9.4).
 type AckOutputRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`

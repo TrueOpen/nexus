@@ -16,47 +16,19 @@ the whole Cosmos toolchain into consumers.
 `bus/v1` (the bus payloads between Builders and Cortex) stays in the root module
 `gen/bus` and is not part of this module.
 
-## Streaming OUTPUT data plane (ADR-0017, types only)
+## Streaming OUTPUT data plane (ADR-0017)
 
 `UploadTaskOutputStream`, `OutputStreamHeaderV1` / `OutputChunkV1` / `OutputFinV1`,
 `SubscribeOutput`'s `resume_after_seq` and `frame`, `AckOutput`'s `last_seq`, and
 `SubmitInferReceiptResponse.output_storage_confirmation` match TrueOpen/wire v0.1.1, except that
 `OutputFinV1.finish_reason` / `worker_signature` (signed output fin) are not adopted yet.
-`chunk_lengths` / `output_leaf_count` sit on `TaskDataMetadataV1` 9/10 with their
-wire v0.3.0 numbering; v0.4.0 moves them to `TaskDataObjectMetadataV1` 5/6, and nexus
-will migrate along with them when it adopts that message. The Nexus-side implementation
-sits behind `task_data.output_stream.enabled`, which is off by default; while it is off
-`UploadTaskOutputStream` returns Unimplemented. The whole-plaintext fields (1-7) of
-`SubscribeOutputResponse` are deprecated.
+The whole-plaintext fields (1-7) of `SubscribeOutputResponse` are deprecated.
 
 ## Authoritative contract
 
 `proto/nexus/v1/*.proto` (in this repository) is the single authoritative
 contract; the code in this directory is generated from those protos by `buf generate`,
 so do not hand-edit it. Where any document disagrees with the protos, the protos win.
-
-## Breaking change: InferReceipt reshaped (Keeper Interface Contract §5.14)
-
-`SignedInferReceiptV1` and `EvidenceCommitmentV1` have moved to the frozen
-`task.v1.InferReceiptV1` shape: field numbers were rearranged, 7 old fields were
-removed and 7 were added, `required_evidence_commitments` moved from the request level
-into the receipt, and the signature preimage became H_FIELDS_V1 typed framing.
-**Consumers upgrading this module (Cortex) must change their signing in the same
-batch**; old signatures are not accepted for compatibility.
-
-For the byte-level description, the golden vector and the self-check steps, see
-`docs/nexus-cortex-contract-migration.md` §10 in this repository.
-
-## Breaking change: verify commit / result reshaped (initial relay implementation, Builder relays)
-
-The request-level fields of `SubmitVerifyCommitRequest` / `SubmitVerifyResultRequest`
-were removed (their field numbers are reserved) and replaced by
-`SignedVerifyCommitV1` / `SignedResultReceiptV1`, which mirror the on-chain frozen
-`task.v1.VerifyCommitV1` / `ResultReceiptV1` field for field. The request envelope
-signing domains became `TRUEOPEN_SUBMIT_VERIFY_COMMIT_V2` /
-`TRUEOPEN_SUBMIT_VERIFY_RESULT_V2`. The Builder relays them as a batch message, and the
-response only means the batch was broadcast. See
-`docs/nexus-cortex-contract-migration.md` §4-B.
 
 ## How to consume
 
@@ -67,13 +39,9 @@ import (
 )
 ```
 
-```bash
-go get github.com/TrueOpen/nexus/gen/trueopen@<commit>
-```
-
-Versions are pinned by commit for now; when needed we will publish tags of the form
-`gen/trueopen/vX.Y.Z` (the Go nested-module tag convention), and a version number can then
-replace the commit.
+No release is tagged yet. Until the first `gen/trueopen/vX.Y.Z` tag (the Go nested-module
+tag convention), develop against a local checkout with a `replace` directive rather than pinning
+a commit.
 
 ## Private repository access
 

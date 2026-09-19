@@ -21,7 +21,7 @@ import (
 )
 
 // busEnvelopeRejectionFixture starts a task that is already receiving Worker hand-raises and
-// returns its bus, service key base and subject. The gh #45 acceptance-3 counterexamples start here.
+// returns its bus, service key base and subject. The rejection counterexamples start here.
 func busEnvelopeRejectionFixture(t *testing.T) (
 	*Coordinator, msgbus.Bus, *testServiceKeys, *fakeSubmitter, string, string, string,
 ) {
@@ -53,7 +53,7 @@ func handraiseCount(t *testing.T, c *Coordinator, session, task string) int {
 	return len(fsm.workerHR)
 }
 
-// TestInboundEnvelopeMustVerify is gh #45 acceptance 3: inbound frames must pass the wire
+// TestInboundEnvelopeMustVerify: inbound frames must pass the wire
 // bus 7-step verification. Each subcase builds a frame that is non-conforming in exactly
 // one place and asserts it is neither accepted nor advances the FSM. The byte-level step-by-step
 // counterexamples are frozen by the wire and busadapter tests; what is tested here is that
@@ -142,7 +142,7 @@ func TestInboundEnvelopeAcceptsAConformingFrame(t *testing.T) {
 	}
 }
 
-// TestInboundEnvelopeRejectsReplay is the replay store part of acceptance 3: the same
+// TestInboundEnvelopeRejectsReplay is the replay store part of the same check: the same
 // (chain_id, sender_operator, authorization_nonce, message_id / nonce) re-sent with different
 // content must be rejected (verification step 7, StoreOnce).
 func TestInboundEnvelopeRejectsReplay(t *testing.T) {

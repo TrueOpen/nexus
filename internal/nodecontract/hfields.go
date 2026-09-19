@@ -11,7 +11,7 @@ import (
 )
 
 // H_FIELDS_V1 is the single framing primitive for the frozen V1 consensus preimage
-// (Keeper Interface Contract §1.2; x/shared/types/canonical.go at node d1dbf81).
+// (Keeper Interface Contract §1.2; x/shared/types/canonical.go in node).
 //
 //	preimage = u64_be(len(domain)) || domain
 //	           || for each field: u64_be(len(field)) || field
@@ -126,7 +126,7 @@ func CanonicalHash32Field(field string, value []byte) ([]byte, error) {
 }
 
 // CanonicalOperatorAddressBytes converts a bech32 operator address into the address codec
-// bytes that every §1.2 preimage actually frames (ruling 24 / node#95). The bech32 text
+// bytes that every §1.2 preimage actually frames (ruling 24). The bech32 text
 // **never enters the preimage**: the human-readable prefix belongs to the presentation layer,
 // and cross-chain isolation is the job of the chain_id field.
 //

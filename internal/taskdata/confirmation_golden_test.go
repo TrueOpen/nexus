@@ -16,8 +16,8 @@ func TestBuilderStorageConfirmationDigestMatchesPublishedVectors(t *testing.T) {
 		taskHash = "2222222222222222222222222222222222222222222222222222222222222222"
 		session  = "3333333333333333333333333333333333333333333333333333333333333333"
 		taskID   = "1111111111111111111111111111111111111111111111111111111111111111"
-		// The verifier's bech32 sibling field in the vector is wrong (the wire#32 class of
-		// issue; v0.4.1's builder_confirmation_v1.json was not scanned). The preimage uses
+		// The verifier's bech32 sibling field in the vector is wrong (a known class of
+		// vector defect; v0.4.1's builder_confirmation_v1.json was not scanned). The preimage uses
 		// the hex field c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3, so the published digest is
 		// still correct; here we use an address that decodes to the same 20 bytes.
 		verifier = "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"

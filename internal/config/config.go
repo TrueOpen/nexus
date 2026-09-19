@@ -69,7 +69,7 @@ type OutputStreamConfig struct {
 	MaxOutputMMRLeaves uint64 `yaml:"max_output_mmr_leaves"`
 	// MinFrameBytes is the minimum bytes per frame, except for the last frame (parameter table min_output_stream_frame_bytes, localnet placeholder 16).
 	MinFrameBytes uint64 `yaml:"min_output_stream_frame_bytes"`
-	// MaxAttachmentBytes is the per-frame attachment limit; 0 means attachments are rejected (must be identical across Nexus instances until monorepo#82 settles it).
+	// MaxAttachmentBytes is the per-frame attachment limit; 0 means attachments are rejected (must be identical across Nexus instances until the protocol settles it).
 	MaxAttachmentBytes uint64 `yaml:"max_attachment_bytes"`
 	// SubscriberBufferFrames is the buffered frame count per subscriber; subscribers that fall behind are disconnected.
 	SubscriberBufferFrames uint32 `yaml:"subscriber_buffer_frames"`
@@ -255,7 +255,7 @@ func (n NATSConfig) TLS() bool {
 	return false
 }
 
-// SecurityMode is the deployment security baseline switch (monorepo 20-Service Design/Deployment Security Baseline).
+// SecurityMode is the deployment security baseline switch (monorepo Deployment Security Baseline).
 type SecurityMode string
 
 const (

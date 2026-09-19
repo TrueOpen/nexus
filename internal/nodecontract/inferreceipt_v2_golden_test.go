@@ -9,7 +9,7 @@ import (
 )
 
 // Byte-for-byte with wire v0.4.1 `testdata/v1/task/infer_receipt_v2.json`. It is the Phase 0 frozen
-// contract's (monorepo#142) published vector for TRUEOPEN_INFER_RECEIPT_V2; node, cortex, SDK and
+// contract's published vector for TRUEOPEN_INFER_RECEIPT_V2; node, cortex, SDK and
 // nexus all check against the same values. The in-repo testdata/task_domains_v1.json is the vector for our
 // own pipeline; neither replaces the other: this one proves our preimage matches the external contract,
 // that one covers the tamper and replay shapes.

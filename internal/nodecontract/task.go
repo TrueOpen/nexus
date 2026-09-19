@@ -115,7 +115,7 @@ func assignmentOrderValue(maxFee, inferFeeCap, verifyFeeCap uint64) (uint64, boo
 // consistency cross-check between hand-raises. The on-chain one is
 // task.v1.WorkerHandraiseV1 (proto, field number = signing order).
 //
-// gh #42: order_digest -> task_hash. This field enters the canonicalStrings validation sequence and
+// order_digest was renamed to task_hash. This field enters the canonicalStrings validation sequence and
 // the canonical set string produced by json.Marshal, so renaming it changes that string's bytes.
 // Those bytes currently enter NO consensus preimage and do NOT go on chain (SubmitAssign takes only scope /
 // handraises / submitter_address), so this rename is not a signing-rule change; should anyone wire it

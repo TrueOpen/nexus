@@ -1,4 +1,4 @@
-// Canonical task_hash of TaskOrderV2 (10-protocol-spec/04-task/08-TaskOrder Hashing and Signing.md
+// Canonical task_hash of TaskOrderV2 (TaskOrder Hashing and Signing
 // §4, Keeper Interface Contract §5.13, implementation design §4.2).
 //
 // task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
@@ -7,17 +7,17 @@
 // only the user signature does not. Its counterpart is task_id (taskid.go), the stable RBF slot identity:
 // multiple quote versions of the same (session_id, order_sequence) share one task_id and each has its own
 // task_hash. These two are the whole of Phase 0 Task identity; "envelope SHA-256" aliases such as
-// order_hash / order_digest / signed_order_hash do not exist (gh #42).
+// order_hash / order_digest / signed_order_hash do not exist.
 //
-// This file encodes field by field per the 25-field table in 08 §4.1; field order is ascending TaskOrderV2
+// This file encodes field by field per the 25-field table in TaskOrder Hashing and Signing §4.1; field order is ascending TaskOrderV2
 // proto field number, encoding rules per the §1.2 table in hfields.go. V2 is the only order schema of the
-// fresh genesis: no V1, no field aliases, no compatibility decoder (08 §9). If either side changes the framing,
+// fresh genesis: no V1, no field aliases, no compatibility decoder (TaskOrder Hashing and Signing §9). If either side changes the framing,
 // the same TaskOrder yields different task_hash values and the Keeper rejects Nexus's submission at admission using
 // the user signature, so field order or encoding here must NOT be "optimized"; changes must move with the contract.
 // The regression gate is the three contract-published digests in taskorder_test.go.
 //
 // Nexus only DERIVES this digest and does not verify the user signature: the user signature is a recoverable
-// signature over the order-domain EIP-712 digest (08 §7.4), verified against the on-chain account public key,
+// signature over the order-domain EIP-712 digest (TaskOrder Hashing and Signing §7.4), verified against the on-chain account public key,
 // which is the Keeper's job. Nexus does not create consensus facts.
 package nodecontract
 
@@ -32,14 +32,14 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-// DomainTaskOrderV2 is the TaskOrder row of the Task domain registry (08 §2).
+// DomainTaskOrderV2 is the TaskOrder row of the Task domain registry (TaskOrder Hashing and Signing §2).
 const DomainTaskOrderV2 = "TRUEOPEN_TASK_ORDER_V2"
 
 // TaskOrderSchemaVersionV2 is the only accepted value of TaskOrderV2.schema_version.
 const TaskOrderSchemaVersionV2 uint32 = 2
 
 // GenerationParamsSchemaVersionV1 is the only currently accepted value of
-// GenerationParamsV1.generation_params_schema_version (08 §4.3).
+// GenerationParamsV1.generation_params_schema_version (TaskOrder Hashing and Signing §4.3).
 const GenerationParamsSchemaVersionV1 uint32 = 1
 
 // TaskOrderHashV2 returns the canonical task_hash of TaskOrderV2 (raw 32 bytes).
@@ -84,14 +84,14 @@ func canonicalTaskOrderFieldsV2(order *taskv1.TaskOrderV2) ([][]byte, error) {
 			return nil, fmt.Errorf("order amount field %d is not canonical: %w", index+14, err)
 		}
 		// Amount is a nested message whose framing is its own single-field FieldFrameV1
-		// (08 §4.4: FRAME_V1(ascii(canonical u64 decimal))), not a bare u64_be.
+		// (TaskOrder Hashing and Signing §4.4: FRAME_V1(ascii(canonical u64 decimal))), not a bare u64_be.
 		encodedAmounts = append(encodedAmounts, CanonicalFrameBytes(units))
 	}
 	generation, err := canonicalGenerationParamsFrameV1(order.GetGenerationParams())
 	if err != nil {
 		return nil, err
 	}
-	// deadline_policy is likewise a nested single-field frame (08 §4.5), not a bare EnumBE.
+	// deadline_policy is likewise a nested single-field frame (TaskOrder Hashing and Signing §4.5), not a bare EnumBE.
 	deadline := CanonicalFrameBytes(EnumBE(uint32(order.GetDeadlinePolicy().GetLatencyClass())))
 
 	fields := [][]byte{
@@ -110,7 +110,7 @@ func canonicalTaskOrderFieldsV2(order *taskv1.TaskOrderV2) ([][]byte, error) {
 	return fields, nil
 }
 
-// canonicalGenerationParamsFrameV1 encodes field 13 (GenerationParamsV1, 08 §4.3).
+// canonicalGenerationParamsFrameV1 encodes field 13 (GenerationParamsV1, TaskOrder Hashing and Signing §4.3).
 // Two levels of nesting: the GenerationParams frame wraps a DecodingParams frame, whose two repeated
 // fields each wrap another "u32 element count + elements" frame; the count frame is encoded even when empty.
 func canonicalGenerationParamsFrameV1(params *taskv1.GenerationParamsV1) ([]byte, error) {
@@ -147,7 +147,7 @@ func canonicalGenerationParamsFrameV1(params *taskv1.GenerationParamsV1) ([]byte
 }
 
 // canonicalAmountUnitsV1 validates and extracts the canonical bytes of Amount.atomic_units
-// (08 §4.4 / §8.4): non-negative decimal, no `+`, no leading zeros, within uint64. What enters the preimage
+// (TaskOrder Hashing and Signing §4.4 / §8.4): non-negative decimal, no `+`, no leading zeros, within uint64. What enters the preimage
 // is this DECIMAL TEXT, not the numeric value.
 func canonicalAmountUnitsV1(amount *sharedv1.Amount) ([]byte, error) {
 	units := amount.GetAtomicUnits()
@@ -168,7 +168,7 @@ func canonicalAmountUnitsV1(amount *sharedv1.Amount) ([]byte, error) {
 	return []byte(units), nil
 }
 
-// validateTaskOrderScalarScopeV2 is the precondition of the "Typed encoding" column in the 08 §4.1 table,
+// validateTaskOrderScalarScopeV2 is the precondition of the "Typed encoding" column in the TaskOrder Hashing and Signing §4.1 table,
 // not "application-level validation": a Hash32 must really be 32 bytes, text must be strict UTF-8, schema_version
 // must be 2, otherwise the computed digest silently disagrees with the Keeper.
 // "assignment_priority_fee must be 0 in Phase 0" is a Keeper admission rule and is not checked here;

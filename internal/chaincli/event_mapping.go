@@ -196,7 +196,7 @@ func taskEventAttributes(event *taskv1.TaskEvent) map[string]string {
 		attrs["verifier_operator_address"] = accepted.GetVerifier()
 	case *taskv1.TaskProtocolEventPayloadV1_ResultAccepted:
 		// wire v0.4.1: the Verifier result on-chain event is RESULT_ACCEPTED (ResultReceiptV2);
-		// the old FULL_RESULT_REVEAL_ACCEPTED was removed together with MsgSubmitFullResultReveal (nexus#76).
+		// the old FULL_RESULT_REVEAL_ACCEPTED was removed together with MsgSubmitFullResultReveal.
 		accepted := payload.ResultAccepted
 		attrs["verifier"] = accepted.GetVerifier()
 		attrs["verifier_operator_address"] = accepted.GetVerifier()

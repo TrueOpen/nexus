@@ -140,7 +140,7 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 		record.Metadata.RetentionStatus = decision.Status
 		// Keep the existing value when the decision carries no height: it is the
 		// commitment signed to the uploader in the storage confirmation, the same rule
-		// as RecordRetentionLease's "never overwrite an existing non-zero value" (issue #66).
+		// as RecordRetentionLease's "never overwrite an existing non-zero value".
 		if decision.RetainUntilHeight != 0 {
 			record.Metadata.RetainUntilHeight = decision.RetainUntilHeight
 		}

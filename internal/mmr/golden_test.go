@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// MMR_ROOT_V1 primitive vectors from monorepo 10-Protocol Spec/00-Base Spec/Canonical
-// Encoding and Domain Hashing.md §11.5, compared byte for byte. These are cross-language
+// MMR_ROOT_V1 primitive vectors from monorepo Canonical
+// Encoding and Domain Hashing §11.5, compared byte for byte. These are cross-language
 // conformance vectors, not expectations computed by this implementation.
 const goldenDomain = "TRUEOPEN_TEST_MMR_V1"
 

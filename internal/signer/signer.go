@@ -8,7 +8,7 @@
 //
 // Builder keys, Cortex service keys and user accounts are all derived by this rule; there is no second address space.
 // The ripemd160(sha256(compressed)) form customary in Cosmos yields a different address for the same key,
-// and that account does not exist on chain -- it must **not** be kept here as a fallback (gh #91).
+// and that account does not exist on chain -- it must **not** be kept here as a fallback.
 //
 // On-chain transactions take §5.1 path A: SIGN_MODE_DIRECT, keccak256(SignDoc), raw64 R||S, with the digest
 // derived by chaincli and signed directly through SignDigest; the SHA-256 semantics of Sign(msg) serve only

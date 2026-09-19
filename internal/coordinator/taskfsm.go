@@ -88,7 +88,7 @@ type taskFSM struct {
 	fullReveals   map[string]bool // Verifiers that already self-rescued on-chain via FullResultRevealTx
 	// workerRevealed: on-chain Worker reveal. The frozen contract has no such Msg / Event,
 	// so it is always false in Phase 0; kept only as "record if present", no longer a
-	// settlement precondition (nexus#72).
+	// settlement precondition.
 	workerRevealed bool
 
 	// acceptedTaskHash is the authoritative on-chain task_hash (only from query/event;
@@ -112,7 +112,7 @@ type taskFSM struct {
 	// transaction (0 = not sent this round). A "submitted" boolean is not used: a tx that
 	// passes CheckTx may still be rejected at execution (before the window, not this
 	// phase's submitter), in which case no SettleAccepted event arrives and a boolean would
-	// stop this node from ever retrying (nexus#77). Once the chain really settles,
+	// stop this node from ever retrying. Once the chain really settles,
 	// onSettleAccepted sets state to Settled and trySettle's state check stops naturally.
 	settleSubmittedHeight uint64
 	// sweepSubmitted records the deadline kinds for which this node has already submitted
@@ -193,7 +193,7 @@ func (f *taskFSM) onOrder() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// ORDER_BROADCAST must carry the candidate task_hash (gh #42): the whole
+	// ORDER_BROADCAST must carry the candidate task_hash: the whole
 	// ORDER_BROADCAST → WORKER_HANDRAISE → MsgSubmitWorkerHandraises chain relies on it
 	// to confirm everyone is hand-raising for the same order version. Without it there is
 	// no candidate identity to bind to; broadcasting would only collect a batch of
@@ -815,7 +815,7 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	if len(f.outputHash) == 0 {
 		// The Worker hands its receipt to a single Builder; a notification sent by a Builder
 		// that did not receive it has an empty output_hash, which the Verifier rejects and
-		// redelivers repeatedly (issue #67). The notification is only an early wake-up; the
+		// redelivers repeatedly. The notification is only an early wake-up; the
 		// obligation is defined by the on-chain snapshot, so simply do not send here. State
 		// still follows the chain.
 		f.log.Debug("skip VERIFIER_ASSIGNMENT_NOTIFY publish: no accepted output hash on this Builder",
@@ -855,7 +855,7 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 // The subject table in contract §5.1 has no trueopen.sample-ready.*, and §5.9 states that in
 // V1 the selected Verifiers recompute all committed generated tokens and the notification
 // "carries no additional verification position selection material". So this notification
-// stopped being sent with gh #45; the seed remains an authoritative on-chain fact and is
+// is no longer sent; the seed remains an authoritative on-chain fact and is
 // kept locally for assembling SettleTx evidence.
 func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
 	f.mu.Lock()
@@ -1088,8 +1088,8 @@ func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
 	case hr.GetChainId() != f.chainID:
 		f.log.Warn("drop worker handraise bound to a different chain", "task_id", f.taskID,
 			"candidate", worker, "want", f.chainID, "got", hr.GetChainId())
-	// A hand-raise must bind to the candidate task_hash of this broadcast (gh #42 acceptance
-	// 6). Any other value from the hand-raiser -- a stale RBF version, a different order --
+	// A hand-raise must bind to the candidate task_hash of this broadcast.
+	// Any other value from the hand-raiser -- a stale RBF version, a different order --
 	// fails closed here and never enters f.workerHR to make up the count.
 	case !bytes.Equal(hr.GetTaskHash(), f.orderTaskHashBytes()):
 		f.log.Warn("drop worker handraise bound to a different task_hash", "task_id", f.taskID,
@@ -1440,10 +1440,10 @@ func (f *taskFSM) onSweepDeadlineAccepted(ev chaincli.SweepDeadlineAccepted) {
 
 // trySettle is the settlement precondition: ≥2 V_i with consistent re-execution results.
 //
-// It does not wait for the Worker reveal: normal verification has no such step (04 Task
+// It does not wait for the Worker reveal: normal verification has no such step (Task
 // Execution, Verification and Settlement §9 -- the Worker's commitment is already locked
 // by the accepted InferReceipt), the frozen contract has no matching Msg / Event, and
-// f.workerRevealed is always false in Phase 0, kept only as an observation (nexus#72).
+// f.workerRevealed is always false in Phase 0, kept only as an observation.
 //
 // Timing is decided entirely by chain height (§10.10a, see settleSubmissionAllowed): do not
 // send before the height at which this node may send; sending early or in someone else's
@@ -1842,7 +1842,7 @@ func (f *taskFSM) consistentVerifyGroup() []*taskv1.ResultReceiptV2 {
 //
 // verifier_evidence_bundle_hash is excluded: the evidence bundle carries each Verifier's own
 // salt, so this hash is inherently different per Verifier; with it in the key every group
-// has exactly 1 member and never reaches the threshold (nexus#71). ResultReceiptV2 lifted
+// has exactly 1 member and never reaches the threshold. ResultReceiptV2 lifted
 // the salt into its own field, and the rationale is unchanged. On-chain settlement
 // grouping likewise looks at the sample verdict and metric_summary_hash (keeper contract
 // consensus_cluster_hash), not at it. The summary is framed field by field rather than
@@ -2104,7 +2104,7 @@ func (f *taskFSM) receive(
 // writes the complete envelope's raw bytes to the outbox, and after restart the
 // coordinator's Republish resends them verbatim. If it cannot be signed, do not send: the
 // envelope has no optional parts, and a dev fallback of "send one unsigned frame" would
-// leave the bug reported in gh #45 exactly as it was.
+// defeat envelope verification entirely.
 func (f *taskFSM) publish(subject string, kind int32, payload proto.Message, tier busadapter.Tier) error {
 	// Check the subject↔kind table before publishing (the publisher-side equivalent of step 2
 	// of the old encode): a call site with a mistyped subject would sign a frame that
@@ -2118,7 +2118,7 @@ func (f *taskFSM) publish(subject string, kind int32, payload proto.Message, tie
 	phase := "publish_" + strings.ToLower(strings.TrimPrefix(kindName, "BUS_MESSAGE_KIND_"))
 	if f.publisher == nil {
 		// When a compliant frame cannot be signed, the only correct behaviour is not to send
-		// (gh #45), but this is not a task-level failure: same semantics as the old
+		// anything, but this is not a task-level failure: same semantics as the old
 		// implementation, the local FSM advances as usual and on-chain facts are unaffected.
 		f.log.Warn("encode envelope failed",
 			"phase", phase,
@@ -2185,7 +2185,7 @@ func containsString(xs []string, want string) bool {
 type workerAssignmentFacts struct {
 	// TaskHash is the candidate order identity jointly bound by this batch of hand-raises
 	// (lowercase 64-hex). Mixing different task_hash values within one proposal fails
-	// outright (gh #42 acceptance 6).
+	// outright.
 	TaskHash string
 	// CandidateSnapshotID comes from member.candidate_pool_snapshot_id of §5.5: hand-raises in
 	// the same proposal must reference the same candidate pool snapshot, otherwise the
@@ -2229,7 +2229,7 @@ func workerAssignmentFactsFrom(input map[string]*taskv1.WorkerHandraiseV1) (work
 
 // validateOrderForAssign cross-checks a legacy JSON-envelope order against the hand-raise facts.
 //
-// gh #42 removed the `order.OrderDigest == hex(sha256(order.OrderEnvelope))` self-check
+// The `order.OrderDigest == hex(sha256(order.OrderEnvelope))` self-check was removed from
 // here. It was the concrete symptom of "the same commitment has different semantics on the
 // two ingress paths": the SignedOrder path stores OrderEnvelope as hex text and OrderDigest
 // as sha256(raw), which never match; the legacy JSON path stores raw JSON, which happens to

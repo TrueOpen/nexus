@@ -25,7 +25,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// TestWorkerHandraiseBridgeFromNATSToBroadcastTx is the end-to-end case for gh #23 acceptance 4:
+// TestWorkerHandraiseBridgeFromNATSToBroadcastTx is the end-to-end case
 // from a WorkerHandraise envelope on NATS all the way to the MsgSubmitWorkerHandraises that is
 // actually broadcast, with no stubbing and no layer bypassed.
 //
@@ -79,7 +79,7 @@ func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
 	}
 
 	// 1) Field numbers: scan the wire directly to confirm scope=1 / handraises=2 /
-	// submitter_address=3. This is the core of #23 -- under the same type URL, misplaced field
+	// submitter_address=3. This is the core of the check -- under the same type URL, misplaced field
 	// numbers are rejected by the chain no matter how complete the content is.
 	assertTopLevelFieldNumbers(t, body.Messages[0].Value, map[protowire.Number]protowire.Type{
 		1: protowire.BytesType, // scope
@@ -118,7 +118,7 @@ func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
 		t.Fatal(decodeErr)
 	}
 	// The task_hash that goes on chain must be the one derived from the user-signed order, never
-	// swapped along the way (gh #42 acceptance 4: ORDER_BROADCAST -> WorkerHandraise -> Msg all carry
+	// swapped along the way (ORDER_BROADCAST -> WorkerHandraise -> Msg all carry
 	// the same value).
 	wantTaskHash, decodeErr := hex.DecodeString(order.TaskHash)
 	if decodeErr != nil {

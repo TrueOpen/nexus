@@ -14,9 +14,9 @@ import (
 )
 
 // The three digests below are PUBLISHED BY THE CONTRACT ITSELF: monorepo
-// docs/10-protocol-spec/04-task/08-TaskOrder Hashing and Signing.md §8.3 "TaskOrder and opening"
+// TaskOrder Hashing and Signing §8.3 "TaskOrder and opening"
 // gives the full 25-field core input and expected values. wire v0.4.1 has not yet turned them into a
-// fixture (wire#24), but the published values are authoritative on their own; node, cortex, SDK and nexus all check against the same values.
+// fixture, but the published values are authoritative on their own; node, cortex, SDK and nexus all check against the same values.
 //
 // This is the only hard evidence about task_hash between this repository and the contract: if our
 // understanding of the field order or encoding of H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
@@ -56,7 +56,7 @@ func accAddress(t *testing.T, raw []byte) string {
 
 func amountOf(units string) *sharedv1.Amount { return &sharedv1.Amount{AtomicUnits: units} }
 
-// contractTaskOrderFixture reproduces the 08 §8.3 core input field by field.
+// contractTaskOrderFixture reproduces the TaskOrder Hashing and Signing §8.3 core input field by field.
 func contractTaskOrderFixture(t *testing.T) *taskv1.TaskOrderV2 {
 	t.Helper()
 	raw := make([]byte, 20)
@@ -185,7 +185,7 @@ func TestTaskOrderIntermediateFramesMatchContract(t *testing.T) {
 }
 
 // TestTaskOrderHashChangesOnEveryField: changing any single TaskOrderV2 field must change
-// task_hash (08 §8.4 "each of the following changes must change task_hash").
+// task_hash (TaskOrder Hashing and Signing §8.4 "each of the following changes must change task_hash").
 func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 	base := contractTaskOrderFixture(t)
 	digest, err := TaskOrderHashV2(base)
@@ -200,7 +200,7 @@ func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 		wantError bool
 		edit      func(*testing.T, *taskv1.TaskOrderV2)
 	}{
-		// V1's schema_version=1 is a rejection in V2, not another digest (08 §4.1).
+		// V1's schema_version=1 is a rejection in V2, not another digest (TaskOrder Hashing and Signing §4.1).
 		{name: "schema_version", wantError: true, edit: func(_ *testing.T, v *taskv1.TaskOrderV2) { v.SchemaVersion = 1 }},
 		{name: "chain_id", edit: func(_ *testing.T, v *taskv1.TaskOrderV2) { v.ChainId += "-x" }},
 		{name: "user_address", edit: func(t *testing.T, v *taskv1.TaskOrderV2) { v.UserAddress = accAddress(t, repeatByte(0x22, 20)) }},
@@ -301,7 +301,7 @@ func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 }
 
 // TestTaskOrderHashIgnoresUserSignature: swapping only the user signature (SignedOrderV2 envelope
-// fields) leaves task_hash unchanged (08 §7.3: scheme and signature are transport metadata and
+// fields) leaves task_hash unchanged (TaskOrder Hashing and Signing §7.3: scheme and signature are transport metadata and
 // do not enter task_hash).
 func TestTaskOrderHashIgnoresUserSignature(t *testing.T) {
 	order := contractTaskOrderFixture(t)
@@ -324,7 +324,7 @@ func TestTaskOrderHashIgnoresUserSignature(t *testing.T) {
 }
 
 // TestTaskOrderHashRefusesNonCanonicalOrders covers the framing preconditions: an order whose canonical
-// task_hash cannot be computed must error rather than return a zero digest and carry on (08 §8.4).
+// task_hash cannot be computed must error rather than return a zero digest and carry on (TaskOrder Hashing and Signing §8.4).
 func TestTaskOrderHashRefusesNonCanonicalOrders(t *testing.T) {
 	cases := map[string]func(*taskv1.TaskOrderV2){
 		"schema_version 1 (V1)": func(v *taskv1.TaskOrderV2) { v.SchemaVersion = 1 },

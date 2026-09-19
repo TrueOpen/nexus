@@ -68,16 +68,12 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 (such as Cortex) depend on it to get the IngressAPI Connect client without pulling in Nexus server dependencies.
 Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/README.md).
 
-## Node PR #85 compatibility
+## Compatibility
 
-The current minimum compatible Node baseline is the PR #85 merge commit
-`6ebe9b2f3b4ec1ca1a8b54d5de95dafc3ff673bb`. This is a breaking change that requires a coordinated (lockstep) upgrade: Node, Nexus, the user
-SDK and Cortex must be deployed together; old task IDs, order / handraise / InferReceipt signatures and the legacy
-TaskEventService ABI are not supported.
-
-Before upgrading, stop the ingress and drain or discard unfinished dev tasks created under the old protocol, clear the task /
-protocol event cursors of the affected dev chains, then upgrade all four components together. Nexus does not migrate old opaque cursors and does not re-sign old
-orders or Cortex messages. The full wire, signatures, on-chain / local field boundaries and operating steps are in
+nexus is built against TrueOpen/wire `v0.1.1`, the same contract release TrueOpen/node pins in
+`wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
+from matching releases; there is no compatibility layer for other signing domains, task IDs or event
+ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
 [`docs/node-message-integration.md`](docs/node-message-integration.md).
 
 ## Interface contract alignment
@@ -85,16 +81,19 @@ orders or Cortex messages. The full wire, signatures, on-chain / local field bou
 The SDK-side (User) methods of `IngressAPI` follow the "Nexus↔SDK Interface Contract" v0.1;
 the Worker / Verifier-side methods and the NATS layer follow the "Nexus↔Cortex Interface Contract" v0.2.
 
-The old-to-new interface mapping, the list of breaking changes for `gen/trueopen` consumers, and how unfrozen contract items /
-open disagreements are handled:
+Open items:
 
-- SDK contract v0.1: [`docs/nexus-sdk-contract-migration.md`](docs/nexus-sdk-contract-migration.md)
-- Cortex contract v0.2: [`docs/nexus-cortex-contract-migration.md`](docs/nexus-cortex-contract-migration.md)
-
-The Cortex contract "target-state baseline" removed `FetchPayload`, `SubmitOutputRef`, `UploadTaskData`,
-`DownloadTaskData`, `RefreshTaskDataAuthorization` and the `OutputRef` object, and added
-`UploadTaskResultData`, `SubmitInferReceipt`, `SubmitVerifyCommit`, `SubmitVerifyResult`;
-V1 does not issue, prepare or refresh standalone download credentials.
+- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are superseded by `OpenTask`,
+  `GetTaskDataMetadata` / `FetchTaskData`; they are marked deprecated and still served until a
+  removal date is decided.
+- `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
+  SDK contract freezes its field table (§8.2) and the storage-confirmation proto (§8.3).
+- Several task event codes still use Nexus names rather than the SDK contract §3.8 names (for
+  example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
+  are not in the contract set; renaming them is a wire-visible change pending a decision.
+- `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
+  field `challenge_close` without fixing its unit; the rename waits for that decision.
+- `OutputFinV1.finish_reason` / `worker_signature` from TrueOpen/wire v0.1.1 are not adopted yet.
 
 ## Configuration (environment variables)
 
@@ -160,18 +159,19 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_BUILDER_MONIKER` | (empty) | Forms the canonical metadata together with the P2P hint, written to the Registry as SHA-256 |
 | `NEXUS_BUILDER_P2P_HINT` | (empty) | NATS/P2P access hint in the Builder metadata |
 
-## Plaintext output delivery
+## Output delivery
 
-Warning: the Cortex contract v0.2 "target-state baseline" removed `SubmitOutputRef` and its `output_text` field:
-the Worker no longer hands plaintext to the Builder; OUTPUT content always goes through `UploadTaskResultData` (persist) +
-`FetchTaskData(OUTPUT)` (retrieve). `SubscribeOutput` / `AckOutput` remain RESERVED per SDK contract §3.5/§3.6,
-but there is currently no production entry writing plaintext into outputdelivery, so the subscription returns
-`unavailable`. The re-wiring plan is in
-[`docs/nexus-cortex-contract-migration.md`](docs/nexus-cortex-contract-migration.md).
+OUTPUT is delivered over the streaming data plane (`task_data.output_stream`, enabled by default):
+the Worker uploads Worker-signed frames with `UploadTaskOutputStream`, the user SDK receives them with
+`SubscribeOutput` (stored frames first, then live ones) and verifies each frame signature and the
+output root itself, and `AckOutput` only records delivery progress. The persisted OUTPUT object is
+also available through `GetTaskDataMetadata` + `FetchTaskData(OUTPUT)`.
 
-The SDK flow below describes the target state (RESERVED) and is currently unavailable:
+With `task_data.output_stream.enabled=false`, `SubscribeOutput` / `AckOutput` fall back to the legacy
+whole-plaintext path described below. Nothing writes plaintext into that path today, so a
+subscription returns `unavailable`.
 
-User SDK retrieval flow:
+Legacy plaintext retrieval flow:
 
 1. Sign the `SDKRequestEnvelopeV1` for `SubscribeOutput` with the original ordering address. The method is
    `SubscribeOutput`, the endpoint is
@@ -195,11 +195,11 @@ Production deployments should restrict data directory permissions, disk backup s
 
 In Hub + Task Chain mode, `chain` always means the task chain; the Coordinator's task queries, transactions and events go through that chain. With `hub.enabled=true`, the Builder's Node Registry, stake and unbond use only `hub`. The Task Chain does not accept Builder registration transactions; identity and stake state are obtained later via Hub snapshots. Incomplete Hub configuration blocks startup and does not silently fall back to the Task Chain. Without the Hub, single-chain compatibility mode is retained and an explicit warning is printed.
 
-Once an account signer is configured, Nexus performs Stage-1 validation on every new `SubmitOrder`. It queries this node's `ACTIVE` Builder state and the currently frozen BuilderSet in real time from the Builder registry chain, checks the `TRUEOPEN_BUILDER_SET_V1` commitment, member Bech32 addresses and term stability during the query, then reproduces the `TRUEOPEN_BUILDER_STAGE1_V1` ranking from the Task Chain ID, active term, task ID and set hash. The rank/proof produced by a successful validation is kept with the order snapshot and used directly for `AssignTx`. This computation matches trueopen-sdk's order routing and signanode's ASSIGN selection rules, and does not depend on BuilderSet return order.
+Once an account signer is configured, Nexus performs Stage-1 validation on every new `SubmitOrder`. It queries this node's `ACTIVE` Builder state and the currently frozen BuilderSet in real time from the Builder registry chain, checks the `TRUEOPEN_BUILDER_SET_V1` commitment, member Bech32 addresses and term stability during the query, then reproduces the `TRUEOPEN_BUILDER_STAGE1_V1` ranking from the Task Chain ID, active term, task ID and set hash. The rank/proof produced by a successful validation is kept with the order snapshot and used directly for `AssignTx`. This computation matches trueopen-sdk's order routing and the Node's ASSIGN selection rules, and does not depend on BuilderSet return order.
 
-During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `SubmitOrder`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by signanode with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs two Builder registry chain queries, so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
+During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `SubmitOrder`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs two Builder registry chain queries, so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
 
-signanode must enable TaskEventService. Task node setting:
+The Node must enable TaskEventService. Task node setting:
 
 ```text
 NODED_TASK_EVENT_GRPC_ENABLED=true
@@ -350,23 +350,16 @@ internal/logging     slog + lumberjack (text/json, file rotation + gzip)
 internal/middleware  transport-agnostic auth / whitelist pure functions (reused by Connect interceptors)
 internal/ingress     Connect IngressAPI (:8080, gRPC+gRPC-Web+HTTP/JSON) + interceptors + /healthz
 internal/outputdelivery PREPARED/READY, subscribe, ACK, TTL and restart recovery for final plaintext
-internal/coordinator orchestration core: three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal (FSM to be fleshed out)
+internal/coordinator orchestration core: three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal
 internal/msgbus      NATS client (core + JetStream) + BusEnvelopeV1 sign/verify rules
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
-internal/relay       credential relay (keys + references, never payload blobs) — in-memory implementation
-internal/kv          local persistence — in-memory implementation (pebble later)
+internal/relay       credential relay (keys + references, never payload blobs), written through to kv
+internal/kv          local persistence (Pebble)
 internal/types       shared cross-module types
 ```
 
-## Next steps (incremental wiring)
+## Next steps
 
-1. `msgbus`: wire `nats.go`, connect to the supercluster; split core/JetStream tiers. BusEnvelopeV1 and the 8 subjects of contract §5.1
-   are done (`envelope_v1.go` / `subjects_v1.go`), and the `coordinator`'s
-   publish/subscribe has been switched over with signing and verification attached (gh #45). **Cross-repo not yet connected**: Cortex's wire body
-   still uses base64 bytes and its subject/kind still use the old vocabulary, so neither side can accept the other's frames; all four components must switch over in the same release.
-   Evidence and steps are in `docs/nexus-cortex-contract-migration.md` §4.2 / §5.
-2. `coordinator`: flesh out the single-order FSM (rank-based fallback settlement submission driven by chain height, handraise collection, three-stage Tx assembly, commit-reveal).
-3. `kv`: switch to pebble.
-4. `ingress`: add order envelope parsing + signature verification + rate limiting (gRPC-Web/HTTP-JSON are already provided by Connect); for k8s gRPC probes, add `connectrpc.com/grpchealth` to expose `grpc.health.v1`.
+1. `ingress`: add rate limiting; for k8s gRPC probes, add `connectrpc.com/grpchealth` to expose `grpc.health.v1`.
 
 `chaincli` wiring is complete: query/broadcast, the resumable TaskEventService event stream and standalone height polling all use the configured node gRPC endpoint; in Hub mode, protocol events use the Hub gRPC endpoint.

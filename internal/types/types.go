@@ -172,7 +172,7 @@ type Order struct {
 	//
 	// It replaces the old OrderDigest (= sha256(order_envelope)). Never write any "envelope
 	// byte digest" into this field: that is a transport-layer concern; if needed it is called payload_digest
-	// and lives in BusEnvelopeV1 field 20 (gh #42).
+	// and lives in BusEnvelopeV1 field 20.
 	TaskHash        string
 	SignatureScheme string
 	UserSignature   string

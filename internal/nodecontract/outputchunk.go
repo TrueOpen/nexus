@@ -2,13 +2,13 @@ package nodecontract
 
 import "fmt"
 
-// The two domains of ADR-0017 streaming output (04-task/05-verification-algorithm §8.1).
+// The two domains of ADR-0017 streaming output (Verification Algorithm §8.1).
 //
 //	output_hash          = MmrRoot(DomainOutputMMRV1, [chunk_0 .. chunk_{n-1}])   -- internal/mmr
 //	chunk_signing_digest = H_FIELDS_V1(DomainOutputChunkV1, chain_id, task_hash, seq, mmr_root)
 //
-// Both activate together with TRUEOPEN_INFER_RECEIPT_V2; the wire v0.4.0 registry does not yet list them (wire#25),
-// so this follows the protocol text. Conformance vectors come from monorepo 04-task/05-verification-algorithm §8.1
+// Both activate together with TRUEOPEN_INFER_RECEIPT_V2; the wire v0.4.0 registry does not yet list them,
+// so this follows the protocol text. Conformance vectors come from monorepo Verification Algorithm §8.1
 // and the base spec §11.5; see outputchunk_golden_test.go and internal/mmr/golden_test.go.
 // Once wire publishes vectors of the same name, switch to consuming wire's testdata directly.
 const (

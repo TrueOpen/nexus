@@ -214,7 +214,7 @@ type SettlementEvidenceInput struct {
 	// §5.14 collapses the Worker's set of commitments into typed required_evidence_commitments
 	// and enters the receipt preimage as a single TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 derived value.
 	// This helper as a whole is still the pre-freeze shape (settlement leaf encoding not frozen,
-	// K-BLOCK-16 unresolved, no SETTLEMENT_BILL leaf written on chain), so this is only an
+	// no SETTLEMENT_BILL leaf written on chain), so this is only an
 	// equivalent substitution and makes no claim to be the frozen form.
 	EvidenceCommitmentsHash string
 	EvidenceSchemaHash      string

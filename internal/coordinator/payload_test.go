@@ -397,7 +397,7 @@ func taskPayloadOrder(t *testing.T, sessionID, taskID, user string, payload []by
 		t.Fatalf("canonical test order envelope: %v", err)
 	}
 	// Here we **no longer** recompute the order digest alongside: task_hash is derived from TaskOrderV2
-	// and is independent of the order_envelope bytes; changing the envelope does not change identity (gh #42).
+	// and is independent of the order_envelope bytes; changing the envelope does not change identity.
 	order.OrderEnvelope = raw
 	order.PayloadHash = envelope.PayloadHash
 	order.PayloadCID = payloadstore.RefFor(payload)

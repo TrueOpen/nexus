@@ -608,7 +608,7 @@ func (a *Authorizer) verifyOutputReceipt(ctx context.Context, task chaincli.OnCh
 // receiptMatchesChain compares the local receipt against the InferReceiptState accepted on chain.
 //
 // The on-chain query state (InferReceiptState in proto/task/v1/open_verify.proto) still has its
-// pre-freeze shape — the node's keeper and query have not moved to InferReceiptV2 yet (node d1dbf81
+// pre-freeze shape — the node's keeper and query have not moved to InferReceiptV2 yet (node
 // only redirected the preimage to H_FIELDS_V1; rewriting the handler/query belongs to the Task
 // slice), so it still carries trace/checkpoint/batch/token_count/work_unit, which the new receipt
 // does not have.

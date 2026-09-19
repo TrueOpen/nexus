@@ -1,5 +1,5 @@
-// Package busadapter is the Nexus-side wiring layer for the TRUEOPEN_BUS_ENVELOPE_V2 bus envelope
-// (TrueOpen/nexus#52 step two). The canonical implementation of the signing projection, the verification
+// Package busadapter is the Nexus-side wiring layer for the TRUEOPEN_BUS_ENVELOPE_V2 bus envelope.
+// The canonical implementation of the signing projection, the verification
 // order and the replay semantics lives in github.com/TrueOpen/wire/bus; this package only supplies
 // the Nexus local facts: the pebble-persisted replay store and outbox, the chain query and signing of the
 // current service key, and the conversion between the proto envelope and bus.Fields. Do not

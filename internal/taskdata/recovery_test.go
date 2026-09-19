@@ -457,7 +457,7 @@ func (s *blockingMetadataStore) Set(namespace kv.Namespace, key string, value []
 
 // When the periodic sweep receives a "task not settled" decision (no height), it must not
 // reset the object's existing retention height to 0: that is the commitment signed to the
-// uploader in the storage confirmation (issue #66).
+// uploader in the storage confirmation.
 func TestSweepKeepsRetentionLeaseWhenDecisionHasNoHeight(t *testing.T) {
 	store, _, _ := newTestStore(t, testStoreConfig())
 	body := []byte("abcdefgh")

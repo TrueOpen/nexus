@@ -102,12 +102,11 @@ func (b *natsBus) Start(_ context.Context) error {
 // ensureStreams idempotently creates or updates the stream covering the JS subjects. Without permission to
 // create streams it only warns and runs degraded.
 //
-// gh #45 replaced the old JS subject list with the v1 list of contract §5.1. An existing stream can only
+// The JS subject list is the v1 list of contract §5.1. An existing stream can only
 // have its subjects changed through UpdateStream: AddStream has no effect on a stream that already exists,
 // which is the easiest thing to miss here.
 // **This function never deletes an existing stream**: deleting one also drops in-flight messages and every
-// durable consumer position. That is an operations action; the migration steps are in
-// docs/nexus-cortex-contract-migration.md.
+// durable consumer position. That is an operations action left to the operator.
 func (b *natsBus) ensureStreams() {
 	subjects := JetStreamSubjectWildcardsV1()
 	cfg := &nats.StreamConfig{

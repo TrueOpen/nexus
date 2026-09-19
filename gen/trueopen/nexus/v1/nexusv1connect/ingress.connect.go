@@ -122,7 +122,7 @@ type IngressAPIClient interface {
 	// InferReceipt (ADR-0017).
 	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
 	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-	// 04-Task/05-Verification Algorithm §8.1.
+	// Verification Algorithm §8.1.
 	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
 	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
 	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -130,7 +130,7 @@ type IngressAPIClient interface {
 	//
 	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
 	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. 04-Task/02-Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+	// later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
 	// "own cause" from "external cause" -- resending the former yields the same result however
 	// many times, resending the latter may succeed -- and the two call for opposite responses,
 	// so this mapping is a contract shared by both sides, not a Builder implementation detail.
@@ -484,7 +484,7 @@ type IngressAPIHandler interface {
 	// InferReceipt (ADR-0017).
 	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
 	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-	// 04-Task/05-Verification Algorithm §8.1.
+	// Verification Algorithm §8.1.
 	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
 	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
 	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -492,7 +492,7 @@ type IngressAPIHandler interface {
 	//
 	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
 	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. 04-Task/02-Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+	// later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
 	// "own cause" from "external cause" -- resending the former yields the same result however
 	// many times, resending the latter may succeed -- and the two call for opposite responses,
 	// so this mapping is a contract shared by both sides, not a Builder implementation detail.

@@ -22,7 +22,7 @@ import (
 // Test harness for TRUEOPEN_BUS_ENVELOPE_V2: every frame is signed by a current service key and
 // verified inbound in the 7-step order of wire bus, so the tests too need a real private key
 // and a queryable on-chain binding -- there is no such thing as "signature-free test mode", which
-// is exactly the bug reported in gh #45.
+// would reintroduce the unsigned-frame bug.
 
 const (
 	testAddressPrefix   = "trueopen"

@@ -633,7 +633,7 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if order == nil || order.GetModelId() == "" || order.GetProfileVersion() == 0 {
 		return types.Order{}, errors.New("signed_order requires order.model_id and order.profile_version")
 	}
-	// 08 §7.3/§7.5: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
+	// TaskOrder Hashing and Signing §7.3/§7.5: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
 	// The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
 	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
 		return types.Order{}, err
@@ -648,13 +648,13 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if !proto.Equal(&signed, &pruned) {
 		return types.Order{}, errors.New("signed_order carries unknown fields; SDK and nexus mirrors are out of sync")
 	}
-	// task_hash is derived from the TaskOrderV2 the user actually signed (gh #42): it is the taskHash field of the
+	// task_hash is derived from the TaskOrderV2 the user actually signed: it is the taskHash field of the
 	// order-domain EIP-712 typed data, and the Keeper verifies it with the on-chain account public key at admission.
 	// An order it cannot be computed for is certain to be rejected on-chain too, so it is rejected here outright
 	// rather than carried on with an empty identity.
 	//
 	// Note that sha256(order_envelope) is **no longer** computed here. That value changes with the envelope encoding (the same
-	// order re-signed gives a different value); using it as the Task identity is exactly the mistake gh #42 eradicates.
+	// order re-signed gives a different value); using it as the Task identity is exactly the mistake this avoids.
 	taskHash, err := nodecontract.TaskOrderHashHexV2(order)
 	if err != nil {
 		return types.Order{}, fmt.Errorf("signed_order has no canonical task_hash: %w", err)
@@ -695,7 +695,7 @@ func parseOrderEnvelope(raw []byte, signatureScheme, userSignature string) (type
 	// The legacy JSON envelope has no TaskHash: it lacks chain_id / session_anchor_* / builder_set_* /
 	// generation_params, so the TRUEOPEN_TASK_ORDER_V2 preimage cannot be built and **no**
 	// canonical task_hash exists to fill in. The sha256(order_envelope) formerly filled in here was not a
-	// substitute but an alias, removed with gh #42.
+	// substitute but an alias, and has been removed.
 	//
 	// The consequence is explicit: an order with an empty task_hash is not broadcast (taskfsm.onOrder rejects it outright),
 	// which matches its original situation -- the first-proposal scope branch accepts only the frozen SignedOrderV2, and

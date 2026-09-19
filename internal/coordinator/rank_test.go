@@ -234,7 +234,7 @@ func TestSettleOnlyInsideOwnSegment(t *testing.T) {
 
 // TestSettleRetriesNextBlockWhenNotSettled the transaction passed CheckTx but the chain did not
 // settle (execution rejected or it never made it into a block): send again on the next block while
-// the window is open, it must not abstain forever (nexus#77).
+// the window is open, it must not abstain forever.
 func TestSettleRetriesNextBlockWhenNotSettled(t *testing.T) {
 	session, task := "sess-retry", testTaskID("task-retry")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))

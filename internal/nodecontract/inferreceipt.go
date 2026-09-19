@@ -11,17 +11,16 @@ import (
 )
 
 // Frozen V1 stage-wire signing digests (Keeper Interface Contract §5.14 / §1.2 / §1.4).
-// Reference implementation and golden vectors: node d1dbf81 x/task/types/signature.go,
-// x/task/types/evidence_commitments.go and testdata/task_domains_v1.json
-// (conclusions of TrueOpen/node#89 / #90 / #91 / #95).
+// Reference implementation and golden vectors: node x/task/types/signature.go,
+// x/task/types/evidence_commitments.go and testdata/task_domains_v1.json.
 
 // DomainInferEvidenceCommitmentsV1 is the domain of evidence_commitments_hash.
 // Note the domain name is TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (35 ASCII bytes), not
-// TRUEOPEN_EVIDENCE_COMMITMENTS_V1; §1.4 registers the former (node#89).
+// TRUEOPEN_EVIDENCE_COMMITMENTS_V1; §1.4 registers the former.
 const DomainInferEvidenceCommitmentsV1 = "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"
 
 // InferReceiptSchemaVersionV2 is the schema_version value of InferReceiptV2. In the Phase 0
-// fresh contract it is the only stage wire with value 2 (wire v0.4.1 / monorepo#142): the other
+// fresh contract it is the only stage wire with value 2 (wire v0.4.1): the other
 // three §5.14 stage wires and the two §4.1 handraise wires stay at 1, and InferReceiptV1 has
 // neither an alias nor a dual decoder.
 //
@@ -88,7 +87,7 @@ func CanonicalEvidenceCommitmentFrameV1(item *taskv1.EvidenceCommitmentV1) ([]by
 // This preimage carries NEITHER chain_id NOR task_id: it is a pure content commitment whose scope
 // is bound by the outer TRUEOPEN_INFER_RECEIPT_V1 digest. The sibling domains TRUEOPEN_RESULT_RECEIPT_REFS_V1 /
 // TRUEOPEN_CONSENSUS_CLUSTER_V1 both bind those two, so an implementation is tempted to "helpfully" add
-// them here; doing so double-binds and the digest can never match (node#89).
+// them here; doing so double-binds and the digest can never match.
 //
 // Order is not the caller's choice: the list must be strictly ascending by evidence_kind with unique
 // kinds; a non-ascending or duplicate list is rejected before hashing and is NEVER silently reordered.
@@ -97,7 +96,7 @@ func CanonicalEvidenceCommitmentFrameV1(item *taskv1.EvidenceCommitmentV1) ([]by
 // 393ca3fb29b409f454b6f870f972c4a8fdffbf9934eadd628ecfdf0f03789764,
 // which is NEVER 32 zero bytes, nor an empty byte string, and the count field must not be omitted; nil and [] share the digest.
 // Whether count == 0 is *acceptable* is an admission question the contract does not register
-// (node#89 CONTRACT-GAP), so no lower bound is enforced here.
+// (a known contract gap), so no lower bound is enforced here.
 func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, error) {
 	if uint64(len(items)) > uint64(math.MaxUint32) {
 		return [32]byte{}, fmt.Errorf("evidence commitment count %d overflows uint32", len(items))
@@ -143,7 +142,7 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 // 13 fields; service_signature (wire field 12) is not among them. The 10th field is not a wire field:
 // required_evidence_commitments (wire field 10) enters the preimage only through EvidenceCommitmentsHash,
 // so the signature still covers the whole typed list. worker_operator_address is framed as address codec
-// bytes, not bech32 text (ruling 24 / node#95).
+// bytes, not bech32 text (ruling 24).
 //
 // The returned 32 bytes are the message handed to the strict secp256k1 verifier; consistent with the other
 // nexus domains, signer.VerifySig applies SHA256 once more internally, byte-for-byte identical to Cosmos
@@ -231,7 +230,7 @@ func InferReceiptV2FromSubmission(receipt types.InferReceiptSubmission) (*taskv1
 
 // EvidenceCommitmentsHashFromSubmission derives the submission object's evidence_commitments_hash.
 // It deliberately looks only at EvidenceCommitments: this preimage carries neither chain_id nor task_id
-// (node#89), so deriving it does not require any receipt scope field to be valid.
+// (it is scoped by the outer receipt digest), so deriving it does not require any receipt scope field to be valid.
 func EvidenceCommitmentsHashFromSubmission(receipt types.InferReceiptSubmission) ([32]byte, error) {
 	return EvidenceCommitmentsHash(evidenceCommitmentsFromSubmission(receipt))
 }

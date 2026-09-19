@@ -8,7 +8,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/mmr"
 )
 
-// monorepo 10-protocol-spec/04-task/05-verification-algorithm.md §8.1 "business conformance vectors",
+// monorepo Verification Algorithm §8.1 "business conformance vectors",
 // compared byte-for-byte: TRUEOPEN_OUTPUT_MMR_V1 prefix roots / final root / empty output, and
 // TRUEOPEN_OUTPUT_CHUNK_V1 signing digest and full preimage.
 const (

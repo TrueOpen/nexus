@@ -69,7 +69,7 @@ func TestJSSubscribeRejectsDeliveryAfterFSMShutdown(t *testing.T) {
 	}
 }
 
-// TestPublishRefusesFramesItCannotSign locks in the core constraint of gh #45: when a
+// TestPublishRefusesFramesItCannotSign locks in the core constraint: when a
 // compliant frame cannot be signed, the only correct behaviour is not to send; there is no
 // dev fallback of "send one without a signature first".
 func TestPublishRefusesFramesItCannotSign(t *testing.T) {
@@ -251,7 +251,7 @@ func testTaskID(name string) string {
 // testUserAddress is the test address of the ordering user. It must be **canonical bech32**:
 // the preimage framing of task_hash frames the address-codec bytes of user_address
 // (§1.2 / adjudication 24), and task_hash cannot be computed if they cannot be decoded. The
-// testUserAddress of the old fixture was not valid bech32, which did not matter before gh #42
+// testUserAddress of the old fixture was not valid bech32, which did not matter earlier
 // (the order identity was sha256(envelope) then and ignored the address); now it gets the
 // whole order rejected at ingress.
 // Value = bech32("trueopen", 20 × 0x11).
@@ -263,7 +263,7 @@ func testHash32(parts ...string) string {
 }
 
 // testPlaceholderTaskHash gives the cases that "only need a task to exist" (event reconcile,
-// snapshot recovery, etc.) a candidate task_hash of valid shape. Since gh #42 an order must
+// snapshot recovery, etc.) a candidate task_hash of valid shape. An order must
 // carry it to be broadcast at all -- an order whose canonical task_hash cannot be computed is
 // certain to be rejected on-chain, and Nexus no longer lets it into the flow.
 // Cases that run the real hand-raise/submission path should use testCurrentOrder, whose value
@@ -279,7 +279,7 @@ func testPlaceholderOrder(session, task string) types.Order {
 	}
 }
 
-// testCanonicalTaskHash is the canonical task_hash (gh #42) of the frozen TaskOrderV2 in
+// testCanonicalTaskHash is the canonical task_hash of the frozen TaskOrderV2 in
 // testSignedOrder. Any case that has to run "broadcast → hand-raise → on-chain" must use it for
 // the order, the hand-raise and the proposal scope alike -- a mismatch between the three means
 // fail-closed took effect, not a fixture coincidence.
@@ -293,7 +293,7 @@ func testCanonicalTaskHash(user string) string {
 
 // testSignature64 builds a 64-byte compact signature placeholder. Nexus only checks
 // length/encoding and passes it through; signature verification is in the Keeper, and digest
-// framing belongs to gh #24.
+// framing is covered by the nodecontract golden tests.
 func testSignature64(parts ...string) string {
 	return testHash32(append([]string{"lo"}, parts...)...) + testHash32(append([]string{"hi"}, parts...)...)
 }
@@ -325,7 +325,7 @@ func testCurrentOrder(session, task, user string) types.Order {
 	}
 	// task_hash must match the one derived from the TaskOrderV2 inside SignedOrder -- that is
 	// how ingress computes it in production, and both the hand-raise and the on-chain scope are
-	// compared against it (gh #42).
+	// compared against it.
 	// This used to hold sha256(order_envelope), which is an envelope byte digest, not the order identity.
 	taskHash := testCanonicalTaskHash(user)
 	return types.Order{
@@ -385,7 +385,7 @@ func testWorkerHandraise(session, task, candidate string) *taskv1.WorkerHandrais
 		ChainId:       testChainID,
 		TaskId:        mustHex32(task),
 		// The hand-raise echoes the candidate task_hash from the broadcast verbatim: building a
-		// different value gets it dropped on the spot by validWorkerHandraise (gh #42 acceptance 6).
+		// different value gets it dropped on the spot by validWorkerHandraise.
 		TaskHash:       mustHex32(order.TaskHash),
 		ModelId:        order.ModelID,
 		ProfileVersion: order.ProfileVersion,
@@ -643,7 +643,7 @@ func TestHappyPath(t *testing.T) {
 	settleFSM.mu.Unlock()
 
 	// 7) 2 consistent V_i → SettleTx directly. Normal verification no longer has a Worker reveal
-	// step (04 Task Execution, Verification and Settlement §9); the Worker's commitment is already
+	// step (Task Execution, Verification and Settlement §9); the Worker's commitment is already
 	// locked by the accepted InferReceipt.
 	// The two receipts' result_reveal_hash values differ (each salted); consistency looks only at the re-execution results.
 	vi := [][]byte{[]byte("v0"), []byte("v1")}
@@ -1013,8 +1013,8 @@ func TestVerifyResultRequiresSelectedVerifierAndMaterial(t *testing.T) {
 // task_id + submitter_address; receipt references and self-rescue references are derived by the
 // Keeper from authoritative state.
 // The only settlement precondition is "≥2 consistent re-execution results":
-//   - result_reveal_hash differs per node (each salted) and must not enter the grouping key (nexus#71);
-//   - the Worker reveal does not exist in the frozen contract and must not be a hard precondition (nexus#72).
+//   - result_reveal_hash differs per node (each salted) and must not enter the grouping key;
+//   - the Worker reveal does not exist in the frozen contract and must not be a hard precondition.
 func TestSettleWaitsForConsistentResultsOnly(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus := msgbus.NewStub(log, nil)

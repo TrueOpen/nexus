@@ -1,8 +1,8 @@
-// End-to-end wire test for the current service key query (Implementation Design §4.2; gh #22).
+// End-to-end wire test for the current service key query (Implementation Design §4.2).
 //
 // The external test package chaincli_test is deliberate: only here can both chaincli and
 // servicekey be imported at once (the latter depends on the former, so an in-package test would
-// form a cycle), and what #22 has to guard is exactly the semantics **across those two layers** --
+// form a cycle), and what this test has to guard is exactly the semantics **across those two layers** --
 // the request side sends the hub.v1.ParticipantType enum, the response side decodes
 // CurrentServiceKeyViewV1, and "the query could not be made" must be reported as chain lookup
 // unavailable rather than as unauthorized.
@@ -138,7 +138,7 @@ func TestCurrentSendsParticipantTypeEnumAndDecodesViewV1(t *testing.T) {
 	}
 }
 
-// #22 acceptance 4: a malformed participant type domain must be reported as chain lookup unavailable.
+// A malformed participant type domain must be reported as chain lookup unavailable.
 //
 // Values of this kind ("CORTEX_NODE" as currently sent by Cortex, sender_role's WORKER/VERIFIER,
 // the empty string) have no matching enum value in hub.v1.ParticipantType, so the request

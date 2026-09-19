@@ -96,7 +96,7 @@ const (
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
 	// event_code set frozen in SDK contract v0.1 §3.8, while Cortex contract §9 requires that the word
 	// OutputRef no longer appear in code -- the two conflict; the rename awaits a member/SDK-side decision (see
-	// docs/nexus-cortex-contract-migration.md).
+	// the open items in README.md).
 	EvInferReceiptReceived     = "OUTPUT_REF_RECEIVED"         // selected Worker submitted a signed InferReceipt
 	EvOpenVerifyAccepted       = "OPEN_VERIFY_ACCEPTED"        // formal Verifiers decided (no seed)
 	EvSampleReady              = "SAMPLE_READY"                // sampling seed ready

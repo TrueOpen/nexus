@@ -104,8 +104,8 @@ func TestCanonicalDomainsBindEveryField(t *testing.T) {
 }
 
 // TestLegacyDecimalFramingIsGoneFromReceiptPath is a gate: the old 11-field decimal-framing
-// receipt helper must no longer exist in this package ("no aliases kept", node#91 acceptance
-// criterion 2). The gate works at compile time: signingBytesFromGolden no longer has an
+// receipt helper must no longer exist in this package ("no aliases kept").
+// The gate works at compile time: signingBytesFromGolden no longer has an
 // infer_receipt branch, and the assertion below prevents anyone from wrapping the new digest
 // back into a decimal-form hex string helper.
 func TestLegacyDecimalFramingIsGoneFromReceiptPath(t *testing.T) {

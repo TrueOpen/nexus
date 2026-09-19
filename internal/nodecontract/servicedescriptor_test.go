@@ -44,7 +44,7 @@ func testEndpoints() []ServiceEndpoint {
 // Byte-for-byte with the service_descriptor_v1 vector of wire v0.4.1 testdata/v1/hub/hub_domains_v1.json:
 // 5 top-level fields (participant_type, operator_address, descriptor_version,
 // endpoint_count, endpoints frame); endpoints is a nested frame of "u32 element count + one sub-frame per
-// endpoint", not the four fields of each endpoint flattened to the top level. The old node golden (addbd56)
+// endpoint", not the four fields of each endpoint flattened to the top level. The old node golden
 // used the flattened rule and has been superseded by the contract.
 const (
 	wireDescriptorOperator = "trueopen15x328f9956n632d24wk2mt40kzcm9va5vw5e0a" // a1a2…b4

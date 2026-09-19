@@ -56,7 +56,7 @@ type AssignTx struct {
 	OrderEnvelope          string `json:"order_envelope"`
 	// TaskHash is the canonical identity of the candidate order (see types.Order.TaskHash).
 	// It only feeds local logs and snapshots; the on-chain copy lives in SignedOrder / ExistingTask,
-	// and the submitter checks the two agree before submitting (gh #42).
+	// and the submitter checks the two agree before submitting.
 	TaskHash              string `json:"task_hash"`
 	SignatureScheme       string `json:"signature_scheme"`
 	UserSignature         string `json:"user_signature"`
@@ -205,7 +205,7 @@ type SettleTx struct {
 // signature from the Cortex/Verifier side.
 //
 // This struct expresses only the task branch of §5.9 DeadlineLocatorV1: the challenge / evidence_request
-// branches are gated by K-BLOCK-03/04 (no ACTIVE writer can create the object, the executor must reject),
+// branches are not active yet (no ACTIVE writer can create the object, the executor must reject),
 // and the session_lifecycle branch is not single-task orchestration; neither is exposed here.
 type SweepDeadlineTx struct {
 	Submitter string `json:"submitter"`
@@ -436,7 +436,7 @@ type TaskBuilderSelectionState struct {
 // StageBuilderSelectionState is the locally stored settlement ordering (snapshot field settle_selection).
 // Its source is TaskBuilders: SelectedBuilders is the frozen order of selected_task_builders and
 // SelectedHeight is created_height. BuilderSetID / StageRef / SeedHash / SelectionProofHash are fields of
-// the old hub StageBuilderSelection; the chain no longer has that query (nexus#74) and they are kept
+// the old hub StageBuilderSelection; the chain no longer has that query and they are kept
 // only so old snapshots still decode.
 type StageBuilderSelectionState struct {
 	SessionID          string   `json:"session_id"`
@@ -566,7 +566,7 @@ type TaskAssignmentState struct {
 	// field 5): the authoritative task_hash locked once the Keeper accepts, lowercase 64-hex.
 	// It can only come from on-chain query/event; Nexus does not create consensus facts.
 	// The former name accepted_item_hash was a generic alias that hid that it is accepted_task_hash,
-	// conflicting with the "one identity, one name" rule of gh #42, so it was renamed.
+	// conflicting with the "one identity, one name" rule, so it was renamed.
 	AcceptedTaskHash string `json:"accepted_task_hash"`
 }
 

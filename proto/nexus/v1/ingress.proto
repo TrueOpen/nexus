@@ -10,7 +10,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 
 // IngressAPI is the single external interface of nexus (toward SDK / Worker / Verifier).
 //
-// The method table follows 20-Service Design/nexus/Interface & Topic Catalogue.md §4.2; the
+// The method table follows Interface & Topic Catalogue.md §4.2; the
 // Task data-plane messages and digests follow Task Data Interface Design.md §6; the OUTPUT
 // frame stream follows Streaming Output Delivery Design.md §5.
 //
@@ -79,7 +79,7 @@ service IngressAPI {
   // InferReceipt (ADR-0017).
   // Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
   // mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-  // 04-Task/05-Verification Algorithm §8.1.
+  // Verification Algorithm §8.1.
   // The Builder verifies each frame's signature, computes the leaf itself and appends to its
   // own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
   // The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -87,7 +87,7 @@ service IngressAPI {
   //
   // Any error closes the stream; the rejection reason is carried by the gRPC status code with
   // no separate reason field: two sources of error truth on one stream will diverge sooner or
-  // later. 04-Task/02-Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+  // later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
   // "own cause" from "external cause" -- resending the former yields the same result however
   // many times, resending the latter may succeed -- and the two call for opposite responses,
   // so this mapping is a contract shared by both sides, not a Builder implementation detail.
@@ -496,7 +496,7 @@ message OutputStreamHeaderV1 {
 }
 
 // One chunk of OUTPUT text and its cumulative commitment
-// (04-Task/02-Data Plane & Evidence Transport §9.2).
+// (Data Plane & Evidence Transport §9.2).
 //
 // The same message is used both for Worker->Builder upload and Builder->User forwarding: the
 // Builder forwards it verbatim, without modifying the frame or adding its own signature.
@@ -516,7 +516,7 @@ message OutputChunkV1 {
   bytes attachment_signature = 6;
 }
 
-// Closing frame of an OUTPUT stream (04-Task/02-Data Plane & Evidence Transport §9.2).
+// Closing frame of an OUTPUT stream (Data Plane & Evidence Transport §9.2).
 //
 // Carries no signature. The authoritative commitment to the final root is
 // InferReceipt.output_hash; output_mmr_root here only lets the receiver detect early that it
@@ -833,7 +833,7 @@ message SubscribeOutputResponse {
 // After ADR-0017 the delivery progress is just (task, last_seq); stream_id or output_hash is no
 // longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
 // an input to settlement, challenge, fault attribution or deletion permission
-// (04-Task/02-Data Plane & Evidence Transport §9.4).
+// (Data Plane & Evidence Transport §9.4).
 message AckOutputRequest {
   string session_id = 1;
   string task_id = 2;

@@ -1,8 +1,7 @@
-# TrueOpen node Message Integration Notes
+# Node Message Integration Notes
 
-> Baseline date: 2026-08-13. Minimum compatible Node baseline: PR #85 merge commit
-> `6ebe9b2f3b4ec1ca1a8b54d5de95dafc3ff673bb`. Authoritative interface definitions: TrueOpen node
-> `docs/static/node-api.md` and the public proto at that commit.
+> Contract baseline: TrueOpen/wire `v0.1.1`, the release TrueOpen/node pins in `wire/pin.json`.
+> Authoritative interface definitions: TrueOpen/node `docs/static/node-api.md` and the TrueOpen/wire protos.
 
 Nexus currently uses only the Node's `hub.v1` and `task.v1` application-layer ABI. The proto in this repository is the exact wire mirror covering everything Nexus needs at runtime; package, message names, field numbers, field types and gRPC methods must stay identical to the Node.
 
@@ -57,7 +56,7 @@ Task Chain queries:
 - `/task.v1.Query/TaskBuilders` (the frozen Task Builder order; the right to submit settlement rotates by it)
 - `/task.v1.Query/TimeoutBucket`
 
-There is no `hub.v1.Query/StageBuilderSelection` on chain (nexus#74). SETTLE submission timing follows
+There is no `hub.v1.Query/StageBuilderSelection` on chain. SETTLE submission timing follows
 §10.10a: rank 1 may submit at any time; after the reveal deadline, rank i has exclusive access in `(reveal+(i-1)·g, reveal+i·g]`,
 where g is `settlement_builder_grace_blocks`; once all windows have passed, anyone may submit. Nexus determines the window by chain height, not the local clock.
 
@@ -76,7 +75,7 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
 - `task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)`, derived from the
   `SignedOrderV2.order` the user actually signed (`nodecontract.TaskOrderHashV2`).
   Together with `task_id` (the stable RBF slot) it forms the Task's entire identity.
-  The old `order_digest = sha256(order_envelope)` was removed with gh #42: that was a digest of the
+  The old `order_digest = sha256(order_envelope)` was removed: that was a digest of the
   envelope bytes, changing with every user signature, so the same order would yield two mutually
   unrecognizable commitments. If the transport layer needs a payload digest, use
   `BusEnvelopeV1.payload_digest` (field 20); do not call it an order/task digest;
@@ -99,13 +98,11 @@ The Order signature binds chain ID, owner, session ID, order sequence and the ca
 
 - the winner must equal the on-chain selected worker;
 - the Worker output must carry `output_size_bytes`; Nexus recomputes
-  `infer_receipt_hash` per `TRUEOPEN_INFER_RECEIPT_V1`. **The scheme has switched to the H_FIELDS_V1 typed
-  framing of Keeper Interface Contract §5.14 / §1.2** (11 fields, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
+  `infer_receipt_hash` per `TRUEOPEN_INFER_RECEIPT_V2`, using the H_FIELDS_V1 typed
+  framing of Keeper Interface Contract §5.14 / §1.2 (13 fields, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
   codec bytes); see `internal/nodecontract.InferReceiptSigningDigest` for the implementation and
-  `internal/nodecontract/testdata/task_domains_v1.json` (node `d1dbf81`) for the golden vector. The old 11-field
-  decimal-text preimage has been removed with no alias kept; byte layout and migration impact are in
-  `docs/nexus-cortex-contract-migration.md` §10;
-- the receipt goes through `MsgSubmitInferReceipt` (§10.3) carrying the frozen `task.v1.InferReceiptV1` body;
+  `internal/nodecontract/testdata/task_domains_v1.json` for the golden vector;
+- the receipt goes through `MsgSubmitInferReceipt` (§10.3) carrying the frozen `task.v1.InferReceiptV2` body;
   `chaincli.OpenVerifyTx` no longer keeps any flattened receipt string copies;
 - there must be exactly three formal verifiers, and they must not include the worker;
 - verifier handraise uses the Node's `TRUEOPEN_VERIFIER_HANDRAISE_SORT_V1` ordering, and the signing domain does not include the canonical output package hash;
@@ -158,17 +155,17 @@ Subscription requests use the `TaskEventCode`, `ProtocolEventCode` and `EventRol
 
 `StreamCheckpoint` only advances the opaque cursor stored in `chain_event_cursor` and produces no application `ChainEvent`. The event cursor is saved only after the event has been delivered successfully to the local consumer; an empty item, a known code/payload mismatch or an identity mismatch terminates the current stream without advancing the cursor. `OUT_OF_RANGE` still deletes the corresponding cursor and resubscribes from the latest height.
 
-## PR #85 upgrade
+## Contract upgrades
 
-This is a breaking change that requires a coordinated (lockstep) upgrade; no old/new dual-stack protocol is provided. Node, Nexus, the user SDK and Cortex must upgrade to the new task ID, order/handraise/receipt signing domains and typed event ABI within the same release window. Upgrade steps:
+A new wire release is a breaking change that requires a coordinated (lockstep) upgrade; no old/new dual-stack protocol is provided. Node, Nexus, the user SDK and Cortex must move to the same wire release within one release window. Upgrade steps:
 
 1. Stop accepting new orders;
-2. Drain or discard unfinished development tasks created with the old task ID / signing domains;
-3. Clean up the task and protocol cursors of the affected development chains in the Nexus `chain_event_cursor` namespace;
-4. Deploy the Node, SDK/Cortex and Nexus compatible with the Node baseline;
+2. Drain or discard unfinished tasks created under the previous release;
+3. Clean up the task and protocol cursors of the affected chains in the Nexus `chain_event_cursor` namespace;
+4. Deploy Node, SDK/Cortex and Nexus built against the new wire release;
 5. Restore the ingress and verify Assign, OpenVerify, checkpoint/event reconciliation and Query recovery with new tasks.
 
-This change provides no production state converter. Old SDK/Cortex must not replay orders or handraises to the new Nexus, and the new Nexus must not continue reading old opaque cursors.
+No production state converter is provided. An old SDK/Cortex must not replay orders or handraises to the new Nexus, and the new Nexus must not continue reading old opaque cursors.
 
 ## Compatibility constraints
 

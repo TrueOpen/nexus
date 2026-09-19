@@ -793,7 +793,7 @@ func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string
 // validateInferReceiptShape checks the minimal semantic fields of contract §2.4.
 // The field set is the InferReceiptV2 frozen in §5.14: commit hash / trace / checkpoint / batch /
 // token_count / work_unit were removed from wire and are now carried by typed required_evidence_commitments.
-// The kind set and count limit are Keeper admission checks (contract §8.5 / node#89 CONTRACT-GAP);
+// The kind set and count limit are Keeper admission checks (contract §8.5; a known contract gap);
 // locally we only require a non-empty list -- the §9.7 V1 text path always has WORKER_VALUE_OPENING.
 func validateInferReceiptShape(receipt types.InferReceiptSubmission) error {
 	switch {
@@ -832,8 +832,8 @@ func validateInferReceiptShape(receipt types.InferReceiptSubmission) error {
 
 // SubscribeOutput replays the prepared plaintext output or waits for its submission to complete.
 //
-// It only waits when the delivery has been Prepared (a record exists). SubscribeOutput / AckOutput are
-// RESERVED in the SDK contract (docs/nexus-sdk-contract-migration.md item 5); no production entry point
+// It only waits when the delivery has been Prepared (a record exists). This is the legacy plaintext
+// path, used only when task_data.output_stream is disabled; no production entry point
 // calls Prepare, so without a record the wait would never end; return OUTPUT_UNAVAILABLE right away
 // so the SDK fails fast instead of hanging. Users pick up output via FetchOutputRef +
 // FetchTaskData(OUTPUT).

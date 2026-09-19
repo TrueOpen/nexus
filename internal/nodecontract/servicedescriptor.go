@@ -168,7 +168,7 @@ func CanonicalServiceEndpointFields(endpoints []ServiceEndpoint, limits ServiceE
 //	endpoints = FRAME(u32 element count, FRAME(endpoint_kind, uri, protocol_version, tls_pubkey_hash) ...)
 //
 // endpoints is ONE nested frame, not the four fields of every endpoint flattened to the top level; flattening
-// was the old node (addbd56) rule and the chain has long since moved to the nested frame. Once the two sides
+// was the old node rule and the chain has long since moved to the nested frame. Once the two sides
 // disagree, local recomputation consistently reports "descriptor hash disagrees".
 func ServiceDescriptorFields(
 	participantType sharedv1.ParticipantType,

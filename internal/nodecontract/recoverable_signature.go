@@ -1,5 +1,5 @@
 // Canonical form of the 65-byte recoverable signature (base spec §10.1a,
-// 10-protocol-spec/04-task/08 TaskOrder Hashing and Signing §7.3/§7.5).
+// TaskOrder Hashing and Signing §7.3/§7.5).
 //
 // The user signature of SignedOrderV2 is a recoverable ECDSA over the order-domain EIP-712
 // digest: R || S || V, V ∈ {27,28}, low-S. Nexus **does not verify the signature**: the user
@@ -17,7 +17,7 @@ import (
 )
 
 // SignedOrderSchemeV2 is the only accepted value of SignedOrderV2.signature_scheme
-// (08 §7.3): byte-for-byte lowercase ASCII; no alias, case variant or the historical "secp256k1".
+// (TaskOrder Hashing and Signing §7.3): byte-for-byte lowercase ASCII; no alias, case variant or the historical "secp256k1".
 const SignedOrderSchemeV2 = "eip712"
 
 // RecoverableSignatureLen is the raw length of R||S||V.
@@ -54,7 +54,7 @@ func ValidateRecoverableSignature(signature []byte) error {
 }
 
 // ValidateSignedOrderEnvelopeV2 is the shape check of the SignedOrderV2 transport envelope
-// (08 §7.3, §7.5): the scheme literal plus the signature canonical form.
+// (TaskOrder Hashing and Signing §7.3, §7.5): the scheme literal plus the signature canonical form.
 func ValidateSignedOrderEnvelopeV2(signatureScheme string, userSignature []byte) error {
 	if signatureScheme != SignedOrderSchemeV2 {
 		return fmt.Errorf("signed_order signature_scheme must be exactly %q, got %q",

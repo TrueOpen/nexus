@@ -31,7 +31,7 @@ func TestValidateRecoverableSignatureAccepts(t *testing.T) {
 	}
 }
 
-// 08 §7.5 / base spec §10.1a: 65 bytes, V ∈ {27,28}, R ∈ [1, N-1], S non-zero and low-S;
+// TaskOrder Hashing and Signing §7.5 / base spec §10.1a: 65 bytes, V ∈ {27,28}, R ∈ [1, N-1], S non-zero and low-S;
 // failing any one of them is a rejection.
 func TestValidateRecoverableSignatureRejects(t *testing.T) {
 	n := secp256k1.S256().N

@@ -257,7 +257,7 @@ func (c *client) QueryBuilderSetAtHeight(ctx context.Context, height uint64) (Bu
 
 // QueryTaskBuilders reads the task's frozen Task Builder selection (wire v0.1.2
 // task.v1.Query/TaskBuilders). The old hub.v1.Query/StageBuilderSelection does
-// not exist on chain (nexus#74); settlement submission rights rotate in
+// not exist on chain; settlement submission rights rotate in
 // selected_task_builders order (§10.10a), and this is the only read path.
 func (c *client) QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error) {
 	if err := key.Validate(); err != nil {
@@ -581,8 +581,8 @@ func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error
 // QuerySettlementBuildFacts has no corresponding RPC in the frozen contract: §16 no
 // longer registers any settlement-build/preview interface, §10.10a explicitly forbids
 // exposing SettlementFactsV1 as a submitted settlement, and QuerySettlement /
-// QuerySettlementFinality may only be registered once K-BLOCK-16 (finality also
-// K-BLOCK-03/04) is closed. This fails closed rather than assembling approximate facts
+// QuerySettlementFinality may only be registered once the open settlement and
+// finality blockers are resolved. This fails closed rather than assembling approximate facts
 // from other Queries.
 func (c *client) QuerySettlementBuildFacts(_ context.Context, key TaskKey) (SettlementBuildFacts, error) {
 	if err := key.Validate(); err != nil {

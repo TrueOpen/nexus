@@ -19,7 +19,7 @@ import (
 )
 
 // Storage semantics of the streamed OUTPUT upload (streamed output delivery design §5.2-§5.5,
-// protocol 04-task/02 §9).
+// Data Plane & Evidence Transport §9).
 //
 // A Task has at most one write stream at a time. When a chunk arrives: the text is appended to the
 // stream's spool file and the attachment to the .attach file of the same name, each fsynced; then

@@ -1,7 +1,7 @@
 // Package mmr implements the `MMR_ROOT_V1` framing frozen in Base Spec §9: a Merkle
 // Mountain Range commitment over an append-only ordered list of variable-length byte
 // leaves, able to recompute the root of any prefix in addition to the final root.
-// Its only current user is the output_hash of streamed output (04-Task/05-Verification
+// Its only current user is the output_hash of streamed output (Verification
 // Algorithm §8.1, domain `TRUEOPEN_OUTPUT_MMR_V1`).
 //
 //	MmrLeafV1(domain, index, leaf)  = SHA256("TRUEOPEN_MMR_LEAF_V1"  || u32_be(len(domain)) || domain || u64_be(index) || u64_be(len(leaf)) || leaf)

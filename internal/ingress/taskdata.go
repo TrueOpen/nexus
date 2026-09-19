@@ -189,8 +189,8 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 //
 // But "contract not frozen" is an unmet deterministic precondition, not a transient fault: Unimplemented would make
 // callers assume the server is too old and retry repeatedly, so FailedPrecondition is used here.
-// The expected freeze date lives in monorepo docs/ (20-service design), not in this repository, and is not yet given;
-// once decided it must also be written into docs/nexus-sdk-contract-migration.md.
+// The expected freeze date lives in the monorepo service design docs, not in this repository, and is not yet given;
+// once decided, update the open items in README.md.
 var errConfirmOpenTaskContractNotFrozen = errors.New(
 	"NEXUS_INGRESS_CONTRACT_NOT_FROZEN: ConfirmOpenTask stays closed until contract §8.2 (field table) " +
 		"and §8.3 (save-confirmation proto) freeze; do not retry")

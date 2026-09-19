@@ -25,7 +25,7 @@ import (
 
 // The participant type domain is defined in exactly one place, servicekey: it must be constructible into
 // the hub.v1.ParticipantType enum, and every package writing its own literal is exactly where the
-// "CORTEX_NODE" defect of #22 came from.
+// "CORTEX_NODE" defect came from.
 const participantTypeBuilder = servicekey.ParticipantBuilder
 
 // initialServiceKeyNonce is the service_authorization_nonce used at first registration. It never goes on

@@ -269,7 +269,7 @@ func TestTaskDataProtoContract(t *testing.T) {
 
 // TestSDKContractSurface pins the SDK method surface of §3 of the nexus<->SDK interface contract v0.1:
 // all 9 contract methods present with the right streaming shape; the pre-existing SDK methods the contract supersedes stay deprecated
-// until the members rule on a removal date (see docs/nexus-sdk-contract-migration.md).
+// until the members rule on a removal date (see the open items in README.md).
 func TestSDKContractSurface(t *testing.T) {
 	svc := nexusv1.File_nexus_v1_ingress_proto.Services().ByName("IngressAPI")
 	if svc == nil {
@@ -1014,7 +1014,7 @@ func TestWorkerServiceKeyAuthenticationRejectsUnauthorizedKeys(t *testing.T) {
 	}
 }
 
-// "Chain lookup unavailable" must not degrade into "unauthorized" (gh #22 acceptance criterion 4).
+// "Chain lookup unavailable" must not degrade into "unauthorized".
 //
 // When the chain cannot be queried (including a malformed participant type domain: the "CORTEX_NODE" Cortex currently sends
 // has no corresponding value in hub.v1.ParticipantType, so the request cannot even be issued), nexus has decided

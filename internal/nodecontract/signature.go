@@ -83,7 +83,7 @@ func OpenVerifyBuilderSigningBytes(chainID, taskID, winnerWorker, inferReceiptCo
 // The pre-freeze infer-receipt signing-bytes helper and its hex receipt-hash wrappers
 // (the old InferReceiptSigningBytes / InferReceiptHashV1FromSigningBytes /
 // InferReceiptHashV1 / InferReceiptHash in this file) have been removed entirely,
-// **with no aliases kept** (TrueOpen/node#91 acceptance criterion 2): it wrote uint64 as
+// **with no aliases kept**: it wrote uint64 as
 // decimal text and covered infer_receipt_commit_hash / trace_commit_root /
 // checkpoint_commit_root / batch_log_root / token_count / work_unit, six fields that §5.14
 // removed from the wire. Keeping an alias would let callers keep producing digests the

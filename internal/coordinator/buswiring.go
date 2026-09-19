@@ -3,7 +3,7 @@
 // busadapter only provides the envelope assembly/verification mechanism; the local facts -- which private key
 // signs, where the current service key is looked up, which kv holds replay and outbox -- are injected here.
 // Publisher/Receiver are one per Coordinator and shared by all taskFSMs: the replay store must be shared across
-// tasks, otherwise the same frame could be replayed under another task (same semantics as the old busEnvelopes, gh #37).
+// tasks, otherwise the same frame could be replayed under another task (same semantics as the old busEnvelopes).
 package coordinator
 
 import (

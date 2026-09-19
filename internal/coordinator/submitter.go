@@ -44,8 +44,7 @@ import (
 // ResultReceiptV2 signed by the Verifier (including service_authorization_nonce / expiry_height /
 // MetricSummaryV1), so it is forwarded verbatim -- the old reason for "intentionally not enabled this round"
 // (Nexus could not obtain those fields) went away with the bus migration. MsgSubmitVerifyCommit / MsgSubmitFullResultReveal
-// are still not enabled: the Cortex contract has not given them a NATS payload yet, see
-// docs/nexus-cortex-contract-migration.md §4-B.
+// are still not enabled: the Cortex contract has not given them a NATS payload yet.
 // MsgReportDataUnavailable must not be relayed per the contract (see the chaincli/txbuild.go comment).
 type Submitter interface {
 	SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (chaincli.TxResult, error)
@@ -268,7 +267,7 @@ func (s *defaultSubmitter) SubmitVerifyResult(ctx context.Context, tx chaincli.V
 // `1=task_id:Hash32,2=submitter_address:Address`: the Keeper derives verdict,
 // consensus cluster, receipt refs, evidence root, facts hash, cutoff height,
 // challenge close height and the settlement duty Builder from authoritative
-// state, and a funded Task still fails closed until K-BLOCK-16 closes.
+// state, and a funded Task still fails closed until the settlement encoding is frozen.
 func (s *defaultSubmitter) SubmitSettle(ctx context.Context, tx chaincli.SettleTx) (chaincli.TxResult, error) {
 	if s.signer == nil {
 		return chaincli.TxResult{}, prepareSubmissionError("MsgSettleTask: account signer is required")
@@ -294,7 +293,7 @@ func (s *defaultSubmitter) SubmitSettle(ctx context.Context, tx chaincli.SettleT
 // signer is Nexus's own account and no external detached signature is needed.
 //
 // Only the task branch of §5.9 DeadlineLocatorV1 is exposed. challenge / evidence_request and the four kinds
-// EVIDENCE_REQUEST / CHALLENGE_RESOLVE / CHALLENGE_CLOSE / EVIDENCE_CLEANUP are gated by K-BLOCK-03/04 --
+// EVIDENCE_REQUEST / CHALLENGE_RESOLVE / CHALLENGE_CLOSE / EVIDENCE_CLEANUP are not active yet --
 // no ACTIVE writer can create the corresponding objects, so the sweep executor must reject them --
 // so we fail closed here rather than broadcast a Tx that is certain to be rejected and burn gas for nothing.
 func (s *defaultSubmitter) SubmitSweepDeadline(ctx context.Context, tx chaincli.SweepDeadlineTx) (chaincli.TxResult, error) {
@@ -355,7 +354,7 @@ const hash32Len = 32
 // nodecontract.ValidateSignedOrderEnvelopeV2.
 const signature64Len = 64
 
-// validateScopeTaskHash is the last gate on Task identity before submitting on-chain (gh #42 acceptance 4/6).
+// validateScopeTaskHash is the last gate on Task identity before submitting on-chain.
 //
 // Frozen contract §4.2.1 requires the scope (SignedOrderV2 or ExistingTaskRefV1) and every
 // WorkerHandraiseV1.task_hash in this proposal to point at the same order version. The Keeper repeats this
@@ -382,7 +381,7 @@ func validateScopeTaskHash(scopeTaskHash []byte, handraises []*taskv1.WorkerHand
 }
 
 func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
-	// 08 §7.3/§7.5: "eip712" + 65-byte recoverable signature. Same rule as ingress.
+	// TaskOrder Hashing and Signing §7.3/§7.5: "eip712" + 65-byte recoverable signature. Same rule as ingress.
 	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
 		return err
 	}
@@ -504,7 +503,7 @@ func validateCandidateMember(member *taskv1.CandidateMemberRefV1, index, previou
 // validateInferReceipt enforces the caller-side structure of §5.14: the receipt
 // is Worker-signed, carries the ordered required evidence commitments and never
 // carries a caller-asserted receipt hash, evidence commitments hash or
-// work-unit field (the latter stays blocked by K-BLOCK-16).
+// work-unit field (the latter stays blocked until the settlement encoding is frozen).
 func validateInferReceipt(receipt *taskv1.InferReceiptV2) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")

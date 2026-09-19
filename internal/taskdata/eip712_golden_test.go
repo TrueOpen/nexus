@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Byte for byte against monorepo 20-Service Design/nexus/Interface & Topic Catalogue §4.2.1
+// Byte for byte against monorepo Interface & Topic Catalogue §4.2.1
 // "USER Fetch auth (EIP-712 v4)". Every link in the chain has a published value, so a wrong
 // step is located directly instead of being reverse-engineered from the final digest.
 const (

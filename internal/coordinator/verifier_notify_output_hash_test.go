@@ -14,7 +14,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// A Builder that has not received the Worker's receipt does not send the assignment notification (issue #67).
+// A Builder that has not received the Worker's receipt does not send the assignment notification.
 //
 // The Worker's receipt goes to only one Builder; in the other Builders' FSMs output_hash stays
 // empty. They still sent notifications when they saw OpenVerifyAccepted from the chain, and the
