@@ -97,7 +97,7 @@ chain:
   # With hub.enabled=false it also requires
   # NODED_TASK_EVENT_GRPC_PROTOCOL_EVENTS_ENABLED=true.
   grpc_addr: 127.0.0.1:9090         # once node has TLS enabled, use https://host:9090 (verified against system root CAs)
-  chain_id: trueopen-localnet
+  chain_id: trueopen-localnet-1
   gas_limit: 200000
   fee_denom: utrueopen
   fee_amount: "5000"

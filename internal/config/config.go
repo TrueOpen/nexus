@@ -595,7 +595,7 @@ func defaults() Config {
 		},
 		Chain: ChainConfig{
 			GRPCAddr: "localhost:9090",
-			ChainID:  "trueopen-localnet",
+			ChainID:  "trueopen-localnet-1",
 			GasLimit: 200000,
 		},
 		Hub: HubConfig{

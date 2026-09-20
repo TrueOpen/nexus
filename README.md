@@ -139,7 +139,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_OUTPUT_SWEEP_INTERVAL` | `1m` | Sweep interval for plaintext expiry and tombstone cleanup |
 | `NEXUS_NATS_SERVERS` | (empty) | Comma-separated NATS server list; empty = stub mode |
 | `NEXUS_CHAIN_GRPC` | `localhost:9090` | Task node gRPC; used for queries, tx broadcast, TaskEventService subscription and height polling |
-| `NEXUS_CHAIN_ID` | `trueopen-localnet` | Chain ID |
+| `NEXUS_CHAIN_ID` | `trueopen-localnet-1` | Chain ID |
 | `NEXUS_HUB_ENABLED` | `false` | Enable a standalone Hub; when enabled, Builder registration, stake and unbond go only to the Hub |
 | `NEXUS_HUB_GRPC` | (empty) | Hub node gRPC; required when `NEXUS_HUB_ENABLED=true`, also used for protocol event subscription |
 | `NEXUS_HUB_CHAIN_ID` | (empty) | Hub chain ID; required when the Hub is enabled |
