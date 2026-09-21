@@ -62,6 +62,13 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `proto/task/v1/`, `proto/hub/v1/` and `proto/shared/v1/`. Generated code lives in
 `gen/` (committed, so builds do not need to run buf first) and must not be edited by hand.
 
+`nexus.v1` is also a frozen package of the TrueOpen/wire release (`release/packages.json`), so
+`proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
+repository keeps the documented version (the wire copy is comment-stripped and is therefore not
+produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
+fingerprint to the wire v0.1.1 definition; `internal/chaincli/node_descriptor_test.go` does the same
+for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
+
 ### Consuming the contract (`gen/trueopen` standalone module)
 
 `gen/trueopen` is a standalone Go module (`github.com/TrueOpen/nexus/gen/trueopen`). External Go consumers
@@ -93,7 +100,10 @@ Open items:
   are not in the contract set; renaming them is a wire-visible change pending a decision.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
   field `challenge_close` without fixing its unit; the rename waits for that decision.
-- `OutputFinV1.finish_reason` / `worker_signature` from TrueOpen/wire v0.1.1 are not adopted yet.
+- `OutputFinV1.finish_reason` / `worker_signature` follow TrueOpen/wire v0.1.1: the Builder stores
+  the Fin as received and replays it byte-identically to `SubscribeOutput` subscribers, but
+  `UploadTaskOutputStream` does not yet verify `worker_signature` against the
+  `TRUEOPEN_OUTPUT_FIN_V1` domain (signed-Fin follow-up).
 
 ## Configuration (environment variables)
 

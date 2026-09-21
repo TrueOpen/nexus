@@ -1,6 +1,7 @@
 package ingress
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -319,7 +321,12 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 		f.sendChunk(t, up, acc, uint64(i), text)
 	}
 	final := acc.Root()
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: &nexusv1.OutputFinV1{FinalSeq: 2, OutputMmrRoot: final[:]}}}); err != nil {
+	// wire v0.1.1 OutputFinV1 carries finish_reason and worker_signature; the Builder stores the frame
+	// and replays it byte-identically (TRUEOPEN_OUTPUT_FIN_V1 registry note). Not verified here yet.
+	finSignature := bytes.Repeat([]byte{0xf1}, 64)
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: &nexusv1.OutputFinV1{
+		FinalSeq: 2, OutputMmrRoot: final[:], FinishReason: taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN, WorkerSignature: finSignature,
+	}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := up.CloseRequest(); err != nil {
@@ -347,7 +354,9 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	frames := early.frames
 	if len(frames) != 4 || string(frames[0].GetChunk().GetText()) != "Hello, " || frames[2].GetChunk().GetSeq() != 2 ||
 		frames[3].GetFin() == nil || hex.EncodeToString(frames[3].GetFin().GetOutputMmrRoot()) != hex.EncodeToString(final[:]) ||
-		len(frames[1].GetChunk().GetWorkerSignature()) != 64 {
+		len(frames[1].GetChunk().GetWorkerSignature()) != 64 ||
+		frames[3].GetFin().GetFinishReason() != taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN ||
+		!bytes.Equal(frames[3].GetFin().GetWorkerSignature(), finSignature) {
 		t.Fatalf("subscriber frames = %v", frames)
 	}
 
@@ -391,7 +400,9 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	// Diagram 5: resubscribe with resume_after_seq=1 and receive only seq 2 and the fin frame.
 	late := f.subscribe(t, ctx, f.user, 1, "nonce-subscribe-late-0002")
 	resumed, err := collectFrames(late)
-	if err != nil || len(resumed) != 2 || resumed[0].GetChunk().GetSeq() != 2 || resumed[1].GetFin() == nil {
+	if err != nil || len(resumed) != 2 || resumed[0].GetChunk().GetSeq() != 2 || resumed[1].GetFin() == nil ||
+		resumed[1].GetFin().GetFinishReason() != taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN ||
+		!bytes.Equal(resumed[1].GetFin().GetWorkerSignature(), finSignature) {
 		t.Fatalf("resumed frames = %v / %v", resumed, err)
 	}
 

@@ -12,6 +12,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -115,7 +116,10 @@ func (s *service) UploadTaskOutputStream(
 			}
 			s.outputStream.dispatcher.Publish(key, taskdata.OutputFrame{Chunk: &chunk})
 		case *nexusv1.UploadTaskOutputStreamRequest_Fin:
-			fin := taskdata.OutputFin{FinalSeq: frame.Fin.GetFinalSeq(), OutputMMRRoot: append([]byte(nil), frame.Fin.GetOutputMmrRoot()...)}
+			fin := taskdata.OutputFin{
+				FinalSeq: frame.Fin.GetFinalSeq(), OutputMMRRoot: append([]byte(nil), frame.Fin.GetOutputMmrRoot()...),
+				FinishReason: uint32(frame.Fin.GetFinishReason()), WorkerSignature: append([]byte(nil), frame.Fin.GetWorkerSignature()...),
+			}
 			metadata, err := session.Finish(ctx, fin)
 			if err != nil {
 				return mapTaskDataError(err)
@@ -283,6 +287,7 @@ func outputFrameToPB(frame taskdata.OutputFrame) *nexusv1.SubscribeOutputRespons
 	if frame.Fin != nil {
 		return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Fin{Fin: &nexusv1.OutputFinV1{
 			FinalSeq: frame.Fin.FinalSeq, OutputMmrRoot: frame.Fin.OutputMMRRoot,
+			FinishReason: taskv1.FinishReasonV1(frame.Fin.FinishReason), WorkerSignature: frame.Fin.WorkerSignature,
 		}}}
 	}
 	return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Chunk{Chunk: chunkToPB(frame.Chunk)}}

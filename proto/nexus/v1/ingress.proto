@@ -3,6 +3,7 @@ syntax = "proto3";
 package nexus.v1;
 
 import "task/v1/commit.proto";
+import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
 import "task/v1/result.proto";
 
@@ -518,12 +519,18 @@ message OutputChunkV1 {
 
 // Closing frame of an OUTPUT stream (Data Plane & Evidence Transport §9.2).
 //
-// Carries no signature. The authoritative commitment to the final root is
-// InferReceipt.output_hash; output_mmr_root here only lets the receiver detect early that it
-// disagrees with the Worker.
+// The authoritative commitment to the final root is InferReceipt.output_hash; output_mmr_root
+// here only lets the receiver detect early that it disagrees with the Worker. Since wire v0.1.1
+// the frame is Worker-authenticated: worker_signature covers the TRUEOPEN_OUTPUT_FIN_V1 digest
+// (H_FIELDS_V1 over chain_id, task_hash, uint64_be(final_seq), output_mmr_root,
+// uint32_be(finish_reason)), so finish_reason is part of the signed preimage.
 message OutputFinV1 {
   uint64 final_seq = 1;
   bytes output_mmr_root = 2;
+  // Why the stream ended; participates in the TRUEOPEN_OUTPUT_FIN_V1 preimage.
+  task.v1.FinishReasonV1 finish_reason = 3;
+  // Worker service key raw64 signature (R||S, low-S) over the TRUEOPEN_OUTPUT_FIN_V1 digest.
+  bytes worker_signature = 4;
 }
 
 // Upstream frame of UploadTaskOutputStream: one Header, then consecutive Chunks, finally Fin.

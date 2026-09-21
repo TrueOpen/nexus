@@ -1,13 +1,10 @@
 package chaincli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"sort"
-	"strings"
 	"testing"
 
+	"github.com/TrueOpen/nexus/internal/protofingerprint"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
@@ -20,10 +17,10 @@ import (
 // cosmos_proto / amino / cosmos.msg / rest_encoding / google.api options are stripped. Moving to
 // a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
-	got, messages, enums, methods := nodeMirrorDescriptorFingerprint(t)
+	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
 	const want = "29de0eeb7a6567d5929467cc15183121c42cb8ea15096b374464c0733dc59f96"
 	if got != want {
-		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, messages, enums, methods)
+		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
 }
 
@@ -565,77 +562,5 @@ func assertContractEnumValueAbsent(t *testing.T, enumName, valueName string) {
 	}
 	if value := enum.Values().ByName(protoreflect.Name(valueName)); value != nil {
 		t.Fatalf("%s value %s = %d, want absent", enumName, valueName, value.Number())
-	}
-}
-
-func nodeMirrorDescriptorFingerprint(t *testing.T) (string, int, int, int) {
-	t.Helper()
-	var (
-		lines                   []string
-		messageCount, enumCount int
-		methodCount             int
-	)
-	protoregistry.GlobalFiles.RangeFiles(func(file protoreflect.FileDescriptor) bool {
-		if !strings.HasPrefix(file.Path(), "hub/v1/") &&
-			!strings.HasPrefix(file.Path(), "shared/v1/") &&
-			!strings.HasPrefix(file.Path(), "task/v1/") {
-			return true
-		}
-		for i := 0; i < file.Messages().Len(); i++ {
-			appendMessageFingerprint(file.Messages().Get(i), &lines, &messageCount, &enumCount)
-		}
-		for i := 0; i < file.Enums().Len(); i++ {
-			appendEnumFingerprint(file.Enums().Get(i), &lines, &enumCount)
-		}
-		for i := 0; i < file.Services().Len(); i++ {
-			service := file.Services().Get(i)
-			for j := 0; j < service.Methods().Len(); j++ {
-				method := service.Methods().Get(j)
-				lines = append(lines, fmt.Sprintf("service|%s|%s|%s|%s|%t|%t",
-					service.FullName(), method.Name(), method.Input().FullName(), method.Output().FullName(),
-					method.IsStreamingClient(), method.IsStreamingServer()))
-				methodCount++
-			}
-		}
-		return true
-	})
-	sort.Strings(lines)
-	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-	return hex.EncodeToString(sum[:]), messageCount, enumCount, methodCount
-}
-
-func appendMessageFingerprint(message protoreflect.MessageDescriptor, lines *[]string, messageCount, enumCount *int) {
-	(*messageCount)++
-	*lines = append(*lines, "message|"+string(message.FullName()))
-	for i := 0; i < message.Fields().Len(); i++ {
-		field := message.Fields().Get(i)
-		typeName := ""
-		switch field.Kind() {
-		case protoreflect.MessageKind, protoreflect.GroupKind:
-			typeName = string(field.Message().FullName())
-		case protoreflect.EnumKind:
-			typeName = string(field.Enum().FullName())
-		}
-		oneof := ""
-		if field.ContainingOneof() != nil {
-			oneof = string(field.ContainingOneof().Name())
-		}
-		*lines = append(*lines, fmt.Sprintf("field|%s|%d|%s|%s|%s|%s|%s|%t",
-			message.FullName(), field.Number(), field.Name(), field.Cardinality(), field.Kind(), typeName, oneof, field.HasOptionalKeyword()))
-	}
-	for i := 0; i < message.Messages().Len(); i++ {
-		appendMessageFingerprint(message.Messages().Get(i), lines, messageCount, enumCount)
-	}
-	for i := 0; i < message.Enums().Len(); i++ {
-		appendEnumFingerprint(message.Enums().Get(i), lines, enumCount)
-	}
-}
-
-func appendEnumFingerprint(enum protoreflect.EnumDescriptor, lines *[]string, enumCount *int) {
-	(*enumCount)++
-	*lines = append(*lines, "enum|"+string(enum.FullName()))
-	for i := 0; i < enum.Values().Len(); i++ {
-		value := enum.Values().Get(i)
-		*lines = append(*lines, fmt.Sprintf("enum_value|%s|%d|%s", enum.FullName(), value.Number(), value.Name()))
 	}
 }
