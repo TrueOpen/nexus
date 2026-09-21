@@ -304,6 +304,24 @@ Phase 0's BuilderBond is fixed at zero and creates no bonded stake record (staki
 Builder bond / unbond messages, so there are no add-stake or unbond commands; admission is fixed by governance/genesis.
 Builder commands print `authority_mode` and `authority_chain_id` so the target chain can be confirmed before and after an operation.
 
+## Cross-language output stream harness
+
+`internal/ingress/e2e_harness_test.go` (build tag `e2eharness`, not part of `make test`) starts
+the real IngressAPI on a loopback TLS listener with a fake chain authority, uploads three chunks
+and a Worker-signed Fin, and serves `SubscribeOutput` to an external SDK process:
+
+```bash
+E2E_OUT=/tmp/nexus-e2e.json E2E_STOP=/tmp/nexus-e2e.stop \
+  go test -tags e2eharness -run '^TestE2EHarness$' ./internal/ingress/
+```
+
+The descriptor names the URL, the certificate (pin it by public key hash), session/task ids,
+the Worker service public key and the fixed test user key. `E2E_FIN_MODE=unsigned|badreason`
+sends a Fin without a signature or with a finish_reason that does not match the signature, for
+checking a subscriber's fail-closed policy. The `TRUEOPEN_OUTPUT_FIN_V1` digest itself is
+`nodecontract.OutputFinSigningDigest`, pinned to the wire vectors by
+`internal/nodecontract/outputfin_golden_test.go`.
+
 ## Remote Node read-only integration
 
 Real Node addresses, chain_id and task_id are sensitive integration data and must not be written into the README, test code or commit history. When integration is needed, inject them only via the local shell, CI Secrets or an uncommitted private env file:
