@@ -22,7 +22,7 @@ const (
 )
 
 // EmergencyFreezeVote is one validator's ballot on a freeze signal. Values are
-// frozen by keeper_api_contract.md §9.6b.
+// frozen.
 // EmergencyFreezeVote defines the EmergencyFreezeVote wire type.
 type EmergencyFreezeVote int32
 
@@ -80,7 +80,7 @@ func (EmergencyFreezeVote) EnumDescriptor() ([]byte, []int) {
 }
 
 // FreezeSignalBuildStatus is what MsgSubmitFreezeSignal reports back. Values are
-// frozen by keeper_api_contract.md §9.6b. BUILDING leaves freeze_signal_id absent
+// frozen. BUILDING leaves freeze_signal_id absent
 // and BELOW_THRESHOLD_NOOP means the closed window did not reach
 // min_freeze_signal_failure_count, so no vote object or event was created.
 // FreezeSignalBuildStatus defines the FreezeSignalBuildStatus wire type.
@@ -145,7 +145,7 @@ func (FreezeSignalBuildStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // FreezeSignalStatus is the freeze signal lifecycle. Values are frozen by
-// keeper_api_contract.md §9.6b.
+// the API contract.
 // FreezeSignalStatus defines the FreezeSignalStatus wire type.
 type FreezeSignalStatus int32
 
@@ -219,9 +219,9 @@ func (FreezeSignalStatus) EnumDescriptor() ([]byte, []int) {
 
 // FreezeSignalWindowPhase is the per-profile fixed-window binding phase.
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
+// CONTRACT-GAP: the data-structure contract writes
 // `FreezeSignalByWindowIndex.phase = BUILDING / OPEN / CLOSED` but
-// keeper_api_contract.md §9.6b does not register the enum. The three registered
+// the API contract does not register the enum. The three registered
 // values are reproduced verbatim. CLOSED retains the terminal binding for a
 // signal until summary prune; a below-threshold window advances the profile
 // waterline and deletes its transient binding without creating a signal.
@@ -288,8 +288,8 @@ func (FreezeSignalWindowPhase) EnumDescriptor() ([]byte, []int) {
 
 // FreezeSignalPrunePhase is the two-stage freeze signal retention order.
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
-// `FreezeSignalPruneIndex ... phase = VOTES / HEADER` but keeper_api_contract.md
+// CONTRACT-GAP: the data-structure contract writes
+// `FreezeSignalPruneIndex ... phase = VOTES / HEADER` but the API contract
 // §9.6b does not register the enum. Both registered values are reproduced
 // verbatim; ascending numbers are the mandatory order, because vote rows are
 // deleted at freeze_signal_detail_retention_blocks and the header only at
@@ -353,7 +353,7 @@ func (FreezeSignalPrunePhase) EnumDescriptor() ([]byte, []int) {
 // FreezeFailureClassCountsV1 is the per-class breakdown of the failures a freeze
 // signal aggregated.
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md §6.1 writes
+// CONTRACT-GAP: the data-structure contract writes
 // `included_failure_class_counts = METRIC_THRESHOLD_BREACH / OBJECTIVE_FAULT /
 // SCHEMA_FAULT / WORKER_EVIDENCE_FAULT` without giving a wire shape. The four
 // listed classes are exactly the freeze-eligible TaskFailureClass values, so
@@ -430,8 +430,7 @@ func (x *FreezeFailureClassCountsV1) GetWorkerEvidenceFault() uint32 {
 	return 0
 }
 
-// FreezeSignalState is the profile-level risk object validators vote on
-// (keeper_data_structure_contract.md §6.1).
+// FreezeSignalState is the profile-level risk object validators vote on.
 //
 // The Keeper builds it from the single next fully closed fixed risk window and
 // only from TaskFailureClassState rows with freeze_signal_eligible=true; the
@@ -629,8 +628,8 @@ func (x *FreezeSignalState) GetClosedHeight() uint64 {
 	return 0
 }
 
-// FreezeSignalBuildCursorState makes the risk window scan resumable and bounded
-// (keeper_data_structure_contract.md §6.1, key (model_id, profile_version)).
+// FreezeSignalBuildCursorState makes the risk window scan resumable and
+// bounded, keyed (model_id, profile_version).
 //
 // The cursor walks TaskFailureClassByProfileWindowIndex in stable
 // (task_finality_height, failure_class, task_id) order, revalidates finality,
@@ -764,7 +763,7 @@ func (x *FreezeSignalBuildCursorState) GetVisitedCount() uint64 {
 }
 
 // EmergencyFreezeVoteState is one validator ballot
-// (keeper_data_structure_contract.md §6.1, key
+// (the data-structure contract, key
 // (freeze_signal_id, validator_consensus_address)).
 //
 // validator_consensus_address is ConsensusAddressBytes resolved by the Keeper
@@ -851,8 +850,8 @@ func (x *EmergencyFreezeVoteState) GetAcceptedHeight() uint64 {
 	return 0
 }
 
-// FreezeSignalByWindowIndex binds one profile fixed window to its outcome
-// (keeper_data_structure_contract.md §6.1, key (model_id, profile_version, risk_window_id)).
+// FreezeSignalByWindowIndex binds one profile fixed window to its outcome,
+// keyed (model_id, profile_version, risk_window_id).
 // It is the exact-replay guard for MsgSubmitFreezeSignal: a window already
 // recorded here is a noop instead of a second signal.
 // FreezeSignalByWindowIndex defines the FreezeSignalByWindowIndex wire type.

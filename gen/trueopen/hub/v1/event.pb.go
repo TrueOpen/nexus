@@ -2225,7 +2225,7 @@ func (x *EventRewardEpochClosed) GetEmissionAmount() *v1.Amount {
 
 // EventFaultRecorded is event code 50, emitted once when a RoleFault receipt is
 // first written. Field order and types are copied verbatim from
-// keeper_api_contract.md §5.11 code 50.
+// Event code 50.
 // EventFaultRecorded defines the EventFaultRecorded wire type.
 type EventFaultRecorded struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -2390,7 +2390,7 @@ func (x *EventRoleJailed) GetReason() EventLifecycleReason {
 
 // EventRoleSlashed is event code 52, emitted once when the RoleFault and the
 // ServiceBond slash commit atomically. Field order and types are copied verbatim
-// from keeper_api_contract.md §5.11 code 52.
+// Event code 52.
 // EventRoleSlashed defines the EventRoleSlashed wire type.
 type EventRoleSlashed struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -3594,7 +3594,7 @@ func (x *EventBuilderEvidenceAccepted) GetFaultIdOrEmpty() []byte {
 
 // EventHubParamsUpdated is event code 110, emitted once when a new Hub params
 // version takes effect atomically. Field order and types are copied verbatim
-// from keeper_api_contract.md §5.11 code 110; params_hash is the §18.0
+// Event code 110; params_hash is the §18.0
 // TRUEOPEN_HUB_PARAMS_V2 digest.
 // EventHubParamsUpdated defines the EventHubParamsUpdated wire type.
 type EventHubParamsUpdated struct {
@@ -3660,7 +3660,7 @@ func (x *EventHubParamsUpdated) GetParamsHash() []byte {
 // EventServiceRegistered is event code 112, emitted once when the Cortex primary
 // row, the current service key and the first stake commit in the same
 // transaction. Field order and types are copied verbatim from
-// keeper_api_contract.md §5.11 code 112.
+// Event code 112.
 // EventServiceRegistered defines the EventServiceRegistered wire type.
 type EventServiceRegistered struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -3843,7 +3843,7 @@ func (x *EventProfileReferencePriceUpdated) GetAppliedStepCount() uint32 {
 
 // EventParameterBucketUpdated is event code 5, emitted once when a governance
 // versioned bucket first commits. Fields are copied verbatim from
-// keeper_api_contract.md §5.11 code 5; bucket_hash is the §5.2
+// Event code 5; bucket_hash is the §5.2
 // TRUEOPEN_PARAMETER_BUCKET_V1 commitment stored as
 // ParameterBucketVersionState.content_hash.
 // EventParameterBucketUpdated defines the EventParameterBucketUpdated wire type.

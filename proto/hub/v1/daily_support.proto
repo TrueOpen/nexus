@@ -33,7 +33,7 @@ message ProfileCapabilityState {
 // MsgSetProfileStatus / MsgSetModelStatus no longer walk every supporter inside
 // the handler; they enqueue exactly one cursor row per affected profile and the
 // EndBlock processor resumes from last_operator_address under the global visited
-// budget (node_context.md §9.4: every visited row, including stale ones, costs
+// budget (: every visited row, including stale ones, costs
 // one unit).
 //
 // reason carries the existing ModelSupportDeactivate* value so the EndBlock

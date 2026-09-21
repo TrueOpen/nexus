@@ -9,7 +9,7 @@ import "task/v1/query_task.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // Query defines Task-owned session, execution and verification queries. Every
-// rpc is registered in keeper_api_contract.md §16.2/§16.3/§16.4; the removed ones are
+// rpc is registered; the removed ones are
 // listed at the bottom of this file.
 // Query defines the Query wire type.
 service Query {

@@ -8,7 +8,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 // SessionStatus is the StreamState lifecycle of data_structure_contract §6.2.
 //
 // CONTRACT-GAP: §6.2 names ACTIVE / IDLE / CLOSED and their order, but
-// keeper_api_contract.md §9.6b (the sole closed-enum registry) does not register the
+// the API contract (the sole closed-enum registry) does not register the
 // enum, so the numbers are derived from that listing order with the mandatory
 // UNSPECIFIED=0.
 // SessionStatus defines the SessionStatus wire type.

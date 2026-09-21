@@ -10,8 +10,8 @@ import "shared/v1/query_page.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
-// RewardEpochProgressViewV1 is the public projection of RewardEpochCursorState
-// (keeper_api_contract.md §16.5). The internal cursor keys
+// RewardEpochProgressViewV1 is the public projection of RewardEpochCursorState.
+// The internal cursor keys
 // last_order_value_bucket / last_task_id are deliberately not exposed, and the
 // cursor is deleted on completion, so a finished epoch returns NotFound instead
 // of a fabricated total or root.
@@ -25,7 +25,7 @@ message RewardEpochProgressViewV1 {
 }
 
 // ParameterBucketVersionViewV1 projects the public content of one timeout
-// bucket version (keeper_api_contract.md §16.5). It hides task_ref_count and store
+// bucket version. It hides task_ref_count and store
 // keys, and bucket_hash is the same value ParameterBucketVersionState stores as
 // content_hash.
 // ParameterBucketVersionViewV1 defines the ParameterBucketVersionViewV1 wire type.
@@ -41,8 +41,8 @@ message ParameterBucketVersionViewV1 {
   uint32 encoded_size_bytes = 9;
 }
 
-// QueryCompetitionEpochRequest selects one competition bucket epoch
-// (keeper_api_contract.md §16.4); reward_bucket is checked against the allowlist.
+// QueryCompetitionEpochRequest selects one competition bucket epoch;
+// reward_bucket is checked against the allowlist.
 // QueryCompetitionEpochRequest defines the QueryCompetitionEpochRequest wire type.
 message QueryCompetitionEpochRequest {
   RewardBucket reward_bucket = 1;
@@ -54,8 +54,7 @@ message QueryCompetitionEpochResponse {
   RewardCompetitionEpochState epoch_state = 1;
 }
 
-// QueryRewardEpochCursorRequest selects one bounded runner cursor
-// (keeper_api_contract.md §16.4).
+// QueryRewardEpochCursorRequest selects one bounded runner cursor.
 // QueryRewardEpochCursorRequest defines the QueryRewardEpochCursorRequest wire type.
 message QueryRewardEpochCursorRequest {
   uint64 epoch = 1;
@@ -84,7 +83,7 @@ message QueryRewardEpochAuditResponse {
   RewardEpochAuditState audit = 1;
 }
 
-// QueryTreasuryRequest has no selector (keeper_api_contract.md §16.4).
+// QueryTreasuryRequest has no selector.
 message QueryTreasuryRequest {}
 
 // QueryTreasuryResponse returns the treasury row; a mismatch between the module
@@ -94,7 +93,7 @@ message QueryTreasuryResponse {
   TreasuryState treasury = 1;
 }
 
-// QueryFreezeSignalRequest selects one freeze signal (keeper_api_contract.md §16.3).
+// QueryFreezeSignalRequest selects one freeze signal.
 message QueryFreezeSignalRequest {
   bytes freeze_signal_id = 1;
 }
@@ -106,8 +105,7 @@ message QueryFreezeSignalResponse {
   FreezeSignalState signal = 1;
 }
 
-// QueryFreezeSignalsRequest pages one profile's signals by status
-// (keeper_api_contract.md §16.3).
+// QueryFreezeSignalsRequest pages one profile's signals by status.
 // QueryFreezeSignalsRequest defines the QueryFreezeSignalsRequest wire type.
 message QueryFreezeSignalsRequest {
   string model_id = 1;
@@ -124,8 +122,7 @@ message QueryFreezeSignalsResponse {
   shared.v1.QueryPageResponseV1 page = 2;
 }
 
-// QueryEmergencyFreezeVotesRequest pages one signal's ballots
-// (keeper_api_contract.md §16.3).
+// QueryEmergencyFreezeVotesRequest pages one signal's ballots.
 // QueryEmergencyFreezeVotesRequest defines the QueryEmergencyFreezeVotesRequest wire type.
 message QueryEmergencyFreezeVotesRequest {
   bytes freeze_signal_id = 1;

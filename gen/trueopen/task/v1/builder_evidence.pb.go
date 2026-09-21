@@ -22,7 +22,7 @@ const (
 )
 
 // BuilderProtocolViolation is the closed invalid-stage violation registry whose
-// numbers keeper_api_contract.md §9.6b (lines 1804-1805) freezes as UNSPECIFIED=0 /
+// numbers the API contract freezes as UNSPECIFIED=0 /
 // WRONG_TASK_SCOPE=1 / WRONG_STAGE=2 / WRONG_BUILDER_SET=3 /
 // NON_CANONICAL_BITMAP=4 / BIT_CLEAR_ATTEMPT=5 /
 // CONFLICTING_ACCEPTED_MATERIAL=6. Only values 1 and 2 are ACTIVE in V1.
@@ -34,7 +34,7 @@ const (
 // SignedEnvelopeProtocolFaultV1. Its only remaining reference is field 2 of
 // SignedEnvelopeProtocolFaultV2 below, and task.v1 may not import
 // hub.v1, so the declaration moves here rather than into shared.v1:
-// the ADR-0013 closure rule sends a declaration to shared because two domains
+// the module-split closure rule sends a declaration to shared because two domains
 // reference it, and the Hub fault kernel never sees a violation value. The Hub
 // receives only shared.v1.BuilderObjectiveEvidenceFactV2, which carries the
 // recomputed canonical_evidence_digest and no violation field. The numbers are
@@ -122,13 +122,13 @@ func (BuilderProtocolViolation) EnumDescriptor() ([]byte, []int) {
 }
 
 // SignedEnvelopeEquivocationV2 carries the two conflicting BusEnvelope frames of
-// one protocol scope as exact serialized bytes (§5.5 lines 822, 827-829).
+// one protocol scope as exact serialized bytes (§5.5).
 //
 // Both frames must share chain_id, subject, kind, sender operator, service
 // authorization nonce, message_id, payload_type and expiry and must derive the
 // same payload-based action scope, must both verify under the proof-only
 // profile, must have different bus_signing_digest values, and must collide on
-// the (message_id, nonce) dual replay key (§5.5 lines 900-902).
+// the (message_id, nonce) dual replay key (§5.5).
 //
 // Canonical selected fields for the content digest are
 // (lower_bus_signing_digest, higher_bus_signing_digest): the two raw32 digests
@@ -191,11 +191,11 @@ func (x *SignedEnvelopeEquivocationV2) GetEnvelopeB() []byte {
 }
 
 // SignedEnvelopeProtocolFaultV2 binds one exact serialized BusEnvelope frame to
-// one closed violation (§5.5 lines 823, 831-833). The envelope must verify, its
+// one closed violation (§5.5). The envelope must verify, its
 // action scope must be recomputable from the typed payload plus Task/BuilderSet
 // state, and it must land on exactly one closed violation value; malformed,
 // unknown-kind and unattributable material is rejected rather than downgraded
-// (§5.5 lines 902-903, 1052-1053).
+// (§5.5).
 //
 // Canonical selected fields for the content digest are
 // (bus_signing_digest, violation as enum_u32_be).
@@ -329,23 +329,23 @@ func (x *DataUnavailableStateReferenceV1) GetBuilderOperator() string {
 }
 
 // BuilderEvidenceV2 is the only accepted public Builder objective-evidence wire
-// of fresh genesis (§5.5 lines 811-839). Free-text reasons, arbitrary
+// of fresh genesis (§5.5). Free-text reasons, arbitrary
 // evidence_hash values and "a proposal was rejected" never form a fault.
 //
-// The ACTIVE oneof is the closed set of tags 2, 3 and 5 (§5.5 lines 1050-1053),
+// The ACTIVE oneof is the closed set of tags 2, 3 and 5 (§5.5),
 // and each branch maps to exactly one shared.v1.BuilderEvidenceKind
-// (§5.5 lines 965-967):
+// (§5.5):
 //
 //	tag 2 equivocation             -> BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION      (1)
 //	tag 3 invalid_stage_submission -> BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION    (2)
 //	tag 5 data_unavailable         -> BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE  (4)
 //
-// Tags 2 and 3 are checked by the proof-only profile of §5.5 (lines 879-890)
+// Tags 2 and 3 are checked by the proof-only profile of §5.5
 // plus the Task authority state; tag 5 accepts only an already CONFIRMED round-1
 // aggregate for an actual data-ready attesting Builder. A handler must not write
 // a BuilderFault merely because the oneof structure is present.
 //
-// Field number 4 is permanently reserved (§5.5 lines 820 and 967-968). It used
+// Field number 4 is permanently reserved (§5.5). It used
 // to be the missed-duty branch, and BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY (3) is now
 // kept exclusively for an internal fault the Keeper may in future derive from an
 // authoritative duty receipt. This Msg accepts no missed-duty branch, the old
@@ -354,7 +354,7 @@ func (x *DataUnavailableStateReferenceV1) GetBuilderOperator() string {
 //
 // scope_id of the derived fact is the existing authoritative primary key of the
 // charged fact, which is task_id for all three branches; evidence introduces no
-// new hash semantics (§5.5 lines 1046-1048).
+// new hash semantics (§5.5).
 // BuilderEvidenceV2 defines the BuilderEvidenceV2 wire type.
 type BuilderEvidenceV2 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -478,7 +478,7 @@ func (*BuilderEvidenceV2_DataUnavailable) isBuilderEvidenceV2_Evidence() {}
 // Keeper-derived BPS, thresholds, deadlines or counts.
 //
 // The RPC returns shared.v1.BuilderObjectiveEvidenceReceiptV2 directly
-// (§5.5 line 960): there is deliberately no MsgSubmitBuilderEvidenceResponse
+// (§5.5): there is deliberately no MsgSubmitBuilderEvidenceResponse
 // wrapper, because a per-module wrapper would be a second copy of the shared
 // receipt shape. evidence_id is the idempotency key: exact replay is a NOOP and
 // the same key with different evidence is a conflict.

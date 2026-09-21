@@ -8,7 +8,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // InferReceiptV2 is the worker-signed inference receipt carried by
 // MsgSubmitInferReceipt. Field numbers, types and order are frozen by
-// keeper_api_contract.md §5.14; the same order is the length-framed preimage of
+// the API contract; the same order is the length-framed preimage of
 //
 //   infer_receipt_hash = infer_receipt_signing_digest =
 //     H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V2", schema_version, chain_id, task_id,
@@ -53,7 +53,7 @@ message InferReceiptV2 {
 }
 
 // evidence_commitments_hash is the Keeper-derived commitment over
-// InferReceiptV2.required_evidence_commitments. keeper_api_contract.md §1.4 registers
+// InferReceiptV2.required_evidence_commitments. The API contract registers
 // the domain (row "Infer evidence commitments", producer "selected Worker / Task
 // Keeper recompute", consumers "Open Verify, settlement, challenge") and points at
 // §5.14 as the one place the ordered preimage may live. This comment is that one
@@ -112,8 +112,8 @@ message InferReceiptV2 {
 // The Phase 0 TEXT profile requires exactly WORKER_VALUE_OPENING with commitment
 // schema version 2, so an empty list has a defined digest but is not admissible.
 
-// InferReceiptState is the authoritative accepted receipt row keyed by task_id
-// (keeper_data_structure_contract.md §6.6). Field numbers follow the frozen field order of
+// InferReceiptState is the authoritative accepted receipt row keyed by task_id.
+// Field numbers follow the frozen field order of
 // that section. required_evidence_commitments is deleted once every challenge
 // and evidence consumer has finished; evidence_commitments_hash and
 // evidence_commitment_count stay for audit, so a shorter list than

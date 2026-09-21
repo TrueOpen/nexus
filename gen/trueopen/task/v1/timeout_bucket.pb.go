@@ -23,15 +23,15 @@ const (
 )
 
 // TaskBucketRefState is the single reference row that pins one governance
-// parameter bucket version to one Task (keeper_data_structure_contract.md §6.7, key
+// parameter bucket version to one Task (the data-structure contract, key
 // (task_id, bucket_kind, bucket_key)).
 //
 // The version bodies, current pointer and pending pointer live in x/hub
-// because keeper_data_structure_contract.md §2.4 names the Hub governance handler their only
+// because the data-structure contract names the Hub governance handler their only
 // writer and leaves the Task module with reference counting only. BucketKind is
 // imported from shared/v1/common.proto instead of being redeclared:
-// keeper_api_contract.md §9.6b allows exactly one numeric definition per closed
-// enum, and ADR-0013 puts a declaration referenced by both Hub and Task in the
+// the API contract allows exactly one numeric definition per closed
+// enum, and a declaration referenced by both Hub and Task belongs in the
 // shared leaf package.
 //
 // Lifecycle: the first accepted order of a Task writes exactly one row per

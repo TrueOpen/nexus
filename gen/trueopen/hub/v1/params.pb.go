@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// HubParamsV2 is the single Hub parameter root of keeper_api_contract.md §18.0.
+// HubParamsV2 is the single Hub parameter root.
 type HubParamsV2 struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
 	SchemaVersion uint32                   `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -187,8 +187,8 @@ func (x *HubParamsV2) GetBridge() *BridgeParamsV1 {
 // params_hash is the §18.0 digest
 // H_FIELDS_V1("TRUEOPEN_HUB_PARAMS_V2", chain_id, new_version, canonical HubParamsV2).
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md registers no State row for the params
-// version/hash even though keeper_api_contract.md §18.0 and §5.11 code 110 both
+// CONTRACT-GAP: the data-structure contract registers no State row for the params
+// version/hash even though the API contract code 110 both
 // require a persisted current version and hash. The shape below is the minimal
 // row that satisfies those two requirements and nothing more.
 // HubParamsMetaState defines the HubParamsMetaState wire type.

@@ -143,7 +143,7 @@ func (WorkerEvidenceKindV1) EnumDescriptor() ([]byte, []int) {
 }
 
 // EvidenceCommitmentV1 is one worker-authored evidence commitment carried by
-// InferReceiptV2 (keeper_api_contract.md §5.14). The list is sorted by evidence_kind
+// InferReceiptV2. The list is sorted by evidence_kind
 // ascending with unique kinds and must exactly equal the kind set required by
 // the locked profile.
 //

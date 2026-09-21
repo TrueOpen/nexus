@@ -74,10 +74,14 @@ type OutputChunk struct {
 	AttachmentSignature []byte
 }
 
-// OutputFin is the closing frame of a stream (wire OutputFinV1).
+// OutputFin is the closing frame of a stream (wire OutputFinV1). FinishReason and WorkerSignature
+// are stored and replayed as received so subscribers see the Worker's frame byte-identically
+// (TRUEOPEN_OUTPUT_FIN_V1); the Builder does not verify the signature yet.
 type OutputFin struct {
-	FinalSeq      uint64
-	OutputMMRRoot []byte
+	FinalSeq        uint64
+	OutputMMRRoot   []byte
+	FinishReason    uint32
+	WorkerSignature []byte
 }
 
 // OutputFrame is one frame forwarded to subscribers: either a Chunk or a Fin, never both.
@@ -129,6 +133,9 @@ type outputStreamRecord struct {
 	// is located by its full object ref.
 	ContentHash string `json:"content_hash,omitempty"`
 	Sealed      bool   `json:"sealed"`
+	// The Worker's Fin fields as received, kept for byte-identical replay to subscribers.
+	FinishReason       uint32 `json:"finish_reason,omitempty"`
+	FinWorkerSignature []byte `json:"fin_worker_signature,omitempty"`
 }
 
 func (r outputStreamRecord) progress(root mmr.Hash) OutputStreamProgress {
@@ -579,6 +586,8 @@ func (st *OutputStream) Finish(ctx context.Context, fin OutputFin) (Metadata, er
 	sealed := st.record
 	sealed.Sealed = true
 	sealed.ContentHash = rootHex
+	sealed.FinishReason = fin.FinishReason
+	sealed.FinWorkerSignature = append([]byte(nil), fin.WorkerSignature...)
 	progress, err := json.Marshal(sealed)
 	if err != nil {
 		return Metadata{}, st.failLocked(fmt.Errorf("%w: encode output stream: %v", ErrStorage, err))
@@ -760,7 +769,10 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 			return nil, err
 		}
 		root := acc.Root()
-		frames = append(frames, OutputFrame{Fin: &OutputFin{FinalSeq: record.LastSeq, OutputMMRRoot: root[:]}})
+		frames = append(frames, OutputFrame{Fin: &OutputFin{
+			FinalSeq: record.LastSeq, OutputMMRRoot: root[:],
+			FinishReason: record.FinishReason, WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+		}})
 	}
 	return frames, nil
 }

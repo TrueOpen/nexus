@@ -5,7 +5,7 @@ import "shared/v1/common.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
-// This file carries the single sweep-locator contract of keeper_api_contract.md §5.9
+// This file carries the single sweep-locator contract
 // plus the MsgSweepDeadline entry registered ACTIVE by §9.6a.
 //
 // MsgSweepDeadline is the ONLY public deadline runner of V1. The abandoned
@@ -16,12 +16,12 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 // internal executor directly instead of constructing a Msg.
 //
 // ByIDV1 / BatchV1 are imported from shared/v1/common.proto because §9.6b
-// declares exactly one definition of those base types and ADR-0013 makes a
-// declaration referenced by two domains shared instead of Hub-owned.
+// declares exactly one definition of those base types and a
+// declaration referenced by two domains is shared instead of Hub-owned.
 
 // DeadlineKindV1 selects which deadline of a primary object is being swept.
 //
-// keeper_api_contract.md §5.9 is the ONLY numeric definition of this enum in the
+// the API contract is the ONLY numeric definition of this enum in the
 // whole contract: the sweep locator, the Query projection
 // TaskStageViewV1.next_deadline_kind and §5.11 event code 20 `deadline_swept`
 // all share these numbers. The values are bound column-by-column to the locator

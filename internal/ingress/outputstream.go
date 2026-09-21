@@ -12,6 +12,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -115,7 +116,10 @@ func (s *service) UploadTaskOutputStream(
 			}
 			s.outputStream.dispatcher.Publish(key, taskdata.OutputFrame{Chunk: &chunk})
 		case *nexusv1.UploadTaskOutputStreamRequest_Fin:
-			fin := taskdata.OutputFin{FinalSeq: frame.Fin.GetFinalSeq(), OutputMMRRoot: append([]byte(nil), frame.Fin.GetOutputMmrRoot()...)}
+			fin := taskdata.OutputFin{
+				FinalSeq: frame.Fin.GetFinalSeq(), OutputMMRRoot: append([]byte(nil), frame.Fin.GetOutputMmrRoot()...),
+				FinishReason: uint32(frame.Fin.GetFinishReason()), WorkerSignature: append([]byte(nil), frame.Fin.GetWorkerSignature()...),
+			}
 			metadata, err := session.Finish(ctx, fin)
 			if err != nil {
 				return mapTaskDataError(err)
@@ -159,9 +163,11 @@ func (s *service) subscribeOutputStream(
 	sub := s.outputStream.dispatcher.Subscribe(key)
 	defer sub.Close()
 
-	// In proto3, 0 and "unset" are indistinguishable: 0 means replay from seq = 0; n > 0 replays only seq > n.
+	// wire v0.2.0 gives resume_after_seq explicit presence: unset replays from seq = 0, and any set
+	// value n (including 0) replays only seq > n.
 	var after *uint64
-	if resume := m.GetResumeAfterSeq(); resume > 0 {
+	if m.ResumeAfterSeq != nil {
+		resume := m.GetResumeAfterSeq()
 		after = &resume
 	}
 	frames, err := s.outputStream.service.OutputFrames(ctx, key, after)
@@ -283,6 +289,7 @@ func outputFrameToPB(frame taskdata.OutputFrame) *nexusv1.SubscribeOutputRespons
 	if frame.Fin != nil {
 		return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Fin{Fin: &nexusv1.OutputFinV1{
 			FinalSeq: frame.Fin.FinalSeq, OutputMmrRoot: frame.Fin.OutputMMRRoot,
+			FinishReason: taskv1.FinishReasonV1(frame.Fin.FinishReason), WorkerSignature: frame.Fin.WorkerSignature,
 		}}}
 	}
 	return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Chunk{Chunk: chunkToPB(frame.Chunk)}}

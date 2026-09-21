@@ -6,14 +6,14 @@ import "shared/v1/common.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 
 // This file holds the Builder objective-evidence values that cross the
-// Task -> Hub keeper boundary. keeper_api_contract.md §5.5 (lines 918-951) freezes
-// every field number below, and ADR-0013 decision 6 makes them shared: the Task
+// Task -> Hub keeper boundary. The API contract freezes
+// every field number below, and they belong to shared: the Task
 // module owns the payload and the Task authority check, the Hub module owns the
 // fault kernel, so the locator/fact/receipt values are referenced by two domains
 // and cannot live in either one of them. shared.v1 stays an import leaf, so
 // this file imports only the cosmos_proto scalar option and its own package.
 //
-// The three HubKeeper method signatures are fixed by §5.5 (lines 953-954) to
+// The three HubKeeper method signatures are fixed by §5.5 to
 // exactly these values and nothing else:
 //
 //   acquire(BusObjectiveEvidenceResponsibilityV1)
@@ -24,7 +24,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 //     -> BuilderObjectiveEvidenceReceiptV2
 //
 // Raw envelope bytes, payload bytes and raw signatures never cross the
-// HubKeeper interface and never enter the Hub Store (§5.5 lines 960-961). The
+// HubKeeper interface and never enter the Hub Store (§5.5). The
 // Hub only ever sees the recomputed canonical digest, so no Hub read path can
 // reinterpret transport material. When V2 splits the chains, these same values
 // become the packet payload while the Task authority check stays on the task
@@ -34,7 +34,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // message type and never stores a hex projection of a digest.
 
 // BuilderObjectiveEvidenceFactV2 is the only value Task passes to the Hub fault
-// kernel (§5.5 lines 918-925). The Hub recomputes evidence_id and
+// kernel (§5.5). The Hub recomputes evidence_id and
 // fault_id from the local chain context plus this fact and never trusts a
 // caller-supplied ID copy: apply is a NOOP only when the same ID repeats the same
 // canonical fields and frozen_slash_bps; a different digest, kind, scope,
@@ -78,7 +78,7 @@ message WorkerObjectiveEvidenceFactV1 {
 }
 
 // BusObjectiveEvidenceResponsibilityV1 is the acquire/release locator of the
-// per-Builder objective-evidence responsibility row (§5.5 lines 929-935).
+// per-Builder objective-evidence responsibility row (§5.5).
 //
 // The responsibility ID has exactly one registered preimage:
 //
@@ -87,14 +87,14 @@ message WorkerObjectiveEvidenceFactV1 {
 //     scope_id = task_id, builder_operator)
 //
 // service_authorization_nonce is carried in the row and echoed in the receipt
-// but it is deliberately not part of the ID (§5.5 lines 955-957): a second ID
+// but it is deliberately not part of the ID (§5.5): a second ID
 // per nonce would let a rotation create a fresh, unblocked row for the same
 // task. Consequently acquire with the same locator and the same nonce is an
 // exact replay that returns active=true / NOOP, while the same ID with a
 // different nonce is a conflict.
 //
-// release is called only by the Task EvidenceCleanup phase (§5.5 line 957 and
-// keeper_api_contract.md lines 4184-4186): the first call returns active=false /
+// release is called only by the Task EvidenceCleanup phase (§5.5 and
+// the API contract): the first call returns active=false /
 // APPLIED and every repeat returns active=false / NOOP.
 // BusObjectiveEvidenceResponsibilityV1 defines the BusObjectiveEvidenceResponsibilityV1 wire type.
 message BusObjectiveEvidenceResponsibilityV1 {
@@ -112,7 +112,7 @@ message BusObjectiveEvidenceResponsibilityV1 {
 }
 
 // BusObjectiveEvidenceResponsibilityReceiptV1 is the single receipt shape of
-// both acquire and release (§5.5 lines 937-944). active is the post-call state
+// both acquire and release (§5.5). active is the post-call state
 // of the row, so an acquire replay reports active=true / NOOP and a release
 // replay reports active=false / NOOP; status never carries a rejection, which is
 // a gRPC error instead.
@@ -133,13 +133,13 @@ message BusObjectiveEvidenceResponsibilityReceiptV1 {
 }
 
 // BuilderObjectiveEvidenceReceiptV2 is what apply returns and what
-// task.v1.Msg.SubmitBuilderEvidence returns directly: §5.5 line 960 fixes
+// task.v1.Msg.SubmitBuilderEvidence returns directly: §5.5 fixes
 // the RPC to the shared receipt, so there is no per-module Response wrapper to
 // keep in sync.
 //
 // evidence_id is the idempotency key of the submission and fault_id is the
 // primary key of the punishable fact derived from it. The two use different
-// domains over different preimages (§5.5 lines 970-982) and must never be
+// domains over different preimages (§5.5) and must never be
 // substituted for each other. fault_id is optional because accepted evidence
 // that resolves to no new fault row leaves it absent; absence is expressed by
 // protobuf presence, never by a zero-length or all-zero digest.

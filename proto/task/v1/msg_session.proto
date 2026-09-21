@@ -74,5 +74,5 @@ message MsgCancelOrderResponse {
 // freezes the replacement as
 // `MsgUpdateTimeoutBucket{1=update:TimeoutBucketUpdateV1,2=authority:Address}`;
 // it must be re-registered by the owner of the timeout bucket wire (§5.2), not
-// here. The governed ReferenceBucket path is gone entirely as of monorepo#97, so
+// here. The governed ReferenceBucket path is gone entirely, so
 // the replacement takes no shape from it.

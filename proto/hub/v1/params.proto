@@ -5,7 +5,7 @@ import "shared/v1/amount.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
-// HubParamsV2 is the single Hub parameter root of keeper_api_contract.md §18.0.
+// HubParamsV2 is the single Hub parameter root.
 message HubParamsV2 {
   uint32 schema_version = 1;
   EpochParamsV1 epoch = 2;
@@ -32,8 +32,8 @@ message HubParamsV2 {
 // params_hash is the §18.0 digest
 // H_FIELDS_V1("TRUEOPEN_HUB_PARAMS_V2", chain_id, new_version, canonical HubParamsV2).
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md registers no State row for the params
-// version/hash even though keeper_api_contract.md §18.0 and §5.11 code 110 both
+// CONTRACT-GAP: the data-structure contract registers no State row for the params
+// version/hash even though the API contract code 110 both
 // require a persisted current version and hash. The shape below is the minimal
 // row that satisfies those two requirements and nothing more.
 // HubParamsMetaState defines the HubParamsMetaState wire type.

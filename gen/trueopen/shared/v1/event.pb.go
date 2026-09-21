@@ -22,13 +22,13 @@ const (
 )
 
 // ProtocolEventCodeV1 is the single stable public event code registry of
-// keeper_api_contract.md §5.11 for the whole protocol; §17 forbids any second event
+// the API contract for the whole protocol; §17 forbids any second event
 // code authority. Codes are sparse on purpose and are never renumbered.
 //
 // Hub-domain and Task-domain codes are both registered here, while their typed
 // payload messages stay with their owning module: Hub payloads in
 // hub/v1/event.proto and Task payloads in task/v1/event.proto.
-// keeper_api_contract.md §9.6b requires one numeric definition per closed enum, and
+// The API contract requires one numeric definition per closed enum, and
 // the module split forbids x/hub from importing x/task, so the shared
 // code enum lives in shared.v1 and the payload oneof is split by owner.
 // ProtocolEventCodeV1 defines the ProtocolEventCodeV1 wire type.

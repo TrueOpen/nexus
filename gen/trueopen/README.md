@@ -20,8 +20,8 @@ the whole Cosmos toolchain into consumers.
 
 `UploadTaskOutputStream`, `OutputStreamHeaderV1` / `OutputChunkV1` / `OutputFinV1`,
 `SubscribeOutput`'s `resume_after_seq` and `frame`, `AckOutput`'s `last_seq`, and
-`SubmitInferReceiptResponse.output_storage_confirmation` match TrueOpen/wire v0.1.1, except that
-`OutputFinV1.finish_reason` / `worker_signature` (signed output fin) are not adopted yet.
+`SubmitInferReceiptResponse.output_storage_confirmation` match TrueOpen/wire v0.2.0. `OutputFinV1.finish_reason` / `worker_signature` are carried and
+replayed as received; nexus does not verify the fin signature yet.
 The whole-plaintext fields (1-7) of `SubscribeOutputResponse` are deprecated.
 
 ## Authoritative contract

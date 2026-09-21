@@ -62,6 +62,13 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `proto/task/v1/`, `proto/hub/v1/` and `proto/shared/v1/`. Generated code lives in
 `gen/` (committed, so builds do not need to run buf first) and must not be edited by hand.
 
+`nexus.v1` is also a frozen package of the TrueOpen/wire release (`release/packages.json`), so
+`proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
+repository keeps the documented version (the wire copy is comment-stripped and is therefore not
+produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
+fingerprint to the wire v0.2.0 definition; `internal/chaincli/node_descriptor_test.go` does the same
+for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
+
 ### Consuming the contract (`gen/trueopen` standalone module)
 
 `gen/trueopen` is a standalone Go module (`github.com/TrueOpen/nexus/gen/trueopen`). External Go consumers
@@ -70,7 +77,7 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.1.1`, the same contract release TrueOpen/node pins in
+nexus is built against TrueOpen/wire `v0.2.0`, the same contract release TrueOpen/node pins in
 `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
@@ -93,7 +100,10 @@ Open items:
   are not in the contract set; renaming them is a wire-visible change pending a decision.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
   field `challenge_close` without fixing its unit; the rename waits for that decision.
-- `OutputFinV1.finish_reason` / `worker_signature` from TrueOpen/wire v0.1.1 are not adopted yet.
+- `OutputFinV1.finish_reason` / `worker_signature` follow TrueOpen/wire v0.2.0: the Builder stores
+  the Fin as received and replays it byte-identically to `SubscribeOutput` subscribers, but
+  `UploadTaskOutputStream` does not yet verify `worker_signature` against the
+  `TRUEOPEN_OUTPUT_FIN_V1` domain (signed-Fin follow-up).
 
 ## Configuration (environment variables)
 
@@ -293,6 +303,24 @@ nexus builder register
 Phase 0's BuilderBond is fixed at zero and creates no bonded stake record (staking and slashing protocol); the wire has no
 Builder bond / unbond messages, so there are no add-stake or unbond commands; admission is fixed by governance/genesis.
 Builder commands print `authority_mode` and `authority_chain_id` so the target chain can be confirmed before and after an operation.
+
+## Cross-language output stream harness
+
+`internal/ingress/e2e_harness_test.go` (build tag `e2eharness`, not part of `make test`) starts
+the real IngressAPI on a loopback TLS listener with a fake chain authority, uploads three chunks
+and a Worker-signed Fin, and serves `SubscribeOutput` to an external SDK process:
+
+```bash
+E2E_OUT=/tmp/nexus-e2e.json E2E_STOP=/tmp/nexus-e2e.stop \
+  go test -tags e2eharness -run '^TestE2EHarness$' ./internal/ingress/
+```
+
+The descriptor names the URL, the certificate (pin it by public key hash), session/task ids,
+the Worker service public key and the fixed test user key. `E2E_FIN_MODE=unsigned|badreason`
+sends a Fin without a signature or with a finish_reason that does not match the signature, for
+checking a subscriber's fail-closed policy. The `TRUEOPEN_OUTPUT_FIN_V1` digest itself is
+`nodecontract.OutputFinSigningDigest`, pinned to the wire vectors by
+`internal/nodecontract/outputfin_golden_test.go`.
 
 ## Remote Node read-only integration
 

@@ -23,7 +23,7 @@ const (
 )
 
 // VerifierCandidateWindowStatusV1 is the lifecycle of one task-round verifier
-// candidate window. Frozen values: keeper_api_contract.md §9.6b.
+// candidate window. Frozen values: the API contract.
 // VerifierCandidateWindowStatusV1 defines the VerifierCandidateWindowStatusV1 wire type.
 type VerifierCandidateWindowStatusV1 int32
 
@@ -88,8 +88,8 @@ func (VerifierCandidateWindowStatusV1) EnumDescriptor() ([]byte, []int) {
 // BuilderDataUnavailableAggregateStatusV1 is the lifecycle of one
 // (task, round, builder) data-unavailable aggregate.
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md §6.6 names the three states
-// (COLLECTING / CONFIRMED / PRUNED) but keeper_api_contract.md §9.6b does not
+// CONTRACT-GAP: the data-structure contract names the three states
+// (COLLECTING / CONFIRMED / PRUNED) but the API contract does not
 // register this enum, so the numbers below follow the declaration order of that
 // section and must be re-confirmed when §9.6b is extended.
 // BuilderDataUnavailableAggregateStatusV1 defines the BuilderDataUnavailableAggregateStatusV1 wire type.
@@ -154,7 +154,7 @@ func (BuilderDataUnavailableAggregateStatusV1) EnumDescriptor() ([]byte, []int) 
 }
 
 // CandidateMemberRefV1 is the caller-authored reference to one stable
-// CandidatePool slot (keeper_api_contract.md §4.1). Only the snapshot ID travels on
+// CandidatePool slot. Only the snapshot ID travels on
 // the wire: the snapshot ID already commits the pool hash, so no asserted pool
 // hash copy is submitted or signed.
 //
@@ -232,7 +232,7 @@ func (x *CandidateMemberRefV1) GetOperatorAddress() string {
 
 // VerifierHandraiseV1 is one verifier-signed offer to take a verify duty on an
 // already accepted InferReceipt. Field numbers, types and order are frozen by
-// keeper_api_contract.md §4.1 and are the length-framed preimage of
+// the API contract and are the length-framed preimage of
 // H_FIELDS_V1("TRUEOPEN_VERIFIER_HANDRAISE_V1", canonical VerifierHandraiseV1
 // excluding service_signature). duty is always DUTY_VERIFIER;
 // service_authorization_nonce must equal the operator's current service binding
@@ -247,7 +247,7 @@ type VerifierHandraiseV1 struct {
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+	// Every verify_round in this file uses the frozen numbering: 1 is the
 	// initial verification, values >= 2 are challenge rounds, and 0 is invalid.
 	VerifyRound               uint32                `protobuf:"varint,4,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	InferReceiptHash          []byte                `protobuf:"bytes,5,opt,name=infer_receipt_hash,json=inferReceiptHash,proto3" json:"infer_receipt_hash,omitempty"`
@@ -384,8 +384,8 @@ func (x *VerifierHandraiseV1) GetServiceSignature() []byte {
 	return nil
 }
 
-// VerifierCandidateWindowState is the per (task_id, verify_round) window header
-// (keeper_data_structure_contract.md §4.4). The eligibility source and the full clock are
+// VerifierCandidateWindowState is the per (task_id, verify_round) window header.
+// The eligibility source and the full clock are
 // frozen inside the same cache transaction that accepts the InferReceipt, before
 // beacon A is knowable:
 //
@@ -601,7 +601,7 @@ func (x *VerifierCandidateWindowState) GetGeneratedHeight() uint64 {
 // (task_id, verify_round, segment_index). Segment count and length equal the
 // locked pool layout byte for byte; an all-zero segment may be omitted from the
 // KV store and must be read back as the same length of zero bytes. Trailing bits
-// must be zero (keeper_data_structure_contract.md §4.4).
+// must be zero.
 // VerifierCandidateEligibilitySegmentState defines the VerifierCandidateEligibilitySegmentState wire type.
 type VerifierCandidateEligibilitySegmentState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -674,7 +674,7 @@ func (x *VerifierCandidateEligibilitySegmentState) GetBitmap() []byte {
 // VerifierCandidateWindowMemberState is one ranked window member keyed by
 // (task_id, verify_round, rank_index). rank_index is dense from 0 and strictly
 // below window_size; ranking uses verifier_window_rank ascending with slot
-// ascending as tie-break (keeper_data_structure_contract.md §4.4, keeper_api_contract.md §4.4).
+// ascending as tie-break.
 // VerifierCandidateWindowMemberState defines the VerifierCandidateWindowMemberState wire type.
 type VerifierCandidateWindowMemberState struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -779,7 +779,7 @@ func (x *VerifierCandidateWindowMemberState) GetVerifierWindowRank() []byte {
 // SelectedVerifierV1 is one selected verifier slot reference inside
 // VerifierAssignmentState. Eligibility snapshots are not copied here: the only
 // authority is the immutable TaskCandidateFactState written at handraise
-// accepted time (keeper_data_structure_contract.md §6.6).
+// accepted time.
 // SelectedVerifierV1 defines the SelectedVerifierV1 wire type.
 type SelectedVerifierV1 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -842,7 +842,7 @@ func (x *SelectedVerifierV1) GetSlotVersion() uint64 {
 }
 
 // VerifierAssignmentState is the formal verifier set and verification clock for
-// one task round (keeper_data_structure_contract.md §6.6). It is written only after the
+// one task round. It is written only after the
 // second future beacon at the frozen selection_randomness_height is available;
 // selection_randomness_height must equal the height frozen at receipt accepted
 // time byte for byte, and the two beacon heights must be strictly increasing.
@@ -999,7 +999,7 @@ func (x *VerifierAssignmentState) GetVerifyDeadlineHeight() uint64 {
 
 // DataUnavailableReportState is one selected verifier's on-chain report that the
 // fixed Task Builders did not deliver a complete, commitment-checked data set
-// before the commit deadline (keeper_api_contract.md §10.5). The bitmap uses the
+// before the commit deadline. The bitmap uses the
 // frozen TaskBuilderSelectionState order. The report does not pause the
 // deadline, does not by itself create a Builder fault and does not release the
 // verifier's duty.
@@ -1108,10 +1108,10 @@ func (x *DataUnavailableReportState) GetReportDigest() []byte {
 // say so with field presence instead of with a zero-length Hash32.
 //
 // The two contracts used to disagree about how to spell an empty slot:
-// keeper_data_structure_contract.md line 1426 fixed the vector length to
+// the data-structure contract fixed the vector length to
 // selected_verifier_count and let an empty element mean "this verifier has not
-// reported", while keeper_api_contract.md §1.1a lines 107-108 reject a zero-length
-// element inside a repeated Hash32. TrueOpen/monorepo#77 resolved it in favour of
+// reported", while the API contract reject a zero-length
+// element inside a repeated Hash32. It is resolved in favour of
 // §1.1a: Store and Query projection both carry per-slot presence, so the schema
 // now says what the preimage always said.
 //

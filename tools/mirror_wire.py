@@ -14,6 +14,11 @@ Mirroring rules (field-for-field identical to wire, dropping only what nexus doe
 
 After changing proto files run `make proto` as usual; whether the node mirror is correct is decided by the
 descriptor fingerprint in internal/chaincli/node_descriptor_test.go.
+
+nexus.v1 is deliberately not in PACKAGES: the wire copy of nexus/v1/ingress.proto is comment-stripped and this
+repository keeps the documented one. It must still match wire field for field, which
+internal/ingress/wire_descriptor_test.go pins (its expected value is derived by running mirror_file() over the wire
+proto, generating, and hashing that descriptor).
 """
 import pathlib
 import re

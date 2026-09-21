@@ -22,8 +22,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// BatchItemResultV1 is the per-item result of a batch submission
-// (keeper_api_contract.md §9.6b). object_id only echoes the item's existing
+// BatchItemResultV1 is the per-item result of a batch submission.
+// object_id only echoes the item's existing
 // authoritative business primary key, which is commit_key for both the commit and
 // the result batch; it introduces no new ID or hash semantics. Batches are
 // all-or-nothing: structural and business failures reject the whole batch, so
@@ -93,8 +93,8 @@ func (x *BatchItemResultV1) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgSubmitInferReceipt accepts the selected worker's signed InferReceipt
-// (keeper_api_contract.md §9.6a, §10.3). The normal path is a Task Builder relay; if
+// MsgSubmitInferReceipt accepts the selected worker's signed InferReceipt.
+// The normal path is a Task Builder relay; if
 // the Builder is late the selected worker self-submits the same message.
 // submitter_address is the Cosmos signer and must be either this task's Task
 // Builder current service address or the winner worker's current service address;
@@ -157,8 +157,7 @@ func (x *MsgSubmitInferReceipt) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgSubmitInferReceiptResponse is the receipt acknowledgement
-// (keeper_api_contract.md §9.6a).
+// MsgSubmitInferReceiptResponse is the receipt acknowledgement.
 // MsgSubmitInferReceiptResponse defines the MsgSubmitInferReceiptResponse wire type.
 type MsgSubmitInferReceiptResponse struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
@@ -362,7 +361,7 @@ func (x *MsgSubmitWorkerEvidenceResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
-// round (keeper_api_contract.md §4.2.1, §10.4). The Keeper maintains the authoritative
+// round. The Keeper maintains the authoritative
 // verifier union bitmap and only ever flips candidate bits from 0 to 1.
 //
 // submitter_address is the Cosmos signer: the Task Builder inside
@@ -435,8 +434,8 @@ func (x *MsgSubmitVerifierHandraises) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgSubmitVerifierHandraisesResponse reports the committed union state
-// (keeper_api_contract.md §4.2.1). added_member_count is the number of bits flipped
+// MsgSubmitVerifierHandraisesResponse reports the committed union state.
+// added_member_count is the number of bits flipped
 // from 0 to 1 by this proposal and is 0 for an exact replay noop.
 //
 //	proposal_digest = H_FIELDS_V1("TRUEOPEN_OPEN_VERIFY_PROPOSAL_V1",
@@ -449,7 +448,7 @@ func (x *MsgSubmitVerifierHandraises) GetSubmitterAddress() string {
 type MsgSubmitVerifierHandraisesResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+	// Every verify_round in this file uses the frozen numbering: 1 is the
 	// initial verification, values >= 2 are challenge rounds, and 0 is invalid.
 	VerifyRound      uint32 `protobuf:"varint,2,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	ProposalDigest   []byte `protobuf:"bytes,3,opt,name=proposal_digest,json=proposalDigest,proto3" json:"proposal_digest,omitempty"`
@@ -526,7 +525,7 @@ func (x *MsgSubmitVerifierHandraisesResponse) GetUnionCount() uint32 {
 
 // MsgReportDataUnavailable lets a selected verifier report on chain that the fixed
 // Task Builders did not deliver a complete, commitment-checked input/output/
-// required-evidence set before the commit deadline (keeper_api_contract.md §9.6a,
+// required-evidence set before the commit deadline (the API contract,
 // §10.5). There is no relay path: the Cosmos Tx signer must be the current service
 // address of a selected verifier operator for this round. chain_id, the stable
 // operator and the current service binding version are derived by the Keeper, and
@@ -605,8 +604,7 @@ func (x *MsgReportDataUnavailable) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgReportDataUnavailableResponse returns the canonical report digest
-// (keeper_api_contract.md §9.6a).
+// MsgReportDataUnavailableResponse returns the canonical report digest.
 // MsgReportDataUnavailableResponse defines the MsgReportDataUnavailableResponse wire type.
 type MsgReportDataUnavailableResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -661,7 +659,7 @@ func (x *MsgReportDataUnavailableResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgSubmitVerifyCommit submits one verifier result commitment before the commit
-// deadline (keeper_api_contract.md §9.6a, §10.6). Relay is allowed: for the self-rescue
+// deadline. Relay is allowed: for the self-rescue
 // path the outer Cosmos signer is the same verifier operator's current Cortex
 // service address, never an operator key or a relayer key. commit_hash must be a
 // canonical Hash32; the signature is verified only on first accept.
@@ -719,7 +717,7 @@ func (x *MsgSubmitVerifyCommit) GetSubmitterAddress() string {
 }
 
 // MsgSubmitVerifyCommitResponse returns the recomputed commit primary key and
-// signing digest (keeper_api_contract.md §9.6a).
+// signing digest.
 // MsgSubmitVerifyCommitResponse defines the MsgSubmitVerifyCommitResponse wire type.
 type MsgSubmitVerifyCommitResponse struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
@@ -781,8 +779,8 @@ func (x *MsgSubmitVerifyCommitResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgBatchSubmitVerifyCommit submits several verifier commitments in one tx
-// (keeper_api_contract.md §9.6a, §10.6). The outer Cosmos signer is the current Builder
+// MsgBatchSubmitVerifyCommit submits several verifier commitments in one tx.
+// The outer Cosmos signer is the current Builder
 // service address. Item count and encoded bytes are hard-capped, item_index must be
 // dense, business keys must be unique, and the whole batch is atomic.
 // MsgBatchSubmitVerifyCommit defines the MsgBatchSubmitVerifyCommit wire type.
@@ -838,8 +836,8 @@ func (x *MsgBatchSubmitVerifyCommit) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgBatchSubmitVerifyCommitResponse returns per-item results and the batch digest
-// (keeper_api_contract.md §9.6a). No free-form error strings are returned.
+// MsgBatchSubmitVerifyCommitResponse returns per-item results and the batch digest.
+// No free-form error strings are returned.
 // MsgBatchSubmitVerifyCommitResponse defines the MsgBatchSubmitVerifyCommitResponse wire type.
 type MsgBatchSubmitVerifyCommitResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -894,7 +892,7 @@ func (x *MsgBatchSubmitVerifyCommitResponse) GetBatchDigest() []byte {
 }
 
 // MsgSubmitVerifyResult submits one verifier result credential before the reveal
-// deadline (keeper_api_contract.md §9.6a, §10.9). The credential binds the metric root,
+// deadline. The credential binds the metric root,
 // the typed summary and the aggregate proof digest; it carries no full metric
 // leaves and no final verdict. For the self-rescue path the outer Cosmos signer is
 // the same verifier operator's current Cortex service address.
@@ -952,7 +950,7 @@ func (x *MsgSubmitVerifyResult) GetSubmitterAddress() string {
 }
 
 // MsgSubmitVerifyResultResponse returns the recomputed signing digest and result
-// commitment (keeper_api_contract.md §9.6a).
+// commitment.
 // MsgSubmitVerifyResultResponse defines the MsgSubmitVerifyResultResponse wire type.
 type MsgSubmitVerifyResultResponse struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
@@ -1014,8 +1012,8 @@ func (x *MsgSubmitVerifyResultResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgBatchSubmitVerifyResult submits several result credentials in one tx
-// (keeper_api_contract.md §9.6a, §10.9). Same boundaries and atomicity as the commit
+// MsgBatchSubmitVerifyResult submits several result credentials in one tx.
+// Same boundaries and atomicity as the commit
 // batch; the outer Cosmos signer is the current Builder service address.
 // MsgBatchSubmitVerifyResult defines the MsgBatchSubmitVerifyResult wire type.
 type MsgBatchSubmitVerifyResult struct {
@@ -1070,8 +1068,7 @@ func (x *MsgBatchSubmitVerifyResult) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgBatchSubmitVerifyResultResponse returns per-item results and the batch digest
-// (keeper_api_contract.md §9.6a).
+// MsgBatchSubmitVerifyResultResponse returns per-item results and the batch digest.
 // MsgBatchSubmitVerifyResultResponse defines the MsgBatchSubmitVerifyResultResponse wire type.
 type MsgBatchSubmitVerifyResultResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

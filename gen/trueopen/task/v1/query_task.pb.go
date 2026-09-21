@@ -294,12 +294,12 @@ func (x *TaskAssignmentViewV1) GetResultRevealMissingSlashBps() uint32 {
 // TaskBuilderSelectionViewV1 projects one TaskBuilderSelectionState and hides the
 // internal builder_set_ref_released and builder_fault_slash_bps_snapshot fields
 // (§16.5). Fields 1-9 are the frozen public prefix of the
-// keeper_data_structure_contract.md §6.5 State field order.
+// the data-structure contract State field order.
 //
 // This view is the ONLY read path for the per-Task Builder identity. The Worker
 // fetches INPUT from and uploads OUTPUT to exactly these Builders, the
 // three-Builder fan-out and the 2-of-3 data-ready confirmation address exactly
-// this list, and keeper_api_contract.md §10.10a derives the stable SETTLE duty Builder
+// this list, and the API contract derives the stable SETTLE duty Builder
 // from the same frozen order and rank. No other surface carries it: the abandoned
 // AssignmentState.builder_operator_address is deleted, TaskCoreState and
 // TaskAssignmentState hold no Builder field, and EventWorkerAssignmentFinalized
@@ -1520,7 +1520,7 @@ func (x *QueryTaskBuildersRequest) GetTaskId() []byte {
 // contract the two Builder bitmaps depend on.
 //
 // Pruning and compaction semantics, exactly as frozen by §16.2 and
-// keeper_data_structure_contract.md §6.6:
+// the data-structure contract:
 //   - body_status = ACTIVE: selected_task_builders has exactly
 //     selected_task_builder_count == builders_per_task members in frozen order.
 //   - body_status = PRUNED: the cleanup runner's ACTIVE_INDEXES_AND_LIABILITIES

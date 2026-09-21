@@ -214,7 +214,7 @@ type EventRevealPhaseStarted struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId    []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+	// Every verify_round in this file uses the frozen numbering: 1 is the
 	// initial verification, values >= 2 are challenge rounds, and 0 is invalid.
 	VerifyRound          uint32             `protobuf:"varint,3,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	RevealDeadlineHeight uint64             `protobuf:"varint,4,opt,name=reveal_deadline_height,json=revealDeadlineHeight,proto3" json:"reveal_deadline_height,omitempty"`
@@ -293,7 +293,7 @@ func (x *EventRevealPhaseStarted) GetTrigger() RevealPhaseTrigger {
 //
 // CONTRACT-GAP: classification_source uses the 4-value §9.6b
 // FailureClassificationSource, which is the sole numeric authority and the type
-// this event row references. keeper_data_structure_contract.md §6.6 and §10.3/§10.7/§10.13
+// this event row references. The data-structure contract
 // describe seven finer-grained sources with no numbers
 // (VERIFY_OPEN_DEADLINE / COMMIT_DEADLINE / VERIFY_DEADLINE / SETTLEMENT_VERDICT /
 // DATA_UNAVAILABLE_REPORT_THRESHOLD / CHALLENGE_OUTCOME / MANUAL_CORRECTION), so

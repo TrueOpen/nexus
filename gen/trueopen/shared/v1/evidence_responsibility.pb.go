@@ -22,7 +22,7 @@ const (
 )
 
 // BuilderObjectiveEvidenceFactV2 is the only value Task passes to the Hub fault
-// kernel (§5.5 lines 918-925). The Hub recomputes evidence_id and
+// kernel (§5.5). The Hub recomputes evidence_id and
 // fault_id from the local chain context plus this fact and never trusts a
 // caller-supplied ID copy: apply is a NOOP only when the same ID repeats the same
 // canonical fields and frozen_slash_bps; a different digest, kind, scope,
@@ -209,7 +209,7 @@ func (x *WorkerObjectiveEvidenceFactV1) GetFrozenSlashBps() uint32 {
 }
 
 // BusObjectiveEvidenceResponsibilityV1 is the acquire/release locator of the
-// per-Builder objective-evidence responsibility row (§5.5 lines 929-935).
+// per-Builder objective-evidence responsibility row (§5.5).
 //
 // The responsibility ID has exactly one registered preimage:
 //
@@ -218,14 +218,14 @@ func (x *WorkerObjectiveEvidenceFactV1) GetFrozenSlashBps() uint32 {
 //	  scope_id = task_id, builder_operator)
 //
 // service_authorization_nonce is carried in the row and echoed in the receipt
-// but it is deliberately not part of the ID (§5.5 lines 955-957): a second ID
+// but it is deliberately not part of the ID (§5.5): a second ID
 // per nonce would let a rotation create a fresh, unblocked row for the same
 // task. Consequently acquire with the same locator and the same nonce is an
 // exact replay that returns active=true / NOOP, while the same ID with a
 // different nonce is a conflict.
 //
-// release is called only by the Task EvidenceCleanup phase (§5.5 line 957 and
-// keeper_api_contract.md lines 4184-4186): the first call returns active=false /
+// release is called only by the Task EvidenceCleanup phase (§5.5 and
+// the API contract): the first call returns active=false /
 // APPLIED and every repeat returns active=false / NOOP.
 // BusObjectiveEvidenceResponsibilityV1 defines the BusObjectiveEvidenceResponsibilityV1 wire type.
 type BusObjectiveEvidenceResponsibilityV1 struct {
@@ -311,7 +311,7 @@ func (x *BusObjectiveEvidenceResponsibilityV1) GetServiceAuthorizationNonce() ui
 }
 
 // BusObjectiveEvidenceResponsibilityReceiptV1 is the single receipt shape of
-// both acquire and release (§5.5 lines 937-944). active is the post-call state
+// both acquire and release (§5.5). active is the post-call state
 // of the row, so an acquire replay reports active=true / NOOP and a release
 // replay reports active=false / NOOP; status never carries a rejection, which is
 // a gRPC error instead.
@@ -407,13 +407,13 @@ func (x *BusObjectiveEvidenceResponsibilityReceiptV1) GetStatus() MutationStatus
 }
 
 // BuilderObjectiveEvidenceReceiptV2 is what apply returns and what
-// task.v1.Msg.SubmitBuilderEvidence returns directly: §5.5 line 960 fixes
+// task.v1.Msg.SubmitBuilderEvidence returns directly: §5.5 fixes
 // the RPC to the shared receipt, so there is no per-module Response wrapper to
 // keep in sync.
 //
 // evidence_id is the idempotency key of the submission and fault_id is the
 // primary key of the punishable fact derived from it. The two use different
-// domains over different preimages (§5.5 lines 970-982) and must never be
+// domains over different preimages (§5.5) and must never be
 // substituted for each other. fault_id is optional because accepted evidence
 // that resolves to no new fault row leaves it absent; absence is expressed by
 // protobuf presence, never by a zero-length or all-zero digest.

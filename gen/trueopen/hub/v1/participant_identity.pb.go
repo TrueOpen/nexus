@@ -198,7 +198,7 @@ func (x *ServiceDescriptorV1) GetEndpoints() []*ServiceEndpointV1 {
 }
 
 // CortexNodeState is the single stable Cortex identity row (§6.4). Fields 10-12
-// are the three online-responsibility counters that keeper_api_contract.md §B.1.2 /
+// are the three online-responsibility counters that the API contract /
 // §10.0c1 require MsgRotateServiceKey to see at zero; they replace the previous
 // string-keyed TASK_LIABILITY_* responsibility rows.
 // CortexNodeState defines the CortexNodeState wire type.
@@ -490,7 +490,7 @@ func (x *ServiceDescriptorState) GetUpdatedHeight() uint64 {
 // with an equivalent bounded counter or typed responsibility state.
 //
 // responsibility_id is a Keeper-derived Hash32, not a delimiter-joined string:
-// node_context.md §1.2 forbids building a consensus primary key by string
+// forbids building a consensus primary key by string
 // concatenation.
 // ServiceKeyResponsibilityState defines the ServiceKeyResponsibilityState wire type.
 type ServiceKeyResponsibilityState struct {

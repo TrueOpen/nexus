@@ -23,8 +23,8 @@ const (
 
 // CommitStatusV1 is the lifecycle of one accepted verifier commit row.
 //
-// CONTRACT-GAP: keeper_data_structure_contract.md §6.6 declares CommitState.status =
-// ACCEPTED as the only value, and keeper_api_contract.md §9.6b does not register this
+// CONTRACT-GAP: the data-structure contract declares CommitState.status =
+// ACCEPTED as the only value, and the API contract does not register this
 // enum. The single non-zero value below is exactly what the frozen schema names.
 // CommitStatusV1 defines the CommitStatusV1 wire type.
 type CommitStatusV1 int32
@@ -79,7 +79,7 @@ func (CommitStatusV1) EnumDescriptor() ([]byte, []int) {
 
 // VerifyCommitV1 is the verifier-signed result commitment carried by
 // MsgSubmitVerifyCommit and MsgBatchSubmitVerifyCommit. Field numbers, types and
-// order are frozen by keeper_api_contract.md §5.14 and are the length-framed preimage
+// order are frozen and are the length-framed preimage
 // of
 //
 //	verify_commit_signing_digest = H_FIELDS_V1("TRUEOPEN_COMMIT_V1",
@@ -107,7 +107,7 @@ type VerifyCommitV1 struct {
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+	// Every verify_round in this file uses the frozen numbering: 1 is the
 	// initial verification, values >= 2 are challenge rounds, and 0 is invalid.
 	VerifyRound               uint32 `protobuf:"varint,4,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	VerifierOperatorAddress   string `protobuf:"bytes,5,opt,name=verifier_operator_address,json=verifierOperatorAddress,proto3" json:"verifier_operator_address,omitempty"`
@@ -212,9 +212,9 @@ func (x *VerifyCommitV1) GetServiceSignature() []byte {
 	return nil
 }
 
-// CommitState is the first accepted verifier commit, keyed by commit_key
-// (keeper_data_structure_contract.md §6.6). commit_key has exactly one ordered preimage in
-// the whole repository (keeper_api_contract.md §10.9):
+// CommitState is the first accepted verifier commit, keyed by commit_key.
+// commit_key has exactly one ordered preimage in
+// the whole repository:
 //
 //	commit_key = H_FIELDS_V1("TRUEOPEN_COMMIT_KEY_V1",
 //	  chain_id, task_id, verify_round, verifier_operator_address)

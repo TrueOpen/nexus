@@ -37,7 +37,7 @@ const (
 // creates no request-level nullifier; freeze votes are EmergencyFreezeVoteState.
 //
 // Derived state is NOT exported and is rebuilt from the primary rows with a
-// two-way invariant check at import (keeper_data_structure_contract.md §3.3 and §6.x):
+// two-way invariant check at import:
 //
 //	OperatorCandidateSlotState, ParameterBucketPruneIndex,
 //	TreasurySpendReceiptPruneIndex,
@@ -47,7 +47,7 @@ const (
 //	CandidatePool index.
 //
 // MarkGateExpiryIndex and EarningsPendingMaturityIndex are absent rather than
-// derived: Phase 0 runs no RewardMark/MarkGate (ADR-0020) and holds no pending
+// derived: Phase 0 runs no RewardMark/MarkGate and holds no pending
 // earning, so neither has a primary row to rebuild from.
 // RewardEpochPruneIndex is an operational schedule that cannot be reconstructed
 // from current parameters and is therefore exported in field 100.
@@ -77,7 +77,7 @@ type GenesisState struct {
 	PendingBuilderSetReplacement *BuilderSetPendingReplacementState `protobuf:"bytes,29,opt,name=pending_builder_set_replacement,json=pendingBuilderSetReplacement,proto3" json:"pending_builder_set_replacement,omitempty"`
 	// Jail and tombstone facts are operator-global counters on ServiceBondState
 	// (status / jail_count / normal_action_count_since_jail) per
-	// keeper_data_structure_contract.md §6.4, so there is no separate jail or tombstone
+	// the data-structure contract, so there is no separate jail or tombstone
 	// collection to export.
 	RoleFaults     []*RoleFaultState    `protobuf:"bytes,30,rep,name=role_faults,json=roleFaults,proto3" json:"role_faults,omitempty"`
 	SlashSummaries []*SlashSummaryState `protobuf:"bytes,31,rep,name=slash_summaries,json=slashSummaries,proto3" json:"slash_summaries,omitempty"`

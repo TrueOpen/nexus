@@ -32,7 +32,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 // creates no request-level nullifier; freeze votes are EmergencyFreezeVoteState.
 //
 // Derived state is NOT exported and is rebuilt from the primary rows with a
-// two-way invariant check at import (keeper_data_structure_contract.md §3.3 and §6.x):
+// two-way invariant check at import:
 //   OperatorCandidateSlotState, ParameterBucketPruneIndex,
 //   TreasurySpendReceiptPruneIndex,
 //   VrfKeyActivationIndex, VrfKeyPruneIndex, FreezeSignalDeadlineIndex,
@@ -40,7 +40,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 //   TaskFailureClassWindowPruneIndex, RoleFaultPruneIndex and every
 //   CandidatePool index.
 // MarkGateExpiryIndex and EarningsPendingMaturityIndex are absent rather than
-// derived: Phase 0 runs no RewardMark/MarkGate (ADR-0020) and holds no pending
+// derived: Phase 0 runs no RewardMark/MarkGate and holds no pending
 // earning, so neither has a primary row to rebuild from.
 // RewardEpochPruneIndex is an operational schedule that cannot be reconstructed
 // from current parameters and is therefore exported in field 100.
@@ -75,7 +75,7 @@ message GenesisState {
 
   // Jail and tombstone facts are operator-global counters on ServiceBondState
   // (status / jail_count / normal_action_count_since_jail) per
-  // keeper_data_structure_contract.md §6.4, so there is no separate jail or tombstone
+  // the data-structure contract, so there is no separate jail or tombstone
   // collection to export.
   repeated RoleFaultState role_faults = 30;
   repeated SlashSummaryState slash_summaries = 31;
