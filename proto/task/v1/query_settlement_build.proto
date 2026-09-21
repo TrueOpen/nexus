@@ -12,7 +12,7 @@ import "task/v1/settlement.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
-// This file carries the V1 verification Query wire of keeper_api_contract.md §16.2.
+// This file carries the V1 verification Query wire.
 //
 // There is no settlement-build preview RPC. Settlement queries expose only a
 // committed TaskSettlementState/SettlementPlanV1 or retained facts.
@@ -39,7 +39,7 @@ message QueryInferReceiptResponse {
 // QueryVerifierCandidateWindowRequest selects one task round's verifier window.
 message QueryVerifierCandidateWindowRequest {
   bytes task_id = 1;
-  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // Every verify_round in this file uses the frozen numbering: 1 is the
   // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
   uint32 verify_round = 2;
 }
@@ -98,8 +98,8 @@ message QueryResultReceiptResponse {
   ResultReceiptState receipt = 1;
 }
 
-// QueryDataUnavailableReportsRequest pages one (task, round) report list
-// (keeper_api_contract.md §16.2). The §16.1 pagination wire now lives in exactly one
+// QueryDataUnavailableReportsRequest pages one (task, round) report list.
+// The §16.1 pagination wire now lives in exactly one
 // place, shared/v1/query_page.proto, so this RPC can finally be declared.
 // QueryDataUnavailableReportsRequest defines the QueryDataUnavailableReportsRequest wire type.
 message QueryDataUnavailableReportsRequest {

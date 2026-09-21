@@ -89,7 +89,7 @@ message SlashSummaryState {
 }
 
 // Jail and tombstone state are deliberately absent from this file. Jail is
-// operator-global, not duty-scoped: keeper_data_structure_contract.md §6.4 places
+// operator-global, not duty-scoped: the data-structure contract places
 // jail_count and normal_action_count_since_jail on ServiceBondState, and §10.0c
 // requires tombstone checks to read that single row rather than a second
 // TombstoneState. Duty attribution for a fault lives in RoleFaultState.duty and

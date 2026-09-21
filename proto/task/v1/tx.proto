@@ -14,7 +14,7 @@ import "task/v1/msg_verification.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // Msg defines Task-owned session, execution, verification and settlement
-// transactions. Every rpc below is registered ACTIVE by keeper_api_contract.md §9.6a
+// transactions. Every rpc below is registered ACTIVE
 // and its request carries exactly one explicit canonical Address field bound by
 // option (cosmos.msg.v1.signer).
 // Msg defines the Msg wire type.
@@ -42,7 +42,7 @@ service Msg {
   // ReportDataUnavailable records one selected Verifier's data-availability report.
   rpc ReportDataUnavailable(MsgReportDataUnavailable) returns (MsgReportDataUnavailableResponse);
   // SubmitBuilderEvidence accepts one closed typed objective Builder proof.
-  // ADR-0013 moved it here from hub.v1.Msg: the Task module owns the
+  // It moved here from hub.v1.Msg: the Task module owns the
   // envelope payload and the Task authority, and it returns the shared receipt
   // directly instead of a module-local Response wrapper (§5.5, §9.4).
   // SubmitBuilderEvidence executes the SubmitBuilderEvidence operation.

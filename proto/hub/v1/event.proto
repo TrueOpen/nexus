@@ -14,7 +14,7 @@ import "shared/v1/event.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
-// ProtocolEventCodeV1 moved to shared/v1/event.proto by ADR-0013: both
+// ProtocolEventCodeV1 moved to shared/v1/event.proto: both
 // TaskEventService and HubEventService filter on it, so the one §5.11 code
 // registry is shared. Numbers are unchanged and no alias is kept here.
 
@@ -236,7 +236,7 @@ message EventRewardEpochClosed {
 
 // EventFaultRecorded is event code 50, emitted once when a RoleFault receipt is
 // first written. Field order and types are copied verbatim from
-// keeper_api_contract.md §5.11 code 50.
+// Event code 50.
 // EventFaultRecorded defines the EventFaultRecorded wire type.
 message EventFaultRecorded {
   shared.v1.Duty duty = 1;
@@ -258,7 +258,7 @@ message EventRoleJailed {
 
 // EventRoleSlashed is event code 52, emitted once when the RoleFault and the
 // ServiceBond slash commit atomically. Field order and types are copied verbatim
-// from keeper_api_contract.md §5.11 code 52.
+// Event code 52.
 // EventRoleSlashed defines the EventRoleSlashed wire type.
 message EventRoleSlashed {
   shared.v1.Duty duty = 1;
@@ -414,7 +414,7 @@ message EventBuilderEvidenceAccepted {
 
 // EventHubParamsUpdated is event code 110, emitted once when a new Hub params
 // version takes effect atomically. Field order and types are copied verbatim
-// from keeper_api_contract.md §5.11 code 110; params_hash is the §18.0
+// Event code 110; params_hash is the §18.0
 // TRUEOPEN_HUB_PARAMS_V2 digest.
 // EventHubParamsUpdated defines the EventHubParamsUpdated wire type.
 message EventHubParamsUpdated {
@@ -426,7 +426,7 @@ message EventHubParamsUpdated {
 // EventServiceRegistered is event code 112, emitted once when the Cortex primary
 // row, the current service key and the first stake commit in the same
 // transaction. Field order and types are copied verbatim from
-// keeper_api_contract.md §5.11 code 112.
+// Event code 112.
 // EventServiceRegistered defines the EventServiceRegistered wire type.
 message EventServiceRegistered {
   string operator = 1;
@@ -452,7 +452,7 @@ message EventProfileReferencePriceUpdated {
 
 // EventParameterBucketUpdated is event code 5, emitted once when a governance
 // versioned bucket first commits. Fields are copied verbatim from
-// keeper_api_contract.md §5.11 code 5; bucket_hash is the §5.2
+// Event code 5; bucket_hash is the §5.2
 // TRUEOPEN_PARAMETER_BUCKET_V1 commitment stored as
 // ParameterBucketVersionState.content_hash.
 // EventParameterBucketUpdated defines the EventParameterBucketUpdated wire type.

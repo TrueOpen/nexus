@@ -5,7 +5,7 @@ package shared.v1;
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 
 // This file is the single home of the global Query pagination wire of
-// keeper_api_contract.md §16.1. The three types below are declared there as the only
+// the API contract. The three types below are declared there as the only
 // pagination request/response/token shapes of the whole protocol, so they must
 // exist exactly once. They previously existed twice (hub/v1/query_registry.proto
 // and task/v1/query_session.proto); both copies are deleted and both modules

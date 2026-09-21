@@ -12,7 +12,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 // authoritative Query before acting on a state transition, and they deduplicate
 // with (chain_height, tx_hash, tx_index, event_index).
 //
-// ADR-0013 moved SubscribeProtocolEvents here from task.v1.TaskEventService:
+// SubscribeProtocolEvents moved here from task.v1.TaskEventService:
 // the non-task operating-state stream carries Hub-owned typed payloads, so the
 // Hub owns the RPC. The message field and oneof numbers below are the ones the
 // Task service already used; only the owning service and package changed.

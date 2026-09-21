@@ -163,9 +163,11 @@ func (s *service) subscribeOutputStream(
 	sub := s.outputStream.dispatcher.Subscribe(key)
 	defer sub.Close()
 
-	// In proto3, 0 and "unset" are indistinguishable: 0 means replay from seq = 0; n > 0 replays only seq > n.
+	// wire v0.2.0 gives resume_after_seq explicit presence: unset replays from seq = 0, and any set
+	// value n (including 0) replays only seq > n.
 	var after *uint64
-	if resume := m.GetResumeAfterSeq(); resume > 0 {
+	if m.ResumeAfterSeq != nil {
+		resume := m.GetResumeAfterSeq()
 		after = &resume
 	}
 	frames, err := s.outputStream.service.OutputFrames(ctx, key, after)

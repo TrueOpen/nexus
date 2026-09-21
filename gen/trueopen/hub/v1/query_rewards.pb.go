@@ -22,8 +22,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// RewardEpochProgressViewV1 is the public projection of RewardEpochCursorState
-// (keeper_api_contract.md §16.5). The internal cursor keys
+// RewardEpochProgressViewV1 is the public projection of RewardEpochCursorState.
+// The internal cursor keys
 // last_order_value_bucket / last_task_id are deliberately not exposed, and the
 // cursor is deleted on completion, so a finished epoch returns NotFound instead
 // of a fabricated total or root.
@@ -105,7 +105,7 @@ func (x *RewardEpochProgressViewV1) GetAppliedCount() uint64 {
 }
 
 // ParameterBucketVersionViewV1 projects the public content of one timeout
-// bucket version (keeper_api_contract.md §16.5). It hides task_ref_count and store
+// bucket version. It hides task_ref_count and store
 // keys, and bucket_hash is the same value ParameterBucketVersionState stores as
 // content_hash.
 // ParameterBucketVersionViewV1 defines the ParameterBucketVersionViewV1 wire type.
@@ -217,8 +217,8 @@ func (x *ParameterBucketVersionViewV1) GetEncodedSizeBytes() uint32 {
 	return 0
 }
 
-// QueryCompetitionEpochRequest selects one competition bucket epoch
-// (keeper_api_contract.md §16.4); reward_bucket is checked against the allowlist.
+// QueryCompetitionEpochRequest selects one competition bucket epoch;
+// reward_bucket is checked against the allowlist.
 // QueryCompetitionEpochRequest defines the QueryCompetitionEpochRequest wire type.
 type QueryCompetitionEpochRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -317,8 +317,7 @@ func (x *QueryCompetitionEpochResponse) GetEpochState() *RewardCompetitionEpochS
 	return nil
 }
 
-// QueryRewardEpochCursorRequest selects one bounded runner cursor
-// (keeper_api_contract.md §16.4).
+// QueryRewardEpochCursorRequest selects one bounded runner cursor.
 // QueryRewardEpochCursorRequest defines the QueryRewardEpochCursorRequest wire type.
 type QueryRewardEpochCursorRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -521,7 +520,7 @@ func (x *QueryRewardEpochAuditResponse) GetAudit() *RewardEpochAuditState {
 	return nil
 }
 
-// QueryTreasuryRequest has no selector (keeper_api_contract.md §16.4).
+// QueryTreasuryRequest has no selector.
 type QueryTreasuryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -605,7 +604,7 @@ func (x *QueryTreasuryResponse) GetTreasury() *TreasuryState {
 	return nil
 }
 
-// QueryFreezeSignalRequest selects one freeze signal (keeper_api_contract.md §16.3).
+// QueryFreezeSignalRequest selects one freeze signal.
 type QueryFreezeSignalRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	FreezeSignalId []byte                 `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
@@ -697,8 +696,7 @@ func (x *QueryFreezeSignalResponse) GetSignal() *FreezeSignalState {
 	return nil
 }
 
-// QueryFreezeSignalsRequest pages one profile's signals by status
-// (keeper_api_contract.md §16.3).
+// QueryFreezeSignalsRequest pages one profile's signals by status.
 // QueryFreezeSignalsRequest defines the QueryFreezeSignalsRequest wire type.
 type QueryFreezeSignalsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -823,8 +821,7 @@ func (x *QueryFreezeSignalsResponse) GetPage() *v1.QueryPageResponseV1 {
 	return nil
 }
 
-// QueryEmergencyFreezeVotesRequest pages one signal's ballots
-// (keeper_api_contract.md §16.3).
+// QueryEmergencyFreezeVotesRequest pages one signal's ballots.
 // QueryEmergencyFreezeVotesRequest defines the QueryEmergencyFreezeVotesRequest wire type.
 type QueryEmergencyFreezeVotesRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`

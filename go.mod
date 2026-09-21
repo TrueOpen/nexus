@@ -13,7 +13,7 @@ require (
 	connectrpc.com/grpcreflect v1.3.0
 	cosmossdk.io/api v0.9.2
 	github.com/TrueOpen/nexus/gen/trueopen v0.0.0-00010101000000-000000000000
-	github.com/TrueOpen/wire v0.1.1
+	github.com/TrueOpen/wire v0.2.0
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/cosmos/btcutil v1.0.5
 	github.com/cosmos/cosmos-sdk v0.53.6

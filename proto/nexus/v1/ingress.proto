@@ -807,8 +807,9 @@ message SubscribeOutputRequest {
   SDKRequestEnvelopeV1 request_envelope = 3;
   // ADR-0017: resume point; only frames with seq greater than this value are replayed. Leave
   // unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
-  // any Task Builder with the last locally verified chunk index to resume.
-  uint64 resume_after_seq = 4;
+  // any Task Builder with the last locally verified chunk index to resume. Explicit presence
+  // since wire v0.2.0: 0 means "chunk 0 verified, replay from seq 1", not "from the beginning".
+  optional uint64 resume_after_seq = 4;
 }
 
 // SubscribeOutputResponse is the forwarded stream of Worker-signed frames (ADR-0017).

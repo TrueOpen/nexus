@@ -24,7 +24,7 @@ const (
 
 // DeadlineKindV1 selects which deadline of a primary object is being swept.
 //
-// keeper_api_contract.md §5.9 is the ONLY numeric definition of this enum in the
+// the API contract is the ONLY numeric definition of this enum in the
 // whole contract: the sweep locator, the Query projection
 // TaskStageViewV1.next_deadline_kind and §5.11 event code 20 `deadline_swept`
 // all share these numbers. The values are bound column-by-column to the locator

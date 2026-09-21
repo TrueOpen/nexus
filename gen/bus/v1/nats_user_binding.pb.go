@@ -23,8 +23,8 @@ const (
 )
 
 // NatsUserBindingV1 is the binding declaration a Cortex presents when it
-// connects to NATS (ADR-0016 decision three; 07-task_builder_coordination.md §7.5;
-// API_and_topic_catalog.md §5.14). It states that one locally generated NATS user
+// connects to NATS (;
+// ). It states that one locally generated NATS user
 // key (an ed25519 nkey) belongs to the Cortex whose current service key is
 // registered on chain, and it is signed by that service key. The Cortex holds
 // no credential issued by the NATS operator; the auth callout service verifies
@@ -64,7 +64,7 @@ type NatsUserBindingV1 struct {
 	// cross-chain reuse.
 	ChainId string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	// Identity domain of the operator. V1 accepts only PARTICIPANT_TYPE_CORTEX;
-	// Builder use of the same mechanism is deferred to ADR-0016 item 17.
+	// Builder use of the same mechanism is deferred; V1 does not register it.
 	ParticipantType v1.ParticipantType `protobuf:"varint,3,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	// Stable protocol identity of the Cortex; the same value BusEnvelopeV1
 	// carries as sender_operator_address. Selects the on-chain service key.

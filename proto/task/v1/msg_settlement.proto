@@ -8,7 +8,7 @@ import "task/v1/settlement.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // MsgSettleTask is the only normal-settlement entry point. The exact request wire
-// is frozen by keeper_api_contract.md §9.6a and §10.10a: task_id is the only business
+// is frozen: task_id is the only business
 // locator, and submitter_address exists solely for Cosmos Tx authorization,
 // account sequence and gas. submitter_address never enters the settlement ID, the
 // facts hash, the plan hash or any Store row.
@@ -43,7 +43,7 @@ message MsgSettleTask {
 }
 
 // MsgSettleTaskResponse is the settlement receipt. Field numbers are frozen by
-// keeper_api_contract.md §9.6a. Every field is Keeper-derived.
+// the API contract. Every field is Keeper-derived.
 // MsgSettleTaskResponse defines the MsgSettleTaskResponse wire type.
 message MsgSettleTaskResponse {
   bytes task_id = 1;

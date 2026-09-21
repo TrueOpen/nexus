@@ -23,7 +23,7 @@ const (
 
 // MetricSampleVerdictV1 is the per-sample judgment produced by JudgeMetricSample
 // from the task-snapshot verification thresholds. Frozen values:
-// keeper_api_contract.md §9.6b. Verifiers never submit a verdict field, and
+// the API contract. Verifiers never submit a verdict field, and
 // METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE can never become a final task verdict.
 // MetricSampleVerdictV1 defines the MetricSampleVerdictV1 wire type.
 type MetricSampleVerdictV1 int32
@@ -87,7 +87,7 @@ func (MetricSampleVerdictV1) EnumDescriptor() ([]byte, []int) {
 }
 
 // MetricSummaryV1 is the typed canonical verification summary. Field numbers and
-// order are frozen by keeper_api_contract.md §9.7 because they are part of both
+// order are frozen because they are part of both
 // metric_summary_hash = H_FIELDS_V1("TRUEOPEN_METRIC_SUMMARY_V1", canonical
 // MetricSummaryV1) and result_receipt_signing_digest. Maps, free JSON, floats and
 // implementation-defined extensions are forbidden; whether fields 7 and 8 are
@@ -211,7 +211,7 @@ func (x *MetricSummaryV1) GetComparedRankCount() uint32 {
 
 // ResultReceiptV2 is the verifier-signed result credential carried by
 // MsgSubmitVerifyResult and MsgBatchSubmitVerifyResult. Field numbers, types and
-// order are frozen by keeper_api_contract.md §5.14 and are the length-framed preimage
+// order are frozen and are the length-framed preimage
 // of
 //
 //	result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V2",
@@ -235,7 +235,7 @@ type ResultReceiptV2 struct {
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+	// Every verify_round in this file uses the frozen numbering: 1 is the
 	// initial verification, values >= 2 are challenge rounds, and 0 is invalid.
 	VerifyRound                       uint32           `protobuf:"varint,4,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	VerifierOperatorAddress           string           `protobuf:"bytes,5,opt,name=verifier_operator_address,json=verifierOperatorAddress,proto3" json:"verifier_operator_address,omitempty"`
@@ -389,7 +389,7 @@ func (x *ResultReceiptV2) GetServiceSignature() []byte {
 }
 
 // ResultReceiptState is the first accepted verifier result credential keyed by
-// commit_key (keeper_data_structure_contract.md §6.6). It retains enough authoritative scope
+// commit_key. It retains enough authoritative scope
 // and commitments to reconstruct result_payload_hash and verify the accepted
 // TRUEOPEN_RESULT_COMMITMENT_V2 without storing a full-result body on chain.
 // ResultReceiptState defines the ResultReceiptState wire type.

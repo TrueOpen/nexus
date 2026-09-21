@@ -1,6 +1,6 @@
 # NATS Auth Callout Service (nexus natsauth)
 
-Specification: monorepo ADR-0016 Decision 3, "Interface & Topic Catalogue" §5.13–§5.14, "Task Builder Coordination" §7.5. wire dependency: TrueOpen/wire `v0.1.1`.
+Specification: monorepo ADR-0016 Decision 3, "Interface & Topic Catalogue" §5.13–§5.14, "Task Builder Coordination" §7.5. wire dependency: TrueOpen/wire `v0.2.0`.
 
 ## What it does
 

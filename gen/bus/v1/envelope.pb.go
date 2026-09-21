@@ -23,7 +23,7 @@ const (
 )
 
 // BusMessageKind is the closed business-kind set of the trueopen.* task-control
-// subjects (TrueOpen/nexus#52). Kind decides the sender permission matrix and
+// subjects. Kind decides the sender permission matrix and
 // maps 1:1 to BusPayloadType; receivers reject any kind/payload_type pair that
 // is not in the frozen mapping documented on BusPayloadType.
 // BusMessageKind defines the BusMessageKind wire type.
@@ -214,7 +214,7 @@ func (BusPayloadType) EnumDescriptor() ([]byte, []int) {
 }
 
 // BusEnvelopeV1 is the transport envelope of every trueopen.* task-control NATS
-// message between nexus and cortex (TrueOpen/nexus#52). It replaces the
+// message between nexus and cortex. It replaces the
 // trueopen-cjson-v1 JSON envelope; there is no JSON fallback and no codec probing.
 //
 // Signing projection (typed H_FIELDS_V1, direct-digest secp256k1):
@@ -230,14 +230,14 @@ func (BusPayloadType) EnumDescriptor() ([]byte, []int) {
 //
 // The domain is TRUEOPEN_BUS_ENVELOPE_V2, not V1: the V1 domain already names the
 // retired 20-field cjson projection, and one domain must never cover two
-// different signed field sets (see the review notes on TrueOpen/nexus#52).
+// different signed field sets.
 //
 // payload (field 13) does not enter the projection directly; payload_digest
 // (field 14) is the registered H_V1("TRUEOPEN_BUS_PAYLOAD_V2", exact transmitted
 // payload bytes) commitment, so the signature transitively pins every payload
-// byte. It is deliberately NOT a bare SHA-256: canonical_encoding_and_domain_hashing.md §9.3
-// allows exactly three bare SHA-256 producers and ADR-0013 decision 2 refuses to
-// create a fourth for an opaque transport byte string. The digest only proves
+// byte. It is deliberately NOT a bare SHA-256:
+// allows exactly three bare SHA-256 producers and this contract does not add a
+// fourth for an opaque transport byte string. The digest only proves
 // the received bytes equal the bytes the sender first published; it does not
 // promote protobuf transport bytes to a business identity. Senders serialize the
 // payload once, persist the exact bytes, and reuse them together with message_id
@@ -250,7 +250,7 @@ func (BusPayloadType) EnumDescriptor() ([]byte, []int) {
 // on-chain current service key looked up by (sender_participant_type,
 // sender_operator_address); envelopes never carry a public key.
 //
-// Two fixed protocol constants bound every envelope (07-task_builder_coordination.md §7.3
+// Two fixed protocol constants bound every envelope (
 // and the parameter table). Neither may be overridden by validator-local or
 // service-local configuration:
 //
@@ -264,8 +264,7 @@ func (BusPayloadType) EnumDescriptor() ([]byte, []int) {
 //	  A clock-skew warning margin may be local operational configuration but
 //	  must never change the accept/reject decision.
 //
-// Live receiver verification order is fixed to these eight steps
-// (07-task_builder_coordination.md lines 140-147):
+// Live receiver verification order is fixed to these eight steps:
 //
 //  1. envelope size / schema / field structure
 //  2. actual subject / kind / payload_type routing
@@ -278,8 +277,8 @@ func (BusPayloadType) EnumDescriptor() ([]byte, []int) {
 //  8. only after the signature verifies: decode the typed payload, reject
 //     unknown fields, and check task / task_hash / stage / BuilderSet scope
 //
-// On-chain Builder evidence uses a different, proof-only 7-step profile
-// (keeper_api_contract.md §5.5 lines 879-890): it has no actual NATS subject and no
+// On-chain Builder evidence uses a different, proof-only 7-step profile:
+// it has no actual NATS subject and no
 // receive-time wall clock, so it never rejects an already signed objective fact
 // for being past expires_at_unix_ms, it never writes the live replay store
 // (outer canonical evidence digest/ID does the exact-replay check instead), and

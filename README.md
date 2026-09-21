@@ -66,7 +66,7 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
 repository keeps the documented version (the wire copy is comment-stripped and is therefore not
 produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
-fingerprint to the wire v0.1.1 definition; `internal/chaincli/node_descriptor_test.go` does the same
+fingerprint to the wire v0.2.0 definition; `internal/chaincli/node_descriptor_test.go` does the same
 for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
 
 ### Consuming the contract (`gen/trueopen` standalone module)
@@ -77,7 +77,7 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.1.1`, the same contract release TrueOpen/node pins in
+nexus is built against TrueOpen/wire `v0.2.0`, the same contract release TrueOpen/node pins in
 `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
@@ -100,7 +100,7 @@ Open items:
   are not in the contract set; renaming them is a wire-visible change pending a decision.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
   field `challenge_close` without fixing its unit; the rename waits for that decision.
-- `OutputFinV1.finish_reason` / `worker_signature` follow TrueOpen/wire v0.1.1: the Builder stores
+- `OutputFinV1.finish_reason` / `worker_signature` follow TrueOpen/wire v0.2.0: the Builder stores
   the Fin as received and replays it byte-identically to `SubscribeOutput` subscribers, but
   `UploadTaskOutputStream` does not yet verify `worker_signature` against the
   `TRUEOPEN_OUTPUT_FIN_V1` domain (signed-Fin follow-up).

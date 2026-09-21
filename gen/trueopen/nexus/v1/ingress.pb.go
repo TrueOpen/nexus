@@ -3865,8 +3865,9 @@ type SubscribeOutputRequest struct {
 	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	// ADR-0017: resume point; only frames with seq greater than this value are replayed. Leave
 	// unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
-	// any Task Builder with the last locally verified chunk index to resume.
-	ResumeAfterSeq uint64 `protobuf:"varint,4,opt,name=resume_after_seq,json=resumeAfterSeq,proto3" json:"resume_after_seq,omitempty"`
+	// any Task Builder with the last locally verified chunk index to resume. Explicit presence
+	// since wire v0.2.0: 0 means "chunk 0 verified, replay from seq 1", not "from the beginning".
+	ResumeAfterSeq *uint64 `protobuf:"varint,4,opt,name=resume_after_seq,json=resumeAfterSeq,proto3,oneof" json:"resume_after_seq,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3923,8 +3924,8 @@ func (x *SubscribeOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
 }
 
 func (x *SubscribeOutputRequest) GetResumeAfterSeq() uint64 {
-	if x != nil {
-		return x.ResumeAfterSeq
+	if x != nil && x.ResumeAfterSeq != nil {
+		return *x.ResumeAfterSeq
 	}
 	return 0
 }
@@ -5182,13 +5183,14 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"credential\x18\x02 \x01(\v2\x16.nexus.v1.CredentialV1R\n" +
 	"credentialJ\x04\b\x01\x10\x02R\n" +
-	"output_ref\"\xc5\x01\n" +
+	"output_ref\"\xdf\x01\n" +
 	"\x16SubscribeOutputRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
-	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12(\n" +
-	"\x10resume_after_seq\x18\x04 \x01(\x04R\x0eresumeAfterSeq\"\xef\x02\n" +
+	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12-\n" +
+	"\x10resume_after_seq\x18\x04 \x01(\x04H\x00R\x0eresumeAfterSeq\x88\x01\x01B\x13\n" +
+	"\x11_resume_after_seq\"\xef\x02\n" +
 	"\x17SubscribeOutputResponse\x12\x1f\n" +
 	"\toutput_id\x18\x01 \x01(\tB\x02\x18\x01R\boutputId\x12!\n" +
 	"\n" +
@@ -5540,6 +5542,7 @@ func file_nexus_v1_ingress_proto_init() {
 		(*FetchTaskDataResponse_Header)(nil),
 		(*FetchTaskDataResponse_Chunk)(nil),
 	}
+	file_nexus_v1_ingress_proto_msgTypes[43].OneofWrappers = []any{}
 	file_nexus_v1_ingress_proto_msgTypes[44].OneofWrappers = []any{
 		(*SubscribeOutputResponse_Chunk)(nil),
 		(*SubscribeOutputResponse_Fin)(nil),

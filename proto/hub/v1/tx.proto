@@ -23,7 +23,7 @@ service Msg {
   rpc ClaimEarnings(MsgClaimEarnings) returns (MsgClaimEarningsResponse);
   // RegisterBuilder creates one Builder primary row.
   rpc RegisterBuilder(MsgRegisterBuilder) returns (MsgRegisterBuilderResponse);
-  // SubmitBuilderEvidence moved to task.v1.Msg by ADR-0013 / §5.5: the Task
+  // SubmitBuilderEvidence moved to task.v1.Msg (§5.5): the Task
   // module owns the BusEnvelope payload and the Task authority check and only
   // hands the Hub fault kernel a shared objective fact. No deprecated stub, no
   // alias and no forwarding rpc is kept here.
@@ -61,7 +61,7 @@ service Msg {
   rpc SubmitFreezeSignal(MsgSubmitFreezeSignal) returns (MsgSubmitFreezeSignalResponse);
   // EmergencyFreezeVote records one validator ballot.
   rpc EmergencyFreezeVote(MsgEmergencyFreezeVote) returns (MsgEmergencyFreezeVoteResponse);
-  // UpdateTimeoutBucket moved here from task.v1.Msg: keeper_data_structure_contract.md
+  // UpdateTimeoutBucket moved here from task.v1.Msg: the data-structure contract
   // §2.4 names the Hub governance handler the only writer of parameter bucket
   // versions, and x/task only reference-counts them.
   // UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
@@ -75,6 +75,6 @@ service Msg {
   rpc RunRewardEpoch(MsgRunRewardEpoch) returns (MsgRunRewardEpochResponse);
 }
 
-// ExecuteTreasurySpendV1 deliberately has NO rpc here: keeper_api_contract.md §9.6c
+// ExecuteTreasurySpendV1 deliberately has NO rpc here: the API contract
 // registers it as an internal x/gov typed action with no signer, no Tx RPC, no
 // AutoCLI entry and no permissionless event.

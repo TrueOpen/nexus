@@ -11,7 +11,7 @@ import "task/v1/settlement.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
-// This file carries the Task-owned typed event payloads of keeper_api_contract.md
+// This file carries the Task-owned typed event payloads
 // §5.11. The event code numbers themselves are NOT redefined here: the single
 // registry is shared.v1.ProtocolEventCodeV1, because §9.6b allows one numeric
 // definition per closed enum and §17 forbids a second event code authority. The
@@ -87,7 +87,7 @@ message EventOrderCancelled {
 message EventRevealPhaseStarted {
   bytes session_id = 1;
   bytes task_id = 2;
-  // Every verify_round in this file uses ADR-0014 v1.1 numbering: 1 is the
+  // Every verify_round in this file uses the frozen numbering: 1 is the
   // initial verification, values >= 2 are challenge rounds, and 0 is invalid.
   uint32 verify_round = 3;
   uint64 reveal_deadline_height = 4;
@@ -99,7 +99,7 @@ message EventRevealPhaseStarted {
 //
 // CONTRACT-GAP: classification_source uses the 4-value §9.6b
 // FailureClassificationSource, which is the sole numeric authority and the type
-// this event row references. keeper_data_structure_contract.md §6.6 and §10.3/§10.7/§10.13
+// this event row references. The data-structure contract
 // describe seven finer-grained sources with no numbers
 // (VERIFY_OPEN_DEADLINE / COMMIT_DEADLINE / VERIFY_DEADLINE / SETTLEMENT_VERDICT /
 // DATA_UNAVAILABLE_REPORT_THRESHOLD / CHALLENGE_OUTCOME / MANUAL_CORRECTION), so

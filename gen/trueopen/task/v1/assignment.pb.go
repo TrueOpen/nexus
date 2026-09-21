@@ -23,7 +23,7 @@ const (
 )
 
 // TaskPhase is the aggregate task phase. Numeric values are frozen by
-// keeper_api_contract.md §9.6b; ascending order is the mandatory forward order, so
+// the API contract; ascending order is the mandatory forward order, so
 // transition checks are monotonic with no rollback and no skipping.
 // TaskPhase defines the TaskPhase wire type.
 type TaskPhase int32
@@ -118,7 +118,7 @@ func (TaskPhase) EnumDescriptor() ([]byte, []int) {
 
 // AssignmentStatus is the Worker assignment sub-state. Values are frozen by
 // §9.6b. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
-// copy (node_context.md §5.2).
+// copy.
 // AssignmentStatus defines the AssignmentStatus wire type.
 type AssignmentStatus int32
 
@@ -1252,8 +1252,8 @@ func (x *AssignmentCandidateSetState) GetAssignmentCandidateSetHash() []byte {
 //	VerifierCandidateWeight = (0.20*stake_score + 0.80*performance_score) * jail
 //
 // and it sources performance_score from a "PerformanceState" mapped through
-// performance_method_version - a State that keeper_data_structure_contract.md never declares
-// and that keeper_api_contract.md §16 never exposes (no PerformanceScoreState, no
+// performance_method_version - a State that the data-structure contract never declares
+// and that the API contract never exposes (no PerformanceScoreState, no
 // QueryPerformanceScore; §16.3 QueryServiceLifecycle explicitly must not compute
 // performance on the fly). §9.6b also registers no numbering for
 // performance_method_version even though its uint32 value is hashed.
@@ -1802,8 +1802,8 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 	return nil
 }
 
-// TaskBuilderSelectionState is the frozen Task Builder selection of one Task
-// (keeper_data_structure_contract.md §6.5, key = task_id). Task admission is the only writer
+// TaskBuilderSelectionState is the frozen Task Builder selection of one Task.
+// Task admission is the only writer
 // of its frozen selection content; terminal and EvidenceCleanup helpers may only
 // advance the lifecycle fields described below. Every later Task stage reads it:
 // §10.1 writes it together with the first accepted Worker proposal, §10.4/§10.5
@@ -1816,7 +1816,7 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 // selected_task_builders and builder_fault_slash_bps_snapshot for objective
 // evidence. EvidenceCleanup releases every BUS_OBJECTIVE_EVIDENCE responsibility,
 // then clears selected_task_builders and changes body_status to PRUNED in the
-// same transaction. keeper_data_structure_contract.md §6.6 later deletes this whole row in
+// same transaction. The data-structure contract later deletes this whole row in
 // TASK_COMPACTION, so the PRUNED header exists only before compaction; after
 // compaction the read path returns NotFound.
 //

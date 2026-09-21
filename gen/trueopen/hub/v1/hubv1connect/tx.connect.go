@@ -123,7 +123,7 @@ type MsgClient interface {
 	SubmitFreezeSignal(context.Context, *connect.Request[v1.MsgSubmitFreezeSignal]) (*connect.Response[v1.MsgSubmitFreezeSignalResponse], error)
 	// EmergencyFreezeVote records one validator ballot.
 	EmergencyFreezeVote(context.Context, *connect.Request[v1.MsgEmergencyFreezeVote]) (*connect.Response[v1.MsgEmergencyFreezeVoteResponse], error)
-	// UpdateTimeoutBucket moved here from task.v1.Msg: keeper_data_structure_contract.md
+	// UpdateTimeoutBucket moved here from task.v1.Msg: the data-structure contract
 	// §2.4 names the Hub governance handler the only writer of parameter bucket
 	// versions, and x/task only reference-counts them.
 	// UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
@@ -439,7 +439,7 @@ type MsgHandler interface {
 	SubmitFreezeSignal(context.Context, *connect.Request[v1.MsgSubmitFreezeSignal]) (*connect.Response[v1.MsgSubmitFreezeSignalResponse], error)
 	// EmergencyFreezeVote records one validator ballot.
 	EmergencyFreezeVote(context.Context, *connect.Request[v1.MsgEmergencyFreezeVote]) (*connect.Response[v1.MsgEmergencyFreezeVoteResponse], error)
-	// UpdateTimeoutBucket moved here from task.v1.Msg: keeper_data_structure_contract.md
+	// UpdateTimeoutBucket moved here from task.v1.Msg: the data-structure contract
 	// §2.4 names the Hub governance handler the only writer of parameter bucket
 	// versions, and x/task only reference-counts them.
 	// UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.

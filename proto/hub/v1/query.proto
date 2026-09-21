@@ -96,7 +96,7 @@ service Query {
 }
 
 // De-registered on purpose (no alias, no compatibility projection):
-//   QueryPerformanceScore   - keeper_api_contract.md §16 registers no performance
+//   QueryPerformanceScore   - the API contract registers no performance
 //     Query and there is no production PerformanceScoreState collection.
 //   QueryChallengeEffectPool - K-BLOCK-03/04: V1 registers no public challenge
 //     custody Query.

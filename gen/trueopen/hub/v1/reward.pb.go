@@ -180,7 +180,7 @@ const (
 	// Waiting for the future beacon height the epoch draw is bound to.
 	// REWARD_EPOCH_PHASE_RANDOMNESS_WAIT identifies the corresponding protocol value.
 	RewardEpochPhase_REWARD_EPOCH_PHASE_RANDOMNESS_WAIT RewardEpochPhase = 4
-	// Reserved for the mark runner. Phase 0 never enters it: ADR-0020 keeps RewardMark and MarkGate switched off.
+	// Reserved for the mark runner. Phase 0 never enters it: RewardMark and MarkGate stay switched off.
 	// REWARD_EPOCH_PHASE_MARK_RUNNING identifies the corresponding protocol value.
 	RewardEpochPhase_REWARD_EPOCH_PHASE_MARK_RUNNING RewardEpochPhase = 5
 	// The epoch is closed and its audit root is frozen. Terminal.

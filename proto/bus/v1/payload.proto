@@ -6,7 +6,7 @@ import "task/v1/open_verify.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
 
-// Bus payload boundary (TrueOpen/nexus#52): the complete order travels exactly
+// Bus payload boundary: the complete order travels exactly
 // once, inside OrderBroadcastV1. Every follow-up message carries only the
 // stable locator (task_id), the exact order version it acts on (task_hash) and
 // its own action fields; no follow-up repeats TaskOrderV2. Payloads that also

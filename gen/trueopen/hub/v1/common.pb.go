@@ -139,7 +139,7 @@ func (ServiceKeyRevocationReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // ServiceKeyResponsibilityKind is the closed set of online responsibilities that
-// block MsgRotateServiceKey (keeper_api_contract.md §B.1.2 / §10.0c1). The builder
+// block MsgRotateServiceKey. The builder
 // stage kinds feed BuilderState/CortexNodeState.pending_stage_duty_count and the
 // challenge/evidence kinds feed pending_evidence_submission_count; task duty
 // liability is counted by active_task_liability_count and no longer stored as a
@@ -169,8 +169,8 @@ const (
 	// Locked Task Builder is still exposed to objective BusEnvelope evidence for
 	// one task, so its service key must stay verifiable.
 	//
-	// Lifecycle (keeper_data_structure_contract.md lines 1094-1102 plus keeper_api_contract.md
-	// lines 2667-2668, 4184-4186 and 4711-4712), all inside one cache transaction
+	// Lifecycle (the data-structure contract plus the API contract
+	// ), all inside one cache transaction
 	// with the participant counter and the ByTask index:
 	//
 	//	create  - when the first Task proposal is accepted and the Task Builders
@@ -384,7 +384,7 @@ func (ServiceBondStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // UnbondingStatus is the lifecycle of one service unbonding row. The numeric
-// values are frozen by keeper_api_contract.md §9.6b, which is the sole authority for
+// values are frozen, which is the sole authority for
 // closed enum values; §16.3 QueryServiceUnbondings filters on this exact set.
 // UnbondingStatus defines the UnbondingStatus wire type.
 type UnbondingStatus int32

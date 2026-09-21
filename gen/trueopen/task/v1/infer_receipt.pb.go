@@ -23,7 +23,7 @@ const (
 
 // InferReceiptV2 is the worker-signed inference receipt carried by
 // MsgSubmitInferReceipt. Field numbers, types and order are frozen by
-// keeper_api_contract.md §5.14; the same order is the length-framed preimage of
+// the API contract; the same order is the length-framed preimage of
 //
 //	infer_receipt_hash = infer_receipt_signing_digest =
 //	  H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V2", schema_version, chain_id, task_id,
@@ -198,8 +198,8 @@ func (x *InferReceiptV2) GetOutputLeafCount() uint64 {
 	return 0
 }
 
-// InferReceiptState is the authoritative accepted receipt row keyed by task_id
-// (keeper_data_structure_contract.md §6.6). Field numbers follow the frozen field order of
+// InferReceiptState is the authoritative accepted receipt row keyed by task_id.
+// Field numbers follow the frozen field order of
 // that section. required_evidence_commitments is deleted once every challenge
 // and evidence consumer has finished; evidence_commitments_hash and
 // evidence_commitment_count stay for audit, so a shorter list than

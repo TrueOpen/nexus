@@ -229,7 +229,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	}
 }
 
-func (f *streamFixture) subscribe(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter uint64, nonce string) *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse] {
+func (f *streamFixture) subscribe(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse] {
 	t.Helper()
 	body := sdkauth.BodyDigest([]byte(f.session), []byte(f.taskID))
 	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
@@ -249,7 +249,7 @@ type subscribeResult struct {
 
 // subscribeAsync subscribes before the stream starts: the SubscribeOutput call only returns at the first frame (HTTP streaming
 // response headers are sent with the first message), so both the call and the frame reads run in a goroutine, with the envelope signed here up front.
-func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter uint64, nonce string) <-chan subscribeResult {
+func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) <-chan subscribeResult {
 	t.Helper()
 	body := sdkauth.BodyDigest([]byte(f.session), []byte(f.taskID))
 	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
@@ -298,7 +298,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	// Diagram 5: subscribe before the stream starts (resume_after_seq left unset).
 	subCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	received := f.subscribeAsync(t, subCtx, f.user, 0, "nonce-subscribe-early-0001")
+	received := f.subscribeAsync(t, subCtx, f.user, nil, "nonce-subscribe-early-0001")
 
 	// Diagram 1: Header -> progress (empty) -> three chunks -> receipt has arrived -> fin frame with the storage confirmation.
 	up := f.client.UploadTaskOutputStream(ctx)
@@ -398,12 +398,22 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	}
 
 	// Diagram 5: resubscribe with resume_after_seq=1 and receive only seq 2 and the fin frame.
-	late := f.subscribe(t, ctx, f.user, 1, "nonce-subscribe-late-0002")
+	late := f.subscribe(t, ctx, f.user, ptrUint64(1), "nonce-subscribe-late-0002")
 	resumed, err := collectFrames(late)
 	if err != nil || len(resumed) != 2 || resumed[0].GetChunk().GetSeq() != 2 || resumed[1].GetFin() == nil ||
 		resumed[1].GetFin().GetFinishReason() != taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN ||
 		!bytes.Equal(resumed[1].GetFin().GetWorkerSignature(), finSignature) {
 		t.Fatalf("resumed frames = %v / %v", resumed, err)
+	}
+	// wire v0.2.0: an explicit resume_after_seq=0 means chunk 0 was verified, so replay starts at seq 1;
+	// only an absent field replays from seq 0.
+	afterZero, err := collectFrames(f.subscribe(t, ctx, f.user, ptrUint64(0), "nonce-subscribe-zero-0004"))
+	if err != nil || len(afterZero) != 3 || afterZero[0].GetChunk().GetSeq() != 1 || afterZero[1].GetChunk().GetSeq() != 2 || afterZero[2].GetFin() == nil {
+		t.Fatalf("resume_after_seq=0 frames = %v / %v", afterZero, err)
+	}
+	fromStart, err := collectFrames(f.subscribe(t, ctx, f.user, nil, "nonce-subscribe-unset-0005"))
+	if err != nil || len(fromStart) != 4 || fromStart[0].GetChunk().GetSeq() != 0 {
+		t.Fatalf("unset resume_after_seq frames = %v / %v", fromStart, err)
 	}
 
 	// AckOutput only records local progress; the same last_seq is idempotent.
@@ -420,7 +430,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	}
 
 	// A user who did not place the order cannot subscribe.
-	other := f.subscribe(t, ctx, f.worker, 0, "nonce-subscribe-worker-0003")
+	other := f.subscribe(t, ctx, f.worker, nil, "nonce-subscribe-worker-0003")
 	if _, err := collectFrames(other); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("non-owner subscribe error = %v", err)
 	}
@@ -435,7 +445,7 @@ func TestOutputStreamFinStoresObjectUnderMMRRoot(t *testing.T) {
 
 	subCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	received := f.subscribeAsync(t, subCtx, f.user, 0, "nonce-subscribe-mismatch-01")
+	received := f.subscribeAsync(t, subCtx, f.user, nil, "nonce-subscribe-mismatch-01")
 
 	up := f.client.UploadTaskOutputStream(ctx)
 	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
@@ -556,3 +566,5 @@ func TestOutputStreamDisabledIsUnimplemented(t *testing.T) {
 		t.Fatalf("disabled stream error = %v", err)
 	}
 }
+
+func ptrUint64(v uint64) *uint64 { return &v }

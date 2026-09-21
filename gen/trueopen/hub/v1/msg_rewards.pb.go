@@ -22,8 +22,8 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MsgUpdateHubParams replaces the whole typed HubParamsV2 body
-// (keeper_api_contract.md §9.6a / §18.0). Cross-field clamps run before any write
+// MsgUpdateHubParams replaces the whole typed HubParamsV2 body.
+// Cross-field clamps run before any write
 // and genesis-only fields must reject a runtime change.
 // MsgUpdateHubParams defines the MsgUpdateHubParams wire type.
 type MsgUpdateHubParams struct {
@@ -149,7 +149,7 @@ func (x *MsgUpdateHubParamsResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgClaimEarnings is the single claim entry point (keeper_api_contract.md §9.6a,
+// MsgClaimEarnings is the single claim entry point (the API contract,
 // §5.1 and §10.0b1).
 //
 // The request carries only the claim class and the Cosmos signer; the
@@ -294,7 +294,7 @@ func (x *MsgClaimEarningsResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgRunRewardEpoch is the permissionless entry point of the bounded
-// RewardEpoch runner (keeper_api_contract.md §9.6a). It is a BOUNDED_RUNNER: it
+// RewardEpoch runner. It is a BOUNDED_RUNNER: it
 // resumes from RewardEpochCursorState and reports this call's visited/advanced
 // counts instead of pretending to be a first receipt. Chain ID, current height
 // and rates come from context and params, never from the request.
