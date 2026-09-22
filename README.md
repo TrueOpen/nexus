@@ -100,6 +100,9 @@ Open items:
   are not in the contract set; renaming them is a wire-visible change pending a decision.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
   field `challenge_close` without fixing its unit; the rename waits for that decision.
+- Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->
+  IDLE -> CLOSED on chain) are skipped on the task event stream; the coordinator does not yet
+  react to a session closing (rejecting new orders, releasing per-session state).
 - `OutputFinV1.finish_reason` / `worker_signature` follow TrueOpen/wire v0.2.0: the Builder stores
   the Fin as received and replays it byte-identically to `SubscribeOutput` subscribers, but
   `UploadTaskOutputStream` does not yet verify `worker_signature` against the

@@ -39,7 +39,7 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 		return ChainEvent{}, fmt.Errorf("task event session_id is required")
 	}
 	if taskID == "" {
-		if taskEventIsSessionScoped(event) {
+		if taskEventIsSessionScoped(event) || isSessionLifecycleSweep(event) {
 			return ChainEvent{}, errSessionScopedTaskEvent
 		}
 		return ChainEvent{}, fmt.Errorf("task event compound key is required")
@@ -66,8 +66,9 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 }
 
 // errSessionScopedTaskEvent marks a valid session-level event the coordinator has no use
-// for (currently only §5.11 code 1 SESSION_CREATED): the wire payload has no task_id by
-// design, and node still pushes it on the task stream for session subscriptions. The
+// for (§5.11 code 1 SESSION_CREATED, and code 20 DEADLINE_SWEPT for the session lifecycle
+// deadline): the wire payload has no task_id by design, and node still pushes it on the
+// task stream for session subscriptions. The
 // subscription loop must advance the cursor past it and keep receiving, not treat it as a
 // bad envelope and drop the stream; otherwise a reconnect receives the same event from the
 // same position and backs off forever.
@@ -83,6 +84,19 @@ func taskEventIsSessionScoped(event *taskv1.TaskEvent) bool {
 		return false
 	}
 	return field.Message().Fields().ByName("task_id") == nil
+}
+
+// isSessionLifecycleSweep recognises DEADLINE_SWEPT (§5.11 code 20) for the session
+// lifecycle deadline (ACTIVE -> IDLE and its successors): EventDeadlineSwept declares task_id
+// optional precisely for this kind, and node pushes the sweep on every session subscription.
+// A task-deadline sweep without task_id stays a hard error.
+func isSessionLifecycleSweep(event *taskv1.TaskEvent) bool {
+	if event.GetCode() != sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DEADLINE_SWEPT {
+		return false
+	}
+	swept := event.GetPayload().GetDeadlineSwept()
+	return swept != nil && swept.TaskId == nil &&
+		swept.GetDeadlineKind() == taskv1.DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE
 }
 
 // validateTaskEventPayload asserts that the payload oneof field number equals the
