@@ -245,6 +245,48 @@ func TestTaskEventToChainEventSkipsSessionScopedEvent(t *testing.T) {
 	}
 }
 
+// DEADLINE_SWEPT (§5.11 code 20) with deadline_kind SESSION_LIFECYCLE is the session
+// ACTIVE -> IDLE sweep: the wire declares task_id optional and node pushes it on every
+// session subscription. Killing the subscription on it left the cursor before the event,
+// so each reconnect hit it again and the task stream never delivered anything.
+func TestTaskEventToChainEventSkipsSessionLifecycleDeadlineSweep(t *testing.T) {
+	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
+		Cursor: "opaque", ChainHeight: 43510, SessionId: testSessionIDBytes,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DEADLINE_SWEPT,
+		Payload: &taskv1.TaskProtocolEventPayloadV1{
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DeadlineSwept{
+				DeadlineSwept: &taskv1.EventDeadlineSwept{
+					SessionId:      testSessionIDBytes,
+					DeadlineKind:   taskv1.DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE,
+					TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE,
+				},
+			},
+		},
+	})
+	if !errors.Is(err, errSessionScopedTaskEvent) {
+		t.Fatalf("err = %v, want errSessionScopedTaskEvent", err)
+	}
+}
+
+// A task deadline sweep without task_id is still an invalid envelope.
+func TestTaskEventToChainEventRejectsTaskDeadlineSweepWithoutTaskID(t *testing.T) {
+	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
+		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DEADLINE_SWEPT,
+		Payload: &taskv1.TaskProtocolEventPayloadV1{
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DeadlineSwept{
+				DeadlineSwept: &taskv1.EventDeadlineSwept{
+					SessionId:    testSessionIDBytes,
+					DeadlineKind: taskv1.DeadlineKindV1_DEADLINE_KIND_V1_WORKER_INFER,
+				},
+			},
+		},
+	})
+	if err == nil || errors.Is(err, errSessionScopedTaskEvent) {
+		t.Fatalf("err = %v, want a hard compound-key error", err)
+	}
+}
+
 // A task-level event code missing task_id is still an invalid envelope: admitting
 // session-level events must not turn every empty task_id into something skippable.
 func TestTaskEventToChainEventStillRejectsMissingTaskIDOnTaskScopedEvent(t *testing.T) {
