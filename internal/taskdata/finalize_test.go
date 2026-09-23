@@ -399,6 +399,52 @@ func TestFinalizeVerifierEvidenceRejectsProxyProducer(t *testing.T) {
 	}
 }
 
+// A Verifier finalizes a bundle only under a round it was selected in: a round-1 seat does not
+// finalize a round-2 bundle.
+func TestFinalizeVerifierEvidenceRejectsForeignRound(t *testing.T) {
+	f := newFinalizeFixture(t)
+	signingDigest := strings.Repeat("1", 64)
+	signatureDigest := strings.Repeat("2", 64)
+	body, err := TaskDataFinalizeVerifierBodyDigest(
+		f.taskHash, testSessionID, testTaskID, 2, f.verifier.Address(), signingDigest, signatureDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := signedRequestAs(t, f.verifier.Address(), f.verifierService,
+		MethodFinalizeVerifier, f.scope, body[:], 12, 110)
+	_, err = f.service.FinalizeVerifierEvidence(context.Background(), FinalizeVerifierRequest{
+		Auth: auth, TaskHash: f.taskHash, VerifyRound: 2, VerifierOperator: f.verifier.Address(),
+		SigningDigest: signingDigest, SignatureDigest: signatureDigest,
+		BundleHash: strings.Repeat("3", 64), ManifestSizeBytes: 100,
+	})
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestIsSelectedVerifierMatchesRound(t *testing.T) {
+	task := chaincli.OnChainTask{
+		Verifiers: []string{"verifier-1"},
+		VerifierRounds: []chaincli.VerifierRound{
+			{VerifyRound: 1, Verifiers: []string{"verifier-1"}, CommitDeadlineHeight: 10},
+			{VerifyRound: 2, Verifiers: []string{"challenger-1"}, CommitDeadlineHeight: 20},
+		},
+	}
+	for _, tt := range []struct {
+		operator string
+		round    uint32
+		want     bool
+	}{
+		{"verifier-1", 1, true}, {"verifier-1", 2, false},
+		{"challenger-1", 2, true}, {"challenger-1", 1, false},
+		{"verifier-1", 0, false},
+	} {
+		if got := isSelectedVerifier(task, tt.operator, tt.round); got != tt.want {
+			t.Fatalf("isSelectedVerifier(%s, %d) = %t, want %t", tt.operator, tt.round, got, tt.want)
+		}
+	}
+}
+
 func (f *finalizeFixture) service_pub() []byte { return f.authorizerFixture.service.PubKeyCompressed() }
 
 func mustDecodeHex(t *testing.T, value string) []byte {

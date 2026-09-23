@@ -152,6 +152,9 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 		height: 100,
 		task: chaincli.OnChainTask{
 			SessionID: testSessionID, TaskID: testTaskID, Verifiers: []string{verifier.Address()},
+			VerifierRounds: []chaincli.VerifierRound{{
+				VerifyRound: 1, Verifiers: []string{verifier.Address()}, CommitDeadlineHeight: 150,
+			}},
 			Assignment: chaincli.TaskAssignmentState{
 				UserAddress: ethAddressOf(t, user), SelectedWorkerOperatorAddress: worker.Address(), WorkerHandraiseSet: workerSet,
 			},
@@ -197,8 +200,9 @@ func TestAuthorizerPermissionMatrix(t *testing.T) {
 		download bool
 		upload   bool
 	}{
-		{name: "candidate input metadata only", caller: fx.candidate, kind: ObjectKindInput, metadata: true},
-		{name: "candidate output metadata only", caller: fx.candidate, kind: ObjectKindOutput, metadata: true},
+		{name: "candidate input denied", caller: fx.candidate, kind: ObjectKindInput},
+		{name: "candidate output denied", caller: fx.candidate, kind: ObjectKindOutput},
+		{name: "candidate evidence denied", caller: fx.candidate, kind: ObjectKindEvidenceManifest},
 		{name: "selected worker input", caller: fx.worker, kind: ObjectKindInput, metadata: true, download: true},
 		{name: "selected worker output", caller: fx.worker, kind: ObjectKindOutput, metadata: true, upload: true},
 		{name: "selected worker evidence", caller: fx.worker, kind: ObjectKindEvidenceManifest, metadata: true, upload: true},
@@ -231,11 +235,8 @@ func TestAuthorizerPermissionMatrix(t *testing.T) {
 			if requester == fx.user.Address() {
 				requester = ethAddressOf(t, tt.caller)
 			}
-			permissions, err := permissionsFor(fx.authority.task, requester, fx.authority.height)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := permissions.canDownload(tt.kind); got != tt.download {
+			permissions := permissionsFor(fx.authority.task, requester, fx.authority.height)
+			if got := permissions.canDownload(meta.Key, requester); got != tt.download {
 				t.Fatalf("download permission = %t, want %t", got, tt.download)
 			}
 			if got := permissions.canUpload(meta.Key, requester); got != tt.upload {
@@ -274,10 +275,7 @@ func TestCanUploadEvidenceByProducer(t *testing.T) {
 		{"verifier uploads output", verifier, key(ObjectKindOutput, EvidenceProducerUnspecified, ""), false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			permissions, err := permissionsFor(fx.authority.task, tt.requester, fx.authority.height)
-			if err != nil {
-				t.Fatal(err)
-			}
+			permissions := permissionsFor(fx.authority.task, tt.requester, fx.authority.height)
 			if got := permissions.canUpload(tt.key, tt.requester); got != tt.want {
 				t.Fatalf("canUpload = %t, want %t", got, tt.want)
 			}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -295,6 +296,72 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 		got.TaskVerdict != types.VerdictUnspecified || got.FailureClass != "" ||
 		len(got.SampleSeed) != 0 || len(got.AssignedSet) != 0 {
 		t.Fatalf("facts not carried by QueryTask must stay zero: %+v", got)
+	}
+}
+
+// VerifierRounds carries both round assignments for task data authorization, while the
+// coordinator view (Verifiers, Deadlines) stays round 1.
+func TestQueryTaskMapsBothVerifierRounds(t *testing.T) {
+	round := func(n uint32, verifiers ...string) *taskv1.VerifierAssignmentState {
+		state := &taskv1.VerifierAssignmentState{
+			TaskId: testTaskIDBytes, VerifyRound: n, CommitDeadlineHeight: 60 * uint64(n),
+		}
+		for i, address := range verifiers {
+			state.SelectedVerifiers = append(state.SelectedVerifiers,
+				&taskv1.SelectedVerifierV1{OperatorAddress: address, Slot: uint32(i + 1)})
+		}
+		return state
+	}
+	response := func(round1, round2 *taskv1.VerifierAssignmentState) *taskv1.QueryTaskResponse {
+		return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{
+			Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
+				Core: &taskv1.TaskCoreState{
+					TaskId: testTaskIDBytes, SessionId: testSessionIDBytes,
+					TaskPhase: taskv1.TaskPhase_TASK_PHASE_COMMITTING,
+				},
+				Round1VerifierAssignment: round1, Round2VerifierAssignment: round2,
+			}},
+		}}
+	}
+	round1 := round(1, "verifier-1", "verifier-2", "verifier-3")
+	round1.RevealDeadlineHeight = 70
+	c := &client{taskQuery: &recordTaskQuery{response: response(round1, round(2, "challenger-1", "challenger-2"))}}
+	got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []VerifierRound{
+		{VerifyRound: 1, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, CommitDeadlineHeight: 60, RevealDeadlineHeight: 70},
+		{VerifyRound: 2, Verifiers: []string{"challenger-1", "challenger-2"}, CommitDeadlineHeight: 120},
+	}
+	if !reflect.DeepEqual(got.VerifierRounds, want) {
+		t.Fatalf("verifier rounds = %+v, want %+v", got.VerifierRounds, want)
+	}
+	if len(got.Verifiers) != 3 || got.Deadlines.Commit != 60 {
+		t.Fatalf("coordinator view must stay round 1: verifiers=%v deadlines=%+v", got.Verifiers, got.Deadlines)
+	}
+
+	// An assignment published under the wrong round slot is rejected rather than trusted.
+	c = &client{taskQuery: &recordTaskQuery{response: response(round1, round(1, "challenger-1"))}}
+	if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
+		t.Fatal("round-2 slot carrying verify_round 1 was accepted")
+	}
+}
+
+func TestVerifierRoundCommitsLocked(t *testing.T) {
+	open := VerifierRound{CommitDeadlineHeight: 60}
+	if open.CommitsLocked(60) {
+		t.Fatal("commits locked at the commit deadline, which still accepts commits")
+	}
+	if !open.CommitsLocked(61) {
+		t.Fatal("commits not locked after the commit deadline")
+	}
+	if !(VerifierRound{CommitDeadlineHeight: 60, RevealDeadlineHeight: 70}).CommitsLocked(10) {
+		t.Fatal("commits not locked once reveal started")
+	}
+	// A missing commit deadline is an incomplete chain view, never an open door.
+	if (VerifierRound{}).CommitsLocked(1000) || (VerifierRound{RevealDeadlineHeight: 70}).CommitsLocked(1000) {
+		t.Fatal("commits reported locked without a commit deadline")
 	}
 }
 

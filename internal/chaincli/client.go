@@ -716,12 +716,41 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 		result.Assignment.WinnerConfirmHeight = assignment.GetWinnerConfirmHeight()
 	}
 
-	// Since wire v0.4.1 the bundle is published per round (round1 / round2); Phase 0 has
-	// only the normal verification round 1, challenge round 2 is not active, so only round1 is read.
-	if verification := bundle.GetRound1VerifierAssignment(); verification != nil {
+	// Since wire v0.4.1 the bundle is published per round (round1 / round2). The coordinator
+	// view (Verifiers, VerifierAssignment, Deadlines) is round 1 only; VerifierRounds carries
+	// both rounds for task data authorization.
+	for _, entry := range []struct {
+		round        uint32
+		verification *taskv1.VerifierAssignmentState
+	}{
+		{1, bundle.GetRound1VerifierAssignment()},
+		{2, bundle.GetRound2VerifierAssignment()},
+	} {
+		verification := entry.verification
+		if verification == nil {
+			continue
+		}
 		if hex.EncodeToString(verification.GetTaskId()) != key.TaskID {
 			return OnChainTask{}, fmt.Errorf("query task: verifier assignment key does not match request")
 		}
+		if verification.GetVerifyRound() != entry.round {
+			return OnChainTask{}, fmt.Errorf("query task: round %d verifier assignment carries verify_round %d",
+				entry.round, verification.GetVerifyRound())
+		}
+		round := VerifierRound{
+			VerifyRound:          entry.round,
+			CommitDeadlineHeight: verification.GetCommitDeadlineHeight(),
+			RevealDeadlineHeight: verification.GetRevealDeadlineHeight(),
+		}
+		for _, verifier := range verification.GetSelectedVerifiers() {
+			if address := verifier.GetOperatorAddress(); address != "" {
+				round.Verifiers = append(round.Verifiers, address)
+			}
+		}
+		result.VerifierRounds = append(result.VerifierRounds, round)
+	}
+
+	if verification := bundle.GetRound1VerifierAssignment(); verification != nil {
 		for _, verifier := range verification.GetSelectedVerifiers() {
 			if address := verifier.GetOperatorAddress(); address != "" {
 				result.Verifiers = append(result.Verifiers, address)

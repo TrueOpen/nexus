@@ -241,7 +241,7 @@ func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request Finalize
 	if request.VerifierOperator != request.Auth.RequesterAddress {
 		return FinalizeVerifierOutcome{}, fmt.Errorf("%w: verifier_operator is not the requester", ErrUnauthorized)
 	}
-	if !isSelectedVerifier(task, request.VerifierOperator) {
+	if !isSelectedVerifier(task, request.VerifierOperator, request.VerifyRound) {
 		return FinalizeVerifierOutcome{}, fmt.Errorf("%w: requester is not a selected verifier", ErrUnauthorized)
 	}
 	if request.VerifyRound == 0 {
@@ -528,10 +528,17 @@ func (a *Authorizer) verifyParticipantSignature(
 	return nil
 }
 
-func isSelectedVerifier(task chaincli.OnChainTask, operator string) bool {
-	for _, verifier := range task.Verifiers {
-		if verifier == operator {
-			return true
+// isSelectedVerifier reads the same per-round sets as task data authorization, so a Verifier
+// that may upload a bundle for a round may also finalize it, and no other round's seat counts.
+func isSelectedVerifier(task chaincli.OnChainTask, operator string, verifyRound uint32) bool {
+	for _, round := range task.VerifierRounds {
+		if round.VerifyRound != verifyRound {
+			continue
+		}
+		for _, verifier := range round.Verifiers {
+			if verifier == operator {
+				return true
+			}
 		}
 	}
 	return false
