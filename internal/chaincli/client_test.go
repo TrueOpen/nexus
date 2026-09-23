@@ -359,6 +359,10 @@ func TestVerifierRoundCommitsLocked(t *testing.T) {
 	if !(VerifierRound{CommitDeadlineHeight: 60, RevealDeadlineHeight: 70}).CommitsLocked(10) {
 		t.Fatal("commits not locked once reveal started")
 	}
+	// A missing commit deadline is an incomplete chain view, never an open door.
+	if (VerifierRound{}).CommitsLocked(1000) || (VerifierRound{RevealDeadlineHeight: 70}).CommitsLocked(1000) {
+		t.Fatal("commits reported locked without a commit deadline")
+	}
 }
 
 func TestQueryTaskRejectsMismatchedScope(t *testing.T) {

@@ -160,8 +160,7 @@ func TestRound2VerifierReadsTaskDataAndOwnBundle(t *testing.T) {
 		fx.fetch(t, fx.verifier, verifierBundle(fx.challenger.Address(), 2)), false)
 }
 
-// Nobody outside the Verifier committees reads a Verifier bundle, and an unselected candidate
-// reads no evidence at all and no per-chunk OUTPUT layout.
+// Nobody outside the Verifier committees reads a Verifier bundle.
 func TestNonVerifiersCannotReadVerifierEvidence(t *testing.T) {
 	fx := newEvidenceScopeFixture(t)
 	fx.round(1).RevealDeadlineHeight = 200
@@ -177,28 +176,14 @@ func TestNonVerifiersCannotReadVerifierEvidence(t *testing.T) {
 	expectAccess(t, "candidate worker bundle", fx.fetch(t, fx.candidate, fx.metadata[ObjectKindEvidenceManifest].Key), false)
 }
 
-func TestCandidateOutputMetadataOmitsChunkLengths(t *testing.T) {
+// A candidate listed in both handraise sets reads nothing through the data interface: no
+// content, and no metadata either, so no chunk_lengths (Data Plane spec §6).
+func TestCandidateReadsNoTaskData(t *testing.T) {
 	fx := newEvidenceScopeFixture(t)
-	streamed := func() Metadata {
-		meta := fx.metadata[ObjectKindOutput]
-		meta.ChunkLengths = []uint32{3, 5, 8}
-		meta.OutputLeafCount = 3
-		return meta
-	}
-	candidateView := streamed()
-	expectAccess(t, "candidate output metadata", fx.inspect(t, fx.candidate, &candidateView), true)
-	if candidateView.ChunkLengths != nil {
-		t.Fatalf("candidate got chunk_lengths %v", candidateView.ChunkLengths)
-	}
-	for _, caller := range []struct {
-		name string
-		s    signer.Signer
-	}{{"verifier", fx.verifier}, {"worker", fx.worker}, {"user", fx.user}} {
-		view := streamed()
-		expectAccess(t, caller.name+" output metadata", fx.inspect(t, caller.s, &view), true)
-		if len(view.ChunkLengths) != 3 {
-			t.Fatalf("%s lost chunk_lengths: %v", caller.name, view.ChunkLengths)
-		}
+	for _, kind := range []ObjectKind{ObjectKindInput, ObjectKindOutput, ObjectKindEvidenceManifest} {
+		meta := fx.metadata[kind]
+		expectAccess(t, fmt.Sprintf("candidate metadata kind %d", kind), fx.inspect(t, fx.candidate, &meta), false)
+		expectAccess(t, fmt.Sprintf("candidate fetch kind %d", kind), fx.fetch(t, fx.candidate, meta.Key), false)
 	}
 }
 
@@ -206,10 +191,7 @@ func TestCandidateOutputMetadataOmitsChunkLengths(t *testing.T) {
 func TestVerifierUploadsOnlyItsOwnRound(t *testing.T) {
 	fx := newEvidenceScopeFixture(t)
 	fx.openRound2()
-	permissions, err := permissionsFor(fx.authority.task, fx.verifier.Address(), fx.authority.height)
-	if err != nil {
-		t.Fatal(err)
-	}
+	permissions := permissionsFor(fx.authority.task, fx.verifier.Address(), fx.authority.height)
 	if !permissions.canUpload(verifierBundle(fx.verifier.Address(), 1), fx.verifier.Address()) {
 		t.Fatal("round-1 verifier cannot upload its round-1 bundle")
 	}

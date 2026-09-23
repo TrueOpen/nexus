@@ -677,7 +677,13 @@ type VerifierRound struct {
 // passed with enough commits), or the commit deadline has passed. Task Execution spec §8: a
 // commit is accepted only while current_height <= commit_deadline_height and the task is still
 // in the commit stage.
+//
+// The commit deadline is frozen when the round's assignment is written and is never zero; a zero
+// here means the chain view is incomplete, and since this gates evidence reads it fails closed.
 func (r VerifierRound) CommitsLocked(height uint64) bool {
+	if r.CommitDeadlineHeight == 0 {
+		return false
+	}
 	return r.RevealDeadlineHeight != 0 || height > r.CommitDeadlineHeight
 }
 

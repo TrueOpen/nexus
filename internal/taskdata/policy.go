@@ -48,10 +48,7 @@ func (p *RecoveryPolicy) RevalidatePrepared(ctx context.Context, metadata Metada
 	if err != nil || task.SessionID != metadata.Key.SessionID || task.TaskID != metadata.Key.TaskID {
 		return false, fmt.Errorf("%w: current task", ErrAuthorityUnavailable)
 	}
-	permissions, err := permissionsFor(task, metadata.Uploader, height)
-	if err != nil {
-		return false, err
-	}
+	permissions := permissionsFor(task, metadata.Uploader, height)
 	if !permissions.canUpload(metadata.Key, metadata.Uploader) {
 		return false, fmt.Errorf("%w: prepared uploader role", ErrUnauthorized)
 	}

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -68,7 +67,6 @@ type Authorizer struct {
 type metadataAccess struct {
 	height       uint64
 	inferReceipt chaincli.InferReceiptState
-	permissions  rolePermissions
 }
 
 func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, serviceSigner signer.Signer) (*Authorizer, error) {
@@ -116,18 +114,14 @@ func (a *Authorizer) verifyMetadataRequest(ctx context.Context, request RequestA
 	if err != nil {
 		return metadataAccess{}, err
 	}
-	permissions, err := permissionsFor(task, request.RequesterAddress, height)
-	if err != nil {
-		return metadataAccess{}, err
-	}
+	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canInspect(request.Key, request.RequesterAddress) {
 		return metadataAccess{}, fmt.Errorf("%w: metadata role", ErrUnauthorized)
 	}
-	return metadataAccess{height: height, inferReceipt: task.InferReceipt, permissions: permissions}, nil
+	return metadataAccess{height: height, inferReceipt: task.InferReceipt}, nil
 }
 
 func (a *Authorizer) finishMetadata(request RequestAuth, access metadataAccess, metadata *Metadata) error {
-	access.permissions.redactMetadata(metadata)
 	if metadata != nil && metadata.Key.Kind == ObjectKindOutput && metadata.Receipt != nil {
 		if access.inferReceipt.InferReceiptHash != "" || access.inferReceipt.AcceptedItemHash != "" {
 			if !receiptMatchesChain(*metadata.Receipt, access.inferReceipt) {
@@ -153,10 +147,7 @@ func (a *Authorizer) AuthorizeUploadObject(ctx context.Context, request RequestA
 	if err != nil {
 		return "", 0, err
 	}
-	permissions, err := permissionsFor(task, request.RequesterAddress, height)
-	if err != nil {
-		return "", 0, err
-	}
+	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canUpload(request.Key, request.RequesterAddress) {
 		return "", 0, fmt.Errorf("%w: upload role", ErrUnauthorized)
 	}
@@ -225,10 +216,7 @@ func (a *Authorizer) AuthorizeFetch(
 	if err != nil {
 		return chaincli.OnChainTask{}, err
 	}
-	permissions, err := permissionsFor(task, request.RequesterAddress, height)
-	if err != nil {
-		return chaincli.OnChainTask{}, err
-	}
+	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canDownload(request.Key, request.RequesterAddress) {
 		return chaincli.OnChainTask{}, fmt.Errorf("%w: download role", ErrUnauthorized)
 	}
@@ -645,10 +633,13 @@ func verifyAcceptedOutputMetadata(metadata Metadata, accepted chaincli.InferRece
 
 // rolePermissions is the requester's on-chain standing for one Task, evaluated at one height.
 // A requester may hold several roles at once, and each role grants its own access.
+//
+// Candidates hold no role here: the metadata a candidate Worker/Verifier needs is broadcast in
+// ORDER_BROADCAST / OPEN_VERIFY, and a candidate reads nothing through the data interface —
+// not content, not metadata (Data Plane spec §6).
 type rolePermissions struct {
-	candidate bool
-	worker    bool
-	user      bool
+	worker bool
+	user   bool
 	// seats lists every verification round in which the requester is a selected Verifier. Phase 0
 	// excludes earlier participants from later rounds, so in practice there is at most one.
 	seats []verifierSeat
@@ -661,7 +652,7 @@ type verifierSeat struct {
 	commitsLocked bool
 }
 
-func permissionsFor(task chaincli.OnChainTask, address string, height uint64) (rolePermissions, error) {
+func permissionsFor(task chaincli.OnChainTask, address string, height uint64) rolePermissions {
 	permissions := rolePermissions{
 		worker: task.Assignment.SelectedWorkerOperatorAddress == address,
 		user:   task.Assignment.UserAddress == address,
@@ -676,35 +667,21 @@ func permissionsFor(task chaincli.OnChainTask, address string, height uint64) (r
 			}
 		}
 	}
-	if permissions.worker || permissions.verifier() || permissions.user {
-		return permissions, nil
-	}
-	workerCandidate, err := workerCandidateContains(task.Assignment.WorkerHandraiseSet, task.TaskID, address, height)
-	if err != nil {
-		return rolePermissions{}, err
-	}
-	verifierCandidate, err := verifierCandidateContains(task.VerifierAssignment.VerifierHandraiseList, task.TaskID, address, height)
-	if err != nil {
-		return rolePermissions{}, err
-	}
-	permissions.candidate = workerCandidate || verifierCandidate
-	return permissions, nil
+	return permissions
 }
 
 func (p rolePermissions) verifier() bool {
 	return len(p.seats) > 0
 }
 
-// canInspect decides GetTaskDataMetadata. A candidate sees only that INPUT / OUTPUT exist and
-// their size and commitments (Data Plane spec §6: a candidate must not read content before it
-// is selected); per-chunk OUTPUT metadata is withheld from it by redactMetadata, and it sees no
-// evidence at all. Evidence metadata follows the same rule as evidence download.
+// canInspect decides GetTaskDataMetadata. Evidence metadata follows the same rule as evidence
+// download.
 func (p rolePermissions) canInspect(key ObjectRef, requester string) bool {
 	switch key.Kind {
 	case ObjectKindInput:
-		return p.candidate || p.worker || p.verifier()
+		return p.worker || p.verifier()
 	case ObjectKindOutput:
-		return p.candidate || p.worker || p.verifier() || p.user
+		return p.worker || p.verifier() || p.user
 	case ObjectKindEvidenceManifest, ObjectKindEvidenceArtifact:
 		if key.EvidenceProducerKind == EvidenceProducerWorker && p.worker {
 			// The Worker checks the storage state of its own bundle while uploading it.
@@ -713,16 +690,6 @@ func (p rolePermissions) canInspect(key ObjectRef, requester string) bool {
 		return p.canReadEvidence(key, requester)
 	}
 	return false
-}
-
-// redactMetadata strips what a role may not learn from metadata it is otherwise allowed to see.
-// chunk_lengths is the per-frame layout of the OUTPUT stream; a candidate has no use for it
-// before selection.
-func (p rolePermissions) redactMetadata(metadata *Metadata) {
-	if metadata == nil || p.worker || p.verifier() || p.user {
-		return
-	}
-	metadata.ChunkLengths = nil
 }
 
 // canDownload decides FetchTaskData: the selected Worker reads INPUT, the original User reads
@@ -795,50 +762,4 @@ func (p rolePermissions) canUpload(key ObjectRef, requester string) bool {
 		}
 	}
 	return false
-}
-
-func workerCandidateContains(raw, taskID, address string, height uint64) (bool, error) {
-	if raw == "" {
-		return false, nil
-	}
-	var candidates []nodecontract.WorkerHandraiseV1
-	if err := json.Unmarshal([]byte(raw), &candidates); err != nil {
-		return false, fmt.Errorf("%w: worker candidate set", ErrAuthorityUnavailable)
-	}
-	canonical, err := nodecontract.CanonicalWorkerHandraiseSet(candidates)
-	if err != nil || canonical != raw {
-		return false, fmt.Errorf("%w: worker candidate set", ErrAuthorityUnavailable)
-	}
-	for _, candidate := range candidates {
-		if candidate.TaskID != taskID {
-			return false, fmt.Errorf("%w: worker candidate task", ErrAuthorityUnavailable)
-		}
-		if candidate.WorkerOperatorAddress == address && candidate.ExpiryHeight >= height {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func verifierCandidateContains(raw, taskID, address string, height uint64) (bool, error) {
-	if raw == "" {
-		return false, nil
-	}
-	var candidates []nodecontract.VerifierHandraiseV1
-	if err := json.Unmarshal([]byte(raw), &candidates); err != nil {
-		return false, fmt.Errorf("%w: verifier candidate set", ErrAuthorityUnavailable)
-	}
-	canonical, err := nodecontract.CanonicalVerifierHandraiseList(candidates)
-	if err != nil || canonical != raw {
-		return false, fmt.Errorf("%w: verifier candidate set", ErrAuthorityUnavailable)
-	}
-	for _, candidate := range candidates {
-		if candidate.TaskID != taskID {
-			return false, fmt.Errorf("%w: verifier candidate task", ErrAuthorityUnavailable)
-		}
-		if candidate.VerifierOperatorAddress == address && candidate.ExpiryHeight >= height {
-			return true, nil
-		}
-	}
-	return false, nil
 }
