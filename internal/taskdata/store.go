@@ -88,6 +88,8 @@ type Store struct {
 	// outputStreams holds the in-progress streamed OUTPUT write streams, keyed by object key; a Task
 	// has at most one at a time.
 	outputStreams map[string]*OutputStream
+	// fetchReceiptMu serializes the read-modify-write of fetch receipt indexes.
+	fetchReceiptMu sync.Mutex
 }
 
 func (s *Store) ChunkSize() uint64 { return s.cfg.ChunkSizeBytes }

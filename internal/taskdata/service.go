@@ -107,10 +107,11 @@ func (s *Service) GetMetadata(ctx context.Context, request RequestAuth) (Metadat
 func (s *Service) OpenFetch(
 	ctx context.Context, request RequestAuth, byteRange *ByteRange,
 ) (io.ReadCloser, ByteRange, Metadata, error) {
-	task, err := s.authorizer.AuthorizeFetch(ctx, request, byteRange)
+	grant, err := s.authorizer.AuthorizeFetch(ctx, request, byteRange)
 	if err != nil {
 		return nil, ByteRange{}, Metadata{}, err
 	}
+	task := grant.Task
 	metadata, err := s.store.Metadata(ctx, request.Key)
 	if err != nil {
 		return nil, ByteRange{}, Metadata{}, err
@@ -129,11 +130,29 @@ func (s *Service) OpenFetch(
 			return nil, ByteRange{}, Metadata{}, ErrRangeInvalid
 		}
 	}
+	// The receipt of a recorded fetch is kept before any byte leaves: nonce consumed, object
+	// READY, range checked, then the signed request is written, and a failed write stops the
+	// fetch.
+	receiptKey := ""
+	if recordsFetch(task, request) {
+		receiptKey, err = s.store.recordFetchReceipt(newFetchReceipt(grant, request, byteRange, served))
+		if err != nil {
+			return nil, ByteRange{}, Metadata{}, err
+		}
+	}
 	reader, err := s.store.OpenRange(ctx, request.Key, served.Offset, served.Length)
 	if err != nil {
 		return nil, ByteRange{}, Metadata{}, err
 	}
+	if receiptKey != "" {
+		reader = &receiptReader{ReadCloser: reader, store: s.store, key: receiptKey, length: served.Length}
+	}
 	return reader, served, metadata, nil
+}
+
+// FetchReceipts returns the fetch receipts kept for one task, grouped by requester.
+func (s *Service) FetchReceipts(ctx context.Context, sessionID, taskID string) ([]FetchReceiptSet, error) {
+	return s.store.FetchReceipts(ctx, sessionID, taskID)
 }
 
 func (s *Service) BeginUpload(ctx context.Context, request RequestAuth, header UploadHeader) (*Upload, error) {
