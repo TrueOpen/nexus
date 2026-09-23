@@ -652,6 +652,33 @@ type OnChainTask struct {
 	// The InferReceipt itself is carried by the separate QueryInferReceipt, not by QueryTask; the
 	// OPEN_VERIFY submit point needs only this one bit.
 	ReceiptAccepted bool `json:"receipt_accepted,omitempty"`
+	// VerifierRounds carries one entry per verification round whose assignment QueryTask returned
+	// (round 1, and round 2 once a challenge round is selected), in ascending round order.
+	// Verifiers above stays the round-1 set that the coordinator uses; task data authorization
+	// reads this field, because which evidence a Verifier may read depends on its round and on
+	// whether that round's commits are locked.
+	VerifierRounds []VerifierRound `json:"verifier_rounds,omitempty"`
+}
+
+// VerifierRound is the part of one round's VerifierAssignmentState that task data authorization
+// needs: who was selected, and the two heights that tell whether the round's commit set is locked.
+type VerifierRound struct {
+	VerifyRound uint32   `json:"verify_round"`
+	Verifiers   []string `json:"verifiers"`
+	// CommitDeadlineHeight is the last height at which a commit of this round can be accepted.
+	CommitDeadlineHeight uint64 `json:"commit_deadline_height"`
+	// RevealDeadlineHeight is written only when the round enters reveal, which on the fast path
+	// happens once every selected Verifier has committed; zero means reveal has not started.
+	RevealDeadlineHeight uint64 `json:"reveal_deadline_height,omitempty"`
+}
+
+// CommitsLocked reports whether no further commit of this round can be accepted at height:
+// either the round has entered reveal (every selected Verifier committed, or the deadline
+// passed with enough commits), or the commit deadline has passed. Task Execution spec §8: a
+// commit is accepted only while current_height <= commit_deadline_height and the task is still
+// in the commit stage.
+func (r VerifierRound) CommitsLocked(height uint64) bool {
+	return r.RevealDeadlineHeight != 0 || height > r.CommitDeadlineHeight
 }
 
 // SimResult is the Simulate result.

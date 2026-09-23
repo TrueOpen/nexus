@@ -68,6 +68,7 @@ type Authorizer struct {
 type metadataAccess struct {
 	height       uint64
 	inferReceipt chaincli.InferReceiptState
+	permissions  rolePermissions
 }
 
 func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, serviceSigner signer.Signer) (*Authorizer, error) {
@@ -119,13 +120,14 @@ func (a *Authorizer) verifyMetadataRequest(ctx context.Context, request RequestA
 	if err != nil {
 		return metadataAccess{}, err
 	}
-	if !permissions.canInspect(request.Key.Kind) {
+	if !permissions.canInspect(request.Key, request.RequesterAddress) {
 		return metadataAccess{}, fmt.Errorf("%w: metadata role", ErrUnauthorized)
 	}
-	return metadataAccess{height: height, inferReceipt: task.InferReceipt}, nil
+	return metadataAccess{height: height, inferReceipt: task.InferReceipt, permissions: permissions}, nil
 }
 
 func (a *Authorizer) finishMetadata(request RequestAuth, access metadataAccess, metadata *Metadata) error {
+	access.permissions.redactMetadata(metadata)
 	if metadata != nil && metadata.Key.Kind == ObjectKindOutput && metadata.Receipt != nil {
 		if access.inferReceipt.InferReceiptHash != "" || access.inferReceipt.AcceptedItemHash != "" {
 			if !receiptMatchesChain(*metadata.Receipt, access.inferReceipt) {
@@ -207,7 +209,8 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 // credential — the range is committed by body_digest as part of the body domain.
 //
 // Authorization looks only at on-chain roles: selected Worker -> INPUT, selected Verifier ->
-// INPUT/OUTPUT/Worker bundle, original User -> OUTPUT. A role the requester claims does not count.
+// INPUT/OUTPUT/Worker bundle and the Verifier bundles canReadEvidence admits, original User ->
+// OUTPUT. A role the requester claims does not count.
 func (a *Authorizer) AuthorizeFetch(
 	ctx context.Context, request RequestAuth, byteRange *ByteRange,
 ) (chaincli.OnChainTask, error) {
@@ -226,7 +229,7 @@ func (a *Authorizer) AuthorizeFetch(
 	if err != nil {
 		return chaincli.OnChainTask{}, err
 	}
-	if !permissions.canDownload(request.Key.Kind) {
+	if !permissions.canDownload(request.Key, request.RequesterAddress) {
 		return chaincli.OnChainTask{}, fmt.Errorf("%w: download role", ErrUnauthorized)
 	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
@@ -640,11 +643,22 @@ func verifyAcceptedOutputMetadata(metadata Metadata, accepted chaincli.InferRece
 	return nil
 }
 
+// rolePermissions is the requester's on-chain standing for one Task, evaluated at one height.
+// A requester may hold several roles at once, and each role grants its own access.
 type rolePermissions struct {
 	candidate bool
 	worker    bool
-	verifier  bool
 	user      bool
+	// seats lists every verification round in which the requester is a selected Verifier. Phase 0
+	// excludes earlier participants from later rounds, so in practice there is at most one.
+	seats []verifierSeat
+}
+
+// verifierSeat is one round in which the requester is a selected Verifier, with whether that
+// round's commit set was locked at the evaluation height.
+type verifierSeat struct {
+	round         uint32
+	commitsLocked bool
 }
 
 func permissionsFor(task chaincli.OnChainTask, address string, height uint64) (rolePermissions, error) {
@@ -652,13 +666,17 @@ func permissionsFor(task chaincli.OnChainTask, address string, height uint64) (r
 		worker: task.Assignment.SelectedWorkerOperatorAddress == address,
 		user:   task.Assignment.UserAddress == address,
 	}
-	for _, verifier := range task.Verifiers {
-		if verifier == address {
-			permissions.verifier = true
-			break
+	for _, round := range task.VerifierRounds {
+		for _, verifier := range round.Verifiers {
+			if verifier == address {
+				permissions.seats = append(permissions.seats, verifierSeat{
+					round: round.VerifyRound, commitsLocked: round.CommitsLocked(height),
+				})
+				break
+			}
 		}
 	}
-	if permissions.worker || permissions.verifier || permissions.user {
+	if permissions.worker || permissions.verifier() || permissions.user {
 		return permissions, nil
 	}
 	workerCandidate, err := workerCandidateContains(task.Assignment.WorkerHandraiseSet, task.TaskID, address, height)
@@ -673,18 +691,90 @@ func permissionsFor(task chaincli.OnChainTask, address string, height uint64) (r
 	return permissions, nil
 }
 
-func (p rolePermissions) canInspect(kind ObjectKind) bool {
-	return p.candidate || p.worker || p.verifier || (p.user && kind == ObjectKindOutput)
+func (p rolePermissions) verifier() bool {
+	return len(p.seats) > 0
 }
 
-func (p rolePermissions) canDownload(kind ObjectKind) bool {
-	return p.verifier || (p.worker && kind == ObjectKindInput) || (p.user && kind == ObjectKindOutput)
+// canInspect decides GetTaskDataMetadata. A candidate sees only that INPUT / OUTPUT exist and
+// their size and commitments (Data Plane spec §6: a candidate must not read content before it
+// is selected); per-chunk OUTPUT metadata is withheld from it by redactMetadata, and it sees no
+// evidence at all. Evidence metadata follows the same rule as evidence download.
+func (p rolePermissions) canInspect(key ObjectRef, requester string) bool {
+	switch key.Kind {
+	case ObjectKindInput:
+		return p.candidate || p.worker || p.verifier()
+	case ObjectKindOutput:
+		return p.candidate || p.worker || p.verifier() || p.user
+	case ObjectKindEvidenceManifest, ObjectKindEvidenceArtifact:
+		if key.EvidenceProducerKind == EvidenceProducerWorker && p.worker {
+			// The Worker checks the storage state of its own bundle while uploading it.
+			return true
+		}
+		return p.canReadEvidence(key, requester)
+	}
+	return false
+}
+
+// redactMetadata strips what a role may not learn from metadata it is otherwise allowed to see.
+// chunk_lengths is the per-frame layout of the OUTPUT stream; a candidate has no use for it
+// before selection.
+func (p rolePermissions) redactMetadata(metadata *Metadata) {
+	if metadata == nil || p.worker || p.verifier() || p.user {
+		return
+	}
+	metadata.ChunkLengths = nil
+}
+
+// canDownload decides FetchTaskData: the selected Worker reads INPUT, the original User reads
+// OUTPUT, a selected Verifier of any round reads INPUT and OUTPUT, and evidence follows
+// canReadEvidence.
+func (p rolePermissions) canDownload(key ObjectRef, requester string) bool {
+	switch key.Kind {
+	case ObjectKindInput:
+		return p.worker || p.verifier()
+	case ObjectKindOutput:
+		return p.user || p.verifier()
+	case ObjectKindEvidenceManifest, ObjectKindEvidenceArtifact:
+		return p.canReadEvidence(key, requester)
+	}
+	return false
+}
+
+// canReadEvidence scopes evidence by (round, producer, phase) — Challenge and Evidence spec
+// §5.2, Data Plane spec §11:
+//
+//   - The Worker bundle (verify_round 1) is readable by a selected Verifier of any round: it is
+//     the input of every verification.
+//   - A Verifier bundle is readable by its own producer in its own round.
+//   - A Verifier bundle of an earlier round is readable by a selected Verifier of a later round
+//     only once that later round's commits are locked, so it cannot be copied into a commit.
+//   - Nobody else reads a Verifier bundle: not another Verifier of the same round, not the
+//     Worker, the User or a candidate.
+//
+// A Verifier ref that does not name its producer_operator cannot be proven to be the
+// requester's own, so only the earlier-round rule can admit it.
+func (p rolePermissions) canReadEvidence(key ObjectRef, requester string) bool {
+	switch key.EvidenceProducerKind {
+	case EvidenceProducerWorker:
+		return p.verifier()
+	case EvidenceProducerVerifier:
+		for _, seat := range p.seats {
+			if key.VerifyRound == seat.round && key.ProducerOperator == requester {
+				return true
+			}
+			if key.VerifyRound < seat.round && seat.commitsLocked {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // canUpload: only the selected Worker may upload an OUTPUT; an evidence bundle (the manifest plus
 // the artifacts it lists) is uploaded by the producer declared in the ref itself — producer_kind must
-// agree with the on-chain role, and producer_operator, if given, must be the requester.
-// Task Data Interface Design §6.2.
+// agree with the on-chain role, a Verifier bundle's verify_round must be a round the requester was
+// selected in, and producer_operator, if given, must be the requester.
+// Task Data Interface Design §6.2; Data Plane spec §2.1.
 func (p rolePermissions) canUpload(key ObjectRef, requester string) bool {
 	switch key.Kind {
 	case ObjectKindOutput:
@@ -697,7 +787,11 @@ func (p rolePermissions) canUpload(key ObjectRef, requester string) bool {
 		case EvidenceProducerWorker:
 			return p.worker
 		case EvidenceProducerVerifier:
-			return p.verifier
+			for _, seat := range p.seats {
+				if key.VerifyRound == seat.round {
+					return true
+				}
+			}
 		}
 	}
 	return false

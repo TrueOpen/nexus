@@ -37,12 +37,13 @@ func TestRecoveryPolicyRevalidatesPreparedUploaderAndAcceptedReceipt(t *testing.
 	if ok, err := policy.RevalidatePrepared(context.Background(), evidence); err != nil || !ok {
 		t.Fatalf("revalidate evidence = %t, %v", ok, err)
 	}
-	fx.authority.task.Verifiers = nil
+	rounds := fx.authority.task.VerifierRounds
+	fx.authority.task.VerifierRounds = nil
 	if ok, err := policy.RevalidatePrepared(context.Background(), evidence); !errors.Is(err, ErrUnauthorized) || ok {
 		t.Fatalf("revalidate removed verifier = %t, %v", ok, err)
 	}
 
-	fx.authority.task.Verifiers = []string{fx.verifier.Address()}
+	fx.authority.task.VerifierRounds = rounds
 	output := readyMetadata(ObjectKindOutput)
 	output.State = StatePrepared
 	output.Uploader = fx.worker.Address()
