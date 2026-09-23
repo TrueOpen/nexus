@@ -629,6 +629,22 @@ type SettlementBuildFacts struct {
 	FullResultReveals          []FullResultRevealFact `json:"full_result_reveals,omitempty"`
 }
 
+// EvidenceCleanupStatus is the chain's cleanup progress for one task (TaskCleanupStatus).
+type EvidenceCleanupStatus string
+
+const (
+	// EvidenceCleanupNotScheduled: the task has not met the cleanup preconditions yet (06 §10:
+	// task finality reached, no open round, max_evidence_retention_blocks passed).
+	EvidenceCleanupNotScheduled EvidenceCleanupStatus = "NOT_SCHEDULED"
+	EvidenceCleanupRunning      EvidenceCleanupStatus = "RUNNING"
+	EvidenceCleanupCompacted    EvidenceCleanupStatus = "COMPACTED"
+)
+
+// Started reports whether the chain has begun compacting the task's evidence.
+func (s EvidenceCleanupStatus) Started() bool {
+	return s == EvidenceCleanupRunning || s == EvidenceCleanupCompacted
+}
+
 // OnChainTask QueryTask returns both compatibility views and the authoritative
 // nested state required to prepare current Node transactions.
 type OnChainTask struct {

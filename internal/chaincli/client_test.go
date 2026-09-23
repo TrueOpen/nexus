@@ -655,3 +655,54 @@ func TestGRPCTransportFollowsScheme(t *testing.T) {
 		t.Fatal("http base must keep the h2c transport")
 	}
 }
+
+type recordEvidenceCleanup struct {
+	taskv1connect.QueryClient
+	request  *taskv1.QueryEvidenceCleanupRequest
+	response *taskv1.QueryEvidenceCleanupResponse
+	err      error
+}
+
+func (r *recordEvidenceCleanup) EvidenceCleanup(_ context.Context, req *connect.Request[taskv1.QueryEvidenceCleanupRequest]) (*connect.Response[taskv1.QueryEvidenceCleanupResponse], error) {
+	r.request = req.Msg
+	if r.err != nil {
+		return nil, r.err
+	}
+	return connect.NewResponse(r.response), nil
+}
+
+func TestQueryEvidenceCleanupMapsStatus(t *testing.T) {
+	respond := func(taskID []byte, status taskv1.TaskCleanupStatus) *taskv1.QueryEvidenceCleanupResponse {
+		return &taskv1.QueryEvidenceCleanupResponse{Cleanup: &taskv1.TaskCleanupProgressViewV1{TaskId: taskID, Status: status}}
+	}
+	for status, want := range map[taskv1.TaskCleanupStatus]EvidenceCleanupStatus{
+		taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_NOT_SCHEDULED: EvidenceCleanupNotScheduled,
+		taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_RUNNING:       EvidenceCleanupRunning,
+		taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_COMPACTED:     EvidenceCleanupCompacted,
+	} {
+		fake := &recordEvidenceCleanup{response: respond(testTaskIDBytes, status)}
+		got, err := (&client{taskQuery: fake}).QueryEvidenceCleanup(context.Background(), testTaskIDHex)
+		if err != nil || got != want {
+			t.Fatalf("%s -> %q, %v; want %q", status, got, err, want)
+		}
+		if !bytes.Equal(fake.request.GetTaskId(), testTaskIDBytes) {
+			t.Fatalf("request task_id = %x", fake.request.GetTaskId())
+		}
+	}
+	if !EvidenceCleanupRunning.Started() || !EvidenceCleanupCompacted.Started() || EvidenceCleanupNotScheduled.Started() {
+		t.Fatal("Started must hold exactly for RUNNING and COMPACTED")
+	}
+	for name, fake := range map[string]*recordEvidenceCleanup{
+		"unspecified status": {response: respond(testTaskIDBytes, taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_UNSPECIFIED)},
+		"other task":         {response: respond(mustHash32("99"), taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_COMPACTED)},
+		"transport error":    {err: connect.NewError(connect.CodeUnavailable, errors.New("down"))},
+	} {
+		if _, err := (&client{taskQuery: fake}).QueryEvidenceCleanup(context.Background(), testTaskIDHex); err == nil || errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s: error = %v, want a non-NotFound failure", name, err)
+		}
+	}
+	missing := &recordEvidenceCleanup{err: connect.NewError(connect.CodeNotFound, errors.New("no task"))}
+	if _, err := (&client{taskQuery: missing}).QueryEvidenceCleanup(context.Background(), testTaskIDHex); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown task error = %v, want ErrNotFound", err)
+	}
+}
