@@ -11,6 +11,7 @@
 package chaincli
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/hex"
@@ -330,6 +331,33 @@ func (c *client) QueryEVMChainID(ctx context.Context) (uint64, error) {
 		return 0, fmt.Errorf("query hub params: phase0.evm_chain_id is zero")
 	}
 	return evmChainID, nil
+}
+
+// QueryEvidenceCleanup reads whether the chain has started compacting a task's evidence
+// (task.v1.Query/EvidenceCleanup, 06 §10). A task the chain does not know returns ErrNotFound.
+func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
+	if err != nil {
+		return "", fmt.Errorf("query evidence cleanup task=%q: %w", taskID, err)
+	}
+	resp, err := c.taskQuery.EvidenceCleanup(ctx, connect.NewRequest(&taskv1.QueryEvidenceCleanupRequest{TaskId: id}))
+	if err != nil {
+		return "", applicationQueryError("evidence cleanup", err)
+	}
+	cleanup := resp.Msg.GetCleanup()
+	if cleanup == nil || !bytes.Equal(cleanup.GetTaskId(), id) {
+		return "", fmt.Errorf("query evidence cleanup: response task does not match request")
+	}
+	switch cleanup.GetStatus() {
+	case taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_NOT_SCHEDULED:
+		return EvidenceCleanupNotScheduled, nil
+	case taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_RUNNING:
+		return EvidenceCleanupRunning, nil
+	case taskv1.TaskCleanupStatus_TASK_CLEANUP_STATUS_COMPACTED:
+		return EvidenceCleanupCompacted, nil
+	default:
+		return "", fmt.Errorf("query evidence cleanup: unknown status %s", cleanup.GetStatus())
+	}
 }
 
 func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error) {

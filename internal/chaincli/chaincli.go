@@ -73,6 +73,8 @@ type Client interface {
 	QueryCortexNode(ctx context.Context, operatorAddress string) (CortexNodeState, error)
 	QueryServiceDescriptor(ctx context.Context, participantType, operatorAddress string, descriptorVersion uint64) (ServiceDescriptorState, error)
 	QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error)
+	// QueryEvidenceCleanup reads whether the chain has started compacting a task (06 §10).
+	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
 	LatestHeight(ctx context.Context) (uint64, error)
 	QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error)
 	QuerySettlementBuildFacts(ctx context.Context, key TaskKey) (SettlementBuildFacts, error)
@@ -137,6 +139,12 @@ func (c *stubClient) QueryTaskBuilders(_ context.Context, key TaskKey) (TaskBuil
 		return TaskBuilderSelectionState{}, err
 	}
 	return TaskBuilderSelectionState{TaskID: key.TaskID}, ErrNotFound
+}
+
+// QueryEvidenceCleanup has no chain to ask in stub mode; ErrNotFound keeps every object on the
+// pre-chain retention path.
+func (c *stubClient) QueryEvidenceCleanup(context.Context, string) (EvidenceCleanupStatus, error) {
+	return "", ErrNotFound
 }
 
 func (c *stubClient) QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error) {

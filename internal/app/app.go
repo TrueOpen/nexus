@@ -406,7 +406,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	} else if cfg.TaskData.OutputStream.Enabled {
 		log.Warn("task_data.output_stream.enabled ignored: service key is not configured, task data plane is off")
 	}
-	recoveryPolicy, err := taskdata.NewRecoveryPolicy(taskAuthority, taskAuthorizer, coord)
+	recoveryPolicy, err := taskdata.NewRecoveryPolicy(taskAuthority, taskChain, taskAuthorizer, coord)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("task data recovery: %w", err)
