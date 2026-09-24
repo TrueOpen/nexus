@@ -1663,7 +1663,17 @@ func (f *taskFSM) closeSettledAtHeight(height uint64) bool {
 // terminal summary, every round is closed and the task is final, so nothing is left to drive
 // whatever local phase the task reached. A compacted FAILED task goes through
 // onAuthoritativeFailure instead.
+//
+// The chain compacts a task only after it is FINAL, so a settled summary without FINAL or
+// without task_finality_height is inconsistent: it is left open and logged rather than closed.
 func (f *taskFSM) closeCompacted(snapshot chaincli.OnChainTask, height uint64) bool {
+	if snapshot.Settlement.FinalityStatus != "FINAL" || snapshot.Settlement.TaskFinalityHeight == 0 {
+		f.log.Warn("compacted task summary is not final; keeping the task open",
+			"session_id", f.sessionID, "task_id", f.taskID,
+			"finality_status", snapshot.Settlement.FinalityStatus,
+			"task_finality_height", snapshot.Settlement.TaskFinalityHeight)
+		return false
+	}
 	f.mu.Lock()
 	if f.terminal {
 		f.mu.Unlock()

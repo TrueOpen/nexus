@@ -109,3 +109,25 @@ func TestReconcileClosesCompactedTask(t *testing.T) {
 		t.Fatalf("compacted task was not closed: %v", err)
 	}
 }
+
+// A compacted settled summary that is not FINAL is inconsistent with how the chain compacts;
+// the task is left open instead of being closed on it.
+func TestReconcileKeepsCompactedTaskWithoutFinality(t *testing.T) {
+	facts := &chainFactsFake{height: 200, taskErr: errors.New("node unavailable")}
+	c := startWithSnapshot(t, baseSnapshot(types.Assigned, types.PhaseAssignmentFinalized), facts)
+	for name, mutate := range map[string]func(*chaincli.TaskSettlementState){
+		"pending":            func(s *chaincli.TaskSettlementState) { s.FinalityStatus = "PENDING" },
+		"no finality height": func(s *chaincli.TaskSettlementState) { s.TaskFinalityHeight = 0 },
+	} {
+		snapshot := compactedSnapshot(types.Settled)
+		mutate(&snapshot.Settlement)
+		facts.mu.Lock()
+		facts.taskErr = nil
+		facts.tasks = map[string]chaincli.OnChainTask{taskKey("session-1", "task-1"): snapshot}
+		facts.mu.Unlock()
+		c.reconcileTask("session-1", "task-1", 0, "test", nil)
+		if _, err := c.TaskStatus(context.Background(), "session-1", "task-1"); err != nil {
+			t.Fatalf("%s: task closed on a non-final compacted summary: %v", name, err)
+		}
+	}
+}
