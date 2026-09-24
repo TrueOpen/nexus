@@ -611,9 +611,13 @@ type TaskSettlementState struct {
 	MaxChallengeResolveDeadlineHeight uint64 `json:"max_challenge_resolve_deadline_height,omitempty"`
 	TaskFinalityHeight                uint64 `json:"task_finality_height,omitempty"`
 	ClaimableAfterHeight              uint64 `json:"claimable_after_height,omitempty"`
-	SubmitterServiceAddress           string `json:"submitter_service_address,omitempty"`
-	ServiceSignatureHash              string `json:"service_signature_hash,omitempty"`
-	BuilderOperatorAddress            string `json:"builder_operator_address,omitempty"`
+	// FinalityStatus is TaskCoreState.finality_status by short name (PENDING / FINAL). Settlement
+	// and finality are one step, taken after every verification round has closed (Challenge
+	// and Evidence spec §9), so FINAL means the task has nothing left to drive.
+	FinalityStatus          string `json:"finality_status,omitempty"`
+	SubmitterServiceAddress string `json:"submitter_service_address,omitempty"`
+	ServiceSignatureHash    string `json:"service_signature_hash,omitempty"`
+	BuilderOperatorAddress  string `json:"builder_operator_address,omitempty"`
 }
 
 type FullResultRevealFact struct {
@@ -674,6 +678,11 @@ type OnChainTask struct {
 	// reads this field, because which evidence a Verifier may read depends on its round and on
 	// whether that round's commits are locked.
 	VerifierRounds []VerifierRound `json:"verifier_rounds,omitempty"`
+	// Compacted is set when the chain has already run evidence cleanup on the task and
+	// QueryTask returns only its fixed-size terminal summary. The task is final; only the
+	// summary facts (identity, phase, verdict, winner, settlement and finality heights) are
+	// filled, and every per-round or per-participant view stays empty.
+	Compacted bool `json:"compacted,omitempty"`
 }
 
 // VerifierRound is the part of one round's VerifierAssignmentState that task data authorization

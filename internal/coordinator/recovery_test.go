@@ -214,14 +214,12 @@ func TestRecoverySettledTaskUsesChainHeight(t *testing.T) {
 		legacyUntil int64
 		wantPresent bool
 	}{
-		{name: "equal close retained", height: 100, settlement: chaincli.TaskSettlementState{
-			SettlementID: "settlement-1", SettlementMode: "OPTIMISTIC",
-			SettlementStatus: "SETTLED_PASS", SettlementHeight: 90,
-			ChallengeCloseHeight: 100, EvidenceCleanupHeight: 120,
-			OptimisticFinalityStatus: "PENDING", TaskFinalityHeight: 100,
-			ClaimableAfterHeight: 100,
+		{name: "finality pending retained", height: 120, settlement: chaincli.TaskSettlementState{
+			SettlementStatus: "FINALIZED", SettlementHeight: 90,
+			FinalityStatus: "PENDING", TaskFinalityHeight: 100,
 		}, wantPresent: true},
-		{name: "cleanup and finality release", height: 120, settlement: releasableSettlement(), wantPresent: false},
+		{name: "before finality height retained", height: 100, settlement: releasableSettlement(), wantPresent: true},
+		{name: "final and past claimable released", height: 120, settlement: releasableSettlement(), wantPresent: false},
 		{name: "query failure retains legacy snapshot", height: 120,
 			settlement: releasableSettlement(), queryErr: errors.New("query unavailable"),
 			legacyUntil: 1, wantPresent: true},
