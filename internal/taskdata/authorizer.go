@@ -202,28 +202,41 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 // Authorization looks only at on-chain roles: selected Worker -> INPUT, selected Verifier ->
 // INPUT/OUTPUT/Worker bundle and the Verifier bundles canReadEvidence admits, original User ->
 // OUTPUT. A role the requester claims does not count.
+//
+// The returned grant carries what the Builder keeps as the requester's fetch receipt: the
+// height the request was authorized at and, for CORTEX_SERVICE, the service key the signature
+// verified against.
 func (a *Authorizer) AuthorizeFetch(
 	ctx context.Context, request RequestAuth, byteRange *ByteRange,
-) (chaincli.OnChainTask, error) {
+) (FetchGrant, error) {
 	digest, err := TaskDataFetchBodyDigest(request.Key, byteRange)
 	if err != nil {
-		return chaincli.OnChainTask{}, err
+		return FetchGrant{}, err
 	}
 	if request.BodyDigest != hex.EncodeToString(digest[:]) {
-		return chaincli.OnChainTask{}, fmt.Errorf("%w: fetch body binding", ErrUnauthorized)
+		return FetchGrant{}, fmt.Errorf("%w: fetch body binding", ErrUnauthorized)
 	}
-	task, height, err := a.verifyRequest(ctx, request, MethodFetch)
+	task, height, requesterKey, err := a.verifyRequestKey(ctx, request, MethodFetch)
 	if err != nil {
-		return chaincli.OnChainTask{}, err
+		return FetchGrant{}, err
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canDownload(request.Key, request.RequesterAddress) {
-		return chaincli.OnChainTask{}, fmt.Errorf("%w: download role", ErrUnauthorized)
+		return FetchGrant{}, fmt.Errorf("%w: download role", ErrUnauthorized)
 	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
-		return chaincli.OnChainTask{}, err
+		return FetchGrant{}, err
 	}
-	return task, nil
+	return FetchGrant{Task: task, Height: height, RequesterKey: requesterKey}, nil
+}
+
+// FetchGrant is an authorized FetchTaskData request.
+type FetchGrant struct {
+	Task   chaincli.OnChainTask
+	Height uint64
+	// RequesterKey is the Cortex service key the request signature verified against; nil for
+	// a USER request, whose address is recovered from the signature.
+	RequesterKey []byte
 }
 
 // SignStorageConfirmation issues a BuilderStorageConfirmationV1 (Task Data Interface Design §6.3a)
@@ -282,51 +295,60 @@ func (a *Authorizer) SignStorageConfirmation(ctx context.Context, metadata Metad
 // reads the current service key from the chain by (CORTEX, requester_address), and USER recovers the
 // address from the 65-byte signature.
 func (a *Authorizer) verifyRequest(ctx context.Context, request RequestAuth, method RequestMethod) (chaincli.OnChainTask, uint64, error) {
+	task, height, _, err := a.verifyRequestKey(ctx, request, method)
+	return task, height, err
+}
+
+// verifyRequestKey is verifyRequest that also returns the CORTEX_SERVICE key the signature
+// verified against (nil on the USER path).
+func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, method RequestMethod) (chaincli.OnChainTask, uint64, []byte, error) {
 	if request.ChainID != a.cfg.ChainID || request.BuilderOperatorAddress != a.cfg.BuilderAddress ||
 		request.RPCMethod != rpcMethodPath(method) {
-		return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: request binding", ErrUnauthorized)
+		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
 	}
+	var requesterKey []byte
 	switch request.RequesterKind {
 	case RequesterKindCortexService:
 		if len(request.Signature) != 64 {
-			return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: CORTEX_SERVICE signature must be exactly 64 bytes", ErrMalformed)
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: CORTEX_SERVICE signature must be exactly 64 bytes", ErrMalformed)
 		}
 		digest, err := CortexTaskDataRequestDigest(request)
 		if err != nil {
-			return chaincli.OnChainTask{}, 0, err
+			return chaincli.OnChainTask{}, 0, nil, err
 		}
 		publicKey, state, err := servicekey.Current(
 			ctx, a.authority, a.cfg.AddressPrefix, participantTypeCortex, request.RequesterAddress)
 		if err != nil {
 			if errors.Is(err, servicekey.ErrAuthority) {
-				return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: request identity: %v", ErrAuthorityUnavailable, err)
+				return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request identity: %v", ErrAuthorityUnavailable, err)
 			}
-			return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: request identity: %v", ErrUnauthorized, err)
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request identity: %v", ErrUnauthorized, err)
 		}
 		// service_authorization_nonce pins the signature to this generation of the service key: after
 		// a rotation requests with the old nonce are no longer valid and the old key expires with
 		// them.
 		if request.ServiceAuthorizationNonce == 0 || request.ServiceAuthorizationNonce != state.AuthorizationNonce {
-			return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: stale service_authorization_nonce", ErrUnauthorized)
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: stale service_authorization_nonce", ErrUnauthorized)
 		}
 		if !signer.VerifyDigestSig(publicKey, digest[:], request.Signature) {
-			return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: request signature", ErrUnauthorized)
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request signature", ErrUnauthorized)
 		}
+		requesterKey = publicKey
 	case RequesterKindUser:
 		if err := VerifyUserTaskDataRequest(request, a.cfg.EVMChainID); err != nil {
-			return chaincli.OnChainTask{}, 0, err
+			return chaincli.OnChainTask{}, 0, nil, err
 		}
 	default:
-		return chaincli.OnChainTask{}, 0, fmt.Errorf("%w: requester_kind", ErrMalformed)
+		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: requester_kind", ErrMalformed)
 	}
 	height, task, err := a.currentTask(ctx, request.Key)
 	if err != nil {
-		return chaincli.OnChainTask{}, 0, err
+		return chaincli.OnChainTask{}, 0, nil, err
 	}
 	if err := a.validateExpiry(height, request.ExpiryHeight); err != nil {
-		return chaincli.OnChainTask{}, 0, err
+		return chaincli.OnChainTask{}, 0, nil, err
 	}
-	return task, height, nil
+	return task, height, requesterKey, nil
 }
 
 // verifyRequesterKey confirms that the presented pubkey really represents the operator address the

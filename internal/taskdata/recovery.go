@@ -160,6 +160,9 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 		}
 		delete(records, key)
 	}
+	if err := s.pruneFetchReceiptsLocked(records); err != nil {
+		return err
+	}
 	return s.removeUnreferencedBlobs(records)
 }
 

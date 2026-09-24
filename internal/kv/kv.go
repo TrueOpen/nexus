@@ -47,6 +47,12 @@ const (
 	// NSTaskDataFinalize is the idempotency record of Finalize: key = body digest + requester,
 	// value = the save acknowledgement issued the first time. An exact replay returns the original bytes and signature instead of re-signing.
 	NSTaskDataFinalize Namespace = "task_data_finalize"
+	// NSTaskDataFetchReceipt keeps a Cortex Node's signed FetchTaskData request, so the Builder can
+	// later show what that node downloaded; key = session|task|requester|request digest.
+	NSTaskDataFetchReceipt Namespace = "task_data_fetch_receipt"
+	// NSTaskDataFetchReceiptIndex lists the receipts of one (session, task, requester) with their
+	// count and the number dropped over the cap; key = session|task|requester.
+	NSTaskDataFetchReceiptIndex Namespace = "task_data_fetch_receipt_index"
 	// NSOutputAck is the user's local delivery progress for a streaming OUTPUT (task, last_seq); it is not a consensus fact.
 	NSOutputAck Namespace = "output_ack"
 	NSBusReplay Namespace = "bus_replay"
