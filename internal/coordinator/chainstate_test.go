@@ -459,12 +459,14 @@ func TestHeightPersistenceFailureNeverBecomesAuthoritative(t *testing.T) {
 	}
 }
 
+// releasableSettlement is what the chain actually reports for a settled task: TaskCoreState's
+// finality status and task_finality_height, plus the settlement event's heights. It carries no
+// challenge_close_height, evidence_cleanup_height or optimistic finality status: no chain
+// query or event provides them.
 func releasableSettlement() chaincli.TaskSettlementState {
 	return chaincli.TaskSettlementState{
-		SettlementID: "settlement-1", SettlementMode: "OPTIMISTIC",
-		SettlementStatus: "SETTLED_PASS", SettlementHeight: 90,
-		ChallengeCloseHeight: 100, EvidenceCleanupHeight: 120,
-		OptimisticFinalityStatus: "FINAL", TaskFinalityHeight: 110,
+		SettlementStatus: "FINALIZED", SettlementHeight: 90,
+		FinalityStatus: "FINAL", TaskFinalityHeight: 110,
 		ClaimableAfterHeight: 115,
 	}
 }
@@ -477,15 +479,15 @@ func TestSettlementCustodyReleaseBoundaries(t *testing.T) {
 		mutate func(*chaincli.TaskSettlementState)
 		want   bool
 	}{
-		{name: "at close", height: 100, want: false},
 		{name: "before finality", height: 109, want: false},
-		{name: "before cleanup", height: 119, want: false},
-		{name: "at cleanup", height: 120, want: true},
-		{name: "pending", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.OptimisticFinalityStatus = "PENDING" }, want: false},
+		{name: "claim immature", height: 114, want: false},
+		{name: "at claimable", height: 115, want: true},
+		{name: "no claimable gate at finality", height: 110, mutate: func(s *chaincli.TaskSettlementState) { s.ClaimableAfterHeight = 0 }, want: true},
+		{name: "pending", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.FinalityStatus = "PENDING" }, want: false},
+		{name: "finality unknown", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.FinalityStatus = "" }, want: false},
+		{name: "finality height missing", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.TaskFinalityHeight = 0 }, want: false},
 		{name: "challenge unresolved", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.MaxChallengeResolveDeadlineHeight = 121 }, want: false},
-		{name: "claim immature", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.ClaimableAfterHeight = 121 }, want: false},
-		{name: "overturned", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.OptimisticFinalityStatus = "OVERTURNED" }, want: true},
-		{name: "cleanup missing", height: 120, mutate: func(s *chaincli.TaskSettlementState) { s.EvidenceCleanupHeight = 0 }, want: false},
+		{name: "height unknown", height: 0, want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

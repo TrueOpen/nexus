@@ -662,13 +662,19 @@ func (c *client) QueryTimeoutBucket(ctx context.Context, bucketKey string, versi
 // infer receipt, settlement and failure class are carried by separate RPCs such as
 // QueryInferReceipt / QueryTaskFailureClass (§16.2/§16.5). All status fields changed from
 // free-form strings to closed enums and all IDs/hashes to bytes. Hence the InferReceipt /
-// Settlement / TaskVerdict / FailureClass / SampleSeed / AssignedSet sections of
-// OnChainTask stay zero after this change: they are not in the QueryTask response, and
-// filling them needs separate wiring in a follow-up.
+// TaskVerdict / FailureClass / SampleSeed / AssignedSet sections of OnChainTask stay zero:
+// they are not in the QueryTask response. Of Settlement only what TaskCoreState carries is
+// filled: settlement status, finality status and task_finality_height.
+//
+// Once the chain has compacted a task the response carries the terminal summary instead,
+// mapped by mapTerminalTask with Compacted set.
 func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnChainTask, error) {
+	if terminal := response.GetTask().GetTerminal(); terminal != nil {
+		return mapTerminalTask(key, terminal)
+	}
 	bundle := response.GetTask().GetActive()
 	if bundle == nil {
-		return OnChainTask{}, fmt.Errorf("query task: active bundle is missing")
+		return OnChainTask{}, fmt.Errorf("query task: task view is empty")
 	}
 	core := bundle.GetCore()
 	if core == nil || len(core.GetTaskId()) == 0 {
@@ -692,6 +698,11 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 			UserAddress: core.GetUserAddress(), OrderSequence: core.GetOrderSequence(),
 			ModelID: core.GetModelId(), ProfileVersion: core.GetProfileVersion(),
 			AcceptedTaskHash: hex.EncodeToString(core.GetAcceptedTaskHash()),
+		},
+		Settlement: TaskSettlementState{
+			SettlementStatus:   settlementStatusName(core.GetSettlementStatus()),
+			FinalityStatus:     finalityStatusName(core.GetFinalityStatus()),
+			TaskFinalityHeight: core.GetTaskFinalityHeight(),
 		},
 	}
 
@@ -779,6 +790,83 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 		}
 	}
 	return result, nil
+}
+
+// mapTerminalTask maps the TaskTerminalSummaryState that QueryTask returns once the chain has
+// compacted a task (Challenge and Evidence spec §10). Only a SETTLED or FAILED phase can be
+// compacted; anything else is an inconsistent response.
+func mapTerminalTask(key TaskKey, summary *taskv1.TaskTerminalSummaryState) (OnChainTask, error) {
+	if hex.EncodeToString(summary.GetTaskId()) != key.TaskID {
+		return OnChainTask{}, fmt.Errorf("query task: terminal summary key does not match request")
+	}
+	if len(summary.GetSessionId()) != 0 && hex.EncodeToString(summary.GetSessionId()) != key.SessionID {
+		return OnChainTask{}, fmt.Errorf("query task: terminal summary session does not match request")
+	}
+	state, err := mapTaskPhase(summary.GetTerminalPhase())
+	if err != nil {
+		return OnChainTask{}, err
+	}
+	if state != types.Settled && state != types.Failed {
+		return OnChainTask{}, fmt.Errorf("query task: terminal summary carries non-terminal phase %s", summary.GetTerminalPhase())
+	}
+	result := OnChainTask{
+		SessionID: key.SessionID, TaskID: key.TaskID,
+		Status: enumShortName("TASK_PHASE_", summary.GetTerminalPhase()), State: state,
+		Winner:      summary.GetWinnerWorker(),
+		TaskVerdict: mapTaskVerdict(summary.GetVerdict()),
+		Compacted:   true,
+		Assignment: TaskAssignmentState{
+			OrderSequence: summary.GetOrderSequence(), ModelID: summary.GetModelId(),
+			ProfileVersion: summary.GetProfileVersion(), SelectedWorkerOperatorAddress: summary.GetWinnerWorker(),
+			AcceptedTaskHash: hex.EncodeToString(summary.GetTaskHash()),
+		},
+		Settlement: TaskSettlementState{
+			SettlementHeight:   summary.GetSettlementHeight(),
+			SettlementStatus:   settlementStatusName(summary.GetSettlementStatus()),
+			FinalityStatus:     finalityStatusName(summary.GetFinalityStatus()),
+			TaskFinalityHeight: summary.GetTaskFinalityHeight(),
+		},
+	}
+	if class := summary.GetFailureClass(); class != taskv1.TaskFailureClass_TASK_FAILURE_CLASS_UNSPECIFIED {
+		result.FailureClass = enumShortName("TASK_FAILURE_CLASS_", class)
+	}
+	return result, nil
+}
+
+func settlementStatusName(status taskv1.SettlementStatus) string {
+	if status == taskv1.SettlementStatus_SETTLEMENT_STATUS_UNSPECIFIED {
+		return ""
+	}
+	return enumShortName("SETTLEMENT_STATUS_", status)
+}
+
+func finalityStatusName(status sharedv1.TaskFinalityStatusV1) string {
+	if status == sharedv1.TaskFinalityStatusV1_TASK_FINALITY_STATUS_V1_UNSPECIFIED {
+		return ""
+	}
+	return enumShortName("TASK_FINALITY_STATUS_V1_", status)
+}
+
+// mapTaskVerdict maps the chain verdict onto the local enum. Values the local enum does not
+// carry (VERIFY_FAILED, SETTLEMENT_TIMEOUT) stay unspecified: the coordinator only records the
+// verdict, it does not branch on these.
+func mapTaskVerdict(verdict taskv1.TaskVerdict) types.TaskVerdict {
+	switch verdict {
+	case taskv1.TaskVerdict_TASK_VERDICT_PASS:
+		return types.VerdictPass
+	case taskv1.TaskVerdict_TASK_VERDICT_FAIL:
+		return types.VerdictFail
+	case taskv1.TaskVerdict_TASK_VERDICT_NO_CONSENSUS:
+		return types.VerdictNoConsensus
+	case taskv1.TaskVerdict_TASK_VERDICT_ASSIGN_TIMEOUT:
+		return types.VerdictAssignTimeout
+	case taskv1.TaskVerdict_TASK_VERDICT_WORKER_TIMEOUT:
+		return types.VerdictWorkerTimeout
+	case taskv1.TaskVerdict_TASK_VERDICT_VERIFY_UNAVAILABLE:
+		return types.VerdictVerifyUnavailable
+	default:
+		return types.VerdictUnspecified
+	}
 }
 
 // mapTaskPhase maps the frozen contract's TaskPhase enum to the local FSM state. The old

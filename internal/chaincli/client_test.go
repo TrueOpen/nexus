@@ -773,3 +773,80 @@ func TestQueryEvidenceCleanupMapsStatus(t *testing.T) {
 		t.Fatalf("unknown task error = %v, want ErrNotFound", err)
 	}
 }
+
+func terminalResponse(summary *taskv1.TaskTerminalSummaryState) *taskv1.QueryTaskResponse {
+	return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{
+		Value: &taskv1.TaskViewV1_Terminal{Terminal: summary},
+	}}
+}
+
+// After evidence cleanup QueryTask returns the terminal summary; it maps to a final task
+// instead of failing with "active bundle is missing".
+func TestQueryTaskMapsCompactedTerminalSummary(t *testing.T) {
+	summary := &taskv1.TaskTerminalSummaryState{
+		TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, OrderSequence: 7, TaskHash: mustHash32("55"),
+		TerminalPhase: taskv1.TaskPhase_TASK_PHASE_SETTLED, Verdict: taskv1.TaskVerdict_TASK_VERDICT_PASS,
+		SettlementStatus: taskv1.SettlementStatus_SETTLEMENT_STATUS_FINALIZED,
+		FinalityStatus:   sharedv1.TaskFinalityStatusV1_TASK_FINALITY_STATUS_V1_FINAL,
+		ModelId:          "model-1", ProfileVersion: 2, WinnerWorker: proto.String("worker-1"),
+		SettlementHeight: 90, TaskFinalityHeight: 88,
+	}
+	c := &client{taskQuery: &recordTaskQuery{response: terminalResponse(summary)}}
+	got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Compacted || got.State != types.Settled || got.Status != "SETTLED" || got.TaskVerdict != types.VerdictPass ||
+		got.Winner != "worker-1" || got.Assignment.AcceptedTaskHash != hex.EncodeToString(mustHash32("55")) {
+		t.Fatalf("terminal task = %+v", got)
+	}
+	want := TaskSettlementState{SettlementStatus: "FINALIZED", FinalityStatus: "FINAL", SettlementHeight: 90, TaskFinalityHeight: 88}
+	if got.Settlement != want {
+		t.Fatalf("terminal settlement = %+v, want %+v", got.Settlement, want)
+	}
+	if len(got.Verifiers) != 0 || len(got.VerifierRounds) != 0 {
+		t.Fatalf("a compacted task has no per-round view: %+v", got)
+	}
+
+	summary.TerminalPhase = taskv1.TaskPhase_TASK_PHASE_FAILED
+	summary.FailureClass = taskv1.TaskFailureClass(1)
+	failed, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
+	if err != nil || failed.State != types.Failed || failed.FailureClass == "" {
+		t.Fatalf("failed terminal task = %+v, %v", failed, err)
+	}
+
+	for name, mutate := range map[string]func(*taskv1.TaskTerminalSummaryState){
+		"non-terminal phase": func(s *taskv1.TaskTerminalSummaryState) { s.TerminalPhase = taskv1.TaskPhase_TASK_PHASE_COMMITTING },
+		"other task":         func(s *taskv1.TaskTerminalSummaryState) { s.TaskId = mustHash32("99") },
+		"other session":      func(s *taskv1.TaskTerminalSummaryState) { s.SessionId = mustHash32("98") },
+	} {
+		bad := proto.CloneOf(summary)
+		bad.TerminalPhase = taskv1.TaskPhase_TASK_PHASE_SETTLED
+		mutate(bad)
+		c := &client{taskQuery: &recordTaskQuery{response: terminalResponse(bad)}}
+		if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
+			t.Fatalf("%s: inconsistent terminal summary accepted", name)
+		}
+	}
+}
+
+// The active view carries the finality the coordinator closes settled tasks on.
+func TestQueryTaskMapsCoreFinality(t *testing.T) {
+	finality := uint64(88)
+	c := &client{taskQuery: &recordTaskQuery{response: &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{
+		Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{Core: &taskv1.TaskCoreState{
+			TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, TaskPhase: taskv1.TaskPhase_TASK_PHASE_SETTLED,
+			SettlementStatus:   taskv1.SettlementStatus_SETTLEMENT_STATUS_FINALIZED,
+			FinalityStatus:     sharedv1.TaskFinalityStatusV1_TASK_FINALITY_STATUS_V1_FINAL,
+			TaskFinalityHeight: &finality,
+		}}},
+	}}}}
+	got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Compacted || got.Settlement.FinalityStatus != "FINAL" || got.Settlement.TaskFinalityHeight != 88 ||
+		got.Settlement.SettlementStatus != "FINALIZED" {
+		t.Fatalf("active task settlement = %+v", got.Settlement)
+	}
+}

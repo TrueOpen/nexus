@@ -1761,6 +1761,17 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 		fsm.onAuthoritativeFailure(snapshot, height)
 		return
 	}
+	if snapshot.Compacted {
+		closeHeight := uint64(0)
+		if height > 0 {
+			closeHeight = uint64(height)
+		}
+		if currentHeight, authoritative := c.currentChainHeight(); authoritative {
+			closeHeight = currentHeight
+		}
+		fsm.closeCompacted(snapshot, closeHeight)
+		return
+	}
 	fsm.mu.Lock()
 	state, phase := fsm.state, fsm.phase
 	fsm.mu.Unlock()

@@ -1611,13 +1611,17 @@ func (f *taskFSM) onSettleAccepted(ev chaincli.SettleAccepted) {
 		"task_finality_height", ev.Settlement.TaskFinalityHeight)
 }
 
+// settlementAllowsCustodyRelease decides when a settled task can be closed and what it holds
+// released. Settlement and finality are one step taken after every verification round has
+// closed (Challenge and Evidence spec §9), so the chain reporting the task FINAL, with the
+// chain height at or past task_finality_height, is the whole condition.
+//
+// It used to require challenge_close_height, evidence_cleanup_height and an optimistic
+// finality status as well, but no chain query or event carries those any more, so they were
+// always zero and no settled task ever closed. The two optional heights below still gate the
+// release when a source provides them.
 func settlementAllowsCustodyRelease(s chaincli.TaskSettlementState, height uint64) bool {
-	if height == 0 || s.ChallengeCloseHeight == 0 ||
-		s.EvidenceCleanupHeight == 0 || s.TaskFinalityHeight == 0 {
-		return false
-	}
-	if height <= s.ChallengeCloseHeight || height < s.EvidenceCleanupHeight ||
-		height < s.TaskFinalityHeight {
+	if height == 0 || s.FinalityStatus != "FINAL" || s.TaskFinalityHeight == 0 || height < s.TaskFinalityHeight {
 		return false
 	}
 	if s.MaxChallengeResolveDeadlineHeight != 0 && height < s.MaxChallengeResolveDeadlineHeight {
@@ -1626,8 +1630,7 @@ func settlementAllowsCustodyRelease(s chaincli.TaskSettlementState, height uint6
 	if s.ClaimableAfterHeight != 0 && height < s.ClaimableAfterHeight {
 		return false
 	}
-	return s.OptimisticFinalityStatus == "FINAL" ||
-		s.OptimisticFinalityStatus == "OVERTURNED"
+	return true
 }
 
 func (f *taskFSM) lifecycleBoundaryDue(height uint64) bool {
@@ -1653,6 +1656,45 @@ func (f *taskFSM) closeSettledAtHeight(height uint64) bool {
 		f.mu.Unlock()
 		return false
 	}
+	return f.closeLocked(height)
+}
+
+// closeCompacted closes a task the chain has already compacted: QueryTask returns only the
+// terminal summary, every round is closed and the task is final, so nothing is left to drive
+// whatever local phase the task reached. A compacted FAILED task goes through
+// onAuthoritativeFailure instead.
+//
+// The chain compacts a task only after it is FINAL, so a settled summary without FINAL or
+// without task_finality_height is inconsistent: it is left open and logged rather than closed.
+func (f *taskFSM) closeCompacted(snapshot chaincli.OnChainTask, height uint64) bool {
+	if snapshot.Settlement.FinalityStatus != "FINAL" || snapshot.Settlement.TaskFinalityHeight == 0 {
+		f.log.Warn("compacted task summary is not final; keeping the task open",
+			"session_id", f.sessionID, "task_id", f.taskID,
+			"finality_status", snapshot.Settlement.FinalityStatus,
+			"task_finality_height", snapshot.Settlement.TaskFinalityHeight)
+		return false
+	}
+	f.mu.Lock()
+	if f.terminal {
+		f.mu.Unlock()
+		return false
+	}
+	if snapshot.TaskVerdict != types.VerdictUnspecified {
+		f.verdict = snapshot.TaskVerdict
+	}
+	f.settlement.SettlementHeight = snapshot.Settlement.SettlementHeight
+	f.settlement.SettlementStatus = snapshot.Settlement.SettlementStatus
+	f.settlement.FinalityStatus = snapshot.Settlement.FinalityStatus
+	f.settlement.TaskFinalityHeight = snapshot.Settlement.TaskFinalityHeight
+	if height == 0 {
+		height = snapshot.Settlement.TaskFinalityHeight
+	}
+	return f.closeLocked(height)
+}
+
+// closeLocked moves the task to Closed and releases what it holds. The caller holds f.mu;
+// closeLocked releases it.
+func (f *taskFSM) closeLocked(height uint64) bool {
 	previousState, previousTerminal := f.state, f.terminal
 	f.state = types.Closed
 	f.terminal = true

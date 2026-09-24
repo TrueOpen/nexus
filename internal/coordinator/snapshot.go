@@ -337,6 +337,14 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	if t.Settlement.SettlementHeight != 0 && t.Settlement.SettlementStatus != "" {
 		f.settlement = t.Settlement
 	}
+	// The active task view carries finality without a settlement height (TaskCoreState), so
+	// merge it on its own: closing a settled task waits for exactly these two facts.
+	if t.Settlement.FinalityStatus != "" {
+		f.settlement.FinalityStatus = t.Settlement.FinalityStatus
+		if t.Settlement.TaskFinalityHeight != 0 {
+			f.settlement.TaskFinalityHeight = t.Settlement.TaskFinalityHeight
+		}
+	}
 	if t.TaskVerdict != types.VerdictUnspecified {
 		f.verdict = t.TaskVerdict
 	}
