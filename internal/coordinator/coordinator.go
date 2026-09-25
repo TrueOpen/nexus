@@ -1381,6 +1381,8 @@ func (c *Coordinator) removeTask(key string) string {
 	return recipient
 }
 
+// abandonTask drops a task that never reached the chain. Its journal is kept so the user can see
+// why it was rejected; with no output tombstone nothing releases it (a known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 	removed := false
 	var trackedKey chaincli.TaskKey
