@@ -290,9 +290,7 @@ func TestSettleRank2StandsDownWhenSettled(t *testing.T) {
 	c.OnSettleAccepted(chaincli.SettleAccepted{
 		SessionID: session, TaskID: task, TaskVerdict: types.VerdictPass,
 		Settlement: chaincli.TaskSettlementState{
-			SettlementID: "settlement-1", SettlementMode: "OPTIMISTIC", SettlementStatus: "SETTLED_PASS",
-			SettlementHeight: 400, ChallengeCloseHeight: 500, EvidenceCleanupHeight: 600,
-			OptimisticFinalityStatus: "PENDING", TaskFinalityHeight: 600,
+			SettlementStatus: "SETTLED_PASS", SettlementHeight: 400, TaskFinalityHeight: 600,
 		}, Height: 400,
 	})
 

@@ -601,23 +601,13 @@ type VerifierAssignmentState struct {
 }
 
 type TaskSettlementState struct {
-	SettlementID                      string `json:"settlement_id,omitempty"`
-	SettlementMode                    string `json:"settlement_mode,omitempty"`
-	SettlementStatus                  string `json:"settlement_status,omitempty"`
-	SettlementHeight                  uint64 `json:"settlement_height,omitempty"`
-	ChallengeCloseHeight              uint64 `json:"challenge_close_height,omitempty"`
-	EvidenceCleanupHeight             uint64 `json:"evidence_cleanup_height,omitempty"`
-	OptimisticFinalityStatus          string `json:"optimistic_finality_status,omitempty"`
-	MaxChallengeResolveDeadlineHeight uint64 `json:"max_challenge_resolve_deadline_height,omitempty"`
-	TaskFinalityHeight                uint64 `json:"task_finality_height,omitempty"`
-	ClaimableAfterHeight              uint64 `json:"claimable_after_height,omitempty"`
+	SettlementStatus   string `json:"settlement_status,omitempty"`
+	SettlementHeight   uint64 `json:"settlement_height,omitempty"`
+	TaskFinalityHeight uint64 `json:"task_finality_height,omitempty"`
 	// FinalityStatus is TaskCoreState.finality_status by short name (PENDING / FINAL). Settlement
 	// and finality are one step, taken after every verification round has closed (Challenge
 	// and Evidence spec §9), so FINAL means the task has nothing left to drive.
-	FinalityStatus          string `json:"finality_status,omitempty"`
-	SubmitterServiceAddress string `json:"submitter_service_address,omitempty"`
-	ServiceSignatureHash    string `json:"service_signature_hash,omitempty"`
-	BuilderOperatorAddress  string `json:"builder_operator_address,omitempty"`
+	FinalityStatus string `json:"finality_status,omitempty"`
 }
 
 // AcceptedInferReceipt is the part of the on-chain InferReceiptState that a Builder which did not
