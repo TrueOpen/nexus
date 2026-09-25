@@ -122,3 +122,27 @@ func TestVerifyRejectsImpersonation(t *testing.T) {
 		t.Fatalf("want ErrInvalidSignature, got %v", err)
 	}
 }
+
+// The generic envelope accepts only a Unix-millisecond expiry; a chain height is rejected unless
+// the caller says another check owns it (OpenTask), and then no replay cache may be passed.
+func TestVerifyHeightExpiry(t *testing.T) {
+	height := func(e *Envelope) { e.ExpiryHeightOrTime = 110 }
+
+	env, opts := signedEnvelope(t, height)
+	if err := Verify(env, opts); err != ErrMalformed {
+		t.Fatalf("generic path: want ErrMalformed for a height expiry, got %v", err)
+	}
+
+	env, opts = signedEnvelope(t, height)
+	opts.AllowHeightExpiry = true
+	if err := Verify(env, opts); err != nil {
+		t.Fatalf("OpenTask path: height expiry should pass, got %v", err)
+	}
+
+	env, opts = signedEnvelope(t, height)
+	opts.AllowHeightExpiry = true
+	opts.ReplayCache = NewMemoryReplayCache()
+	if err := Verify(env, opts); err != ErrMisconfigured {
+		t.Fatalf("height expiry with a replay cache: want ErrMisconfigured, got %v", err)
+	}
+}

@@ -33,6 +33,8 @@ var (
 	ErrExpired          = errors.New("SDK_AUTH_EXPIRED")
 	ErrReplay           = errors.New("SDK_AUTH_REPLAY")
 	ErrMalformed        = errors.New("NEXUS_INGRESS_MALFORMED")
+	// ErrMisconfigured is a caller bug, not a client error: see VerifyOpts.AllowHeightExpiry.
+	ErrMisconfigured = errors.New("NEXUS_SDKAUTH_MISCONFIGURED")
 )
 
 // ReplayCache records accepted signer nonces. Returns false if the key has been seen before.
@@ -89,6 +91,11 @@ type VerifyOpts struct {
 	WantBody     []byte // expected body_digest (handler computes it via BodyDigest(fields...)); nil = skip body check
 	Bech32Prefix string // account address prefix (for checking signer_address)
 	ReplayCache  ReplayCache
+	// AllowHeightExpiry accepts an expiry below HeightExpiryThreshold (a chain height) without
+	// checking it. Only OpenTask sets it: its height expiry and nonce are checked by the taskdata
+	// Authorizer against the chain. A caller that allows it must not pass a ReplayCache, since
+	// this package cannot bound a height expiry; Verify rejects that combination.
+	AllowHeightExpiry bool
 }
 
 // SignBytes canonical sign bytes: domain separator first, then each field with a 4-byte big-endian length prefix, eliminating concatenation ambiguity.
@@ -139,14 +146,18 @@ func BodyDigest(fields ...[]byte) []byte {
 	return digest[:]
 }
 
-// An expiry below heightThreshold is treated as a chain height (no chain-height query yet; skipped with a TODO);
-// above it as Unix milliseconds. 10^12 ms ~ year 2001; chain heights are far smaller.
+// An expiry below HeightExpiryThreshold is a chain height, at or above it Unix milliseconds.
+// 10^12 ms ~ year 2001; chain heights are far smaller. The generic SDK envelope accepts only Unix
+// milliseconds; a chain height is accepted only where VerifyOpts.AllowHeightExpiry says another
+// check owns it (OpenTask).
 const HeightExpiryThreshold = int64(1_000_000_000_000)
-const heightExpiryReplayTTLMS = int64(10 * 60 * 1000)
 
 // Verify fully validates the envelope. Order: structure -> chain_id -> method -> expiry -> body_digest ->
 // signature -> address check. nil means the envelope is trusted and the caller may use e.SignerAddress as the requester identity.
 func Verify(e *Envelope, opts VerifyOpts) error {
+	if opts.AllowHeightExpiry && opts.ReplayCache != nil {
+		return ErrMisconfigured
+	}
 	if e == nil || e.RequestDomain != RequestDomain ||
 		e.SignerAddress == "" || len(e.Signature) == 0 || len(e.SignerPubKey) == 0 || len(e.RequestNonce) == 0 {
 		return ErrMalformed
@@ -154,10 +165,13 @@ func Verify(e *Envelope, opts VerifyOpts) error {
 	if e.ChainID != opts.ChainID || e.Method != opts.Method {
 		return ErrMalformed
 	}
-	if e.ExpiryHeightOrTime >= HeightExpiryThreshold && e.ExpiryHeightOrTime < opts.NowMS {
+	if e.ExpiryHeightOrTime < HeightExpiryThreshold {
+		if !opts.AllowHeightExpiry {
+			return ErrMalformed
+		}
+	} else if e.ExpiryHeightOrTime < opts.NowMS {
 		return ErrExpired
 	}
-	// TODO: the chain-height expiry branch needs a current chain height query (chaincli); add the check once wired.
 	if opts.WantBody != nil && !bytes.Equal(e.BodyDigest, opts.WantBody) {
 		return ErrMalformed
 	}
@@ -169,11 +183,7 @@ func Verify(e *Envelope, opts VerifyOpts) error {
 		return ErrInvalidSignature // public key does not match the claimed address = impersonation
 	}
 	if opts.ReplayCache != nil {
-		expiresAt := e.ExpiryHeightOrTime
-		if expiresAt < HeightExpiryThreshold {
-			expiresAt = opts.NowMS + heightExpiryReplayTTLMS
-		}
-		if !opts.ReplayCache.StoreOnce(replayKey(e), expiresAt, opts.NowMS) {
+		if !opts.ReplayCache.StoreOnce(replayKey(e), e.ExpiryHeightOrTime, opts.NowMS) {
 			return ErrReplay
 		}
 	}
