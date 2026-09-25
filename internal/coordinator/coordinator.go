@@ -66,7 +66,7 @@ type Coordinator struct {
 	chainID         string
 	query           TaskQuerier
 	settlementFacts SettlementFactsQuerier
-	challengeLimit  ChallengeParamsQuerier
+	challenge       ChallengeQuerier
 	taskEvents      chaincli.TaskEventTracker
 	txQuery         TxQuerier
 	height          HeightQuerier
@@ -158,9 +158,11 @@ type SettlementFactsQuerier interface {
 	QuerySettlementBuildFacts(context.Context, chaincli.TaskKey) (chaincli.SettlementBuildFacts, error)
 }
 
-// ChallengeParamsQuerier reads the chain's verification round limit (06 §5).
-type ChallengeParamsQuerier interface {
+// ChallengeQuerier reads the chain's verification round limit and a task's challenge window
+// (06 §5, §9).
+type ChallengeQuerier interface {
 	QueryMaxVerifyRound(context.Context) (uint32, error)
+	QueryTaskStage(context.Context, string) (chaincli.TaskStage, error)
 }
 
 type TxQuerier interface {
@@ -211,7 +213,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 	return func(c *Coordinator) {
 		c.query = query
 		c.settlementFacts, _ = query.(SettlementFactsQuerier)
-		c.challengeLimit, _ = query.(ChallengeParamsQuerier)
+		c.challenge, _ = query.(ChallengeQuerier)
 	}
 }
 
@@ -263,7 +265,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 		chainID:            chainID,
 		query:              chain,
 		settlementFacts:    chain,
-		challengeLimit:     chain,
+		challenge:          chain,
 		height:             chain,
 		relay:              rl,
 		kv:                 store,
@@ -1079,10 +1081,13 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 
 // PrepareChallenge assembles challenge inputs (v1.5 §3.6): challenge window facts + estimate.
 // It submits no verdict; the challenge itself is MsgOpenChallengeRound, which anyone may submit on
-// chain. The opener holds no evidence (06 §5): the round's Verifiers fetch the task
-// data themselves, so the plan lists no required evidence and the challenge kind does
-// not change it. A round can open while the task is not final, round 1 has closed, the chain height has
-// not passed challenge_close_height, no round is open and the round limit is not reached (06 §5, §9).
+// chain. The opener holds no evidence (06 §5): the round's Verifiers fetch the task data
+// themselves, so the plan lists no required evidence and the challenge kind does not change it.
+//
+// A round can open while the task is not final, the round limit allows a second round, and the
+// challenge window is the task's next deadline without the chain height having passed it. The
+// Keeper reports that window through TaskStage only after round 1 has closed and while no round
+// is open (06 §5, §9).
 func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _ string) (types.ChallengePlan, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
@@ -1110,14 +1115,20 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 	default:
 		return types.ChallengePlan{}, fmt.Errorf("%w: unknown finality status %q", types.ErrChainStateUnavailable, status)
 	}
-	if c.challengeLimit == nil {
-		return types.ChallengePlan{}, fmt.Errorf("%w: challenge params query is not configured", types.ErrChainStateUnavailable)
+	if c.challenge == nil {
+		return types.ChallengePlan{}, fmt.Errorf("%w: challenge query is not configured", types.ErrChainStateUnavailable)
 	}
 	paramsCtx, cancelParams := context.WithTimeout(ctx, reconcileQueryTimeout)
-	maxVerifyRound, err := c.challengeLimit.QueryMaxVerifyRound(paramsCtx)
+	maxVerifyRound, err := c.challenge.QueryMaxVerifyRound(paramsCtx)
 	cancelParams()
 	if err != nil {
 		return types.ChallengePlan{}, fmt.Errorf("%w: query challenge params: %v", types.ErrChainStateUnavailable, err)
+	}
+	stageCtx, cancelStage := context.WithTimeout(ctx, reconcileQueryTimeout)
+	stage, err := c.challenge.QueryTaskStage(stageCtx, taskID)
+	cancelStage()
+	if err != nil {
+		return types.ChallengePlan{}, fmt.Errorf("%w: query task stage: %v", types.ErrChainStateUnavailable, err)
 	}
 	fsm.mu.Lock()
 	fsm.reconcile(task)
@@ -1126,16 +1137,14 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 		return types.ChallengePlan{}, fmt.Errorf("%w: persist task facts: %v", types.ErrChainStateUnavailable, err)
 	}
 	fsm.mu.Unlock()
-	rounds := task.RoundSummary
+	closeHeight := stage.ChallengeCloseHeight()
 	open := status == "PENDING" &&
-		rounds.ChallengeOpenHeight != 0 &&
-		rounds.ChallengeCloseHeight != 0 &&
-		height <= rounds.ChallengeCloseHeight &&
-		rounds.OpenRoundCount == 0 &&
-		rounds.MaxClosedRound < maxVerifyRound
+		maxVerifyRound > 1 &&
+		closeHeight != 0 &&
+		height <= closeHeight
 	return types.ChallengePlan{
 		ChallengeOpen:        open,
-		ChallengeCloseHeight: rounds.ChallengeCloseHeight,
+		ChallengeCloseHeight: closeHeight,
 		EstimatedBond:        types.Coin{},
 		EstimatedGas:         challengeGasEstimate,
 	}, nil

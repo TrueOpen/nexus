@@ -392,7 +392,7 @@ func TestQuerySettlementBuildFactsIsDeregistered(t *testing.T) {
 
 func TestMapTaskRejectsUnknownPhase(t *testing.T) {
 	c := &client{}
-	_, err := c.mapTask(TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}, &taskv1.QueryTaskResponse{
+	_, err := c.mapTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}, &taskv1.QueryTaskResponse{
 		Task: &taskv1.TaskViewV1{Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
 			Core: &taskv1.TaskCoreState{TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, TaskPhase: taskv1.TaskPhase(99)},
 		}}},
@@ -404,7 +404,7 @@ func TestMapTaskRejectsUnknownPhase(t *testing.T) {
 
 func TestMapTaskRejectsMissingActiveBundle(t *testing.T) {
 	c := &client{}
-	if _, err := c.mapTask(TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}, &taskv1.QueryTaskResponse{}); err == nil {
+	if _, err := c.mapTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}, &taskv1.QueryTaskResponse{}); err == nil {
 		t.Fatal("a compacted/empty TaskViewV1 must not map to a task")
 	}
 }
@@ -644,11 +644,27 @@ func TestQueryProfileRejectsZeroVersion(t *testing.T) {
 
 type recordTaskQuery struct {
 	taskv1connect.QueryClient
-	request         *taskv1.QueryTaskRequest
-	response        *taskv1.QueryTaskResponse
-	buildersRequest *taskv1.QueryTaskBuildersRequest
-	builders        *taskv1.QueryTaskBuildersResponse
-	params          *taskv1.QueryTaskParamsResponse
+	request           *taskv1.QueryTaskRequest
+	response          *taskv1.QueryTaskResponse
+	buildersRequest   *taskv1.QueryTaskBuildersRequest
+	builders          *taskv1.QueryTaskBuildersResponse
+	params            *taskv1.QueryTaskParamsResponse
+	stage             *taskv1.QueryTaskStageResponse
+	assignment        *taskv1.QueryVerifierAssignmentResponse
+	assignmentErr     error
+	assignmentRequest *taskv1.QueryVerifierAssignmentRequest
+}
+
+func (q *recordTaskQuery) TaskStage(context.Context, *connect.Request[taskv1.QueryTaskStageRequest]) (*connect.Response[taskv1.QueryTaskStageResponse], error) {
+	return connect.NewResponse(q.stage), nil
+}
+
+func (q *recordTaskQuery) VerifierAssignment(_ context.Context, req *connect.Request[taskv1.QueryVerifierAssignmentRequest]) (*connect.Response[taskv1.QueryVerifierAssignmentResponse], error) {
+	q.assignmentRequest = req.Msg
+	if q.assignmentErr != nil {
+		return nil, q.assignmentErr
+	}
+	return connect.NewResponse(q.assignment), nil
 }
 
 func (q *recordTaskQuery) Params(context.Context, *connect.Request[taskv1.QueryTaskParamsRequest]) (*connect.Response[taskv1.QueryTaskParamsResponse], error) {
@@ -835,33 +851,89 @@ func TestQueryTaskMapsCompactedTerminalSummary(t *testing.T) {
 	}
 }
 
-// The active view carries the round summary that decides whether a challenge round can open.
-func TestQueryTaskMapsRoundSummary(t *testing.T) {
-	response := func(taskID []byte) *taskv1.QueryTaskResponse {
+// TaskStage reports the challenge window close as the next deadline; other deadlines do not
+// count as a challenge window.
+func TestQueryTaskStageMapsChallengeWindow(t *testing.T) {
+	stage := func(taskID []byte, kind taskv1.DeadlineKindV1) *taskv1.QueryTaskStageResponse {
+		return &taskv1.QueryTaskStageResponse{Stage: &taskv1.TaskStageViewV1{
+			TaskId:             taskID,
+			FinalityStatus:     sharedv1.TaskFinalityStatusV1_TASK_FINALITY_STATUS_V1_PENDING,
+			NextDeadlineKind:   &kind,
+			NextDeadlineHeight: proto.Uint64(242863),
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{stage: stage(testTaskIDBytes, taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE)}}
+	got, err := c.QueryTaskStage(context.Background(), testTaskIDHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FinalityStatus != "PENDING" || got.NextDeadlineKind != "CHALLENGE_WINDOW_CLOSE" || got.ChallengeCloseHeight() != 242863 {
+		t.Fatalf("stage = %+v", got)
+	}
+	c = &client{taskQuery: &recordTaskQuery{stage: stage(testTaskIDBytes, taskv1.DeadlineKindV1_DEADLINE_KIND_V1_TASK_SETTLEMENT)}}
+	if got, err := c.QueryTaskStage(context.Background(), testTaskIDHex); err != nil || got.ChallengeCloseHeight() != 0 {
+		t.Fatalf("settlement deadline read as a challenge window: %+v, %v", got, err)
+	}
+	c = &client{taskQuery: &recordTaskQuery{stage: stage(mustHash32("99"), taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE)}}
+	if _, err := c.QueryTaskStage(context.Background(), testTaskIDHex); err == nil {
+		t.Fatal("stage for another task accepted")
+	}
+}
+
+// QueryTask carries only the round 1 assignment; once a challenge round has opened, the round 2
+// assignment is read on its own so its Verifiers are authorized for task data.
+func TestQueryTaskReadsChallengeRoundAssignment(t *testing.T) {
+	response := func(phase taskv1.TaskPhase, effectiveRound uint32) *taskv1.QueryTaskResponse {
 		return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{
 			Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
 				Core: &taskv1.TaskCoreState{
-					TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, TaskPhase: taskv1.TaskPhase_TASK_PHASE_SETTLED,
-				},
-				RoundSummary: &taskv1.TaskRoundSummaryState{
-					TaskId: taskID, MaxClosedRound: 1, OpenRoundCount: 0,
-					ChallengeOpenHeight: proto.Uint64(100), ChallengeCloseHeight: proto.Uint64(140),
+					TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, TaskPhase: phase,
+					EffectiveVerifyRound: effectiveRound,
 				},
 			}},
 		}}
 	}
-	c := &client{taskQuery: &recordTaskQuery{response: response(testTaskIDBytes)}}
+	round2 := &taskv1.QueryVerifierAssignmentResponse{Assignment: &taskv1.VerifierAssignmentState{
+		TaskId: testTaskIDBytes, VerifyRound: 2, CommitDeadlineHeight: 300, RevealDeadlineHeight: 320,
+		SelectedVerifiers: []*taskv1.SelectedVerifierV1{{OperatorAddress: "challenger-verifier-1", Slot: 1}},
+	}}
+
+	fake := &recordTaskQuery{response: response(taskv1.TaskPhase_TASK_PHASE_COMMITTING, 1), assignment: round2}
+	c := &client{taskQuery: fake}
 	got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := TaskRoundSummary{MaxClosedRound: 1, ChallengeOpenHeight: 100, ChallengeCloseHeight: 140}
-	if got.RoundSummary != want {
-		t.Fatalf("round summary = %+v, want %+v", got.RoundSummary, want)
+	if fake.assignmentRequest.GetVerifyRound() != 2 || len(got.VerifierRounds) != 1 ||
+		got.VerifierRounds[0].VerifyRound != 2 || got.VerifierRounds[0].Verifiers[0] != "challenger-verifier-1" ||
+		got.VerifierRounds[0].CommitDeadlineHeight != 300 {
+		t.Fatalf("round 2 not read: request=%+v rounds=%+v", fake.assignmentRequest, got.VerifierRounds)
 	}
-	c = &client{taskQuery: &recordTaskQuery{response: response(mustHash32("99"))}}
+
+	fake = &recordTaskQuery{response: response(taskv1.TaskPhase_TASK_PHASE_COMMITTING, 1), assignmentErr: connect.NewError(connect.CodeNotFound, errors.New("not found"))}
+	c = &client{taskQuery: fake}
+	if got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err != nil || len(got.VerifierRounds) != 0 {
+		t.Fatalf("no round 2 yet: rounds=%+v err=%v", got.VerifierRounds, err)
+	}
+
+	for name, r := range map[string]*taskv1.QueryTaskResponse{
+		"round 1 open": response(taskv1.TaskPhase_TASK_PHASE_COMMITTING, 0),
+		"settling":     response(taskv1.TaskPhase_TASK_PHASE_SETTLING, 1),
+	} {
+		fake = &recordTaskQuery{response: r, assignment: round2}
+		c = &client{taskQuery: fake}
+		if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err != nil {
+			t.Fatal(err)
+		}
+		if fake.assignmentRequest != nil {
+			t.Fatalf("%s: round 2 assignment queried", name)
+		}
+	}
+
+	fake = &recordTaskQuery{response: response(taskv1.TaskPhase_TASK_PHASE_COMMITTING, 1), assignmentErr: connect.NewError(connect.CodeUnavailable, errors.New("down"))}
+	c = &client{taskQuery: fake}
 	if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
-		t.Fatal("round summary for another task accepted")
+		t.Fatal("round 2 query failure hidden")
 	}
 }
 

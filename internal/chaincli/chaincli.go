@@ -77,6 +77,8 @@ type Client interface {
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
 	// QueryMaxVerifyRound reads task params challenge.max_verify_round (06 §5).
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
+	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
+	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
 	LatestHeight(ctx context.Context) (uint64, error)
 	QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error)
 	QuerySettlementBuildFacts(ctx context.Context, key TaskKey) (SettlementBuildFacts, error)
@@ -146,6 +148,11 @@ func (c *stubClient) QueryTaskBuilders(_ context.Context, key TaskKey) (TaskBuil
 // QueryMaxVerifyRound has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) QueryMaxVerifyRound(context.Context) (uint32, error) {
 	return 0, ErrNotFound
+}
+
+// QueryTaskStage has no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) QueryTaskStage(context.Context, string) (TaskStage, error) {
+	return TaskStage{}, ErrNotFound
 }
 
 // QueryEvidenceCleanup has no chain to ask in stub mode; ErrNotFound keeps every object on the

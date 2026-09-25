@@ -33,6 +33,17 @@ type chainFactsFake struct {
 	txHash         []byte
 	maxVerifyRound uint32
 	paramsErr      error
+	stage          chaincli.TaskStage
+	stageErr       error
+}
+
+func (f *chainFactsFake) QueryTaskStage(context.Context, string) (chaincli.TaskStage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stageErr != nil {
+		return chaincli.TaskStage{}, f.stageErr
+	}
+	return f.stage, nil
 }
 
 func (f *chainFactsFake) QueryMaxVerifyRound(context.Context) (uint32, error) {
