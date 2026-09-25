@@ -502,8 +502,11 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		endExternalHandler:    c.callbackWG.Done,
 		onClose: func() {
 			c.deletePayload(o.SessionID, o.TaskID)
+			// The terminal marker goes first, as in recovery: Terminate may report the output
+			// finalized synchronously, and that deletes the snapshot only once the marker is durable.
+			recipient := c.removeTask(key)
 			if c.outputs != nil {
-				if err := c.outputs.Terminate(o.SessionID, o.TaskID, o.User); err != nil {
+				if err := c.outputs.Terminate(o.SessionID, o.TaskID, recipient); err != nil {
 					c.log.Error("output delivery terminate failed",
 						"session_id", o.SessionID,
 						"task_id", o.TaskID,
@@ -511,7 +514,6 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 					)
 				}
 			}
-			c.removeTask(key)
 		},
 		persist: func(sn taskSnapshot) error {
 			b, err := json.Marshal(sn)

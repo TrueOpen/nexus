@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -889,5 +890,27 @@ func TestCoordinatorRecoveryMarksTerminalTaskWithoutOutputUnavailable(t *testing
 	}
 	if _, err := c.AckOutput(context.Background(), session, task, "missing", user); !errors.Is(err, outputdelivery.ErrUnavailable) {
 		t.Fatalf("AckOutput error = %v", err)
+	}
+}
+
+// Closing a task writes the terminal marker before output delivery reports the output
+// finalized, so the snapshot is deleted on the first attempt instead of logging a missing marker.
+func TestCoordinatorCloseWritesTerminalMarkerBeforeOutputTerminate(t *testing.T) {
+	c, _, store := newOutputTestCoordinator(t)
+	const session, task, user = "session-marker-order", "task-marker-order", testUserAddress
+	driveOutputTestToAssigned(t, c, session, task, user)
+	var logs bytes.Buffer
+	c.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
+		SessionID: session, TaskID: task, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT, Height: 200,
+	})
+	if strings.Contains(logs.String(), "terminal task marker missing") {
+		t.Fatalf("snapshot delete ran before the terminal marker was written:\n%s", logs.String())
+	}
+	if _, ok := store.Get(kv.NSTerminalTask, taskKey(session, task)); !ok {
+		t.Fatal("durable terminal task marker missing")
+	}
+	if _, ok := store.Get(kv.NSTask, taskKey(session, task)); ok {
+		t.Fatal("task snapshot retained after close")
 	}
 }
