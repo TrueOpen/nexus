@@ -1664,25 +1664,11 @@ func (f *taskFSM) onSettleAccepted(ev chaincli.SettleAccepted) {
 }
 
 // settlementAllowsCustodyRelease decides when a settled task can be closed and what it holds
-// released. Settlement and finality are one step taken after every verification round has
-// closed (Challenge and Evidence spec §9), so the chain reporting the task FINAL, with the
-// chain height at or past task_finality_height, is the whole condition.
-//
-// It used to require challenge_close_height, evidence_cleanup_height and an optimistic
-// finality status as well, but no chain query or event carries those any more, so they were
-// always zero and no settled task ever closed. The two optional heights below still gate the
-// release when a source provides them.
+// released. Settlement state is decided only by finality_status and task_finality_height
+// (Challenge and Evidence spec §9): the chain reporting the task FINAL, with the chain height at
+// or past task_finality_height, is the whole condition.
 func settlementAllowsCustodyRelease(s chaincli.TaskSettlementState, height uint64) bool {
-	if height == 0 || s.FinalityStatus != "FINAL" || s.TaskFinalityHeight == 0 || height < s.TaskFinalityHeight {
-		return false
-	}
-	if s.MaxChallengeResolveDeadlineHeight != 0 && height < s.MaxChallengeResolveDeadlineHeight {
-		return false
-	}
-	if s.ClaimableAfterHeight != 0 && height < s.ClaimableAfterHeight {
-		return false
-	}
-	return true
+	return height != 0 && s.FinalityStatus == "FINAL" && s.TaskFinalityHeight != 0 && height >= s.TaskFinalityHeight
 }
 
 func (f *taskFSM) lifecycleBoundaryDue(height uint64) bool {
@@ -1696,11 +1682,7 @@ func (f *taskFSM) lifecycleBoundaryDue(height uint64) bool {
 	}
 	// challenge_close_height is not a boundary of its own: without a challenge round it equals
 	// task_finality_height, and with one the task becomes final when the last round closes (06 §9).
-	s := f.settlement
-	return height == s.EvidenceCleanupHeight ||
-		height == s.TaskFinalityHeight ||
-		(s.MaxChallengeResolveDeadlineHeight != 0 && height == s.MaxChallengeResolveDeadlineHeight) ||
-		(s.ClaimableAfterHeight != 0 && height == s.ClaimableAfterHeight)
+	return height == f.settlement.TaskFinalityHeight
 }
 
 func (f *taskFSM) closeSettledAtHeight(height uint64) bool {

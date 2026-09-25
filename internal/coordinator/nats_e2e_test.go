@@ -180,9 +180,7 @@ func TestRealNATSHappyPath(t *testing.T) {
 	// 9) The settlement is included in a block -> Settled
 	c.OnSettleAccepted(chaincli.SettleAccepted{SessionID: session, TaskID: task, TaskVerdict: types.VerdictPass,
 		Settlement: chaincli.TaskSettlementState{
-			SettlementID: "settlement-1", SettlementMode: "OPTIMISTIC", SettlementStatus: "SETTLED_PASS",
-			SettlementHeight: 400, ChallengeCloseHeight: 500, EvidenceCleanupHeight: 600,
-			OptimisticFinalityStatus: "PENDING", TaskFinalityHeight: 600,
+			SettlementStatus: "SETTLED_PASS", SettlementHeight: 400, TaskFinalityHeight: 600,
 		}, Height: 400})
 	assertState(t, c, session, task, types.Settled)
 	t.Log("✅ full-path (real NATS) happy path complete: PENDING->ASSIGNED->VERIFYING->SETTLED")

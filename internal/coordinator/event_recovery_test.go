@@ -139,10 +139,7 @@ func TestNewBlockHeightGapReconcilesActiveTasks(t *testing.T) {
 
 func TestApplicationEventWithoutTaskKeyReconcilesAllActiveTasks(t *testing.T) {
 	settlement := chaincli.TaskSettlementState{
-		SettlementID: "settlement-1", SettlementMode: "OPTIMISTIC",
-		SettlementStatus: "SETTLED_PASS", SettlementHeight: 390,
-		ChallengeCloseHeight: 500, EvidenceCleanupHeight: 600,
-		OptimisticFinalityStatus: "PENDING", TaskFinalityHeight: 600,
+		SettlementStatus: "SETTLED_PASS", SettlementHeight: 390, TaskFinalityHeight: 600,
 	}
 	querier := &recordTaskQuerier{height: 400, task: chaincli.OnChainTask{
 		SessionID: "session-1", TaskID: "task-1", State: types.Settled,

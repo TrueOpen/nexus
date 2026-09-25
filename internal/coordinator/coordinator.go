@@ -1479,9 +1479,8 @@ func (c *Coordinator) OnChainEvent(ev chaincli.ChainEvent) {
 		c.OnSettleAccepted(chaincli.SettleAccepted{
 			SessionID: ev.SessionID, TaskID: ev.TaskID,
 			TaskVerdict: parseTaskVerdict(ev.Attrs["task_verdict"]),
-			// wire v0.4.1 EventTaskSettled carries only settlement_height / task_finality_height;
-			// the full settlement state such as challenge_close_height is taken from QueryTask (credential release
-			// also only looks at the queried TaskSettlementState, not at this event).
+			// EventTaskSettled carries only settlement_height / task_finality_height; finality_status
+			// comes from QueryTask, and credential release looks only at the queried state.
 			Settlement: chaincli.TaskSettlementState{
 				SettlementHeight:   uint64(parseInt64Attr(ev.Attrs["settlement_height"])),
 				TaskFinalityHeight: uint64(parseInt64Attr(ev.Attrs["task_finality_height"])),
