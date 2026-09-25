@@ -108,10 +108,12 @@ func newService(h Handler, auth AuthParams, options ...serviceOption) *service {
 
 // checkEnvelope verifies the request envelope and returns the signer address (empty when the envelope is absent in lenient mode).
 func (s *service) checkEnvelope(pb *nexusv1.SDKRequestEnvelopeV1, method string, wantBody []byte) (string, error) {
-	return s.checkEnvelopeWithReplay(pb, method, wantBody, s.replay)
+	return s.checkEnvelopeWithReplay(pb, method, wantBody, s.replay, false)
 }
 
-func (s *service) checkEnvelopeWithReplay(pb *nexusv1.SDKRequestEnvelopeV1, method string, wantBody []byte, replay sdkauth.ReplayCache) (string, error) {
+func (s *service) checkEnvelopeWithReplay(
+	pb *nexusv1.SDKRequestEnvelopeV1, method string, wantBody []byte, replay sdkauth.ReplayCache, allowHeightExpiry bool,
+) (string, error) {
 	if pb == nil {
 		if s.auth.RequireEnvelope {
 			return "", connect.NewError(connect.CodeUnauthenticated,
@@ -134,12 +136,13 @@ func (s *service) checkEnvelopeWithReplay(pb *nexusv1.SDKRequestEnvelopeV1, meth
 		SignerPubKey:       pb.GetSignerPubkey(),
 	}
 	err := sdkauth.Verify(env, sdkauth.VerifyOpts{
-		ChainID:      s.auth.ChainID,
-		Method:       method,
-		NowMS:        time.Now().UnixMilli(),
-		WantBody:     wantBody,
-		Bech32Prefix: s.auth.Bech32Prefix,
-		ReplayCache:  replay,
+		ChainID:           s.auth.ChainID,
+		Method:            method,
+		NowMS:             time.Now().UnixMilli(),
+		WantBody:          wantBody,
+		Bech32Prefix:      s.auth.Bech32Prefix,
+		ReplayCache:       replay,
+		AllowHeightExpiry: allowHeightExpiry,
 	})
 	switch {
 	case err == nil:
@@ -148,6 +151,8 @@ func (s *service) checkEnvelopeWithReplay(pb *nexusv1.SDKRequestEnvelopeV1, meth
 		return "", connect.NewError(connect.CodeDeadlineExceeded, err)
 	case errors.Is(err, sdkauth.ErrMalformed):
 		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, sdkauth.ErrMisconfigured):
+		return "", connect.NewError(connect.CodeInternal, err)
 	default:
 		return "", connect.NewError(connect.CodeUnauthenticated, err)
 	}
@@ -162,7 +167,8 @@ func (s *service) checkRequiredTaskEnvelopeWithoutReplay(
 		return "", connect.NewError(connect.CodeUnauthenticated,
 			errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
 	}
-	signerAddress, err := s.checkEnvelopeWithReplay(pb, method, wantBody, nil)
+	// OpenTask signs a chain-height expiry; the taskdata Authorizer checks it and consumes the nonce.
+	signerAddress, err := s.checkEnvelopeWithReplay(pb, method, wantBody, nil, true)
 	if err != nil {
 		return "", err
 	}
