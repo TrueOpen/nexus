@@ -620,13 +620,22 @@ type TaskSettlementState struct {
 	BuilderOperatorAddress  string `json:"builder_operator_address,omitempty"`
 }
 
-// TaskRoundSummary is the part of TaskRoundSummaryState that decides whether a challenge round
-// can open (06 §5, §9). ChallengeOpenHeight and ChallengeCloseHeight are 0 until round 1 closes.
-type TaskRoundSummary struct {
-	MaxClosedRound       uint32 `json:"max_closed_round,omitempty"`
-	OpenRoundCount       uint32 `json:"open_round_count,omitempty"`
-	ChallengeOpenHeight  uint64 `json:"challenge_open_height,omitempty"`
-	ChallengeCloseHeight uint64 `json:"challenge_close_height,omitempty"`
+// TaskStage is task.v1.Query/TaskStage: the task's statuses and its next deadline. While round 1
+// has closed and no challenge round is open, the next deadline is the challenge window close
+// (06 §9); QueryTask does not carry the round summary that holds it.
+type TaskStage struct {
+	FinalityStatus     string `json:"finality_status,omitempty"`
+	NextDeadlineKind   string `json:"next_deadline_kind,omitempty"` // DeadlineKindV1 short name; empty when none
+	NextDeadlineHeight uint64 `json:"next_deadline_height,omitempty"`
+}
+
+// ChallengeCloseHeight returns challenge_close_height while the challenge window is the task's
+// next deadline, and 0 otherwise.
+func (s TaskStage) ChallengeCloseHeight() uint64 {
+	if s.NextDeadlineKind != "CHALLENGE_WINDOW_CLOSE" {
+		return 0
+	}
+	return s.NextDeadlineHeight
 }
 
 type FullResultRevealFact struct {
@@ -677,8 +686,6 @@ type OnChainTask struct {
 	InferReceipt       InferReceiptState       `json:"infer_receipt"`
 	VerifierAssignment VerifierAssignmentState `json:"verifier_assignment"`
 	Settlement         TaskSettlementState     `json:"settlement"`
-	// RoundSummary is TaskRoundSummaryState from the active bundle; empty for a compacted task.
-	RoundSummary TaskRoundSummary `json:"round_summary"`
 	// ReceiptAccepted comes from TaskCoreState.receipt_status: the chain has accepted the InferReceipt.
 	// The InferReceipt itself is carried by the separate QueryInferReceipt, not by QueryTask; the
 	// OPEN_VERIFY submit point needs only this one bit.

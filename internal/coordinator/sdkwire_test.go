@@ -263,25 +263,27 @@ func TestPrepareChallengeListsNoRequiredEvidence(t *testing.T) {
 	}
 }
 
-// Inside the window a round still cannot open before round 1 has closed, while a round is open,
-// or once the chain's round limit is reached (06 §5, §9).
-func TestPrepareChallengeFollowsChainRoundSummary(t *testing.T) {
+// The window is open only while TaskStage reports the challenge window close as the next
+// deadline: not before round 1 closes, not while a round is open or the task is settling, and not
+// when the round limit allows no second round (06 §5, §9).
+func TestPrepareChallengeFollowsChainTaskStage(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*chaincli.TaskRoundSummary)
+		name      string
+		configure func(*chainFactsFake)
 	}{
-		{name: "round 1 not closed", mutate: func(r *chaincli.TaskRoundSummary) {
-			*r = chaincli.TaskRoundSummary{}
+		{name: "no deadline", configure: func(f *chainFactsFake) { f.stage = chaincli.TaskStage{FinalityStatus: "PENDING"} }},
+		{name: "round deadline", configure: func(f *chainFactsFake) {
+			f.stage = chaincli.TaskStage{FinalityStatus: "PENDING", NextDeadlineKind: "VERIFY_COMMIT", NextDeadlineHeight: 100}
 		}},
-		{name: "round open", mutate: func(r *chaincli.TaskRoundSummary) { r.OpenRoundCount = 1 }},
-		{name: "round limit reached", mutate: func(r *chaincli.TaskRoundSummary) { r.MaxClosedRound = 2 }},
+		{name: "settling", configure: func(f *chainFactsFake) {
+			f.stage = chaincli.TaskStage{FinalityStatus: "PENDING", NextDeadlineKind: "TASK_SETTLEMENT", NextDeadlineHeight: 100}
+		}},
+		{name: "round limit", configure: func(f *chainFactsFake) { f.maxVerifyRound = 1 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			facts := newChallengeFacts(95, "PENDING")
-			task := facts.tasks[taskKey("session-1", "task-1")]
-			test.mutate(&task.RoundSummary)
-			facts.tasks[taskKey("session-1", "task-1")] = task
+			test.configure(facts)
 			c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
 			if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
 				t.Fatal(err)
@@ -314,20 +316,20 @@ func TestPrepareChallengeNeverReopensBelowObservedHeight(t *testing.T) {
 	}
 }
 
-// newChallengeFacts is a task whose round 1 closed at 90 with a challenge window up to 100,
-// as QueryTask reports it: finality from TaskCoreState, the window from TaskRoundSummaryState.
+// newChallengeFacts is a task whose round 1 has closed with a challenge window up to 100, as the
+// chain reports it: finality from QueryTask, the window from TaskStage.
 func newChallengeFacts(height uint64, status string) *chainFactsFake {
 	return &chainFactsFake{
 		height:         height,
 		maxVerifyRound: 2,
+		stage: chaincli.TaskStage{
+			FinalityStatus: status, NextDeadlineKind: "CHALLENGE_WINDOW_CLOSE", NextDeadlineHeight: 100,
+		},
 		tasks: map[string]chaincli.OnChainTask{
 			taskKey("session-1", "task-1"): {
 				SessionID: "session-1", TaskID: "task-1",
 				State: types.Settled, TaskVerdict: types.VerdictPass,
 				Settlement: chaincli.TaskSettlementState{FinalityStatus: status},
-				RoundSummary: chaincli.TaskRoundSummary{
-					MaxClosedRound: 1, ChallengeOpenHeight: 90, ChallengeCloseHeight: 100,
-				},
 			},
 		},
 	}
@@ -346,6 +348,7 @@ func TestPrepareChallengeFailsClosedWhenChainFactsUnavailable(t *testing.T) {
 			f.tasks[taskKey("session-1", "task-1")] = task
 		}},
 		{name: "challenge params", configure: func(f *chainFactsFake) { f.paramsErr = errors.New("params unavailable") }},
+		{name: "task stage", configure: func(f *chainFactsFake) { f.stageErr = errors.New("stage unavailable") }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

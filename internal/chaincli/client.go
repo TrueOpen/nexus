@@ -375,6 +375,28 @@ func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 	return limit, nil
 }
 
+// QueryTaskStage reads task.v1.Query/TaskStage. A task the chain does not know returns ErrNotFound.
+func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
+	if err != nil {
+		return TaskStage{}, fmt.Errorf("query task stage task=%q: %w", taskID, err)
+	}
+	resp, err := c.taskQuery.TaskStage(ctx, connect.NewRequest(&taskv1.QueryTaskStageRequest{TaskId: id}))
+	if err != nil {
+		return TaskStage{}, applicationQueryError("task stage", err)
+	}
+	stage := resp.Msg.GetStage()
+	if stage == nil || !bytes.Equal(stage.GetTaskId(), id) {
+		return TaskStage{}, fmt.Errorf("query task stage: response task does not match request")
+	}
+	result := TaskStage{FinalityStatus: finalityStatusName(stage.GetFinalityStatus())}
+	if kind := stage.GetNextDeadlineKind(); kind != taskv1.DeadlineKindV1_DEADLINE_KIND_V1_UNSPECIFIED {
+		result.NextDeadlineKind = enumShortName("DEADLINE_KIND_V1_", kind)
+		result.NextDeadlineHeight = stage.GetNextDeadlineHeight()
+	}
+	return result, nil
+}
+
 func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error) {
 	if strings.TrimSpace(modelID) == "" || strings.TrimSpace(modelID) != modelID || profileVersion == 0 {
 		return ProfileState{}, fmt.Errorf("query profile: model_id and profile_version are required and canonical")
@@ -618,7 +640,7 @@ func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error
 	if resp.Msg == nil {
 		return OnChainTask{}, fmt.Errorf("query task session=%q task=%q: empty response", key.SessionID, key.TaskID)
 	}
-	return c.mapTask(key, resp.Msg)
+	return c.mapTask(ctx, key, resp.Msg)
 }
 
 // QuerySettlementBuildFacts has no corresponding RPC in the frozen contract: §16 no
@@ -683,7 +705,7 @@ func (c *client) QueryTimeoutBucket(ctx context.Context, bucketKey string, versi
 //
 // Once the chain has compacted a task the response carries the terminal summary instead,
 // mapped by mapTerminalTask with Compacted set.
-func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnChainTask, error) {
+func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.QueryTaskResponse) (OnChainTask, error) {
 	if terminal := response.GetTask().GetTerminal(); terminal != nil {
 		return mapTerminalTask(key, terminal)
 	}
@@ -721,16 +743,6 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 		},
 	}
 
-	if summary := bundle.GetRoundSummary(); summary != nil {
-		if len(summary.GetTaskId()) != 0 && hex.EncodeToString(summary.GetTaskId()) != key.TaskID {
-			return OnChainTask{}, fmt.Errorf("query task: round summary key does not match request")
-		}
-		result.RoundSummary = TaskRoundSummary{
-			MaxClosedRound: summary.GetMaxClosedRound(), OpenRoundCount: summary.GetOpenRoundCount(),
-			ChallengeOpenHeight: summary.GetChallengeOpenHeight(), ChallengeCloseHeight: summary.GetChallengeCloseHeight(),
-		}
-	}
-
 	if assignment := bundle.GetAssignment(); assignment != nil {
 		if hex.EncodeToString(assignment.GetTaskId()) != key.TaskID {
 			return OnChainTask{}, fmt.Errorf("query task: assignment key does not match request")
@@ -754,13 +766,18 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 
 	// Since wire v0.4.1 the bundle is published per round (round1 / round2). The coordinator
 	// view (Verifiers, VerifierAssignment, Deadlines) is round 1 only; VerifierRounds carries
-	// both rounds for task data authorization.
+	// both rounds for task data authorization. The Keeper fills only round 1 in QueryTask, so
+	// the challenge round's assignment is read on its own.
+	round2, err := c.challengeRoundAssignment(ctx, core, bundle)
+	if err != nil {
+		return OnChainTask{}, err
+	}
 	for _, entry := range []struct {
 		round        uint32
 		verification *taskv1.VerifierAssignmentState
 	}{
 		{1, bundle.GetRound1VerifierAssignment()},
-		{2, bundle.GetRound2VerifierAssignment()},
+		{2, round2},
 	} {
 		verification := entry.verification
 		if verification == nil {
@@ -856,6 +873,34 @@ func mapTerminalTask(key TaskKey, summary *taskv1.TaskTerminalSummaryState) (OnC
 		result.FailureClass = enumShortName("TASK_FAILURE_CLASS_", class)
 	}
 	return result, nil
+}
+
+// challengeRoundAssignment returns the round 2 (challenge round) verifier assignment. A challenge
+// round can exist only after round 1 has closed: the Keeper sets effective_verify_round to 1 when
+// one opens (06 §5, §7), and once the task is settling or terminal no round reads data any more.
+// Otherwise it is read with task.v1.Query/VerifierAssignment; not found means no round 2 yet.
+func (c *client) challengeRoundAssignment(ctx context.Context, core *taskv1.TaskCoreState, bundle *taskv1.TaskActiveBundleV1) (*taskv1.VerifierAssignmentState, error) {
+	if round2 := bundle.GetRound2VerifierAssignment(); round2 != nil {
+		return round2, nil
+	}
+	switch core.GetTaskPhase() {
+	case taskv1.TaskPhase_TASK_PHASE_SETTLING, taskv1.TaskPhase_TASK_PHASE_SETTLED, taskv1.TaskPhase_TASK_PHASE_FAILED:
+		return nil, nil
+	}
+	if core.GetEffectiveVerifyRound() < 1 {
+		return nil, nil
+	}
+	resp, err := c.taskQuery.VerifierAssignment(ctx, connect.NewRequest(&taskv1.QueryVerifierAssignmentRequest{
+		TaskId: core.GetTaskId(), VerifyRound: 2,
+	}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return nil, nil
+		}
+		return nil, applicationQueryError("round 2 verifier assignment", err)
+	}
+	assignment := resp.Msg.GetAssignment()
+	return assignment, nil
 }
 
 func settlementStatusName(status taskv1.SettlementStatus) string {
