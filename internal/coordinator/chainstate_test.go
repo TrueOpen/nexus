@@ -35,6 +35,8 @@ type chainFactsFake struct {
 	paramsErr      error
 	stage          chaincli.TaskStage
 	stageErr       error
+	factsErr       error
+	factsCalls     int
 }
 
 func (f *chainFactsFake) QueryTaskStage(context.Context, string) (chaincli.TaskStage, error) {
@@ -101,7 +103,46 @@ func (f *chainFactsFake) calls() int {
 func (f *chainFactsFake) QuerySettlementBuildFacts(context.Context, chaincli.TaskKey) (chaincli.SettlementBuildFacts, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.factsCalls++
+	if f.factsErr != nil {
+		return chaincli.SettlementBuildFacts{}, f.factsErr
+	}
 	return chaincli.SettlementBuildFacts{SnapshotHeight: f.height}, nil
+}
+
+// The chain has no settlement build facts query (chaincli returns ErrNotSupportedOnChain). A
+// verifying task still reconciles instead of failing every block; a real query failure does not.
+func TestReconcileWithoutSettlementFactsWhenChainHasNone(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		err      error
+		observed bool
+	}{
+		{name: "unsupported", err: chaincli.ErrNotSupportedOnChain, observed: true},
+		{name: "unavailable", err: errors.New("endpoint unavailable"), observed: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			facts := &chainFactsFake{
+				height:   100,
+				factsErr: test.err,
+				tasks: map[string]chaincli.OnChainTask{
+					taskKey("session-1", "task-1"): {
+						SessionID: "session-1", TaskID: "task-1", State: types.Verifying, Status: "REVEALING",
+					},
+				},
+			}
+			c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
+			if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+				t.Fatal(err)
+			}
+			if got := c.reconcileTask("session-1", "task-1", 0, "test", nil); got != test.observed {
+				t.Fatalf("reconcile observed = %v, want %v", got, test.observed)
+			}
+			if facts.factsCalls != 1 {
+				t.Fatalf("settlement facts queried %d times", facts.factsCalls)
+			}
+		})
+	}
 }
 
 func eventually(t *testing.T, predicate func() bool) {

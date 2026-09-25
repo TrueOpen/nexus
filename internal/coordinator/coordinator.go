@@ -67,6 +67,7 @@ type Coordinator struct {
 	query           TaskQuerier
 	settlementFacts SettlementFactsQuerier
 	challenge       ChallengeQuerier
+	inferReceipts   InferReceiptQuerier
 	taskEvents      chaincli.TaskEventTracker
 	txQuery         TxQuerier
 	height          HeightQuerier
@@ -132,6 +133,8 @@ type Coordinator struct {
 	reconcileStarted    chan struct{}
 	reconcileStartOnce  sync.Once
 	reconcileStopOnce   sync.Once
+	// settlementFactsGone logs once that the chain has no settlement build facts query.
+	settlementFactsGone sync.Once
 	reconcileRetryBase  time.Duration
 	reconcileRetryMax   time.Duration
 }
@@ -156,6 +159,11 @@ type TaskQuerier interface {
 
 type SettlementFactsQuerier interface {
 	QuerySettlementBuildFacts(context.Context, chaincli.TaskKey) (chaincli.SettlementBuildFacts, error)
+}
+
+// InferReceiptQuerier reads the hashes of a task's accepted InferReceipt.
+type InferReceiptQuerier interface {
+	QueryInferReceipt(context.Context, string) (chaincli.AcceptedInferReceipt, error)
 }
 
 // ChallengeQuerier reads the chain's verification round limit and a task's challenge window
@@ -214,6 +222,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 		c.query = query
 		c.settlementFacts, _ = query.(SettlementFactsQuerier)
 		c.challenge, _ = query.(ChallengeQuerier)
+		c.inferReceipts, _ = query.(InferReceiptQuerier)
 	}
 }
 
@@ -266,6 +275,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 		query:              chain,
 		settlementFacts:    chain,
 		challenge:          chain,
+		inferReceipts:      chain,
 		height:             chain,
 		relay:              rl,
 		kv:                 store,
@@ -1631,6 +1641,9 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		facts, factsErr := c.settlementFacts.QuerySettlementBuildFacts(factsCtx, chaincli.TaskKey{SessionID: sessionID, TaskID: taskID})
 		factsCancel()
 		if factsErr != nil {
+			if c.settlementFactsUnsupported(factsErr) {
+				return taskNotificationsObserved(snapshot, nil, notifications)
+			}
 			c.log.Warn("settlement facts reconciliation query failed", "task_id", taskID, "reason", reason, "err", factsErr)
 			return false
 		}
@@ -1642,6 +1655,19 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		settlementFacts = &facts
 	}
 	return taskNotificationsObserved(snapshot, settlementFacts, notifications)
+}
+
+// settlementFactsUnsupported reports whether err says the chain has no settlement build facts
+// query. That is a property of the node API, not a transient failure, so callers reconcile without
+// the facts instead of retrying every block, and it is logged once.
+func (c *Coordinator) settlementFactsUnsupported(err error) bool {
+	if !errors.Is(err, chaincli.ErrNotSupportedOnChain) {
+		return false
+	}
+	c.settlementFactsGone.Do(func() {
+		c.log.Debug("settlement build facts are not available on this chain; reconciling without them", "err", err)
+	})
+	return true
 }
 
 func taskNotificationsObserved(snapshot chaincli.OnChainTask, settlementFacts *chaincli.SettlementBuildFacts, notifications []chaincli.ChainEvent) bool {
@@ -1777,6 +1803,24 @@ func (c *Coordinator) reconcileMissingPendingTask(fsm *taskFSM, eventHeight int6
 	return true
 }
 
+// fillAcceptedReceipt gives a Builder that did not receive the Worker's signed receipt the
+// accepted output_hash and infer_receipt_hash from the chain. The Worker hands its receipt to
+// one Builder only, and without these hashes the others drop every Verifier handraise. It
+// does not make the output or evidence available on this Builder.
+func (c *Coordinator) fillAcceptedReceipt(fsm *taskFSM) {
+	if c.inferReceipts == nil || !fsm.needsAcceptedReceipt() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+	receipt, err := c.inferReceipts.QueryInferReceipt(ctx, fsm.taskID)
+	cancel()
+	if err != nil {
+		c.log.Warn("accepted infer receipt query failed", "task_id", fsm.taskID, "err", err)
+		return
+	}
+	fsm.setAcceptedReceipt(receipt)
+}
+
 func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
 	// task_hash is a consensus fact and may only come from on-chain query/event. Once recorded, subsequent
 	// Worker proposals for the same task can take the ExistingTaskRefV1 branch per §4.2.1.
@@ -1824,6 +1868,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	// "verifiers decided" are two different facts, the former only opens the verify window.
 	if (state == types.Assigned || state == types.Verifying) &&
 		(snapshot.ReceiptAccepted || snapshot.InferReceipt.InferReceiptHash != "") {
+		c.fillAcceptedReceipt(fsm)
 		fsm.onInferReceiptAccepted()
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also

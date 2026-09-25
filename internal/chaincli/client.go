@@ -375,6 +375,30 @@ func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 	return limit, nil
 }
 
+// QueryInferReceipt reads the output_hash and infer_receipt_hash of the task's accepted
+// InferReceipt. A task without an accepted receipt returns ErrNotFound.
+func (c *client) QueryInferReceipt(ctx context.Context, taskID string) (AcceptedInferReceipt, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
+	if err != nil {
+		return AcceptedInferReceipt{}, fmt.Errorf("query infer receipt task=%q: %w", taskID, err)
+	}
+	resp, err := c.taskQuery.InferReceipt(ctx, connect.NewRequest(&taskv1.QueryInferReceiptRequest{TaskId: id}))
+	if err != nil {
+		return AcceptedInferReceipt{}, applicationQueryError("infer receipt", err)
+	}
+	receipt := resp.Msg.GetReceipt()
+	if receipt == nil || !bytes.Equal(receipt.GetTaskId(), id) {
+		return AcceptedInferReceipt{}, fmt.Errorf("query infer receipt: response task does not match request")
+	}
+	if len(receipt.GetOutputHash()) != 32 || len(receipt.GetInferReceiptHash()) != 32 {
+		return AcceptedInferReceipt{}, fmt.Errorf("query infer receipt: output_hash and infer_receipt_hash must be 32 bytes")
+	}
+	return AcceptedInferReceipt{
+		OutputHash:       bytes.Clone(receipt.GetOutputHash()),
+		InferReceiptHash: bytes.Clone(receipt.GetInferReceiptHash()),
+	}, nil
+}
+
 // QueryTaskStage reads task.v1.Query/TaskStage. A task the chain does not know returns ErrNotFound.
 func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error) {
 	id, err := nodecontract.Hash32Bytes("task_id", taskID)
