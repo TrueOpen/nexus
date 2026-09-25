@@ -81,8 +81,12 @@ type Coordinator struct {
 	mu           sync.RWMutex
 	tasks        map[string]*taskFSM // key = session_id|task_id
 	trackedTasks map[string]chaincli.TaskKey
-	// acceptedOutputs keeps only terminal-task hashes needed by outputdelivery
-	// restart reconciliation after the FSM has been removed.
+	// Terminal task state has three layers. The NSTerminalTask KV marker is the durable fact that a
+	// task is terminal and who receives its output; it is never deleted (taskdata retention relies
+	// on it). terminalTasks, acceptedOutputs, outputFinalized and the task's journal are in-memory
+	// caches kept only while outputdelivery holds the task's tombstone, and are dropped when that
+	// tombstone expires (releaseTerminalTask). terminalTasks is not preloaded at startup: a miss
+	// falls back to the KV marker (terminalRecipient).
 	acceptedOutputs map[string][]byte
 	terminalTasks   map[string]string
 	// Terminal snapshots remain durable until outputdelivery has reconciled
@@ -92,7 +96,7 @@ type Coordinator struct {
 	outputFinalized       map[string]struct{}
 
 	jmu      sync.Mutex
-	journals map[string]*journal // per-task event journal; kept after task close for GetTaskEvents (GC TODO)
+	journals map[string]*journal // per-task event journal; kept after task close until its tombstone expires
 
 	identity  signer.Signer // for credential issuance (nil = dev mode, unsigned credentials)
 	registry  BuilderRegistry
@@ -314,6 +318,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 	c.outputRecoveryPending = c.outputs != nil
 	if c.outputs != nil {
 		c.outputs.SetTerminationObserver(c.onOutputFinalized)
+		c.outputs.SetTombstoneObserver(c.releaseTerminalTask)
 	}
 	return c
 }
@@ -557,9 +562,10 @@ func (c *Coordinator) beginCallback() bool {
 func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 	key := taskKey(o.SessionID, o.TaskID)
 	hadInlinePayload := len(o.Payload) > 0
-	c.mu.RLock()
-	_, alreadyTerminal := c.terminalTasks[key]
-	c.mu.RUnlock()
+	_, alreadyTerminal, err := c.terminalRecipient(o.SessionID, o.TaskID)
+	if err != nil {
+		return fmt.Errorf("read terminal task marker: %w", err)
+	}
 	if alreadyTerminal {
 		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
 		return nil
@@ -869,7 +875,10 @@ func (c *Coordinator) SubscribeOutput(ctx context.Context, sessionID, taskID, re
 		owner = fsm.user
 		fsm.mu.Unlock()
 	} else if !c.outputs.Known(sessionID, taskID) {
-		recipient, known := c.terminalRecipient(sessionID, taskID)
+		recipient, known, err := c.terminalRecipient(sessionID, taskID)
+		if err != nil {
+			return types.PlaintextOutput{}, err
+		}
 		if !known {
 			return types.PlaintextOutput{}, types.ErrTaskNotFound
 		}
@@ -901,7 +910,10 @@ func (c *Coordinator) AckOutput(_ context.Context, sessionID, taskID, outputID, 
 			return types.OutputAck{}, outputdelivery.ErrUnauthorized
 		}
 	} else if !c.outputs.Known(sessionID, taskID) {
-		recipient, known := c.terminalRecipient(sessionID, taskID)
+		recipient, known, err := c.terminalRecipient(sessionID, taskID)
+		if err != nil {
+			return types.OutputAck{}, err
+		}
 		if !known {
 			return types.OutputAck{}, types.ErrTaskNotFound
 		}
@@ -923,7 +935,9 @@ func (c *Coordinator) TaskOwner(_ context.Context, sessionID, taskID string) (st
 		fsm.mu.Unlock()
 		return owner, nil
 	}
-	if recipient, known := c.terminalRecipient(sessionID, taskID); known {
+	if recipient, known, err := c.terminalRecipient(sessionID, taskID); err != nil {
+		return "", err
+	} else if known {
 		return recipient, nil
 	}
 	return "", types.ErrTaskNotFound
@@ -954,11 +968,47 @@ func (c *Coordinator) IsTaskTerminal(sessionID, taskID string) bool {
 	return fsm.state == types.Closed || fsm.state == types.Failed
 }
 
-func (c *Coordinator) terminalRecipient(sessionID, taskID string) (string, bool) {
+// terminalRecipient reports whether the task has a terminal marker and who receives its output.
+// The in-memory map is only a cache; a miss reads the durable KV marker without re-caching it, so
+// a released task does not grow the map again.
+func (c *Coordinator) terminalRecipient(sessionID, taskID string) (string, bool, error) {
+	return c.terminalMarker(taskKey(sessionID, taskID))
+}
+
+func (c *Coordinator) terminalMarker(key string) (string, bool, error) {
 	c.mu.RLock()
-	recipient, ok := c.terminalTasks[taskKey(sessionID, taskID)]
+	recipient, ok := c.terminalTasks[key]
 	c.mu.RUnlock()
-	return recipient, ok
+	if ok {
+		return recipient, true, nil
+	}
+	raw, found, err := c.kv.GetWithError(kv.NSTerminalTask, key)
+	if err != nil || !found {
+		return "", false, err
+	}
+	var record terminalTaskRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.Version != terminalTaskVersion {
+		return "", false, fmt.Errorf("invalid terminal task marker %q", key)
+	}
+	return record.Recipient, true, nil
+}
+
+// releaseTerminalTask drops the in-memory state kept for a terminal task once outputdelivery has
+// deleted its tombstone. The KV terminal marker stays.
+func (c *Coordinator) releaseTerminalTask(sessionID, taskID string) {
+	key := taskKey(sessionID, taskID)
+	c.mu.Lock()
+	if _, active := c.tasks[key]; active {
+		c.mu.Unlock()
+		return
+	}
+	delete(c.terminalTasks, key)
+	delete(c.acceptedOutputs, key)
+	delete(c.outputFinalized, key)
+	c.mu.Unlock()
+	c.jmu.Lock()
+	delete(c.journals, key)
+	c.jmu.Unlock()
 }
 
 // CompleteOutputRecovery releases terminal snapshots only after outputdelivery
@@ -1295,8 +1345,11 @@ func (c *Coordinator) trackTaskEvents(key string, fsm *taskFSM) error {
 func (c *Coordinator) removeTask(key string) string {
 	c.mu.RLock()
 	fsm := c.tasks[key]
-	existingRecipient, alreadyTerminal := c.terminalTasks[key]
 	c.mu.RUnlock()
+	existingRecipient, alreadyTerminal, err := c.terminalMarker(key)
+	if err != nil {
+		c.log.Warn("terminal task marker unreadable; rewriting it", "key", key, "err", err)
+	}
 	var accepted []byte
 	recipient := existingRecipient
 	if fsm != nil {
@@ -1328,6 +1381,8 @@ func (c *Coordinator) removeTask(key string) string {
 	return recipient
 }
 
+// abandonTask drops a task that never reached the chain. Its journal is kept so the user can see
+// why it was rejected; with no output tombstone nothing releases it (a known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 	removed := false
 	var trackedKey chaincli.TaskKey
@@ -1398,7 +1453,7 @@ func (c *Coordinator) terminalMarkerDurable(key string) bool {
 	c.mu.RLock()
 	recipient, known := c.terminalTasks[key]
 	c.mu.RUnlock()
-	return known && record.Recipient == recipient
+	return !known || record.Recipient == recipient
 }
 
 func (c *Coordinator) OnChainEvent(ev chaincli.ChainEvent) {
