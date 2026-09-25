@@ -75,6 +75,8 @@ type Client interface {
 	QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error)
 	// QueryEvidenceCleanup reads whether the chain has started compacting a task (06 §10).
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
+	// QueryMaxVerifyRound reads task params challenge.max_verify_round (06 §5).
+	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
 	LatestHeight(ctx context.Context) (uint64, error)
 	QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error)
 	QuerySettlementBuildFacts(ctx context.Context, key TaskKey) (SettlementBuildFacts, error)
@@ -139,6 +141,11 @@ func (c *stubClient) QueryTaskBuilders(_ context.Context, key TaskKey) (TaskBuil
 		return TaskBuilderSelectionState{}, err
 	}
 	return TaskBuilderSelectionState{TaskID: key.TaskID}, ErrNotFound
+}
+
+// QueryMaxVerifyRound has no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) QueryMaxVerifyRound(context.Context) (uint32, error) {
+	return 0, ErrNotFound
 }
 
 // QueryEvidenceCleanup has no chain to ask in stub mode; ErrNotFound keeps every object on the

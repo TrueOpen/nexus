@@ -360,6 +360,21 @@ func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (Evide
 	}
 }
 
+// QueryMaxVerifyRound reads task params challenge.max_verify_round: the highest verification
+// round a task may reach, so a challenge round can open only while max_closed_round is below it
+// (06 §5).
+func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
+	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("task params", err)
+	}
+	limit := resp.Msg.GetParams().GetChallenge().GetMaxVerifyRound()
+	if limit == 0 {
+		return 0, fmt.Errorf("query task params: challenge.max_verify_round is zero")
+	}
+	return limit, nil
+}
+
 func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error) {
 	if strings.TrimSpace(modelID) == "" || strings.TrimSpace(modelID) != modelID || profileVersion == 0 {
 		return ProfileState{}, fmt.Errorf("query profile: model_id and profile_version are required and canonical")
@@ -704,6 +719,16 @@ func (c *client) mapTask(key TaskKey, response *taskv1.QueryTaskResponse) (OnCha
 			FinalityStatus:     finalityStatusName(core.GetFinalityStatus()),
 			TaskFinalityHeight: core.GetTaskFinalityHeight(),
 		},
+	}
+
+	if summary := bundle.GetRoundSummary(); summary != nil {
+		if len(summary.GetTaskId()) != 0 && hex.EncodeToString(summary.GetTaskId()) != key.TaskID {
+			return OnChainTask{}, fmt.Errorf("query task: round summary key does not match request")
+		}
+		result.RoundSummary = TaskRoundSummary{
+			MaxClosedRound: summary.GetMaxClosedRound(), OpenRoundCount: summary.GetOpenRoundCount(),
+			ChallengeOpenHeight: summary.GetChallengeOpenHeight(), ChallengeCloseHeight: summary.GetChallengeCloseHeight(),
+		}
 	}
 
 	if assignment := bundle.GetAssignment(); assignment != nil {

@@ -66,6 +66,7 @@ type Coordinator struct {
 	chainID         string
 	query           TaskQuerier
 	settlementFacts SettlementFactsQuerier
+	challengeLimit  ChallengeParamsQuerier
 	taskEvents      chaincli.TaskEventTracker
 	txQuery         TxQuerier
 	height          HeightQuerier
@@ -157,6 +158,11 @@ type SettlementFactsQuerier interface {
 	QuerySettlementBuildFacts(context.Context, chaincli.TaskKey) (chaincli.SettlementBuildFacts, error)
 }
 
+// ChallengeParamsQuerier reads the chain's verification round limit (06 §5).
+type ChallengeParamsQuerier interface {
+	QueryMaxVerifyRound(context.Context) (uint32, error)
+}
+
 type TxQuerier interface {
 	QueryTx(context.Context, []byte) (chaincli.TxResult, error)
 }
@@ -205,6 +211,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 	return func(c *Coordinator) {
 		c.query = query
 		c.settlementFacts, _ = query.(SettlementFactsQuerier)
+		c.challengeLimit, _ = query.(ChallengeParamsQuerier)
 	}
 }
 
@@ -256,6 +263,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 		chainID:            chainID,
 		query:              chain,
 		settlementFacts:    chain,
+		challengeLimit:     chain,
 		height:             chain,
 		relay:              rl,
 		kv:                 store,
@@ -1070,7 +1078,9 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 }
 
 // PrepareChallenge assembles challenge inputs (v1.5 §3.6): challenge window facts + suggested evidence list + estimate.
-// It submits no verdict; the actual challenge is submitted by the user via on-chain MsgUserChallenge.
+// It submits no verdict; the challenge itself is MsgOpenChallengeRound, which anyone may submit on
+// chain. A round can open while the task is not final, round 1 has closed, the chain height has
+// not passed challenge_close_height, no round is open and the round limit is not reached (06 §5, §9).
 func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, kind string) (types.ChallengePlan, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
@@ -1092,11 +1102,20 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, k
 	if task.SessionID != sessionID || task.TaskID != taskID {
 		return types.ChallengePlan{}, fmt.Errorf("%w: task scope mismatch", types.ErrChainStateUnavailable)
 	}
-	status := task.Settlement.OptimisticFinalityStatus
+	status := task.Settlement.FinalityStatus
 	switch status {
-	case "PENDING", "CHALLENGED", "FINAL", "OVERTURNED":
+	case "PENDING", "FINAL":
 	default:
 		return types.ChallengePlan{}, fmt.Errorf("%w: unknown finality status %q", types.ErrChainStateUnavailable, status)
+	}
+	if c.challengeLimit == nil {
+		return types.ChallengePlan{}, fmt.Errorf("%w: challenge params query is not configured", types.ErrChainStateUnavailable)
+	}
+	paramsCtx, cancelParams := context.WithTimeout(ctx, reconcileQueryTimeout)
+	maxVerifyRound, err := c.challengeLimit.QueryMaxVerifyRound(paramsCtx)
+	cancelParams()
+	if err != nil {
+		return types.ChallengePlan{}, fmt.Errorf("%w: query challenge params: %v", types.ErrChainStateUnavailable, err)
 	}
 	fsm.mu.Lock()
 	fsm.reconcile(task)
@@ -1104,22 +1123,21 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, k
 		fsm.mu.Unlock()
 		return types.ChallengePlan{}, fmt.Errorf("%w: persist task facts: %v", types.ErrChainStateUnavailable, err)
 	}
-	settlement := fsm.settlement
 	fsm.mu.Unlock()
-	challengeableStatus := settlement.OptimisticFinalityStatus == "PENDING" ||
-		settlement.OptimisticFinalityStatus == "CHALLENGED"
-	open := settlement.SettlementMode == "OPTIMISTIC" &&
-		settlement.SettlementID != "" &&
-		settlement.ChallengeCloseHeight != 0 &&
-		height <= settlement.ChallengeCloseHeight &&
-		challengeableStatus
+	rounds := task.RoundSummary
+	open := status == "PENDING" &&
+		rounds.ChallengeOpenHeight != 0 &&
+		rounds.ChallengeCloseHeight != 0 &&
+		height <= rounds.ChallengeCloseHeight &&
+		rounds.OpenRoundCount == 0 &&
+		rounds.MaxClosedRound < maxVerifyRound
 	evidence := []string{"output_package", "worker_reveal_receipt", "verify_result_receipts"}
 	if kind == "VERDICT_FRAUD_PROOF" {
 		evidence = []string{"settle_tx_ref", "task_evidence_root", "full_result_reveal_refs"}
 	}
 	return types.ChallengePlan{
 		ChallengeOpen:        open,
-		ChallengeCloseHeight: settlement.ChallengeCloseHeight,
+		ChallengeCloseHeight: rounds.ChallengeCloseHeight,
 		RequiredEvidence:     evidence,
 		EstimatedBond:        types.Coin{},
 		EstimatedGas:         challengeGasEstimate,

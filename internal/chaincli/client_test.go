@@ -648,6 +648,11 @@ type recordTaskQuery struct {
 	response        *taskv1.QueryTaskResponse
 	buildersRequest *taskv1.QueryTaskBuildersRequest
 	builders        *taskv1.QueryTaskBuildersResponse
+	params          *taskv1.QueryTaskParamsResponse
+}
+
+func (q *recordTaskQuery) Params(context.Context, *connect.Request[taskv1.QueryTaskParamsRequest]) (*connect.Response[taskv1.QueryTaskParamsResponse], error) {
+	return connect.NewResponse(q.params), nil
 }
 
 type recordLatestBlock struct {
@@ -827,6 +832,52 @@ func TestQueryTaskMapsCompactedTerminalSummary(t *testing.T) {
 		if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
 			t.Fatalf("%s: inconsistent terminal summary accepted", name)
 		}
+	}
+}
+
+// The active view carries the round summary that decides whether a challenge round can open.
+func TestQueryTaskMapsRoundSummary(t *testing.T) {
+	response := func(taskID []byte) *taskv1.QueryTaskResponse {
+		return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{
+			Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
+				Core: &taskv1.TaskCoreState{
+					TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, TaskPhase: taskv1.TaskPhase_TASK_PHASE_SETTLED,
+				},
+				RoundSummary: &taskv1.TaskRoundSummaryState{
+					TaskId: taskID, MaxClosedRound: 1, OpenRoundCount: 0,
+					ChallengeOpenHeight: proto.Uint64(100), ChallengeCloseHeight: proto.Uint64(140),
+				},
+			}},
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{response: response(testTaskIDBytes)}}
+	got, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := TaskRoundSummary{MaxClosedRound: 1, ChallengeOpenHeight: 100, ChallengeCloseHeight: 140}
+	if got.RoundSummary != want {
+		t.Fatalf("round summary = %+v, want %+v", got.RoundSummary, want)
+	}
+	c = &client{taskQuery: &recordTaskQuery{response: response(mustHash32("99"))}}
+	if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
+		t.Fatal("round summary for another task accepted")
+	}
+}
+
+func TestQueryMaxVerifyRoundReadsTaskParams(t *testing.T) {
+	params := func(limit uint32) *taskv1.QueryTaskParamsResponse {
+		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
+			Challenge: &taskv1.ChallengeParamsV1{MaxVerifyRound: limit},
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{params: params(2)}}
+	if got, err := c.QueryMaxVerifyRound(context.Background()); err != nil || got != 2 {
+		t.Fatalf("max verify round = %d, %v", got, err)
+	}
+	c = &client{taskQuery: &recordTaskQuery{params: params(0)}}
+	if _, err := c.QueryMaxVerifyRound(context.Background()); err == nil {
+		t.Fatal("zero max_verify_round accepted")
 	}
 }
 
