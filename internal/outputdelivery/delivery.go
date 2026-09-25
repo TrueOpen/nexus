@@ -64,6 +64,10 @@ type PreparedResolver func(sessionID, taskID string, outputHash []byte) bool
 type TaskTerminal func(sessionID, taskID string) bool
 type TerminationObserver func(sessionID, taskID string)
 
+// TombstoneObserver is told after a task's tombstone has been deleted at the end of its
+// retention period, so the caller can drop what it kept only for that tombstone.
+type TombstoneObserver func(sessionID, taskID string)
+
 type Manager interface {
 	Start(context.Context) error
 	Stop(context.Context) error
@@ -76,6 +80,7 @@ type Manager interface {
 	SetPreparedResolver(PreparedResolver)
 	SetTaskTerminal(TaskTerminal)
 	SetTerminationObserver(TerminationObserver)
+	SetTombstoneObserver(TombstoneObserver)
 }
 
 type Option func(*manager)
@@ -139,6 +144,7 @@ type manager struct {
 	prepared   PreparedResolver
 	terminal   TaskTerminal
 	terminated TerminationObserver
+	tombGone   TombstoneObserver
 }
 
 func New(log *slog.Logger, store kv.Store, cfg Config, opts ...Option) (Manager, error) {
@@ -574,6 +580,12 @@ func (m *manager) SetTerminationObserver(observer TerminationObserver) {
 	m.terminated = observer
 }
 
+func (m *manager) SetTombstoneObserver(observer TombstoneObserver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tombGone = observer
+}
+
 func (m *manager) notifyTerminations(finalized []pendingTermination) {
 	m.mu.Lock()
 	observer := m.terminated
@@ -864,6 +876,7 @@ func (m *manager) sweep() error {
 			continue
 		}
 		m.mu.Lock()
+		removed := false
 		current, ok := m.tombs[item.key]
 		if ok && current == item.tomb {
 			if err := m.store.Delete(kv.NSOutputTombstone, item.key); err != nil {
@@ -872,9 +885,14 @@ func (m *manager) sweep() error {
 				}
 			} else {
 				delete(m.tombs, item.key)
+				removed = true
 			}
 		}
+		observer := m.tombGone
 		m.mu.Unlock()
+		if removed && observer != nil {
+			observer(item.tomb.SessionID, item.tomb.TaskID)
+		}
 	}
 	return firstErr
 }

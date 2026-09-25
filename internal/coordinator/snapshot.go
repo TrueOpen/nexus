@@ -406,28 +406,18 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 	if err := c.retryPayloadCleanup(ctx); err != nil {
 		return err
 	}
-	var markerErr error
-	if err := c.kv.Scan(kv.NSTerminalTask, func(key string, value []byte) bool {
-		var record terminalTaskRecord
-		if key == "" || json.Unmarshal(value, &record) != nil || record.Version != terminalTaskVersion {
-			markerErr = fmt.Errorf("invalid terminal task marker %q", key)
-			return false
-		}
-		c.terminalTasks[key] = record.Recipient
-		return true
-	}); err != nil {
-		return fmt.Errorf("scan terminal task markers: %w", err)
-	}
-	if markerErr != nil {
-		return markerErr
-	}
-
+	// Terminal markers are not preloaded: terminalMarker reads them from KV on demand.
 	var snaps []taskSnapshot
 	var snapshotErr error
 	if err := c.kv.Scan(kv.NSTask, func(key string, val []byte) bool {
 		var sn taskSnapshot
 		if err := json.Unmarshal(val, &sn); err != nil {
-			if _, terminal := c.terminalTasks[key]; terminal {
+			_, terminal, markerErr := c.terminalMarker(key)
+			if markerErr != nil {
+				snapshotErr = fmt.Errorf("read terminal task marker %q: %w", key, markerErr)
+				return false
+			}
+			if terminal {
 				snapshotErr = fmt.Errorf("decode terminal task snapshot %q: %w", key, err)
 				return false
 			}
@@ -454,7 +444,10 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 
 	for _, sn := range snaps {
 		key := taskKey(sn.SessionID, sn.TaskID)
-		_, terminalMarked := c.terminalTasks[key]
+		_, terminalMarked, err := c.terminalMarker(key)
+		if err != nil {
+			return fmt.Errorf("recovery: read terminal task marker %s: %w", key, err)
+		}
 		c.journalFor(key).restoreEntries(sn.Events)
 		order := sn.Order
 		if order.SessionID == "" {

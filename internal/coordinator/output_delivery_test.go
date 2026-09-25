@@ -20,6 +20,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/relay"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -912,5 +913,110 @@ func TestCoordinatorCloseWritesTerminalMarkerBeforeOutputTerminate(t *testing.T)
 	}
 	if _, ok := store.Get(kv.NSTask, taskKey(session, task)); ok {
 		t.Fatal("task snapshot retained after close")
+	}
+}
+
+// When outputdelivery deletes an expired tombstone, the coordinator drops the in-memory state it
+// kept for that terminal task, while the durable terminal marker still answers who owns the task,
+// keeps order replays out, and lets taskdata retention delete the input.
+func TestCoordinatorReleasesTerminalTaskMemoryWithTombstone(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := kv.NewMemStore()
+	var clockMu sync.Mutex
+	now := time.Unix(1_800_000_000, 0)
+	clock := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return now
+	}
+	outputs, err := outputdelivery.New(log, store, outputdelivery.Config{
+		MaxBytes: 1 << 20, PlaintextTTL: 4 * time.Hour,
+		TombstoneTTL: 24 * time.Hour, SweepInterval: 5 * time.Millisecond,
+	}, outputdelivery.WithClock(clock))
+	if err != nil {
+		t.Fatalf("outputdelivery.New: %v", err)
+	}
+	c := New(
+		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		relay.NewMem(log), store, testBuilderSelf, testChainID, WithOutputDelivery(outputs),
+	)
+	c.submit = &fakeSubmitter{}
+	outputs.SetPreparedResolver(c.HasAcceptedOutput)
+	outputs.SetTaskTerminal(c.IsTaskTerminal)
+	if err := outputs.Start(context.Background()); err != nil {
+		t.Fatalf("output delivery Start: %v", err)
+	}
+	t.Cleanup(func() { _ = outputs.Stop(context.Background()) })
+	if err := c.CompleteOutputRecovery(); err != nil {
+		t.Fatalf("complete output recovery: %v", err)
+	}
+
+	const session, task, user = "session-release", "task-release", testUserAddress
+	key := taskKey(session, task)
+	driveOutputTestToAssigned(t, c, session, task, user)
+	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
+		SessionID: session, TaskID: task, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT, Height: 200,
+	})
+	held := func() (terminal, finalized, journal bool) {
+		c.mu.RLock()
+		_, terminal = c.terminalTasks[key]
+		_, finalized = c.outputFinalized[key]
+		c.mu.RUnlock()
+		c.jmu.Lock()
+		_, journal = c.journals[key]
+		c.jmu.Unlock()
+		return
+	}
+	if terminal, finalized, journal := held(); !terminal || !finalized || !journal {
+		t.Fatalf("closed task state held: terminal=%v finalized=%v journal=%v", terminal, finalized, journal)
+	}
+
+	clockMu.Lock()
+	now = now.Add(25 * time.Hour)
+	clockMu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		terminal, finalized, journal := held()
+		if !terminal && !finalized && !journal {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("state not released after tombstone expiry: terminal=%v finalized=%v journal=%v", terminal, finalized, journal)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	c.mu.RLock()
+	_, accepted := c.acceptedOutputs[key]
+	c.mu.RUnlock()
+	if accepted {
+		t.Fatal("accepted output hash not released")
+	}
+
+	if _, ok := store.Get(kv.NSTerminalTask, key); !ok {
+		t.Fatal("durable terminal marker was deleted")
+	}
+	if _, _, _, err := c.TaskEvents(context.Background(), session, task, 0); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("TaskEvents after release = %v", err)
+	}
+	if owner, err := c.TaskOwner(context.Background(), session, task); err != nil || owner != user {
+		t.Fatalf("TaskOwner after release = %q, %v", owner, err)
+	}
+	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, user)); err != nil {
+		t.Fatalf("replayed OnOrder: %v", err)
+	}
+	if _, err := c.TaskStatus(context.Background(), session, task); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("replayed order recreated the task: %v", err)
+	}
+	c.mu.RLock()
+	_, recached := c.terminalTasks[key]
+	c.mu.RUnlock()
+	if recached {
+		t.Fatal("marker lookup re-cached a released task")
+	}
+	terminated, err := c.HasTerminatedOrder(context.Background(), taskdata.ObjectKey{
+		Kind: taskdata.ObjectKindInput, SessionID: session, TaskID: task,
+	})
+	if err != nil || !terminated {
+		t.Fatalf("HasTerminatedOrder after release = %v, %v", terminated, err)
 	}
 }

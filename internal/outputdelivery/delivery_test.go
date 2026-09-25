@@ -797,6 +797,8 @@ func TestSweepRetainsTombstoneUntilTTLAndTaskTerminal(t *testing.T) {
 	*now = now.Add(testConfig().TombstoneTTL)
 	terminal := false
 	m.SetTaskTerminal(func(string, string) bool { return terminal })
+	var gone []string
+	m.SetTombstoneObserver(func(sessionID, taskID string) { gone = append(gone, sessionID+"|"+taskID) })
 	if err := m.sweep(); err != nil {
 		t.Fatalf("non-terminal sweep: %v", err)
 	}
@@ -804,12 +806,18 @@ func TestSweepRetainsTombstoneUntilTTLAndTaskTerminal(t *testing.T) {
 	if _, ok := store.Get(kv.NSOutputTombstone, key); !ok {
 		t.Fatal("active-task tombstone was deleted")
 	}
+	if len(gone) != 0 {
+		t.Fatalf("observer told about a retained tombstone: %v", gone)
+	}
 	terminal = true
 	if err := m.sweep(); err != nil {
 		t.Fatalf("terminal sweep: %v", err)
 	}
 	if _, ok := store.Get(kv.NSOutputTombstone, key); ok {
 		t.Fatal("terminal expired tombstone remains")
+	}
+	if len(gone) != 1 || gone[0] != "session-1|task-1" {
+		t.Fatalf("tombstone observer calls = %v", gone)
 	}
 }
 
