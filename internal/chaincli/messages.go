@@ -620,6 +620,15 @@ type TaskSettlementState struct {
 	BuilderOperatorAddress  string `json:"builder_operator_address,omitempty"`
 }
 
+// TaskRoundSummary is the part of TaskRoundSummaryState that decides whether a challenge round
+// can open (06 §5, §9). ChallengeOpenHeight and ChallengeCloseHeight are 0 until round 1 closes.
+type TaskRoundSummary struct {
+	MaxClosedRound       uint32 `json:"max_closed_round,omitempty"`
+	OpenRoundCount       uint32 `json:"open_round_count,omitempty"`
+	ChallengeOpenHeight  uint64 `json:"challenge_open_height,omitempty"`
+	ChallengeCloseHeight uint64 `json:"challenge_close_height,omitempty"`
+}
+
 type FullResultRevealFact struct {
 	Verifier       string `json:"verifier"`
 	AcceptedHeight uint64 `json:"accepted_height"`
@@ -668,6 +677,8 @@ type OnChainTask struct {
 	InferReceipt       InferReceiptState       `json:"infer_receipt"`
 	VerifierAssignment VerifierAssignmentState `json:"verifier_assignment"`
 	Settlement         TaskSettlementState     `json:"settlement"`
+	// RoundSummary is TaskRoundSummaryState from the active bundle; empty for a compacted task.
+	RoundSummary TaskRoundSummary `json:"round_summary"`
 	// ReceiptAccepted comes from TaskCoreState.receipt_status: the chain has accepted the InferReceipt.
 	// The InferReceipt itself is carried by the separate QueryInferReceipt, not by QueryTask; the
 	// OPEN_VERIFY submit point needs only this one bit.
