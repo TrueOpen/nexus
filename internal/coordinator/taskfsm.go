@@ -1642,9 +1642,10 @@ func (f *taskFSM) lifecycleBoundaryDue(height uint64) bool {
 	if f.state != types.Settled {
 		return false
 	}
+	// challenge_close_height is not a boundary of its own: without a challenge round it equals
+	// task_finality_height, and with one the task becomes final when the last round closes (06 §9).
 	s := f.settlement
-	return height == s.ChallengeCloseHeight ||
-		height == s.EvidenceCleanupHeight ||
+	return height == s.EvidenceCleanupHeight ||
 		height == s.TaskFinalityHeight ||
 		(s.MaxChallengeResolveDeadlineHeight != 0 && height == s.MaxChallengeResolveDeadlineHeight) ||
 		(s.ClaimableAfterHeight != 0 && height == s.ClaimableAfterHeight)

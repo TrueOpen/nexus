@@ -426,6 +426,20 @@ func TestPendingDeadlineBoundaryRequestsReconciliationAfterExpiry(t *testing.T) 
 	}
 }
 
+// A settled task is next due at its finality height; challenge_close_height is not a boundary.
+func TestSettledBoundaryIsFinalityNotChallengeClose(t *testing.T) {
+	fsm := &taskFSM{
+		state:      types.Settled,
+		settlement: chaincli.TaskSettlementState{ChallengeCloseHeight: 100, TaskFinalityHeight: 120},
+	}
+	if fsm.lifecycleBoundaryDue(100) {
+		t.Fatal("challenge close height requested reconciliation")
+	}
+	if !fsm.lifecycleBoundaryDue(120) {
+		t.Fatal("finality height did not request reconciliation")
+	}
+}
+
 func TestPendingTaskNotFoundBeforeDeadlineIsDebugNoise(t *testing.T) {
 	const sessionID, taskID = "session-pending", "task-pending"
 	facts := &chainFactsFake{height: 100, tasks: map[string]chaincli.OnChainTask{}}

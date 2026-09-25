@@ -1077,11 +1077,13 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 	return replay, live, cancel, nil
 }
 
-// PrepareChallenge assembles challenge inputs (v1.5 §3.6): challenge window facts + suggested evidence list + estimate.
+// PrepareChallenge assembles challenge inputs (v1.5 §3.6): challenge window facts + estimate.
 // It submits no verdict; the challenge itself is MsgOpenChallengeRound, which anyone may submit on
-// chain. A round can open while the task is not final, round 1 has closed, the chain height has
+// chain. The opener holds no evidence (06 §5): the round's Verifiers fetch the task
+// data themselves, so the plan lists no required evidence and the challenge kind does
+// not change it. A round can open while the task is not final, round 1 has closed, the chain height has
 // not passed challenge_close_height, no round is open and the round limit is not reached (06 §5, §9).
-func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, kind string) (types.ChallengePlan, error) {
+func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _ string) (types.ChallengePlan, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return types.ChallengePlan{}, ErrTaskNotFound
@@ -1131,14 +1133,9 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, k
 		height <= rounds.ChallengeCloseHeight &&
 		rounds.OpenRoundCount == 0 &&
 		rounds.MaxClosedRound < maxVerifyRound
-	evidence := []string{"output_package", "worker_reveal_receipt", "verify_result_receipts"}
-	if kind == "VERDICT_FRAUD_PROOF" {
-		evidence = []string{"settle_tx_ref", "task_evidence_root", "full_result_reveal_refs"}
-	}
 	return types.ChallengePlan{
 		ChallengeOpen:        open,
 		ChallengeCloseHeight: rounds.ChallengeCloseHeight,
-		RequiredEvidence:     evidence,
 		EstimatedBond:        types.Coin{},
 		EstimatedGas:         challengeGasEstimate,
 	}, nil

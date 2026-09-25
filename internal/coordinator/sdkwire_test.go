@@ -245,6 +245,24 @@ func TestPrepareChallengeUsesInclusiveChainHeightBoundary(t *testing.T) {
 	}
 }
 
+// The opener of a challenge round holds no evidence (06 §5), whatever kind the SDK names.
+func TestPrepareChallengeListsNoRequiredEvidence(t *testing.T) {
+	facts := newChallengeFacts(95, "PENDING")
+	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
+	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"", "RESULT", "VERDICT_FRAUD_PROOF"} {
+		plan, err := c.PrepareChallenge(context.Background(), "session-1", "task-1", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.RequiredEvidence) != 0 {
+			t.Fatalf("kind %q: required evidence = %v", kind, plan.RequiredEvidence)
+		}
+	}
+}
+
 // Inside the window a round still cannot open before round 1 has closed, while a round is open,
 // or once the chain's round limit is reached (06 §5, §9).
 func TestPrepareChallengeFollowsChainRoundSummary(t *testing.T) {
