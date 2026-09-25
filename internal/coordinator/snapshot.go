@@ -68,6 +68,10 @@ type taskSnapshot struct {
 	// ReceiptOnChain: the chain has accepted the InferReceipt. Must survive recovery, otherwise a restart would wait
 	// again for an event that will never come while the verify window is already open on-chain.
 	ReceiptOnChain bool `json:"receipt_on_chain,omitempty"`
+	// AcceptedOutputHash / AcceptedReceiptHash: the chain's accepted receipt hashes, kept when
+	// this Builder did not receive the signed receipt.
+	AcceptedOutputHash  []byte `json:"accepted_output_hash,omitempty"`
+	AcceptedReceiptHash []byte `json:"accepted_receipt_hash,omitempty"`
 
 	Verdict types.TaskVerdict `json:"verdict,omitempty"`
 
@@ -127,8 +131,10 @@ func (f *taskFSM) save() error {
 		SampleSeed:  f.sampleSeed,
 		Deadlines:   f.deadlines,
 
-		OutputHash:     f.outputHash,
-		ReceiptOnChain: f.receiptOnChain,
+		OutputHash:          f.outputHash,
+		ReceiptOnChain:      f.receiptOnChain,
+		AcceptedOutputHash:  f.acceptedOutputHash,
+		AcceptedReceiptHash: f.acceptedReceiptHash,
 
 		VerifierHandraisesProposed: f.proposedVerifierOperators(),
 
@@ -220,6 +226,8 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	f.deadlines = sn.Deadlines
 	f.outputHash = sn.OutputHash
 	f.receiptOnChain = sn.ReceiptOnChain
+	f.acceptedOutputHash = sn.AcceptedOutputHash
+	f.acceptedReceiptHash = sn.AcceptedReceiptHash
 	for _, operator := range sn.VerifierHandraisesProposed {
 		f.verifierHRProposed[operator] = true
 	}
@@ -485,9 +493,11 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 						})
 						factsCancel()
 						if factsErr != nil {
-							c.log.Warn("recovery: settlement facts query failed, keeping local reveal state",
-								"task_id", sn.TaskID, "err", factsErr)
-							freshTaskFacts = false
+							if !c.settlementFactsUnsupported(factsErr) {
+								c.log.Warn("recovery: settlement facts query failed, keeping local reveal state",
+									"task_id", sn.TaskID, "err", factsErr)
+								freshTaskFacts = false
+							}
 						} else if err := fsm.reconcileSettlementFacts(facts, false); err != nil {
 							c.log.Warn("recovery: settlement facts invalid, keeping local reveal state",
 								"task_id", sn.TaskID, "err", err)

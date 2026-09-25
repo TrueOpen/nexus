@@ -620,6 +620,13 @@ type TaskSettlementState struct {
 	BuilderOperatorAddress  string `json:"builder_operator_address,omitempty"`
 }
 
+// AcceptedInferReceipt is the part of the on-chain InferReceiptState that a Builder which did not
+// receive the signed receipt needs: the hashes every Verifier handraise binds.
+type AcceptedInferReceipt struct {
+	OutputHash       []byte
+	InferReceiptHash []byte
+}
+
 // TaskStage is task.v1.Query/TaskStage: the task's statuses and its next deadline. While round 1
 // has closed and no challenge round is open, the next deadline is the challenge window close
 // (06 §9); QueryTask does not carry the round summary that holds it.

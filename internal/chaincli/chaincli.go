@@ -79,6 +79,8 @@ type Client interface {
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
 	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
+	// QueryInferReceipt reads the hashes of the task's accepted InferReceipt (task.v1.Query/InferReceipt).
+	QueryInferReceipt(ctx context.Context, taskID string) (AcceptedInferReceipt, error)
 	LatestHeight(ctx context.Context) (uint64, error)
 	QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error)
 	QuerySettlementBuildFacts(ctx context.Context, key TaskKey) (SettlementBuildFacts, error)
@@ -148,6 +150,11 @@ func (c *stubClient) QueryTaskBuilders(_ context.Context, key TaskKey) (TaskBuil
 // QueryMaxVerifyRound has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) QueryMaxVerifyRound(context.Context) (uint32, error) {
 	return 0, ErrNotFound
+}
+
+// QueryInferReceipt has no chain to ask in stub mode.
+func (c *stubClient) QueryInferReceipt(context.Context, string) (AcceptedInferReceipt, error) {
+	return AcceptedInferReceipt{}, ErrNotFound
 }
 
 // QueryTaskStage has no chain to ask in stub mode; callers fail closed.

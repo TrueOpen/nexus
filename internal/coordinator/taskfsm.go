@@ -106,7 +106,11 @@ type taskFSM struct {
 	// message and cannot hand-raise without an on-chain receipt, while OPEN_VERIFY is Core
 	// tier and sent once. At least one block lies between accepting the receipt locally and
 	// the transaction being included.
-	receiptOnChain      bool
+	receiptOnChain bool
+	// acceptedOutputHash / acceptedReceiptHash come from the chain's accepted InferReceipt when
+	// this Builder did not receive the signed receipt (see acceptedReceiptHashesLocked).
+	acceptedOutputHash  []byte
+	acceptedReceiptHash []byte
 	openVerifyPublished bool // OPEN_VERIFY already sent by this process; reconcile reruns do not resend
 	// settleSubmittedHeight is the chain height at which this node last sent a settlement
 	// transaction (0 = not sent this round). A "submitted" boolean is not used: a tx that
@@ -473,6 +477,9 @@ func (f *taskFSM) onInferReceiptAccepted() {
 }
 
 // openVerifyPayload builds this message's payload; nil means it must not be sent yet.
+// Only a Builder that holds the Worker's signed receipt sends it: the receipt reaches this
+// Builder together with the finalized output, and Verifiers fetch task data from the sender.
+// Hashes taken from the chain do not make this Builder data-ready (04 §326).
 func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
 	if len(f.outputHash) == 0 || f.winner == "" {
 		return nil
@@ -513,7 +520,43 @@ func (f *taskFSM) validateInferReceiptLocked(receipt types.InferReceiptSubmissio
 	if len(f.outputHash) > 0 && !reflect.DeepEqual(f.inferReceipt, receipt) {
 		return fmt.Errorf("%w: conflicting infer receipt", types.ErrInvalidArgument)
 	}
+	if len(f.acceptedReceiptHash) > 0 && (!bytes.Equal(receipt.InferReceiptHash, f.acceptedReceiptHash) ||
+		!bytes.Equal(receipt.OutputHash, f.acceptedOutputHash)) {
+		return fmt.Errorf("%w: infer receipt differs from the one the chain accepted", types.ErrInvalidArgument)
+	}
 	return nil
+}
+
+// acceptedReceiptHashesLocked returns the output_hash and infer_receipt_hash of the accepted
+// receipt: from the signed receipt this Builder received, or else from the chain once it has
+// accepted one. The chain hashes only check Verifier handraises and fill the verifier assignment
+// notice, which is a wake-up and not a data source; OPEN_VERIFY, handraise proposals, output
+// delivery and data readiness keep requiring the local receipt. Caller must hold the lock.
+func (f *taskFSM) acceptedReceiptHashesLocked() (outputHash, receiptHash []byte) {
+	if len(f.outputHash) > 0 {
+		return f.outputHash, f.inferReceipt.InferReceiptHash
+	}
+	return f.acceptedOutputHash, f.acceptedReceiptHash
+}
+
+// needsAcceptedReceipt reports whether this Builder has neither the signed receipt nor the
+// chain's accepted hashes.
+func (f *taskFSM) needsAcceptedReceipt() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.outputHash) == 0 && len(f.acceptedOutputHash) == 0
+}
+
+// setAcceptedReceipt records the chain's accepted receipt hashes.
+func (f *taskFSM) setAcceptedReceipt(receipt chaincli.AcceptedInferReceipt) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.outputHash) > 0 || len(receipt.OutputHash) != 32 || len(receipt.InferReceiptHash) != 32 {
+		return
+	}
+	f.acceptedOutputHash = bytes.Clone(receipt.OutputHash)
+	f.acceptedReceiptHash = bytes.Clone(receipt.InferReceiptHash)
+	f.save()
 }
 
 // onAssignAccepted: AssignTx included (first step of two): winner undecided, enter
@@ -664,6 +707,13 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 	if f.state != types.Assigned || !f.receiptOnChain {
 		return
 	}
+	// An accepted proposal declares this Builder data-ready for the selected Verifiers (02 §8).
+	// Only a Builder that received the signed receipt with the finalized output may make that
+	// claim; one that knows the accepted hashes from the chain keeps the handraises but does not
+	// submit them.
+	if len(f.outputHash) == 0 {
+		return
+	}
 	pending := f.pendingVerifierHandraises()
 	if len(pending) == 0 {
 		return
@@ -812,9 +862,10 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	f.phase = types.PhaseOpenVerify
 
 	taskID, taskHash := f.taskIDBytes(), f.orderTaskHashBytes()
-	if len(f.outputHash) == 0 {
+	outputHash, _ := f.acceptedReceiptHashesLocked()
+	if len(outputHash) == 0 {
 		// The Worker hands its receipt to a single Builder; a notification sent by a Builder
-		// that did not receive it has an empty output_hash, which the Verifier rejects and
+		// that has neither the receipt nor the chain's accepted hashes has an empty output_hash, which the Verifier rejects and
 		// redelivers repeatedly. The notification is only an early wake-up; the
 		// obligation is defined by the on-chain snapshot, so simply do not send here. State
 		// still follows the chain.
@@ -834,7 +885,7 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 				TaskHash:             taskHash,
 				VerifyRound:          uint32(nodecontract.SupportedVerifyRoundV1),
 				Verifiers:            verifiers,
-				OutputHash:           append([]byte(nil), f.outputHash...),
+				OutputHash:           append([]byte(nil), outputHash...),
 				OpenVerifyHeight:     uint64(max(ev.Height, 0)),
 				CommitDeadlineHeight: uint64(max(ev.Deadlines.Commit, 0)),
 				RevealDeadlineHeight: uint64(max(ev.Deadlines.Reveal, 0)),
@@ -1115,6 +1166,7 @@ func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
 
 func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 	candidate := hr.GetMember().GetOperatorAddress()
+	outputHash, receiptHash := f.acceptedReceiptHashesLocked()
 	switch {
 	case candidate == "":
 		f.log.Warn("drop verifier handraise with empty member.operator_address", "task_id", f.taskID)
@@ -1132,9 +1184,9 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 			"candidate", candidate, "verify_round", hr.GetVerifyRound())
 	// Contract §4.6: the Verifier handraise binds infer_receipt_hash / output_hash; there is
 	// no longer a canonical_output_package_hash or a package pre-fetch declaration.
-	case !bytes.Equal(hr.GetOutputHash(), f.outputHash):
+	case !bytes.Equal(hr.GetOutputHash(), outputHash):
 		f.log.Warn("drop verifier handraise with mismatched output_hash", "task_id", f.taskID, "candidate", candidate)
-	case !bytes.Equal(hr.GetInferReceiptHash(), f.inferReceipt.InferReceiptHash):
+	case !bytes.Equal(hr.GetInferReceiptHash(), receiptHash):
 		f.log.Warn("drop verifier handraise with mismatched infer receipt", "task_id", f.taskID, "candidate", candidate)
 	case hr.GetModelId() == "" || hr.GetProfileVersion() == 0 ||
 		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||

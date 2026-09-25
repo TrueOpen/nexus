@@ -653,6 +653,11 @@ type recordTaskQuery struct {
 	assignment        *taskv1.QueryVerifierAssignmentResponse
 	assignmentErr     error
 	assignmentRequest *taskv1.QueryVerifierAssignmentRequest
+	inferReceipt      *taskv1.QueryInferReceiptResponse
+}
+
+func (q *recordTaskQuery) InferReceipt(context.Context, *connect.Request[taskv1.QueryInferReceiptRequest]) (*connect.Response[taskv1.QueryInferReceiptResponse], error) {
+	return connect.NewResponse(q.inferReceipt), nil
 }
 
 func (q *recordTaskQuery) TaskStage(context.Context, *connect.Request[taskv1.QueryTaskStageRequest]) (*connect.Response[taskv1.QueryTaskStageResponse], error) {
@@ -934,6 +939,33 @@ func TestQueryTaskReadsChallengeRoundAssignment(t *testing.T) {
 	c = &client{taskQuery: fake}
 	if _, err := c.QueryTask(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex}); err == nil {
 		t.Fatal("round 2 query failure hidden")
+	}
+}
+
+// A Builder that did not receive the signed receipt reads the accepted hashes from the chain.
+func TestQueryInferReceiptReadsAcceptedHashes(t *testing.T) {
+	receipt := func(taskID, outputHash []byte) *taskv1.QueryInferReceiptResponse {
+		return &taskv1.QueryInferReceiptResponse{Receipt: &taskv1.InferReceiptState{
+			TaskId: taskID, OutputHash: outputHash, InferReceiptHash: mustHash32("aa"),
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{inferReceipt: receipt(testTaskIDBytes, mustHash32("bb"))}}
+	got, err := c.QueryInferReceipt(context.Background(), testTaskIDHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.OutputHash, mustHash32("bb")) || !bytes.Equal(got.InferReceiptHash, mustHash32("aa")) {
+		t.Fatalf("receipt = %+v", got)
+	}
+	for name, response := range map[string]*taskv1.QueryInferReceiptResponse{
+		"other task":        receipt(mustHash32("99"), mustHash32("bb")),
+		"short output hash": receipt(testTaskIDBytes, []byte{1}),
+		"no receipt":        {},
+	} {
+		c := &client{taskQuery: &recordTaskQuery{inferReceipt: response}}
+		if _, err := c.QueryInferReceipt(context.Background(), testTaskIDHex); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
 	}
 }
 
