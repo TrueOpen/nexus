@@ -52,6 +52,7 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 		testBuilderSelf, testChainID)
 	keys := enableTestBusEnvelopes(c)
 	c.submit = fake
+	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
 	session := "sess-" + name
 	task := testTaskID(name)

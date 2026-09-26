@@ -27,6 +27,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -112,6 +113,10 @@ type taskFSM struct {
 	acceptedOutputHash  []byte
 	acceptedReceiptHash []byte
 	openVerifyPublished bool // OPEN_VERIFY already sent by this process; reconcile reruns do not resend
+	// resultReadiness answers local data-ready (04 §326); dataReady caches a positive answer.
+	// Neither is persisted: the answer is derived from task data storage.
+	resultReadiness ResultReadiness
+	dataReady       bool
 	// settleSubmittedHeight is the chain height at which this node last sent a settlement
 	// transaction (0 = not sent this round). A "submitted" boolean is not used: a tx that
 	// passes CheckTx may still be rejected at execution (before the window, not this
@@ -447,12 +452,22 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 //
 // The message carries no input/output/evidence bodies and does not mean any Verifier has
 // been selected.
+//
+// It also waits for this Builder's local data-ready (04 §326): input, output and all required
+// evidence stored and checked here, i.e. the Worker's FinalizeTaskResult succeeded on this
+// Builder with the receipt this FSM holds. Opening verification without the data would make the
+// Builder answer for data it cannot serve. The usual order is receipt accepted on chain, then
+// Finalize, so onResultFinalized is the call that normally sends it.
 func (f *taskFSM) publishOpenVerify() {
-	if f.openVerifyPublished {
+	if f.openVerifyPublished || f.state != types.Assigned || !f.receiptOnChain {
 		return
 	}
 	payload := f.openVerifyPayload()
 	if payload == nil {
+		return
+	}
+	if !f.dataReadyLocked() {
+		f.log.Debug("OPEN_VERIFY deferred: the Worker result is not finalized on this Builder", "task_id", f.taskID)
 		return
 	}
 	if err := f.publish(msgbus.SubjectVerifyOpen(f.taskID), bus.KindOpenVerify, payload, busadapter.TierCore); err == nil {
@@ -469,11 +484,45 @@ func (f *taskFSM) onInferReceiptAccepted() {
 	defer f.mu.Unlock()
 	if !f.receiptOnChain {
 		f.receiptOnChain = true
-		f.publishOpenVerify()
 		f.save()
 	}
-	// Every on-chain reconcile reaches here: buffered hand-raises whose last submission failed are retried (still in batches).
+	// Every on-chain reconcile reaches here: OPEN_VERIFY is retried until this Builder is
+	// data-ready (sent once per process), and buffered hand-raises whose last submission failed
+	// are retried (still in batches).
+	f.publishOpenVerify()
 	f.scheduleVerifierProposalLocked()
+}
+
+// onResultFinalized: the Worker's FinalizeTaskResult succeeded on this Builder, normally the
+// last condition of data-ready. Caller does not hold the lock.
+func (f *taskFSM) onResultFinalized() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.publishOpenVerify()
+	f.scheduleVerifierProposalLocked()
+}
+
+// dataReadyLocked reports this Builder's local data-ready for the receipt this FSM holds. A
+// positive answer is cached; a negative one is asked again at the next trigger. Caller must
+// hold the lock.
+func (f *taskFSM) dataReadyLocked() bool {
+	if f.dataReady {
+		return true
+	}
+	if f.resultReadiness == nil || len(f.outputHash) == 0 {
+		return false
+	}
+	ready, err := f.resultReadiness.ResultReady(context.Background(), taskdata.ResultReadyQuery{
+		TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
+		OutputHash:       hex.EncodeToString(f.outputHash),
+		InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
+	})
+	if err != nil {
+		f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
+		return false
+	}
+	f.dataReady = ready
+	return ready
 }
 
 // openVerifyPayload builds this message's payload; nil means it must not be sent yet.
@@ -708,10 +757,10 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 		return
 	}
 	// An accepted proposal declares this Builder data-ready for the selected Verifiers (02 §8).
-	// Only a Builder that received the signed receipt with the finalized output may make that
-	// claim; one that knows the accepted hashes from the chain keeps the handraises but does not
-	// submit them.
-	if len(f.outputHash) == 0 {
+	// Only a Builder that received the signed receipt and holds the finalized result may make
+	// that claim; one that knows the accepted hashes from the chain keeps the handraises but does
+	// not submit them.
+	if len(f.outputHash) == 0 || !f.dataReadyLocked() {
 		return
 	}
 	pending := f.pendingVerifierHandraises()

@@ -390,6 +390,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, fmt.Errorf("task data service: %w", serviceErr)
 		}
 		ingressOpts = append(ingressOpts, ingress.WithTaskDataService(taskService))
+		// OPEN_VERIFY and the Verifier proposal wait for local data-ready (04 §326), which the task
+		// data plane answers and announces when the Worker's Finalize succeeds.
+		coord.SetResultReadiness(taskService)
+		taskService.SetResultFinalizedObserver(coord.OnResultFinalized)
 		if stream := cfg.TaskData.OutputStream; stream.Enabled {
 			// ADR-0017 streaming OUTPUT: the limits are network-wide uniform (Deployment Baseline) and frames are fanned out to subscribers per Task;
 			// enabled by default (cortex only streams); when disabled the three RPCs return Unimplemented.

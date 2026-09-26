@@ -46,6 +46,7 @@ func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 		testBuilderSelf, testChainID)
 	enableTestBusEnvelopes(c)
 	c.submit = fake
+	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
 	const (
 		session = "sess-open-verify-after-chain"

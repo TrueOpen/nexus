@@ -85,8 +85,17 @@ type finalizeRecord struct {
 	EvidenceConfirmations []StorageConfirmation `json:"evidence_confirmations,omitempty"`
 }
 
-// FinalizeTaskResult is the atomic commit point on the Worker side.
+// FinalizeTaskResult is the atomic commit point on the Worker side. On success, including an exact
+// replay, the result-finalized observer is told: that is when this Builder becomes data-ready.
 func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
+	outcome, err := s.finalizeTaskResult(ctx, request)
+	if err == nil && s.resultFinalized != nil {
+		s.resultFinalized(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
+	}
+	return outcome, err
+}
+
+func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
 	receipt := request.Receipt
 	digest, err := receiptDigest(receipt)
 	if err != nil {
@@ -171,7 +180,10 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 	// §6.2). The Phase 0 set is exactly one WORKER_VALUE_OPENING (wire EvidenceCommitmentV1: no
 	// empty set, subset, superset or unknown kind). The chain rejects any other set, but Finalize
 	// runs before the chain accepts the receipt: an empty list would skip the recomputation and
-	// still sign, and a duplicate would confirm the same bundle twice.
+	// still sign, and a duplicate would confirm the same bundle twice. Today receiptDigest above
+	// already rejects a duplicate kind (the list must be strictly ascending with unique kinds), so a
+	// receipt with one cannot even be signed in tests; this check covers it on its own in case that
+	// rule ever changes.
 	if len(receipt.EvidenceCommitments) != 1 || receipt.EvidenceCommitments[0].Kind != evidenceKindWorkerValueOpening {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt must carry exactly one WORKER_VALUE_OPENING commitment, got %d",
 			ErrMalformed, len(receipt.EvidenceCommitments))
@@ -373,14 +385,18 @@ func (s *Service) storedBundle(
 func (s *Service) commitReady(
 	ctx context.Context, refs []ObjectRef, output Metadata, bundles []Metadata, receipt *SignedInferReceipt,
 ) ([]StorageConfirmation, error) {
+	// The OUTPUT is switched last: a READY OUTPUT then means every object of this Finalize is READY,
+	// even after a crash part-way through, which is what ResultReady relies on.
 	for _, ref := range refs {
-		var err error
 		if receipt != nil && ref == output.Key {
-			_, err = s.store.MarkOutputReady(ctx, ref, *receipt)
-		} else {
-			_, err = s.store.MarkReady(ctx, ref)
+			continue
 		}
-		if err != nil {
+		if _, err := s.store.MarkReady(ctx, ref); err != nil {
+			return nil, err
+		}
+	}
+	if receipt != nil {
+		if _, err := s.store.MarkOutputReady(ctx, output.Key, *receipt); err != nil {
 			return nil, err
 		}
 	}
