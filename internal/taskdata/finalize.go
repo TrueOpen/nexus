@@ -168,7 +168,14 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 
 	// Each required_evidence_commitments[] entry corresponds to one Worker manifest: the
 	// content_hash is exactly the commitment's evidence_hash_or_root (the closed-set semantics of
-	// §6.2).
+	// §6.2). The Phase 0 set is exactly one WORKER_VALUE_OPENING (wire EvidenceCommitmentV1: no
+	// empty set, subset, superset or unknown kind). The chain rejects any other set, but Finalize
+	// runs before the chain accepts the receipt: an empty list would skip the recomputation and
+	// still sign, and a duplicate would confirm the same bundle twice.
+	if len(receipt.EvidenceCommitments) != 1 || receipt.EvidenceCommitments[0].Kind != evidenceKindWorkerValueOpening {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt must carry exactly one WORKER_VALUE_OPENING commitment, got %d",
+			ErrMalformed, len(receipt.EvidenceCommitments))
+	}
 	commitments := append([]EvidenceCommitment(nil), receipt.EvidenceCommitments...)
 	sort.Slice(commitments, func(i, j int) bool { return commitments[i].Kind < commitments[j].Kind })
 	bundles := make([]Metadata, 0, len(commitments))

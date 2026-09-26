@@ -314,29 +314,20 @@ func TestFinalizeTaskResultReplayReturnsTheOriginalConfirmations(t *testing.T) {
 // One missing object means no commit: READY is atomic; never switch OUTPUT first and then discover the manifest is absent.
 func TestFinalizeTaskResultRejectsIncompleteBundle(t *testing.T) {
 	f := newFinalizeFixture(t)
-	// Add a commitment pointing at a manifest that does not exist.
-	f.receipt.EvidenceCommitments = append(f.receipt.EvidenceCommitments, EvidenceCommitment{
-		Kind:             uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING) + 1,
-		HashOrRoot:       strings.Repeat("d", 64),
-		EncodedSizeBytes: 128,
-	})
-	digest, err := receiptDigest(f.receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.receipt.ServiceSignature = hex.EncodeToString(signDigestForTest(t, f.workerService, digest[:]))
+	// Point the commitment at a manifest that does not exist.
+	f.receipt.EvidenceCommitments[0].HashOrRoot = strings.Repeat("d", 64)
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrNotFound, "not stored")
+}
 
-	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9)); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("error = %v, want ErrNotFound", err)
-	}
-	// After the failure OUTPUT must not already be READY.
-	output, err := f.store.Metadata(context.Background(), f.output.Key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output.State != StateStored {
-		t.Fatalf("output state = %s, want STORED", output.State)
-	}
+// The Phase 0 commitment set is exactly one WORKER_VALUE_OPENING: an empty list would skip the
+// recomputation and still sign. (A duplicate kind cannot be signed at all: the receipt digest
+// rejects a list that is not strictly ascending.)
+func TestFinalizeTaskResultRejectsEmptyCommitmentSet(t *testing.T) {
+	f := newFinalizeFixture(t)
+	f.receipt.EvidenceCommitments = nil
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrMalformed, "exactly one WORKER_VALUE_OPENING")
 }
 
 // Reject when the manifest's evidence_schema_hash does not match the locked Verification Profile.
@@ -769,7 +760,7 @@ func TestFinalizeTaskResultRejectsUnsupportedWorkerEvidenceKind(t *testing.T) {
 	f := newFinalizeFixture(t)
 	f.receipt.EvidenceCommitments[0].Kind = uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING)
 	f.resignReceipt(t)
-	f.requireFinalizeRejected(t, ErrConflict, "unsupported worker evidence kind")
+	f.requireFinalizeRejected(t, ErrMalformed, "exactly one WORKER_VALUE_OPENING")
 }
 
 // A whole-object OUTPUT has no Fin and so no finish_reason: it cannot be finalized, and the error

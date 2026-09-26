@@ -33,9 +33,6 @@ func (s *Service) verifyWorkerValueCommitment(
 	ctx context.Context, receipt SignedInferReceipt, commitment EvidenceCommitment,
 	lockedSchemaHash string, outputRef ObjectRef, manifest Metadata, artifactRefs []ObjectRef,
 ) error {
-	if commitment.Kind != evidenceKindWorkerValueOpening {
-		return fmt.Errorf("%w: unsupported worker evidence kind %d", ErrConflict, commitment.Kind)
-	}
 	if err := s.checkWorkerValueOpeningManifest(ctx, manifest); err != nil {
 		return err
 	}
