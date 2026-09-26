@@ -9,10 +9,11 @@ package taskdata
 // objects of the given producer/round plus VerifierBundle READY, touches no Worker readiness, and
 // does not mean the on-chain Result has been accepted.
 //
-// Nexus does not interpret artifact IDs here, does not parse model evidence semantics and does not
-// recompute model-internal roots. What it does is line up what each of the three parties committed
-// to: the receipt says what the OUTPUT is, the manifest says which artifacts are in the bundle, and
-// the locked Verification Profile says which schema this evidence belongs to.
+// Nexus does not parse model evidence semantics and does not recompute model-internal roots. What
+// it does is line up what each of the three parties committed to: the receipt says what the OUTPUT
+// is, the manifest says which artifacts are in the bundle, and the locked Verification Profile says
+// which schema this evidence belongs to. For the Worker bundle that includes recomputing the
+// receipt's typed commitment from the manifest and artifact hashes (data plane 02 §2).
 
 import (
 	"context"
@@ -147,12 +148,15 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output size %d, receipt says %d",
 			ErrHashMismatch, output.SizeBytes, receipt.OutputSizeBytes)
 	}
-	// A streamed object records the leaf count and InferReceiptV2 also carries output_leaf_count:
-	// the two must be equal, otherwise the root a Verifier recomputes from chunk_lengths will not
-	// match the on-chain commitment. The old whole-object upload path has no leaf count
-	// (OutputMMRRoot is empty) and is not yet aligned with the single-leaf MMR semantics of
-	// ADR-0017, so it is not compared here.
-	if output.OutputMMRRoot != "" && output.OutputLeafCount != receipt.OutputLeafCount {
+	// Only a streamed OUTPUT can be finalized: the Worker commitment needs the finish_reason of its
+	// Fin (see verifyWorkerValueCommitment), which a whole-object upload does not have. The stream
+	// records the leaf count and InferReceiptV2 also carries output_leaf_count: the two must be
+	// equal, otherwise the root a Verifier recomputes from chunk_lengths will not match the
+	// on-chain commitment.
+	if output.OutputMMRRoot == "" {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: output was not streamed, finish_reason unknown", ErrConflict)
+	}
+	if output.OutputLeafCount != receipt.OutputLeafCount {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output leaf count %d, receipt says %d",
 			ErrHashMismatch, output.OutputLeafCount, receipt.OutputLeafCount)
 	}
@@ -164,7 +168,14 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 
 	// Each required_evidence_commitments[] entry corresponds to one Worker manifest: the
 	// content_hash is exactly the commitment's evidence_hash_or_root (the closed-set semantics of
-	// §6.2).
+	// §6.2). The Phase 0 set is exactly one WORKER_VALUE_OPENING (wire EvidenceCommitmentV1: no
+	// empty set, subset, superset or unknown kind). The chain rejects any other set, but Finalize
+	// runs before the chain accepts the receipt: an empty list would skip the recomputation and
+	// still sign, and a duplicate would confirm the same bundle twice.
+	if len(receipt.EvidenceCommitments) != 1 || receipt.EvidenceCommitments[0].Kind != evidenceKindWorkerValueOpening {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt must carry exactly one WORKER_VALUE_OPENING commitment, got %d",
+			ErrMalformed, len(receipt.EvidenceCommitments))
+	}
 	commitments := append([]EvidenceCommitment(nil), receipt.EvidenceCommitments...)
 	sort.Slice(commitments, func(i, j int) bool { return commitments[i].Kind < commitments[j].Kind })
 	bundles := make([]Metadata, 0, len(commitments))
@@ -185,6 +196,9 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 		if bundle.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
 			return FinalizeResultOutcome{}, fmt.Errorf("%w: artifact total %d bytes, receipt encoded_size_bytes %d",
 				ErrHashMismatch, bundle.ArtifactTotalSizeBytes, commitment.EncodedSizeBytes)
+		}
+		if err := s.verifyWorkerValueCommitment(ctx, receipt, commitment, schemaHash, outputRef, bundle, artifacts); err != nil {
+			return FinalizeResultOutcome{}, err
 		}
 		bundles = append(bundles, bundle)
 		ready = append(ready, manifestRef)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"sort"
 	"strings"
 	"testing"
 
@@ -33,13 +34,12 @@ type finalizeFixture struct {
 
 func newFinalizeFixture(t *testing.T) *finalizeFixture {
 	t.Helper()
-	fx := newAuthorizerFixture(t)
-	store, _, _ := newTestStore(t, manifestStoreConfig())
-	service, err := NewService(store, fx.authorizer)
-	if err != nil {
-		t.Fatal(err)
-	}
+	return newWorkerBundleFixture(t, workerBundleSpec{})
+}
 
+// newFinalizeFixtureOn sets up the task, the profile and the streamed OUTPUT, but no Worker bundle.
+func newFinalizeFixtureOn(t *testing.T, fx *authorizerFixture, store *Store, service *Service) *finalizeFixture {
+	t.Helper()
 	taskHash := strings.Repeat("a", 64)
 	fx.authority.task.Assignment.AcceptedTaskHash = taskHash
 	fx.authority.task.Assignment.ModelID = "model-1"
@@ -48,65 +48,134 @@ func newFinalizeFixture(t *testing.T) *finalizeFixture {
 		ModelID: "model-1", ProfileVersion: 3, Status: "ACTIVE",
 		EvidenceSchemaHash: finalizeSchemaHash,
 	}
-	scope := ObjectKey{SessionID: testSessionID, TaskID: testTaskID}
-
-	// Persist the artifact first: the manifest references it.
-	artifactBody := []byte("worker aggregate proof bytes")
-	artifactRef := ObjectKey{
-		TaskHash: taskHash, SessionID: testSessionID, TaskID: testTaskID,
-		Kind: ObjectKindEvidenceArtifact, ContentHash: hex.EncodeToString(sha256Sum(artifactBody)),
-		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: fx.worker.Address(),
+	f := &finalizeFixture{
+		authorizerFixture: fx, service: service, store: store,
+		taskHash: taskHash, scope: ObjectKey{SessionID: testSessionID, TaskID: testTaskID},
+		receipt: SignedInferReceipt{
+			SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainID: testChainID,
+			TaskID: testTaskID, TaskHash: taskHash,
+			WorkerOperatorAddress: fx.worker.Address(), ServiceAuthorizationNonce: 1,
+			GenerationParamsDigest: strings.Repeat("b", 64),
+			ExpiryHeight:           1200, GeneratedTokenCount: 3, ServiceSignature: strings.Repeat("0", 128),
+		},
 	}
-	storeObject(t, store, artifactRef, artifactBody, fx.worker.Address(), "")
+	f.streamOutput(t, []string{"hello, ", "world", "!!"})
+	return f
+}
 
+// workerBundleSpec describes the Phase 0 WORKER_VALUE_OPENING bundle storeWorkerBundle writes; the
+// zero value is a valid bundle.
+type workerBundleSpec struct {
+	evidenceKind   string // default WORKER_VALUE_OPENING; "-" omits it
+	schemaMetadata string
+	artifacts      map[string][]byte
+	// commit overrides the bytes the receipt commitment is computed from, so the stored bundle
+	// no longer matches what the Worker signed.
+	commit map[string][]byte
+	// commitFinishReason overrides the finish_reason in the commitment.
+	commitFinishReason uint32
+}
+
+func (spec workerBundleSpec) withDefaults(t *testing.T) workerBundleSpec {
+	if spec.evidenceKind == "" {
+		spec.evidenceKind = workerValueOpeningManifestKind
+	}
+	if spec.artifacts == nil {
+		spec.artifacts = map[string][]byte{
+			"checkpoint":          []byte("checkpoint json"),
+			"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000ffff"),
+			"input_token_ids":     mustDecodeHex(t, "000000020000000100000100"),
+			"trace":               []byte("trace json"),
+		}
+	}
+	if spec.commitFinishReason == 0 {
+		spec.commitFinishReason = 1
+	}
+	return spec
+}
+
+// storeWorkerBundle stores the artifacts and the manifest through the real upload path under the
+// content_hash of the recomputed commitment, and points the receipt's single commitment at it.
+func (f *finalizeFixture) storeWorkerBundle(t *testing.T, spec workerBundleSpec) {
+	t.Helper()
+	spec = spec.withDefaults(t)
 	manifestRef := ObjectKey{
-		TaskHash: taskHash, SessionID: testSessionID, TaskID: testTaskID,
+		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
 		Kind:                 ObjectKindEvidenceManifest,
-		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: fx.worker.Address(),
+		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: f.worker.Address(),
 	}
-	manifestBody := buildManifest(t, manifestRef, finalizeSchemaHash, []EvidenceArtifact{{
-		ArtifactID: "aggregate_proof", ContentHash: artifactRef.ContentHash, SizeBytes: uint64(len(artifactBody)),
-	}})
-	// The Worker manifest's ref content_hash is the receipt's evidence_hash_or_root
-	// (TRUEOPEN_WORKER_VALUE_COMMITMENT_V2 digest), not the H_V1 of the manifest bytes;
-	// a byte-independent value is used here, Finalize only uses it for addressing.
-	manifestRef.ContentHash = strings.Repeat("c", 64)
-	manifest := storeObject(t, store, manifestRef, manifestBody, fx.worker.Address(), "application/json")
-	if want := EvidenceBundleHash(manifestBody); manifest.EvidenceBundleHash != hex.EncodeToString(want[:]) {
-		t.Fatalf("worker manifest evidence_bundle_hash = %s, want H_V1(bytes)", manifest.EvidenceBundleHash)
+	ids := make([]string, 0, len(spec.artifacts))
+	for id := range spec.artifacts {
+		ids = append(ids, id)
 	}
-
-	outputBody := []byte("the model output")
-	outputRef := ObjectKey{
-		TaskHash: taskHash, SessionID: testSessionID, TaskID: testTaskID,
-		Kind: ObjectKindOutput, ContentHash: hex.EncodeToString(sha256Sum(outputBody)),
+	sort.Strings(ids)
+	artifacts := make([]EvidenceArtifact, 0, len(ids))
+	for _, id := range ids {
+		body := spec.artifacts[id]
+		ref := manifestRef
+		ref.Kind, ref.ContentHash = ObjectKindEvidenceArtifact, hex.EncodeToString(sha256Sum(body))
+		storeObject(t, f.store, ref, body, f.worker.Address(), "")
+		artifacts = append(artifacts, EvidenceArtifact{ArtifactID: id, ContentHash: ref.ContentHash, SizeBytes: uint64(len(body))})
 	}
-	output := storeObject(t, store, outputRef, outputBody, fx.worker.Address(), "")
-
-	receipt := SignedInferReceipt{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainID: testChainID,
-		TaskID: testTaskID, TaskHash: taskHash,
-		WorkerOperatorAddress: fx.worker.Address(), ServiceAuthorizationNonce: 1,
-		GenerationParamsDigest: strings.Repeat("b", 64),
-		OutputHash:             outputRef.ContentHash, OutputSizeBytes: output.SizeBytes,
-		EvidenceCommitments: []EvidenceCommitment{{
-			Kind:       uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING),
-			HashOrRoot: manifestRef.ContentHash,
-			// wire v0.4.1: encoded_size_bytes is the total artifact size, not the manifest byte count.
-			EncodedSizeBytes: manifest.ArtifactTotalSizeBytes,
-		}},
-		ExpiryHeight: 1200, ServiceSignature: strings.Repeat("0", 128),
+	manifest := EvidenceBundleManifest{
+		ManifestVersion: EvidenceBundleManifestVersionV1, ChainID: testChainID,
+		TaskID: testTaskID, TaskHash: f.taskHash, EvidenceSchemaHash: finalizeSchemaHash,
+		ProducerKind: EvidenceProducerWorker, ProducerOperator: f.worker.Address(), VerifyRound: 1,
+		Artifacts: artifacts,
 	}
-	digest, err := receiptDigest(receipt)
+	if spec.evidenceKind != "-" {
+		manifest.EvidenceKind = spec.evidenceKind
+	}
+	manifest.SchemaMetadata = spec.schemaMetadata
+	raw, err := manifest.canonicalBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ServiceSignature = hex.EncodeToString(signDigestForTest(t, fx.workerService, digest[:]))
 
-	return &finalizeFixture{
-		authorizerFixture: fx, service: service, store: store,
-		taskHash: taskHash, scope: scope, output: output, manifest: manifest, receipt: receipt,
+	committed := func(id string) []byte {
+		if body, ok := spec.commit[id]; ok {
+			return body
+		}
+		return spec.artifacts[id]
 	}
+	h := func(value string) []byte { return mustDecodeHex(t, value) }
+	inputHash, err := nodecontract.TokenIDsHash(nodecontract.DomainInputTokenIDsV1, committed("input_token_ids"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generatedHash, err := nodecontract.TokenIDsHash(nodecontract.DomainGeneratedTokenIDsV1, committed("generated_token_ids"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := nodecontract.WorkerValueCommitmentV2{
+		ChainID: f.receipt.ChainID, TaskID: h(f.receipt.TaskID), AcceptedTaskHash: h(f.taskHash),
+		WorkerOperatorAddress: f.receipt.WorkerOperatorAddress, GenerationParamsDigest: h(f.receipt.GenerationParamsDigest),
+		EvidenceSchemaHash: h(finalizeSchemaHash), OutputHash: h(f.receipt.OutputHash),
+		OutputSizeBytes: f.receipt.OutputSizeBytes, FinishReason: spec.commitFinishReason,
+		TraceRoot: sha256Sum(committed("trace")), TraceEncodedSizeBytes: uint64(len(committed("trace"))),
+		CheckpointRoot: sha256Sum(committed("checkpoint")), CheckpointEncodedSizeBytes: uint64(len(committed("checkpoint"))),
+		GeneratedTokenCount: f.receipt.GeneratedTokenCount, OutputLeafCount: f.receipt.OutputLeafCount,
+		InputTokenIDsHash: inputHash[:], GeneratedTokenIDsHash: generatedHash[:],
+		InputTokenIDsSizeBytes:     uint64(len(committed("input_token_ids"))),
+		GeneratedTokenIDsSizeBytes: uint64(len(committed("generated_token_ids"))),
+	}.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Worker manifest's ref content_hash is the receipt's evidence_hash_or_root, not the H_V1
+	// of the manifest bytes.
+	manifestRef.ContentHash = hex.EncodeToString(digest[:])
+	f.manifest = storeObject(t, f.store, manifestRef, []byte(raw), f.worker.Address(), "application/json")
+	if want := EvidenceBundleHash([]byte(raw)); f.manifest.EvidenceBundleHash != hex.EncodeToString(want[:]) {
+		t.Fatalf("worker manifest evidence_bundle_hash = %s, want H_V1(bytes)", f.manifest.EvidenceBundleHash)
+	}
+	f.receipt.EvidenceCommitments = []EvidenceCommitment{{
+		Kind:       uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING),
+		HashOrRoot: manifestRef.ContentHash,
+		// wire v0.4.1: encoded_size_bytes is the total artifact size, not the manifest byte count.
+		EncodedSizeBytes: f.manifest.ArtifactTotalSizeBytes,
+	}}
+	f.resignReceipt(t)
 }
 
 // request builds a signed FinalizeTaskResult request.
@@ -145,8 +214,12 @@ func storeObject(t *testing.T, store *Store, ref ObjectKey, body []byte, uploade
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := upload.WriteChunk(body); err != nil {
-		t.Fatal(err)
+	for rest := body; len(rest) > 0; {
+		n := min(uint64(len(rest)), store.ChunkSize())
+		if err := upload.WriteChunk(rest[:n]); err != nil {
+			t.Fatal(err)
+		}
+		rest = rest[n:]
 	}
 	if _, err := upload.Prepare(context.Background()); err != nil {
 		t.Fatal(err)
@@ -202,15 +275,16 @@ func TestFinalizeTaskResultCommitsReadyAndSignsConfirmations(t *testing.T) {
 			t.Fatalf("%s state = %s, want READY", ref.Kind, metadata.State)
 		}
 	}
-	artifactRef := f.manifest.Key
-	artifactRef.Kind = ObjectKindEvidenceArtifact
-	artifactRef.ContentHash = f.manifest.Artifacts[0].ContentHash
-	artifact, err := f.store.Metadata(context.Background(), artifactRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if artifact.State != StateReady {
-		t.Fatalf("artifact state = %s, want READY", artifact.State)
+	for _, entry := range f.manifest.Artifacts {
+		artifactRef := f.manifest.Key
+		artifactRef.Kind, artifactRef.ContentHash = ObjectKindEvidenceArtifact, entry.ContentHash
+		artifact, err := f.store.Metadata(context.Background(), artifactRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if artifact.State != StateReady {
+			t.Fatalf("artifact %s state = %s, want READY", entry.ArtifactID, artifact.State)
+		}
 	}
 }
 
@@ -240,29 +314,20 @@ func TestFinalizeTaskResultReplayReturnsTheOriginalConfirmations(t *testing.T) {
 // One missing object means no commit: READY is atomic; never switch OUTPUT first and then discover the manifest is absent.
 func TestFinalizeTaskResultRejectsIncompleteBundle(t *testing.T) {
 	f := newFinalizeFixture(t)
-	// Add a commitment pointing at a manifest that does not exist.
-	f.receipt.EvidenceCommitments = append(f.receipt.EvidenceCommitments, EvidenceCommitment{
-		Kind:             uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING) + 1,
-		HashOrRoot:       strings.Repeat("d", 64),
-		EncodedSizeBytes: 128,
-	})
-	digest, err := receiptDigest(f.receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.receipt.ServiceSignature = hex.EncodeToString(signDigestForTest(t, f.workerService, digest[:]))
+	// Point the commitment at a manifest that does not exist.
+	f.receipt.EvidenceCommitments[0].HashOrRoot = strings.Repeat("d", 64)
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrNotFound, "not stored")
+}
 
-	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9)); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("error = %v, want ErrNotFound", err)
-	}
-	// After the failure OUTPUT must not already be READY.
-	output, err := f.store.Metadata(context.Background(), f.output.Key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output.State != StateStored {
-		t.Fatalf("output state = %s, want STORED", output.State)
-	}
+// The Phase 0 commitment set is exactly one WORKER_VALUE_OPENING: an empty list would skip the
+// recomputation and still sign. (A duplicate kind cannot be signed at all: the receipt digest
+// rejects a list that is not strictly ascending.)
+func TestFinalizeTaskResultRejectsEmptyCommitmentSet(t *testing.T) {
+	f := newFinalizeFixture(t)
+	f.receipt.EvidenceCommitments = nil
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrMalformed, "exactly one WORKER_VALUE_OPENING")
 }
 
 // Reject when the manifest's evidence_schema_hash does not match the locked Verification Profile.
@@ -456,9 +521,8 @@ func mustDecodeHex(t *testing.T, value string) []byte {
 	return raw
 }
 
-// streamOutput replaces the fixture's whole-object OUTPUT via the streaming path
-// (OpenOutputStream -> Append x n -> Finish) and points the receipt at the MMR root.
-// Returns the finalized metadata.
+// streamOutput stores the OUTPUT via the streaming path (OpenOutputStream -> Append x n -> Finish
+// with finish_reason EOS_TOKEN) and points the receipt at the MMR root. Returns the sealed metadata.
 func (f *finalizeFixture) streamOutput(t *testing.T, texts []string) Metadata {
 	t.Helper()
 	key := ObjectKey{TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID, Kind: ObjectKindOutput}
@@ -474,7 +538,7 @@ func (f *finalizeFixture) streamOutput(t *testing.T, texts []string) Metadata {
 		}
 	}
 	root := acc.Root()
-	meta, err := stream.Finish(context.Background(), OutputFin{FinalSeq: uint64(len(texts) - 1), OutputMMRRoot: root[:]})
+	meta, err := stream.Finish(context.Background(), OutputFin{FinalSeq: uint64(len(texts) - 1), OutputMMRRoot: root[:], FinishReason: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +565,7 @@ func (f *finalizeFixture) resignReceipt(t *testing.T) {
 // sha256(concatenated text) as the object identity at finalization slip through.
 func TestFinalizeTaskResultAcceptsStreamedOutputByMMRRoot(t *testing.T) {
 	f := newFinalizeFixture(t)
-	meta := f.streamOutput(t, []string{"hello, ", "world", "!!"})
+	meta := f.output
 	if meta.State != StateStored || meta.OutputLeafCount != 3 || meta.Key.ContentHash != f.receipt.OutputHash {
 		t.Fatalf("streamed output metadata = %+v", meta)
 	}
@@ -538,7 +602,6 @@ func TestFinalizeTaskResultAcceptsStreamedOutputByMMRRoot(t *testing.T) {
 // the root a Verifier recomputes from chunk_lengths would not match the on-chain commitment.
 func TestFinalizeTaskResultRejectsStreamedOutputLeafCountMismatch(t *testing.T) {
 	f := newFinalizeFixture(t)
-	f.streamOutput(t, []string{"hello, ", "world", "!!"})
 	f.receipt.OutputLeafCount = 2
 	f.resignReceipt(t)
 	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9)); !errors.Is(err, ErrHashMismatch) {
@@ -549,7 +612,6 @@ func TestFinalizeTaskResultRejectsStreamedOutputLeafCountMismatch(t *testing.T) 
 // receipt points at a different root (the Worker signed a different output than the Builder received) -> object not found, reject.
 func TestFinalizeTaskResultRejectsStreamedOutputRootMismatch(t *testing.T) {
 	f := newFinalizeFixture(t)
-	f.streamOutput(t, []string{"hello, ", "world", "!!"})
 	f.receipt.OutputHash = strings.Repeat("c", 64)
 	f.resignReceipt(t)
 	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9)); !errors.Is(err, ErrNotFound) {
@@ -593,4 +655,125 @@ func TestVerifierManifestContentHashMustBeBundleHash(t *testing.T) {
 	if _, err := upload.Prepare(context.Background()); !errors.Is(err, ErrHashMismatch) {
 		t.Fatalf("prepare = %v, want ErrHashMismatch", err)
 	}
+}
+
+// newWorkerBundleFixture is a finalize fixture whose Worker bundle is built from spec instead of
+// the default valid one.
+func newWorkerBundleFixture(t *testing.T, spec workerBundleSpec) *finalizeFixture {
+	t.Helper()
+	fx := newAuthorizerFixture(t)
+	store, _, _ := newTestStore(t, manifestStoreConfig())
+	service, err := NewService(store, fx.authorizer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := newFinalizeFixtureOn(t, fx, store, service)
+	base.storeWorkerBundle(t, spec)
+	return base
+}
+
+// requireFinalizeRejected runs Finalize, requires the given error and checks nothing became READY
+// and no confirmation was recorded.
+func (f *finalizeFixture) requireFinalizeRejected(t *testing.T, want error, contains string) {
+	t.Helper()
+	_, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9))
+	if !errors.Is(err, want) || !strings.Contains(err.Error(), contains) {
+		t.Fatalf("error = %v, want %v containing %q", err, want, contains)
+	}
+	for _, ref := range []ObjectKey{f.output.Key, f.manifest.Key} {
+		metadata, err := f.store.Metadata(context.Background(), ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if metadata.State != StateStored {
+			t.Fatalf("%s state = %s after a rejected Finalize, want STORED", ref.Kind, metadata.State)
+		}
+	}
+}
+
+// The Worker commitment is recomputed from the stored bundle (02 §2): a bundle that is not the one
+// the receipt commits to is rejected even though every object hash and size checks out.
+func TestFinalizeTaskResultRejectsBundleNotMatchingCommitment(t *testing.T) {
+	for name, spec := range map[string]workerBundleSpec{
+		"generated token changed": {commit: map[string][]byte{"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000fffe")}},
+		"input token changed":     {commit: map[string][]byte{"input_token_ids": mustDecodeHex(t, "000000020000000100000101")}},
+		"trace swapped":           {commit: map[string][]byte{"trace": []byte("other trace")}},
+		"checkpoint swapped":      {commit: map[string][]byte{"checkpoint": []byte("other checkpoint json")}},
+		"finish_reason differs":   {commitFinishReason: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newWorkerBundleFixture(t, spec)
+			f.requireFinalizeRejected(t, ErrHashMismatch, "worker evidence commitment recomputed")
+		})
+	}
+}
+
+// The Phase 0 WORKER_VALUE_OPENING manifest shape (02 §2.1) is enforced before recomputing.
+func TestFinalizeTaskResultRejectsWorkerManifestShape(t *testing.T) {
+	artifacts := func(drop string, extra string) map[string][]byte {
+		out := map[string][]byte{
+			"checkpoint":          []byte("checkpoint json"),
+			"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000ffff"),
+			"input_token_ids":     mustDecodeHex(t, "000000020000000100000100"),
+			"trace":               []byte("trace json"),
+		}
+		delete(out, drop)
+		if extra != "" {
+			out[extra] = []byte("extra artifact")
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		spec     workerBundleSpec
+		contains string
+	}{
+		"wrong evidence_kind":   {workerBundleSpec{evidenceKind: "OTHER"}, "evidence_kind"},
+		"missing evidence_kind": {workerBundleSpec{evidenceKind: "-"}, "evidence_kind"},
+		"schema_metadata":       {workerBundleSpec{schemaMetadata: `{"a":1}`}, "schema_metadata"},
+		"missing artifact":      {workerBundleSpec{artifacts: artifacts("trace", ""), commit: map[string][]byte{"trace": []byte("trace json")}}, "3 artifacts"},
+		"extra artifact":        {workerBundleSpec{artifacts: artifacts("", "zzz")}, "5 artifacts"},
+		"renamed artifact":      {workerBundleSpec{artifacts: artifacts("trace", "trace2"), commit: map[string][]byte{"trace": []byte("trace json")}}, "artifact 3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newWorkerBundleFixture(t, c.spec)
+			f.requireFinalizeRejected(t, ErrMalformed, c.contains)
+		})
+	}
+}
+
+// A token id artifact whose count prefix does not match its length cannot be hashed (05 §7).
+func TestFinalizeTaskResultRejectsTokenIDsFraming(t *testing.T) {
+	f := newWorkerBundleFixture(t, workerBundleSpec{
+		artifacts: map[string][]byte{
+			"checkpoint":          []byte("checkpoint json"),
+			"generated_token_ids": mustDecodeHex(t, "0000000400000002000001010000ffff"),
+			"input_token_ids":     mustDecodeHex(t, "000000020000000100000100"),
+			"trace":               []byte("trace json"),
+		},
+		commit: map[string][]byte{"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000ffff")},
+	})
+	f.requireFinalizeRejected(t, ErrMalformed, "count 4 needs")
+}
+
+// Only WORKER_VALUE_OPENING is a Phase 0 Worker evidence kind.
+func TestFinalizeTaskResultRejectsUnsupportedWorkerEvidenceKind(t *testing.T) {
+	f := newFinalizeFixture(t)
+	f.receipt.EvidenceCommitments[0].Kind = uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING)
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrMalformed, "exactly one WORKER_VALUE_OPENING")
+}
+
+// A whole-object OUTPUT has no Fin and so no finish_reason: it cannot be finalized, and the error
+// says so rather than reporting a commitment mismatch.
+func TestFinalizeTaskResultRejectsWholeObjectOutput(t *testing.T) {
+	f := newFinalizeFixture(t)
+	body := []byte("the model output")
+	ref := ObjectKey{
+		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
+		Kind: ObjectKindOutput, ContentHash: hex.EncodeToString(sha256Sum(body)),
+	}
+	f.output = storeObject(t, f.store, ref, body, f.worker.Address(), "")
+	f.receipt.OutputHash, f.receipt.OutputSizeBytes = ref.ContentHash, f.output.SizeBytes
+	f.resignReceipt(t)
+	f.requireFinalizeRejected(t, ErrConflict, "output was not streamed")
 }

@@ -689,6 +689,19 @@ func (s *Store) OutputStreamProgressOf(_ context.Context, key ObjectKey) (Output
 	return record.progress(acc.Root()), true, nil
 }
 
+// SealedOutputFinishReason returns the finish_reason of the Fin that sealed the stream behind key,
+// the OUTPUT ref whose content_hash is the stream's MMR root. found=false means this Builder holds
+// no sealed stream with that root (not streamed, not finished, or a different root).
+func (s *Store) SealedOutputFinishReason(_ context.Context, key ObjectKey) (uint32, bool, error) {
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	record, found, err := s.outputStreamRecord(streamKeyString(key))
+	if err != nil || !found || !record.Sealed || record.ContentHash != key.ContentHash {
+		return 0, false, err
+	}
+	return record.FinishReason, true, nil
+}
+
 // OutputFrames replays the persisted chunks of key (seq > afterSeq; a nil afterSeq means from the
 // beginning) and appends the Fin at the end when the stream is sealed. The text is read by offset
 // from the spool (in progress) or the blob (sealed), and the attachment from the .attach file of the
