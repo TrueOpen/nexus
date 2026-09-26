@@ -206,6 +206,7 @@ func TestAssignRejectedOverCandidatesIsSubmittedAgain(t *testing.T) {
 	tests := []struct {
 		name       string
 		rejections []chaincli.TxResult
+		retryErr   error
 		submits    int
 		failed     bool
 	}{
@@ -213,6 +214,7 @@ func TestAssignRejectedOverCandidatesIsSubmittedAgain(t *testing.T) {
 		{name: "invalid assignment past the bound", rejections: []chaincli.TxResult{invalid, invalid, invalid}, submits: 3, failed: true},
 		{name: "same code, other module", rejections: []chaincli.TxResult{{Code: 1109, Codespace: "hub"}}, submits: 1, failed: true},
 		{name: "other task error", rejections: []chaincli.TxResult{{Code: 1103, Codespace: "task"}}, submits: 1, failed: true},
+		{name: "resubmission fails", rejections: []chaincli.TxResult{invalid}, retryErr: errors.New("the chain refuses the proposal"), submits: 2, failed: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,6 +227,9 @@ func TestAssignRejectedOverCandidatesIsSubmittedAgain(t *testing.T) {
 			}
 			fsm, _ := c.getFSM(sessionID, taskID)
 			fsm.onWorkerHandraise(testWorkerHandraise(sessionID, taskID, "worker-1"))
+			submit.mu.Lock()
+			submit.assignErr = tt.retryErr
+			submit.mu.Unlock()
 			for _, rejection := range tt.rejections {
 				fsm.onAssignRejected(rejection)
 			}
@@ -274,5 +279,46 @@ func TestExcludedVerifierHandraiseWaitsForTheNextEpoch(t *testing.T) {
 	fx.fsm.onInferReceiptAccepted()
 	if got := proposalOperators(t, fx.proposed()); len(got) != 2 {
 		t.Fatalf("proposed operators = %v, want the handraise tried again in the next epoch", got)
+	}
+}
+
+type epochSelection struct {
+	BuilderSelectionQuerier
+	calls  int
+	length uint64
+	err    error
+}
+
+func (q *epochSelection) QueryEpochLengthBlocks(context.Context) (uint64, error) {
+	q.calls++
+	return q.length, q.err
+}
+
+// The epoch length is read from the reconcile loop, and a failed read waits before the next;
+// the task state machine only reads the cached value.
+func TestEpochLengthIsReadOutsideTheTaskLock(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	query := &epochSelection{err: errors.New("hub unreachable")}
+	c.selection = query
+	c.refreshEpochLength(context.Background())
+	c.refreshEpochLength(context.Background())
+	if query.calls != 1 {
+		t.Fatalf("hub reads = %d, want 1 within the retry pause", query.calls)
+	}
+	if _, ok := c.currentEpoch(); ok {
+		t.Fatal("epoch known without an epoch length")
+	}
+	query.err, query.length = nil, 200
+	c.epochTriedAt.Store(0)
+	c.refreshEpochLength(context.Background())
+	c.chainStateMu.Lock()
+	c.chainState.LastObservedHeight, c.heightAuthoritative = 1050, true
+	c.chainStateMu.Unlock()
+	if epoch, ok := c.currentEpoch(); !ok || epoch != 5 {
+		t.Fatalf("epoch = %d, %v; want 5", epoch, ok)
+	}
+	c.refreshEpochLength(context.Background())
+	if query.calls != 2 {
+		t.Fatalf("hub reads = %d, want the cached length reused", query.calls)
 	}
 }

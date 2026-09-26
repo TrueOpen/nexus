@@ -321,17 +321,20 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 	return grace, nil
 }
 
-// QueryEpochLengthBlocks reads the Hub parameter epoch.epoch_length_blocks.
+// defaultEpochLengthBlocks is the Hub's epoch length when epoch.epoch_length_blocks is zero
+// (node x/hub/keeper/epoch_runtime.go normalizedEpochLengthBlocks, types.DefaultEpochLengthBlocks).
+const defaultEpochLengthBlocks uint64 = 60_480
+
+// QueryEpochLengthBlocks reads the Hub's epoch length, zero read as the Hub's default.
 func (c *client) QueryEpochLengthBlocks(ctx context.Context) (uint64, error) {
 	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
 	if err != nil {
 		return 0, applicationQueryError("hub params", err)
 	}
-	length := resp.Msg.GetParams().GetEpoch().GetEpochLengthBlocks()
-	if length == 0 {
-		return 0, fmt.Errorf("query hub params: epoch.epoch_length_blocks is zero")
+	if length := resp.Msg.GetParams().GetEpoch().GetEpochLengthBlocks(); length != 0 {
+		return length, nil
 	}
-	return length, nil
+	return defaultEpochLengthBlocks, nil
 }
 
 // QueryEVMChainID reads the Hub parameter phase0.evm_chain_id. 0 is treated as

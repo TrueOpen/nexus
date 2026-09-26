@@ -1056,3 +1056,16 @@ func TestBlockHashAndSyncing(t *testing.T) {
 		t.Fatal("pruned block error was swallowed")
 	}
 }
+
+// Zero is the Hub's default epoch length, not an unknown one.
+func TestQueryEpochLengthBlocks(t *testing.T) {
+	for _, tt := range []struct{ set, want uint64 }{{200, 200}, {0, 60_480}} {
+		c := &client{hubQuery: &recordHubQuery{params: &hubv1.QueryHubParamsResponse{
+			Params: &hubv1.HubParamsV2{Epoch: &hubv1.EpochParamsV1{EpochLengthBlocks: tt.set}},
+		}}}
+		got, err := c.QueryEpochLengthBlocks(context.Background())
+		if err != nil || got != tt.want {
+			t.Fatalf("epoch_length_blocks %d: got %d, %v; want %d", tt.set, got, err, tt.want)
+		}
+	}
+}

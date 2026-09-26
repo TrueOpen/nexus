@@ -299,12 +299,12 @@ func (f *taskFSM) onWorkerHandraise(hr *taskv1.WorkerHandraiseV1) {
 }
 
 // submitAssignLocked builds the Worker handraise proposal from the handraises collected so
-// far and submits it. Caller must hold the lock.
-func (f *taskFSM) submitAssignLocked() {
+// far and submits it, reporting whether it passed CheckTx. Caller must hold the lock.
+func (f *taskFSM) submitAssignLocked() bool {
 	facts, err := workerAssignmentFactsFrom(f.workerHR)
 	if err != nil {
 		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return
+		return false
 	}
 	// The fee/timeout cross-check of the legacy JSON envelope only holds on the legacy
 	// path. Once an order carries the frozen SignedOrderV2, all of these facts are derived
@@ -313,7 +313,7 @@ func (f *taskFSM) submitAssignLocked() {
 	if len(f.order.SignedOrder) == 0 {
 		if err := validateOrderForAssign(f.order, facts); err != nil {
 			f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-			return
+			return false
 		}
 	}
 	// Frozen contract §4.2.1: what goes on-chain is only the scope oneof + the
@@ -323,12 +323,12 @@ func (f *taskFSM) submitAssignLocked() {
 	signedOrder, existingTask, err := workerHandraiseScope(f.order, f.acceptedTaskHash)
 	if err != nil {
 		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return
+		return false
 	}
 	handraisesV1, err := workerHandraisesV1(f.chainID, f.workerHR)
 	if err != nil {
 		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return
+		return false
 	}
 
 	f.assignSubmitted = true
@@ -349,13 +349,14 @@ func (f *taskFSM) submitAssignLocked() {
 	if err != nil {
 		f.log.Warn("submit AssignTx failed", "task_id", f.taskID, "err", err)
 		f.assignSubmitted = false // let the next hand-raise retry
-		return
+		return false
 	}
 	f.assignTxHash = append(f.assignTxHash[:0], result.TxHash...)
 	f.save()
 	f.log.Info("AssignTx accepted by CheckTx", "task_id", f.taskID,
 		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR)-len(result.Excluded),
 		"excluded", len(result.Excluded))
+	return true
 }
 
 // assignRejectionRetries bounds how often a Worker handraise proposal the Keeper refused as an
@@ -407,9 +408,12 @@ func (f *taskFSM) onAssignRejected(result chaincli.TxResult) {
 		f.save()
 		f.log.Warn("AssignTx rejected by DeliverTx over its candidates; filtering and submitting again",
 			"task_id", f.taskID, "attempt", f.assignRetries, "height", result.Height, "raw_log", result.RawLog)
-		f.submitAssignLocked()
-		f.mu.Unlock()
-		return
+		if f.submitAssignLocked() {
+			f.mu.Unlock()
+			return
+		}
+		// Nothing could be submitted again: end the task now, as any rejection did before,
+		// rather than leave it pending on handraises that may never come.
 	}
 	f.state = types.Failed
 	f.terminal = true

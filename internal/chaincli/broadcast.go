@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 
@@ -49,23 +50,20 @@ func (c *client) BroadcastTx(ctx context.Context, tx []byte) (TxResult, error) {
 // the messages against its current state without committing, skipping signature checks and
 // without consuming the sequence.
 //
-// A tx the chain would refuse comes back as SimResult{OK: false, Error: <the chain's reason>}
-// with a nil error: the node reports every ante or message failure as gRPC Unknown. Any other
-// failure -- node unreachable, the service not served -- is an error, meaning the tx was not
-// judged at all.
+// A tx the chain refuses comes back as SimResult{OK: false, Error: <the chain's reason>} with a
+// nil error. The node reports such a refusal as gRPC Unknown carrying the ABCI message; since a
+// proxy's non-gRPC reply also reads as Unknown, only an answer that carries the chain's own
+// failure text counts as a refusal (simulateRefusalMarks). Anything else -- node unreachable,
+// the service not served, a reply that is not the chain's -- is an error: the tx was not judged.
 func (c *client) Simulate(ctx context.Context, tx []byte) (SimResult, error) {
 	if c.tx == nil {
 		return SimResult{}, fmt.Errorf("simulate tx: tx gRPC client is not configured")
 	}
 	resp, err := c.tx.Simulate(ctx, connect.NewRequest(&txv1beta1.SimulateRequest{TxBytes: tx}))
 	if err != nil {
-		if connect.CodeOf(err) == connect.CodeUnknown {
-			var connectErr *connect.Error
-			message := err.Error()
-			if errors.As(err, &connectErr) {
-				message = connectErr.Message()
-			}
-			return SimResult{OK: false, Error: message}, nil
+		var connectErr *connect.Error
+		if connect.CodeOf(err) == connect.CodeUnknown && errors.As(err, &connectErr) && isChainRefusal(connectErr.Message()) {
+			return SimResult{OK: false, Error: connectErr.Message()}, nil
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			return SimResult{}, fmt.Errorf("simulate tx: %w", ErrNotSupportedOnChain)
@@ -73,6 +71,19 @@ func (c *client) Simulate(ctx context.Context, tx []byte) (SimResult, error) {
 		return SimResult{}, fmt.Errorf("simulate tx: gRPC endpoint unavailable: %s", redactSensitiveText(err.Error()))
 	}
 	return SimResult{OK: true, GasEstimate: resp.Msg.GetGasInfo().GetGasUsed()}, nil
+}
+
+// simulateRefusalMarks are the texts cosmos-sdk puts in a simulation it ran and refused: a
+// message that failed to execute, and the ante handler's sequence check.
+var simulateRefusalMarks = []string{"failed to execute message", "account sequence mismatch"}
+
+func isChainRefusal(message string) bool {
+	for _, mark := range simulateRefusalMarks {
+		if strings.Contains(message, mark) {
+			return true
+		}
+	}
+	return false
 }
 
 // QueryTx fetches the authoritative DeliverTx result for a previously

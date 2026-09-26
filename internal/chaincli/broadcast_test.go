@@ -140,6 +140,10 @@ func TestSimulate(t *testing.T) {
 			want: SimResult{OK: false, Error: refused}},
 		{name: "not served", err: connect.NewError(connect.CodeUnimplemented, errors.New("unknown service")), wantErr: ErrNotSupportedOnChain},
 		{name: "unreachable", err: connect.NewError(connect.CodeUnavailable, errors.New("connection refused")), wantErr: errors.New("")},
+		// A proxy's non-gRPC reply is Unknown too, but it is not the chain judging the tx.
+		{name: "proxy error", err: connect.NewError(connect.CodeUnknown, errors.New("HTTP status 500 Internal Server Error")), wantErr: errors.New("")},
+		{name: "stale sequence", err: connect.NewError(connect.CodeUnknown, errors.New("account sequence mismatch, expected 43, got 42: incorrect account sequence")),
+			want: SimResult{OK: false, Error: "account sequence mismatch, expected 43, got 42: incorrect account sequence"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

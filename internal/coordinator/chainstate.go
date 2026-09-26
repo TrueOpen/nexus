@@ -415,6 +415,7 @@ func (c *Coordinator) reconcileLoop() {
 			if err := c.retryPayloadCleanup(context.Background()); err != nil {
 				c.log.Error("payload cleanup retry failed", "reason", reason, "err", err)
 			}
+			c.refreshEpochLength(context.Background())
 			height, err := c.refreshChainHeight(context.Background())
 			if err != nil {
 				c.log.Warn("chain reconciliation height refresh failed", "reason", reason, "err", err)

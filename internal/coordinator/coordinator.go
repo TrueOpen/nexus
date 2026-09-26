@@ -74,6 +74,8 @@ type Coordinator struct {
 	height          HeightQuerier
 	selection       BuilderSelectionQuerier
 	epochLength     atomic.Uint64
+	// epochTriedAt is when the epoch length was last read (UnixNano), for the retry pause.
+	epochTriedAt    atomic.Int64
 	relay           relay.Custodian
 	kv              kv.Store
 	submit          Submitter
@@ -229,23 +231,40 @@ type epochLengthQuerier interface {
 	QueryEpochLengthBlocks(context.Context) (uint64, error)
 }
 
-// currentEpoch returns the epoch of the last observed chain height. The epoch length is read
-// from the Hub once and cached; false means it is not known.
+// epochLengthRetry is how long a failed epoch length read waits before the next one.
+const epochLengthRetry = time.Minute
+
+// refreshEpochLength reads the Hub epoch length once, from the reconcile loop, never under a
+// task lock. A failed read is retried after epochLengthRetry.
+func (c *Coordinator) refreshEpochLength(ctx context.Context) {
+	if c.epochLength.Load() != 0 {
+		return
+	}
+	query, ok := c.selection.(epochLengthQuerier)
+	if !ok {
+		return
+	}
+	now := time.Now().UnixNano()
+	if last := c.epochTriedAt.Load(); last != 0 && now-last < int64(epochLengthRetry) {
+		return
+	}
+	c.epochTriedAt.Store(now)
+	queryCtx, cancel := context.WithTimeout(ctx, reconcileQueryTimeout)
+	length, err := query.QueryEpochLengthBlocks(queryCtx)
+	cancel()
+	if err != nil || length == 0 {
+		c.log.Warn("hub epoch length read failed; refused verifier handraises wait for it", "err", err)
+		return
+	}
+	c.epochLength.Store(length)
+}
+
+// currentEpoch returns the epoch of the last observed chain height, from the cached epoch
+// length; false while either is not known.
 func (c *Coordinator) currentEpoch() (uint64, bool) {
 	length := c.epochLength.Load()
 	if length == 0 {
-		query, ok := c.selection.(epochLengthQuerier)
-		if !ok {
-			return 0, false
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
-		read, err := query.QueryEpochLengthBlocks(ctx)
-		cancel()
-		if err != nil || read == 0 {
-			return 0, false
-		}
-		c.epochLength.Store(read)
-		length = read
+		return 0, false
 	}
 	height, authoritative := c.currentChainHeight()
 	if !authoritative || height == 0 {
