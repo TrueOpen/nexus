@@ -261,3 +261,48 @@ func TestFetchReceiptsFollowInputRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// An authorized fetch of an OUTPUT that is stored but not finalized is told "not ready", not
+// "unauthorized", and records no receipt; a caller without a role on the task still learns nothing.
+func TestFetchOfStoredObjectIsNotReady(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	store, _, _ := newTestStore(t, testStoreConfig())
+	service, err := NewService(store, fx.authorizer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fetchReceiptFixture{authorizerFixture: fx, store: store, service: service}
+	body := []byte("abcdefgh")
+	header := testHeader(body)
+	header.Key.Kind = ObjectKindOutput
+	header.Uploader = fx.worker.Address()
+	stored := prepareObject(t, store, header, body)
+
+	if err := f.fetch(t, fx.verifier, stored.Key, nil, 1, true); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("error = %v, want ErrNotReady", err)
+	}
+	if got := f.receipts(t); len(got) != 0 {
+		t.Fatalf("receipts = %v, want none for a refused fetch", got)
+	}
+	if err := f.fetch(t, fx.other, stored.Key, nil, 2, true); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("outsider error = %v, want ErrUnauthorized", err)
+	}
+}
+
+// An object removed by retention is reported as expired.
+func TestFetchOfDeletedObjectIsExpired(t *testing.T) {
+	f := newFetchReceiptFixture(t, nil)
+	resolver := recoveryResolver{retention: map[string]RetentionDecision{
+		objectKeyString(f.output.Key): {Status: RetentionEligibleForCleanup, RetainUntilHeight: 100, Delete: true},
+		objectKeyString(f.input.Key):  {Status: RetentionRetainedForChallenge, RetainUntilHeight: 120},
+	}}
+	if err := f.store.Sweep(context.Background(), 100, resolver); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := f.store.Metadata(context.Background(), f.output.Key); err != nil || deleted.RetentionStatus != RetentionDeleted {
+		t.Fatalf("output metadata = %+v, %v", deleted, err)
+	}
+	if err := f.fetch(t, f.verifier, f.output.Key, nil, 1, true); !errors.Is(err, ErrExpired) {
+		t.Fatalf("error = %v, want ErrExpired", err)
+	}
+}

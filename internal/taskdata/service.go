@@ -3,6 +3,7 @@ package taskdata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -119,8 +120,13 @@ func (s *Service) OpenFetch(
 	if err != nil {
 		return nil, ByteRange{}, Metadata{}, err
 	}
-	if metadata.State != StateReady || metadata.RetentionStatus == RetentionDeleted {
-		return nil, ByteRange{}, Metadata{}, ErrUnauthorized
+	// The caller is already authorized for this task, so telling a deleted or not yet READY object
+	// apart reveals nothing to a caller without a role on it.
+	if metadata.RetentionStatus == RetentionDeleted {
+		return nil, ByteRange{}, Metadata{}, fmt.Errorf("%w: object deleted by retention", ErrExpired)
+	}
+	if metadata.State != StateReady {
+		return nil, ByteRange{}, Metadata{}, fmt.Errorf("%w: object is %s", ErrNotReady, metadata.State)
 	}
 	if err := verifyAcceptedOutputMetadata(metadata, task.InferReceipt); err != nil {
 		return nil, ByteRange{}, Metadata{}, err

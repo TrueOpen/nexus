@@ -492,6 +492,7 @@ func TestTaskDataErrorMapping(t *testing.T) {
 		{taskdata.ErrRangeInvalid, connect.CodeOutOfRange},
 		{taskdata.ErrServiceKeyUnavailable, connect.CodeUnavailable},
 		{taskdata.ErrAuthorityUnavailable, connect.CodeUnavailable},
+		{taskdata.ErrNotReady, connect.CodeUnavailable},
 		{taskdata.ErrStorage, connect.CodeInternal},
 		{errors.New("other"), connect.CodeInternal},
 	}
