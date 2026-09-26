@@ -282,7 +282,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 
 	// Signer: with a keystore/private key configured, real signed submission is enabled; otherwise it degrades to the unsigned skeleton mode.
 	coordOpts := []coordinator.Option{
-		coordinator.WithChainResetSuspect(chainResetMonitor.Suspect),
 		coordinator.WithOutputDelivery(outputs),
 		coordinator.WithPayloadStore(payloads),
 		coordinator.WithDeadlineSweep(coordinator.DeadlineSweepPolicy{
@@ -292,6 +291,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	if eventOptions.protocolOnHub {
 		coordOpts = append(coordOpts, coordinator.WithProtocolEventSource(hubChain.Events()))
+	}
+	if chainResetMonitor != nil {
+		coordOpts = append(coordOpts, coordinator.WithChainResetWatch(chainResetMonitor))
 	}
 	sg, err := identity.LoadSigner(cfg.Identity)
 	if err != nil {
@@ -506,11 +508,11 @@ func newBuilderRegistrationModule(
 	return &module{name: "builder-registration", start: reg.Start, stop: reg.Stop}
 }
 
-// Start brings the modules up in order; if any fails, the already-started ones are rolled back.
 // Fatal delivers an error that requires the process to stop, currently only
 // chainreset.ErrChainReset. It never delivers when the chain identity check is off.
 func (a *App) Fatal() <-chan error { return a.chainReset.Fatal() }
 
+// Start brings the modules up in order; if any fails, the already-started ones are rolled back.
 func (a *App) Start(ctx context.Context) error {
 	for i, m := range a.modules {
 		if err := m.start(ctx); err != nil {

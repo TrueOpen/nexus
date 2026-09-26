@@ -84,6 +84,20 @@ func TestOpenLocalStateMovesAsideStateOfResetChain(t *testing.T) {
 	}
 }
 
+// A start that cannot read the chain's identity keeps watching against the recorded one.
+func TestOpenLocalStateUncheckedKeepsRecordedIdentity(t *testing.T) {
+	dataDir := t.TempDir()
+	store, _ := openState(t, dataDir, identitySource{hash: []byte{0x0a}})
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, monitor := openState(t, dataDir, identitySource{hashErr: errors.New("node unreachable")})
+	defer store.Close()
+	if monitor == nil {
+		t.Fatal("no monitor although an identity is recorded")
+	}
+}
+
 // A chain that cannot tell its identity leaves the state alone and turns the runtime check off.
 func TestOpenLocalStateWithoutIdentity(t *testing.T) {
 	dataDir := t.TempDir()

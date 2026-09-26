@@ -53,7 +53,7 @@ func (f *fakeSource) calls() int {
 
 func observed(t *testing.T, store kv.Store, height uint64) {
 	t.Helper()
-	if err := store.Set(kv.NSChainState, legacyChainStateKey, []byte(`{"version":1,"last_observed_height":`+
+	if err := store.Set(kv.NSChainState, coordinatorStateKey, []byte(`{"version":1,"last_observed_height":`+
 		strconv.FormatUint(height, 10)+`,"last_reconciled_height":1}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestCheck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := kv.NewMemStore()
 			if tt.recorded != nil {
-				if err := Save(store, *tt.recorded); err != nil {
+				if err := Record(store, *tt.recorded); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -105,11 +105,55 @@ func TestCheck(t *testing.T) {
 			if got.Verdict != Unchecked && got.Current != (Identity{ChainID: "trueopen-dev", FirstBlockHash: "0b"}) {
 				t.Fatalf("current = %+v", got.Current)
 			}
-			// Check itself never writes: recording is the caller's move.
+			// Recording is the caller's move.
 			if _, recorded, _ := Load(store); recorded != (tt.recorded != nil) {
 				t.Fatalf("Check changed the recorded identity")
 			}
+			if tt.recorded != nil && got.Previous != *tt.recorded {
+				t.Fatalf("previous = %+v, want the recorded identity", got.Previous)
+			}
 		})
+	}
+}
+
+// A start that cannot check the chain must not lose the old state's height: the coordinator then
+// overwrites its record with the new chain's height, and the next start still sees the reset.
+// Recording an identity drops the kept height.
+func TestLegacyHeightSurvivesAnUncheckedStart(t *testing.T) {
+	store := kv.NewMemStore()
+	observed(t, store, 90000)
+	down := &fakeSource{hashErr: errors.New("node unreachable")}
+	if got, err := Check(context.Background(), store, down, "trueopen-dev"); err != nil || got.Verdict != Unchecked {
+		t.Fatalf("verdict = %v, %v", got.Verdict, err)
+	}
+	observed(t, store, 2000) // the coordinator ran against the new chain
+	up := &fakeSource{hash: []byte{0xb}, latest: 2000}
+	got, err := Check(context.Background(), store, up, "trueopen-dev")
+	if err != nil || got.Verdict != Reset {
+		t.Fatalf("verdict = %v (%s), %v; want Reset", got.Verdict, got.Reason, err)
+	}
+	if err := Record(store, got.Current); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := store.GetWithError(kv.NSChainState, legacyHeightKey); ok {
+		t.Fatal("legacy height kept after the identity was recorded")
+	}
+}
+
+func TestSameChain(t *testing.T) {
+	recorded := Identity{ChainID: "trueopen-dev", FirstBlockHash: "0b"}
+	src := &fakeSource{hash: []byte{0xb}}
+	m := newTestMonitor(src, recorded)
+	if same, err := m.SameChain(context.Background()); err != nil || !same {
+		t.Fatalf("same = %v, %v", same, err)
+	}
+	src.set([]byte{0xc})
+	if same, err := m.SameChain(context.Background()); err != nil || same {
+		t.Fatalf("same = %v, %v after the chain changed", same, err)
+	}
+	var off *Monitor
+	if _, err := off.SameChain(context.Background()); !errors.Is(err, ErrCheckOff) {
+		t.Fatalf("nil monitor err = %v", err)
 	}
 }
 

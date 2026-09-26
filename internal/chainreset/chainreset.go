@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,18 +40,23 @@ const ExitCode = 75
 
 const (
 	identityKey = "chain_identity"
+	// legacyHeightKey keeps the observed height of state written before an identity was recorded,
+	// taken at the first start that finds no identity and kept until one is recorded. The
+	// coordinator overwrites its own record with the connected chain's height as soon as it runs,
+	// so without this copy one start that could not check the chain would make the old state look
+	// like the new chain's for good.
+	legacyHeightKey = "legacy_observed_height"
 	// identityHeight is the block whose hash identifies the chain.
 	identityHeight int64 = 1
 	// HeightRegressionBlocks is how far the latest height must fall below an observed one before it
 	// is taken as a sign of a reset rather than a lagging node.
 	HeightRegressionBlocks uint64 = 100
-	// legacyChainStateKey and legacyChainState mirror the coordinator's chain state record
-	// (coordinator/chainstate.go): only its last observed height is read, for state written before
-	// the identity was recorded.
-	legacyChainStateKey = "coordinator"
+	// coordinatorStateKey and coordinatorState mirror the coordinator's chain state record
+	// (coordinator/chainstate.go): only its last observed height is read.
+	coordinatorStateKey = "coordinator"
 )
 
-type legacyChainState struct {
+type coordinatorState struct {
 	LastObservedHeight uint64 `json:"last_observed_height"`
 }
 
@@ -93,13 +99,16 @@ func Load(store kv.Store) (Identity, bool, error) {
 	return identity, true, nil
 }
 
-// Save records identity in store.
-func Save(store kv.Store, identity Identity) error {
+// Record stores identity and drops the legacy height kept for the check before it.
+func Record(store kv.Store, identity Identity) error {
 	raw, err := json.Marshal(identity)
 	if err != nil {
 		return err
 	}
-	return store.Set(kv.NSChainState, identityKey, raw)
+	return store.WriteBatch(
+		kv.WriteOp{NS: kv.NSChainState, Key: identityKey, Val: raw},
+		kv.WriteOp{NS: kv.NSChainState, Key: legacyHeightKey, Delete: true},
+	)
 }
 
 // Verdict is what the startup check concluded.
@@ -118,9 +127,10 @@ const (
 
 // Decision is the startup check's result.
 type Decision struct {
-	Verdict  Verdict
-	Current  Identity
-	Previous Identity // set when an identity was recorded
+	Verdict Verdict
+	Current Identity
+	// Previous is the recorded identity, zero when none is recorded.
+	Previous Identity
 	Reason   string
 }
 
@@ -129,16 +139,26 @@ type Decision struct {
 // Without a recorded identity (state written by a version before this check, or a first start) a
 // reset is inferred from the observed height: state that has seen a height more than
 // HeightRegressionBlocks above the chain's latest one was written on another chain. A node that is
-// still catching up also reports a low height, so the inference is skipped while it syncs, and it
-// is only ever used this once: after the identity is recorded, only the identity decides.
+// still catching up also reports a low height, so the inference is skipped while it syncs. The
+// inference is only used until an identity is recorded; after that, only the identity decides.
+//
+// The inference has a blind spot: when the new chain has already grown past the old state's
+// height by the time this check first runs, the old state is taken as the new chain's.
 func Check(ctx context.Context, store kv.Store, src Source, chainID string) (Decision, error) {
-	current, err := Query(ctx, src, chainID)
-	if err != nil {
-		return Decision{Verdict: Unchecked, Reason: err.Error()}, nil
-	}
 	previous, recorded, err := Load(store)
 	if err != nil {
 		return Decision{}, err
+	}
+	var observed uint64
+	if !recorded {
+		// Taken before any chain query, so that a failed query cannot lose it.
+		if observed, err = preserveLegacyHeight(store); err != nil {
+			return Decision{}, err
+		}
+	}
+	current, err := Query(ctx, src, chainID)
+	if err != nil {
+		return Decision{Verdict: Unchecked, Previous: previous, Reason: err.Error()}, nil
 	}
 	if recorded {
 		if previous == current {
@@ -146,10 +166,6 @@ func Check(ctx context.Context, store kv.Store, src Source, chainID string) (Dec
 		}
 		return Decision{Verdict: Reset, Current: current, Previous: previous,
 			Reason: fmt.Sprintf("recorded chain %s, connected chain %s", previous, current)}, nil
-	}
-	observed, err := legacyObservedHeight(store)
-	if err != nil {
-		return Decision{}, err
 	}
 	if observed == 0 {
 		return Decision{Verdict: Recorded, Current: current}, nil
@@ -172,14 +188,31 @@ func Check(ctx context.Context, store kv.Store, src Source, chainID string) (Dec
 	return Decision{Verdict: Recorded, Current: current}, nil
 }
 
-func legacyObservedHeight(store kv.Store) (uint64, error) {
-	raw, ok, err := store.GetWithError(kv.NSChainState, legacyChainStateKey)
+// preserveLegacyHeight returns the observed height of unrecorded state, copying the coordinator's
+// value the first time so later starts keep reading the height the old state saw.
+func preserveLegacyHeight(store kv.Store) (uint64, error) {
+	if raw, ok, err := store.GetWithError(kv.NSChainState, legacyHeightKey); err != nil {
+		return 0, err
+	} else if ok {
+		height, err := strconv.ParseUint(string(raw), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("decode legacy observed height: %w", err)
+		}
+		return height, nil
+	}
+	raw, ok, err := store.GetWithError(kv.NSChainState, coordinatorStateKey)
 	if err != nil || !ok {
 		return 0, err
 	}
-	var state legacyChainState
+	var state coordinatorState
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return 0, fmt.Errorf("decode chain state: %w", err)
+	}
+	if state.LastObservedHeight == 0 {
+		return 0, nil
+	}
+	if err := store.Set(kv.NSChainState, legacyHeightKey, []byte(strconv.FormatUint(state.LastObservedHeight, 10))); err != nil {
+		return 0, fmt.Errorf("keep legacy observed height: %w", err)
 	}
 	return state.LastObservedHeight, nil
 }
@@ -204,7 +237,8 @@ func Archive(dirs []string, tag string) ([]string, error) {
 }
 
 // Monitor confirms a suspected reset while the process runs. Suspect is cheap and may be called on
-// every hint; a confirmed reset is delivered once on Fatal.
+// every hint; a confirmed reset is delivered once on Fatal. SameChain answers a single question
+// without acting on it.
 type Monitor struct {
 	log      *slog.Logger
 	src      Source
@@ -238,6 +272,21 @@ func (m *Monitor) Fatal() <-chan error {
 		return nil
 	}
 	return m.fatal
+}
+
+// ErrCheckOff is returned by SameChain when there is no recorded identity to compare with.
+var ErrCheckOff = errors.New("chain identity check is off")
+
+// SameChain reads the chain's identity once and reports whether it is still the recorded one.
+func (m *Monitor) SameChain(ctx context.Context) (bool, error) {
+	if m == nil {
+		return false, ErrCheckOff
+	}
+	identity, err := Query(ctx, m.src, m.recorded.ChainID)
+	if err != nil {
+		return false, err
+	}
+	return identity == m.recorded, nil
 }
 
 // Suspect starts a confirmation run in the background unless one is running or ran recently.

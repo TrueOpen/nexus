@@ -17,7 +17,7 @@ const localStateCheckTimeout = 30 * time.Second
 // openLocalState opens the local kv and checks it belongs to the chain src is connected to. When it
 // belongs to a chain that was since reset, the kv and task data directories are moved aside and an
 // empty kv is opened in their place; the TLS directory is left alone, its fingerprint is on chain.
-// The returned monitor watches for a reset while running; it is nil when the check is off.
+// The returned monitor watches for a reset while running; it is nil when no identity is recorded.
 func openLocalState(log *slog.Logger, dataDir, chainID string, src chainreset.Source) (kv.Store, *chainreset.Monitor, error) {
 	kvDir := filepath.Join(dataDir, "kv")
 	store, err := kv.NewPebble(kvDir, log)
@@ -38,13 +38,19 @@ func openLocalState(log *slog.Logger, dataDir, chainID string, src chainreset.So
 	}
 	switch decision.Verdict {
 	case chainreset.Unchecked:
-		log.Warn("chain identity check not enabled for this run; a chain reset will not be noticed until the next start",
-			"reason", decision.Reason)
-		return store, nil, nil
+		if decision.Previous == (chainreset.Identity{}) {
+			log.Warn("chain identity check not enabled for this run; a chain reset will not be noticed until the next start",
+				"reason", decision.Reason)
+			return store, nil, nil
+		}
+		// The recorded identity still lets a reset be noticed while running.
+		log.Warn("chain identity could not be checked at startup; comparing against the recorded one while running",
+			"reason", decision.Reason, "recorded", decision.Previous.String())
+		return store, chainreset.NewMonitor(log, src, decision.Previous), nil
 	case chainreset.Same:
 		log.Info("chain identity matches local state", "chain", decision.Current.String())
 	case chainreset.Recorded:
-		if err := chainreset.Save(store, decision.Current); err != nil {
+		if err := chainreset.Record(store, decision.Current); err != nil {
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("record chain identity: %w", err)
 		}
@@ -65,7 +71,7 @@ func openLocalState(log *slog.Logger, dataDir, chainID string, src chainreset.So
 		if err != nil {
 			return nil, nil, fmt.Errorf("kv: %w", err)
 		}
-		if err := chainreset.Save(store, decision.Current); err != nil {
+		if err := chainreset.Record(store, decision.Current); err != nil {
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("record chain identity: %w", err)
 		}
