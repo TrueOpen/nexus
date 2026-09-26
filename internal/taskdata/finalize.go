@@ -9,10 +9,11 @@ package taskdata
 // objects of the given producer/round plus VerifierBundle READY, touches no Worker readiness, and
 // does not mean the on-chain Result has been accepted.
 //
-// Nexus does not interpret artifact IDs here, does not parse model evidence semantics and does not
-// recompute model-internal roots. What it does is line up what each of the three parties committed
-// to: the receipt says what the OUTPUT is, the manifest says which artifacts are in the bundle, and
-// the locked Verification Profile says which schema this evidence belongs to.
+// Nexus does not parse model evidence semantics and does not recompute model-internal roots. What
+// it does is line up what each of the three parties committed to: the receipt says what the OUTPUT
+// is, the manifest says which artifacts are in the bundle, and the locked Verification Profile says
+// which schema this evidence belongs to. For the Worker bundle that includes recomputing the
+// receipt's typed commitment from the manifest and artifact hashes (data plane 02 §2).
 
 import (
 	"context"
@@ -147,12 +148,15 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output size %d, receipt says %d",
 			ErrHashMismatch, output.SizeBytes, receipt.OutputSizeBytes)
 	}
-	// A streamed object records the leaf count and InferReceiptV2 also carries output_leaf_count:
-	// the two must be equal, otherwise the root a Verifier recomputes from chunk_lengths will not
-	// match the on-chain commitment. The old whole-object upload path has no leaf count
-	// (OutputMMRRoot is empty) and is not yet aligned with the single-leaf MMR semantics of
-	// ADR-0017, so it is not compared here.
-	if output.OutputMMRRoot != "" && output.OutputLeafCount != receipt.OutputLeafCount {
+	// Only a streamed OUTPUT can be finalized: the Worker commitment needs the finish_reason of its
+	// Fin (see verifyWorkerValueCommitment), which a whole-object upload does not have. The stream
+	// records the leaf count and InferReceiptV2 also carries output_leaf_count: the two must be
+	// equal, otherwise the root a Verifier recomputes from chunk_lengths will not match the
+	// on-chain commitment.
+	if output.OutputMMRRoot == "" {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: output was not streamed, finish_reason unknown", ErrConflict)
+	}
+	if output.OutputLeafCount != receipt.OutputLeafCount {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output leaf count %d, receipt says %d",
 			ErrHashMismatch, output.OutputLeafCount, receipt.OutputLeafCount)
 	}
@@ -185,6 +189,9 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 		if bundle.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
 			return FinalizeResultOutcome{}, fmt.Errorf("%w: artifact total %d bytes, receipt encoded_size_bytes %d",
 				ErrHashMismatch, bundle.ArtifactTotalSizeBytes, commitment.EncodedSizeBytes)
+		}
+		if err := s.verifyWorkerValueCommitment(ctx, receipt, commitment, schemaHash, outputRef, bundle, artifacts); err != nil {
+			return FinalizeResultOutcome{}, err
 		}
 		bundles = append(bundles, bundle)
 		ready = append(ready, manifestRef)

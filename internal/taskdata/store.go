@@ -727,6 +727,32 @@ func (s *Store) OpenRange(_ context.Context, key ObjectKey, offset, length uint6
 	return &sectionReadCloser{Reader: io.NewSectionReader(file, int64(offset), int64(length)), closer: file}, nil
 }
 
+// OpenStored opens the whole blob of a STORED or READY object for Finalize's own checks. Unlike
+// OpenRange it is not a serving path: the object need not be READY yet and no range limit applies,
+// so callers must bound what they read by the metadata size.
+func (s *Store) OpenStored(_ context.Context, key ObjectKey) (io.ReadCloser, error) {
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	encoded := objectKeyString(key)
+	if _, found, err := s.tombstoneRecord(encoded); err != nil {
+		return nil, err
+	} else if found {
+		return nil, ErrNotFound
+	}
+	record, found, err := s.metadataRecord(encoded)
+	if err != nil {
+		return nil, err
+	}
+	if !found || (record.Metadata.State != StateStored && record.Metadata.State != StateReady) {
+		return nil, ErrNotFound
+	}
+	file, err := os.Open(s.blobPath(record.BlobHash))
+	if err != nil {
+		return nil, fmt.Errorf("%w: open blob: %v", ErrStorage, err)
+	}
+	return file, nil
+}
+
 type sectionReadCloser struct {
 	io.Reader
 	closer io.Closer
