@@ -101,6 +101,8 @@ type Server struct {
 	whitelist            []*net.IPNet
 	builderDescriptor    []byte
 	natsSentinelFile     string
+	natsAdvertiseServers []string
+	natsAdvertiseCAFile  string
 	natsSentinel         []byte
 	readMaxBytes         int
 	taskDataReadMaxBytes int

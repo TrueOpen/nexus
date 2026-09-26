@@ -243,6 +243,10 @@ type NATSConfig struct {
 	// GET /v1/nats/sentinel, which removes the need for manual distribution.
 	// Empty = the route is not served.
 	SentinelFile string `yaml:"sentinel_file"`
+	// AdvertiseServers are the NATS addresses handed to Cortex with the sentinel, together with the
+	// certificates of CAFile (ADR-0016 decision one item 1). They are not Servers: nexus itself may
+	// reach NATS on a private or loopback address. Requires SentinelFile; empty = neither is served.
+	AdvertiseServers []string `yaml:"advertise_servers"`
 }
 
 // TLS reports whether any server is connected over tls://.
@@ -302,6 +306,14 @@ func (c Config) ValidateSecurity() error {
 		if strings.TrimSpace(c.NATS.CAFile) == "" {
 			problems = append(problems, "nats.ca_file is required in production: verify the server against the distributed certificate, not the system roots (ADR-0016)")
 		}
+	}
+	for _, server := range c.NATS.AdvertiseServers {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(server)), "tls://") {
+			problems = append(problems, fmt.Sprintf("nats.advertise_servers %q must use tls:// in production", server))
+		}
+	}
+	if len(c.NATS.AdvertiseServers) > 0 && strings.TrimSpace(c.NATS.CAFile) == "" {
+		problems = append(problems, "nats.advertise_servers needs nats.ca_file in production: Cortex verifies NATS against the certificate served with it")
 	}
 	// sentinel is optional, but once configured the file must really exist: ingress fails closed and
 	// refuses to start, so saying so during config validation beats failing halfway through startup.
@@ -660,6 +672,9 @@ func applyEnv(cfg *Config) {
 	cfg.NATS.CAFile = env("NEXUS_NATS_CA_FILE", cfg.NATS.CAFile)
 	cfg.NATS.CredsFile = env("NEXUS_NATS_CREDS_FILE", cfg.NATS.CredsFile)
 	cfg.NATS.SentinelFile = env("NEXUS_NATS_SENTINEL_FILE", cfg.NATS.SentinelFile)
+	if value, ok := nonEmptyEnv("NEXUS_NATS_ADVERTISE_SERVERS"); ok {
+		cfg.NATS.AdvertiseServers = splitNonEmpty(value)
+	}
 	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
 		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
 	}

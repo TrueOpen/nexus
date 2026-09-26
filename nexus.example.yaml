@@ -84,6 +84,7 @@ nats:
   ca_file: ""                       # NATS server certificate / CA PEM; verified against it for tls://; dev empty = system root CAs, required in production
   creds_file: ""                    # NATS creds (user JWT + nkey seed), replaces username/password; relative paths are relative to this file
   sentinel_file: ""                 # AUTH account bearer user JWT (e.g. ./nats-sentinel.jwt), public, non-secret data, served to Cortex via GET /v1/nats/sentinel; relative paths are relative to this file; empty = route not served
+  advertise_servers: []             # NATS addresses served to Cortex with the sentinel, e.g. [tls://203.0.113.10:4222], together with the certificates of ca_file (ADR-0016); needs sentinel_file; production needs tls:// and ca_file; empty = not served
 
 # Deployment Security Baseline switch: dev (default, behavior unchanged) | production.
 # production rejects: nats:// and user/password; non-loopback plaintext chain/hub grpc_addr;

@@ -81,6 +81,27 @@ When `sentinel_file` is not configured the route returns 404 `{"error":"nats sen
 if it is configured but is not a valid bearer user JWT, nexus refuses to start (fail-closed).
 `sentinel_file` is read only once at startup; after changing the file content or path, restart nexus for it to take effect.
 
+The same response can also carry the NATS address and the certificate Cortex verifies NATS with, so a new
+Cortex needs neither handed to it by hand (ADR-0016 decision one item 1):
+
+```yaml
+nats:
+  ca_file: ./nats-cert.pem                 # also what nexus itself verifies NATS with
+  sentinel_file: ./nats-sentinel.jwt
+  advertise_servers: [tls://203.0.113.10:4222]   # the address Cortex should dial, not necessarily nats.servers
+```
+
+```sh
+curl -s https://<builder>/v1/nats/sentinel
+{"schema_version":1,"auth_account_public_key":"A…","sentinel_jwt":"eyJ…","nats_servers":["tls://203.0.113.10:4222"],"nats_ca_pem":"-----BEGIN CERTIFICATE-----\n…"}
+```
+
+Only the `CERTIFICATE` blocks of `ca_file` are served; anything else in the file is not. Every certificate
+block must parse, or nexus refuses to start: nexus's own NATS connection skips a block it cannot parse, but a
+certificate handed to Cortex must be usable. Cortex trusts the certificate
+because it fetched it over the ingress TLS pinned by the on-chain `tls_pubkey_hash`. `advertise_servers` without
+`sentinel_file` makes nexus refuse to start; in production each address must be `tls://` and `ca_file` is required.
+
 ## Configuration and startup
 
 The `natsauth` block of `nexus.example.yaml`; `chain.chain_id` / `chain.grpc_addr` reuse the main nexus configuration.
