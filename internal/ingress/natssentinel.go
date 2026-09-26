@@ -150,8 +150,10 @@ func validateNATSAdvertiseServer(server string) error {
 	return nil
 }
 
-// certificatesOnlyPEM reads the file and re-encodes only its CERTIFICATE blocks, each of which must
-// parse. Anything else in the file (a private key put there by mistake, for one) is never served.
+// certificatesOnlyPEM reads the file and re-encodes only its CERTIFICATE blocks. Anything else in the
+// file (a private key put there by mistake, for one) is never served. Unlike nexus's own NATS
+// connection, which silently skips a block it cannot parse, every certificate served here must
+// parse: a Cortex must not be handed one it may not be able to use.
 func certificatesOnlyPEM(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -168,7 +170,7 @@ func certificatesOnlyPEM(path string) (string, error) {
 			continue
 		}
 		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-			return "", fmt.Errorf("nats.ca_file %q: certificate does not parse: %w", path, err)
+			return "", fmt.Errorf("nats.ca_file %q: certificate does not parse (every certificate is served to Cortex when nats.advertise_servers is set, so each must parse): %w", path, err)
 		}
 		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: block.Bytes})...)
 	}

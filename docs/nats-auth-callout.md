@@ -96,7 +96,9 @@ curl -s https://<builder>/v1/nats/sentinel
 {"schema_version":1,"auth_account_public_key":"A…","sentinel_jwt":"eyJ…","nats_servers":["tls://203.0.113.10:4222"],"nats_ca_pem":"-----BEGIN CERTIFICATE-----\n…"}
 ```
 
-Only the `CERTIFICATE` blocks of `ca_file` are served; anything else in the file is not. Cortex trusts the certificate
+Only the `CERTIFICATE` blocks of `ca_file` are served; anything else in the file is not. Every certificate
+block must parse, or nexus refuses to start: nexus's own NATS connection skips a block it cannot parse, but a
+certificate handed to Cortex must be usable. Cortex trusts the certificate
 because it fetched it over the ingress TLS pinned by the on-chain `tls_pubkey_hash`. `advertise_servers` without
 `sentinel_file` makes nexus refuse to start; in production each address must be `tls://` and `ca_file` is required.
 
