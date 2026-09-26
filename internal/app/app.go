@@ -12,6 +12,7 @@ import (
 
 	"github.com/TrueOpen/nexus/internal/builderreg"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/identity"
@@ -159,6 +160,7 @@ func (l *taskDataLifecycle) Stop(context.Context) error {
 func taskDataRoot(dataDir string) string { return filepath.Join(dataDir, "task-data") }
 
 type App struct {
+	chainReset       *chainreset.Monitor
 	cfg              config.Config
 	log              *slog.Logger
 	kv               kv.Store
@@ -214,11 +216,15 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	// Local persistence: open pebble under DataDir (for crash recovery); failing to open it is treated as a config error and fails outright --
 	// silently degrading to memory would quietly disable restart recovery in production.
-	store, err := kv.NewPebble(filepath.Join(cfg.DataDir, "kv"), log)
-	if err != nil {
-		return nil, fmt.Errorf("kv: %w", err)
+	// Local state belongs to one chain: it is checked against the chain's identity before anything reads it.
+	var identitySource chainreset.Source
+	if src, ok := chaincli.New(log, cfg.Chain).(chainreset.Source); ok {
+		identitySource = src
 	}
-	log.Info("local kv opened (pebble)", "dir", filepath.Join(cfg.DataDir, "kv"))
+	store, chainResetMonitor, err := openLocalState(log, cfg.DataDir, cfg.Chain.ChainID, identitySource)
+	if err != nil {
+		return nil, err
+	}
 
 	// With NATS servers configured, use the real bus; otherwise fall back to the stub (offline / unit tests).
 	var bus msgbus.Bus
@@ -276,6 +282,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 
 	// Signer: with a keystore/private key configured, real signed submission is enabled; otherwise it degrades to the unsigned skeleton mode.
 	coordOpts := []coordinator.Option{
+		coordinator.WithChainResetSuspect(chainResetMonitor.Suspect),
 		coordinator.WithOutputDelivery(outputs),
 		coordinator.WithPayloadStore(payloads),
 		coordinator.WithDeadlineSweep(coordinator.DeadlineSweepPolicy{
@@ -456,6 +463,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	return &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
 		beginIngressStop: ing.BeginStop,
+		chainReset:       chainResetMonitor,
 	}, nil
 }
 
@@ -499,6 +507,10 @@ func newBuilderRegistrationModule(
 }
 
 // Start brings the modules up in order; if any fails, the already-started ones are rolled back.
+// Fatal delivers an error that requires the process to stop, currently only
+// chainreset.ErrChainReset. It never delivers when the chain identity check is off.
+func (a *App) Fatal() <-chan error { return a.chainReset.Fatal() }
+
 func (a *App) Start(ctx context.Context) error {
 	for i, m := range a.modules {
 		if err := m.start(ctx); err != nil {

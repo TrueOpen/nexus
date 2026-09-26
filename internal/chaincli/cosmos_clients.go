@@ -25,6 +25,13 @@ type latestBlockClient interface {
 	GetLatestBlock(context.Context, *connect.Request[cmtv1beta1.GetLatestBlockRequest]) (*connect.Response[cmtv1beta1.GetLatestBlockResponse], error)
 }
 
+// cometInfoClient reads the two CometBFT facts the chain identity check needs: a block's hash by
+// height and whether the node is still catching up.
+type cometInfoClient interface {
+	GetBlockByHeight(context.Context, *connect.Request[cmtv1beta1.GetBlockByHeightRequest]) (*connect.Response[cmtv1beta1.GetBlockByHeightResponse], error)
+	GetSyncing(context.Context, *connect.Request[cmtv1beta1.GetSyncingRequest]) (*connect.Response[cmtv1beta1.GetSyncingResponse], error)
+}
+
 type cosmosAuthClient struct {
 	account *connect.Client[authv1beta1.QueryAccountRequest, authv1beta1.QueryAccountResponse]
 }
@@ -54,6 +61,19 @@ func (c *cosmosLatestBlockClient) GetLatestBlock(ctx context.Context, req *conne
 	return c.latest.CallUnary(ctx, req)
 }
 
+type cosmosCometInfoClient struct {
+	blockByHeight *connect.Client[cmtv1beta1.GetBlockByHeightRequest, cmtv1beta1.GetBlockByHeightResponse]
+	syncing       *connect.Client[cmtv1beta1.GetSyncingRequest, cmtv1beta1.GetSyncingResponse]
+}
+
+func (c *cosmosCometInfoClient) GetBlockByHeight(ctx context.Context, req *connect.Request[cmtv1beta1.GetBlockByHeightRequest]) (*connect.Response[cmtv1beta1.GetBlockByHeightResponse], error) {
+	return c.blockByHeight.CallUnary(ctx, req)
+}
+
+func (c *cosmosCometInfoClient) GetSyncing(ctx context.Context, req *connect.Request[cmtv1beta1.GetSyncingRequest]) (*connect.Response[cmtv1beta1.GetSyncingResponse], error) {
+	return c.syncing.CallUnary(ctx, req)
+}
+
 func newCosmosAuthClient(httpClient *http.Client, baseURL string, options ...connect.ClientOption) authQueryClient {
 	return &cosmosAuthClient{account: connect.NewClient[authv1beta1.QueryAccountRequest, authv1beta1.QueryAccountResponse](
 		httpClient, strings.TrimRight(baseURL, "/")+"/cosmos.auth.v1beta1.Query/Account", options...,
@@ -72,4 +92,14 @@ func newCosmosLatestBlockClient(httpClient *http.Client, baseURL string, options
 	return &cosmosLatestBlockClient{latest: connect.NewClient[cmtv1beta1.GetLatestBlockRequest, cmtv1beta1.GetLatestBlockResponse](
 		httpClient, strings.TrimRight(baseURL, "/")+"/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", options...,
 	)}
+}
+
+func newCosmosCometInfoClient(httpClient *http.Client, baseURL string, options ...connect.ClientOption) cometInfoClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &cosmosCometInfoClient{
+		blockByHeight: connect.NewClient[cmtv1beta1.GetBlockByHeightRequest, cmtv1beta1.GetBlockByHeightResponse](
+			httpClient, baseURL+"/cosmos.base.tendermint.v1beta1.Service/GetBlockByHeight", options...),
+		syncing: connect.NewClient[cmtv1beta1.GetSyncingRequest, cmtv1beta1.GetSyncingResponse](
+			httpClient, baseURL+"/cosmos.base.tendermint.v1beta1.Service/GetSyncing", options...),
+	}
 }

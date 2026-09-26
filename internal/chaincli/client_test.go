@@ -1005,3 +1005,54 @@ func TestQueryTaskMapsCoreFinality(t *testing.T) {
 		t.Fatalf("active task settlement = %+v", got.Settlement)
 	}
 }
+
+type recordCometInfo struct {
+	block   *cmtv1beta1.GetBlockByHeightResponse
+	height  int64
+	syncing bool
+	err     error
+}
+
+func (q *recordCometInfo) GetBlockByHeight(_ context.Context, req *connect.Request[cmtv1beta1.GetBlockByHeightRequest]) (*connect.Response[cmtv1beta1.GetBlockByHeightResponse], error) {
+	q.height = req.Msg.GetHeight()
+	if q.err != nil {
+		return nil, q.err
+	}
+	return connect.NewResponse(q.block), nil
+}
+
+func (q *recordCometInfo) GetSyncing(context.Context, *connect.Request[cmtv1beta1.GetSyncingRequest]) (*connect.Response[cmtv1beta1.GetSyncingResponse], error) {
+	if q.err != nil {
+		return nil, q.err
+	}
+	return connect.NewResponse(&cmtv1beta1.GetSyncingResponse{Syncing: q.syncing}), nil
+}
+
+func TestBlockHashAndSyncing(t *testing.T) {
+	info := &recordCometInfo{syncing: true, block: &cmtv1beta1.GetBlockByHeightResponse{
+		BlockId: &tmtypes.BlockID{Hash: []byte{0xab, 0xcd}},
+		Block:   &tmtypes.Block{Header: &tmtypes.Header{ChainId: "trueopen-localnet-1", Height: 1}},
+	}}
+	c := &client{cfg: config.ChainConfig{ChainID: "trueopen-localnet-1"}, cometInfo: info}
+	hash, err := c.BlockHash(context.Background(), 1)
+	if err != nil || !bytes.Equal(hash, []byte{0xab, 0xcd}) || info.height != 1 {
+		t.Fatalf("hash = %x, err = %v, height = %d", hash, err, info.height)
+	}
+	if syncing, err := c.Syncing(context.Background()); err != nil || !syncing {
+		t.Fatalf("syncing = %v, err = %v", syncing, err)
+	}
+
+	info.block.Block.Header.ChainId = "other-chain"
+	if _, err := c.BlockHash(context.Background(), 1); err == nil {
+		t.Fatal("a block of another chain was accepted")
+	}
+	info.block.BlockId = nil
+	info.block.Block.Header.ChainId = "trueopen-localnet-1"
+	if _, err := c.BlockHash(context.Background(), 1); err == nil {
+		t.Fatal("a response without a block id was accepted")
+	}
+	info.err = errors.New("height 1 is not available, lowest height is 1000")
+	if _, err := c.BlockHash(context.Background(), 1); err == nil {
+		t.Fatal("pruned block error was swallowed")
+	}
+}

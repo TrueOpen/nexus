@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -83,6 +84,9 @@ func (c *Coordinator) refreshChainHeight(ctx context.Context) (uint64, error) {
 	c.chainStateMu.Lock()
 	next := c.chainState
 	next.Version = chainStateVersion
+	// A small step back is a lagging height RPC; a large one is a sign the chain was reset.
+	regressed := c.heightAuthoritative && height+chainreset.HeightRegressionBlocks < next.LastObservedHeight
+	observed := next.LastObservedHeight
 	if !c.heightAuthoritative || height > next.LastObservedHeight {
 		next.LastObservedHeight = height
 	}
@@ -97,6 +101,9 @@ func (c *Coordinator) refreshChainHeight(ctx context.Context) (uint64, error) {
 	c.chainState = next
 	c.heightAuthoritative = true
 	c.chainStateMu.Unlock()
+	if regressed {
+		c.suspectChainReset(fmt.Sprintf("latest height %d is far below observed height %d", height, observed))
+	}
 	// The height RPC may briefly lag an already observed block event.
 	return next.LastObservedHeight, nil
 }

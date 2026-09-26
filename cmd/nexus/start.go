@@ -45,12 +45,24 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 
-			<-ctx.Done()
-			log.Info("shutdown signal received")
+			var fatal error
+			select {
+			case <-ctx.Done():
+				log.Info("shutdown signal received")
+			case fatal = <-a.Fatal():
+				log.Error("stopping", "err", fatal)
+			}
 
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			return a.Stop(shutdownCtx)
+			stopErr := a.Stop(shutdownCtx)
+			if fatal != nil {
+				if stopErr != nil {
+					log.Warn("stop after fatal error", "err", stopErr)
+				}
+				return fatal
+			}
+			return stopErr
 		},
 	}
 }
