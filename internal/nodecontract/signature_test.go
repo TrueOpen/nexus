@@ -6,10 +6,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-
-	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
-
-	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 // task_data_plane_v1_golden.json covers only the pre-freeze domainHash(domain, fields ...string)
@@ -123,27 +119,5 @@ func TestLegacyDecimalFramingIsGoneFromReceiptPath(t *testing.T) {
 	typed := CanonicalHashBytes(DomainInferReceiptV2, Uint32BE(InferReceiptSchemaVersionV2))
 	if hex.EncodeToString(typed[:]) == hex.EncodeToString(legacy) {
 		t.Fatal("typed H_FIELDS_V1 framing must not collide with the deleted decimal framing")
-	}
-}
-
-func TestSignHexReturnsCanonicalSecp256k1Signature(t *testing.T) {
-	sg, err := signer.NewFromHex(testPrivateKeyHex, "trueopen")
-	if err != nil {
-		t.Fatal(err)
-	}
-	registration, err := ServiceRegistrationBytes(
-		"hub", sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, sg.Address(), sg.PubKeyCompressed(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig, err := SignHex(sg, registration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sig) != 128 {
-		t.Fatalf("signature length = %d, want 128 hex chars", len(sig))
-	}
-	if _, err := hex.DecodeString(sig); err != nil {
-		t.Fatalf("signature is not hex: %v", err)
 	}
 }

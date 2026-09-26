@@ -3,10 +3,7 @@ package nodecontract
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"strconv"
-
-	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 const (
@@ -118,14 +115,6 @@ func SettlementSigningBytes(chainID, settlementID, taskID, taskVerdict, settleme
 		taskEvidenceRoot,
 		strconv.FormatUint(challengeCloseHeight, 10),
 	)
-}
-
-func SignHex(s signer.Signer, canonical []byte) (string, error) {
-	sig, err := s.Sign(canonical)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(sig), nil
 }
 
 func domainHash(domain string, fields ...string) []byte {
