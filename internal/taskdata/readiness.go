@@ -17,8 +17,8 @@ type ResultReadyQuery struct {
 	InferReceiptHash string
 }
 
-// ResultFinalizedObserver is told that FinalizeTaskResult succeeded for a task (first commit or
-// exact replay). It runs on the Finalize caller's goroutine after the result is durable.
+// ResultFinalizedObserver is told that FinalizeTaskResult first committed a task's result (not on
+// an exact replay). It runs on the Finalize caller's goroutine after the result is durable.
 type ResultFinalizedObserver func(sessionID, taskID string)
 
 // SetResultFinalizedObserver installs the observer. Call it before the service starts serving.

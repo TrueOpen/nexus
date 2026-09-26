@@ -85,11 +85,14 @@ type finalizeRecord struct {
 	EvidenceConfirmations []StorageConfirmation `json:"evidence_confirmations,omitempty"`
 }
 
-// FinalizeTaskResult is the atomic commit point on the Worker side. On success, including an exact
-// replay, the result-finalized observer is told: that is when this Builder becomes data-ready.
+// FinalizeTaskResult is the atomic commit point on the Worker side. When it first commits, the
+// result-finalized observer is told: that is when this Builder becomes data-ready. An exact replay
+// is answered before the request is authorized again, so it does not notify: otherwise anyone
+// holding one valid request could replay it to make this Builder rebroadcast its Verifier
+// proposal. A restart is covered by the coordinator's own reconcile.
 func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
 	outcome, err := s.finalizeTaskResult(ctx, request)
-	if err == nil && s.resultFinalized != nil {
+	if err == nil && !outcome.Idempotent && s.resultFinalized != nil {
 		s.resultFinalized(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
 	}
 	return outcome, err

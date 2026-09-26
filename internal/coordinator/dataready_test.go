@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -50,26 +51,54 @@ func newDataReadyFixture(t *testing.T, name string) (*verifierProposalFixture, *
 	fx.c.SetResultReadiness(readiness)
 	fx.fsm.mu.Lock()
 	fx.fsm.resultReadiness = readiness
+	fx.fsm.dataReady = false
 	fx.fsm.mu.Unlock()
 	openVerify := &captured{}
 	mustSub(t, fx.bus, msgbus.SubjectVerifyOpen(fx.task), openVerify)
 	return fx, readiness, openVerify
 }
 
-func (fx *verifierProposalFixture) chainAcceptsReceipt(height int64) {
+func (fx *verifierProposalFixture) chainAcceptsReceipt(t *testing.T, height int64) {
+	t.Helper()
 	fx.c.applyAuthoritativeTask(fx.fsm, chaincli.OnChainTask{
 		SessionID: fx.session, TaskID: fx.task, State: types.Verifying, Winner: fx.fsm.winner,
 		Assignment:      chaincli.TaskAssignmentState{WinnerConfirmHeight: 101},
 		ReceiptAccepted: true,
 	}, height)
+	waitDataReadyIdle(t, fx.fsm)
+}
+
+func (fx *verifierProposalFixture) resultFinalized(t *testing.T) {
+	t.Helper()
+	fx.c.OnResultFinalized(fx.session, fx.task)
+	waitDataReadyIdle(t, fx.fsm)
+}
+
+// waitDataReadyIdle waits for a background data-ready check to finish.
+func waitDataReadyIdle(t *testing.T, f *taskFSM) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f.mu.Lock()
+		busy := f.dataReadyChecking
+		f.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("data-ready check did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // Receipt accepted locally and on chain, but the Worker has not finalized its result on this
 // Builder: no OPEN_VERIFY and no proposal (04 §326). Finalize then sends both.
 func TestOpenVerifyAndProposalWaitForLocalDataReady(t *testing.T) {
 	fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-wait")
-	fx.chainAcceptsReceipt(150)
+	fx.chainAcceptsReceipt(t, 150)
 	fx.deliver(testOperator("verifier-1"))
+	waitDataReadyIdle(t, fx.fsm)
 	if openVerify.count() != 0 || len(fx.proposed()) != 0 {
 		t.Fatalf("before Finalize: OPEN_VERIFY=%d proposals=%d, want 0/0", openVerify.count(), len(fx.proposed()))
 	}
@@ -81,13 +110,13 @@ func TestOpenVerifyAndProposalWaitForLocalDataReady(t *testing.T) {
 	}
 
 	// Reconcile alone does not help while the data is missing.
-	fx.chainAcceptsReceipt(151)
+	fx.chainAcceptsReceipt(t, 151)
 	if openVerify.count() != 0 || len(fx.proposed()) != 0 {
 		t.Fatal("a reconcile sent OPEN_VERIFY or a proposal before data-ready")
 	}
 
 	readiness.set(true)
-	fx.c.OnResultFinalized(fx.session, fx.task)
+	fx.resultFinalized(t)
 	if openVerify.count() != 1 {
 		t.Fatalf("OPEN_VERIFY after Finalize = %d, want 1", openVerify.count())
 	}
@@ -104,8 +133,8 @@ func TestOpenVerifyAndProposalWaitForLocalDataReady(t *testing.T) {
 		t.Fatalf("data-ready query = %+v", last)
 	}
 
-	fx.chainAcceptsReceipt(152)
-	fx.c.OnResultFinalized(fx.session, fx.task)
+	fx.chainAcceptsReceipt(t, 152)
+	fx.resultFinalized(t)
 	if openVerify.count() != 1 {
 		t.Fatalf("OPEN_VERIFY was resent: %d", openVerify.count())
 	}
@@ -117,9 +146,10 @@ func TestDataReadyIsBoundToTheSameReceipt(t *testing.T) {
 	readiness.mu.Lock()
 	readiness.ready, readiness.receiptHash = true, hex.EncodeToString(make([]byte, 32))
 	readiness.mu.Unlock()
-	fx.chainAcceptsReceipt(150)
-	fx.c.OnResultFinalized(fx.session, fx.task)
+	fx.chainAcceptsReceipt(t, 150)
+	fx.resultFinalized(t)
 	fx.deliver(testOperator("verifier-1"))
+	waitDataReadyIdle(t, fx.fsm)
 	if openVerify.count() != 0 || len(fx.proposed()) != 0 {
 		t.Fatalf("OPEN_VERIFY=%d proposals=%d for another receipt's result, want 0/0", openVerify.count(), len(fx.proposed()))
 	}
@@ -129,11 +159,11 @@ func TestDataReadyIsBoundToTheSameReceipt(t *testing.T) {
 func TestDataReadyBeforeChainAcceptance(t *testing.T) {
 	fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-first")
 	readiness.set(true)
-	fx.c.OnResultFinalized(fx.session, fx.task)
+	fx.resultFinalized(t)
 	if openVerify.count() != 0 {
 		t.Fatal("OPEN_VERIFY was sent before the chain accepted the receipt")
 	}
-	fx.chainAcceptsReceipt(150)
+	fx.chainAcceptsReceipt(t, 150)
 	if openVerify.count() != 1 {
 		t.Fatalf("OPEN_VERIFY after chain acceptance = %d, want 1", openVerify.count())
 	}
@@ -145,14 +175,14 @@ func TestDataReadyCheckErrorIsRetried(t *testing.T) {
 	readiness.mu.Lock()
 	readiness.ready, readiness.err = true, errors.New("storage unavailable")
 	readiness.mu.Unlock()
-	fx.chainAcceptsReceipt(150)
+	fx.chainAcceptsReceipt(t, 150)
 	if openVerify.count() != 0 {
 		t.Fatal("OPEN_VERIFY was sent although the data-ready check failed")
 	}
 	readiness.mu.Lock()
 	readiness.err = nil
 	readiness.mu.Unlock()
-	fx.chainAcceptsReceipt(151)
+	fx.chainAcceptsReceipt(t, 151)
 	if openVerify.count() != 1 {
 		t.Fatalf("OPEN_VERIFY after the check recovered = %d, want 1", openVerify.count())
 	}
@@ -163,7 +193,7 @@ func TestDataReadyCheckErrorIsRetried(t *testing.T) {
 func TestOpenVerifyAfterRestartFollowsStoredDataReady(t *testing.T) {
 	for _, ready := range []bool{true, false} {
 		fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-restart-"+map[bool]string{true: "ready", false: "missing"}[ready])
-		fx.chainAcceptsReceipt(150)
+		fx.chainAcceptsReceipt(t, 150)
 
 		raw, ok := fx.c.kv.Get(kv.NSTask, taskKey(fx.session, fx.task))
 		if !ok {
@@ -182,7 +212,9 @@ func TestOpenVerifyAfterRestartFollowsStoredDataReady(t *testing.T) {
 		restored.resultReadiness = readiness
 
 		restored.onInferReceiptAccepted()
+		waitDataReadyIdle(t, restored)
 		restored.onInferReceiptAccepted()
+		waitDataReadyIdle(t, restored)
 		want := 0
 		if ready {
 			want = 1
@@ -196,13 +228,56 @@ func TestOpenVerifyAfterRestartFollowsStoredDataReady(t *testing.T) {
 // Once Verifiers are selected the FSM leaves Assigned and a late Finalize sends nothing.
 func TestNoOpenVerifyAfterLeavingAssigned(t *testing.T) {
 	fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-late")
-	fx.chainAcceptsReceipt(150)
+	fx.chainAcceptsReceipt(t, 150)
 	fx.fsm.mu.Lock()
 	fx.fsm.state = types.Verifying
 	fx.fsm.mu.Unlock()
 	readiness.set(true)
-	fx.c.OnResultFinalized(fx.session, fx.task)
+	fx.resultFinalized(t)
 	if openVerify.count() != 0 {
 		t.Fatalf("OPEN_VERIFY after leaving Assigned = %d, want 0", openVerify.count())
 	}
+}
+
+// A Finalize that lands while a check is in flight is not lost: the check runs once more.
+func TestFinalizeDuringDataReadyCheckIsNotLost(t *testing.T) {
+	fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-during-check")
+	gate := &gatedResultReadiness{inner: readiness, release: make(chan struct{}), entered: make(chan struct{})}
+	fx.fsm.mu.Lock()
+	fx.fsm.resultReadiness = gate
+	fx.fsm.mu.Unlock()
+
+	// The reconcile starts a check that will answer "not ready"; Finalize lands meanwhile.
+	fx.c.applyAuthoritativeTask(fx.fsm, chaincli.OnChainTask{
+		SessionID: fx.session, TaskID: fx.task, State: types.Verifying, Winner: fx.fsm.winner,
+		Assignment:      chaincli.TaskAssignmentState{WinnerConfirmHeight: 101},
+		ReceiptAccepted: true,
+	}, 150)
+	<-gate.entered
+	readiness.set(true)
+	fx.c.OnResultFinalized(fx.session, fx.task)
+	close(gate.release)
+	waitDataReadyIdle(t, fx.fsm)
+	if openVerify.count() != 1 {
+		t.Fatalf("OPEN_VERIFY after a Finalize during a check = %d, want 1", openVerify.count())
+	}
+}
+
+// gatedResultReadiness holds its first answer until released, answering as of when it was asked.
+type gatedResultReadiness struct {
+	inner   *fakeResultReadiness
+	release chan struct{}
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (g *gatedResultReadiness) ResultReady(ctx context.Context, q taskdata.ResultReadyQuery) (bool, error) {
+	first := false
+	g.once.Do(func() { first = true })
+	ready, err := g.inner.ResultReady(ctx, q)
+	if first {
+		g.entered <- struct{}{}
+		<-g.release
+	}
+	return ready, err
 }

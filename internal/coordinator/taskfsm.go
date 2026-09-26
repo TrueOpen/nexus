@@ -114,9 +114,13 @@ type taskFSM struct {
 	acceptedReceiptHash []byte
 	openVerifyPublished bool // OPEN_VERIFY already sent by this process; reconcile reruns do not resend
 	// resultReadiness answers local data-ready (04 §326); dataReady caches a positive answer.
-	// Neither is persisted: the answer is derived from task data storage.
-	resultReadiness ResultReadiness
-	dataReady       bool
+	// Neither is persisted: the answer is derived from task data storage. The question is asked
+	// off the FSM lock (checkDataReady), since storage can be held by a sweep for a long time;
+	// dataReadyChecking marks one in flight and dataReadyRecheck asks it to run once more.
+	resultReadiness   ResultReadiness
+	dataReady         bool
+	dataReadyChecking bool
+	dataReadyRecheck  bool
 	// settleSubmittedHeight is the chain height at which this node last sent a settlement
 	// transaction (0 = not sent this round). A "submitted" boolean is not used: a tx that
 	// passes CheckTx may still be rejected at execution (before the window, not this
@@ -498,31 +502,73 @@ func (f *taskFSM) onInferReceiptAccepted() {
 func (f *taskFSM) onResultFinalized() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.publishOpenVerify()
-	f.scheduleVerifierProposalLocked()
+	f.requestDataReadyCheckLocked()
 }
 
-// dataReadyLocked reports this Builder's local data-ready for the receipt this FSM holds. A
-// positive answer is cached; a negative one is asked again at the next trigger. Caller must
-// hold the lock.
+// dataReadyLocked reports the cached local data-ready for the receipt this FSM holds. When not
+// known ready it starts a check in the background; a positive answer then sends what was waiting
+// (checkDataReady). Caller must hold the lock.
 func (f *taskFSM) dataReadyLocked() bool {
-	if f.dataReady {
-		return true
+	if !f.dataReady {
+		f.requestDataReadyCheckLocked()
 	}
-	if f.resultReadiness == nil || len(f.outputHash) == 0 {
-		return false
+	return f.dataReady
+}
+
+// requestDataReadyCheckLocked starts checkDataReady unless the answer is known or there is
+// nothing to ask about; a request while one is in flight makes it run once more, so a Finalize
+// that lands during a check is not missed. Caller must hold the lock.
+func (f *taskFSM) requestDataReadyCheckLocked() {
+	if f.dataReady || f.resultReadiness == nil || len(f.outputHash) == 0 {
+		return
 	}
-	ready, err := f.resultReadiness.ResultReady(context.Background(), taskdata.ResultReadyQuery{
-		TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
-		OutputHash:       hex.EncodeToString(f.outputHash),
-		InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
-	})
-	if err != nil {
-		f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
-		return false
+	if f.dataReadyChecking {
+		f.dataReadyRecheck = true
+		return
 	}
-	f.dataReady = ready
-	return ready
+	if !f.beginHandler() {
+		return
+	}
+	f.dataReadyChecking = true
+	go func() {
+		defer f.endHandler()
+		f.checkDataReady()
+	}()
+}
+
+// checkDataReady asks the task data plane without holding the FSM lock, then applies the answer:
+// once ready, OPEN_VERIFY and the buffered Verifier proposal go out. The answer counts only if the
+// FSM still holds the receipt that was asked about.
+func (f *taskFSM) checkDataReady() {
+	for {
+		f.mu.Lock()
+		f.dataReadyRecheck = false
+		readiness := f.resultReadiness
+		query := taskdata.ResultReadyQuery{
+			TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
+			OutputHash:       hex.EncodeToString(f.outputHash),
+			InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
+		}
+		f.mu.Unlock()
+
+		ready, err := readiness.ResultReady(context.Background(), query)
+
+		f.mu.Lock()
+		if err != nil {
+			f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
+		} else if ready && query.InferReceiptHash == hex.EncodeToString(f.inferReceipt.InferReceiptHash) {
+			f.dataReady = true
+			f.publishOpenVerify()
+			f.scheduleVerifierProposalLocked()
+		}
+		if f.dataReady || !f.dataReadyRecheck {
+			f.dataReadyChecking = false
+			f.dataReadyRecheck = false
+			f.mu.Unlock()
+			return
+		}
+		f.mu.Unlock()
+	}
 }
 
 // openVerifyPayload builds this message's payload; nil means it must not be sent yet.

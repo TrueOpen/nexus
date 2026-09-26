@@ -94,6 +94,9 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 	// its own cases.
 	fsm.mu.Lock()
 	fsm.verifierProposalDelay = 0
+	// These cases are about the proposal itself: the result counts as finalized here. Data-ready
+	// has its own cases (dataready_test.go).
+	fsm.dataReady = true
 	fsm.mu.Unlock()
 
 	fx := &verifierProposalFixture{

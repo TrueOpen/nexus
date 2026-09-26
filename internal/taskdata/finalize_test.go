@@ -800,7 +800,7 @@ func (f *finalizeFixture) resultReady(t *testing.T, q ResultReadyQuery) bool {
 }
 
 // ResultReady is local data-ready (04 §326): only after Finalize, and only for the same receipt.
-// The observer hears every successful Finalize, including an exact replay, and no failed one.
+// The observer hears the first successful Finalize only: not a failed one, not a replay.
 func TestResultReadyFollowsFinalize(t *testing.T) {
 	f := newFinalizeFixture(t)
 	var notified []string
@@ -841,9 +841,12 @@ func TestResultReadyFollowsFinalize(t *testing.T) {
 	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 10)); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	want := testSessionID + "|" + testTaskID
-	if len(notified) != 2 || notified[0] != want || notified[1] != want {
-		t.Fatalf("observer calls = %v, want two for %s", notified, want)
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 11)); err != nil {
+		t.Fatalf("second replay: %v", err)
+	}
+	// Only the first commit notifies: a replay must not let anyone re-trigger the proposal.
+	if want := testSessionID + "|" + testTaskID; len(notified) != 1 || notified[0] != want {
+		t.Fatalf("observer calls = %v, want exactly one for %s", notified, want)
 	}
 }
 
