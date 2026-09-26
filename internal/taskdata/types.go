@@ -15,6 +15,11 @@ var (
 	ErrServiceKeyUnavailable = errors.New("NEXUS_DATA_SERVICE_KEY_UNAVAILABLE")
 	ErrStorage               = errors.New("NEXUS_DATA_STORAGE")
 	ErrAuthorityUnavailable  = errors.New("NEXUS_DATA_AUTHORITY_UNAVAILABLE")
+	// ErrNotReady is TASK_DATA_NOT_READY of the task data interface design §9: the object is stored
+	// but not READY yet, for example OUTPUT before the Worker's FinalizeTaskResult. It maps to the
+	// same transport code as the two *_UNAVAILABLE errors above, so callers tell "ask this Builder
+	// again later" from "this Builder cannot serve" by the NEXUS_DATA_NOT_READY message prefix.
+	ErrNotReady = errors.New("NEXUS_DATA_NOT_READY")
 )
 
 // ObjectKey is an alias for ObjectRef: since wire v0.4.1 an object is uniquely determined by
