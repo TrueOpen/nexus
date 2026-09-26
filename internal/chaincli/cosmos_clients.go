@@ -19,6 +19,7 @@ type authQueryClient interface {
 type txServiceClient interface {
 	GetTx(context.Context, *connect.Request[txv1beta1.GetTxRequest]) (*connect.Response[txv1beta1.GetTxResponse], error)
 	BroadcastTx(context.Context, *connect.Request[txv1beta1.BroadcastTxRequest]) (*connect.Response[txv1beta1.BroadcastTxResponse], error)
+	Simulate(context.Context, *connect.Request[txv1beta1.SimulateRequest]) (*connect.Response[txv1beta1.SimulateResponse], error)
 }
 
 type latestBlockClient interface {
@@ -43,6 +44,11 @@ func (c *cosmosAuthClient) Account(ctx context.Context, req *connect.Request[aut
 type cosmosTxClient struct {
 	getTx       *connect.Client[txv1beta1.GetTxRequest, txv1beta1.GetTxResponse]
 	broadcastTx *connect.Client[txv1beta1.BroadcastTxRequest, txv1beta1.BroadcastTxResponse]
+	simulate    *connect.Client[txv1beta1.SimulateRequest, txv1beta1.SimulateResponse]
+}
+
+func (c *cosmosTxClient) Simulate(ctx context.Context, req *connect.Request[txv1beta1.SimulateRequest]) (*connect.Response[txv1beta1.SimulateResponse], error) {
+	return c.simulate.CallUnary(ctx, req)
 }
 
 func (c *cosmosTxClient) GetTx(ctx context.Context, req *connect.Request[txv1beta1.GetTxRequest]) (*connect.Response[txv1beta1.GetTxResponse], error) {
@@ -85,6 +91,7 @@ func newCosmosTxClient(httpClient *http.Client, baseURL string, options ...conne
 	return &cosmosTxClient{
 		getTx:       connect.NewClient[txv1beta1.GetTxRequest, txv1beta1.GetTxResponse](httpClient, baseURL+"/cosmos.tx.v1beta1.Service/GetTx", options...),
 		broadcastTx: connect.NewClient[txv1beta1.BroadcastTxRequest, txv1beta1.BroadcastTxResponse](httpClient, baseURL+"/cosmos.tx.v1beta1.Service/BroadcastTx", options...),
+		simulate:    connect.NewClient[txv1beta1.SimulateRequest, txv1beta1.SimulateResponse](httpClient, baseURL+"/cosmos.tx.v1beta1.Service/Simulate", options...),
 	}
 }
 

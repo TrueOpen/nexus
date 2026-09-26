@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -72,6 +73,9 @@ type Coordinator struct {
 	txQuery         TxQuerier
 	height          HeightQuerier
 	selection       BuilderSelectionQuerier
+	epochLength     atomic.Uint64
+	// epochTriedAt is when the epoch length was last read (UnixNano), for the retry pause.
+	epochTriedAt    atomic.Int64
 	relay           relay.Custodian
 	kv              kv.Store
 	submit          Submitter
@@ -220,6 +224,53 @@ type HeightQuerier interface {
 type BuilderSelectionQuerier interface {
 	QueryTaskBuilders(context.Context, chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error)
 	QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error)
+}
+
+// epochLengthQuerier is the Hub epoch length read; the selection querier may offer it.
+type epochLengthQuerier interface {
+	QueryEpochLengthBlocks(context.Context) (uint64, error)
+}
+
+// epochLengthRetry is how long a failed epoch length read waits before the next one.
+const epochLengthRetry = time.Minute
+
+// refreshEpochLength reads the Hub epoch length once, from the reconcile loop, never under a
+// task lock. A failed read is retried after epochLengthRetry.
+func (c *Coordinator) refreshEpochLength(ctx context.Context) {
+	if c.epochLength.Load() != 0 {
+		return
+	}
+	query, ok := c.selection.(epochLengthQuerier)
+	if !ok {
+		return
+	}
+	now := time.Now().UnixNano()
+	if last := c.epochTriedAt.Load(); last != 0 && now-last < int64(epochLengthRetry) {
+		return
+	}
+	c.epochTriedAt.Store(now)
+	queryCtx, cancel := context.WithTimeout(ctx, reconcileQueryTimeout)
+	length, err := query.QueryEpochLengthBlocks(queryCtx)
+	cancel()
+	if err != nil || length == 0 {
+		c.log.Warn("hub epoch length read failed; refused verifier handraises wait for it", "err", err)
+		return
+	}
+	c.epochLength.Store(length)
+}
+
+// currentEpoch returns the epoch of the last observed chain height, from the cached epoch
+// length; false while either is not known.
+func (c *Coordinator) currentEpoch() (uint64, bool) {
+	length := c.epochLength.Load()
+	if length == 0 {
+		return 0, false
+	}
+	height, authoritative := c.currentChainHeight()
+	if !authoritative || height == 0 {
+		return 0, false
+	}
+	return height / length, true
 }
 
 // WithSubmitter injects a custom Tx submitter (e.g. NewSignedSubmitter with real signing).
@@ -540,6 +591,8 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		workerHR:              make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:            make(map[string]*taskv1.VerifierHandraiseV1),
 		verifierHRProposed:    make(map[string]bool),
+		verifierHRExcluded:    make(map[string]uint64),
+		currentEpoch:          c.currentEpoch,
 		verifierProposalDelay: verifierProposalBatchDelay,
 		resultReadiness:       c.resultReadiness,
 		verifyResults:         make(map[string]*taskv1.ResultReceiptV2),

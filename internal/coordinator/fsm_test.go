@@ -46,6 +46,9 @@ type fakeSubmitter struct {
 	verifyCommits         []chaincli.VerifyCommitTx
 	verifyCommitErr       error
 	verifyResultErr       error
+
+	// verifierExcluded is reported as left out of every verifier handraise proposal.
+	verifierExcluded []ExcludedHandraise
 }
 
 type jsHandlerCaptureBus struct {
@@ -109,11 +112,11 @@ func TestPublishRefusesFramesItCannotSign(t *testing.T) {
 	})
 }
 
-func (s *fakeSubmitter) SubmitAssign(_ context.Context, tx chaincli.AssignTx) (chaincli.TxResult, error) {
+func (s *fakeSubmitter) SubmitAssign(_ context.Context, tx chaincli.AssignTx) (ProposalResult, error) {
 	s.mu.Lock()
 	s.assign = append(s.assign, tx)
 	s.mu.Unlock()
-	return s.assignResult, s.assignErr
+	return ProposalResult{TxResult: s.assignResult}, s.assignErr
 }
 
 func (s *fakeSubmitter) SubmitOpenVerify(_ context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error) {
@@ -123,14 +126,14 @@ func (s *fakeSubmitter) SubmitOpenVerify(_ context.Context, tx chaincli.OpenVeri
 	return chaincli.TxResult{Code: 0}, nil
 }
 
-func (s *fakeSubmitter) SubmitVerifierHandraises(_ context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error) {
+func (s *fakeSubmitter) SubmitVerifierHandraises(_ context.Context, tx chaincli.OpenVerifyTx) (ProposalResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.verifierHandraisesErr != nil {
-		return chaincli.TxResult{}, s.verifierHandraisesErr
+		return ProposalResult{}, s.verifierHandraisesErr
 	}
 	s.verifierHandraises = append(s.verifierHandraises, tx)
-	return chaincli.TxResult{Code: 0}, nil
+	return ProposalResult{Excluded: s.verifierExcluded}, nil
 }
 
 func (s *fakeSubmitter) SubmitVerifyCommit(_ context.Context, tx chaincli.VerifyCommitTx) (chaincli.TxResult, error) {

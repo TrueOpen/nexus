@@ -50,6 +50,10 @@ func (c *seqChain) BroadcastTx(_ context.Context, tx []byte) (chaincli.TxResult,
 	return chaincli.TxResult{Code: 0}, nil
 }
 
+func (c *seqChain) Simulate(context.Context, []byte) (chaincli.SimResult, error) {
+	return chaincli.SimResult{OK: true}, nil
+}
+
 func (c *seqChain) push(res chaincli.TxResult, err error) {
 	c.results = append(c.results, res)
 	c.errs = append(c.errs, err)

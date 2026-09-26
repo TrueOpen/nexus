@@ -47,9 +47,9 @@ import (
 // are still not enabled: the Cortex contract has not given them a NATS payload yet.
 // MsgReportDataUnavailable must not be relayed per the contract (see the chaincli/txbuild.go comment).
 type Submitter interface {
-	SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (chaincli.TxResult, error)
+	SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (ProposalResult, error)
 	SubmitOpenVerify(ctx context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error)
-	SubmitVerifierHandraises(ctx context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error)
+	SubmitVerifierHandraises(ctx context.Context, tx chaincli.OpenVerifyTx) (ProposalResult, error)
 	SubmitVerifyCommit(ctx context.Context, tx chaincli.VerifyCommitTx) (chaincli.TxResult, error)
 	SubmitVerifyResult(ctx context.Context, tx chaincli.VerifyResultTx) (chaincli.TxResult, error)
 	SubmitSettle(ctx context.Context, tx chaincli.SettleTx) (chaincli.TxResult, error)
@@ -101,6 +101,8 @@ type defaultSubmitter struct {
 	accNum   uint64
 	sequence uint64
 	seqValid bool // false = refresh from chain before the next submit
+
+	simulate simulateCounters
 }
 
 // newDefaultSubmitter is the unsigned skeleton submitter (default of coordinator.New).
@@ -126,12 +128,12 @@ func NewBuilderSubmitter(log *slog.Logger, chain chaincli.Client, s chaincli.TxS
 // threshold, reserved fee and infer deadline are Keeper-derived and are refused
 // as request copies; the proposal also carries no detached Builder signature,
 // because the Cosmos Tx signer already authorises it.
-func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (chaincli.TxResult, error) {
+func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (ProposalResult, error) {
 	if s.signer == nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: account signer is required")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: account signer is required")
 	}
 	if tx.Submitter == "" || tx.Submitter != s.signer.Address() {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: submitter_address must be the Cosmos signer")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: submitter_address must be the Cosmos signer")
 	}
 	msg := &taskv1.MsgSubmitWorkerHandraises{SubmitterAddress: tx.Submitter}
 	// scopeTaskHash is the authoritative candidate identity this proposal binds to; the two scope branches source it
@@ -140,34 +142,47 @@ func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignT
 	var scopeTaskHash []byte
 	switch {
 	case tx.SignedOrder != nil && tx.ExistingTask != nil:
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
 	case tx.SignedOrder != nil:
 		if err := validateSignedOrder(tx.SignedOrder); err != nil {
-			return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
+			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 		}
 		digest, err := nodecontract.TaskOrderHashV2(tx.SignedOrder.GetOrder())
 		if err != nil {
-			return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
+			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 		}
 		scopeTaskHash = digest[:]
 		msg.Scope = &taskv1.WorkerHandraiseScopeV1{Scope: &taskv1.WorkerHandraiseScopeV1_SignedOrder{SignedOrder: tx.SignedOrder}}
 	case tx.ExistingTask != nil:
 		if len(tx.ExistingTask.GetTaskId()) != hash32Len || len(tx.ExistingTask.GetTaskHash()) != hash32Len {
-			return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: existing_task requires canonical task_id and task_hash")
+			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: existing_task requires canonical task_id and task_hash")
 		}
 		scopeTaskHash = tx.ExistingTask.GetTaskHash()
 		msg.Scope = &taskv1.WorkerHandraiseScopeV1{Scope: &taskv1.WorkerHandraiseScopeV1_ExistingTask{ExistingTask: tx.ExistingTask}}
 	default:
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
 	}
 	if err := validateWorkerHandraises(tx.WorkerHandraises); err != nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 	}
 	if err := validateScopeTaskHash(scopeTaskHash, tx.WorkerHandraises); err != nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 	}
-	msg.Handraises = tx.WorkerHandraises
-	return s.submitMsg(ctx, "MsgSubmitWorkerHandraises", chaincli.TypeURLMsgSubmitWorkerHandraises, msg)
+	operators := make([]string, len(tx.WorkerHandraises))
+	for i, hr := range tx.WorkerHandraises {
+		operators[i] = hr.GetMember().GetOperatorAddress()
+	}
+	return s.submitHandraiseProposal(ctx, handraiseProposal{
+		kind: "MsgSubmitWorkerHandraises", typeURL: chaincli.TypeURLMsgSubmitWorkerHandraises, operators: operators,
+		build: func(keep []int) proto.Message {
+			subset := proto.Clone(msg).(*taskv1.MsgSubmitWorkerHandraises)
+			subset.Handraises = make([]*taskv1.WorkerHandraiseV1, 0, len(keep))
+			for _, i := range keep {
+				subset.Handraises = append(subset.Handraises, tx.WorkerHandraises[i])
+			}
+			return subset
+		},
+	})
 }
 
 // SubmitOpenVerify relays the Worker-signed receipt as MsgSubmitInferReceipt
@@ -198,24 +213,34 @@ func (s *defaultSubmitter) SubmitOpenVerify(ctx context.Context, tx chaincli.Ope
 // at `h_window`, after the InferReceipt transaction froze the eligibility source
 // and the whole clock. Submitting handraises inside the receipt transaction would
 // be rejected as out-of-window.
-func (s *defaultSubmitter) SubmitVerifierHandraises(ctx context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error) {
+func (s *defaultSubmitter) SubmitVerifierHandraises(ctx context.Context, tx chaincli.OpenVerifyTx) (ProposalResult, error) {
 	if s.signer == nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: account signer is required")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: account signer is required")
 	}
 	if tx.Submitter == "" || tx.Submitter != s.signer.Address() {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: submitter_address must be the Cosmos signer")
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: submitter_address must be the Cosmos signer")
 	}
 	taskID, err := nodecontract.Hash32Bytes("task_id", tx.TaskID)
 	if err != nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: %v", err)
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: %v", err)
 	}
 	if err := validateVerifierHandraises(tx.VerifierHandraises, taskID); err != nil {
-		return chaincli.TxResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: %v", err)
+		return ProposalResult{}, prepareSubmissionError("MsgSubmitVerifierHandraises: %v", err)
 	}
-	return s.submitMsg(ctx, "MsgSubmitVerifierHandraises", chaincli.TypeURLMsgSubmitVerifierHandraises, &taskv1.MsgSubmitVerifierHandraises{
-		TaskId:           taskID,
-		Handraises:       tx.VerifierHandraises,
-		SubmitterAddress: tx.Submitter,
+	operators := make([]string, len(tx.VerifierHandraises))
+	for i, hr := range tx.VerifierHandraises {
+		operators[i] = hr.GetMember().GetOperatorAddress()
+	}
+	return s.submitHandraiseProposal(ctx, handraiseProposal{
+		kind: "MsgSubmitVerifierHandraises", typeURL: chaincli.TypeURLMsgSubmitVerifierHandraises, operators: operators,
+		build: func(keep []int) proto.Message {
+			subset := &taskv1.MsgSubmitVerifierHandraises{TaskId: taskID, SubmitterAddress: tx.Submitter,
+				Handraises: make([]*taskv1.VerifierHandraiseV1, 0, len(keep))}
+			for _, i := range keep {
+				subset.Handraises = append(subset.Handraises, tx.VerifierHandraises[i])
+			}
+			return subset
+		},
 	})
 }
 
@@ -671,7 +696,19 @@ func (s *defaultSubmitter) submitMsg(ctx context.Context, kind, typeURL string, 
 	// refresh and retry once on sequence mismatch, mark dirty on network uncertainty for the next refresh.
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
+	return s.submitAnyLocked(ctx, kind, typeURL, msgAny)
+}
 
+// submitLocked is submitMsg for a caller that already holds seqMu.
+func (s *defaultSubmitter) submitLocked(ctx context.Context, kind, typeURL string, msg proto.Message) (chaincli.TxResult, error) {
+	msgAny, err := chaincli.PackAny(typeURL, msg)
+	if err != nil {
+		return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Definitive: true, Err: err}
+	}
+	return s.submitAnyLocked(ctx, kind, typeURL, msgAny)
+}
+
+func (s *defaultSubmitter) submitAnyLocked(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
 	if !s.seqValid {
 		if err := s.refreshSequence(ctx); err != nil {
 			return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: account info: %w", kind, err)}
@@ -755,16 +792,21 @@ func (s *defaultSubmitter) refreshSequence(ctx context.Context) error {
 	return nil
 }
 
-// signAndBroadcast signs with the currently cached sequence and broadcasts. Caller must hold seqMu.
-func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
-	raw, err := chaincli.BuildSignedTx(s.signer, chaincli.TxParams{
+// txParams are the signing parameters with the currently cached sequence. Caller must hold seqMu.
+func (s *defaultSubmitter) txParams() chaincli.TxParams {
+	return chaincli.TxParams{
 		ChainID:       s.chainCfg.ChainID,
 		AccountNumber: s.accNum,
 		Sequence:      s.sequence,
 		GasLimit:      s.chainCfg.GasLimit,
 		FeeDenom:      s.chainCfg.FeeDenom,
 		FeeAmount:     s.chainCfg.FeeAmount,
-	}, msgAny)
+	}
+}
+
+// signAndBroadcast signs with the currently cached sequence and broadcasts. Caller must hold seqMu.
+func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
+	raw, err := chaincli.BuildSignedTx(s.signer, s.txParams(), msgAny)
 	if err != nil {
 		return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Definitive: true, Err: fmt.Errorf("submit %s: %w", kind, err)}
 	}

@@ -39,8 +39,11 @@ type ChainEvent struct {
 type TxResult struct {
 	TxHash []byte
 	Code   uint32
-	Height int64
-	RawLog string
+	// Codespace is the module that registered Code ("task", "sdk", ...); a code means
+	// nothing without it.
+	Codespace string
+	Height    int64
+	RawLog    string
 }
 
 // AccountInfo is the account information needed for signing (auth Query/Account).

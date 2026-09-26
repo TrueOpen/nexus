@@ -41,6 +41,48 @@ type captureChain struct {
 	selectionErr  error
 	builder       chaincli.BuilderState
 	builderSet    chaincli.BuilderSet
+	// judge decides a simulated handraise proposal by the operators it carries; nil takes
+	// every proposal. simulateErr stands for a node that cannot simulate.
+	judge       func(operators []string) chaincli.SimResult
+	simulateErr error
+	simulated   [][]string
+}
+
+func (c *captureChain) Simulate(_ context.Context, tx []byte) (chaincli.SimResult, error) {
+	if c.simulateErr != nil {
+		return chaincli.SimResult{}, c.simulateErr
+	}
+	operators := signedProposalOperators(tx)
+	c.simulated = append(c.simulated, operators)
+	if c.judge == nil {
+		return chaincli.SimResult{OK: true}, nil
+	}
+	return c.judge(operators), nil
+}
+
+// signedProposalOperators lists the handraise operators of a signed handraise proposal, in order.
+func signedProposalOperators(tx []byte) []string {
+	var raw txv1beta1.TxRaw
+	var body txv1beta1.TxBody
+	if proto.Unmarshal(tx, &raw) != nil || proto.Unmarshal(raw.BodyBytes, &body) != nil || len(body.Messages) != 1 {
+		return nil
+	}
+	var operators []string
+	switch body.Messages[0].TypeUrl {
+	case chaincli.TypeURLMsgSubmitWorkerHandraises:
+		var msg taskv1.MsgSubmitWorkerHandraises
+		_ = proto.Unmarshal(body.Messages[0].Value, &msg)
+		for _, hr := range msg.GetHandraises() {
+			operators = append(operators, hr.GetMember().GetOperatorAddress())
+		}
+	case chaincli.TypeURLMsgSubmitVerifierHandraises:
+		var msg taskv1.MsgSubmitVerifierHandraises
+		_ = proto.Unmarshal(body.Messages[0].Value, &msg)
+		for _, hr := range msg.GetHandraises() {
+			operators = append(operators, hr.GetMember().GetOperatorAddress())
+		}
+	}
+	return operators
 }
 
 func (c *captureChain) AccountInfo(_ context.Context, _ string) (chaincli.AccountInfo, error) {
