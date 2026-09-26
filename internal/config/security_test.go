@@ -45,6 +45,24 @@ func TestSecurityProductionAcceptsRegularSentinelFile(t *testing.T) {
 	}
 }
 
+// The NATS address handed to Cortex may differ from the one nexus itself dials.
+func TestSecurityProductionAcceptsAdvertisedNATS(t *testing.T) {
+	cfg := productionConfig()
+	cfg.NATS.Servers = []string{"tls://127.0.0.1:4222"}
+	cfg.NATS.AdvertiseServers = []string{"tls://nats.example:4222"}
+	if err := cfg.ValidateSecurity(); err != nil {
+		t.Fatalf("advertised tls:// with ca_file rejected: %v", err)
+	}
+}
+
+func TestNATSAdvertiseServersFromEnv(t *testing.T) {
+	t.Setenv("NEXUS_NATS_ADVERTISE_SERVERS", "tls://a:4222, tls://b:4222")
+	cfg := Load()
+	if strings.Join(cfg.NATS.AdvertiseServers, "|") != "tls://a:4222|tls://b:4222" {
+		t.Fatalf("advertise_servers = %q", cfg.NATS.AdvertiseServers)
+	}
+}
+
 func TestSecurityProductionAllowsLoopbackChainInPlaintext(t *testing.T) {
 	cfg := productionConfig()
 	cfg.Chain.GRPCAddr = "127.0.0.1:9090" // loopback on the same host as node is a deployment choice
@@ -65,6 +83,10 @@ func TestSecurityProductionRefusesWeakSettings(t *testing.T) {
 		{"nats without ca file", func(c *Config) { c.NATS.CAFile = "" }, "nats.ca_file"},
 		{"nats sentinel file missing", func(c *Config) { c.NATS.SentinelFile = filepath.Join(t.TempDir(), "absent.jwt") }, "nats.sentinel_file"},
 		{"nats sentinel file is a directory", func(c *Config) { c.NATS.SentinelFile = t.TempDir() }, "nats.sentinel_file"},
+		{"plaintext advertised nats", func(c *Config) { c.NATS.AdvertiseServers = []string{"nats://nats.example:4222"} }, "nats.advertise_servers"},
+		{"advertised nats without ca file", func(c *Config) {
+			c.NATS.AdvertiseServers, c.NATS.CAFile = []string{"tls://nats.example:4222"}, ""
+		}, "nats.advertise_servers needs nats.ca_file"},
 		{"plaintext remote chain", func(c *Config) { c.Chain.GRPCAddr = "node.example:9090" }, "chain.grpc_addr"},
 		{"plaintext remote hub", func(c *Config) { c.Hub.Enabled, c.Hub.GRPCAddr = true, "hub.example:9090" }, "hub.grpc_addr"},
 		{"inline private_key_hex", func(c *Config) {

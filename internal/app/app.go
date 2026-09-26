@@ -306,6 +306,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// The AUTH account sentinel JWT (public, non-secret data) is distributed to Cortex by the ingress; see GET /v1/nats/sentinel.
 		ingressOpts = append(ingressOpts, ingress.WithNATSSentinelFile(cfg.NATS.SentinelFile))
 	}
+	if len(cfg.NATS.AdvertiseServers) > 0 {
+		// The NATS address and certificate go to Cortex with the sentinel (ADR-0016 decision one item 1).
+		ingressOpts = append(ingressOpts, ingress.WithNATSAdvertise(cfg.NATS.AdvertiseServers, cfg.NATS.CAFile))
+	}
 	if tlsMaterial.Enabled() {
 		ingressOpts = append(ingressOpts, ingress.WithTLS(tlsMaterial.Certificate))
 	}
