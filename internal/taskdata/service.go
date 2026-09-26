@@ -19,6 +19,9 @@ type Service struct {
 	// receipt.output_hash, so a successful lookup is the comparison; READY and the storage
 	// confirmation are produced only there.
 	outputStream OutputStreamConfig
+
+	// resultFinalized, when set, is told of every successful FinalizeTaskResult.
+	resultFinalized ResultFinalizedObserver
 }
 
 func NewService(store *Store, authorizer *Authorizer) (*Service, error) {

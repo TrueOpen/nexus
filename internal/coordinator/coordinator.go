@@ -77,6 +77,7 @@ type Coordinator struct {
 	submit          Submitter
 	outputs         outputdelivery.Manager
 	payloads        payloadstore.Store
+	resultReadiness ResultReadiness
 
 	mu           sync.RWMutex
 	tasks        map[string]*taskFSM // key = session_id|task_id
@@ -155,6 +156,27 @@ type BuilderRegistry interface {
 	QueryBuilder(context.Context, string) (chaincli.BuilderState, error)
 	LatestHeight(context.Context) (uint64, error)
 	QueryBuilderSetAtHeight(context.Context, uint64) (chaincli.BuilderSet, error)
+}
+
+// ResultReadiness answers this Builder's local data-ready for one Worker result (04 §326); the
+// task data plane (taskdata.Service) implements it.
+type ResultReadiness interface {
+	ResultReady(context.Context, taskdata.ResultReadyQuery) (bool, error)
+}
+
+// SetResultReadiness wires in the task data plane; call it before Start. Without it no task is
+// ever data-ready, so no OPEN_VERIFY or Verifier hand-raise proposal is sent, as there is no data
+// to serve.
+func (c *Coordinator) SetResultReadiness(readiness ResultReadiness) {
+	c.resultReadiness = readiness
+}
+
+// OnResultFinalized is the task data plane's result-finalized observer: the Worker's
+// FinalizeTaskResult succeeded here, so the task may now be data-ready.
+func (c *Coordinator) OnResultFinalized(sessionID, taskID string) {
+	if fsm, ok := c.getFSM(sessionID, taskID); ok {
+		fsm.onResultFinalized()
+	}
 }
 
 type TaskQuerier interface {
@@ -498,6 +520,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		verifierHR:            make(map[string]*taskv1.VerifierHandraiseV1),
 		verifierHRProposed:    make(map[string]bool),
 		verifierProposalDelay: verifierProposalBatchDelay,
+		resultReadiness:       c.resultReadiness,
 		verifyResults:         make(map[string]*taskv1.ResultReceiptV2),
 		verifyCommits:         make(map[string]*taskv1.VerifyCommitV1),
 		fullReveals:           make(map[string]bool),

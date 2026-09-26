@@ -777,3 +777,102 @@ func TestFinalizeTaskResultRejectsWholeObjectOutput(t *testing.T) {
 	f.resignReceipt(t)
 	f.requireFinalizeRejected(t, ErrConflict, "output was not streamed")
 }
+
+func (f *finalizeFixture) readyQuery(t *testing.T) ResultReadyQuery {
+	t.Helper()
+	digest, err := receiptDigest(f.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ResultReadyQuery{
+		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
+		OutputHash: f.receipt.OutputHash, InferReceiptHash: hex.EncodeToString(digest[:]),
+	}
+}
+
+func (f *finalizeFixture) resultReady(t *testing.T, q ResultReadyQuery) bool {
+	t.Helper()
+	ready, err := f.service.ResultReady(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ready
+}
+
+// ResultReady is local data-ready (04 §326): only after Finalize, and only for the same receipt.
+// The observer hears the first successful Finalize only: not a failed one, not a replay.
+func TestResultReadyFollowsFinalize(t *testing.T) {
+	f := newFinalizeFixture(t)
+	var notified []string
+	f.service.SetResultFinalizedObserver(func(sessionID, taskID string) {
+		notified = append(notified, sessionID+"|"+taskID)
+	})
+	q := f.readyQuery(t)
+	if f.resultReady(t, q) {
+		t.Fatal("ready before Finalize")
+	}
+
+	bad := f.request(t, 8)
+	bad.Auth.BodyDigest = strings.Repeat("0", 64)
+	if _, err := f.service.FinalizeTaskResult(context.Background(), bad); err == nil {
+		t.Fatal("tampered Finalize succeeded")
+	}
+	if len(notified) != 0 {
+		t.Fatalf("observer told of a failed Finalize: %v", notified)
+	}
+
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9)); err != nil {
+		t.Fatal(err)
+	}
+	if !f.resultReady(t, q) {
+		t.Fatal("not ready after Finalize")
+	}
+	other := q
+	other.InferReceiptHash = strings.Repeat("e", 64)
+	if f.resultReady(t, other) {
+		t.Fatal("ready for a different receipt")
+	}
+	missing := q
+	missing.OutputHash = strings.Repeat("f", 64)
+	if f.resultReady(t, missing) {
+		t.Fatal("ready for an OUTPUT that does not exist")
+	}
+
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 10)); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 11)); err != nil {
+		t.Fatalf("second replay: %v", err)
+	}
+	// Only the first commit notifies: a replay must not let anyone re-trigger the proposal.
+	if want := testSessionID + "|" + testTaskID; len(notified) != 1 || notified[0] != want {
+		t.Fatalf("observer calls = %v, want exactly one for %s", notified, want)
+	}
+}
+
+// commitReady switches the OUTPUT last: if it stops part-way, the OUTPUT is not READY and
+// ResultReady stays false, although some evidence objects already are.
+func TestResultReadyFalseAfterPartialCommit(t *testing.T) {
+	f := newFinalizeFixture(t)
+	artifactRef := f.manifest.Key
+	artifactRef.Kind, artifactRef.ContentHash = ObjectKindEvidenceArtifact, f.manifest.Artifacts[len(f.manifest.Artifacts)-1].ContentHash
+	// A failure between the checks and the last switch cannot be triggered through Finalize, so
+	// drive commitReady directly with a ref that cannot be marked.
+	refs := []ObjectRef{f.output.Key, f.manifest.Key, artifactRef, {Kind: ObjectKindEvidenceArtifact, TaskHash: f.taskHash,
+		SessionID: testSessionID, TaskID: testTaskID, ContentHash: strings.Repeat("9", 64),
+		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: f.worker.Address()}}
+	if _, err := f.service.commitReady(context.Background(), refs, f.output, []Metadata{f.manifest}, &f.receipt); err == nil {
+		t.Fatal("commitReady with an unknown ref succeeded")
+	}
+	manifest, err := f.store.Metadata(context.Background(), f.manifest.Key)
+	if err != nil || manifest.State != StateReady {
+		t.Fatalf("manifest = %s / %v, want READY (switched before the failure)", manifest.State, err)
+	}
+	output, err := f.store.Metadata(context.Background(), f.output.Key)
+	if err != nil || output.State != StateStored {
+		t.Fatalf("output = %s / %v, want STORED", output.State, err)
+	}
+	if f.resultReady(t, f.readyQuery(t)) {
+		t.Fatal("ready after a partial commit")
+	}
+}

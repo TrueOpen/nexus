@@ -46,6 +46,7 @@ func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 		testBuilderSelf, testChainID)
 	enableTestBusEnvelopes(c)
 	c.submit = fake
+	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
 	const (
 		session = "sess-open-verify-after-chain"
@@ -93,6 +94,10 @@ func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 	if !ok {
 		t.Fatal("task FSM was not created")
 	}
+	// The result counts as finalized here; waiting for it has its own cases (dataready_test.go).
+	fsm.mu.Lock()
+	fsm.dataReady = true
+	fsm.mu.Unlock()
 
 	// The chain accepted the receipt and the verify window is open, but the verifiers are not decided
 	// yet (RECEIPT_COMMITTED -> Verifying, with Verifiers empty).

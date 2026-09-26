@@ -27,6 +27,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -112,6 +113,14 @@ type taskFSM struct {
 	acceptedOutputHash  []byte
 	acceptedReceiptHash []byte
 	openVerifyPublished bool // OPEN_VERIFY already sent by this process; reconcile reruns do not resend
+	// resultReadiness answers local data-ready (04 §326); dataReady caches a positive answer.
+	// Neither is persisted: the answer is derived from task data storage. The question is asked
+	// off the FSM lock (checkDataReady), since storage can be held by a sweep for a long time;
+	// dataReadyChecking marks one in flight and dataReadyRecheck asks it to run once more.
+	resultReadiness   ResultReadiness
+	dataReady         bool
+	dataReadyChecking bool
+	dataReadyRecheck  bool
 	// settleSubmittedHeight is the chain height at which this node last sent a settlement
 	// transaction (0 = not sent this round). A "submitted" boolean is not used: a tx that
 	// passes CheckTx may still be rejected at execution (before the window, not this
@@ -447,12 +456,22 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 //
 // The message carries no input/output/evidence bodies and does not mean any Verifier has
 // been selected.
+//
+// It also waits for this Builder's local data-ready (04 §326): input, output and all required
+// evidence stored and checked here, i.e. the Worker's FinalizeTaskResult succeeded on this
+// Builder with the receipt this FSM holds. Opening verification without the data would make the
+// Builder answer for data it cannot serve. The usual order is receipt accepted on chain, then
+// Finalize, so onResultFinalized is the call that normally sends it.
 func (f *taskFSM) publishOpenVerify() {
-	if f.openVerifyPublished {
+	if f.openVerifyPublished || f.state != types.Assigned || !f.receiptOnChain {
 		return
 	}
 	payload := f.openVerifyPayload()
 	if payload == nil {
+		return
+	}
+	if !f.dataReadyLocked() {
+		f.log.Debug("OPEN_VERIFY deferred: the Worker result is not finalized on this Builder", "task_id", f.taskID)
 		return
 	}
 	if err := f.publish(msgbus.SubjectVerifyOpen(f.taskID), bus.KindOpenVerify, payload, busadapter.TierCore); err == nil {
@@ -469,11 +488,87 @@ func (f *taskFSM) onInferReceiptAccepted() {
 	defer f.mu.Unlock()
 	if !f.receiptOnChain {
 		f.receiptOnChain = true
-		f.publishOpenVerify()
 		f.save()
 	}
-	// Every on-chain reconcile reaches here: buffered hand-raises whose last submission failed are retried (still in batches).
+	// Every on-chain reconcile reaches here: OPEN_VERIFY is retried until this Builder is
+	// data-ready (sent once per process), and buffered hand-raises whose last submission failed
+	// are retried (still in batches).
+	f.publishOpenVerify()
 	f.scheduleVerifierProposalLocked()
+}
+
+// onResultFinalized: the Worker's FinalizeTaskResult succeeded on this Builder, normally the
+// last condition of data-ready. Caller does not hold the lock.
+func (f *taskFSM) onResultFinalized() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requestDataReadyCheckLocked()
+}
+
+// dataReadyLocked reports the cached local data-ready for the receipt this FSM holds. When not
+// known ready it starts a check in the background; a positive answer then sends what was waiting
+// (checkDataReady). Caller must hold the lock.
+func (f *taskFSM) dataReadyLocked() bool {
+	if !f.dataReady {
+		f.requestDataReadyCheckLocked()
+	}
+	return f.dataReady
+}
+
+// requestDataReadyCheckLocked starts checkDataReady unless the answer is known or there is
+// nothing to ask about; a request while one is in flight makes it run once more, so a Finalize
+// that lands during a check is not missed. Caller must hold the lock.
+func (f *taskFSM) requestDataReadyCheckLocked() {
+	if f.dataReady || f.resultReadiness == nil || len(f.outputHash) == 0 {
+		return
+	}
+	if f.dataReadyChecking {
+		f.dataReadyRecheck = true
+		return
+	}
+	if !f.beginHandler() {
+		return
+	}
+	f.dataReadyChecking = true
+	go func() {
+		defer f.endHandler()
+		f.checkDataReady()
+	}()
+}
+
+// checkDataReady asks the task data plane without holding the FSM lock, then applies the answer:
+// once ready, OPEN_VERIFY and the buffered Verifier proposal go out. The answer counts only if the
+// FSM still holds the receipt that was asked about.
+func (f *taskFSM) checkDataReady() {
+	for {
+		f.mu.Lock()
+		f.dataReadyRecheck = false
+		readiness := f.resultReadiness
+		query := taskdata.ResultReadyQuery{
+			TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
+			OutputHash:       hex.EncodeToString(f.outputHash),
+			InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
+		}
+		f.mu.Unlock()
+
+		ready, err := readiness.ResultReady(context.Background(), query)
+
+		f.mu.Lock()
+		if err != nil {
+			f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
+		} else if ready && query.InferReceiptHash == hex.EncodeToString(f.inferReceipt.InferReceiptHash) {
+			f.dataReady = true
+			f.publishOpenVerify()
+			f.scheduleVerifierProposalLocked()
+		}
+		if f.dataReady || !f.dataReadyRecheck {
+			f.dataReadyChecking = false
+			f.dataReadyRecheck = false
+			f.mu.Unlock()
+			return
+		}
+		f.mu.Unlock()
+	}
 }
 
 // openVerifyPayload builds this message's payload; nil means it must not be sent yet.
@@ -708,10 +803,10 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 		return
 	}
 	// An accepted proposal declares this Builder data-ready for the selected Verifiers (02 §8).
-	// Only a Builder that received the signed receipt with the finalized output may make that
-	// claim; one that knows the accepted hashes from the chain keeps the handraises but does not
-	// submit them.
-	if len(f.outputHash) == 0 {
+	// Only a Builder that received the signed receipt and holds the finalized result may make
+	// that claim; one that knows the accepted hashes from the chain keeps the handraises but does
+	// not submit them.
+	if len(f.outputHash) == 0 || !f.dataReadyLocked() {
 		return
 	}
 	pending := f.pendingVerifierHandraises()
