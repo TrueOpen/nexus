@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/logging"
 )
@@ -159,6 +160,9 @@ func logFrom(cmd *cobra.Command) *slog.Logger  { return cmd.Context().Value(logK
 func Execute() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		if errors.Is(err, chainreset.ErrChainReset) {
+			os.Exit(chainreset.ExitCode)
+		}
 		os.Exit(1)
 	}
 }

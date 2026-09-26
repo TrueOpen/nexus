@@ -140,8 +140,16 @@ type Coordinator struct {
 	reconcileStopOnce   sync.Once
 	// settlementFactsGone logs once that the chain has no settlement build facts query.
 	settlementFactsGone sync.Once
-	reconcileRetryBase  time.Duration
-	reconcileRetryMax   time.Duration
+
+	// chainReset is told when the latest height falls far below an observed one, and is asked
+	// whether the chain is unchanged before a task missing from it is closed. Nil means the chain
+	// identity check is off.
+	chainReset ChainResetWatch
+	// taskGoneWarned rate-limits the WARN for a task the chain no longer knows.
+	taskGoneMu         sync.Mutex
+	taskGoneWarned     map[string]time.Time
+	reconcileRetryBase time.Duration
+	reconcileRetryMax  time.Duration
 }
 
 // Option is optional wiring-time configuration.
@@ -288,6 +296,19 @@ func WithSettleRankDelay(time.Duration) Option {
 // See DeadlineSweepPolicy for semantics and why it is off by default.
 func WithDeadlineSweep(policy DeadlineSweepPolicy) Option {
 	return func(c *Coordinator) { c.deadlineSweep = policy }
+}
+
+// ChainResetWatch is the chain identity check (chainreset.Monitor).
+type ChainResetWatch interface {
+	// Suspect reports a sign of a chain reset; a confirmed reset stops the process.
+	Suspect(reason string)
+	// SameChain reports whether the chain still has the recorded identity.
+	SameChain(ctx context.Context) (bool, error)
+}
+
+// WithChainResetWatch enables the chain identity check.
+func WithChainResetWatch(watch ChainResetWatch) Option {
+	return func(c *Coordinator) { c.chainReset = watch }
 }
 
 // New assembles the Coordinator. selfAddr is this node's on-chain builder address (from config.Identity.BuilderAddress);
@@ -1703,6 +1724,9 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 			}
 			return true
 		}
+		if errors.Is(err, chaincli.ErrNotFound) {
+			return c.reconcileTaskGone(fsm, reason, err)
+		}
 		// Include session_id: the composite key is session+task; task_id alone cannot locate the task
 		// in a multi-session deployment. err now carries the actual out-of-range value (chaincli.uint64ToInt64).
 		c.log.Warn("task reconciliation query failed",
@@ -1734,6 +1758,74 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		settlementFacts = &facts
 	}
 	return taskNotificationsObserved(snapshot, settlementFacts, notifications)
+}
+
+// taskGoneWarnEvery is how often the WARN for one task missing from the chain repeats; it is
+// reconciled every few blocks, and the rest go to DEBUG.
+const taskGoneWarnEvery = 10 * time.Minute
+
+// reconcileTaskGone handles a task this Builder saw on chain and the chain no longer returns. The
+// chain removes tasks itself (task cleanup and failure pruning), so on the same chain the task is
+// over and is closed locally. That needs the chain identity: without it a reset chain, or a node
+// that answers for another chain, would close live tasks, so the task stays and is retried.
+func (c *Coordinator) reconcileTaskGone(fsm *taskFSM, reason string, err error) bool {
+	sessionID, taskID := fsm.sessionID, fsm.taskID
+	if c.chainReset != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+		same, idErr := c.chainReset.SameChain(ctx)
+		cancel()
+		switch {
+		case idErr != nil:
+			c.log.Debug("chain identity check failed; keeping task missing from the chain",
+				"session_id", sessionID, "task_id", taskID, "err", idErr)
+		case same:
+			height, _ := c.currentChainHeight()
+			if fsm.closeGone(height) {
+				c.forgetTaskGone(sessionID, taskID)
+				c.log.Info("task no longer on chain; closed locally",
+					"session_id", sessionID, "task_id", taskID, "height", height)
+				return true
+			}
+		default:
+			c.log.Debug("task missing from a chain whose identity changed; keeping it",
+				"session_id", sessionID, "task_id", taskID)
+		}
+	}
+	c.warnTaskGone(sessionID, taskID, reason, err)
+	return false
+}
+
+func (c *Coordinator) warnTaskGone(sessionID, taskID, reason string, err error) {
+	key := sessionID + "|" + taskID
+	now := time.Now()
+	c.taskGoneMu.Lock()
+	last, seen := c.taskGoneWarned[key]
+	warn := !seen || now.Sub(last) >= taskGoneWarnEvery
+	if warn {
+		if c.taskGoneWarned == nil {
+			c.taskGoneWarned = make(map[string]time.Time)
+		}
+		c.taskGoneWarned[key] = now
+	}
+	c.taskGoneMu.Unlock()
+	log := c.log.Debug
+	if warn {
+		log = c.log.Warn
+	}
+	log("task reconciliation query failed: task not found on chain",
+		"session_id", sessionID, "task_id", taskID, "reason", reason, "err", err)
+}
+
+func (c *Coordinator) forgetTaskGone(sessionID, taskID string) {
+	c.taskGoneMu.Lock()
+	delete(c.taskGoneWarned, sessionID+"|"+taskID)
+	c.taskGoneMu.Unlock()
+}
+
+func (c *Coordinator) suspectChainReset(reason string) {
+	if c.chainReset != nil {
+		c.chainReset.Suspect(reason)
+	}
 }
 
 // settlementFactsUnsupported reports whether err says the chain has no settlement build facts

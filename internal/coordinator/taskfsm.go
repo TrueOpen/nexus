@@ -1822,6 +1822,17 @@ func (f *taskFSM) closeCompacted(snapshot chaincli.OnChainTask, height uint64) b
 	return f.closeLocked(height)
 }
 
+// closeGone closes a task the chain no longer returns (see reconcileTaskGone). A task still
+// waiting for its assignment is not closed here: it may not have reached the chain yet.
+func (f *taskFSM) closeGone(height uint64) bool {
+	f.mu.Lock()
+	if f.terminal || f.state == types.Pending {
+		f.mu.Unlock()
+		return false
+	}
+	return f.closeLocked(height)
+}
+
 // closeLocked moves the task to Closed and releases what it holds. The caller holds f.mu;
 // closeLocked releases it.
 func (f *taskFSM) closeLocked(height uint64) bool {

@@ -51,6 +51,7 @@ type client struct {
 	auth        authQueryClient // cosmos.auth.v1beta1.Query (account_number/sequence)
 	tx          txServiceClient // cosmos.tx.v1beta1.Service (BroadcastTx)
 	latestBlock latestBlockClient
+	cometInfo   cometInfoClient
 
 	taskEvents  taskv1connect.TaskEventServiceClient
 	hubEvents   hubv1connect.HubEventServiceClient
@@ -88,6 +89,7 @@ func New(log *slog.Logger, cfg config.ChainConfig, options ...Option) Client {
 	a := newCosmosAuthClient(grpcHTTP, grpcBase, connect.WithGRPC())
 	tx := newCosmosTxClient(grpcHTTP, grpcBase, connect.WithGRPC())
 	latestBlock := newCosmosLatestBlockClient(grpcHTTP, grpcBase, connect.WithGRPC())
+	cometInfo := newCosmosCometInfoClient(grpcHTTP, grpcBase, connect.WithGRPC())
 
 	// Event streams are long-lived connections: no client Timeout; the lifetime is controlled by ctx.
 	streamHTTP := &http.Client{Transport: h2cTransport}
@@ -103,6 +105,7 @@ func New(log *slog.Logger, cfg config.ChainConfig, options ...Option) Client {
 		auth:        a,
 		tx:          tx,
 		latestBlock: latestBlock,
+		cometInfo:   cometInfo,
 		taskEvents:  taskEvents,
 		hubEvents:   hubEvents,
 		events:      make(chan ChainEvent, 256),
@@ -593,6 +596,40 @@ func mapServiceEndpoints(wire []*hubv1.ServiceEndpointV1) []ServiceEndpoint {
 		})
 	}
 	return endpoints
+}
+
+// BlockHash returns the hash of the block at height. It fails when the node no longer keeps that
+// block, as a pruned node does for early heights.
+func (c *client) BlockHash(ctx context.Context, height int64) ([]byte, error) {
+	if c.cometInfo == nil {
+		return nil, fmt.Errorf("query block hash: gRPC client is not configured")
+	}
+	resp, err := c.cometInfo.GetBlockByHeight(ctx, connect.NewRequest(&cmtv1beta1.GetBlockByHeightRequest{Height: height}))
+	if err != nil {
+		return nil, fmt.Errorf("query block %d hash: %s", height, redactSensitiveText(err.Error()))
+	}
+	hash := resp.Msg.GetBlockId().GetHash()
+	if len(hash) == 0 {
+		return nil, fmt.Errorf("query block %d hash: GetBlockByHeight returned no block id", height)
+	}
+	if header := resp.Msg.GetBlock().GetHeader(); header != nil {
+		if configured := strings.TrimSpace(c.cfg.ChainID); configured != "" && header.GetChainId() != "" && header.GetChainId() != configured {
+			return nil, fmt.Errorf("query block %d hash: chain id %q does not match configured %q", height, header.GetChainId(), configured)
+		}
+	}
+	return hash, nil
+}
+
+// Syncing reports whether the node is still catching up with the chain.
+func (c *client) Syncing(ctx context.Context) (bool, error) {
+	if c.cometInfo == nil {
+		return false, fmt.Errorf("query syncing: gRPC client is not configured")
+	}
+	resp, err := c.cometInfo.GetSyncing(ctx, connect.NewRequest(&cmtv1beta1.GetSyncingRequest{}))
+	if err != nil {
+		return false, fmt.Errorf("query syncing: %s", redactSensitiveText(err.Error()))
+	}
+	return resp.Msg.GetSyncing(), nil
 }
 
 func (c *client) LatestHeight(ctx context.Context) (uint64, error) {
