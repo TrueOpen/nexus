@@ -2,6 +2,7 @@ package builderreg
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -39,6 +40,17 @@ func TestRegistrarRegistersFromChainState(t *testing.T) {
 	if register.Builder != sg.Address() || register.AuthorizationNonce != 1 ||
 		len(register.ServicePubKey) != 66 || len(register.ServiceKeyProof) != 128 {
 		t.Fatalf("register = %+v", register)
+	}
+	// The Keeper verifies the proof strictly over the registration digest, with no further hashing
+	// (VerifyStrictSecp256k1Digest); a proof over sha256(digest) is rejected on a fresh registration.
+	digest, err := nodecontract.ServiceRegistrationBytes("trueopen-hub", sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER,
+		sg.Address(), sg.PubKeyCompressed(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, _ := hex.DecodeString(register.ServiceKeyProof)
+	if !signer.VerifyDigestSig(sg.PubKeyCompressed(), digest, proof) {
+		t.Fatal("service key proof does not verify over the registration digest")
 	}
 	assertDerivedEndpoints(t, register.Endpoints, "https://builder.example")
 

@@ -235,9 +235,9 @@ func ServiceDescriptorHash(
 //	            service_pubkey, initial_service_authorization_nonce)
 //
 // operator_address enters the preimage as address codec bytes, not bech32 text (ruling 24), and
-// service_pubkey as the raw 33-byte compressed public key, not hex text. The return value is a 32-byte
-// digest that SignHex signs one more layer over; the Keeper verifies with SDK PubKey.VerifySignature, which
-// likewise applies sha256 to these 32 bytes once more, so both sides agree.
+// service_pubkey as the raw 33-byte compressed public key, not hex text. The return value is the 32-byte
+// signing digest itself: sign it with Signer.SignDigest, since the Keeper verifies the proof strictly over
+// these bytes (VerifyStrictSecp256k1Digest) with no further hashing.
 func ServiceRegistrationBytes(
 	chainID string,
 	participantType sharedv1.ParticipantType,

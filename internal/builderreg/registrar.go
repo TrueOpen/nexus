@@ -401,10 +401,15 @@ func (r *Registrar) desired(height uint64) (desiredState, error) {
 	if err != nil {
 		return desiredState{}, fmt.Errorf("builder service key proof: %w", err)
 	}
-	proof, err := nodecontract.SignHex(r.serviceSigner, registration)
+	// The Keeper verifies the proof strictly over this digest (VerifyStrictSecp256k1Digest), so it is
+	// signed as is: Sign would hash it once more and a fresh registration would be rejected.
+	var digest [32]byte
+	copy(digest[:], registration)
+	proofBytes, err := r.serviceSigner.SignDigest(digest)
 	if err != nil {
 		return desiredState{}, fmt.Errorf("builder service key proof: %w", err)
 	}
+	proof := hex.EncodeToString(proofBytes)
 	return desiredState{
 		ChainID: chainID, Builder: builder,
 		ServicePubKey: hex.EncodeToString(servicePubKeyBytes), ServiceKeyProof: proof,
