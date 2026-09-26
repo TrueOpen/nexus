@@ -3,6 +3,7 @@ package chaincli
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -29,9 +30,10 @@ func (c *client) BroadcastTx(ctx context.Context, tx []byte) (TxResult, error) {
 	}
 
 	res := TxResult{
-		Code:   txResp.GetCode(),
-		Height: txResp.GetHeight(),
-		RawLog: txResp.GetRawLog(),
+		Code:      txResp.GetCode(),
+		Codespace: txResp.GetCodespace(),
+		Height:    txResp.GetHeight(),
+		RawLog:    txResp.GetRawLog(),
 	}
 	if h := txResp.GetTxhash(); h != "" {
 		if raw, derr := hex.DecodeString(h); derr == nil {
@@ -41,6 +43,36 @@ func (c *client) BroadcastTx(ctx context.Context, tx []byte) (TxResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// Simulate runs signed tx bytes through cosmos.tx.v1beta1.Service/Simulate: the node executes
+// the messages against its current state without committing, skipping signature checks and
+// without consuming the sequence.
+//
+// A tx the chain would refuse comes back as SimResult{OK: false, Error: <the chain's reason>}
+// with a nil error: the node reports every ante or message failure as gRPC Unknown. Any other
+// failure -- node unreachable, the service not served -- is an error, meaning the tx was not
+// judged at all.
+func (c *client) Simulate(ctx context.Context, tx []byte) (SimResult, error) {
+	if c.tx == nil {
+		return SimResult{}, fmt.Errorf("simulate tx: tx gRPC client is not configured")
+	}
+	resp, err := c.tx.Simulate(ctx, connect.NewRequest(&txv1beta1.SimulateRequest{TxBytes: tx}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeUnknown {
+			var connectErr *connect.Error
+			message := err.Error()
+			if errors.As(err, &connectErr) {
+				message = connectErr.Message()
+			}
+			return SimResult{OK: false, Error: message}, nil
+		}
+		if connect.CodeOf(err) == connect.CodeUnimplemented {
+			return SimResult{}, fmt.Errorf("simulate tx: %w", ErrNotSupportedOnChain)
+		}
+		return SimResult{}, fmt.Errorf("simulate tx: gRPC endpoint unavailable: %s", redactSensitiveText(err.Error()))
+	}
+	return SimResult{OK: true, GasEstimate: resp.Msg.GetGasInfo().GetGasUsed()}, nil
 }
 
 // QueryTx fetches the authoritative DeliverTx result for a previously
@@ -64,9 +96,10 @@ func (c *client) QueryTx(ctx context.Context, txHash []byte) (TxResult, error) {
 	}
 
 	res := TxResult{
-		Code:   txResp.GetCode(),
-		Height: txResp.GetHeight(),
-		RawLog: txResp.GetRawLog(),
+		Code:      txResp.GetCode(),
+		Codespace: txResp.GetCodespace(),
+		Height:    txResp.GetHeight(),
+		RawLog:    txResp.GetRawLog(),
 	}
 	if h := txResp.GetTxhash(); h != "" {
 		if raw, derr := hex.DecodeString(h); derr == nil {

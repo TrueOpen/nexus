@@ -321,6 +321,19 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 	return grace, nil
 }
 
+// QueryEpochLengthBlocks reads the Hub parameter epoch.epoch_length_blocks.
+func (c *client) QueryEpochLengthBlocks(ctx context.Context) (uint64, error) {
+	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("hub params", err)
+	}
+	length := resp.Msg.GetParams().GetEpoch().GetEpochLengthBlocks()
+	if length == 0 {
+		return 0, fmt.Errorf("query hub params: epoch.epoch_length_blocks is zero")
+	}
+	return length, nil
+}
+
 // QueryEVMChainID reads the Hub parameter phase0.evm_chain_id. 0 is treated as
 // unconfigured: chainId 0 in the EIP-712 domain would make every user signature fail
 // verification, so it is better to error here.
@@ -655,12 +668,6 @@ func applicationQueryError(kind string, err error) error {
 		return fmt.Errorf("query %s: %w", kind, ErrNotFound)
 	}
 	return fmt.Errorf("query %s: endpoint unavailable: %s", kind, redactSensitiveText(err.Error()))
-}
-
-// Simulate is deferred this round (tx assembly/signing is out of scope, so there
-// is nothing to simulate yet). Returns ErrNotSupportedOnChain.
-func (c *client) Simulate(_ context.Context, _ []byte) (SimResult, error) {
-	return SimResult{}, fmt.Errorf("simulate tx: %w", ErrNotSupportedOnChain)
 }
 
 // AccountInfo queries cosmos.auth.v1beta1.Query/Account for the signer's

@@ -83,6 +83,11 @@ type taskFSM struct {
 	// (passed CheckTx). Later proposals carry only hand-raises not in here; persisted with
 	// the snapshot, see taskSnapshot.VerifierHandraisesProposed.
 	verifierHRProposed map[string]bool
+	// verifierHRExcluded: hand-raisers the chain refused on their own when this Builder
+	// simulated its proposal, keyed to the epoch of that refusal. They are not simulated again
+	// until the epoch changes, when bond, support and scoring may have changed; a refusal is
+	// not taken as final.
+	verifierHRExcluded map[string]uint64
 	verifyResults      map[string]*taskv1.ResultReceiptV2
 	// verifyCommits: Verifier commits already relayed on-chain (by Verifier address), for idempotent dedup.
 	verifyCommits map[string]*taskv1.VerifyCommitV1
@@ -97,6 +102,8 @@ type taskFSM struct {
 	// proposals must take the ExistingTaskRefV1 branch instead of carrying signed_order
 	// again (§4.2.1).
 	acceptedTaskHash []byte
+	// assignRetries counts filtered resubmissions after an invalid-assignment rejection.
+	assignRetries int
 
 	// Per-phase dedup: once a phase's Tx is submitted it is not reassembled (the chain has its own idempotency fallback).
 	assignSubmitted     bool
@@ -183,6 +190,9 @@ type taskFSM struct {
 	// (some unit tests construct the fsm directly).
 	persist   func(taskSnapshot) error // write KV after every state transition
 	unpersist func()                   // clear KV once the task reaches a terminal state
+
+	// currentEpoch returns the epoch of the last observed chain height, false when unknown.
+	currentEpoch func() (uint64, bool)
 }
 
 // emit records one task event (state/phase taken from current values). Caller must hold the lock.
@@ -285,6 +295,12 @@ func (f *taskFSM) onWorkerHandraise(hr *taskv1.WorkerHandraiseV1) {
 			"task_id", f.taskID, "count", len(f.workerHR), "need", proposalHandraiseMin)
 		return
 	}
+	f.submitAssignLocked()
+}
+
+// submitAssignLocked builds the Worker handraise proposal from the handraises collected so
+// far and submits it. Caller must hold the lock.
+func (f *taskFSM) submitAssignLocked() {
 	facts, err := workerAssignmentFactsFrom(f.workerHR)
 	if err != nil {
 		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
@@ -338,7 +354,18 @@ func (f *taskFSM) onWorkerHandraise(hr *taskv1.WorkerHandraiseV1) {
 	f.assignTxHash = append(f.assignTxHash[:0], result.TxHash...)
 	f.save()
 	f.log.Info("AssignTx accepted by CheckTx", "task_id", f.taskID,
-		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR))
+		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR)-len(result.Excluded),
+		"excluded", len(result.Excluded))
+}
+
+// assignRejectionRetries bounds how often a Worker handraise proposal the Keeper refused as an
+// invalid assignment is filtered and submitted again.
+const assignRejectionRetries = 2
+
+// isInvalidAssignment reports the Keeper's ErrInvalidAssignment (x/task/types/errors.go): a
+// proposal refused over its candidates, which a filtered resubmission can fix.
+func isInvalidAssignment(result chaincli.TxResult) bool {
+	return result.Codespace == "task" && result.Code == 1109
 }
 
 // rememberAcceptedTaskHash records the authoritative task_hash (lowercase hex) after
@@ -366,6 +393,21 @@ func (f *taskFSM) rememberAcceptedTaskHash(taskHash string) {
 func (f *taskFSM) onAssignRejected(result chaincli.TxResult) {
 	f.mu.Lock()
 	if f.state != types.Pending || !f.assignSubmitted {
+		f.mu.Unlock()
+		return
+	}
+	// The proposal was simulated before it was broadcast, but the Keeper judges candidates
+	// against the state of the block that includes it; one that stopped qualifying in between
+	// fails the whole proposal. Filter against the current state and submit again, a bounded
+	// number of times; any other rejection ends the task as before.
+	if isInvalidAssignment(result) && f.assignRetries < assignRejectionRetries {
+		f.assignRetries++
+		f.assignSubmitted = false
+		f.assignTxHash = nil
+		f.save()
+		f.log.Warn("AssignTx rejected by DeliverTx over its candidates; filtering and submitting again",
+			"task_id", f.taskID, "attempt", f.assignRetries, "height", result.Height, "raw_log", result.RawLog)
+		f.submitAssignLocked()
 		f.mu.Unlock()
 		return
 	}
@@ -826,24 +868,66 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 		BuilderOperatorAddress: f.self, SessionID: f.sessionID, TaskID: f.taskID, WorkerOperatorAddress: f.winner,
 		VerifierHandraises: pending, Submitter: f.self,
 	}
-	if _, err := f.submit.SubmitVerifierHandraises(context.Background(), tx); err != nil {
+	result, err := f.submit.SubmitVerifierHandraises(context.Background(), tx)
+	f.excludeVerifierHandraisesLocked(result.Excluded)
+	if err != nil {
 		f.log.Warn("submit MsgSubmitVerifierHandraises failed; will retry on the next chain reconciliation",
-			"task_id", f.taskID, "handraises", len(pending), "err", err)
+			"task_id", f.taskID, "handraises", len(pending), "excluded", len(result.Excluded), "err", err)
 		return
 	}
 	for _, hr := range pending {
-		f.verifierHRProposed[hr.GetMember().GetOperatorAddress()] = true
+		operator := hr.GetMember().GetOperatorAddress()
+		if _, excluded := f.verifierHRExcluded[operator]; !excluded {
+			f.verifierHRProposed[operator] = true
+		}
 	}
 	f.save()
 	f.log.Info("MsgSubmitVerifierHandraises submitted", "task_id", f.taskID,
-		"handraises", len(pending), "proposed_total", len(f.verifierHRProposed))
+		"handraises", len(pending)-len(result.Excluded), "excluded", len(result.Excluded),
+		"proposed_total", len(f.verifierHRProposed))
+}
+
+// excludeVerifierHandraisesLocked records hand-raisers the chain refused on their own, with
+// the current epoch. Caller must hold the lock.
+func (f *taskFSM) excludeVerifierHandraisesLocked(excluded []ExcludedHandraise) {
+	if len(excluded) == 0 {
+		return
+	}
+	if f.verifierHRExcluded == nil {
+		f.verifierHRExcluded = make(map[string]uint64)
+	}
+	epoch, _ := f.epochNow()
+	for _, e := range excluded {
+		f.verifierHRExcluded[e.Operator] = epoch
+	}
+}
+
+func (f *taskFSM) epochNow() (uint64, bool) {
+	if f.currentEpoch == nil {
+		return 0, false
+	}
+	return f.currentEpoch()
+}
+
+// verifierHandraiseExcludedLocked reports whether a refused hand-raiser is still skipped: until
+// a later epoch is known, it is. Caller must hold the lock.
+func (f *taskFSM) verifierHandraiseExcludedLocked(operator string) bool {
+	refusedIn, excluded := f.verifierHRExcluded[operator]
+	if !excluded {
+		return false
+	}
+	if now, ok := f.epochNow(); ok && now > refusedIn {
+		delete(f.verifierHRExcluded, operator)
+		return false
+	}
+	return true
 }
 
 // pendingVerifierHandraises returns hand-raises not yet on-chain, sorted by strictly increasing slot (Keeper requirement).
 func (f *taskFSM) pendingVerifierHandraises() []*taskv1.VerifierHandraiseV1 {
 	pending := make([]*taskv1.VerifierHandraiseV1, 0, len(f.verifierHR))
 	for operator, hr := range f.verifierHR {
-		if !f.verifierHRProposed[operator] {
+		if !f.verifierHRProposed[operator] && !f.verifierHandraiseExcludedLocked(operator) {
 			pending = append(pending, hr)
 		}
 	}

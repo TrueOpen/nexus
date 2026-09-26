@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -72,6 +73,7 @@ type Coordinator struct {
 	txQuery         TxQuerier
 	height          HeightQuerier
 	selection       BuilderSelectionQuerier
+	epochLength     atomic.Uint64
 	relay           relay.Custodian
 	kv              kv.Store
 	submit          Submitter
@@ -220,6 +222,36 @@ type HeightQuerier interface {
 type BuilderSelectionQuerier interface {
 	QueryTaskBuilders(context.Context, chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error)
 	QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error)
+}
+
+// epochLengthQuerier is the Hub epoch length read; the selection querier may offer it.
+type epochLengthQuerier interface {
+	QueryEpochLengthBlocks(context.Context) (uint64, error)
+}
+
+// currentEpoch returns the epoch of the last observed chain height. The epoch length is read
+// from the Hub once and cached; false means it is not known.
+func (c *Coordinator) currentEpoch() (uint64, bool) {
+	length := c.epochLength.Load()
+	if length == 0 {
+		query, ok := c.selection.(epochLengthQuerier)
+		if !ok {
+			return 0, false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+		read, err := query.QueryEpochLengthBlocks(ctx)
+		cancel()
+		if err != nil || read == 0 {
+			return 0, false
+		}
+		c.epochLength.Store(read)
+		length = read
+	}
+	height, authoritative := c.currentChainHeight()
+	if !authoritative || height == 0 {
+		return 0, false
+	}
+	return height / length, true
 }
 
 // WithSubmitter injects a custom Tx submitter (e.g. NewSignedSubmitter with real signing).
@@ -540,6 +572,8 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		workerHR:              make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:            make(map[string]*taskv1.VerifierHandraiseV1),
 		verifierHRProposed:    make(map[string]bool),
+		verifierHRExcluded:    make(map[string]uint64),
+		currentEpoch:          c.currentEpoch,
 		verifierProposalDelay: verifierProposalBatchDelay,
 		resultReadiness:       c.resultReadiness,
 		verifyResults:         make(map[string]*taskv1.ResultReceiptV2),
