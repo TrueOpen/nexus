@@ -26,16 +26,41 @@ type Service struct {
 	resultFinalized ResultFinalizedObserver
 
 	// resultLocks serializes the FinalizeTaskResult calls of one task (keyed by session|task): the
-	// two bundle calls share the one OUTPUT confirmation, which must be signed exactly once.
-	resultLocks sync.Map
+	// two bundle calls share the one OUTPUT confirmation, which must be signed exactly once. An entry
+	// lives only while some call holds or waits for it.
+	resultLocksMu sync.Mutex
+	resultLocks   map[string]*resultLock
+}
+
+type resultLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 // lockResult takes the Finalize lock of one task and returns its release.
 func (s *Service) lockResult(sessionID, taskID string) func() {
-	value, _ := s.resultLocks.LoadOrStore(sessionID+"|"+taskID, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	key := sessionID + "|" + taskID
+	s.resultLocksMu.Lock()
+	if s.resultLocks == nil {
+		s.resultLocks = map[string]*resultLock{}
+	}
+	lock := s.resultLocks[key]
+	if lock == nil {
+		lock = &resultLock{}
+		s.resultLocks[key] = lock
+	}
+	lock.refs++
+	s.resultLocksMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		s.resultLocksMu.Lock()
+		if lock.refs--; lock.refs == 0 {
+			delete(s.resultLocks, key)
+		}
+		s.resultLocksMu.Unlock()
+	}
 }
 
 func NewService(store *Store, authorizer *Authorizer) (*Service, error) {
