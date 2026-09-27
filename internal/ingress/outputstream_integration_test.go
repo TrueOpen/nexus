@@ -80,6 +80,40 @@ func streamServiceKey(participantType, operator string, sg signer.Signer) chainc
 }
 
 // signDigestRaw64 reproduces the Worker's direct-digest signature over the frozen digest (R||S, low-S).
+// signedStreamHeader fills the plaintext declaration of an OutputStreamHeaderV2 and signs it with the
+// Worker service key keyHex, as a Cortex Worker does before opening its output stream.
+func signedStreamHeader(t *testing.T, keyHex string, header *nexusv1.OutputStreamHeaderV2) *nexusv1.OutputStreamHeaderV2 {
+	t.Helper()
+	header.Attempt, header.StreamInstance = 0, 1
+	header.OutputKeyCommitment, header.KeyPackageHash = make([]byte, 32), make([]byte, 32)
+	taskHash, err := hex.DecodeString(header.GetTaskHash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := nodecontract.OutputStreamHeader{
+		ChainID: "trueopen-localnet", TaskHash: taskHash, Attempt: 0, StreamInstance: 1,
+		OutputKeyCommitment: header.OutputKeyCommitment, KeyPackageHash: header.KeyPackageHash,
+	}.SigningDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	header.WorkerSignature = signDigestRaw64(t, keyHex, digest[:])
+	return header
+}
+
+// signedFin is the Fin frame a Worker with service key keyHex sends: TRUEOPEN_OUTPUT_FIN_V1 signed
+// direct-digest.
+func signedFin(t *testing.T, keyHex string, taskHash []byte, finalSeq uint64, root []byte, reason taskv1.FinishReasonV1) *nexusv1.OutputFinV1 {
+	t.Helper()
+	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", taskHash, finalSeq, root, uint32(reason))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &nexusv1.OutputFinV1{
+		FinalSeq: finalSeq, OutputMmrRoot: root, FinishReason: reason, WorkerSignature: signDigestRaw64(t, keyHex, digest[:]),
+	}
+}
+
 func signDigestRaw64(t *testing.T, hexKey string, digest []byte) []byte {
 	t.Helper()
 	raw, err := hex.DecodeString(hexKey)
@@ -302,10 +336,10 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 
 	// Diagram 1: Header -> progress (empty) -> three chunks -> receipt has arrived -> fin frame with the storage confirmation.
 	up := f.client.UploadTaskOutputStream(ctx)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0001")),
-	}}}); err != nil {
+	})}}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := up.Receive()
@@ -321,12 +355,11 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 		f.sendChunk(t, up, acc, uint64(i), text)
 	}
 	final := acc.Root()
-	// wire v0.1.1 OutputFinV1 carries finish_reason and worker_signature; the Builder stores the frame
-	// and replays it byte-identically (TRUEOPEN_OUTPUT_FIN_V1 registry note). Not verified here yet.
-	finSignature := bytes.Repeat([]byte{0xf1}, 64)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: &nexusv1.OutputFinV1{
-		FinalSeq: 2, OutputMmrRoot: final[:], FinishReason: taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN, WorkerSignature: finSignature,
-	}}}); err != nil {
+	// OutputFinV1 carries finish_reason and the Worker's signature over it; the Builder verifies the
+	// signature, stores the frame and replays it byte-identically.
+	fin := signedFin(t, workerKeyHex, f.taskHash, 2, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN)
+	finSignature := fin.GetWorkerSignature()
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: fin}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := up.CloseRequest(); err != nil {
@@ -383,10 +416,10 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 
 	// Diagram 3 alt: opening a stream after it is sealed -> progress is returned first, then it ends with AlreadyExists.
 	again := f.client.UploadTaskOutputStream(ctx)
-	if err := again.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+	if err := again.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0002")),
-	}}}); err != nil {
+	})}}); err != nil {
 		t.Fatal(err)
 	}
 	reply, err := again.Receive()
@@ -448,10 +481,10 @@ func TestOutputStreamFinStoresObjectUnderMMRRoot(t *testing.T) {
 	received := f.subscribeAsync(t, subCtx, f.user, nil, "nonce-subscribe-mismatch-01")
 
 	up := f.client.UploadTaskOutputStream(ctx)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0003")),
-	}}}); err != nil {
+	})}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := up.Receive(); err != nil {
@@ -460,7 +493,8 @@ func TestOutputStreamFinStoresObjectUnderMMRRoot(t *testing.T) {
 	acc, _ := mmr.New(nodecontract.DomainOutputMMRV1)
 	f.sendChunk(t, up, acc, 0, "only chunk")
 	final := acc.Root()
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: &nexusv1.OutputFinV1{FinalSeq: 0, OutputMmrRoot: final[:]}}}); err != nil {
+	fin := signedFin(t, workerKeyHex, f.taskHash, 0, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_STOP_TOKEN)
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: fin}}); err != nil {
 		t.Fatal(err)
 	}
 	_ = up.CloseRequest()
@@ -504,10 +538,10 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	ctx := context.Background()
 	openStream := func(nonce string) *connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse] {
 		up := f.client.UploadTaskOutputStream(ctx)
-		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 			SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 			RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte(nonce)),
-		}}}); err != nil {
+		})}}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := up.Receive(); err != nil {
@@ -546,10 +580,10 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	const strangerKeyHex = "0000000000000000000000000000000000000000000000000000000000000003"
 	stranger := mustSigner(t, strangerKeyHex)
 	up = f.client.UploadTaskOutputStream(ctx)
-	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, strangerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, stranger, strangerKeyHex, f.key, 110, []byte("nonce-stranger-000001")),
-	}}})
+	})}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("stranger header error = %v", err)
 	}
@@ -558,13 +592,82 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 func TestOutputStreamDisabledIsUnimplemented(t *testing.T) {
 	f := newStreamFixture(t, false)
 	up := f.client.UploadTaskOutputStream(context.Background())
-	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-disabled-000001")),
-	}}})
+	})}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeUnimplemented {
 		t.Fatalf("disabled stream error = %v", err)
 	}
 }
 
 func ptrUint64(v uint64) *uint64 { return &v }
+
+// The stream declaration and the Fin are both signed by the selected Worker's service key: a header
+// signed by another key, a header that is not a plaintext declaration, and a Fin signed by another key
+// are refused, and a finish_reason outside the closed set never reaches a subscriber.
+func TestOutputStreamRequiresWorkerSignedHeaderAndFin(t *testing.T) {
+	f := newStreamFixture(t, true)
+	ctx := context.Background()
+	const otherKeyHex = "0000000000000000000000000000000000000000000000000000000000000005"
+	open := func(nonce string, edit func(*nexusv1.OutputStreamHeaderV2)) (*connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse], error) {
+		header := signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
+			SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+			RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte(nonce)),
+		})
+		if edit != nil {
+			edit(header)
+		}
+		up := f.client.UploadTaskOutputStream(ctx)
+		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: header}}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := up.Receive()
+		return up, err
+	}
+
+	if _, err := open("nonce-header-other-key-01", func(h *nexusv1.OutputStreamHeaderV2) {
+		signedStreamHeader(t, otherKeyHex, h)
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("header signed by another key: %v", err)
+	}
+	if _, err := open("nonce-header-no-signature", func(h *nexusv1.OutputStreamHeaderV2) {
+		h.WorkerSignature = nil
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("unsigned header: %v", err)
+	}
+	for name, edit := range map[string]func(*nexusv1.OutputStreamHeaderV2){
+		"attempt 1":             func(h *nexusv1.OutputStreamHeaderV2) { h.Attempt = 1 },
+		"recipient key present": func(h *nexusv1.OutputStreamHeaderV2) { h.UserRecipientPubkey = bytes.Repeat([]byte{4}, 65) },
+		"empty key commitment":  func(h *nexusv1.OutputStreamHeaderV2) { h.OutputKeyCommitment = nil },
+	} {
+		if _, err := open("nonce-header-"+strings.ReplaceAll(name, " ", "-"), edit); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+
+	up, err := open("nonce-fin-other-key-0001", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, _ := mmr.New(nodecontract.DomainOutputMMRV1)
+	f.sendChunk(t, up, acc, 0, "only chunk")
+	final := acc.Root()
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{
+		Fin: signedFin(t, otherKeyHex, f.taskHash, 0, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN),
+	}})
+	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("fin signed by another key: %v", err)
+	}
+
+	up, err = open("nonce-fin-bad-reason-0001", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fin := signedFin(t, workerKeyHex, f.taskHash, 0, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN)
+	fin.FinishReason = taskv1.FinishReasonV1(7)
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: fin}})
+	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("fin with finish_reason 7: %v", err)
+	}
+}

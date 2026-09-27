@@ -74,6 +74,9 @@ func validResultReceipt(t *testing.T, taskID []byte, verifier, keyHex string) *t
 		VerifierEvidenceManifestSizeBytes: 145,
 		Salt:                              bytes.Repeat([]byte{0xef}, 32),
 		ExpiryHeight:                      900,
+		VerifierValueRoot:                 bytes.Repeat([]byte{0xab}, 32),
+		MetricLeafCount:                   128,
+		VerifierEvidenceKeyCommitment:     make([]byte, 32),
 	}
 	digest, err := nodecontract.ResultReceiptSigningDigest(receipt)
 	if err != nil {
@@ -96,8 +99,14 @@ func validRelayReceipt(t *testing.T, taskID []byte, worker, keyHex string) *task
 			EvidenceKind:       1,
 			EvidenceHashOrRoot: bytes.Repeat([]byte{0x5d}, 32),
 			EncodedSizeBytes:   4096,
+		}, {
+			EvidenceKind:       4,
+			EvidenceHashOrRoot: bytes.Repeat([]byte{0x5e}, 32),
+			EncodedSizeBytes:   520,
 		}},
 		ExpiryHeight: 1200, GeneratedTokenCount: 128, OutputLeafCount: 3,
+		OutputKeyCommitment: make([]byte, 32), WorkerTokenKeyCommitment: make([]byte, 32),
+		WorkerValueKeyCommitment: make([]byte, 32), CiphertextOutputRoot: make([]byte, 32),
 		// service_signature is not part of the preimage, but the shape check runs first: fill a placeholder of valid length.
 		ServiceSignature: make([]byte, 64),
 	}
@@ -198,7 +207,7 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitInferReceipt: %v", err)
 	}
-	// infer_receipt_hash is the digest recomputed locally under TRUEOPEN_INFER_RECEIPT_V2, not a wire field.
+	// infer_receipt_hash is the digest recomputed locally under TRUEOPEN_INFER_RECEIPT_V3, not a wire field.
 	wantDigest, err := nodecontract.InferReceiptSigningDigestFromSubmission(fake.lastInferReceipt)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +216,7 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 		t.Fatalf("response = %+v", resp.Msg)
 	}
 	got := fake.lastInferReceipt
-	// The wire v0.4.1 request carries only InferReceiptV2, no session_id; ingress must look the session up by task_id
+	// The request carries only InferReceiptV3, no session_id; ingress must look the session up by task_id
 	// (SessionForTask) before handing it to the coordinator, otherwise OnInferReceipt always reports an empty session_id.
 	if got.SessionID != "sess-receipt" {
 		t.Fatalf("relayed receipt session_id = %q, want the SessionForTask lookup", got.SessionID)
@@ -215,7 +224,8 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 	if got.TaskID != hex.EncodeToString(taskID) || got.WorkerAddress != worker.Address() ||
 		got.SchemaVersion != nodecontract.InferReceiptSchemaVersionV3 || got.ChainID != "trueopen-localnet" ||
 		got.ServiceAuthorizationNonce != 7 || got.ExpiryHeight != 1200 ||
-		got.GeneratedTokenCount != 128 || got.OutputLeafCount != 3 || len(got.EvidenceCommitments) != 1 {
+		got.GeneratedTokenCount != 128 || got.OutputLeafCount != 3 || len(got.EvidenceCommitments) != 2 ||
+		!bytes.Equal(got.CiphertextOutputRoot, make([]byte, 32)) {
 		t.Fatalf("relayed receipt = %#v", got)
 	}
 }

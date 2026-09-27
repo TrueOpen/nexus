@@ -32,9 +32,9 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 	amount := func(units string) *sharedv1.Amount { return &sharedv1.Amount{AtomicUnits: units} }
 	return &taskv1.SignedOrderV2{
 		Order: &taskv1.TaskOrderV3{
-			SchemaVersion: 2, ChainId: "trueopen-localnet", UserAddress: testFrozenUserAddress,
+			SchemaVersion: 3, ChainId: "trueopen-localnet", UserAddress: testFrozenUserAddress,
 			SessionId: bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
-			ModelId: "model-1", ProfileVersion: 2,
+			ModelId: testOrderModelID, ProfileVersion: 2,
 			TaskType:  sharedv1.TaskType_TASK_TYPE_TEXT_GENERATION,
 			InputHash: bytes.Repeat([]byte{0x22}, 32), InputSizeBytes: 512,
 			InputBucket: 1, OutputBudgetBucket: 2,
@@ -55,6 +55,8 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
 			BuilderSetId:           "term-1",
 			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:     make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		UserSignature:   testUserSignatureV2(0x55),
@@ -84,7 +86,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	if !bytes.Equal(order.SignedOrder, raw) {
 		t.Fatal("SignedOrder must be preserved verbatim: the user signature covers the frozen TaskOrderV2 and nexus must not rebuild it")
 	}
-	if order.ModelID != "model-1" || order.ProfileVersion != 2 || order.TaskType != "text_generation" {
+	if order.ModelID != hex.EncodeToString(testOrderModelID) || order.ProfileVersion != 2 || order.TaskType != "text_generation" {
 		t.Fatalf("order model binding: %+v", order)
 	}
 	if order.DeadlineHeight != 1000 || order.ValidAfterHeight != 100 {
@@ -217,7 +219,7 @@ func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
 		"short signature":   {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: bytes.Repeat([]byte{0x55}, 32)},
 		"bad V":             {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(bytes.Repeat([]byte{0x55}, 64), 1)},
 		"high-S":            {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(append(bytes.Repeat([]byte{0x55}, 32), bytes.Repeat([]byte{0xff}, 32)...), 27)},
-		"no profile":        {Order: &taskv1.TaskOrderV3{ModelId: "model-1"}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
+		"no profile":        {Order: &taskv1.TaskOrderV3{ModelId: testOrderModelID}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
 		"no model": {Order: &taskv1.TaskOrderV3{ProfileVersion: 1}, SignatureScheme: "eip712",
 			UserSignature: testUserSignatureV2(0x55)},
 	}
@@ -252,5 +254,32 @@ func TestParseOrderEnvelopeStillAcceptsLegacyJSON(t *testing.T) {
 	}
 	if order.ModelID != "model-1" {
 		t.Fatalf("order=%+v", order)
+	}
+}
+
+// testOrderModelID is a raw 32-byte model_id.
+var testOrderModelID = bytes.Repeat([]byte{0x5a}, 32)
+
+// Encryption is not active on chain: an order that selects it, or carries any key material, is
+// refused before it is broadcast, and an empty input_key_commitment is not padded into a zero one.
+func TestParseOrderEnvelopeAdmitsOnlyPlaintextOrders(t *testing.T) {
+	for name, edit := range map[string]func(*taskv1.TaskOrderV3){
+		"encrypted mode":         func(o *taskv1.TaskOrderV3) { o.PayloadMode = taskv1.PayloadModeV1_PAYLOAD_MODE_V1_ENCRYPTED },
+		"nonzero key commitment": func(o *taskv1.TaskOrderV3) { o.InputKeyCommitment = bytes.Repeat([]byte{1}, 32) },
+		"empty key commitment":   func(o *taskv1.TaskOrderV3) { o.InputKeyCommitment = nil },
+		"recipient key present":  func(o *taskv1.TaskOrderV3) { o.UserRecipientPubkey = bytes.Repeat([]byte{4}, 65) },
+		"text model_id":          func(o *taskv1.TaskOrderV3) { o.ModelId = []byte("model-1") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			signed := testFrozenSignedOrder()
+			edit(signed.GetOrder())
+			raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(signed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parseSignedOrderEnvelope(raw); err == nil {
+				t.Fatal("must be refused")
+			}
+		})
 	}
 }

@@ -324,8 +324,8 @@ func assertProtoFields(t *testing.T, message protoreflect.MessageDescriptor, fie
 	}
 }
 
-// TestOutputStreamContractSurface pins the wire shape of the ADR-0017 streaming OUTPUT data plane
-// (wire v0.4.0 nexus/v1/ingress.proto): RPC shapes and field numbers. The implementation sits behind
+// TestOutputStreamContractSurface pins the wire shape of the streaming OUTPUT data plane
+// (nexus/v1/ingress.proto): RPC shapes and field numbers. The implementation sits behind
 // task_data.output_stream.enabled (another PR); this only guarantees the contract does not drift.
 func TestOutputStreamContractSurface(t *testing.T) {
 	file := nexusv1.File_nexus_v1_ingress_proto
@@ -335,8 +335,9 @@ func TestOutputStreamContractSurface(t *testing.T) {
 		t.Fatalf("UploadTaskOutputStream descriptor = %v, want bidirectional stream", method)
 	}
 	msg := func(name protoreflect.Name) protoreflect.MessageDescriptor { return file.Messages().ByName(name) }
-	assertProtoFields(t, msg("OutputStreamHeaderV1"), map[protoreflect.Name]protoreflect.FieldNumber{
-		"session_id": 1, "task_id": 2, "task_hash": 3, "request_auth": 4,
+	assertProtoFields(t, msg("OutputStreamHeaderV2"), map[protoreflect.Name]protoreflect.FieldNumber{
+		"session_id": 1, "task_id": 2, "task_hash": 3, "request_auth": 4, "attempt": 5, "stream_instance": 6,
+		"user_recipient_pubkey": 7, "output_key_commitment": 8, "key_package_hash": 9, "worker_signature": 10,
 	})
 	assertProtoFields(t, msg("OutputChunkV1"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"seq": 1, "text": 2, "mmr_root": 3, "worker_signature": 4, "attachment": 5, "attachment_signature": 6,
@@ -630,8 +631,12 @@ func validInferReceiptRequest(
 		OutputSizeBytes:        uint64(len(output)),
 		RequiredEvidenceCommitments: []*taskv1.EvidenceCommitmentV1{{
 			EvidenceKind: 1, EvidenceHashOrRoot: bytes.Repeat([]byte{0x5d}, 32), EncodedSizeBytes: 4096,
+		}, {
+			EvidenceKind: 4, EvidenceHashOrRoot: bytes.Repeat([]byte{0x5e}, 32), EncodedSizeBytes: 520,
 		}},
 		ExpiryHeight: 1200, GeneratedTokenCount: 128, OutputLeafCount: 1,
+		OutputKeyCommitment: make([]byte, 32), WorkerTokenKeyCommitment: make([]byte, 32),
+		WorkerValueKeyCommitment: make([]byte, 32), CiphertextOutputRoot: make([]byte, 32),
 	}}
 }
 

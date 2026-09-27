@@ -1,6 +1,6 @@
 # Node Message Integration Notes
 
-> Contract baseline: TrueOpen/wire `v0.2.0`, the release TrueOpen/node pins in `wire/pin.json`.
+> Contract baseline: TrueOpen/wire `v0.3.0-rc.1`, which TrueOpen/node must pin in `wire/pin.json`.
 > Authoritative interface definitions: TrueOpen/node `docs/static/node-api.md` and the TrueOpen/wire protos.
 
 Nexus currently uses only the Node's `hub.v1` and `task.v1` application-layer ABI. The proto in this repository is the exact wire mirror covering everything Nexus needs at runtime; package, message names, field numbers, field types and gRPC methods must stay identical to the Node.
@@ -72,8 +72,9 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
 
 `MsgAssign` sends the user-signed canonical order envelope and validates it item by item:
 
-- `task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)`, derived from the
-  `SignedOrderV2.order` the user actually signed (`nodecontract.TaskOrderHashV2`).
+- `task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3)`, derived from the
+  `SignedOrderV2.order` the user actually signed (`nodecontract.TaskOrderHashV3`); `model_id` is the
+  raw 32-byte Hash32 and only plaintext orders are admitted.
   Together with `task_id` (the stable RBF slot) it forms the Task's entire identity.
   The old `order_digest = sha256(order_envelope)` was removed: that was a digest of the
   envelope bytes, changing with every user signature, so the same order would yield two mutually
@@ -98,11 +99,11 @@ The Order signature binds chain ID, owner, session ID, order sequence and the ca
 
 - the winner must equal the on-chain selected worker;
 - the Worker output must carry `output_size_bytes`; Nexus recomputes
-  `infer_receipt_hash` per `TRUEOPEN_INFER_RECEIPT_V2`, using the H_FIELDS_V1 typed
-  framing of Keeper Interface Contract §5.14 / §1.2 (13 fields, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
+  `infer_receipt_hash` per `TRUEOPEN_INFER_RECEIPT_V3`, using the H_FIELDS_V1 typed
+  framing (17 fields, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
   codec bytes); see `internal/nodecontract.InferReceiptSigningDigest` for the implementation and
-  `internal/nodecontract/testdata/task_domains_v1.json` for the golden vector;
-- the receipt goes through `MsgSubmitInferReceipt` (§10.3) carrying the frozen `task.v1.InferReceiptV2` body;
+  wire `testdata/v1/task/infer_receipt_v3.json` for the golden vector;
+- the receipt goes through `MsgSubmitInferReceipt` carrying the frozen `task.v1.InferReceiptV3` body;
   `chaincli.OpenVerifyTx` no longer keeps any flattened receipt string copies;
 - there must be exactly three formal verifiers, and they must not include the worker;
 - verifier handraise uses the Node's `TRUEOPEN_VERIFIER_HANDRAISE_SORT_V1` ordering, and the signing domain does not include the canonical output package hash;
