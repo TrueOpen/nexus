@@ -37,6 +37,9 @@ func (g *gatedChain) QueryCurrentServiceKey(ctx context.Context, participantType
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.ctxEnded = ctx.Err() != nil
+	if err := ctx.Err(); err != nil {
+		return chaincli.ServiceKeyState{}, err
+	}
 	if g.err != nil {
 		return chaincli.ServiceKeyState{}, g.err
 	}
@@ -69,6 +72,61 @@ func waitFlight(t *testing.T, c *CachedChain, key string) {
 	t.Fatal("no query in progress")
 }
 
+// waitWaiters waits until n callers are waiting on the query in progress for key.
+func waitWaiters(t *testing.T, c *CachedChain, key string, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		f, ok := c.keys.flights[key]
+		got := 0
+		if ok {
+			got = f.waiters
+		}
+		c.mu.Unlock()
+		if got >= n {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("fewer than %d callers are waiting on the query", n)
+}
+
+// Shared queries end with the service and are capped: once the cap is taken, a new key is rejected at once
+// without a chain query; ending the service ends the queries still running.
+func TestCachedChainBoundByService(t *testing.T) {
+	g := newGatedChain()
+	c := NewCachedChain(g, time.Minute, nil)
+	life, stop := context.WithCancel(context.Background())
+	c.Bind(life, time.Minute, 1)
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := c.CurrentServiceKey(context.Background(), "a")
+		first <- err
+	}()
+	<-g.started
+	_, err := c.CurrentServiceKey(context.Background(), "b")
+	var reject *RejectError
+	if !errors.As(err, &reject) || reject.Code != CodeChainUnavailable {
+		t.Fatalf("error = %v, want CHAIN_UNAVAILABLE while the only place is taken", err)
+	}
+	if calls := g.callCount(); calls != 1 {
+		t.Fatalf("chain queries = %d, want 1", calls)
+	}
+	stop()
+	close(g.release)
+	if err := <-first; err == nil {
+		t.Fatal("the query should have ended with the service")
+	}
+	g.mu.Lock()
+	ended := g.ctxEnded
+	g.mu.Unlock()
+	if !ended {
+		t.Fatal("the query's context did not end with the service")
+	}
+}
+
 // Concurrent misses for one key send one chain query and all get its answer.
 func TestCachedChainSharesConcurrentMisses(t *testing.T) {
 	g := newGatedChain()
@@ -88,7 +146,7 @@ func TestCachedChainSharesConcurrentMisses(t *testing.T) {
 		}()
 	}
 	<-g.started
-	time.Sleep(50 * time.Millisecond) // let the others find the query in progress
+	waitWaiters(t, c, participantCortex+"|op", n)
 	close(g.release)
 	wg.Wait()
 	close(errs)
@@ -126,7 +184,7 @@ func TestCachedChainSharedFailureIsNotCached(t *testing.T) {
 		}()
 	}
 	<-g.started
-	time.Sleep(50 * time.Millisecond)
+	waitWaiters(t, c, participantCortex+"|op", 5)
 	close(g.release)
 	wg.Wait()
 
@@ -186,7 +244,7 @@ func TestCachedChainCallerCancelDoesNotFailOthers(t *testing.T) {
 		_, err := c.CurrentServiceKey(context.Background(), "op")
 		secondErr <- err
 	}()
-	time.Sleep(50 * time.Millisecond)
+	waitWaiters(t, c, participantCortex+"|op", 2)
 	cancel()
 	if err := <-firstErr; err == nil {
 		t.Fatal("the cancelled caller must stop waiting with an error")

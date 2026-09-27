@@ -24,9 +24,12 @@ type ChainReader interface {
 
 const participantCortex = "CORTEX"
 
-// DefaultLookupTimeout bounds one shared chain query. It is independent of any caller's deadline,
-// because several callers may be waiting on the same query.
-const DefaultLookupTimeout = 10 * time.Second
+// Defaults for shared chain queries until the service binds its own (see Bind): the same as the service's
+// per-request time limit and in-flight limit.
+const (
+	defaultLookupTimeout = defaultHandleTimeout
+	defaultMaxLookups    = defaultMaxInFlight
+)
 
 type cacheEntry[T any] struct {
 	value   T
@@ -37,6 +40,7 @@ type cacheEntry[T any] struct {
 // instead of sending their own.
 type flight[T any] struct {
 	started time.Time
+	waiters int
 	done    chan struct{}
 	value   T
 	err     error
@@ -60,18 +64,25 @@ func newTable[T any]() *table[T] {
 //     leaves the in-progress table the moment it ends; a failure is never cached;
 //   - a caller that found an expired entry joins a query only if that query started at or after the moment the
 //     entry expired, so a result fetched before expiry is never handed out after it;
-//   - the query runs under its own context and timeout, not under one caller's, so one caller giving up does not
-//     fail the others; each caller still stops waiting when its own context ends;
+//   - the query runs under its own context, not under one caller's, so one caller giving up does not fail the
+//     others; each caller still stops waiting when its own context ends. That context ends with the service and
+//     after the service's per-request time limit, and at most maxLookups queries run at once: a query that outlives
+//     the caller that started it (a caller that stopped waiting, or a login rejected before it needed the answer)
+//     still holds one of those places, so such queries cannot pile up. When all are taken a new query is not sent
+//     and the caller is rejected as chain unavailable;
 //   - the key holds every input of the query: the participant type and the operator address.
 //
 // Because the service key signature is checked only after the chain lookups, a caller without any credential can
-// make them happen by naming an operator address, and a failed lookup is not cached. The service's in-flight limit
-// and the sharing above bound this; rate limiting, if ever needed, belongs here.
+// make them happen by naming an operator address, and a failed lookup is not cached. The cap on running queries and
+// the sharing above bound how many run at once, not how often; rate limiting, if ever needed, belongs here.
 type CachedChain struct {
-	chain   ChainQueries
-	ttl     time.Duration
-	now     func() time.Time
+	chain ChainQueries
+	ttl   time.Duration
+	now   func() time.Time
+
+	life    context.Context
 	timeout time.Duration
+	slots   chan struct{}
 
 	mu    sync.Mutex
 	keys  *table[chaincli.ServiceKeyState]
@@ -84,9 +95,18 @@ func NewCachedChain(chain ChainQueries, ttl time.Duration, now func() time.Time)
 		now = time.Now
 	}
 	return &CachedChain{
-		chain: chain, ttl: ttl, now: now, timeout: DefaultLookupTimeout,
+		chain: chain, ttl: ttl, now: now,
+		life: context.Background(), timeout: defaultLookupTimeout, slots: make(chan struct{}, defaultMaxLookups),
 		keys: newTable[chaincli.ServiceKeyState](), nodes: newTable[chaincli.CortexNodeState](),
 	}
+}
+
+// Bind ties shared queries to the service: they end when life ends or after timeout, and at most maxLookups run at
+// once. The service calls it on Start, before any request is handled.
+func (c *CachedChain) Bind(life context.Context, timeout time.Duration, maxLookups int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.life, c.timeout, c.slots = life, timeout, make(chan struct{}, maxLookups)
 }
 
 // CurrentServiceKey queries the Cortex participant's current service key row; participantType is fixed to CORTEX.
@@ -128,10 +148,18 @@ func lookup[T any](ctx context.Context, c *CachedChain, t *table[T], name, key s
 	if running {
 		stat.Joined = true
 	} else {
+		select {
+		case c.slots <- struct{}{}:
+		default:
+			c.mu.Unlock()
+			var zero T
+			return zero, Reject(CodeChainUnavailable, "chain query failed")
+		}
 		f = &flight[T]{started: c.now(), done: make(chan struct{})}
 		t.flights[key] = f // an older, unjoinable query keeps running but no longer takes new callers
-		go runQuery(c, t, key, f, query)
+		go runQuery(c, c.life, c.timeout, c.slots, t, key, f, query)
 	}
+	f.waiters++
 	c.mu.Unlock()
 
 	select {
@@ -155,10 +183,12 @@ func lookup[T any](ctx context.Context, c *CachedChain, t *table[T], name, key s
 	}
 }
 
-// runQuery performs one shared query under its own timeout, records whether it had to open a new connection to
+// runQuery performs one shared query under the service lifetime and time limit, records whether it had to open a new connection to
 // the chain, caches a success, and removes the query from the in-progress table as it ends.
-func runQuery[T any](c *CachedChain, t *table[T], key string, f *flight[T], query func(context.Context) (T, error)) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+func runQuery[T any](c *CachedChain, life context.Context, timeout time.Duration, slots chan struct{},
+	t *table[T], key string, f *flight[T], query func(context.Context) (T, error)) {
+	defer func() { <-slots }()
+	ctx, cancel := context.WithTimeout(life, timeout)
 	defer cancel()
 	var newConn bool
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{

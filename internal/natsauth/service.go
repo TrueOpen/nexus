@@ -201,6 +201,12 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("natsauth: connect nats: %w", err)
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	// Chain queries shared between requests end with the service too, and are capped like requests are.
+	if chain, ok := s.cfg.Verifier.cfg.Chain.(interface {
+		Bind(context.Context, time.Duration, int)
+	}); ok {
+		chain.Bind(runCtx, s.cfg.HandleTimeout, s.cfg.MaxInFlight)
+	}
 	// stopping must be cleared before subscribing: as soon as Subscribe returns, server requests may arrive,
 	// and clearing it after subscribing would drop requests in that window as "stopping" for nothing.
 	// Leaving it false when Subscribe fails is harmless -- there is no subscription then, so nothing reaches handleMsg.
