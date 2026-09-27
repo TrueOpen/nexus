@@ -642,6 +642,8 @@ type AcceptedResultReceipt struct {
 // has closed and no challenge round is open, the next deadline is the challenge window close
 // (06 §9); QueryTask does not carry the round summary that holds it.
 type TaskStage struct {
+	TaskPhase          string `json:"task_phase,omitempty"`        // TaskPhase short name (SETTLING, ...)
+	SettlementStatus   string `json:"settlement_status,omitempty"` // SettlementStatus short name (NONE, ...)
 	FinalityStatus     string `json:"finality_status,omitempty"`
 	NextDeadlineKind   string `json:"next_deadline_kind,omitempty"` // DeadlineKindV1 short name; empty when none
 	NextDeadlineHeight uint64 `json:"next_deadline_height,omitempty"`

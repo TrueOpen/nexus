@@ -878,8 +878,8 @@ func TestQueryTaskMapsCompactedTerminalSummary(t *testing.T) {
 	}
 }
 
-// TaskStage reports the challenge window close as the next deadline; other deadlines do not
-// count as a challenge window.
+// TaskStage reports the task phase, settlement status and next deadline; only a challenge window
+// close counts as a challenge window.
 func TestQueryTaskStageMapsChallengeWindow(t *testing.T) {
 	stage := func(taskID []byte, kind taskv1.DeadlineKindV1) *taskv1.QueryTaskStageResponse {
 		return &taskv1.QueryTaskStageResponse{Stage: &taskv1.TaskStageViewV1{
@@ -897,9 +897,16 @@ func TestQueryTaskStageMapsChallengeWindow(t *testing.T) {
 	if got.FinalityStatus != "PENDING" || got.NextDeadlineKind != "CHALLENGE_WINDOW_CLOSE" || got.ChallengeCloseHeight() != 242863 {
 		t.Fatalf("stage = %+v", got)
 	}
-	c = &client{taskQuery: &recordTaskQuery{stage: stage(testTaskIDBytes, taskv1.DeadlineKindV1_DEADLINE_KIND_V1_TASK_SETTLEMENT)}}
-	if got, err := c.QueryTaskStage(context.Background(), testTaskIDHex); err != nil || got.ChallengeCloseHeight() != 0 {
+	settling := stage(testTaskIDBytes, taskv1.DeadlineKindV1_DEADLINE_KIND_V1_TASK_SETTLEMENT)
+	settling.Stage.TaskPhase = taskv1.TaskPhase_TASK_PHASE_SETTLING
+	settling.Stage.SettlementStatus = taskv1.SettlementStatus_SETTLEMENT_STATUS_NONE
+	c = &client{taskQuery: &recordTaskQuery{stage: settling}}
+	got, err = c.QueryTaskStage(context.Background(), testTaskIDHex)
+	if err != nil || got.ChallengeCloseHeight() != 0 {
 		t.Fatalf("settlement deadline read as a challenge window: %+v, %v", got, err)
+	}
+	if got.TaskPhase != "SETTLING" || got.SettlementStatus != "NONE" || got.NextDeadlineKind != "TASK_SETTLEMENT" {
+		t.Fatalf("settling stage = %+v", got)
 	}
 	c = &client{taskQuery: &recordTaskQuery{stage: stage(mustHash32("99"), taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE)}}
 	if _, err := c.QueryTaskStage(context.Background(), testTaskIDHex); err == nil {

@@ -745,9 +745,9 @@ func TestReceiptStopsOnceTheChainAcceptedIt(t *testing.T) {
 	}
 }
 
-// settleTask drives a task to the settlement window with this Builder as the only one selected,
-// so every block from the reveal deadline to the verify deadline is open to it.
-func settleTask(t *testing.T, c *Coordinator, session, task string, verifyDeadline int64) *taskFSM {
+// settleTask drives a task ready to settle with this Builder as the only one selected, so every
+// block is open to it until the settlement deadline.
+func settleTask(t *testing.T, c *Coordinator, session, task string, settlementDeadline uint64) *taskFSM {
 	t.Helper()
 	chain := c.txQuery.(*txChainFake)
 	chain.setResult("result-1", chaincli.TxResult{Height: 2})
@@ -756,9 +756,7 @@ func settleTask(t *testing.T, c *Coordinator, session, task string, verifyDeadli
 	driveToSettleReady(t, c, session, task, &selection)
 	fsm, _ := c.getFSM(session, task)
 	c.confirmSubmittedTxs(fsm) // the two results arrived on the bus: confirm them
-	fsm.mu.Lock()
-	fsm.deadlines.Verify = verifyDeadline
-	fsm.mu.Unlock()
+	markSettleReady(fsm, settlementDeadline)
 	return fsm
 }
 
@@ -839,8 +837,8 @@ func TestSettleWithUnreadableResultIsResentAfterVerdictBlocks(t *testing.T) {
 	}
 }
 
-// Temporary settlement failures are resubmitted with a doubling wait until the verify deadline
-// that closes the settlement window.
+// Temporary settlement failures are resubmitted with a doubling wait until the settlement deadline,
+// at which the chain settles the task by itself.
 func TestSettleTemporaryFailureBacksOffUntilTheDeadline(t *testing.T) {
 	c, sub, chain, sink := newConfirmCoordinator(t, testBuilderSelf)
 	const session = "sess-settle-temporary"
@@ -1011,7 +1009,7 @@ func refusedSettle(t *testing.T, name string) (*Coordinator, *simulatingSubmitte
 	c.submit = sub
 	fsm := settleTask(t, c, "sess-"+name, testTaskID(name), rankVerifyDeadline)
 	c.onNewBlock(rankRevealDeadline)
-	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 0 {
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 1 {
 		t.Fatalf("first settlement: submissions = %d, simulations = %d", settleCount(sub.fakeSubmitter), sub.simulations())
 	}
 	chain.setResult("settle-1", chaincli.TxResult{Code: 1170, Codespace: "task", RawLog: "settlement inputs incomplete"})
@@ -1019,15 +1017,16 @@ func refusedSettle(t *testing.T, name string) (*Coordinator, *simulatingSubmitte
 	return c, sub, fsm
 }
 
-// A settlement resend the chain refuses in simulation is not broadcast; it is simulated again at
-// the next height this Builder may settle at, and broadcast once the simulation passes.
-func TestSettleResendRefusedInSimulationIsNotBroadcast(t *testing.T) {
+// Every settlement is simulated before it is broadcast; one the chain refuses in simulation is not
+// broadcast. It is simulated again at the next height this Builder may settle at, and broadcast
+// once the simulation passes.
+func TestSettleRefusedInSimulationIsNotBroadcast(t *testing.T) {
 	c, sub, _ := refusedSettle(t, "settle-sim-refused")
 	sub.setSimulation(chaincli.SimResult{OK: false, Error: "failed to execute message: settlement inputs incomplete"}, nil)
 	for height := int64(rankRevealDeadline + 1); height < rankRevealDeadline+10; height++ {
 		c.onNewBlock(height)
 	}
-	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 9 {
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 10 {
 		t.Fatalf("submissions = %d, simulations = %d; want no broadcast and one simulation per block",
 			settleCount(sub.fakeSubmitter), sub.simulations())
 	}
@@ -1038,12 +1037,20 @@ func TestSettleResendRefusedInSimulationIsNotBroadcast(t *testing.T) {
 	}
 }
 
-// A node that cannot simulate leaves the resend to its backoff.
-func TestSettleResendWithoutSimulationBroadcastsOnBackoff(t *testing.T) {
+// A simulation that cannot be run is not a pass: nothing is broadcast, and the next block
+// simulates again.
+func TestSettleNotBroadcastWhenSimulationFails(t *testing.T) {
 	c, sub, _ := refusedSettle(t, "settle-sim-unavailable")
-	sub.setSimulation(chaincli.SimResult{}, chaincli.ErrNotSupportedOnChain)
+	sub.setSimulation(chaincli.SimResult{}, errors.New("node unavailable"))
 	c.onNewBlock(rankRevealDeadline + 1)
-	if settleCount(sub.fakeSubmitter) != 2 || sub.simulations() != 1 {
-		t.Fatalf("submissions = %d, simulations = %d; want a broadcast on backoff", settleCount(sub.fakeSubmitter), sub.simulations())
+	c.onNewBlock(rankRevealDeadline + 2)
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 3 {
+		t.Fatalf("submissions = %d, simulations = %d; want no broadcast and one simulation per block",
+			settleCount(sub.fakeSubmitter), sub.simulations())
+	}
+	sub.setSimulation(chaincli.SimResult{OK: true}, nil)
+	c.onNewBlock(rankRevealDeadline + 3)
+	if settleCount(sub.fakeSubmitter) != 2 {
+		t.Fatalf("submissions = %d, want a broadcast once the simulation passes", settleCount(sub.fakeSubmitter))
 	}
 }

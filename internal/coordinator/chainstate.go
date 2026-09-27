@@ -326,7 +326,7 @@ func (c *Coordinator) requestDueLifecycleReconcile(height uint64) {
 	}
 }
 
-// reconcileSettleSelection reads two on-chain facts once settlement inputs are complete: the frozen Task Builder
+// reconcileSettleSelection reads two on-chain facts once the chain reports the task ready to settle: the frozen Task Builder
 // order (task TaskBuilders) and the grace blocks per rank (Hub parameter). If either is unavailable the task
 // is kept for the next reconciliation; rank 1 is never assumed.
 func (c *Coordinator) reconcileSettleSelection(fsm *taskFSM) {
@@ -355,7 +355,7 @@ func (c *Coordinator) reconcileSettleSelection(fsm *taskFSM) {
 	}
 	fsm.mu.Lock()
 	if fsm.state != types.Verifying || fsm.terminal || fsm.settleSelection.SessionID != "" ||
-		fsm.consistentVerifyGroup() == nil {
+		!fsm.settleStage.ready {
 		fsm.mu.Unlock()
 		return
 	}

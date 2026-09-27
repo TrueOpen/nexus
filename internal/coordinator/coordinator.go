@@ -1370,8 +1370,15 @@ func (c *Coordinator) OnFullResultRevealAccepted(ev chaincli.FullResultRevealAcc
 
 // OnSweepDeadlineAccepted: deadline sweep advanced: task converges to a terminal state.
 func (c *Coordinator) OnSweepDeadlineAccepted(ev chaincli.SweepDeadlineAccepted) {
-	if fsm, ok := c.getFSM(ev.SessionID, ev.TaskID); ok {
-		fsm.onSweepDeadlineAccepted(ev)
+	fsm, ok := c.getFSM(ev.SessionID, ev.TaskID)
+	if !ok {
+		return
+	}
+	fsm.onSweepDeadlineAccepted(ev)
+	// A closed challenge window moves the task to SETTLING; read it now rather than at the next
+	// periodic reconciliation, which may come after the chain's own settlement deadline.
+	if ev.TransitionCode == taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_CHALLENGE_WINDOW_CLOSED {
+		c.requestTaskReconcile(ev.SessionID, ev.TaskID, ev.Height, "challenge window closed")
 	}
 }
 
@@ -1817,10 +1824,39 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 			c.log.Warn("settlement facts reconciliation failed", "task_id", taskID, "reason", reason, "err", err)
 			return false
 		}
+		if !c.reconcileSettleStage(fsm, snapshot) {
+			return false
+		}
 		c.reconcileSettleSelection(fsm)
 		settlementFacts = &facts
 	}
 	return taskNotificationsObserved(snapshot, settlementFacts, notifications)
+}
+
+// reconcileSettleStage asks the chain whether the task can be settled now (QueryTaskStage) and
+// hands the answer to the task. It asks only once the task snapshot shows SETTLING; before that
+// the task is not ready. A failed query changes nothing: the task neither advances nor gives up,
+// and it returns false so reconciliation retries.
+func (c *Coordinator) reconcileSettleStage(fsm *taskFSM, snapshot chaincli.OnChainTask) bool {
+	var stage settleStage
+	if snapshot.Status == "SETTLING" {
+		if c.challenge == nil {
+			c.log.Warn("settle stage query skipped: TaskStage Query is not configured", "task_id", fsm.taskID)
+			return false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+		read, err := c.challenge.QueryTaskStage(ctx, fsm.taskID)
+		cancel()
+		if err != nil {
+			c.log.Warn("settle stage query failed; retrying", "task_id", fsm.taskID, "err", err)
+			return false
+		}
+		stage = settleStageFrom(read)
+	}
+	fsm.mu.Lock()
+	fsm.setSettleStageLocked(stage)
+	fsm.mu.Unlock()
+	return true
 }
 
 // taskGoneWarnEvery is how often the WARN for one task missing from the chain repeats; it is

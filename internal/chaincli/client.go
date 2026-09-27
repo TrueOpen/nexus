@@ -499,7 +499,11 @@ func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, 
 	if stage == nil || !bytes.Equal(stage.GetTaskId(), id) {
 		return TaskStage{}, fmt.Errorf("query task stage: response task does not match request")
 	}
-	result := TaskStage{FinalityStatus: finalityStatusName(stage.GetFinalityStatus())}
+	result := TaskStage{
+		TaskPhase:        enumShortName("TASK_PHASE_", stage.GetTaskPhase()),
+		SettlementStatus: settlementStatusName(stage.GetSettlementStatus()),
+		FinalityStatus:   finalityStatusName(stage.GetFinalityStatus()),
+	}
 	if kind := stage.GetNextDeadlineKind(); kind != taskv1.DeadlineKindV1_DEADLINE_KIND_V1_UNSPECIFIED {
 		result.NextDeadlineKind = enumShortName("DEADLINE_KIND_V1_", kind)
 		result.NextDeadlineHeight = stage.GetNextDeadlineHeight()

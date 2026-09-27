@@ -184,7 +184,8 @@ func TestRecoveryResumesInFlightTask(t *testing.T) {
 		t.Fatalf("custody not restored: cred=%+v err=%v", cred, err)
 	}
 
-	// Keep advancing: W_i reveal + two consistent V_i -> the new process submits SettleTx.
+	// Keep advancing: the new process submits SettleTx once the chain reports the task ready
+	// (reconciliation reads that again after a restart).
 	c2.OnWorkerRevealAccepted(chaincli.WorkerRevealAccepted{SessionID: session, TaskID: task, Height: 300})
 	c2.OnSampleReady(chaincli.SampleReady{SessionID: session, TaskID: task, SampleSeed: []byte("sample-seed"), Height: 210})
 	fsm, _ := c2.getFSM(session, task)
@@ -195,11 +196,12 @@ func TestRecoveryResumesInFlightTask(t *testing.T) {
 	if err := fsm.onVerifyResult(testVerifyResult(task, "verifier-2", vals)); err != nil {
 		t.Fatalf("onVerifyResult verifier-2: %v", err)
 	}
-	// Settlement ordering and grace blocks are both restored from the snapshot; timing still follows chain height (§10.10a).
-	if settleCount(sub2) != 0 {
-		t.Fatalf("settle must wait for the window, got %d submissions", settleCount(sub2))
-	}
+	// Settlement ordering and grace blocks are both restored from the snapshot; timing still follows chain height.
 	c2.onNewBlock(rankRevealDeadline + 1)
+	if settleCount(sub2) != 0 {
+		t.Fatalf("settle must wait for the chain to report the task ready, got %d submissions", settleCount(sub2))
+	}
+	markSettleReady(fsm, 0)
 	if settleCount(sub2) != 1 {
 		t.Fatalf("recovered task must continue to settle, got %d submissions", settleCount(sub2))
 	}

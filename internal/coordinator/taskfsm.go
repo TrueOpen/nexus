@@ -3,7 +3,6 @@ package coordinator
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -169,6 +168,10 @@ type taskFSM struct {
 	verifierProposalTimer *time.Timer
 	verifierProposalDelay time.Duration
 	settleSelection       chaincli.StageBuilderSelectionState
+	// settleStage is the chain's word on whether the task can be settled now, read by
+	// reconciliation (QueryTaskStage). Not persisted: after a restart the next reconciliation
+	// reads it again, and until then this node only waits.
+	settleStage settleStage
 
 	// Backfilled once the chain finalizes.
 	settlement  chaincli.TaskSettlementState
@@ -1737,22 +1740,56 @@ func (f *taskFSM) onSweepDeadlineAccepted(ev chaincli.SweepDeadlineAccepted) {
 	}
 }
 
-// trySettle is the settlement precondition: ≥2 V_i with consistent re-execution results.
+// settleStage is what the chain reports about settling a task. ready is true while the task is
+// SETTLING, not settled and not final: every verification round has closed and the challenge
+// window has passed. deadline is the settlement deadline, at which the chain settles the task by
+// itself; 0 = unknown.
+type settleStage struct {
+	ready    bool
+	deadline uint64
+}
+
+// settleStageFrom reads the settlement facts out of a chain TaskStage.
+func settleStageFrom(stage chaincli.TaskStage) settleStage {
+	out := settleStage{ready: stage.TaskPhase == "SETTLING" && stage.SettlementStatus == "NONE" &&
+		stage.FinalityStatus == "PENDING"}
+	if out.ready && stage.NextDeadlineKind == "TASK_SETTLEMENT" {
+		out.deadline = stage.NextDeadlineHeight
+	}
+	return out
+}
+
+// setSettleStageLocked records the chain's settlement facts. Once the settlement order is known
+// it tries to settle; before that, reconcileSettleSelection reads the order and tries. Caller must
+// hold the lock.
+func (f *taskFSM) setSettleStageLocked(stage settleStage) {
+	if stage.ready && !f.settleStage.ready {
+		f.log.Info("chain reports the task ready to settle", "task_id", f.taskID,
+			"settlement_deadline", stage.deadline)
+	}
+	f.settleStage = stage
+	if f.settleSelection.SessionID != "" {
+		f.trySettle()
+	}
+}
+
+// trySettle submits MsgSettleTask once the chain reports the task ready to settle
+// (settleStage) and this Builder may submit at the next height.
 //
-// It does not wait for the Worker reveal: normal verification has no such step (Task
-// Execution, Verification and Settlement §9 -- the Worker's commitment is already locked
-// by the accepted InferReceipt), the frozen contract has no matching Msg / Event, and
-// f.workerRevealed is always false in Phase 0, kept only as an observation.
+// Whether the task can be settled is the chain's decision, never a local count of Verifier
+// results: the chain groups results by each Verifier's own verdict and token count and closes
+// the rounds itself, and local result copies may be missing or differ in fields the chain does
+// not compare. A Builder's settlement only brings the settlement forward: the chain settles the
+// task by itself at its settlement deadline.
 //
-// Timing is decided entirely by chain height (§10.10a, see settleSubmissionAllowed): do not
-// send before the height at which this node may send; sending early or in someone else's
-// slot is rejected by the chain and wastes the fee. At most one send per block. When block
-// results can be read, the next send waits for the last one's result and, after a failure,
-// for its backoff (txconfirm.go); otherwise, if the chain has not settled after a send, the
-// next block within the window sends again. Chain height comes from NewBlock (onHeight), not
-// the local clock. Caller must hold the lock.
+// Timing is decided entirely by chain height (see settleSubmissionAllowed): do not send before
+// the height at which this node may send; sending in someone else's slot is rejected by the
+// chain and wastes the fee. At most one send per block, and each send is simulated first. When
+// block results can be read, the next send waits for the last one's result and, after a failure,
+// for its backoff (txconfirm.go). Chain height comes from NewBlock (onHeight), not the local
+// clock. Caller must hold the lock.
 func (f *taskFSM) trySettle() {
-	if f.state != types.Verifying || f.terminal || f.consistentVerifyGroup() == nil {
+	if f.state != types.Verifying || f.terminal || !f.settleStage.ready {
 		return
 	}
 	rank, known, selected := f.settleRank()
@@ -1773,12 +1810,12 @@ func (f *taskFSM) trySettle() {
 	}
 	allowed, permissionless := f.settleSubmissionAllowed(rank)
 	if !allowed {
-		f.log.Debug("settle conditions met; waiting for the height this Builder may submit at",
+		f.log.Debug("task ready to settle; waiting for the height this Builder may submit at",
 			"task_id", f.taskID, "rank", rank, "height", f.observedHeight,
 			"reveal_deadline", f.deadlines.Reveal, "grace_blocks", f.settleGraceBlocks)
 		return
 	}
-	if f.settleTx.retry && !f.settlePassesSimulationLocked() {
+	if !f.settlePassesSimulationLocked() {
 		return
 	}
 	f.log.Info("settle window open; submitting", "task_id", f.taskID, "rank", rank,
@@ -1786,11 +1823,16 @@ func (f *taskFSM) trySettle() {
 	f.submitSettle()
 }
 
-// settleSubmissionAllowed reports whether the chain would accept this node's MsgSettleTask (§10.10a):
+// settleSubmissionAllowed reports whether the chain would accept this node's MsgSettleTask from
+// the submitter schedule, with g = settlement_builder_grace_blocks and k = number of Builders in
+// the frozen selection:
 //
-//	reveal deadline < height ≤ verify deadline            public settlement window; no rank may go earlier
-//	rank i exclusive (reveal+(i-1)·g, reveal+i·g]         g = settlement_builder_grace_blocks
-//	height > reveal+k·g: anyone may submit                k = number of Builders in the frozen selection
+//	height <= reveal + g                   rank 1
+//	reveal + (i-1)·g < height <= reveal + i·g   rank i
+//	height > reveal + k·g                  anyone
+//
+// The schedule has no upper bound: settling is open until the task is settled. Whether the task
+// can be settled at all is settleStage's part.
 //
 // The decision uses the height at which the transaction **executes**, not the height this
 // node just observed: the chain recomputes who may submit at the executing block, and the
@@ -1798,24 +1840,23 @@ func (f *taskFSM) trySettle() {
 // a submission in the last block of this slot would execute in the next slot and be
 // rejected as "submitter is not the Builder of the current slot".
 //
-// If any fact is missing (reveal/verify deadline, grace blocks, Builder count unknown),
-// return false: never guess the window. Caller must hold the lock.
+// If any fact is missing (reveal deadline, grace blocks, Builder count unknown), return false:
+// never guess the window. Caller must hold the lock.
 func (f *taskFSM) settleSubmissionAllowed(rank int) (allowed bool, permissionless bool) {
 	builders := uint64(len(f.settleSelection.SelectedBuilders))
-	if rank < 1 || builders == 0 || f.settleGraceBlocks == 0 ||
-		f.deadlines.Reveal <= 0 || f.deadlines.Verify <= 0 {
+	if rank < 1 || uint64(rank) > builders || f.settleGraceBlocks == 0 || f.deadlines.Reveal <= 0 {
 		return false, false
 	}
-	reveal, verify, grace := uint64(f.deadlines.Reveal), uint64(f.deadlines.Verify), f.settleGraceBlocks
+	reveal, grace := uint64(f.deadlines.Reveal), f.settleGraceBlocks
 	height := f.observedHeight + 1 // the transaction executes in the next block at the earliest
-	if height <= reveal || height > verify {
-		return false, false
-	}
 	if height > reveal+builders*grace {
 		return true, true
 	}
-	start := reveal + uint64(rank-1)*grace
-	return height > start && height <= start+grace, false
+	slot := uint64(0)
+	if height > reveal {
+		slot = (height - reveal - 1) / grace
+	}
+	return slot == uint64(rank-1), false
 }
 
 // onHeight: a new block arrived: record the chain height, then check whether the settlement window has opened (including retries after a failed submission).
@@ -1835,35 +1876,19 @@ func (f *taskFSM) onHeight(height uint64) {
 	}
 }
 
-// submitSettle assembles and submits SettleTx; before submitting it broadcasts a prepare
-// announcement so other Builders can skip a duplicate submission (§4.3). Verifiers that already submitted directly on-chain via
-// FullResultRevealTx are included by reference (values not inlined; the chain reads
-// them from state). Caller must hold the lock.
+// submitSettle submits MsgSettleTask; before submitting it broadcasts a prepare announcement so
+// other Builders can skip a duplicate submission. The request is just task_id + submitter: the
+// verdict, receipt references and evidence roots are derived by the chain from its own state.
+// Caller must hold the lock.
 func (f *taskFSM) submitSettle() {
-	group := f.consistentVerifyGroup()
-	if group == nil || len(f.verifiers) != 3 {
-		return
-	}
 	// prepare de-duplication: tell higher ranks in the group that this node is about to submit, reducing races within the same slot.
 	f.publishPrepare()
 
-	// missing/outlier are logged only: the public request of MsgSettleTask is just task_id +
-	// submitter_address (§10.10a); verdict, receipt references and evidence roots are all
-	// derived by the Keeper from authoritative state, and Nexus no longer assembles local
-	// copies.
-	consistent := make(map[string]struct{}, len(group))
-	for _, result := range group {
-		consistent[result.GetVerifierOperatorAddress()] = struct{}{}
-	}
+	// Local result copies are logged only; they play no part in the settlement.
 	missing := make([]string, 0, len(f.verifiers))
-	outliers := make([]string, 0, 1)
 	for _, verifier := range f.verifiers {
 		if _, ok := f.verifyResults[verifier]; !ok {
 			missing = append(missing, verifier)
-			continue
-		}
-		if _, ok := consistent[verifier]; !ok {
-			outliers = append(outliers, verifier)
 		}
 	}
 	f.settleSubmittedHeight = f.observedHeight
@@ -1880,8 +1905,7 @@ func (f *taskFSM) submitSettle() {
 	f.sentLocked(&f.settleTx, res.TxHash)
 	f.save()
 	f.log.Info("SettleTx submitted", "task_id", f.taskID, "tx_hash", hex.EncodeToString(res.TxHash),
-		"consistent_results", len(group), "missing", strings.Join(missing, ","),
-		"outlier", strings.Join(outliers, ","))
+		"local_results", len(f.verifyResults), "local_results_missing", strings.Join(missing, ","))
 }
 
 // publishPrepare broadcasts the SETTLE prepare announcement (nexus-internal signed
@@ -2120,8 +2144,7 @@ func (f *taskFSM) settleRank() (rank int, known bool, selected bool) {
 func (f *taskFSM) needsSettleSelection() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.state == types.Verifying && f.settleSelection.SessionID == "" &&
-		f.consistentVerifyGroup() != nil
+	return f.state == types.Verifying && f.settleSelection.SessionID == "" && f.settleStage.ready
 }
 
 // authorizedForSealedKey is the SEALED_KEY retrieval authorization (v1.5 §3.2):
@@ -2160,79 +2183,6 @@ func (f *taskFSM) authorizedForPayload(requester, usage string) bool {
 	default:
 		return false
 	}
-}
-
-// consistentVerifyGroup returns a group of ResultReceiptV2 with consistent re-execution
-// results and count ≥ threshold; nil if none. The consistency key = the combined digest
-// of (metric_root, proto-serialized bytes of metric_summary) (contract §5.11: the verdict
-// is recomputed by the Keeper from accepted typed summaries; this is only a local
-// de-duplication decision). Caller must hold the lock.
-func (f *taskFSM) consistentVerifyGroup() []*taskv1.ResultReceiptV3 {
-	groups := make(map[string][]*taskv1.ResultReceiptV3)
-	for _, vr := range f.verifyResults {
-		key, err := verifyResultGroupKey(vr)
-		if err != nil {
-			f.log.Warn("skip verify result in consistency grouping", "task_id", f.taskID,
-				"verifier", vr.GetVerifierOperatorAddress(), "err", err)
-			continue
-		}
-		groups[key] = append(groups[key], vr)
-	}
-	for _, g := range groups {
-		if len(g) >= minConsistentVerifyResults {
-			return g
-		}
-	}
-	return nil
-}
-
-// verifyResultGroupKey compresses the re-execution consistency inputs into a comparable
-// key: metric_root + MetricSummaryV1 framed field by field (length-prefixed against
-// concatenation ambiguity).
-//
-// verifier_evidence_bundle_hash is excluded: the evidence bundle carries each Verifier's own
-// salt, so this hash is inherently different per Verifier; with it in the key every group
-// has exactly 1 member and never reaches the threshold. ResultReceiptV2 lifted
-// the salt into its own field, and the rationale is unchanged. On-chain settlement
-// grouping likewise looks at the sample verdict and metric_summary_hash (keeper contract
-// consensus_cluster_hash), not at it. The summary is framed field by field rather than
-// proto.Marshal because protobuf serialization has no cross-implementation determinism
-// guarantee.
-func verifyResultGroupKey(vr *taskv1.ResultReceiptV3) (string, error) {
-	summary := vr.GetMetricSummary()
-	if summary == nil {
-		return "", fmt.Errorf("metric summary is required")
-	}
-	h := sha256.New()
-	var lenBuf [8]byte
-	write := func(part []byte) {
-		n := uint64(len(part))
-		for i := 0; i < 8; i++ {
-			lenBuf[i] = byte(n >> (8 * i))
-		}
-		h.Write(lenBuf[:])
-		h.Write(part)
-	}
-	u32 := func(v uint32) []byte {
-		return []byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
-	}
-	optional := func(v *uint32) []byte {
-		if v == nil {
-			return []byte{0}
-		}
-		return append([]byte{1}, u32(*v)...)
-	}
-	write(vr.GetMetricRoot())
-	for _, part := range [][]byte{
-		u32(summary.GetFiniteCount()), u32(summary.GetMissingComparedCount()),
-		u32(summary.GetMeanAbsLogprobDiffFp_1E6()), u32(summary.GetAbsLogprobDiffP95Fp_1E6()),
-		u32(summary.GetAbsLogprobDiffP99Fp_1E6()), u32(summary.GetRankDeltaNonzeroRateFp_1E6()),
-		optional(summary.TopkJaccardMeanFp_1E6), optional(summary.UnionJsP99Fp_1E6),
-		u32(summary.GetComparedTopkCount()), u32(summary.GetComparedRankCount()),
-	} {
-		write(part)
-	}
-	return string(h.Sum(nil)), nil
 }
 
 // subscribe subscribes to one core task-level subject and registers the unsubscribe function. Caller must hold the lock.

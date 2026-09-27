@@ -645,16 +645,11 @@ func TestHappyPath(t *testing.T) {
 	settleFSM.settleGraceBlocks = rankGraceBlocks
 	settleFSM.mu.Unlock()
 
-	// 7) 2 consistent V_i → SettleTx directly. Normal verification no longer has a Worker reveal
-	// step (Task Execution, Verification and Settlement §9); the Worker's commitment is already
-	// locked by the accepted InferReceipt.
-	// The two receipts' result_reveal_hash values differ (each salted); consistency looks only at the re-execution results.
+	// 7) Verifier results are relayed to the chain verbatim. Normal verification has no Worker
+	// reveal step; the Worker's commitment is already locked by the accepted InferReceipt.
 	vi := [][]byte{[]byte("v0"), []byte("v1")}
 	publishEnvelope(t, bus, keys, verifiers[0], msgbus.SubjectVerifyResultV1(task),
 		wirebus.KindVerifyResult, testVerifyResult(task, verifiers[0], vi))
-	if len(sub.settle) != 0 {
-		t.Fatalf("SettleTx must wait for a second consistent result, got %d", len(sub.settle))
-	}
 	publishEnvelope(t, bus, keys, verifiers[1], msgbus.SubjectVerifyResultV1(task),
 		wirebus.KindVerifyResult, testVerifyResult(task, verifiers[1], vi))
 	if len(sub.verifyResults) != 2 {
@@ -664,15 +659,16 @@ func TestHappyPath(t *testing.T) {
 		!proto.Equal(sub.verifyResults[0].Receipt, testVerifyResult(task, verifiers[0], vi)) {
 		t.Fatalf("relayed receipt was not forwarded verbatim: %+v", sub.verifyResults[0])
 	}
-	// §10.10a: settlement is only sent in the window after the reveal deadline, and the public
-	// request carries only task_id + submitter_address; verdict/receipt references/evidence root
-	// are Keeper-derived.
-	if len(sub.settle) != 0 {
-		t.Fatalf("SettleTx must wait for the settlement window, got %d", len(sub.settle))
-	}
+	// Settlement is sent once the chain reports the task ready to settle; the public request
+	// carries only task_id + submitter_address, verdict/receipt references/evidence root are
+	// derived by the chain.
 	c.onNewBlock(4)
+	if len(sub.settle) != 0 {
+		t.Fatalf("SettleTx must wait for the chain to report the task ready, got %d", len(sub.settle))
+	}
+	markSettleReady(settleFSM, 0)
 	if len(sub.settle) != 1 {
-		t.Fatalf("expected 1 SettleTx after two consistent results, got %d", len(sub.settle))
+		t.Fatalf("expected 1 SettleTx once the chain reports the task ready, got %d", len(sub.settle))
 	}
 	// 8) The Worker reveal event does not exist in the frozen contract; even if it arrives it is only recorded and triggers no second transaction.
 	c.OnWorkerRevealAccepted(chaincli.WorkerRevealAccepted{SessionID: session, TaskID: task, Height: 300})
@@ -1011,14 +1007,10 @@ func TestVerifyResultRequiresSelectedVerifierAndMaterial(t *testing.T) {
 	}
 }
 
-// TestSettleWaitsForConsistentResultsAndReveals: 2 consistent V_i + 1 Verifier self-rescuing via
-// FullResultRevealTx + Worker reveal → submit SettleTx. The public request of §10.10a carries only
-// task_id + submitter_address; receipt references and self-rescue references are derived by the
-// Keeper from authoritative state.
-// The only settlement precondition is "≥2 consistent re-execution results":
-//   - result_reveal_hash differs per node (each salted) and must not enter the grouping key;
-//   - the Worker reveal does not exist in the frozen contract and must not be a hard precondition.
-func TestSettleWaitsForConsistentResultsOnly(t *testing.T) {
+// TestSettleWaitsForChainNotResults: Verifier results are relayed but never gate settlement; the
+// settlement waits for the chain to report the task ready. The public request carries only
+// task_id + submitter_address, and no Worker reveal is needed.
+func TestSettleWaitsForChainNotResults(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus := msgbus.NewStub(log, nil)
 	sub := &fakeSubmitter{}
@@ -1054,34 +1046,22 @@ func TestSettleWaitsForConsistentResultsOnly(t *testing.T) {
 
 	vi := [][]byte{[]byte("v0")}
 	other := [][]byte{[]byte("v0-other")}
-	// 1 receipt: no settlement.
 	publishEnvelope(t, bus, keys, settleVerifiers[0], msgbus.SubjectVerifyResultV1(task),
 		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[0], vi))
-	if len(sub.settle) != 0 {
-		t.Fatalf("one result must not settle, got %d", len(sub.settle))
-	}
-	// The 2nd has different re-execution results: still no settlement.
 	publishEnvelope(t, bus, keys, settleVerifiers[1], msgbus.SubjectVerifyResultV1(task),
 		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[1], other))
-	if len(sub.settle) != 0 {
-		t.Fatalf("two inconsistent results must not settle, got %d", len(sub.settle))
-	}
-	// The 3rd matches the 1st's results (reveal hashes still differ): settle, and no Worker reveal is needed.
 	publishEnvelope(t, bus, keys, settleVerifiers[2], msgbus.SubjectVerifyResultV1(task),
 		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[2], vi))
 	if len(sub.verifyResults) != 3 {
 		t.Fatalf("expected 3 relayed MsgSubmitVerifyResult, got %d", len(sub.verifyResults))
 	}
-	if r0, r2 := sub.verifyResults[0].Receipt, sub.verifyResults[2].Receipt; bytes.Equal(r0.GetVerifierEvidenceBundleHash(), r2.GetVerifierEvidenceBundleHash()) ||
-		!bytes.Equal(r0.GetMetricRoot(), r2.GetMetricRoot()) {
-		t.Fatalf("fixture must differ in verifier_evidence_bundle_hash and agree on metric_root")
-	}
-	if len(sub.settle) != 0 {
-		t.Fatalf("SettleTx must wait for the settlement window, got %d", len(sub.settle))
-	}
 	c.onNewBlock(4)
+	if len(sub.settle) != 0 {
+		t.Fatalf("SettleTx must wait for the chain to report the task ready, got %d", len(sub.settle))
+	}
+	markSettleReady(fsm, 0)
 	if len(sub.settle) != 1 {
-		t.Fatalf("expected 1 SettleTx after two consistent results without any worker reveal, got %d", len(sub.settle))
+		t.Fatalf("expected 1 SettleTx once the chain reports the task ready, got %d", len(sub.settle))
 	}
 	if sub.settle[0].TaskID != task || sub.settle[0].Submitter != testBuilderSelf {
 		t.Fatalf("SettleTx mismatch: %+v", sub.settle[0])

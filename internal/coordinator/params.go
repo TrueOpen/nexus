@@ -31,10 +31,6 @@ const (
 	// selectedVerifierCount are collected, otherwise wait this window; later arrivals go in a follow-up Tx.
 	verifierProposalBatchDelay = 2 * time.Second
 
-	// minConsistentVerifyResults is the settlement precondition: minimum number of matching copies of the same
-	// sampled value (>= 2 matching V_i on-chain suffice to construct the consensus value).
-	minConsistentVerifyResults = 2
-
 	// credentialTTL is the maximum single validity period of a retrieval credential (renewable by refresh).
 	credentialTTL = time.Hour
 
