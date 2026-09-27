@@ -70,6 +70,22 @@ func (s *Service) ResultReady(ctx context.Context, q ResultReadyQuery) (bool, er
 		if bundle.State != StateReady || bundle.RetentionStatus == RetentionDeleted {
 			return false, nil
 		}
+		// Artifacts are switched before their manifest, so this only matters after a partial
+		// commit; checking them keeps ResultReady true only when every object can be served.
+		for _, artifact := range bundle.Artifacts {
+			ref := bundle.Key
+			ref.Kind, ref.ContentHash = ObjectKindEvidenceArtifact, artifact.ContentHash
+			stored, err := s.store.Metadata(ctx, ref)
+			if errors.Is(err, ErrNotFound) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			if stored.State != StateReady || stored.RetentionStatus == RetentionDeleted {
+				return false, nil
+			}
+		}
 	}
 	return true, nil
 }

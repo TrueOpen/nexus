@@ -95,3 +95,12 @@ func TestGoldenWorkerValueCommitmentV3(t *testing.T) {
 		t.Fatalf("digest = %x, want %s", digest, v.DigestHex)
 	}
 }
+
+// The token commitment hashes only a finish_reason of the closed set.
+func TestWorkerTokenCommitmentRejectsUnknownFinishReason(t *testing.T) {
+	for _, reason := range []uint32{0, MaxFinishReasonV1 + 1} {
+		if _, err := (WorkerTokenCommitmentV1{FinishReason: reason}).Digest(); err == nil {
+			t.Fatalf("finish_reason %d must be refused", reason)
+		}
+	}
+}

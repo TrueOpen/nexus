@@ -143,3 +143,56 @@ func TestWorkerValuesRootRejects(t *testing.T) {
 		t.Fatalf("zero leaves: root %x, err %v", root, err)
 	}
 }
+
+// TestMerkleRootV1MatchesWireVectors checks every MERKLE_ROOT_V1 root of wire
+// testdata/v1/shared/framing_v1.json: empty trees, one leaf, powers of two and odd promotions.
+func TestMerkleRootV1MatchesWireVectors(t *testing.T) {
+	var file struct {
+		Roots []struct {
+			Name   string   `json:"name"`
+			Domain string   `json:"domain"`
+			Leaves []string `json:"leaves_hex"`
+			Root   string   `json:"root_hex"`
+		} `json:"merkle_root_v1"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/framing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Roots) < 11 {
+		t.Fatalf("expected at least 11 MERKLE_ROOT_V1 vectors, found %d", len(file.Roots))
+	}
+	for _, v := range file.Roots {
+		leaves := make([][32]byte, len(v.Leaves))
+		for i, leaf := range v.Leaves {
+			raw, err := hex.DecodeString(leaf)
+			if err != nil || len(raw) != 32 {
+				t.Fatalf("%s: leaf %d", v.Name, i)
+			}
+			copy(leaves[i][:], raw)
+		}
+		if root := MerkleRootV1(v.Domain, leaves); hex.EncodeToString(root[:]) != v.Root {
+			t.Fatalf("%s: root %x, want %s", v.Name, root, v.Root)
+		}
+	}
+}
+
+// A leaf count the bytes cannot hold is refused before anything is allocated for it: a Worker that
+// signs a huge generated_token_count and uploads a few bytes must not make the Builder allocate.
+func TestWorkerValuesRootRejectsCountTheBytesCannotHold(t *testing.T) {
+	_, _, _, scope := wireWorkerValues(t)
+	for name, c := range map[string]struct {
+		count uint32
+		want  uint64
+	}{
+		"max uint32 leaves":        {0xffffffff, 0xffffffff},
+		"above the token id bound": {MaxTokenIDCountV1 + 1, MaxTokenIDCountV1 + 1},
+		"more leaves than bytes":   {1000, 1000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := append(binary.BigEndian.AppendUint32(nil, c.count), make([]byte, 64)...)
+			if _, err := WorkerValuesRootReader(bytes.NewReader(data), uint64(len(data)), scope, c.want); err == nil {
+				t.Fatal("must be rejected")
+			}
+		})
+	}
+}

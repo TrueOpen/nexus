@@ -1180,3 +1180,40 @@ func TestVerifyResultRelaySemantics(t *testing.T) {
 		t.Fatal("definitively rejected receipt was stored")
 	}
 }
+
+// Encryption is not active: a Worker handraise carrying a recipient_pubkey would make the chain refuse
+// the whole proposal, so it is dropped at the entrance and the others still assign the task.
+func TestWorkerHandraiseWithRecipientKeyIsDropped(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := msgbus.NewStub(log, nil)
+	sub := &fakeSubmitter{}
+	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	keys := enableTestBusEnvelopes(c)
+	c.submit = sub
+
+	const session = "sess-recipient-key"
+	task := testTaskID("recipient-key")
+	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("OnOrder: %v", err)
+	}
+	for _, cand := range []string{testOperator("worker-1"), testOperator("worker-2"), testOperator("worker-3")} {
+		hr := testWorkerHandraise(session, task, cand)
+		hr.RecipientPubkey = bytes.Repeat([]byte{4}, 65)
+		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task), wirebus.KindWorkerHandraise, hr)
+	}
+	if len(sub.assign) != 0 {
+		t.Fatalf("handraises with a recipient key must not be proposed, got %d proposals", len(sub.assign))
+	}
+	for _, cand := range []string{testOperator("worker-4"), testOperator("worker-5"), testOperator("worker-6")} {
+		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task),
+			wirebus.KindWorkerHandraise, testWorkerHandraise(session, task, cand))
+	}
+	if len(sub.assign) != 1 {
+		t.Fatalf("plaintext handraises must still assign the task, got %d proposals", len(sub.assign))
+	}
+	for _, hr := range sub.assign[0].WorkerHandraises {
+		if len(hr.GetRecipientPubkey()) != 0 {
+			t.Fatal("a handraise with a recipient key reached the proposal")
+		}
+	}
+}

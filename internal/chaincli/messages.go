@@ -80,8 +80,8 @@ type AssignTx struct {
 // READY, MsgSubmitVerifierHandraises (§4.2.1/§10.4). The Verifier window, legal
 // set, selected Verifier set and every deadline are Keeper-derived, so the
 // legacy selected_verifiers / window proof fields no longer reach the chain.
-// VerifyResultTx relays the Verifier-signed ResultReceiptV3 verbatim (Keeper Interface Contract
-// §10.9). Nexus rewrites or fills in no field: the receipt's signature preimage is locked by the
+// VerifyResultTx relays the Verifier-signed ResultReceiptV3 verbatim as MsgSubmitVerifyResult.
+// Nexus rewrites or fills in no field: the receipt's signature preimage is locked by the
 // Verifier's current service key, and changing a single byte fails on-chain signature verification.
 type VerifyResultTx struct {
 	Receipt   *taskv1.ResultReceiptV3 `json:"-"`

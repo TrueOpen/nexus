@@ -91,7 +91,10 @@ type finalizeRecord struct {
 // it does not notify: otherwise anyone holding one valid request could replay it to make this Builder
 // rebroadcast its Verifier proposal. A restart is covered by the coordinator's own reconcile.
 func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
+	// The two bundle calls of one task may arrive in parallel; they share the OUTPUT confirmation.
+	unlock := s.lockResult(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
 	outcome, err := s.finalizeTaskResult(ctx, request)
+	unlock()
 	if err != nil || outcome.Idempotent || s.resultFinalized == nil {
 		return outcome, err
 	}
@@ -236,9 +239,10 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, err
 	}
 
-	// The bundle is switched before the OUTPUT, so a READY OUTPUT never precedes the bundle whose
-	// Finalize froze it.
-	bundleConfirmations, err := s.commitReady(ctx, append([]ObjectRef{manifestRef}, artifacts...), Metadata{}, []Metadata{bundle}, nil)
+	// Artifacts are switched before their manifest and the bundle before the OUTPUT, so a READY
+	// manifest always has READY artifacts and a READY OUTPUT never precedes the bundle whose Finalize
+	// froze it; a crash part-way leaves ResultReady false.
+	bundleConfirmations, err := s.commitReady(ctx, append(artifacts, manifestRef), Metadata{}, []Metadata{bundle}, nil)
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
@@ -246,11 +250,14 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	record := finalizeRecord{OutputConfirmation: &outputConfirmation, EvidenceConfirmations: bundleConfirmations}
-	if err := s.putFinalizeRecord(request.Auth, record); err != nil {
+	// The nonce is consumed before the replay record is written: if the record write fails, a retry
+	// with a fresh nonce commits again and notifies; the other order would leave a record whose
+	// retry is answered as a replay and never notifies.
+	if err := s.authorizer.consumeRequestNonce(request.Auth, height); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	if err := s.authorizer.consumeRequestNonce(request.Auth, height); err != nil {
+	record := finalizeRecord{OutputConfirmation: &outputConfirmation, EvidenceConfirmations: bundleConfirmations}
+	if err := s.putFinalizeRecord(request.Auth, record); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
 	return FinalizeResultOutcome{OutputConfirmation: outputConfirmation, EvidenceConfirmations: bundleConfirmations}, nil
@@ -366,7 +373,7 @@ func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request Finalize
 			ErrHashMismatch, bundle.SizeBytes, request.ManifestSizeBytes)
 	}
 
-	confirmations, err := s.commitReady(ctx, append([]ObjectRef{manifestRef}, artifacts...), Metadata{}, []Metadata{bundle}, nil)
+	confirmations, err := s.commitReady(ctx, append(artifacts, manifestRef), Metadata{}, []Metadata{bundle}, nil)
 	if err != nil {
 		return FinalizeVerifierOutcome{}, err
 	}

@@ -19,6 +19,8 @@ const (
 const (
 	workerValueLeafFieldCount = 11
 	maxWorkerValueFieldBytes  = 32 << 20
+	// minWorkerValueLeafBytes is the smallest encoded leaf: eleven 8-byte length prefixes.
+	minWorkerValueLeafBytes = workerValueLeafFieldCount * 8
 )
 
 // MerkleRootV1 is MERKLE_ROOT_V1 over raw Hash32 leaves in the given order:
@@ -111,6 +113,15 @@ func WorkerValuesRootReader(r io.Reader, size uint64, scope WorkerValueScope, wa
 	count := uint64(binary.BigEndian.Uint32(countBytes))
 	if count != wantLeaves {
 		return [32]byte{}, fmt.Errorf("worker_values has %d leaves, the receipt's generated_token_count is %d", count, wantLeaves)
+	}
+	// The leaf count is the Worker's claim: bound it by the token limit and by the bytes actually
+	// present before allocating anything for it, so a short artifact cannot ask for a huge slice.
+	if count > MaxTokenIDCountV1 {
+		return [32]byte{}, fmt.Errorf("worker_values leaf count %d exceeds %d", count, MaxTokenIDCountV1)
+	}
+	if d.left < count*minWorkerValueLeafBytes {
+		return [32]byte{}, fmt.Errorf("worker_values has %d bytes after its count, %d leaves need at least %d",
+			d.left, count, count*minWorkerValueLeafBytes)
 	}
 	leaves := make([][32]byte, 0, count)
 	for position := uint64(0); position < count; position++ {

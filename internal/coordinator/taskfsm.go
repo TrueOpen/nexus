@@ -1339,6 +1339,10 @@ func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
 		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||
 		len(hr.GetServiceSignature()) != 64:
 		f.log.Warn("drop worker handraise without required frozen fields", "task_id", f.taskID, "candidate", worker)
+	// Encryption is not active: a handraise carrying a recipient key is refused by the chain, and
+	// with it the whole proposal it would join.
+	case len(hr.GetRecipientPubkey()) != 0:
+		f.log.Warn("drop worker handraise with a recipient_pubkey while encryption is inactive", "task_id", f.taskID, "candidate", worker)
 	case len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 || hr.GetMember().GetSlotVersion() == 0:
 		f.log.Warn("drop worker handraise with incomplete candidate member ref", "task_id", f.taskID,
 			"candidate", worker, "slot", hr.GetMember().GetSlot())
@@ -1376,6 +1380,8 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||
 		len(hr.GetServiceSignature()) != 64:
 		f.log.Warn("drop verifier handraise without required frozen fields", "task_id", f.taskID, "candidate", candidate)
+	case len(hr.GetRecipientPubkey()) != 0:
+		f.log.Warn("drop verifier handraise with a recipient_pubkey while encryption is inactive", "task_id", f.taskID, "candidate", candidate)
 	case len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 || hr.GetMember().GetSlotVersion() == 0:
 		f.log.Warn("drop verifier handraise with incomplete candidate member ref", "task_id", f.taskID,
 			"candidate", candidate, "slot", hr.GetMember().GetSlot())

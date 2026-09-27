@@ -10,9 +10,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// Frozen V1 stage-wire signing digests (Keeper Interface Contract §5.14 / §1.2 / §1.4).
-// Reference implementation and golden vectors: node x/task/types/signature.go,
-// x/task/types/evidence_commitments.go and testdata/task_domains_v1.json.
+// Stage-wire signing digests. Golden vectors: wire testdata/v1/task/infer_receipt_v3.json and
+// task_domains_v1.json.
 
 // DomainInferEvidenceCommitmentsV1 is the domain of evidence_commitments_hash.
 // Note the domain name is TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (35 ASCII bytes), not
@@ -200,10 +199,14 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV3) ([32]byte, error)
 }
 
 // ValidatePlaintextInferReceiptV3 is the admission rule for a plaintext task: the receipt carries exactly
-// the two Worker commitments (value opening, then token opening, by EvidenceKind value) and all four
-// encryption fields are 32 zero bytes. Empty values are rejected rather than padded: the Keeper hashes
-// the bytes as sent.
+// the two Worker commitments (value opening, then token opening, by EvidenceKind value), all four
+// encryption fields are 32 zero bytes, and generated_token_count is within the token id bound (it sizes
+// the Worker's value tree). Empty values are rejected rather than padded: the Keeper hashes the bytes
+// as sent.
 func ValidatePlaintextInferReceiptV3(receipt *taskv1.InferReceiptV3) error {
+	if receipt.GetGeneratedTokenCount() > MaxTokenIDCountV1 {
+		return fmt.Errorf("generated_token_count %d exceeds %d", receipt.GetGeneratedTokenCount(), MaxTokenIDCountV1)
+	}
 	commitments := receipt.GetRequiredEvidenceCommitments()
 	if len(commitments) != 2 ||
 		commitments[0].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING ||

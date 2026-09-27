@@ -181,3 +181,13 @@ func TestInferReceiptSigningDigestRejectsMalformed(t *testing.T) {
 		})
 	}
 }
+
+// generated_token_count sizes the Worker's value tree, so a plaintext receipt beyond the token id
+// bound is refused at admission.
+func TestInferReceiptV3RejectsUnboundedTokenCount(t *testing.T) {
+	receipt, _ := wireInferReceipt(t)
+	receipt.GeneratedTokenCount = MaxTokenIDCountV1 + 1
+	if err := ValidatePlaintextInferReceiptV3(receipt); err == nil {
+		t.Fatal("must be refused")
+	}
+}

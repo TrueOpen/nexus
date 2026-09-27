@@ -464,6 +464,9 @@ func validateWorkerHandraises(handraises []*taskv1.WorkerHandraiseV1) error {
 		if len(handraise.GetServiceSignature()) != signature64Len {
 			return fmt.Errorf("handraise %d service_signature must be 64 raw bytes", i)
 		}
+		if len(handraise.GetRecipientPubkey()) != 0 {
+			return fmt.Errorf("handraise %d carries a recipient_pubkey while encryption is inactive", i)
+		}
 		slot, err := validateCandidateMember(handraise.GetMember(), i, previousSlot)
 		if err != nil {
 			return err
@@ -498,6 +501,9 @@ func validateVerifierHandraises(handraises []*taskv1.VerifierHandraiseV1, taskID
 		}
 		if len(handraise.GetServiceSignature()) != signature64Len {
 			return fmt.Errorf("handraise %d service_signature must be 64 raw bytes", i)
+		}
+		if len(handraise.GetRecipientPubkey()) != 0 {
+			return fmt.Errorf("handraise %d carries a recipient_pubkey while encryption is inactive", i)
 		}
 		slot, err := validateCandidateMember(handraise.GetMember(), i, previousSlot)
 		if err != nil {

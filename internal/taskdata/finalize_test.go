@@ -9,6 +9,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -1032,5 +1033,63 @@ func TestResultReadyFollowsFinalize(t *testing.T) {
 	// Only the completing commit notifies: a replay must not let anyone re-trigger the proposal.
 	if want := testSessionID + "|" + testTaskID; len(notified) != 1 || notified[0] != want {
 		t.Fatalf("observer calls = %v, want exactly one for %s", notified, want)
+	}
+}
+
+// The two bundle calls may arrive in parallel: they still sign the OUTPUT confirmation once and both
+// return it.
+func TestFinalizeTaskResultParallelBundlesShareOneOutputConfirmation(t *testing.T) {
+	f := newFinalizeFixture(t)
+	requests := []FinalizeResultRequest{
+		f.request(t, 9, EvidenceKindWorkerTokenOpening), f.request(t, 10, EvidenceKindWorkerValueOpening),
+	}
+	outcomes := make([]FinalizeResultOutcome, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range requests {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			outcomes[i], errs[i] = f.service.FinalizeTaskResult(context.Background(), requests[i])
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("finalize %d: %v", i, err)
+		}
+	}
+	if !bytes.Equal(outcomes[0].OutputConfirmation.Signature, outcomes[1].OutputConfirmation.Signature) {
+		t.Fatal("parallel calls signed two OUTPUT confirmations")
+	}
+	if !f.resultReady(t, f.readyQuery(t)) {
+		t.Fatal("not ready after both bundles")
+	}
+}
+
+// A manifest switched to READY while one of its artifacts is not (a crash between the two) does not
+// make the result ready: a Verifier invited then would fetch an artifact that is not served.
+func TestResultReadyRequiresEveryArtifact(t *testing.T) {
+	f := newFinalizeFixture(t)
+	if _, err := f.store.MarkOutputReady(context.Background(), f.output.Key, f.receipt); err != nil {
+		t.Fatal(err)
+	}
+	for kind, bundle := range f.bundles {
+		for i, entry := range bundle.Artifacts {
+			if kind == EvidenceKindWorkerTokenOpening && i == 0 {
+				continue
+			}
+			ref := bundle.Key
+			ref.Kind, ref.ContentHash = ObjectKindEvidenceArtifact, entry.ContentHash
+			if _, err := f.store.MarkReady(context.Background(), ref); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := f.store.MarkReady(context.Background(), bundle.Key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.resultReady(t, f.readyQuery(t)) {
+		t.Fatal("ready with an artifact that is not READY")
 	}
 }

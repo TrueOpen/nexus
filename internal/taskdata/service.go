@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // Service combines storage and current-role authorization in the security
@@ -23,6 +24,18 @@ type Service struct {
 
 	// resultFinalized, when set, is told of every successful FinalizeTaskResult.
 	resultFinalized ResultFinalizedObserver
+
+	// resultLocks serializes the FinalizeTaskResult calls of one task (keyed by session|task): the
+	// two bundle calls share the one OUTPUT confirmation, which must be signed exactly once.
+	resultLocks sync.Map
+}
+
+// lockResult takes the Finalize lock of one task and returns its release.
+func (s *Service) lockResult(sessionID, taskID string) func() {
+	value, _ := s.resultLocks.LoadOrStore(sessionID+"|"+taskID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func NewService(store *Store, authorizer *Authorizer) (*Service, error) {

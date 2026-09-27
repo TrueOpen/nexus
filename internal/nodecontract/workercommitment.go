@@ -97,6 +97,9 @@ type WorkerTokenCommitmentV1 struct {
 // i.e. the receipt's WORKER_TOKEN_OPENING evidence_hash_or_root. Conformance vector:
 // wire testdata/v1/task/worker_token_commitment_v1.json.
 func (c WorkerTokenCommitmentV1) Digest() ([32]byte, error) {
+	if c.FinishReason < 1 || c.FinishReason > MaxFinishReasonV1 {
+		return [32]byte{}, fmt.Errorf("finish_reason %d is not in 1..%d", c.FinishReason, MaxFinishReasonV1)
+	}
 	chain, err := CanonicalUTF8Field("chain_id", c.ChainID)
 	if err != nil {
 		return [32]byte{}, err

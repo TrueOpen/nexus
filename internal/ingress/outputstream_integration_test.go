@@ -664,10 +664,17 @@ func TestOutputStreamRequiresWorkerSignedHeaderAndFin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fin := signedFin(t, workerKeyHex, f.taskHash, 0, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN)
-	fin.FinishReason = taskv1.FinishReasonV1(7)
-	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: fin}})
-	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Fatalf("fin with finish_reason 7: %v", err)
+	for i, reason := range []taskv1.FinishReasonV1{0, 7} {
+		if i > 0 {
+			if up, err = open("nonce-fin-bad-reason-000"+string(rune('1'+i)), nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fin := signedFin(t, workerKeyHex, f.taskHash, 0, final[:], taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN)
+		fin.FinishReason = reason
+		_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: fin}})
+		if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeInvalidArgument {
+			t.Fatalf("fin with finish_reason %d: %v", reason, err)
+		}
 	}
 }
