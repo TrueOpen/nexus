@@ -24,7 +24,8 @@ const localStateCheckTimeout = 30 * time.Second
 // The returned monitor watches for a reset while running; it is nil when no identity is recorded.
 //
 // The state that is kept is then brought to the layout this binary uses (package localschema); a
-// newly created one is stamped with it.
+// newly created one is stamped with it. Migrations may rewrite the task data directory too, so they
+// run here, before anything else opens the kv or task data files; keep it that way.
 func openLocalState(log *slog.Logger, dataDir, chainID string, src chainreset.Source) (kv.Store, *chainreset.Monitor, error) {
 	store, monitor, fresh, err := openChainState(log, dataDir, chainID, src)
 	if err != nil {

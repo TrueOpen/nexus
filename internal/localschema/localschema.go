@@ -28,7 +28,9 @@ const Baseline uint32 = 1
 const versionKey = "version"
 
 // Migration rewrites local state from version To-1 to version To. Run must be safe to run again
-// after a crash part way through: the version only advances once Run returns nil.
+// after a crash part way through: the version only advances once Run returns nil. It must also
+// work on empty state, doing nothing when there is nothing to rewrite: a kv that was created but
+// crashed before it was stamped is read as Baseline and runs every migration.
 type Migration struct {
 	To   uint32
 	Name string
@@ -55,29 +57,38 @@ func Stamp(store kv.Store, current uint32) error {
 
 // Read returns the recorded version, or Baseline when none is recorded.
 func Read(store kv.Store) (uint32, error) {
+	version, _, err := read(store)
+	return version, err
+}
+
+func read(store kv.Store) (uint32, bool, error) {
 	raw, found, err := store.GetWithError(kv.NSLocalSchema, versionKey)
 	if err != nil {
-		return 0, fmt.Errorf("read local state version: %w", err)
+		return 0, false, fmt.Errorf("read local state version: %w", err)
 	}
 	if !found {
-		return Baseline, nil
+		return Baseline, false, nil
 	}
 	version, err := strconv.ParseUint(string(raw), 10, 32)
 	if err != nil || version == 0 {
-		return 0, fmt.Errorf("local state version %q is not a positive integer", raw)
+		return 0, false, fmt.Errorf("local state version %q is not a positive integer", raw)
 	}
-	return uint32(version), nil
+	return uint32(version), true, nil
 }
 
 // Upgrade brings the local state to version current by running migrations in order, recording the
-// version after each one. It refuses a state newer than current and a gap in migrations.
+// version after each one. It refuses a state newer than current and a gap in migrations. State
+// without a recorded version that is already current is stamped, so the files state their layout.
 func Upgrade(env Env, current uint32, migrations []Migration) error {
-	version, err := Read(env.Store)
+	version, recorded, err := read(env.Store)
 	if err != nil {
 		return err
 	}
 	if version > current {
 		return fmt.Errorf("%w: its version is %d, this binary reads up to %d", ErrNewerState, version, current)
+	}
+	if !recorded && version == current {
+		return Stamp(env.Store, current)
 	}
 	for version < current {
 		next := version + 1

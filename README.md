@@ -87,8 +87,9 @@ ABIs. The full wire, signatures, on-chain / local field boundaries and operating
 
 The kv store records the version of the local state layout. A newer nexus migrates older state in
 place at startup, one step at a time, so upgrading nexus or upgrading the chain in place keeps the
-local state. An older nexus refuses to start on state written by a newer one; downgrade by restoring
-a copy of the data directory taken before the upgrade. Only a reset of the chain (a different block
+local state. An older nexus refuses to start on state written by a newer one. Before upgrading to a nexus
+that raises the local state version, back up `data_dir`: going back to the older nexus is only
+possible by restoring that backup. Only a reset of the chain (a different block
 at height 1) moves the local state aside.
 
 ## Interface contract alignment

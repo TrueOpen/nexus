@@ -103,3 +103,14 @@ func TestShippedMigrationsReachCurrent(t *testing.T) {
 		t.Fatalf("migrations end at %d, Current is %d", Baseline+uint32(len(Migrations)), Current)
 	}
 }
+
+// Unversioned state already at the current layout is stamped, so the files state their version.
+func TestUpgradeStampsUnversionedCurrentState(t *testing.T) {
+	store := kv.NewMemStore()
+	if err := Upgrade(testEnv(store), Baseline, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := store.Get(kv.NSLocalSchema, versionKey); !found {
+		t.Fatal("unversioned current state was not stamped")
+	}
+}
