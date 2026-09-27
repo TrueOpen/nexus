@@ -860,8 +860,12 @@ func TestSettleTemporaryFailureBacksOffUntilTheDeadline(t *testing.T) {
 	if fmt.Sprint(submittedAt) != fmt.Sprint(want) {
 		t.Fatalf("settle submitted at %v, want %v", submittedAt, want)
 	}
-	if len(sink.find(t, "ERROR", "MsgSettleTask failed on chain")) != 1 {
-		t.Fatal("giving up at the deadline must be logged at ERROR once")
+	// The chain settles the task by itself after its deadline, so giving up is a WARN, not an ERROR.
+	if len(sink.find(t, "WARN", "gave up settling early")) != 1 {
+		t.Fatal("giving up at the deadline must be logged at WARN once")
+	}
+	if len(sink.find(t, "ERROR", "")) != 0 {
+		t.Fatal("giving up settling early must not log an ERROR")
 	}
 }
 

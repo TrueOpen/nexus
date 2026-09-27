@@ -534,8 +534,9 @@ func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chainc
 		"refusals", tx.refusals, "temporary_failures", tx.temporaryFailures,
 		"deadline_height", deadline}
 	if kind == asyncSettle {
-		f.log.Error("MsgSettleTask failed on chain; this Builder stopped resubmitting. "+
-			"Another Builder or the chain's own fallback may still settle the task", attrs...)
+		// Not an error: the chain settles the task by itself once its settlement deadline passes; a
+		// Builder's settle only brings that forward.
+		f.log.Warn("gave up settling early; the chain settles the task by itself after its deadline", attrs...)
 		return
 	}
 	f.log.Error("MsgSubmitInferReceipt failed on chain; stopped resubmitting", attrs...)
