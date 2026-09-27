@@ -83,6 +83,15 @@ from matching releases; there is no compatibility layer for other signing domain
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
 [`docs/node-message-integration.md`](docs/node-message-integration.md).
 
+### Local state across upgrades
+
+The kv store records the version of the local state layout. A newer nexus migrates older state in
+place at startup, one step at a time, so upgrading nexus or upgrading the chain in place keeps the
+local state. An older nexus refuses to start on state written by a newer one. Before upgrading to a nexus
+that raises the local state version, back up `data_dir`: going back to the older nexus is only
+possible by restoring that backup. Only a reset of the chain (a different block
+at height 1) moves the local state aside.
+
 ## Interface contract alignment
 
 The SDK-side (User) methods of `IngressAPI` follow the "Nexus↔SDK Interface Contract" v0.1;
@@ -386,6 +395,7 @@ internal/msgbus      NATS client (core + JetStream) + BusEnvelopeV1 sign/verify 
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
 internal/relay       credential relay (keys + references, never payload blobs), written through to kv
 internal/kv          local persistence (Pebble)
+internal/localschema version and migrations of the local state layout
 internal/types       shared cross-module types
 ```
 

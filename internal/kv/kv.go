@@ -57,6 +57,8 @@ const (
 	NSOutputAck Namespace = "output_ack"
 	NSBusReplay Namespace = "bus_replay"
 	NSBusOutbox Namespace = "bus_outbox"
+	// NSLocalSchema holds the version of the local state layout, see package localschema.
+	NSLocalSchema Namespace = "local_schema"
 )
 
 type Store interface {
