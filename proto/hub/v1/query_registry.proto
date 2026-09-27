@@ -118,7 +118,7 @@ message QueryEarningsResponse {
 }
 // QueryModelRequest is request type for Query/Model.
 message QueryModelRequest {
-  string model_id = 1;
+  bytes model_id = 1;
 }
 
 // QueryModelResponse is response type for Query/Model.
@@ -144,7 +144,7 @@ message QueryModelsResponse {
 
 // QueryProfileRequest is request type for Query/Profile.
 message QueryProfileRequest {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
 }
 
@@ -207,23 +207,21 @@ message QueryServiceDescriptorRequest {
 message QueryServiceDescriptorResponse {
   ServiceDescriptorState descriptor = 1;
 }
-// QueryProfileCapabilityRequest selects one operator/profile capability.
-message QueryProfileCapabilityRequest {
+// QueryModelCapabilityRequest selects one operator/model capability.
+message QueryModelCapabilityRequest {
   string operator_address = 1;
-  string model_id = 2;
-  uint32 profile_version = 3;
+  bytes model_id = 2;
 }
 
-// QueryProfileCapabilityResponse returns the capability row.
-message QueryProfileCapabilityResponse {
-  ProfileCapabilityState capability = 1;
+// QueryModelCapabilityResponse returns the capability row.
+message QueryModelCapabilityResponse {
+  ModelCapabilityState capability = 1;
 }
 
-// QueryModelSupportRequest identifies one node-level P30 support row.
+// QueryModelSupportRequest identifies one operator/model support row.
 message QueryModelSupportRequest {
   string operator_address = 1;
-  string model_id = 2;
-  uint32 profile_version = 3;
+  bytes model_id = 2;
 }
 
 // QueryModelSupportResponse returns one node-level P30 support row.
@@ -252,7 +250,7 @@ message QueryServiceLifecycleResponse {
   ServiceLifecycleViewV1 lifecycle = 1;
 }
 
-// QueryCurrentCandidatePoolRequest has no selector (api_contract §16.3): the single
+// QueryCurrentCandidatePoolRequest has no selector (the wire API): the single
 // global pool is resolved from the current pointer. The old per-profile
 // model_id/profile_version/duty selectors are deleted because per-profile pools no
 // longer exist.
@@ -267,8 +265,7 @@ message QueryCurrentCandidatePoolResponse {
   CandidatePoolSnapshotViewV1 snapshot = 1;
 }
 
-// QueryCandidatePoolSnapshotRequest identifies one immutable pool snapshot
-// (§16.3).
+// QueryCandidatePoolSnapshotRequest identifies one immutable pool snapshot.
 // QueryCandidatePoolSnapshotRequest defines the QueryCandidatePoolSnapshotRequest wire type.
 message QueryCandidatePoolSnapshotRequest {
   bytes snapshot_id = 1;
@@ -282,8 +279,7 @@ message QueryCandidatePoolSnapshotResponse {
   CandidatePoolSnapshotViewV1 snapshot = 1;
 }
 
-// QueryCandidatePoolMemberRequest selects one stable slot of one snapshot
-// (§16.3).
+// QueryCandidatePoolMemberRequest selects one stable slot of one snapshot.
 // QueryCandidatePoolMemberRequest defines the QueryCandidatePoolMemberRequest wire type.
 message QueryCandidatePoolMemberRequest {
   bytes snapshot_id = 1;
@@ -294,16 +290,14 @@ message QueryCandidatePoolMemberRequest {
 // A pruned body is FailedPrecondition; only an unknown snapshot or member is
 // NotFound.
 //
-// CONTRACT-GAP: api_contract §3.6 describes this response as "member +
-// membership_binding" while §16.3 registers exactly `1=member` and §16.5 freezes
-// CandidatePoolMemberViewV1 at four fields with no membership_binding. The
-// §16.3/§16.5 shape is implemented.
+// The response carries one CandidatePoolMemberViewV1. Its membership binding
+// is represented by the view's frozen fields, not by a duplicate message.
 // QueryCandidatePoolMemberResponse defines the QueryCandidatePoolMemberResponse wire type.
 message QueryCandidatePoolMemberResponse {
   CandidatePoolMemberViewV1 member = 1;
 }
 
-// QueryCandidatePoolMembersRequest pages one snapshot's members (§16.3).
+// QueryCandidatePoolMembersRequest pages one snapshot's members.
 message QueryCandidatePoolMembersRequest {
   bytes snapshot_id = 1;
   shared.v1.QueryPageRequestV1 page = 2;
@@ -318,7 +312,7 @@ message QueryCandidatePoolMembersResponse {
   shared.v1.QueryPageResponseV1 page = 2;
 }
 
-// CurrentServiceKeyViewV1 is the current key binding projection of §16.5.
+// CurrentServiceKeyViewV1 is the current key binding projection of this contract.
 message CurrentServiceKeyViewV1 {
   shared.v1.ParticipantType participant_type = 1;
   string operator_address = 2;
@@ -335,7 +329,7 @@ message CurrentServiceKeyViewV1 {
   uint64 current_descriptor_version = 8;
 }
 
-// ServiceLifecycleViewV1 joins the identity and bond authorities (§16.5).
+// ServiceLifecycleViewV1 joins the identity and bond authorities.
 message ServiceLifecycleViewV1 {
   optional CortexNodeState node = 1;
   ServiceBondState bond = 2;

@@ -9,7 +9,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 )
 
-// TrueOpen/wire v0.2.0 testdata/v1/task/output_mmr_v1.json "fin_signing", compared byte-for-byte:
+// TrueOpen/wire testdata/v1/task/output_mmr_v1.json "fin_signing", compared byte-for-byte:
 // the TRUEOPEN_OUTPUT_FIN_V1 digest for each accepted finish reason, the full EOS_TOKEN preimage
 // and the RFC6979 signature under the vector's test key.
 const (
@@ -26,6 +26,8 @@ var goldenFinDigests = []struct {
 	{2, "c65d52dff6a5b9b3eb83c15f706b440103cbb1cca878230dda004ac0511ea648"}, // STOP_SEQUENCE
 	{3, "2556cd175ab1b82440ce6058abbca5560d8affc6a85be2e1c31f148d469bb3c3"}, // MAX_OUTPUT_TOKENS
 	{4, "aea9a07c4693672496243e6ef85c547be0555b03d1caa55223ad8805f2bce5e0"}, // MAX_OUTPUT_DURATION
+	{5, "38a03dde30b182e8af997c50fafadf6fe11b1896801f78071e69a24a65ed43f8"}, // USER_STOP
+	{6, "1effb814a0e72da587b9cb63e66ed362514c552caef146c441df7d902b34e93b"}, // STOP_TOKEN
 }
 
 func TestGoldenOutputFinSigningDigest(t *testing.T) {
@@ -41,7 +43,7 @@ func TestGoldenOutputFinSigningDigest(t *testing.T) {
 		}
 	}
 	// rejected_finish_reason_values: UNSPECIFIED and unknown values fail closed before any digest.
-	for _, reason := range []uint32{0, 5} {
+	for _, reason := range []uint32{0, 7} {
 		if _, err := OutputFinSigningDigest(goldenChainID, taskHash, goldenFinFinalSeq, root, reason); err == nil {
 			t.Fatalf("finish_reason %d must be rejected", reason)
 		}

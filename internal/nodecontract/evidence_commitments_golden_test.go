@@ -21,11 +21,11 @@ import (
 // The consequence was chain rejection: nexus verified the Worker signature against its own digest and passed,
 // the Keeper reported "signature does not verify against signing digest" against its own; the same signature got opposite verdicts.
 //
-// Since wire v0.4.1 the receipt is InferReceiptV2 (domain raised to TRUEOPEN_INFER_RECEIPT_V2, with
-// generated_token_count and output_leaf_count appended). This on-chain receipt is from the V1 era; its
-// receipt digest cannot be reproduced under V2 and must not be "changed to a new value" and passed off as observed.
-// Only evidence_commitments_hash is kept here: that domain was not re-versioned, the observed value is still
-// valid, and it is exactly the layer where the bug was. The V2 receipt digest is checked against the wire published vector in inferreceipt_v2_golden_test.go.
+// This on-chain receipt is from an older receipt schema; its receipt digest cannot be reproduced under the
+// current one and must not be "changed to a new value" and passed off as observed. Only
+// evidence_commitments_hash is kept here: that domain was not re-versioned, the observed value is still
+// valid, and it is exactly the layer where the bug was. The current receipt digest is checked against the
+// wire vector in inferreceipt_v3_golden_test.go.
 const goldenCommitmentsHashHex = "fcfc775b30d732bdb69387af47eb6a1893386054fa12799a126f1bc8a7830e09"
 
 func TestEvidenceCommitmentsHashMatchesChain(t *testing.T) {
@@ -47,7 +47,7 @@ func TestEvidenceCommitmentsHashIsStillDefinedForAnEmptyList(t *testing.T) {
 	}
 }
 
-func goldenChainReceipt(t *testing.T) *taskv1.InferReceiptV2 {
+func goldenChainReceipt(t *testing.T) *taskv1.InferReceiptV3 {
 	t.Helper()
 	mustHex := func(s string) []byte {
 		b, err := hex.DecodeString(s)
@@ -56,8 +56,8 @@ func goldenChainReceipt(t *testing.T) *taskv1.InferReceiptV2 {
 		}
 		return b
 	}
-	return &taskv1.InferReceiptV2{
-		// The observed data is from the V1 era, so schema_version stays 1; this test only uses its commitments list.
+	return &taskv1.InferReceiptV3{
+		// The observed data is from an older schema, so schema_version stays 1; this test only uses its commitments list.
 		SchemaVersion:             1,
 		ChainId:                   "trueopen-localnet-1",
 		TaskId:                    mustHex("0696367c45d8ab4de9e18b289fa5df76d86e8a20539e3ddac33551d78f72fed6"),

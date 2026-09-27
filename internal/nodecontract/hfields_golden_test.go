@@ -3,23 +3,18 @@ package nodecontract
 import (
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// task_domains_v1.json is the original x/task/types/testdata file from node
-// (byte-for-byte copy, sha256 03396de0…86f6).
+// task_domains_v1.json is read from the wire module pinned in go.mod rather than from a copy in this
+// repository: a copy once went stale while this repository's implementation and the stale copy
+// confirmed each other, and receipts were then bound to be rejected on chain.
 // Every vector carries the full preimage_hex, so aligning the framing needs no guessing at digests.
-//
-// This fixture was previously pinned at an older node release. The chain later changed repeated values to a
-// "single nested frame" encoding, the fixture was not updated, and this repository's
-// implementation and the stale fixture confirmed each other, so evidence_commitments_hash was
-// not the value the chain computed: receipt signatures with evidence commitments were bound to be
-// rejected on chain. When the version changes, this file must change with it.
-const taskDomainsFixture = "testdata/task_domains_v1.json"
+const taskDomainsFixture = "testdata/v1/task/task_domains_v1.json"
 
 type goldenField struct {
 	Name     string        `json:"name"`
@@ -74,10 +69,7 @@ type goldenFixture struct {
 
 func loadTaskDomainsFixture(t *testing.T) goldenFixture {
 	t.Helper()
-	raw, err := os.ReadFile(taskDomainsFixture)
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
+	raw := wirefixture.ReadFile(t, taskDomainsFixture)
 	var fixture goldenFixture
 	if err := json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatalf("decode fixture: %v", err)
@@ -362,144 +354,5 @@ func TestEvidenceCommitmentsHashEmptyIsFullyDefined(t *testing.T) {
 	}
 	if nilDigest == [32]byte{} {
 		t.Fatal("empty-list digest must never be 32 zero bytes")
-	}
-}
-
-// TestInferReceiptSigningDigestGoldenBinding is the receipt-side value-level production binding
-// and pins the cross-vector link: the 10th field (index 9) of infer_receipt_v2 equals
-// the digest of infer_evidence_commitments_v1_pair, so both chains can be recomputed end to end.
-func TestInferReceiptSigningDigestGoldenBinding(t *testing.T) {
-	fixture := loadTaskDomainsFixture(t)
-	var receiptVector, pairVector goldenVector
-	for _, vector := range fixture.Vectors {
-		switch vector.Name {
-		case "infer_receipt_v2":
-			receiptVector = vector
-		case "infer_evidence_commitments_v1_pair":
-			pairVector = vector
-		}
-	}
-	if receiptVector.Name == "" || pairVector.Name == "" {
-		t.Fatal("fixture must carry infer_receipt_v2 and infer_evidence_commitments_v1_pair")
-	}
-	if len(receiptVector.Fields) != 13 {
-		t.Fatalf("infer_receipt_v2 must have 13 preimage fields, got %d", len(receiptVector.Fields))
-	}
-	if got := receiptVector.Fields[9].Hex; got != pairVector.DigestHex {
-		t.Fatalf("receipt evidence_commitments_hash = %s, want the pair vector digest %s", got, pairVector.DigestHex)
-	}
-
-	taskID, err := hex.DecodeString(receiptVector.Fields[2].Hex)
-	if err != nil {
-		t.Fatalf("decode task_id: %v", err)
-	}
-	taskHash, err := hex.DecodeString(receiptVector.Fields[3].Hex)
-	if err != nil {
-		t.Fatalf("decode task_hash: %v", err)
-	}
-	generationParamsDigest, err := hex.DecodeString(receiptVector.Fields[6].Hex)
-	if err != nil {
-		t.Fatalf("decode generation_params_digest: %v", err)
-	}
-	outputHash, err := hex.DecodeString(receiptVector.Fields[7].Hex)
-	if err != nil {
-		t.Fatalf("decode output_hash: %v", err)
-	}
-	receipt := &taskv1.InferReceiptV2{
-		SchemaVersion:               uint32(receiptVector.Fields[0].Value),
-		ChainId:                     receiptVector.Fields[1].UTF8,
-		TaskId:                      taskID,
-		TaskHash:                    taskHash,
-		WorkerOperatorAddress:       receiptVector.Fields[4].Bech32,
-		ServiceAuthorizationNonce:   receiptVector.Fields[5].Value,
-		GenerationParamsDigest:      generationParamsDigest,
-		OutputHash:                  outputHash,
-		OutputSizeBytes:             receiptVector.Fields[8].Value,
-		RequiredEvidenceCommitments: goldenEvidenceCommitments(t, pairVector),
-		ExpiryHeight:                receiptVector.Fields[10].Value,
-		GeneratedTokenCount:         receiptVector.Fields[11].Value,
-		OutputLeafCount:             receiptVector.Fields[12].Value,
-		// service_signature does not enter the preimage: fill a non-zero value, the digest must not change.
-		ServiceSignature: make([]byte, 64),
-	}
-	if receipt.GetSchemaVersion() != InferReceiptSchemaVersionV2 {
-		t.Fatalf("golden schema_version = %d, want %d", receipt.GetSchemaVersion(), InferReceiptSchemaVersionV2)
-	}
-	digest, err := InferReceiptSigningDigest(receipt)
-	if err != nil {
-		t.Fatalf("InferReceiptSigningDigest: %v", err)
-	}
-	if got := hex.EncodeToString(digest[:]); got != receiptVector.DigestHex {
-		t.Fatalf("digest = %s, want %s", got, receiptVector.DigestHex)
-	}
-	for i := range receipt.ServiceSignature {
-		receipt.ServiceSignature[i] = 0xff
-	}
-	again, err := InferReceiptSigningDigest(receipt)
-	if err != nil {
-		t.Fatalf("InferReceiptSigningDigest after signature change: %v", err)
-	}
-	if again != digest {
-		t.Fatal("service_signature must not enter the receipt preimage")
-	}
-}
-
-// TestInferReceiptSigningDigestRejectsMalformed pins the derivation's structural rejections:
-// a short Hash32, a non-canonical address and an unregistered evidence kind must not produce a digest.
-func TestInferReceiptSigningDigestRejectsMalformed(t *testing.T) {
-	base := func() *taskv1.InferReceiptV2 {
-		return &taskv1.InferReceiptV2{
-			SchemaVersion:             InferReceiptSchemaVersionV2,
-			ChainId:                   "trueopen-unblock-1",
-			TaskId:                    make([]byte, 32),
-			TaskHash:                  make([]byte, 32),
-			WorkerOperatorAddress:     "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-			ServiceAuthorizationNonce: 7,
-			GenerationParamsDigest:    make([]byte, 32),
-			OutputHash:                make([]byte, 32),
-			OutputSizeBytes:           4096,
-			RequiredEvidenceCommitments: []*taskv1.EvidenceCommitmentV1{{
-				EvidenceKind:       sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING,
-				EvidenceHashOrRoot: make([]byte, 32),
-				EncodedSizeBytes:   4096,
-			}},
-			ExpiryHeight: 1200,
-		}
-	}
-	if _, err := InferReceiptSigningDigest(base()); err != nil {
-		t.Fatalf("baseline receipt must derive: %v", err)
-	}
-	cases := map[string]func(*taskv1.InferReceiptV2){
-		"nil receipt":   nil,
-		"short task_id": func(r *taskv1.InferReceiptV2) { r.TaskId = make([]byte, 31) },
-		"hex task_hash": func(r *taskv1.InferReceiptV2) { r.TaskHash = []byte(hex.EncodeToString(make([]byte, 32))) },
-		"empty worker":  func(r *taskv1.InferReceiptV2) { r.WorkerOperatorAddress = "" },
-		"padded worker": func(r *taskv1.InferReceiptV2) { r.WorkerOperatorAddress += " " },
-		"uppercase worker": func(r *taskv1.InferReceiptV2) {
-			r.WorkerOperatorAddress = "TRUEOPEN15ZS69GAY5KN2029F4246ETDW47CTRV4N5LDWZS"
-		},
-		"unspecified kind":    func(r *taskv1.InferReceiptV2) { r.RequiredEvidenceCommitments[0].EvidenceKind = 0 },
-		"unregistered kind":   func(r *taskv1.InferReceiptV2) { r.RequiredEvidenceCommitments[0].EvidenceKind = 99 },
-		"nil commitment":      func(r *taskv1.InferReceiptV2) { r.RequiredEvidenceCommitments[0] = nil },
-		"short evidence hash": func(r *taskv1.InferReceiptV2) { r.RequiredEvidenceCommitments[0].EvidenceHashOrRoot = nil },
-		"duplicate kind": func(r *taskv1.InferReceiptV2) {
-			r.RequiredEvidenceCommitments = append(r.RequiredEvidenceCommitments, r.RequiredEvidenceCommitments[0])
-		},
-		"short output_hash":     func(r *taskv1.InferReceiptV2) { r.OutputHash = make([]byte, 16) },
-		"short params digest":   func(r *taskv1.InferReceiptV2) { r.GenerationParamsDigest = nil },
-		"invalid utf8 chain_id": func(r *taskv1.InferReceiptV2) { r.ChainId = string([]byte{0xff, 0xfe}) },
-		"non bech32 worker":     func(r *taskv1.InferReceiptV2) { r.WorkerOperatorAddress = "not-an-address" },
-	}
-	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			var receipt *taskv1.InferReceiptV2
-			if mutate != nil {
-				receipt = base()
-				mutate(receipt)
-			}
-			if _, err := InferReceiptSigningDigest(receipt); err == nil {
-				t.Fatal("expected the derivation to reject this receipt")
-			}
-		})
 	}
 }

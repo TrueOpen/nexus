@@ -6,7 +6,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // MetricSampleVerdictV1 is the per-sample judgment produced by JudgeMetricSample
 // from the task-snapshot verification thresholds. Frozen values:
-// the API contract. Verifiers never submit a verdict field, and
+// the wire API. Verifiers never submit a verdict field, and
 // METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE can never become a final task verdict.
 // MetricSampleVerdictV1 defines the MetricSampleVerdictV1 wire type.
 enum MetricSampleVerdictV1 {
@@ -44,17 +44,18 @@ message MetricSummaryV1 {
   uint32 compared_rank_count = 10;
 }
 
-// ResultReceiptV2 is the verifier-signed result credential carried by
+// ResultReceiptV3 is the verifier-signed result credential carried by
 // MsgSubmitVerifyResult and MsgBatchSubmitVerifyResult. Field numbers, types and
 // order are frozen and are the length-framed preimage
 // of
 //
-//   result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V2",
+//   result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V3",
 //     schema_version, chain_id, task_id, verify_round,
 //     verifier_operator_address, service_authorization_nonce,
 //     generation_params_digest, metric_root, canonical metric_summary,
 //     aggregate_proof_hash, verifier_evidence_bundle_hash,
-//     verifier_evidence_manifest_size_bytes, salt, expiry_height)
+//     verifier_evidence_manifest_size_bytes, salt, expiry_height,
+//     verifier_value_root, metric_leaf_count, verifier_evidence_key_commitment)
 //
 // commit_key is recomputed by the Keeper and is not a caller field.
 // metric_root, aggregate_proof_hash, verifier_evidence_bundle_hash and salt must
@@ -62,10 +63,10 @@ message MetricSummaryV1 {
 // result_payload_hash are recomputed by the Keeper and are never asserted by the
 // request. No final verdict field is accepted.
 //
-// schema_version is 2. V1 receipts are not accepted by the fresh v0.3.0 schema.
-// ResultReceiptV2 defines the ResultReceiptV2 wire type.
-message ResultReceiptV2 {
-  // Always 2.
+// schema_version is 3. Earlier receipts are not accepted by the fresh schema.
+// ResultReceiptV3 defines the ResultReceiptV3 wire type.
+message ResultReceiptV3 {
+  // Always 3.
   uint32 schema_version = 1;
   string chain_id = 2;
   bytes task_id = 3;
@@ -83,12 +84,17 @@ message ResultReceiptV2 {
   bytes salt = 13;
   uint64 expiry_height = 14;
   bytes service_signature = 15;
+  bytes verifier_value_root = 16;
+  uint32 metric_leaf_count = 17;
+  // Reserved encryption commitment: all-zero Hash32 in plaintext Phase 0.
+  bytes verifier_evidence_key_commitment = 18;
+  reserved 19;
 }
 
 // ResultReceiptState is the first accepted verifier result credential keyed by
 // commit_key. It retains enough authoritative scope
 // and commitments to reconstruct result_payload_hash and verify the accepted
-// TRUEOPEN_RESULT_COMMITMENT_V2 without storing a full-result body on chain.
+// TRUEOPEN_RESULT_COMMITMENT_V3 without storing a full-result body on chain.
 // ResultReceiptState defines the ResultReceiptState wire type.
 message ResultReceiptState {
   bytes commit_key = 1;
@@ -111,4 +117,7 @@ message ResultReceiptState {
   // replay compares it only to identify the same previously accepted signature.
   bytes signature_digest = 15;
   uint64 accepted_height = 16;
+  uint32 metric_leaf_count = 17;
+  bytes verifier_evidence_key_commitment = 18;
+  bytes verifier_value_root = 19;
 }

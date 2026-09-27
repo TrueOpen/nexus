@@ -890,10 +890,219 @@ func (x *TimeoutBootstrapProfile) GetBootstrapValidUntilEpoch() uint64 {
 	return 0
 }
 
+// SourceRefV1 is the complete registration-time source identity and locator.
+// Provider and repo ID identify the model; the other fields are profile-local.
+type SourceRefV1 struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Provider        string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	SourceUri       string                 `protobuf:"bytes,2,opt,name=source_uri,json=sourceUri,proto3" json:"source_uri,omitempty"`
+	Revision        string                 `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	ResolverVersion string                 `protobuf:"bytes,4,opt,name=resolver_version,json=resolverVersion,proto3" json:"resolver_version,omitempty"`
+	RepoId          string                 `protobuf:"bytes,5,opt,name=repo_id,json=repoId,proto3" json:"repo_id,omitempty"`
+	RepoType        string                 `protobuf:"bytes,6,opt,name=repo_type,json=repoType,proto3" json:"repo_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SourceRefV1) Reset() {
+	*x = SourceRefV1{}
+	mi := &file_shared_v1_model_profile_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceRefV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceRefV1) ProtoMessage() {}
+
+func (x *SourceRefV1) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_v1_model_profile_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceRefV1.ProtoReflect.Descriptor instead.
+func (*SourceRefV1) Descriptor() ([]byte, []int) {
+	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SourceRefV1) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *SourceRefV1) GetSourceUri() string {
+	if x != nil {
+		return x.SourceUri
+	}
+	return ""
+}
+
+func (x *SourceRefV1) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *SourceRefV1) GetResolverVersion() string {
+	if x != nil {
+		return x.ResolverVersion
+	}
+	return ""
+}
+
+func (x *SourceRefV1) GetRepoId() string {
+	if x != nil {
+		return x.RepoId
+	}
+	return ""
+}
+
+func (x *SourceRefV1) GetRepoType() string {
+	if x != nil {
+		return x.RepoType
+	}
+	return ""
+}
+
+// ProfileSourceRefV1 retains the version-local source fields on a profile.
+type ProfileSourceRefV1 struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceUri       string                 `protobuf:"bytes,1,opt,name=source_uri,json=sourceUri,proto3" json:"source_uri,omitempty"`
+	Revision        string                 `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	ResolverVersion string                 `protobuf:"bytes,3,opt,name=resolver_version,json=resolverVersion,proto3" json:"resolver_version,omitempty"`
+	RepoType        string                 `protobuf:"bytes,4,opt,name=repo_type,json=repoType,proto3" json:"repo_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ProfileSourceRefV1) Reset() {
+	*x = ProfileSourceRefV1{}
+	mi := &file_shared_v1_model_profile_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileSourceRefV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileSourceRefV1) ProtoMessage() {}
+
+func (x *ProfileSourceRefV1) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_v1_model_profile_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileSourceRefV1.ProtoReflect.Descriptor instead.
+func (*ProfileSourceRefV1) Descriptor() ([]byte, []int) {
+	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ProfileSourceRefV1) GetSourceUri() string {
+	if x != nil {
+		return x.SourceUri
+	}
+	return ""
+}
+
+func (x *ProfileSourceRefV1) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *ProfileSourceRefV1) GetResolverVersion() string {
+	if x != nil {
+		return x.ResolverVersion
+	}
+	return ""
+}
+
+func (x *ProfileSourceRefV1) GetRepoType() string {
+	if x != nil {
+		return x.RepoType
+	}
+	return ""
+}
+
+// ParserRefV1 selects one governance-approved parser specification.
+// The zero value is the sole representation of an absent parser.
+type ParserRefV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ParserRefV1) Reset() {
+	*x = ParserRefV1{}
+	mi := &file_shared_v1_model_profile_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ParserRefV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ParserRefV1) ProtoMessage() {}
+
+func (x *ParserRefV1) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_v1_model_profile_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ParserRefV1.ProtoReflect.Descriptor instead.
+func (*ParserRefV1) Descriptor() ([]byte, []int) {
+	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ParserRefV1) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ParserRefV1) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
 // ModelProfileProjection is the canonical signed registration payload.
 type ModelProfileProjection struct {
 	state                     protoimpl.MessageState   `protogen:"open.v1"`
-	ModelId                   string                   `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                   []byte                   `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion            uint32                   `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	ManifestHash              []byte                   `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
 	TokenizerHash             []byte                   `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
@@ -912,13 +1121,16 @@ type ModelProfileProjection struct {
 	SchemaHash                []byte                   `protobuf:"bytes,17,opt,name=schema_hash,json=schemaHash,proto3" json:"schema_hash,omitempty"`
 	PreviousProfileVersion    uint32                   `protobuf:"varint,18,opt,name=previous_profile_version,json=previousProfileVersion,proto3" json:"previous_profile_version,omitempty"`
 	RegistrationFee           *types.Coin              `protobuf:"bytes,19,opt,name=registration_fee,json=registrationFee,proto3" json:"registration_fee,omitempty"`
+	Source                    *SourceRefV1             `protobuf:"bytes,20,opt,name=source,proto3" json:"source,omitempty"`
+	ToolCallParser            *ParserRefV1             `protobuf:"bytes,21,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
+	ReasoningParser           *ParserRefV1             `protobuf:"bytes,22,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ModelProfileProjection) Reset() {
 	*x = ModelProfileProjection{}
-	mi := &file_shared_v1_model_profile_proto_msgTypes[6]
+	mi := &file_shared_v1_model_profile_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -930,7 +1142,7 @@ func (x *ModelProfileProjection) String() string {
 func (*ModelProfileProjection) ProtoMessage() {}
 
 func (x *ModelProfileProjection) ProtoReflect() protoreflect.Message {
-	mi := &file_shared_v1_model_profile_proto_msgTypes[6]
+	mi := &file_shared_v1_model_profile_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -943,14 +1155,14 @@ func (x *ModelProfileProjection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelProfileProjection.ProtoReflect.Descriptor instead.
 func (*ModelProfileProjection) Descriptor() ([]byte, []int) {
-	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{6}
+	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *ModelProfileProjection) GetModelId() string {
+func (x *ModelProfileProjection) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ModelProfileProjection) GetProfileVersion() uint32 {
@@ -1079,6 +1291,27 @@ func (x *ModelProfileProjection) GetRegistrationFee() *types.Coin {
 	return nil
 }
 
+func (x *ModelProfileProjection) GetSource() *SourceRefV1 {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *ModelProfileProjection) GetToolCallParser() *ParserRefV1 {
+	if x != nil {
+		return x.ToolCallParser
+	}
+	return nil
+}
+
+func (x *ModelProfileProjection) GetReasoningParser() *ParserRefV1 {
+	if x != nil {
+		return x.ReasoningParser
+	}
+	return nil
+}
+
 // ProfileExecutionSnapshot is the immutable execution subset copied into assignments.
 type ProfileExecutionSnapshot struct {
 	state                  protoimpl.MessageState  `protogen:"open.v1"`
@@ -1097,7 +1330,7 @@ type ProfileExecutionSnapshot struct {
 
 func (x *ProfileExecutionSnapshot) Reset() {
 	*x = ProfileExecutionSnapshot{}
-	mi := &file_shared_v1_model_profile_proto_msgTypes[7]
+	mi := &file_shared_v1_model_profile_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1109,7 +1342,7 @@ func (x *ProfileExecutionSnapshot) String() string {
 func (*ProfileExecutionSnapshot) ProtoMessage() {}
 
 func (x *ProfileExecutionSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_shared_v1_model_profile_proto_msgTypes[7]
+	mi := &file_shared_v1_model_profile_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1122,7 +1355,7 @@ func (x *ProfileExecutionSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileExecutionSnapshot.ProtoReflect.Descriptor instead.
 func (*ProfileExecutionSnapshot) Descriptor() ([]byte, []int) {
-	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{7}
+	return file_shared_v1_model_profile_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ProfileExecutionSnapshot) GetManifestHash() []byte {
@@ -1248,9 +1481,26 @@ const file_shared_v1_model_profile_proto_rawDesc = "" +
 	"\x1einfer_timeout_bootstrap_blocks\x18\x01 \x01(\rR\x1binferTimeoutBootstrapBlocks\x12E\n" +
 	"\x1fverify_timeout_bootstrap_blocks\x18\x02 \x01(\rR\x1cverifyTimeoutBootstrapBlocks\x12E\n" +
 	"\x1fcommit_timeout_bootstrap_blocks\x18\x03 \x01(\rR\x1ccommitTimeoutBootstrapBlocks\x12=\n" +
-	"\x1bbootstrap_valid_until_epoch\x18\x04 \x01(\x04R\x18bootstrapValidUntilEpoch\"\xca\b\n" +
+	"\x1bbootstrap_valid_until_epoch\x18\x04 \x01(\x04R\x18bootstrapValidUntilEpoch\"\xc5\x01\n" +
+	"\vSourceRefV1\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1d\n" +
+	"\n" +
+	"source_uri\x18\x02 \x01(\tR\tsourceUri\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\x12)\n" +
+	"\x10resolver_version\x18\x04 \x01(\tR\x0fresolverVersion\x12\x17\n" +
+	"\arepo_id\x18\x05 \x01(\tR\x06repoId\x12\x1b\n" +
+	"\trepo_type\x18\x06 \x01(\tR\brepoType\"\x97\x01\n" +
+	"\x12ProfileSourceRefV1\x12\x1d\n" +
+	"\n" +
+	"source_uri\x18\x01 \x01(\tR\tsourceUri\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\tR\brevision\x12)\n" +
+	"\x10resolver_version\x18\x03 \x01(\tR\x0fresolverVersion\x12\x1b\n" +
+	"\trepo_type\x18\x04 \x01(\tR\brepoType\";\n" +
+	"\vParserRefV1\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\"\xff\t\n" +
 	"\x16ModelProfileProjection\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12#\n" +
 	"\rmanifest_hash\x18\x03 \x01(\fR\fmanifestHash\x12%\n" +
 	"\x0etokenizer_hash\x18\x04 \x01(\fR\rtokenizerHash\x12#\n" +
@@ -1271,7 +1521,10 @@ const file_shared_v1_model_profile_proto_rawDesc = "" +
 	"\vschema_hash\x18\x11 \x01(\fR\n" +
 	"schemaHash\x128\n" +
 	"\x18previous_profile_version\x18\x12 \x01(\rR\x16previousProfileVersion\x12D\n" +
-	"\x10registration_fee\x18\x13 \x01(\v2\x19.cosmos.base.v1beta1.CoinR\x0fregistrationFee\"\x92\x04\n" +
+	"\x10registration_fee\x18\x13 \x01(\v2\x19.cosmos.base.v1beta1.CoinR\x0fregistrationFee\x12.\n" +
+	"\x06source\x18\x14 \x01(\v2\x16.shared.v1.SourceRefV1R\x06source\x12@\n" +
+	"\x10tool_call_parser\x18\x15 \x01(\v2\x16.shared.v1.ParserRefV1R\x0etoolCallParser\x12A\n" +
+	"\x10reasoning_parser\x18\x16 \x01(\v2\x16.shared.v1.ParserRefV1R\x0freasoningParser\"\x92\x04\n" +
 	"\x18ProfileExecutionSnapshot\x12#\n" +
 	"\rmanifest_hash\x18\x01 \x01(\fR\fmanifestHash\x12%\n" +
 	"\x0etokenizer_hash\x18\x02 \x01(\fR\rtokenizerHash\x12#\n" +
@@ -1320,7 +1573,7 @@ func file_shared_v1_model_profile_proto_rawDescGZIP() []byte {
 }
 
 var file_shared_v1_model_profile_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_shared_v1_model_profile_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_shared_v1_model_profile_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_shared_v1_model_profile_proto_goTypes = []any{
 	(TaskType)(0),                    // 0: shared.v1.TaskType
 	(GenerationType)(0),              // 1: shared.v1.GenerationType
@@ -1333,35 +1586,41 @@ var file_shared_v1_model_profile_proto_goTypes = []any{
 	(*BatchVerification)(nil),        // 8: shared.v1.BatchVerification
 	(*PricingProfile)(nil),           // 9: shared.v1.PricingProfile
 	(*TimeoutBootstrapProfile)(nil),  // 10: shared.v1.TimeoutBootstrapProfile
-	(*ModelProfileProjection)(nil),   // 11: shared.v1.ModelProfileProjection
-	(*ProfileExecutionSnapshot)(nil), // 12: shared.v1.ProfileExecutionSnapshot
-	(*EvidenceSchemaV1)(nil),         // 13: shared.v1.EvidenceSchemaV1
-	(*types.Coin)(nil),               // 14: cosmos.base.v1beta1.Coin
+	(*SourceRefV1)(nil),              // 11: shared.v1.SourceRefV1
+	(*ProfileSourceRefV1)(nil),       // 12: shared.v1.ProfileSourceRefV1
+	(*ParserRefV1)(nil),              // 13: shared.v1.ParserRefV1
+	(*ModelProfileProjection)(nil),   // 14: shared.v1.ModelProfileProjection
+	(*ProfileExecutionSnapshot)(nil), // 15: shared.v1.ProfileExecutionSnapshot
+	(*EvidenceSchemaV1)(nil),         // 16: shared.v1.EvidenceSchemaV1
+	(*types.Coin)(nil),               // 17: cosmos.base.v1beta1.Coin
 }
 var file_shared_v1_model_profile_proto_depIdxs = []int32{
 	4,  // 0: shared.v1.MetricSpec.numeric_scale:type_name -> shared.v1.NumericScale
 	2,  // 1: shared.v1.VerificationProfile.verification_mode:type_name -> shared.v1.VerificationMode
 	3,  // 2: shared.v1.VerificationProfile.token_scope:type_name -> shared.v1.TokenScope
 	5,  // 3: shared.v1.VerificationProfile.metrics:type_name -> shared.v1.MetricSpec
-	13, // 4: shared.v1.VerificationProfile.evidence_schema:type_name -> shared.v1.EvidenceSchemaV1
+	16, // 4: shared.v1.VerificationProfile.evidence_schema:type_name -> shared.v1.EvidenceSchemaV1
 	0,  // 5: shared.v1.ModelProfileProjection.task_types:type_name -> shared.v1.TaskType
 	1,  // 6: shared.v1.ModelProfileProjection.generation_type:type_name -> shared.v1.GenerationType
-	14, // 7: shared.v1.ModelProfileProjection.min_stake:type_name -> cosmos.base.v1beta1.Coin
+	17, // 7: shared.v1.ModelProfileProjection.min_stake:type_name -> cosmos.base.v1beta1.Coin
 	6,  // 8: shared.v1.ModelProfileProjection.verification_profile:type_name -> shared.v1.VerificationProfile
 	7,  // 9: shared.v1.ModelProfileProjection.verification_thresholds:type_name -> shared.v1.VerificationThresholds
 	8,  // 10: shared.v1.ModelProfileProjection.batch_verification:type_name -> shared.v1.BatchVerification
 	9,  // 11: shared.v1.ModelProfileProjection.pricing_profile:type_name -> shared.v1.PricingProfile
 	10, // 12: shared.v1.ModelProfileProjection.timeout_bootstrap_profile:type_name -> shared.v1.TimeoutBootstrapProfile
-	14, // 13: shared.v1.ModelProfileProjection.registration_fee:type_name -> cosmos.base.v1beta1.Coin
-	1,  // 14: shared.v1.ProfileExecutionSnapshot.generation_type:type_name -> shared.v1.GenerationType
-	6,  // 15: shared.v1.ProfileExecutionSnapshot.verification_profile:type_name -> shared.v1.VerificationProfile
-	7,  // 16: shared.v1.ProfileExecutionSnapshot.verification_thresholds:type_name -> shared.v1.VerificationThresholds
-	8,  // 17: shared.v1.ProfileExecutionSnapshot.batch_verification:type_name -> shared.v1.BatchVerification
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	17, // 13: shared.v1.ModelProfileProjection.registration_fee:type_name -> cosmos.base.v1beta1.Coin
+	11, // 14: shared.v1.ModelProfileProjection.source:type_name -> shared.v1.SourceRefV1
+	13, // 15: shared.v1.ModelProfileProjection.tool_call_parser:type_name -> shared.v1.ParserRefV1
+	13, // 16: shared.v1.ModelProfileProjection.reasoning_parser:type_name -> shared.v1.ParserRefV1
+	1,  // 17: shared.v1.ProfileExecutionSnapshot.generation_type:type_name -> shared.v1.GenerationType
+	6,  // 18: shared.v1.ProfileExecutionSnapshot.verification_profile:type_name -> shared.v1.VerificationProfile
+	7,  // 19: shared.v1.ProfileExecutionSnapshot.verification_thresholds:type_name -> shared.v1.VerificationThresholds
+	8,  // 20: shared.v1.ProfileExecutionSnapshot.batch_verification:type_name -> shared.v1.BatchVerification
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_shared_v1_model_profile_proto_init() }
@@ -1376,7 +1635,7 @@ func file_shared_v1_model_profile_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shared_v1_model_profile_proto_rawDesc), len(file_shared_v1_model_profile_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

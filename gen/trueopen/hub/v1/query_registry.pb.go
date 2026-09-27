@@ -826,7 +826,7 @@ func (x *QueryEarningsResponse) GetEarnings() *EarningsState {
 // QueryModelRequest is request type for Query/Model.
 type QueryModelRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId       []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -861,11 +861,11 @@ func (*QueryModelRequest) Descriptor() ([]byte, []int) {
 	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *QueryModelRequest) GetModelId() string {
+func (x *QueryModelRequest) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 // QueryModelResponse is response type for Query/Model.
@@ -1019,7 +1019,7 @@ func (x *QueryModelsResponse) GetPage() *v1.QueryPageResponseV1 {
 // QueryProfileRequest is request type for Query/Profile.
 type QueryProfileRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1055,11 +1055,11 @@ func (*QueryProfileRequest) Descriptor() ([]byte, []int) {
 	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *QueryProfileRequest) GetModelId() string {
+func (x *QueryProfileRequest) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *QueryProfileRequest) GetProfileVersion() uint32 {
@@ -1604,30 +1604,29 @@ func (x *QueryServiceDescriptorResponse) GetDescriptor_() *ServiceDescriptorStat
 	return nil
 }
 
-// QueryProfileCapabilityRequest selects one operator/profile capability.
-type QueryProfileCapabilityRequest struct {
+// QueryModelCapabilityRequest selects one operator/model capability.
+type QueryModelCapabilityRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ModelId         string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion  uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ModelId         []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *QueryProfileCapabilityRequest) Reset() {
-	*x = QueryProfileCapabilityRequest{}
+func (x *QueryModelCapabilityRequest) Reset() {
+	*x = QueryModelCapabilityRequest{}
 	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *QueryProfileCapabilityRequest) String() string {
+func (x *QueryModelCapabilityRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*QueryProfileCapabilityRequest) ProtoMessage() {}
+func (*QueryModelCapabilityRequest) ProtoMessage() {}
 
-func (x *QueryProfileCapabilityRequest) ProtoReflect() protoreflect.Message {
+func (x *QueryModelCapabilityRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1639,54 +1638,47 @@ func (x *QueryProfileCapabilityRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use QueryProfileCapabilityRequest.ProtoReflect.Descriptor instead.
-func (*QueryProfileCapabilityRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueryModelCapabilityRequest.ProtoReflect.Descriptor instead.
+func (*QueryModelCapabilityRequest) Descriptor() ([]byte, []int) {
 	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *QueryProfileCapabilityRequest) GetOperatorAddress() string {
+func (x *QueryModelCapabilityRequest) GetOperatorAddress() string {
 	if x != nil {
 		return x.OperatorAddress
 	}
 	return ""
 }
 
-func (x *QueryProfileCapabilityRequest) GetModelId() string {
+func (x *QueryModelCapabilityRequest) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
-func (x *QueryProfileCapabilityRequest) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
-}
-
-// QueryProfileCapabilityResponse returns the capability row.
-type QueryProfileCapabilityResponse struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Capability    *ProfileCapabilityState `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
+// QueryModelCapabilityResponse returns the capability row.
+type QueryModelCapabilityResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Capability    *ModelCapabilityState  `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *QueryProfileCapabilityResponse) Reset() {
-	*x = QueryProfileCapabilityResponse{}
+func (x *QueryModelCapabilityResponse) Reset() {
+	*x = QueryModelCapabilityResponse{}
 	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *QueryProfileCapabilityResponse) String() string {
+func (x *QueryModelCapabilityResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*QueryProfileCapabilityResponse) ProtoMessage() {}
+func (*QueryModelCapabilityResponse) ProtoMessage() {}
 
-func (x *QueryProfileCapabilityResponse) ProtoReflect() protoreflect.Message {
+func (x *QueryModelCapabilityResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1698,24 +1690,23 @@ func (x *QueryProfileCapabilityResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use QueryProfileCapabilityResponse.ProtoReflect.Descriptor instead.
-func (*QueryProfileCapabilityResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueryModelCapabilityResponse.ProtoReflect.Descriptor instead.
+func (*QueryModelCapabilityResponse) Descriptor() ([]byte, []int) {
 	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *QueryProfileCapabilityResponse) GetCapability() *ProfileCapabilityState {
+func (x *QueryModelCapabilityResponse) GetCapability() *ModelCapabilityState {
 	if x != nil {
 		return x.Capability
 	}
 	return nil
 }
 
-// QueryModelSupportRequest identifies one node-level P30 support row.
+// QueryModelSupportRequest identifies one operator/model support row.
 type QueryModelSupportRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ModelId         string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion  uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ModelId         []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1757,18 +1748,11 @@ func (x *QueryModelSupportRequest) GetOperatorAddress() string {
 	return ""
 }
 
-func (x *QueryModelSupportRequest) GetModelId() string {
+func (x *QueryModelSupportRequest) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
-}
-
-func (x *QueryModelSupportRequest) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
+	return nil
 }
 
 // QueryModelSupportResponse returns one node-level P30 support row.
@@ -2004,7 +1988,7 @@ func (x *QueryServiceLifecycleResponse) GetLifecycle() *ServiceLifecycleViewV1 {
 	return nil
 }
 
-// QueryCurrentCandidatePoolRequest has no selector (api_contract §16.3): the single
+// QueryCurrentCandidatePoolRequest has no selector (the wire API): the single
 // global pool is resolved from the current pointer. The old per-profile
 // model_id/profile_version/duty selectors are deleted because per-profile pools no
 // longer exist.
@@ -2093,8 +2077,7 @@ func (x *QueryCurrentCandidatePoolResponse) GetSnapshot() *CandidatePoolSnapshot
 	return nil
 }
 
-// QueryCandidatePoolSnapshotRequest identifies one immutable pool snapshot
-// (§16.3).
+// QueryCandidatePoolSnapshotRequest identifies one immutable pool snapshot.
 // QueryCandidatePoolSnapshotRequest defines the QueryCandidatePoolSnapshotRequest wire type.
 type QueryCandidatePoolSnapshotRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2188,8 +2171,7 @@ func (x *QueryCandidatePoolSnapshotResponse) GetSnapshot() *CandidatePoolSnapsho
 	return nil
 }
 
-// QueryCandidatePoolMemberRequest selects one stable slot of one snapshot
-// (§16.3).
+// QueryCandidatePoolMemberRequest selects one stable slot of one snapshot.
 // QueryCandidatePoolMemberRequest defines the QueryCandidatePoolMemberRequest wire type.
 type QueryCandidatePoolMemberRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2247,10 +2229,8 @@ func (x *QueryCandidatePoolMemberRequest) GetCandidateSlot() uint32 {
 // A pruned body is FailedPrecondition; only an unknown snapshot or member is
 // NotFound.
 //
-// CONTRACT-GAP: api_contract §3.6 describes this response as "member +
-// membership_binding" while §16.3 registers exactly `1=member` and §16.5 freezes
-// CandidatePoolMemberViewV1 at four fields with no membership_binding. The
-// §16.3/§16.5 shape is implemented.
+// The response carries one CandidatePoolMemberViewV1. Its membership binding
+// is represented by the view's frozen fields, not by a duplicate message.
 // QueryCandidatePoolMemberResponse defines the QueryCandidatePoolMemberResponse wire type.
 type QueryCandidatePoolMemberResponse struct {
 	state         protoimpl.MessageState     `protogen:"open.v1"`
@@ -2296,7 +2276,7 @@ func (x *QueryCandidatePoolMemberResponse) GetMember() *CandidatePoolMemberViewV
 	return nil
 }
 
-// QueryCandidatePoolMembersRequest pages one snapshot's members (§16.3).
+// QueryCandidatePoolMembersRequest pages one snapshot's members.
 type QueryCandidatePoolMembersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SnapshotId    []byte                 `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
@@ -2405,7 +2385,7 @@ func (x *QueryCandidatePoolMembersResponse) GetPage() *v1.QueryPageResponseV1 {
 	return nil
 }
 
-// CurrentServiceKeyViewV1 is the current key binding projection of §16.5.
+// CurrentServiceKeyViewV1 is the current key binding projection of this contract.
 type CurrentServiceKeyViewV1 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
@@ -2542,7 +2522,7 @@ func (*CurrentServiceKeyViewV1_CortexServiceKeyStatus) isCurrentServiceKeyViewV1
 func (*CurrentServiceKeyViewV1_BuilderServiceKeyStatus) isCurrentServiceKeyViewV1_ParticipantStatus() {
 }
 
-// ServiceLifecycleViewV1 joins the identity and bond authorities (§16.5).
+// ServiceLifecycleViewV1 joins the identity and bond authorities.
 type ServiceLifecycleViewV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Node          *CortexNodeState       `protobuf:"bytes,1,opt,name=node,proto3,oneof" json:"node,omitempty"`
@@ -2645,7 +2625,7 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x15QueryEarningsResponse\x121\n" +
 	"\bearnings\x18\x01 \x01(\v2\x15.hub.v1.EarningsStateR\bearnings\".\n" +
 	"\x11QueryModelRequest\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\">\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\">\n" +
 	"\x12QueryModelResponse\x12(\n" +
 	"\x05model\x18\x01 \x01(\v2\x12.hub.v1.ModelStateR\x05model\"G\n" +
 	"\x12QueryModelsRequest\x121\n" +
@@ -2654,7 +2634,7 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x06models\x18\x01 \x03(\v2\x12.hub.v1.ModelStateR\x06models\x122\n" +
 	"\x04page\x18\x02 \x01(\v2\x1e.shared.v1.QueryPageResponseV1R\x04page\"Y\n" +
 	"\x13QueryProfileRequest\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\"F\n" +
 	"\x14QueryProfileResponse\x12.\n" +
 	"\aprofile\x18\x01 \x01(\v2\x14.hub.v1.ProfileStateR\aprofile\"C\n" +
@@ -2684,19 +2664,17 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x1eQueryServiceDescriptorResponse\x12>\n" +
 	"\n" +
 	"descriptor\x18\x01 \x01(\v2\x1e.hub.v1.ServiceDescriptorStateR\n" +
-	"descriptor\"\x8e\x01\n" +
-	"\x1dQueryProfileCapabilityRequest\x12)\n" +
+	"descriptor\"c\n" +
+	"\x1bQueryModelCapabilityRequest\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\"`\n" +
-	"\x1eQueryProfileCapabilityResponse\x12>\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\"\\\n" +
+	"\x1cQueryModelCapabilityResponse\x12<\n" +
 	"\n" +
-	"capability\x18\x01 \x01(\v2\x1e.hub.v1.ProfileCapabilityStateR\n" +
-	"capability\"\x89\x01\n" +
+	"capability\x18\x01 \x01(\v2\x1c.hub.v1.ModelCapabilityStateR\n" +
+	"capability\"`\n" +
 	"\x18QueryModelSupportRequest\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\"P\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\"P\n" +
 	"\x19QueryModelSupportResponse\x123\n" +
 	"\asupport\x18\x01 \x01(\v2\x19.hub.v1.ModelSupportStateR\asupport\"[\n" +
 	"\x18QueryDailySupportRequest\x12)\n" +
@@ -2789,8 +2767,8 @@ var file_hub_v1_query_registry_proto_goTypes = []any{
 	(*QueryCurrentServiceKeyResponse)(nil),     // 28: hub.v1.QueryCurrentServiceKeyResponse
 	(*QueryServiceDescriptorRequest)(nil),      // 29: hub.v1.QueryServiceDescriptorRequest
 	(*QueryServiceDescriptorResponse)(nil),     // 30: hub.v1.QueryServiceDescriptorResponse
-	(*QueryProfileCapabilityRequest)(nil),      // 31: hub.v1.QueryProfileCapabilityRequest
-	(*QueryProfileCapabilityResponse)(nil),     // 32: hub.v1.QueryProfileCapabilityResponse
+	(*QueryModelCapabilityRequest)(nil),        // 31: hub.v1.QueryModelCapabilityRequest
+	(*QueryModelCapabilityResponse)(nil),       // 32: hub.v1.QueryModelCapabilityResponse
 	(*QueryModelSupportRequest)(nil),           // 33: hub.v1.QueryModelSupportRequest
 	(*QueryModelSupportResponse)(nil),          // 34: hub.v1.QueryModelSupportResponse
 	(*QueryDailySupportRequest)(nil),           // 35: hub.v1.QueryDailySupportRequest
@@ -2825,7 +2803,7 @@ var file_hub_v1_query_registry_proto_goTypes = []any{
 	(*UnbondingState)(nil),                     // 64: hub.v1.UnbondingState
 	(v1.ParticipantType)(0),                    // 65: shared.v1.ParticipantType
 	(*ServiceDescriptorState)(nil),             // 66: hub.v1.ServiceDescriptorState
-	(*ProfileCapabilityState)(nil),             // 67: hub.v1.ProfileCapabilityState
+	(*ModelCapabilityState)(nil),               // 67: hub.v1.ModelCapabilityState
 	(*ModelSupportState)(nil),                  // 68: hub.v1.ModelSupportState
 	(*DailySupportState)(nil),                  // 69: hub.v1.DailySupportState
 	(*CandidatePoolSnapshotViewV1)(nil),        // 70: hub.v1.CandidatePoolSnapshotViewV1
@@ -2860,7 +2838,7 @@ var file_hub_v1_query_registry_proto_depIdxs = []int32{
 	47, // 24: hub.v1.QueryCurrentServiceKeyResponse.binding:type_name -> hub.v1.CurrentServiceKeyViewV1
 	65, // 25: hub.v1.QueryServiceDescriptorRequest.participant_type:type_name -> shared.v1.ParticipantType
 	66, // 26: hub.v1.QueryServiceDescriptorResponse.descriptor:type_name -> hub.v1.ServiceDescriptorState
-	67, // 27: hub.v1.QueryProfileCapabilityResponse.capability:type_name -> hub.v1.ProfileCapabilityState
+	67, // 27: hub.v1.QueryModelCapabilityResponse.capability:type_name -> hub.v1.ModelCapabilityState
 	68, // 28: hub.v1.QueryModelSupportResponse.support:type_name -> hub.v1.ModelSupportState
 	69, // 29: hub.v1.QueryDailySupportResponse.support:type_name -> hub.v1.DailySupportState
 	48, // 30: hub.v1.QueryServiceLifecycleResponse.lifecycle:type_name -> hub.v1.ServiceLifecycleViewV1

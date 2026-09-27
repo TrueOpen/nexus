@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package nexus.v1;
 
+import "shared/v1/evidence.proto";
 import "task/v1/commit.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
@@ -27,7 +28,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 //     SignedTaskDataRangeV1 is removed;
 //   - UploadTaskResultData is renamed and reworked into UploadTaskResultObject;
 //     FinalizeTaskResult / FinalizeVerifierEvidence are added;
-//   - BuilderStorageConfirmationV1 becomes 9 fields, signed under TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1.
+//   - BuilderStorageConfirmationV1 becomes 9 fields, signed under TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2.
 // The ADR-0017 frame-stream messages keep their v0.3.0 shape; only the referenced types are
 // swapped for the new ones above.
 // SubmitOrder / FetchOutputRef / RefreshCredential, superseded by the contract, are kept as is;
@@ -146,7 +147,7 @@ service IngressAPI {
   rpc SubmitInferReceipt(SubmitInferReceiptRequest) returns (SubmitInferReceiptResponse);
   // Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
   rpc SubmitVerifyCommit(SubmitVerifyCommitRequest) returns (SubmitVerifyCommitResponse);
-  // Relays a Verifier-signed ResultReceiptV2. accepted does not mean accepted on chain.
+  // Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
   rpc SubmitVerifyResult(SubmitVerifyResultRequest) returns (SubmitVerifyResultResponse);
 
   // ---- Legacy SDK methods superseded by the contract: marked deprecated, removal pending a team decision ----
@@ -211,6 +212,10 @@ enum TaskDataReadinessV1 {
   TASK_DATA_READINESS_V1_RESULT_STAGING = 2;
   // Both OUTPUT and Worker evidence are READY.
   TASK_DATA_READINESS_V1_READY = 3;
+  // OUTPUT is frozen, but one or both required Worker bundles are still pending.
+  TASK_DATA_READINESS_V1_OUTPUT_FROZEN = 4;
+  // At least one required Worker evidence bundle is frozen.
+  TASK_DATA_READINESS_V1_EVIDENCE_PARTIAL = 5;
 }
 
 // EvidenceProducerKindV1 identifies the producer of an evidence bundle.
@@ -253,6 +258,9 @@ message TaskDataObjectRefV1 {
   EvidenceProducerKindV1 evidence_producer_kind = 6;
   uint32 verify_round = 7;
   optional string producer_operator = 8;
+  // Required for evidence objects: it tells the Worker token bundle from the Worker value
+  // bundle of the same round. UNSPECIFIED for INPUT and OUTPUT.
+  shared.v1.EvidenceKind evidence_kind = 9;
 }
 
 // TaskDataObjectMetadataV1 is the boundary metadata of a single object; it contains no local
@@ -272,12 +280,19 @@ message TaskDataObjectMetadataV1 {
   // ADR-0017: OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
   // length 0, not an empty tree.
   uint64 output_leaf_count = 6;
+  // The Worker-signed terminal frame of this object's output stream, byte-identical to the one
+  // the Builder received and replays on subscription, so a caller that fetches OUTPUT without
+  // subscribing can still tell a finished generation from one cut off by its budget. Present
+  // only for OUTPUT objects that have been stored; the caller verifies the signature against the
+  // Worker's service key and compares output_mmr_root with the receipt.
+  optional OutputFinV1 fin = 7;
 }
 
 // EvidenceBundleSummaryV1 is returned only when querying an EVIDENCE_MANIFEST; artifact details
 // must be taken from the verified manifest and are not stuffed into this response.
 message EvidenceBundleSummaryV1 {
-  string evidence_bundle_hash = 1;
+  // Digest of the exact manifest bytes; not the on-chain typed commitment.
+  string evidence_manifest_hash = 1;
   string evidence_schema_hash = 2;
   uint32 artifact_count = 3;
   uint64 artifact_total_size_bytes = 4;
@@ -297,7 +312,7 @@ message ByteRangeV1 {
 //
 // The single signing digest (service_signature itself is not included):
 //   builder_storage_confirmation_digest =
-//     H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1",
+//     H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2",
 //       u32_be(schema_version), utf8(chain_id),
 //       address_codec_bytes(builder_operator_address),
 //       u64_be(service_authorization_nonce), canonical TaskDataObjectRefV1,
@@ -455,7 +470,7 @@ message ConfirmOpenTaskResponse {
 }
 
 // UploadTaskResultObjectHeaderV1 is the first upload frame and the only signed part.
-// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1(canonical object_ref,
+// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2(canonical object_ref,
 // size_bytes, media_type).
 message UploadTaskResultObjectHeaderV1 {
   TaskDataObjectRefV1 object_ref = 1;
@@ -488,12 +503,27 @@ message UploadTaskResultObjectResponse {
 // request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
 // domain is not yet in the closed set of five body domains of Interface & Topic
 // Catalogue.md §4.2.1 and will be registered here once the document is completed.
-message OutputStreamHeaderV1 {
+//
+// worker_signature binds the stream declaration to the selected Worker's service key,
+// independently of the upload request authorization; it signs
+// H_FIELDS_V1("TRUEOPEN_OUTPUT_STREAM_HEADER_V1", chain_id, task_hash, attempt,
+// stream_instance, user_recipient_pubkey, output_key_commitment, key_package_hash).
+message OutputStreamHeaderV2 {
   string session_id = 1;
   string task_id = 2;
   // Routing and verification copy; must equal the on-chain accepted_task_hash.
   string task_hash = 3;
   TaskDataRequestAuthV1 request_auth = 4;
+  // Plaintext streams use attempt 0 and stream_instance 1.
+  uint32 attempt = 5;
+  uint32 stream_instance = 6;
+  // Empty for plaintext streams.
+  bytes user_recipient_pubkey = 7;
+  // 32 zero bytes for plaintext streams.
+  bytes output_key_commitment = 8;
+  bytes key_package_hash = 9;
+  // Raw64 R||S low-S signature over the header declaration.
+  bytes worker_signature = 10;
 }
 
 // One chunk of OUTPUT text and its cumulative commitment
@@ -537,7 +567,7 @@ message OutputFinV1 {
 message UploadTaskOutputStreamRequest {
   // Exactly one of three frame kinds. No Chunk is accepted before Header, and no frame after Fin.
   oneof frame {
-    OutputStreamHeaderV1 header = 1;
+    OutputStreamHeaderV2 header = 1;
     OutputChunkV1 chunk = 2;
     OutputFinV1 fin = 3;
   }
@@ -581,7 +611,7 @@ message UploadTaskOutputStreamResponse {
 }
 
 // GetTaskDataMetadataRequest queries one object at a time; it does not enumerate the whole Task.
-// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V1(canonical object_ref).
+// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V2(canonical object_ref).
 message GetTaskDataMetadataRequest {
   TaskDataObjectRefV1 object_ref = 1;
   TaskDataRequestAuthV1 request_auth = 2;
@@ -594,12 +624,12 @@ message GetTaskDataMetadataResponse {
   // Returned only when querying an EVIDENCE_MANIFEST.
   EvidenceBundleSummaryV1 evidence_bundle = 2;
   // Convenience copy; the caller must compare it against the on-chain accepted receipt before trusting it.
-  task.v1.InferReceiptV2 infer_receipt = 3;
+  task.v1.InferReceiptV3 infer_receipt = 3;
   uint64 retain_until_height = 4;
 }
 
 // FetchTaskDataRequest fetches bytes by object ref and optional range.
-// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V1(canonical object_ref, optional range).
+// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V2(canonical object_ref, optional range).
 // A full read must be signed with range absent; it must not be rewritten as a present range
 // with both offset/length zero.
 message FetchTaskDataRequest {
@@ -645,14 +675,16 @@ message FetchTaskDataResponse {
 // Profile; when an accepted receipt already exists on chain, the local one must match it.
 // Nexus does not interpret artifact IDs, parse model evidence semantics or recompute
 // model-internal roots.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1(task_hash, session_id,
-// task_id, infer_receipt_hash, SHA256(receipt.service_signature)).
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2(task_hash, session_id,
+// task_id, infer_receipt_hash, SHA256(receipt.service_signature), evidence_kind).
 message FinalizeTaskResultRequest {
   string task_hash = 1;
   string session_id = 2;
   string task_id = 3;
-  task.v1.InferReceiptV2 receipt = 4;
+  task.v1.InferReceiptV3 receipt = 4;
   TaskDataRequestAuthV1 request_auth = 5;
+  // Selects exactly one Worker bundle: WORKER_TOKEN_OPENING or WORKER_VALUE_OPENING.
+  shared.v1.EvidenceKind evidence_kind = 6;
 }
 
 // FinalizeTaskResult response. The confirmation must be present when accepted and absent on
@@ -670,9 +702,9 @@ message FinalizeTaskResultResponse {
 
 // FinalizeVerifierEvidenceRequest is initiated by a selected Verifier of some round. Nexus must
 // confirm the requester/producer is the selected Verifier of that round, that the
-// ResultReceiptV2's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
+// ResultReceiptV3's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
 // fully match the manifest, and that all artifacts are STORED with correct hash/size.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1(task_hash, session_id,
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2(task_hash, session_id,
 // task_id, verify_round, verifier_operator, result_receipt_signing_digest,
 // SHA256(receipt.service_signature)).
 message FinalizeVerifierEvidenceRequest {
@@ -681,7 +713,7 @@ message FinalizeVerifierEvidenceRequest {
   string task_id = 3;
   uint32 verify_round = 4;
   string verifier_operator = 5;
-  task.v1.ResultReceiptV2 receipt = 6;
+  task.v1.ResultReceiptV3 receipt = 6;
   TaskDataRequestAuthV1 request_auth = 7;
 }
 
@@ -696,7 +728,7 @@ message FinalizeVerifierEvidenceResponse {
 // SubmitInferReceiptRequest carries only the authoritative message itself. Nexus derives the
 // task/round/operator locator from it and accepts no duplicate copies of locator or hash.
 message SubmitInferReceiptRequest {
-  task.v1.InferReceiptV2 receipt = 1;
+  task.v1.InferReceiptV3 receipt = 1;
 }
 
 // SubmitInferReceipt response: by accepting, the Builder commits to relaying it; it
@@ -725,7 +757,7 @@ message SubmitVerifyCommitResponse {
 
 // SubmitVerifyResultRequest carries only the authoritative message itself.
 message SubmitVerifyResultRequest {
-  task.v1.ResultReceiptV2 receipt = 1;
+  task.v1.ResultReceiptV3 receipt = 1;
 }
 
 // SubmitVerifyResult response.

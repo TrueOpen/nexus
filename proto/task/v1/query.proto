@@ -36,6 +36,8 @@ service Query {
   rpc InferReceipt(QueryInferReceiptRequest) returns (QueryInferReceiptResponse);
   // WorkerEvidence returns one compact objective-evidence receipt.
   rpc WorkerEvidence(QueryWorkerEvidenceRequest) returns (QueryWorkerEvidenceResponse);
+  // VerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+  rpc VerifierValueEvidence(QueryVerifierValueEvidenceRequest) returns (QueryVerifierValueEvidenceResponse);
   // VerifierCandidateWindow returns one round's frozen verifier window.
   rpc VerifierCandidateWindow(QueryVerifierCandidateWindowRequest) returns (QueryVerifierCandidateWindowResponse);
   // VerifierAssignment returns one round's verifier assignment.
@@ -60,7 +62,9 @@ service Query {
   rpc TaskFailureClass(QueryTaskFailureClassRequest) returns (QueryTaskFailureClassResponse);
   // EvidenceCleanup returns the bounded cleanup progress of one task.
   rpc EvidenceCleanup(QueryEvidenceCleanupRequest) returns (QueryEvidenceCleanupResponse);
-  // EpochTaskSummary returns either the resumable fold or its retained receipt.
+  // EpochTaskSummary returns the retained immutable receipt. Epoch zero is
+  // invalid, an in-progress fold fails precondition, and a missing or pruned
+  // receipt is not found. Partial cursor state is never returned.
   rpc EpochTaskSummary(QueryEpochTaskSummaryRequest) returns (QueryEpochTaskSummaryResponse);
   // Session returns one stream session.
   rpc Session(QuerySessionRequest) returns (QuerySessionResponse);

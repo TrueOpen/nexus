@@ -252,6 +252,12 @@ type InferReceiptSubmission struct {
 	// the root alone does not fix the tree shape; attribution needs it to locate each peak (ADR-0017).
 	GeneratedTokenCount uint64
 	OutputLeafCount     uint64
+	// The four InferReceiptV3 encryption fields (15-18). A plaintext task carries 32 zero bytes in each;
+	// they are kept as received so the recomputed digest matches what the Worker signed.
+	OutputKeyCommitment      []byte
+	WorkerTokenKeyCommitment []byte
+	WorkerValueKeyCommitment []byte
+	CiphertextOutputRoot     []byte
 }
 
 // EvidenceCommitment is a single entry of required_evidence_commitments[] frozen in §5.14.

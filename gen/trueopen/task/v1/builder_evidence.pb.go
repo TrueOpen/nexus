@@ -22,7 +22,7 @@ const (
 )
 
 // BuilderProtocolViolation is the closed invalid-stage violation registry whose
-// numbers the API contract freezes as UNSPECIFIED=0 /
+// numbers the wire API freezes as UNSPECIFIED=0 /
 // WRONG_TASK_SCOPE=1 / WRONG_STAGE=2 / WRONG_BUILDER_SET=3 /
 // NON_CANONICAL_BITMAP=4 / BIT_CLEAR_ATTEMPT=5 /
 // CONFLICTING_ACCEPTED_MATERIAL=6. Only values 1 and 2 are ACTIVE in V1.
@@ -122,13 +122,13 @@ func (BuilderProtocolViolation) EnumDescriptor() ([]byte, []int) {
 }
 
 // SignedEnvelopeEquivocationV2 carries the two conflicting BusEnvelope frames of
-// one protocol scope as exact serialized bytes (§5.5).
+// one protocol scope as exact serialized bytes.
 //
 // Both frames must share chain_id, subject, kind, sender operator, service
 // authorization nonce, message_id, payload_type and expiry and must derive the
 // same payload-based action scope, must both verify under the proof-only
 // profile, must have different bus_signing_digest values, and must collide on
-// the (message_id, nonce) dual replay key (§5.5).
+// the (message_id, nonce) dual replay key.
 //
 // Canonical selected fields for the content digest are
 // (lower_bus_signing_digest, higher_bus_signing_digest): the two raw32 digests
@@ -191,11 +191,10 @@ func (x *SignedEnvelopeEquivocationV2) GetEnvelopeB() []byte {
 }
 
 // SignedEnvelopeProtocolFaultV2 binds one exact serialized BusEnvelope frame to
-// one closed violation (§5.5). The envelope must verify, its
+// one closed violation. The envelope must verify, its
 // action scope must be recomputable from the typed payload plus Task/BuilderSet
 // state, and it must land on exactly one closed violation value; malformed,
-// unknown-kind and unattributable material is rejected rather than downgraded
-// (§5.5).
+// unknown-kind and unattributable material is rejected rather than downgraded.
 //
 // Canonical selected fields for the content digest are
 // (bus_signing_digest, violation as enum_u32_be).
@@ -256,7 +255,7 @@ func (x *SignedEnvelopeProtocolFaultV2) GetViolation() BuilderProtocolViolation 
 
 // DataUnavailableStateReferenceV1 locates one already CONFIRMED Task-owned
 // round-1 data-unavailable aggregate for a Builder that made the actual
-// data-ready attestation (§5.5). Worker self-rescue and challenge-round
+// data-ready attestation. Worker self-rescue and challenge-round
 // aggregates never produce this evidence branch. It submits stable primary keys
 // only: the deadline, accepted version, report hash, counts, threshold and
 // verdict are loaded and recomputed by the Keeper, never carried here.
@@ -329,23 +328,23 @@ func (x *DataUnavailableStateReferenceV1) GetBuilderOperator() string {
 }
 
 // BuilderEvidenceV2 is the only accepted public Builder objective-evidence wire
-// of fresh genesis (§5.5). Free-text reasons, arbitrary
+// of fresh genesis. Free-text reasons, arbitrary
 // evidence_hash values and "a proposal was rejected" never form a fault.
 //
-// The ACTIVE oneof is the closed set of tags 2, 3 and 5 (§5.5),
+// The ACTIVE oneof is the closed set of tags 2, 3 and 5,
 // and each branch maps to exactly one shared.v1.BuilderEvidenceKind
-// (§5.5):
+// :
 //
 //	tag 2 equivocation             -> BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION      (1)
 //	tag 3 invalid_stage_submission -> BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION    (2)
 //	tag 5 data_unavailable         -> BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE  (4)
 //
-// Tags 2 and 3 are checked by the proof-only profile of §5.5
+// Tags 2 and 3 are checked by the proof-only profile of this contract
 // plus the Task authority state; tag 5 accepts only an already CONFIRMED round-1
 // aggregate for an actual data-ready attesting Builder. A handler must not write
 // a BuilderFault merely because the oneof structure is present.
 //
-// Field number 4 is permanently reserved (§5.5). It used
+// Field number 4 is permanently reserved. It used
 // to be the missed-duty branch, and BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY (3) is now
 // kept exclusively for an internal fault the Keeper may in future derive from an
 // authoritative duty receipt. This Msg accepts no missed-duty branch, the old
@@ -354,7 +353,7 @@ func (x *DataUnavailableStateReferenceV1) GetBuilderOperator() string {
 //
 // scope_id of the derived fact is the existing authoritative primary key of the
 // charged fact, which is task_id for all three branches; evidence introduces no
-// new hash semantics (§5.5).
+// new hash semantics.
 // BuilderEvidenceV2 defines the BuilderEvidenceV2 wire type.
 type BuilderEvidenceV2 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -478,7 +477,7 @@ func (*BuilderEvidenceV2_DataUnavailable) isBuilderEvidenceV2_Evidence() {}
 // Keeper-derived BPS, thresholds, deadlines or counts.
 //
 // The RPC returns shared.v1.BuilderObjectiveEvidenceReceiptV2 directly
-// (§5.5): there is deliberately no MsgSubmitBuilderEvidenceResponse
+// : there is deliberately no MsgSubmitBuilderEvidenceResponse
 // wrapper, because a per-module wrapper would be a second copy of the shared
 // receipt shape. evidence_id is the idempotency key: exact replay is a NOOP and
 // the same key with different evidence is a conflict.

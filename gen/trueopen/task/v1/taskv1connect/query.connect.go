@@ -52,6 +52,9 @@ const (
 	QueryInferReceiptProcedure = "/task.v1.Query/InferReceipt"
 	// QueryWorkerEvidenceProcedure is the fully-qualified name of the Query's WorkerEvidence RPC.
 	QueryWorkerEvidenceProcedure = "/task.v1.Query/WorkerEvidence"
+	// QueryVerifierValueEvidenceProcedure is the fully-qualified name of the Query's
+	// VerifierValueEvidence RPC.
+	QueryVerifierValueEvidenceProcedure = "/task.v1.Query/VerifierValueEvidence"
 	// QueryVerifierCandidateWindowProcedure is the fully-qualified name of the Query's
 	// VerifierCandidateWindow RPC.
 	QueryVerifierCandidateWindowProcedure = "/task.v1.Query/VerifierCandidateWindow"
@@ -123,6 +126,8 @@ type QueryClient interface {
 	InferReceipt(context.Context, *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
+	// VerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	VerifierValueEvidence(context.Context, *connect.Request[v1.QueryVerifierValueEvidenceRequest]) (*connect.Response[v1.QueryVerifierValueEvidenceResponse], error)
 	// VerifierCandidateWindow returns one round's frozen verifier window.
 	VerifierCandidateWindow(context.Context, *connect.Request[v1.QueryVerifierCandidateWindowRequest]) (*connect.Response[v1.QueryVerifierCandidateWindowResponse], error)
 	// VerifierAssignment returns one round's verifier assignment.
@@ -147,7 +152,9 @@ type QueryClient interface {
 	TaskFailureClass(context.Context, *connect.Request[v1.QueryTaskFailureClassRequest]) (*connect.Response[v1.QueryTaskFailureClassResponse], error)
 	// EvidenceCleanup returns the bounded cleanup progress of one task.
 	EvidenceCleanup(context.Context, *connect.Request[v1.QueryEvidenceCleanupRequest]) (*connect.Response[v1.QueryEvidenceCleanupResponse], error)
-	// EpochTaskSummary returns either the resumable fold or its retained receipt.
+	// EpochTaskSummary returns the retained immutable receipt. Epoch zero is
+	// invalid, an in-progress fold fails precondition, and a missing or pruned
+	// receipt is not found. Partial cursor state is never returned.
 	EpochTaskSummary(context.Context, *connect.Request[v1.QueryEpochTaskSummaryRequest]) (*connect.Response[v1.QueryEpochTaskSummaryResponse], error)
 	// Session returns one stream session.
 	Session(context.Context, *connect.Request[v1.QuerySessionRequest]) (*connect.Response[v1.QuerySessionResponse], error)
@@ -226,6 +233,12 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryWorkerEvidenceProcedure,
 			connect.WithSchema(queryMethods.ByName("WorkerEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		verifierValueEvidence: connect.NewClient[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse](
+			httpClient,
+			baseURL+QueryVerifierValueEvidenceProcedure,
+			connect.WithSchema(queryMethods.ByName("VerifierValueEvidence")),
 			connect.WithClientOptions(opts...),
 		),
 		verifierCandidateWindow: connect.NewClient[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse](
@@ -356,6 +369,7 @@ type queryClient struct {
 	taskBuilders            *connect.Client[v1.QueryTaskBuildersRequest, v1.QueryTaskBuildersResponse]
 	inferReceipt            *connect.Client[v1.QueryInferReceiptRequest, v1.QueryInferReceiptResponse]
 	workerEvidence          *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
+	verifierValueEvidence   *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
 	verifierCandidateWindow *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
 	verifierAssignment      *connect.Client[v1.QueryVerifierAssignmentRequest, v1.QueryVerifierAssignmentResponse]
 	verifyCommit            *connect.Client[v1.QueryVerifyCommitRequest, v1.QueryVerifyCommitResponse]
@@ -420,6 +434,11 @@ func (c *queryClient) InferReceipt(ctx context.Context, req *connect.Request[v1.
 // WorkerEvidence calls task.v1.Query.WorkerEvidence.
 func (c *queryClient) WorkerEvidence(ctx context.Context, req *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error) {
 	return c.workerEvidence.CallUnary(ctx, req)
+}
+
+// VerifierValueEvidence calls task.v1.Query.VerifierValueEvidence.
+func (c *queryClient) VerifierValueEvidence(ctx context.Context, req *connect.Request[v1.QueryVerifierValueEvidenceRequest]) (*connect.Response[v1.QueryVerifierValueEvidenceResponse], error) {
+	return c.verifierValueEvidence.CallUnary(ctx, req)
 }
 
 // VerifierCandidateWindow calls task.v1.Query.VerifierCandidateWindow.
@@ -542,6 +561,8 @@ type QueryHandler interface {
 	InferReceipt(context.Context, *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
+	// VerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	VerifierValueEvidence(context.Context, *connect.Request[v1.QueryVerifierValueEvidenceRequest]) (*connect.Response[v1.QueryVerifierValueEvidenceResponse], error)
 	// VerifierCandidateWindow returns one round's frozen verifier window.
 	VerifierCandidateWindow(context.Context, *connect.Request[v1.QueryVerifierCandidateWindowRequest]) (*connect.Response[v1.QueryVerifierCandidateWindowResponse], error)
 	// VerifierAssignment returns one round's verifier assignment.
@@ -566,7 +587,9 @@ type QueryHandler interface {
 	TaskFailureClass(context.Context, *connect.Request[v1.QueryTaskFailureClassRequest]) (*connect.Response[v1.QueryTaskFailureClassResponse], error)
 	// EvidenceCleanup returns the bounded cleanup progress of one task.
 	EvidenceCleanup(context.Context, *connect.Request[v1.QueryEvidenceCleanupRequest]) (*connect.Response[v1.QueryEvidenceCleanupResponse], error)
-	// EpochTaskSummary returns either the resumable fold or its retained receipt.
+	// EpochTaskSummary returns the retained immutable receipt. Epoch zero is
+	// invalid, an in-progress fold fails precondition, and a missing or pruned
+	// receipt is not found. Partial cursor state is never returned.
 	EpochTaskSummary(context.Context, *connect.Request[v1.QueryEpochTaskSummaryRequest]) (*connect.Response[v1.QueryEpochTaskSummaryResponse], error)
 	// Session returns one stream session.
 	Session(context.Context, *connect.Request[v1.QuerySessionRequest]) (*connect.Response[v1.QuerySessionResponse], error)
@@ -641,6 +664,12 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryWorkerEvidenceProcedure,
 		svc.WorkerEvidence,
 		connect.WithSchema(queryMethods.ByName("WorkerEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryVerifierValueEvidenceHandler := connect.NewUnaryHandler(
+		QueryVerifierValueEvidenceProcedure,
+		svc.VerifierValueEvidence,
+		connect.WithSchema(queryMethods.ByName("VerifierValueEvidence")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryVerifierCandidateWindowHandler := connect.NewUnaryHandler(
@@ -777,6 +806,8 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryInferReceiptHandler.ServeHTTP(w, r)
 		case QueryWorkerEvidenceProcedure:
 			queryWorkerEvidenceHandler.ServeHTTP(w, r)
+		case QueryVerifierValueEvidenceProcedure:
+			queryVerifierValueEvidenceHandler.ServeHTTP(w, r)
 		case QueryVerifierCandidateWindowProcedure:
 			queryVerifierCandidateWindowHandler.ServeHTTP(w, r)
 		case QueryVerifierAssignmentProcedure:
@@ -858,6 +889,10 @@ func (UnimplementedQueryHandler) InferReceipt(context.Context, *connect.Request[
 
 func (UnimplementedQueryHandler) WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.WorkerEvidence is not implemented"))
+}
+
+func (UnimplementedQueryHandler) VerifierValueEvidence(context.Context, *connect.Request[v1.QueryVerifierValueEvidenceRequest]) (*connect.Response[v1.QueryVerifierValueEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.VerifierValueEvidence is not implemented"))
 }
 
 func (UnimplementedQueryHandler) VerifierCandidateWindow(context.Context, *connect.Request[v1.QueryVerifierCandidateWindowRequest]) (*connect.Response[v1.QueryVerifierCandidateWindowResponse], error) {

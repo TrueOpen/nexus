@@ -42,14 +42,14 @@ type GenesisState struct {
 	VerifierAssignments     []*VerifierAssignmentState     `protobuf:"bytes,26,rep,name=verifier_assignments,json=verifierAssignments,proto3" json:"verifier_assignments,omitempty"`
 	Commits                 []*CommitState                 `protobuf:"bytes,27,rep,name=commits,proto3" json:"commits,omitempty"`
 	ResultReceipts          []*ResultReceiptState          `protobuf:"bytes,28,rep,name=result_receipts,json=resultReceipts,proto3" json:"result_receipts,omitempty"`
-	// Handraise / candidate freeze rows (§4.2/§4.6).
+	// Handraise / candidate freeze rows.
 	TaskCandidateFacts              []*TaskCandidateFactState              `protobuf:"bytes,32,rep,name=task_candidate_facts,json=taskCandidateFacts,proto3" json:"task_candidate_facts,omitempty"`
 	BuilderStageProposals           []*BuilderStageProposalState           `protobuf:"bytes,33,rep,name=builder_stage_proposals,json=builderStageProposals,proto3" json:"builder_stage_proposals,omitempty"`
 	TaskStageHandraiseUnions        []*TaskStageHandraiseUnionState        `protobuf:"bytes,34,rep,name=task_stage_handraise_unions,json=taskStageHandraiseUnions,proto3" json:"task_stage_handraise_unions,omitempty"`
 	TaskStageHandraiseUnionSegments []*TaskStageHandraiseUnionSegmentState `protobuf:"bytes,35,rep,name=task_stage_handraise_union_segments,json=taskStageHandraiseUnionSegments,proto3" json:"task_stage_handraise_union_segments,omitempty"`
 	TaskCandidateFinalizeCursors    []*TaskCandidateFinalizeCursorState    `protobuf:"bytes,36,rep,name=task_candidate_finalize_cursors,json=taskCandidateFinalizeCursors,proto3" json:"task_candidate_finalize_cursors,omitempty"`
 	TaskBuilderSelections           []*TaskBuilderSelectionState           `protobuf:"bytes,37,rep,name=task_builder_selections,json=taskBuilderSelections,proto3" json:"task_builder_selections,omitempty"`
-	// Verifier window and verification rows (§4.4/§6.6).
+	// Verifier window and verification rows.
 	VerifierCandidateWindows             []*VerifierCandidateWindowState             `protobuf:"bytes,38,rep,name=verifier_candidate_windows,json=verifierCandidateWindows,proto3" json:"verifier_candidate_windows,omitempty"`
 	VerifierCandidateEligibilitySegments []*VerifierCandidateEligibilitySegmentState `protobuf:"bytes,39,rep,name=verifier_candidate_eligibility_segments,json=verifierCandidateEligibilitySegments,proto3" json:"verifier_candidate_eligibility_segments,omitempty"`
 	VerifierCandidateWindowMembers       []*VerifierCandidateWindowMemberState       `protobuf:"bytes,46,rep,name=verifier_candidate_window_members,json=verifierCandidateWindowMembers,proto3" json:"verifier_candidate_window_members,omitempty"`
@@ -57,7 +57,7 @@ type GenesisState struct {
 	BuilderDataUnavailableAggregates     []*BuilderDataUnavailableAggregateState     `protobuf:"bytes,49,rep,name=builder_data_unavailable_aggregates,json=builderDataUnavailableAggregates,proto3" json:"builder_data_unavailable_aggregates,omitempty"`
 	TaskFailureClasses                   []*TaskFailureClassState                    `protobuf:"bytes,42,rep,name=task_failure_classes,json=taskFailureClasses,proto3" json:"task_failure_classes,omitempty"`
 	// Governance parameter bucket references; task_ref_count is recomputed in
-	// x/hub from these rows and a mismatch is rejected (§6.7).
+	// x/hub from these rows and a mismatch is rejected.
 	TaskBucketRefs                  []*TaskBucketRefState                  `protobuf:"bytes,59,rep,name=task_bucket_refs,json=taskBucketRefs,proto3" json:"task_bucket_refs,omitempty"`
 	TaskCleanupCursors              []*TaskCleanupCursorState              `protobuf:"bytes,60,rep,name=task_cleanup_cursors,json=taskCleanupCursors,proto3" json:"task_cleanup_cursors,omitempty"`
 	TaskTerminalSummaries           []*TaskTerminalSummaryState            `protobuf:"bytes,61,rep,name=task_terminal_summaries,json=taskTerminalSummaries,proto3" json:"task_terminal_summaries,omitempty"`

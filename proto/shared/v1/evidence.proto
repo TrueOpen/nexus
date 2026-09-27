@@ -12,7 +12,7 @@ enum EvidenceKind {
   // Never written; rejects an unset requirement or commitment.
   // EVIDENCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
   EVIDENCE_KIND_UNSPECIFIED = 0;
-  // Selected Worker four-artifact opening folded by WorkerValueCommitmentV2.
+  // Selected Worker B-level value-tree opening.
   // EVIDENCE_KIND_WORKER_VALUE_OPENING identifies the corresponding protocol value.
   EVIDENCE_KIND_WORKER_VALUE_OPENING = 1;
   // Selected Verifier value and metric opening.
@@ -21,6 +21,8 @@ enum EvidenceKind {
   // Settlement duty Builder opening against task_evidence_root.
   // EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING identifies the corresponding protocol value.
   EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING = 3;
+  // Selected Worker A-level input and generated token-ID opening.
+  EVIDENCE_KIND_WORKER_TOKEN_OPENING = 4;
 }
 
 // InferEvidenceRequirementV1 freezes one evidence kind required from the

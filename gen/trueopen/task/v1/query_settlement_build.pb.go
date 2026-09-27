@@ -547,7 +547,7 @@ func (x *QueryResultReceiptResponse) GetReceipt() *ResultReceiptState {
 }
 
 // QueryDataUnavailableReportsRequest pages one (task, round) report list.
-// The §16.1 pagination wire now lives in exactly one
+// This contract pagination wire now lives in exactly one
 // place, shared/v1/query_page.proto, so this RPC can finally be declared.
 // QueryDataUnavailableReportsRequest defines the QueryDataUnavailableReportsRequest wire type.
 type QueryDataUnavailableReportsRequest struct {

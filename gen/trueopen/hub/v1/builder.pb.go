@@ -253,6 +253,55 @@ func (BuilderSetPrunePhase) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_builder_proto_rawDescGZIP(), []int{3}
 }
 
+// BuilderSetModeV1 is the closed set of Builder-set operating modes.
+type BuilderSetModeV1 int32
+
+const (
+	// Unset; rejected.
+	BuilderSetModeV1_BUILDER_SET_MODE_V1_UNSPECIFIED BuilderSetModeV1 = 0
+	// Phase 0 uses the governance-managed fixed Builder set.
+	BuilderSetModeV1_BUILDER_SET_MODE_V1_GOVERNED_FIXED_V1 BuilderSetModeV1 = 1
+)
+
+// Enum value maps for BuilderSetModeV1.
+var (
+	BuilderSetModeV1_name = map[int32]string{
+		0: "BUILDER_SET_MODE_V1_UNSPECIFIED",
+		1: "BUILDER_SET_MODE_V1_GOVERNED_FIXED_V1",
+	}
+	BuilderSetModeV1_value = map[string]int32{
+		"BUILDER_SET_MODE_V1_UNSPECIFIED":       0,
+		"BUILDER_SET_MODE_V1_GOVERNED_FIXED_V1": 1,
+	}
+)
+
+func (x BuilderSetModeV1) Enum() *BuilderSetModeV1 {
+	p := new(BuilderSetModeV1)
+	*p = x
+	return p
+}
+
+func (x BuilderSetModeV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BuilderSetModeV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_hub_v1_builder_proto_enumTypes[4].Descriptor()
+}
+
+func (BuilderSetModeV1) Type() protoreflect.EnumType {
+	return &file_hub_v1_builder_proto_enumTypes[4]
+}
+
+func (x BuilderSetModeV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BuilderSetModeV1.Descriptor instead.
+func (BuilderSetModeV1) EnumDescriptor() ([]byte, []int) {
+	return file_hub_v1_builder_proto_rawDescGZIP(), []int{4}
+}
+
 // BuilderState is the stable Builder identity and current service binding.
 // Phase 0 registration creates only this identity and its descriptor; it does
 // not create admission, bond, score, term, or set membership.
@@ -461,11 +510,10 @@ func (x *BuilderAdmissionState) GetUpdatedHeight() uint64 {
 }
 
 // CurrentBuilderSetState is the singleton pointer to the governed fixed set.
-// mode is the exact literal GOVERNED_FIXED_V1 in Phase 0.
 // CurrentBuilderSetState defines the CurrentBuilderSetState wire type.
 type CurrentBuilderSetState struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Mode                  string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
+	Mode                  BuilderSetModeV1       `protobuf:"varint,1,opt,name=mode,proto3,enum=hub.v1.BuilderSetModeV1" json:"mode,omitempty"`
 	BuilderSetVersion     uint64                 `protobuf:"varint,2,opt,name=builder_set_version,json=builderSetVersion,proto3" json:"builder_set_version,omitempty"`
 	BuilderSetId          string                 `protobuf:"bytes,3,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
 	BuilderSetHash        []byte                 `protobuf:"bytes,4,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
@@ -505,11 +553,11 @@ func (*CurrentBuilderSetState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_builder_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CurrentBuilderSetState) GetMode() string {
+func (x *CurrentBuilderSetState) GetMode() BuilderSetModeV1 {
 	if x != nil {
 		return x.Mode
 	}
-	return ""
+	return BuilderSetModeV1_BUILDER_SET_MODE_V1_UNSPECIFIED
 }
 
 func (x *CurrentBuilderSetState) GetBuilderSetVersion() uint64 {
@@ -1399,9 +1447,9 @@ const file_hub_v1_builder_proto_rawDesc = "" +
 	"\x1bcurrent_builder_set_version\x18\x03 \x01(\x04R\x18currentBuilderSetVersion\x121\n" +
 	"\x12source_proposal_id\x18\x04 \x01(\x04H\x00R\x10sourceProposalId\x88\x01\x01\x12%\n" +
 	"\x0eupdated_height\x18\x05 \x01(\x04R\rupdatedHeightB\x15\n" +
-	"\x13_source_proposal_id\"\x90\x02\n" +
-	"\x16CurrentBuilderSetState\x12\x12\n" +
-	"\x04mode\x18\x01 \x01(\tR\x04mode\x12.\n" +
+	"\x13_source_proposal_id\"\xaa\x02\n" +
+	"\x16CurrentBuilderSetState\x12,\n" +
+	"\x04mode\x18\x01 \x01(\x0e2\x18.hub.v1.BuilderSetModeV1R\x04mode\x12.\n" +
 	"\x13builder_set_version\x18\x02 \x01(\x04R\x11builderSetVersion\x12$\n" +
 	"\x0ebuilder_set_id\x18\x03 \x01(\tR\fbuilderSetId\x12(\n" +
 	"\x10builder_set_hash\x18\x04 \x01(\fR\x0ebuilderSetHash\x127\n" +
@@ -1502,7 +1550,10 @@ const file_hub_v1_builder_proto_rawDesc = "" +
 	"\x14BuilderSetPrunePhase\x12'\n" +
 	"#BUILDER_SET_PRUNE_PHASE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cBUILDER_SET_PRUNE_PHASE_BODY\x10\x01\x12\"\n" +
-	"\x1eBUILDER_SET_PRUNE_PHASE_HEADER\x10\x02B5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\x1eBUILDER_SET_PRUNE_PHASE_HEADER\x10\x02*b\n" +
+	"\x10BuilderSetModeV1\x12#\n" +
+	"\x1fBUILDER_SET_MODE_V1_UNSPECIFIED\x10\x00\x12)\n" +
+	"%BUILDER_SET_MODE_V1_GOVERNED_FIXED_V1\x10\x01B5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var (
 	file_hub_v1_builder_proto_rawDescOnce sync.Once
@@ -1516,41 +1567,43 @@ func file_hub_v1_builder_proto_rawDescGZIP() []byte {
 	return file_hub_v1_builder_proto_rawDescData
 }
 
-var file_hub_v1_builder_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_hub_v1_builder_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_hub_v1_builder_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_hub_v1_builder_proto_goTypes = []any{
 	(BuilderStatus)(0),                        // 0: hub.v1.BuilderStatus
 	(BuilderFaultKind)(0),                     // 1: hub.v1.BuilderFaultKind
 	(BuilderFaultStatus)(0),                   // 2: hub.v1.BuilderFaultStatus
 	(BuilderSetPrunePhase)(0),                 // 3: hub.v1.BuilderSetPrunePhase
-	(*BuilderState)(nil),                      // 4: hub.v1.BuilderState
-	(*BuilderAdmissionState)(nil),             // 5: hub.v1.BuilderAdmissionState
-	(*CurrentBuilderSetState)(nil),            // 6: hub.v1.CurrentBuilderSetState
-	(*BuilderSetPendingReplacementState)(nil), // 7: hub.v1.BuilderSetPendingReplacementState
-	(*BuilderSetState)(nil),                   // 8: hub.v1.BuilderSetState
-	(*BuilderSetReplacementIndex)(nil),        // 9: hub.v1.BuilderSetReplacementIndex
-	(*BuilderSetByIDIndex)(nil),               // 10: hub.v1.BuilderSetByIDIndex
-	(*BuilderSetByHeightIndex)(nil),           // 11: hub.v1.BuilderSetByHeightIndex
-	(*BuilderSetTaskRefState)(nil),            // 12: hub.v1.BuilderSetTaskRefState
-	(*BuilderSetPruneIndex)(nil),              // 13: hub.v1.BuilderSetPruneIndex
-	(*BuilderFaultState)(nil),                 // 14: hub.v1.BuilderFaultState
-	(*BuilderFaultPruneIndex)(nil),            // 15: hub.v1.BuilderFaultPruneIndex
-	(*ReplaceBuilderSetV1)(nil),               // 16: hub.v1.ReplaceBuilderSetV1
-	(ServiceKeyStatus)(0),                     // 17: hub.v1.ServiceKeyStatus
-	(v1.StoredBodyStatus)(0),                  // 18: shared.v1.StoredBodyStatus
+	(BuilderSetModeV1)(0),                     // 4: hub.v1.BuilderSetModeV1
+	(*BuilderState)(nil),                      // 5: hub.v1.BuilderState
+	(*BuilderAdmissionState)(nil),             // 6: hub.v1.BuilderAdmissionState
+	(*CurrentBuilderSetState)(nil),            // 7: hub.v1.CurrentBuilderSetState
+	(*BuilderSetPendingReplacementState)(nil), // 8: hub.v1.BuilderSetPendingReplacementState
+	(*BuilderSetState)(nil),                   // 9: hub.v1.BuilderSetState
+	(*BuilderSetReplacementIndex)(nil),        // 10: hub.v1.BuilderSetReplacementIndex
+	(*BuilderSetByIDIndex)(nil),               // 11: hub.v1.BuilderSetByIDIndex
+	(*BuilderSetByHeightIndex)(nil),           // 12: hub.v1.BuilderSetByHeightIndex
+	(*BuilderSetTaskRefState)(nil),            // 13: hub.v1.BuilderSetTaskRefState
+	(*BuilderSetPruneIndex)(nil),              // 14: hub.v1.BuilderSetPruneIndex
+	(*BuilderFaultState)(nil),                 // 15: hub.v1.BuilderFaultState
+	(*BuilderFaultPruneIndex)(nil),            // 16: hub.v1.BuilderFaultPruneIndex
+	(*ReplaceBuilderSetV1)(nil),               // 17: hub.v1.ReplaceBuilderSetV1
+	(ServiceKeyStatus)(0),                     // 18: hub.v1.ServiceKeyStatus
+	(v1.StoredBodyStatus)(0),                  // 19: shared.v1.StoredBodyStatus
 }
 var file_hub_v1_builder_proto_depIdxs = []int32{
-	17, // 0: hub.v1.BuilderState.current_service_key_status:type_name -> hub.v1.ServiceKeyStatus
+	18, // 0: hub.v1.BuilderState.current_service_key_status:type_name -> hub.v1.ServiceKeyStatus
 	0,  // 1: hub.v1.BuilderAdmissionState.status:type_name -> hub.v1.BuilderStatus
-	18, // 2: hub.v1.BuilderSetState.body_status:type_name -> shared.v1.StoredBodyStatus
-	3,  // 3: hub.v1.BuilderSetPruneIndex.phase:type_name -> hub.v1.BuilderSetPrunePhase
-	1,  // 4: hub.v1.BuilderFaultState.fault_kind:type_name -> hub.v1.BuilderFaultKind
-	2,  // 5: hub.v1.BuilderFaultState.fault_status:type_name -> hub.v1.BuilderFaultStatus
-	6,  // [6:6] is the sub-list for method output_type
-	6,  // [6:6] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	4,  // 2: hub.v1.CurrentBuilderSetState.mode:type_name -> hub.v1.BuilderSetModeV1
+	19, // 3: hub.v1.BuilderSetState.body_status:type_name -> shared.v1.StoredBodyStatus
+	3,  // 4: hub.v1.BuilderSetPruneIndex.phase:type_name -> hub.v1.BuilderSetPrunePhase
+	1,  // 5: hub.v1.BuilderFaultState.fault_kind:type_name -> hub.v1.BuilderFaultKind
+	2,  // 6: hub.v1.BuilderFaultState.fault_status:type_name -> hub.v1.BuilderFaultStatus
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_builder_proto_init() }
@@ -1566,7 +1619,7 @@ func file_hub_v1_builder_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_builder_proto_rawDesc), len(file_hub_v1_builder_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,

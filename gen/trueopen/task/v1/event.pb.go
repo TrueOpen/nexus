@@ -23,7 +23,7 @@ const (
 )
 
 // RevealPhaseTrigger identifies why the reveal phase started. Values are the
-// §9.6b registry values; the previous ALL_COMMITTED / DEADLINE spellings are
+// registered values; the previous ALL_COMMITTED / DEADLINE spellings are
 // replaced by the registered names.
 // RevealPhaseTrigger defines the RevealPhaseTrigger wire type.
 type RevealPhaseTrigger int32
@@ -291,26 +291,10 @@ func (x *EventRevealPhaseStarted) GetTrigger() RevealPhaseTrigger {
 // EventTaskFailureClassUpdated is event code 9, emitted once when the final
 // failure class is first written or replaced by a challenge.
 //
-// CONTRACT-GAP: classification_source uses the 4-value §9.6b
-// FailureClassificationSource, which is the sole numeric authority and the type
-// this event row references. The data-structure contract
-// describe seven finer-grained sources with no numbers
-// (VERIFY_OPEN_DEADLINE / COMMIT_DEADLINE / VERIFY_DEADLINE / SETTLEMENT_VERDICT /
-// DATA_UNAVAILABLE_REPORT_THRESHOLD / CHALLENGE_OUTCOME / MANUAL_CORRECTION), so
-// the finer source cannot be encoded and it feeds the
-// TRUEOPEN_CLASSIFICATION_EVIDENCE_DIGEST_V1 cross-language vector.
-//
-// RULING 31 (user, unblock round): four values stand. §9.6b is the self-declared
-// sole numeric authority and this event - code 9 - already encodes the field with
-// those numbers, so the enum is confirmed as-is rather than renumbered; changing it
-// now would be a second breaking change for consumers that already pulled it. The
-// seven §6.6 names become descriptive prose, and the mapping table is backfilled
-// into the monorepo documentation. Because classification_source enters the
-// TRUEOPEN_CLASSIFICATION_EVIDENCE_DIGEST_V1 preimage as uint32_be (§10.12), the four
-// numbers are now consensus-frozen: a cross-language implementation must encode
-// exactly the §9.6b value and must never widen the enum to carry a finer reason. The
-// single normative record of this ruling, including which of the seven names map
-// unambiguously, is on TaskFailureClassState in task/v1/settlement.proto.
+// classification_source uses the four-value FailureClassificationSource enum.
+// Its uint32 value enters TRUEOPEN_CLASSIFICATION_EVIDENCE_DIGEST_V1 and cannot
+// be replaced by a finer local reason. The mapping from detailed causes is
+// defined on TaskFailureClassState in task/v1/settlement.proto.
 // EventTaskFailureClassUpdated defines the EventTaskFailureClassUpdated wire type.
 type EventTaskFailureClassUpdated struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -1075,6 +1059,12 @@ func (x *EventCommitAccepted) GetCommitHash() []byte {
 
 // EventResultAccepted is event code 17, emitted once per first accepted
 // ResultReceipt, with the same batch rule as code 16.
+//
+// The event carries verifier_value_root, the value the accepted commit was
+// opened with, because that is now what the commitment binds. It no longer
+// carries result_payload_hash: that digest is only the reveal's integrity check
+// and stays readable through QueryResultReceipt. Field 6 held it and is reserved
+// rather than reused for a value with a different meaning.
 // EventResultAccepted defines the EventResultAccepted wire type.
 type EventResultAccepted struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
@@ -1083,7 +1073,7 @@ type EventResultAccepted struct {
 	VerifyRound                uint32                 `protobuf:"varint,3,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	Verifier                   string                 `protobuf:"bytes,4,opt,name=verifier,proto3" json:"verifier,omitempty"`
 	ResultReceiptSigningDigest []byte                 `protobuf:"bytes,5,opt,name=result_receipt_signing_digest,json=resultReceiptSigningDigest,proto3" json:"result_receipt_signing_digest,omitempty"`
-	ResultPayloadHash          []byte                 `protobuf:"bytes,6,opt,name=result_payload_hash,json=resultPayloadHash,proto3" json:"result_payload_hash,omitempty"`
+	VerifierValueRoot          []byte                 `protobuf:"bytes,7,opt,name=verifier_value_root,json=verifierValueRoot,proto3" json:"verifier_value_root,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1153,9 +1143,9 @@ func (x *EventResultAccepted) GetResultReceiptSigningDigest() []byte {
 	return nil
 }
 
-func (x *EventResultAccepted) GetResultPayloadHash() []byte {
+func (x *EventResultAccepted) GetVerifierValueRoot() []byte {
 	if x != nil {
-		return x.ResultPayloadHash
+		return x.VerifierValueRoot
 	}
 	return nil
 }
@@ -2054,7 +2044,7 @@ func (x *EventWorkerEvidenceAccepted) GetAcceptedHeight() uint64 {
 }
 
 // EventVerifierHandraisesAccepted is event code 34, emitted once per proposal
-// that added at least one verifier candidate and committed. §5.11 code 34 carries
+// that added at least one verifier candidate and committed. Code 34 carries
 // no session_id.
 // EventVerifierHandraisesAccepted defines the EventVerifierHandraisesAccepted wire type.
 type EventVerifierHandraisesAccepted struct {
@@ -2204,7 +2194,7 @@ func (x *EventTaskParamsUpdated) GetParamsHash() []byte {
 	return nil
 }
 
-// TaskProtocolEventPayloadV1 is the Task-owned half of the §5.11 payload oneof.
+// TaskProtocolEventPayloadV1 is the Task-owned half of the protocol event payload oneof.
 // Each member's field number equals its shared.v1.ProtocolEventCodeV1 value,
 // exactly like hub.v1.ProtocolEventPayloadV1 does for Hub-owned codes.
 // TaskProtocolEventPayloadV1 defines the TaskProtocolEventPayloadV1 wire type.
@@ -2751,7 +2741,7 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\fverify_round\x18\x03 \x01(\rR\vverifyRound\x12\x1a\n" +
 	"\bverifier\x18\x04 \x01(\tR\bverifier\x12\x1f\n" +
 	"\vcommit_hash\x18\x05 \x01(\fR\n" +
-	"commitHash\"\xff\x01\n" +
+	"commitHash\"\x9a\x02\n" +
 	"\x13EventResultAccepted\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
@@ -2759,7 +2749,7 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\fverify_round\x18\x03 \x01(\rR\vverifyRound\x12\x1a\n" +
 	"\bverifier\x18\x04 \x01(\tR\bverifier\x12A\n" +
 	"\x1dresult_receipt_signing_digest\x18\x05 \x01(\fR\x1aresultReceiptSigningDigest\x12.\n" +
-	"\x13result_payload_hash\x18\x06 \x01(\fR\x11resultPayloadHash\"\xd6\x04\n" +
+	"\x13verifier_value_root\x18\a \x01(\fR\x11verifierValueRootJ\x04\b\x06\x10\aR\x13result_payload_hash\"\xd6\x04\n" +
 	"\x10EventTaskSettled\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +

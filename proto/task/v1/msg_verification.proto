@@ -2,6 +2,7 @@ syntax = "proto3";
 package task.v1;
 
 import "shared/v1/common.proto";
+import "shared/v1/evidence.proto";
 import "task/v1/commit.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
@@ -39,7 +40,7 @@ message BatchItemResultV1 {
 // h_assignment_due) before beacon A is knowable.
 // MsgSubmitInferReceipt defines the MsgSubmitInferReceipt wire type.
 message MsgSubmitInferReceipt {
-  InferReceiptV2 receipt = 1;
+  InferReceiptV3 receipt = 1;
   string submitter_address = 2;
 }
 
@@ -68,6 +69,21 @@ message MsgSubmitWorkerEvidenceResponse {
   bytes evidence_digest = 3;
   bytes fault_id = 4;
   shared.v1.MutationStatusV1 status = 5;
+}
+
+// MsgSubmitVerifierValueEvidence is registered but NOT_SUPPORTED before the
+// separately defined value-evidence activation. The handler returns
+// ERR_NOT_ACTIVATED without decoding evidence or writing state.
+message MsgSubmitVerifierValueEvidence {
+  bytes evidence_bytes = 1;
+  string submitter_address = 2;
+}
+
+// MsgSubmitVerifierValueEvidenceResponse is reserved for an activated receipt.
+message MsgSubmitVerifierValueEvidenceResponse {
+  bytes evidence_digest = 1;
+  bytes fault_id = 2;
+  shared.v1.MutationStatusV1 status = 3;
 }
 
 // MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
@@ -112,9 +128,9 @@ message MsgSubmitVerifierHandraisesResponse {
 
 // MsgReportDataUnavailable lets a selected verifier report on chain that the fixed
 // Task Builders did not deliver a complete, commitment-checked input/output/
-// required-evidence set before the commit deadline (the API contract,
-// §10.5). There is no relay path: the Cosmos Tx signer must be the current service
-// address of a selected verifier operator for this round. chain_id, the stable
+// required-evidence set before the commit deadline. There is no relay path: the
+// Cosmos Tx signer must be the current service address of a selected verifier
+// operator for this round. chain_id, the stable
 // operator and the current service binding version are derived by the Keeper, and
 // no detached signature from the same service key is accepted.
 //
@@ -123,11 +139,26 @@ message MsgSubmitVerifierHandraisesResponse {
 // are not accepted as fields. One canonical report per (task, round, verifier); an
 // identical repeat is a noop and the bitmap can never be rewritten.
 // MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
+// DataUnavailableReasonV1 reserves the report reason for the later evidence window.
+enum DataUnavailableReasonV1 {
+  // No reason is selected by the pre-upgrade report contract.
+  DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED = 0;
+  // The required Builder data set was unavailable before commit deadline.
+  DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE = 1;
+  // Reserved for the later Worker evidence-invalid report flow.
+  DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID = 2;
+}
+
+// MsgReportDataUnavailable records one selected Verifier availability report.
 message MsgReportDataUnavailable {
   bytes task_id = 1;
   uint32 verify_round = 2;
   bytes unavailable_task_builder_bitmap = 3;
   string submitter_address = 4;
+  // Before the evidence-window upgrade, kind is UNSPECIFIED and reason is
+  // UNSPECIFIED or BUILDER_UNAVAILABLE; neither enters the V1 report digest.
+  shared.v1.EvidenceKind evidence_kind = 5;
+  DataUnavailableReasonV1 reason = 6;
 }
 
 // MsgReportDataUnavailableResponse returns the canonical report digest.
@@ -182,7 +213,7 @@ message MsgBatchSubmitVerifyCommitResponse {
 // the same verifier operator's current Cortex service address.
 // MsgSubmitVerifyResult defines the MsgSubmitVerifyResult wire type.
 message MsgSubmitVerifyResult {
-  ResultReceiptV2 receipt = 1;
+  ResultReceiptV3 receipt = 1;
   string submitter_address = 2;
 }
 
@@ -200,7 +231,7 @@ message MsgSubmitVerifyResultResponse {
 // batch; the outer Cosmos signer is the current Builder service address.
 // MsgBatchSubmitVerifyResult defines the MsgBatchSubmitVerifyResult wire type.
 message MsgBatchSubmitVerifyResult {
-  repeated ResultReceiptV2 receipts = 1;
+  repeated ResultReceiptV3 receipts = 1;
   string submitter_address = 2;
 }
 

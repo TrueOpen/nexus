@@ -57,11 +57,11 @@ message GenesisState {
   repeated CortexNodeState cortex_nodes = 12;
   repeated ServiceBondState service_bonds = 13;
   repeated UnbondingState service_unbondings = 14;
-  repeated ProfileCapabilityState profile_capabilities = 15;
+  repeated ModelCapabilityState model_capabilities = 15;
   repeated ModelSupportState model_supports = 16;
   repeated DailySupportState daily_supports = 17;
   repeated UnbondingReceiptState service_unbonding_receipts = 18;
-  repeated SupportDeactivateCursorState support_deactivate_cursors = 19;
+  repeated ModelSupportRecheckCursorState model_support_recheck_cursors = 19;
 
   repeated BuilderState builders = 20;
   repeated BuilderSetState builder_sets = 21;
@@ -75,7 +75,7 @@ message GenesisState {
 
   // Jail and tombstone facts are operator-global counters on ServiceBondState
   // (status / jail_count / normal_action_count_since_jail) per
-  // the data-structure contract, so there is no separate jail or tombstone
+  // the wire storage model, so there is no separate jail or tombstone
   // collection to export.
   repeated RoleFaultState role_faults = 30;
   repeated SlashSummaryState slash_summaries = 31;
@@ -84,7 +84,7 @@ message GenesisState {
   TreasuryState treasury = 33;
   repeated TreasurySpendReceiptState treasury_spend_receipts = 34;
 
-  // Versioned TimeoutBucket governance rows (§6.7). Bodies plus the at most one
+  // Versioned TimeoutBucket governance rows. Bodies plus the at most one
   // current and one pending pointer per (kind, key); task_ref_count is
   // recomputed from the Task module's surviving refs and a mismatch is rejected.
   repeated ParameterBucketVersionState parameter_bucket_versions = 35;
@@ -115,7 +115,7 @@ message GenesisState {
   repeated FreezeSignalBuildCursorState freeze_signal_build_cursors = 73;
   repeated FreezeSignalByWindowIndex freeze_signal_window_bindings = 74;
 
-  // Global CandidatePool primaries (§3.2/§3.3). The two singletons are the
+  // Global CandidatePool primaries. The two singletons are the
   // build status and the current pool pointer; OperatorCandidateSlotState and
   // every CandidatePool index are rebuilt from these rows and double-checked,
   // never trusted from the import.

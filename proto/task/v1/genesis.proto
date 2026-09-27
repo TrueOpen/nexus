@@ -40,7 +40,7 @@ message GenesisState {
   repeated CommitState commits = 27;
   repeated ResultReceiptState result_receipts = 28;
 
-  // Handraise / candidate freeze rows (§4.2/§4.6).
+  // Handraise / candidate freeze rows.
   repeated TaskCandidateFactState task_candidate_facts = 32;
   repeated BuilderStageProposalState builder_stage_proposals = 33;
   repeated TaskStageHandraiseUnionState task_stage_handraise_unions = 34;
@@ -48,7 +48,7 @@ message GenesisState {
   repeated TaskCandidateFinalizeCursorState task_candidate_finalize_cursors = 36;
   repeated TaskBuilderSelectionState task_builder_selections = 37;
 
-  // Verifier window and verification rows (§4.4/§6.6).
+  // Verifier window and verification rows.
   repeated VerifierCandidateWindowState verifier_candidate_windows = 38;
   repeated VerifierCandidateEligibilitySegmentState verifier_candidate_eligibility_segments = 39;
   repeated VerifierCandidateWindowMemberState verifier_candidate_window_members = 46;
@@ -58,7 +58,7 @@ message GenesisState {
   repeated TaskFailureClassState task_failure_classes = 42;
 
   // Governance parameter bucket references; task_ref_count is recomputed in
-  // x/hub from these rows and a mismatch is rejected (§6.7).
+  // x/hub from these rows and a mismatch is rejected.
   repeated TaskBucketRefState task_bucket_refs = 59;
   repeated TaskCleanupCursorState task_cleanup_cursors = 60;
   repeated TaskTerminalSummaryState task_terminal_summaries = 61;

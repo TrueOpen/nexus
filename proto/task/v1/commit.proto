@@ -6,9 +6,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // CommitStatusV1 is the lifecycle of one accepted verifier commit row.
 //
-// CONTRACT-GAP: the data-structure contract declares CommitState.status =
-// ACCEPTED as the only value, and the API contract does not register this
-// enum. The single non-zero value below is exactly what the frozen schema names.
+// ACCEPTED is the only nonzero CommitState status in this schema.
 // CommitStatusV1 defines the CommitStatusV1 wire type.
 enum CommitStatusV1 {
   // Never written; rejects zero-value rows.
@@ -31,20 +29,19 @@ enum CommitStatusV1 {
 //
 // commit_hash must be a canonical 32-byte SHA-256 value produced by
 //
-//   commit_hash = H_FIELDS_V1("TRUEOPEN_RESULT_COMMITMENT_V2", chain_id, task_id,
-//     task_hash, verify_round, verifier_operator_address, result_payload_hash,
+//   commit_hash = H_FIELDS_V1("TRUEOPEN_RESULT_COMMITMENT_V3", chain_id, task_id,
+//     task_hash, verify_round, verifier_operator_address, verifier_value_root,
 //     salt)
 //
 // Non-canonical placeholder values are rejected at the entry point; there is no
 // "looks like a hash" conditional branch and no optional commitment field.
 //
-// schema_version is 1, the same value as every other §5.14 stage wire and §4.1
+// schema_version is 1, the same value as every other stage wire and every
 // handraise wire. The single normative statement of that value, its derivation and
-// its schema-version rule lives on InferReceiptV2 in task/v1/infer_receipt.proto;
-// this file does not restate them.
+// its schema-version rule is independent of the receipt schema versions.
 // VerifyCommitV1 defines the VerifyCommitV1 wire type.
 message VerifyCommitV1 {
-  // Always 1; InferReceiptV2 alone uses schema version 2.
+  // Always 1; receipt schema versions do not change this commit version.
   uint32 schema_version = 1;
   string chain_id = 2;
   bytes task_id = 3;
@@ -82,4 +79,6 @@ message CommitState {
   bytes signature_digest = 7;
   uint64 commit_height = 8;
   CommitStatusV1 status = 9;
+  // Filled when the accepted result opens the V3 commit; absent beforehand.
+  optional bytes verifier_value_root = 10;
 }

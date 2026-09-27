@@ -710,8 +710,14 @@ type EvidenceLimitParamsV1 struct {
 	MaxOutputMmrLeaves                    uint64                 `protobuf:"varint,9,opt,name=max_output_mmr_leaves,json=maxOutputMmrLeaves,proto3" json:"max_output_mmr_leaves,omitempty"`
 	MinOutputStreamFrameBytes             uint32                 `protobuf:"varint,10,opt,name=min_output_stream_frame_bytes,json=minOutputStreamFrameBytes,proto3" json:"min_output_stream_frame_bytes,omitempty"`
 	MaxWorkerEvidenceBytesV1              uint64                 `protobuf:"varint,11,opt,name=max_worker_evidence_bytes_v1,json=maxWorkerEvidenceBytesV1,proto3" json:"max_worker_evidence_bytes_v1,omitempty"`
-	unknownFields                         protoimpl.UnknownFields
-	sizeCache                             protoimpl.SizeCache
+	// Zero keeps encryption inactive in fresh Phase 0.
+	EncryptionActivationHeight uint64 `protobuf:"varint,12,opt,name=encryption_activation_height,json=encryptionActivationHeight,proto3" json:"encryption_activation_height,omitempty"`
+	// Reserved for the later verifier value-evidence admission upgrade.
+	VerifierValueEvidenceWindowBlocks uint64 `protobuf:"varint,13,opt,name=verifier_value_evidence_window_blocks,json=verifierValueEvidenceWindowBlocks,proto3" json:"verifier_value_evidence_window_blocks,omitempty"`
+	MaxVerifierValueEvidencePositions uint32 `protobuf:"varint,14,opt,name=max_verifier_value_evidence_positions,json=maxVerifierValueEvidencePositions,proto3" json:"max_verifier_value_evidence_positions,omitempty"`
+	MaxVerifierValueEvidenceBytes     uint64 `protobuf:"varint,15,opt,name=max_verifier_value_evidence_bytes,json=maxVerifierValueEvidenceBytes,proto3" json:"max_verifier_value_evidence_bytes,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *EvidenceLimitParamsV1) Reset() {
@@ -810,6 +816,34 @@ func (x *EvidenceLimitParamsV1) GetMinOutputStreamFrameBytes() uint32 {
 func (x *EvidenceLimitParamsV1) GetMaxWorkerEvidenceBytesV1() uint64 {
 	if x != nil {
 		return x.MaxWorkerEvidenceBytesV1
+	}
+	return 0
+}
+
+func (x *EvidenceLimitParamsV1) GetEncryptionActivationHeight() uint64 {
+	if x != nil {
+		return x.EncryptionActivationHeight
+	}
+	return 0
+}
+
+func (x *EvidenceLimitParamsV1) GetVerifierValueEvidenceWindowBlocks() uint64 {
+	if x != nil {
+		return x.VerifierValueEvidenceWindowBlocks
+	}
+	return 0
+}
+
+func (x *EvidenceLimitParamsV1) GetMaxVerifierValueEvidencePositions() uint32 {
+	if x != nil {
+		return x.MaxVerifierValueEvidencePositions
+	}
+	return 0
+}
+
+func (x *EvidenceLimitParamsV1) GetMaxVerifierValueEvidenceBytes() uint64 {
+	if x != nil {
+		return x.MaxVerifierValueEvidenceBytes
 	}
 	return 0
 }
@@ -1358,7 +1392,7 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x14VerificationParamsV1\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x01 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
 	"\x1fresult_reveal_missing_slash_bps\x18\x04 \x01(\rR\x1bresultRevealMissingSlashBps\x125\n" +
-	"\x17builder_fault_slash_bps\x18\x05 \x01(\rR\x14builderFaultSlashBpsJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\x90\x06\n" +
+	"\x17builder_fault_slash_bps\x18\x05 \x01(\rR\x14builderFaultSlashBpsJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\xc0\b\n" +
 	"\x15EvidenceLimitParamsV1\x12A\n" +
 	"\x1dmax_evidence_retention_blocks\x18\x02 \x01(\x04R\x1amaxEvidenceRetentionBlocks\x12Y\n" +
 	"*max_infer_evidence_commitments_per_receipt\x18\x03 \x01(\rR%maxInferEvidenceCommitmentsPerReceipt\x12J\n" +
@@ -1370,7 +1404,11 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x15max_output_mmr_leaves\x18\t \x01(\x04R\x12maxOutputMmrLeaves\x12@\n" +
 	"\x1dmin_output_stream_frame_bytes\x18\n" +
 	" \x01(\rR\x19minOutputStreamFrameBytes\x12>\n" +
-	"\x1cmax_worker_evidence_bytes_v1\x18\v \x01(\x04R\x18maxWorkerEvidenceBytesV1J\x04\b\x01\x10\x02R\x1cmax_full_result_reveal_bytes\"\xdb\x04\n" +
+	"\x1cmax_worker_evidence_bytes_v1\x18\v \x01(\x04R\x18maxWorkerEvidenceBytesV1\x12@\n" +
+	"\x1cencryption_activation_height\x18\f \x01(\x04R\x1aencryptionActivationHeight\x12P\n" +
+	"%verifier_value_evidence_window_blocks\x18\r \x01(\x04R!verifierValueEvidenceWindowBlocks\x12P\n" +
+	"%max_verifier_value_evidence_positions\x18\x0e \x01(\rR!maxVerifierValueEvidencePositions\x12H\n" +
+	"!max_verifier_value_evidence_bytes\x18\x0f \x01(\x04R\x1dmaxVerifierValueEvidenceBytesJ\x04\b\x01\x10\x02R\x1cmax_full_result_reveal_bytes\"\xdb\x04\n" +
 	"\x13TaskCleanupParamsV1\x12E\n" +
 	" max_task_cleanup_items_per_block\x18\x01 \x01(\rR\x1bmaxTaskCleanupItemsPerBlock\x12R\n" +
 	"&task_terminal_summary_retention_blocks\x18\x02 \x01(\x04R\"taskTerminalSummaryRetentionBlocks\x12a\n" +

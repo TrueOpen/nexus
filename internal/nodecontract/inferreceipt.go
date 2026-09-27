@@ -19,21 +19,17 @@ import (
 // TRUEOPEN_EVIDENCE_COMMITMENTS_V1; §1.4 registers the former.
 const DomainInferEvidenceCommitmentsV1 = "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"
 
-// InferReceiptSchemaVersionV2 is the schema_version value of InferReceiptV2. In the Phase 0
-// fresh contract it is the only stage wire with value 2 (wire v0.4.1): the other
-// three §5.14 stage wires and the two §4.1 handraise wires stay at 1, and InferReceiptV1 has
-// neither an alias nor a dual decoder.
+// InferReceiptSchemaVersionV3 is the schema_version value of InferReceiptV3; older receipt schemas
+// have neither an alias nor a dual decoder.
 //
-// The derivation functions do NOT assert schema_version == 2: the frozen-wire guarantee is that
+// The derivation functions do NOT assert schema_version == 3: the frozen-wire guarantee is that
 // "a signer who guesses the wrong value gets a digest the Keeper never accepts", which only holds if the
 // derivation stays total. The equality check is an admission check left to callers (see workerverifier / submitter).
-const InferReceiptSchemaVersionV2 uint32 = 2
+const InferReceiptSchemaVersionV3 uint32 = 3
 
-// ResultReceiptSchemaVersionV2 is the schema_version value of ResultReceiptV2. Like
-// InferReceiptV2 it is 2 in the fresh contract: the V1 receipt's single result_reveal_hash was
-// replaced by three fields verifier_evidence_bundle_hash + manifest size + salt, and the domain
-// moved to TRUEOPEN_RESULT_V2, with no alias and no dual decoder (since wire v0.4.0).
-const ResultReceiptSchemaVersionV2 uint32 = 2
+// ResultReceiptSchemaVersionV3 is the schema_version value of ResultReceiptV3, signed under
+// TRUEOPEN_RESULT_V3.
+const ResultReceiptSchemaVersionV3 uint32 = 3
 
 // evidenceCommitmentFrameBytesV1 is the exact length of one EvidenceCommitmentV1 frame:
 // u64_be(4)||uint32_be(evidence_kind) + u64_be(32)||evidence_hash_or_root +
@@ -76,7 +72,7 @@ func CanonicalEvidenceCommitmentFrameV1(item *taskv1.EvidenceCommitmentV1) ([]by
 	return frame, nil
 }
 
-// EvidenceCommitmentsHash derives the 10th field of the InferReceiptV2 preimage,
+// EvidenceCommitmentsHash derives the 10th field of the InferReceiptV3 preimage,
 // evidence_commitments_hash. It is a Keeper-derived value, NEVER a wire field submitted by the caller
 // (§5.14):
 //
@@ -129,17 +125,19 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 }
 
 // InferReceiptSigningDigest is the single ordered preimage of infer_receipt_signing_digest and
-// infer_receipt_hash; §5.14 writes both as the same equation, so there is no second "application-level hash":
+// infer_receipt_hash; both are the same value, so there is no second "application-level hash":
 //
 //	infer_receipt_hash = infer_receipt_signing_digest =
-//	  H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V1",
+//	  H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V3",
 //	    schema_version, chain_id, task_id, task_hash,
 //	    worker_operator_address, service_authorization_nonce,
 //	    generation_params_digest, output_hash, output_size_bytes,
 //	    evidence_commitments_hash, expiry_height, generated_token_count,
-//	    output_leaf_count)
+//	    output_leaf_count, output_key_commitment, worker_token_key_commitment,
+//	    worker_value_key_commitment, ciphertext_output_root)
 //
-// 13 fields; service_signature (wire field 12) is not among them. The 10th field is not a wire field:
+// 17 fields; service_signature (wire field 12) is not among them. The four key-commitment fields are
+// hashed as sent; ValidatePlaintextInferReceiptV3 is what requires them to be 32 zero bytes. The 10th field is not a wire field:
 // required_evidence_commitments (wire field 10) enters the preimage only through EvidenceCommitmentsHash,
 // so the signature still covers the whole typed list. worker_operator_address is framed as address codec
 // bytes, not bech32 text (ruling 24).
@@ -147,7 +145,7 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 // The returned 32 bytes are the message handed to the strict secp256k1 verifier; consistent with the other
 // nexus domains, signer.VerifySig applies SHA256 once more internally, byte-for-byte identical to Cosmos
 // secp256k1 PubKey.VerifySignature.
-func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV2) ([32]byte, error) {
+func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV3) ([32]byte, error) {
 	if receipt == nil {
 		return [32]byte{}, fmt.Errorf("receipt is required")
 	}
@@ -180,7 +178,7 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV2) ([32]byte, error)
 		return [32]byte{}, err
 	}
 	return CanonicalHashBytes(
-		DomainInferReceiptV2,
+		DomainInferReceiptV3,
 		Uint32BE(receipt.GetSchemaVersion()),
 		chainID,
 		taskID,
@@ -194,14 +192,45 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV2) ([32]byte, error)
 		Uint64BE(receipt.GetExpiryHeight()),
 		Uint64BE(receipt.GetGeneratedTokenCount()),
 		Uint64BE(receipt.GetOutputLeafCount()),
+		receipt.GetOutputKeyCommitment(),
+		receipt.GetWorkerTokenKeyCommitment(),
+		receipt.GetWorkerValueKeyCommitment(),
+		receipt.GetCiphertextOutputRoot(),
 	), nil
 }
 
-// InferReceiptV2FromSubmission converts the Nexus-internal submission object into the frozen-wire
-// task.v1.InferReceiptV2, for the coordinator to build MsgSubmitInferReceipt and for ingress and
+// ValidatePlaintextInferReceiptV3 is the admission rule for a plaintext task: the receipt carries exactly
+// the two Worker commitments (value opening, then token opening, by EvidenceKind value) and all four
+// encryption fields are 32 zero bytes. Empty values are rejected rather than padded: the Keeper hashes
+// the bytes as sent.
+func ValidatePlaintextInferReceiptV3(receipt *taskv1.InferReceiptV3) error {
+	commitments := receipt.GetRequiredEvidenceCommitments()
+	if len(commitments) != 2 ||
+		commitments[0].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING ||
+		commitments[1].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING {
+		return fmt.Errorf("required_evidence_commitments must be exactly WORKER_VALUE_OPENING then WORKER_TOKEN_OPENING")
+	}
+	for _, field := range []struct {
+		name  string
+		value []byte
+	}{
+		{"output_key_commitment", receipt.GetOutputKeyCommitment()},
+		{"worker_token_key_commitment", receipt.GetWorkerTokenKeyCommitment()},
+		{"worker_value_key_commitment", receipt.GetWorkerValueKeyCommitment()},
+		{"ciphertext_output_root", receipt.GetCiphertextOutputRoot()},
+	} {
+		if !IsZeroHash32(field.value) {
+			return fmt.Errorf("%s must be 32 zero bytes for a plaintext task", field.name)
+		}
+	}
+	return nil
+}
+
+// InferReceiptV3FromSubmission converts the Nexus-internal submission object into the frozen-wire
+// task.v1.InferReceiptV3, for the coordinator to build MsgSubmitInferReceipt and for ingress and
 // taskdata to recompute the signing digest. The conversion is a pure mapping: Hash32 is decoded from
 // canonical lowercase 64-hex into raw 32 bytes, evidence kinds become the closed enum, no defaults are filled in and the list is not reordered.
-func InferReceiptV2FromSubmission(receipt types.InferReceiptSubmission) (*taskv1.InferReceiptV2, error) {
+func InferReceiptV3FromSubmission(receipt types.InferReceiptSubmission) (*taskv1.InferReceiptV3, error) {
 	taskID, err := Hash32Bytes("task_id", receipt.TaskID)
 	if err != nil {
 		return nil, err
@@ -210,7 +239,7 @@ func InferReceiptV2FromSubmission(receipt types.InferReceiptSubmission) (*taskv1
 	if err != nil {
 		return nil, err
 	}
-	return &taskv1.InferReceiptV2{
+	return &taskv1.InferReceiptV3{
 		SchemaVersion:               receipt.SchemaVersion,
 		ChainId:                     receipt.ChainID,
 		TaskId:                      taskID,
@@ -225,6 +254,10 @@ func InferReceiptV2FromSubmission(receipt types.InferReceiptSubmission) (*taskv1
 		ServiceSignature:            receipt.WorkerServiceSignature,
 		GeneratedTokenCount:         receipt.GeneratedTokenCount,
 		OutputLeafCount:             receipt.OutputLeafCount,
+		OutputKeyCommitment:         receipt.OutputKeyCommitment,
+		WorkerTokenKeyCommitment:    receipt.WorkerTokenKeyCommitment,
+		WorkerValueKeyCommitment:    receipt.WorkerValueKeyCommitment,
+		CiphertextOutputRoot:        receipt.CiphertextOutputRoot,
 	}, nil
 }
 
@@ -247,21 +280,22 @@ func evidenceCommitmentsFromSubmission(receipt types.InferReceiptSubmission) []*
 	return commitments
 }
 
-// InferReceiptSigningDigestFromSubmission is InferReceiptV2FromSubmission +
+// InferReceiptSigningDigestFromSubmission is InferReceiptV3FromSubmission +
 // InferReceiptSigningDigest combined, so each recomputation site need not repeat the conversion.
 func InferReceiptSigningDigestFromSubmission(receipt types.InferReceiptSubmission) ([32]byte, error) {
-	wire, err := InferReceiptV2FromSubmission(receipt)
+	wire, err := InferReceiptV3FromSubmission(receipt)
 	if err != nil {
 		return [32]byte{}, err
 	}
 	return InferReceiptSigningDigest(wire)
 }
 
-// canonicalEvidenceKind rejects the unspecified and unregistered enum values §1.2 requires to be
-// rejected ("unknown oneof/enum ... reject outright").
+// canonicalEvidenceKind rejects the unspecified and unregistered enum values: an unknown enum value
+// is rejected outright, never hashed.
 func canonicalEvidenceKind(kind sharedv1.EvidenceKind) (uint32, error) {
 	switch kind {
 	case sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING,
+		sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING,
 		sharedv1.EvidenceKind_EVIDENCE_KIND_VERIFIER_VALUE_OPENING,
 		sharedv1.EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING:
 		return uint32(kind), nil

@@ -283,7 +283,7 @@ type SlashSummaryState struct {
 	// Raw Hash32 in both namespaces: the fault_id for ROLE_FAULT, the
 	// challenge_id for CHALLENGE_EFFECT. Never a hex projection.
 	SourceId                 []byte           `protobuf:"bytes,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	EffectIndex              uint64           `protobuf:"varint,4,opt,name=effect_index,json=effectIndex,proto3" json:"effect_index,omitempty"`
+	EffectIndex              uint32           `protobuf:"varint,4,opt,name=effect_index,json=effectIndex,proto3" json:"effect_index,omitempty"`
 	OperatorAddress          string           `protobuf:"bytes,5,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
 	Duty                     v1.Duty          `protobuf:"varint,6,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
 	TaskId                   []byte           `protobuf:"bytes,7,opt,name=task_id,json=taskId,proto3,oneof" json:"task_id,omitempty"`
@@ -353,7 +353,7 @@ func (x *SlashSummaryState) GetSourceId() []byte {
 	return nil
 }
 
-func (x *SlashSummaryState) GetEffectIndex() uint64 {
+func (x *SlashSummaryState) GetEffectIndex() uint32 {
 	if x != nil {
 		return x.EffectIndex
 	}
@@ -484,7 +484,7 @@ const file_hub_v1_fault_proto_rawDesc = "" +
 	"\vsource_kind\x18\x02 \x01(\x0e2\x17.hub.v1.SlashSourceKindR\n" +
 	"sourceKind\x12\x1b\n" +
 	"\tsource_id\x18\x03 \x01(\fR\bsourceId\x12!\n" +
-	"\feffect_index\x18\x04 \x01(\x04R\veffectIndex\x12)\n" +
+	"\feffect_index\x18\x04 \x01(\rR\veffectIndex\x12)\n" +
 	"\x10operator_address\x18\x05 \x01(\tR\x0foperatorAddress\x12#\n" +
 	"\x04duty\x18\x06 \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x12\x1c\n" +
 	"\atask_id\x18\a \x01(\fH\x00R\x06taskId\x88\x01\x01\x12<\n" +

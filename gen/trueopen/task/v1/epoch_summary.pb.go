@@ -26,22 +26,30 @@ const (
 // task summaries whose settlement height belongs to one epoch.
 // EpochTaskSummaryCursorState defines the EpochTaskSummaryCursorState wire type.
 type EpochTaskSummaryCursorState struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	Epoch                     uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	StartHeight               uint64                 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
-	EndHeight                 uint64                 `protobuf:"varint,3,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
-	DueHeight                 uint64                 `protobuf:"varint,4,opt,name=due_height,json=dueHeight,proto3" json:"due_height,omitempty"`
-	LastSettlementHeight      uint64                 `protobuf:"varint,5,opt,name=last_settlement_height,json=lastSettlementHeight,proto3" json:"last_settlement_height,omitempty"`
-	LastTaskId                []byte                 `protobuf:"bytes,6,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"`
-	TaskCount                 uint64                 `protobuf:"varint,7,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
-	ValidTaskCount            uint64                 `protobuf:"varint,8,opt,name=valid_task_count,json=validTaskCount,proto3" json:"valid_task_count,omitempty"`
-	Histogram                 []uint64               `protobuf:"varint,9,rep,packed,name=histogram,proto3" json:"histogram,omitempty"`
-	SupportCandidates         []string               `protobuf:"bytes,10,rep,name=support_candidates,json=supportCandidates,proto3" json:"support_candidates,omitempty"`
-	SupportCandidateSeenCount uint64                 `protobuf:"varint,11,opt,name=support_candidate_seen_count,json=supportCandidateSeenCount,proto3" json:"support_candidate_seen_count,omitempty"`
-	RunningRoot               []byte                 `protobuf:"bytes,12,opt,name=running_root,json=runningRoot,proto3" json:"running_root,omitempty"`
-	VisitedCount              uint64                 `protobuf:"varint,13,opt,name=visited_count,json=visitedCount,proto3" json:"visited_count,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Epoch                uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StartHeight          uint64                 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
+	EndHeight            uint64                 `protobuf:"varint,3,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
+	DueHeight            uint64                 `protobuf:"varint,4,opt,name=due_height,json=dueHeight,proto3" json:"due_height,omitempty"`
+	LastSettlementHeight uint64                 `protobuf:"varint,5,opt,name=last_settlement_height,json=lastSettlementHeight,proto3" json:"last_settlement_height,omitempty"`
+	LastTaskId           []byte                 `protobuf:"bytes,6,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"`
+	TaskCount            uint64                 `protobuf:"varint,7,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
+	ValidTaskCount       uint64                 `protobuf:"varint,8,opt,name=valid_task_count,json=validTaskCount,proto3" json:"valid_task_count,omitempty"`
+	Histogram            []uint64               `protobuf:"varint,9,rep,packed,name=histogram,proto3" json:"histogram,omitempty"`
+	// The runner retains the first bounded set of distinct models encountered in
+	// canonical source order. The retained raw Hash32 identifiers are sorted
+	// into strict ascending byte order before receipt construction. Composite
+	// model/profile strings are invalid.
+	SupportCandidates [][]byte `protobuf:"bytes,10,rep,name=support_candidates,json=supportCandidates,proto3" json:"support_candidates,omitempty"`
+	// Number of valid-task candidate occurrences, including duplicates.
+	SupportCandidateSeenCount uint64 `protobuf:"varint,11,opt,name=support_candidate_seen_count,json=supportCandidateSeenCount,proto3" json:"support_candidate_seen_count,omitempty"`
+	RunningRoot               []byte `protobuf:"bytes,12,opt,name=running_root,json=runningRoot,proto3" json:"running_root,omitempty"`
+	VisitedCount              uint64 `protobuf:"varint,13,opt,name=visited_count,json=visitedCount,proto3" json:"visited_count,omitempty"`
+	// True once either configured bound causes a distinct model to be skipped.
+	// Once set, it remains true for the rest of the fold.
+	SupportCandidatesTruncated bool `protobuf:"varint,14,opt,name=support_candidates_truncated,json=supportCandidatesTruncated,proto3" json:"support_candidates_truncated,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *EpochTaskSummaryCursorState) Reset() {
@@ -137,7 +145,7 @@ func (x *EpochTaskSummaryCursorState) GetHistogram() []uint64 {
 	return nil
 }
 
-func (x *EpochTaskSummaryCursorState) GetSupportCandidates() []string {
+func (x *EpochTaskSummaryCursorState) GetSupportCandidates() [][]byte {
 	if x != nil {
 		return x.SupportCandidates
 	}
@@ -165,24 +173,34 @@ func (x *EpochTaskSummaryCursorState) GetVisitedCount() uint64 {
 	return 0
 }
 
+func (x *EpochTaskSummaryCursorState) GetSupportCandidatesTruncated() bool {
+	if x != nil {
+		return x.SupportCandidatesTruncated
+	}
+	return false
+}
+
 // EpochTaskSummaryReceiptState prevents replay from dispatching an epoch twice
 // and retains the bounded payload plus its complete source commitment.
 // EpochTaskSummaryReceiptState defines the EpochTaskSummaryReceiptState wire type.
 type EpochTaskSummaryReceiptState struct {
-	state                         protoimpl.MessageState `protogen:"open.v1"`
-	Epoch                         uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	StartHeight                   uint64                 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
-	EndHeight                     uint64                 `protobuf:"varint,3,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
-	DueHeight                     uint64                 `protobuf:"varint,4,opt,name=due_height,json=dueHeight,proto3" json:"due_height,omitempty"`
-	DispatchedHeight              uint64                 `protobuf:"varint,5,opt,name=dispatched_height,json=dispatchedHeight,proto3" json:"dispatched_height,omitempty"`
-	Summary                       *v1.EpochTaskSummary   `protobuf:"bytes,6,opt,name=summary,proto3" json:"summary,omitempty"`
-	SourceCount                   uint64                 `protobuf:"varint,7,opt,name=source_count,json=sourceCount,proto3" json:"source_count,omitempty"`
-	SupportCandidateSeenCount     uint64                 `protobuf:"varint,8,opt,name=support_candidate_seen_count,json=supportCandidateSeenCount,proto3" json:"support_candidate_seen_count,omitempty"`
-	RetainedSupportCandidateCount uint32                 `protobuf:"varint,9,opt,name=retained_support_candidate_count,json=retainedSupportCandidateCount,proto3" json:"retained_support_candidate_count,omitempty"`
-	SourceRoot                    []byte                 `protobuf:"bytes,10,opt,name=source_root,json=sourceRoot,proto3" json:"source_root,omitempty"`
-	ReceiptHash                   []byte                 `protobuf:"bytes,11,opt,name=receipt_hash,json=receiptHash,proto3" json:"receipt_hash,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Epoch            uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StartHeight      uint64                 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
+	EndHeight        uint64                 `protobuf:"varint,3,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
+	DueHeight        uint64                 `protobuf:"varint,4,opt,name=due_height,json=dueHeight,proto3" json:"due_height,omitempty"`
+	DispatchedHeight uint64                 `protobuf:"varint,5,opt,name=dispatched_height,json=dispatchedHeight,proto3" json:"dispatched_height,omitempty"`
+	Summary          *v1.EpochTaskSummary   `protobuf:"bytes,6,opt,name=summary,proto3" json:"summary,omitempty"`
+	SourceCount      uint64                 `protobuf:"varint,7,opt,name=source_count,json=sourceCount,proto3" json:"source_count,omitempty"`
+	// Number of valid-task candidate occurrences, including duplicates.
+	SupportCandidateSeenCount     uint64 `protobuf:"varint,8,opt,name=support_candidate_seen_count,json=supportCandidateSeenCount,proto3" json:"support_candidate_seen_count,omitempty"`
+	RetainedSupportCandidateCount uint32 `protobuf:"varint,9,opt,name=retained_support_candidate_count,json=retainedSupportCandidateCount,proto3" json:"retained_support_candidate_count,omitempty"`
+	SourceRoot                    []byte `protobuf:"bytes,10,opt,name=source_root,json=sourceRoot,proto3" json:"source_root,omitempty"`
+	ReceiptHash                   []byte `protobuf:"bytes,11,opt,name=receipt_hash,json=receiptHash,proto3" json:"receipt_hash,omitempty"`
+	// Commits whether either configured bound skipped a distinct model.
+	SupportCandidatesTruncated bool `protobuf:"varint,12,opt,name=support_candidates_truncated,json=supportCandidatesTruncated,proto3" json:"support_candidates_truncated,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *EpochTaskSummaryReceiptState) Reset() {
@@ -292,11 +310,18 @@ func (x *EpochTaskSummaryReceiptState) GetReceiptHash() []byte {
 	return nil
 }
 
+func (x *EpochTaskSummaryReceiptState) GetSupportCandidatesTruncated() bool {
+	if x != nil {
+		return x.SupportCandidatesTruncated
+	}
+	return false
+}
+
 var File_task_v1_epoch_summary_proto protoreflect.FileDescriptor
 
 const file_task_v1_epoch_summary_proto_rawDesc = "" +
 	"\n" +
-	"\x1btask/v1/epoch_summary.proto\x12\atask.v1\x1a\x17shared/v1/payload.proto\"\x8b\x04\n" +
+	"\x1btask/v1/epoch_summary.proto\x12\atask.v1\x1a\x17shared/v1/payload.proto\"\xcd\x04\n" +
 	"\x1bEpochTaskSummaryCursorState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12!\n" +
 	"\fstart_height\x18\x02 \x01(\x04R\vstartHeight\x12\x1d\n" +
@@ -312,10 +337,11 @@ const file_task_v1_epoch_summary_proto_rawDesc = "" +
 	"\x10valid_task_count\x18\b \x01(\x04R\x0evalidTaskCount\x12\x1c\n" +
 	"\thistogram\x18\t \x03(\x04R\thistogram\x12-\n" +
 	"\x12support_candidates\x18\n" +
-	" \x03(\tR\x11supportCandidates\x12?\n" +
+	" \x03(\fR\x11supportCandidates\x12?\n" +
 	"\x1csupport_candidate_seen_count\x18\v \x01(\x04R\x19supportCandidateSeenCount\x12!\n" +
 	"\frunning_root\x18\f \x01(\fR\vrunningRoot\x12#\n" +
-	"\rvisited_count\x18\r \x01(\x04R\fvisitedCount\"\xea\x03\n" +
+	"\rvisited_count\x18\r \x01(\x04R\fvisitedCount\x12@\n" +
+	"\x1csupport_candidates_truncated\x18\x0e \x01(\bR\x1asupportCandidatesTruncated\"\xac\x04\n" +
 	"\x1cEpochTaskSummaryReceiptState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12!\n" +
 	"\fstart_height\x18\x02 \x01(\x04R\vstartHeight\x12\x1d\n" +
@@ -331,7 +357,8 @@ const file_task_v1_epoch_summary_proto_rawDesc = "" +
 	"\vsource_root\x18\n" +
 	" \x01(\fR\n" +
 	"sourceRoot\x12!\n" +
-	"\freceipt_hash\x18\v \x01(\fR\vreceiptHashB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\freceipt_hash\x18\v \x01(\fR\vreceiptHash\x12@\n" +
+	"\x1csupport_candidates_truncated\x18\f \x01(\bR\x1asupportCandidatesTruncatedB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_epoch_summary_proto_rawDescOnce sync.Once

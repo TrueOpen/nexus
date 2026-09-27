@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// The verify_commit_v1 vector from the in-repo testdata/task_domains_v1.json.
+// The verify_commit_v1 vector from wire testdata/v1/task/task_domains_v1.json.
 func TestVerifyCommitSigningDigestGolden(t *testing.T) {
 	commit := &taskv1.VerifyCommitV1{
 		SchemaVersion:             VerifyCommitSchemaVersionV1,
@@ -42,90 +43,140 @@ func TestVerifyCommitSigningDigestGolden(t *testing.T) {
 	}
 }
 
-// The result_v2_signing_digest and metric_summary_v1 vectors from wire v0.4.1
-// testdata/v1/task/result_receipt_v2.json. The metric summary is a nested frame; pinning it
-// separately lets optional-encoding problems be located apart from whole-preimage problems.
-func goldenResultReceiptV2(t *testing.T) *taskv1.ResultReceiptV2 {
+// wireResultReceipt builds the ResultReceiptV3 of the result_v3_signing_digest vector of wire
+// testdata/v1/task/result_receipt_v3.json.
+func wireResultReceipt(t *testing.T) (*taskv1.ResultReceiptV3, wirefixture.Vector) {
 	t.Helper()
-	topk := uint32(900000)
-	unionJS := uint32(50000)
-	return &taskv1.ResultReceiptV2{
-		SchemaVersion:             2,
-		ChainId:                   "trueopen-golden-1",
-		TaskId:                    mustHexBytes(t, strings.Repeat("11", 32)),
-		VerifyRound:               1,
-		VerifierOperatorAddress:   "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
-		ServiceAuthorizationNonce: 7,
-		GenerationParamsDigest:    mustHexBytes(t, strings.Repeat("55", 32)),
-		MetricRoot:                mustHexBytes(t, strings.Repeat("66", 32)),
-		MetricSummary: &taskv1.MetricSummaryV1{
-			FiniteCount: 3, MissingComparedCount: 0,
-			MeanAbsLogprobDiffFp_1E6: 10000, AbsLogprobDiffP95Fp_1E6: 20000,
-			AbsLogprobDiffP99Fp_1E6: 30000, RankDeltaNonzeroRateFp_1E6: 40000,
-			TopkJaccardMeanFp_1E6: &topk, UnionJsP99Fp_1E6: &unionJS,
-			ComparedTopkCount: 3, ComparedRankCount: 3,
-		},
-		AggregateProofHash:                mustHexBytes(t, "6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2"),
-		VerifierEvidenceBundleHash:        mustHexBytes(t, "9b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d341"),
-		VerifierEvidenceManifestSizeBytes: 556,
-		Salt:                              mustHexBytes(t, strings.Repeat("aa", 32)),
-		ExpiryHeight:                      2000,
-		ServiceSignature:                  make([]byte, 64),
+	v := wirefixture.Load(t, "task/result_receipt_v3.json").Vector(t, "result_v3_signing_digest", 0)
+	f := func(name string) wirefixture.Field { return v.Field(t, name) }
+	summary := &taskv1.MetricSummaryV1{}
+	for _, m := range f("metric_summary").Fields {
+		var value uint32
+		if m.Type != "optional" {
+			value = uint32(m.Uint64(t))
+		} else if m.Present {
+			value = uint32(m.Fields[0].Uint64(t))
+		}
+		opt := func() *uint32 {
+			if !m.Present {
+				return nil
+			}
+			return &value
+		}
+		switch m.Name {
+		case "finite_count":
+			summary.FiniteCount = value
+		case "missing_compared_count":
+			summary.MissingComparedCount = value
+		case "mean_abs_logprob_diff_fp_1e6":
+			summary.MeanAbsLogprobDiffFp_1E6 = value
+		case "abs_logprob_diff_p95_fp_1e6":
+			summary.AbsLogprobDiffP95Fp_1E6 = value
+		case "abs_logprob_diff_p99_fp_1e6":
+			summary.AbsLogprobDiffP99Fp_1E6 = value
+		case "rank_delta_nonzero_rate_fp_1e6":
+			summary.RankDeltaNonzeroRateFp_1E6 = value
+		case "topk_jaccard_mean_fp_1e6":
+			summary.TopkJaccardMeanFp_1E6 = opt()
+		case "union_js_p99_fp_1e6":
+			summary.UnionJsP99Fp_1E6 = opt()
+		case "compared_topk_count":
+			summary.ComparedTopkCount = value
+		case "compared_rank_count":
+			summary.ComparedRankCount = value
+		default:
+			t.Fatalf("unknown metric summary field %s", m.Name)
+		}
 	}
+	return &taskv1.ResultReceiptV3{
+		SchemaVersion:                     uint32(f("schema_version").Uint64(t)),
+		ChainId:                           f("chain_id").UTF8,
+		TaskId:                            f("task_id").Bytes(t),
+		VerifyRound:                       uint32(f("verify_round").Uint64(t)),
+		VerifierOperatorAddress:           accAddress(t, f("verifier_operator_address").Bytes(t)),
+		ServiceAuthorizationNonce:         f("service_authorization_nonce").Uint64(t),
+		GenerationParamsDigest:            f("generation_params_digest").Bytes(t),
+		MetricRoot:                        f("metric_root").Bytes(t),
+		MetricSummary:                     summary,
+		AggregateProofHash:                f("aggregate_proof_hash").Bytes(t),
+		VerifierEvidenceBundleHash:        f("verifier_evidence_bundle_hash").Bytes(t),
+		VerifierEvidenceManifestSizeBytes: f("verifier_evidence_manifest_size_bytes").Uint64(t),
+		Salt:                              f("salt").Bytes(t),
+		ExpiryHeight:                      f("expiry_height").Uint64(t),
+		VerifierValueRoot:                 f("verifier_value_root").Bytes(t),
+		MetricLeafCount:                   uint32(f("metric_leaf_count").Uint64(t)),
+		VerifierEvidenceKeyCommitment:     f("verifier_evidence_key_commitment").Bytes(t),
+		ServiceSignature:                  make([]byte, 64),
+	}, v
 }
 
 func TestMetricSummaryHashGolden(t *testing.T) {
-	digest, err := MetricSummaryHash(goldenResultReceiptV2(t).GetMetricSummary())
+	receipt, _ := wireResultReceipt(t)
+	digest, err := MetricSummaryHash(receipt.GetMetricSummary())
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "ded3683559777e9ac37623b9d04ab7967c3f4fd0686282d187d9de65381f53bf"
-	if got := hex.EncodeToString(digest[:]); got != want {
-		t.Fatalf("metric_summary_hash = %s, want %s", got, want)
+	want := wirefixture.Load(t, "task/result_receipt_v3.json").Vector(t, "metric_summary_v1", 0)
+	if digest != want.Digest(t) {
+		t.Fatalf("metric_summary_hash = %x, want %s", digest, want.DigestHex)
 	}
 }
 
 func TestResultReceiptSigningDigestGolden(t *testing.T) {
-	receipt := goldenResultReceiptV2(t)
+	receipt, v := wireResultReceipt(t)
+	v.CheckPreimage(t)
+	if receipt.GetSchemaVersion() != ResultReceiptSchemaVersionV3 {
+		t.Fatalf("wire schema_version = %d, want %d", receipt.GetSchemaVersion(), ResultReceiptSchemaVersionV3)
+	}
 	digest, err := ResultReceiptSigningDigest(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "436017aad2b7e9611063df868aacb8cf1f5e9001a230bcf0b329fa00a00b42a2"
-	if got := hex.EncodeToString(digest[:]); got != want {
-		t.Fatalf("result_receipt_signing_digest = %s, want %s", got, want)
+	if digest != v.Digest(t) {
+		t.Fatalf("result_receipt_signing_digest = %x, want %s", digest, v.DigestHex)
+	}
+	if err := ValidatePlaintextResultReceiptV3(receipt); err != nil {
+		t.Fatalf("the wire plaintext result must pass admission: %v", err)
 	}
 }
 
-// The three fields V2 adds over V1 must really enter the preimage. Missing any one of them, a
-// V1-era signature could pass as a V2 receipt while the Keeper computes a different value.
-func TestResultReceiptSigningDigestBindsV2Fields(t *testing.T) {
-	base, err := ResultReceiptSigningDigest(goldenResultReceiptV2(t))
+// The fields V3 adds must really enter the preimage; a plaintext result must carry 32 zero bytes,
+// not an empty key commitment.
+func TestResultReceiptSigningDigestBindsV3Fields(t *testing.T) {
+	base, _ := wireResultReceipt(t)
+	digest, err := ResultReceiptSigningDigest(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, mutate := range map[string]func(*taskv1.ResultReceiptV2){
-		"verifier_evidence_bundle_hash": func(r *taskv1.ResultReceiptV2) {
-			r.VerifierEvidenceBundleHash = mustHexBytes(t, strings.Repeat("bb", 32))
+	for name, mutate := range map[string]func(*taskv1.ResultReceiptV3){
+		"verifier_value_root": func(r *taskv1.ResultReceiptV3) { r.VerifierValueRoot = mustHexBytes(t, strings.Repeat("bb", 32)) },
+		"metric_leaf_count":   func(r *taskv1.ResultReceiptV3) { r.MetricLeafCount++ },
+		"verifier_evidence_key_commitment": func(r *taskv1.ResultReceiptV3) {
+			r.VerifierEvidenceKeyCommitment = mustHexBytes(t, strings.Repeat("cc", 32))
 		},
-		"verifier_evidence_manifest_size_bytes": func(r *taskv1.ResultReceiptV2) {
-			r.VerifierEvidenceManifestSizeBytes = 557
-		},
-		"salt": func(r *taskv1.ResultReceiptV2) {
-			r.Salt = mustHexBytes(t, strings.Repeat("bb", 32))
-		},
+		"salt": func(r *taskv1.ResultReceiptV3) { r.Salt = mustHexBytes(t, strings.Repeat("bb", 32)) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			receipt := goldenResultReceiptV2(t)
+			receipt, _ := wireResultReceipt(t)
 			mutate(receipt)
 			got, err := ResultReceiptSigningDigest(receipt)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got == base {
+			if got == digest {
 				t.Fatalf("%s is not in the preimage", name)
 			}
 		})
+	}
+	empty, _ := wireResultReceipt(t)
+	empty.VerifierEvidenceKeyCommitment = nil
+	if err := ValidatePlaintextResultReceiptV3(empty); err == nil {
+		t.Fatal("an empty key commitment must be refused, not treated as zero")
+	}
+	short, _ := wireResultReceipt(t)
+	short.VerifierValueRoot = nil
+	if _, err := ResultReceiptSigningDigest(short); err == nil {
+		t.Fatal("a missing verifier_value_root must not produce a digest")
 	}
 }
 
@@ -133,19 +184,24 @@ func TestResultReceiptSigningDigestBindsV2Fields(t *testing.T) {
 // absent and "filled with 0" are two different commitments, and the implementation must not turn
 // the former into the latter.
 func TestMetricSummaryOptionalPresenceIsCommitted(t *testing.T) {
-	present := goldenResultReceiptV2(t).GetMetricSummary()
+	receipt, _ := wireResultReceipt(t)
+	present := receipt.GetMetricSummary()
+	value := uint32(900000)
+	present.TopkJaccardMeanFp_1E6 = &value
 	withPresent, err := MetricSummaryHash(present)
 	if err != nil {
 		t.Fatal(err)
 	}
 	zero := uint32(0)
-	absent := goldenResultReceiptV2(t).GetMetricSummary()
+	receipt, _ = wireResultReceipt(t)
+	absent := receipt.GetMetricSummary()
 	absent.TopkJaccardMeanFp_1E6 = nil
 	absentHash, err := MetricSummaryHash(absent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	filled := goldenResultReceiptV2(t).GetMetricSummary()
+	receipt, _ = wireResultReceipt(t)
+	filled := receipt.GetMetricSummary()
 	filled.TopkJaccardMeanFp_1E6 = &zero
 	filledHash, err := MetricSummaryHash(filled)
 	if err != nil {

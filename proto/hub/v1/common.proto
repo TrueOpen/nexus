@@ -66,7 +66,7 @@ enum ServiceKeyResponsibilityKind {
   // Locked Task Builder is still exposed to objective BusEnvelope evidence for
   // one task, so its service key must stay verifiable.
   //
-  // Lifecycle (the data-structure contract plus the API contract
+  // Lifecycle (the wire storage model plus the wire API
   //), all inside one cache transaction
   // with the participant counter and the ByTask index:
   //   create  - when the first Task proposal is accepted and the Task Builders
@@ -108,7 +108,7 @@ enum GovernanceReason {
   GOVERNANCE_REASON_EMERGENCY_RECOVERY = 4;
 }
 
-// ServiceBondStatus is the operator-global service bond lifecycle (data-structure contract 6.4).
+// ServiceBondStatus is the operator-global service bond lifecycle (wire storage model 6.4).
 enum ServiceBondStatus {
   // Never written; rejects zero-value rows.
   // SERVICE_BOND_STATUS_UNSPECIFIED identifies the corresponding protocol value.
@@ -135,7 +135,7 @@ enum ServiceBondStatus {
 
 // UnbondingStatus is the lifecycle of one service unbonding row. The numeric
 // values are frozen, which is the sole authority for
-// closed enum values; §16.3 QueryServiceUnbondings filters on this exact set.
+// closed enum values; this contract QueryServiceUnbondings filters on this exact set.
 // UnbondingStatus defines the UnbondingStatus wire type.
 enum UnbondingStatus {
   // Never written; rejects zero-value rows.
@@ -219,6 +219,21 @@ enum ModelSupportStatus {
   MODEL_SUPPORT_STATUS_INACTIVE = 4;
 }
 
+// ModelSupportSuspendReason distinguishes a suspended declaration from one
+// that has not yet been activated by a task.
+enum ModelSupportSuspendReason {
+  // Never written.
+  MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED = 0;
+  // The declaration is not suspended.
+  MODEL_SUPPORT_SUSPEND_REASON_NONE = 1;
+  // The operator is jailed.
+  MODEL_SUPPORT_SUSPEND_REASON_JAIL = 2;
+  // The effective bond is below the active model threshold.
+  MODEL_SUPPORT_SUSPEND_REASON_BOND_BELOW_MIN = 3;
+  // A raised model threshold became effective before the bond caught up.
+  MODEL_SUPPORT_SUSPEND_REASON_MIN_STAKE_RAISED = 4;
+}
+
 // RoleFaultStatus is the lifecycle of one recorded role fault receipt (6.4).
 enum RoleFaultStatus {
   // Never written; rejects zero-value rows.
@@ -252,6 +267,10 @@ enum FaultKind {
   // Builder objective evidence was accepted against the operator.
   // FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
   FAULT_KIND_BUILDER_OBJECTIVE_FAULT = 5;
+  // Reserved for the later verifier value-evidence admission upgrade.
+  FAULT_KIND_VERIFIER_VALUE_MISMATCH = 6;
+  // Reserved for objectively invalid Worker value evidence after activation.
+  FAULT_KIND_WORKER_VALUES_INVALID = 7;
 }
 
 // ParamsModuleV1 selects the owner of a parameter-update event.

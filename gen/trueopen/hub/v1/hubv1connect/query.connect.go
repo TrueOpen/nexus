@@ -67,8 +67,8 @@ const (
 	QueryServiceDescriptorProcedure = "/hub.v1.Query/ServiceDescriptor"
 	// QueryServiceLifecycleProcedure is the fully-qualified name of the Query's ServiceLifecycle RPC.
 	QueryServiceLifecycleProcedure = "/hub.v1.Query/ServiceLifecycle"
-	// QueryProfileCapabilityProcedure is the fully-qualified name of the Query's ProfileCapability RPC.
-	QueryProfileCapabilityProcedure = "/hub.v1.Query/ProfileCapability"
+	// QueryModelCapabilityProcedure is the fully-qualified name of the Query's ModelCapability RPC.
+	QueryModelCapabilityProcedure = "/hub.v1.Query/ModelCapability"
 	// QueryModelSupportProcedure is the fully-qualified name of the Query's ModelSupport RPC.
 	QueryModelSupportProcedure = "/hub.v1.Query/ModelSupport"
 	// QueryDailySupportProcedure is the fully-qualified name of the Query's DailySupport RPC.
@@ -124,7 +124,7 @@ type QueryClient interface {
 	// Builders pages the whole builder registry. It is the only way to enumerate
 	// builders: Query/Builder needs an address the caller already knows, so
 	// without this RPC a fresh client cannot discover one. V1 takes no status
-	// selector because BuilderState has no status index (api_contract §16.3).
+	// selector because BuilderState has no status index (the wire API).
 	// Builders executes the Builders operation.
 	Builders(context.Context, *connect.Request[v1.QueryBuildersRequest]) (*connect.Response[v1.QueryBuildersResponse], error)
 	// Fault returns one immutable role-fault attribution row.
@@ -136,7 +136,7 @@ type QueryClient interface {
 	// Models pages the whole model registry. It is the only way to enumerate
 	// models: Query/Model needs a model_id the caller already knows, so without
 	// this RPC a fresh client cannot discover one. V1 takes no status selector
-	// because ModelState has no status index (api_contract §16.3).
+	// because ModelState has no status index (the wire API).
 	// Models executes the Models operation.
 	Models(context.Context, *connect.Request[v1.QueryModelsRequest]) (*connect.Response[v1.QueryModelsResponse], error)
 	// Profile returns one model profile.
@@ -155,14 +155,14 @@ type QueryClient interface {
 	ServiceDescriptor(context.Context, *connect.Request[v1.QueryServiceDescriptorRequest]) (*connect.Response[v1.QueryServiceDescriptorResponse], error)
 	// ServiceLifecycle combines the identity and bond authorities of one operator.
 	ServiceLifecycle(context.Context, *connect.Request[v1.QueryServiceLifecycleRequest]) (*connect.Response[v1.QueryServiceLifecycleResponse], error)
-	// ProfileCapability returns one operator/profile capability row.
-	ProfileCapability(context.Context, *connect.Request[v1.QueryProfileCapabilityRequest]) (*connect.Response[v1.QueryProfileCapabilityResponse], error)
-	// ModelSupport returns one P30 support row.
+	// ModelCapability returns one operator/model capability row.
+	ModelCapability(context.Context, *connect.Request[v1.QueryModelCapabilityRequest]) (*connect.Response[v1.QueryModelCapabilityResponse], error)
+	// ModelSupport returns one operator/model support row.
 	ModelSupport(context.Context, *connect.Request[v1.QueryModelSupportRequest]) (*connect.Response[v1.QueryModelSupportResponse], error)
 	// DailySupport returns one operator/epoch heartbeat row.
 	DailySupport(context.Context, *connect.Request[v1.QueryDailySupportRequest]) (*connect.Response[v1.QueryDailySupportResponse], error)
 	// CurrentCandidatePool returns the single global pool the current pointer
-	// resolves to (api_contract §16.3, empty request). Per-profile pools no longer
+	// resolves to (the wire API, empty request). Per-profile pools no longer
 	// exist, so the old model_id/profile_version/duty path variables are gone.
 	// CurrentCandidatePool executes the CurrentCandidatePool operation.
 	CurrentCandidatePool(context.Context, *connect.Request[v1.QueryCurrentCandidatePoolRequest]) (*connect.Response[v1.QueryCurrentCandidatePoolResponse], error)
@@ -191,7 +191,7 @@ type QueryClient interface {
 	// EmergencyFreezeVotes lists votes for one signal.
 	EmergencyFreezeVotes(context.Context, *connect.Request[v1.QueryEmergencyFreezeVotesRequest]) (*connect.Response[v1.QueryEmergencyFreezeVotesResponse], error)
 	// TimeoutBucket returns an exact or effective timeout bucket. The RPC moved
-	// here from task.v1.Query with the governance writer (§2.4).
+	// here from task.v1.Query with the governance writer.
 	// TimeoutBucket executes the TimeoutBucket operation.
 	TimeoutBucket(context.Context, *connect.Request[v1.QueryTimeoutBucketRequest]) (*connect.Response[v1.QueryTimeoutBucketResponse], error)
 }
@@ -309,10 +309,10 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(queryMethods.ByName("ServiceLifecycle")),
 			connect.WithClientOptions(opts...),
 		),
-		profileCapability: connect.NewClient[v1.QueryProfileCapabilityRequest, v1.QueryProfileCapabilityResponse](
+		modelCapability: connect.NewClient[v1.QueryModelCapabilityRequest, v1.QueryModelCapabilityResponse](
 			httpClient,
-			baseURL+QueryProfileCapabilityProcedure,
-			connect.WithSchema(queryMethods.ByName("ProfileCapability")),
+			baseURL+QueryModelCapabilityProcedure,
+			connect.WithSchema(queryMethods.ByName("ModelCapability")),
 			connect.WithClientOptions(opts...),
 		),
 		modelSupport: connect.NewClient[v1.QueryModelSupportRequest, v1.QueryModelSupportResponse](
@@ -433,7 +433,7 @@ type queryClient struct {
 	currentServiceKey     *connect.Client[v1.QueryCurrentServiceKeyRequest, v1.QueryCurrentServiceKeyResponse]
 	serviceDescriptor     *connect.Client[v1.QueryServiceDescriptorRequest, v1.QueryServiceDescriptorResponse]
 	serviceLifecycle      *connect.Client[v1.QueryServiceLifecycleRequest, v1.QueryServiceLifecycleResponse]
-	profileCapability     *connect.Client[v1.QueryProfileCapabilityRequest, v1.QueryProfileCapabilityResponse]
+	modelCapability       *connect.Client[v1.QueryModelCapabilityRequest, v1.QueryModelCapabilityResponse]
 	modelSupport          *connect.Client[v1.QueryModelSupportRequest, v1.QueryModelSupportResponse]
 	dailySupport          *connect.Client[v1.QueryDailySupportRequest, v1.QueryDailySupportResponse]
 	currentCandidatePool  *connect.Client[v1.QueryCurrentCandidatePoolRequest, v1.QueryCurrentCandidatePoolResponse]
@@ -537,9 +537,9 @@ func (c *queryClient) ServiceLifecycle(ctx context.Context, req *connect.Request
 	return c.serviceLifecycle.CallUnary(ctx, req)
 }
 
-// ProfileCapability calls hub.v1.Query.ProfileCapability.
-func (c *queryClient) ProfileCapability(ctx context.Context, req *connect.Request[v1.QueryProfileCapabilityRequest]) (*connect.Response[v1.QueryProfileCapabilityResponse], error) {
-	return c.profileCapability.CallUnary(ctx, req)
+// ModelCapability calls hub.v1.Query.ModelCapability.
+func (c *queryClient) ModelCapability(ctx context.Context, req *connect.Request[v1.QueryModelCapabilityRequest]) (*connect.Response[v1.QueryModelCapabilityResponse], error) {
+	return c.modelCapability.CallUnary(ctx, req)
 }
 
 // ModelSupport calls hub.v1.Query.ModelSupport.
@@ -637,7 +637,7 @@ type QueryHandler interface {
 	// Builders pages the whole builder registry. It is the only way to enumerate
 	// builders: Query/Builder needs an address the caller already knows, so
 	// without this RPC a fresh client cannot discover one. V1 takes no status
-	// selector because BuilderState has no status index (api_contract §16.3).
+	// selector because BuilderState has no status index (the wire API).
 	// Builders executes the Builders operation.
 	Builders(context.Context, *connect.Request[v1.QueryBuildersRequest]) (*connect.Response[v1.QueryBuildersResponse], error)
 	// Fault returns one immutable role-fault attribution row.
@@ -649,7 +649,7 @@ type QueryHandler interface {
 	// Models pages the whole model registry. It is the only way to enumerate
 	// models: Query/Model needs a model_id the caller already knows, so without
 	// this RPC a fresh client cannot discover one. V1 takes no status selector
-	// because ModelState has no status index (api_contract §16.3).
+	// because ModelState has no status index (the wire API).
 	// Models executes the Models operation.
 	Models(context.Context, *connect.Request[v1.QueryModelsRequest]) (*connect.Response[v1.QueryModelsResponse], error)
 	// Profile returns one model profile.
@@ -668,14 +668,14 @@ type QueryHandler interface {
 	ServiceDescriptor(context.Context, *connect.Request[v1.QueryServiceDescriptorRequest]) (*connect.Response[v1.QueryServiceDescriptorResponse], error)
 	// ServiceLifecycle combines the identity and bond authorities of one operator.
 	ServiceLifecycle(context.Context, *connect.Request[v1.QueryServiceLifecycleRequest]) (*connect.Response[v1.QueryServiceLifecycleResponse], error)
-	// ProfileCapability returns one operator/profile capability row.
-	ProfileCapability(context.Context, *connect.Request[v1.QueryProfileCapabilityRequest]) (*connect.Response[v1.QueryProfileCapabilityResponse], error)
-	// ModelSupport returns one P30 support row.
+	// ModelCapability returns one operator/model capability row.
+	ModelCapability(context.Context, *connect.Request[v1.QueryModelCapabilityRequest]) (*connect.Response[v1.QueryModelCapabilityResponse], error)
+	// ModelSupport returns one operator/model support row.
 	ModelSupport(context.Context, *connect.Request[v1.QueryModelSupportRequest]) (*connect.Response[v1.QueryModelSupportResponse], error)
 	// DailySupport returns one operator/epoch heartbeat row.
 	DailySupport(context.Context, *connect.Request[v1.QueryDailySupportRequest]) (*connect.Response[v1.QueryDailySupportResponse], error)
 	// CurrentCandidatePool returns the single global pool the current pointer
-	// resolves to (api_contract §16.3, empty request). Per-profile pools no longer
+	// resolves to (the wire API, empty request). Per-profile pools no longer
 	// exist, so the old model_id/profile_version/duty path variables are gone.
 	// CurrentCandidatePool executes the CurrentCandidatePool operation.
 	CurrentCandidatePool(context.Context, *connect.Request[v1.QueryCurrentCandidatePoolRequest]) (*connect.Response[v1.QueryCurrentCandidatePoolResponse], error)
@@ -704,7 +704,7 @@ type QueryHandler interface {
 	// EmergencyFreezeVotes lists votes for one signal.
 	EmergencyFreezeVotes(context.Context, *connect.Request[v1.QueryEmergencyFreezeVotesRequest]) (*connect.Response[v1.QueryEmergencyFreezeVotesResponse], error)
 	// TimeoutBucket returns an exact or effective timeout bucket. The RPC moved
-	// here from task.v1.Query with the governance writer (§2.4).
+	// here from task.v1.Query with the governance writer.
 	// TimeoutBucket executes the TimeoutBucket operation.
 	TimeoutBucket(context.Context, *connect.Request[v1.QueryTimeoutBucketRequest]) (*connect.Response[v1.QueryTimeoutBucketResponse], error)
 }
@@ -818,10 +818,10 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(queryMethods.ByName("ServiceLifecycle")),
 		connect.WithHandlerOptions(opts...),
 	)
-	queryProfileCapabilityHandler := connect.NewUnaryHandler(
-		QueryProfileCapabilityProcedure,
-		svc.ProfileCapability,
-		connect.WithSchema(queryMethods.ByName("ProfileCapability")),
+	queryModelCapabilityHandler := connect.NewUnaryHandler(
+		QueryModelCapabilityProcedure,
+		svc.ModelCapability,
+		connect.WithSchema(queryMethods.ByName("ModelCapability")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryModelSupportHandler := connect.NewUnaryHandler(
@@ -956,8 +956,8 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryServiceDescriptorHandler.ServeHTTP(w, r)
 		case QueryServiceLifecycleProcedure:
 			queryServiceLifecycleHandler.ServeHTTP(w, r)
-		case QueryProfileCapabilityProcedure:
-			queryProfileCapabilityHandler.ServeHTTP(w, r)
+		case QueryModelCapabilityProcedure:
+			queryModelCapabilityHandler.ServeHTTP(w, r)
 		case QueryModelSupportProcedure:
 			queryModelSupportHandler.ServeHTTP(w, r)
 		case QueryDailySupportProcedure:
@@ -1067,8 +1067,8 @@ func (UnimplementedQueryHandler) ServiceLifecycle(context.Context, *connect.Requ
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.ServiceLifecycle is not implemented"))
 }
 
-func (UnimplementedQueryHandler) ProfileCapability(context.Context, *connect.Request[v1.QueryProfileCapabilityRequest]) (*connect.Response[v1.QueryProfileCapabilityResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.ProfileCapability is not implemented"))
+func (UnimplementedQueryHandler) ModelCapability(context.Context, *connect.Request[v1.QueryModelCapabilityRequest]) (*connect.Response[v1.QueryModelCapabilityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.ModelCapability is not implemented"))
 }
 
 func (UnimplementedQueryHandler) ModelSupport(context.Context, *connect.Request[v1.QueryModelSupportRequest]) (*connect.Response[v1.QueryModelSupportResponse], error) {

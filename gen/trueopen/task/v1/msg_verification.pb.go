@@ -22,6 +22,72 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// MsgReportDataUnavailable lets a selected verifier report on chain that the fixed
+// Task Builders did not deliver a complete, commitment-checked input/output/
+// required-evidence set before the commit deadline. There is no relay path: the
+// Cosmos Tx signer must be the current service address of a selected verifier
+// operator for this round. chain_id, the stable
+// operator and the current service binding version are derived by the Keeper, and
+// no detached signature from the same service key is accepted.
+//
+// The bitmap uses the frozen TaskBuilderSelectionState order, must be non-empty and
+// must have no trailing or out-of-range bits. HTTP errors, endpoints and local logs
+// are not accepted as fields. One canonical report per (task, round, verifier); an
+// identical repeat is a noop and the bitmap can never be rewritten.
+// MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
+// DataUnavailableReasonV1 reserves the report reason for the later evidence window.
+type DataUnavailableReasonV1 int32
+
+const (
+	// No reason is selected by the pre-upgrade report contract.
+	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED DataUnavailableReasonV1 = 0
+	// The required Builder data set was unavailable before commit deadline.
+	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE DataUnavailableReasonV1 = 1
+	// Reserved for the later Worker evidence-invalid report flow.
+	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID DataUnavailableReasonV1 = 2
+)
+
+// Enum value maps for DataUnavailableReasonV1.
+var (
+	DataUnavailableReasonV1_name = map[int32]string{
+		0: "DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED",
+		1: "DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE",
+		2: "DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID",
+	}
+	DataUnavailableReasonV1_value = map[string]int32{
+		"DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED":             0,
+		"DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE":     1,
+		"DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID": 2,
+	}
+)
+
+func (x DataUnavailableReasonV1) Enum() *DataUnavailableReasonV1 {
+	p := new(DataUnavailableReasonV1)
+	*p = x
+	return p
+}
+
+func (x DataUnavailableReasonV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DataUnavailableReasonV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_msg_verification_proto_enumTypes[0].Descriptor()
+}
+
+func (DataUnavailableReasonV1) Type() protoreflect.EnumType {
+	return &file_task_v1_msg_verification_proto_enumTypes[0]
+}
+
+func (x DataUnavailableReasonV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DataUnavailableReasonV1.Descriptor instead.
+func (DataUnavailableReasonV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{0}
+}
+
 // BatchItemResultV1 is the per-item result of a batch submission.
 // object_id only echoes the item's existing
 // authoritative business primary key, which is commit_key for both the commit and
@@ -107,7 +173,7 @@ func (x *BatchItemResultV1) GetStatus() v1.MutationStatusV1 {
 // MsgSubmitInferReceipt defines the MsgSubmitInferReceipt wire type.
 type MsgSubmitInferReceipt struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Receipt          *InferReceiptV2        `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	Receipt          *InferReceiptV3        `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -143,7 +209,7 @@ func (*MsgSubmitInferReceipt) Descriptor() ([]byte, []int) {
 	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *MsgSubmitInferReceipt) GetReceipt() *InferReceiptV2 {
+func (x *MsgSubmitInferReceipt) GetReceipt() *InferReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -360,6 +426,122 @@ func (x *MsgSubmitWorkerEvidenceResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
+// MsgSubmitVerifierValueEvidence is registered but NOT_SUPPORTED before the
+// separately defined value-evidence activation. The handler returns
+// ERR_NOT_ACTIVATED without decoding evidence or writing state.
+type MsgSubmitVerifierValueEvidence struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	EvidenceBytes    []byte                 `protobuf:"bytes,1,opt,name=evidence_bytes,json=evidenceBytes,proto3" json:"evidence_bytes,omitempty"`
+	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MsgSubmitVerifierValueEvidence) Reset() {
+	*x = MsgSubmitVerifierValueEvidence{}
+	mi := &file_task_v1_msg_verification_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSubmitVerifierValueEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSubmitVerifierValueEvidence) ProtoMessage() {}
+
+func (x *MsgSubmitVerifierValueEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_verification_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSubmitVerifierValueEvidence.ProtoReflect.Descriptor instead.
+func (*MsgSubmitVerifierValueEvidence) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *MsgSubmitVerifierValueEvidence) GetEvidenceBytes() []byte {
+	if x != nil {
+		return x.EvidenceBytes
+	}
+	return nil
+}
+
+func (x *MsgSubmitVerifierValueEvidence) GetSubmitterAddress() string {
+	if x != nil {
+		return x.SubmitterAddress
+	}
+	return ""
+}
+
+// MsgSubmitVerifierValueEvidenceResponse is reserved for an activated receipt.
+type MsgSubmitVerifierValueEvidenceResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	EvidenceDigest []byte                 `protobuf:"bytes,1,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
+	FaultId        []byte                 `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
+	Status         v1.MutationStatusV1    `protobuf:"varint,3,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) Reset() {
+	*x = MsgSubmitVerifierValueEvidenceResponse{}
+	mi := &file_task_v1_msg_verification_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSubmitVerifierValueEvidenceResponse) ProtoMessage() {}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_verification_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSubmitVerifierValueEvidenceResponse.ProtoReflect.Descriptor instead.
+func (*MsgSubmitVerifierValueEvidenceResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetEvidenceDigest() []byte {
+	if x != nil {
+		return x.EvidenceDigest
+	}
+	return nil
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetFaultId() []byte {
+	if x != nil {
+		return x.FaultId
+	}
+	return nil
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
 // MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
 // round. The Keeper maintains the authoritative
 // verifier union bitmap and only ever flips candidate bits from 0 to 1.
@@ -385,7 +567,7 @@ type MsgSubmitVerifierHandraises struct {
 
 func (x *MsgSubmitVerifierHandraises) Reset() {
 	*x = MsgSubmitVerifierHandraises{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[5]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -397,7 +579,7 @@ func (x *MsgSubmitVerifierHandraises) String() string {
 func (*MsgSubmitVerifierHandraises) ProtoMessage() {}
 
 func (x *MsgSubmitVerifierHandraises) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[5]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -410,7 +592,7 @@ func (x *MsgSubmitVerifierHandraises) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitVerifierHandraises.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifierHandraises) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MsgSubmitVerifierHandraises) GetTaskId() []byte {
@@ -460,7 +642,7 @@ type MsgSubmitVerifierHandraisesResponse struct {
 
 func (x *MsgSubmitVerifierHandraisesResponse) Reset() {
 	*x = MsgSubmitVerifierHandraisesResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[6]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -472,7 +654,7 @@ func (x *MsgSubmitVerifierHandraisesResponse) String() string {
 func (*MsgSubmitVerifierHandraisesResponse) ProtoMessage() {}
 
 func (x *MsgSubmitVerifierHandraisesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[6]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -485,7 +667,7 @@ func (x *MsgSubmitVerifierHandraisesResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use MsgSubmitVerifierHandraisesResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifierHandraisesResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MsgSubmitVerifierHandraisesResponse) GetTaskId() []byte {
@@ -523,32 +705,24 @@ func (x *MsgSubmitVerifierHandraisesResponse) GetUnionCount() uint32 {
 	return 0
 }
 
-// MsgReportDataUnavailable lets a selected verifier report on chain that the fixed
-// Task Builders did not deliver a complete, commitment-checked input/output/
-// required-evidence set before the commit deadline (the API contract,
-// §10.5). There is no relay path: the Cosmos Tx signer must be the current service
-// address of a selected verifier operator for this round. chain_id, the stable
-// operator and the current service binding version are derived by the Keeper, and
-// no detached signature from the same service key is accepted.
-//
-// The bitmap uses the frozen TaskBuilderSelectionState order, must be non-empty and
-// must have no trailing or out-of-range bits. HTTP errors, endpoints and local logs
-// are not accepted as fields. One canonical report per (task, round, verifier); an
-// identical repeat is a noop and the bitmap can never be rewritten.
-// MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
+// MsgReportDataUnavailable records one selected Verifier availability report.
 type MsgReportDataUnavailable struct {
 	state                        protoimpl.MessageState `protogen:"open.v1"`
 	TaskId                       []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	VerifyRound                  uint32                 `protobuf:"varint,2,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	UnavailableTaskBuilderBitmap []byte                 `protobuf:"bytes,3,opt,name=unavailable_task_builder_bitmap,json=unavailableTaskBuilderBitmap,proto3" json:"unavailable_task_builder_bitmap,omitempty"`
 	SubmitterAddress             string                 `protobuf:"bytes,4,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// Before the evidence-window upgrade, kind is UNSPECIFIED and reason is
+	// UNSPECIFIED or BUILDER_UNAVAILABLE; neither enters the V1 report digest.
+	EvidenceKind  v1.EvidenceKind         `protobuf:"varint,5,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
+	Reason        DataUnavailableReasonV1 `protobuf:"varint,6,opt,name=reason,proto3,enum=task.v1.DataUnavailableReasonV1" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MsgReportDataUnavailable) Reset() {
 	*x = MsgReportDataUnavailable{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[7]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +734,7 @@ func (x *MsgReportDataUnavailable) String() string {
 func (*MsgReportDataUnavailable) ProtoMessage() {}
 
 func (x *MsgReportDataUnavailable) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[7]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +747,7 @@ func (x *MsgReportDataUnavailable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgReportDataUnavailable.ProtoReflect.Descriptor instead.
 func (*MsgReportDataUnavailable) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MsgReportDataUnavailable) GetTaskId() []byte {
@@ -604,6 +778,20 @@ func (x *MsgReportDataUnavailable) GetSubmitterAddress() string {
 	return ""
 }
 
+func (x *MsgReportDataUnavailable) GetEvidenceKind() v1.EvidenceKind {
+	if x != nil {
+		return x.EvidenceKind
+	}
+	return v1.EvidenceKind(0)
+}
+
+func (x *MsgReportDataUnavailable) GetReason() DataUnavailableReasonV1 {
+	if x != nil {
+		return x.Reason
+	}
+	return DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED
+}
+
 // MsgReportDataUnavailableResponse returns the canonical report digest.
 // MsgReportDataUnavailableResponse defines the MsgReportDataUnavailableResponse wire type.
 type MsgReportDataUnavailableResponse struct {
@@ -616,7 +804,7 @@ type MsgReportDataUnavailableResponse struct {
 
 func (x *MsgReportDataUnavailableResponse) Reset() {
 	*x = MsgReportDataUnavailableResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[8]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +816,7 @@ func (x *MsgReportDataUnavailableResponse) String() string {
 func (*MsgReportDataUnavailableResponse) ProtoMessage() {}
 
 func (x *MsgReportDataUnavailableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[8]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +829,7 @@ func (x *MsgReportDataUnavailableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgReportDataUnavailableResponse.ProtoReflect.Descriptor instead.
 func (*MsgReportDataUnavailableResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MsgReportDataUnavailableResponse) GetReportDigest() []byte {
@@ -674,7 +862,7 @@ type MsgSubmitVerifyCommit struct {
 
 func (x *MsgSubmitVerifyCommit) Reset() {
 	*x = MsgSubmitVerifyCommit{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[9]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -686,7 +874,7 @@ func (x *MsgSubmitVerifyCommit) String() string {
 func (*MsgSubmitVerifyCommit) ProtoMessage() {}
 
 func (x *MsgSubmitVerifyCommit) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[9]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -699,7 +887,7 @@ func (x *MsgSubmitVerifyCommit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitVerifyCommit.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifyCommit) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MsgSubmitVerifyCommit) GetCommit() *VerifyCommitV1 {
@@ -730,7 +918,7 @@ type MsgSubmitVerifyCommitResponse struct {
 
 func (x *MsgSubmitVerifyCommitResponse) Reset() {
 	*x = MsgSubmitVerifyCommitResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[10]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -742,7 +930,7 @@ func (x *MsgSubmitVerifyCommitResponse) String() string {
 func (*MsgSubmitVerifyCommitResponse) ProtoMessage() {}
 
 func (x *MsgSubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[10]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -755,7 +943,7 @@ func (x *MsgSubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitVerifyCommitResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{10}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MsgSubmitVerifyCommitResponse) GetCommitKey() []byte {
@@ -794,7 +982,7 @@ type MsgBatchSubmitVerifyCommit struct {
 
 func (x *MsgBatchSubmitVerifyCommit) Reset() {
 	*x = MsgBatchSubmitVerifyCommit{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[11]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -806,7 +994,7 @@ func (x *MsgBatchSubmitVerifyCommit) String() string {
 func (*MsgBatchSubmitVerifyCommit) ProtoMessage() {}
 
 func (x *MsgBatchSubmitVerifyCommit) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[11]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -819,7 +1007,7 @@ func (x *MsgBatchSubmitVerifyCommit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgBatchSubmitVerifyCommit.ProtoReflect.Descriptor instead.
 func (*MsgBatchSubmitVerifyCommit) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{11}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MsgBatchSubmitVerifyCommit) GetCommits() []*VerifyCommitV1 {
@@ -849,7 +1037,7 @@ type MsgBatchSubmitVerifyCommitResponse struct {
 
 func (x *MsgBatchSubmitVerifyCommitResponse) Reset() {
 	*x = MsgBatchSubmitVerifyCommitResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[12]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +1049,7 @@ func (x *MsgBatchSubmitVerifyCommitResponse) String() string {
 func (*MsgBatchSubmitVerifyCommitResponse) ProtoMessage() {}
 
 func (x *MsgBatchSubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[12]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +1062,7 @@ func (x *MsgBatchSubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MsgBatchSubmitVerifyCommitResponse.ProtoReflect.Descriptor instead.
 func (*MsgBatchSubmitVerifyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{12}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MsgBatchSubmitVerifyCommitResponse) GetResults() []*BatchItemResultV1 {
@@ -899,7 +1087,7 @@ func (x *MsgBatchSubmitVerifyCommitResponse) GetBatchDigest() []byte {
 // MsgSubmitVerifyResult defines the MsgSubmitVerifyResult wire type.
 type MsgSubmitVerifyResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Receipt          *ResultReceiptV2       `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	Receipt          *ResultReceiptV3       `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -907,7 +1095,7 @@ type MsgSubmitVerifyResult struct {
 
 func (x *MsgSubmitVerifyResult) Reset() {
 	*x = MsgSubmitVerifyResult{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[13]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -919,7 +1107,7 @@ func (x *MsgSubmitVerifyResult) String() string {
 func (*MsgSubmitVerifyResult) ProtoMessage() {}
 
 func (x *MsgSubmitVerifyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[13]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,10 +1120,10 @@ func (x *MsgSubmitVerifyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitVerifyResult.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifyResult) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{13}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *MsgSubmitVerifyResult) GetReceipt() *ResultReceiptV2 {
+func (x *MsgSubmitVerifyResult) GetReceipt() *ResultReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -963,7 +1151,7 @@ type MsgSubmitVerifyResultResponse struct {
 
 func (x *MsgSubmitVerifyResultResponse) Reset() {
 	*x = MsgSubmitVerifyResultResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[14]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -975,7 +1163,7 @@ func (x *MsgSubmitVerifyResultResponse) String() string {
 func (*MsgSubmitVerifyResultResponse) ProtoMessage() {}
 
 func (x *MsgSubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[14]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -988,7 +1176,7 @@ func (x *MsgSubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitVerifyResultResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitVerifyResultResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{14}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MsgSubmitVerifyResultResponse) GetResultReceiptSigningDigest() []byte {
@@ -1018,7 +1206,7 @@ func (x *MsgSubmitVerifyResultResponse) GetStatus() v1.MutationStatusV1 {
 // MsgBatchSubmitVerifyResult defines the MsgBatchSubmitVerifyResult wire type.
 type MsgBatchSubmitVerifyResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	Receipts         []*ResultReceiptV2     `protobuf:"bytes,1,rep,name=receipts,proto3" json:"receipts,omitempty"`
+	Receipts         []*ResultReceiptV3     `protobuf:"bytes,1,rep,name=receipts,proto3" json:"receipts,omitempty"`
 	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1026,7 +1214,7 @@ type MsgBatchSubmitVerifyResult struct {
 
 func (x *MsgBatchSubmitVerifyResult) Reset() {
 	*x = MsgBatchSubmitVerifyResult{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[15]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1038,7 +1226,7 @@ func (x *MsgBatchSubmitVerifyResult) String() string {
 func (*MsgBatchSubmitVerifyResult) ProtoMessage() {}
 
 func (x *MsgBatchSubmitVerifyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[15]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1051,10 +1239,10 @@ func (x *MsgBatchSubmitVerifyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgBatchSubmitVerifyResult.ProtoReflect.Descriptor instead.
 func (*MsgBatchSubmitVerifyResult) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{15}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *MsgBatchSubmitVerifyResult) GetReceipts() []*ResultReceiptV2 {
+func (x *MsgBatchSubmitVerifyResult) GetReceipts() []*ResultReceiptV3 {
 	if x != nil {
 		return x.Receipts
 	}
@@ -1080,7 +1268,7 @@ type MsgBatchSubmitVerifyResultResponse struct {
 
 func (x *MsgBatchSubmitVerifyResultResponse) Reset() {
 	*x = MsgBatchSubmitVerifyResultResponse{}
-	mi := &file_task_v1_msg_verification_proto_msgTypes[16]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1280,7 @@ func (x *MsgBatchSubmitVerifyResultResponse) String() string {
 func (*MsgBatchSubmitVerifyResultResponse) ProtoMessage() {}
 
 func (x *MsgBatchSubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_verification_proto_msgTypes[16]
+	mi := &file_task_v1_msg_verification_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1293,7 @@ func (x *MsgBatchSubmitVerifyResultResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MsgBatchSubmitVerifyResultResponse.ProtoReflect.Descriptor instead.
 func (*MsgBatchSubmitVerifyResultResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{16}
+	return file_task_v1_msg_verification_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MsgBatchSubmitVerifyResultResponse) GetResults() []*BatchItemResultV1 {
@@ -1126,14 +1314,14 @@ var File_task_v1_msg_verification_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\n" +
-	"\x1etask/v1/msg_verification.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/result.proto\"\x84\x01\n" +
+	"\x1etask/v1/msg_verification.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/result.proto\"\x84\x01\n" +
 	"\x11BatchItemResultV1\x12\x1d\n" +
 	"\n" +
 	"item_index\x18\x01 \x01(\rR\titemIndex\x12\x1b\n" +
 	"\tobject_id\x18\x02 \x01(\fR\bobjectId\x123\n" +
 	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"w\n" +
 	"\x15MsgSubmitInferReceipt\x121\n" +
-	"\areceipt\x18\x01 \x01(\v2\x17.task.v1.InferReceiptV2R\areceipt\x12+\n" +
+	"\areceipt\x18\x01 \x01(\v2\x17.task.v1.InferReceiptV3R\areceipt\x12+\n" +
 	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xda\x01\n" +
 	"\x1dMsgSubmitInferReceiptResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12,\n" +
@@ -1148,7 +1336,14 @@ const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\x17worker_operator_address\x18\x02 \x01(\tR\x15workerOperatorAddress\x12'\n" +
 	"\x0fevidence_digest\x18\x03 \x01(\fR\x0eevidenceDigest\x12\x19\n" +
 	"\bfault_id\x18\x04 \x01(\fR\afaultId\x123\n" +
-	"\x06status\x18\x05 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xa1\x01\n" +
+	"\x06status\x18\x05 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"t\n" +
+	"\x1eMsgSubmitVerifierValueEvidence\x12%\n" +
+	"\x0eevidence_bytes\x18\x01 \x01(\fR\revidenceBytes\x12+\n" +
+	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xa1\x01\n" +
+	"&MsgSubmitVerifierValueEvidenceResponse\x12'\n" +
+	"\x0fevidence_digest\x18\x01 \x01(\fR\x0eevidenceDigest\x12\x19\n" +
+	"\bfault_id\x18\x02 \x01(\fR\afaultId\x123\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xa1\x01\n" +
 	"\x1bMsgSubmitVerifierHandraises\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12<\n" +
 	"\n" +
@@ -1161,12 +1356,14 @@ const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\x0fproposal_digest\x18\x03 \x01(\fR\x0eproposalDigest\x12,\n" +
 	"\x12added_member_count\x18\x04 \x01(\rR\x10addedMemberCount\x12\x1f\n" +
 	"\vunion_count\x18\x05 \x01(\rR\n" +
-	"unionCount\"\xca\x01\n" +
+	"unionCount\"\xc2\x02\n" +
 	"\x18MsgReportDataUnavailable\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fverify_round\x18\x02 \x01(\rR\vverifyRound\x12E\n" +
 	"\x1funavailable_task_builder_bitmap\x18\x03 \x01(\fR\x1cunavailableTaskBuilderBitmap\x12+\n" +
-	"\x11submitter_address\x18\x04 \x01(\tR\x10submitterAddress\"|\n" +
+	"\x11submitter_address\x18\x04 \x01(\tR\x10submitterAddress\x12<\n" +
+	"\revidence_kind\x18\x05 \x01(\x0e2\x17.shared.v1.EvidenceKindR\fevidenceKind\x128\n" +
+	"\x06reason\x18\x06 \x01(\x0e2 .task.v1.DataUnavailableReasonV1R\x06reason\"|\n" +
 	" MsgReportDataUnavailableResponse\x12#\n" +
 	"\rreport_digest\x18\x01 \x01(\fR\freportDigest\x123\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"u\n" +
@@ -1185,18 +1382,22 @@ const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2\x1a.task.v1.BatchItemResultV1R\aresults\x12!\n" +
 	"\fbatch_digest\x18\x02 \x01(\fR\vbatchDigest\"x\n" +
 	"\x15MsgSubmitVerifyResult\x122\n" +
-	"\areceipt\x18\x01 \x01(\v2\x18.task.v1.ResultReceiptV2R\areceipt\x12+\n" +
+	"\areceipt\x18\x01 \x01(\v2\x18.task.v1.ResultReceiptV3R\areceipt\x12+\n" +
 	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xc7\x01\n" +
 	"\x1dMsgSubmitVerifyResultResponse\x12A\n" +
 	"\x1dresult_receipt_signing_digest\x18\x01 \x01(\fR\x1aresultReceiptSigningDigest\x12.\n" +
 	"\x13result_payload_hash\x18\x02 \x01(\fR\x11resultPayloadHash\x123\n" +
 	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\x7f\n" +
 	"\x1aMsgBatchSubmitVerifyResult\x124\n" +
-	"\breceipts\x18\x01 \x03(\v2\x18.task.v1.ResultReceiptV2R\breceipts\x12+\n" +
+	"\breceipts\x18\x01 \x03(\v2\x18.task.v1.ResultReceiptV3R\breceipts\x12+\n" +
 	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"}\n" +
 	"\"MsgBatchSubmitVerifyResultResponse\x124\n" +
 	"\aresults\x18\x01 \x03(\v2\x1a.task.v1.BatchItemResultV1R\aresults\x12!\n" +
-	"\fbatch_digest\x18\x02 \x01(\fR\vbatchDigestB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\fbatch_digest\x18\x02 \x01(\fR\vbatchDigest*\xb1\x01\n" +
+	"\x17DataUnavailableReasonV1\x12*\n" +
+	"&DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED\x10\x00\x122\n" +
+	".DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE\x10\x01\x126\n" +
+	"2DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID\x10\x02B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_msg_verification_proto_rawDescOnce sync.Once
@@ -1210,51 +1411,59 @@ func file_task_v1_msg_verification_proto_rawDescGZIP() []byte {
 	return file_task_v1_msg_verification_proto_rawDescData
 }
 
-var file_task_v1_msg_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_task_v1_msg_verification_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_task_v1_msg_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_task_v1_msg_verification_proto_goTypes = []any{
-	(*BatchItemResultV1)(nil),                   // 0: task.v1.BatchItemResultV1
-	(*MsgSubmitInferReceipt)(nil),               // 1: task.v1.MsgSubmitInferReceipt
-	(*MsgSubmitInferReceiptResponse)(nil),       // 2: task.v1.MsgSubmitInferReceiptResponse
-	(*MsgSubmitWorkerEvidence)(nil),             // 3: task.v1.MsgSubmitWorkerEvidence
-	(*MsgSubmitWorkerEvidenceResponse)(nil),     // 4: task.v1.MsgSubmitWorkerEvidenceResponse
-	(*MsgSubmitVerifierHandraises)(nil),         // 5: task.v1.MsgSubmitVerifierHandraises
-	(*MsgSubmitVerifierHandraisesResponse)(nil), // 6: task.v1.MsgSubmitVerifierHandraisesResponse
-	(*MsgReportDataUnavailable)(nil),            // 7: task.v1.MsgReportDataUnavailable
-	(*MsgReportDataUnavailableResponse)(nil),    // 8: task.v1.MsgReportDataUnavailableResponse
-	(*MsgSubmitVerifyCommit)(nil),               // 9: task.v1.MsgSubmitVerifyCommit
-	(*MsgSubmitVerifyCommitResponse)(nil),       // 10: task.v1.MsgSubmitVerifyCommitResponse
-	(*MsgBatchSubmitVerifyCommit)(nil),          // 11: task.v1.MsgBatchSubmitVerifyCommit
-	(*MsgBatchSubmitVerifyCommitResponse)(nil),  // 12: task.v1.MsgBatchSubmitVerifyCommitResponse
-	(*MsgSubmitVerifyResult)(nil),               // 13: task.v1.MsgSubmitVerifyResult
-	(*MsgSubmitVerifyResultResponse)(nil),       // 14: task.v1.MsgSubmitVerifyResultResponse
-	(*MsgBatchSubmitVerifyResult)(nil),          // 15: task.v1.MsgBatchSubmitVerifyResult
-	(*MsgBatchSubmitVerifyResultResponse)(nil),  // 16: task.v1.MsgBatchSubmitVerifyResultResponse
-	(v1.MutationStatusV1)(0),                    // 17: shared.v1.MutationStatusV1
-	(*InferReceiptV2)(nil),                      // 18: task.v1.InferReceiptV2
-	(*VerifierHandraiseV1)(nil),                 // 19: task.v1.VerifierHandraiseV1
-	(*VerifyCommitV1)(nil),                      // 20: task.v1.VerifyCommitV1
-	(*ResultReceiptV2)(nil),                     // 21: task.v1.ResultReceiptV2
+	(DataUnavailableReasonV1)(0),                   // 0: task.v1.DataUnavailableReasonV1
+	(*BatchItemResultV1)(nil),                      // 1: task.v1.BatchItemResultV1
+	(*MsgSubmitInferReceipt)(nil),                  // 2: task.v1.MsgSubmitInferReceipt
+	(*MsgSubmitInferReceiptResponse)(nil),          // 3: task.v1.MsgSubmitInferReceiptResponse
+	(*MsgSubmitWorkerEvidence)(nil),                // 4: task.v1.MsgSubmitWorkerEvidence
+	(*MsgSubmitWorkerEvidenceResponse)(nil),        // 5: task.v1.MsgSubmitWorkerEvidenceResponse
+	(*MsgSubmitVerifierValueEvidence)(nil),         // 6: task.v1.MsgSubmitVerifierValueEvidence
+	(*MsgSubmitVerifierValueEvidenceResponse)(nil), // 7: task.v1.MsgSubmitVerifierValueEvidenceResponse
+	(*MsgSubmitVerifierHandraises)(nil),            // 8: task.v1.MsgSubmitVerifierHandraises
+	(*MsgSubmitVerifierHandraisesResponse)(nil),    // 9: task.v1.MsgSubmitVerifierHandraisesResponse
+	(*MsgReportDataUnavailable)(nil),               // 10: task.v1.MsgReportDataUnavailable
+	(*MsgReportDataUnavailableResponse)(nil),       // 11: task.v1.MsgReportDataUnavailableResponse
+	(*MsgSubmitVerifyCommit)(nil),                  // 12: task.v1.MsgSubmitVerifyCommit
+	(*MsgSubmitVerifyCommitResponse)(nil),          // 13: task.v1.MsgSubmitVerifyCommitResponse
+	(*MsgBatchSubmitVerifyCommit)(nil),             // 14: task.v1.MsgBatchSubmitVerifyCommit
+	(*MsgBatchSubmitVerifyCommitResponse)(nil),     // 15: task.v1.MsgBatchSubmitVerifyCommitResponse
+	(*MsgSubmitVerifyResult)(nil),                  // 16: task.v1.MsgSubmitVerifyResult
+	(*MsgSubmitVerifyResultResponse)(nil),          // 17: task.v1.MsgSubmitVerifyResultResponse
+	(*MsgBatchSubmitVerifyResult)(nil),             // 18: task.v1.MsgBatchSubmitVerifyResult
+	(*MsgBatchSubmitVerifyResultResponse)(nil),     // 19: task.v1.MsgBatchSubmitVerifyResultResponse
+	(v1.MutationStatusV1)(0),                       // 20: shared.v1.MutationStatusV1
+	(*InferReceiptV3)(nil),                         // 21: task.v1.InferReceiptV3
+	(*VerifierHandraiseV1)(nil),                    // 22: task.v1.VerifierHandraiseV1
+	(v1.EvidenceKind)(0),                           // 23: shared.v1.EvidenceKind
+	(*VerifyCommitV1)(nil),                         // 24: task.v1.VerifyCommitV1
+	(*ResultReceiptV3)(nil),                        // 25: task.v1.ResultReceiptV3
 }
 var file_task_v1_msg_verification_proto_depIdxs = []int32{
-	17, // 0: task.v1.BatchItemResultV1.status:type_name -> shared.v1.MutationStatusV1
-	18, // 1: task.v1.MsgSubmitInferReceipt.receipt:type_name -> task.v1.InferReceiptV2
-	17, // 2: task.v1.MsgSubmitInferReceiptResponse.status:type_name -> shared.v1.MutationStatusV1
-	17, // 3: task.v1.MsgSubmitWorkerEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
-	19, // 4: task.v1.MsgSubmitVerifierHandraises.handraises:type_name -> task.v1.VerifierHandraiseV1
-	17, // 5: task.v1.MsgReportDataUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
-	20, // 6: task.v1.MsgSubmitVerifyCommit.commit:type_name -> task.v1.VerifyCommitV1
-	17, // 7: task.v1.MsgSubmitVerifyCommitResponse.status:type_name -> shared.v1.MutationStatusV1
-	20, // 8: task.v1.MsgBatchSubmitVerifyCommit.commits:type_name -> task.v1.VerifyCommitV1
-	0,  // 9: task.v1.MsgBatchSubmitVerifyCommitResponse.results:type_name -> task.v1.BatchItemResultV1
-	21, // 10: task.v1.MsgSubmitVerifyResult.receipt:type_name -> task.v1.ResultReceiptV2
-	17, // 11: task.v1.MsgSubmitVerifyResultResponse.status:type_name -> shared.v1.MutationStatusV1
-	21, // 12: task.v1.MsgBatchSubmitVerifyResult.receipts:type_name -> task.v1.ResultReceiptV2
-	0,  // 13: task.v1.MsgBatchSubmitVerifyResultResponse.results:type_name -> task.v1.BatchItemResultV1
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	20, // 0: task.v1.BatchItemResultV1.status:type_name -> shared.v1.MutationStatusV1
+	21, // 1: task.v1.MsgSubmitInferReceipt.receipt:type_name -> task.v1.InferReceiptV3
+	20, // 2: task.v1.MsgSubmitInferReceiptResponse.status:type_name -> shared.v1.MutationStatusV1
+	20, // 3: task.v1.MsgSubmitWorkerEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
+	20, // 4: task.v1.MsgSubmitVerifierValueEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
+	22, // 5: task.v1.MsgSubmitVerifierHandraises.handraises:type_name -> task.v1.VerifierHandraiseV1
+	23, // 6: task.v1.MsgReportDataUnavailable.evidence_kind:type_name -> shared.v1.EvidenceKind
+	0,  // 7: task.v1.MsgReportDataUnavailable.reason:type_name -> task.v1.DataUnavailableReasonV1
+	20, // 8: task.v1.MsgReportDataUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
+	24, // 9: task.v1.MsgSubmitVerifyCommit.commit:type_name -> task.v1.VerifyCommitV1
+	20, // 10: task.v1.MsgSubmitVerifyCommitResponse.status:type_name -> shared.v1.MutationStatusV1
+	24, // 11: task.v1.MsgBatchSubmitVerifyCommit.commits:type_name -> task.v1.VerifyCommitV1
+	1,  // 12: task.v1.MsgBatchSubmitVerifyCommitResponse.results:type_name -> task.v1.BatchItemResultV1
+	25, // 13: task.v1.MsgSubmitVerifyResult.receipt:type_name -> task.v1.ResultReceiptV3
+	20, // 14: task.v1.MsgSubmitVerifyResultResponse.status:type_name -> shared.v1.MutationStatusV1
+	25, // 15: task.v1.MsgBatchSubmitVerifyResult.receipts:type_name -> task.v1.ResultReceiptV3
+	1,  // 16: task.v1.MsgBatchSubmitVerifyResultResponse.results:type_name -> task.v1.BatchItemResultV1
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_verification_proto_init() }
@@ -1272,13 +1481,14 @@ func file_task_v1_msg_verification_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_msg_verification_proto_rawDesc), len(file_task_v1_msg_verification_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   17,
+			NumEnums:      1,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_task_v1_msg_verification_proto_goTypes,
 		DependencyIndexes: file_task_v1_msg_verification_proto_depIdxs,
+		EnumInfos:         file_task_v1_msg_verification_proto_enumTypes,
 		MessageInfos:      file_task_v1_msg_verification_proto_msgTypes,
 	}.Build()
 	File_task_v1_msg_verification_proto = out.File

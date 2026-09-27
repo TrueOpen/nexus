@@ -123,7 +123,7 @@ type TaskTerminalSummaryState struct {
 	SettlementStatus                    SettlementStatus        `protobuf:"varint,8,opt,name=settlement_status,json=settlementStatus,proto3,enum=task.v1.SettlementStatus" json:"settlement_status,omitempty"`
 	FinalityStatus                      v1.TaskFinalityStatusV1 `protobuf:"varint,9,opt,name=finality_status,json=finalityStatus,proto3,enum=shared.v1.TaskFinalityStatusV1" json:"finality_status,omitempty"`
 	EffectiveVerifyRound                uint32                  `protobuf:"varint,10,opt,name=effective_verify_round,json=effectiveVerifyRound,proto3" json:"effective_verify_round,omitempty"`
-	ModelId                             string                  `protobuf:"bytes,11,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                             []byte                  `protobuf:"bytes,11,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion                      uint32                  `protobuf:"varint,12,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	TaskType                            v1.TaskType             `protobuf:"varint,13,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
 	CandidatePoolSnapshotId             []byte                  `protobuf:"bytes,14,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
@@ -262,11 +262,11 @@ func (x *TaskTerminalSummaryState) GetEffectiveVerifyRound() uint32 {
 	return 0
 }
 
-func (x *TaskTerminalSummaryState) GetModelId() string {
+func (x *TaskTerminalSummaryState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *TaskTerminalSummaryState) GetProfileVersion() uint32 {
@@ -655,7 +655,7 @@ const file_task_v1_cleanup_proto_rawDesc = "" +
 	"\x0ffinality_status\x18\t \x01(\x0e2\x1f.shared.v1.TaskFinalityStatusV1R\x0efinalityStatus\x124\n" +
 	"\x16effective_verify_round\x18\n" +
 	" \x01(\rR\x14effectiveVerifyRound\x12\x19\n" +
-	"\bmodel_id\x18\v \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\v \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\f \x01(\rR\x0eprofileVersion\x120\n" +
 	"\ttask_type\x18\r \x01(\x0e2\x13.shared.v1.TaskTypeR\btaskType\x12;\n" +
 	"\x1acandidate_pool_snapshot_id\x18\x0e \x01(\fR\x17candidatePoolSnapshotId\x12.\n" +

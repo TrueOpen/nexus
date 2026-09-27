@@ -367,7 +367,7 @@ func (*SubscribeRoleEventsResponse_Event) isSubscribeRoleEventsResponse_Item() {
 
 func (*SubscribeRoleEventsResponse_Checkpoint) isSubscribeRoleEventsResponse_Item() {}
 
-// TaskEvent is a stable stream envelope around one committed Task-owned §5.11
+// TaskEvent is a stable stream envelope around one committed Task-owned
 // event. Field numbers 10 to 14 are deliberately unallocated.
 //
 // cursor is an opaque global chain-position token produced by one Node. The total

@@ -108,7 +108,7 @@ message QueryFreezeSignalResponse {
 // QueryFreezeSignalsRequest pages one profile's signals by status.
 // QueryFreezeSignalsRequest defines the QueryFreezeSignalsRequest wire type.
 message QueryFreezeSignalsRequest {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   FreezeSignalStatus status = 3;
   shared.v1.QueryPageRequestV1 page = 4;

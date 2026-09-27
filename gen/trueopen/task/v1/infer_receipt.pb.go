@@ -21,16 +21,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// InferReceiptV2 is the worker-signed inference receipt carried by
+// InferReceiptV3 is the worker-signed inference receipt carried by
 // MsgSubmitInferReceipt. Field numbers, types and order are frozen by
-// the API contract; the same order is the length-framed preimage of
+// the wire API; the same order is the length-framed preimage of
 //
 //	infer_receipt_hash = infer_receipt_signing_digest =
-//	  H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V2", schema_version, chain_id, task_id,
+//	  H_FIELDS_V1("TRUEOPEN_INFER_RECEIPT_V3", schema_version, chain_id, task_id,
 //	    task_hash, worker_operator_address, service_authorization_nonce,
 //	    generation_params_digest, output_hash, output_size_bytes,
 //	    evidence_commitments_hash, expiry_height, generated_token_count,
-//	    output_leaf_count)
+//	    output_leaf_count, output_key_commitment, worker_token_key_commitment,
+//	    worker_value_key_commitment, ciphertext_output_root)
 //
 // Note that service_signature (field 12) is excluded and that
 // evidence_commitments_hash is NOT a wire field: it is derived by the Keeper from
@@ -40,16 +41,16 @@ const (
 // evidence_availability_endpoint_hash are not part of this wire; the work-unit
 // landing point is the SETTLEMENT_BILL leaf in task/v1/settlement.proto.
 //
-// schema_version is exactly 2. InferReceiptV1 and its old domain have no decoder
+// schema_version is exactly 3. Earlier receipt domains have no decoder
 // or alias in this fresh contract.
 //
 // The locked Profile carries a typed EvidenceSchemaV1 descriptor and its
 // evidence_schema_hash. The Keeper requires this list to match the descriptor
 // exactly; callers cannot supply an empty set, subset, superset, or unknown kind.
-// InferReceiptV2 defines the InferReceiptV2 wire type.
-type InferReceiptV2 struct {
+// InferReceiptV3 defines the InferReceiptV3 wire type.
+type InferReceiptV3 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 2 in the fresh Phase 0 contract.
+	// Always 3 in the fresh Phase 0 contract.
 	SchemaVersion               uint32                  `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId                     string                  `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId                      []byte                  `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -66,24 +67,29 @@ type InferReceiptV2 struct {
 	// the threshold result cluster independently derives the same value.
 	GeneratedTokenCount uint64 `protobuf:"varint,13,opt,name=generated_token_count,json=generatedTokenCount,proto3" json:"generated_token_count,omitempty"`
 	OutputLeafCount     uint64 `protobuf:"varint,14,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Reserved encryption commitments: all-zero Hash32 in plaintext Phase 0.
+	OutputKeyCommitment      []byte `protobuf:"bytes,15,opt,name=output_key_commitment,json=outputKeyCommitment,proto3" json:"output_key_commitment,omitempty"`
+	WorkerTokenKeyCommitment []byte `protobuf:"bytes,16,opt,name=worker_token_key_commitment,json=workerTokenKeyCommitment,proto3" json:"worker_token_key_commitment,omitempty"`
+	WorkerValueKeyCommitment []byte `protobuf:"bytes,17,opt,name=worker_value_key_commitment,json=workerValueKeyCommitment,proto3" json:"worker_value_key_commitment,omitempty"`
+	CiphertextOutputRoot     []byte `protobuf:"bytes,18,opt,name=ciphertext_output_root,json=ciphertextOutputRoot,proto3" json:"ciphertext_output_root,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
-func (x *InferReceiptV2) Reset() {
-	*x = InferReceiptV2{}
+func (x *InferReceiptV3) Reset() {
+	*x = InferReceiptV3{}
 	mi := &file_task_v1_infer_receipt_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *InferReceiptV2) String() string {
+func (x *InferReceiptV3) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*InferReceiptV2) ProtoMessage() {}
+func (*InferReceiptV3) ProtoMessage() {}
 
-func (x *InferReceiptV2) ProtoReflect() protoreflect.Message {
+func (x *InferReceiptV3) ProtoReflect() protoreflect.Message {
 	mi := &file_task_v1_infer_receipt_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -95,107 +101,135 @@ func (x *InferReceiptV2) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use InferReceiptV2.ProtoReflect.Descriptor instead.
-func (*InferReceiptV2) Descriptor() ([]byte, []int) {
+// Deprecated: Use InferReceiptV3.ProtoReflect.Descriptor instead.
+func (*InferReceiptV3) Descriptor() ([]byte, []int) {
 	return file_task_v1_infer_receipt_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *InferReceiptV2) GetSchemaVersion() uint32 {
+func (x *InferReceiptV3) GetSchemaVersion() uint32 {
 	if x != nil {
 		return x.SchemaVersion
 	}
 	return 0
 }
 
-func (x *InferReceiptV2) GetChainId() string {
+func (x *InferReceiptV3) GetChainId() string {
 	if x != nil {
 		return x.ChainId
 	}
 	return ""
 }
 
-func (x *InferReceiptV2) GetTaskId() []byte {
+func (x *InferReceiptV3) GetTaskId() []byte {
 	if x != nil {
 		return x.TaskId
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetTaskHash() []byte {
+func (x *InferReceiptV3) GetTaskHash() []byte {
 	if x != nil {
 		return x.TaskHash
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetWorkerOperatorAddress() string {
+func (x *InferReceiptV3) GetWorkerOperatorAddress() string {
 	if x != nil {
 		return x.WorkerOperatorAddress
 	}
 	return ""
 }
 
-func (x *InferReceiptV2) GetServiceAuthorizationNonce() uint64 {
+func (x *InferReceiptV3) GetServiceAuthorizationNonce() uint64 {
 	if x != nil {
 		return x.ServiceAuthorizationNonce
 	}
 	return 0
 }
 
-func (x *InferReceiptV2) GetGenerationParamsDigest() []byte {
+func (x *InferReceiptV3) GetGenerationParamsDigest() []byte {
 	if x != nil {
 		return x.GenerationParamsDigest
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetOutputHash() []byte {
+func (x *InferReceiptV3) GetOutputHash() []byte {
 	if x != nil {
 		return x.OutputHash
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetOutputSizeBytes() uint64 {
+func (x *InferReceiptV3) GetOutputSizeBytes() uint64 {
 	if x != nil {
 		return x.OutputSizeBytes
 	}
 	return 0
 }
 
-func (x *InferReceiptV2) GetRequiredEvidenceCommitments() []*EvidenceCommitmentV1 {
+func (x *InferReceiptV3) GetRequiredEvidenceCommitments() []*EvidenceCommitmentV1 {
 	if x != nil {
 		return x.RequiredEvidenceCommitments
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetExpiryHeight() uint64 {
+func (x *InferReceiptV3) GetExpiryHeight() uint64 {
 	if x != nil {
 		return x.ExpiryHeight
 	}
 	return 0
 }
 
-func (x *InferReceiptV2) GetServiceSignature() []byte {
+func (x *InferReceiptV3) GetServiceSignature() []byte {
 	if x != nil {
 		return x.ServiceSignature
 	}
 	return nil
 }
 
-func (x *InferReceiptV2) GetGeneratedTokenCount() uint64 {
+func (x *InferReceiptV3) GetGeneratedTokenCount() uint64 {
 	if x != nil {
 		return x.GeneratedTokenCount
 	}
 	return 0
 }
 
-func (x *InferReceiptV2) GetOutputLeafCount() uint64 {
+func (x *InferReceiptV3) GetOutputLeafCount() uint64 {
 	if x != nil {
 		return x.OutputLeafCount
 	}
 	return 0
+}
+
+func (x *InferReceiptV3) GetOutputKeyCommitment() []byte {
+	if x != nil {
+		return x.OutputKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptV3) GetWorkerTokenKeyCommitment() []byte {
+	if x != nil {
+		return x.WorkerTokenKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptV3) GetWorkerValueKeyCommitment() []byte {
+	if x != nil {
+		return x.WorkerValueKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptV3) GetCiphertextOutputRoot() []byte {
+	if x != nil {
+		return x.CiphertextOutputRoot
+	}
+	return nil
 }
 
 // InferReceiptState is the authoritative accepted receipt row keyed by task_id.
@@ -222,12 +256,16 @@ type InferReceiptState struct {
 	// The 64-byte signature was verified before initial live acceptance and is not retained.
 	// This digest is not authorization state and never enters a signing/business digest;
 	// replay compares it only to identify the same previously accepted signature.
-	SignatureDigest []byte `protobuf:"bytes,12,opt,name=signature_digest,json=signatureDigest,proto3" json:"signature_digest,omitempty"`
-	ExpiryHeight    uint64 `protobuf:"varint,13,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	ReceiptHeight   uint64 `protobuf:"varint,14,opt,name=receipt_height,json=receiptHeight,proto3" json:"receipt_height,omitempty"`
-	OutputLeafCount uint64 `protobuf:"varint,15,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	SignatureDigest          []byte `protobuf:"bytes,12,opt,name=signature_digest,json=signatureDigest,proto3" json:"signature_digest,omitempty"`
+	ExpiryHeight             uint64 `protobuf:"varint,13,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	ReceiptHeight            uint64 `protobuf:"varint,14,opt,name=receipt_height,json=receiptHeight,proto3" json:"receipt_height,omitempty"`
+	OutputLeafCount          uint64 `protobuf:"varint,15,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
+	OutputKeyCommitment      []byte `protobuf:"bytes,16,opt,name=output_key_commitment,json=outputKeyCommitment,proto3" json:"output_key_commitment,omitempty"`
+	WorkerTokenKeyCommitment []byte `protobuf:"bytes,17,opt,name=worker_token_key_commitment,json=workerTokenKeyCommitment,proto3" json:"worker_token_key_commitment,omitempty"`
+	WorkerValueKeyCommitment []byte `protobuf:"bytes,18,opt,name=worker_value_key_commitment,json=workerValueKeyCommitment,proto3" json:"worker_value_key_commitment,omitempty"`
+	CiphertextOutputRoot     []byte `protobuf:"bytes,19,opt,name=ciphertext_output_root,json=ciphertextOutputRoot,proto3" json:"ciphertext_output_root,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *InferReceiptState) Reset() {
@@ -365,12 +403,40 @@ func (x *InferReceiptState) GetOutputLeafCount() uint64 {
 	return 0
 }
 
+func (x *InferReceiptState) GetOutputKeyCommitment() []byte {
+	if x != nil {
+		return x.OutputKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptState) GetWorkerTokenKeyCommitment() []byte {
+	if x != nil {
+		return x.WorkerTokenKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptState) GetWorkerValueKeyCommitment() []byte {
+	if x != nil {
+		return x.WorkerValueKeyCommitment
+	}
+	return nil
+}
+
+func (x *InferReceiptState) GetCiphertextOutputRoot() []byte {
+	if x != nil {
+		return x.CiphertextOutputRoot
+	}
+	return nil
+}
+
 var File_task_v1_infer_receipt_proto protoreflect.FileDescriptor
 
 const file_task_v1_infer_receipt_proto_rawDesc = "" +
 	"\n" +
-	"\x1btask/v1/infer_receipt.proto\x12\atask.v1\x1a\x16task/v1/evidence.proto\"\x9c\x05\n" +
-	"\x0eInferReceiptV2\x12%\n" +
+	"\x1btask/v1/infer_receipt.proto\x12\atask.v1\x1a\x16task/v1/evidence.proto\"\x84\a\n" +
+	"\x0eInferReceiptV3\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
 	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12\x1b\n" +
@@ -386,7 +452,11 @@ const file_task_v1_infer_receipt_proto_rawDesc = "" +
 	"\rexpiry_height\x18\v \x01(\x04R\fexpiryHeight\x12+\n" +
 	"\x11service_signature\x18\f \x01(\fR\x10serviceSignature\x122\n" +
 	"\x15generated_token_count\x18\r \x01(\x04R\x13generatedTokenCount\x12*\n" +
-	"\x11output_leaf_count\x18\x0e \x01(\x04R\x0foutputLeafCount\"\xf9\x05\n" +
+	"\x11output_leaf_count\x18\x0e \x01(\x04R\x0foutputLeafCount\x122\n" +
+	"\x15output_key_commitment\x18\x0f \x01(\fR\x13outputKeyCommitment\x12=\n" +
+	"\x1bworker_token_key_commitment\x18\x10 \x01(\fR\x18workerTokenKeyCommitment\x12=\n" +
+	"\x1bworker_value_key_commitment\x18\x11 \x01(\fR\x18workerValueKeyCommitment\x124\n" +
+	"\x16ciphertext_output_root\x18\x12 \x01(\fR\x14ciphertextOutputRoot\"\xe1\a\n" +
 	"\x11InferReceiptState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12#\n" +
 	"\rwinner_worker\x18\x02 \x01(\tR\fwinnerWorker\x12,\n" +
@@ -404,7 +474,11 @@ const file_task_v1_infer_receipt_proto_rawDesc = "" +
 	"\x10signature_digest\x18\f \x01(\fR\x0fsignatureDigest\x12#\n" +
 	"\rexpiry_height\x18\r \x01(\x04R\fexpiryHeight\x12%\n" +
 	"\x0ereceipt_height\x18\x0e \x01(\x04R\rreceiptHeight\x12*\n" +
-	"\x11output_leaf_count\x18\x0f \x01(\x04R\x0foutputLeafCountB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x11output_leaf_count\x18\x0f \x01(\x04R\x0foutputLeafCount\x122\n" +
+	"\x15output_key_commitment\x18\x10 \x01(\fR\x13outputKeyCommitment\x12=\n" +
+	"\x1bworker_token_key_commitment\x18\x11 \x01(\fR\x18workerTokenKeyCommitment\x12=\n" +
+	"\x1bworker_value_key_commitment\x18\x12 \x01(\fR\x18workerValueKeyCommitment\x124\n" +
+	"\x16ciphertext_output_root\x18\x13 \x01(\fR\x14ciphertextOutputRootB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_infer_receipt_proto_rawDescOnce sync.Once
@@ -420,12 +494,12 @@ func file_task_v1_infer_receipt_proto_rawDescGZIP() []byte {
 
 var file_task_v1_infer_receipt_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_task_v1_infer_receipt_proto_goTypes = []any{
-	(*InferReceiptV2)(nil),       // 0: task.v1.InferReceiptV2
+	(*InferReceiptV3)(nil),       // 0: task.v1.InferReceiptV3
 	(*InferReceiptState)(nil),    // 1: task.v1.InferReceiptState
 	(*EvidenceCommitmentV1)(nil), // 2: task.v1.EvidenceCommitmentV1
 }
 var file_task_v1_infer_receipt_proto_depIdxs = []int32{
-	2, // 0: task.v1.InferReceiptV2.required_evidence_commitments:type_name -> task.v1.EvidenceCommitmentV1
+	2, // 0: task.v1.InferReceiptV3.required_evidence_commitments:type_name -> task.v1.EvidenceCommitmentV1
 	2, // 1: task.v1.InferReceiptState.required_evidence_commitments:type_name -> task.v1.EvidenceCommitmentV1
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type

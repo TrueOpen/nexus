@@ -23,9 +23,7 @@ const (
 
 // CommitStatusV1 is the lifecycle of one accepted verifier commit row.
 //
-// CONTRACT-GAP: the data-structure contract declares CommitState.status =
-// ACCEPTED as the only value, and the API contract does not register this
-// enum. The single non-zero value below is exactly what the frozen schema names.
+// ACCEPTED is the only nonzero CommitState status in this schema.
 // CommitStatusV1 defines the CommitStatusV1 wire type.
 type CommitStatusV1 int32
 
@@ -89,21 +87,20 @@ func (CommitStatusV1) EnumDescriptor() ([]byte, []int) {
 //
 // commit_hash must be a canonical 32-byte SHA-256 value produced by
 //
-//	commit_hash = H_FIELDS_V1("TRUEOPEN_RESULT_COMMITMENT_V2", chain_id, task_id,
-//	  task_hash, verify_round, verifier_operator_address, result_payload_hash,
+//	commit_hash = H_FIELDS_V1("TRUEOPEN_RESULT_COMMITMENT_V3", chain_id, task_id,
+//	  task_hash, verify_round, verifier_operator_address, verifier_value_root,
 //	  salt)
 //
 // Non-canonical placeholder values are rejected at the entry point; there is no
 // "looks like a hash" conditional branch and no optional commitment field.
 //
-// schema_version is 1, the same value as every other §5.14 stage wire and §4.1
+// schema_version is 1, the same value as every other stage wire and every
 // handraise wire. The single normative statement of that value, its derivation and
-// its schema-version rule lives on InferReceiptV2 in task/v1/infer_receipt.proto;
-// this file does not restate them.
+// its schema-version rule is independent of the receipt schema versions.
 // VerifyCommitV1 defines the VerifyCommitV1 wire type.
 type VerifyCommitV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 1; InferReceiptV2 alone uses schema version 2.
+	// Always 1; receipt schema versions do not change this commit version.
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -237,8 +234,10 @@ type CommitState struct {
 	SignatureDigest []byte         `protobuf:"bytes,7,opt,name=signature_digest,json=signatureDigest,proto3" json:"signature_digest,omitempty"`
 	CommitHeight    uint64         `protobuf:"varint,8,opt,name=commit_height,json=commitHeight,proto3" json:"commit_height,omitempty"`
 	Status          CommitStatusV1 `protobuf:"varint,9,opt,name=status,proto3,enum=task.v1.CommitStatusV1" json:"status,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Filled when the accepted result opens the V3 commit; absent beforehand.
+	VerifierValueRoot []byte `protobuf:"bytes,10,opt,name=verifier_value_root,json=verifierValueRoot,proto3,oneof" json:"verifier_value_root,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CommitState) Reset() {
@@ -334,6 +333,13 @@ func (x *CommitState) GetStatus() CommitStatusV1 {
 	return CommitStatusV1_COMMIT_STATUS_V1_UNSPECIFIED
 }
 
+func (x *CommitState) GetVerifierValueRoot() []byte {
+	if x != nil {
+		return x.VerifierValueRoot
+	}
+	return nil
+}
+
 var File_task_v1_commit_proto protoreflect.FileDescriptor
 
 const file_task_v1_commit_proto_rawDesc = "" +
@@ -349,7 +355,7 @@ const file_task_v1_commit_proto_rawDesc = "" +
 	"\vcommit_hash\x18\a \x01(\fR\n" +
 	"commitHash\x12#\n" +
 	"\rexpiry_height\x18\b \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xfa\x02\n" +
+	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xc7\x03\n" +
 	"\vCommitState\x12\x1d\n" +
 	"\n" +
 	"commit_key\x18\x01 \x01(\fR\tcommitKey\x12\x17\n" +
@@ -361,7 +367,10 @@ const file_task_v1_commit_proto_rawDesc = "" +
 	"\x15commit_signing_digest\x18\x06 \x01(\fR\x13commitSigningDigest\x12)\n" +
 	"\x10signature_digest\x18\a \x01(\fR\x0fsignatureDigest\x12#\n" +
 	"\rcommit_height\x18\b \x01(\x04R\fcommitHeight\x12/\n" +
-	"\x06status\x18\t \x01(\x0e2\x17.task.v1.CommitStatusV1R\x06status*Q\n" +
+	"\x06status\x18\t \x01(\x0e2\x17.task.v1.CommitStatusV1R\x06status\x123\n" +
+	"\x13verifier_value_root\x18\n" +
+	" \x01(\fH\x00R\x11verifierValueRoot\x88\x01\x01B\x16\n" +
+	"\x14_verifier_value_root*Q\n" +
 	"\x0eCommitStatusV1\x12 \n" +
 	"\x1cCOMMIT_STATUS_V1_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19COMMIT_STATUS_V1_ACCEPTED\x10\x01B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
@@ -399,6 +408,7 @@ func file_task_v1_commit_proto_init() {
 	if File_task_v1_commit_proto != nil {
 		return
 	}
+	file_task_v1_commit_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

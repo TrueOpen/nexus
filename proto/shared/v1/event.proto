@@ -8,7 +8,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // the one protocol event code registry plus the stream metadata shared
 // by every public event service. task.v1.TaskEventService and
 // hub.v1.HubEventService both reference these declarations, so the
-// module-split closure rule (§5.3 shared symbol manifest) makes them shared.
+// module-split closure rule (its shared symbol manifest) makes them shared.
 // Owner packages keep their own typed payload oneofs: Hub-owned payloads,
 // locators and the chain event envelope stay in hub.v1 and Task-owned
 // payload/event messages stay in task.v1.
@@ -23,13 +23,13 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // the same position even when one side had no matching event.
 
 // ProtocolEventCodeV1 is the single stable public event code registry of
-// the API contract for the whole protocol; §17 forbids any second event
+// the wire API for the whole protocol; this contract forbids any second event
 // code authority. Codes are sparse on purpose and are never renumbered.
 //
 // Hub-domain and Task-domain codes are both registered here, while their typed
 // payload messages stay with their owning module: Hub payloads in
 // hub/v1/event.proto and Task payloads in task/v1/event.proto.
-// The API contract requires one numeric definition per closed enum, and
+// The wire API requires one numeric definition per closed enum, and
 // the module split forbids x/hub from importing x/task, so the shared
 // code enum lives in shared.v1 and the payload oneof is split by owner.
 // ProtocolEventCodeV1 defines the ProtocolEventCodeV1 wire type.
@@ -122,6 +122,9 @@ enum ProtocolEventCodeV1 {
   // Task-domain payload; one Worker output-equivocation receipt committed.
   // PROTOCOL_EVENT_CODE_V1_WORKER_EVIDENCE_ACCEPTED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_WORKER_EVIDENCE_ACCEPTED = 29;
+  // Reserved for the later Verifier value-evidence activation; no payload is
+  // emitted or accepted before that upgrade.
+  PROTOCOL_EVENT_CODE_V1_VERIFIER_VALUE_EVIDENCE_ACCEPTED = 30;
   // Task-domain payload; declared in task/v1/event.proto.
   // PROTOCOL_EVENT_CODE_V1_VERIFIER_HANDRAISES_ACCEPTED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_VERIFIER_HANDRAISES_ACCEPTED = 34;

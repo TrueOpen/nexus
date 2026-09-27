@@ -26,7 +26,7 @@ const (
 // signed_order.order:
 //
 //	task_id   = H_FIELDS_V1("TRUEOPEN_TASK_ID_V1", session_id, u64be(order_sequence))
-//	task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
+//	task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3)
 //
 // and verify the user's order-domain EIP-712 signature, whose taskHash field is
 // the value above, against the user's on-chain account key before acting.
@@ -94,7 +94,7 @@ type WorkerAssignmentNotifyV1 struct {
 	FinalizedHeight uint64 `protobuf:"varint,4,opt,name=finalized_height,json=finalizedHeight,proto3" json:"finalized_height,omitempty"`
 	// Assignment randomness, republished so workers can audit the draw.
 	AssignSeed []byte `protobuf:"bytes,5,opt,name=assign_seed,json=assignSeed,proto3" json:"assign_seed,omitempty"`
-	// Input commitment; must match TaskOrderV2.input_hash of task_hash.
+	// Input commitment; must match TaskOrderV3.input_hash of task_hash.
 	InputHash []byte `protobuf:"bytes,6,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
 	// Chain-height deadline for the winner to deliver output.
 	InferDeadlineHeight uint64 `protobuf:"varint,7,opt,name=infer_deadline_height,json=inferDeadlineHeight,proto3" json:"infer_deadline_height,omitempty"`
@@ -277,7 +277,7 @@ type OpenVerifyV1 struct {
 	// Order version under verification.
 	TaskHash []byte `protobuf:"bytes,2,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
 	// Model the locked profile pins.
-	ModelId string `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId []byte `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	// Profile version the locked profile pins.
 	ProfileVersion uint32 `protobuf:"varint,4,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	// On-chain accepted receipt this verify round targets.
@@ -337,11 +337,11 @@ func (x *OpenVerifyV1) GetTaskHash() []byte {
 	return nil
 }
 
-func (x *OpenVerifyV1) GetModelId() string {
+func (x *OpenVerifyV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *OpenVerifyV1) GetProfileVersion() uint32 {
@@ -527,7 +527,7 @@ const file_bus_v1_payload_proto_rawDesc = "" +
 	"\fOpenVerifyV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x02 \x01(\fR\btaskHash\x12\x19\n" +
-	"\bmodel_id\x18\x03 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x03 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x04 \x01(\rR\x0eprofileVersion\x12,\n" +
 	"\x12infer_receipt_hash\x18\x05 \x01(\fR\x10inferReceiptHash\x12\x1f\n" +
 	"\voutput_hash\x18\x06 \x01(\fR\n" +

@@ -27,7 +27,7 @@ const (
 type ProfilePriceSampleV1 struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TaskId         []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ModelId        string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	PriceBid       uint64                 `protobuf:"varint,4,opt,name=price_bid,json=priceBid,proto3" json:"price_bid,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -71,11 +71,11 @@ func (x *ProfilePriceSampleV1) GetTaskId() []byte {
 	return nil
 }
 
-func (x *ProfilePriceSampleV1) GetModelId() string {
+func (x *ProfilePriceSampleV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ProfilePriceSampleV1) GetProfileVersion() uint32 {
@@ -99,12 +99,14 @@ func (x *ProfilePriceSampleV1) GetPriceBid() uint64 {
 // payloads.
 // EpochTaskSummary defines the EpochTaskSummary wire type.
 type EpochTaskSummary struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Epoch             uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	TaskCount         uint64                 `protobuf:"varint,2,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
-	ValidTaskCount    uint64                 `protobuf:"varint,3,opt,name=valid_task_count,json=validTaskCount,proto3" json:"valid_task_count,omitempty"`
-	Histogram         []uint64               `protobuf:"varint,4,rep,packed,name=histogram,proto3" json:"histogram,omitempty"`
-	SupportCandidates []string               `protobuf:"bytes,5,rep,name=support_candidates,json=supportCandidates,proto3" json:"support_candidates,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Epoch          uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	TaskCount      uint64                 `protobuf:"varint,2,opt,name=task_count,json=taskCount,proto3" json:"task_count,omitempty"`
+	ValidTaskCount uint64                 `protobuf:"varint,3,opt,name=valid_task_count,json=validTaskCount,proto3" json:"valid_task_count,omitempty"`
+	Histogram      []uint64               `protobuf:"varint,4,rep,packed,name=histogram,proto3" json:"histogram,omitempty"`
+	// Raw Hash32 model identifiers in strictly ascending byte order.
+	// Every model appears at most once; composite model/profile strings are invalid.
+	SupportCandidates [][]byte `protobuf:"bytes,5,rep,name=support_candidates,json=supportCandidates,proto3" json:"support_candidates,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -167,7 +169,7 @@ func (x *EpochTaskSummary) GetHistogram() []uint64 {
 	return nil
 }
 
-func (x *EpochTaskSummary) GetSupportCandidates() []string {
+func (x *EpochTaskSummary) GetSupportCandidates() [][]byte {
 	if x != nil {
 		return x.SupportCandidates
 	}
@@ -181,7 +183,7 @@ const file_shared_v1_payload_proto_rawDesc = "" +
 	"\x17shared/v1/payload.proto\x12\tshared.v1\"\x90\x01\n" +
 	"\x14ProfilePriceSampleV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12\x1b\n" +
 	"\tprice_bid\x18\x04 \x01(\x04R\bpriceBid\"\xbe\x01\n" +
 	"\x10EpochTaskSummary\x12\x14\n" +
@@ -190,7 +192,7 @@ const file_shared_v1_payload_proto_rawDesc = "" +
 	"task_count\x18\x02 \x01(\x04R\ttaskCount\x12(\n" +
 	"\x10valid_task_count\x18\x03 \x01(\x04R\x0evalidTaskCount\x12\x1c\n" +
 	"\thistogram\x18\x04 \x03(\x04R\thistogram\x12-\n" +
-	"\x12support_candidates\x18\x05 \x03(\tR\x11supportCandidatesB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
+	"\x12support_candidates\x18\x05 \x03(\fR\x11supportCandidatesB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
 
 var (
 	file_shared_v1_payload_proto_rawDescOnce sync.Once

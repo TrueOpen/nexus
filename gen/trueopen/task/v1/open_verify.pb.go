@@ -23,7 +23,7 @@ const (
 )
 
 // VerifierCandidateWindowStatusV1 is the lifecycle of one task-round verifier
-// candidate window. Frozen values: the API contract.
+// candidate window. Frozen values: the wire API.
 // VerifierCandidateWindowStatusV1 defines the VerifierCandidateWindowStatusV1 wire type.
 type VerifierCandidateWindowStatusV1 int32
 
@@ -88,10 +88,8 @@ func (VerifierCandidateWindowStatusV1) EnumDescriptor() ([]byte, []int) {
 // BuilderDataUnavailableAggregateStatusV1 is the lifecycle of one
 // (task, round, builder) data-unavailable aggregate.
 //
-// CONTRACT-GAP: the data-structure contract names the three states
-// (COLLECTING / CONFIRMED / PRUNED) but the API contract does not
-// register this enum, so the numbers below follow the declaration order of that
-// section and must be re-confirmed when §9.6b is extended.
+// The three nonzero states are frozen in collection lifecycle order:
+// COLLECTING, CONFIRMED, and PRUNED.
 // BuilderDataUnavailableAggregateStatusV1 defines the BuilderDataUnavailableAggregateStatusV1 wire type.
 type BuilderDataUnavailableAggregateStatusV1 int32
 
@@ -232,18 +230,18 @@ func (x *CandidateMemberRefV1) GetOperatorAddress() string {
 
 // VerifierHandraiseV1 is one verifier-signed offer to take a verify duty on an
 // already accepted InferReceipt. Field numbers, types and order are frozen by
-// the API contract and are the length-framed preimage of
+// the wire API and are the length-framed preimage of
 // H_FIELDS_V1("TRUEOPEN_VERIFIER_HANDRAISE_V1", canonical VerifierHandraiseV1
 // excluding service_signature). duty is always DUTY_VERIFIER;
 // service_authorization_nonce must equal the operator's current service binding
 // nonce at verification time.
 //
-// schema_version is 1: §4.1 writes `schema_version: uint32 = 1` literally for this
-// wire. InferReceiptV2 is the only sibling receipt that uses schema version 2.
+// schema_version is 1: this contract writes `schema_version: uint32 = 1` literally for this
+// wire. Handraise schema versions are independent of receipt versions.
 // VerifierHandraiseV1 defines the VerifierHandraiseV1 wire type.
 type VerifierHandraiseV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 1; §4.1 pins it literally.
+	// Always 1; this contract pins it literally.
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -252,15 +250,17 @@ type VerifierHandraiseV1 struct {
 	VerifyRound               uint32                `protobuf:"varint,4,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	InferReceiptHash          []byte                `protobuf:"bytes,5,opt,name=infer_receipt_hash,json=inferReceiptHash,proto3" json:"infer_receipt_hash,omitempty"`
 	OutputHash                []byte                `protobuf:"bytes,6,opt,name=output_hash,json=outputHash,proto3" json:"output_hash,omitempty"`
-	ModelId                   string                `protobuf:"bytes,7,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                   []byte                `protobuf:"bytes,7,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion            uint32                `protobuf:"varint,8,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	Member                    *CandidateMemberRefV1 `protobuf:"bytes,9,opt,name=member,proto3" json:"member,omitempty"`
 	Duty                      v1.Duty               `protobuf:"varint,10,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
 	ServiceAuthorizationNonce uint64                `protobuf:"varint,11,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
 	ExpiryHeight              uint64                `protobuf:"varint,12,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	ServiceSignature          []byte                `protobuf:"bytes,13,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Reserved recipient key: empty in plaintext Phase 0.
+	RecipientPubkey []byte `protobuf:"bytes,14,opt,name=recipient_pubkey,json=recipientPubkey,proto3" json:"recipient_pubkey,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *VerifierHandraiseV1) Reset() {
@@ -335,11 +335,11 @@ func (x *VerifierHandraiseV1) GetOutputHash() []byte {
 	return nil
 }
 
-func (x *VerifierHandraiseV1) GetModelId() string {
+func (x *VerifierHandraiseV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *VerifierHandraiseV1) GetProfileVersion() uint32 {
@@ -380,6 +380,13 @@ func (x *VerifierHandraiseV1) GetExpiryHeight() uint64 {
 func (x *VerifierHandraiseV1) GetServiceSignature() []byte {
 	if x != nil {
 		return x.ServiceSignature
+	}
+	return nil
+}
+
+func (x *VerifierHandraiseV1) GetRecipientPubkey() []byte {
+	if x != nil {
+		return x.RecipientPubkey
 	}
 	return nil
 }
@@ -1108,11 +1115,11 @@ func (x *DataUnavailableReportState) GetReportDigest() []byte {
 // say so with field presence instead of with a zero-length Hash32.
 //
 // The two contracts used to disagree about how to spell an empty slot:
-// the data-structure contract fixed the vector length to
+// the wire storage model fixed the vector length to
 // selected_verifier_count and let an empty element mean "this verifier has not
-// reported", while the API contract reject a zero-length
+// reported", while the wire API reject a zero-length
 // element inside a repeated Hash32. It is resolved in favour of
-// §1.1a: Store and Query projection both carry per-slot presence, so the schema
+// this contract: Store and Query projection both carry per-slot presence, so the schema
 // now says what the preimage always said.
 //
 // The aggregate_hash preimage does not move. It already framed this vector as
@@ -1308,7 +1315,7 @@ const file_task_v1_open_verify_proto_rawDesc = "" +
 	"\x1acandidate_pool_snapshot_id\x18\x01 \x01(\fR\x17candidatePoolSnapshotId\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
 	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\x12)\n" +
-	"\x10operator_address\x18\x04 \x01(\tR\x0foperatorAddress\"\x94\x04\n" +
+	"\x10operator_address\x18\x04 \x01(\tR\x0foperatorAddress\"\xbf\x04\n" +
 	"\x13VerifierHandraiseV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -1317,14 +1324,15 @@ const file_task_v1_open_verify_proto_rawDesc = "" +
 	"\x12infer_receipt_hash\x18\x05 \x01(\fR\x10inferReceiptHash\x12\x1f\n" +
 	"\voutput_hash\x18\x06 \x01(\fR\n" +
 	"outputHash\x12\x19\n" +
-	"\bmodel_id\x18\a \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\a \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\b \x01(\rR\x0eprofileVersion\x125\n" +
 	"\x06member\x18\t \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06member\x12#\n" +
 	"\x04duty\x18\n" +
 	" \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\v \x01(\x04R\x19serviceAuthorizationNonce\x12#\n" +
 	"\rexpiry_height\x18\f \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\r \x01(\fR\x10serviceSignature\"\xe5\b\n" +
+	"\x11service_signature\x18\r \x01(\fR\x10serviceSignature\x12)\n" +
+	"\x10recipient_pubkey\x18\x0e \x01(\fR\x0frecipientPubkey\"\xe5\b\n" +
 	"\x1cVerifierCandidateWindowState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12!\n" +

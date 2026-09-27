@@ -15,7 +15,7 @@ import "shared/v1/event.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // ProtocolEventCodeV1 moved to shared/v1/event.proto: both
-// TaskEventService and HubEventService filter on it, so the one §5.11 code
+// TaskEventService and HubEventService filter on it, so the one event code
 // registry is shared. Numbers are unchanged and no alias is kept here.
 
 // ProtocolEventEnvelopeV1 carries one typed protocol event. A payload oneof
@@ -87,7 +87,7 @@ message ProtocolEventPayloadV1 {
 }
 
 // ProtocolEventPrimaryLocatorV1 anchors one event to the Query that returns its
-// authoritative state (§5.11).
+// authoritative state.
 // ProtocolEventPrimaryLocatorV1 defines the ProtocolEventPrimaryLocatorV1 wire type.
 message ProtocolEventPrimaryLocatorV1 {
   // Exactly one locator is set.
@@ -128,7 +128,7 @@ message TaskRoundLocatorV1 {
 
 // ProfileLocatorV1 anchors a model/profile-scoped event.
 message ProfileLocatorV1 {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
 }
 
@@ -190,7 +190,7 @@ message ParamsLocatorV1 {
 
 // EventModelProfileRegistered is event code 3.
 message EventModelProfileRegistered {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   bytes manifest_hash = 3;
   string proposer = 4;
@@ -199,7 +199,7 @@ message EventModelProfileRegistered {
 
 // EventModelProfileStateChanged is event code 4.
 message EventModelProfileStateChanged {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   ModelProfileStatus old_status = 3;
   ModelProfileStatus new_status = 4;
@@ -327,28 +327,28 @@ message EventCandidatePoolPruned {
 // EventModelSupportUpdated is event code 93.
 message EventModelSupportUpdated {
   string operator = 1;
-  string model_id = 2;
-  uint32 profile_version = 3;
-  uint64 support_version = 4;
-  ModelSupportStatus old_status = 5;
-  ModelSupportStatus new_status = 6;
-  uint64 expiry_epoch = 7;
+  bytes model_id = 2;
+  uint64 support_version = 3;
+  ModelSupportStatus old_status = 4;
+  ModelSupportStatus new_status = 5;
+  uint64 expiry_epoch = 6;
+  ModelSupportSuspendReason suspend_reason = 7;
 }
 
 // EventModelSupportActivated is event code 94.
 message EventModelSupportActivated {
   string operator = 1;
-  string model_id = 2;
-  uint32 profile_version = 3;
-  bytes activation_task_id = 4;
-  shared.v1.Duty activation_duty = 5;
-  uint64 support_version = 6;
-  uint64 expiry_epoch = 7;
+  bytes model_id = 2;
+  bytes activation_task_id = 3;
+  shared.v1.Duty activation_duty = 4;
+  uint64 support_version = 5;
+  uint64 expiry_epoch = 6;
+  uint32 first_support_profile_version = 7;
 }
 
 // EventModelStateChanged is event code 100.
 message EventModelStateChanged {
-  string model_id = 1;
+  bytes model_id = 1;
   ModelProfileStatus old_status = 2;
   ModelProfileStatus new_status = 3;
   ModelStatusSource source = 4;
@@ -414,8 +414,7 @@ message EventBuilderEvidenceAccepted {
 
 // EventHubParamsUpdated is event code 110, emitted once when a new Hub params
 // version takes effect atomically. Field order and types are copied verbatim
-// Event code 110; params_hash is the §18.0
-// TRUEOPEN_HUB_PARAMS_V2 digest.
+// from the contract; params_hash is the TRUEOPEN_HUB_PARAMS_V2 digest.
 // EventHubParamsUpdated defines the EventHubParamsUpdated wire type.
 message EventHubParamsUpdated {
   uint64 old_version = 1;
@@ -441,7 +440,7 @@ message EventServiceRegistered {
 // EndBlock commits an actual reference-price change for one Profile.
 // EventProfileReferencePriceUpdated defines the EventProfileReferencePriceUpdated wire type.
 message EventProfileReferencePriceUpdated {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   uint64 old_ref_price = 3;
   uint64 new_ref_price = 4;
@@ -452,7 +451,7 @@ message EventProfileReferencePriceUpdated {
 
 // EventParameterBucketUpdated is event code 5, emitted once when a governance
 // versioned bucket first commits. Fields are copied verbatim from
-// Event code 5; bucket_hash is the §5.2
+// the contract; bucket_hash is the
 // TRUEOPEN_PARAMETER_BUCKET_V1 commitment stored as
 // ParameterBucketVersionState.content_hash.
 // EventParameterBucketUpdated defines the EventParameterBucketUpdated wire type.
@@ -467,7 +466,7 @@ message EventParameterBucketUpdated {
 
 // EventEarningsAccrued is event code 40, emitted once when an accrual first
 // lands in the earnings ledger. MsgRunRewardEpoch may only trigger this code and
-// code 70; no runner-level summary event exists (§5.11 runner table).
+// code 70; no runner-level summary event exists.
 // EventEarningsAccrued defines the EventEarningsAccrued wire type.
 message EventEarningsAccrued {
   string beneficiary = 1;
@@ -491,7 +490,7 @@ message EventEarningsClaimed {
 // EventTreasuryCollected is event code 80, emitted once when non-zero treasury
 // income commits. source_id takes the existing authoritative ID selected by
 // source_kind: settlement_id for TASK_FEE, fault_id for SLASH_RESIDUAL and the
-// §9.6c treasury action_digest for GOVERNANCE.
+// treasury action_digest for GOVERNANCE.
 // EventTreasuryCollected defines the EventTreasuryCollected wire type.
 message EventTreasuryCollected {
   shared.v1.Amount amount = 1;
@@ -501,7 +500,7 @@ message EventTreasuryCollected {
 }
 
 // EventTreasuryAdjusted is event code 81, emitted once when a governance
-// TreasurySpend item actually executes. The spend itself is the internal §9.6c
+// TreasurySpend item actually executes. The spend itself is the internal
 // typed action, which registers no signer and no Tx RPC.
 // EventTreasuryAdjusted defines the EventTreasuryAdjusted wire type.
 message EventTreasuryAdjusted {
@@ -515,11 +514,11 @@ message EventTreasuryAdjusted {
 
 // EventFreezeSignalSubmitted is event code 95, emitted once when the build cursor
 // completes and the first OPEN signal is written. MsgSubmitFreezeSignal returning
-// BUILDING or BELOW_THRESHOLD_NOOP emits nothing (§5.11).
+// BUILDING or BELOW_THRESHOLD_NOOP emits nothing.
 // EventFreezeSignalSubmitted defines the EventFreezeSignalSubmitted wire type.
 message EventFreezeSignalSubmitted {
   bytes freeze_signal_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 risk_window_id = 4;
   uint64 risk_window_start_height = 5;
@@ -547,7 +546,7 @@ message EventEmergencyFreezeVoteRecorded {
 // EventEmergencyFreezeAccepted defines the EventEmergencyFreezeAccepted wire type.
 message EventEmergencyFreezeAccepted {
   bytes freeze_signal_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 accepted_voting_power = 4;
   uint64 total_voting_power_snapshot = 5;
@@ -559,7 +558,7 @@ message EventEmergencyFreezeAccepted {
 // EventEmergencyFreezeRejected defines the EventEmergencyFreezeRejected wire type.
 message EventEmergencyFreezeRejected {
   bytes freeze_signal_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 rejected_voting_power = 4;
   uint64 total_voting_power_snapshot = 5;
@@ -570,7 +569,7 @@ message EventEmergencyFreezeRejected {
 // EventFreezeSignalExpired defines the EventFreezeSignalExpired wire type.
 message EventFreezeSignalExpired {
   bytes freeze_signal_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 vote_deadline_height = 4;
 }

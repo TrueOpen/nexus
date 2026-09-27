@@ -100,9 +100,8 @@ const (
 	// Never written.
 	// MODEL_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
 	ModelStatusSource_MODEL_STATUS_SOURCE_UNSPECIFIED ModelStatusSource = 0
-	// Derived from the aggregate profile status.
-	// MODEL_STATUS_SOURCE_AUTO_PROFILE identifies the corresponding protocol value.
-	ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_PROFILE ModelStatusSource = 1
+	// Derived from the model-wide support aggregate.
+	ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT ModelStatusSource = 1
 	// Applied by a governance transition.
 	// MODEL_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
 	ModelStatusSource_MODEL_STATUS_SOURCE_GOVERNANCE ModelStatusSource = 2
@@ -115,13 +114,13 @@ const (
 var (
 	ModelStatusSource_name = map[int32]string{
 		0: "MODEL_STATUS_SOURCE_UNSPECIFIED",
-		1: "MODEL_STATUS_SOURCE_AUTO_PROFILE",
+		1: "MODEL_STATUS_SOURCE_AUTO_SUPPORT",
 		2: "MODEL_STATUS_SOURCE_GOVERNANCE",
 		3: "MODEL_STATUS_SOURCE_EMERGENCY",
 	}
 	ModelStatusSource_value = map[string]int32{
 		"MODEL_STATUS_SOURCE_UNSPECIFIED":  0,
-		"MODEL_STATUS_SOURCE_AUTO_PROFILE": 1,
+		"MODEL_STATUS_SOURCE_AUTO_SUPPORT": 1,
 		"MODEL_STATUS_SOURCE_GOVERNANCE":   2,
 		"MODEL_STATUS_SOURCE_EMERGENCY":    3,
 	}
@@ -161,9 +160,6 @@ const (
 	// Never written.
 	// PROFILE_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
 	ProfileStatusSource_PROFILE_STATUS_SOURCE_UNSPECIFIED ProfileStatusSource = 0
-	// Derived from the roleless support aggregate.
-	// PROFILE_STATUS_SOURCE_AUTO_SUPPORT identifies the corresponding protocol value.
-	ProfileStatusSource_PROFILE_STATUS_SOURCE_AUTO_SUPPORT ProfileStatusSource = 1
 	// Applied by a governance transition.
 	// PROFILE_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
 	ProfileStatusSource_PROFILE_STATUS_SOURCE_GOVERNANCE ProfileStatusSource = 2
@@ -176,15 +172,13 @@ const (
 var (
 	ProfileStatusSource_name = map[int32]string{
 		0: "PROFILE_STATUS_SOURCE_UNSPECIFIED",
-		1: "PROFILE_STATUS_SOURCE_AUTO_SUPPORT",
 		2: "PROFILE_STATUS_SOURCE_GOVERNANCE",
 		3: "PROFILE_STATUS_SOURCE_EMERGENCY",
 	}
 	ProfileStatusSource_value = map[string]int32{
-		"PROFILE_STATUS_SOURCE_UNSPECIFIED":  0,
-		"PROFILE_STATUS_SOURCE_AUTO_SUPPORT": 1,
-		"PROFILE_STATUS_SOURCE_GOVERNANCE":   2,
-		"PROFILE_STATUS_SOURCE_EMERGENCY":    3,
+		"PROFILE_STATUS_SOURCE_UNSPECIFIED": 0,
+		"PROFILE_STATUS_SOURCE_GOVERNANCE":  2,
+		"PROFILE_STATUS_SOURCE_EMERGENCY":   3,
 	}
 )
 
@@ -215,20 +209,27 @@ func (ProfileStatusSource) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_model_profile_state_proto_rawDescGZIP(), []int{2}
 }
 
-// ModelState is one registered model primary row (data-structure contract 6.3).
+// ModelState is one registered model primary row (wire storage model 6.3).
 type ModelState struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ModelId              string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProposerAddress      string                 `protobuf:"bytes,2,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
-	Status               ModelProfileStatus     `protobuf:"varint,3,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
-	ActiveProfileCount   uint32                 `protobuf:"varint,4,opt,name=active_profile_count,json=activeProfileCount,proto3" json:"active_profile_count,omitempty"`
-	LatestProfileVersion uint32                 `protobuf:"varint,5,opt,name=latest_profile_version,json=latestProfileVersion,proto3" json:"latest_profile_version,omitempty"`
-	StatusSource         ModelStatusSource      `protobuf:"varint,6,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ModelStatusSource" json:"status_source,omitempty"`
-	RegistrationFeePaid  uint64                 `protobuf:"varint,7,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
-	CreatedHeight        uint64                 `protobuf:"varint,8,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
-	UpdatedHeight        uint64                 `protobuf:"varint,9,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ModelId                []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ProposerAddress        string                 `protobuf:"bytes,2,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
+	Status                 ModelProfileStatus     `protobuf:"varint,3,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
+	ActiveProfileCount     uint32                 `protobuf:"varint,4,opt,name=active_profile_count,json=activeProfileCount,proto3" json:"active_profile_count,omitempty"`
+	LatestProfileVersion   uint32                 `protobuf:"varint,5,opt,name=latest_profile_version,json=latestProfileVersion,proto3" json:"latest_profile_version,omitempty"`
+	StatusSource           ModelStatusSource      `protobuf:"varint,6,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ModelStatusSource" json:"status_source,omitempty"`
+	RegistrationFeePaid    uint64                 `protobuf:"varint,7,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
+	CreatedHeight          uint64                 `protobuf:"varint,8,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
+	UpdatedHeight          uint64                 `protobuf:"varint,9,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
+	ActiveSupportStake     uint64                 `protobuf:"varint,10,opt,name=active_support_stake,json=activeSupportStake,proto3" json:"active_support_stake,omitempty"`
+	ActiveSupporterCount   uint32                 `protobuf:"varint,11,opt,name=active_supporter_count,json=activeSupporterCount,proto3" json:"active_supporter_count,omitempty"`
+	SupportMinStake        uint64                 `protobuf:"varint,12,opt,name=support_min_stake,json=supportMinStake,proto3" json:"support_min_stake,omitempty"`
+	PendingSupportMinStake uint64                 `protobuf:"varint,13,opt,name=pending_support_min_stake,json=pendingSupportMinStake,proto3" json:"pending_support_min_stake,omitempty"`
+	PendingEffectiveHeight uint64                 `protobuf:"varint,14,opt,name=pending_effective_height,json=pendingEffectiveHeight,proto3" json:"pending_effective_height,omitempty"`
+	Provider               string                 `protobuf:"bytes,15,opt,name=provider,proto3" json:"provider,omitempty"`
+	RepoId                 string                 `protobuf:"bytes,16,opt,name=repo_id,json=repoId,proto3" json:"repo_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ModelState) Reset() {
@@ -261,11 +262,11 @@ func (*ModelState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_model_profile_state_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ModelState) GetModelId() string {
+func (x *ModelState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ModelState) GetProposerAddress() string {
@@ -324,10 +325,59 @@ func (x *ModelState) GetUpdatedHeight() uint64 {
 	return 0
 }
 
-// ProfileState is one registered model profile primary row plus its roleless support aggregate (6.3).
+func (x *ModelState) GetActiveSupportStake() uint64 {
+	if x != nil {
+		return x.ActiveSupportStake
+	}
+	return 0
+}
+
+func (x *ModelState) GetActiveSupporterCount() uint32 {
+	if x != nil {
+		return x.ActiveSupporterCount
+	}
+	return 0
+}
+
+func (x *ModelState) GetSupportMinStake() uint64 {
+	if x != nil {
+		return x.SupportMinStake
+	}
+	return 0
+}
+
+func (x *ModelState) GetPendingSupportMinStake() uint64 {
+	if x != nil {
+		return x.PendingSupportMinStake
+	}
+	return 0
+}
+
+func (x *ModelState) GetPendingEffectiveHeight() uint64 {
+	if x != nil {
+		return x.PendingEffectiveHeight
+	}
+	return 0
+}
+
+func (x *ModelState) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ModelState) GetRepoId() string {
+	if x != nil {
+		return x.RepoId
+	}
+	return ""
+}
+
+// ProfileState is one registered model profile primary row.
 type ProfileState struct {
 	state                         protoimpl.MessageState      `protogen:"open.v1"`
-	ModelId                       string                      `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                       []byte                      `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion                uint32                      `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	ManifestHash                  []byte                      `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
 	TokenizerHash                 []byte                      `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
@@ -345,9 +395,6 @@ type ProfileState struct {
 	TimeoutBootstrapProfile       *v1.TimeoutBootstrapProfile `protobuf:"bytes,16,opt,name=timeout_bootstrap_profile,json=timeoutBootstrapProfile,proto3" json:"timeout_bootstrap_profile,omitempty"`
 	SchemaHash                    []byte                      `protobuf:"bytes,17,opt,name=schema_hash,json=schemaHash,proto3" json:"schema_hash,omitempty"`
 	Status                        ModelProfileStatus          `protobuf:"varint,18,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
-	ActiveSupportStake            uint64                      `protobuf:"varint,19,opt,name=active_support_stake,json=activeSupportStake,proto3" json:"active_support_stake,omitempty"`
-	EligibleSupportStake          uint64                      `protobuf:"varint,20,opt,name=eligible_support_stake,json=eligibleSupportStake,proto3" json:"eligible_support_stake,omitempty"`
-	ActiveSupporterCount          uint32                      `protobuf:"varint,21,opt,name=active_supporter_count,json=activeSupporterCount,proto3" json:"active_supporter_count,omitempty"`
 	StatusSource                  ProfileStatusSource         `protobuf:"varint,22,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ProfileStatusSource" json:"status_source,omitempty"`
 	RegistrationFeePaid           uint64                      `protobuf:"varint,23,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
 	PreviousProfileVersion        uint32                      `protobuf:"varint,24,opt,name=previous_profile_version,json=previousProfileVersion,proto3" json:"previous_profile_version,omitempty"`
@@ -357,6 +404,9 @@ type ProfileState struct {
 	UpdatedHeight                 uint64                      `protobuf:"varint,28,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
 	LastFreezeRiskWindowEvaluated *uint64                     `protobuf:"varint,29,opt,name=last_freeze_risk_window_evaluated,json=lastFreezeRiskWindowEvaluated,proto3,oneof" json:"last_freeze_risk_window_evaluated,omitempty"`
 	RefPrice                      uint64                      `protobuf:"varint,30,opt,name=ref_price,json=refPrice,proto3" json:"ref_price,omitempty"`
+	Source                        *v1.ProfileSourceRefV1      `protobuf:"bytes,31,opt,name=source,proto3" json:"source,omitempty"`
+	ToolCallParser                *v1.ParserRefV1             `protobuf:"bytes,32,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
+	ReasoningParser               *v1.ParserRefV1             `protobuf:"bytes,33,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -391,11 +441,11 @@ func (*ProfileState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_model_profile_state_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ProfileState) GetModelId() string {
+func (x *ProfileState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ProfileState) GetProfileVersion() uint32 {
@@ -517,27 +567,6 @@ func (x *ProfileState) GetStatus() ModelProfileStatus {
 	return ModelProfileStatus_MODEL_PROFILE_STATUS_UNSPECIFIED
 }
 
-func (x *ProfileState) GetActiveSupportStake() uint64 {
-	if x != nil {
-		return x.ActiveSupportStake
-	}
-	return 0
-}
-
-func (x *ProfileState) GetEligibleSupportStake() uint64 {
-	if x != nil {
-		return x.EligibleSupportStake
-	}
-	return 0
-}
-
-func (x *ProfileState) GetActiveSupporterCount() uint32 {
-	if x != nil {
-		return x.ActiveSupporterCount
-	}
-	return 0
-}
-
 func (x *ProfileState) GetStatusSource() ProfileStatusSource {
 	if x != nil {
 		return x.StatusSource
@@ -601,12 +630,33 @@ func (x *ProfileState) GetRefPrice() uint64 {
 	return 0
 }
 
+func (x *ProfileState) GetSource() *v1.ProfileSourceRefV1 {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *ProfileState) GetToolCallParser() *v1.ParserRefV1 {
+	if x != nil {
+		return x.ToolCallParser
+	}
+	return nil
+}
+
+func (x *ProfileState) GetReasoningParser() *v1.ParserRefV1 {
+	if x != nil {
+		return x.ReasoningParser
+	}
+	return nil
+}
+
 // RegistrationReceipt is the minimal replay locator stored under the
 // registration digest key. The remaining receipt facts live in ProfileState.
 // RegistrationReceipt defines the RegistrationReceipt wire type.
 type RegistrationReceipt struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -642,11 +692,11 @@ func (*RegistrationReceipt) Descriptor() ([]byte, []int) {
 	return file_hub_v1_model_profile_state_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RegistrationReceipt) GetModelId() string {
+func (x *RegistrationReceipt) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *RegistrationReceipt) GetProfileVersion() uint32 {
@@ -660,10 +710,10 @@ var File_hub_v1_model_profile_state_proto protoreflect.FileDescriptor
 
 const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\n" +
-	" hub/v1/model_profile_state.proto\x12\x06hub.v1\x1a\x1dshared/v1/model_profile.proto\"\xb0\x03\n" +
+	" hub/v1/model_profile_state.proto\x12\x06hub.v1\x1a\x1dshared/v1/model_profile.proto\"\xee\x05\n" +
 	"\n" +
 	"ModelState\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12)\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12)\n" +
 	"\x10proposer_address\x18\x02 \x01(\tR\x0fproposerAddress\x122\n" +
 	"\x06status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\x06status\x120\n" +
 	"\x14active_profile_count\x18\x04 \x01(\rR\x12activeProfileCount\x124\n" +
@@ -671,9 +721,17 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\rstatus_source\x18\x06 \x01(\x0e2\x19.hub.v1.ModelStatusSourceR\fstatusSource\x122\n" +
 	"\x15registration_fee_paid\x18\a \x01(\x04R\x13registrationFeePaid\x12%\n" +
 	"\x0ecreated_height\x18\b \x01(\x04R\rcreatedHeight\x12%\n" +
-	"\x0eupdated_height\x18\t \x01(\x04R\rupdatedHeight\"\xe3\f\n" +
+	"\x0eupdated_height\x18\t \x01(\x04R\rupdatedHeight\x120\n" +
+	"\x14active_support_stake\x18\n" +
+	" \x01(\x04R\x12activeSupportStake\x124\n" +
+	"\x16active_supporter_count\x18\v \x01(\rR\x14activeSupporterCount\x12*\n" +
+	"\x11support_min_stake\x18\f \x01(\x04R\x0fsupportMinStake\x129\n" +
+	"\x19pending_support_min_stake\x18\r \x01(\x04R\x16pendingSupportMinStake\x128\n" +
+	"\x18pending_effective_height\x18\x0e \x01(\x04R\x16pendingEffectiveHeight\x12\x1a\n" +
+	"\bprovider\x18\x0f \x01(\tR\bprovider\x12\x17\n" +
+	"\arepo_id\x18\x10 \x01(\tR\x06repoId\"\x81\r\n" +
 	"\fProfileState\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12#\n" +
 	"\rmanifest_hash\x18\x03 \x01(\fR\fmanifestHash\x12%\n" +
 	"\x0etokenizer_hash\x18\x04 \x01(\fR\rtokenizerHash\x12#\n" +
@@ -693,10 +751,7 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\x19timeout_bootstrap_profile\x18\x10 \x01(\v2\".shared.v1.TimeoutBootstrapProfileR\x17timeoutBootstrapProfile\x12\x1f\n" +
 	"\vschema_hash\x18\x11 \x01(\fR\n" +
 	"schemaHash\x122\n" +
-	"\x06status\x18\x12 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\x06status\x120\n" +
-	"\x14active_support_stake\x18\x13 \x01(\x04R\x12activeSupportStake\x124\n" +
-	"\x16eligible_support_stake\x18\x14 \x01(\x04R\x14eligibleSupportStake\x124\n" +
-	"\x16active_supporter_count\x18\x15 \x01(\rR\x14activeSupporterCount\x12@\n" +
+	"\x06status\x18\x12 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\x06status\x12@\n" +
 	"\rstatus_source\x18\x16 \x01(\x0e2\x1b.hub.v1.ProfileStatusSourceR\fstatusSource\x122\n" +
 	"\x15registration_fee_paid\x18\x17 \x01(\x04R\x13registrationFeePaid\x128\n" +
 	"\x18previous_profile_version\x18\x18 \x01(\rR\x16previousProfileVersion\x12)\n" +
@@ -705,10 +760,13 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\x0ecreated_height\x18\x1b \x01(\x04R\rcreatedHeight\x12%\n" +
 	"\x0eupdated_height\x18\x1c \x01(\x04R\rupdatedHeight\x12M\n" +
 	"!last_freeze_risk_window_evaluated\x18\x1d \x01(\x04H\x00R\x1dlastFreezeRiskWindowEvaluated\x88\x01\x01\x12\x1b\n" +
-	"\tref_price\x18\x1e \x01(\x04R\brefPriceB$\n" +
+	"\tref_price\x18\x1e \x01(\x04R\brefPrice\x125\n" +
+	"\x06source\x18\x1f \x01(\v2\x1d.shared.v1.ProfileSourceRefV1R\x06source\x12@\n" +
+	"\x10tool_call_parser\x18  \x01(\v2\x16.shared.v1.ParserRefV1R\x0etoolCallParser\x12A\n" +
+	"\x10reasoning_parser\x18! \x01(\v2\x16.shared.v1.ParserRefV1R\x0freasoningParserB$\n" +
 	"\"_last_freeze_risk_window_evaluated\"Y\n" +
 	"\x13RegistrationReceipt\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion*\xef\x01\n" +
 	"\x12ModelProfileStatus\x12$\n" +
 	" MODEL_PROFILE_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
@@ -719,14 +777,13 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\x1dMODEL_PROFILE_STATUS_DELISTED\x10\x05*\xa5\x01\n" +
 	"\x11ModelStatusSource\x12#\n" +
 	"\x1fMODEL_STATUS_SOURCE_UNSPECIFIED\x10\x00\x12$\n" +
-	" MODEL_STATUS_SOURCE_AUTO_PROFILE\x10\x01\x12\"\n" +
+	" MODEL_STATUS_SOURCE_AUTO_SUPPORT\x10\x01\x12\"\n" +
 	"\x1eMODEL_STATUS_SOURCE_GOVERNANCE\x10\x02\x12!\n" +
-	"\x1dMODEL_STATUS_SOURCE_EMERGENCY\x10\x03*\xaf\x01\n" +
+	"\x1dMODEL_STATUS_SOURCE_EMERGENCY\x10\x03*\xb1\x01\n" +
 	"\x13ProfileStatusSource\x12%\n" +
-	"!PROFILE_STATUS_SOURCE_UNSPECIFIED\x10\x00\x12&\n" +
-	"\"PROFILE_STATUS_SOURCE_AUTO_SUPPORT\x10\x01\x12$\n" +
+	"!PROFILE_STATUS_SOURCE_UNSPECIFIED\x10\x00\x12$\n" +
 	" PROFILE_STATUS_SOURCE_GOVERNANCE\x10\x02\x12#\n" +
-	"\x1fPROFILE_STATUS_SOURCE_EMERGENCY\x10\x03B5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\x1fPROFILE_STATUS_SOURCE_EMERGENCY\x10\x03\"\x04\b\x01\x10\x01*\"PROFILE_STATUS_SOURCE_AUTO_SUPPORTB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var (
 	file_hub_v1_model_profile_state_proto_rawDescOnce sync.Once
@@ -756,6 +813,8 @@ var file_hub_v1_model_profile_state_proto_goTypes = []any{
 	(*v1.BatchVerification)(nil),       // 10: shared.v1.BatchVerification
 	(*v1.PricingProfile)(nil),          // 11: shared.v1.PricingProfile
 	(*v1.TimeoutBootstrapProfile)(nil), // 12: shared.v1.TimeoutBootstrapProfile
+	(*v1.ProfileSourceRefV1)(nil),      // 13: shared.v1.ProfileSourceRefV1
+	(*v1.ParserRefV1)(nil),             // 14: shared.v1.ParserRefV1
 }
 var file_hub_v1_model_profile_state_proto_depIdxs = []int32{
 	0,  // 0: hub.v1.ModelState.status:type_name -> hub.v1.ModelProfileStatus
@@ -769,11 +828,14 @@ var file_hub_v1_model_profile_state_proto_depIdxs = []int32{
 	12, // 8: hub.v1.ProfileState.timeout_bootstrap_profile:type_name -> shared.v1.TimeoutBootstrapProfile
 	0,  // 9: hub.v1.ProfileState.status:type_name -> hub.v1.ModelProfileStatus
 	2,  // 10: hub.v1.ProfileState.status_source:type_name -> hub.v1.ProfileStatusSource
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	13, // 11: hub.v1.ProfileState.source:type_name -> shared.v1.ProfileSourceRefV1
+	14, // 12: hub.v1.ProfileState.tool_call_parser:type_name -> shared.v1.ParserRefV1
+	14, // 13: hub.v1.ProfileState.reasoning_parser:type_name -> shared.v1.ParserRefV1
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_model_profile_state_proto_init() }

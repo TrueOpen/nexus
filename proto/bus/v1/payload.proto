@@ -9,7 +9,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
 // Bus payload boundary: the complete order travels exactly
 // once, inside OrderBroadcastV1. Every follow-up message carries only the
 // stable locator (task_id), the exact order version it acts on (task_hash) and
-// its own action fields; no follow-up repeats TaskOrderV2. Payloads that also
+// its own action fields; no follow-up repeats TaskOrderV3. Payloads that also
 // go on chain (worker/verifier handraises, verify result receipts) reuse the
 // frozen task.v1 messages verbatim and are therefore not re-declared in
 // this file; see the mapping table on BusPayloadType in envelope.proto.
@@ -18,7 +18,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/bus/v1;busv1";
 // signed_order.order:
 //
 //   task_id   = H_FIELDS_V1("TRUEOPEN_TASK_ID_V1", session_id, u64be(order_sequence))
-//   task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
+//   task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3)
 //
 // and verify the user's order-domain EIP-712 signature, whose taskHash field is
 // the value above, against the user's on-chain account key before acting.
@@ -45,7 +45,7 @@ message WorkerAssignmentNotifyV1 {
   uint64 finalized_height = 4;
   // Assignment randomness, republished so workers can audit the draw.
   bytes assign_seed = 5;
-  // Input commitment; must match TaskOrderV2.input_hash of task_hash.
+  // Input commitment; must match TaskOrderV3.input_hash of task_hash.
   bytes input_hash = 6;
   // Chain-height deadline for the winner to deliver output.
   uint64 infer_deadline_height = 7;
@@ -78,7 +78,7 @@ message OpenVerifyV1 {
   // Order version under verification.
   bytes task_hash = 2;
   // Model the locked profile pins.
-  string model_id = 3;
+  bytes model_id = 3;
   // Profile version the locked profile pins.
   uint32 profile_version = 4;
   // On-chain accepted receipt this verify round targets.

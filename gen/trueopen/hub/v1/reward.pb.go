@@ -593,7 +593,7 @@ type ParameterBucketVersionState struct {
 	TimeoutEntries   *TimeoutBucketEntriesV1 `protobuf:"bytes,7,opt,name=timeout_entries,json=timeoutEntries,proto3" json:"timeout_entries,omitempty"`
 	EntryCount       uint32                  `protobuf:"varint,8,opt,name=entry_count,json=entryCount,proto3" json:"entry_count,omitempty"`
 	EncodedSizeBytes uint32                  `protobuf:"varint,9,opt,name=encoded_size_bytes,json=encodedSizeBytes,proto3" json:"encoded_size_bytes,omitempty"`
-	TaskRefCount     uint64                  `protobuf:"varint,10,opt,name=task_ref_count,json=taskRefCount,proto3" json:"task_ref_count,omitempty"`
+	TaskRefCount     uint32                  `protobuf:"varint,10,opt,name=task_ref_count,json=taskRefCount,proto3" json:"task_ref_count,omitempty"`
 	CreatedHeight    uint64                  `protobuf:"varint,11,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -692,7 +692,7 @@ func (x *ParameterBucketVersionState) GetEncodedSizeBytes() uint32 {
 	return 0
 }
 
-func (x *ParameterBucketVersionState) GetTaskRefCount() uint64 {
+func (x *ParameterBucketVersionState) GetTaskRefCount() uint32 {
 	if x != nil {
 		return x.TaskRefCount
 	}
@@ -1539,7 +1539,7 @@ const file_hub_v1_reward_proto_rawDesc = "" +
 	"entryCount\x12,\n" +
 	"\x12encoded_size_bytes\x18\t \x01(\rR\x10encodedSizeBytes\x12$\n" +
 	"\x0etask_ref_count\x18\n" +
-	" \x01(\x04R\ftaskRefCount\x12%\n" +
+	" \x01(\rR\ftaskRefCount\x12%\n" +
 	"\x0ecreated_height\x18\v \x01(\x04R\rcreatedHeight\"\xd6\x01\n" +
 	"\"ParameterBucketCurrentPointerState\x126\n" +
 	"\vbucket_kind\x18\x01 \x01(\x0e2\x15.shared.v1.BucketKindR\n" +

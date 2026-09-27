@@ -9,7 +9,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // ProfilePriceSampleV1 defines the ProfilePriceSampleV1 wire type.
 message ProfilePriceSampleV1 {
   bytes task_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 price_bid = 4;
 }
@@ -25,5 +25,7 @@ message EpochTaskSummary {
   uint64 task_count = 2;
   uint64 valid_task_count = 3;
   repeated uint64 histogram = 4;
-  repeated string support_candidates = 5;
+  // Raw Hash32 model identifiers in strictly ascending byte order.
+  // Every model appears at most once; composite model/profile strings are invalid.
+  repeated bytes support_candidates = 5;
 }

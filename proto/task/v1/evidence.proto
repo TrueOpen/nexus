@@ -25,19 +25,36 @@ enum FinishReasonV1 {
   // Generation reached the accepted maximum output duration.
   // FINISH_REASON_V1_MAX_OUTPUT_DURATION identifies the corresponding protocol value.
   FINISH_REASON_V1_MAX_OUTPUT_DURATION = 4;
+  // The user stopped the generation and the Worker closed the stream on their
+  // behalf. A stop is a successful termination, not an abandonment: the Worker
+  // signs a Fin carrying this value and then signs the receipt, so a stopped
+  // task is indistinguishable in shape from any other completed one. "No Fin"
+  // stays reserved for a Worker that failed or gave up, which produces no
+  // receipt either.
+  //
+  // Unlike every other value, this one cannot be checked: the stop signal
+  // arrives off chain, so it is accepted as a Worker assertion.
+  // FINISH_REASON_V1_USER_STOP identifies the corresponding protocol value.
+  FINISH_REASON_V1_USER_STOP = 5;
+  // Generation emitted one of the order's stop_token_ids. Distinct from
+  // STOP_SEQUENCE because an order may carry both stop strings and stop tokens,
+  // and which one ended the generation is a different fact. Checkable: the last
+  // token of T belongs to the order's stop_token_ids.
+  // FINISH_REASON_V1_STOP_TOKEN identifies the corresponding protocol value.
+  FINISH_REASON_V1_STOP_TOKEN = 6;
 }
 
 // EvidenceCommitmentV1 is one worker-authored evidence commitment carried by
-// InferReceiptV2. The list is sorted by evidence_kind
+// InferReceiptV3. The list is sorted by evidence_kind
 // ascending with unique kinds and must exactly equal the kind set required by
 // the locked profile.
 //
 // The list's commitment - evidence_commitments_hash, domain
-// TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (§1.4) - has exactly one ordered preimage in
+// TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 - has exactly one ordered preimage in
 // this repository, defined in task/v1/infer_receipt.proto next to the
-// TRUEOPEN_INFER_RECEIPT_V2 formula that consumes it. It covers the per-element frame
+// TRUEOPEN_INFER_RECEIPT_V3 formula that consumes it. It covers the per-element frame
 // layout of the three fields below, the leading uint32_be(count) and the empty-list
-// case. §1.4 rule 1 forbids a second copy, so this file only points at it.
+// case. The contract forbids a second copy, so this file only points at it.
 // EvidenceCommitmentV1 defines the EvidenceCommitmentV1 wire type.
 message EvidenceCommitmentV1 {
   shared.v1.EvidenceKind evidence_kind = 1;
@@ -45,15 +62,8 @@ message EvidenceCommitmentV1 {
   uint64 encoded_size_bytes = 3;
 }
 
-// WorkerValueCommitmentV2 is the canonical fixed-field commitment behind the
-// single WORKER_VALUE_OPENING evidence item. trace_root and checkpoint_root are
-// the two Hash32 commitments Cortex already produces; this message folds them
-// into one evidence kind without making either artifact's private file format
-// part of consensus. EvidenceCommitmentV1.encoded_size_bytes is exactly the
-// checked sum of trace/checkpoint/input-token/generated-token artifact sizes.
-// WorkerValueCommitmentV2 defines the WorkerValueCommitmentV2 wire type.
-message WorkerValueCommitmentV2 {
-  // Always 2 in the fresh Phase 0 contract.
+// WorkerTokenCommitmentV1 binds the A-level token-ID artifacts and finish reason.
+message WorkerTokenCommitmentV1 {
   uint32 schema_version = 1;
   string chain_id = 2;
   bytes task_id = 3;
@@ -63,17 +73,25 @@ message WorkerValueCommitmentV2 {
   bytes evidence_schema_hash = 7;
   bytes output_hash = 8;
   uint64 output_size_bytes = 9;
-  FinishReasonV1 finish_reason = 10;
-  bytes trace_root = 11;
-  uint64 trace_encoded_size_bytes = 12;
-  bytes checkpoint_root = 13;
-  uint64 checkpoint_encoded_size_bytes = 14;
-  uint64 generated_token_count = 15;
-  uint64 output_leaf_count = 16;
-  bytes input_token_ids_hash = 17;
-  bytes generated_token_ids_hash = 18;
-  uint64 input_token_ids_size_bytes = 19;
-  uint64 generated_token_ids_size_bytes = 20;
+  uint64 output_leaf_count = 10;
+  FinishReasonV1 finish_reason = 11;
+  uint64 generated_token_count = 12;
+  bytes input_token_ids_hash = 13;
+  bytes generated_token_ids_hash = 14;
+  uint64 input_token_ids_size_bytes = 15;
+  uint64 generated_token_ids_size_bytes = 16;
+}
+
+// WorkerValueCommitmentV3 binds the B-level Worker value Merkle root.
+message WorkerValueCommitmentV3 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes accepted_task_hash = 4;
+  string worker_operator_address = 5;
+  bytes evidence_schema_hash = 6;
+  bytes worker_value_root = 7;
+  uint64 worker_values_encoded_size_bytes = 8;
 }
 
 // WorkerEvidenceKindV1 is the closed set of objective Worker evidence.
@@ -96,7 +114,7 @@ message OutputMMRPeakProofV1 {
 }
 
 // OutputChunkEquivocationV1 proves that a valid Worker-signed streamed prefix
-// conflicts with the final MMR root bound by an accepted InferReceiptV2.
+// conflicts with the final MMR root bound by an accepted InferReceiptV3.
 // OutputChunkEquivocationV1 defines the OutputChunkEquivocationV1 wire type.
 message OutputChunkEquivocationV1 {
   bytes task_id = 1;
@@ -131,4 +149,11 @@ message WorkerEvidenceReceiptState {
   bytes evidence_digest = 7;
   bytes fault_id = 8;
   uint64 accepted_height = 9;
+}
+
+// VerifierValueEvidenceKindV1 is reserved for the later bounded value-evidence
+// activation. No nonzero kind is assigned or accepted in this release.
+enum VerifierValueEvidenceKindV1 {
+  // The only registered pre-activation value; evidence is not accepted.
+  VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED = 0;
 }

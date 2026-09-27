@@ -7,7 +7,8 @@
 package nexusv1
 
 import (
-	v1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	v1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	v11 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -156,6 +157,10 @@ const (
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_RESULT_STAGING TaskDataReadinessV1 = 2
 	// Both OUTPUT and Worker evidence are READY.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_READY TaskDataReadinessV1 = 3
+	// OUTPUT is frozen, but one or both required Worker bundles are still pending.
+	TaskDataReadinessV1_TASK_DATA_READINESS_V1_OUTPUT_FROZEN TaskDataReadinessV1 = 4
+	// At least one required Worker evidence bundle is frozen.
+	TaskDataReadinessV1_TASK_DATA_READINESS_V1_EVIDENCE_PARTIAL TaskDataReadinessV1 = 5
 )
 
 // Enum value maps for TaskDataReadinessV1.
@@ -165,12 +170,16 @@ var (
 		1: "TASK_DATA_READINESS_V1_INPUT_READY",
 		2: "TASK_DATA_READINESS_V1_RESULT_STAGING",
 		3: "TASK_DATA_READINESS_V1_READY",
+		4: "TASK_DATA_READINESS_V1_OUTPUT_FROZEN",
+		5: "TASK_DATA_READINESS_V1_EVIDENCE_PARTIAL",
 	}
 	TaskDataReadinessV1_value = map[string]int32{
-		"TASK_DATA_READINESS_V1_UNSPECIFIED":    0,
-		"TASK_DATA_READINESS_V1_INPUT_READY":    1,
-		"TASK_DATA_READINESS_V1_RESULT_STAGING": 2,
-		"TASK_DATA_READINESS_V1_READY":          3,
+		"TASK_DATA_READINESS_V1_UNSPECIFIED":      0,
+		"TASK_DATA_READINESS_V1_INPUT_READY":      1,
+		"TASK_DATA_READINESS_V1_RESULT_STAGING":   2,
+		"TASK_DATA_READINESS_V1_READY":            3,
+		"TASK_DATA_READINESS_V1_OUTPUT_FROZEN":    4,
+		"TASK_DATA_READINESS_V1_EVIDENCE_PARTIAL": 5,
 	}
 )
 
@@ -378,8 +387,11 @@ type TaskDataObjectRefV1 struct {
 	EvidenceProducerKind EvidenceProducerKindV1 `protobuf:"varint,6,opt,name=evidence_producer_kind,json=evidenceProducerKind,proto3,enum=nexus.v1.EvidenceProducerKindV1" json:"evidence_producer_kind,omitempty"`
 	VerifyRound          uint32                 `protobuf:"varint,7,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	ProducerOperator     *string                `protobuf:"bytes,8,opt,name=producer_operator,json=producerOperator,proto3,oneof" json:"producer_operator,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Required for evidence objects: it tells the Worker token bundle from the Worker value
+	// bundle of the same round. UNSPECIFIED for INPUT and OUTPUT.
+	EvidenceKind  v1.EvidenceKind `protobuf:"varint,9,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskDataObjectRefV1) Reset() {
@@ -468,6 +480,13 @@ func (x *TaskDataObjectRefV1) GetProducerOperator() string {
 	return ""
 }
 
+func (x *TaskDataObjectRefV1) GetEvidenceKind() v1.EvidenceKind {
+	if x != nil {
+		return x.EvidenceKind
+	}
+	return v1.EvidenceKind(0)
+}
+
 // TaskDataObjectMetadataV1 is the boundary metadata of a single object; it contains no local
 // path or locator.
 type TaskDataObjectMetadataV1 struct {
@@ -486,8 +505,14 @@ type TaskDataObjectMetadataV1 struct {
 	// ADR-0017: OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
 	// length 0, not an empty tree.
 	OutputLeafCount uint64 `protobuf:"varint,6,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The Worker-signed terminal frame of this object's output stream, byte-identical to the one
+	// the Builder received and replays on subscription, so a caller that fetches OUTPUT without
+	// subscribing can still tell a finished generation from one cut off by its budget. Present
+	// only for OUTPUT objects that have been stored; the caller verifies the signature against the
+	// Worker's service key and compares output_mmr_root with the receipt.
+	Fin           *OutputFinV1 `protobuf:"bytes,7,opt,name=fin,proto3,oneof" json:"fin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskDataObjectMetadataV1) Reset() {
@@ -562,15 +587,23 @@ func (x *TaskDataObjectMetadataV1) GetOutputLeafCount() uint64 {
 	return 0
 }
 
+func (x *TaskDataObjectMetadataV1) GetFin() *OutputFinV1 {
+	if x != nil {
+		return x.Fin
+	}
+	return nil
+}
+
 // EvidenceBundleSummaryV1 is returned only when querying an EVIDENCE_MANIFEST; artifact details
 // must be taken from the verified manifest and are not stuffed into this response.
 type EvidenceBundleSummaryV1 struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	EvidenceBundleHash     string                 `protobuf:"bytes,1,opt,name=evidence_bundle_hash,json=evidenceBundleHash,proto3" json:"evidence_bundle_hash,omitempty"`
-	EvidenceSchemaHash     string                 `protobuf:"bytes,2,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
-	ArtifactCount          uint32                 `protobuf:"varint,3,opt,name=artifact_count,json=artifactCount,proto3" json:"artifact_count,omitempty"`
-	ArtifactTotalSizeBytes uint64                 `protobuf:"varint,4,opt,name=artifact_total_size_bytes,json=artifactTotalSizeBytes,proto3" json:"artifact_total_size_bytes,omitempty"`
-	ManifestSizeBytes      uint64                 `protobuf:"varint,5,opt,name=manifest_size_bytes,json=manifestSizeBytes,proto3" json:"manifest_size_bytes,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Digest of the exact manifest bytes; not the on-chain typed commitment.
+	EvidenceManifestHash   string `protobuf:"bytes,1,opt,name=evidence_manifest_hash,json=evidenceManifestHash,proto3" json:"evidence_manifest_hash,omitempty"`
+	EvidenceSchemaHash     string `protobuf:"bytes,2,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
+	ArtifactCount          uint32 `protobuf:"varint,3,opt,name=artifact_count,json=artifactCount,proto3" json:"artifact_count,omitempty"`
+	ArtifactTotalSizeBytes uint64 `protobuf:"varint,4,opt,name=artifact_total_size_bytes,json=artifactTotalSizeBytes,proto3" json:"artifact_total_size_bytes,omitempty"`
+	ManifestSizeBytes      uint64 `protobuf:"varint,5,opt,name=manifest_size_bytes,json=manifestSizeBytes,proto3" json:"manifest_size_bytes,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -605,9 +638,9 @@ func (*EvidenceBundleSummaryV1) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *EvidenceBundleSummaryV1) GetEvidenceBundleHash() string {
+func (x *EvidenceBundleSummaryV1) GetEvidenceManifestHash() string {
 	if x != nil {
-		return x.EvidenceBundleHash
+		return x.EvidenceManifestHash
 	}
 	return ""
 }
@@ -701,7 +734,7 @@ func (x *ByteRangeV1) GetLength() uint64 {
 // The single signing digest (service_signature itself is not included):
 //
 //	builder_storage_confirmation_digest =
-//	  H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1",
+//	  H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2",
 //	    u32_be(schema_version), utf8(chain_id),
 //	    address_codec_bytes(builder_operator_address),
 //	    u64_be(service_authorization_nonce), canonical TaskDataObjectRefV1,
@@ -1563,7 +1596,7 @@ func (x *ConfirmOpenTaskResponse) GetReason() string {
 }
 
 // UploadTaskResultObjectHeaderV1 is the first upload frame and the only signed part.
-// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1(canonical object_ref,
+// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2(canonical object_ref,
 // size_bytes, media_type).
 type UploadTaskResultObjectHeaderV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1787,31 +1820,46 @@ func (x *UploadTaskResultObjectResponse) GetMetadata() *TaskDataObjectMetadataV1
 // request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
 // domain is not yet in the closed set of five body domains of Interface & Topic
 // Catalogue.md §4.2.1 and will be registered here once the document is completed.
-type OutputStreamHeaderV1 struct {
+//
+// worker_signature binds the stream declaration to the selected Worker's service key,
+// independently of the upload request authorization; it signs
+// H_FIELDS_V1("TRUEOPEN_OUTPUT_STREAM_HEADER_V1", chain_id, task_hash, attempt,
+// stream_instance, user_recipient_pubkey, output_key_commitment, key_package_hash).
+type OutputStreamHeaderV2 struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	// Routing and verification copy; must equal the on-chain accepted_task_hash.
-	TaskHash      string                 `protobuf:"bytes,3,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	RequestAuth   *TaskDataRequestAuthV1 `protobuf:"bytes,4,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TaskHash    string                 `protobuf:"bytes,3,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
+	RequestAuth *TaskDataRequestAuthV1 `protobuf:"bytes,4,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
+	// Plaintext streams use attempt 0 and stream_instance 1.
+	Attempt        uint32 `protobuf:"varint,5,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	StreamInstance uint32 `protobuf:"varint,6,opt,name=stream_instance,json=streamInstance,proto3" json:"stream_instance,omitempty"`
+	// Empty for plaintext streams.
+	UserRecipientPubkey []byte `protobuf:"bytes,7,opt,name=user_recipient_pubkey,json=userRecipientPubkey,proto3" json:"user_recipient_pubkey,omitempty"`
+	// 32 zero bytes for plaintext streams.
+	OutputKeyCommitment []byte `protobuf:"bytes,8,opt,name=output_key_commitment,json=outputKeyCommitment,proto3" json:"output_key_commitment,omitempty"`
+	KeyPackageHash      []byte `protobuf:"bytes,9,opt,name=key_package_hash,json=keyPackageHash,proto3" json:"key_package_hash,omitempty"`
+	// Raw64 R||S low-S signature over the header declaration.
+	WorkerSignature []byte `protobuf:"bytes,10,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
-func (x *OutputStreamHeaderV1) Reset() {
-	*x = OutputStreamHeaderV1{}
+func (x *OutputStreamHeaderV2) Reset() {
+	*x = OutputStreamHeaderV2{}
 	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *OutputStreamHeaderV1) String() string {
+func (x *OutputStreamHeaderV2) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OutputStreamHeaderV1) ProtoMessage() {}
+func (*OutputStreamHeaderV2) ProtoMessage() {}
 
-func (x *OutputStreamHeaderV1) ProtoReflect() protoreflect.Message {
+func (x *OutputStreamHeaderV2) ProtoReflect() protoreflect.Message {
 	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1823,35 +1871,77 @@ func (x *OutputStreamHeaderV1) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OutputStreamHeaderV1.ProtoReflect.Descriptor instead.
-func (*OutputStreamHeaderV1) Descriptor() ([]byte, []int) {
+// Deprecated: Use OutputStreamHeaderV2.ProtoReflect.Descriptor instead.
+func (*OutputStreamHeaderV2) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *OutputStreamHeaderV1) GetSessionId() string {
+func (x *OutputStreamHeaderV2) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
 	}
 	return ""
 }
 
-func (x *OutputStreamHeaderV1) GetTaskId() string {
+func (x *OutputStreamHeaderV2) GetTaskId() string {
 	if x != nil {
 		return x.TaskId
 	}
 	return ""
 }
 
-func (x *OutputStreamHeaderV1) GetTaskHash() string {
+func (x *OutputStreamHeaderV2) GetTaskHash() string {
 	if x != nil {
 		return x.TaskHash
 	}
 	return ""
 }
 
-func (x *OutputStreamHeaderV1) GetRequestAuth() *TaskDataRequestAuthV1 {
+func (x *OutputStreamHeaderV2) GetRequestAuth() *TaskDataRequestAuthV1 {
 	if x != nil {
 		return x.RequestAuth
+	}
+	return nil
+}
+
+func (x *OutputStreamHeaderV2) GetAttempt() uint32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *OutputStreamHeaderV2) GetStreamInstance() uint32 {
+	if x != nil {
+		return x.StreamInstance
+	}
+	return 0
+}
+
+func (x *OutputStreamHeaderV2) GetUserRecipientPubkey() []byte {
+	if x != nil {
+		return x.UserRecipientPubkey
+	}
+	return nil
+}
+
+func (x *OutputStreamHeaderV2) GetOutputKeyCommitment() []byte {
+	if x != nil {
+		return x.OutputKeyCommitment
+	}
+	return nil
+}
+
+func (x *OutputStreamHeaderV2) GetKeyPackageHash() []byte {
+	if x != nil {
+		return x.KeyPackageHash
+	}
+	return nil
+}
+
+func (x *OutputStreamHeaderV2) GetWorkerSignature() []byte {
+	if x != nil {
+		return x.WorkerSignature
 	}
 	return nil
 }
@@ -1964,7 +2054,7 @@ type OutputFinV1 struct {
 	FinalSeq      uint64                 `protobuf:"varint,1,opt,name=final_seq,json=finalSeq,proto3" json:"final_seq,omitempty"`
 	OutputMmrRoot []byte                 `protobuf:"bytes,2,opt,name=output_mmr_root,json=outputMmrRoot,proto3" json:"output_mmr_root,omitempty"`
 	// Why the stream ended; participates in the TRUEOPEN_OUTPUT_FIN_V1 preimage.
-	FinishReason v1.FinishReasonV1 `protobuf:"varint,3,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
+	FinishReason v11.FinishReasonV1 `protobuf:"varint,3,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
 	// Worker service key raw64 signature (R||S, low-S) over the TRUEOPEN_OUTPUT_FIN_V1 digest.
 	WorkerSignature []byte `protobuf:"bytes,4,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -2015,11 +2105,11 @@ func (x *OutputFinV1) GetOutputMmrRoot() []byte {
 	return nil
 }
 
-func (x *OutputFinV1) GetFinishReason() v1.FinishReasonV1 {
+func (x *OutputFinV1) GetFinishReason() v11.FinishReasonV1 {
 	if x != nil {
 		return x.FinishReason
 	}
-	return v1.FinishReasonV1(0)
+	return v11.FinishReasonV1(0)
 }
 
 func (x *OutputFinV1) GetWorkerSignature() []byte {
@@ -2081,7 +2171,7 @@ func (x *UploadTaskOutputStreamRequest) GetFrame() isUploadTaskOutputStreamReque
 	return nil
 }
 
-func (x *UploadTaskOutputStreamRequest) GetHeader() *OutputStreamHeaderV1 {
+func (x *UploadTaskOutputStreamRequest) GetHeader() *OutputStreamHeaderV2 {
 	if x != nil {
 		if x, ok := x.Frame.(*UploadTaskOutputStreamRequest_Header); ok {
 			return x.Header
@@ -2113,7 +2203,7 @@ type isUploadTaskOutputStreamRequest_Frame interface {
 }
 
 type UploadTaskOutputStreamRequest_Header struct {
-	Header *OutputStreamHeaderV1 `protobuf:"bytes,1,opt,name=header,proto3,oneof"`
+	Header *OutputStreamHeaderV2 `protobuf:"bytes,1,opt,name=header,proto3,oneof"`
 }
 
 type UploadTaskOutputStreamRequest_Chunk struct {
@@ -2356,7 +2446,7 @@ func (*UploadTaskOutputStreamResponse_Progress) isUploadTaskOutputStreamResponse
 func (*UploadTaskOutputStreamResponse_Result) isUploadTaskOutputStreamResponse_Reply() {}
 
 // GetTaskDataMetadataRequest queries one object at a time; it does not enumerate the whole Task.
-// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V1(canonical object_ref).
+// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V2(canonical object_ref).
 type GetTaskDataMetadataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ObjectRef     *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
@@ -2417,8 +2507,8 @@ type GetTaskDataMetadataResponse struct {
 	// Returned only when querying an EVIDENCE_MANIFEST.
 	EvidenceBundle *EvidenceBundleSummaryV1 `protobuf:"bytes,2,opt,name=evidence_bundle,json=evidenceBundle,proto3" json:"evidence_bundle,omitempty"`
 	// Convenience copy; the caller must compare it against the on-chain accepted receipt before trusting it.
-	InferReceipt      *v1.InferReceiptV2 `protobuf:"bytes,3,opt,name=infer_receipt,json=inferReceipt,proto3" json:"infer_receipt,omitempty"`
-	RetainUntilHeight uint64             `protobuf:"varint,4,opt,name=retain_until_height,json=retainUntilHeight,proto3" json:"retain_until_height,omitempty"`
+	InferReceipt      *v11.InferReceiptV3 `protobuf:"bytes,3,opt,name=infer_receipt,json=inferReceipt,proto3" json:"infer_receipt,omitempty"`
+	RetainUntilHeight uint64              `protobuf:"varint,4,opt,name=retain_until_height,json=retainUntilHeight,proto3" json:"retain_until_height,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2467,7 +2557,7 @@ func (x *GetTaskDataMetadataResponse) GetEvidenceBundle() *EvidenceBundleSummary
 	return nil
 }
 
-func (x *GetTaskDataMetadataResponse) GetInferReceipt() *v1.InferReceiptV2 {
+func (x *GetTaskDataMetadataResponse) GetInferReceipt() *v11.InferReceiptV3 {
 	if x != nil {
 		return x.InferReceipt
 	}
@@ -2482,7 +2572,7 @@ func (x *GetTaskDataMetadataResponse) GetRetainUntilHeight() uint64 {
 }
 
 // FetchTaskDataRequest fetches bytes by object ref and optional range.
-// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V1(canonical object_ref, optional range).
+// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V2(canonical object_ref, optional range).
 // A full read must be signed with range absent; it must not be rewritten as a present range
 // with both offset/length zero.
 type FetchTaskDataRequest struct {
@@ -2773,15 +2863,17 @@ func (*FetchTaskDataResponse_Chunk) isFetchTaskDataResponse_Frame() {}
 // Profile; when an accepted receipt already exists on chain, the local one must match it.
 // Nexus does not interpret artifact IDs, parse model evidence semantics or recompute
 // model-internal roots.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1(task_hash, session_id,
-// task_id, infer_receipt_hash, SHA256(receipt.service_signature)).
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2(task_hash, session_id,
+// task_id, infer_receipt_hash, SHA256(receipt.service_signature), evidence_kind).
 type FinalizeTaskResultRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskHash      string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId        string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Receipt       *v1.InferReceiptV2     `protobuf:"bytes,4,opt,name=receipt,proto3" json:"receipt,omitempty"`
-	RequestAuth   *TaskDataRequestAuthV1 `protobuf:"bytes,5,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TaskHash    string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
+	SessionId   string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId      string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Receipt     *v11.InferReceiptV3    `protobuf:"bytes,4,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	RequestAuth *TaskDataRequestAuthV1 `protobuf:"bytes,5,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
+	// Selects exactly one Worker bundle: WORKER_TOKEN_OPENING or WORKER_VALUE_OPENING.
+	EvidenceKind  v1.EvidenceKind `protobuf:"varint,6,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2837,7 +2929,7 @@ func (x *FinalizeTaskResultRequest) GetTaskId() string {
 	return ""
 }
 
-func (x *FinalizeTaskResultRequest) GetReceipt() *v1.InferReceiptV2 {
+func (x *FinalizeTaskResultRequest) GetReceipt() *v11.InferReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -2849,6 +2941,13 @@ func (x *FinalizeTaskResultRequest) GetRequestAuth() *TaskDataRequestAuthV1 {
 		return x.RequestAuth
 	}
 	return nil
+}
+
+func (x *FinalizeTaskResultRequest) GetEvidenceKind() v1.EvidenceKind {
+	if x != nil {
+		return x.EvidenceKind
+	}
+	return v1.EvidenceKind(0)
 }
 
 // FinalizeTaskResult response. The confirmation must be present when accepted and absent on
@@ -2927,9 +3026,9 @@ func (x *FinalizeTaskResultResponse) GetEvidenceBundleConfirmations() []*Builder
 
 // FinalizeVerifierEvidenceRequest is initiated by a selected Verifier of some round. Nexus must
 // confirm the requester/producer is the selected Verifier of that round, that the
-// ResultReceiptV2's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
+// ResultReceiptV3's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
 // fully match the manifest, and that all artifacts are STORED with correct hash/size.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1(task_hash, session_id,
+// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2(task_hash, session_id,
 // task_id, verify_round, verifier_operator, result_receipt_signing_digest,
 // SHA256(receipt.service_signature)).
 type FinalizeVerifierEvidenceRequest struct {
@@ -2939,7 +3038,7 @@ type FinalizeVerifierEvidenceRequest struct {
 	TaskId           string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	VerifyRound      uint32                 `protobuf:"varint,4,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	VerifierOperator string                 `protobuf:"bytes,5,opt,name=verifier_operator,json=verifierOperator,proto3" json:"verifier_operator,omitempty"`
-	Receipt          *v1.ResultReceiptV2    `protobuf:"bytes,6,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	Receipt          *v11.ResultReceiptV3   `protobuf:"bytes,6,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	RequestAuth      *TaskDataRequestAuthV1 `protobuf:"bytes,7,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -3010,7 +3109,7 @@ func (x *FinalizeVerifierEvidenceRequest) GetVerifierOperator() string {
 	return ""
 }
 
-func (x *FinalizeVerifierEvidenceRequest) GetReceipt() *v1.ResultReceiptV2 {
+func (x *FinalizeVerifierEvidenceRequest) GetReceipt() *v11.ResultReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -3090,7 +3189,7 @@ func (x *FinalizeVerifierEvidenceResponse) GetEvidenceBundleConfirmation() *Buil
 // task/round/operator locator from it and accepts no duplicate copies of locator or hash.
 type SubmitInferReceiptRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Receipt       *v1.InferReceiptV2     `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	Receipt       *v11.InferReceiptV3    `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3125,7 +3224,7 @@ func (*SubmitInferReceiptRequest) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *SubmitInferReceiptRequest) GetReceipt() *v1.InferReceiptV2 {
+func (x *SubmitInferReceiptRequest) GetReceipt() *v11.InferReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -3197,7 +3296,7 @@ func (x *SubmitInferReceiptResponse) GetIdempotent() bool {
 // SubmitVerifyCommitRequest carries only the authoritative message itself.
 type SubmitVerifyCommitRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Commit        *v1.VerifyCommitV1     `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
+	Commit        *v11.VerifyCommitV1    `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3232,7 +3331,7 @@ func (*SubmitVerifyCommitRequest) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{34}
 }
 
-func (x *SubmitVerifyCommitRequest) GetCommit() *v1.VerifyCommitV1 {
+func (x *SubmitVerifyCommitRequest) GetCommit() *v11.VerifyCommitV1 {
 	if x != nil {
 		return x.Commit
 	}
@@ -3311,7 +3410,7 @@ func (x *SubmitVerifyCommitResponse) GetIdempotent() bool {
 // SubmitVerifyResultRequest carries only the authoritative message itself.
 type SubmitVerifyResultRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Receipt       *v1.ResultReceiptV2    `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	Receipt       *v11.ResultReceiptV3   `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3346,7 +3445,7 @@ func (*SubmitVerifyResultRequest) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{36}
 }
 
-func (x *SubmitVerifyResultRequest) GetReceipt() *v1.ResultReceiptV2 {
+func (x *SubmitVerifyResultRequest) GetReceipt() *v11.ResultReceiptV3 {
 	if x != nil {
 		return x.Receipt
 	}
@@ -4881,7 +4980,7 @@ var File_nexus_v1_ingress_proto protoreflect.FileDescriptor
 
 const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
-	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\x8f\x03\n" +
+	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
 	"\x13TaskDataObjectRefV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\tR\btaskHash\x12\x1d\n" +
 	"\n" +
@@ -4892,8 +4991,9 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\fcontent_hash\x18\x05 \x01(\tR\vcontentHash\x12V\n" +
 	"\x16evidence_producer_kind\x18\x06 \x01(\x0e2 .nexus.v1.EvidenceProducerKindV1R\x14evidenceProducerKind\x12!\n" +
 	"\fverify_round\x18\a \x01(\rR\vverifyRound\x120\n" +
-	"\x11producer_operator\x18\b \x01(\tH\x00R\x10producerOperator\x88\x01\x01B\x14\n" +
-	"\x12_producer_operator\"\xaa\x02\n" +
+	"\x11producer_operator\x18\b \x01(\tH\x00R\x10producerOperator\x88\x01\x01\x12<\n" +
+	"\revidence_kind\x18\t \x01(\x0e2\x17.shared.v1.EvidenceKindR\fevidenceKindB\x14\n" +
+	"\x12_producer_operator\"\xe0\x02\n" +
 	"\x18TaskDataObjectMetadataV1\x12<\n" +
 	"\n" +
 	"object_ref\x18\x01 \x01(\v2\x1d.nexus.v1.TaskDataObjectRefV1R\tobjectRef\x12\x1d\n" +
@@ -4903,9 +5003,11 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"media_type\x18\x03 \x01(\tR\tmediaType\x12A\n" +
 	"\treadiness\x18\x04 \x01(\x0e2#.nexus.v1.TaskDataObjectReadinessV1R\treadiness\x12#\n" +
 	"\rchunk_lengths\x18\x05 \x03(\rR\fchunkLengths\x12*\n" +
-	"\x11output_leaf_count\x18\x06 \x01(\x04R\x0foutputLeafCount\"\x8f\x02\n" +
-	"\x17EvidenceBundleSummaryV1\x120\n" +
-	"\x14evidence_bundle_hash\x18\x01 \x01(\tR\x12evidenceBundleHash\x120\n" +
+	"\x11output_leaf_count\x18\x06 \x01(\x04R\x0foutputLeafCount\x12,\n" +
+	"\x03fin\x18\a \x01(\v2\x15.nexus.v1.OutputFinV1H\x00R\x03fin\x88\x01\x01B\x06\n" +
+	"\x04_fin\"\x93\x02\n" +
+	"\x17EvidenceBundleSummaryV1\x124\n" +
+	"\x16evidence_manifest_hash\x18\x01 \x01(\tR\x14evidenceManifestHash\x120\n" +
 	"\x14evidence_schema_hash\x18\x02 \x01(\tR\x12evidenceSchemaHash\x12%\n" +
 	"\x0eartifact_count\x18\x03 \x01(\rR\rartifactCount\x129\n" +
 	"\x19artifact_total_size_bytes\x18\x04 \x01(\x04R\x16artifactTotalSizeBytes\x12.\n" +
@@ -5011,13 +5113,20 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"idempotent\x18\x02 \x01(\bR\n" +
 	"idempotent\x12>\n" +
-	"\bmetadata\x18\x03 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\bmetadata\"\xaf\x01\n" +
-	"\x14OutputStreamHeaderV1\x12\x1d\n" +
+	"\bmetadata\x18\x03 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\bmetadata\"\xaf\x03\n" +
+	"\x14OutputStreamHeaderV2\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x03 \x01(\tR\btaskHash\x12B\n" +
-	"\frequest_auth\x18\x04 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\"\xce\x01\n" +
+	"\frequest_auth\x18\x04 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\x12\x18\n" +
+	"\aattempt\x18\x05 \x01(\rR\aattempt\x12'\n" +
+	"\x0fstream_instance\x18\x06 \x01(\rR\x0estreamInstance\x122\n" +
+	"\x15user_recipient_pubkey\x18\a \x01(\fR\x13userRecipientPubkey\x122\n" +
+	"\x15output_key_commitment\x18\b \x01(\fR\x13outputKeyCommitment\x12(\n" +
+	"\x10key_package_hash\x18\t \x01(\fR\x0ekeyPackageHash\x12)\n" +
+	"\x10worker_signature\x18\n" +
+	" \x01(\fR\x0fworkerSignature\"\xce\x01\n" +
 	"\rOutputChunkV1\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\fR\x04text\x12\x19\n" +
@@ -5033,7 +5142,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\rfinish_reason\x18\x03 \x01(\x0e2\x17.task.v1.FinishReasonV1R\ffinishReason\x12)\n" +
 	"\x10worker_signature\x18\x04 \x01(\fR\x0fworkerSignature\"\xbe\x01\n" +
 	"\x1dUploadTaskOutputStreamRequest\x128\n" +
-	"\x06header\x18\x01 \x01(\v2\x1e.nexus.v1.OutputStreamHeaderV1H\x00R\x06header\x12/\n" +
+	"\x06header\x18\x01 \x01(\v2\x1e.nexus.v1.OutputStreamHeaderV2H\x00R\x06header\x12/\n" +
 	"\x05chunk\x18\x02 \x01(\v2\x17.nexus.v1.OutputChunkV1H\x00R\x05chunk\x12)\n" +
 	"\x03fin\x18\x03 \x01(\v2\x15.nexus.v1.OutputFinV1H\x00R\x03finB\a\n" +
 	"\x05frame\"\x8a\x01\n" +
@@ -5059,7 +5168,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x1bGetTaskDataMetadataResponse\x12>\n" +
 	"\bmetadata\x18\x01 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\bmetadata\x12J\n" +
 	"\x0fevidence_bundle\x18\x02 \x01(\v2!.nexus.v1.EvidenceBundleSummaryV1R\x0eevidenceBundle\x12<\n" +
-	"\rinfer_receipt\x18\x03 \x01(\v2\x17.task.v1.InferReceiptV2R\finferReceipt\x12.\n" +
+	"\rinfer_receipt\x18\x03 \x01(\v2\x17.task.v1.InferReceiptV3R\finferReceipt\x12.\n" +
 	"\x13retain_until_height\x18\x04 \x01(\x04R\x11retainUntilHeight\"\xd4\x01\n" +
 	"\x14FetchTaskDataRequest\x12<\n" +
 	"\n" +
@@ -5081,14 +5190,15 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x15FetchTaskDataResponse\x129\n" +
 	"\x06header\x18\x01 \x01(\v2\x1f.nexus.v1.FetchTaskDataHeaderV1H\x00R\x06header\x126\n" +
 	"\x05chunk\x18\x02 \x01(\v2\x1e.nexus.v1.FetchTaskDataChunkV1H\x00R\x05chunkB\a\n" +
-	"\x05frame\"\xe7\x01\n" +
+	"\x05frame\"\xa5\x02\n" +
 	"\x19FinalizeTaskResultRequest\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\tR\btaskHash\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x03 \x01(\tR\x06taskId\x121\n" +
-	"\areceipt\x18\x04 \x01(\v2\x17.task.v1.InferReceiptV2R\areceipt\x12B\n" +
-	"\frequest_auth\x18\x05 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\"\x9d\x02\n" +
+	"\areceipt\x18\x04 \x01(\v2\x17.task.v1.InferReceiptV3R\areceipt\x12B\n" +
+	"\frequest_auth\x18\x05 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\x12<\n" +
+	"\revidence_kind\x18\x06 \x01(\x0e2\x17.shared.v1.EvidenceKindR\fevidenceKind\"\x9d\x02\n" +
 	"\x1aFinalizeTaskResultResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x1e\n" +
 	"\n" +
@@ -5103,7 +5213,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\atask_id\x18\x03 \x01(\tR\x06taskId\x12!\n" +
 	"\fverify_round\x18\x04 \x01(\rR\vverifyRound\x12+\n" +
 	"\x11verifier_operator\x18\x05 \x01(\tR\x10verifierOperator\x122\n" +
-	"\areceipt\x18\x06 \x01(\v2\x18.task.v1.ResultReceiptV2R\areceipt\x12B\n" +
+	"\areceipt\x18\x06 \x01(\v2\x18.task.v1.ResultReceiptV3R\areceipt\x12B\n" +
 	"\frequest_auth\x18\a \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\"\xc8\x01\n" +
 	" FinalizeVerifierEvidenceResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x1e\n" +
@@ -5112,7 +5222,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"idempotent\x12h\n" +
 	"\x1cevidence_bundle_confirmation\x18\x03 \x01(\v2&.nexus.v1.BuilderStorageConfirmationV1R\x1aevidenceBundleConfirmation\"N\n" +
 	"\x19SubmitInferReceiptRequest\x121\n" +
-	"\areceipt\x18\x01 \x01(\v2\x17.task.v1.InferReceiptV2R\areceipt\"\xb4\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2\x17.task.v1.InferReceiptV3R\areceipt\"\xb4\x01\n" +
 	"\x1aSubmitInferReceiptResponse\x12%\n" +
 	"\x0erelay_accepted\x18\x01 \x01(\bR\rrelayAccepted\x12,\n" +
 	"\x12infer_receipt_hash\x18\x02 \x01(\tR\x10inferReceiptHash\x12\x1e\n" +
@@ -5130,7 +5240,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"idempotent\x18\x04 \x01(\bR\n" +
 	"idempotent\"O\n" +
 	"\x19SubmitVerifyResultRequest\x122\n" +
-	"\areceipt\x18\x01 \x01(\v2\x18.task.v1.ResultReceiptV2R\areceipt\"\xd6\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2\x18.task.v1.ResultReceiptV3R\areceipt\"\xd6\x01\n" +
 	"\x1aSubmitVerifyResultResponse\x12%\n" +
 	"\x0erelay_accepted\x18\x01 \x01(\bR\rrelayAccepted\x12A\n" +
 	"\x1dresult_receipt_signing_digest\x18\x02 \x01(\tR\x1aresultReceiptSigningDigest\x12.\n" +
@@ -5286,12 +5396,14 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x19TaskDataObjectReadinessV1\x12-\n" +
 	")TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED\x10\x00\x12(\n" +
 	"$TASK_DATA_OBJECT_READINESS_V1_STORED\x10\x01\x12'\n" +
-	"#TASK_DATA_OBJECT_READINESS_V1_READY\x10\x02*\xb2\x01\n" +
+	"#TASK_DATA_OBJECT_READINESS_V1_READY\x10\x02*\x89\x02\n" +
 	"\x13TaskDataReadinessV1\x12&\n" +
 	"\"TASK_DATA_READINESS_V1_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"TASK_DATA_READINESS_V1_INPUT_READY\x10\x01\x12)\n" +
 	"%TASK_DATA_READINESS_V1_RESULT_STAGING\x10\x02\x12 \n" +
-	"\x1cTASK_DATA_READINESS_V1_READY\x10\x03*\x91\x01\n" +
+	"\x1cTASK_DATA_READINESS_V1_READY\x10\x03\x12(\n" +
+	"$TASK_DATA_READINESS_V1_OUTPUT_FROZEN\x10\x04\x12+\n" +
+	"'TASK_DATA_READINESS_V1_EVIDENCE_PARTIAL\x10\x05*\x91\x01\n" +
 	"\x16EvidenceProducerKindV1\x12)\n" +
 	"%EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED\x10\x00\x12$\n" +
 	" EVIDENCE_PRODUCER_KIND_V1_WORKER\x10\x01\x12&\n" +
@@ -5361,7 +5473,7 @@ var file_nexus_v1_ingress_proto_goTypes = []any{
 	(*UploadTaskResultObjectHeaderV1)(nil),   // 18: nexus.v1.UploadTaskResultObjectHeaderV1
 	(*UploadTaskResultObjectRequest)(nil),    // 19: nexus.v1.UploadTaskResultObjectRequest
 	(*UploadTaskResultObjectResponse)(nil),   // 20: nexus.v1.UploadTaskResultObjectResponse
-	(*OutputStreamHeaderV1)(nil),             // 21: nexus.v1.OutputStreamHeaderV1
+	(*OutputStreamHeaderV2)(nil),             // 21: nexus.v1.OutputStreamHeaderV2
 	(*OutputChunkV1)(nil),                    // 22: nexus.v1.OutputChunkV1
 	(*OutputFinV1)(nil),                      // 23: nexus.v1.OutputFinV1
 	(*UploadTaskOutputStreamRequest)(nil),    // 24: nexus.v1.UploadTaskOutputStreamRequest
@@ -5402,115 +5514,119 @@ var file_nexus_v1_ingress_proto_goTypes = []any{
 	(*Coin)(nil),                             // 59: nexus.v1.Coin
 	(*GetTaskStatusRequest)(nil),             // 60: nexus.v1.GetTaskStatusRequest
 	(*GetTaskStatusResponse)(nil),            // 61: nexus.v1.GetTaskStatusResponse
-	(v1.FinishReasonV1)(0),                   // 62: task.v1.FinishReasonV1
-	(*v1.InferReceiptV2)(nil),                // 63: task.v1.InferReceiptV2
-	(*v1.ResultReceiptV2)(nil),               // 64: task.v1.ResultReceiptV2
-	(*v1.VerifyCommitV1)(nil),                // 65: task.v1.VerifyCommitV1
+	(v1.EvidenceKind)(0),                     // 62: shared.v1.EvidenceKind
+	(v11.FinishReasonV1)(0),                  // 63: task.v1.FinishReasonV1
+	(*v11.InferReceiptV3)(nil),               // 64: task.v1.InferReceiptV3
+	(*v11.ResultReceiptV3)(nil),              // 65: task.v1.ResultReceiptV3
+	(*v11.VerifyCommitV1)(nil),               // 66: task.v1.VerifyCommitV1
 }
 var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	0,  // 0: nexus.v1.TaskDataObjectRefV1.object_kind:type_name -> nexus.v1.TaskDataObjectKind
 	3,  // 1: nexus.v1.TaskDataObjectRefV1.evidence_producer_kind:type_name -> nexus.v1.EvidenceProducerKindV1
-	6,  // 2: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	1,  // 3: nexus.v1.TaskDataObjectMetadataV1.readiness:type_name -> nexus.v1.TaskDataObjectReadinessV1
-	6,  // 4: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	4,  // 5: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
-	12, // 6: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	13, // 7: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
-	7,  // 8: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	10, // 9: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	12, // 10: nexus.v1.ConfirmOpenTaskRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	10, // 11: nexus.v1.ConfirmOpenTaskRequest.input_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	6,  // 12: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 13: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	18, // 14: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
-	7,  // 15: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	11, // 16: nexus.v1.OutputStreamHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	62, // 17: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
-	21, // 18: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV1
-	22, // 19: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
-	23, // 20: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
-	25, // 21: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
-	26, // 22: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
-	6,  // 23: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 24: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	7,  // 25: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	8,  // 26: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
-	63, // 27: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV2
-	6,  // 28: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 29: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
-	11, // 30: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	6,  // 31: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 32: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
-	31, // 33: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
-	32, // 34: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
-	63, // 35: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV2
-	11, // 36: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	10, // 37: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	10, // 38: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	64, // 39: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV2
-	11, // 40: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	10, // 41: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	63, // 42: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV2
-	65, // 43: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
-	64, // 44: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV2
-	5,  // 45: nexus.v1.CredentialV1.access_level:type_name -> nexus.v1.AccessLevel
-	12, // 46: nexus.v1.SubmitOrderRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	5,  // 47: nexus.v1.FetchOutputRefRequest.access_level:type_name -> nexus.v1.AccessLevel
-	12, // 48: nexus.v1.FetchOutputRefRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 49: nexus.v1.FetchOutputRefResponse.credential:type_name -> nexus.v1.CredentialV1
-	12, // 50: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	22, // 51: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
-	23, // 52: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
-	12, // 53: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	12, // 54: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 55: nexus.v1.RefreshCredentialRequest.credential:type_name -> nexus.v1.CredentialV1
-	12, // 56: nexus.v1.RefreshCredentialRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 57: nexus.v1.RefreshCredentialResponse.credential:type_name -> nexus.v1.CredentialV1
-	12, // 58: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	59, // 59: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
-	14, // 60: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
-	16, // 61: nexus.v1.IngressAPI.ConfirmOpenTask:input_type -> nexus.v1.ConfirmOpenTaskRequest
-	49, // 62: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
-	51, // 63: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
-	60, // 64: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
-	53, // 65: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
-	57, // 66: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
-	19, // 67: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
-	24, // 68: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
-	28, // 69: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
-	30, // 70: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
-	34, // 71: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
-	36, // 72: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
-	38, // 73: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
-	40, // 74: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
-	42, // 75: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
-	45, // 76: nexus.v1.IngressAPI.SubmitOrder:input_type -> nexus.v1.SubmitOrderRequest
-	47, // 77: nexus.v1.IngressAPI.FetchOutputRef:input_type -> nexus.v1.FetchOutputRefRequest
-	55, // 78: nexus.v1.IngressAPI.RefreshCredential:input_type -> nexus.v1.RefreshCredentialRequest
-	15, // 79: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
-	17, // 80: nexus.v1.IngressAPI.ConfirmOpenTask:output_type -> nexus.v1.ConfirmOpenTaskResponse
-	50, // 81: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
-	52, // 82: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
-	61, // 83: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
-	54, // 84: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
-	58, // 85: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
-	20, // 86: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
-	27, // 87: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
-	29, // 88: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
-	33, // 89: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
-	35, // 90: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
-	37, // 91: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
-	39, // 92: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
-	41, // 93: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
-	43, // 94: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
-	46, // 95: nexus.v1.IngressAPI.SubmitOrder:output_type -> nexus.v1.SubmitOrderResponse
-	48, // 96: nexus.v1.IngressAPI.FetchOutputRef:output_type -> nexus.v1.FetchOutputRefResponse
-	56, // 97: nexus.v1.IngressAPI.RefreshCredential:output_type -> nexus.v1.RefreshCredentialResponse
-	79, // [79:98] is the sub-list for method output_type
-	60, // [60:79] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	62, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
+	6,  // 3: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	1,  // 4: nexus.v1.TaskDataObjectMetadataV1.readiness:type_name -> nexus.v1.TaskDataObjectReadinessV1
+	23, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
+	6,  // 6: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	4,  // 7: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
+	12, // 8: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	13, // 9: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
+	7,  // 10: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	10, // 11: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	12, // 12: nexus.v1.ConfirmOpenTaskRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	10, // 13: nexus.v1.ConfirmOpenTaskRequest.input_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	6,  // 14: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	11, // 15: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	18, // 16: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
+	7,  // 17: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	11, // 18: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	63, // 19: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	21, // 20: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
+	22, // 21: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
+	23, // 22: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
+	25, // 23: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
+	26, // 24: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
+	6,  // 25: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	11, // 26: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	7,  // 27: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	8,  // 28: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
+	64, // 29: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
+	6,  // 30: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	9,  // 31: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
+	11, // 32: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	6,  // 33: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	9,  // 34: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
+	31, // 35: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
+	32, // 36: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
+	64, // 37: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
+	11, // 38: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	62, // 39: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
+	10, // 40: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	10, // 41: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	65, // 42: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	11, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	10, // 44: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	64, // 45: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
+	66, // 46: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
+	65, // 47: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	5,  // 48: nexus.v1.CredentialV1.access_level:type_name -> nexus.v1.AccessLevel
+	12, // 49: nexus.v1.SubmitOrderRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	5,  // 50: nexus.v1.FetchOutputRefRequest.access_level:type_name -> nexus.v1.AccessLevel
+	12, // 51: nexus.v1.FetchOutputRefRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	44, // 52: nexus.v1.FetchOutputRefResponse.credential:type_name -> nexus.v1.CredentialV1
+	12, // 53: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	22, // 54: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
+	23, // 55: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
+	12, // 56: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	12, // 57: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	44, // 58: nexus.v1.RefreshCredentialRequest.credential:type_name -> nexus.v1.CredentialV1
+	12, // 59: nexus.v1.RefreshCredentialRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	44, // 60: nexus.v1.RefreshCredentialResponse.credential:type_name -> nexus.v1.CredentialV1
+	12, // 61: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
+	59, // 62: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
+	14, // 63: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
+	16, // 64: nexus.v1.IngressAPI.ConfirmOpenTask:input_type -> nexus.v1.ConfirmOpenTaskRequest
+	49, // 65: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
+	51, // 66: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
+	60, // 67: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
+	53, // 68: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
+	57, // 69: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
+	19, // 70: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
+	24, // 71: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
+	28, // 72: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
+	30, // 73: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
+	34, // 74: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
+	36, // 75: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
+	38, // 76: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
+	40, // 77: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
+	42, // 78: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
+	45, // 79: nexus.v1.IngressAPI.SubmitOrder:input_type -> nexus.v1.SubmitOrderRequest
+	47, // 80: nexus.v1.IngressAPI.FetchOutputRef:input_type -> nexus.v1.FetchOutputRefRequest
+	55, // 81: nexus.v1.IngressAPI.RefreshCredential:input_type -> nexus.v1.RefreshCredentialRequest
+	15, // 82: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
+	17, // 83: nexus.v1.IngressAPI.ConfirmOpenTask:output_type -> nexus.v1.ConfirmOpenTaskResponse
+	50, // 84: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
+	52, // 85: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
+	61, // 86: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
+	54, // 87: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
+	58, // 88: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
+	20, // 89: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
+	27, // 90: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
+	29, // 91: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
+	33, // 92: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
+	35, // 93: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
+	37, // 94: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
+	39, // 95: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
+	41, // 96: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
+	43, // 97: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
+	46, // 98: nexus.v1.IngressAPI.SubmitOrder:output_type -> nexus.v1.SubmitOrderResponse
+	48, // 99: nexus.v1.IngressAPI.FetchOutputRef:output_type -> nexus.v1.FetchOutputRefResponse
+	56, // 100: nexus.v1.IngressAPI.RefreshCredential:output_type -> nexus.v1.RefreshCredentialResponse
+	82, // [82:101] is the sub-list for method output_type
+	63, // [63:82] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_ingress_proto_init() }
@@ -5519,6 +5635,7 @@ func file_nexus_v1_ingress_proto_init() {
 		return
 	}
 	file_nexus_v1_ingress_proto_msgTypes[0].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[1].OneofWrappers = []any{}
 	file_nexus_v1_ingress_proto_msgTypes[8].OneofWrappers = []any{
 		(*OpenTaskRequest_Header)(nil),
 		(*OpenTaskRequest_Chunk)(nil),

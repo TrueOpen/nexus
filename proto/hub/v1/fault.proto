@@ -71,7 +71,7 @@ message SlashSummaryState {
   // Raw Hash32 in both namespaces: the fault_id for ROLE_FAULT, the
   // challenge_id for CHALLENGE_EFFECT. Never a hex projection.
   bytes source_id = 3;
-  uint64 effect_index = 4;
+  uint32 effect_index = 4;
   string operator_address = 5;
   shared.v1.Duty duty = 6;
   optional bytes task_id = 7;
@@ -89,8 +89,8 @@ message SlashSummaryState {
 }
 
 // Jail and tombstone state are deliberately absent from this file. Jail is
-// operator-global, not duty-scoped: the data-structure contract places
-// jail_count and normal_action_count_since_jail on ServiceBondState, and §10.0c
+// operator-global, not duty-scoped: the wire storage model places
+// jail_count and normal_action_count_since_jail on ServiceBondState, and this contract
 // requires tombstone checks to read that single row rather than a second
 // TombstoneState. Duty attribution for a fault lives in RoleFaultState.duty and
 // in the event code 51 payload.

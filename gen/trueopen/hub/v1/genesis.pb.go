@@ -61,11 +61,11 @@ type GenesisState struct {
 	CortexNodes                  []*CortexNodeState                 `protobuf:"bytes,12,rep,name=cortex_nodes,json=cortexNodes,proto3" json:"cortex_nodes,omitempty"`
 	ServiceBonds                 []*ServiceBondState                `protobuf:"bytes,13,rep,name=service_bonds,json=serviceBonds,proto3" json:"service_bonds,omitempty"`
 	ServiceUnbondings            []*UnbondingState                  `protobuf:"bytes,14,rep,name=service_unbondings,json=serviceUnbondings,proto3" json:"service_unbondings,omitempty"`
-	ProfileCapabilities          []*ProfileCapabilityState          `protobuf:"bytes,15,rep,name=profile_capabilities,json=profileCapabilities,proto3" json:"profile_capabilities,omitempty"`
+	ModelCapabilities            []*ModelCapabilityState            `protobuf:"bytes,15,rep,name=model_capabilities,json=modelCapabilities,proto3" json:"model_capabilities,omitempty"`
 	ModelSupports                []*ModelSupportState               `protobuf:"bytes,16,rep,name=model_supports,json=modelSupports,proto3" json:"model_supports,omitempty"`
 	DailySupports                []*DailySupportState               `protobuf:"bytes,17,rep,name=daily_supports,json=dailySupports,proto3" json:"daily_supports,omitempty"`
 	ServiceUnbondingReceipts     []*UnbondingReceiptState           `protobuf:"bytes,18,rep,name=service_unbonding_receipts,json=serviceUnbondingReceipts,proto3" json:"service_unbonding_receipts,omitempty"`
-	SupportDeactivateCursors     []*SupportDeactivateCursorState    `protobuf:"bytes,19,rep,name=support_deactivate_cursors,json=supportDeactivateCursors,proto3" json:"support_deactivate_cursors,omitempty"`
+	ModelSupportRecheckCursors   []*ModelSupportRecheckCursorState  `protobuf:"bytes,19,rep,name=model_support_recheck_cursors,json=modelSupportRecheckCursors,proto3" json:"model_support_recheck_cursors,omitempty"`
 	Builders                     []*BuilderState                    `protobuf:"bytes,20,rep,name=builders,proto3" json:"builders,omitempty"`
 	BuilderSets                  []*BuilderSetState                 `protobuf:"bytes,21,rep,name=builder_sets,json=builderSets,proto3" json:"builder_sets,omitempty"`
 	BuilderAdmissions            []*BuilderAdmissionState           `protobuf:"bytes,22,rep,name=builder_admissions,json=builderAdmissions,proto3" json:"builder_admissions,omitempty"`
@@ -77,14 +77,14 @@ type GenesisState struct {
 	PendingBuilderSetReplacement *BuilderSetPendingReplacementState `protobuf:"bytes,29,opt,name=pending_builder_set_replacement,json=pendingBuilderSetReplacement,proto3" json:"pending_builder_set_replacement,omitempty"`
 	// Jail and tombstone facts are operator-global counters on ServiceBondState
 	// (status / jail_count / normal_action_count_since_jail) per
-	// the data-structure contract, so there is no separate jail or tombstone
+	// the wire storage model, so there is no separate jail or tombstone
 	// collection to export.
 	RoleFaults     []*RoleFaultState    `protobuf:"bytes,30,rep,name=role_faults,json=roleFaults,proto3" json:"role_faults,omitempty"`
 	SlashSummaries []*SlashSummaryState `protobuf:"bytes,31,rep,name=slash_summaries,json=slashSummaries,proto3" json:"slash_summaries,omitempty"`
 	// Treasury singleton plus its bounded governance spend receipts.
 	Treasury              *TreasuryState               `protobuf:"bytes,33,opt,name=treasury,proto3" json:"treasury,omitempty"`
 	TreasurySpendReceipts []*TreasurySpendReceiptState `protobuf:"bytes,34,rep,name=treasury_spend_receipts,json=treasurySpendReceipts,proto3" json:"treasury_spend_receipts,omitempty"`
-	// Versioned TimeoutBucket governance rows (§6.7). Bodies plus the at most one
+	// Versioned TimeoutBucket governance rows. Bodies plus the at most one
 	// current and one pending pointer per (kind, key); task_ref_count is
 	// recomputed from the Task module's surviving refs and a mismatch is rejected.
 	ParameterBucketVersions        []*ParameterBucketVersionState        `protobuf:"bytes,35,rep,name=parameter_bucket_versions,json=parameterBucketVersions,proto3" json:"parameter_bucket_versions,omitempty"`
@@ -111,7 +111,7 @@ type GenesisState struct {
 	EmergencyFreezeVotes       []*EmergencyFreezeVoteState     `protobuf:"bytes,72,rep,name=emergency_freeze_votes,json=emergencyFreezeVotes,proto3" json:"emergency_freeze_votes,omitempty"`
 	FreezeSignalBuildCursors   []*FreezeSignalBuildCursorState `protobuf:"bytes,73,rep,name=freeze_signal_build_cursors,json=freezeSignalBuildCursors,proto3" json:"freeze_signal_build_cursors,omitempty"`
 	FreezeSignalWindowBindings []*FreezeSignalByWindowIndex    `protobuf:"bytes,74,rep,name=freeze_signal_window_bindings,json=freezeSignalWindowBindings,proto3" json:"freeze_signal_window_bindings,omitempty"`
-	// Global CandidatePool primaries (§3.2/§3.3). The two singletons are the
+	// Global CandidatePool primaries. The two singletons are the
 	// build status and the current pool pointer; OperatorCandidateSlotState and
 	// every CandidatePool index are rebuilt from these rows and double-checked,
 	// never trusted from the import.
@@ -213,9 +213,9 @@ func (x *GenesisState) GetServiceUnbondings() []*UnbondingState {
 	return nil
 }
 
-func (x *GenesisState) GetProfileCapabilities() []*ProfileCapabilityState {
+func (x *GenesisState) GetModelCapabilities() []*ModelCapabilityState {
 	if x != nil {
-		return x.ProfileCapabilities
+		return x.ModelCapabilities
 	}
 	return nil
 }
@@ -241,9 +241,9 @@ func (x *GenesisState) GetServiceUnbondingReceipts() []*UnbondingReceiptState {
 	return nil
 }
 
-func (x *GenesisState) GetSupportDeactivateCursors() []*SupportDeactivateCursorState {
+func (x *GenesisState) GetModelSupportRecheckCursors() []*ModelSupportRecheckCursorState {
 	if x != nil {
-		return x.SupportDeactivateCursors
+		return x.ModelSupportRecheckCursors
 	}
 	return nil
 }
@@ -581,7 +581,7 @@ var File_hub_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xfe%\n" +
+	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xff%\n" +
 	"\fGenesisState\x12+\n" +
 	"\x06params\x18\x01 \x01(\v2\x13.hub.v1.HubParamsV2R\x06params\x12;\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1a.hub.v1.HubParamsMetaStateR\n" +
@@ -591,12 +591,12 @@ const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\bprofiles\x18\v \x03(\v2\x14.hub.v1.ProfileStateR\bprofiles\x12:\n" +
 	"\fcortex_nodes\x18\f \x03(\v2\x17.hub.v1.CortexNodeStateR\vcortexNodes\x12=\n" +
 	"\rservice_bonds\x18\r \x03(\v2\x18.hub.v1.ServiceBondStateR\fserviceBonds\x12E\n" +
-	"\x12service_unbondings\x18\x0e \x03(\v2\x16.hub.v1.UnbondingStateR\x11serviceUnbondings\x12Q\n" +
-	"\x14profile_capabilities\x18\x0f \x03(\v2\x1e.hub.v1.ProfileCapabilityStateR\x13profileCapabilities\x12@\n" +
+	"\x12service_unbondings\x18\x0e \x03(\v2\x16.hub.v1.UnbondingStateR\x11serviceUnbondings\x12K\n" +
+	"\x12model_capabilities\x18\x0f \x03(\v2\x1c.hub.v1.ModelCapabilityStateR\x11modelCapabilities\x12@\n" +
 	"\x0emodel_supports\x18\x10 \x03(\v2\x19.hub.v1.ModelSupportStateR\rmodelSupports\x12@\n" +
 	"\x0edaily_supports\x18\x11 \x03(\v2\x19.hub.v1.DailySupportStateR\rdailySupports\x12[\n" +
-	"\x1aservice_unbonding_receipts\x18\x12 \x03(\v2\x1d.hub.v1.UnbondingReceiptStateR\x18serviceUnbondingReceipts\x12b\n" +
-	"\x1asupport_deactivate_cursors\x18\x13 \x03(\v2$.hub.v1.SupportDeactivateCursorStateR\x18supportDeactivateCursors\x120\n" +
+	"\x1aservice_unbonding_receipts\x18\x12 \x03(\v2\x1d.hub.v1.UnbondingReceiptStateR\x18serviceUnbondingReceipts\x12i\n" +
+	"\x1dmodel_support_recheck_cursors\x18\x13 \x03(\v2&.hub.v1.ModelSupportRecheckCursorStateR\x1amodelSupportRecheckCursors\x120\n" +
 	"\bbuilders\x18\x14 \x03(\v2\x14.hub.v1.BuilderStateR\bbuilders\x12:\n" +
 	"\fbuilder_sets\x18\x15 \x03(\v2\x17.hub.v1.BuilderSetStateR\vbuilderSets\x12L\n" +
 	"\x12builder_admissions\x18\x16 \x03(\v2\x1d.hub.v1.BuilderAdmissionStateR\x11builderAdmissions\x12@\n" +
@@ -668,11 +668,11 @@ var file_hub_v1_genesis_proto_goTypes = []any{
 	(*CortexNodeState)(nil),                      // 5: hub.v1.CortexNodeState
 	(*ServiceBondState)(nil),                     // 6: hub.v1.ServiceBondState
 	(*UnbondingState)(nil),                       // 7: hub.v1.UnbondingState
-	(*ProfileCapabilityState)(nil),               // 8: hub.v1.ProfileCapabilityState
+	(*ModelCapabilityState)(nil),                 // 8: hub.v1.ModelCapabilityState
 	(*ModelSupportState)(nil),                    // 9: hub.v1.ModelSupportState
 	(*DailySupportState)(nil),                    // 10: hub.v1.DailySupportState
 	(*UnbondingReceiptState)(nil),                // 11: hub.v1.UnbondingReceiptState
-	(*SupportDeactivateCursorState)(nil),         // 12: hub.v1.SupportDeactivateCursorState
+	(*ModelSupportRecheckCursorState)(nil),       // 12: hub.v1.ModelSupportRecheckCursorState
 	(*BuilderState)(nil),                         // 13: hub.v1.BuilderState
 	(*BuilderSetState)(nil),                      // 14: hub.v1.BuilderSetState
 	(*BuilderAdmissionState)(nil),                // 15: hub.v1.BuilderAdmissionState
@@ -729,11 +729,11 @@ var file_hub_v1_genesis_proto_depIdxs = []int32{
 	5,  // 4: hub.v1.GenesisState.cortex_nodes:type_name -> hub.v1.CortexNodeState
 	6,  // 5: hub.v1.GenesisState.service_bonds:type_name -> hub.v1.ServiceBondState
 	7,  // 6: hub.v1.GenesisState.service_unbondings:type_name -> hub.v1.UnbondingState
-	8,  // 7: hub.v1.GenesisState.profile_capabilities:type_name -> hub.v1.ProfileCapabilityState
+	8,  // 7: hub.v1.GenesisState.model_capabilities:type_name -> hub.v1.ModelCapabilityState
 	9,  // 8: hub.v1.GenesisState.model_supports:type_name -> hub.v1.ModelSupportState
 	10, // 9: hub.v1.GenesisState.daily_supports:type_name -> hub.v1.DailySupportState
 	11, // 10: hub.v1.GenesisState.service_unbonding_receipts:type_name -> hub.v1.UnbondingReceiptState
-	12, // 11: hub.v1.GenesisState.support_deactivate_cursors:type_name -> hub.v1.SupportDeactivateCursorState
+	12, // 11: hub.v1.GenesisState.model_support_recheck_cursors:type_name -> hub.v1.ModelSupportRecheckCursorState
 	13, // 12: hub.v1.GenesisState.builders:type_name -> hub.v1.BuilderState
 	14, // 13: hub.v1.GenesisState.builder_sets:type_name -> hub.v1.BuilderSetState
 	15, // 14: hub.v1.GenesisState.builder_admissions:type_name -> hub.v1.BuilderAdmissionState
