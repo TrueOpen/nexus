@@ -598,6 +598,13 @@ func (TaskCandidateStageStatusV1) EnumDescriptor() ([]byte, []int) {
 }
 
 // PayloadModeV1 reserves encrypted payload selection for a later activation.
+// PayloadModeV1 is part of the TaskOrderV3 hash, and an order carries exactly
+// one value, so the value identifies the payload's encryption scheme without a
+// separate version field. A later scheme takes a new value; no existing value
+// is ever redefined to mean a different scheme. Messages other than
+// TaskOrderV3 - infer receipt, result receipt, handraises, the stream header,
+// and any future key package - do not carry payload_mode; they follow the
+// task's accepted_payload_mode.
 type PayloadModeV1 int32
 
 const (
@@ -605,7 +612,9 @@ const (
 	PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED PayloadModeV1 = 0
 	// Phase 0 accepts only plaintext payloads.
 	PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT PayloadModeV1 = 1
-	// Encryption is reserved for a separately activated contract.
+	// Encryption scheme V1: the fixed HPKE suite and domains of the
+	// corresponding contract, activated separately. Its suite and domains are
+	// fixed once and never change meaning.
 	PayloadModeV1_PAYLOAD_MODE_V1_ENCRYPTED PayloadModeV1 = 2
 )
 

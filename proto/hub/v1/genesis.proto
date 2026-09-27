@@ -134,4 +134,5 @@ message GenesisState {
   repeated TreasurySpendEpochState treasury_spend_epochs = 102;
   repeated TreasurySpendRecipientEpochState treasury_spend_recipient_epochs = 103;
   repeated TreasurySpendEpochCleanupCursorState treasury_spend_epoch_cleanup_cursors = 104;
+  repeated ModelSupportDeactivateCursorState model_support_deactivate_cursors = 105;
 }
