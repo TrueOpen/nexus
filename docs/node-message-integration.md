@@ -53,12 +53,15 @@ Hub queries:
 Task Chain queries:
 
 - `/task.v1.Query/Task`
+- `/task.v1.Query/TaskStage` (task phase, settlement status and next deadline; decides when a task can be settled)
 - `/task.v1.Query/TaskBuilders` (the frozen Task Builder order; the right to submit settlement rotates by it)
 - `/task.v1.Query/TimeoutBucket`
 
-There is no `hub.v1.Query/StageBuilderSelection` on chain. SETTLE submission timing follows
-§10.10a: rank 1 may submit at any time; after the reveal deadline, rank i has exclusive access in `(reveal+(i-1)·g, reveal+i·g]`,
-where g is `settlement_builder_grace_blocks`; once all windows have passed, anyone may submit. Nexus determines the window by chain height, not the local clock.
+There is no `hub.v1.Query/StageBuilderSelection` on chain. Who may submit a settlement follows
+the chain's schedule: rank 1 up to `reveal+g`, rank i in `(reveal+(i-1)·g, reveal+i·g]`,
+where g is `settlement_builder_grace_blocks`; once all windows have passed, anyone may submit. Nexus determines the window by the height the transaction executes at, not the local clock.
+
+The schedule counts from the reveal deadline, but settling opens only after the challenge window, so under current parameters every settlement falls in the phase where anyone may submit. To keep every Builder from submitting in the same block (the chain applies one and replays the rest as no-ops that still pay fees), in that phase rank i waits (i-1)·g blocks from the first height at which the chain accepts the settlement in simulation (every Builder reads the same chain, so they agree on it), and does not submit once the chain has settled it; rank 1 does not wait.
 
 Tasks use the composite key `(session_id, task_id)`. Nexus keeps the nested assignment, infer receipt and verifier assignment state returned by QueryTask; subsequent transactions must be constructed from these on-chain frozen values and must not substitute the latest local configuration.
 
@@ -120,19 +123,11 @@ Tx success only means the broadcast succeeded. State progression is still govern
 
 ## Settle
 
-`MsgSettle` re-queries QueryTask in the prepare stage and validates the winner and the three formal verifiers. Settlement inputs are constructed per the Node canonical algorithm:
+`MsgSettleTask` carries only `task_id` and the submitter; the chain derives the verdict, receipt references, payouts and evidence roots from its own state.
 
-- result receipt refs hash;
-- registered full result refs hash;
-- payout hash;
-- fault summary hash;
-- evidence schema hash;
-- root manifest hash;
-- task evidence Merkle root.
+Whether a task can be settled is the chain's decision, not a count of the Verifier results Nexus relayed. Nexus submits only after `QueryTaskStage` reports the task `SETTLING`, with settlement status `NONE` and finality `PENDING`: every verification round has closed. The chain can report `SETTLING` a few blocks before the challenge window closes and refuses a settlement until it does; the simulation holds the submission over those blocks. Each submission is simulated first and broadcast only if the simulation passes, except in the first block of this Builder's slot: the simulation runs against the latest block, which still belongs to the previous submitter. A failed stage query changes nothing and is retried at the next reconciliation.
 
-The K5 stage is `SETTLE`. The challenge close height is computed from the Hub Profile's `challenge_open_window_blocks` and the next execution height. assignment/open-verify height, receipt/output roots, price cap and frozen fee all come from the on-chain task and the accepted order; legacy economic fields that were not frozen keep their canonical zero values.
-
-The settlement application signature uses the service key and the `TRUEOPEN_SETTLEMENT_V1` signing frame. The current implementation only submits the optimistic `PASS` / `SETTLED_PASS` path supported by the Node.
+Submitting is an optimization: at the settlement deadline (rounds closed height + `settle_margin_blocks`, reported by `QueryTaskStage` as `TASK_SETTLEMENT`) the chain settles the task by itself. Resubmissions after a failure stop at that deadline.
 
 ## Keys and failure boundaries
 

@@ -390,11 +390,11 @@ func (f *taskFSM) asyncTxDoneLocked(kind asyncTx) bool {
 
 // asyncTxDeadlineLocked is the last chain height at which the transaction still helps: the
 // receipt's infer deadline (or the receipt's own expiry, whichever is earlier), and for the
-// settlement the verify deadline that closes the settlement window. 0 = unknown. Caller must
-// hold the lock.
+// settlement the chain's settlement deadline, at which the chain settles the task by itself.
+// 0 = unknown. Caller must hold the lock.
 func (f *taskFSM) asyncTxDeadlineLocked(kind asyncTx) uint64 {
 	if kind == asyncSettle {
-		return uint64(max(f.deadlines.Verify, 0))
+		return f.settleStage.deadline
 	}
 	deadline := f.inferDeadlineHeight
 	if expiry := f.inferReceipt.ExpiryHeight; expiry != 0 && (deadline == 0 || expiry < deadline) {
@@ -499,11 +499,11 @@ func (f *taskFSM) asyncTxFailedLocked(kind asyncTx, tx *submittedTx, result chai
 		"refused", refused, "retry_at_height", retryAt, "deadline_height", deadline)
 }
 
-// settlePassesSimulationLocked dry-runs a settlement resend before it is broadcast: a failed
-// settlement is resent until the deadline, and each broadcast the chain refuses costs a fee. When
-// the chain refuses it in simulation nothing is broadcast; the next height this Builder may settle
-// at simulates again (at most once per block). A node that cannot simulate leaves the resend to
-// its backoff alone. Caller must hold the lock.
+// settlePassesSimulationLocked dry-runs a settlement before it is broadcast: each broadcast the
+// chain refuses costs a fee, and a Builder's settlement is only an optimization (the chain settles
+// the task by itself at its settlement deadline). Nothing is broadcast unless the simulation
+// passes: when the chain refuses it, or the simulation cannot be run, the next block simulates
+// again (at most once per block). Caller must hold the lock.
 func (f *taskFSM) settlePassesSimulationLocked() bool {
 	simulator, ok := f.submit.(SettleSimulator)
 	if !ok {
@@ -512,16 +512,17 @@ func (f *taskFSM) settlePassesSimulationLocked() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
 	result, err := simulator.SimulateSettle(ctx, chaincli.SettleTx{Submitter: f.self, SessionID: f.sessionID, TaskID: f.taskID})
 	cancel()
+	f.settleSubmittedHeight = f.observedHeight
 	if err != nil {
-		f.log.Warn("settle resend not simulated: the node cannot simulate; broadcasting on backoff",
-			"task_id", f.taskID, "err", err)
-		return true
+		f.log.Warn("settle held: simulation failed; retrying next block", "task_id", f.taskID,
+			"height", f.observedHeight, "err", err)
+		return false
 	}
 	if result.OK {
+		f.settleSubmittedHeight = 0
 		return true
 	}
-	f.settleSubmittedHeight = f.observedHeight
-	f.log.Info("settle resend held: the chain refuses it in simulation", "task_id", f.taskID,
+	f.log.Info("settle held: the chain refuses it in simulation", "task_id", f.taskID,
 		"height", f.observedHeight, "error", chaincli.TruncateRawLog(result.Error))
 	return false
 }
