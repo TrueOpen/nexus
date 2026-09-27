@@ -99,6 +99,12 @@ func (s *Service) Handle(ctx context.Context, raw []byte) []byte {
 		// sentinel JWT: already verified by the server; kept here only as a log/troubleshooting hint.
 		ConnectJWT: claims.ConnectOptions.JWT,
 	}
+	start := time.Now()
+	var queued time.Duration
+	if at, ok := arrivalFrom(ctx); ok {
+		queued = start.Sub(at)
+	}
+	ctx, stats := withStats(ctx)
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.HandleTimeout)
 	defer cancel()
 
@@ -119,7 +125,8 @@ func (s *Service) Handle(ctx context.Context, raw []byte) []byte {
 	}
 	if verr != nil {
 		// sentinel=true with empty nkey is the normal shape in operator mode; sentinel=false with empty nkey is a client misconfiguration.
-		attrs := []any{"host", claims.ClientInformation.Host, "nkey", req.ConnectNkey, "sentinel", req.ConnectJWT != "", "reason", verr.Error()}
+		attrs := []any{"host", claims.ClientInformation.Host, "nkey", req.ConnectNkey, "sentinel", req.ConnectJWT != "", "reason", verr.Error(),
+			"queued_ms", queued.Milliseconds(), "took_ms", time.Since(start).Milliseconds(), "lookups", stats.String()}
 		// Cause goes to logs only, and only when there is a real underlying cause: operators see the raw chain error,
 		// the caller never sees it in the response.
 		if cause := errors.Unwrap(verr); cause != nil {
@@ -128,7 +135,8 @@ func (s *Service) Handle(ctx context.Context, raw []byte) []byte {
 		s.cfg.Log.Info("authorization request rejected", attrs...)
 	} else {
 		s.cfg.Log.Info("authorization request issued", "host", claims.ClientInformation.Host,
-			"operator", decision.OperatorAddress, "nkey", decision.NATSUserPubkey)
+			"operator", decision.OperatorAddress, "nkey", decision.NATSUserPubkey,
+			"queued_ms", queued.Milliseconds(), "took_ms", time.Since(start).Milliseconds(), "lookups", stats.String())
 	}
 	return []byte(resp)
 }
@@ -144,6 +152,7 @@ func (s *Service) handleMsg(ctx context.Context, data []byte, reply func([]byte)
 	if ctx.Err() != nil {
 		return
 	}
+	ctx = withArrival(ctx, time.Now())
 	select {
 	case s.sem <- struct{}{}:
 	case <-ctx.Done():
@@ -192,6 +201,12 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("natsauth: connect nats: %w", err)
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	// Chain queries shared between requests end with the service too, and are capped like requests are.
+	if chain, ok := s.cfg.Verifier.cfg.Chain.(interface {
+		Bind(context.Context, time.Duration, int)
+	}); ok {
+		chain.Bind(runCtx, s.cfg.HandleTimeout, s.cfg.MaxInFlight)
+	}
 	// stopping must be cleared before subscribing: as soon as Subscribe returns, server requests may arrive,
 	// and clearing it after subscribing would drop requests in that window as "stopping" for nothing.
 	// Leaving it false when Subscribe fails is harmless -- there is no subscription then, so nothing reaches handleMsg.

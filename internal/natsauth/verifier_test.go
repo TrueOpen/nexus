@@ -220,6 +220,13 @@ func TestVerifierStepOrderAndCodes(t *testing.T) {
 		_, err := newVerifier(chain).Verify(context.Background(), req)
 		assertRejected(t, err, CodeServiceKeyNotActive)
 	})
+	// Step 9's lookup is sent together with step 7's; when both fail, the reason is still step 7's.
+	t.Run("7 key not found and 9 node missing", func(t *testing.T) {
+		req, chain, _ := goodRequest(t)
+		chain.keys, chain.nodes = nil, nil
+		_, err := newVerifier(chain).Verify(context.Background(), req)
+		assertRejected(t, err, CodeServiceKeyNotActive)
+	})
 	t.Run("7 key revoked", func(t *testing.T) {
 		req, chain, file := goodRequest(t)
 		op := file.Cases[0].Fields.OperatorAddress

@@ -49,10 +49,26 @@ func encodeServerRequest(t *testing.T, req Request) []byte {
 
 func testService(t *testing.T, chain ChainQueries) *Service {
 	t.Helper()
+	return testServiceWithReader(t, NewCachedChain(chain, 0, time.Now))
+}
+
+// directReader queries the chain on every call, with no cache and no sharing of concurrent queries.
+type directReader struct{ chain ChainQueries }
+
+func (d directReader) CurrentServiceKey(ctx context.Context, operator string) (chaincli.ServiceKeyState, error) {
+	return d.chain.QueryCurrentServiceKey(ctx, participantCortex, operator)
+}
+
+func (d directReader) CortexNode(ctx context.Context, operator string) (chaincli.CortexNodeState, error) {
+	return d.chain.QueryCortexNode(ctx, operator)
+}
+
+func testServiceWithReader(t *testing.T, reader ChainReader) *Service {
+	t.Helper()
 	iss, _, _ := testIssuer(t)
 	svc, err := NewService(ServiceConfig{
 		Log:      slog.Default(),
-		Verifier: NewVerifier(VerifierConfig{ChainID: "c", Chain: NewCachedChain(chain, 0, time.Now), MaxClockSkew: time.Minute, Now: func() time.Time { return time.UnixMilli(1000) }}),
+		Verifier: NewVerifier(VerifierConfig{ChainID: "c", Chain: reader, MaxClockSkew: time.Minute, Now: func() time.Time { return time.UnixMilli(1000) }}),
 		Issuer:   iss,
 	})
 	if err != nil {
@@ -278,13 +294,14 @@ func (b *barrierChain) QueryCortexNode(ctx context.Context, operator string) (ch
 	return b.inner.QueryCortexNode(ctx, operator)
 }
 
-// One slow chain query must not block the requests behind it: 10 submitted at once must all arrive at the chain together.
+// One slow chain query must not block the requests behind it: 10 submitted at once must all arrive at the chain
+// together. The reader does not share queries, so each request's own query is what reaches the chain.
 func TestServiceHandlesRequestsConcurrently(t *testing.T) {
 	const n = 10
 	req, chain, _ := goodRequest(t)
 	req.UserNkey = mustUserPub(t)
 	barrier := newBarrierChain(chain, n)
-	svc := testService(t, barrier)
+	svc := testServiceWithReader(t, directReader{barrier})
 	raw := encodeServerRequest(t, req)
 
 	replies := make(chan []byte, n)

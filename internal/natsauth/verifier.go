@@ -105,7 +105,16 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Decision, error) {
 		return Decision{}, Reject(CodeBindingMalformed, "issued_at_unix_ms %d is in the future", fields.IssuedAtUnixMS)
 	}
 
-	// 7. On-chain current service key: exists, ACTIVE, nonce equal
+	// 7. On-chain current service key: exists, ACTIVE, nonce equal.
+	//    The CortexNode lookup of step 9 does not depend on it, so it is sent now and read in step 9: one chain round
+	//    trip instead of two. The checks keep their order and reject reasons. The cost: a request rejected here has
+	//    also looked up the node, and such a request needs no credential (the signature is checked in step 8), so a
+	//    failed login can cost two uncached lookups instead of one (see CachedChain).
+	node := make(chan error, 1)
+	go func() {
+		_, err := v.cfg.Chain.CortexNode(ctx, fields.OperatorAddress)
+		node <- err
+	}()
 	key, err := v.cfg.Chain.CurrentServiceKey(ctx, fields.OperatorAddress)
 	switch {
 	case errors.Is(err, chaincli.ErrNotFound):
@@ -129,8 +138,8 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Decision, error) {
 		return Decision{}, RejectWithCause(CodeBindingSignatureInvalid, err, "binding signature does not verify under the current service key")
 	}
 
-	// 9. Cortex stable identity row exists
-	if _, err := v.cfg.Chain.CortexNode(ctx, fields.OperatorAddress); err != nil {
+	// 9. Cortex stable identity row exists (looked up in step 7)
+	if err := <-node; err != nil {
 		if errors.Is(err, chaincli.ErrNotFound) {
 			return Decision{}, Reject(CodeCortexNotRegistered, "%s has no CortexNode row", fields.OperatorAddress)
 		}
