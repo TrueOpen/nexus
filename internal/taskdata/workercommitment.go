@@ -1,6 +1,7 @@
 package taskdata
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -12,12 +13,39 @@ import (
 // A Worker delivers its evidence in two bundles, each the one narrowed instance of the generic
 // manifest: schema_metadata absent and exactly these artifacts, in UTF-8 order.
 //   - WORKER_TOKEN_OPENING: the input and generated token ids, which a Verifier needs to reproduce
-//     the generation.
+//     the generation, and the exact canonical generation-parameter bytes it prefills under.
 //   - WORKER_VALUE_OPENING: worker_values, the Worker's per-position values, which a Verifier may
 //     read only after it has committed to its own.
 var workerBundleArtifactIDs = map[EvidenceKind][]string{
-	EvidenceKindWorkerTokenOpening: {"generated_token_ids", "input_token_ids"},
+	EvidenceKindWorkerTokenOpening: {"generated_token_ids", artifactGenerationParams, "input_token_ids"},
 	EvidenceKindWorkerValueOpening: {"worker_values"},
+}
+
+// artifactGenerationParams holds the canonical generation-parameter JSON of the order. The token
+// commitment binds it only through generation_params_digest, so it is not counted in the
+// commitment's encoded_size_bytes, which covers the two token id artifacts alone.
+const artifactGenerationParams = "generation_params"
+
+// DomainTaskGenerationParamsV1 is the H_V1 domain of generation_params_digest.
+const DomainTaskGenerationParamsV1 = "TRUEOPEN_TASK_GENERATION_PARAMS_V1"
+
+// MaxGenerationParamsBytes bounds the generation_params artifact, checked from the manifest before
+// it is read. The largest valid canonical parameter JSON stays under 8 KiB: stop_sequences hold at
+// most 1024 bytes in total, which JSON escaping can grow at most sixfold (6 KiB); stop_token_ids at
+// most 64 items of at most 11 characters; model_id is 66 characters; every other value is a
+// number or boolean under a fixed key. 64 KiB leaves ample room.
+const MaxGenerationParamsBytes = 64 << 10
+
+// commitmentSizeBytes is the part of a bundle's artifact total that the Worker commitment's
+// encoded_size_bytes counts: every artifact except generation_params.
+func commitmentSizeBytes(manifest Metadata) uint64 {
+	total := manifest.ArtifactTotalSizeBytes
+	for _, artifact := range manifest.Artifacts {
+		if artifact.ArtifactID == artifactGenerationParams {
+			total -= artifact.SizeBytes
+		}
+	}
+	return total
 }
 
 // verifyWorkerCommitment recomputes the receipt's commitment of one Worker bundle from the exact
@@ -80,6 +108,10 @@ func (s *Service) verifyWorkerCommitment(
 		}
 		generatedHash, err := s.storedTokenIDsHash(ctx, nodecontract.DomainGeneratedTokenIDsV1, generatedIDs.ref, generatedIDs.size)
 		if err != nil {
+			return err
+		}
+		if err := s.checkGenerationParams(ctx, artifacts[artifactGenerationParams].ref,
+			artifacts[artifactGenerationParams].size, decoded["generation_params_digest"]); err != nil {
 			return err
 		}
 		// TokenIDsHashReader already checked size == 4 + 4*count.
@@ -185,6 +217,29 @@ func (s *Service) storedTokenIDsHash(ctx context.Context, domain string, ref Obj
 		return [32]byte{}, fmt.Errorf("%w: %s artifact: %v", ErrMalformed, domain, err)
 	}
 	return digest, nil
+}
+
+// checkGenerationParams requires the stored generation_params artifact to be the parameter bytes
+// the receipt binds: H_V1(TRUEOPEN_TASK_GENERATION_PARAMS_V1, bytes) == generation_params_digest.
+func (s *Service) checkGenerationParams(ctx context.Context, ref ObjectRef, size uint64, digest []byte) error {
+	if size > MaxGenerationParamsBytes {
+		return fmt.Errorf("%w: generation_params artifact is %d bytes, limit %d",
+			ErrMalformed, size, MaxGenerationParamsBytes)
+	}
+	reader, err := s.store.OpenStored(ctx, ref)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	payload := make([]byte, size)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return fmt.Errorf("%w: read generation_params artifact: %v", ErrMalformed, err)
+	}
+	if got := hashV1(DomainTaskGenerationParamsV1, payload); !bytes.Equal(got[:], digest) {
+		return fmt.Errorf("%w: generation_params artifact hashes to %x, receipt generation_params_digest %x",
+			ErrHashMismatch, got, digest)
+	}
+	return nil
 }
 
 // storedWorkerValuesRoot streams a stored worker_values artifact through WorkerValuesRootReader;

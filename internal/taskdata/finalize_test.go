@@ -48,7 +48,9 @@ func newFinalizeFixture(t *testing.T) *finalizeFixture {
 func newFinalizeFixtureOn(t *testing.T, fx *authorizerFixture, store *Store, service *Service) *finalizeFixture {
 	t.Helper()
 	taskHash := strings.Repeat("a", 64)
+	paramsDigest := hashV1(DomainTaskGenerationParamsV1, []byte(finalizeGenerationParams))
 	fx.authority.task.Assignment.AcceptedTaskHash = taskHash
+	fx.authority.task.Assignment.GenerationParamsDigest = hex.EncodeToString(paramsDigest[:])
 	fx.authority.task.Assignment.ModelID = finalizeModelID
 	fx.authority.task.Assignment.ProfileVersion = 3
 	fx.authority.profile = chaincli.ProfileState{
@@ -62,7 +64,7 @@ func newFinalizeFixtureOn(t *testing.T, fx *authorizerFixture, store *Store, ser
 			SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainID: testChainID,
 			TaskID: testTaskID, TaskHash: taskHash,
 			WorkerOperatorAddress: fx.worker.Address(), ServiceAuthorizationNonce: 1,
-			GenerationParamsDigest: strings.Repeat("b", 64),
+			GenerationParamsDigest: hex.EncodeToString(paramsDigest[:]),
 			ExpiryHeight:           1200, GeneratedTokenCount: 3, ServiceSignature: strings.Repeat("0", 128),
 			OutputKeyCommitment: zeroHash32Hex, WorkerTokenKeyCommitment: zeroHash32Hex,
 			WorkerValueKeyCommitment: zeroHash32Hex, CiphertextOutputRoot: zeroHash32Hex,
@@ -89,9 +91,14 @@ type workerBundleSpec struct {
 func (f *finalizeFixture) defaultTokenArtifacts(t *testing.T) map[string][]byte {
 	return map[string][]byte{
 		"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000ffff"),
+		"generation_params":   []byte(finalizeGenerationParams),
 		"input_token_ids":     mustDecodeHex(t, "000000020000000100000100"),
 	}
 }
+
+// finalizeGenerationParams stands in for the order's canonical generation-parameter JSON; the
+// task's generation_params_digest is its H_V1.
+const finalizeGenerationParams = `{"generation_params_schema_version":1,"max_output_tokens":256}`
 
 func (f *finalizeFixture) defaultValueArtifacts(t *testing.T) map[string][]byte {
 	return map[string][]byte{"worker_values": f.workerValues(t, 3, nil)}
@@ -191,11 +198,11 @@ func (f *finalizeFixture) storeWorkerBundles(t *testing.T, spec workerBundleSpec
 
 	value := f.storeBundle(t, EvidenceKindWorkerValueOpening, spec.valueArtifacts, spec.schemaMetadata, hex.EncodeToString(valueDigest[:]))
 	token := f.storeBundle(t, EvidenceKindWorkerTokenOpening, spec.tokenArtifacts, spec.schemaMetadata, hex.EncodeToString(tokenDigest[:]))
-	// Ordered by EvidenceKind value: value (1) before token (4). encoded_size_bytes is the total
-	// artifact size, not the manifest byte count.
+	// Ordered by EvidenceKind value: value (1) before token (4). encoded_size_bytes is the artifact
+	// size without generation_params, not the manifest byte count.
 	f.receipt.EvidenceCommitments = []EvidenceCommitment{
 		{Kind: uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING), HashOrRoot: value.Key.ContentHash, EncodedSizeBytes: value.ArtifactTotalSizeBytes},
-		{Kind: uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING), HashOrRoot: token.Key.ContentHash, EncodedSizeBytes: token.ArtifactTotalSizeBytes},
+		{Kind: uint32(sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING), HashOrRoot: token.Key.ContentHash, EncodedSizeBytes: commitmentSizeBytes(token)},
 	}
 	f.resignReceipt(t)
 }
@@ -751,6 +758,69 @@ func TestFinalizeTaskResultRejectsEncodedSizeMismatch(t *testing.T) {
 	}
 }
 
+// The token bundle carries the order's generation parameters: they must be the bytes the receipt
+// binds, bounded before they are read, and outside the commitment's encoded_size_bytes.
+func TestFinalizeTaskResultChecksGenerationParams(t *testing.T) {
+	withParams := func(body []byte) func(*finalizeFixture) workerBundleSpec {
+		return func(f *finalizeFixture) workerBundleSpec {
+			artifacts := f.defaultTokenArtifacts(t)
+			artifacts["generation_params"] = body
+			return workerBundleSpec{tokenArtifacts: artifacts}
+		}
+	}
+	for name, c := range map[string]struct {
+		spec     func(*finalizeFixture) workerBundleSpec
+		edit     func(*finalizeFixture)
+		want     error
+		contains string
+	}{
+		"other parameters": {
+			spec: withParams([]byte(`{"generation_params_schema_version":1,"max_output_tokens":257}`)),
+			want: ErrHashMismatch, contains: "generation_params artifact hashes to",
+		},
+		"over the size limit": {
+			spec: withParams(bytes.Repeat([]byte(" "), MaxGenerationParamsBytes+1)),
+			want: ErrMalformed, contains: "limit 65536",
+		},
+		"encoded_size_bytes counts the parameters": {
+			edit: func(f *finalizeFixture) {
+				f.receipt.EvidenceCommitments[1].EncodedSizeBytes = f.bundles[EvidenceKindWorkerTokenOpening].ArtifactTotalSizeBytes
+				f.resignReceipt(t)
+			},
+			want: ErrHashMismatch, contains: "receipt encoded_size_bytes",
+		},
+		"receipt differs from the accepted order": {
+			edit: func(f *finalizeFixture) { f.authority.task.Assignment.GenerationParamsDigest = strings.Repeat("b", 64) },
+			want: ErrUnauthorized, contains: "generation_params_digest does not match the accepted order",
+		},
+		"task without a parameter digest": {
+			edit: func(f *finalizeFixture) { f.authority.task.Assignment.GenerationParamsDigest = "" },
+			want: ErrAuthorityUnavailable, contains: "no generation_params_digest",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := newAuthorizerFixture(t)
+			config := manifestStoreConfig()
+			config.MaxBlobBytes, config.SpoolReservationBytes = 128<<10, 256<<10
+			store, _, _ := newTestStore(t, config)
+			service, err := NewService(store, fx.authorizer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := newFinalizeFixtureOn(t, fx, store, service)
+			spec := workerBundleSpec{}
+			if c.spec != nil {
+				spec = c.spec(f)
+			}
+			f.storeWorkerBundles(t, spec)
+			if c.edit != nil {
+				c.edit(f)
+			}
+			f.requireFinalizeRejected(t, EvidenceKindWorkerTokenOpening, c.want, c.contains)
+		})
+	}
+}
+
 // A Verifier manifest is not addressed via a commitment: content_hash must be the H_V1 of the
 // bytes, and a wrong hash is rejected at upload.
 func TestVerifierManifestContentHashMustBeBundleHash(t *testing.T) {
@@ -901,7 +971,17 @@ func TestFinalizeTaskResultRejectsWorkerManifestShape(t *testing.T) {
 			artifacts := f.defaultTokenArtifacts(t)
 			delete(artifacts, "input_token_ids")
 			return workerBundleSpec{tokenArtifacts: artifacts, commit: map[string][]byte{"input_token_ids": mustDecodeHex(t, "000000020000000100000100")}}
-		}, "1 artifacts"},
+		}, "2 artifacts, want 3"},
+		"missing generation_params": {EvidenceKindWorkerTokenOpening, func(f *finalizeFixture) workerBundleSpec {
+			artifacts := f.defaultTokenArtifacts(t)
+			delete(artifacts, "generation_params")
+			return workerBundleSpec{tokenArtifacts: artifacts}
+		}, "2 artifacts, want 3"},
+		"extra token artifact": {EvidenceKindWorkerTokenOpening, func(f *finalizeFixture) workerBundleSpec {
+			artifacts := f.defaultTokenArtifacts(t)
+			artifacts["zzz"] = []byte("extra artifact")
+			return workerBundleSpec{tokenArtifacts: artifacts}
+		}, "4 artifacts, want 3"},
 		"extra value artifact": {EvidenceKindWorkerValueOpening, func(f *finalizeFixture) workerBundleSpec {
 			artifacts := f.defaultValueArtifacts(t)
 			artifacts["zzz"] = []byte("extra artifact")
@@ -940,6 +1020,7 @@ func TestFinalizeTaskResultRejectsTokenIDsFraming(t *testing.T) {
 	f.storeWorkerBundles(t, workerBundleSpec{
 		tokenArtifacts: map[string][]byte{
 			"generated_token_ids": mustDecodeHex(t, "0000000400000002000001010000ffff"),
+			"generation_params":   []byte(finalizeGenerationParams),
 			"input_token_ids":     mustDecodeHex(t, "000000020000000100000100"),
 		},
 		commit: map[string][]byte{"generated_token_ids": mustDecodeHex(t, "0000000300000002000001010000ffff")},

@@ -9,10 +9,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// The Worker service test key of wire output_chunk_equivocation_v1.json, which signs the
-// output_stream_header_v1.json vector.
-const wireWorkerServicePubkey = "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
-
 func wireOutputStreamHeader(t *testing.T) (OutputStreamHeader, wirefixture.Vector) {
 	t.Helper()
 	v := wirefixture.Load(t, "task/output_stream_header_v1.json").Vector(t, "output_stream_header_v2_plaintext", 0)
@@ -40,15 +36,16 @@ func TestOutputStreamHeaderMatchesWireVector(t *testing.T) {
 		t.Fatalf("digest = %x, want %s", digest, v.DigestHex)
 	}
 	var sig struct {
-		Hex string `json:"signature_raw64_hex"`
+		Hex    string `json:"signature_raw64_hex"`
+		Pubkey string `json:"service_pubkey_compressed_hex"`
 	}
 	if err := json.Unmarshal(v.Raw, &sig); err != nil {
 		t.Fatal(err)
 	}
 	signature, _ := hex.DecodeString(sig.Hex)
-	pub, _ := hex.DecodeString(wireWorkerServicePubkey)
-	if !signer.VerifyDigestSig(pub, digest[:], signature) {
-		t.Fatal("the wire header signature must verify under the Worker test key")
+	pub, _ := hex.DecodeString(sig.Pubkey)
+	if len(pub) != 33 || !signer.VerifyDigestSig(pub, digest[:], signature) {
+		t.Fatal("the wire header signature must verify under the service key the vector names")
 	}
 	if err := header.ValidatePlaintext(); err != nil {
 		t.Fatalf("the wire plaintext header must pass admission: %v", err)

@@ -1,6 +1,6 @@
 # NATS Auth Callout Service (nexus natsauth)
 
-wire dependency: TrueOpen/wire `v0.3.0-rc.1`.
+wire dependency: TrueOpen/wire `v0.3.0-rc.2`.
 
 ## What it does
 

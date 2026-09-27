@@ -46,7 +46,12 @@ const frameV1Prefix = "TRUEOPEN_FRAME_V1"
 // payload is the **raw bytes as received**. Parsing and re-serializing would yield a
 // different bundle; callers must pass the bytes through unchanged.
 func EvidenceBundleHash(payload []byte) [32]byte {
-	domain := []byte(DomainEvidenceBundleManifest)
+	return hashV1(DomainEvidenceBundleManifest, payload)
+}
+
+// hashV1 is H_V1(domain, payload) with the preimage shown on EvidenceBundleHash.
+func hashV1(domainName string, payload []byte) [32]byte {
+	domain := []byte(domainName)
 	preimage := make([]byte, 0, len(frameV1Prefix)+4+len(domain)+8+len(payload))
 	preimage = append(preimage, frameV1Prefix...)
 	preimage = binary.BigEndian.AppendUint32(preimage, uint32(len(domain)))

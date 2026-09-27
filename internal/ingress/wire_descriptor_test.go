@@ -7,7 +7,7 @@ import (
 )
 
 // TestNexusWireDescriptorFingerprint pins proto/nexus/v1 to the nexus.v1 package released in
-// TrueOpen/wire v0.3.0-rc.1 (release/packages.json lists it as frozen).
+// TrueOpen/wire v0.3.0-rc.2 (release/packages.json lists it as frozen).
 //
 // Unlike hub/shared/task, proto/nexus/v1 is not produced by tools/mirror_wire.py: the wire copy is
 // a comment-stripped stub and this repository keeps the documented IngressAPI contract. The two must

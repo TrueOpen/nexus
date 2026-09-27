@@ -568,6 +568,9 @@ type TaskAssignmentState struct {
 	// The former name accepted_item_hash was a generic alias that hid that it is accepted_task_hash,
 	// conflicting with the "one identity, one name" rule, so it was renamed.
 	AcceptedTaskHash string `json:"accepted_task_hash"`
+	// GenerationParamsDigest is TaskAssignmentState.generation_params_digest: the digest of the
+	// accepted order's generation parameters (lowercase 64-hex), which the InferReceipt must repeat.
+	GenerationParamsDigest string `json:"generation_params_digest,omitempty"`
 }
 
 type InferReceiptState struct {

@@ -223,3 +223,56 @@ func TestParseEvidenceBundleManifestRejectsArtifactSizeOverflow(t *testing.T) {
 		t.Fatalf("error = %v, want ErrMalformed", err)
 	}
 }
+
+// The published Worker token bundle: its artifacts are exactly the ones this Builder requires, its
+// generation_params artifact is the published parameter payload whose H_V1 the commitment binds,
+// and the commitment's encoded_size_bytes counts the two token id artifacts only.
+func TestWorkerTokenBundleMatchesWireVectors(t *testing.T) {
+	payloadOf := func(v wirefixture.Vector) string {
+		var payload struct {
+			UTF8 string `json:"payload_utf8"`
+		}
+		if err := json.Unmarshal(v.Raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload.UTF8
+	}
+	file := wirefixture.Load(t, "task/canonical_json_v1.json")
+	paramsVector := file.Vector(t, "task_generation_params_v1", 0)
+	params := payloadOf(paramsVector)
+	if digest := hashV1(DomainTaskGenerationParamsV1, []byte(params)); hex.EncodeToString(digest[:]) != paramsVector.DigestHex {
+		t.Fatalf("generation params digest %x, want %s", digest, paramsVector.DigestHex)
+	}
+
+	manifest, err := ParseEvidenceBundleManifest([]byte(payloadOf(file.Vector(t, "evidence_bundle_manifest_worker_token_v1", 0))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := Metadata{Artifacts: manifest.Artifacts}
+	var ids []string
+	for _, artifact := range manifest.Artifacts {
+		ids = append(ids, artifact.ArtifactID)
+		bundle.ArtifactTotalSizeBytes += artifact.SizeBytes
+		if artifact.ArtifactID == "generation_params" &&
+			(artifact.ContentHash != hex.EncodeToString(sha256Sum([]byte(params))) || artifact.SizeBytes != uint64(len(params))) {
+			t.Fatal("generation_params artifact is not the published parameter payload")
+		}
+	}
+	if got, want := strings.Join(ids, ","), strings.Join(workerBundleArtifactIDs[EvidenceKindWorkerTokenOpening], ","); got != want {
+		t.Fatalf("artifacts %s, want %s", got, want)
+	}
+
+	token := wirefixture.Load(t, "task/worker_token_commitment_v1.json").Vector(t, "worker_token_commitment_v1", 0)
+	var expected struct {
+		EncodedSizeBytes uint64 `json:"expected_encoded_size_bytes"`
+	}
+	if err := json.Unmarshal(token.Raw, &expected); err != nil {
+		t.Fatal(err)
+	}
+	if got := commitmentSizeBytes(bundle); got != expected.EncodedSizeBytes {
+		t.Fatalf("encoded_size_bytes %d, want %d", got, expected.EncodedSizeBytes)
+	}
+	if hex.EncodeToString(token.Field(t, "generation_params_digest").Bytes(t)) != paramsVector.DigestHex {
+		t.Fatal("the token commitment vector binds other generation parameters")
+	}
+}

@@ -229,11 +229,11 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	// EvidenceCommitmentV1.encoded_size_bytes is the checked sum of all artifact sizes in the bundle,
-	// not the manifest byte count.
-	if bundle.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
+	// EvidenceCommitmentV1.encoded_size_bytes is the checked sum of the bundle's artifact sizes
+	// without generation_params, not the manifest byte count.
+	if size := commitmentSizeBytes(bundle); size != commitment.EncodedSizeBytes {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: artifact total %d bytes, receipt encoded_size_bytes %d",
-			ErrHashMismatch, bundle.ArtifactTotalSizeBytes, commitment.EncodedSizeBytes)
+			ErrHashMismatch, size, commitment.EncodedSizeBytes)
 	}
 	if err := s.verifyWorkerCommitment(ctx, receipt, commitment, schemaHash, outputRef, bundle, artifacts); err != nil {
 		return FinalizeResultOutcome{}, err
@@ -595,6 +595,11 @@ func (a *Authorizer) verifyInferReceipt(
 		return fmt.Errorf("%w: receipt worker_operator_address", ErrUnauthorized)
 	case taskHash != task.Assignment.AcceptedTaskHash:
 		return fmt.Errorf("%w: task_hash does not match accepted_task_hash", ErrUnauthorized)
+	case task.Assignment.GenerationParamsDigest == "":
+		return fmt.Errorf("%w: task carries no generation_params_digest", ErrAuthorityUnavailable)
+	case receipt.GenerationParamsDigest != task.Assignment.GenerationParamsDigest:
+		// The chain rejects this receipt too; refusing here keeps its evidence out of the store.
+		return fmt.Errorf("%w: receipt generation_params_digest does not match the accepted order", ErrUnauthorized)
 	}
 	if err := a.verifyParticipantSignature(
 		ctx, receipt.WorkerOperatorAddress, receipt.ServiceAuthorizationNonce,

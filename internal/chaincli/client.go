@@ -820,6 +820,9 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 			return OnChainTask{}, fmt.Errorf("query task: assignment key does not match request")
 		}
 		result.Winner = assignment.GetWinnerWorker()
+		if digest := assignment.GetGenerationParamsDigest(); len(digest) != 0 {
+			result.Assignment.GenerationParamsDigest = hex.EncodeToString(digest)
+		}
 		result.InferDeadline, err = uint64ToInt64("infer deadline height", assignment.GetInferDeadlineHeight())
 		if err != nil {
 			return OnChainTask{}, err
