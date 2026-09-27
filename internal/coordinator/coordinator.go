@@ -1804,6 +1804,7 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 	}
 	c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
 	c.confirmSubmittedTxs(fsm)
+	c.log.Debug("task reconciled", "task_id", taskID, "reason", reason, "state", snapshot.State.String(), "phase", snapshot.Status)
 	var settlementFacts *chaincli.SettlementBuildFacts
 	if snapshot.State == types.Verifying && snapshot.Status != "RECEIPT_ONLY_ACCEPTED" {
 		// Read whether the task can be settled before, and independently of, the settlement
@@ -1855,6 +1856,10 @@ func (c *Coordinator) reconcileSettleStage(fsm *taskFSM, snapshot chaincli.OnCha
 			return false
 		}
 		stage = settleStageFrom(read)
+		c.log.Debug("settle stage read", "task_id", fsm.taskID, "task_phase", read.TaskPhase,
+			"settlement_status", read.SettlementStatus, "finality_status", read.FinalityStatus,
+			"next_deadline_kind", read.NextDeadlineKind, "next_deadline_height", read.NextDeadlineHeight,
+			"ready", stage.ready)
 	}
 	fsm.mu.Lock()
 	fsm.setSettleStageLocked(stage)

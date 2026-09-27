@@ -1741,9 +1741,10 @@ func (f *taskFSM) onSweepDeadlineAccepted(ev chaincli.SweepDeadlineAccepted) {
 }
 
 // settleStage is what the chain reports about settling a task. ready is true while the task is
-// SETTLING, not settled and not final: every verification round has closed and the challenge
-// window has passed. deadline is the settlement deadline, at which the chain settles the task by
-// itself; 0 = unknown.
+// SETTLING, not settled and not final: every verification round has closed. The chain may mark a
+// task SETTLING a few blocks before its challenge window closes and refuses a settlement until
+// then; the simulation before each submission holds it over those blocks. deadline is the
+// settlement deadline, at which the chain settles the task by itself; 0 = unknown.
 type settleStage struct {
 	ready    bool
 	deadline uint64
