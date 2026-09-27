@@ -5,13 +5,44 @@ package msgbus
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 // MsgHandler is the subscription callback. Returning an error means local handling failed; core NATS only
 // logs it, while a JetStream consumer Naks on it so nothing is acked before it was reliably handled.
+// Wrapping the error with RetryAfter asks for the redelivery to wait.
 type MsgHandler func(subject string, data []byte) error
+
+// retryAfterError is a handler error that asks for a delayed redelivery.
+type retryAfterError struct {
+	err   error
+	delay time.Duration
+}
+
+func (e *retryAfterError) Error() string { return e.err.Error() }
+func (e *retryAfterError) Unwrap() error { return e.err }
+
+// RetryAfter wraps a JetStream handler error so the message is redelivered only after delay. A
+// plain error is redelivered at once, which for a failure that needs time to clear (a chain
+// query, a full mempool) only repeats the same work in a tight loop.
+func RetryAfter(err error, delay time.Duration) error {
+	if err == nil {
+		return nil
+	}
+	return &retryAfterError{err: err, delay: delay}
+}
+
+// RetryDelay reports the redelivery delay a handler error asks for.
+func RetryDelay(err error) (time.Duration, bool) {
+	var retry *retryAfterError
+	if errors.As(err, &retry) && retry.delay > 0 {
+		return retry.delay, true
+	}
+	return 0, false
+}
 
 // Unsubscribe cancels a subscription.
 type Unsubscribe func()

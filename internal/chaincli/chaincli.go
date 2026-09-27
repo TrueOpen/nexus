@@ -84,6 +84,10 @@ type Client interface {
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
 	// QueryInferReceipt reads the hashes of the task's accepted InferReceipt (task.v1.Query/InferReceipt).
 	QueryInferReceipt(ctx context.Context, taskID string) (AcceptedInferReceipt, error)
+	// QueryVerifyCommit reads one Verifier's accepted commit in one round (task.v1.Query/VerifyCommit).
+	QueryVerifyCommit(ctx context.Context, taskID string, verifyRound uint32, verifier string) (AcceptedVerifyCommit, error)
+	// QueryResultReceipt reads one Verifier's accepted result receipt in one round (task.v1.Query/ResultReceipt).
+	QueryResultReceipt(ctx context.Context, taskID string, verifyRound uint32, verifier string) (AcceptedResultReceipt, error)
 	LatestHeight(ctx context.Context) (uint64, error)
 	QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error)
 	QuerySettlementBuildFacts(ctx context.Context, key TaskKey) (SettlementBuildFacts, error)
@@ -158,6 +162,16 @@ func (c *stubClient) QueryMaxVerifyRound(context.Context) (uint32, error) {
 // QueryInferReceipt has no chain to ask in stub mode.
 func (c *stubClient) QueryInferReceipt(context.Context, string) (AcceptedInferReceipt, error) {
 	return AcceptedInferReceipt{}, ErrNotFound
+}
+
+// QueryVerifyCommit has no chain to ask in stub mode.
+func (c *stubClient) QueryVerifyCommit(context.Context, string, uint32, string) (AcceptedVerifyCommit, error) {
+	return AcceptedVerifyCommit{}, ErrNotFound
+}
+
+// QueryResultReceipt has no chain to ask in stub mode.
+func (c *stubClient) QueryResultReceipt(context.Context, string, uint32, string) (AcceptedResultReceipt, error) {
+	return AcceptedResultReceipt{}, ErrNotFound
 }
 
 // QueryTaskStage has no chain to ask in stub mode; callers fail closed.

@@ -620,6 +620,24 @@ type AcceptedInferReceipt struct {
 	InferReceiptHash []byte
 }
 
+// AcceptedVerifyCommit is the part of the chain's CommitState a relay compares with the commit
+// it relayed: the chain keeps only the first commit per Verifier and round.
+type AcceptedVerifyCommit struct {
+	CommitHash      []byte
+	SignatureDigest []byte // SHA-256 of the accepted 64-byte service signature
+	CommitHeight    uint64
+}
+
+// AcceptedResultReceipt is the part of the chain's ResultReceiptState a relay compares with the
+// receipt it relayed: the chain keeps only the first receipt per Verifier and round.
+type AcceptedResultReceipt struct {
+	// SigningDigest is result_receipt_signing_digest, which covers every receipt field but the
+	// signature.
+	SigningDigest   []byte
+	SignatureDigest []byte // SHA-256 of the accepted 64-byte service signature
+	AcceptedHeight  uint64
+}
+
 // TaskStage is task.v1.Query/TaskStage: the task's statuses and its next deadline. While round 1
 // has closed and no challenge round is open, the next deadline is the challenge window close
 // (06 §9); QueryTask does not carry the round summary that holds it.

@@ -3,6 +3,7 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,15 +88,24 @@ type taskSnapshot struct {
 
 	// Hand-raise/verification-result data is stored as proto-serialized bytes of the frozen wire (acked V_i travel over
 	// JetStream and are not redelivered, so they must be persisted). Entries failing proto.Unmarshal on recovery are dropped whole.
-	VerifyResults      [][]byte `json:"verify_results_pb,omitempty"`
-	VerifyCommits      [][]byte `json:"verify_commits_pb,omitempty"`
-	WorkerHandraises   [][]byte `json:"worker_handraises_pb,omitempty"`
-	VerifierHandraises [][]byte `json:"verifier_handraises_pb,omitempty"`
+	VerifyResults [][]byte `json:"verify_results_pb,omitempty"`
+	// PendingVerifyResults are results taken off the bus and broadcast but not yet confirmed on
+	// chain. Their bus messages are acknowledged and will not come again, so they are kept here
+	// with the transaction awaiting its block result (none: the chain's record is read first).
+	PendingVerifyResults []pendingResultRecord `json:"pending_verify_results,omitempty"`
+	VerifyCommits        [][]byte              `json:"verify_commits_pb,omitempty"`
+	WorkerHandraises     [][]byte              `json:"worker_handraises_pb,omitempty"`
+	VerifierHandraises   [][]byte              `json:"verifier_handraises_pb,omitempty"`
 	// VerifierHandraisesProposed records which hand-raisers were already broadcast with MsgSubmitVerifierHandraises.
 	// Including them again after restart makes the Keeper reject as "no new members" and drags the new hand-raises down with them.
 	VerifierHandraisesProposed []string `json:"verifier_handraises_proposed,omitempty"`
 
 	Events []types.TaskEvent `json:"events,omitempty"` // journal history (keeps cursor semantics across restarts)
+}
+
+type pendingResultRecord struct {
+	Receipt []byte `json:"receipt_pb"`
+	TxHash  []byte `json:"tx_hash,omitempty"`
 }
 
 // save writes the current state to the KV. Caller must hold the lock. No-op when persist is not wired (tests build the fsm directly).
@@ -166,6 +176,20 @@ func (f *taskFSM) save() error {
 		return proto.Marshal(f.verifyResults[key])
 	}); err != nil {
 		return fmt.Errorf("snapshot verify results: %w", err)
+	}
+	pendingKeys := make([]string, 0, len(f.pendingResults))
+	for key := range f.pendingResults {
+		pendingKeys = append(pendingKeys, key)
+	}
+	sort.Strings(pendingKeys)
+	for _, key := range pendingKeys {
+		raw, err := proto.Marshal(f.pendingResults[key].receipt)
+		if err != nil {
+			return fmt.Errorf("snapshot pending verify results: %w", err)
+		}
+		sn.PendingVerifyResults = append(sn.PendingVerifyResults, pendingResultRecord{
+			Receipt: raw, TxHash: bytes.Clone(f.pendingResults[key].tx.hash),
+		})
 	}
 	commitKeys := make([]string, 0, len(f.verifyCommits))
 	for key := range f.verifyCommits {
@@ -258,6 +282,19 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 			continue
 		}
 		f.verifyResults[vr.GetVerifierOperatorAddress()] = &vr
+	}
+	for _, record := range sn.PendingVerifyResults {
+		var vr taskv1.ResultReceiptV3
+		if err := proto.Unmarshal(record.Receipt, &vr); err != nil || vr.GetVerifierOperatorAddress() == "" {
+			f.log.Warn("drop undecodable snapshotted pending verify result", "task_id", f.taskID)
+			continue
+		}
+		if f.pendingResults == nil {
+			f.pendingResults = make(map[string]*pendingResult)
+		}
+		f.pendingResults[vr.GetVerifierOperatorAddress()] = &pendingResult{
+			receipt: &vr, tx: submittedTx{hash: bytes.Clone(record.TxHash)}, lookup: len(record.TxHash) == 0,
+		}
 	}
 	for _, raw := range sn.VerifyCommits {
 		var commit taskv1.VerifyCommitV1

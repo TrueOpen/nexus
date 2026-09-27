@@ -136,6 +136,12 @@ func (s *defaultSubmitter) simulateLocked(ctx context.Context, p handraisePropos
 	if err != nil {
 		return chaincli.SimResult{}, err
 	}
+	return s.simulateRetryingSequenceLocked(ctx, msgAny)
+}
+
+// simulateRetryingSequenceLocked simulates a message, refreshing the sequence and simulating once
+// more on a mismatch. The caller holds seqMu.
+func (s *defaultSubmitter) simulateRetryingSequenceLocked(ctx context.Context, msgAny *anypb.Any) (chaincli.SimResult, error) {
 	result, err := s.simulateAnyLocked(ctx, msgAny)
 	if err != nil || result.OK || !strings.Contains(result.Error, "account sequence mismatch") {
 		return result, err

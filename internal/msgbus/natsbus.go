@@ -188,17 +188,36 @@ func (b *natsBus) JSSubscribe(subject, durable string, h MsgHandler) (Unsubscrib
 		return nil, fmt.Errorf("jetstream not available")
 	}
 	sub, err := b.js.Subscribe(subject, func(m *nats.Msg) {
-		if err := h(m.Subject, m.Data); err != nil {
-			b.log.Warn("jetstream handler failed; message will be redelivered", "subject", m.Subject, "durable", durable, "err", err)
-			_ = m.Nak()
-			return
-		}
-		_ = m.Ack() // at-least-once: ack only after reliable handling
+		b.settleJS(m, m.Subject, durable, h(m.Subject, m.Data))
 	}, nats.Durable(durable), nats.ManualAck(), nats.DeliverAll())
 	if err != nil {
 		return nil, err
 	}
 	return func() { _ = sub.Unsubscribe() }, nil
+}
+
+// jsAcker is the acknowledgement surface of a JetStream message (*nats.Msg).
+type jsAcker interface {
+	Ack(opts ...nats.AckOpt) error
+	Nak(opts ...nats.AckOpt) error
+	NakWithDelay(delay time.Duration, opts ...nats.AckOpt) error
+}
+
+// settleJS acknowledges a handled message: ack only after reliable handling (at-least-once);
+// on a handler error Nak, delayed when the handler asked for it with RetryAfter.
+func (b *natsBus) settleJS(m jsAcker, subject, durable string, err error) {
+	if err == nil {
+		_ = m.Ack()
+		return
+	}
+	if delay, ok := RetryDelay(err); ok {
+		b.log.Warn("jetstream handler failed; message will be redelivered after a delay",
+			"subject", subject, "durable", durable, "delay", delay, "err", err)
+		_ = m.NakWithDelay(delay)
+		return
+	}
+	b.log.Warn("jetstream handler failed; message will be redelivered", "subject", subject, "durable", durable, "err", err)
+	_ = m.Nak()
 }
 
 // natsConnectOptions assembles the authentication and transport options (ADR-0016 transition state):
