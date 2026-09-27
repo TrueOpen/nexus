@@ -885,3 +885,161 @@ func TestSettleStopsOnceTheChainSettled(t *testing.T) {
 			settleCount(sub.fakeSubmitter), chain.queryCount("settle-1"))
 	}
 }
+
+// A rebroadcast the chain refuses at CheckTx -- here because it already holds the result -- is
+// not rebroadcast again on every block: reconciliation reads the chain's record and, finding the
+// same content, records it.
+func TestPendingResultRebroadcastRefusedButOnChainIsConfirmed(t *testing.T) {
+	c, sub, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
+	const session = "sess-rebroadcast-exists"
+	task := testTaskID("rebroadcast-exists")
+	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
+	verifyingTask(t, c, session, task, verifiers)
+	fsm, _ := c.getFSM(session, task)
+	fsm.mu.Lock()
+	fsm.deadlines.Reveal = 1000
+	fsm.mu.Unlock()
+	c.onNewBlock(10)
+
+	vr := signedShapeVerifyResult(task, verifiers[0], [][]byte{[]byte("v0")})
+	chain.setResult("result-1", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
+	if err := fsm.onVerifyResult(vr); err != nil {
+		t.Fatalf("bus handler: %v", err)
+	}
+	c.confirmSubmittedTxs(fsm) // refused temporarily, not on chain: rebroadcast from 11
+
+	digest, err := nodecontract.ResultReceiptSigningDigest(vr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain.mu.Lock()
+	chain.receipts[verifiers[0]] = chaincli.AcceptedResultReceipt{SigningDigest: digest[:]}
+	chain.mu.Unlock()
+	sub.refuse("result", chaincli.TxResult{Code: 1161, Codespace: "task", RawLog: "result receipt already exists"})
+	c.onNewBlock(11) // the rebroadcast is refused at CheckTx
+	fsm.mu.Lock()
+	retry := fsm.pendingResults[verifiers[0]] != nil && fsm.pendingResults[verifiers[0]].tx.retry
+	fsm.mu.Unlock()
+	if retry {
+		t.Fatal("a refused rebroadcast stays due for another rebroadcast and is never checked")
+	}
+	c.confirmSubmittedTxs(fsm)
+	if !verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("the result the chain holds was not recorded")
+	}
+}
+
+// A unary relay that fails temporarily leaves its result to reconciliation, like a bus result:
+// a bus redelivery acknowledged on the strength of that relay is not lost.
+func TestFailedUnaryResultRelayIsFollowedByReconciliation(t *testing.T) {
+	c, sub, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
+	const session = "sess-unary-follow"
+	task := testTaskID("unary-follow")
+	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
+	verifyingTask(t, c, session, task, verifiers)
+	fsm, _ := c.getFSM(session, task)
+	ctx := context.Background()
+
+	// No block result within the wait: the transaction is still followed.
+	vr := testVerifyResult(task, verifiers[0], [][]byte{[]byte("v0")})
+	if _, err := c.OnVerifyResult(ctx, session, task, vr); !errors.Is(err, errRelayUnconfirmed) {
+		t.Fatalf("unary relay: err = %v, want no block result yet", err)
+	}
+	if err := fsm.onVerifyResult(proto.Clone(vr).(*taskv1.ResultReceiptV3)); err != nil || sub.broadcasts("result") != 1 {
+		t.Fatalf("bus redelivery: err = %v, broadcasts = %d", err, sub.broadcasts("result"))
+	}
+	chain.setResult("result-1", chaincli.TxResult{Height: 30})
+	c.confirmSubmittedTxs(fsm)
+	if !verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("the unconfirmed unary result was not recorded once its block executed it")
+	}
+
+	// The broadcast never reached the node: the chain's record is read, and it holds the result.
+	other := signedShapeVerifyResult(task, verifiers[1], [][]byte{[]byte("v0")})
+	sub.fail("result", errors.New("connection refused"))
+	if _, err := c.OnVerifyResult(ctx, session, task, other); err == nil || errors.Is(err, types.ErrInvalidArgument) {
+		t.Fatalf("unary relay: err = %v, want temporary", err)
+	}
+	sub.fail("result", nil)
+	digest, _ := nodecontract.ResultReceiptSigningDigest(other)
+	chain.mu.Lock()
+	chain.receipts[verifiers[1]] = chaincli.AcceptedResultReceipt{SigningDigest: digest[:]}
+	chain.mu.Unlock()
+	c.confirmSubmittedTxs(fsm)
+	if !verifyResultRecorded(c, session, task, verifiers[1]) {
+		t.Fatal("the failed unary result was not recorded once the chain held it")
+	}
+}
+
+// simulatingSubmitter also dry-runs settlements.
+type simulatingSubmitter struct {
+	*confirmSubmitter
+	simMu    sync.Mutex
+	simCalls int
+	sim      chaincli.SimResult
+	simErr   error
+}
+
+func (s *simulatingSubmitter) SimulateSettle(context.Context, chaincli.SettleTx) (chaincli.SimResult, error) {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	s.simCalls++
+	return s.sim, s.simErr
+}
+
+func (s *simulatingSubmitter) setSimulation(result chaincli.SimResult, err error) {
+	s.simMu.Lock()
+	s.sim, s.simErr = result, err
+	s.simMu.Unlock()
+}
+
+func (s *simulatingSubmitter) simulations() int {
+	s.simMu.Lock()
+	defer s.simMu.Unlock()
+	return s.simCalls
+}
+
+// refusedSettle drives a settlement that the block refused, due for a resend from the next block.
+func refusedSettle(t *testing.T, name string) (*Coordinator, *simulatingSubmitter, *taskFSM) {
+	t.Helper()
+	c, confirm, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
+	sub := &simulatingSubmitter{confirmSubmitter: confirm, sim: chaincli.SimResult{OK: true}}
+	c.submit = sub
+	fsm := settleTask(t, c, "sess-"+name, testTaskID(name), rankVerifyDeadline)
+	c.onNewBlock(rankRevealDeadline)
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 0 {
+		t.Fatalf("first settlement: submissions = %d, simulations = %d", settleCount(sub.fakeSubmitter), sub.simulations())
+	}
+	chain.setResult("settle-1", chaincli.TxResult{Code: 1170, Codespace: "task", RawLog: "settlement inputs incomplete"})
+	c.confirmSubmittedTxs(fsm)
+	return c, sub, fsm
+}
+
+// A settlement resend the chain refuses in simulation is not broadcast; it is simulated again at
+// the next height this Builder may settle at, and broadcast once the simulation passes.
+func TestSettleResendRefusedInSimulationIsNotBroadcast(t *testing.T) {
+	c, sub, _ := refusedSettle(t, "settle-sim-refused")
+	sub.setSimulation(chaincli.SimResult{OK: false, Error: "failed to execute message: settlement inputs incomplete"}, nil)
+	for height := int64(rankRevealDeadline + 1); height < rankRevealDeadline+10; height++ {
+		c.onNewBlock(height)
+	}
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 9 {
+		t.Fatalf("submissions = %d, simulations = %d; want no broadcast and one simulation per block",
+			settleCount(sub.fakeSubmitter), sub.simulations())
+	}
+	sub.setSimulation(chaincli.SimResult{OK: true}, nil)
+	c.onNewBlock(rankRevealDeadline + 10)
+	if settleCount(sub.fakeSubmitter) != 2 {
+		t.Fatalf("submissions = %d, want a broadcast once the simulation passes", settleCount(sub.fakeSubmitter))
+	}
+}
+
+// A node that cannot simulate leaves the resend to its backoff.
+func TestSettleResendWithoutSimulationBroadcastsOnBackoff(t *testing.T) {
+	c, sub, _ := refusedSettle(t, "settle-sim-unavailable")
+	sub.setSimulation(chaincli.SimResult{}, chaincli.ErrNotSupportedOnChain)
+	c.onNewBlock(rankRevealDeadline + 1)
+	if settleCount(sub.fakeSubmitter) != 2 || sub.simulations() != 1 {
+		t.Fatalf("submissions = %d, simulations = %d; want a broadcast on backoff", settleCount(sub.fakeSubmitter), sub.simulations())
+	}
+}

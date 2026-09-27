@@ -1315,6 +1315,8 @@ func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.Ver
 	defer f.mu.Unlock()
 	if onChain && !f.terminal {
 		f.recordVerifyResultLocked(vr, ack.Idempotent)
+	} else if relayErr != nil && !errors.Is(relayErr, types.ErrInvalidArgument) {
+		f.followFailedRelayLocked(vr, res, err, relayErr)
 	}
 	flight.finishLocked(f.resultFlights, verifier, ack, relayErr)
 	return ack, relayErr
@@ -1774,6 +1776,9 @@ func (f *taskFSM) trySettle() {
 		f.log.Debug("settle conditions met; waiting for the height this Builder may submit at",
 			"task_id", f.taskID, "rank", rank, "height", f.observedHeight,
 			"reveal_deadline", f.deadlines.Reveal, "grace_blocks", f.settleGraceBlocks)
+		return
+	}
+	if f.settleTx.retry && !f.settlePassesSimulationLocked() {
 		return
 	}
 	f.log.Info("settle window open; submitting", "task_id", f.taskID, "rank", rank,

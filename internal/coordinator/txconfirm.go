@@ -499,6 +499,33 @@ func (f *taskFSM) asyncTxFailedLocked(kind asyncTx, tx *submittedTx, result chai
 		"refused", refused, "retry_at_height", retryAt, "deadline_height", deadline)
 }
 
+// settlePassesSimulationLocked dry-runs a settlement resend before it is broadcast: a failed
+// settlement is resent until the deadline, and each broadcast the chain refuses costs a fee. When
+// the chain refuses it in simulation nothing is broadcast; the next height this Builder may settle
+// at simulates again (at most once per block). A node that cannot simulate leaves the resend to
+// its backoff alone. Caller must hold the lock.
+func (f *taskFSM) settlePassesSimulationLocked() bool {
+	simulator, ok := f.submit.(SettleSimulator)
+	if !ok {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+	result, err := simulator.SimulateSettle(ctx, chaincli.SettleTx{Submitter: f.self, SessionID: f.sessionID, TaskID: f.taskID})
+	cancel()
+	if err != nil {
+		f.log.Warn("settle resend not simulated: the node cannot simulate; broadcasting on backoff",
+			"task_id", f.taskID, "err", err)
+		return true
+	}
+	if result.OK {
+		return true
+	}
+	f.settleSubmittedHeight = f.observedHeight
+	f.log.Info("settle resend held: the chain refuses it in simulation", "task_id", f.taskID,
+		"height", f.observedHeight, "error", chaincli.TruncateRawLog(result.Error))
+	return false
+}
+
 func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chaincli.TxResult, why string, deadline uint64) {
 	tx.stopped, tx.retry = true, false
 	attrs := []any{"task_id", f.taskID, "reason", why,
@@ -657,7 +684,37 @@ func (f *taskFSM) broadcastPendingResultLocked(pending *pendingResult) (keep boo
 			"verifier", verifier, "err", submitErr)
 		return false, nil
 	}
+	// No longer due for a rebroadcast: reconciliation now reads the block result or, without a
+	// transaction to query, the chain's record. Left marked, it would be rebroadcast on every
+	// block and never checked.
+	pending.tx.retry = false
 	return true, nil
+}
+
+// followFailedRelayLocked hands a result whose unary relay failed temporarily to reconciliation,
+// which follows it like a result taken off the bus: a bus redelivery of it may already have been
+// acknowledged on the strength of that relay. The caller still gets its temporary error. Caller
+// must hold the lock.
+func (f *taskFSM) followFailedRelayLocked(vr *taskv1.ResultReceiptV3, res chaincli.TxResult, submitErr, relayErr error) {
+	verifier := vr.GetVerifierOperatorAddress()
+	if f.confirm == nil || f.terminal || f.state != types.Verifying || f.pendingResults[verifier] != nil {
+		return
+	}
+	pending := &pendingResult{receipt: vr}
+	if submitErr == nil && errors.Is(relayErr, errRelayUnconfirmed) && len(res.TxHash) > 0 {
+		f.sentLocked(&pending.tx, res.TxHash) // still may land: keep reading its block result
+	} else {
+		pending.lookup = true // read the chain's record, then rebroadcast if it is not there
+	}
+	if f.pendingResults == nil {
+		f.pendingResults = make(map[string]*pendingResult)
+	}
+	f.pendingResults[verifier] = pending
+	if err := f.save(); err != nil {
+		f.log.Warn("persist pending verify result failed", "task_id", f.taskID, "verifier", verifier, "err", err)
+	}
+	f.log.Info("verify result relay failed temporarily; reconciliation follows it", "task_id", f.taskID,
+		"verifier", verifier, "tx_hash", hex.EncodeToString(pending.tx.hash))
 }
 
 // resendPendingResultsLocked rebroadcasts pending results whose backoff has passed, and reports

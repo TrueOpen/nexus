@@ -310,6 +310,41 @@ func (s *defaultSubmitter) SubmitSettle(ctx context.Context, tx chaincli.SettleT
 	})
 }
 
+// SettleSimulator dry-runs MsgSettleTask against the chain's current state: nothing is
+// broadcast and no fee is paid. A refusal comes back as SimResult{OK: false}; an error means the
+// settlement could not be simulated.
+type SettleSimulator interface {
+	SimulateSettle(ctx context.Context, tx chaincli.SettleTx) (chaincli.SimResult, error)
+}
+
+// SimulateSettle simulates the MsgSettleTask that SubmitSettle would broadcast.
+func (s *defaultSubmitter) SimulateSettle(ctx context.Context, tx chaincli.SettleTx) (chaincli.SimResult, error) {
+	if s.signer == nil {
+		return chaincli.SimResult{}, fmt.Errorf("simulate MsgSettleTask: account signer is required")
+	}
+	if tx.Submitter == "" || tx.Submitter != s.signer.Address() {
+		return chaincli.SimResult{}, fmt.Errorf("simulate MsgSettleTask: submitter_address must be the Cosmos signer")
+	}
+	taskID, err := nodecontract.Hash32Bytes("task_id", tx.TaskID)
+	if err != nil {
+		return chaincli.SimResult{}, fmt.Errorf("simulate MsgSettleTask: %w", err)
+	}
+	msgAny, err := chaincli.PackAny(chaincli.TypeURLMsgSettleTask, &taskv1.MsgSettleTask{
+		TaskId: taskID, SubmitterAddress: tx.Submitter,
+	})
+	if err != nil {
+		return chaincli.SimResult{}, err
+	}
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	if !s.seqValid {
+		if err := s.refreshSequence(ctx); err != nil {
+			return chaincli.SimResult{}, fmt.Errorf("simulate MsgSettleTask: account info: %w", err)
+		}
+	}
+	return s.simulateRetryingSequenceLocked(ctx, msgAny)
+}
+
 // SubmitSweepDeadline runs one bounded deadline sweep as MsgSweepDeadline
 // (Keeper Interface Contract §9.6a/§10.14).
 //
