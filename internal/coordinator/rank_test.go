@@ -516,3 +516,82 @@ func TestReconcileSettlesWithoutSettlementFacts(t *testing.T) {
 		t.Fatalf("settle submissions = %d, want 1 without settlement facts", settleCount(sub))
 	}
 }
+
+// TestPermissionlessSettleIsStaggeredByRank once anyone may submit, three Builders that see the
+// task ready in the same block do not all submit: rank 1 goes at once, rank i waits (i-1)·g
+// blocks, and nobody submits after the chain settled the task.
+func TestPermissionlessSettleIsStaggeredByRank(t *testing.T) {
+	session, task := "sess-stagger", testTaskID("task-stagger")
+	builders := []string{testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c")}
+	selection := settleSelection(session, task, builders...)
+	type node struct {
+		c   *Coordinator
+		sub *fakeSubmitter
+	}
+	nodes := make([]node, len(builders))
+	for i, self := range builders {
+		c, sub, _ := newRankCoordinator(t, self, nil)
+		driveToSettleReady(t, c, session, task, &selection)
+		nodes[i] = node{c, sub}
+	}
+	ready := int64(rankPermissionless + 100) // settling opens long after every slot has passed
+	for _, n := range nodes {
+		n.c.onNewBlock(ready)
+	}
+	if got := []int{settleCount(nodes[0].sub), settleCount(nodes[1].sub), settleCount(nodes[2].sub)}; !reflect.DeepEqual(got, []int{1, 0, 0}) {
+		t.Fatalf("submissions by rank = %v, want only rank 1 in the first block", got)
+	}
+	for _, n := range nodes {
+		n.c.onNewBlock(ready + rankGraceBlocks - 1)
+	}
+	if settleCount(nodes[1].sub) != 0 || settleCount(nodes[2].sub) != 0 {
+		t.Fatal("rank 2 or 3 submitted before its wait")
+	}
+	// Rank 1's settlement lands.
+	for _, n := range nodes {
+		n.c.OnSettleAccepted(chaincli.SettleAccepted{SessionID: session, TaskID: task, TaskVerdict: types.VerdictPass,
+			Settlement: chaincli.TaskSettlementState{SettlementStatus: "SETTLED_PASS", SettlementHeight: uint64(ready + 1)}, Height: ready + 1})
+	}
+	for h := ready + rankGraceBlocks; h <= ready+3*rankGraceBlocks; h++ {
+		for _, n := range nodes {
+			n.c.onNewBlock(h)
+		}
+	}
+	if settleCount(nodes[1].sub) != 0 || settleCount(nodes[2].sub) != 0 {
+		t.Fatal("rank 2 or 3 submitted after the chain settled the task")
+	}
+}
+
+// TestPermissionlessSettleBackupTakesOver when rank 1 does not settle, rank 2 submits after g
+// blocks and rank 3 after 2·g.
+func TestPermissionlessSettleBackupTakesOver(t *testing.T) {
+	session, task := "sess-backup", testTaskID("task-backup")
+	builders := []string{testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c")}
+	selection := settleSelection(session, task, builders...)
+	subs := make([]*fakeSubmitter, 0, 2)
+	coords := make([]*Coordinator, 0, 2)
+	for _, self := range builders[1:] {
+		c, sub, _ := newRankCoordinator(t, self, nil)
+		driveToSettleReady(t, c, session, task, &selection)
+		coords, subs = append(coords, c), append(subs, sub)
+	}
+	ready := int64(rankPermissionless + 100)
+	for h := ready; h < ready+2*rankGraceBlocks; h++ {
+		for _, c := range coords {
+			c.onNewBlock(h)
+		}
+		if h == ready+rankGraceBlocks-1 && (settleCount(subs[0]) != 0 || settleCount(subs[1]) != 0) {
+			t.Fatal("a backup submitted before its wait")
+		}
+		if h == ready+rankGraceBlocks && settleCount(subs[0]) != 1 {
+			t.Fatalf("rank 2 submissions = %d after its wait", settleCount(subs[0]))
+		}
+	}
+	if settleCount(subs[1]) != 0 {
+		t.Fatal("rank 3 submitted before 2·g blocks")
+	}
+	coords[1].onNewBlock(ready + 2*rankGraceBlocks)
+	if settleCount(subs[1]) != 1 {
+		t.Fatalf("rank 3 submissions = %d after 2·g blocks", settleCount(subs[1]))
+	}
+}

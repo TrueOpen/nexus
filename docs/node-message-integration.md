@@ -61,6 +61,8 @@ There is no `hub.v1.Query/StageBuilderSelection` on chain. Who may submit a sett
 the chain's schedule: rank 1 up to `reveal+g`, rank i in `(reveal+(i-1)·g, reveal+i·g]`,
 where g is `settlement_builder_grace_blocks`; once all windows have passed, anyone may submit. Nexus determines the window by the height the transaction executes at, not the local clock.
 
+The schedule counts from the reveal deadline, but settling opens only after the challenge window, so under current parameters every settlement falls in the phase where anyone may submit. To keep every Builder from submitting in the same block (the chain applies one and replays the rest as no-ops that still pay fees), in that phase rank i waits (i-1)·g blocks after it first sees the task ready to settle, and does not submit once the chain has settled it; rank 1 does not wait.
+
 Tasks use the composite key `(session_id, task_id)`. Nexus keeps the nested assignment, infer receipt and verifier assignment state returned by QueryTask; subsequent transactions must be constructed from these on-chain frozen values and must not substitute the latest local configuration.
 
 `task_id` is the lowercase SHA-256 hex of the following UTF-8 literal; the session is trimmed of leading/trailing whitespace first, and this preimage does not use generic length-prefix framing:
