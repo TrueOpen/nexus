@@ -1054,3 +1054,35 @@ func TestSettleNotBroadcastWhenSimulationFails(t *testing.T) {
 		t.Fatalf("submissions = %d, want a broadcast once the simulation passes", settleCount(sub.fakeSubmitter))
 	}
 }
+
+// A simulation runs against the latest block, one block before the settlement executes. In the
+// first block of a Builder's slot it still sees the previous submitter and refuses, so there the
+// settlement is broadcast without it. With one grace block per rank every slot is a single block:
+// simulating would hold ranks 2..k forever.
+func TestSettleFirstBlockOfSlotSkipsSimulation(t *testing.T) {
+	c, confirm, chain, _ := newConfirmCoordinator(t, testOperator("builder-b"))
+	sub := &simulatingSubmitter{confirmSubmitter: confirm,
+		sim: chaincli.SimResult{OK: false, Error: "submitter is not the Builder of the current slot"}}
+	c.submit = sub
+	const session = "sess-settle-grace1"
+	task := testTaskID("settle-grace1")
+	chain.setResult("result-1", chaincli.TxResult{Height: 2})
+	chain.setResult("result-2", chaincli.TxResult{Height: 2})
+	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
+	driveToSettleReady(t, c, session, task, &selection)
+	fsm, _ := c.getFSM(session, task)
+	c.confirmSubmittedTxs(fsm)
+	fsm.mu.Lock()
+	fsm.settleGraceBlocks = 1 // slots: rank 1 up to 4, rank 2 at 5, rank 3 at 6, anyone after 6
+	fsm.mu.Unlock()
+
+	c.onNewBlock(rankRevealDeadline) // executes at 4: rank 1's slot
+	if settleCount(sub.fakeSubmitter) != 0 {
+		t.Fatal("rank 2 submitted inside rank 1's slot")
+	}
+	c.onNewBlock(rankRevealDeadline + 1) // executes at 5: rank 2's only block
+	if settleCount(sub.fakeSubmitter) != 1 || sub.simulations() != 0 {
+		t.Fatalf("submissions = %d, simulations = %d; want a broadcast without simulation in the slot's first block",
+			settleCount(sub.fakeSubmitter), sub.simulations())
+	}
+}

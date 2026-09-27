@@ -477,3 +477,42 @@ func TestChallengeWindowCloseReconcilesTheTask(t *testing.T) {
 		t.Fatal("a closed challenge window must reconcile the task")
 	}
 }
+
+// TestReconcileSettlesWithoutSettlementFacts the chain serves no settlement build facts query;
+// reconciliation still reads the task stage and the settlement order, and the task is settled.
+func TestReconcileSettlesWithoutSettlementFacts(t *testing.T) {
+	session, task := "sess-nofacts", testTaskID("task-nofacts")
+	chain := &chainFactsFake{
+		height:   rankRevealDeadline,
+		factsErr: chaincli.ErrNotSupportedOnChain,
+		stage: chaincli.TaskStage{TaskPhase: "SETTLING", SettlementStatus: "NONE", FinalityStatus: "PENDING",
+			NextDeadlineKind: "TASK_SETTLEMENT", NextDeadlineHeight: 90},
+	}
+	selection := &selectionFactsFake{selection: taskBuilders(task, testBuilderSelf, "builder-b"), grace: rankGraceBlocks}
+	c, _ := newTestCoordinator(t, WithHeightQuerier(chain), WithTaskQuerier(chain), WithBuilderSelectionQuerier(selection))
+	driveToSettleReady(t, c, session, task, nil)
+	fsm, _ := c.getFSM(session, task)
+	fsm.mu.Lock()
+	fsm.settleStage = settleStage{}
+	fsm.mu.Unlock()
+	c.onNewBlock(rankRevealDeadline)
+	sub := c.submit.(*fakeSubmitter)
+	if settleCount(sub) != 0 {
+		t.Fatal("settled before reconciliation read the chain")
+	}
+	chain.mu.Lock()
+	chain.tasks = map[string]chaincli.OnChainTask{
+		taskKey(session, task): {SessionID: session, TaskID: task, State: types.Verifying, Status: "SETTLING",
+			Settlement: chaincli.TaskSettlementState{SettlementStatus: "NONE", FinalityStatus: "PENDING"}},
+	}
+	chain.mu.Unlock()
+	if !c.reconcileTask(session, task, 0, "test", nil) {
+		t.Fatal("reconciliation did not complete")
+	}
+	if chain.factsCalls != 1 {
+		t.Fatalf("settlement facts queried %d times", chain.factsCalls)
+	}
+	if settleCount(sub) != 1 {
+		t.Fatalf("settle submissions = %d, want 1 without settlement facts", settleCount(sub))
+	}
+}

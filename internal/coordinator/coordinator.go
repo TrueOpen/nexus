@@ -1806,6 +1806,11 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 	c.confirmSubmittedTxs(fsm)
 	var settlementFacts *chaincli.SettlementBuildFacts
 	if snapshot.State == types.Verifying && snapshot.Status != "RECEIPT_ONLY_ACCEPTED" {
+		// Read whether the task can be settled before, and independently of, the settlement
+		// build facts: the chain does not serve those facts, and settling must not depend on them.
+		if !c.reconcileSettleStage(fsm, snapshot) {
+			return false
+		}
 		if c.settlementFacts == nil {
 			c.log.Warn("task reconciliation skipped: SettlementBuildFacts Query is not configured", "task_id", taskID, "reason", reason)
 			return false
@@ -1815,6 +1820,7 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		factsCancel()
 		if factsErr != nil {
 			if c.settlementFactsUnsupported(factsErr) {
+				c.reconcileSettleSelection(fsm)
 				return taskNotificationsObserved(snapshot, nil, notifications)
 			}
 			c.log.Warn("settlement facts reconciliation query failed", "task_id", taskID, "reason", reason, "err", factsErr)
@@ -1822,9 +1828,6 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		}
 		if err := fsm.reconcileSettlementFacts(facts, true); err != nil {
 			c.log.Warn("settlement facts reconciliation failed", "task_id", taskID, "reason", reason, "err", err)
-			return false
-		}
-		if !c.reconcileSettleStage(fsm, snapshot) {
 			return false
 		}
 		c.reconcileSettleSelection(fsm)

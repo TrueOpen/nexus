@@ -1815,7 +1815,9 @@ func (f *taskFSM) trySettle() {
 			"reveal_deadline", f.deadlines.Reveal, "grace_blocks", f.settleGraceBlocks)
 		return
 	}
-	if !f.settlePassesSimulationLocked() {
+	// In the first block of this Builder's slot a simulation still sees the previous submitter's
+	// slot and would refuse; broadcast without it there.
+	if !f.settleSlotChangesAtExecution() && !f.settlePassesSimulationLocked() {
 		return
 	}
 	f.log.Info("settle window open; submitting", "task_id", f.taskID, "rank", rank,
@@ -1844,19 +1846,42 @@ func (f *taskFSM) trySettle() {
 // never guess the window. Caller must hold the lock.
 func (f *taskFSM) settleSubmissionAllowed(rank int) (allowed bool, permissionless bool) {
 	builders := uint64(len(f.settleSelection.SelectedBuilders))
-	if rank < 1 || uint64(rank) > builders || f.settleGraceBlocks == 0 || f.deadlines.Reveal <= 0 {
+	if rank < 1 || uint64(rank) > builders {
 		return false, false
 	}
-	reveal, grace := uint64(f.deadlines.Reveal), f.settleGraceBlocks
-	height := f.observedHeight + 1 // the transaction executes in the next block at the earliest
-	if height > reveal+builders*grace {
-		return true, true
+	slot, permissionless, ok := f.settleSlotAt(f.observedHeight + 1) // the transaction executes in the next block at the earliest
+	if !ok {
+		return false, false
 	}
-	slot := uint64(0)
+	return permissionless || slot == uint64(rank-1), permissionless
+}
+
+// settleSlotAt is the chain's settlement submitter schedule at a height: the 0-based rank whose
+// slot it is, or permissionless once every slot has passed. ok is false while the reveal
+// deadline, grace blocks or Builder count is unknown. Caller must hold the lock.
+func (f *taskFSM) settleSlotAt(height uint64) (slot uint64, permissionless bool, ok bool) {
+	builders := uint64(len(f.settleSelection.SelectedBuilders))
+	if builders == 0 || f.settleGraceBlocks == 0 || f.deadlines.Reveal <= 0 {
+		return 0, false, false
+	}
+	reveal, grace := uint64(f.deadlines.Reveal), f.settleGraceBlocks
+	if height > reveal+builders*grace {
+		return 0, true, true
+	}
 	if height > reveal {
 		slot = (height - reveal - 1) / grace
 	}
-	return slot == uint64(rank-1), false
+	return slot, false, true
+}
+
+// settleSlotChangesAtExecution reports whether the submitter slot of the block the settlement
+// executes in differs from that of the latest block. A simulation runs against the latest block,
+// so in the first block of a new slot it would judge by the previous submitter and refuse.
+// Caller must hold the lock.
+func (f *taskFSM) settleSlotChangesAtExecution() bool {
+	now, nowOpen, ok1 := f.settleSlotAt(f.observedHeight)
+	next, nextOpen, ok2 := f.settleSlotAt(f.observedHeight + 1)
+	return ok1 && ok2 && (now != next || nowOpen != nextOpen)
 }
 
 // onHeight: a new block arrived: record the chain height, then check whether the settlement window has opened (including retries after a failed submission).
