@@ -35,9 +35,9 @@ message ServiceDescriptorV1 {
   repeated ServiceEndpointV1 endpoints = 1;
 }
 
-// CortexNodeState is the single stable Cortex identity row (§6.4). Fields 10-12
-// are the three online-responsibility counters that the API contract /
-// §10.0c1 require MsgRotateServiceKey to see at zero; they replace the previous
+// CortexNodeState is the single stable Cortex identity row. Fields 10-12
+// are the three online-responsibility counters that the wire API /
+// this contract require MsgRotateServiceKey to see at zero; they replace the previous
 // string-keyed TASK_LIABILITY_* responsibility rows.
 // CortexNodeState defines the CortexNodeState wire type.
 message CortexNodeState {
@@ -90,8 +90,8 @@ message ServiceKeyResponsibilityState {
   string operator_address = 2;
   bytes responsibility_id = 3;
   ServiceKeyResponsibilityKind responsibility_kind = 4;
-  string session_id = 5;
-  string task_id = 6;
+  bytes session_id = 5;
+  bytes task_id = 6;
   uint64 created_height = 7;
   // Service-key generation that acquired this responsibility. It distinguishes
   // an exact acquire replay from the same responsibility ID presented under a

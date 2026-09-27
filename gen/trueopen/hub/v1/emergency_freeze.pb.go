@@ -145,7 +145,7 @@ func (FreezeSignalBuildStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // FreezeSignalStatus is the freeze signal lifecycle. Values are frozen by
-// the API contract.
+// the wire API.
 // FreezeSignalStatus defines the FreezeSignalStatus wire type.
 type FreezeSignalStatus int32
 
@@ -219,10 +219,7 @@ func (FreezeSignalStatus) EnumDescriptor() ([]byte, []int) {
 
 // FreezeSignalWindowPhase is the per-profile fixed-window binding phase.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `FreezeSignalByWindowIndex.phase = BUILDING / OPEN / CLOSED` but
-// the API contract does not register the enum. The three registered
-// values are reproduced verbatim. CLOSED retains the terminal binding for a
+// BUILDING, OPEN, and CLOSED are the only nonzero phases. CLOSED retains the terminal binding for a
 // signal until summary prune; a below-threshold window advances the profile
 // waterline and deletes its transient binding without creating a signal.
 // FreezeSignalWindowPhase defines the FreezeSignalWindowPhase wire type.
@@ -288,10 +285,7 @@ func (FreezeSignalWindowPhase) EnumDescriptor() ([]byte, []int) {
 
 // FreezeSignalPrunePhase is the two-stage freeze signal retention order.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `FreezeSignalPruneIndex ... phase = VOTES / HEADER` but the API contract
-// §9.6b does not register the enum. Both registered values are reproduced
-// verbatim; ascending numbers are the mandatory order, because vote rows are
+// VOTES precedes HEADER in ascending numeric order, because vote rows are
 // deleted at freeze_signal_detail_retention_blocks and the header only at
 // freeze_signal_summary_retention_blocks.
 // FreezeSignalPrunePhase defines the FreezeSignalPrunePhase wire type.
@@ -353,14 +347,11 @@ func (FreezeSignalPrunePhase) EnumDescriptor() ([]byte, []int) {
 // FreezeFailureClassCountsV1 is the per-class breakdown of the failures a freeze
 // signal aggregated.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `included_failure_class_counts = METRIC_THRESHOLD_BREACH / OBJECTIVE_FAULT /
-// SCHEMA_FAULT / WORKER_EVIDENCE_FAULT` without giving a wire shape. The four
-// listed classes are exactly the freeze-eligible TaskFailureClass values, so
-// they are encoded as four fixed counters instead of an unbounded repeated
-// list; INSUFFICIENT_VERIFIER is deliberately absent because §6.1 and §10.12
-// keep it out of the freeze root and count it separately as
-// excluded_insufficient_verifier_count.
+// The four fixed counters correspond to the freeze-eligible failure classes:
+// METRIC_THRESHOLD_BREACH, OBJECTIVE_FAULT, SCHEMA_FAULT, and
+// WORKER_EVIDENCE_FAULT. They are fixed counters, not an unbounded list.
+// INSUFFICIENT_VERIFIER is excluded from the freeze root and counted separately
+// in excluded_insufficient_verifier_count.
 // FreezeFailureClassCountsV1 defines the FreezeFailureClassCountsV1 wire type.
 type FreezeFailureClassCountsV1 struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -443,7 +434,7 @@ func (x *FreezeFailureClassCountsV1) GetWorkerEvidenceFault() uint32 {
 type FreezeSignalState struct {
 	state                             protoimpl.MessageState      `protogen:"open.v1"`
 	FreezeSignalId                    []byte                      `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
-	ModelId                           string                      `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                           []byte                      `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion                    uint32                      `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RiskWindowId                      uint64                      `protobuf:"varint,4,opt,name=risk_window_id,json=riskWindowId,proto3" json:"risk_window_id,omitempty"`
 	RiskWindowStartHeight             uint64                      `protobuf:"varint,5,opt,name=risk_window_start_height,json=riskWindowStartHeight,proto3" json:"risk_window_start_height,omitempty"`
@@ -502,11 +493,11 @@ func (x *FreezeSignalState) GetFreezeSignalId() []byte {
 	return nil
 }
 
-func (x *FreezeSignalState) GetModelId() string {
+func (x *FreezeSignalState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *FreezeSignalState) GetProfileVersion() uint32 {
@@ -640,7 +631,7 @@ func (x *FreezeSignalState) GetClosedHeight() uint64 {
 // FreezeSignalBuildCursorState defines the FreezeSignalBuildCursorState wire type.
 type FreezeSignalBuildCursorState struct {
 	state                             protoimpl.MessageState      `protogen:"open.v1"`
-	ModelId                           string                      `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                           []byte                      `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion                    uint32                      `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RiskWindowId                      uint64                      `protobuf:"varint,3,opt,name=risk_window_id,json=riskWindowId,proto3" json:"risk_window_id,omitempty"`
 	RiskWindowStartHeight             uint64                      `protobuf:"varint,4,opt,name=risk_window_start_height,json=riskWindowStartHeight,proto3" json:"risk_window_start_height,omitempty"`
@@ -685,11 +676,11 @@ func (*FreezeSignalBuildCursorState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_emergency_freeze_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *FreezeSignalBuildCursorState) GetModelId() string {
+func (x *FreezeSignalBuildCursorState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *FreezeSignalBuildCursorState) GetProfileVersion() uint32 {
@@ -763,14 +754,14 @@ func (x *FreezeSignalBuildCursorState) GetVisitedCount() uint64 {
 }
 
 // EmergencyFreezeVoteState is one validator ballot
-// (the data-structure contract, key
+// (the wire storage model, key
 // (freeze_signal_id, validator_consensus_address)).
 //
 // validator_consensus_address is ConsensusAddressBytes resolved by the Keeper
 // from the Tx signer through the staking keeper; it is never a caller field and
 // never an account address. voting_power_snapshot is read from the frozen
 // validator snapshot. No signature digest is stored, because the Cosmos Tx
-// signer already authorizes the ballot and §10.0a removed the same-account
+// signer already authorizes the ballot and this contract removed the same-account
 // detached signature.
 // EmergencyFreezeVoteState defines the EmergencyFreezeVoteState wire type.
 type EmergencyFreezeVoteState struct {
@@ -857,7 +848,7 @@ func (x *EmergencyFreezeVoteState) GetAcceptedHeight() uint64 {
 // FreezeSignalByWindowIndex defines the FreezeSignalByWindowIndex wire type.
 type FreezeSignalByWindowIndex struct {
 	state          protoimpl.MessageState  `protogen:"open.v1"`
-	ModelId        string                  `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                  `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                  `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RiskWindowId   uint64                  `protobuf:"varint,3,opt,name=risk_window_id,json=riskWindowId,proto3" json:"risk_window_id,omitempty"`
 	Phase          FreezeSignalWindowPhase `protobuf:"varint,4,opt,name=phase,proto3,enum=hub.v1.FreezeSignalWindowPhase" json:"phase,omitempty"`
@@ -896,11 +887,11 @@ func (*FreezeSignalByWindowIndex) Descriptor() ([]byte, []int) {
 	return file_hub_v1_emergency_freeze_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *FreezeSignalByWindowIndex) GetModelId() string {
+func (x *FreezeSignalByWindowIndex) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *FreezeSignalByWindowIndex) GetProfileVersion() uint32 {
@@ -943,7 +934,7 @@ const file_hub_v1_emergency_freeze_proto_rawDesc = "" +
 	"\x15worker_evidence_fault\x18\x04 \x01(\rR\x13workerEvidenceFault\"\xa9\b\n" +
 	"\x11FreezeSignalState\x12(\n" +
 	"\x10freeze_signal_id\x18\x01 \x01(\fR\x0efreezeSignalId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12$\n" +
 	"\x0erisk_window_id\x18\x04 \x01(\x04R\friskWindowId\x127\n" +
 	"\x18risk_window_start_height\x18\x05 \x01(\x04R\x15riskWindowStartHeight\x123\n" +
@@ -963,7 +954,7 @@ const file_hub_v1_emergency_freeze_proto_rawDesc = "" +
 	"\x14vote_deadline_height\x18\x12 \x01(\x04R\x12voteDeadlineHeight\x12#\n" +
 	"\rclosed_height\x18\x13 \x01(\x04R\fclosedHeight\"\x89\x05\n" +
 	"\x1cFreezeSignalBuildCursorState\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12$\n" +
 	"\x0erisk_window_id\x18\x03 \x01(\x04R\friskWindowId\x127\n" +
 	"\x18risk_window_start_height\x18\x04 \x01(\x04R\x15riskWindowStartHeight\x123\n" +
@@ -982,7 +973,7 @@ const file_hub_v1_emergency_freeze_proto_rawDesc = "" +
 	"\x04vote\x18\x04 \x01(\x0e2\x1b.hub.v1.EmergencyFreezeVoteR\x04vote\x12'\n" +
 	"\x0faccepted_height\x18\x05 \x01(\x04R\x0eacceptedHeight\"\x80\x02\n" +
 	"\x19FreezeSignalByWindowIndex\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12$\n" +
 	"\x0erisk_window_id\x18\x03 \x01(\x04R\friskWindowId\x125\n" +
 	"\x05phase\x18\x04 \x01(\x0e2\x1f.hub.v1.FreezeSignalWindowPhaseR\x05phase\x12-\n" +

@@ -3,6 +3,8 @@ package nodecontract
 import (
 	"encoding/hex"
 	"testing"
+
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 // TrueOpen/wire testdata/v1/task/token_ids_v1.json, compared byte-for-byte.
@@ -42,44 +44,63 @@ func TestTokenIDsHashRejectsBadFraming(t *testing.T) {
 	}
 }
 
-// TrueOpen/wire testdata/v1/task/worker_value_commitment_v2.json, compared byte-for-byte.
-func TestGoldenWorkerValueCommitmentV2(t *testing.T) {
-	h := func(s string) []byte {
-		b, _ := hex.DecodeString(s)
-		return b
-	}
-	commitment := WorkerValueCommitmentV2{
-		ChainID:                    "trueopen-golden-1",
-		TaskID:                     h("1111111111111111111111111111111111111111111111111111111111111111"),
-		AcceptedTaskHash:           h("2222222222222222222222222222222222222222222222222222222222222222"),
-		WorkerOperatorAddress:      "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
-		GenerationParamsDigest:     h("3333333333333333333333333333333333333333333333333333333333333333"),
-		EvidenceSchemaHash:         h("4444444444444444444444444444444444444444444444444444444444444444"),
-		OutputHash:                 h("1d07690eb524833c073fe74787e52a25e426ed09013500d3dd43f7f363f65ec0"),
-		OutputSizeBytes:            6,
-		FinishReason:               1,
-		TraceRoot:                  h("6666666666666666666666666666666666666666666666666666666666666666"),
-		TraceEncodedSizeBytes:      5,
-		CheckpointRoot:             h("7777777777777777777777777777777777777777777777777777777777777777"),
-		CheckpointEncodedSizeBytes: 7,
-		GeneratedTokenCount:        3,
-		OutputLeafCount:            3,
-		InputTokenIDsHash:          h("5ab982d47fc3c3b0a07e401f1c040c7fe2ef79ae93d0e44c50afe7d07a3ae901"),
-		GeneratedTokenIDsHash:      h("057a76f605b3ba2fa26a92e379b5f0f802d97e379d4efc3a34e287f8e9e05efd"),
-		InputTokenIDsSizeBytes:     12,
-		GeneratedTokenIDsSizeBytes: 16,
-	}
-	digest, err := commitment.Digest()
+// TestGoldenWorkerTokenCommitmentV1 compares with wire testdata/v1/task/worker_token_commitment_v1.json.
+func TestGoldenWorkerTokenCommitmentV1(t *testing.T) {
+	v := wirefixture.Load(t, "task/worker_token_commitment_v1.json").Vector(t, "worker_token_commitment_v1", 0)
+	v.CheckPreimage(t)
+	f := func(name string) wirefixture.Field { return v.Field(t, name) }
+	digest, err := WorkerTokenCommitmentV1{
+		ChainID:                    f("chain_id").UTF8,
+		TaskID:                     f("task_id").Bytes(t),
+		AcceptedTaskHash:           f("accepted_task_hash").Bytes(t),
+		WorkerOperatorAddress:      f("worker_operator_address").Bech32,
+		GenerationParamsDigest:     f("generation_params_digest").Bytes(t),
+		EvidenceSchemaHash:         f("evidence_schema_hash").Bytes(t),
+		OutputHash:                 f("output_hash").Bytes(t),
+		OutputSizeBytes:            f("output_size_bytes").Uint64(t),
+		OutputLeafCount:            f("output_leaf_count").Uint64(t),
+		FinishReason:               uint32(f("finish_reason").Uint64(t)),
+		GeneratedTokenCount:        f("generated_token_count").Uint64(t),
+		InputTokenIDsHash:          f("input_token_ids_hash").Bytes(t),
+		GeneratedTokenIDsHash:      f("generated_token_ids_hash").Bytes(t),
+		InputTokenIDsSizeBytes:     f("input_token_ids_size_bytes").Uint64(t),
+		GeneratedTokenIDsSizeBytes: f("generated_token_ids_size_bytes").Uint64(t),
+	}.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := hex.EncodeToString(digest[:]), "fa05047203b16b229e016fc61d1572cf51ab75c87c4bc01ecd365d0656b1d16d"; got != want {
-		t.Fatalf("digest = %s, want %s", got, want)
+	if digest != v.Digest(t) {
+		t.Fatalf("digest = %x, want %s", digest, v.DigestHex)
 	}
+}
 
-	bad := commitment
-	bad.TraceRoot = bad.TraceRoot[:31]
-	if _, err := bad.Digest(); err == nil {
-		t.Fatal("a short Hash32 must be rejected")
+// TestGoldenWorkerValueCommitmentV3 compares with wire testdata/v1/task/worker_value_commitment_v3.json.
+func TestGoldenWorkerValueCommitmentV3(t *testing.T) {
+	v := wirefixture.Load(t, "task/worker_value_commitment_v3.json").Vector(t, "worker_value_commitment_v3", 0)
+	v.CheckPreimage(t)
+	f := func(name string) wirefixture.Field { return v.Field(t, name) }
+	digest, err := WorkerValueCommitmentV3{
+		ChainID:                      f("chain_id").UTF8,
+		TaskID:                       f("task_id").Bytes(t),
+		AcceptedTaskHash:             f("accepted_task_hash").Bytes(t),
+		WorkerOperatorAddress:        f("worker_operator_address").Bech32,
+		EvidenceSchemaHash:           f("evidence_schema_hash").Bytes(t),
+		WorkerValueRoot:              f("worker_value_root").Bytes(t),
+		WorkerValuesEncodedSizeBytes: f("worker_values_encoded_size_bytes").Uint64(t),
+	}.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != v.Digest(t) {
+		t.Fatalf("digest = %x, want %s", digest, v.DigestHex)
+	}
+}
+
+// The token commitment hashes only a finish_reason of the closed set.
+func TestWorkerTokenCommitmentRejectsUnknownFinishReason(t *testing.T) {
+	for _, reason := range []uint32{0, MaxFinishReasonV1 + 1} {
+		if _, err := (WorkerTokenCommitmentV1{FinishReason: reason}).Digest(); err == nil {
+			t.Fatalf("finish_reason %d must be refused", reason)
+		}
 	}
 }

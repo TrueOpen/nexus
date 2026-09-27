@@ -31,7 +31,7 @@ const (
 	// Never written; rejects an unset requirement or commitment.
 	// EVIDENCE_KIND_UNSPECIFIED identifies the corresponding protocol value.
 	EvidenceKind_EVIDENCE_KIND_UNSPECIFIED EvidenceKind = 0
-	// Selected Worker four-artifact opening folded by WorkerValueCommitmentV2.
+	// Selected Worker B-level value-tree opening.
 	// EVIDENCE_KIND_WORKER_VALUE_OPENING identifies the corresponding protocol value.
 	EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING EvidenceKind = 1
 	// Selected Verifier value and metric opening.
@@ -40,6 +40,8 @@ const (
 	// Settlement duty Builder opening against task_evidence_root.
 	// EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING identifies the corresponding protocol value.
 	EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING EvidenceKind = 3
+	// Selected Worker A-level input and generated token-ID opening.
+	EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING EvidenceKind = 4
 )
 
 // Enum value maps for EvidenceKind.
@@ -49,12 +51,14 @@ var (
 		1: "EVIDENCE_KIND_WORKER_VALUE_OPENING",
 		2: "EVIDENCE_KIND_VERIFIER_VALUE_OPENING",
 		3: "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING",
+		4: "EVIDENCE_KIND_WORKER_TOKEN_OPENING",
 	}
 	EvidenceKind_value = map[string]int32{
 		"EVIDENCE_KIND_UNSPECIFIED":             0,
 		"EVIDENCE_KIND_WORKER_VALUE_OPENING":    1,
 		"EVIDENCE_KIND_VERIFIER_VALUE_OPENING":  2,
 		"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
+		"EVIDENCE_KIND_WORKER_TOKEN_OPENING":    4,
 	}
 )
 
@@ -214,12 +218,13 @@ const file_shared_v1_evidence_proto_rawDesc = "" +
 	"\x16max_encoded_size_bytes\x18\x03 \x01(\x04R\x13maxEncodedSizeBytes\"\x98\x01\n" +
 	"\x10EvidenceSchemaV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12]\n" +
-	"\x17required_infer_evidence\x18\x02 \x03(\v2%.shared.v1.InferEvidenceRequirementV1R\x15requiredInferEvidence*\xaa\x01\n" +
+	"\x17required_infer_evidence\x18\x02 \x03(\v2%.shared.v1.InferEvidenceRequirementV1R\x15requiredInferEvidence*\xd2\x01\n" +
 	"\fEvidenceKind\x12\x1d\n" +
 	"\x19EVIDENCE_KIND_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"EVIDENCE_KIND_WORKER_VALUE_OPENING\x10\x01\x12(\n" +
 	"$EVIDENCE_KIND_VERIFIER_VALUE_OPENING\x10\x02\x12)\n" +
-	"%EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING\x10\x03B;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
+	"%EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING\x10\x03\x12&\n" +
+	"\"EVIDENCE_KIND_WORKER_TOKEN_OPENING\x10\x04B;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
 
 var (
 	file_shared_v1_evidence_proto_rawDescOnce sync.Once

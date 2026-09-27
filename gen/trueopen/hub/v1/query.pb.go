@@ -24,7 +24,7 @@ var File_hub_v1_query_proto protoreflect.FileDescriptor
 
 const file_hub_v1_query_proto_rawDesc = "" +
 	"\n" +
-	"\x12hub/v1/query.proto\x12\x06hub.v1\x1a\x19hub/v1/query_bridge.proto\x1a\x1bhub/v1/query_registry.proto\x1a\x1ahub/v1/query_rewards.proto2\x9c\x17\n" +
+	"\x12hub/v1/query.proto\x12\x06hub.v1\x1a\x19hub/v1/query_bridge.proto\x1a\x1bhub/v1/query_registry.proto\x1a\x1ahub/v1/query_rewards.proto2\x96\x17\n" +
 	"\x05Query\x12G\n" +
 	"\x06Params\x12\x1d.hub.v1.QueryHubParamsRequest\x1a\x1e.hub.v1.QueryHubParamsResponse\x12A\n" +
 	"\x06Beacon\x12\x1a.hub.v1.QueryBeaconRequest\x1a\x1b.hub.v1.QueryBeaconResponse\x12A\n" +
@@ -44,8 +44,8 @@ const file_hub_v1_query_proto_rawDesc = "" +
 	"\x11ServiceUnbondings\x12%.hub.v1.QueryServiceUnbondingsRequest\x1a&.hub.v1.QueryServiceUnbondingsResponse\x12b\n" +
 	"\x11CurrentServiceKey\x12%.hub.v1.QueryCurrentServiceKeyRequest\x1a&.hub.v1.QueryCurrentServiceKeyResponse\x12b\n" +
 	"\x11ServiceDescriptor\x12%.hub.v1.QueryServiceDescriptorRequest\x1a&.hub.v1.QueryServiceDescriptorResponse\x12_\n" +
-	"\x10ServiceLifecycle\x12$.hub.v1.QueryServiceLifecycleRequest\x1a%.hub.v1.QueryServiceLifecycleResponse\x12b\n" +
-	"\x11ProfileCapability\x12%.hub.v1.QueryProfileCapabilityRequest\x1a&.hub.v1.QueryProfileCapabilityResponse\x12S\n" +
+	"\x10ServiceLifecycle\x12$.hub.v1.QueryServiceLifecycleRequest\x1a%.hub.v1.QueryServiceLifecycleResponse\x12\\\n" +
+	"\x0fModelCapability\x12#.hub.v1.QueryModelCapabilityRequest\x1a$.hub.v1.QueryModelCapabilityResponse\x12S\n" +
 	"\fModelSupport\x12 .hub.v1.QueryModelSupportRequest\x1a!.hub.v1.QueryModelSupportResponse\x12S\n" +
 	"\fDailySupport\x12 .hub.v1.QueryDailySupportRequest\x1a!.hub.v1.QueryDailySupportResponse\x12k\n" +
 	"\x14CurrentCandidatePool\x12(.hub.v1.QueryCurrentCandidatePoolRequest\x1a).hub.v1.QueryCurrentCandidatePoolResponse\x12n\n" +
@@ -81,7 +81,7 @@ var file_hub_v1_query_proto_goTypes = []any{
 	(*QueryCurrentServiceKeyRequest)(nil),      // 14: hub.v1.QueryCurrentServiceKeyRequest
 	(*QueryServiceDescriptorRequest)(nil),      // 15: hub.v1.QueryServiceDescriptorRequest
 	(*QueryServiceLifecycleRequest)(nil),       // 16: hub.v1.QueryServiceLifecycleRequest
-	(*QueryProfileCapabilityRequest)(nil),      // 17: hub.v1.QueryProfileCapabilityRequest
+	(*QueryModelCapabilityRequest)(nil),        // 17: hub.v1.QueryModelCapabilityRequest
 	(*QueryModelSupportRequest)(nil),           // 18: hub.v1.QueryModelSupportRequest
 	(*QueryDailySupportRequest)(nil),           // 19: hub.v1.QueryDailySupportRequest
 	(*QueryCurrentCandidatePoolRequest)(nil),   // 20: hub.v1.QueryCurrentCandidatePoolRequest
@@ -115,7 +115,7 @@ var file_hub_v1_query_proto_goTypes = []any{
 	(*QueryCurrentServiceKeyResponse)(nil),     // 48: hub.v1.QueryCurrentServiceKeyResponse
 	(*QueryServiceDescriptorResponse)(nil),     // 49: hub.v1.QueryServiceDescriptorResponse
 	(*QueryServiceLifecycleResponse)(nil),      // 50: hub.v1.QueryServiceLifecycleResponse
-	(*QueryProfileCapabilityResponse)(nil),     // 51: hub.v1.QueryProfileCapabilityResponse
+	(*QueryModelCapabilityResponse)(nil),       // 51: hub.v1.QueryModelCapabilityResponse
 	(*QueryModelSupportResponse)(nil),          // 52: hub.v1.QueryModelSupportResponse
 	(*QueryDailySupportResponse)(nil),          // 53: hub.v1.QueryDailySupportResponse
 	(*QueryCurrentCandidatePoolResponse)(nil),  // 54: hub.v1.QueryCurrentCandidatePoolResponse
@@ -151,7 +151,7 @@ var file_hub_v1_query_proto_depIdxs = []int32{
 	14, // 14: hub.v1.Query.CurrentServiceKey:input_type -> hub.v1.QueryCurrentServiceKeyRequest
 	15, // 15: hub.v1.Query.ServiceDescriptor:input_type -> hub.v1.QueryServiceDescriptorRequest
 	16, // 16: hub.v1.Query.ServiceLifecycle:input_type -> hub.v1.QueryServiceLifecycleRequest
-	17, // 17: hub.v1.Query.ProfileCapability:input_type -> hub.v1.QueryProfileCapabilityRequest
+	17, // 17: hub.v1.Query.ModelCapability:input_type -> hub.v1.QueryModelCapabilityRequest
 	18, // 18: hub.v1.Query.ModelSupport:input_type -> hub.v1.QueryModelSupportRequest
 	19, // 19: hub.v1.Query.DailySupport:input_type -> hub.v1.QueryDailySupportRequest
 	20, // 20: hub.v1.Query.CurrentCandidatePool:input_type -> hub.v1.QueryCurrentCandidatePoolRequest
@@ -185,7 +185,7 @@ var file_hub_v1_query_proto_depIdxs = []int32{
 	48, // 48: hub.v1.Query.CurrentServiceKey:output_type -> hub.v1.QueryCurrentServiceKeyResponse
 	49, // 49: hub.v1.Query.ServiceDescriptor:output_type -> hub.v1.QueryServiceDescriptorResponse
 	50, // 50: hub.v1.Query.ServiceLifecycle:output_type -> hub.v1.QueryServiceLifecycleResponse
-	51, // 51: hub.v1.Query.ProfileCapability:output_type -> hub.v1.QueryProfileCapabilityResponse
+	51, // 51: hub.v1.Query.ModelCapability:output_type -> hub.v1.QueryModelCapabilityResponse
 	52, // 52: hub.v1.Query.ModelSupport:output_type -> hub.v1.QueryModelSupportResponse
 	53, // 53: hub.v1.Query.DailySupport:output_type -> hub.v1.QueryDailySupportResponse
 	54, // 54: hub.v1.Query.CurrentCandidatePool:output_type -> hub.v1.QueryCurrentCandidatePoolResponse

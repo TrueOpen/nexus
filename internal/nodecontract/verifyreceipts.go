@@ -17,11 +17,11 @@ const (
 	DomainCommitKeyV1     = "TRUEOPEN_COMMIT_KEY_V1"
 	DomainVerifyCommitV1  = "TRUEOPEN_COMMIT_V1"
 	DomainMetricSummaryV1 = "TRUEOPEN_METRIC_SUMMARY_V1"
-	DomainResultV2        = "TRUEOPEN_RESULT_V2"
+	DomainResultV3        = "TRUEOPEN_RESULT_V3"
 )
 
-// VerifyCommitSchemaVersionV1 is the schema_version of VerifyCommitV1. It does not follow
-// InferReceipt up to 2: in the fresh contract only InferReceiptV2 and ResultReceiptV2 use 2.
+// VerifyCommitSchemaVersionV1 is the schema_version of VerifyCommitV1. It does not follow the
+// receipts, which are at 3.
 const VerifyCommitSchemaVersionV1 uint32 = 1
 
 // VerifyCommitSigningDigest is the verify_commit_signing_digest frozen in §5.14:
@@ -104,17 +104,19 @@ func MetricSummaryHash(summary *taskv1.MetricSummaryV1) ([32]byte, error) {
 	return CanonicalHashBytes(DomainMetricSummaryV1, frame), nil
 }
 
-// ResultReceiptSigningDigest is the result_receipt_signing_digest frozen in §5.14:
+// ResultReceiptSigningDigest is the result_receipt_signing_digest:
 //
-//	H_FIELDS_V1("TRUEOPEN_RESULT_V2", schema_version, chain_id, task_id, verify_round,
+//	H_FIELDS_V1("TRUEOPEN_RESULT_V3", schema_version, chain_id, task_id, verify_round,
 //	  verifier_operator_address, service_authorization_nonce, generation_params_digest,
 //	  metric_root, canonical metric_summary, aggregate_proof_hash,
 //	  verifier_evidence_bundle_hash, verifier_evidence_manifest_size_bytes, salt,
-//	  expiry_height)
+//	  expiry_height, verifier_value_root, metric_leaf_count, verifier_evidence_key_commitment)
 //
-// 14 fields; service_signature is not among them. commit_key, metric_summary_hash and
+// 17 fields; service_signature is not among them. commit_key, metric_summary_hash and
 // result_payload_hash are recomputed by the Keeper and requests must not assert them.
-func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV2) ([32]byte, error) {
+// verifier_evidence_key_commitment is hashed as sent; ValidatePlaintextResultReceiptV3 requires it to be
+// 32 zero bytes.
+func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV3) ([32]byte, error) {
 	if receipt == nil {
 		return [32]byte{}, fmt.Errorf("result receipt is required")
 	}
@@ -134,7 +136,7 @@ func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV2) ([32]byte, erro
 	if err != nil {
 		return [32]byte{}, err
 	}
-	hashes := make([][]byte, 0, 5)
+	hashes := make([][]byte, 0, 6)
 	for _, f := range []struct {
 		name  string
 		value []byte
@@ -144,6 +146,7 @@ func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV2) ([32]byte, erro
 		{"aggregate_proof_hash", receipt.GetAggregateProofHash()},
 		{"verifier_evidence_bundle_hash", receipt.GetVerifierEvidenceBundleHash()},
 		{"salt", receipt.GetSalt()},
+		{"verifier_value_root", receipt.GetVerifierValueRoot()},
 	} {
 		field, err := CanonicalHash32Field(f.name, f.value)
 		if err != nil {
@@ -152,7 +155,7 @@ func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV2) ([32]byte, erro
 		hashes = append(hashes, field)
 	}
 	return CanonicalHashBytes(
-		DomainResultV2,
+		DomainResultV3,
 		Uint32BE(receipt.GetSchemaVersion()),
 		chainID,
 		taskID,
@@ -167,7 +170,19 @@ func ResultReceiptSigningDigest(receipt *taskv1.ResultReceiptV2) ([32]byte, erro
 		Uint64BE(receipt.GetVerifierEvidenceManifestSizeBytes()),
 		hashes[4], // salt
 		Uint64BE(receipt.GetExpiryHeight()),
+		hashes[5], // verifier_value_root
+		Uint32BE(receipt.GetMetricLeafCount()),
+		receipt.GetVerifierEvidenceKeyCommitment(),
 	), nil
+}
+
+// ValidatePlaintextResultReceiptV3 is the admission rule for a plaintext task:
+// verifier_evidence_key_commitment must be 32 zero bytes, not empty.
+func ValidatePlaintextResultReceiptV3(receipt *taskv1.ResultReceiptV3) error {
+	if !IsZeroHash32(receipt.GetVerifierEvidenceKeyCommitment()) {
+		return fmt.Errorf("verifier_evidence_key_commitment must be 32 zero bytes for a plaintext task")
+	}
+	return nil
 }
 
 // CommitKey recomputes commit_key per Keeper Interface Contract §10.9:

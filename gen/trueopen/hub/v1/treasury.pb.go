@@ -86,9 +86,9 @@ func (TreasuryPurposeCode) EnumDescriptor() ([]byte, []int) {
 }
 
 // TreasurySourceKind identifies where a non-zero treasury inflow came from.
-// Values are frozen event code 80 binds each
+// Values are frozen, and event code 80 binds each
 // value to the authoritative source ID it must carry (settlement_id, fault_id
-// or the §9.6c treasury action_digest).
+// or the treasury action_digest).
 // TreasurySourceKind defines the TreasurySourceKind wire type.
 type TreasurySourceKind int32
 
@@ -153,9 +153,9 @@ func (TreasurySourceKind) EnumDescriptor() ([]byte, []int) {
 // TreasuryState is the protocol treasury balance and its monotonic version.
 //
 // V1 has no maintenance-rate controller and no automatic infrastructure
-// reward: the API contract restricts Treasury outflow to x/gov approved
+// reward: the wire API restricts Treasury outflow to x/gov approved
 // typed TreasurySpend items, and unspent budget simply stays here. The
-// block-end invariant of §5.3 requires this balance to equal the treasury
+// block-end invariant of this contract requires this balance to equal the treasury
 // module account balance.
 // TreasuryState defines the TreasuryState wire type.
 type TreasuryState struct {
@@ -211,7 +211,7 @@ func (x *TreasuryState) GetTreasuryVersion() uint64 {
 }
 
 // TreasurySpendReceiptState deduplicates one governance spend item inside the
-// x/gov replay window (the data-structure contract, key
+// x/gov replay window (the wire storage model, key
 // (proposal_id, item_index)).
 //
 // prune_height and the action facts are stored explicitly so Genesis can rebuild
@@ -610,7 +610,7 @@ func (x *TreasurySpendEpochCleanupCursorState) GetDeletedCount() uint64 {
 }
 
 // ExecuteTreasurySpendV1 is the internal typed governance action of
-// the API contract. It is NOT a Tx Msg: it has no
+// the wire API. It is NOT a Tx Msg: it has no
 // cosmos.msg.v1.signer, no Tx RPC, no AutoCLI entry and no permissionless
 // event, and it is only invoked from an x/gov accepted proposal item.
 //

@@ -39,7 +39,7 @@ func TestWorkerHandraiseWithForeignTaskHashIsDropped(t *testing.T) {
 	// hand-raise drops out after an RBF replacement.
 	staleOrder := proto.Clone(testSignedOrder(testUserAddress)).(*taskv1.SignedOrderV2)
 	staleOrder.Order.OrderSequence++
-	staleHashRaw, err := nodecontract.TaskOrderHashHexV2(staleOrder.GetOrder())
+	staleHashRaw, err := nodecontract.TaskOrderHashHexV3(staleOrder.GetOrder())
 	if err != nil {
 		t.Fatalf("stale task order hash: %v", err)
 	}

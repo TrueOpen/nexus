@@ -24,7 +24,7 @@ const (
 
 // MsgUpdateTaskParams updates the Task module parameters.
 // The expected-version compare and grouped TaskParamsV1 body are frozen by
-// api_contract §9.6a. The response returns the newly committed version and hash.
+// the wire API. The response returns the newly committed version and hash.
 // MsgUpdateTaskParams defines the MsgUpdateTaskParams wire type.
 type MsgUpdateTaskParams struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -150,7 +150,7 @@ func (x *MsgUpdateTaskParamsResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgCreateSession opens one session namespace and locks its owner
-// (api_contract §10.0b). Besides the required Cosmos signer there is no business
+// (the wire API). Besides the required Cosmos signer there is no business
 // input: the nonce comes from SessionNonceState and session_id is derived on
 // chain by TRUEOPEN_SESSION_V1. Model A: creating a session never moves funds, and
 // no unbounded metadata is accepted.
@@ -200,7 +200,7 @@ func (x *MsgCreateSession) GetSignerAddress() string {
 }
 
 // MsgCreateSessionResponse returns the chain-derived session identity
-// (§9.6a). Clients may also recompute session_id off chain from the same
+// . Clients may also recompute session_id off chain from the same
 // formula; the owner is not derivable from session_id, hence StreamState still
 // stores it.
 // MsgCreateSessionResponse defines the MsgCreateSessionResponse wire type.
@@ -265,7 +265,7 @@ func (x *MsgCreateSessionResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgCancelOrder skips the next unconsumed order sequence so an off-chain order
-// stops occupying it (api_contract §10.0b1). signer_address is the Cosmos signer and
+// stops occupying it. signer_address is the Cosmos signer and
 // must equal the stream owner; no duplicate detached owner signature is required.
 // It may only cancel next_expected_sequence, never a sequence already accepted by
 // MsgSubmitWorkerHandraises, and it moves no funds.
@@ -331,7 +331,7 @@ func (x *MsgCancelOrder) GetSignerAddress() string {
 }
 
 // MsgCancelOrderResponse reports the cancelled sequence and the advanced counter
-// (§9.6a). task_id stays empty because a cancelled sequence never created a task.
+// . task_id stays empty because a cancelled sequence never created a task.
 // MsgCancelOrderResponse defines the MsgCancelOrderResponse wire type.
 type MsgCancelOrderResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`

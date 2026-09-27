@@ -45,9 +45,11 @@ const (
 	subjectV1BuilderPreparePrefix = "nexus.builder-prepare."
 )
 
-// SubjectTaskOpen Builder → Worker candidate (Core).
-// Contract §5.4: a candidate decides whether to hand-raise from the broadcast metadata alone and may not download the input.
-func SubjectTaskOpen(modelID string) string { return subjectV1TaskOpenPrefix + modelID }
+// SubjectTaskOpen Builder → Worker candidate (Core). A candidate decides whether to hand-raise from
+// the broadcast metadata alone and may not download the input.
+// modelIDHex is the lowercase hex of the raw 32-byte model_id: the wire bus decoder expects exactly
+// this subject for an ORDER_BROADCAST and rejects the envelope on any other.
+func SubjectTaskOpen(modelIDHex string) string { return subjectV1TaskOpenPrefix + modelIDHex }
 
 // SubjectWorkerHandraiseV1 Worker candidate → Builder (Core).
 func SubjectWorkerHandraiseV1(taskID string) string { return subjectV1HandraiseWorkerPrefix + taskID }

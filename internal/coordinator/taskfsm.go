@@ -88,7 +88,7 @@ type taskFSM struct {
 	// until the epoch changes, when bond, support and scoring may have changed; a refusal is
 	// not taken as final.
 	verifierHRExcluded map[string]uint64
-	verifyResults      map[string]*taskv1.ResultReceiptV2
+	verifyResults      map[string]*taskv1.ResultReceiptV3
 	// verifyCommits: Verifier commits already relayed on-chain (by Verifier address), for idempotent dedup.
 	verifyCommits map[string]*taskv1.VerifyCommitV1
 	fullReveals   map[string]bool // Verifiers that already self-rescued on-chain via FullResultRevealTx
@@ -626,14 +626,15 @@ func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
 		return nil
 	}
 	taskID, taskHash := f.taskIDBytes(), f.orderTaskHashBytes()
-	if taskID == nil || taskHash == nil {
+	modelID, err := hex.DecodeString(f.modelID)
+	if taskID == nil || taskHash == nil || err != nil || len(modelID) != hash32Len {
 		f.log.Warn("skip OPEN_VERIFY publish: task identity is not canonical", "task_id", f.taskID)
 		return nil
 	}
 	return &busv1.OpenVerifyV1{
 		TaskId:                taskID,
 		TaskHash:              taskHash,
-		ModelId:               f.modelID,
+		ModelId:               modelID,
 		ProfileVersion:        f.profileVersion,
 		InferReceiptHash:      append([]byte(nil), f.inferReceipt.InferReceiptHash...),
 		OutputHash:            append([]byte(nil), f.outputHash...),
@@ -1002,7 +1003,7 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 	// the old MsgOpenVerify string copies. If it cannot be filled, do not submit -- otherwise
 	// the submitter fails with "receipt is required" while the Builder has already answered
 	// the Worker with relay_accepted=true.
-	receipt, err := nodecontract.InferReceiptV2FromSubmission(f.inferReceipt)
+	receipt, err := nodecontract.InferReceiptV3FromSubmission(f.inferReceipt)
 	if err != nil {
 		f.log.Warn("prepare OpenVerifyTx failed", "task_id", f.taskID, "err", err)
 		return
@@ -1124,7 +1125,7 @@ func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
 // to include verify results in on-chain reconcile (local yes/on-chain no → resubmit;
 // on-chain yes/local no → backfill), to be implemented once chaincli offers a
 // single-receipt query or an acceptance event.
-func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV2) error {
+func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.state != types.Verifying || !bytes.Equal(vr.GetTaskId(), f.taskIDBytes()) {
@@ -1145,7 +1146,7 @@ func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV2) error {
 // ResultReceiptV2 as the JetStream path and goes through the same relay logic, except that
 // validation failures are reported to the caller with types sentinels instead of being
 // silently dropped as on the bus path.
-func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV2) (types.VerifyRelayAck, error) {
+func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.verifyRelayPreconditionsLocked(vr.GetTaskId(), vr.GetVerifierOperatorAddress()); err != nil {
@@ -1241,7 +1242,7 @@ func (f *taskFSM) verifyRelayPreconditionsLocked(taskID []byte, verifier string)
 // to include verify results in on-chain reconcile (local yes/on-chain no → resubmit;
 // on-chain yes/local no → backfill), to be implemented once chaincli offers a
 // single-receipt query or an acceptance event.
-func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV2) (types.VerifyRelayAck, error) {
+func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	verifier := vr.GetVerifierOperatorAddress()
 	if existing, ok := f.verifyResults[verifier]; ok && proto.Equal(existing, vr) {
 		// Redelivery of the same receipt: the previous round already put it on-chain and stored it locally (e.g. the Ack was lost in flight); pass idempotently.
@@ -1334,10 +1335,14 @@ func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
 	// Frozen fields: missing any one of them makes a legitimate proposal impossible; rather
 	// than submit with holes and be rejected by the chain, drop at the entrance and leave a
 	// diagnosable log.
-	case hr.GetModelId() == "" || hr.GetProfileVersion() == 0 ||
+	case len(hr.GetModelId()) != hash32Len || hr.GetProfileVersion() == 0 ||
 		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||
 		len(hr.GetServiceSignature()) != 64:
 		f.log.Warn("drop worker handraise without required frozen fields", "task_id", f.taskID, "candidate", worker)
+	// Encryption is not active: a handraise carrying a recipient key is refused by the chain, and
+	// with it the whole proposal it would join.
+	case len(hr.GetRecipientPubkey()) != 0:
+		f.log.Warn("drop worker handraise with a recipient_pubkey while encryption is inactive", "task_id", f.taskID, "candidate", worker)
 	case len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 || hr.GetMember().GetSlotVersion() == 0:
 		f.log.Warn("drop worker handraise with incomplete candidate member ref", "task_id", f.taskID,
 			"candidate", worker, "slot", hr.GetMember().GetSlot())
@@ -1371,10 +1376,12 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 		f.log.Warn("drop verifier handraise with mismatched output_hash", "task_id", f.taskID, "candidate", candidate)
 	case !bytes.Equal(hr.GetInferReceiptHash(), receiptHash):
 		f.log.Warn("drop verifier handraise with mismatched infer receipt", "task_id", f.taskID, "candidate", candidate)
-	case hr.GetModelId() == "" || hr.GetProfileVersion() == 0 ||
+	case len(hr.GetModelId()) != hash32Len || hr.GetProfileVersion() == 0 ||
 		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||
 		len(hr.GetServiceSignature()) != 64:
 		f.log.Warn("drop verifier handraise without required frozen fields", "task_id", f.taskID, "candidate", candidate)
+	case len(hr.GetRecipientPubkey()) != 0:
+		f.log.Warn("drop verifier handraise with a recipient_pubkey while encryption is inactive", "task_id", f.taskID, "candidate", candidate)
 	case len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 || hr.GetMember().GetSlotVersion() == 0:
 		f.log.Warn("drop verifier handraise with incomplete candidate member ref", "task_id", f.taskID,
 			"candidate", candidate, "slot", hr.GetMember().GetSlot())
@@ -1384,14 +1391,14 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 	return false
 }
 
-func (f *taskFSM) validVerifyResult(vr *taskv1.ResultReceiptV2) bool {
+func (f *taskFSM) validVerifyResult(vr *taskv1.ResultReceiptV3) bool {
 	verifier := vr.GetVerifierOperatorAddress()
 	switch {
 	case verifier == "":
 		f.log.Warn("drop verify result with empty verifier", "task_id", f.taskID)
 	case !containsString(f.verifiers, verifier):
 		f.log.Warn("drop verify result from non-selected verifier", "task_id", f.taskID, "verifier", verifier)
-	case vr.GetSchemaVersion() != nodecontract.ResultReceiptSchemaVersionV2:
+	case vr.GetSchemaVersion() != nodecontract.ResultReceiptSchemaVersionV3:
 		f.log.Warn("drop verify result with wrong schema_version", "task_id", f.taskID,
 			"verifier", verifier, "schema_version", vr.GetSchemaVersion())
 	case vr.GetChainId() != f.chainID:
@@ -2088,8 +2095,8 @@ func (f *taskFSM) authorizedForPayload(requester, usage string) bool {
 // of (metric_root, proto-serialized bytes of metric_summary) (contract §5.11: the verdict
 // is recomputed by the Keeper from accepted typed summaries; this is only a local
 // de-duplication decision). Caller must hold the lock.
-func (f *taskFSM) consistentVerifyGroup() []*taskv1.ResultReceiptV2 {
-	groups := make(map[string][]*taskv1.ResultReceiptV2)
+func (f *taskFSM) consistentVerifyGroup() []*taskv1.ResultReceiptV3 {
+	groups := make(map[string][]*taskv1.ResultReceiptV3)
 	for _, vr := range f.verifyResults {
 		key, err := verifyResultGroupKey(vr)
 		if err != nil {
@@ -2119,7 +2126,7 @@ func (f *taskFSM) consistentVerifyGroup() []*taskv1.ResultReceiptV2 {
 // consensus_cluster_hash), not at it. The summary is framed field by field rather than
 // proto.Marshal because protobuf serialization has no cross-implementation determinism
 // guarantee.
-func verifyResultGroupKey(vr *taskv1.ResultReceiptV2) (string, error) {
+func verifyResultGroupKey(vr *taskv1.ResultReceiptV3) (string, error) {
 	summary := vr.GetMetricSummary()
 	if summary == nil {
 		return "", fmt.Errorf("metric summary is required")
@@ -2324,7 +2331,7 @@ func (f *taskFSM) subscribeVerifyResult() {
 			}
 			return nil
 		}
-		vr, ok := inbound.Payload.(*taskv1.ResultReceiptV2)
+		vr, ok := inbound.Payload.(*taskv1.ResultReceiptV3)
 		if !ok {
 			f.log.Warn("drop bus envelope with unexpected payload type",
 				"task_id", f.taskID, "subject", subject)

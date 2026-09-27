@@ -169,7 +169,7 @@ const (
 	// Locked Task Builder is still exposed to objective BusEnvelope evidence for
 	// one task, so its service key must stay verifiable.
 	//
-	// Lifecycle (the data-structure contract plus the API contract
+	// Lifecycle (the wire storage model plus the wire API
 	// ), all inside one cache transaction
 	// with the participant counter and the ByTask index:
 	//
@@ -307,7 +307,7 @@ func (GovernanceReason) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
-// ServiceBondStatus is the operator-global service bond lifecycle (data-structure contract 6.4).
+// ServiceBondStatus is the operator-global service bond lifecycle (wire storage model 6.4).
 type ServiceBondStatus int32
 
 const (
@@ -385,7 +385,7 @@ func (ServiceBondStatus) EnumDescriptor() ([]byte, []int) {
 
 // UnbondingStatus is the lifecycle of one service unbonding row. The numeric
 // values are frozen, which is the sole authority for
-// closed enum values; §16.3 QueryServiceUnbondings filters on this exact set.
+// closed enum values; this contract QueryServiceUnbondings filters on this exact set.
 // UnbondingStatus defines the UnbondingStatus wire type.
 type UnbondingStatus int32
 
@@ -696,6 +696,68 @@ func (ModelSupportStatus) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_common_proto_rawDescGZIP(), []int{9}
 }
 
+// ModelSupportSuspendReason distinguishes a suspended declaration from one
+// that has not yet been activated by a task.
+type ModelSupportSuspendReason int32
+
+const (
+	// Never written.
+	ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED ModelSupportSuspendReason = 0
+	// The declaration is not suspended.
+	ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_NONE ModelSupportSuspendReason = 1
+	// The operator is jailed.
+	ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_JAIL ModelSupportSuspendReason = 2
+	// The effective bond is below the active model threshold.
+	ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_BOND_BELOW_MIN ModelSupportSuspendReason = 3
+	// A raised model threshold became effective before the bond caught up.
+	ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_MIN_STAKE_RAISED ModelSupportSuspendReason = 4
+)
+
+// Enum value maps for ModelSupportSuspendReason.
+var (
+	ModelSupportSuspendReason_name = map[int32]string{
+		0: "MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED",
+		1: "MODEL_SUPPORT_SUSPEND_REASON_NONE",
+		2: "MODEL_SUPPORT_SUSPEND_REASON_JAIL",
+		3: "MODEL_SUPPORT_SUSPEND_REASON_BOND_BELOW_MIN",
+		4: "MODEL_SUPPORT_SUSPEND_REASON_MIN_STAKE_RAISED",
+	}
+	ModelSupportSuspendReason_value = map[string]int32{
+		"MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED":      0,
+		"MODEL_SUPPORT_SUSPEND_REASON_NONE":             1,
+		"MODEL_SUPPORT_SUSPEND_REASON_JAIL":             2,
+		"MODEL_SUPPORT_SUSPEND_REASON_BOND_BELOW_MIN":   3,
+		"MODEL_SUPPORT_SUSPEND_REASON_MIN_STAKE_RAISED": 4,
+	}
+)
+
+func (x ModelSupportSuspendReason) Enum() *ModelSupportSuspendReason {
+	p := new(ModelSupportSuspendReason)
+	*p = x
+	return p
+}
+
+func (x ModelSupportSuspendReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModelSupportSuspendReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_hub_v1_common_proto_enumTypes[10].Descriptor()
+}
+
+func (ModelSupportSuspendReason) Type() protoreflect.EnumType {
+	return &file_hub_v1_common_proto_enumTypes[10]
+}
+
+func (x ModelSupportSuspendReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModelSupportSuspendReason.Descriptor instead.
+func (ModelSupportSuspendReason) EnumDescriptor() ([]byte, []int) {
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{10}
+}
+
 // RoleFaultStatus is the lifecycle of one recorded role fault receipt (6.4).
 type RoleFaultStatus int32
 
@@ -736,11 +798,11 @@ func (x RoleFaultStatus) String() string {
 }
 
 func (RoleFaultStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[10].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[11].Descriptor()
 }
 
 func (RoleFaultStatus) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[10]
+	return &file_hub_v1_common_proto_enumTypes[11]
 }
 
 func (x RoleFaultStatus) Number() protoreflect.EnumNumber {
@@ -749,7 +811,7 @@ func (x RoleFaultStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RoleFaultStatus.Descriptor instead.
 func (RoleFaultStatus) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{10}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{11}
 }
 
 // FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
@@ -771,6 +833,10 @@ const (
 	// Builder objective evidence was accepted against the operator.
 	// FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
 	FaultKind_FAULT_KIND_BUILDER_OBJECTIVE_FAULT FaultKind = 5
+	// Reserved for the later verifier value-evidence admission upgrade.
+	FaultKind_FAULT_KIND_VERIFIER_VALUE_MISMATCH FaultKind = 6
+	// Reserved for objectively invalid Worker value evidence after activation.
+	FaultKind_FAULT_KIND_WORKER_VALUES_INVALID FaultKind = 7
 )
 
 // Enum value maps for FaultKind.
@@ -781,6 +847,8 @@ var (
 		2: "FAULT_KIND_INVALID_RESULT",
 		3: "FAULT_KIND_EQUIVOCATION",
 		5: "FAULT_KIND_BUILDER_OBJECTIVE_FAULT",
+		6: "FAULT_KIND_VERIFIER_VALUE_MISMATCH",
+		7: "FAULT_KIND_WORKER_VALUES_INVALID",
 	}
 	FaultKind_value = map[string]int32{
 		"FAULT_KIND_UNSPECIFIED":             0,
@@ -788,6 +856,8 @@ var (
 		"FAULT_KIND_INVALID_RESULT":          2,
 		"FAULT_KIND_EQUIVOCATION":            3,
 		"FAULT_KIND_BUILDER_OBJECTIVE_FAULT": 5,
+		"FAULT_KIND_VERIFIER_VALUE_MISMATCH": 6,
+		"FAULT_KIND_WORKER_VALUES_INVALID":   7,
 	}
 )
 
@@ -802,11 +872,11 @@ func (x FaultKind) String() string {
 }
 
 func (FaultKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[11].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[12].Descriptor()
 }
 
 func (FaultKind) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[11]
+	return &file_hub_v1_common_proto_enumTypes[12]
 }
 
 func (x FaultKind) Number() protoreflect.EnumNumber {
@@ -815,7 +885,7 @@ func (x FaultKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FaultKind.Descriptor instead.
 func (FaultKind) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{11}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{12}
 }
 
 // ParamsModuleV1 selects the owner of a parameter-update event.
@@ -858,11 +928,11 @@ func (x ParamsModuleV1) String() string {
 }
 
 func (ParamsModuleV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[12].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[13].Descriptor()
 }
 
 func (ParamsModuleV1) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[12]
+	return &file_hub_v1_common_proto_enumTypes[13]
 }
 
 func (x ParamsModuleV1) Number() protoreflect.EnumNumber {
@@ -871,7 +941,7 @@ func (x ParamsModuleV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ParamsModuleV1.Descriptor instead.
 func (ParamsModuleV1) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{12}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{13}
 }
 
 // EventLifecycleReason is the closed lifecycle reason carried by jail, slash and exit events (9.6b).
@@ -929,11 +999,11 @@ func (x EventLifecycleReason) String() string {
 }
 
 func (EventLifecycleReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[13].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[14].Descriptor()
 }
 
 func (EventLifecycleReason) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[13]
+	return &file_hub_v1_common_proto_enumTypes[14]
 }
 
 func (x EventLifecycleReason) Number() protoreflect.EnumNumber {
@@ -942,7 +1012,7 @@ func (x EventLifecycleReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EventLifecycleReason.Descriptor instead.
 func (EventLifecycleReason) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{13}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{14}
 }
 
 var File_hub_v1_common_proto protoreflect.FileDescriptor
@@ -1005,17 +1075,25 @@ const file_hub_v1_common_proto_rawDesc = "" +
 	"\x1dMODEL_SUPPORT_STATUS_DECLARED\x10\x01\x12\x1f\n" +
 	"\x1bMODEL_SUPPORT_STATUS_ACTIVE\x10\x02\x12\x1e\n" +
 	"\x1aMODEL_SUPPORT_STATUS_STALE\x10\x03\x12!\n" +
-	"\x1dMODEL_SUPPORT_STATUS_INACTIVE\x10\x04*w\n" +
+	"\x1dMODEL_SUPPORT_STATUS_INACTIVE\x10\x04*\xfb\x01\n" +
+	"\x19ModelSupportSuspendReason\x12,\n" +
+	"(MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED\x10\x00\x12%\n" +
+	"!MODEL_SUPPORT_SUSPEND_REASON_NONE\x10\x01\x12%\n" +
+	"!MODEL_SUPPORT_SUSPEND_REASON_JAIL\x10\x02\x12/\n" +
+	"+MODEL_SUPPORT_SUSPEND_REASON_BOND_BELOW_MIN\x10\x03\x121\n" +
+	"-MODEL_SUPPORT_SUSPEND_REASON_MIN_STAKE_RAISED\x10\x04*w\n" +
 	"\x0fRoleFaultStatus\x12!\n" +
 	"\x1dROLE_FAULT_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bROLE_FAULT_STATUS_CONFIRMED\x10\x01\x12 \n" +
-	"\x1cROLE_FAULT_STATUS_SUPERSEDED\x10\x02*\xc6\x01\n" +
+	"\x1cROLE_FAULT_STATUS_SUPERSEDED\x10\x02*\x94\x02\n" +
 	"\tFaultKind\x12\x1a\n" +
 	"\x16FAULT_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12FAULT_KIND_TIMEOUT\x10\x01\x12\x1d\n" +
 	"\x19FAULT_KIND_INVALID_RESULT\x10\x02\x12\x1b\n" +
 	"\x17FAULT_KIND_EQUIVOCATION\x10\x03\x12&\n" +
-	"\"FAULT_KIND_BUILDER_OBJECTIVE_FAULT\x10\x05\"\x04\b\x04\x10\x04*\x1bFAULT_KIND_EVIDENCE_DEFAULT*g\n" +
+	"\"FAULT_KIND_BUILDER_OBJECTIVE_FAULT\x10\x05\x12&\n" +
+	"\"FAULT_KIND_VERIFIER_VALUE_MISMATCH\x10\x06\x12$\n" +
+	" FAULT_KIND_WORKER_VALUES_INVALID\x10\a\"\x04\b\x04\x10\x04*\x1bFAULT_KIND_EVIDENCE_DEFAULT*g\n" +
 	"\x0eParamsModuleV1\x12 \n" +
 	"\x1cPARAMS_MODULE_V1_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PARAMS_MODULE_V1_HUB\x10\x01\x12\x19\n" +
@@ -1040,7 +1118,7 @@ func file_hub_v1_common_proto_rawDescGZIP() []byte {
 	return file_hub_v1_common_proto_rawDescData
 }
 
-var file_hub_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
+var file_hub_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
 var file_hub_v1_common_proto_goTypes = []any{
 	(ServiceKeyStatus)(0),               // 0: hub.v1.ServiceKeyStatus
 	(ServiceKeyRevocationReason)(0),     // 1: hub.v1.ServiceKeyRevocationReason
@@ -1052,10 +1130,11 @@ var file_hub_v1_common_proto_goTypes = []any{
 	(LiabilityStatus)(0),                // 7: hub.v1.LiabilityStatus
 	(ModelSupportActivationKind)(0),     // 8: hub.v1.ModelSupportActivationKind
 	(ModelSupportStatus)(0),             // 9: hub.v1.ModelSupportStatus
-	(RoleFaultStatus)(0),                // 10: hub.v1.RoleFaultStatus
-	(FaultKind)(0),                      // 11: hub.v1.FaultKind
-	(ParamsModuleV1)(0),                 // 12: hub.v1.ParamsModuleV1
-	(EventLifecycleReason)(0),           // 13: hub.v1.EventLifecycleReason
+	(ModelSupportSuspendReason)(0),      // 10: hub.v1.ModelSupportSuspendReason
+	(RoleFaultStatus)(0),                // 11: hub.v1.RoleFaultStatus
+	(FaultKind)(0),                      // 12: hub.v1.FaultKind
+	(ParamsModuleV1)(0),                 // 13: hub.v1.ParamsModuleV1
+	(EventLifecycleReason)(0),           // 14: hub.v1.EventLifecycleReason
 }
 var file_hub_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1075,7 +1154,7 @@ func file_hub_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_common_proto_rawDesc), len(file_hub_v1_common_proto_rawDesc)),
-			NumEnums:      14,
+			NumEnums:      15,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

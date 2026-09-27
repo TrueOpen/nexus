@@ -23,7 +23,7 @@ service Query {
   // Builders pages the whole builder registry. It is the only way to enumerate
   // builders: Query/Builder needs an address the caller already knows, so
   // without this RPC a fresh client cannot discover one. V1 takes no status
-  // selector because BuilderState has no status index (api_contract §16.3).
+  // selector because BuilderState has no status index (the wire API).
   // Builders executes the Builders operation.
   rpc Builders(QueryBuildersRequest) returns (QueryBuildersResponse);
   // Fault returns one immutable role-fault attribution row.
@@ -35,7 +35,7 @@ service Query {
   // Models pages the whole model registry. It is the only way to enumerate
   // models: Query/Model needs a model_id the caller already knows, so without
   // this RPC a fresh client cannot discover one. V1 takes no status selector
-  // because ModelState has no status index (api_contract §16.3).
+  // because ModelState has no status index (the wire API).
   // Models executes the Models operation.
   rpc Models(QueryModelsRequest) returns (QueryModelsResponse);
   // Profile returns one model profile.
@@ -54,14 +54,14 @@ service Query {
   rpc ServiceDescriptor(QueryServiceDescriptorRequest) returns (QueryServiceDescriptorResponse);
   // ServiceLifecycle combines the identity and bond authorities of one operator.
   rpc ServiceLifecycle(QueryServiceLifecycleRequest) returns (QueryServiceLifecycleResponse);
-  // ProfileCapability returns one operator/profile capability row.
-  rpc ProfileCapability(QueryProfileCapabilityRequest) returns (QueryProfileCapabilityResponse);
-  // ModelSupport returns one P30 support row.
+  // ModelCapability returns one operator/model capability row.
+  rpc ModelCapability(QueryModelCapabilityRequest) returns (QueryModelCapabilityResponse);
+  // ModelSupport returns one operator/model support row.
   rpc ModelSupport(QueryModelSupportRequest) returns (QueryModelSupportResponse);
   // DailySupport returns one operator/epoch heartbeat row.
   rpc DailySupport(QueryDailySupportRequest) returns (QueryDailySupportResponse);
   // CurrentCandidatePool returns the single global pool the current pointer
-  // resolves to (api_contract §16.3, empty request). Per-profile pools no longer
+  // resolves to (the wire API, empty request). Per-profile pools no longer
   // exist, so the old model_id/profile_version/duty path variables are gone.
   // CurrentCandidatePool executes the CurrentCandidatePool operation.
   rpc CurrentCandidatePool(QueryCurrentCandidatePoolRequest) returns (QueryCurrentCandidatePoolResponse);
@@ -90,17 +90,17 @@ service Query {
   // EmergencyFreezeVotes lists votes for one signal.
   rpc EmergencyFreezeVotes(QueryEmergencyFreezeVotesRequest) returns (QueryEmergencyFreezeVotesResponse);
   // TimeoutBucket returns an exact or effective timeout bucket. The RPC moved
-  // here from task.v1.Query with the governance writer (§2.4).
+  // here from task.v1.Query with the governance writer.
   // TimeoutBucket executes the TimeoutBucket operation.
   rpc TimeoutBucket(QueryTimeoutBucketRequest) returns (QueryTimeoutBucketResponse);
 }
 
 // De-registered on purpose (no alias, no compatibility projection):
-//   QueryPerformanceScore   - the API contract registers no performance
+//   QueryPerformanceScore   - the wire API registers no performance
 //     Query and there is no production PerformanceScoreState collection.
 //   QueryChallengeEffectPool - K-BLOCK-03/04: V1 registers no public challenge
 //     custody Query.
 //   QueryBuilderRewardEpoch / QueryTreasuryEpoch - the per-epoch builder reward
 //     and treasury epoch ledgers are deleted; QueryCompetitionEpoch and
 //     QueryTreasury are the registered surfaces.
-//   QueryCandidatePool      - replaced by QueryCandidatePoolSnapshot (§16.3).
+//   QueryCandidatePool      - replaced by QueryCandidatePoolSnapshot.

@@ -10,7 +10,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // MsgSetModelStatus transitions a model's lifecycle status.
 message MsgSetModelStatus {
-  string model_id = 1;
+  bytes model_id = 1;
   ModelProfileStatus new_status = 2;
   GovernanceReason reason_code = 3;
   string authority = 4;
@@ -26,7 +26,7 @@ message MsgSetModelStatusResponse {
 
 // MsgSetProfileStatus transitions a profile's lifecycle status.
 message MsgSetProfileStatus {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   ModelProfileStatus new_status = 3;
   GovernanceReason reason_code = 4;
@@ -117,13 +117,12 @@ message MsgWithdrawServiceUnbondedResponse {
   shared.v1.MutationStatusV1 status = 3;
 }
 
-// MsgDeclareModelSupport declares provisional support for one profile. It does
+// MsgDeclareModelSupport declares provisional support for one model. It does
 // not activate P30 support or grant block reward eligibility by itself.
 // MsgDeclareModelSupport defines the MsgDeclareModelSupport wire type.
 message MsgDeclareModelSupport {
   string operator_address = 1;
-  string model_id = 2;
-  uint32 profile_version = 3;
+  bytes model_id = 2;
   bool inference_capability = 4;
   bool verification_capability = 5;
 }
@@ -136,20 +135,15 @@ message MsgDeclareModelSupportResponse {
   shared.v1.MutationStatusV1 status = 4;
 }
 
-// SupportedProfileRef identifies one model/profile pair in a node support
-// confirmation.
-// ProfileKeyV1 defines the ProfileKeyV1 wire type.
-message ProfileKeyV1 {
-  string model_id = 1;
-  uint32 profile_version = 2;
-}
-
 // ModelSupportConfirmation is one node-signed, duty-independent support
 // refresh submitted by a relayer.
 // ModelSupportConfirmationV1 defines the ModelSupportConfirmationV1 wire type.
 message ModelSupportConfirmationV1 {
   string operator_address = 1;
-  repeated ProfileKeyV1 supported_profiles = 2;
+  // Raw Hash32 model IDs, exactly 32 bytes each, strictly ascending and unique.
+  // All signed and persisted model IDs use the same raw Hash32 representation;
+  // a text encoding would produce different signing bytes.
+  repeated bytes supported_models = 2;
   uint64 service_authorization_nonce = 3;
   uint64 expiry_height = 4;
   bytes service_signature = 5;
@@ -165,11 +159,11 @@ message MsgBatchConfirmModelSupport {
 }
 
 // MsgBatchConfirmModelSupportResponse reports accepted node confirmations and
-// the number of profile rows actually refreshed.
+// the number of model rows actually refreshed.
 // MsgBatchConfirmModelSupportResponse defines the MsgBatchConfirmModelSupportResponse wire type.
 message MsgBatchConfirmModelSupportResponse {
   uint32 accepted_confirmations = 1;
-  uint32 refreshed_profile_count = 2;
+  uint32 refreshed_model_count = 2;
   bytes batch_digest = 3;
   shared.v1.MutationStatusV1 status = 4;
 }

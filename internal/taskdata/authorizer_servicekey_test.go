@@ -66,6 +66,7 @@ func TestAuthorizerAcceptsCortexServiceKeySignedRequests(t *testing.T) {
 		// A Verifier may only upload its own bundle: producer_kind=VERIFIER, producer_operator=itself.
 		evidence := fx.metadata[ObjectKindEvidenceManifest]
 		evidence.Key.EvidenceProducerKind = EvidenceProducerVerifier
+		evidence.Key.EvidenceKind = EvidenceKindVerifierValueOpening
 		evidence.Key.ProducerOperator = fx.verifier.Address()
 		header := UploadHeader{
 			Key: evidence.Key, SizeBytes: evidence.SizeBytes, SemanticHash: evidence.SemanticHash,

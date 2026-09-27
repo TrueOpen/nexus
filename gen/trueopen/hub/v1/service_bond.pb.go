@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ServiceBondState is the single operator-global service bond row, including the operator-global jail counters (data-structure contract 6.4).
+// ServiceBondState is the single operator-global service bond row, including the operator-global jail counters (wire storage model 6.4).
 type ServiceBondState struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress            string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`

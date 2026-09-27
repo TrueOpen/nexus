@@ -763,16 +763,16 @@ func TestUnsignedFallbackRejectsMismatchedTypeURLBeforeBroadcast(t *testing.T) {
 // verifies them against the order-domain EIP-712 digest using the on-chain
 // account key.
 //
-// nexus **does** derive the task_hash itself (nodecontract.TaskOrderHashV2) and uses it
+// nexus **does** derive the task_hash itself (nodecontract.TaskOrderHashV3) and uses it
 // to bind the proposal scope to every hand-raise, so this order really has to be canonical --
 // user_address must be valid bech32 and amounts must be decimal with no leading zeros. Deriving a
 // digest is not verifying a signature: the user signature is still verified only by the keeper.
 func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 	return &taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: "trueopen-localnet", UserAddress: user,
+		Order: &taskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: "trueopen-localnet", UserAddress: user,
 			SessionId: bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
-			ModelId: "model-1", ProfileVersion: 2,
+			ModelId: testModelIDBytes, ProfileVersion: 2,
 			TaskType:  sharedv1.TaskType_TASK_TYPE_TEXT_GENERATION,
 			InputHash: bytes.Repeat([]byte{0x22}, 32), InputSizeBytes: 512,
 			InputBucket: 1, OutputBudgetBucket: 2,
@@ -793,6 +793,8 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
 			BuilderSetId:           "term-1",
 			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:     make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		// 65 bytes of R||S||V with V=27 and S < N/2: a structurally valid placeholder signature.
@@ -805,7 +807,7 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 func testWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
 	// task_hash is the canonical digest of the testSignedOrder(user) order: the proposal scope and
 	// every hand-raise must be bound to the same value, or validateScopeTaskHash rejects outright.
-	taskHash, err := nodecontract.TaskOrderHashV2(testSignedOrder(user).GetOrder())
+	taskHash, err := nodecontract.TaskOrderHashV3(testSignedOrder(user).GetOrder())
 	if err != nil {
 		panic(err)
 	}
@@ -813,7 +815,7 @@ func testWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
 		return &taskv1.WorkerHandraiseV1{
 			SchemaVersion: 1, ChainId: "trueopen-localnet",
 			TaskId: bytes.Repeat([]byte{0x66}, 32), TaskHash: append([]byte(nil), taskHash[:]...),
-			ModelId: "model-1", ProfileVersion: 2,
+			ModelId: testModelIDBytes, ProfileVersion: 2,
 			Member: &taskv1.CandidateMemberRefV1{
 				CandidatePoolSnapshotId: bytes.Repeat([]byte{0x88}, 32),
 				Slot:                    slot, SlotVersion: 1, OperatorAddress: operator,
@@ -834,7 +836,7 @@ func testVerifierHandraises(taskIDHex string, t *testing.T) []*taskv1.VerifierHa
 	return []*taskv1.VerifierHandraiseV1{{
 		SchemaVersion: 1, ChainId: "trueopen-localnet", TaskId: taskID, VerifyRound: 1,
 		InferReceiptHash: bytes.Repeat([]byte{0xaa}, 32), OutputHash: bytes.Repeat([]byte{0xbb}, 32),
-		ModelId: "model-1", ProfileVersion: 2,
+		ModelId: testModelIDBytes, ProfileVersion: 2,
 		Member: &taskv1.CandidateMemberRefV1{
 			CandidatePoolSnapshotId: bytes.Repeat([]byte{0x88}, 32),
 			Slot:                    5, SlotVersion: 1, OperatorAddress: "trueopen1verifier5",
@@ -846,8 +848,8 @@ func testVerifierHandraises(taskIDHex string, t *testing.T) []*taskv1.VerifierHa
 
 // testInferReceipt returns a structurally canonical InferReceiptV2
 // (Keeper Interface Contract §5.14) with kind-ascending evidence commitments.
-func testInferReceiptV1(worker string) *taskv1.InferReceiptV2 {
-	return &taskv1.InferReceiptV2{
+func testInferReceiptV1(worker string) *taskv1.InferReceiptV3 {
+	return &taskv1.InferReceiptV3{
 		SchemaVersion: 1, ChainId: "trueopen-localnet",
 		TaskId: bytes.Repeat([]byte{0x66}, 32), TaskHash: bytes.Repeat([]byte{0x77}, 32),
 		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 1,
@@ -866,3 +868,8 @@ func testInferReceiptV1(worker string) *taskv1.InferReceiptV2 {
 		ExpiryHeight: 900, ServiceSignature: bytes.Repeat([]byte{0x0f}, 64),
 	}
 }
+
+// A model_id is a raw 32-byte Hash32 on chain and its lowercase hex inside Nexus.
+const testModelIDHex = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+
+var testModelIDBytes = bytes.Repeat([]byte{0x5a}, 32)

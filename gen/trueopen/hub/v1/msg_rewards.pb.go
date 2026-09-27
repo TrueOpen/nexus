@@ -149,8 +149,7 @@ func (x *MsgUpdateHubParamsResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgClaimEarnings is the single claim entry point (the API contract,
-// §5.1 and §10.0b1).
+// MsgClaimEarnings is the single claim entry point.
 //
 // The request carries only the claim class and the Cosmos signer; the
 // beneficiary equals that signer. claim_id and source_epoch were removed because
@@ -368,7 +367,7 @@ func (x *MsgRunRewardEpoch) GetSubmitterAddress() string {
 }
 
 // MsgRunRewardEpochResponse reports the phase after this call and the visited
-// and advanced work units; §5.11 forbids a runner-level summary event.
+// and advanced work units; this contract forbids a runner-level summary event.
 // MsgRunRewardEpochResponse defines the MsgRunRewardEpochResponse wire type.
 type MsgRunRewardEpochResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

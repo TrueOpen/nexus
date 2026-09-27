@@ -103,6 +103,12 @@ message EvidenceLimitParamsV1 {
   uint64 max_output_mmr_leaves = 9;
   uint32 min_output_stream_frame_bytes = 10;
   uint64 max_worker_evidence_bytes_v1 = 11;
+  // Zero keeps encryption inactive in fresh Phase 0.
+  uint64 encryption_activation_height = 12;
+  // Reserved for the later verifier value-evidence admission upgrade.
+  uint64 verifier_value_evidence_window_blocks = 13;
+  uint32 max_verifier_value_evidence_positions = 14;
+  uint64 max_verifier_value_evidence_bytes = 15;
 }
 
 // TaskCleanupParamsV1 bounds terminal Task cleanup and summary retention.

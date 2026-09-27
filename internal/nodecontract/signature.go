@@ -10,7 +10,7 @@ const (
 	DomainOrderV1             = "TRUEOPEN_ORDER_V1"
 	DomainAssignBuilderV1     = "TRUEOPEN_ASSIGN_BUILDER_V1"
 	DomainOpenVerifyBuilderV1 = "TRUEOPEN_OPEN_VERIFY_BUILDER_V1"
-	DomainInferReceiptV2      = "TRUEOPEN_INFER_RECEIPT_V2"
+	DomainInferReceiptV3      = "TRUEOPEN_INFER_RECEIPT_V3"
 	DomainWorkerHandraiseV1   = "TRUEOPEN_WORKER_HANDRAISE_V1"
 	DomainVerifierHandraiseV1 = "TRUEOPEN_VERIFIER_HANDRAISE_V1"
 	DomainSettlementV1        = "TRUEOPEN_SETTLEMENT_V1"

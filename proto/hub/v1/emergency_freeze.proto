@@ -40,7 +40,7 @@ enum FreezeSignalBuildStatus {
 }
 
 // FreezeSignalStatus is the freeze signal lifecycle. Values are frozen by
-// the API contract.
+// the wire API.
 // FreezeSignalStatus defines the FreezeSignalStatus wire type.
 enum FreezeSignalStatus {
   // Never written; rejects zero-value signal rows.
@@ -65,10 +65,7 @@ enum FreezeSignalStatus {
 
 // FreezeSignalWindowPhase is the per-profile fixed-window binding phase.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `FreezeSignalByWindowIndex.phase = BUILDING / OPEN / CLOSED` but
-// the API contract does not register the enum. The three registered
-// values are reproduced verbatim. CLOSED retains the terminal binding for a
+// BUILDING, OPEN, and CLOSED are the only nonzero phases. CLOSED retains the terminal binding for a
 // signal until summary prune; a below-threshold window advances the profile
 // waterline and deletes its transient binding without creating a signal.
 // FreezeSignalWindowPhase defines the FreezeSignalWindowPhase wire type.
@@ -89,10 +86,7 @@ enum FreezeSignalWindowPhase {
 
 // FreezeSignalPrunePhase is the two-stage freeze signal retention order.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `FreezeSignalPruneIndex ... phase = VOTES / HEADER` but the API contract
-// §9.6b does not register the enum. Both registered values are reproduced
-// verbatim; ascending numbers are the mandatory order, because vote rows are
+// VOTES precedes HEADER in ascending numeric order, because vote rows are
 // deleted at freeze_signal_detail_retention_blocks and the header only at
 // freeze_signal_summary_retention_blocks.
 // FreezeSignalPrunePhase defines the FreezeSignalPrunePhase wire type.
@@ -111,14 +105,11 @@ enum FreezeSignalPrunePhase {
 // FreezeFailureClassCountsV1 is the per-class breakdown of the failures a freeze
 // signal aggregated.
 //
-// CONTRACT-GAP: the data-structure contract writes
-// `included_failure_class_counts = METRIC_THRESHOLD_BREACH / OBJECTIVE_FAULT /
-// SCHEMA_FAULT / WORKER_EVIDENCE_FAULT` without giving a wire shape. The four
-// listed classes are exactly the freeze-eligible TaskFailureClass values, so
-// they are encoded as four fixed counters instead of an unbounded repeated
-// list; INSUFFICIENT_VERIFIER is deliberately absent because §6.1 and §10.12
-// keep it out of the freeze root and count it separately as
-// excluded_insufficient_verifier_count.
+// The four fixed counters correspond to the freeze-eligible failure classes:
+// METRIC_THRESHOLD_BREACH, OBJECTIVE_FAULT, SCHEMA_FAULT, and
+// WORKER_EVIDENCE_FAULT. They are fixed counters, not an unbounded list.
+// INSUFFICIENT_VERIFIER is excluded from the freeze root and counted separately
+// in excluded_insufficient_verifier_count.
 // FreezeFailureClassCountsV1 defines the FreezeFailureClassCountsV1 wire type.
 message FreezeFailureClassCountsV1 {
   uint32 metric_threshold_breach = 1;
@@ -139,7 +130,7 @@ message FreezeFailureClassCountsV1 {
 // FreezeSignalState defines the FreezeSignalState wire type.
 message FreezeSignalState {
   bytes freeze_signal_id = 1;
-  string model_id = 2;
+  bytes model_id = 2;
   uint32 profile_version = 3;
   uint64 risk_window_id = 4;
   uint64 risk_window_start_height = 5;
@@ -170,7 +161,7 @@ message FreezeSignalState {
 // profile never has more than one BUILDING or OPEN object.
 // FreezeSignalBuildCursorState defines the FreezeSignalBuildCursorState wire type.
 message FreezeSignalBuildCursorState {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   uint64 risk_window_id = 3;
   uint64 risk_window_start_height = 4;
@@ -184,14 +175,14 @@ message FreezeSignalBuildCursorState {
 }
 
 // EmergencyFreezeVoteState is one validator ballot
-// (the data-structure contract, key
+// (the wire storage model, key
 // (freeze_signal_id, validator_consensus_address)).
 //
 // validator_consensus_address is ConsensusAddressBytes resolved by the Keeper
 // from the Tx signer through the staking keeper; it is never a caller field and
 // never an account address. voting_power_snapshot is read from the frozen
 // validator snapshot. No signature digest is stored, because the Cosmos Tx
-// signer already authorizes the ballot and §10.0a removed the same-account
+// signer already authorizes the ballot and this contract removed the same-account
 // detached signature.
 // EmergencyFreezeVoteState defines the EmergencyFreezeVoteState wire type.
 message EmergencyFreezeVoteState {
@@ -209,7 +200,7 @@ message EmergencyFreezeVoteState {
 // recorded here is a noop instead of a second signal.
 // FreezeSignalByWindowIndex defines the FreezeSignalByWindowIndex wire type.
 message FreezeSignalByWindowIndex {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   uint64 risk_window_id = 3;
   FreezeSignalWindowPhase phase = 4;

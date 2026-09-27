@@ -28,7 +28,7 @@ const integrationBuilderAddress = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5m
 
 // TODO(wire): OpenTaskHeader carries nothing from which the canonical task_hash can be derived -- it only carries
 // the old JSON order_envelope, while task_hash can only be computed from the frozen SignedOrderV2 under
-// TRUEOPEN_TASK_ORDER_V2 (nodecontract.TaskOrderHashHexV2). Meanwhile task_hash is the mandatory first field of
+// TRUEOPEN_TASK_ORDER_V2 (nodecontract.TaskOrderHashHexV3). Meanwhile task_hash is the mandatory first field of
 // TaskDataObjectRefV1, so the OpenTask path cannot create an INPUT object.
 //
 // This is a contract gap, not an implementation problem: either OpenTaskHeader adds SignedOrderV2 / task_hash,

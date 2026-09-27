@@ -17,15 +17,15 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
-// testSignedOrder has the same shape as the §5.13 fixture in coordinator submitter_test: a complete TaskOrderV2
-// that TaskOrderHashV2 can derive from.
+// testSignedOrder has the same shape as the fixture in coordinator submitter_test: a complete TaskOrderV3
+// that TaskOrderHashV3 can derive from.
 func testSignedOrder() *taskv1.SignedOrderV2 {
 	return &taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: "trueopen-localnet",
+		Order: &taskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: "trueopen-localnet",
 			UserAddress: "trueopen1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3rsxm9a",
 			SessionId:   bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
-			ModelId: "model-1", ProfileVersion: 2,
+			ModelId: testOrderModelID, ProfileVersion: 2,
 			TaskType:  sharedv1.TaskType_TASK_TYPE_TEXT_GENERATION,
 			InputHash: bytes.Repeat([]byte{0x22}, 32), InputSizeBytes: 512,
 			InputBucket: 1, OutputBudgetBucket: 2,
@@ -46,6 +46,8 @@ func testSignedOrder() *taskv1.SignedOrderV2 {
 			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
 			BuilderSetId:           "term-1",
 			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:     make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		UserSignature:   append(bytes.Repeat([]byte{0x55}, 64), 27),
@@ -92,7 +94,7 @@ func testOrderBroadcastFrame(t *testing.T, signedOrder *taskv1.SignedOrderV2, su
 func TestPublishWorkerHandraisesMatchesNexusWireContract(t *testing.T) {
 	now := time.UnixMilli(1_786_060_800_000)
 	signedOrder := testSignedOrder()
-	subject := msgbus.SubjectTaskOpen(signedOrder.GetOrder().GetModelId())
+	subject := msgbus.SubjectTaskOpen(hex.EncodeToString(signedOrder.GetOrder().GetModelId()))
 	data := testOrderBroadcastFrame(t, signedOrder, subject)
 
 	var published []publishMessage
@@ -114,7 +116,7 @@ func TestPublishWorkerHandraisesMatchesNexusWireContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantTaskHash, err := nodecontract.TaskOrderHashV2(signedOrder.GetOrder())
+	wantTaskHash, err := nodecontract.TaskOrderHashV3(signedOrder.GetOrder())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestPublishWorkerHandraisesMatchesNexusWireContract(t *testing.T) {
 		if handraise.GetSchemaVersion() != 1 || handraise.GetChainId() != "trueopen-localnet" ||
 			!bytes.Equal(handraise.GetTaskId(), wantTaskID[:]) ||
 			!bytes.Equal(handraise.GetTaskHash(), wantTaskHash[:]) ||
-			handraise.GetModelId() != "model-1" || handraise.GetProfileVersion() != 2 ||
+			!bytes.Equal(handraise.GetModelId(), testOrderModelID) || handraise.GetProfileVersion() != 2 ||
 			worker == "" || len(handraise.GetMember().GetCandidatePoolSnapshotId()) != 32 ||
 			handraise.GetMember().GetSlotVersion() == 0 ||
 			handraise.GetDuty() != sharedv1.Duty_DUTY_WORKER ||
@@ -205,7 +207,7 @@ func TestPublishWorkerHandraisesMatchesNexusWireContract(t *testing.T) {
 
 func TestResponderPublishesOneSetForDuplicateOrder(t *testing.T) {
 	signedOrder := testSignedOrder()
-	subject := msgbus.SubjectTaskOpen(signedOrder.GetOrder().GetModelId())
+	subject := msgbus.SubjectTaskOpen(hex.EncodeToString(signedOrder.GetOrder().GetModelId()))
 	data := testOrderBroadcastFrame(t, signedOrder, subject)
 
 	var published []publishMessage
@@ -231,7 +233,7 @@ func TestResponderPublishesOneSetForDuplicateOrder(t *testing.T) {
 
 func TestResponderRejectsMismatchedOrderSubject(t *testing.T) {
 	signedOrder := testSignedOrder()
-	subject := msgbus.SubjectTaskOpen(signedOrder.GetOrder().GetModelId())
+	subject := msgbus.SubjectTaskOpen(hex.EncodeToString(signedOrder.GetOrder().GetModelId()))
 	data := testOrderBroadcastFrame(t, signedOrder, subject)
 
 	responder := newOrderResponder(responderConfig{WorkerCount: 3}, func(string, []byte) error {
@@ -242,3 +244,6 @@ func TestResponderRejectsMismatchedOrderSubject(t *testing.T) {
 		t.Fatal("expected subject mismatch error")
 	}
 }
+
+// testOrderModelID is a raw 32-byte model_id.
+var testOrderModelID = bytes.Repeat([]byte{0x5a}, 32)

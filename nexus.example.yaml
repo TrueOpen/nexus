@@ -72,7 +72,7 @@ task_data:
   output_stream:
     enabled: true
     max_output_mmr_leaves: 65536
-    min_output_stream_frame_bytes: 16
+    min_output_stream_frame_bytes: 256
     max_attachment_bytes: 65536
     subscriber_buffer_frames: 256
 

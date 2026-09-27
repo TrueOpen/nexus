@@ -52,7 +52,7 @@ func TestRealNATSHappyPath(t *testing.T) {
 	// task_id must be a real-shaped Hash32: the frozen contract's WorkerHandraiseV1.task_id is 32
 	// bytes, and a fake ID cannot form a proposal.
 	task := testTaskID(fmt.Sprintf("task-e2e-%d", run))
-	model := "model-1"
+	model := testModelIDHex
 	winner := testOperator("worker-1")
 
 	rl := relay.NewMem(log)

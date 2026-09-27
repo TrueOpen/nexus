@@ -54,7 +54,7 @@ message TaskTerminalSummaryState {
   SettlementStatus settlement_status = 8;
   shared.v1.TaskFinalityStatusV1 finality_status = 9;
   uint32 effective_verify_round = 10;
-  string model_id = 11;
+  bytes model_id = 11;
   uint32 profile_version = 12;
   shared.v1.TaskType task_type = 13;
   bytes candidate_pool_snapshot_id = 14;

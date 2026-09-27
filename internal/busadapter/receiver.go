@@ -37,7 +37,7 @@ func payloadMessageForType(payloadType int32) (proto.Message, bool) {
 	case bus.PayloadTypeVerifierAssignmentNotifyV1:
 		return &busv1.VerifierAssignmentNotifyV1{}, true
 	case bus.PayloadTypeVerifyResultV1:
-		return &taskv1.ResultReceiptV2{}, true
+		return &taskv1.ResultReceiptV3{}, true
 	default:
 		return nil, false
 	}

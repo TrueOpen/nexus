@@ -25,7 +25,7 @@ const (
 // MsgSetModelStatus transitions a model's lifecycle status.
 type MsgSetModelStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId       []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	NewStatus     ModelProfileStatus     `protobuf:"varint,2,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"new_status,omitempty"`
 	ReasonCode    GovernanceReason       `protobuf:"varint,3,opt,name=reason_code,json=reasonCode,proto3,enum=hub.v1.GovernanceReason" json:"reason_code,omitempty"`
 	Authority     string                 `protobuf:"bytes,4,opt,name=authority,proto3" json:"authority,omitempty"`
@@ -63,11 +63,11 @@ func (*MsgSetModelStatus) Descriptor() ([]byte, []int) {
 	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *MsgSetModelStatus) GetModelId() string {
+func (x *MsgSetModelStatus) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *MsgSetModelStatus) GetNewStatus() ModelProfileStatus {
@@ -163,7 +163,7 @@ func (x *MsgSetModelStatusResponse) GetStatus() v1.MutationStatusV1 {
 // MsgSetProfileStatus transitions a profile's lifecycle status.
 type MsgSetProfileStatus struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	NewStatus      ModelProfileStatus     `protobuf:"varint,3,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"new_status,omitempty"`
 	ReasonCode     GovernanceReason       `protobuf:"varint,4,opt,name=reason_code,json=reasonCode,proto3,enum=hub.v1.GovernanceReason" json:"reason_code,omitempty"`
@@ -202,11 +202,11 @@ func (*MsgSetProfileStatus) Descriptor() ([]byte, []int) {
 	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *MsgSetProfileStatus) GetModelId() string {
+func (x *MsgSetProfileStatus) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *MsgSetProfileStatus) GetProfileVersion() uint32 {
@@ -952,14 +952,13 @@ func (x *MsgWithdrawServiceUnbondedResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgDeclareModelSupport declares provisional support for one profile. It does
+// MsgDeclareModelSupport declares provisional support for one model. It does
 // not activate P30 support or grant block reward eligibility by itself.
 // MsgDeclareModelSupport defines the MsgDeclareModelSupport wire type.
 type MsgDeclareModelSupport struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress        string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ModelId                string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion         uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ModelId                []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	InferenceCapability    bool                   `protobuf:"varint,4,opt,name=inference_capability,json=inferenceCapability,proto3" json:"inference_capability,omitempty"`
 	VerificationCapability bool                   `protobuf:"varint,5,opt,name=verification_capability,json=verificationCapability,proto3" json:"verification_capability,omitempty"`
 	unknownFields          protoimpl.UnknownFields
@@ -1003,18 +1002,11 @@ func (x *MsgDeclareModelSupport) GetOperatorAddress() string {
 	return ""
 }
 
-func (x *MsgDeclareModelSupport) GetModelId() string {
+func (x *MsgDeclareModelSupport) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
-}
-
-func (x *MsgDeclareModelSupport) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
+	return nil
 }
 
 func (x *MsgDeclareModelSupport) GetInferenceCapability() bool {
@@ -1100,78 +1092,26 @@ func (x *MsgDeclareModelSupportResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// SupportedProfileRef identifies one model/profile pair in a node support
-// confirmation.
-// ProfileKeyV1 defines the ProfileKeyV1 wire type.
-type ProfileKeyV1 struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *ProfileKeyV1) Reset() {
-	*x = ProfileKeyV1{}
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProfileKeyV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProfileKeyV1) ProtoMessage() {}
-
-func (x *ProfileKeyV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProfileKeyV1.ProtoReflect.Descriptor instead.
-func (*ProfileKeyV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *ProfileKeyV1) GetModelId() string {
-	if x != nil {
-		return x.ModelId
-	}
-	return ""
-}
-
-func (x *ProfileKeyV1) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
-}
-
 // ModelSupportConfirmation is one node-signed, duty-independent support
 // refresh submitted by a relayer.
 // ModelSupportConfirmationV1 defines the ModelSupportConfirmationV1 wire type.
 type ModelSupportConfirmationV1 struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	OperatorAddress           string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	SupportedProfiles         []*ProfileKeyV1        `protobuf:"bytes,2,rep,name=supported_profiles,json=supportedProfiles,proto3" json:"supported_profiles,omitempty"`
-	ServiceAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	ExpiryHeight              uint64                 `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	ServiceSignature          []byte                 `protobuf:"bytes,5,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	// Raw Hash32 model IDs, exactly 32 bytes each, strictly ascending and unique.
+	// All signed and persisted model IDs use the same raw Hash32 representation;
+	// a text encoding would produce different signing bytes.
+	SupportedModels           [][]byte `protobuf:"bytes,2,rep,name=supported_models,json=supportedModels,proto3" json:"supported_models,omitempty"`
+	ServiceAuthorizationNonce uint64   `protobuf:"varint,3,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	ExpiryHeight              uint64   `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	ServiceSignature          []byte   `protobuf:"bytes,5,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ModelSupportConfirmationV1) Reset() {
 	*x = ModelSupportConfirmationV1{}
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[17]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1183,7 +1123,7 @@ func (x *ModelSupportConfirmationV1) String() string {
 func (*ModelSupportConfirmationV1) ProtoMessage() {}
 
 func (x *ModelSupportConfirmationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[17]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1196,7 +1136,7 @@ func (x *ModelSupportConfirmationV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelSupportConfirmationV1.ProtoReflect.Descriptor instead.
 func (*ModelSupportConfirmationV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{17}
+	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ModelSupportConfirmationV1) GetOperatorAddress() string {
@@ -1206,9 +1146,9 @@ func (x *ModelSupportConfirmationV1) GetOperatorAddress() string {
 	return ""
 }
 
-func (x *ModelSupportConfirmationV1) GetSupportedProfiles() []*ProfileKeyV1 {
+func (x *ModelSupportConfirmationV1) GetSupportedModels() [][]byte {
 	if x != nil {
-		return x.SupportedProfiles
+		return x.SupportedModels
 	}
 	return nil
 }
@@ -1248,7 +1188,7 @@ type MsgBatchConfirmModelSupport struct {
 
 func (x *MsgBatchConfirmModelSupport) Reset() {
 	*x = MsgBatchConfirmModelSupport{}
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[18]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1260,7 +1200,7 @@ func (x *MsgBatchConfirmModelSupport) String() string {
 func (*MsgBatchConfirmModelSupport) ProtoMessage() {}
 
 func (x *MsgBatchConfirmModelSupport) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[18]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1273,7 +1213,7 @@ func (x *MsgBatchConfirmModelSupport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgBatchConfirmModelSupport.ProtoReflect.Descriptor instead.
 func (*MsgBatchConfirmModelSupport) Descriptor() ([]byte, []int) {
-	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{18}
+	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MsgBatchConfirmModelSupport) GetEpochIndex() uint64 {
@@ -1298,12 +1238,12 @@ func (x *MsgBatchConfirmModelSupport) GetSubmitterAddress() string {
 }
 
 // MsgBatchConfirmModelSupportResponse reports accepted node confirmations and
-// the number of profile rows actually refreshed.
+// the number of model rows actually refreshed.
 // MsgBatchConfirmModelSupportResponse defines the MsgBatchConfirmModelSupportResponse wire type.
 type MsgBatchConfirmModelSupportResponse struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	AcceptedConfirmations uint32                 `protobuf:"varint,1,opt,name=accepted_confirmations,json=acceptedConfirmations,proto3" json:"accepted_confirmations,omitempty"`
-	RefreshedProfileCount uint32                 `protobuf:"varint,2,opt,name=refreshed_profile_count,json=refreshedProfileCount,proto3" json:"refreshed_profile_count,omitempty"`
+	RefreshedModelCount   uint32                 `protobuf:"varint,2,opt,name=refreshed_model_count,json=refreshedModelCount,proto3" json:"refreshed_model_count,omitempty"`
 	BatchDigest           []byte                 `protobuf:"bytes,3,opt,name=batch_digest,json=batchDigest,proto3" json:"batch_digest,omitempty"`
 	Status                v1.MutationStatusV1    `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
 	unknownFields         protoimpl.UnknownFields
@@ -1312,7 +1252,7 @@ type MsgBatchConfirmModelSupportResponse struct {
 
 func (x *MsgBatchConfirmModelSupportResponse) Reset() {
 	*x = MsgBatchConfirmModelSupportResponse{}
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[19]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1324,7 +1264,7 @@ func (x *MsgBatchConfirmModelSupportResponse) String() string {
 func (*MsgBatchConfirmModelSupportResponse) ProtoMessage() {}
 
 func (x *MsgBatchConfirmModelSupportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_msg_registry_proto_msgTypes[19]
+	mi := &file_hub_v1_msg_registry_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1337,7 +1277,7 @@ func (x *MsgBatchConfirmModelSupportResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use MsgBatchConfirmModelSupportResponse.ProtoReflect.Descriptor instead.
 func (*MsgBatchConfirmModelSupportResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{19}
+	return file_hub_v1_msg_registry_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MsgBatchConfirmModelSupportResponse) GetAcceptedConfirmations() uint32 {
@@ -1347,9 +1287,9 @@ func (x *MsgBatchConfirmModelSupportResponse) GetAcceptedConfirmations() uint32 
 	return 0
 }
 
-func (x *MsgBatchConfirmModelSupportResponse) GetRefreshedProfileCount() uint32 {
+func (x *MsgBatchConfirmModelSupportResponse) GetRefreshedModelCount() uint32 {
 	if x != nil {
-		return x.RefreshedProfileCount
+		return x.RefreshedModelCount
 	}
 	return 0
 }
@@ -1374,7 +1314,7 @@ const file_hub_v1_msg_registry_proto_rawDesc = "" +
 	"\n" +
 	"\x19hub/v1/msg_registry.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a hub/v1/model_profile_state.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\"\xc2\x01\n" +
 	"\x11MsgSetModelStatus\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x129\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x129\n" +
 	"\n" +
 	"new_status\x18\x02 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\tnewStatus\x129\n" +
 	"\vreason_code\x18\x03 \x01(\x0e2\x18.hub.v1.GovernanceReasonR\n" +
@@ -1388,7 +1328,7 @@ const file_hub_v1_msg_registry_proto_rawDesc = "" +
 	"\x19last_status_change_height\x18\x03 \x01(\x04R\x16lastStatusChangeHeight\x123\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xed\x01\n" +
 	"\x13MsgSetProfileStatus\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x129\n" +
 	"\n" +
 	"new_status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\tnewStatus\x129\n" +
@@ -1440,24 +1380,20 @@ const file_hub_v1_msg_registry_proto_rawDesc = "" +
 	"\"MsgWithdrawServiceUnbondedResponse\x12<\n" +
 	"\x10withdrawn_amount\x18\x01 \x01(\v2\x11.shared.v1.AmountR\x0fwithdrawnAmount\x12'\n" +
 	"\x0fwithdrawn_items\x18\x02 \x01(\rR\x0ewithdrawnItems\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xf3\x01\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xca\x01\n" +
 	"\x16MsgDeclareModelSupport\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x121\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x121\n" +
 	"\x14inference_capability\x18\x04 \x01(\bR\x13inferenceCapability\x127\n" +
 	"\x17verification_capability\x18\x05 \x01(\bR\x16verificationCapability\"\xd1\x01\n" +
 	"\x1eMsgDeclareModelSupportResponse\x12'\n" +
 	"\x0fsupport_version\x18\x01 \x01(\x04R\x0esupportVersion\x12%\n" +
 	"\x0esupport_active\x18\x02 \x01(\bR\rsupportActive\x12*\n" +
 	"\x11fresh_until_epoch\x18\x03 \x01(\x04R\x0ffreshUntilEpoch\x123\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"R\n" +
-	"\fProfileKeyV1\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\"\x9e\x02\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\x84\x02\n" +
 	"\x1aModelSupportConfirmationV1\x12)\n" +
-	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12C\n" +
-	"\x12supported_profiles\x18\x02 \x03(\v2\x14.hub.v1.ProfileKeyV1R\x11supportedProfiles\x12>\n" +
+	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12)\n" +
+	"\x10supported_models\x18\x02 \x03(\fR\x0fsupportedModels\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\x03 \x01(\x04R\x19serviceAuthorizationNonce\x12#\n" +
 	"\rexpiry_height\x18\x04 \x01(\x04R\fexpiryHeight\x12+\n" +
 	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\"\xb5\x01\n" +
@@ -1465,10 +1401,10 @@ const file_hub_v1_msg_registry_proto_rawDesc = "" +
 	"\vepoch_index\x18\x01 \x01(\x04R\n" +
 	"epochIndex\x12H\n" +
 	"\rconfirmations\x18\x02 \x03(\v2\".hub.v1.ModelSupportConfirmationV1R\rconfirmations\x12+\n" +
-	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"\xec\x01\n" +
+	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"\xe8\x01\n" +
 	"#MsgBatchConfirmModelSupportResponse\x125\n" +
-	"\x16accepted_confirmations\x18\x01 \x01(\rR\x15acceptedConfirmations\x126\n" +
-	"\x17refreshed_profile_count\x18\x02 \x01(\rR\x15refreshedProfileCount\x12!\n" +
+	"\x16accepted_confirmations\x18\x01 \x01(\rR\x15acceptedConfirmations\x122\n" +
+	"\x15refreshed_model_count\x18\x02 \x01(\rR\x13refreshedModelCount\x12!\n" +
 	"\fbatch_digest\x18\x03 \x01(\fR\vbatchDigest\x123\n" +
 	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
@@ -1484,7 +1420,7 @@ func file_hub_v1_msg_registry_proto_rawDescGZIP() []byte {
 	return file_hub_v1_msg_registry_proto_rawDescData
 }
 
-var file_hub_v1_msg_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_hub_v1_msg_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_hub_v1_msg_registry_proto_goTypes = []any{
 	(*MsgSetModelStatus)(nil),                   // 0: hub.v1.MsgSetModelStatus
 	(*MsgSetModelStatusResponse)(nil),           // 1: hub.v1.MsgSetModelStatusResponse
@@ -1502,52 +1438,50 @@ var file_hub_v1_msg_registry_proto_goTypes = []any{
 	(*MsgWithdrawServiceUnbondedResponse)(nil),  // 13: hub.v1.MsgWithdrawServiceUnbondedResponse
 	(*MsgDeclareModelSupport)(nil),              // 14: hub.v1.MsgDeclareModelSupport
 	(*MsgDeclareModelSupportResponse)(nil),      // 15: hub.v1.MsgDeclareModelSupportResponse
-	(*ProfileKeyV1)(nil),                        // 16: hub.v1.ProfileKeyV1
-	(*ModelSupportConfirmationV1)(nil),          // 17: hub.v1.ModelSupportConfirmationV1
-	(*MsgBatchConfirmModelSupport)(nil),         // 18: hub.v1.MsgBatchConfirmModelSupport
-	(*MsgBatchConfirmModelSupportResponse)(nil), // 19: hub.v1.MsgBatchConfirmModelSupportResponse
-	(ModelProfileStatus)(0),                     // 20: hub.v1.ModelProfileStatus
-	(GovernanceReason)(0),                       // 21: hub.v1.GovernanceReason
-	(v1.MutationStatusV1)(0),                    // 22: shared.v1.MutationStatusV1
-	(*v1.Amount)(nil),                           // 23: shared.v1.Amount
-	(*v1.ByIDV1)(nil),                           // 24: shared.v1.ByIDV1
-	(*v1.BatchV1)(nil),                          // 25: shared.v1.BatchV1
+	(*ModelSupportConfirmationV1)(nil),          // 16: hub.v1.ModelSupportConfirmationV1
+	(*MsgBatchConfirmModelSupport)(nil),         // 17: hub.v1.MsgBatchConfirmModelSupport
+	(*MsgBatchConfirmModelSupportResponse)(nil), // 18: hub.v1.MsgBatchConfirmModelSupportResponse
+	(ModelProfileStatus)(0),                     // 19: hub.v1.ModelProfileStatus
+	(GovernanceReason)(0),                       // 20: hub.v1.GovernanceReason
+	(v1.MutationStatusV1)(0),                    // 21: shared.v1.MutationStatusV1
+	(*v1.Amount)(nil),                           // 22: shared.v1.Amount
+	(*v1.ByIDV1)(nil),                           // 23: shared.v1.ByIDV1
+	(*v1.BatchV1)(nil),                          // 24: shared.v1.BatchV1
 }
 var file_hub_v1_msg_registry_proto_depIdxs = []int32{
-	20, // 0: hub.v1.MsgSetModelStatus.new_status:type_name -> hub.v1.ModelProfileStatus
-	21, // 1: hub.v1.MsgSetModelStatus.reason_code:type_name -> hub.v1.GovernanceReason
-	20, // 2: hub.v1.MsgSetModelStatusResponse.old_status:type_name -> hub.v1.ModelProfileStatus
-	20, // 3: hub.v1.MsgSetModelStatusResponse.new_status:type_name -> hub.v1.ModelProfileStatus
-	22, // 4: hub.v1.MsgSetModelStatusResponse.status:type_name -> shared.v1.MutationStatusV1
-	20, // 5: hub.v1.MsgSetProfileStatus.new_status:type_name -> hub.v1.ModelProfileStatus
-	21, // 6: hub.v1.MsgSetProfileStatus.reason_code:type_name -> hub.v1.GovernanceReason
-	20, // 7: hub.v1.MsgSetProfileStatusResponse.old_status:type_name -> hub.v1.ModelProfileStatus
-	20, // 8: hub.v1.MsgSetProfileStatusResponse.new_status:type_name -> hub.v1.ModelProfileStatus
-	22, // 9: hub.v1.MsgSetProfileStatusResponse.status:type_name -> shared.v1.MutationStatusV1
-	23, // 10: hub.v1.RegisterServiceV1.amount:type_name -> shared.v1.Amount
-	23, // 11: hub.v1.TopUpServiceV1.amount:type_name -> shared.v1.Amount
+	19, // 0: hub.v1.MsgSetModelStatus.new_status:type_name -> hub.v1.ModelProfileStatus
+	20, // 1: hub.v1.MsgSetModelStatus.reason_code:type_name -> hub.v1.GovernanceReason
+	19, // 2: hub.v1.MsgSetModelStatusResponse.old_status:type_name -> hub.v1.ModelProfileStatus
+	19, // 3: hub.v1.MsgSetModelStatusResponse.new_status:type_name -> hub.v1.ModelProfileStatus
+	21, // 4: hub.v1.MsgSetModelStatusResponse.status:type_name -> shared.v1.MutationStatusV1
+	19, // 5: hub.v1.MsgSetProfileStatus.new_status:type_name -> hub.v1.ModelProfileStatus
+	20, // 6: hub.v1.MsgSetProfileStatus.reason_code:type_name -> hub.v1.GovernanceReason
+	19, // 7: hub.v1.MsgSetProfileStatusResponse.old_status:type_name -> hub.v1.ModelProfileStatus
+	19, // 8: hub.v1.MsgSetProfileStatusResponse.new_status:type_name -> hub.v1.ModelProfileStatus
+	21, // 9: hub.v1.MsgSetProfileStatusResponse.status:type_name -> shared.v1.MutationStatusV1
+	22, // 10: hub.v1.RegisterServiceV1.amount:type_name -> shared.v1.Amount
+	22, // 11: hub.v1.TopUpServiceV1.amount:type_name -> shared.v1.Amount
 	4,  // 12: hub.v1.ServiceStakeActionV1.register:type_name -> hub.v1.RegisterServiceV1
 	5,  // 13: hub.v1.ServiceStakeActionV1.top_up:type_name -> hub.v1.TopUpServiceV1
 	6,  // 14: hub.v1.MsgStakeService.action:type_name -> hub.v1.ServiceStakeActionV1
-	23, // 15: hub.v1.MsgStakeServiceResponse.active_bond:type_name -> shared.v1.Amount
-	22, // 16: hub.v1.MsgStakeServiceResponse.status:type_name -> shared.v1.MutationStatusV1
-	23, // 17: hub.v1.MsgBeginServiceUnstake.amount:type_name -> shared.v1.Amount
-	23, // 18: hub.v1.MsgBeginServiceUnstakeResponse.remaining_active_bond:type_name -> shared.v1.Amount
-	22, // 19: hub.v1.MsgBeginServiceUnstakeResponse.status:type_name -> shared.v1.MutationStatusV1
-	24, // 20: hub.v1.UnbondingLocatorV1.by_id:type_name -> shared.v1.ByIDV1
-	25, // 21: hub.v1.UnbondingLocatorV1.batch:type_name -> shared.v1.BatchV1
+	22, // 15: hub.v1.MsgStakeServiceResponse.active_bond:type_name -> shared.v1.Amount
+	21, // 16: hub.v1.MsgStakeServiceResponse.status:type_name -> shared.v1.MutationStatusV1
+	22, // 17: hub.v1.MsgBeginServiceUnstake.amount:type_name -> shared.v1.Amount
+	22, // 18: hub.v1.MsgBeginServiceUnstakeResponse.remaining_active_bond:type_name -> shared.v1.Amount
+	21, // 19: hub.v1.MsgBeginServiceUnstakeResponse.status:type_name -> shared.v1.MutationStatusV1
+	23, // 20: hub.v1.UnbondingLocatorV1.by_id:type_name -> shared.v1.ByIDV1
+	24, // 21: hub.v1.UnbondingLocatorV1.batch:type_name -> shared.v1.BatchV1
 	11, // 22: hub.v1.MsgWithdrawServiceUnbonded.locator:type_name -> hub.v1.UnbondingLocatorV1
-	23, // 23: hub.v1.MsgWithdrawServiceUnbondedResponse.withdrawn_amount:type_name -> shared.v1.Amount
-	22, // 24: hub.v1.MsgWithdrawServiceUnbondedResponse.status:type_name -> shared.v1.MutationStatusV1
-	22, // 25: hub.v1.MsgDeclareModelSupportResponse.status:type_name -> shared.v1.MutationStatusV1
-	16, // 26: hub.v1.ModelSupportConfirmationV1.supported_profiles:type_name -> hub.v1.ProfileKeyV1
-	17, // 27: hub.v1.MsgBatchConfirmModelSupport.confirmations:type_name -> hub.v1.ModelSupportConfirmationV1
-	22, // 28: hub.v1.MsgBatchConfirmModelSupportResponse.status:type_name -> shared.v1.MutationStatusV1
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	22, // 23: hub.v1.MsgWithdrawServiceUnbondedResponse.withdrawn_amount:type_name -> shared.v1.Amount
+	21, // 24: hub.v1.MsgWithdrawServiceUnbondedResponse.status:type_name -> shared.v1.MutationStatusV1
+	21, // 25: hub.v1.MsgDeclareModelSupportResponse.status:type_name -> shared.v1.MutationStatusV1
+	16, // 26: hub.v1.MsgBatchConfirmModelSupport.confirmations:type_name -> hub.v1.ModelSupportConfirmationV1
+	21, // 27: hub.v1.MsgBatchConfirmModelSupportResponse.status:type_name -> shared.v1.MutationStatusV1
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_msg_registry_proto_init() }
@@ -1571,7 +1505,7 @@ func file_hub_v1_msg_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_msg_registry_proto_rawDesc), len(file_hub_v1_msg_registry_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

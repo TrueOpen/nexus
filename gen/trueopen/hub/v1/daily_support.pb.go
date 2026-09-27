@@ -22,12 +22,12 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// DailySupportState is one operator/epoch support heartbeat row (data-structure contract 6.1).
+// DailySupportState is one operator/epoch support heartbeat row (wire storage model 6.1).
 type DailySupportState struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Epoch                 uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	OperatorAddress       string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	SupportedProfilesHash []byte                 `protobuf:"bytes,3,opt,name=supported_profiles_hash,json=supportedProfilesHash,proto3" json:"supported_profiles_hash,omitempty"`
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Epoch               uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	OperatorAddress     string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	SupportedModelsHash []byte                 `protobuf:"bytes,3,opt,name=supported_models_hash,json=supportedModelsHash,proto3" json:"supported_models_hash,omitempty"`
 	// SHA256(raw_signature_64), retained as a 32-byte audit/exact-replay fingerprint.
 	// The 64-byte signature was verified before initial live acceptance and is not retained.
 	// This digest is not authorization state and never enters a signing/business digest;
@@ -82,9 +82,9 @@ func (x *DailySupportState) GetOperatorAddress() string {
 	return ""
 }
 
-func (x *DailySupportState) GetSupportedProfilesHash() []byte {
+func (x *DailySupportState) GetSupportedModelsHash() []byte {
 	if x != nil {
-		return x.SupportedProfilesHash
+		return x.SupportedModelsHash
 	}
 	return nil
 }
@@ -103,12 +103,11 @@ func (x *DailySupportState) GetAcceptedHeight() uint64 {
 	return 0
 }
 
-// ProfileCapabilityState is one operator/profile declared capability row (6.1).
-type ProfileCapabilityState struct {
+// ModelCapabilityState is one operator/model declared capability row.
+type ModelCapabilityState struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress        string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ModelId                string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion         uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ModelId                []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	InferenceCapability    bool                   `protobuf:"varint,4,opt,name=inference_capability,json=inferenceCapability,proto3" json:"inference_capability,omitempty"`
 	VerificationCapability bool                   `protobuf:"varint,5,opt,name=verification_capability,json=verificationCapability,proto3" json:"verification_capability,omitempty"`
 	CapabilityVersion      uint64                 `protobuf:"varint,6,opt,name=capability_version,json=capabilityVersion,proto3" json:"capability_version,omitempty"`
@@ -116,20 +115,20 @@ type ProfileCapabilityState struct {
 	sizeCache              protoimpl.SizeCache
 }
 
-func (x *ProfileCapabilityState) Reset() {
-	*x = ProfileCapabilityState{}
+func (x *ModelCapabilityState) Reset() {
+	*x = ModelCapabilityState{}
 	mi := &file_hub_v1_daily_support_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProfileCapabilityState) String() string {
+func (x *ModelCapabilityState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProfileCapabilityState) ProtoMessage() {}
+func (*ModelCapabilityState) ProtoMessage() {}
 
-func (x *ProfileCapabilityState) ProtoReflect() protoreflect.Message {
+func (x *ModelCapabilityState) ProtoReflect() protoreflect.Message {
 	mi := &file_hub_v1_daily_support_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -141,90 +140,75 @@ func (x *ProfileCapabilityState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProfileCapabilityState.ProtoReflect.Descriptor instead.
-func (*ProfileCapabilityState) Descriptor() ([]byte, []int) {
+// Deprecated: Use ModelCapabilityState.ProtoReflect.Descriptor instead.
+func (*ModelCapabilityState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_daily_support_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ProfileCapabilityState) GetOperatorAddress() string {
+func (x *ModelCapabilityState) GetOperatorAddress() string {
 	if x != nil {
 		return x.OperatorAddress
 	}
 	return ""
 }
 
-func (x *ProfileCapabilityState) GetModelId() string {
+func (x *ModelCapabilityState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
-func (x *ProfileCapabilityState) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
-}
-
-func (x *ProfileCapabilityState) GetInferenceCapability() bool {
+func (x *ModelCapabilityState) GetInferenceCapability() bool {
 	if x != nil {
 		return x.InferenceCapability
 	}
 	return false
 }
 
-func (x *ProfileCapabilityState) GetVerificationCapability() bool {
+func (x *ModelCapabilityState) GetVerificationCapability() bool {
 	if x != nil {
 		return x.VerificationCapability
 	}
 	return false
 }
 
-func (x *ProfileCapabilityState) GetCapabilityVersion() uint64 {
+func (x *ModelCapabilityState) GetCapabilityVersion() uint64 {
 	if x != nil {
 		return x.CapabilityVersion
 	}
 	return 0
 }
 
-// SupportDeactivateCursorState makes profile-wide support deactivation bounded.
-// MsgSetProfileStatus / MsgSetModelStatus no longer walk every supporter inside
-// the handler; they enqueue exactly one cursor row per affected profile and the
-// EndBlock processor resumes from last_operator_address under the global visited
-// budget (: every visited row, including stale ones, costs
-// one unit).
-//
-// reason carries the existing ModelSupportDeactivate* value so the EndBlock
-// processor can call the same DeactivateModelSupport path as the synchronous
-// bond/jail callers, with no second reason vocabulary.
-// SupportDeactivateCursorState defines the SupportDeactivateCursorState wire type.
-type SupportDeactivateCursorState struct {
+// ModelSupportRecheckCursorState resumes a bounded model support threshold
+// recheck after the threshold changes.
+type ModelSupportRecheckCursorState struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	ModelId             string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion      uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	Reason              string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
-	LastOperatorAddress string                 `protobuf:"bytes,4,opt,name=last_operator_address,json=lastOperatorAddress,proto3" json:"last_operator_address,omitempty"`
-	VisitedCount        uint64                 `protobuf:"varint,5,opt,name=visited_count,json=visitedCount,proto3" json:"visited_count,omitempty"`
-	EnqueuedHeight      uint64                 `protobuf:"varint,6,opt,name=enqueued_height,json=enqueuedHeight,proto3" json:"enqueued_height,omitempty"`
+	ModelId             []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	EffectiveHeight     uint64                 `protobuf:"varint,2,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
+	LastOperatorAddress string                 `protobuf:"bytes,3,opt,name=last_operator_address,json=lastOperatorAddress,proto3" json:"last_operator_address,omitempty"`
+	VisitedCount        uint64                 `protobuf:"varint,4,opt,name=visited_count,json=visitedCount,proto3" json:"visited_count,omitempty"`
+	SuspendedCount      uint64                 `protobuf:"varint,5,opt,name=suspended_count,json=suspendedCount,proto3" json:"suspended_count,omitempty"`
+	RestoredCount       uint64                 `protobuf:"varint,6,opt,name=restored_count,json=restoredCount,proto3" json:"restored_count,omitempty"`
+	MinStakeLowered     bool                   `protobuf:"varint,7,opt,name=min_stake_lowered,json=minStakeLowered,proto3" json:"min_stake_lowered,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
-func (x *SupportDeactivateCursorState) Reset() {
-	*x = SupportDeactivateCursorState{}
+func (x *ModelSupportRecheckCursorState) Reset() {
+	*x = ModelSupportRecheckCursorState{}
 	mi := &file_hub_v1_daily_support_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SupportDeactivateCursorState) String() string {
+func (x *ModelSupportRecheckCursorState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SupportDeactivateCursorState) ProtoMessage() {}
+func (*ModelSupportRecheckCursorState) ProtoMessage() {}
 
-func (x *SupportDeactivateCursorState) ProtoReflect() protoreflect.Message {
+func (x *ModelSupportRecheckCursorState) ProtoReflect() protoreflect.Message {
 	mi := &file_hub_v1_daily_support_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -236,59 +220,65 @@ func (x *SupportDeactivateCursorState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SupportDeactivateCursorState.ProtoReflect.Descriptor instead.
-func (*SupportDeactivateCursorState) Descriptor() ([]byte, []int) {
+// Deprecated: Use ModelSupportRecheckCursorState.ProtoReflect.Descriptor instead.
+func (*ModelSupportRecheckCursorState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_daily_support_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SupportDeactivateCursorState) GetModelId() string {
+func (x *ModelSupportRecheckCursorState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
-func (x *SupportDeactivateCursorState) GetProfileVersion() uint32 {
+func (x *ModelSupportRecheckCursorState) GetEffectiveHeight() uint64 {
 	if x != nil {
-		return x.ProfileVersion
+		return x.EffectiveHeight
 	}
 	return 0
 }
 
-func (x *SupportDeactivateCursorState) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *SupportDeactivateCursorState) GetLastOperatorAddress() string {
+func (x *ModelSupportRecheckCursorState) GetLastOperatorAddress() string {
 	if x != nil {
 		return x.LastOperatorAddress
 	}
 	return ""
 }
 
-func (x *SupportDeactivateCursorState) GetVisitedCount() uint64 {
+func (x *ModelSupportRecheckCursorState) GetVisitedCount() uint64 {
 	if x != nil {
 		return x.VisitedCount
 	}
 	return 0
 }
 
-func (x *SupportDeactivateCursorState) GetEnqueuedHeight() uint64 {
+func (x *ModelSupportRecheckCursorState) GetSuspendedCount() uint64 {
 	if x != nil {
-		return x.EnqueuedHeight
+		return x.SuspendedCount
 	}
 	return 0
 }
 
-// ModelSupportState is the single roleless operator/profile support row (6.1); it carries no duty selector.
+func (x *ModelSupportRecheckCursorState) GetRestoredCount() uint64 {
+	if x != nil {
+		return x.RestoredCount
+	}
+	return 0
+}
+
+func (x *ModelSupportRecheckCursorState) GetMinStakeLowered() bool {
+	if x != nil {
+		return x.MinStakeLowered
+	}
+	return false
+}
+
+// ModelSupportState is the single operator/model support row.
 type ModelSupportState struct {
 	state                  protoimpl.MessageState     `protogen:"open.v1"`
 	OperatorAddress        string                     `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ModelId                string                     `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion         uint32                     `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ModelId                []byte                     `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	DeclaredSupport        bool                       `protobuf:"varint,4,opt,name=declared_support,json=declaredSupport,proto3" json:"declared_support,omitempty"`
 	SupportActive          bool                       `protobuf:"varint,5,opt,name=support_active,json=supportActive,proto3" json:"support_active,omitempty"`
 	ActivationKind         ModelSupportActivationKind `protobuf:"varint,6,opt,name=activation_kind,json=activationKind,proto3,enum=hub.v1.ModelSupportActivationKind" json:"activation_kind,omitempty"`
@@ -303,15 +293,16 @@ type ModelSupportState struct {
 	//
 	//	*ModelSupportState_P30CutoffEpoch
 	//	*ModelSupportState_P30Bootstrap
-	P30Source                    isModelSupportState_P30Source `protobuf_oneof:"p30_source"`
-	SupportFreshUntilEpoch       uint64                        `protobuf:"varint,11,opt,name=support_fresh_until_epoch,json=supportFreshUntilEpoch,proto3" json:"support_fresh_until_epoch,omitempty"`
-	LastRefreshTaskId            []byte                        `protobuf:"bytes,12,opt,name=last_refresh_task_id,json=lastRefreshTaskId,proto3" json:"last_refresh_task_id,omitempty"`
-	LastRefreshHeight            uint64                        `protobuf:"varint,13,opt,name=last_refresh_height,json=lastRefreshHeight,proto3" json:"last_refresh_height,omitempty"`
-	ActiveSupportStakeSnapshot   uint64                        `protobuf:"varint,14,opt,name=active_support_stake_snapshot,json=activeSupportStakeSnapshot,proto3" json:"active_support_stake_snapshot,omitempty"`
-	EligibleSupportStakeSnapshot uint64                        `protobuf:"varint,15,opt,name=eligible_support_stake_snapshot,json=eligibleSupportStakeSnapshot,proto3" json:"eligible_support_stake_snapshot,omitempty"`
-	SupportVersion               uint64                        `protobuf:"varint,16,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	P30Source                  isModelSupportState_P30Source `protobuf_oneof:"p30_source"`
+	SupportFreshUntilEpoch     uint64                        `protobuf:"varint,11,opt,name=support_fresh_until_epoch,json=supportFreshUntilEpoch,proto3" json:"support_fresh_until_epoch,omitempty"`
+	LastRefreshTaskId          []byte                        `protobuf:"bytes,12,opt,name=last_refresh_task_id,json=lastRefreshTaskId,proto3" json:"last_refresh_task_id,omitempty"`
+	LastRefreshHeight          uint64                        `protobuf:"varint,13,opt,name=last_refresh_height,json=lastRefreshHeight,proto3" json:"last_refresh_height,omitempty"`
+	ActiveSupportStakeSnapshot uint64                        `protobuf:"varint,14,opt,name=active_support_stake_snapshot,json=activeSupportStakeSnapshot,proto3" json:"active_support_stake_snapshot,omitempty"`
+	SupportVersion             uint64                        `protobuf:"varint,16,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
+	FirstSupportProfileVersion uint32                        `protobuf:"varint,18,opt,name=first_support_profile_version,json=firstSupportProfileVersion,proto3" json:"first_support_profile_version,omitempty"`
+	SuspendReason              ModelSupportSuspendReason     `protobuf:"varint,19,opt,name=suspend_reason,json=suspendReason,proto3,enum=hub.v1.ModelSupportSuspendReason" json:"suspend_reason,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *ModelSupportState) Reset() {
@@ -351,18 +342,11 @@ func (x *ModelSupportState) GetOperatorAddress() string {
 	return ""
 }
 
-func (x *ModelSupportState) GetModelId() string {
+func (x *ModelSupportState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
-}
-
-func (x *ModelSupportState) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
+	return nil
 }
 
 func (x *ModelSupportState) GetDeclaredSupport() bool {
@@ -460,18 +444,25 @@ func (x *ModelSupportState) GetActiveSupportStakeSnapshot() uint64 {
 	return 0
 }
 
-func (x *ModelSupportState) GetEligibleSupportStakeSnapshot() uint64 {
-	if x != nil {
-		return x.EligibleSupportStakeSnapshot
-	}
-	return 0
-}
-
 func (x *ModelSupportState) GetSupportVersion() uint64 {
 	if x != nil {
 		return x.SupportVersion
 	}
 	return 0
+}
+
+func (x *ModelSupportState) GetFirstSupportProfileVersion() uint32 {
+	if x != nil {
+		return x.FirstSupportProfileVersion
+	}
+	return 0
+}
+
+func (x *ModelSupportState) GetSuspendReason() ModelSupportSuspendReason {
+	if x != nil {
+		return x.SuspendReason
+	}
+	return ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED
 }
 
 type isModelSupportState_P30Source interface {
@@ -494,31 +485,30 @@ var File_hub_v1_daily_support_proto protoreflect.FileDescriptor
 
 const file_hub_v1_daily_support_proto_rawDesc = "" +
 	"\n" +
-	"\x1ahub/v1/daily_support.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\"\xe0\x01\n" +
+	"\x1ahub/v1/daily_support.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\"\xdc\x01\n" +
 	"\x11DailySupportState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12)\n" +
-	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x126\n" +
-	"\x17supported_profiles_hash\x18\x03 \x01(\fR\x15supportedProfilesHash\x12)\n" +
+	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x122\n" +
+	"\x15supported_models_hash\x18\x03 \x01(\fR\x13supportedModelsHash\x12)\n" +
 	"\x10signature_digest\x18\x04 \x01(\fR\x0fsignatureDigest\x12'\n" +
-	"\x0faccepted_height\x18\x05 \x01(\x04R\x0eacceptedHeight\"\xa2\x02\n" +
-	"\x16ProfileCapabilityState\x12)\n" +
+	"\x0faccepted_height\x18\x05 \x01(\x04R\x0eacceptedHeight\"\xf7\x01\n" +
+	"\x14ModelCapabilityState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x121\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x121\n" +
 	"\x14inference_capability\x18\x04 \x01(\bR\x13inferenceCapability\x127\n" +
 	"\x17verification_capability\x18\x05 \x01(\bR\x16verificationCapability\x12-\n" +
-	"\x12capability_version\x18\x06 \x01(\x04R\x11capabilityVersion\"\xfc\x01\n" +
-	"\x1cSupportDeactivateCursorState\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\x122\n" +
-	"\x15last_operator_address\x18\x04 \x01(\tR\x13lastOperatorAddress\x12#\n" +
-	"\rvisited_count\x18\x05 \x01(\x04R\fvisitedCount\x12'\n" +
-	"\x0fenqueued_height\x18\x06 \x01(\x04R\x0eenqueuedHeight\"\x84\a\n" +
+	"\x12capability_version\x18\x06 \x01(\x04R\x11capabilityVersion\"\xbb\x02\n" +
+	"\x1eModelSupportRecheckCursorState\x12\x19\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12)\n" +
+	"\x10effective_height\x18\x02 \x01(\x04R\x0feffectiveHeight\x122\n" +
+	"\x15last_operator_address\x18\x03 \x01(\tR\x13lastOperatorAddress\x12#\n" +
+	"\rvisited_count\x18\x04 \x01(\x04R\fvisitedCount\x12'\n" +
+	"\x0fsuspended_count\x18\x05 \x01(\x04R\x0esuspendedCount\x12%\n" +
+	"\x0erestored_count\x18\x06 \x01(\x04R\rrestoredCount\x12*\n" +
+	"\x11min_stake_lowered\x18\a \x01(\bR\x0fminStakeLowered\"\xa1\a\n" +
 	"\x11ModelSupportState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12)\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12)\n" +
 	"\x10declared_support\x18\x04 \x01(\bR\x0fdeclaredSupport\x12%\n" +
 	"\x0esupport_active\x18\x05 \x01(\bR\rsupportActive\x12K\n" +
 	"\x0factivation_kind\x18\x06 \x01(\x0e2\".hub.v1.ModelSupportActivationKindR\x0eactivationKind\x12C\n" +
@@ -531,9 +521,10 @@ const file_hub_v1_daily_support_proto_rawDesc = "" +
 	"\x19support_fresh_until_epoch\x18\v \x01(\x04R\x16supportFreshUntilEpoch\x12/\n" +
 	"\x14last_refresh_task_id\x18\f \x01(\fR\x11lastRefreshTaskId\x12.\n" +
 	"\x13last_refresh_height\x18\r \x01(\x04R\x11lastRefreshHeight\x12A\n" +
-	"\x1dactive_support_stake_snapshot\x18\x0e \x01(\x04R\x1aactiveSupportStakeSnapshot\x12E\n" +
-	"\x1feligible_support_stake_snapshot\x18\x0f \x01(\x04R\x1celigibleSupportStakeSnapshot\x12'\n" +
-	"\x0fsupport_version\x18\x10 \x01(\x04R\x0esupportVersionB\f\n" +
+	"\x1dactive_support_stake_snapshot\x18\x0e \x01(\x04R\x1aactiveSupportStakeSnapshot\x12'\n" +
+	"\x0fsupport_version\x18\x10 \x01(\x04R\x0esupportVersion\x12A\n" +
+	"\x1dfirst_support_profile_version\x18\x12 \x01(\rR\x1afirstSupportProfileVersion\x12H\n" +
+	"\x0esuspend_reason\x18\x13 \x01(\x0e2!.hub.v1.ModelSupportSuspendReasonR\rsuspendReasonB\f\n" +
 	"\n" +
 	"p30_sourceB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
@@ -551,21 +542,23 @@ func file_hub_v1_daily_support_proto_rawDescGZIP() []byte {
 
 var file_hub_v1_daily_support_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_hub_v1_daily_support_proto_goTypes = []any{
-	(*DailySupportState)(nil),            // 0: hub.v1.DailySupportState
-	(*ProfileCapabilityState)(nil),       // 1: hub.v1.ProfileCapabilityState
-	(*SupportDeactivateCursorState)(nil), // 2: hub.v1.SupportDeactivateCursorState
-	(*ModelSupportState)(nil),            // 3: hub.v1.ModelSupportState
-	(ModelSupportActivationKind)(0),      // 4: hub.v1.ModelSupportActivationKind
-	(v1.Duty)(0),                         // 5: shared.v1.Duty
+	(*DailySupportState)(nil),              // 0: hub.v1.DailySupportState
+	(*ModelCapabilityState)(nil),           // 1: hub.v1.ModelCapabilityState
+	(*ModelSupportRecheckCursorState)(nil), // 2: hub.v1.ModelSupportRecheckCursorState
+	(*ModelSupportState)(nil),              // 3: hub.v1.ModelSupportState
+	(ModelSupportActivationKind)(0),        // 4: hub.v1.ModelSupportActivationKind
+	(v1.Duty)(0),                           // 5: shared.v1.Duty
+	(ModelSupportSuspendReason)(0),         // 6: hub.v1.ModelSupportSuspendReason
 }
 var file_hub_v1_daily_support_proto_depIdxs = []int32{
 	4, // 0: hub.v1.ModelSupportState.activation_kind:type_name -> hub.v1.ModelSupportActivationKind
 	5, // 1: hub.v1.ModelSupportState.first_activation_duty:type_name -> shared.v1.Duty
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	6, // 2: hub.v1.ModelSupportState.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_daily_support_proto_init() }

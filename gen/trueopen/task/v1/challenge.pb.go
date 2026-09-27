@@ -628,22 +628,23 @@ func (x *RoundEconomicEffectApplyCursorState) GetEffectPoolBalance() *v1.Amount 
 // exactly 32 zero bytes only when the corresponding round does not exist.
 // TaskRoundSummaryState defines the TaskRoundSummaryState wire type.
 type TaskRoundSummaryState struct {
-	state                       protoimpl.MessageState `protogen:"open.v1"`
-	TaskId                      []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	MaxClosedRound              uint32                 `protobuf:"varint,2,opt,name=max_closed_round,json=maxClosedRound,proto3" json:"max_closed_round,omitempty"`
-	OpenRoundCount              uint32                 `protobuf:"varint,3,opt,name=open_round_count,json=openRoundCount,proto3" json:"open_round_count,omitempty"`
-	EffectiveVerifyRound        uint32                 `protobuf:"varint,4,opt,name=effective_verify_round,json=effectiveVerifyRound,proto3" json:"effective_verify_round,omitempty"`
-	ChallengeOpenHeight         *uint64                `protobuf:"varint,5,opt,name=challenge_open_height,json=challengeOpenHeight,proto3,oneof" json:"challenge_open_height,omitempty"`
-	ChallengeCloseHeight        *uint64                `protobuf:"varint,6,opt,name=challenge_close_height,json=challengeCloseHeight,proto3,oneof" json:"challenge_close_height,omitempty"`
-	RoundsClosedHeight          *uint64                `protobuf:"varint,7,opt,name=rounds_closed_height,json=roundsClosedHeight,proto3,oneof" json:"rounds_closed_height,omitempty"`
-	SettlementFactsCutoffHeight *uint64                `protobuf:"varint,8,opt,name=settlement_facts_cutoff_height,json=settlementFactsCutoffHeight,proto3,oneof" json:"settlement_facts_cutoff_height,omitempty"`
-	Round1FactsHashOrZero32     []byte                 `protobuf:"bytes,9,opt,name=round1_facts_hash_or_zero32,json=round1FactsHashOrZero32,proto3" json:"round1_facts_hash_or_zero32,omitempty"`
-	Round2FactsHashOrZero32     []byte                 `protobuf:"bytes,10,opt,name=round2_facts_hash_or_zero32,json=round2FactsHashOrZero32,proto3" json:"round2_facts_hash_or_zero32,omitempty"`
-	Round2Outcome               *v1.RoundOutcomeV1     `protobuf:"varint,11,opt,name=round2_outcome,json=round2Outcome,proto3,enum=shared.v1.RoundOutcomeV1,oneof" json:"round2_outcome,omitempty"`
-	Round2EffectRootOrZero32    []byte                 `protobuf:"bytes,12,opt,name=round2_effect_root_or_zero32,json=round2EffectRootOrZero32,proto3" json:"round2_effect_root_or_zero32,omitempty"`
-	TaskRoundSummaryHash        []byte                 `protobuf:"bytes,13,opt,name=task_round_summary_hash,json=taskRoundSummaryHash,proto3,oneof" json:"task_round_summary_hash,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	state                            protoimpl.MessageState `protogen:"open.v1"`
+	TaskId                           []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	MaxClosedRound                   uint32                 `protobuf:"varint,2,opt,name=max_closed_round,json=maxClosedRound,proto3" json:"max_closed_round,omitempty"`
+	OpenRoundCount                   uint32                 `protobuf:"varint,3,opt,name=open_round_count,json=openRoundCount,proto3" json:"open_round_count,omitempty"`
+	EffectiveVerifyRound             uint32                 `protobuf:"varint,4,opt,name=effective_verify_round,json=effectiveVerifyRound,proto3" json:"effective_verify_round,omitempty"`
+	ChallengeOpenHeight              *uint64                `protobuf:"varint,5,opt,name=challenge_open_height,json=challengeOpenHeight,proto3,oneof" json:"challenge_open_height,omitempty"`
+	ChallengeCloseHeight             *uint64                `protobuf:"varint,6,opt,name=challenge_close_height,json=challengeCloseHeight,proto3,oneof" json:"challenge_close_height,omitempty"`
+	RoundsClosedHeight               *uint64                `protobuf:"varint,7,opt,name=rounds_closed_height,json=roundsClosedHeight,proto3,oneof" json:"rounds_closed_height,omitempty"`
+	SettlementFactsCutoffHeight      *uint64                `protobuf:"varint,8,opt,name=settlement_facts_cutoff_height,json=settlementFactsCutoffHeight,proto3,oneof" json:"settlement_facts_cutoff_height,omitempty"`
+	Round1FactsHashOrZero32          []byte                 `protobuf:"bytes,9,opt,name=round1_facts_hash_or_zero32,json=round1FactsHashOrZero32,proto3" json:"round1_facts_hash_or_zero32,omitempty"`
+	Round2FactsHashOrZero32          []byte                 `protobuf:"bytes,10,opt,name=round2_facts_hash_or_zero32,json=round2FactsHashOrZero32,proto3" json:"round2_facts_hash_or_zero32,omitempty"`
+	Round2Outcome                    *v1.RoundOutcomeV1     `protobuf:"varint,11,opt,name=round2_outcome,json=round2Outcome,proto3,enum=shared.v1.RoundOutcomeV1,oneof" json:"round2_outcome,omitempty"`
+	Round2EffectRootOrZero32         []byte                 `protobuf:"bytes,12,opt,name=round2_effect_root_or_zero32,json=round2EffectRootOrZero32,proto3" json:"round2_effect_root_or_zero32,omitempty"`
+	TaskRoundSummaryHash             []byte                 `protobuf:"bytes,13,opt,name=task_round_summary_hash,json=taskRoundSummaryHash,proto3,oneof" json:"task_round_summary_hash,omitempty"`
+	VerifierValueEvidenceCloseHeight *uint64                `protobuf:"varint,14,opt,name=verifier_value_evidence_close_height,json=verifierValueEvidenceCloseHeight,proto3,oneof" json:"verifier_value_evidence_close_height,omitempty"`
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *TaskRoundSummaryState) Reset() {
@@ -767,6 +768,13 @@ func (x *TaskRoundSummaryState) GetTaskRoundSummaryHash() []byte {
 	return nil
 }
 
+func (x *TaskRoundSummaryState) GetVerifierValueEvidenceCloseHeight() uint64 {
+	if x != nil && x.VerifierValueEvidenceCloseHeight != nil {
+		return *x.VerifierValueEvidenceCloseHeight
+	}
+	return 0
+}
+
 var File_task_v1_challenge_proto protoreflect.FileDescriptor
 
 const file_task_v1_challenge_proto_rawDesc = "" +
@@ -856,7 +864,7 @@ const file_task_v1_challenge_proto_rawDesc = "" +
 	"\x11next_apply_height\x18\x04 \x01(\x04R\x0fnextApplyHeight\x12#\n" +
 	"\rvisited_count\x18\x05 \x01(\x04R\fvisitedCount\x12#\n" +
 	"\rapplied_count\x18\x06 \x01(\x04R\fappliedCount\x12A\n" +
-	"\x13effect_pool_balance\x18\a \x01(\v2\x11.shared.v1.AmountR\x11effectPoolBalance\"\x8e\a\n" +
+	"\x13effect_pool_balance\x18\a \x01(\v2\x11.shared.v1.AmountR\x11effectPoolBalance\"\x8c\b\n" +
 	"\x15TaskRoundSummaryState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12(\n" +
 	"\x10max_closed_round\x18\x02 \x01(\rR\x0emaxClosedRound\x12(\n" +
@@ -871,13 +879,15 @@ const file_task_v1_challenge_proto_rawDesc = "" +
 	" \x01(\fR\x17round2FactsHashOrZero32\x12E\n" +
 	"\x0eround2_outcome\x18\v \x01(\x0e2\x19.shared.v1.RoundOutcomeV1H\x04R\rround2Outcome\x88\x01\x01\x12>\n" +
 	"\x1cround2_effect_root_or_zero32\x18\f \x01(\fR\x18round2EffectRootOrZero32\x12:\n" +
-	"\x17task_round_summary_hash\x18\r \x01(\fH\x05R\x14taskRoundSummaryHash\x88\x01\x01B\x18\n" +
+	"\x17task_round_summary_hash\x18\r \x01(\fH\x05R\x14taskRoundSummaryHash\x88\x01\x01\x12S\n" +
+	"$verifier_value_evidence_close_height\x18\x0e \x01(\x04H\x06R verifierValueEvidenceCloseHeight\x88\x01\x01B\x18\n" +
 	"\x16_challenge_open_heightB\x19\n" +
 	"\x17_challenge_close_heightB\x17\n" +
 	"\x15_rounds_closed_heightB!\n" +
 	"\x1f_settlement_facts_cutoff_heightB\x11\n" +
 	"\x0f_round2_outcomeB\x1a\n" +
-	"\x18_task_round_summary_hashB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x18_task_round_summary_hashB'\n" +
+	"%_verifier_value_evidence_close_heightB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_challenge_proto_rawDescOnce sync.Once

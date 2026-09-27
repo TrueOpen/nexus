@@ -45,7 +45,7 @@ func compactedSnapshot(state types.TaskState) chaincli.OnChainTask {
 func baseSnapshot(state types.TaskState, phase types.TaskPhase) taskSnapshot {
 	return taskSnapshot{
 		Version: 2, SessionID: "session-1", TaskID: "task-1",
-		ModelID: "model", PayloadCID: "cid", State: state, Phase: phase,
+		ModelID: testModelIDHex, PayloadCID: "cid", State: state, Phase: phase,
 	}
 }
 

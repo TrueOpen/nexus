@@ -89,12 +89,9 @@ func (CandidatePoolSnapshotStatus) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_candidate_pool_proto_rawDescGZIP(), []int{0}
 }
 
-// CandidateSlotStatus is the stable slot lifecycle of data_structure_contract §3.2.
+// CandidateSlotStatus is the stable slot lifecycle of the public storage contract.
 //
-// CONTRACT-GAP: §3.2 names the three values and their order but §9.6b does not
-// register the enum, so the numbers below are derived from that listing order
-// with the mandatory UNSPECIFIED=0. They must be confirmed when §9.6b is
-// extended; no value is invented beyond the contract listing.
+// UNSPECIFIED=0 and the three nonzero lifecycle values are frozen here.
 // CandidateSlotStatus defines the CandidateSlotStatus wire type.
 type CandidateSlotStatus int32
 
@@ -156,10 +153,9 @@ func (CandidateSlotStatus) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_candidate_pool_proto_rawDescGZIP(), []int{1}
 }
 
-// CandidatePoolBuildCursorStatus is the bounded build cursor state of §3.2/§3.4.
+// CandidatePoolBuildCursorStatus is the bounded build cursor state of this contract.
 //
-// CONTRACT-GAP: value names and order come from §3.2; §9.6b does not register
-// the enum, so the numbers are derived from that listing order.
+// The two nonzero cursor states are frozen in build order.
 // CandidatePoolBuildCursorStatus defines the CandidatePoolBuildCursorStatus wire type.
 type CandidatePoolBuildCursorStatus int32
 
@@ -216,10 +212,9 @@ func (CandidatePoolBuildCursorStatus) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_candidate_pool_proto_rawDescGZIP(), []int{2}
 }
 
-// CandidatePoolBuildStatus is the singleton build diagnosis of §3.2/§3.4.
+// CandidatePoolBuildStatus is the singleton build diagnosis of this contract.
 //
-// CONTRACT-GAP: value names and order come from §3.2; §9.6b does not register
-// the enum, so the numbers are derived from that listing order.
+// The four nonzero build states are frozen in lifecycle order.
 // CandidatePoolBuildStatus defines the CandidatePoolBuildStatus wire type.
 type CandidatePoolBuildStatus int32
 
@@ -288,8 +283,7 @@ func (CandidatePoolBuildStatus) EnumDescriptor() ([]byte, []int) {
 
 // CandidatePoolBuildFailureReason explains a FAILED build without free text.
 //
-// §9.6b registers a reason enum or field type. The two values below are those
-// two prose modes; nothing else is invented. Confirm before mainnet.
+// The two nonzero values distinguish capacity exhaustion from an unusable window.
 // CandidatePoolBuildFailureReason defines the CandidatePoolBuildFailureReason wire type.
 type CandidatePoolBuildFailureReason int32
 
@@ -347,10 +341,10 @@ func (CandidatePoolBuildFailureReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // CandidatePoolPrunePhase is the phase component of the CandidatePoolPruneIndex
-// key (§3.2). The index itself is key-only and is rebuilt from primaries at
+// key. The index itself is key-only and is rebuilt from primaries at
 // genesis, so no value message exists; this enum is its canonical key codec.
 //
-// CONTRACT-GAP: §3.2 names BODY / HEADER; §9.6b does not register the enum.
+// BODY and HEADER are the only nonzero prune phases.
 // CandidatePoolPrunePhase defines the CandidatePoolPrunePhase wire type.
 type CandidatePoolPrunePhase int32
 
@@ -408,10 +402,9 @@ func (CandidatePoolPrunePhase) EnumDescriptor() ([]byte, []int) {
 }
 
 // CandidatePoolTaskRefStatus is the single acquired state of the per-task
-// snapshot reference (§3.2/§3.3).
+// snapshot reference.
 //
-// CONTRACT-GAP: §3.2 fixes the row to `status = ACQUIRED`; §9.6b does not
-// register the enum.
+// ACQUIRED is the only nonzero reference status.
 // CandidatePoolTaskRefStatus defines the CandidatePoolTaskRefStatus wire type.
 type CandidatePoolTaskRefStatus int32
 
@@ -464,9 +457,9 @@ func (CandidatePoolTaskRefStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // CandidateSlotCurrentState is the current binding of one stable global slot
-// (data_structure_contract §3.2, key = slot). Eligibility (profile, duty, bond, support,
+// (the public storage contract, key = slot). Eligibility (profile, duty, bond, support,
 // jail, capability) is NOT pre-judged here; it is checked and frozen when a Task
-// accepts a handraise (§3.3 / api_contract §4.1).
+// accepts a handraise.
 // CandidateSlotCurrentState defines the CandidateSlotCurrentState wire type.
 type CandidateSlotCurrentState struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -569,9 +562,9 @@ func (x *CandidateSlotCurrentState) GetActiveTaskRefs() uint32 {
 }
 
 // CandidateSlotBindingState is the immutable (slot, slot_version) identity
-// history (§3.2, key = (slot, slot_version)). snapshot_ref_count counts each
+// history (key = (slot, slot_version)). snapshot_ref_count counts each
 // READY/ACTIVE/EXPIRED snapshot body that still references this binding; the
-// safe-reuse release rule is §3.3.
+// contract defines the safe-reuse release rule.
 // CandidateSlotBindingState defines the CandidateSlotBindingState wire type.
 type CandidateSlotBindingState struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -666,7 +659,7 @@ func (x *CandidateSlotBindingState) GetBindingHash() []byte {
 }
 
 // OperatorCandidateSlotState is the only reverse index of
-// CandidateSlotCurrentState (§3.2/§3.3, key = operator_address). Genesis
+// CandidateSlotCurrentState (key = operator_address). Genesis
 // rebuilds it from the primary and validates both directions.
 // OperatorCandidateSlotState defines the OperatorCandidateSlotState wire type.
 type OperatorCandidateSlotState struct {
@@ -729,9 +722,9 @@ func (x *OperatorCandidateSlotState) GetSlotVersion() uint64 {
 	return 0
 }
 
-// CandidatePoolSnapshotState is one epoch's global pool header (§3.2, key =
+// CandidatePoolSnapshotState is one epoch's global pool header (this contract, key =
 // snapshot_id). There is exactly one pool per epoch shared by all profiles and
-// duties; hash preimages are api_contract §3.5. expires_height is exclusive.
+// duties; hash preimages are the wire API. expires_height is exclusive.
 // CandidatePoolSnapshotState defines the CandidatePoolSnapshotState wire type.
 type CandidatePoolSnapshotState struct {
 	state            protoimpl.MessageState      `protogen:"open.v1"`
@@ -899,9 +892,9 @@ func (x *CandidatePoolSnapshotState) GetPrunedHeight() uint64 {
 }
 
 // CandidatePoolActiveSegmentState is one fixed-width bitmap segment of an epoch
-// pool (§3.2, key = (epoch, segment_index)). bitmap length is exactly
+// pool (key = (epoch, segment_index)). bitmap length is exactly
 // candidate_bitmap_segment_bytes; missing segments read as all-zero bytes of the
-// same length (api_contract §3.1).
+// same length (the wire API).
 // CandidatePoolActiveSegmentState defines the CandidatePoolActiveSegmentState wire type.
 type CandidatePoolActiveSegmentState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -972,7 +965,7 @@ func (x *CandidatePoolActiveSegmentState) GetSegmentHash() []byte {
 }
 
 // CandidatePoolMemberState resolves one active slot of an epoch pool to its
-// immutable binding (§3.2, key = (epoch, slot)). The bitmap carries no identity;
+// immutable binding (key = (epoch, slot)). The bitmap carries no identity;
 // a full member reference is snapshot_id + pool_hash + slot + slot_version +
 // operator_address.
 // CandidatePoolMemberState defines the CandidatePoolMemberState wire type.
@@ -1052,7 +1045,7 @@ func (x *CandidatePoolMemberState) GetBindingHash() []byte {
 	return nil
 }
 
-// CandidatePoolBuildCursorState is the bounded automatic build cursor (§3.2/§3.4,
+// CandidatePoolBuildCursorState is the bounded automatic build cursor (this contract,
 // key = target_epoch). visited_count counts every visited slot/draft row,
 // including stale ones; there is no permissionless publish Msg.
 // CandidatePoolBuildCursorState defines the CandidatePoolBuildCursorState wire type.
@@ -1165,7 +1158,7 @@ func (x *CandidatePoolBuildCursorState) GetFailureReason() CandidatePoolBuildFai
 	return CandidatePoolBuildFailureReason_CANDIDATE_POOL_BUILD_FAILURE_REASON_UNSPECIFIED
 }
 
-// CandidatePoolBuildStatusState is the singleton build diagnosis (§3.2/§3.4). A
+// CandidatePoolBuildStatusState is the singleton build diagnosis. A
 // new build overwrites it; failed builds never append history rows.
 // CandidatePoolBuildStatusState defines the CandidatePoolBuildStatusState wire type.
 type CandidatePoolBuildStatusState struct {
@@ -1253,8 +1246,8 @@ func (x *CandidatePoolBuildStatusState) GetFailureReason() CandidatePoolBuildFai
 }
 
 // CurrentCandidatePoolState is the singleton pointer to the unique ACTIVE
-// snapshot (§3.2). It must never point at EXPIRED, PRUNED or body-less
-// snapshots (§3.4).
+// snapshot. It must never point at EXPIRED, PRUNED or body-less
+// snapshots.
 // CurrentCandidatePoolState defines the CurrentCandidatePoolState wire type.
 type CurrentCandidatePoolState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1317,7 +1310,7 @@ func (x *CurrentCandidatePoolState) GetPoolHash() []byte {
 }
 
 // CandidatePoolTaskRefState is the idempotent per-task snapshot reference
-// (§3.2/§3.3, key = (task_id, snapshot_id)). It is created when the first legal
+// (key = (task_id, snapshot_id)). It is created when the first legal
 // Worker proposal is accepted and released exactly once by task cleanup, guarded
 // by TaskAssignmentState.candidate_pool_ref_released.
 // CandidatePoolTaskRefState defines the CandidatePoolTaskRefState wire type.
@@ -1390,7 +1383,7 @@ func (x *CandidatePoolTaskRefState) GetStatus() CandidatePoolTaskRefStatus {
 }
 
 // CandidatePoolSnapshotViewV1 is the Query-only snapshot projection frozen by
-// api_contract §16.5. It hides source_revision and refcounts and never lands in the
+// the wire API. It hides source_revision and refcounts and never lands in the
 // Store. status = PRUNED does not mean an empty pool.
 // CandidatePoolSnapshotViewV1 defines the CandidatePoolSnapshotViewV1 wire type.
 type CandidatePoolSnapshotViewV1 struct {
@@ -1526,7 +1519,7 @@ func (x *CandidatePoolSnapshotViewV1) GetPrunedHeight() uint64 {
 }
 
 // CandidatePoolMemberViewV1 is the Query-only verifiable join of one member row
-// and its immutable binding (§16.5). The snapshot scope comes from the request.
+// and its immutable binding. The snapshot scope comes from the request.
 // CandidatePoolMemberViewV1 defines the CandidatePoolMemberViewV1 wire type.
 type CandidatePoolMemberViewV1 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`

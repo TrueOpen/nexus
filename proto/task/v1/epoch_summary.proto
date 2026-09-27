@@ -18,10 +18,18 @@ message EpochTaskSummaryCursorState {
   uint64 task_count = 7;
   uint64 valid_task_count = 8;
   repeated uint64 histogram = 9;
-  repeated string support_candidates = 10;
+  // The runner retains the first bounded set of distinct models encountered in
+  // canonical source order. The retained raw Hash32 identifiers are sorted
+  // into strict ascending byte order before receipt construction. Composite
+  // model/profile strings are invalid.
+  repeated bytes support_candidates = 10;
+  // Number of valid-task candidate occurrences, including duplicates.
   uint64 support_candidate_seen_count = 11;
   bytes running_root = 12;
   uint64 visited_count = 13;
+  // True once either configured bound causes a distinct model to be skipped.
+  // Once set, it remains true for the rest of the fold.
+  bool support_candidates_truncated = 14;
 }
 
 // EpochTaskSummaryReceiptState prevents replay from dispatching an epoch twice
@@ -35,8 +43,11 @@ message EpochTaskSummaryReceiptState {
   uint64 dispatched_height = 5;
   shared.v1.EpochTaskSummary summary = 6;
   uint64 source_count = 7;
+  // Number of valid-task candidate occurrences, including duplicates.
   uint64 support_candidate_seen_count = 8;
   uint32 retained_support_candidate_count = 9;
   bytes source_root = 10;
   bytes receipt_hash = 11;
+  // Commits whether either configured bound skipped a distinct model.
+  bool support_candidates_truncated = 12;
 }

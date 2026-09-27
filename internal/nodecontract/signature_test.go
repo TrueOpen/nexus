@@ -106,7 +106,7 @@ func TestCanonicalDomainsBindEveryField(t *testing.T) {
 // back into a decimal-form hex string helper.
 func TestLegacyDecimalFramingIsGoneFromReceiptPath(t *testing.T) {
 	legacy := domainHash(
-		DomainInferReceiptV2,
+		"TRUEOPEN_INFER_RECEIPT_V2",
 		"chain-golden", "task-golden", "worker-golden", "commit-golden", "output-golden", "4096",
 		"trace-golden", "checkpoint-golden", "batch-golden", "101", "202",
 	)
@@ -116,7 +116,7 @@ func TestLegacyDecimalFramingIsGoneFromReceiptPath(t *testing.T) {
 	// Under the same domain, the new typed framing and the old decimal framing must be two
 	// different values: this is exactly what "keeping an alias would produce digests the Keeper
 	// never accepts" looks like in practice.
-	typed := CanonicalHashBytes(DomainInferReceiptV2, Uint32BE(InferReceiptSchemaVersionV2))
+	typed := CanonicalHashBytes("TRUEOPEN_INFER_RECEIPT_V2", Uint32BE(2))
 	if hex.EncodeToString(typed[:]) == hex.EncodeToString(legacy) {
 		t.Fatal("typed H_FIELDS_V1 framing must not collide with the deleted decimal framing")
 	}

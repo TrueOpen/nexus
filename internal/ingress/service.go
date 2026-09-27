@@ -44,7 +44,7 @@ type Handler interface {
 	// OnVerifyCommit / OnVerifyResult relay the selected Verifier's signed commit / result
 	// (Cortex contract §2.5 / §2.6; the initial relay implementation trusts the Builder). Return only means broadcast, not on-chain accepted.
 	OnVerifyCommit(ctx context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error)
-	OnVerifyResult(ctx context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV2) (types.VerifyRelayAck, error)
+	OnVerifyResult(ctx context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error)
 	SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error)
 	AckOutput(ctx context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error)
 	// TaskOwner returns the ordering user's address (authorization for ADR-0017 streaming subscribe / ACK);
@@ -626,9 +626,9 @@ func isLegacyOrderEnvelope(raw []byte) bool {
 	return len(raw) > 0 && raw[0] == '{'
 }
 
-// parseSignedOrderEnvelope parses the SignedOrderV2 carrier of frozen contract §5.13.
+// parseSignedOrderEnvelope parses the SignedOrderV2 carrier of a TaskOrderV3.
 // It is the only valid input for the first-proposal scope branch of MsgSubmitWorkerHandraises: the user signature
-// covers the order-domain EIP-712 digest of TaskOrderV2; Nexus only validates structure and shape and forwards as is,
+// covers the order-domain EIP-712 digest of TaskOrderV3; Nexus only validates structure and shape and forwards as is,
 // never reconstructs the order and never verifies the signature (the Keeper verifies with the on-chain account public key).
 func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	var signed taskv1.SignedOrderV2
@@ -636,8 +636,12 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 		return types.Order{}, fmt.Errorf("order_envelope is neither canonical json nor a SignedOrderV2: %w", err)
 	}
 	order := signed.GetOrder()
-	if order == nil || order.GetModelId() == "" || order.GetProfileVersion() == 0 {
-		return types.Order{}, errors.New("signed_order requires order.model_id and order.profile_version")
+	if order == nil || len(order.GetModelId()) != 32 || order.GetProfileVersion() == 0 {
+		return types.Order{}, errors.New("signed_order requires a 32-byte order.model_id and order.profile_version")
+	}
+	// Encryption is not active on chain: only plaintext orders are admitted.
+	if err := nodecontract.ValidatePlaintextOrderV3(order); err != nil {
+		return types.Order{}, fmt.Errorf("signed_order: %w", err)
 	}
 	// TaskOrder Hashing and Signing §7.3/§7.5: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
 	// The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
@@ -654,19 +658,19 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if !proto.Equal(&signed, &pruned) {
 		return types.Order{}, errors.New("signed_order carries unknown fields; SDK and nexus mirrors are out of sync")
 	}
-	// task_hash is derived from the TaskOrderV2 the user actually signed: it is the taskHash field of the
+	// task_hash is derived from the TaskOrderV3 the user actually signed: it is the taskHash field of the
 	// order-domain EIP-712 typed data, and the Keeper verifies it with the on-chain account public key at admission.
 	// An order it cannot be computed for is certain to be rejected on-chain too, so it is rejected here outright
 	// rather than carried on with an empty identity.
 	//
 	// Note that sha256(order_envelope) is **no longer** computed here. That value changes with the envelope encoding (the same
 	// order re-signed gives a different value); using it as the Task identity is exactly the mistake this avoids.
-	taskHash, err := nodecontract.TaskOrderHashHexV2(order)
+	taskHash, err := nodecontract.TaskOrderHashHexV3(order)
 	if err != nil {
 		return types.Order{}, fmt.Errorf("signed_order has no canonical task_hash: %w", err)
 	}
 	return types.Order{
-		ModelID: order.GetModelId(), ProfileVersion: order.GetProfileVersion(),
+		ModelID: hex.EncodeToString(order.GetModelId()), ProfileVersion: order.GetProfileVersion(),
 		TaskType: enumTaskType(order.GetTaskType()),
 		Deadline: int64(order.GetOrderExpireHeight()),
 		// OrderEnvelope keeps the hex form only for readable logs and snapshots; the authoritative carrier is SignedOrder.

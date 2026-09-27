@@ -153,7 +153,7 @@ func (s *service) SubmitVerifyResult(
 
 // verifyResultMaterialDigest is the §2.6 material digest: sha256 of the deterministic proto encoding of
 // ResultReceiptV2; the API and JetStream paths compute the same value for the same receipt.
-func verifyResultMaterialDigest(receipt *taskv1.ResultReceiptV2) (string, error) {
+func verifyResultMaterialDigest(receipt *taskv1.ResultReceiptV3) (string, error) {
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(receipt)
 	if err != nil {
 		return "", fmt.Errorf("encode result receipt: %w", err)
@@ -192,9 +192,9 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 	}
 	// schema_version equality is an admission check, not part of hash derivation: derivation stays total,
 	// and non-1 is explicitly rejected here so Cortex never gets a receipt that "passes locally, never passes on-chain".
-	if receiptPB.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV2 {
+	if receiptPB.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV3 {
 		return types.InferReceiptSubmission{}, fmt.Errorf(
-			"%w: schema_version must be %d", types.ErrInvalidArgument, nodecontract.InferReceiptSchemaVersionV2)
+			"%w: schema_version must be %d", types.ErrInvalidArgument, nodecontract.InferReceiptSchemaVersionV3)
 	}
 	// chain_id must be this chain: it is preimage field 2 and cross-chain isolation depends entirely on it.
 	if receiptPB.GetChainId() != chainID {
@@ -211,6 +211,15 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 		ExpiryHeight:              receiptPB.GetExpiryHeight(),
 		GeneratedTokenCount:       receiptPB.GetGeneratedTokenCount(),
 		OutputLeafCount:           receiptPB.GetOutputLeafCount(),
+		OutputKeyCommitment:       append([]byte(nil), receiptPB.GetOutputKeyCommitment()...),
+		WorkerTokenKeyCommitment:  append([]byte(nil), receiptPB.GetWorkerTokenKeyCommitment()...),
+		WorkerValueKeyCommitment:  append([]byte(nil), receiptPB.GetWorkerValueKeyCommitment()...),
+		CiphertextOutputRoot:      append([]byte(nil), receiptPB.GetCiphertextOutputRoot()...),
+	}
+	// Encryption is not active: the receipt carries exactly the two Worker commitments and every
+	// encryption field is 32 zero bytes.
+	if err := nodecontract.ValidatePlaintextInferReceiptV3(receiptPB); err != nil {
+		return types.InferReceiptSubmission{}, fmt.Errorf("%w: %v", types.ErrInvalidArgument, err)
 	}
 	// In the on-chain message Hash32 and signatures are already raw bytes with no hex text layer;
 	// internally canonical lowercase hex is still used, so only the length is checked before re-encoding.
@@ -243,8 +252,6 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 	}
 	// required_evidence_commitments[] is co-signed with the receipt (field 10). kind is a closed enum, and the
 	// list is strictly ascending by kind and unique -- both are enforced by the derivation function, not silently reordered here.
-	// "The kind set must equal the locked profile's requirements" still awaits the Verification Profile freeze (contract §8.5),
-	// so set contents are not asserted and no minimum count is set (a known contract gap).
 	for _, commitment := range receiptPB.GetRequiredEvidenceCommitments() {
 		hashOrRoot := commitment.GetEvidenceHashOrRoot()
 		if len(hashOrRoot) != sha256.Size {
@@ -324,12 +331,12 @@ func verifyCommitFromPB(m *nexusv1.SubmitVerifyCommitRequest, chainID string) (*
 
 // resultReceiptFromPB likewise does admission checks only. The two optionals of metric_summary pass through as is:
 // their presence is decided by the locked profile MetricSpec, and absent versus 0 are two different commitments.
-func resultReceiptFromPB(m *nexusv1.SubmitVerifyResultRequest, chainID string) (*taskv1.ResultReceiptV2, error) {
+func resultReceiptFromPB(m *nexusv1.SubmitVerifyResultRequest, chainID string) (*taskv1.ResultReceiptV3, error) {
 	pb := m.GetReceipt()
 	if pb == nil {
 		return nil, fmt.Errorf("%w: receipt is required", types.ErrInvalidArgument)
 	}
-	if err := checkVerifyScope(pb.GetSchemaVersion(), nodecontract.ResultReceiptSchemaVersionV2,
+	if err := checkVerifyScope(pb.GetSchemaVersion(), nodecontract.ResultReceiptSchemaVersionV3,
 		pb.GetChainId(), chainID, pb.GetVerifyRound()); err != nil {
 		return nil, err
 	}
@@ -346,10 +353,15 @@ func resultReceiptFromPB(m *nexusv1.SubmitVerifyResultRequest, chainID string) (
 		{"aggregate_proof_hash", pb.GetAggregateProofHash()},
 		{"verifier_evidence_bundle_hash", pb.GetVerifierEvidenceBundleHash()},
 		{"salt", pb.GetSalt()},
+		{"verifier_value_root", pb.GetVerifierValueRoot()},
 	} {
 		if len(field.value) != sha256.Size {
 			return nil, fmt.Errorf("%w: %s must be 32 bytes", types.ErrInvalidArgument, field.name)
 		}
+	}
+	// Encryption is not active: the Verifier's evidence key commitment is 32 zero bytes.
+	if err := nodecontract.ValidatePlaintextResultReceiptV3(pb); err != nil {
+		return nil, fmt.Errorf("%w: %v", types.ErrInvalidArgument, err)
 	}
 	if len(pb.GetServiceSignature()) != 64 {
 		return nil, fmt.Errorf("%w: service_signature must be exactly 64 bytes", types.ErrInvalidArgument)
@@ -402,7 +414,7 @@ func verifyCommitSignBytes(sessionID string, c *taskv1.VerifyCommitV1) []byte {
 //
 // V2 replaced result_reveal_hash with verifier_evidence_bundle_hash + manifest size +
 // salt, changing the covered range -- a breaking change for Cortex; both sides must switch in the same batch.
-func verifyResultSignBytes(sessionID string, r *taskv1.ResultReceiptV2) []byte {
+func verifyResultSignBytes(sessionID string, r *taskv1.ResultReceiptV3) []byte {
 	summary := r.GetMetricSummary()
 	optional := func(v *uint32) []byte {
 		if v == nil {

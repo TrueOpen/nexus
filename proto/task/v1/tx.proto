@@ -35,6 +35,8 @@ service Msg {
   rpc SubmitInferReceipt(MsgSubmitInferReceipt) returns (MsgSubmitInferReceiptResponse);
   // SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
   rpc SubmitWorkerEvidence(MsgSubmitWorkerEvidence) returns (MsgSubmitWorkerEvidenceResponse);
+  // SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+  rpc SubmitVerifierValueEvidence(MsgSubmitVerifierValueEvidence) returns (MsgSubmitVerifierValueEvidenceResponse);
   // SubmitVerifierHandraises is the single Open Verify entry; it replaces the
   // deleted MsgOpenVerify.
   // SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
@@ -44,7 +46,7 @@ service Msg {
   // SubmitBuilderEvidence accepts one closed typed objective Builder proof.
   // It moved here from hub.v1.Msg: the Task module owns the
   // envelope payload and the Task authority, and it returns the shared receipt
-  // directly instead of a module-local Response wrapper (§5.5, §9.4).
+  // directly instead of a module-local Response wrapper.
   // SubmitBuilderEvidence executes the SubmitBuilderEvidence operation.
   rpc SubmitBuilderEvidence(MsgSubmitBuilderEvidence) returns (shared.v1.BuilderObjectiveEvidenceReceiptV2);
   // SubmitVerifyCommit replaces the deleted MsgCommit.
@@ -60,25 +62,25 @@ service Msg {
   // SettleTask derives and atomically applies the sole Phase 0 settlement plan.
   rpc SettleTask(MsgSettleTask) returns (MsgSettleTaskResponse);
   // SweepDeadline is the single bounded deadline runner; it replaces the deleted
-  // MsgSweepExpiredTask and MsgSessionSweep (§5.9/§9.6a).
+  // MsgSweepExpiredTask and MsgSessionSweep.
   // SweepDeadline executes the SweepDeadline operation.
   rpc SweepDeadline(MsgSweepDeadline) returns (MsgSweepDeadlineResponse);
 }
 
 // Removed development messages have no alias or compatibility decoder in the
 // fresh v0.3.0 schema:
-//   MsgSessionSweep, MsgSweepExpiredTask   -> MsgSweepDeadline (§5.9)
-//   MsgAssign                              -> MsgSubmitWorkerHandraises (§10.1)
-//   MsgOpenVerify                          -> MsgSubmitVerifierHandraises (§10.4)
-//   MsgInferReceiptCommitOnly              -> MsgSubmitInferReceipt (§10.3)
-//   MsgSettle                              -> MsgSettleTask (§10.10a)
+//   MsgSessionSweep, MsgSweepExpiredTask   -> MsgSweepDeadline
+//   MsgAssign                              -> MsgSubmitWorkerHandraises
+//   MsgOpenVerify                          -> MsgSubmitVerifierHandraises
+//   MsgInferReceiptCommitOnly              -> MsgSubmitInferReceipt
+//   MsgSettle                              -> MsgSettleTask
 //   MsgCommit / MsgBatchCommit             -> MsgSubmitVerifyCommit / batch
 //   MsgResult / MsgBatchResult             -> MsgSubmitVerifyResult / batch
-//   MsgWorkerReveal                        -> deleted; §9.6a registers no
+//   MsgWorkerReveal                        -> deleted; this contract registers no
 //                                             separate worker reveal Msg
 //   MsgUserChallenge, MsgChallengeCommit, MsgChallengeResult,
 //   MsgSubmitChallengeFullResultReveal     -> replaced by the round-2 protocol;
 //                                             proof/opening messages remain absent
 //   MsgUpdateTimeoutBucket                 -> moved to hub.v1.Msg, whose
 //                                             governance handler is the only
-//                                             parameter bucket writer (§2.4)
+//                                             parameter bucket writer

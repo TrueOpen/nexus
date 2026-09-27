@@ -32,9 +32,8 @@ enum ModelStatusSource {
   // Never written.
   // MODEL_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
   MODEL_STATUS_SOURCE_UNSPECIFIED = 0;
-  // Derived from the aggregate profile status.
-  // MODEL_STATUS_SOURCE_AUTO_PROFILE identifies the corresponding protocol value.
-  MODEL_STATUS_SOURCE_AUTO_PROFILE = 1;
+  // Derived from the model-wide support aggregate.
+  MODEL_STATUS_SOURCE_AUTO_SUPPORT = 1;
   // Applied by a governance transition.
   // MODEL_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
   MODEL_STATUS_SOURCE_GOVERNANCE = 2;
@@ -45,12 +44,15 @@ enum ModelStatusSource {
 
 // ProfileStatusSource attributes one profile status transition to its trigger.
 enum ProfileStatusSource {
+  // 1 was AUTO_SUPPORT. Support is model-scoped, so profile status is never
+  // support-derived; the number stays reserved rather than reused or kept as a
+  // deprecated value a consumer could still emit.
+  reserved 1;
+  reserved "PROFILE_STATUS_SOURCE_AUTO_SUPPORT";
+
   // Never written.
   // PROFILE_STATUS_SOURCE_UNSPECIFIED identifies the corresponding protocol value.
   PROFILE_STATUS_SOURCE_UNSPECIFIED = 0;
-  // Derived from the roleless support aggregate.
-  // PROFILE_STATUS_SOURCE_AUTO_SUPPORT identifies the corresponding protocol value.
-  PROFILE_STATUS_SOURCE_AUTO_SUPPORT = 1;
   // Applied by a governance transition.
   // PROFILE_STATUS_SOURCE_GOVERNANCE identifies the corresponding protocol value.
   PROFILE_STATUS_SOURCE_GOVERNANCE = 2;
@@ -59,9 +61,9 @@ enum ProfileStatusSource {
   PROFILE_STATUS_SOURCE_EMERGENCY = 3;
 }
 
-// ModelState is one registered model primary row (data-structure contract 6.3).
+// ModelState is one registered model primary row (wire storage model 6.3).
 message ModelState {
-  string model_id = 1;
+  bytes model_id = 1;
   string proposer_address = 2;
   ModelProfileStatus status = 3;
   uint32 active_profile_count = 4;
@@ -70,11 +72,18 @@ message ModelState {
   uint64 registration_fee_paid = 7;
   uint64 created_height = 8;
   uint64 updated_height = 9;
+  uint64 active_support_stake = 10;
+  uint32 active_supporter_count = 11;
+  uint64 support_min_stake = 12;
+  uint64 pending_support_min_stake = 13;
+  uint64 pending_effective_height = 14;
+  string provider = 15;
+  string repo_id = 16;
 }
 
-// ProfileState is one registered model profile primary row plus its roleless support aggregate (6.3).
+// ProfileState is one registered model profile primary row.
 message ProfileState {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   bytes manifest_hash = 3;
   bytes tokenizer_hash = 4;
@@ -92,9 +101,6 @@ message ProfileState {
   shared.v1.TimeoutBootstrapProfile timeout_bootstrap_profile = 16;
   bytes schema_hash = 17;
   ModelProfileStatus status = 18;
-  uint64 active_support_stake = 19;
-  uint64 eligible_support_stake = 20;
-  uint32 active_supporter_count = 21;
   ProfileStatusSource status_source = 22;
   uint64 registration_fee_paid = 23;
   uint32 previous_profile_version = 24;
@@ -104,12 +110,15 @@ message ProfileState {
   uint64 updated_height = 28;
   optional uint64 last_freeze_risk_window_evaluated = 29;
   uint64 ref_price = 30;
+  shared.v1.ProfileSourceRefV1 source = 31;
+  shared.v1.ParserRefV1 tool_call_parser = 32;
+  shared.v1.ParserRefV1 reasoning_parser = 33;
 }
 
 // RegistrationReceipt is the minimal replay locator stored under the
 // registration digest key. The remaining receipt facts live in ProfileState.
 // RegistrationReceipt defines the RegistrationReceipt wire type.
 message RegistrationReceipt {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
 }

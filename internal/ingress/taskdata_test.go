@@ -18,6 +18,8 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -51,6 +53,7 @@ type fakeTaskDataAPI struct {
 	finalizeVerifier  taskdata.FinalizeVerifierRequest
 	resultOutcome     taskdata.FinalizeResultOutcome
 	verifierOutcome   taskdata.FinalizeVerifierOutcome
+	fin               *taskdata.OutputFin
 }
 
 func (f *fakeTaskDataAPI) AuthorizeOpenTaskRequest(_ context.Context, requester string, nonce []byte, expiry uint64) error {
@@ -151,6 +154,13 @@ func (f *fakeTaskDataAPI) FinalizeVerifierEvidence(
 	return f.verifierOutcome, f.err
 }
 
+func (f *fakeTaskDataAPI) OutputFin(context.Context, taskdata.ObjectKey) (taskdata.OutputFin, bool, error) {
+	if f.fin == nil {
+		return taskdata.OutputFin{}, false, nil
+	}
+	return *f.fin, true, nil
+}
+
 func (f *fakeTaskDataAPI) RollbackInput(context.Context, taskdata.ObjectKey) error {
 	f.inputRolledBack = true
 	f.inputState = ""
@@ -214,13 +224,18 @@ func TestTaskDataMetadataOmitsLocatorAndAuthorization(t *testing.T) {
 // FinalizeTaskResult received, with hex fields restored to raw bytes.
 func TestTaskDataMetadataReturnsInferReceiptCopy(t *testing.T) {
 	receipt := &taskdata.SignedInferReceipt{
-		SchemaVersion: 2, ChainID: "trueopen-test", TaskID: testPBTask, TaskHash: testPBHash,
+		SchemaVersion: 3, ChainID: "trueopen-test", TaskID: testPBTask, TaskHash: testPBHash,
 		WorkerOperatorAddress: "trueopen1worker", ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: strings.Repeat("7", 64), OutputHash: testPBContent, OutputSizeBytes: 88,
 		EvidenceCommitments: []taskdata.EvidenceCommitment{{Kind: 1, HashOrRoot: strings.Repeat("8", 64), EncodedSizeBytes: 4096}},
 		ExpiryHeight:        900, ServiceSignature: strings.Repeat("9", 128), GeneratedTokenCount: 12, OutputLeafCount: 18,
+		OutputKeyCommitment: strings.Repeat("0", 64), WorkerTokenKeyCommitment: strings.Repeat("0", 64),
+		WorkerValueKeyCommitment: strings.Repeat("0", 64), CiphertextOutputRoot: strings.Repeat("0", 64),
 	}
-	api := &fakeTaskDataAPI{exists: true, metadata: taskdata.Metadata{
+	fin := &taskdata.OutputFin{
+		FinalSeq: 17, OutputMMRRoot: bytes.Repeat([]byte{0x44}, 32), FinishReason: 5, WorkerSignature: bytes.Repeat([]byte{0x66}, 64),
+	}
+	api := &fakeTaskDataAPI{exists: true, fin: fin, metadata: taskdata.Metadata{
 		Key: testObjectKey(taskdata.ObjectKindOutput), SemanticHash: testPBContent, SizeBytes: 88,
 		State: taskdata.StateReady, RetentionStatus: taskdata.RetentionActive, Receipt: receipt,
 	}}
@@ -238,6 +253,12 @@ func TestTaskDataMetadataReturnsInferReceiptCopy(t *testing.T) {
 	}
 	if !reflect.DeepEqual(back, *receipt) {
 		t.Fatalf("receipt round trip:\n got %+v\nwant %+v", back, *receipt)
+	}
+	// A stored OUTPUT carries the Worker's signed Fin as received, USER_STOP included.
+	gotFin := response.Msg.GetMetadata().GetFin()
+	if gotFin == nil || gotFin.GetFinalSeq() != 17 || gotFin.GetFinishReason() != taskv1.FinishReasonV1(5) ||
+		!bytes.Equal(gotFin.GetOutputMmrRoot(), fin.OutputMMRRoot) || !bytes.Equal(gotFin.GetWorkerSignature(), fin.WorkerSignature) {
+		t.Fatalf("metadata fin = %v", gotFin)
 	}
 
 	api.metadata.Receipt = nil
@@ -277,7 +298,7 @@ func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := response.Msg.GetEvidenceBundle()
-	if got.GetEvidenceBundleHash() != bundleHash || got.GetEvidenceSchemaHash() != strings.Repeat("6", 64) ||
+	if got.GetEvidenceManifestHash() != bundleHash || got.GetEvidenceSchemaHash() != strings.Repeat("6", 64) ||
 		got.GetArtifactCount() != 2 || got.GetArtifactTotalSizeBytes() != 4096 || got.GetManifestSizeBytes() != 321 {
 		t.Fatalf("evidence bundle summary = %#v", got)
 	}
@@ -322,6 +343,7 @@ func testRefPB(kind nexusv1.TaskDataObjectKind) *nexusv1.TaskDataObjectRefV1 {
 	if kind == nexusv1.TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST ||
 		kind == nexusv1.TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_ARTIFACT {
 		ref.EvidenceProducerKind = nexusv1.EvidenceProducerKindV1_EVIDENCE_PRODUCER_KIND_V1_WORKER
+		ref.EvidenceKind = sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING
 		ref.VerifyRound = 1
 	}
 	return ref
@@ -346,6 +368,7 @@ func testObjectKey(kind taskdata.ObjectKind) taskdata.ObjectKey {
 	}
 	if kind.IsEvidence() {
 		key.EvidenceProducerKind = taskdata.EvidenceProducerWorker
+		key.EvidenceKind = taskdata.EvidenceKindWorkerValueOpening
 		key.VerifyRound = 1
 	}
 	return key

@@ -119,10 +119,10 @@ func TestE2EHarness(t *testing.T) {
 	ctx := context.Background()
 
 	up := f.client.UploadTaskOutputStream(ctx)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-e2e-header-0001")),
-	}}}); err != nil {
+	})}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := up.Receive(); err != nil {

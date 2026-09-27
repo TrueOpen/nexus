@@ -179,7 +179,7 @@ type IngressAPIClient interface {
 	SubmitInferReceipt(context.Context, *connect.Request[v1.SubmitInferReceiptRequest]) (*connect.Response[v1.SubmitInferReceiptResponse], error)
 	// Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
-	// Relays a Verifier-signed ResultReceiptV2. accepted does not mean accepted on chain.
+	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
 	// Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
 	//
@@ -541,7 +541,7 @@ type IngressAPIHandler interface {
 	SubmitInferReceipt(context.Context, *connect.Request[v1.SubmitInferReceiptRequest]) (*connect.Response[v1.SubmitInferReceiptResponse], error)
 	// Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
-	// Relays a Verifier-signed ResultReceiptV2. accepted does not mean accepted on chain.
+	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
 	// Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
 	//

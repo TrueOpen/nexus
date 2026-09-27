@@ -22,8 +22,8 @@ var (
 	ErrNotReady = errors.New("NEXUS_DATA_NOT_READY")
 )
 
-// ObjectKey is an alias for ObjectRef: since wire v0.4.1 an object is uniquely determined by
-// the eight fields of TaskDataObjectRefV1 (see objectref.go), and the local storage key is
+// ObjectKey is an alias for ObjectRef: an object is uniquely determined by
+// the nine fields of TaskDataObjectRefV1 (see objectref.go), and the local storage key is
 // derived from the same fields, so the two are no longer separate identities.
 type ObjectKey = ObjectRef
 
@@ -69,7 +69,7 @@ func rpcMethodPath(method RequestMethod) string {
 // is carried by Ref, so no second, nearly identical message is defined. EVIDENCE_ARTIFACT is not
 // confirmed on its own — it is covered by the hash of its owning manifest and by that bundle's
 // confirmation.
-// The signing domain is TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1, H_FIELDS_V1 covers the first eight
+// The signing domain is TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2, H_FIELDS_V1 covers the first eight
 // fields and Signature does not enter its own digest. The idempotency key is
 // material digest + builder operator.
 type StorageConfirmation struct {
@@ -106,13 +106,12 @@ type SignedRange struct {
 	Signature       []byte
 }
 
-// SignedInferReceipt is the internal form of nexus.v1.SignedInferReceiptV1; its fields
-// correspond one to one with task.v1.InferReceiptV2 (frozen in Keeper Interface Contract
-// §5.14). At this layer Hash32 is still canonical lowercase 64-hex text (the same convention as
+// SignedInferReceipt is the internal form of task.v1.InferReceiptV3; its fields correspond one to
+// one. At this layer Hash32 is still canonical lowercase 64-hex text (the same convention as
 // Metadata.SemanticHash) and nodecontract decodes it into the raw 32 bytes before it enters the
 // §5.14 preimage.
 //
-// The receipt carries no infer_receipt_hash field: §5.14 defines it as the same value as
+// The receipt carries no infer_receipt_hash field: it is defined as the same value as
 // infer_receipt_signing_digest, so it is always recomputed locally (InferReceiptDigestHex) and no
 // caller-asserted copy is accepted.
 type SignedInferReceipt struct {
@@ -128,12 +127,17 @@ type SignedInferReceipt struct {
 	EvidenceCommitments       []EvidenceCommitment
 	ExpiryHeight              uint64
 	ServiceSignature          string
-	// The two preimage fields added by InferReceiptV2 (wire v0.4.1).
-	GeneratedTokenCount uint64
-	OutputLeafCount     uint64
+	GeneratedTokenCount       uint64
+	OutputLeafCount           uint64
+	// The four encryption fields, lowercase hex exactly as the Worker signed them (a plaintext task
+	// carries 32 zero bytes in each; an empty value stays empty and is refused at admission).
+	OutputKeyCommitment      string
+	WorkerTokenKeyCommitment string
+	WorkerValueKeyCommitment string
+	CiphertextOutputRoot     string
 }
 
-// EvidenceCommitment is one entry of required_evidence_commitments[] as frozen in §5.14.
+// EvidenceCommitment is one entry of required_evidence_commitments[].
 // Kind is the numeric shared.v1.EvidenceKind; HashOrRoot is canonical lowercase 64-hex.
 type EvidenceCommitment struct {
 	Kind             uint32
@@ -194,9 +198,9 @@ type Metadata struct {
 	EvidenceSchemaHash     string
 	Artifacts              []EvidenceArtifact
 	// EvidenceBundleHash is H_V1(TRUEOPEN_EVIDENCE_BUNDLE_MANIFEST_V1, manifest bytes), i.e.
-	// evidence_bundle_hash in the interface. It is exactly the ref content_hash of a Verifier
+	// evidence_manifest_hash in the interface. It is exactly the ref content_hash of a Verifier
 	// manifest; the ref content_hash of a Worker manifest is the evidence_hash_or_root of the
-	// matching kind in the receipt (the wire v0.4.1 TRUEOPEN_WORKER_VALUE_COMMITMENT_V2 digest, not
-	// a byte hash), so the byte hash is recorded only here.
+	// matching kind in the receipt (the typed token or value commitment, not a byte hash), so the
+	// byte hash is recorded only here.
 	EvidenceBundleHash string
 }

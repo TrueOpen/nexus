@@ -44,6 +44,23 @@ const (
 	// Generation reached the accepted maximum output duration.
 	// FINISH_REASON_V1_MAX_OUTPUT_DURATION identifies the corresponding protocol value.
 	FinishReasonV1_FINISH_REASON_V1_MAX_OUTPUT_DURATION FinishReasonV1 = 4
+	// The user stopped the generation and the Worker closed the stream on their
+	// behalf. A stop is a successful termination, not an abandonment: the Worker
+	// signs a Fin carrying this value and then signs the receipt, so a stopped
+	// task is indistinguishable in shape from any other completed one. "No Fin"
+	// stays reserved for a Worker that failed or gave up, which produces no
+	// receipt either.
+	//
+	// Unlike every other value, this one cannot be checked: the stop signal
+	// arrives off chain, so it is accepted as a Worker assertion.
+	// FINISH_REASON_V1_USER_STOP identifies the corresponding protocol value.
+	FinishReasonV1_FINISH_REASON_V1_USER_STOP FinishReasonV1 = 5
+	// Generation emitted one of the order's stop_token_ids. Distinct from
+	// STOP_SEQUENCE because an order may carry both stop strings and stop tokens,
+	// and which one ended the generation is a different fact. Checkable: the last
+	// token of T belongs to the order's stop_token_ids.
+	// FINISH_REASON_V1_STOP_TOKEN identifies the corresponding protocol value.
+	FinishReasonV1_FINISH_REASON_V1_STOP_TOKEN FinishReasonV1 = 6
 )
 
 // Enum value maps for FinishReasonV1.
@@ -54,6 +71,8 @@ var (
 		2: "FINISH_REASON_V1_STOP_SEQUENCE",
 		3: "FINISH_REASON_V1_MAX_OUTPUT_TOKENS",
 		4: "FINISH_REASON_V1_MAX_OUTPUT_DURATION",
+		5: "FINISH_REASON_V1_USER_STOP",
+		6: "FINISH_REASON_V1_STOP_TOKEN",
 	}
 	FinishReasonV1_value = map[string]int32{
 		"FINISH_REASON_V1_UNSPECIFIED":         0,
@@ -61,6 +80,8 @@ var (
 		"FINISH_REASON_V1_STOP_SEQUENCE":       2,
 		"FINISH_REASON_V1_MAX_OUTPUT_TOKENS":   3,
 		"FINISH_REASON_V1_MAX_OUTPUT_DURATION": 4,
+		"FINISH_REASON_V1_USER_STOP":           5,
+		"FINISH_REASON_V1_STOP_TOKEN":          6,
 	}
 )
 
@@ -142,17 +163,63 @@ func (WorkerEvidenceKindV1) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_evidence_proto_rawDescGZIP(), []int{1}
 }
 
+// VerifierValueEvidenceKindV1 is reserved for the later bounded value-evidence
+// activation. No nonzero kind is assigned or accepted in this release.
+type VerifierValueEvidenceKindV1 int32
+
+const (
+	// The only registered pre-activation value; evidence is not accepted.
+	VerifierValueEvidenceKindV1_VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED VerifierValueEvidenceKindV1 = 0
+)
+
+// Enum value maps for VerifierValueEvidenceKindV1.
+var (
+	VerifierValueEvidenceKindV1_name = map[int32]string{
+		0: "VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED",
+	}
+	VerifierValueEvidenceKindV1_value = map[string]int32{
+		"VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED": 0,
+	}
+)
+
+func (x VerifierValueEvidenceKindV1) Enum() *VerifierValueEvidenceKindV1 {
+	p := new(VerifierValueEvidenceKindV1)
+	*p = x
+	return p
+}
+
+func (x VerifierValueEvidenceKindV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (VerifierValueEvidenceKindV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_evidence_proto_enumTypes[2].Descriptor()
+}
+
+func (VerifierValueEvidenceKindV1) Type() protoreflect.EnumType {
+	return &file_task_v1_evidence_proto_enumTypes[2]
+}
+
+func (x VerifierValueEvidenceKindV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use VerifierValueEvidenceKindV1.Descriptor instead.
+func (VerifierValueEvidenceKindV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{2}
+}
+
 // EvidenceCommitmentV1 is one worker-authored evidence commitment carried by
-// InferReceiptV2. The list is sorted by evidence_kind
+// InferReceiptV3. The list is sorted by evidence_kind
 // ascending with unique kinds and must exactly equal the kind set required by
 // the locked profile.
 //
 // The list's commitment - evidence_commitments_hash, domain
-// TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (§1.4) - has exactly one ordered preimage in
+// TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 - has exactly one ordered preimage in
 // this repository, defined in task/v1/infer_receipt.proto next to the
-// TRUEOPEN_INFER_RECEIPT_V2 formula that consumes it. It covers the per-element frame
+// TRUEOPEN_INFER_RECEIPT_V3 formula that consumes it. It covers the per-element frame
 // layout of the three fields below, the leading uint32_be(count) and the empty-list
-// case. §1.4 rule 1 forbids a second copy, so this file only points at it.
+// case. The contract forbids a second copy, so this file only points at it.
 // EvidenceCommitmentV1 defines the EvidenceCommitmentV1 wire type.
 type EvidenceCommitmentV1 struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -214,54 +281,43 @@ func (x *EvidenceCommitmentV1) GetEncodedSizeBytes() uint64 {
 	return 0
 }
 
-// WorkerValueCommitmentV2 is the canonical fixed-field commitment behind the
-// single WORKER_VALUE_OPENING evidence item. trace_root and checkpoint_root are
-// the two Hash32 commitments Cortex already produces; this message folds them
-// into one evidence kind without making either artifact's private file format
-// part of consensus. EvidenceCommitmentV1.encoded_size_bytes is exactly the
-// checked sum of trace/checkpoint/input-token/generated-token artifact sizes.
-// WorkerValueCommitmentV2 defines the WorkerValueCommitmentV2 wire type.
-type WorkerValueCommitmentV2 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 2 in the fresh Phase 0 contract.
-	SchemaVersion              uint32         `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId                    string         `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	TaskId                     []byte         `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	AcceptedTaskHash           []byte         `protobuf:"bytes,4,opt,name=accepted_task_hash,json=acceptedTaskHash,proto3" json:"accepted_task_hash,omitempty"`
-	WorkerOperatorAddress      string         `protobuf:"bytes,5,opt,name=worker_operator_address,json=workerOperatorAddress,proto3" json:"worker_operator_address,omitempty"`
-	GenerationParamsDigest     []byte         `protobuf:"bytes,6,opt,name=generation_params_digest,json=generationParamsDigest,proto3" json:"generation_params_digest,omitempty"`
-	EvidenceSchemaHash         []byte         `protobuf:"bytes,7,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
-	OutputHash                 []byte         `protobuf:"bytes,8,opt,name=output_hash,json=outputHash,proto3" json:"output_hash,omitempty"`
-	OutputSizeBytes            uint64         `protobuf:"varint,9,opt,name=output_size_bytes,json=outputSizeBytes,proto3" json:"output_size_bytes,omitempty"`
-	FinishReason               FinishReasonV1 `protobuf:"varint,10,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
-	TraceRoot                  []byte         `protobuf:"bytes,11,opt,name=trace_root,json=traceRoot,proto3" json:"trace_root,omitempty"`
-	TraceEncodedSizeBytes      uint64         `protobuf:"varint,12,opt,name=trace_encoded_size_bytes,json=traceEncodedSizeBytes,proto3" json:"trace_encoded_size_bytes,omitempty"`
-	CheckpointRoot             []byte         `protobuf:"bytes,13,opt,name=checkpoint_root,json=checkpointRoot,proto3" json:"checkpoint_root,omitempty"`
-	CheckpointEncodedSizeBytes uint64         `protobuf:"varint,14,opt,name=checkpoint_encoded_size_bytes,json=checkpointEncodedSizeBytes,proto3" json:"checkpoint_encoded_size_bytes,omitempty"`
-	GeneratedTokenCount        uint64         `protobuf:"varint,15,opt,name=generated_token_count,json=generatedTokenCount,proto3" json:"generated_token_count,omitempty"`
-	OutputLeafCount            uint64         `protobuf:"varint,16,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
-	InputTokenIdsHash          []byte         `protobuf:"bytes,17,opt,name=input_token_ids_hash,json=inputTokenIdsHash,proto3" json:"input_token_ids_hash,omitempty"`
-	GeneratedTokenIdsHash      []byte         `protobuf:"bytes,18,opt,name=generated_token_ids_hash,json=generatedTokenIdsHash,proto3" json:"generated_token_ids_hash,omitempty"`
-	InputTokenIdsSizeBytes     uint64         `protobuf:"varint,19,opt,name=input_token_ids_size_bytes,json=inputTokenIdsSizeBytes,proto3" json:"input_token_ids_size_bytes,omitempty"`
-	GeneratedTokenIdsSizeBytes uint64         `protobuf:"varint,20,opt,name=generated_token_ids_size_bytes,json=generatedTokenIdsSizeBytes,proto3" json:"generated_token_ids_size_bytes,omitempty"`
+// WorkerTokenCommitmentV1 binds the A-level token-ID artifacts and finish reason.
+type WorkerTokenCommitmentV1 struct {
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion              uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId                    string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	TaskId                     []byte                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	AcceptedTaskHash           []byte                 `protobuf:"bytes,4,opt,name=accepted_task_hash,json=acceptedTaskHash,proto3" json:"accepted_task_hash,omitempty"`
+	WorkerOperatorAddress      string                 `protobuf:"bytes,5,opt,name=worker_operator_address,json=workerOperatorAddress,proto3" json:"worker_operator_address,omitempty"`
+	GenerationParamsDigest     []byte                 `protobuf:"bytes,6,opt,name=generation_params_digest,json=generationParamsDigest,proto3" json:"generation_params_digest,omitempty"`
+	EvidenceSchemaHash         []byte                 `protobuf:"bytes,7,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
+	OutputHash                 []byte                 `protobuf:"bytes,8,opt,name=output_hash,json=outputHash,proto3" json:"output_hash,omitempty"`
+	OutputSizeBytes            uint64                 `protobuf:"varint,9,opt,name=output_size_bytes,json=outputSizeBytes,proto3" json:"output_size_bytes,omitempty"`
+	OutputLeafCount            uint64                 `protobuf:"varint,10,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
+	FinishReason               FinishReasonV1         `protobuf:"varint,11,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
+	GeneratedTokenCount        uint64                 `protobuf:"varint,12,opt,name=generated_token_count,json=generatedTokenCount,proto3" json:"generated_token_count,omitempty"`
+	InputTokenIdsHash          []byte                 `protobuf:"bytes,13,opt,name=input_token_ids_hash,json=inputTokenIdsHash,proto3" json:"input_token_ids_hash,omitempty"`
+	GeneratedTokenIdsHash      []byte                 `protobuf:"bytes,14,opt,name=generated_token_ids_hash,json=generatedTokenIdsHash,proto3" json:"generated_token_ids_hash,omitempty"`
+	InputTokenIdsSizeBytes     uint64                 `protobuf:"varint,15,opt,name=input_token_ids_size_bytes,json=inputTokenIdsSizeBytes,proto3" json:"input_token_ids_size_bytes,omitempty"`
+	GeneratedTokenIdsSizeBytes uint64                 `protobuf:"varint,16,opt,name=generated_token_ids_size_bytes,json=generatedTokenIdsSizeBytes,proto3" json:"generated_token_ids_size_bytes,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
 
-func (x *WorkerValueCommitmentV2) Reset() {
-	*x = WorkerValueCommitmentV2{}
+func (x *WorkerTokenCommitmentV1) Reset() {
+	*x = WorkerTokenCommitmentV1{}
 	mi := &file_task_v1_evidence_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WorkerValueCommitmentV2) String() string {
+func (x *WorkerTokenCommitmentV1) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WorkerValueCommitmentV2) ProtoMessage() {}
+func (*WorkerTokenCommitmentV1) ProtoMessage() {}
 
-func (x *WorkerValueCommitmentV2) ProtoReflect() protoreflect.Message {
+func (x *WorkerTokenCommitmentV1) ProtoReflect() protoreflect.Message {
 	mi := &file_task_v1_evidence_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -273,147 +329,220 @@ func (x *WorkerValueCommitmentV2) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WorkerValueCommitmentV2.ProtoReflect.Descriptor instead.
-func (*WorkerValueCommitmentV2) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkerTokenCommitmentV1.ProtoReflect.Descriptor instead.
+func (*WorkerTokenCommitmentV1) Descriptor() ([]byte, []int) {
 	return file_task_v1_evidence_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *WorkerValueCommitmentV2) GetSchemaVersion() uint32 {
+func (x *WorkerTokenCommitmentV1) GetSchemaVersion() uint32 {
 	if x != nil {
 		return x.SchemaVersion
 	}
 	return 0
 }
 
-func (x *WorkerValueCommitmentV2) GetChainId() string {
+func (x *WorkerTokenCommitmentV1) GetChainId() string {
 	if x != nil {
 		return x.ChainId
 	}
 	return ""
 }
 
-func (x *WorkerValueCommitmentV2) GetTaskId() []byte {
+func (x *WorkerTokenCommitmentV1) GetTaskId() []byte {
 	if x != nil {
 		return x.TaskId
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetAcceptedTaskHash() []byte {
+func (x *WorkerTokenCommitmentV1) GetAcceptedTaskHash() []byte {
 	if x != nil {
 		return x.AcceptedTaskHash
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetWorkerOperatorAddress() string {
+func (x *WorkerTokenCommitmentV1) GetWorkerOperatorAddress() string {
 	if x != nil {
 		return x.WorkerOperatorAddress
 	}
 	return ""
 }
 
-func (x *WorkerValueCommitmentV2) GetGenerationParamsDigest() []byte {
+func (x *WorkerTokenCommitmentV1) GetGenerationParamsDigest() []byte {
 	if x != nil {
 		return x.GenerationParamsDigest
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetEvidenceSchemaHash() []byte {
+func (x *WorkerTokenCommitmentV1) GetEvidenceSchemaHash() []byte {
 	if x != nil {
 		return x.EvidenceSchemaHash
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetOutputHash() []byte {
+func (x *WorkerTokenCommitmentV1) GetOutputHash() []byte {
 	if x != nil {
 		return x.OutputHash
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetOutputSizeBytes() uint64 {
+func (x *WorkerTokenCommitmentV1) GetOutputSizeBytes() uint64 {
 	if x != nil {
 		return x.OutputSizeBytes
 	}
 	return 0
 }
 
-func (x *WorkerValueCommitmentV2) GetFinishReason() FinishReasonV1 {
-	if x != nil {
-		return x.FinishReason
-	}
-	return FinishReasonV1_FINISH_REASON_V1_UNSPECIFIED
-}
-
-func (x *WorkerValueCommitmentV2) GetTraceRoot() []byte {
-	if x != nil {
-		return x.TraceRoot
-	}
-	return nil
-}
-
-func (x *WorkerValueCommitmentV2) GetTraceEncodedSizeBytes() uint64 {
-	if x != nil {
-		return x.TraceEncodedSizeBytes
-	}
-	return 0
-}
-
-func (x *WorkerValueCommitmentV2) GetCheckpointRoot() []byte {
-	if x != nil {
-		return x.CheckpointRoot
-	}
-	return nil
-}
-
-func (x *WorkerValueCommitmentV2) GetCheckpointEncodedSizeBytes() uint64 {
-	if x != nil {
-		return x.CheckpointEncodedSizeBytes
-	}
-	return 0
-}
-
-func (x *WorkerValueCommitmentV2) GetGeneratedTokenCount() uint64 {
-	if x != nil {
-		return x.GeneratedTokenCount
-	}
-	return 0
-}
-
-func (x *WorkerValueCommitmentV2) GetOutputLeafCount() uint64 {
+func (x *WorkerTokenCommitmentV1) GetOutputLeafCount() uint64 {
 	if x != nil {
 		return x.OutputLeafCount
 	}
 	return 0
 }
 
-func (x *WorkerValueCommitmentV2) GetInputTokenIdsHash() []byte {
+func (x *WorkerTokenCommitmentV1) GetFinishReason() FinishReasonV1 {
+	if x != nil {
+		return x.FinishReason
+	}
+	return FinishReasonV1_FINISH_REASON_V1_UNSPECIFIED
+}
+
+func (x *WorkerTokenCommitmentV1) GetGeneratedTokenCount() uint64 {
+	if x != nil {
+		return x.GeneratedTokenCount
+	}
+	return 0
+}
+
+func (x *WorkerTokenCommitmentV1) GetInputTokenIdsHash() []byte {
 	if x != nil {
 		return x.InputTokenIdsHash
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetGeneratedTokenIdsHash() []byte {
+func (x *WorkerTokenCommitmentV1) GetGeneratedTokenIdsHash() []byte {
 	if x != nil {
 		return x.GeneratedTokenIdsHash
 	}
 	return nil
 }
 
-func (x *WorkerValueCommitmentV2) GetInputTokenIdsSizeBytes() uint64 {
+func (x *WorkerTokenCommitmentV1) GetInputTokenIdsSizeBytes() uint64 {
 	if x != nil {
 		return x.InputTokenIdsSizeBytes
 	}
 	return 0
 }
 
-func (x *WorkerValueCommitmentV2) GetGeneratedTokenIdsSizeBytes() uint64 {
+func (x *WorkerTokenCommitmentV1) GetGeneratedTokenIdsSizeBytes() uint64 {
 	if x != nil {
 		return x.GeneratedTokenIdsSizeBytes
+	}
+	return 0
+}
+
+// WorkerValueCommitmentV3 binds the B-level Worker value Merkle root.
+type WorkerValueCommitmentV3 struct {
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion                uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId                      string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	TaskId                       []byte                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	AcceptedTaskHash             []byte                 `protobuf:"bytes,4,opt,name=accepted_task_hash,json=acceptedTaskHash,proto3" json:"accepted_task_hash,omitempty"`
+	WorkerOperatorAddress        string                 `protobuf:"bytes,5,opt,name=worker_operator_address,json=workerOperatorAddress,proto3" json:"worker_operator_address,omitempty"`
+	EvidenceSchemaHash           []byte                 `protobuf:"bytes,6,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
+	WorkerValueRoot              []byte                 `protobuf:"bytes,7,opt,name=worker_value_root,json=workerValueRoot,proto3" json:"worker_value_root,omitempty"`
+	WorkerValuesEncodedSizeBytes uint64                 `protobuf:"varint,8,opt,name=worker_values_encoded_size_bytes,json=workerValuesEncodedSizeBytes,proto3" json:"worker_values_encoded_size_bytes,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
+}
+
+func (x *WorkerValueCommitmentV3) Reset() {
+	*x = WorkerValueCommitmentV3{}
+	mi := &file_task_v1_evidence_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerValueCommitmentV3) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerValueCommitmentV3) ProtoMessage() {}
+
+func (x *WorkerValueCommitmentV3) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_evidence_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerValueCommitmentV3.ProtoReflect.Descriptor instead.
+func (*WorkerValueCommitmentV3) Descriptor() ([]byte, []int) {
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *WorkerValueCommitmentV3) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *WorkerValueCommitmentV3) GetChainId() string {
+	if x != nil {
+		return x.ChainId
+	}
+	return ""
+}
+
+func (x *WorkerValueCommitmentV3) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *WorkerValueCommitmentV3) GetAcceptedTaskHash() []byte {
+	if x != nil {
+		return x.AcceptedTaskHash
+	}
+	return nil
+}
+
+func (x *WorkerValueCommitmentV3) GetWorkerOperatorAddress() string {
+	if x != nil {
+		return x.WorkerOperatorAddress
+	}
+	return ""
+}
+
+func (x *WorkerValueCommitmentV3) GetEvidenceSchemaHash() []byte {
+	if x != nil {
+		return x.EvidenceSchemaHash
+	}
+	return nil
+}
+
+func (x *WorkerValueCommitmentV3) GetWorkerValueRoot() []byte {
+	if x != nil {
+		return x.WorkerValueRoot
+	}
+	return nil
+}
+
+func (x *WorkerValueCommitmentV3) GetWorkerValuesEncodedSizeBytes() uint64 {
+	if x != nil {
+		return x.WorkerValuesEncodedSizeBytes
 	}
 	return 0
 }
@@ -432,7 +561,7 @@ type OutputMMRPeakProofV1 struct {
 
 func (x *OutputMMRPeakProofV1) Reset() {
 	*x = OutputMMRPeakProofV1{}
-	mi := &file_task_v1_evidence_proto_msgTypes[2]
+	mi := &file_task_v1_evidence_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +573,7 @@ func (x *OutputMMRPeakProofV1) String() string {
 func (*OutputMMRPeakProofV1) ProtoMessage() {}
 
 func (x *OutputMMRPeakProofV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_evidence_proto_msgTypes[2]
+	mi := &file_task_v1_evidence_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +586,7 @@ func (x *OutputMMRPeakProofV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputMMRPeakProofV1.ProtoReflect.Descriptor instead.
 func (*OutputMMRPeakProofV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_evidence_proto_rawDescGZIP(), []int{2}
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *OutputMMRPeakProofV1) GetPeakHash() []byte {
@@ -475,7 +604,7 @@ func (x *OutputMMRPeakProofV1) GetFinalInclusionPath() [][]byte {
 }
 
 // OutputChunkEquivocationV1 proves that a valid Worker-signed streamed prefix
-// conflicts with the final MMR root bound by an accepted InferReceiptV2.
+// conflicts with the final MMR root bound by an accepted InferReceiptV3.
 // OutputChunkEquivocationV1 defines the OutputChunkEquivocationV1 wire type.
 type OutputChunkEquivocationV1 struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
@@ -492,7 +621,7 @@ type OutputChunkEquivocationV1 struct {
 
 func (x *OutputChunkEquivocationV1) Reset() {
 	*x = OutputChunkEquivocationV1{}
-	mi := &file_task_v1_evidence_proto_msgTypes[3]
+	mi := &file_task_v1_evidence_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -504,7 +633,7 @@ func (x *OutputChunkEquivocationV1) String() string {
 func (*OutputChunkEquivocationV1) ProtoMessage() {}
 
 func (x *OutputChunkEquivocationV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_evidence_proto_msgTypes[3]
+	mi := &file_task_v1_evidence_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -517,7 +646,7 @@ func (x *OutputChunkEquivocationV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputChunkEquivocationV1.ProtoReflect.Descriptor instead.
 func (*OutputChunkEquivocationV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_evidence_proto_rawDescGZIP(), []int{3}
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *OutputChunkEquivocationV1) GetTaskId() []byte {
@@ -579,7 +708,7 @@ type WorkerEvidenceV1 struct {
 
 func (x *WorkerEvidenceV1) Reset() {
 	*x = WorkerEvidenceV1{}
-	mi := &file_task_v1_evidence_proto_msgTypes[4]
+	mi := &file_task_v1_evidence_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +720,7 @@ func (x *WorkerEvidenceV1) String() string {
 func (*WorkerEvidenceV1) ProtoMessage() {}
 
 func (x *WorkerEvidenceV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_evidence_proto_msgTypes[4]
+	mi := &file_task_v1_evidence_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +733,7 @@ func (x *WorkerEvidenceV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerEvidenceV1.ProtoReflect.Descriptor instead.
 func (*WorkerEvidenceV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_evidence_proto_rawDescGZIP(), []int{4}
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WorkerEvidenceV1) GetSchemaVersion() uint32 {
@@ -660,7 +789,7 @@ type WorkerEvidenceReceiptState struct {
 
 func (x *WorkerEvidenceReceiptState) Reset() {
 	*x = WorkerEvidenceReceiptState{}
-	mi := &file_task_v1_evidence_proto_msgTypes[5]
+	mi := &file_task_v1_evidence_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -672,7 +801,7 @@ func (x *WorkerEvidenceReceiptState) String() string {
 func (*WorkerEvidenceReceiptState) ProtoMessage() {}
 
 func (x *WorkerEvidenceReceiptState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_evidence_proto_msgTypes[5]
+	mi := &file_task_v1_evidence_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -685,7 +814,7 @@ func (x *WorkerEvidenceReceiptState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerEvidenceReceiptState.ProtoReflect.Descriptor instead.
 func (*WorkerEvidenceReceiptState) Descriptor() ([]byte, []int) {
-	return file_task_v1_evidence_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_evidence_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WorkerEvidenceReceiptState) GetSchemaVersion() uint32 {
@@ -759,8 +888,8 @@ const file_task_v1_evidence_proto_rawDesc = "" +
 	"\x14EvidenceCommitmentV1\x12<\n" +
 	"\revidence_kind\x18\x01 \x01(\x0e2\x17.shared.v1.EvidenceKindR\fevidenceKind\x121\n" +
 	"\x15evidence_hash_or_root\x18\x02 \x01(\fR\x12evidenceHashOrRoot\x12,\n" +
-	"\x12encoded_size_bytes\x18\x03 \x01(\x04R\x10encodedSizeBytes\"\xdf\a\n" +
-	"\x17WorkerValueCommitmentV2\x12%\n" +
+	"\x12encoded_size_bytes\x18\x03 \x01(\x04R\x10encodedSizeBytes\"\x9b\x06\n" +
+	"\x17WorkerTokenCommitmentV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
 	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12,\n" +
@@ -770,20 +899,24 @@ const file_task_v1_evidence_proto_rawDesc = "" +
 	"\x14evidence_schema_hash\x18\a \x01(\fR\x12evidenceSchemaHash\x12\x1f\n" +
 	"\voutput_hash\x18\b \x01(\fR\n" +
 	"outputHash\x12*\n" +
-	"\x11output_size_bytes\x18\t \x01(\x04R\x0foutputSizeBytes\x12<\n" +
-	"\rfinish_reason\x18\n" +
-	" \x01(\x0e2\x17.task.v1.FinishReasonV1R\ffinishReason\x12\x1d\n" +
-	"\n" +
-	"trace_root\x18\v \x01(\fR\ttraceRoot\x127\n" +
-	"\x18trace_encoded_size_bytes\x18\f \x01(\x04R\x15traceEncodedSizeBytes\x12'\n" +
-	"\x0fcheckpoint_root\x18\r \x01(\fR\x0echeckpointRoot\x12A\n" +
-	"\x1dcheckpoint_encoded_size_bytes\x18\x0e \x01(\x04R\x1acheckpointEncodedSizeBytes\x122\n" +
-	"\x15generated_token_count\x18\x0f \x01(\x04R\x13generatedTokenCount\x12*\n" +
-	"\x11output_leaf_count\x18\x10 \x01(\x04R\x0foutputLeafCount\x12/\n" +
-	"\x14input_token_ids_hash\x18\x11 \x01(\fR\x11inputTokenIdsHash\x127\n" +
-	"\x18generated_token_ids_hash\x18\x12 \x01(\fR\x15generatedTokenIdsHash\x12:\n" +
-	"\x1ainput_token_ids_size_bytes\x18\x13 \x01(\x04R\x16inputTokenIdsSizeBytes\x12B\n" +
-	"\x1egenerated_token_ids_size_bytes\x18\x14 \x01(\x04R\x1ageneratedTokenIdsSizeBytes\"e\n" +
+	"\x11output_size_bytes\x18\t \x01(\x04R\x0foutputSizeBytes\x12*\n" +
+	"\x11output_leaf_count\x18\n" +
+	" \x01(\x04R\x0foutputLeafCount\x12<\n" +
+	"\rfinish_reason\x18\v \x01(\x0e2\x17.task.v1.FinishReasonV1R\ffinishReason\x122\n" +
+	"\x15generated_token_count\x18\f \x01(\x04R\x13generatedTokenCount\x12/\n" +
+	"\x14input_token_ids_hash\x18\r \x01(\fR\x11inputTokenIdsHash\x127\n" +
+	"\x18generated_token_ids_hash\x18\x0e \x01(\fR\x15generatedTokenIdsHash\x12:\n" +
+	"\x1ainput_token_ids_size_bytes\x18\x0f \x01(\x04R\x16inputTokenIdsSizeBytes\x12B\n" +
+	"\x1egenerated_token_ids_size_bytes\x18\x10 \x01(\x04R\x1ageneratedTokenIdsSizeBytes\"\x80\x03\n" +
+	"\x17WorkerValueCommitmentV3\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
+	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
+	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12,\n" +
+	"\x12accepted_task_hash\x18\x04 \x01(\fR\x10acceptedTaskHash\x126\n" +
+	"\x17worker_operator_address\x18\x05 \x01(\tR\x15workerOperatorAddress\x120\n" +
+	"\x14evidence_schema_hash\x18\x06 \x01(\fR\x12evidenceSchemaHash\x12*\n" +
+	"\x11worker_value_root\x18\a \x01(\fR\x0fworkerValueRoot\x12F\n" +
+	" worker_values_encoded_size_bytes\x18\b \x01(\x04R\x1cworkerValuesEncodedSizeBytes\"e\n" +
 	"\x14OutputMMRPeakProofV1\x12\x1b\n" +
 	"\tpeak_hash\x18\x01 \x01(\fR\bpeakHash\x120\n" +
 	"\x14final_inclusion_path\x18\x02 \x03(\fR\x12finalInclusionPath\"\xa9\x02\n" +
@@ -808,16 +941,20 @@ const file_task_v1_evidence_proto_rawDesc = "" +
 	"\x1baccepted_infer_receipt_hash\x18\x06 \x01(\fR\x18acceptedInferReceiptHash\x12'\n" +
 	"\x0fevidence_digest\x18\a \x01(\fR\x0eevidenceDigest\x12\x19\n" +
 	"\bfault_id\x18\b \x01(\fR\afaultId\x12'\n" +
-	"\x0faccepted_height\x18\t \x01(\x04R\x0eacceptedHeight*\xc8\x01\n" +
+	"\x0faccepted_height\x18\t \x01(\x04R\x0eacceptedHeight*\x89\x02\n" +
 	"\x0eFinishReasonV1\x12 \n" +
 	"\x1cFINISH_REASON_V1_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aFINISH_REASON_V1_EOS_TOKEN\x10\x01\x12\"\n" +
 	"\x1eFINISH_REASON_V1_STOP_SEQUENCE\x10\x02\x12&\n" +
 	"\"FINISH_REASON_V1_MAX_OUTPUT_TOKENS\x10\x03\x12(\n" +
-	"$FINISH_REASON_V1_MAX_OUTPUT_DURATION\x10\x04*v\n" +
+	"$FINISH_REASON_V1_MAX_OUTPUT_DURATION\x10\x04\x12\x1e\n" +
+	"\x1aFINISH_REASON_V1_USER_STOP\x10\x05\x12\x1f\n" +
+	"\x1bFINISH_REASON_V1_STOP_TOKEN\x10\x06*v\n" +
 	"\x14WorkerEvidenceKindV1\x12'\n" +
 	"#WORKER_EVIDENCE_KIND_V1_UNSPECIFIED\x10\x00\x125\n" +
-	"1WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION\x10\x01B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"1WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION\x10\x01*N\n" +
+	"\x1bVerifierValueEvidenceKindV1\x12/\n" +
+	"+VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED\x10\x00B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_evidence_proto_rawDescOnce sync.Once
@@ -831,30 +968,32 @@ func file_task_v1_evidence_proto_rawDescGZIP() []byte {
 	return file_task_v1_evidence_proto_rawDescData
 }
 
-var file_task_v1_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_task_v1_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_task_v1_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_task_v1_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_task_v1_evidence_proto_goTypes = []any{
 	(FinishReasonV1)(0),                // 0: task.v1.FinishReasonV1
 	(WorkerEvidenceKindV1)(0),          // 1: task.v1.WorkerEvidenceKindV1
-	(*EvidenceCommitmentV1)(nil),       // 2: task.v1.EvidenceCommitmentV1
-	(*WorkerValueCommitmentV2)(nil),    // 3: task.v1.WorkerValueCommitmentV2
-	(*OutputMMRPeakProofV1)(nil),       // 4: task.v1.OutputMMRPeakProofV1
-	(*OutputChunkEquivocationV1)(nil),  // 5: task.v1.OutputChunkEquivocationV1
-	(*WorkerEvidenceV1)(nil),           // 6: task.v1.WorkerEvidenceV1
-	(*WorkerEvidenceReceiptState)(nil), // 7: task.v1.WorkerEvidenceReceiptState
-	(v1.EvidenceKind)(0),               // 8: shared.v1.EvidenceKind
+	(VerifierValueEvidenceKindV1)(0),   // 2: task.v1.VerifierValueEvidenceKindV1
+	(*EvidenceCommitmentV1)(nil),       // 3: task.v1.EvidenceCommitmentV1
+	(*WorkerTokenCommitmentV1)(nil),    // 4: task.v1.WorkerTokenCommitmentV1
+	(*WorkerValueCommitmentV3)(nil),    // 5: task.v1.WorkerValueCommitmentV3
+	(*OutputMMRPeakProofV1)(nil),       // 6: task.v1.OutputMMRPeakProofV1
+	(*OutputChunkEquivocationV1)(nil),  // 7: task.v1.OutputChunkEquivocationV1
+	(*WorkerEvidenceV1)(nil),           // 8: task.v1.WorkerEvidenceV1
+	(*WorkerEvidenceReceiptState)(nil), // 9: task.v1.WorkerEvidenceReceiptState
+	(v1.EvidenceKind)(0),               // 10: shared.v1.EvidenceKind
 }
 var file_task_v1_evidence_proto_depIdxs = []int32{
-	8, // 0: task.v1.EvidenceCommitmentV1.evidence_kind:type_name -> shared.v1.EvidenceKind
-	0, // 1: task.v1.WorkerValueCommitmentV2.finish_reason:type_name -> task.v1.FinishReasonV1
-	4, // 2: task.v1.OutputChunkEquivocationV1.prefix_peak_proofs:type_name -> task.v1.OutputMMRPeakProofV1
-	5, // 3: task.v1.WorkerEvidenceV1.output_chunk_equivocation:type_name -> task.v1.OutputChunkEquivocationV1
-	1, // 4: task.v1.WorkerEvidenceReceiptState.evidence_kind:type_name -> task.v1.WorkerEvidenceKindV1
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	10, // 0: task.v1.EvidenceCommitmentV1.evidence_kind:type_name -> shared.v1.EvidenceKind
+	0,  // 1: task.v1.WorkerTokenCommitmentV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	6,  // 2: task.v1.OutputChunkEquivocationV1.prefix_peak_proofs:type_name -> task.v1.OutputMMRPeakProofV1
+	7,  // 3: task.v1.WorkerEvidenceV1.output_chunk_equivocation:type_name -> task.v1.OutputChunkEquivocationV1
+	1,  // 4: task.v1.WorkerEvidenceReceiptState.evidence_kind:type_name -> task.v1.WorkerEvidenceKindV1
+	5,  // [5:5] is the sub-list for method output_type
+	5,  // [5:5] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_evidence_proto_init() }
@@ -862,7 +1001,7 @@ func file_task_v1_evidence_proto_init() {
 	if File_task_v1_evidence_proto != nil {
 		return
 	}
-	file_task_v1_evidence_proto_msgTypes[4].OneofWrappers = []any{
+	file_task_v1_evidence_proto_msgTypes[5].OneofWrappers = []any{
 		(*WorkerEvidenceV1_OutputChunkEquivocation)(nil),
 	}
 	type x struct{}
@@ -870,8 +1009,8 @@ func file_task_v1_evidence_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_evidence_proto_rawDesc), len(file_task_v1_evidence_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   6,
+			NumEnums:      3,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

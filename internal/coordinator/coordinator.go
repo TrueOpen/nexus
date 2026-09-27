@@ -595,7 +595,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		currentEpoch:          c.currentEpoch,
 		verifierProposalDelay: verifierProposalBatchDelay,
 		resultReadiness:       c.resultReadiness,
-		verifyResults:         make(map[string]*taskv1.ResultReceiptV2),
+		verifyResults:         make(map[string]*taskv1.ResultReceiptV3),
 		verifyCommits:         make(map[string]*taskv1.VerifyCommitV1),
 		fullReveals:           make(map[string]bool),
 		prepareSeen:           make(map[string]int64),
@@ -904,7 +904,7 @@ func (c *Coordinator) OnVerifyCommit(_ context.Context, sessionID, taskID string
 
 // OnVerifyResult relays a result receipt signed by a selected Verifier (Cortex contract §2.6):
 // carries the same ResultReceiptV2 as the VERIFY_RESULT JetStream path and shares the same relay logic.
-func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV2) (types.VerifyRelayAck, error) {
+func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	if receipt == nil {
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: receipt is required", types.ErrInvalidArgument)
 	}

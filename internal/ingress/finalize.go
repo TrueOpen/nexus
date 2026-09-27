@@ -1,8 +1,8 @@
 package ingress
 
-// FinalizeTaskResult / FinalizeVerifierEvidence -- the two atomic commit points of
-// Task Data Interface Design §5.5. This file only does boundary work: converts wire messages to
-// internal shapes and verifies ResultReceiptV2's own service_signature here (same
+// FinalizeTaskResult / FinalizeVerifierEvidence -- the two commit points of the task data plane.
+// This file only does boundary work: converts wire messages to internal shapes and verifies
+// ResultReceiptV3's own service_signature here (same
 // verifyParticipantRoleDigest as the three relay RPCs); every other check lives in taskdata.
 
 import (
@@ -21,8 +21,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// FinalizeTaskResult is initiated by the selected Worker and commits in one shot the receipt, the Worker
-// frozen manifest, all its objects and TaskData READY.
+// FinalizeTaskResult is initiated by the selected Worker and commits one of its two evidence bundles,
+// named by evidence_kind; the first call also freezes the OUTPUT with the receipt.
 func (s *service) FinalizeTaskResult(
 	ctx context.Context,
 	req *connect.Request[nexusv1.FinalizeTaskResultRequest],
@@ -44,7 +44,7 @@ func (s *service) FinalizeTaskResult(
 		return nil, mapTaskDataError(err)
 	}
 	outcome, err := s.taskData.FinalizeTaskResult(ctx, taskdata.FinalizeResultRequest{
-		Auth: auth, TaskHash: m.GetTaskHash(), Receipt: receipt,
+		Auth: auth, TaskHash: m.GetTaskHash(), Receipt: receipt, EvidenceKind: taskdata.EvidenceKind(m.GetEvidenceKind()),
 	})
 	if err != nil {
 		return nil, mapTaskDataError(err)
@@ -139,15 +139,15 @@ func canonicalHash32Text(value string) bool {
 	return err == nil && hex.EncodeToString(raw) == value
 }
 
-// signedInferReceiptFromPB converts InferReceiptV2 to taskdata's internal shape. Shape validation
+// signedInferReceiptFromPB converts InferReceiptV3 to taskdata's internal shape. Shape validation
 // (field lengths, schema_version, chain_id) happens once here; digest and signature verification in taskdata.
-func signedInferReceiptFromPB(pb *taskv1.InferReceiptV2, chainID string) (taskdata.SignedInferReceipt, error) {
+func signedInferReceiptFromPB(pb *taskv1.InferReceiptV3, chainID string) (taskdata.SignedInferReceipt, error) {
 	if pb == nil {
 		return taskdata.SignedInferReceipt{}, fmt.Errorf("%w: receipt is required", types.ErrInvalidArgument)
 	}
-	if pb.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV2 {
+	if pb.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV3 {
 		return taskdata.SignedInferReceipt{}, fmt.Errorf("%w: receipt schema_version must be %d",
-			types.ErrInvalidArgument, nodecontract.InferReceiptSchemaVersionV2)
+			types.ErrInvalidArgument, nodecontract.InferReceiptSchemaVersionV3)
 	}
 	if pb.GetChainId() != chainID {
 		return taskdata.SignedInferReceipt{}, fmt.Errorf("%w: receipt chain_id", types.ErrInvalidArgument)
@@ -192,12 +192,16 @@ func signedInferReceiptFromPB(pb *taskv1.InferReceiptV2, chainID string) (taskda
 		ServiceSignature:          hex.EncodeToString(pb.GetServiceSignature()),
 		GeneratedTokenCount:       pb.GetGeneratedTokenCount(),
 		OutputLeafCount:           pb.GetOutputLeafCount(),
+		OutputKeyCommitment:       hex.EncodeToString(pb.GetOutputKeyCommitment()),
+		WorkerTokenKeyCommitment:  hex.EncodeToString(pb.GetWorkerTokenKeyCommitment()),
+		WorkerValueKeyCommitment:  hex.EncodeToString(pb.GetWorkerValueKeyCommitment()),
+		CiphertextOutputRoot:      hex.EncodeToString(pb.GetCiphertextOutputRoot()),
 	}, nil
 }
 
 // finalizeResultReceiptFromPB reuses SubmitVerifyResult's shape validation: that path and this one carry
-// the same ResultReceiptV2, and there must not be two sets of validation rules.
-func finalizeResultReceiptFromPB(pb *taskv1.ResultReceiptV2, chainID string) (*taskv1.ResultReceiptV2, error) {
+// the same ResultReceiptV3, and there must not be two sets of validation rules.
+func finalizeResultReceiptFromPB(pb *taskv1.ResultReceiptV3, chainID string) (*taskv1.ResultReceiptV3, error) {
 	return resultReceiptFromPB(&nexusv1.SubmitVerifyResultRequest{Receipt: pb}, chainID)
 }
 

@@ -102,4 +102,5 @@ message TaskRoundSummaryState {
   optional shared.v1.RoundOutcomeV1 round2_outcome = 11;
   bytes round2_effect_root_or_zero32 = 12;
   optional bytes task_round_summary_hash = 13;
+  optional uint64 verifier_value_evidence_close_height = 14;
 }

@@ -23,7 +23,7 @@ const (
 )
 
 // TaskCleanupStatus is the Query-only tri-state of the Task cleanup projection
-// (§16.5). It never lands in the Store and never enters a Msg or Event.
+// . It never lands in the Store and never enters a Msg or Event.
 // TaskCleanupStatus defines the TaskCleanupStatus wire type.
 type TaskCleanupStatus int32
 
@@ -86,7 +86,7 @@ func (TaskCleanupStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // TaskAssignmentViewV1 projects one TaskAssignmentState and hides the internal
-// candidate_pool_ref_released field (§16.5). Fields 1-17 and 19-20 come from
+// candidate_pool_ref_released field. Fields 1-17 and 19-20 come from
 // that single State; field 18 assignment_status is joined from TaskCoreState because
 // TaskCoreState is the only primary of the six sub-states and TaskAssignmentState
 // keeps no copy - the same value stored twice is Internal. The three winner
@@ -117,8 +117,10 @@ type TaskAssignmentViewV1 struct {
 	AssignmentStatus            AssignmentStatus `protobuf:"varint,18,opt,name=assignment_status,json=assignmentStatus,proto3,enum=task.v1.AssignmentStatus" json:"assignment_status,omitempty"`
 	WorkerInferTimeoutSlashBps  uint32           `protobuf:"varint,19,opt,name=worker_infer_timeout_slash_bps,json=workerInferTimeoutSlashBps,proto3" json:"worker_infer_timeout_slash_bps,omitempty"`
 	ResultRevealMissingSlashBps uint32           `protobuf:"varint,20,opt,name=result_reveal_missing_slash_bps,json=resultRevealMissingSlashBps,proto3" json:"result_reveal_missing_slash_bps,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// Joined from the immutable TaskAssignmentState admission snapshot.
+	MinStakeSnapshot *v1.Amount `protobuf:"bytes,21,opt,name=min_stake_snapshot,json=minStakeSnapshot,proto3" json:"min_stake_snapshot,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TaskAssignmentViewV1) Reset() {
@@ -291,39 +293,40 @@ func (x *TaskAssignmentViewV1) GetResultRevealMissingSlashBps() uint32 {
 	return 0
 }
 
+func (x *TaskAssignmentViewV1) GetMinStakeSnapshot() *v1.Amount {
+	if x != nil {
+		return x.MinStakeSnapshot
+	}
+	return nil
+}
+
 // TaskBuilderSelectionViewV1 projects one TaskBuilderSelectionState and hides the
 // internal builder_set_ref_released and builder_fault_slash_bps_snapshot fields
-// (§16.5). Fields 1-9 are the frozen public prefix of the
-// the data-structure contract State field order.
+// . Fields 1-9 are the frozen public prefix of the
+// the wire storage model State field order.
 //
 // This view is the ONLY read path for the per-Task Builder identity. The Worker
 // fetches INPUT from and uploads OUTPUT to exactly these Builders, the
 // three-Builder fan-out and the 2-of-3 data-ready confirmation address exactly
-// this list, and the API contract derives the stable SETTLE duty Builder
+// this list, and the wire API derives the stable SETTLE duty Builder
 // from the same frozen order and rank. No other surface carries it: the abandoned
 // AssignmentState.builder_operator_address is deleted, TaskCoreState and
 // TaskAssignmentState hold no Builder field, and EventWorkerAssignmentFinalized
-// (event code 11, §5.11) does not emit one.
+// (event code 11, this contract) does not emit one.
 //
 // BITMAP ORDER: the index of a Builder inside selected_task_builders IS the bit
 // index of both frozen Builder bitmaps, so a consumer must align them against
 // this list and never against its own sort:
 //   - MsgReportDataUnavailable.unavailable_task_builder_bitmap and
-//     DataUnavailableReportState.unavailable_task_builder_bitmap (§10.5)
-//   - TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap (§10.4)
+//     DataUnavailableReportState.unavailable_task_builder_bitmap
+//   - TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap
 //
 // Bit i addresses selected_task_builders[i]; byte_index = i / 8 and
 // bit_mask = 1 << (i % 8).
 //
-// CONTRACT-GAP: §10.4 and §10.5 state only that the two Builder bitmaps use "the
-// frozen TaskBuilderSelectionState order" and that trailing/out-of-range bits are
-// rejected; neither restates the byte/bit layout, and §3.1 registers a bit order
-// (`bit_mask = 1 << (bit_in_segment % 8)`, little-bit order in each byte) only for
-// the segmented CandidatePool bitmap. The unsegmented Builder bitmap therefore
-// reuses that same §3.1 little-bit order, because §3.1 is the only bitmap codec
-// registered anywhere in the contract and a second bit order would silently fork
-// TRUEOPEN_DATA_UNAVAILABLE_BITMAP_V1 across languages. The contract must either
-// widen §3.1 to all bitmaps or restate the layout in §10.4/§10.5.
+// Both Builder bitmaps use the frozen TaskBuilderSelectionState order and
+// little-bit order within each byte. Trailing or out-of-range bits are rejected;
+// the same layout enters TRUEOPEN_DATA_UNAVAILABLE_BITMAP_V1.
 // TaskBuilderSelectionViewV1 defines the TaskBuilderSelectionViewV1 wire type.
 type TaskBuilderSelectionViewV1 struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
@@ -438,7 +441,7 @@ func (x *TaskBuilderSelectionViewV1) GetBodyStatus() v1.StoredBodyStatus {
 }
 
 // TaskActiveBundleV1 is the composite view of one not-yet-compacted Task
-// (§16.5). core is required; assignment appears once the Task entered assignment
+// . core is required; assignment appears once the Task entered assignment
 // and verifier_assignment once Open Verify finalized.
 // TaskActiveBundleV1 defines the TaskActiveBundleV1 wire type.
 type TaskActiveBundleV1 struct {
@@ -517,7 +520,7 @@ func (x *TaskActiveBundleV1) GetRound2VerifierAssignment() *VerifierAssignmentSt
 	return nil
 }
 
-// TaskViewV1 is the single QueryTask response body (§16.5).
+// TaskViewV1 is the single QueryTask response body.
 //
 // TaskViewV1 defines the TaskViewV1 wire type.
 type TaskViewV1 struct {
@@ -608,7 +611,7 @@ func (*TaskViewV1_Active) isTaskViewV1_Value() {}
 func (*TaskViewV1_Terminal) isTaskViewV1_Value() {}
 
 // TaskStageViewV1 projects TaskCoreState plus the earliest unprocessed deadline
-// of the current stage (§16.5). The two deadline fields are present together or
+// of the current stage. The two deadline fields are present together or
 // absent together; a missing required sub-state is Internal.
 // TaskStageViewV1 defines the TaskStageViewV1 wire type.
 type TaskStageViewV1 struct {
@@ -736,7 +739,7 @@ func (x *TaskStageViewV1) GetEffectiveVerifyRound() uint32 {
 }
 
 // AssignmentRandomnessViewV1 joins TaskAssignmentState with the BeaconState of
-// its exact randomness height (§16.5). A scope or hash mismatch is Internal and
+// its exact randomness height. A scope or hash mismatch is Internal and
 // the Beacon must not be pruned while a consumer exists. Field 5 is present for
 // proposer-VRF and absent for a dev placeholder. Fields 6-8 are present together
 // or absent together.
@@ -841,12 +844,12 @@ func (x *AssignmentRandomnessViewV1) GetWinnerConfirmHeight() uint64 {
 	return 0
 }
 
-// ActiveTaskRefV1 is the compact active-duty Task reference of §16.5.
+// ActiveTaskRefV1 is the compact active-duty Task reference of this contract.
 type ActiveTaskRefV1 struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	TaskId         []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	TaskPhase      TaskPhase              `protobuf:"varint,2,opt,name=task_phase,json=taskPhase,proto3,enum=task.v1.TaskPhase" json:"task_phase,omitempty"`
-	ModelId        string                 `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,4,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	CreatedHeight  uint64                 `protobuf:"varint,5,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
 	UpdatedHeight  uint64                 `protobuf:"varint,6,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
@@ -898,11 +901,11 @@ func (x *ActiveTaskRefV1) GetTaskPhase() TaskPhase {
 	return TaskPhase_TASK_PHASE_UNSPECIFIED
 }
 
-func (x *ActiveTaskRefV1) GetModelId() string {
+func (x *ActiveTaskRefV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ActiveTaskRefV1) GetProfileVersion() uint32 {
@@ -927,7 +930,7 @@ func (x *ActiveTaskRefV1) GetUpdatedHeight() uint64 {
 }
 
 // TaskCleanupProgressViewV1 reads exactly one of the active Task, the cleanup
-// cursor or the terminal summary (§16.5). A cursor and a terminal summary
+// cursor or the terminal summary. A cursor and a terminal summary
 // existing at once is Internal; the counts are zero unless status is RUNNING.
 // TaskCleanupProgressViewV1 defines the TaskCleanupProgressViewV1 wire type.
 type TaskCleanupProgressViewV1 struct {
@@ -1006,7 +1009,7 @@ func (x *TaskCleanupProgressViewV1) GetDeletedCount() uint64 {
 	return 0
 }
 
-// QueryTaskRequest selects one Task (§16.2).
+// QueryTaskRequest selects one Task.
 type QueryTaskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1096,7 +1099,7 @@ func (x *QueryTaskResponse) GetTask() *TaskViewV1 {
 	return nil
 }
 
-// QueryTaskStageRequest selects one Task's stage projection (§16.2).
+// QueryTaskStageRequest selects one Task's stage projection.
 type QueryTaskStageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1186,7 +1189,7 @@ func (x *QueryTaskStageResponse) GetStage() *TaskStageViewV1 {
 	return nil
 }
 
-// QueryTaskAssignmentRequest selects one Task's Worker assignment (§16.2).
+// QueryTaskAssignmentRequest selects one Task's Worker assignment.
 type QueryTaskAssignmentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1277,7 +1280,7 @@ func (x *QueryTaskAssignmentResponse) GetAssignment() *TaskAssignmentViewV1 {
 }
 
 // QueryAssignmentRandomnessRequest selects one Task's frozen assignment
-// randomness (§16.4).
+// randomness.
 // QueryAssignmentRandomnessRequest defines the QueryAssignmentRandomnessRequest wire type.
 type QueryAssignmentRandomnessRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1370,11 +1373,10 @@ func (x *QueryAssignmentRandomnessResponse) GetRandomness() *AssignmentRandomnes
 	return nil
 }
 
-// QueryTaskBudgetRequest selects the single per-task fund ledger (§16.2).
+// QueryTaskBudgetRequest selects the single per-task fund ledger.
 //
-// CONTRACT-GAP: §16.2 registers the request as `1=task_id` only. The abandoned
-// path also carried session_id; it is removed here because task_id is the sole
-// TaskBudgetState primary key.
+// task_id is the sole TaskBudgetState primary key; no session_id selector is
+// accepted on this query.
 // QueryTaskBudgetRequest defines the QueryTaskBudgetRequest wire type.
 type QueryTaskBudgetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1468,7 +1470,7 @@ func (x *QueryTaskBudgetResponse) GetBudget() *TaskBudgetState {
 }
 
 // QueryTaskBuildersRequest selects one Task's frozen Task Builder selection
-// (§16.2, request is exactly `1=task_id`).
+// (this contract, request is exactly `1=task_id`).
 // QueryTaskBuildersRequest defines the QueryTaskBuildersRequest wire type.
 type QueryTaskBuildersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1515,21 +1517,21 @@ func (x *QueryTaskBuildersRequest) GetTaskId() []byte {
 }
 
 // QueryTaskBuildersResponse returns the frozen Builder selection projected in
-// commitment order (§16.2). It is the read path that makes the per-Task Builder
+// commitment order. It is the read path that makes the per-Task Builder
 // identity reachable at all; see TaskBuilderSelectionViewV1 for the bitmap-order
 // contract the two Builder bitmaps depend on.
 //
-// Pruning and compaction semantics, exactly as frozen by §16.2 and
-// the data-structure contract:
+// Pruning and compaction semantics, exactly as frozen by this contract and
+// the wire storage model:
 //   - body_status = ACTIVE: selected_task_builders has exactly
 //     selected_task_builder_count == builders_per_task members in frozen order.
 //   - body_status = PRUNED: the cleanup runner's ACTIVE_INDEXES_AND_LIABILITIES
-//     phase (§6.6 step 7), after finality and the evidence-retention window,
+//     phase (this contract step 7), after finality and the evidence-retention window,
 //     released every BUS_OBJECTIVE_EVIDENCE responsibility and cleared the member
 //     body. selected_task_builders MUST be empty while count/hash and the other
 //     public header fields remain auditable. The RPC is NOT NotFound in this
 //     window, and an empty member array with body_status = ACTIVE is Internal.
-//   - After the TASK_COMPACTION phase (§6.6 step 8) the whole
+//   - After the TASK_COMPACTION phase (this contract step 8) the whole
 //     TaskBuilderSelectionState row is deleted together with the rest of the Task
 //     detail, so the RPC returns NotFound and the long-lived commitment must be
 //     read from TaskTerminalSummaryState.selected_task_builders_hash instead. The
@@ -1584,8 +1586,7 @@ func (x *QueryTaskBuildersResponse) GetSelection() *TaskBuilderSelectionViewV1 {
 	return nil
 }
 
-// QueryTaskFailureClassRequest selects one Task's failure classification
-// (§16.2).
+// QueryTaskFailureClassRequest selects one Task's failure classification.
 // QueryTaskFailureClassRequest defines the QueryTaskFailureClassRequest wire type.
 type QueryTaskFailureClassRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
@@ -1690,7 +1691,7 @@ func (x *QueryTaskFailureClassResponse) GetFailure() *TaskFailureClassState {
 	return nil
 }
 
-// QueryEvidenceCleanupRequest selects one Task's cleanup progress (§16.4).
+// QueryEvidenceCleanupRequest selects one Task's cleanup progress.
 type QueryEvidenceCleanupRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1827,18 +1828,11 @@ func (x *QueryEpochTaskSummaryRequest) GetEpoch() uint64 {
 	return 0
 }
 
-// QueryEpochTaskSummaryResponse returns either in-progress fold state or the
-// immutable dispatch receipt.
+// QueryEpochTaskSummaryResponse returns the immutable dispatch receipt.
 // QueryEpochTaskSummaryResponse defines the QueryEpochTaskSummaryResponse wire type.
 type QueryEpochTaskSummaryResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// value distinguishes a resumable cursor from a completed receipt.
-	//
-	// Types that are valid to be assigned to Value:
-	//
-	//	*QueryEpochTaskSummaryResponse_Running
-	//	*QueryEpochTaskSummaryResponse_Receipt
-	Value         isQueryEpochTaskSummaryResponse_Value `protobuf_oneof:"value"`
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	Receipt       *EpochTaskSummaryReceiptState `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1873,48 +1867,14 @@ func (*QueryEpochTaskSummaryResponse) Descriptor() ([]byte, []int) {
 	return file_task_v1_query_task_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *QueryEpochTaskSummaryResponse) GetValue() isQueryEpochTaskSummaryResponse_Value {
-	if x != nil {
-		return x.Value
-	}
-	return nil
-}
-
-func (x *QueryEpochTaskSummaryResponse) GetRunning() *EpochTaskSummaryCursorState {
-	if x != nil {
-		if x, ok := x.Value.(*QueryEpochTaskSummaryResponse_Running); ok {
-			return x.Running
-		}
-	}
-	return nil
-}
-
 func (x *QueryEpochTaskSummaryResponse) GetReceipt() *EpochTaskSummaryReceiptState {
 	if x != nil {
-		if x, ok := x.Value.(*QueryEpochTaskSummaryResponse_Receipt); ok {
-			return x.Receipt
-		}
+		return x.Receipt
 	}
 	return nil
 }
 
-type isQueryEpochTaskSummaryResponse_Value interface {
-	isQueryEpochTaskSummaryResponse_Value()
-}
-
-type QueryEpochTaskSummaryResponse_Running struct {
-	Running *EpochTaskSummaryCursorState `protobuf:"bytes,1,opt,name=running,proto3,oneof"`
-}
-
-type QueryEpochTaskSummaryResponse_Receipt struct {
-	Receipt *EpochTaskSummaryReceiptState `protobuf:"bytes,2,opt,name=receipt,proto3,oneof"`
-}
-
-func (*QueryEpochTaskSummaryResponse_Running) isQueryEpochTaskSummaryResponse_Value() {}
-
-func (*QueryEpochTaskSummaryResponse_Receipt) isQueryEpochTaskSummaryResponse_Value() {}
-
-// QueryRoleActiveTasksRequest pages one operator's active duty Tasks (§16.3).
+// QueryRoleActiveTasksRequest pages one operator's active duty Tasks.
 // duty only allows WORKER or VERIFIER; an invalid address is InvalidArgument and
 // never an empty page.
 // QueryRoleActiveTasksRequest defines the QueryRoleActiveTasksRequest wire type.
@@ -2139,11 +2099,142 @@ func (x *QueryWorkerEvidenceResponse) GetReceipt() *WorkerEvidenceReceiptState {
 	return nil
 }
 
+// QueryVerifierValueEvidenceRequest is registered but NOT_SUPPORTED before the
+// separately defined value-evidence activation.
+type QueryVerifierValueEvidenceRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	TaskId                []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	VerifyRound           uint32                 `protobuf:"varint,2,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
+	TargetOperatorAddress string                 `protobuf:"bytes,3,opt,name=target_operator_address,json=targetOperatorAddress,proto3" json:"target_operator_address,omitempty"`
+	Position              uint32                 `protobuf:"varint,4,opt,name=position,proto3" json:"position,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *QueryVerifierValueEvidenceRequest) Reset() {
+	*x = QueryVerifierValueEvidenceRequest{}
+	mi := &file_task_v1_query_task_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryVerifierValueEvidenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryVerifierValueEvidenceRequest) ProtoMessage() {}
+
+func (x *QueryVerifierValueEvidenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_task_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryVerifierValueEvidenceRequest.ProtoReflect.Descriptor instead.
+func (*QueryVerifierValueEvidenceRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *QueryVerifierValueEvidenceRequest) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *QueryVerifierValueEvidenceRequest) GetVerifyRound() uint32 {
+	if x != nil {
+		return x.VerifyRound
+	}
+	return 0
+}
+
+func (x *QueryVerifierValueEvidenceRequest) GetTargetOperatorAddress() string {
+	if x != nil {
+		return x.TargetOperatorAddress
+	}
+	return ""
+}
+
+func (x *QueryVerifierValueEvidenceRequest) GetPosition() uint32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+// QueryVerifierValueEvidenceResponse is reserved for an activated receipt.
+type QueryVerifierValueEvidenceResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	EvidenceDigest []byte                 `protobuf:"bytes,1,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
+	FaultId        []byte                 `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
+	AcceptedHeight uint64                 `protobuf:"varint,3,opt,name=accepted_height,json=acceptedHeight,proto3" json:"accepted_height,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryVerifierValueEvidenceResponse) Reset() {
+	*x = QueryVerifierValueEvidenceResponse{}
+	mi := &file_task_v1_query_task_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryVerifierValueEvidenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryVerifierValueEvidenceResponse) ProtoMessage() {}
+
+func (x *QueryVerifierValueEvidenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_task_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryVerifierValueEvidenceResponse.ProtoReflect.Descriptor instead.
+func (*QueryVerifierValueEvidenceResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *QueryVerifierValueEvidenceResponse) GetEvidenceDigest() []byte {
+	if x != nil {
+		return x.EvidenceDigest
+	}
+	return nil
+}
+
+func (x *QueryVerifierValueEvidenceResponse) GetFaultId() []byte {
+	if x != nil {
+		return x.FaultId
+	}
+	return nil
+}
+
+func (x *QueryVerifierValueEvidenceResponse) GetAcceptedHeight() uint64 {
+	if x != nil {
+		return x.AcceptedHeight
+	}
+	return 0
+}
+
 var File_task_v1_query_task_proto protoreflect.FileDescriptor
 
 const file_task_v1_query_task_proto_rawDesc = "" +
 	"\n" +
-	"\x18task/v1/query_task.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x1ashared/v1/query_page.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x16task/v1/deadline.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x19task/v1/open_verify.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\"\xbb\n" +
+	"\x18task/v1/query_task.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1ashared/v1/query_page.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x16task/v1/deadline.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x19task/v1/open_verify.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\"\xfc\n" +
 	"\n" +
 	"\x14TaskAssignmentViewV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
@@ -2166,7 +2257,8 @@ const file_task_v1_query_task_proto_rawDesc = "" +
 	"\x1emetric_aggregate_proof_version\x18\x11 \x01(\tR\x1bmetricAggregateProofVersion\x12F\n" +
 	"\x11assignment_status\x18\x12 \x01(\x0e2\x19.task.v1.AssignmentStatusR\x10assignmentStatus\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x13 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
-	"\x1fresult_reveal_missing_slash_bps\x18\x14 \x01(\rR\x1bresultRevealMissingSlashBpsB\x18\n" +
+	"\x1fresult_reveal_missing_slash_bps\x18\x14 \x01(\rR\x1bresultRevealMissingSlashBps\x12?\n" +
+	"\x12min_stake_snapshot\x18\x15 \x01(\v2\x11.shared.v1.AmountR\x10minStakeSnapshotB\x18\n" +
 	"\x16_winner_confirm_heightB\x18\n" +
 	"\x16_infer_deadline_heightB\x19\n" +
 	"\x17_assignment_fail_reasonB\x10\n" +
@@ -2229,7 +2321,7 @@ const file_task_v1_query_task_proto_rawDesc = "" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x121\n" +
 	"\n" +
 	"task_phase\x18\x02 \x01(\x0e2\x12.task.v1.TaskPhaseR\ttaskPhase\x12\x19\n" +
-	"\bmodel_id\x18\x03 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x03 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x04 \x01(\rR\x0eprofileVersion\x12%\n" +
 	"\x0ecreated_height\x18\x05 \x01(\x04R\rcreatedHeight\x12%\n" +
 	"\x0eupdated_height\x18\x06 \x01(\x04R\rupdatedHeight\"\xf2\x01\n" +
@@ -2278,11 +2370,9 @@ const file_task_v1_query_task_proto_rawDesc = "" +
 	"\x1cQueryEvidenceCleanupResponse\x12<\n" +
 	"\acleanup\x18\x01 \x01(\v2\".task.v1.TaskCleanupProgressViewV1R\acleanup\"4\n" +
 	"\x1cQueryEpochTaskSummaryRequest\x12\x14\n" +
-	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\"\xad\x01\n" +
-	"\x1dQueryEpochTaskSummaryResponse\x12@\n" +
-	"\arunning\x18\x01 \x01(\v2$.task.v1.EpochTaskSummaryCursorStateH\x00R\arunning\x12A\n" +
-	"\areceipt\x18\x02 \x01(\v2%.task.v1.EpochTaskSummaryReceiptStateH\x00R\areceiptB\a\n" +
-	"\x05value\"\xa0\x01\n" +
+	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\"`\n" +
+	"\x1dQueryEpochTaskSummaryResponse\x12?\n" +
+	"\areceipt\x18\x01 \x01(\v2%.task.v1.EpochTaskSummaryReceiptStateR\areceipt\"\xa0\x01\n" +
 	"\x1bQueryRoleActiveTasksRequest\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12#\n" +
 	"\x04duty\x18\x02 \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x121\n" +
@@ -2295,7 +2385,16 @@ const file_task_v1_query_task_proto_rawDesc = "" +
 	"\x17worker_operator_address\x18\x02 \x01(\tR\x15workerOperatorAddress\x12\x10\n" +
 	"\x03seq\x18\x03 \x01(\x04R\x03seq\"\\\n" +
 	"\x1bQueryWorkerEvidenceResponse\x12=\n" +
-	"\areceipt\x18\x01 \x01(\v2#.task.v1.WorkerEvidenceReceiptStateR\areceipt*\xa3\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2#.task.v1.WorkerEvidenceReceiptStateR\areceipt\"\xb3\x01\n" +
+	"!QueryVerifierValueEvidenceRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
+	"\fverify_round\x18\x02 \x01(\rR\vverifyRound\x126\n" +
+	"\x17target_operator_address\x18\x03 \x01(\tR\x15targetOperatorAddress\x12\x1a\n" +
+	"\bposition\x18\x04 \x01(\rR\bposition\"\x91\x01\n" +
+	"\"QueryVerifierValueEvidenceResponse\x12'\n" +
+	"\x0fevidence_digest\x18\x01 \x01(\fR\x0eevidenceDigest\x12\x19\n" +
+	"\bfault_id\x18\x02 \x01(\fR\afaultId\x12'\n" +
+	"\x0faccepted_height\x18\x03 \x01(\x04R\x0eacceptedHeight*\xa3\x01\n" +
 	"\x11TaskCleanupStatus\x12#\n" +
 	"\x1fTASK_CLEANUP_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
 	"!TASK_CLEANUP_STATUS_NOT_SCHEDULED\x10\x01\x12\x1f\n" +
@@ -2315,98 +2414,100 @@ func file_task_v1_query_task_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_query_task_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_query_task_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_task_v1_query_task_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_task_v1_query_task_proto_goTypes = []any{
-	(TaskCleanupStatus)(0),                    // 0: task.v1.TaskCleanupStatus
-	(*TaskAssignmentViewV1)(nil),              // 1: task.v1.TaskAssignmentViewV1
-	(*TaskBuilderSelectionViewV1)(nil),        // 2: task.v1.TaskBuilderSelectionViewV1
-	(*TaskActiveBundleV1)(nil),                // 3: task.v1.TaskActiveBundleV1
-	(*TaskViewV1)(nil),                        // 4: task.v1.TaskViewV1
-	(*TaskStageViewV1)(nil),                   // 5: task.v1.TaskStageViewV1
-	(*AssignmentRandomnessViewV1)(nil),        // 6: task.v1.AssignmentRandomnessViewV1
-	(*ActiveTaskRefV1)(nil),                   // 7: task.v1.ActiveTaskRefV1
-	(*TaskCleanupProgressViewV1)(nil),         // 8: task.v1.TaskCleanupProgressViewV1
-	(*QueryTaskRequest)(nil),                  // 9: task.v1.QueryTaskRequest
-	(*QueryTaskResponse)(nil),                 // 10: task.v1.QueryTaskResponse
-	(*QueryTaskStageRequest)(nil),             // 11: task.v1.QueryTaskStageRequest
-	(*QueryTaskStageResponse)(nil),            // 12: task.v1.QueryTaskStageResponse
-	(*QueryTaskAssignmentRequest)(nil),        // 13: task.v1.QueryTaskAssignmentRequest
-	(*QueryTaskAssignmentResponse)(nil),       // 14: task.v1.QueryTaskAssignmentResponse
-	(*QueryAssignmentRandomnessRequest)(nil),  // 15: task.v1.QueryAssignmentRandomnessRequest
-	(*QueryAssignmentRandomnessResponse)(nil), // 16: task.v1.QueryAssignmentRandomnessResponse
-	(*QueryTaskBudgetRequest)(nil),            // 17: task.v1.QueryTaskBudgetRequest
-	(*QueryTaskBudgetResponse)(nil),           // 18: task.v1.QueryTaskBudgetResponse
-	(*QueryTaskBuildersRequest)(nil),          // 19: task.v1.QueryTaskBuildersRequest
-	(*QueryTaskBuildersResponse)(nil),         // 20: task.v1.QueryTaskBuildersResponse
-	(*QueryTaskFailureClassRequest)(nil),      // 21: task.v1.QueryTaskFailureClassRequest
-	(*QueryTaskFailureClassResponse)(nil),     // 22: task.v1.QueryTaskFailureClassResponse
-	(*QueryEvidenceCleanupRequest)(nil),       // 23: task.v1.QueryEvidenceCleanupRequest
-	(*QueryEvidenceCleanupResponse)(nil),      // 24: task.v1.QueryEvidenceCleanupResponse
-	(*QueryEpochTaskSummaryRequest)(nil),      // 25: task.v1.QueryEpochTaskSummaryRequest
-	(*QueryEpochTaskSummaryResponse)(nil),     // 26: task.v1.QueryEpochTaskSummaryResponse
-	(*QueryRoleActiveTasksRequest)(nil),       // 27: task.v1.QueryRoleActiveTasksRequest
-	(*QueryRoleActiveTasksResponse)(nil),      // 28: task.v1.QueryRoleActiveTasksResponse
-	(*QueryWorkerEvidenceRequest)(nil),        // 29: task.v1.QueryWorkerEvidenceRequest
-	(*QueryWorkerEvidenceResponse)(nil),       // 30: task.v1.QueryWorkerEvidenceResponse
-	(AssignmentFailureReason)(0),              // 31: task.v1.AssignmentFailureReason
-	(AssignmentStatus)(0),                     // 32: task.v1.AssignmentStatus
-	(v1.StoredBodyStatus)(0),                  // 33: shared.v1.StoredBodyStatus
-	(*TaskCoreState)(nil),                     // 34: task.v1.TaskCoreState
-	(*TaskRoundSummaryState)(nil),             // 35: task.v1.TaskRoundSummaryState
-	(*VerifierAssignmentState)(nil),           // 36: task.v1.VerifierAssignmentState
-	(*TaskTerminalSummaryState)(nil),          // 37: task.v1.TaskTerminalSummaryState
-	(TaskPhase)(0),                            // 38: task.v1.TaskPhase
-	(ReceiptStatus)(0),                        // 39: task.v1.ReceiptStatus
-	(VerificationStatus)(0),                   // 40: task.v1.VerificationStatus
-	(SettlementStatus)(0),                     // 41: task.v1.SettlementStatus
-	(v1.TaskFinalityStatusV1)(0),              // 42: shared.v1.TaskFinalityStatusV1
-	(DeadlineKindV1)(0),                       // 43: task.v1.DeadlineKindV1
-	(TaskCleanupPhase)(0),                     // 44: task.v1.TaskCleanupPhase
-	(*TaskBudgetState)(nil),                   // 45: task.v1.TaskBudgetState
-	(*TaskFailureClassState)(nil),             // 46: task.v1.TaskFailureClassState
-	(*EpochTaskSummaryCursorState)(nil),       // 47: task.v1.EpochTaskSummaryCursorState
-	(*EpochTaskSummaryReceiptState)(nil),      // 48: task.v1.EpochTaskSummaryReceiptState
-	(v1.Duty)(0),                              // 49: shared.v1.Duty
-	(*v1.QueryPageRequestV1)(nil),             // 50: shared.v1.QueryPageRequestV1
-	(*v1.QueryPageResponseV1)(nil),            // 51: shared.v1.QueryPageResponseV1
-	(*WorkerEvidenceReceiptState)(nil),        // 52: task.v1.WorkerEvidenceReceiptState
+	(TaskCleanupStatus)(0),                     // 0: task.v1.TaskCleanupStatus
+	(*TaskAssignmentViewV1)(nil),               // 1: task.v1.TaskAssignmentViewV1
+	(*TaskBuilderSelectionViewV1)(nil),         // 2: task.v1.TaskBuilderSelectionViewV1
+	(*TaskActiveBundleV1)(nil),                 // 3: task.v1.TaskActiveBundleV1
+	(*TaskViewV1)(nil),                         // 4: task.v1.TaskViewV1
+	(*TaskStageViewV1)(nil),                    // 5: task.v1.TaskStageViewV1
+	(*AssignmentRandomnessViewV1)(nil),         // 6: task.v1.AssignmentRandomnessViewV1
+	(*ActiveTaskRefV1)(nil),                    // 7: task.v1.ActiveTaskRefV1
+	(*TaskCleanupProgressViewV1)(nil),          // 8: task.v1.TaskCleanupProgressViewV1
+	(*QueryTaskRequest)(nil),                   // 9: task.v1.QueryTaskRequest
+	(*QueryTaskResponse)(nil),                  // 10: task.v1.QueryTaskResponse
+	(*QueryTaskStageRequest)(nil),              // 11: task.v1.QueryTaskStageRequest
+	(*QueryTaskStageResponse)(nil),             // 12: task.v1.QueryTaskStageResponse
+	(*QueryTaskAssignmentRequest)(nil),         // 13: task.v1.QueryTaskAssignmentRequest
+	(*QueryTaskAssignmentResponse)(nil),        // 14: task.v1.QueryTaskAssignmentResponse
+	(*QueryAssignmentRandomnessRequest)(nil),   // 15: task.v1.QueryAssignmentRandomnessRequest
+	(*QueryAssignmentRandomnessResponse)(nil),  // 16: task.v1.QueryAssignmentRandomnessResponse
+	(*QueryTaskBudgetRequest)(nil),             // 17: task.v1.QueryTaskBudgetRequest
+	(*QueryTaskBudgetResponse)(nil),            // 18: task.v1.QueryTaskBudgetResponse
+	(*QueryTaskBuildersRequest)(nil),           // 19: task.v1.QueryTaskBuildersRequest
+	(*QueryTaskBuildersResponse)(nil),          // 20: task.v1.QueryTaskBuildersResponse
+	(*QueryTaskFailureClassRequest)(nil),       // 21: task.v1.QueryTaskFailureClassRequest
+	(*QueryTaskFailureClassResponse)(nil),      // 22: task.v1.QueryTaskFailureClassResponse
+	(*QueryEvidenceCleanupRequest)(nil),        // 23: task.v1.QueryEvidenceCleanupRequest
+	(*QueryEvidenceCleanupResponse)(nil),       // 24: task.v1.QueryEvidenceCleanupResponse
+	(*QueryEpochTaskSummaryRequest)(nil),       // 25: task.v1.QueryEpochTaskSummaryRequest
+	(*QueryEpochTaskSummaryResponse)(nil),      // 26: task.v1.QueryEpochTaskSummaryResponse
+	(*QueryRoleActiveTasksRequest)(nil),        // 27: task.v1.QueryRoleActiveTasksRequest
+	(*QueryRoleActiveTasksResponse)(nil),       // 28: task.v1.QueryRoleActiveTasksResponse
+	(*QueryWorkerEvidenceRequest)(nil),         // 29: task.v1.QueryWorkerEvidenceRequest
+	(*QueryWorkerEvidenceResponse)(nil),        // 30: task.v1.QueryWorkerEvidenceResponse
+	(*QueryVerifierValueEvidenceRequest)(nil),  // 31: task.v1.QueryVerifierValueEvidenceRequest
+	(*QueryVerifierValueEvidenceResponse)(nil), // 32: task.v1.QueryVerifierValueEvidenceResponse
+	(AssignmentFailureReason)(0),               // 33: task.v1.AssignmentFailureReason
+	(AssignmentStatus)(0),                      // 34: task.v1.AssignmentStatus
+	(*v1.Amount)(nil),                          // 35: shared.v1.Amount
+	(v1.StoredBodyStatus)(0),                   // 36: shared.v1.StoredBodyStatus
+	(*TaskCoreState)(nil),                      // 37: task.v1.TaskCoreState
+	(*TaskRoundSummaryState)(nil),              // 38: task.v1.TaskRoundSummaryState
+	(*VerifierAssignmentState)(nil),            // 39: task.v1.VerifierAssignmentState
+	(*TaskTerminalSummaryState)(nil),           // 40: task.v1.TaskTerminalSummaryState
+	(TaskPhase)(0),                             // 41: task.v1.TaskPhase
+	(ReceiptStatus)(0),                         // 42: task.v1.ReceiptStatus
+	(VerificationStatus)(0),                    // 43: task.v1.VerificationStatus
+	(SettlementStatus)(0),                      // 44: task.v1.SettlementStatus
+	(v1.TaskFinalityStatusV1)(0),               // 45: shared.v1.TaskFinalityStatusV1
+	(DeadlineKindV1)(0),                        // 46: task.v1.DeadlineKindV1
+	(TaskCleanupPhase)(0),                      // 47: task.v1.TaskCleanupPhase
+	(*TaskBudgetState)(nil),                    // 48: task.v1.TaskBudgetState
+	(*TaskFailureClassState)(nil),              // 49: task.v1.TaskFailureClassState
+	(*EpochTaskSummaryReceiptState)(nil),       // 50: task.v1.EpochTaskSummaryReceiptState
+	(v1.Duty)(0),                               // 51: shared.v1.Duty
+	(*v1.QueryPageRequestV1)(nil),              // 52: shared.v1.QueryPageRequestV1
+	(*v1.QueryPageResponseV1)(nil),             // 53: shared.v1.QueryPageResponseV1
+	(*WorkerEvidenceReceiptState)(nil),         // 54: task.v1.WorkerEvidenceReceiptState
 }
 var file_task_v1_query_task_proto_depIdxs = []int32{
-	31, // 0: task.v1.TaskAssignmentViewV1.assignment_fail_reason:type_name -> task.v1.AssignmentFailureReason
-	32, // 1: task.v1.TaskAssignmentViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
-	33, // 2: task.v1.TaskBuilderSelectionViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
-	34, // 3: task.v1.TaskActiveBundleV1.core:type_name -> task.v1.TaskCoreState
-	1,  // 4: task.v1.TaskActiveBundleV1.assignment:type_name -> task.v1.TaskAssignmentViewV1
-	35, // 5: task.v1.TaskActiveBundleV1.round_summary:type_name -> task.v1.TaskRoundSummaryState
-	36, // 6: task.v1.TaskActiveBundleV1.round1_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
-	36, // 7: task.v1.TaskActiveBundleV1.round2_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
-	3,  // 8: task.v1.TaskViewV1.active:type_name -> task.v1.TaskActiveBundleV1
-	37, // 9: task.v1.TaskViewV1.terminal:type_name -> task.v1.TaskTerminalSummaryState
-	38, // 10: task.v1.TaskStageViewV1.task_phase:type_name -> task.v1.TaskPhase
-	32, // 11: task.v1.TaskStageViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
-	39, // 12: task.v1.TaskStageViewV1.receipt_status:type_name -> task.v1.ReceiptStatus
-	40, // 13: task.v1.TaskStageViewV1.verification_status:type_name -> task.v1.VerificationStatus
-	41, // 14: task.v1.TaskStageViewV1.settlement_status:type_name -> task.v1.SettlementStatus
-	42, // 15: task.v1.TaskStageViewV1.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
-	43, // 16: task.v1.TaskStageViewV1.next_deadline_kind:type_name -> task.v1.DeadlineKindV1
-	38, // 17: task.v1.ActiveTaskRefV1.task_phase:type_name -> task.v1.TaskPhase
-	0,  // 18: task.v1.TaskCleanupProgressViewV1.status:type_name -> task.v1.TaskCleanupStatus
-	44, // 19: task.v1.TaskCleanupProgressViewV1.phase:type_name -> task.v1.TaskCleanupPhase
-	4,  // 20: task.v1.QueryTaskResponse.task:type_name -> task.v1.TaskViewV1
-	5,  // 21: task.v1.QueryTaskStageResponse.stage:type_name -> task.v1.TaskStageViewV1
-	1,  // 22: task.v1.QueryTaskAssignmentResponse.assignment:type_name -> task.v1.TaskAssignmentViewV1
-	6,  // 23: task.v1.QueryAssignmentRandomnessResponse.randomness:type_name -> task.v1.AssignmentRandomnessViewV1
-	45, // 24: task.v1.QueryTaskBudgetResponse.budget:type_name -> task.v1.TaskBudgetState
-	2,  // 25: task.v1.QueryTaskBuildersResponse.selection:type_name -> task.v1.TaskBuilderSelectionViewV1
-	46, // 26: task.v1.QueryTaskFailureClassResponse.failure:type_name -> task.v1.TaskFailureClassState
-	8,  // 27: task.v1.QueryEvidenceCleanupResponse.cleanup:type_name -> task.v1.TaskCleanupProgressViewV1
-	47, // 28: task.v1.QueryEpochTaskSummaryResponse.running:type_name -> task.v1.EpochTaskSummaryCursorState
-	48, // 29: task.v1.QueryEpochTaskSummaryResponse.receipt:type_name -> task.v1.EpochTaskSummaryReceiptState
-	49, // 30: task.v1.QueryRoleActiveTasksRequest.duty:type_name -> shared.v1.Duty
-	50, // 31: task.v1.QueryRoleActiveTasksRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	33, // 0: task.v1.TaskAssignmentViewV1.assignment_fail_reason:type_name -> task.v1.AssignmentFailureReason
+	34, // 1: task.v1.TaskAssignmentViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
+	35, // 2: task.v1.TaskAssignmentViewV1.min_stake_snapshot:type_name -> shared.v1.Amount
+	36, // 3: task.v1.TaskBuilderSelectionViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
+	37, // 4: task.v1.TaskActiveBundleV1.core:type_name -> task.v1.TaskCoreState
+	1,  // 5: task.v1.TaskActiveBundleV1.assignment:type_name -> task.v1.TaskAssignmentViewV1
+	38, // 6: task.v1.TaskActiveBundleV1.round_summary:type_name -> task.v1.TaskRoundSummaryState
+	39, // 7: task.v1.TaskActiveBundleV1.round1_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
+	39, // 8: task.v1.TaskActiveBundleV1.round2_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
+	3,  // 9: task.v1.TaskViewV1.active:type_name -> task.v1.TaskActiveBundleV1
+	40, // 10: task.v1.TaskViewV1.terminal:type_name -> task.v1.TaskTerminalSummaryState
+	41, // 11: task.v1.TaskStageViewV1.task_phase:type_name -> task.v1.TaskPhase
+	34, // 12: task.v1.TaskStageViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
+	42, // 13: task.v1.TaskStageViewV1.receipt_status:type_name -> task.v1.ReceiptStatus
+	43, // 14: task.v1.TaskStageViewV1.verification_status:type_name -> task.v1.VerificationStatus
+	44, // 15: task.v1.TaskStageViewV1.settlement_status:type_name -> task.v1.SettlementStatus
+	45, // 16: task.v1.TaskStageViewV1.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
+	46, // 17: task.v1.TaskStageViewV1.next_deadline_kind:type_name -> task.v1.DeadlineKindV1
+	41, // 18: task.v1.ActiveTaskRefV1.task_phase:type_name -> task.v1.TaskPhase
+	0,  // 19: task.v1.TaskCleanupProgressViewV1.status:type_name -> task.v1.TaskCleanupStatus
+	47, // 20: task.v1.TaskCleanupProgressViewV1.phase:type_name -> task.v1.TaskCleanupPhase
+	4,  // 21: task.v1.QueryTaskResponse.task:type_name -> task.v1.TaskViewV1
+	5,  // 22: task.v1.QueryTaskStageResponse.stage:type_name -> task.v1.TaskStageViewV1
+	1,  // 23: task.v1.QueryTaskAssignmentResponse.assignment:type_name -> task.v1.TaskAssignmentViewV1
+	6,  // 24: task.v1.QueryAssignmentRandomnessResponse.randomness:type_name -> task.v1.AssignmentRandomnessViewV1
+	48, // 25: task.v1.QueryTaskBudgetResponse.budget:type_name -> task.v1.TaskBudgetState
+	2,  // 26: task.v1.QueryTaskBuildersResponse.selection:type_name -> task.v1.TaskBuilderSelectionViewV1
+	49, // 27: task.v1.QueryTaskFailureClassResponse.failure:type_name -> task.v1.TaskFailureClassState
+	8,  // 28: task.v1.QueryEvidenceCleanupResponse.cleanup:type_name -> task.v1.TaskCleanupProgressViewV1
+	50, // 29: task.v1.QueryEpochTaskSummaryResponse.receipt:type_name -> task.v1.EpochTaskSummaryReceiptState
+	51, // 30: task.v1.QueryRoleActiveTasksRequest.duty:type_name -> shared.v1.Duty
+	52, // 31: task.v1.QueryRoleActiveTasksRequest.page:type_name -> shared.v1.QueryPageRequestV1
 	7,  // 32: task.v1.QueryRoleActiveTasksResponse.tasks:type_name -> task.v1.ActiveTaskRefV1
-	51, // 33: task.v1.QueryRoleActiveTasksResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	52, // 34: task.v1.QueryWorkerEvidenceResponse.receipt:type_name -> task.v1.WorkerEvidenceReceiptState
+	53, // 33: task.v1.QueryRoleActiveTasksResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	54, // 34: task.v1.QueryWorkerEvidenceResponse.receipt:type_name -> task.v1.WorkerEvidenceReceiptState
 	35, // [35:35] is the sub-list for method output_type
 	35, // [35:35] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
@@ -2436,17 +2537,13 @@ func file_task_v1_query_task_proto_init() {
 	file_task_v1_query_task_proto_msgTypes[4].OneofWrappers = []any{}
 	file_task_v1_query_task_proto_msgTypes[5].OneofWrappers = []any{}
 	file_task_v1_query_task_proto_msgTypes[7].OneofWrappers = []any{}
-	file_task_v1_query_task_proto_msgTypes[25].OneofWrappers = []any{
-		(*QueryEpochTaskSummaryResponse_Running)(nil),
-		(*QueryEpochTaskSummaryResponse_Receipt)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_query_task_proto_rawDesc), len(file_task_v1_query_task_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

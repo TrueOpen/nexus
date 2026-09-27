@@ -8,8 +8,7 @@ import "shared/v1/common.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // MsgSubmitFreezeSignal is a permissionless trigger that asks the Keeper to
-// aggregate one profile risk window into a votable object (the API contract
-// §9.6a / §10.0a).
+// aggregate one profile risk window into a votable object.
 //
 // The request carries only the profile locator plus the gas payer. Every field
 // the previous wire accepted was Keeper-derived and has been removed:
@@ -23,7 +22,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 // enqueue function, so liveness does not depend on an external gas payer.
 // MsgSubmitFreezeSignal defines the MsgSubmitFreezeSignal wire type.
 message MsgSubmitFreezeSignal {
-  string model_id = 1;
+  bytes model_id = 1;
   uint32 profile_version = 2;
   string submitter_address = 3;
 }
@@ -39,13 +38,12 @@ message MsgSubmitFreezeSignalResponse {
   shared.v1.MutationStatusV1 status = 4;
 }
 
-// MsgEmergencyFreezeVote records one validator ballot (the API contract
-// §9.6a / §10.0a).
+// MsgEmergencyFreezeVote records one validator ballot.
 //
 // validator_address is the validator operator account and the sole Cosmos
 // signer. validator_consensus_address, voting_power_snapshot and
 // signature_digest were removed: the first two are resolved from the frozen
-// validator snapshot through the staking keeper, and §10.0a no longer requires a
+// validator snapshot through the staking keeper, and this contract no longer requires a
 // same-account detached signature. Same validator plus same vote is an exact
 // replay noop; same validator plus a different vote is a conflict.
 // MsgEmergencyFreezeVote defines the MsgEmergencyFreezeVote wire type.
@@ -68,7 +66,7 @@ message MsgEmergencyFreezeVoteResponse {
 
 // MsgUpdateTimeoutBucket applies one x/gov accepted timeout bucket version.
 // It is registered on the Hub Msg service
-// because the data-structure contract makes the Hub governance handler the only
+// because the wire storage model makes the Hub governance handler the only
 // writer of the TimeoutBucket version and pointer rows. The
 // resulting timeout combination must cover the complete task window, so a
 // missing tail bucket cannot create a local fallback.

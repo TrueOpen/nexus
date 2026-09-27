@@ -700,7 +700,7 @@ func (x *QueryFreezeSignalResponse) GetSignal() *FreezeSignalState {
 // QueryFreezeSignalsRequest defines the QueryFreezeSignalsRequest wire type.
 type QueryFreezeSignalsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	Status         FreezeSignalStatus     `protobuf:"varint,3,opt,name=status,proto3,enum=hub.v1.FreezeSignalStatus" json:"status,omitempty"`
 	Page           *v1.QueryPageRequestV1 `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
@@ -738,11 +738,11 @@ func (*QueryFreezeSignalsRequest) Descriptor() ([]byte, []int) {
 	return file_hub_v1_query_rewards_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *QueryFreezeSignalsRequest) GetModelId() string {
+func (x *QueryFreezeSignalsRequest) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *QueryFreezeSignalsRequest) GetProfileVersion() uint32 {
@@ -1098,7 +1098,7 @@ const file_hub_v1_query_rewards_proto_rawDesc = "" +
 	"\x19QueryFreezeSignalResponse\x121\n" +
 	"\x06signal\x18\x01 \x01(\v2\x19.hub.v1.FreezeSignalStateR\x06signal\"\xc6\x01\n" +
 	"\x19QueryFreezeSignalsRequest\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x122\n" +
 	"\x06status\x18\x03 \x01(\x0e2\x1a.hub.v1.FreezeSignalStatusR\x06status\x121\n" +
 	"\x04page\x18\x04 \x01(\v2\x1d.shared.v1.QueryPageRequestV1R\x04page\"\x85\x01\n" +

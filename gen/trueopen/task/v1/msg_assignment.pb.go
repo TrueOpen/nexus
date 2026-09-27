@@ -23,8 +23,8 @@ const (
 )
 
 // DeadlineLatencyClass is the only latency class set. Values are frozen by
-// the API contract because they enter the user-signed task_hash through
-// TaskOrderV2.deadline_policy (§5.13 field 20).
+// the wire API because they enter the user-signed task_hash through
+// TaskOrderV3.deadline_policy (field 20).
 // DeadlineLatencyClass defines the DeadlineLatencyClass wire type.
 type DeadlineLatencyClass int32
 
@@ -91,7 +91,7 @@ func (DeadlineLatencyClass) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{0}
 }
 
-// DeadlinePolicyV1 carries only the protocol-allowed latency class (§5.13).
+// DeadlinePolicyV1 carries only the protocol-allowed latency class.
 // Keeper recomputes the concrete timeout blocks from timeout_bucket_version and
 // rejects out-of-range combinations; callers never submit absolute deadlines.
 // DeadlinePolicyV1 defines the DeadlinePolicyV1 wire type.
@@ -139,7 +139,7 @@ func (x *DeadlinePolicyV1) GetLatencyClass() DeadlineLatencyClass {
 	return DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_UNSPECIFIED
 }
 
-// DecodingParamsV1 is the frozen decoding parameter set of api_contract §5.6. SDKs
+// DecodingParamsV1 is the frozen decoding parameter set of the wire API. SDKs
 // fill defaults explicitly before signing; stop_sequences ascend by UTF-8 bytes
 // and stop_token_ids ascend numerically. Unknown fields, floats and out-of-range
 // values are rejected.
@@ -261,7 +261,7 @@ func (x *DecodingParamsV1) GetStopTokenIds() []uint32 {
 	return nil
 }
 
-// GenerationParamsV1 is the typed order-side generation parameter set (§5.6).
+// GenerationParamsV1 is the typed order-side generation parameter set.
 // generation_params_digest is derived by Keeper from the canonical JSON
 // projection (TRUEOPEN_TASK_GENERATION_PARAMS_V1); callers must not submit it.
 // GenerationParamsV1 defines the GenerationParamsV1 wire type.
@@ -334,22 +334,22 @@ func (x *GenerationParamsV1) GetDecodingParams() *DecodingParamsV1 {
 	return nil
 }
 
-// TaskOrderV2 is the user-authored order (api_contract §5.13). The user signs the
+// TaskOrderV3 is the user-authored order. The user signs the
 // order-domain EIP-712 digest whose taskHash commits
-// H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2). Keeper
+// H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3). Keeper
 // derives task_id, task_hash, generation_params_digest, order_value,
 // task_builder_seed, reward bucket, resource tier and the Task Builders; none of
 // them may be submitted here.
-// TaskOrderV2 defines the TaskOrderV2 wire type.
-type TaskOrderV2 struct {
+// TaskOrderV3 defines the TaskOrderV3 wire type.
+type TaskOrderV3 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 2; V1 orders are not accepted by the fresh v0.3.0 schema.
+	// Always 3; earlier order domains are not accepted by fresh Genesis.
 	SchemaVersion          uint32              `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId                string              `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	UserAddress            string              `protobuf:"bytes,3,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
 	SessionId              []byte              `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	OrderSequence          uint64              `protobuf:"varint,5,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	ModelId                string              `protobuf:"bytes,6,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                []byte              `protobuf:"bytes,6,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion         uint32              `protobuf:"varint,7,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	TaskType               v1.TaskType         `protobuf:"varint,8,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
 	InputHash              []byte              `protobuf:"bytes,9,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
@@ -369,24 +369,28 @@ type TaskOrderV2 struct {
 	SessionAnchorBlockHash []byte              `protobuf:"bytes,23,opt,name=session_anchor_block_hash,json=sessionAnchorBlockHash,proto3" json:"session_anchor_block_hash,omitempty"`
 	BuilderSetId           string              `protobuf:"bytes,24,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
 	BuilderSetHash         []byte              `protobuf:"bytes,25,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	PayloadMode            PayloadModeV1       `protobuf:"varint,26,opt,name=payload_mode,json=payloadMode,proto3,enum=task.v1.PayloadModeV1" json:"payload_mode,omitempty"`
+	// Reserved encryption fields: zero/empty in plaintext Phase 0.
+	InputKeyCommitment  []byte `protobuf:"bytes,27,opt,name=input_key_commitment,json=inputKeyCommitment,proto3" json:"input_key_commitment,omitempty"`
+	UserRecipientPubkey []byte `protobuf:"bytes,28,opt,name=user_recipient_pubkey,json=userRecipientPubkey,proto3" json:"user_recipient_pubkey,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
-func (x *TaskOrderV2) Reset() {
-	*x = TaskOrderV2{}
+func (x *TaskOrderV3) Reset() {
+	*x = TaskOrderV3{}
 	mi := &file_task_v1_msg_assignment_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TaskOrderV2) String() string {
+func (x *TaskOrderV3) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TaskOrderV2) ProtoMessage() {}
+func (*TaskOrderV3) ProtoMessage() {}
 
-func (x *TaskOrderV2) ProtoReflect() protoreflect.Message {
+func (x *TaskOrderV3) ProtoReflect() protoreflect.Message {
 	mi := &file_task_v1_msg_assignment_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -398,194 +402,215 @@ func (x *TaskOrderV2) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TaskOrderV2.ProtoReflect.Descriptor instead.
-func (*TaskOrderV2) Descriptor() ([]byte, []int) {
+// Deprecated: Use TaskOrderV3.ProtoReflect.Descriptor instead.
+func (*TaskOrderV3) Descriptor() ([]byte, []int) {
 	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *TaskOrderV2) GetSchemaVersion() uint32 {
+func (x *TaskOrderV3) GetSchemaVersion() uint32 {
 	if x != nil {
 		return x.SchemaVersion
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetChainId() string {
+func (x *TaskOrderV3) GetChainId() string {
 	if x != nil {
 		return x.ChainId
 	}
 	return ""
 }
 
-func (x *TaskOrderV2) GetUserAddress() string {
+func (x *TaskOrderV3) GetUserAddress() string {
 	if x != nil {
 		return x.UserAddress
 	}
 	return ""
 }
 
-func (x *TaskOrderV2) GetSessionId() []byte {
+func (x *TaskOrderV3) GetSessionId() []byte {
 	if x != nil {
 		return x.SessionId
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetOrderSequence() uint64 {
+func (x *TaskOrderV3) GetOrderSequence() uint64 {
 	if x != nil {
 		return x.OrderSequence
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetModelId() string {
+func (x *TaskOrderV3) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
-func (x *TaskOrderV2) GetProfileVersion() uint32 {
+func (x *TaskOrderV3) GetProfileVersion() uint32 {
 	if x != nil {
 		return x.ProfileVersion
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetTaskType() v1.TaskType {
+func (x *TaskOrderV3) GetTaskType() v1.TaskType {
 	if x != nil {
 		return x.TaskType
 	}
 	return v1.TaskType(0)
 }
 
-func (x *TaskOrderV2) GetInputHash() []byte {
+func (x *TaskOrderV3) GetInputHash() []byte {
 	if x != nil {
 		return x.InputHash
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetInputSizeBytes() uint64 {
+func (x *TaskOrderV3) GetInputSizeBytes() uint64 {
 	if x != nil {
 		return x.InputSizeBytes
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetInputBucket() uint32 {
+func (x *TaskOrderV3) GetInputBucket() uint32 {
 	if x != nil {
 		return x.InputBucket
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetOutputBudgetBucket() uint32 {
+func (x *TaskOrderV3) GetOutputBudgetBucket() uint32 {
 	if x != nil {
 		return x.OutputBudgetBucket
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetGenerationParams() *GenerationParamsV1 {
+func (x *TaskOrderV3) GetGenerationParams() *GenerationParamsV1 {
 	if x != nil {
 		return x.GenerationParams
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetPriceBid() *v1.Amount {
+func (x *TaskOrderV3) GetPriceBid() *v1.Amount {
 	if x != nil {
 		return x.PriceBid
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetMaxFee() *v1.Amount {
+func (x *TaskOrderV3) GetMaxFee() *v1.Amount {
 	if x != nil {
 		return x.MaxFee
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetAssignmentPriorityFee() *v1.Amount {
+func (x *TaskOrderV3) GetAssignmentPriorityFee() *v1.Amount {
 	if x != nil {
 		return x.AssignmentPriorityFee
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetTxFeeReserve() *v1.Amount {
+func (x *TaskOrderV3) GetTxFeeReserve() *v1.Amount {
 	if x != nil {
 		return x.TxFeeReserve
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetEarliestSubmitHeight() uint64 {
+func (x *TaskOrderV3) GetEarliestSubmitHeight() uint64 {
 	if x != nil {
 		return x.EarliestSubmitHeight
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetOrderExpireHeight() uint64 {
+func (x *TaskOrderV3) GetOrderExpireHeight() uint64 {
 	if x != nil {
 		return x.OrderExpireHeight
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetDeadlinePolicy() *DeadlinePolicyV1 {
+func (x *TaskOrderV3) GetDeadlinePolicy() *DeadlinePolicyV1 {
 	if x != nil {
 		return x.DeadlinePolicy
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetTimeoutBucketVersion() uint64 {
+func (x *TaskOrderV3) GetTimeoutBucketVersion() uint64 {
 	if x != nil {
 		return x.TimeoutBucketVersion
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetSessionAnchorHeight() uint64 {
+func (x *TaskOrderV3) GetSessionAnchorHeight() uint64 {
 	if x != nil {
 		return x.SessionAnchorHeight
 	}
 	return 0
 }
 
-func (x *TaskOrderV2) GetSessionAnchorBlockHash() []byte {
+func (x *TaskOrderV3) GetSessionAnchorBlockHash() []byte {
 	if x != nil {
 		return x.SessionAnchorBlockHash
 	}
 	return nil
 }
 
-func (x *TaskOrderV2) GetBuilderSetId() string {
+func (x *TaskOrderV3) GetBuilderSetId() string {
 	if x != nil {
 		return x.BuilderSetId
 	}
 	return ""
 }
 
-func (x *TaskOrderV2) GetBuilderSetHash() []byte {
+func (x *TaskOrderV3) GetBuilderSetHash() []byte {
 	if x != nil {
 		return x.BuilderSetHash
 	}
 	return nil
 }
 
-// SignedOrderV2 is the upstream-locked signed order envelope (§5.13).
+func (x *TaskOrderV3) GetPayloadMode() PayloadModeV1 {
+	if x != nil {
+		return x.PayloadMode
+	}
+	return PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED
+}
+
+func (x *TaskOrderV3) GetInputKeyCommitment() []byte {
+	if x != nil {
+		return x.InputKeyCommitment
+	}
+	return nil
+}
+
+func (x *TaskOrderV3) GetUserRecipientPubkey() []byte {
+	if x != nil {
+		return x.UserRecipientPubkey
+	}
+	return nil
+}
+
+// SignedOrderV2 is the upstream-locked signed order envelope.
 // signature_scheme accepts exactly lowercase "eip712" and is not persisted on
 // Task state. user_signature is recoverable 65-byte R||S||V with V in {27,28}
 // and low-S.
 // SignedOrderV2 defines the SignedOrderV2 wire type.
 type SignedOrderV2 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Order           *TaskOrderV2           `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	Order           *TaskOrderV3           `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
 	SignatureScheme string                 `protobuf:"bytes,2,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
 	UserSignature   []byte                 `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -622,7 +647,7 @@ func (*SignedOrderV2) Descriptor() ([]byte, []int) {
 	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *SignedOrderV2) GetOrder() *TaskOrderV2 {
+func (x *SignedOrderV2) GetOrder() *TaskOrderV3 {
 	if x != nil {
 		return x.Order
 	}
@@ -644,7 +669,7 @@ func (x *SignedOrderV2) GetUserSignature() []byte {
 }
 
 // ExistingTaskRefV1 addresses an already accepted task for a follow-up proposal
-// (api_contract §4.2.1). task_hash is an immutable conflict guard and must equal the
+// (the wire API). task_hash is an immutable conflict guard and must equal the
 // authoritative task value.
 // ExistingTaskRefV1 defines the ExistingTaskRefV1 wire type.
 type ExistingTaskRefV1 struct {
@@ -699,7 +724,7 @@ func (x *ExistingTaskRefV1) GetTaskHash() []byte {
 	return nil
 }
 
-// WorkerHandraiseScopeV1 is the exactly-one proposal scope of §4.2.1. The first
+// WorkerHandraiseScopeV1 is the exactly-one proposal scope of this contract. The first
 // proposal must carry signed_order; any later proposal must carry existing_task.
 // Both filled or both empty is rejected.
 // WorkerHandraiseScopeV1 defines the WorkerHandraiseScopeV1 wire type.
@@ -788,7 +813,7 @@ func (*WorkerHandraiseScopeV1_SignedOrder) isWorkerHandraiseScopeV1_Scope() {}
 
 func (*WorkerHandraiseScopeV1_ExistingTask) isWorkerHandraiseScopeV1_Scope() {}
 
-// WorkerHandraiseV1 is one Cortex-signed Worker handraise (api_contract §4.1). Its
+// WorkerHandraiseV1 is one Cortex-signed Worker handraise (the wire API). Its
 // `member` field uses the single module-wide CandidateMemberRefV1, declared in
 // task/v1/open_verify.proto. The
 // signing digest is H_FIELDS_V1("TRUEOPEN_WORKER_HANDRAISE_V1", all fields except
@@ -796,25 +821,27 @@ func (*WorkerHandraiseScopeV1_ExistingTask) isWorkerHandraiseScopeV1_Scope() {}
 // must equal the operator's current service binding nonce; it is not a
 // per-message counter. Raw handraises are never persisted.
 //
-// schema_version is 1: §4.1 writes `schema_version: uint32 = 1` literally for this
-// wire. InferReceiptV2 is the only sibling receipt that uses schema version 2.
+// schema_version is 1: this contract writes `schema_version: uint32 = 1` literally for this
+// wire. Handraise schema versions are independent of receipt versions.
 // WorkerHandraiseV1 defines the WorkerHandraiseV1 wire type.
 type WorkerHandraiseV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 1; §4.1 pins it literally.
+	// Always 1; this contract pins it literally.
 	SchemaVersion             uint32                `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId                   string                `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId                    []byte                `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	TaskHash                  []byte                `protobuf:"bytes,4,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	ModelId                   string                `protobuf:"bytes,5,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                   []byte                `protobuf:"bytes,5,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion            uint32                `protobuf:"varint,6,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	Member                    *CandidateMemberRefV1 `protobuf:"bytes,7,opt,name=member,proto3" json:"member,omitempty"`
 	Duty                      v1.Duty               `protobuf:"varint,8,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
 	ServiceAuthorizationNonce uint64                `protobuf:"varint,9,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
 	ExpiryHeight              uint64                `protobuf:"varint,10,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	ServiceSignature          []byte                `protobuf:"bytes,11,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Reserved recipient key: empty in plaintext Phase 0.
+	RecipientPubkey []byte `protobuf:"bytes,12,opt,name=recipient_pubkey,json=recipientPubkey,proto3" json:"recipient_pubkey,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *WorkerHandraiseV1) Reset() {
@@ -875,11 +902,11 @@ func (x *WorkerHandraiseV1) GetTaskHash() []byte {
 	return nil
 }
 
-func (x *WorkerHandraiseV1) GetModelId() string {
+func (x *WorkerHandraiseV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *WorkerHandraiseV1) GetProfileVersion() uint32 {
@@ -924,8 +951,15 @@ func (x *WorkerHandraiseV1) GetServiceSignature() []byte {
 	return nil
 }
 
+func (x *WorkerHandraiseV1) GetRecipientPubkey() []byte {
+	if x != nil {
+		return x.RecipientPubkey
+	}
+	return nil
+}
+
 // MsgSubmitWorkerHandraises accepts the order plus Worker handraises and ORs the
-// legal bits into the authoritative stage union (api_contract §4.2.1 / §10.1).
+// legal bits into the authoritative stage union (the wire API).
 // submitter_address is the Cosmos signer only: it pays gas, never enters the
 // proposal digest or any frozen candidate fact. Builder operator, BuilderSet,
 // Task Builders, pool hash, candidate weights, legal-set hash and deadlines are
@@ -992,7 +1026,7 @@ func (x *MsgSubmitWorkerHandraises) GetSubmitterAddress() string {
 }
 
 // MsgSubmitWorkerHandraisesResponse reports the Keeper-derived proposal receipt
-// (§4.2.1). added_member_count is the number of 0->1 bits in this proposal and is
+// . added_member_count is the number of 0->1 bits in this proposal and is
 // 0 for an exact replay noop; union_count is the committed authoritative count.
 // MsgSubmitWorkerHandraisesResponse defines the MsgSubmitWorkerHandraisesResponse wire type.
 type MsgSubmitWorkerHandraisesResponse struct {
@@ -1094,15 +1128,16 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	" generation_params_schema_version\x18\x01 \x01(\rR\x1dgenerationParamsSchemaVersion\x12*\n" +
 	"\x11max_output_tokens\x18\x02 \x01(\x04R\x0fmaxOutputTokens\x12.\n" +
 	"\x13max_output_duration\x18\x03 \x01(\x04R\x11maxOutputDuration\x12B\n" +
-	"\x0fdecoding_params\x18\x04 \x01(\v2\x19.task.v1.DecodingParamsV1R\x0edecodingParams\"\x95\t\n" +
-	"\vTaskOrderV2\x12%\n" +
+	"\x0fdecoding_params\x18\x04 \x01(\v2\x19.task.v1.DecodingParamsV1R\x0edecodingParams\"\xb6\n" +
+	"\n" +
+	"\vTaskOrderV3\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12!\n" +
 	"\fuser_address\x18\x03 \x01(\tR\vuserAddress\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\fR\tsessionId\x12%\n" +
 	"\x0eorder_sequence\x18\x05 \x01(\x04R\rorderSequence\x12\x19\n" +
-	"\bmodel_id\x18\x06 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x06 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\a \x01(\rR\x0eprofileVersion\x120\n" +
 	"\ttask_type\x18\b \x01(\x0e2\x13.shared.v1.TaskTypeR\btaskType\x12\x1d\n" +
 	"\n" +
@@ -1123,9 +1158,12 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x15session_anchor_height\x18\x16 \x01(\x04R\x13sessionAnchorHeight\x129\n" +
 	"\x19session_anchor_block_hash\x18\x17 \x01(\fR\x16sessionAnchorBlockHash\x12$\n" +
 	"\x0ebuilder_set_id\x18\x18 \x01(\tR\fbuilderSetId\x12(\n" +
-	"\x10builder_set_hash\x18\x19 \x01(\fR\x0ebuilderSetHash\"\x8d\x01\n" +
+	"\x10builder_set_hash\x18\x19 \x01(\fR\x0ebuilderSetHash\x129\n" +
+	"\fpayload_mode\x18\x1a \x01(\x0e2\x16.task.v1.PayloadModeV1R\vpayloadMode\x120\n" +
+	"\x14input_key_commitment\x18\x1b \x01(\fR\x12inputKeyCommitment\x122\n" +
+	"\x15user_recipient_pubkey\x18\x1c \x01(\fR\x13userRecipientPubkey\"\x8d\x01\n" +
 	"\rSignedOrderV2\x12*\n" +
-	"\x05order\x18\x01 \x01(\v2\x14.task.v1.TaskOrderV2R\x05order\x12)\n" +
+	"\x05order\x18\x01 \x01(\v2\x14.task.v1.TaskOrderV3R\x05order\x12)\n" +
 	"\x10signature_scheme\x18\x02 \x01(\tR\x0fsignatureScheme\x12%\n" +
 	"\x0euser_signature\x18\x03 \x01(\fR\ruserSignature\"I\n" +
 	"\x11ExistingTaskRefV1\x12\x17\n" +
@@ -1134,20 +1172,21 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x16WorkerHandraiseScopeV1\x12;\n" +
 	"\fsigned_order\x18\x01 \x01(\v2\x16.task.v1.SignedOrderV2H\x00R\vsignedOrder\x12A\n" +
 	"\rexisting_task\x18\x02 \x01(\v2\x1a.task.v1.ExistingTaskRefV1H\x00R\fexistingTaskB\a\n" +
-	"\x05scope\"\xbd\x03\n" +
+	"\x05scope\"\xe8\x03\n" +
 	"\x11WorkerHandraiseV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
 	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x04 \x01(\fR\btaskHash\x12\x19\n" +
-	"\bmodel_id\x18\x05 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x05 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x06 \x01(\rR\x0eprofileVersion\x125\n" +
 	"\x06member\x18\a \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06member\x12#\n" +
 	"\x04duty\x18\b \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\t \x01(\x04R\x19serviceAuthorizationNonce\x12#\n" +
 	"\rexpiry_height\x18\n" +
 	" \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\v \x01(\fR\x10serviceSignature\"\xbb\x01\n" +
+	"\x11service_signature\x18\v \x01(\fR\x10serviceSignature\x12)\n" +
+	"\x10recipient_pubkey\x18\f \x01(\fR\x0frecipientPubkey\"\xbb\x01\n" +
 	"\x19MsgSubmitWorkerHandraises\x125\n" +
 	"\x05scope\x18\x01 \x01(\v2\x1f.task.v1.WorkerHandraiseScopeV1R\x05scope\x12:\n" +
 	"\n" +
@@ -1187,7 +1226,7 @@ var file_task_v1_msg_assignment_proto_goTypes = []any{
 	(*DeadlinePolicyV1)(nil),                  // 1: task.v1.DeadlinePolicyV1
 	(*DecodingParamsV1)(nil),                  // 2: task.v1.DecodingParamsV1
 	(*GenerationParamsV1)(nil),                // 3: task.v1.GenerationParamsV1
-	(*TaskOrderV2)(nil),                       // 4: task.v1.TaskOrderV2
+	(*TaskOrderV3)(nil),                       // 4: task.v1.TaskOrderV3
 	(*SignedOrderV2)(nil),                     // 5: task.v1.SignedOrderV2
 	(*ExistingTaskRefV1)(nil),                 // 6: task.v1.ExistingTaskRefV1
 	(*WorkerHandraiseScopeV1)(nil),            // 7: task.v1.WorkerHandraiseScopeV1
@@ -1196,33 +1235,35 @@ var file_task_v1_msg_assignment_proto_goTypes = []any{
 	(*MsgSubmitWorkerHandraisesResponse)(nil), // 10: task.v1.MsgSubmitWorkerHandraisesResponse
 	(v1.TaskType)(0),                          // 11: shared.v1.TaskType
 	(*v1.Amount)(nil),                         // 12: shared.v1.Amount
-	(*CandidateMemberRefV1)(nil),              // 13: task.v1.CandidateMemberRefV1
-	(v1.Duty)(0),                              // 14: shared.v1.Duty
-	(TaskCandidateStageStatusV1)(0),           // 15: task.v1.TaskCandidateStageStatusV1
+	(PayloadModeV1)(0),                        // 13: task.v1.PayloadModeV1
+	(*CandidateMemberRefV1)(nil),              // 14: task.v1.CandidateMemberRefV1
+	(v1.Duty)(0),                              // 15: shared.v1.Duty
+	(TaskCandidateStageStatusV1)(0),           // 16: task.v1.TaskCandidateStageStatusV1
 }
 var file_task_v1_msg_assignment_proto_depIdxs = []int32{
 	0,  // 0: task.v1.DeadlinePolicyV1.latency_class:type_name -> task.v1.DeadlineLatencyClass
 	2,  // 1: task.v1.GenerationParamsV1.decoding_params:type_name -> task.v1.DecodingParamsV1
-	11, // 2: task.v1.TaskOrderV2.task_type:type_name -> shared.v1.TaskType
-	3,  // 3: task.v1.TaskOrderV2.generation_params:type_name -> task.v1.GenerationParamsV1
-	12, // 4: task.v1.TaskOrderV2.price_bid:type_name -> shared.v1.Amount
-	12, // 5: task.v1.TaskOrderV2.max_fee:type_name -> shared.v1.Amount
-	12, // 6: task.v1.TaskOrderV2.assignment_priority_fee:type_name -> shared.v1.Amount
-	12, // 7: task.v1.TaskOrderV2.tx_fee_reserve:type_name -> shared.v1.Amount
-	1,  // 8: task.v1.TaskOrderV2.deadline_policy:type_name -> task.v1.DeadlinePolicyV1
-	4,  // 9: task.v1.SignedOrderV2.order:type_name -> task.v1.TaskOrderV2
-	5,  // 10: task.v1.WorkerHandraiseScopeV1.signed_order:type_name -> task.v1.SignedOrderV2
-	6,  // 11: task.v1.WorkerHandraiseScopeV1.existing_task:type_name -> task.v1.ExistingTaskRefV1
-	13, // 12: task.v1.WorkerHandraiseV1.member:type_name -> task.v1.CandidateMemberRefV1
-	14, // 13: task.v1.WorkerHandraiseV1.duty:type_name -> shared.v1.Duty
-	7,  // 14: task.v1.MsgSubmitWorkerHandraises.scope:type_name -> task.v1.WorkerHandraiseScopeV1
-	8,  // 15: task.v1.MsgSubmitWorkerHandraises.handraises:type_name -> task.v1.WorkerHandraiseV1
-	15, // 16: task.v1.MsgSubmitWorkerHandraisesResponse.stage_status:type_name -> task.v1.TaskCandidateStageStatusV1
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	11, // 2: task.v1.TaskOrderV3.task_type:type_name -> shared.v1.TaskType
+	3,  // 3: task.v1.TaskOrderV3.generation_params:type_name -> task.v1.GenerationParamsV1
+	12, // 4: task.v1.TaskOrderV3.price_bid:type_name -> shared.v1.Amount
+	12, // 5: task.v1.TaskOrderV3.max_fee:type_name -> shared.v1.Amount
+	12, // 6: task.v1.TaskOrderV3.assignment_priority_fee:type_name -> shared.v1.Amount
+	12, // 7: task.v1.TaskOrderV3.tx_fee_reserve:type_name -> shared.v1.Amount
+	1,  // 8: task.v1.TaskOrderV3.deadline_policy:type_name -> task.v1.DeadlinePolicyV1
+	13, // 9: task.v1.TaskOrderV3.payload_mode:type_name -> task.v1.PayloadModeV1
+	4,  // 10: task.v1.SignedOrderV2.order:type_name -> task.v1.TaskOrderV3
+	5,  // 11: task.v1.WorkerHandraiseScopeV1.signed_order:type_name -> task.v1.SignedOrderV2
+	6,  // 12: task.v1.WorkerHandraiseScopeV1.existing_task:type_name -> task.v1.ExistingTaskRefV1
+	14, // 13: task.v1.WorkerHandraiseV1.member:type_name -> task.v1.CandidateMemberRefV1
+	15, // 14: task.v1.WorkerHandraiseV1.duty:type_name -> shared.v1.Duty
+	7,  // 15: task.v1.MsgSubmitWorkerHandraises.scope:type_name -> task.v1.WorkerHandraiseScopeV1
+	8,  // 16: task.v1.MsgSubmitWorkerHandraises.handraises:type_name -> task.v1.WorkerHandraiseV1
+	16, // 17: task.v1.MsgSubmitWorkerHandraisesResponse.stage_status:type_name -> task.v1.TaskCandidateStageStatusV1
+	18, // [18:18] is the sub-list for method output_type
+	18, // [18:18] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_assignment_proto_init() }

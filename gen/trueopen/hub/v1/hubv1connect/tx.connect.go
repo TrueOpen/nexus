@@ -83,7 +83,7 @@ const (
 type MsgClient interface {
 	// UpdateHubParams applies one governance Hub params version.
 	UpdateHubParams(context.Context, *connect.Request[v1.MsgUpdateHubParams]) (*connect.Response[v1.MsgUpdateHubParamsResponse], error)
-	// ClaimEarnings is the single pull-payment entry (§9.6a). The former
+	// ClaimEarnings is the single pull-payment entry. The former
 	// per-class MsgClaimServiceReward / MsgClaimBuilderReward /
 	// MsgClaimInfrastructureReward are deleted: ClaimClassV1 selects the class.
 	// ClaimEarnings executes the ClaimEarnings operation.
@@ -123,15 +123,15 @@ type MsgClient interface {
 	SubmitFreezeSignal(context.Context, *connect.Request[v1.MsgSubmitFreezeSignal]) (*connect.Response[v1.MsgSubmitFreezeSignalResponse], error)
 	// EmergencyFreezeVote records one validator ballot.
 	EmergencyFreezeVote(context.Context, *connect.Request[v1.MsgEmergencyFreezeVote]) (*connect.Response[v1.MsgEmergencyFreezeVoteResponse], error)
-	// UpdateTimeoutBucket moved here from task.v1.Msg: the data-structure contract
-	// §2.4 names the Hub governance handler the only writer of parameter bucket
+	// UpdateTimeoutBucket moved here from task.v1.Msg: the wire storage model
+	// this contract names the Hub governance handler the only writer of parameter bucket
 	// versions, and x/task only reference-counts them.
 	// UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
 	UpdateTimeoutBucket(context.Context, *connect.Request[v1.MsgUpdateTimeoutBucket]) (*connect.Response[v1.MsgUpdateTimeoutBucketResponse], error)
-	// RunRewardEpoch is the single bounded reward runner (§9.6a); the former
+	// RunRewardEpoch is the single bounded reward runner; the former
 	// MsgRunBuilderRewardEpoch and MsgRunTreasuryEpoch are deleted because
 	// reward_bucket selects the competition bucket and treasury flow is not a
-	// separate epoch runner. It may only trigger event codes 40 and 70 (§5.11); no
+	// separate epoch runner. It may only trigger event codes 40 and 70; no
 	// runner-level summary event exists.
 	// RunRewardEpoch executes the RunRewardEpoch operation.
 	RunRewardEpoch(context.Context, *connect.Request[v1.MsgRunRewardEpoch]) (*connect.Response[v1.MsgRunRewardEpochResponse], error)
@@ -399,7 +399,7 @@ func (c *msgClient) RunRewardEpoch(ctx context.Context, req *connect.Request[v1.
 type MsgHandler interface {
 	// UpdateHubParams applies one governance Hub params version.
 	UpdateHubParams(context.Context, *connect.Request[v1.MsgUpdateHubParams]) (*connect.Response[v1.MsgUpdateHubParamsResponse], error)
-	// ClaimEarnings is the single pull-payment entry (§9.6a). The former
+	// ClaimEarnings is the single pull-payment entry. The former
 	// per-class MsgClaimServiceReward / MsgClaimBuilderReward /
 	// MsgClaimInfrastructureReward are deleted: ClaimClassV1 selects the class.
 	// ClaimEarnings executes the ClaimEarnings operation.
@@ -439,15 +439,15 @@ type MsgHandler interface {
 	SubmitFreezeSignal(context.Context, *connect.Request[v1.MsgSubmitFreezeSignal]) (*connect.Response[v1.MsgSubmitFreezeSignalResponse], error)
 	// EmergencyFreezeVote records one validator ballot.
 	EmergencyFreezeVote(context.Context, *connect.Request[v1.MsgEmergencyFreezeVote]) (*connect.Response[v1.MsgEmergencyFreezeVoteResponse], error)
-	// UpdateTimeoutBucket moved here from task.v1.Msg: the data-structure contract
-	// §2.4 names the Hub governance handler the only writer of parameter bucket
+	// UpdateTimeoutBucket moved here from task.v1.Msg: the wire storage model
+	// this contract names the Hub governance handler the only writer of parameter bucket
 	// versions, and x/task only reference-counts them.
 	// UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
 	UpdateTimeoutBucket(context.Context, *connect.Request[v1.MsgUpdateTimeoutBucket]) (*connect.Response[v1.MsgUpdateTimeoutBucketResponse], error)
-	// RunRewardEpoch is the single bounded reward runner (§9.6a); the former
+	// RunRewardEpoch is the single bounded reward runner; the former
 	// MsgRunBuilderRewardEpoch and MsgRunTreasuryEpoch are deleted because
 	// reward_bucket selects the competition bucket and treasury flow is not a
-	// separate epoch runner. It may only trigger event codes 40 and 70 (§5.11); no
+	// separate epoch runner. It may only trigger event codes 40 and 70; no
 	// runner-level summary event exists.
 	// RunRewardEpoch executes the RunRewardEpoch operation.
 	RunRewardEpoch(context.Context, *connect.Request[v1.MsgRunRewardEpoch]) (*connect.Response[v1.MsgRunRewardEpochResponse], error)

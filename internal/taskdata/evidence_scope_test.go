@@ -58,7 +58,7 @@ func verifierBundle(operator string, round uint32) ObjectRef {
 	return ObjectRef{
 		TaskHash: testTaskHash, SessionID: testSessionID, TaskID: testTaskID,
 		Kind: ObjectKindEvidenceManifest, ContentHash: strings.Repeat("c", 64),
-		EvidenceProducerKind: EvidenceProducerVerifier, VerifyRound: round, ProducerOperator: operator,
+		EvidenceProducerKind: EvidenceProducerVerifier, EvidenceKind: EvidenceKindVerifierValueOpening, VerifyRound: round, ProducerOperator: operator,
 	}
 }
 

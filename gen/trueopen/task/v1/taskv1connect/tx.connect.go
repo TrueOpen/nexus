@@ -48,6 +48,9 @@ const (
 	// MsgSubmitWorkerEvidenceProcedure is the fully-qualified name of the Msg's SubmitWorkerEvidence
 	// RPC.
 	MsgSubmitWorkerEvidenceProcedure = "/task.v1.Msg/SubmitWorkerEvidence"
+	// MsgSubmitVerifierValueEvidenceProcedure is the fully-qualified name of the Msg's
+	// SubmitVerifierValueEvidence RPC.
+	MsgSubmitVerifierValueEvidenceProcedure = "/task.v1.Msg/SubmitVerifierValueEvidence"
 	// MsgSubmitVerifierHandraisesProcedure is the fully-qualified name of the Msg's
 	// SubmitVerifierHandraises RPC.
 	MsgSubmitVerifierHandraisesProcedure = "/task.v1.Msg/SubmitVerifierHandraises"
@@ -93,6 +96,8 @@ type MsgClient interface {
 	SubmitInferReceipt(context.Context, *connect.Request[v1.MsgSubmitInferReceipt]) (*connect.Response[v1.MsgSubmitInferReceiptResponse], error)
 	// SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
 	SubmitWorkerEvidence(context.Context, *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error)
+	// SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	SubmitVerifierValueEvidence(context.Context, *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error)
 	// SubmitVerifierHandraises is the single Open Verify entry; it replaces the
 	// deleted MsgOpenVerify.
 	// SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
@@ -102,7 +107,7 @@ type MsgClient interface {
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
 	// It moved here from hub.v1.Msg: the Task module owns the
 	// envelope payload and the Task authority, and it returns the shared receipt
-	// directly instead of a module-local Response wrapper (§5.5, §9.4).
+	// directly instead of a module-local Response wrapper.
 	// SubmitBuilderEvidence executes the SubmitBuilderEvidence operation.
 	SubmitBuilderEvidence(context.Context, *connect.Request[v1.MsgSubmitBuilderEvidence]) (*connect.Response[v11.BuilderObjectiveEvidenceReceiptV2], error)
 	// SubmitVerifyCommit replaces the deleted MsgCommit.
@@ -118,7 +123,7 @@ type MsgClient interface {
 	// SettleTask derives and atomically applies the sole Phase 0 settlement plan.
 	SettleTask(context.Context, *connect.Request[v1.MsgSettleTask]) (*connect.Response[v1.MsgSettleTaskResponse], error)
 	// SweepDeadline is the single bounded deadline runner; it replaces the deleted
-	// MsgSweepExpiredTask and MsgSessionSweep (§5.9/§9.6a).
+	// MsgSweepExpiredTask and MsgSessionSweep.
 	// SweepDeadline executes the SweepDeadline operation.
 	SweepDeadline(context.Context, *connect.Request[v1.MsgSweepDeadline]) (*connect.Response[v1.MsgSweepDeadlineResponse], error)
 }
@@ -168,6 +173,12 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgSubmitWorkerEvidenceProcedure,
 			connect.WithSchema(msgMethods.ByName("SubmitWorkerEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		submitVerifierValueEvidence: connect.NewClient[v1.MsgSubmitVerifierValueEvidence, v1.MsgSubmitVerifierValueEvidenceResponse](
+			httpClient,
+			baseURL+MsgSubmitVerifierValueEvidenceProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitVerifierValueEvidence")),
 			connect.WithClientOptions(opts...),
 		),
 		submitVerifierHandraises: connect.NewClient[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse](
@@ -235,22 +246,23 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 
 // msgClient implements MsgClient.
 type msgClient struct {
-	updateTaskParams         *connect.Client[v1.MsgUpdateTaskParams, v1.MsgUpdateTaskParamsResponse]
-	createSession            *connect.Client[v1.MsgCreateSession, v1.MsgCreateSessionResponse]
-	cancelOrder              *connect.Client[v1.MsgCancelOrder, v1.MsgCancelOrderResponse]
-	submitWorkerHandraises   *connect.Client[v1.MsgSubmitWorkerHandraises, v1.MsgSubmitWorkerHandraisesResponse]
-	submitInferReceipt       *connect.Client[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse]
-	submitWorkerEvidence     *connect.Client[v1.MsgSubmitWorkerEvidence, v1.MsgSubmitWorkerEvidenceResponse]
-	submitVerifierHandraises *connect.Client[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse]
-	reportDataUnavailable    *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
-	submitBuilderEvidence    *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
-	submitVerifyCommit       *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
-	batchSubmitVerifyCommit  *connect.Client[v1.MsgBatchSubmitVerifyCommit, v1.MsgBatchSubmitVerifyCommitResponse]
-	submitVerifyResult       *connect.Client[v1.MsgSubmitVerifyResult, v1.MsgSubmitVerifyResultResponse]
-	batchSubmitVerifyResult  *connect.Client[v1.MsgBatchSubmitVerifyResult, v1.MsgBatchSubmitVerifyResultResponse]
-	openChallengeRound       *connect.Client[v1.MsgOpenChallengeRound, v1.MsgOpenChallengeRoundResponse]
-	settleTask               *connect.Client[v1.MsgSettleTask, v1.MsgSettleTaskResponse]
-	sweepDeadline            *connect.Client[v1.MsgSweepDeadline, v1.MsgSweepDeadlineResponse]
+	updateTaskParams            *connect.Client[v1.MsgUpdateTaskParams, v1.MsgUpdateTaskParamsResponse]
+	createSession               *connect.Client[v1.MsgCreateSession, v1.MsgCreateSessionResponse]
+	cancelOrder                 *connect.Client[v1.MsgCancelOrder, v1.MsgCancelOrderResponse]
+	submitWorkerHandraises      *connect.Client[v1.MsgSubmitWorkerHandraises, v1.MsgSubmitWorkerHandraisesResponse]
+	submitInferReceipt          *connect.Client[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse]
+	submitWorkerEvidence        *connect.Client[v1.MsgSubmitWorkerEvidence, v1.MsgSubmitWorkerEvidenceResponse]
+	submitVerifierValueEvidence *connect.Client[v1.MsgSubmitVerifierValueEvidence, v1.MsgSubmitVerifierValueEvidenceResponse]
+	submitVerifierHandraises    *connect.Client[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse]
+	reportDataUnavailable       *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
+	submitBuilderEvidence       *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
+	submitVerifyCommit          *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
+	batchSubmitVerifyCommit     *connect.Client[v1.MsgBatchSubmitVerifyCommit, v1.MsgBatchSubmitVerifyCommitResponse]
+	submitVerifyResult          *connect.Client[v1.MsgSubmitVerifyResult, v1.MsgSubmitVerifyResultResponse]
+	batchSubmitVerifyResult     *connect.Client[v1.MsgBatchSubmitVerifyResult, v1.MsgBatchSubmitVerifyResultResponse]
+	openChallengeRound          *connect.Client[v1.MsgOpenChallengeRound, v1.MsgOpenChallengeRoundResponse]
+	settleTask                  *connect.Client[v1.MsgSettleTask, v1.MsgSettleTaskResponse]
+	sweepDeadline               *connect.Client[v1.MsgSweepDeadline, v1.MsgSweepDeadlineResponse]
 }
 
 // UpdateTaskParams calls task.v1.Msg.UpdateTaskParams.
@@ -281,6 +293,11 @@ func (c *msgClient) SubmitInferReceipt(ctx context.Context, req *connect.Request
 // SubmitWorkerEvidence calls task.v1.Msg.SubmitWorkerEvidence.
 func (c *msgClient) SubmitWorkerEvidence(ctx context.Context, req *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error) {
 	return c.submitWorkerEvidence.CallUnary(ctx, req)
+}
+
+// SubmitVerifierValueEvidence calls task.v1.Msg.SubmitVerifierValueEvidence.
+func (c *msgClient) SubmitVerifierValueEvidence(ctx context.Context, req *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error) {
+	return c.submitVerifierValueEvidence.CallUnary(ctx, req)
 }
 
 // SubmitVerifierHandraises calls task.v1.Msg.SubmitVerifierHandraises.
@@ -351,6 +368,8 @@ type MsgHandler interface {
 	SubmitInferReceipt(context.Context, *connect.Request[v1.MsgSubmitInferReceipt]) (*connect.Response[v1.MsgSubmitInferReceiptResponse], error)
 	// SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
 	SubmitWorkerEvidence(context.Context, *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error)
+	// SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	SubmitVerifierValueEvidence(context.Context, *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error)
 	// SubmitVerifierHandraises is the single Open Verify entry; it replaces the
 	// deleted MsgOpenVerify.
 	// SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
@@ -360,7 +379,7 @@ type MsgHandler interface {
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
 	// It moved here from hub.v1.Msg: the Task module owns the
 	// envelope payload and the Task authority, and it returns the shared receipt
-	// directly instead of a module-local Response wrapper (§5.5, §9.4).
+	// directly instead of a module-local Response wrapper.
 	// SubmitBuilderEvidence executes the SubmitBuilderEvidence operation.
 	SubmitBuilderEvidence(context.Context, *connect.Request[v1.MsgSubmitBuilderEvidence]) (*connect.Response[v11.BuilderObjectiveEvidenceReceiptV2], error)
 	// SubmitVerifyCommit replaces the deleted MsgCommit.
@@ -376,7 +395,7 @@ type MsgHandler interface {
 	// SettleTask derives and atomically applies the sole Phase 0 settlement plan.
 	SettleTask(context.Context, *connect.Request[v1.MsgSettleTask]) (*connect.Response[v1.MsgSettleTaskResponse], error)
 	// SweepDeadline is the single bounded deadline runner; it replaces the deleted
-	// MsgSweepExpiredTask and MsgSessionSweep (§5.9/§9.6a).
+	// MsgSweepExpiredTask and MsgSessionSweep.
 	// SweepDeadline executes the SweepDeadline operation.
 	SweepDeadline(context.Context, *connect.Request[v1.MsgSweepDeadline]) (*connect.Response[v1.MsgSweepDeadlineResponse], error)
 }
@@ -422,6 +441,12 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgSubmitWorkerEvidenceProcedure,
 		svc.SubmitWorkerEvidence,
 		connect.WithSchema(msgMethods.ByName("SubmitWorkerEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitVerifierValueEvidenceHandler := connect.NewUnaryHandler(
+		MsgSubmitVerifierValueEvidenceProcedure,
+		svc.SubmitVerifierValueEvidence,
+		connect.WithSchema(msgMethods.ByName("SubmitVerifierValueEvidence")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgSubmitVerifierHandraisesHandler := connect.NewUnaryHandler(
@@ -498,6 +523,8 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgSubmitInferReceiptHandler.ServeHTTP(w, r)
 		case MsgSubmitWorkerEvidenceProcedure:
 			msgSubmitWorkerEvidenceHandler.ServeHTTP(w, r)
+		case MsgSubmitVerifierValueEvidenceProcedure:
+			msgSubmitVerifierValueEvidenceHandler.ServeHTTP(w, r)
 		case MsgSubmitVerifierHandraisesProcedure:
 			msgSubmitVerifierHandraisesHandler.ServeHTTP(w, r)
 		case MsgReportDataUnavailableProcedure:
@@ -549,6 +576,10 @@ func (UnimplementedMsgHandler) SubmitInferReceipt(context.Context, *connect.Requ
 
 func (UnimplementedMsgHandler) SubmitWorkerEvidence(context.Context, *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitWorkerEvidence is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitVerifierValueEvidence(context.Context, *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitVerifierValueEvidence is not implemented"))
 }
 
 func (UnimplementedMsgHandler) SubmitVerifierHandraises(context.Context, *connect.Request[v1.MsgSubmitVerifierHandraises]) (*connect.Response[v1.MsgSubmitVerifierHandraisesResponse], error) {

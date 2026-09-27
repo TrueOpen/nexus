@@ -6,7 +6,7 @@ import "shared/v1/common.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // VerifierCandidateWindowStatusV1 is the lifecycle of one task-round verifier
-// candidate window. Frozen values: the API contract.
+// candidate window. Frozen values: the wire API.
 // VerifierCandidateWindowStatusV1 defines the VerifierCandidateWindowStatusV1 wire type.
 enum VerifierCandidateWindowStatusV1 {
   // Never written; rejects zero-value rows.
@@ -26,10 +26,8 @@ enum VerifierCandidateWindowStatusV1 {
 // BuilderDataUnavailableAggregateStatusV1 is the lifecycle of one
 // (task, round, builder) data-unavailable aggregate.
 //
-// CONTRACT-GAP: the data-structure contract names the three states
-// (COLLECTING / CONFIRMED / PRUNED) but the API contract does not
-// register this enum, so the numbers below follow the declaration order of that
-// section and must be re-confirmed when §9.6b is extended.
+// The three nonzero states are frozen in collection lifecycle order:
+// COLLECTING, CONFIRMED, and PRUNED.
 // BuilderDataUnavailableAggregateStatusV1 defines the BuilderDataUnavailableAggregateStatusV1 wire type.
 enum BuilderDataUnavailableAggregateStatusV1 {
   // Never written; rejects zero-value rows.
@@ -64,17 +62,17 @@ message CandidateMemberRefV1 {
 
 // VerifierHandraiseV1 is one verifier-signed offer to take a verify duty on an
 // already accepted InferReceipt. Field numbers, types and order are frozen by
-// the API contract and are the length-framed preimage of
+// the wire API and are the length-framed preimage of
 // H_FIELDS_V1("TRUEOPEN_VERIFIER_HANDRAISE_V1", canonical VerifierHandraiseV1
 // excluding service_signature). duty is always DUTY_VERIFIER;
 // service_authorization_nonce must equal the operator's current service binding
 // nonce at verification time.
 //
-// schema_version is 1: §4.1 writes `schema_version: uint32 = 1` literally for this
-// wire. InferReceiptV2 is the only sibling receipt that uses schema version 2.
+// schema_version is 1: this contract writes `schema_version: uint32 = 1` literally for this
+// wire. Handraise schema versions are independent of receipt versions.
 // VerifierHandraiseV1 defines the VerifierHandraiseV1 wire type.
 message VerifierHandraiseV1 {
-  // Always 1; §4.1 pins it literally.
+  // Always 1; this contract pins it literally.
   uint32 schema_version = 1;
   string chain_id = 2;
   bytes task_id = 3;
@@ -83,13 +81,15 @@ message VerifierHandraiseV1 {
   uint32 verify_round = 4;
   bytes infer_receipt_hash = 5;
   bytes output_hash = 6;
-  string model_id = 7;
+  bytes model_id = 7;
   uint32 profile_version = 8;
   CandidateMemberRefV1 member = 9;
   shared.v1.Duty duty = 10;
   uint64 service_authorization_nonce = 11;
   uint64 expiry_height = 12;
   bytes service_signature = 13;
+  // Reserved recipient key: empty in plaintext Phase 0.
+  bytes recipient_pubkey = 14;
 }
 
 // VerifierCandidateWindowState is the per (task_id, verify_round) window header.
@@ -225,11 +225,11 @@ message DataUnavailableReportState {
 // say so with field presence instead of with a zero-length Hash32.
 //
 // The two contracts used to disagree about how to spell an empty slot:
-// the data-structure contract fixed the vector length to
+// the wire storage model fixed the vector length to
 // selected_verifier_count and let an empty element mean "this verifier has not
-// reported", while the API contract reject a zero-length
+// reported", while the wire API reject a zero-length
 // element inside a repeated Hash32. It is resolved in favour of
-// §1.1a: Store and Query projection both carry per-slot presence, so the schema
+// this contract: Store and Query projection both carry per-slot presence, so the schema
 // now says what the preimage always said.
 //
 // The aggregate_hash preimage does not move. It already framed this vector as

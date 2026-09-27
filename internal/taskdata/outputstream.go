@@ -136,6 +136,19 @@ type outputStreamRecord struct {
 	// The Worker's Fin fields as received, kept for byte-identical replay to subscribers.
 	FinishReason       uint32 `json:"finish_reason,omitempty"`
 	FinWorkerSignature []byte `json:"fin_worker_signature,omitempty"`
+	// Header is the Worker-signed stream declaration of the latest verified open. It is kept, not
+	// replayed: subscriptions have no header frame yet.
+	Header *OutputStreamHeaderRecord `json:"header,omitempty"`
+}
+
+// OutputStreamHeaderRecord is the signed part of OutputStreamHeaderV2 as received.
+type OutputStreamHeaderRecord struct {
+	Attempt             uint32 `json:"attempt"`
+	StreamInstance      uint32 `json:"stream_instance"`
+	UserRecipientPubkey []byte `json:"user_recipient_pubkey,omitempty"`
+	OutputKeyCommitment []byte `json:"output_key_commitment"`
+	KeyPackageHash      []byte `json:"key_package_hash"`
+	WorkerSignature     []byte `json:"worker_signature"`
 }
 
 func (r outputStreamRecord) progress(root mmr.Hash) OutputStreamProgress {
@@ -410,6 +423,13 @@ func (st *OutputStream) Progress() OutputStreamProgress { return st.record.progr
 
 // Key returns the object key of this stream.
 func (st *OutputStream) Key() ObjectKey { return st.key }
+
+// recordHeader keeps the verified stream declaration; it is persisted with the next frame.
+func (st *OutputStream) recordHeader(header OutputStreamHeaderRecord) {
+	st.store.mu.Lock()
+	defer st.store.mu.Unlock()
+	st.record.Header = &header
+}
 
 func (st *OutputStream) usable() error {
 	if st.superseded {
@@ -692,6 +712,25 @@ func (s *Store) OutputStreamProgressOf(_ context.Context, key ObjectKey) (Output
 // SealedOutputFinishReason returns the finish_reason of the Fin that sealed the stream behind key,
 // the OUTPUT ref whose content_hash is the stream's MMR root. found=false means this Builder holds
 // no sealed stream with that root (not streamed, not finished, or a different root).
+// SealedOutputFin returns the Worker's Fin of the sealed stream whose root is key's content_hash, as
+// received, so metadata can carry the same signed frame subscribers are replayed.
+func (s *Store) SealedOutputFin(_ context.Context, key ObjectKey) (OutputFin, bool, error) {
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	record, found, err := s.outputStreamRecord(streamKeyString(key))
+	if err != nil || !found || !record.Sealed || record.ContentHash != key.ContentHash || record.LeafCount == 0 {
+		return OutputFin{}, false, err
+	}
+	root, err := hex.DecodeString(record.ContentHash)
+	if err != nil {
+		return OutputFin{}, false, fmt.Errorf("%w: persisted output root", ErrStorage)
+	}
+	return OutputFin{
+		FinalSeq: record.LeafCount - 1, OutputMMRRoot: root, FinishReason: record.FinishReason,
+		WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+	}, true, nil
+}
+
 func (s *Store) SealedOutputFinishReason(_ context.Context, key ObjectKey) (uint32, bool, error) {
 	s.maintenance.RLock()
 	defer s.maintenance.RUnlock()

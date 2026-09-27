@@ -187,7 +187,7 @@ func (*SubscribeProtocolEventsResponse_Event) isSubscribeProtocolEventsResponse_
 
 func (*SubscribeProtocolEventsResponse_Checkpoint) isSubscribeProtocolEventsResponse_Item() {}
 
-// ProtocolEvent is a stable stream envelope around one committed Hub-owned §5.11
+// ProtocolEvent is a stable stream envelope around one committed Hub-owned
 // event. It carries no session or task field, and field numbers 8 to 11 are
 // deliberately unallocated.
 //

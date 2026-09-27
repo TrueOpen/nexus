@@ -7,7 +7,7 @@ import "task/v1/session.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
-// The §16.1 pagination wire (QueryPageRequestV1 / QueryPageResponseV1 /
+// This contract pagination wire (QueryPageRequestV1 / QueryPageResponseV1 /
 // PageTokenV1) is NOT declared here. It is global Query wire with exactly one
 // definition, now in shared/v1/query_page.proto; the former task and
 // hub copies are deleted.
@@ -15,7 +15,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 // QueryTaskParamsRequest is request type for Query/Params.
 //
 // The parameter query belongs to the params domain. It
-// is kept unchanged so query.proto keeps resolving; api_contract §16.2 requires a
+// is kept unchanged so query.proto keeps resolving; the wire API requires a
 // single `QueryParams` returning `1=hub_params:HubParamsV1,2=task_params:TaskParamsV1`.
 // QueryTaskParamsRequest defines the QueryTaskParamsRequest wire type.
 message QueryTaskParamsRequest {}
@@ -31,58 +31,58 @@ message QueryTaskParamsResponse {
   TaskParamsMetaState meta = 2;
 }
 
-// QuerySessionRequest selects one session by ID (§16.2).
+// QuerySessionRequest selects one session by ID.
 message QuerySessionRequest {
   bytes session_id = 1;
 }
 
 // QuerySessionResponse returns the authoritative StreamState for an
 // active/idle/closed retained row; after compaction the RPC returns NotFound and
-// callers must query the terminal summary instead (§16.2).
+// callers must query the terminal summary instead.
 // QuerySessionResponse defines the QuerySessionResponse wire type.
 message QuerySessionResponse {
   StreamState session = 1;
 }
 
-// QuerySessionsByOwnerRequest lists the owner's active sessions (§16.2).
+// QuerySessionsByOwnerRequest lists the owner's active sessions.
 message QuerySessionsByOwnerRequest {
   string user_address = 1;
   shared.v1.QueryPageRequestV1 page = 2;
 }
 
 // QuerySessionsByOwnerResponse walks only the active owner index, ascending by
-// raw session_id bytes; closed history is never listed permanently (§16.2).
+// raw session_id bytes; closed history is never listed permanently.
 // QuerySessionsByOwnerResponse defines the QuerySessionsByOwnerResponse wire type.
 message QuerySessionsByOwnerResponse {
   repeated StreamState sessions = 1;
   shared.v1.QueryPageResponseV1 page = 2;
 }
 
-// QuerySessionTerminalSummaryRequest selects one collapsed session (§16.2).
+// QuerySessionTerminalSummaryRequest selects one collapsed session.
 message QuerySessionTerminalSummaryRequest {
   bytes session_id = 1;
 }
 
 // QuerySessionTerminalSummaryResponse returns the single terminal summary;
-// NotFound after its retention expires (§16.2).
+// NotFound after its retention expires.
 // QuerySessionTerminalSummaryResponse defines the QuerySessionTerminalSummaryResponse wire type.
 message QuerySessionTerminalSummaryResponse {
   SessionTerminalSummaryState summary = 1;
 }
 
-// QuerySessionNonceRequest selects one user's session counter (§16.2).
+// QuerySessionNonceRequest selects one user's session counter.
 message QuerySessionNonceRequest {
   string user_address = 1;
 }
 
 // QuerySessionNonceResponse returns 0 for an account with no session yet; an
-// invalid address is InvalidArgument, never empty state (§16.2).
+// invalid address is InvalidArgument, never empty state.
 // QuerySessionNonceResponse defines the QuerySessionNonceResponse wire type.
 message QuerySessionNonceResponse {
   uint64 next_session_nonce = 1;
 }
 
-// QueryOrderSequenceRequest selects one order sequence row (§16.2).
+// QueryOrderSequenceRequest selects one order sequence row.
 message QueryOrderSequenceRequest {
   bytes session_id = 1;
   uint64 order_sequence = 2;
@@ -90,7 +90,7 @@ message QueryOrderSequenceRequest {
 
 // QueryOrderSequenceResponse returns the row only inside the detail retention
 // window; NotFound once it has been folded into sequence_root, which defines no
-// member proof (§16.2).
+// member proof.
 // QueryOrderSequenceResponse defines the QueryOrderSequenceResponse wire type.
 message QueryOrderSequenceResponse {
   OrderSequenceState sequence = 1;

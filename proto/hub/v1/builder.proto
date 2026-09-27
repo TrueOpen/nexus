@@ -66,6 +66,14 @@ enum BuilderSetPrunePhase {
   BUILDER_SET_PRUNE_PHASE_HEADER = 2;
 }
 
+// BuilderSetModeV1 is the closed set of Builder-set operating modes.
+enum BuilderSetModeV1 {
+  // Unset; rejected.
+  BUILDER_SET_MODE_V1_UNSPECIFIED = 0;
+  // Phase 0 uses the governance-managed fixed Builder set.
+  BUILDER_SET_MODE_V1_GOVERNED_FIXED_V1 = 1;
+}
+
 // BuilderState is the stable Builder identity and current service binding.
 // Phase 0 registration creates only this identity and its descriptor; it does
 // not create admission, bond, score, term, or set membership.
@@ -96,10 +104,9 @@ message BuilderAdmissionState {
 }
 
 // CurrentBuilderSetState is the singleton pointer to the governed fixed set.
-// mode is the exact literal GOVERNED_FIXED_V1 in Phase 0.
 // CurrentBuilderSetState defines the CurrentBuilderSetState wire type.
 message CurrentBuilderSetState {
-  string mode = 1;
+  BuilderSetModeV1 mode = 1;
   uint64 builder_set_version = 2;
   string builder_set_id = 3;
   bytes builder_set_hash = 4;

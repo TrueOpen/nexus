@@ -871,7 +871,7 @@ func (*ProtocolEventPayloadV1_BridgeLimitsActivated) isProtocolEventPayloadV1_Ty
 func (*ProtocolEventPayloadV1_BridgeSignerRotated) isProtocolEventPayloadV1_TypedEvent() {}
 
 // ProtocolEventPrimaryLocatorV1 anchors one event to the Query that returns its
-// authoritative state (§5.11).
+// authoritative state.
 // ProtocolEventPrimaryLocatorV1 defines the ProtocolEventPrimaryLocatorV1 wire type.
 type ProtocolEventPrimaryLocatorV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1296,7 +1296,7 @@ func (x *TaskRoundLocatorV1) GetVerifyRound() uint32 {
 // ProfileLocatorV1 anchors a model/profile-scoped event.
 type ProfileLocatorV1 struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1332,11 +1332,11 @@ func (*ProfileLocatorV1) Descriptor() ([]byte, []int) {
 	return file_hub_v1_event_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ProfileLocatorV1) GetModelId() string {
+func (x *ProfileLocatorV1) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *ProfileLocatorV1) GetProfileVersion() uint32 {
@@ -1847,7 +1847,7 @@ func (x *ParamsLocatorV1) GetParamsVersion() uint64 {
 // EventModelProfileRegistered is event code 3.
 type EventModelProfileRegistered struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
-	ModelId               string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId               []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion        uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	ManifestHash          []byte                 `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
 	Proposer              string                 `protobuf:"bytes,4,opt,name=proposer,proto3" json:"proposer,omitempty"`
@@ -1886,11 +1886,11 @@ func (*EventModelProfileRegistered) Descriptor() ([]byte, []int) {
 	return file_hub_v1_event_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *EventModelProfileRegistered) GetModelId() string {
+func (x *EventModelProfileRegistered) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventModelProfileRegistered) GetProfileVersion() uint32 {
@@ -1924,7 +1924,7 @@ func (x *EventModelProfileRegistered) GetRegistrationFeeAmount() *v1.Amount {
 // EventModelProfileStateChanged is event code 4.
 type EventModelProfileStateChanged struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	ModelId        string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	OldStatus      ModelProfileStatus     `protobuf:"varint,3,opt,name=old_status,json=oldStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"old_status,omitempty"`
 	NewStatus      ModelProfileStatus     `protobuf:"varint,4,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"new_status,omitempty"`
@@ -1963,11 +1963,11 @@ func (*EventModelProfileStateChanged) Descriptor() ([]byte, []int) {
 	return file_hub_v1_event_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *EventModelProfileStateChanged) GetModelId() string {
+func (x *EventModelProfileStateChanged) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventModelProfileStateChanged) GetProfileVersion() uint32 {
@@ -2887,14 +2887,14 @@ func (x *EventCandidatePoolPruned) GetPrunedHeight() uint64 {
 
 // EventModelSupportUpdated is event code 93.
 type EventModelSupportUpdated struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Operator       string                 `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
-	ModelId        string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	SupportVersion uint64                 `protobuf:"varint,4,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
-	OldStatus      ModelSupportStatus     `protobuf:"varint,5,opt,name=old_status,json=oldStatus,proto3,enum=hub.v1.ModelSupportStatus" json:"old_status,omitempty"`
-	NewStatus      ModelSupportStatus     `protobuf:"varint,6,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelSupportStatus" json:"new_status,omitempty"`
-	ExpiryEpoch    uint64                 `protobuf:"varint,7,opt,name=expiry_epoch,json=expiryEpoch,proto3" json:"expiry_epoch,omitempty"`
+	state          protoimpl.MessageState    `protogen:"open.v1"`
+	Operator       string                    `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
+	ModelId        []byte                    `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	SupportVersion uint64                    `protobuf:"varint,3,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
+	OldStatus      ModelSupportStatus        `protobuf:"varint,4,opt,name=old_status,json=oldStatus,proto3,enum=hub.v1.ModelSupportStatus" json:"old_status,omitempty"`
+	NewStatus      ModelSupportStatus        `protobuf:"varint,5,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelSupportStatus" json:"new_status,omitempty"`
+	ExpiryEpoch    uint64                    `protobuf:"varint,6,opt,name=expiry_epoch,json=expiryEpoch,proto3" json:"expiry_epoch,omitempty"`
+	SuspendReason  ModelSupportSuspendReason `protobuf:"varint,7,opt,name=suspend_reason,json=suspendReason,proto3,enum=hub.v1.ModelSupportSuspendReason" json:"suspend_reason,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2936,18 +2936,11 @@ func (x *EventModelSupportUpdated) GetOperator() string {
 	return ""
 }
 
-func (x *EventModelSupportUpdated) GetModelId() string {
+func (x *EventModelSupportUpdated) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
-}
-
-func (x *EventModelSupportUpdated) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
+	return nil
 }
 
 func (x *EventModelSupportUpdated) GetSupportVersion() uint64 {
@@ -2978,18 +2971,25 @@ func (x *EventModelSupportUpdated) GetExpiryEpoch() uint64 {
 	return 0
 }
 
+func (x *EventModelSupportUpdated) GetSuspendReason() ModelSupportSuspendReason {
+	if x != nil {
+		return x.SuspendReason
+	}
+	return ModelSupportSuspendReason_MODEL_SUPPORT_SUSPEND_REASON_UNSPECIFIED
+}
+
 // EventModelSupportActivated is event code 94.
 type EventModelSupportActivated struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Operator         string                 `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
-	ModelId          string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion   uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	ActivationTaskId []byte                 `protobuf:"bytes,4,opt,name=activation_task_id,json=activationTaskId,proto3" json:"activation_task_id,omitempty"`
-	ActivationDuty   v1.Duty                `protobuf:"varint,5,opt,name=activation_duty,json=activationDuty,proto3,enum=shared.v1.Duty" json:"activation_duty,omitempty"`
-	SupportVersion   uint64                 `protobuf:"varint,6,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
-	ExpiryEpoch      uint64                 `protobuf:"varint,7,opt,name=expiry_epoch,json=expiryEpoch,proto3" json:"expiry_epoch,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	Operator                   string                 `protobuf:"bytes,1,opt,name=operator,proto3" json:"operator,omitempty"`
+	ModelId                    []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ActivationTaskId           []byte                 `protobuf:"bytes,3,opt,name=activation_task_id,json=activationTaskId,proto3" json:"activation_task_id,omitempty"`
+	ActivationDuty             v1.Duty                `protobuf:"varint,4,opt,name=activation_duty,json=activationDuty,proto3,enum=shared.v1.Duty" json:"activation_duty,omitempty"`
+	SupportVersion             uint64                 `protobuf:"varint,5,opt,name=support_version,json=supportVersion,proto3" json:"support_version,omitempty"`
+	ExpiryEpoch                uint64                 `protobuf:"varint,6,opt,name=expiry_epoch,json=expiryEpoch,proto3" json:"expiry_epoch,omitempty"`
+	FirstSupportProfileVersion uint32                 `protobuf:"varint,7,opt,name=first_support_profile_version,json=firstSupportProfileVersion,proto3" json:"first_support_profile_version,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *EventModelSupportActivated) Reset() {
@@ -3029,18 +3029,11 @@ func (x *EventModelSupportActivated) GetOperator() string {
 	return ""
 }
 
-func (x *EventModelSupportActivated) GetModelId() string {
+func (x *EventModelSupportActivated) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
-}
-
-func (x *EventModelSupportActivated) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
+	return nil
 }
 
 func (x *EventModelSupportActivated) GetActivationTaskId() []byte {
@@ -3071,10 +3064,17 @@ func (x *EventModelSupportActivated) GetExpiryEpoch() uint64 {
 	return 0
 }
 
+func (x *EventModelSupportActivated) GetFirstSupportProfileVersion() uint32 {
+	if x != nil {
+		return x.FirstSupportProfileVersion
+	}
+	return 0
+}
+
 // EventModelStateChanged is event code 100.
 type EventModelStateChanged struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId       []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	OldStatus     ModelProfileStatus     `protobuf:"varint,2,opt,name=old_status,json=oldStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"old_status,omitempty"`
 	NewStatus     ModelProfileStatus     `protobuf:"varint,3,opt,name=new_status,json=newStatus,proto3,enum=hub.v1.ModelProfileStatus" json:"new_status,omitempty"`
 	Source        ModelStatusSource      `protobuf:"varint,4,opt,name=source,proto3,enum=hub.v1.ModelStatusSource" json:"source,omitempty"`
@@ -3113,11 +3113,11 @@ func (*EventModelStateChanged) Descriptor() ([]byte, []int) {
 	return file_hub_v1_event_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *EventModelStateChanged) GetModelId() string {
+func (x *EventModelStateChanged) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventModelStateChanged) GetOldStatus() ModelProfileStatus {
@@ -3594,8 +3594,7 @@ func (x *EventBuilderEvidenceAccepted) GetFaultIdOrEmpty() []byte {
 
 // EventHubParamsUpdated is event code 110, emitted once when a new Hub params
 // version takes effect atomically. Field order and types are copied verbatim
-// Event code 110; params_hash is the §18.0
-// TRUEOPEN_HUB_PARAMS_V2 digest.
+// from the contract; params_hash is the TRUEOPEN_HUB_PARAMS_V2 digest.
 // EventHubParamsUpdated defines the EventHubParamsUpdated wire type.
 type EventHubParamsUpdated struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3751,7 +3750,7 @@ func (x *EventServiceRegistered) GetEffectiveEpoch() uint64 {
 // EventProfileReferencePriceUpdated defines the EventProfileReferencePriceUpdated wire type.
 type EventProfileReferencePriceUpdated struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	ModelId          string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId          []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion   uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	OldRefPrice      uint64                 `protobuf:"varint,3,opt,name=old_ref_price,json=oldRefPrice,proto3" json:"old_ref_price,omitempty"`
 	NewRefPrice      uint64                 `protobuf:"varint,4,opt,name=new_ref_price,json=newRefPrice,proto3" json:"new_ref_price,omitempty"`
@@ -3792,11 +3791,11 @@ func (*EventProfileReferencePriceUpdated) Descriptor() ([]byte, []int) {
 	return file_hub_v1_event_proto_rawDescGZIP(), []int{41}
 }
 
-func (x *EventProfileReferencePriceUpdated) GetModelId() string {
+func (x *EventProfileReferencePriceUpdated) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventProfileReferencePriceUpdated) GetProfileVersion() uint32 {
@@ -3843,7 +3842,7 @@ func (x *EventProfileReferencePriceUpdated) GetAppliedStepCount() uint32 {
 
 // EventParameterBucketUpdated is event code 5, emitted once when a governance
 // versioned bucket first commits. Fields are copied verbatim from
-// Event code 5; bucket_hash is the §5.2
+// the contract; bucket_hash is the
 // TRUEOPEN_PARAMETER_BUCKET_V1 commitment stored as
 // ParameterBucketVersionState.content_hash.
 // EventParameterBucketUpdated defines the EventParameterBucketUpdated wire type.
@@ -3933,7 +3932,7 @@ func (x *EventParameterBucketUpdated) GetBucketHash() []byte {
 
 // EventEarningsAccrued is event code 40, emitted once when an accrual first
 // lands in the earnings ledger. MsgRunRewardEpoch may only trigger this code and
-// code 70; no runner-level summary event exists (§5.11 runner table).
+// code 70; no runner-level summary event exists.
 // EventEarningsAccrued defines the EventEarningsAccrued wire type.
 type EventEarningsAccrued struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -4093,7 +4092,7 @@ func (x *EventEarningsClaimed) GetEarningsVersion() uint64 {
 // EventTreasuryCollected is event code 80, emitted once when non-zero treasury
 // income commits. source_id takes the existing authoritative ID selected by
 // source_kind: settlement_id for TASK_FEE, fault_id for SLASH_RESIDUAL and the
-// §9.6c treasury action_digest for GOVERNANCE.
+// treasury action_digest for GOVERNANCE.
 // EventTreasuryCollected defines the EventTreasuryCollected wire type.
 type EventTreasuryCollected struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -4164,7 +4163,7 @@ func (x *EventTreasuryCollected) GetTreasuryVersion() uint64 {
 }
 
 // EventTreasuryAdjusted is event code 81, emitted once when a governance
-// TreasurySpend item actually executes. The spend itself is the internal §9.6c
+// TreasurySpend item actually executes. The spend itself is the internal
 // typed action, which registers no signer and no Tx RPC.
 // EventTreasuryAdjusted defines the EventTreasuryAdjusted wire type.
 type EventTreasuryAdjusted struct {
@@ -4253,12 +4252,12 @@ func (x *EventTreasuryAdjusted) GetTreasuryVersion() uint64 {
 
 // EventFreezeSignalSubmitted is event code 95, emitted once when the build cursor
 // completes and the first OPEN signal is written. MsgSubmitFreezeSignal returning
-// BUILDING or BELOW_THRESHOLD_NOOP emits nothing (§5.11).
+// BUILDING or BELOW_THRESHOLD_NOOP emits nothing.
 // EventFreezeSignalSubmitted defines the EventFreezeSignalSubmitted wire type.
 type EventFreezeSignalSubmitted struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	FreezeSignalId        []byte                 `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
-	ModelId               string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId               []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion        uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RiskWindowId          uint64                 `protobuf:"varint,4,opt,name=risk_window_id,json=riskWindowId,proto3" json:"risk_window_id,omitempty"`
 	RiskWindowStartHeight uint64                 `protobuf:"varint,5,opt,name=risk_window_start_height,json=riskWindowStartHeight,proto3" json:"risk_window_start_height,omitempty"`
@@ -4307,11 +4306,11 @@ func (x *EventFreezeSignalSubmitted) GetFreezeSignalId() []byte {
 	return nil
 }
 
-func (x *EventFreezeSignalSubmitted) GetModelId() string {
+func (x *EventFreezeSignalSubmitted) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventFreezeSignalSubmitted) GetProfileVersion() uint32 {
@@ -4457,7 +4456,7 @@ func (x *EventEmergencyFreezeVoteRecorded) GetRejectedVotingPower() uint64 {
 type EventEmergencyFreezeAccepted struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
 	FreezeSignalId           []byte                 `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
-	ModelId                  string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                  []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion           uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	AcceptedVotingPower      uint64                 `protobuf:"varint,4,opt,name=accepted_voting_power,json=acceptedVotingPower,proto3" json:"accepted_voting_power,omitempty"`
 	TotalVotingPowerSnapshot uint64                 `protobuf:"varint,5,opt,name=total_voting_power_snapshot,json=totalVotingPowerSnapshot,proto3" json:"total_voting_power_snapshot,omitempty"`
@@ -4503,11 +4502,11 @@ func (x *EventEmergencyFreezeAccepted) GetFreezeSignalId() []byte {
 	return nil
 }
 
-func (x *EventEmergencyFreezeAccepted) GetModelId() string {
+func (x *EventEmergencyFreezeAccepted) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventEmergencyFreezeAccepted) GetProfileVersion() uint32 {
@@ -4544,7 +4543,7 @@ func (x *EventEmergencyFreezeAccepted) GetValidatorSetHash() []byte {
 type EventEmergencyFreezeRejected struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
 	FreezeSignalId           []byte                 `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
-	ModelId                  string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                  []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion           uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RejectedVotingPower      uint64                 `protobuf:"varint,4,opt,name=rejected_voting_power,json=rejectedVotingPower,proto3" json:"rejected_voting_power,omitempty"`
 	TotalVotingPowerSnapshot uint64                 `protobuf:"varint,5,opt,name=total_voting_power_snapshot,json=totalVotingPowerSnapshot,proto3" json:"total_voting_power_snapshot,omitempty"`
@@ -4589,11 +4588,11 @@ func (x *EventEmergencyFreezeRejected) GetFreezeSignalId() []byte {
 	return nil
 }
 
-func (x *EventEmergencyFreezeRejected) GetModelId() string {
+func (x *EventEmergencyFreezeRejected) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventEmergencyFreezeRejected) GetProfileVersion() uint32 {
@@ -4623,7 +4622,7 @@ func (x *EventEmergencyFreezeRejected) GetTotalVotingPowerSnapshot() uint64 {
 type EventFreezeSignalExpired struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	FreezeSignalId     []byte                 `protobuf:"bytes,1,opt,name=freeze_signal_id,json=freezeSignalId,proto3" json:"freeze_signal_id,omitempty"`
-	ModelId            string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId            []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion     uint32                 `protobuf:"varint,3,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	VoteDeadlineHeight uint64                 `protobuf:"varint,4,opt,name=vote_deadline_height,json=voteDeadlineHeight,proto3" json:"vote_deadline_height,omitempty"`
 	unknownFields      protoimpl.UnknownFields
@@ -4667,11 +4666,11 @@ func (x *EventFreezeSignalExpired) GetFreezeSignalId() []byte {
 	return nil
 }
 
-func (x *EventFreezeSignalExpired) GetModelId() string {
+func (x *EventFreezeSignalExpired) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *EventFreezeSignalExpired) GetProfileVersion() uint32 {
@@ -5436,7 +5435,7 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fverify_round\x18\x02 \x01(\rR\vverifyRound\"V\n" +
 	"\x10ProfileLocatorV1\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\"\x85\x01\n" +
 	"\x11OperatorLocatorV1\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12)\n" +
@@ -5468,13 +5467,13 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x06module\x18\x01 \x01(\x0e2\x16.hub.v1.ParamsModuleV1R\x06module\x12%\n" +
 	"\x0eparams_version\x18\x02 \x01(\x04R\rparamsVersion\"\xed\x01\n" +
 	"\x1bEventModelProfileRegistered\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12#\n" +
 	"\rmanifest_hash\x18\x03 \x01(\fR\fmanifestHash\x12\x1a\n" +
 	"\bproposer\x18\x04 \x01(\tR\bproposer\x12I\n" +
 	"\x17registration_fee_amount\x18\x05 \x01(\v2\x11.shared.v1.AmountR\x15registrationFeeAmount\"\x8e\x02\n" +
 	"\x1dEventModelProfileStateChanged\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x129\n" +
 	"\n" +
 	"old_status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\toldStatus\x129\n" +
@@ -5559,27 +5558,27 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\vsnapshot_id\x18\x02 \x01(\fR\n" +
 	"snapshotId\x12\x1b\n" +
 	"\tpool_hash\x18\x03 \x01(\fR\bpoolHash\x12#\n" +
-	"\rpruned_height\x18\x04 \x01(\x04R\fprunedHeight\"\xbc\x02\n" +
+	"\rpruned_height\x18\x04 \x01(\x04R\fprunedHeight\"\xdd\x02\n" +
 	"\x18EventModelSupportUpdated\x12\x1a\n" +
 	"\boperator\x18\x01 \x01(\tR\boperator\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12'\n" +
-	"\x0fsupport_version\x18\x04 \x01(\x04R\x0esupportVersion\x129\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
+	"\x0fsupport_version\x18\x03 \x01(\x04R\x0esupportVersion\x129\n" +
 	"\n" +
-	"old_status\x18\x05 \x01(\x0e2\x1a.hub.v1.ModelSupportStatusR\toldStatus\x129\n" +
+	"old_status\x18\x04 \x01(\x0e2\x1a.hub.v1.ModelSupportStatusR\toldStatus\x129\n" +
 	"\n" +
-	"new_status\x18\x06 \x01(\x0e2\x1a.hub.v1.ModelSupportStatusR\tnewStatus\x12!\n" +
-	"\fexpiry_epoch\x18\a \x01(\x04R\vexpiryEpoch\"\xb0\x02\n" +
+	"new_status\x18\x05 \x01(\x0e2\x1a.hub.v1.ModelSupportStatusR\tnewStatus\x12!\n" +
+	"\fexpiry_epoch\x18\x06 \x01(\x04R\vexpiryEpoch\x12H\n" +
+	"\x0esuspend_reason\x18\a \x01(\x0e2!.hub.v1.ModelSupportSuspendReasonR\rsuspendReason\"\xca\x02\n" +
 	"\x1aEventModelSupportActivated\x12\x1a\n" +
 	"\boperator\x18\x01 \x01(\tR\boperator\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12,\n" +
-	"\x12activation_task_id\x18\x04 \x01(\fR\x10activationTaskId\x128\n" +
-	"\x0factivation_duty\x18\x05 \x01(\x0e2\x0f.shared.v1.DutyR\x0eactivationDuty\x12'\n" +
-	"\x0fsupport_version\x18\x06 \x01(\x04R\x0esupportVersion\x12!\n" +
-	"\fexpiry_epoch\x18\a \x01(\x04R\vexpiryEpoch\"\x8e\x02\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12,\n" +
+	"\x12activation_task_id\x18\x03 \x01(\fR\x10activationTaskId\x128\n" +
+	"\x0factivation_duty\x18\x04 \x01(\x0e2\x0f.shared.v1.DutyR\x0eactivationDuty\x12'\n" +
+	"\x0fsupport_version\x18\x05 \x01(\x04R\x0esupportVersion\x12!\n" +
+	"\fexpiry_epoch\x18\x06 \x01(\x04R\vexpiryEpoch\x12A\n" +
+	"\x1dfirst_support_profile_version\x18\a \x01(\rR\x1afirstSupportProfileVersion\"\x8e\x02\n" +
 	"\x16EventModelStateChanged\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x129\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x129\n" +
 	"\n" +
 	"old_status\x18\x02 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\toldStatus\x129\n" +
 	"\n" +
@@ -5637,7 +5636,7 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\fbond_version\x18\x05 \x01(\x04R\vbondVersion\x12'\n" +
 	"\x0feffective_epoch\x18\x06 \x01(\x04R\x0eeffectiveEpoch\"\x9f\x02\n" +
 	"!EventProfileReferencePriceUpdated\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12\"\n" +
 	"\rold_ref_price\x18\x03 \x01(\x04R\voldRefPrice\x12\"\n" +
 	"\rnew_ref_price\x18\x04 \x01(\x04R\vnewRefPrice\x12\x1f\n" +
@@ -5690,7 +5689,7 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x13_recipient_or_empty\"\xa8\x03\n" +
 	"\x1aEventFreezeSignalSubmitted\x12(\n" +
 	"\x10freeze_signal_id\x18\x01 \x01(\fR\x0efreezeSignalId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x12$\n" +
 	"\x0erisk_window_id\x18\x04 \x01(\x04R\friskWindowId\x127\n" +
 	"\x18risk_window_start_height\x18\x05 \x01(\x04R\x15riskWindowStartHeight\x123\n" +
@@ -5707,20 +5706,20 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x15rejected_voting_power\x18\x06 \x01(\x04R\x13rejectedVotingPower\"\xad\x02\n" +
 	"\x1cEventEmergencyFreezeAccepted\x12(\n" +
 	"\x10freeze_signal_id\x18\x01 \x01(\fR\x0efreezeSignalId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x122\n" +
 	"\x15accepted_voting_power\x18\x04 \x01(\x04R\x13acceptedVotingPower\x12=\n" +
 	"\x1btotal_voting_power_snapshot\x18\x05 \x01(\x04R\x18totalVotingPowerSnapshot\x12,\n" +
 	"\x12validator_set_hash\x18\x06 \x01(\fR\x10validatorSetHash\"\xff\x01\n" +
 	"\x1cEventEmergencyFreezeRejected\x12(\n" +
 	"\x10freeze_signal_id\x18\x01 \x01(\fR\x0efreezeSignalId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x122\n" +
 	"\x15rejected_voting_power\x18\x04 \x01(\x04R\x13rejectedVotingPower\x12=\n" +
 	"\x1btotal_voting_power_snapshot\x18\x05 \x01(\x04R\x18totalVotingPowerSnapshot\"\xba\x01\n" +
 	"\x18EventFreezeSignalExpired\x12(\n" +
 	"\x10freeze_signal_id\x18\x01 \x01(\fR\x0efreezeSignalId\x12\x19\n" +
-	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x03 \x01(\rR\x0eprofileVersion\x120\n" +
 	"\x14vote_deadline_height\x18\x04 \x01(\x04R\x12voteDeadlineHeight\"\xc8\x02\n" +
 	"\x1bEventBridgeInboundProcessed\x12\x1d\n" +
@@ -5878,14 +5877,15 @@ var file_hub_v1_event_proto_goTypes = []any{
 	(EventLifecycleReason)(0),                 // 71: hub.v1.EventLifecycleReason
 	(ServiceBondStatus)(0),                    // 72: hub.v1.ServiceBondStatus
 	(ModelSupportStatus)(0),                   // 73: hub.v1.ModelSupportStatus
-	(ModelStatusSource)(0),                    // 74: hub.v1.ModelStatusSource
-	(GovernanceReason)(0),                     // 75: hub.v1.GovernanceReason
-	(ServiceKeyRevocationReason)(0),           // 76: hub.v1.ServiceKeyRevocationReason
-	(v1.BuilderEvidenceKind)(0),               // 77: shared.v1.BuilderEvidenceKind
-	(TreasurySourceKind)(0),                   // 78: hub.v1.TreasurySourceKind
-	(TreasuryPurposeCode)(0),                  // 79: hub.v1.TreasuryPurposeCode
-	(EmergencyFreezeVote)(0),                  // 80: hub.v1.EmergencyFreezeVote
-	(BridgeLifecycleV1)(0),                    // 81: hub.v1.BridgeLifecycleV1
+	(ModelSupportSuspendReason)(0),            // 74: hub.v1.ModelSupportSuspendReason
+	(ModelStatusSource)(0),                    // 75: hub.v1.ModelStatusSource
+	(GovernanceReason)(0),                     // 76: hub.v1.GovernanceReason
+	(ServiceKeyRevocationReason)(0),           // 77: hub.v1.ServiceKeyRevocationReason
+	(v1.BuilderEvidenceKind)(0),               // 78: shared.v1.BuilderEvidenceKind
+	(TreasurySourceKind)(0),                   // 79: hub.v1.TreasurySourceKind
+	(TreasuryPurposeCode)(0),                  // 80: hub.v1.TreasuryPurposeCode
+	(EmergencyFreezeVote)(0),                  // 81: hub.v1.EmergencyFreezeVote
+	(BridgeLifecycleV1)(0),                    // 82: hub.v1.BridgeLifecycleV1
 }
 var file_hub_v1_event_proto_depIdxs = []int32{
 	60,  // 0: hub.v1.ProtocolEventEnvelopeV1.event_code:type_name -> shared.v1.ProtocolEventCodeV1
@@ -5973,42 +5973,43 @@ var file_hub_v1_event_proto_depIdxs = []int32{
 	72,  // 82: hub.v1.EventServiceJailRecovered.bond_status:type_name -> hub.v1.ServiceBondStatus
 	73,  // 83: hub.v1.EventModelSupportUpdated.old_status:type_name -> hub.v1.ModelSupportStatus
 	73,  // 84: hub.v1.EventModelSupportUpdated.new_status:type_name -> hub.v1.ModelSupportStatus
-	69,  // 85: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
-	67,  // 86: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
-	67,  // 87: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
-	74,  // 88: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
-	75,  // 89: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
-	61,  // 90: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
-	61,  // 91: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
-	76,  // 92: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
-	66,  // 93: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
-	61,  // 94: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
-	77,  // 95: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
-	66,  // 96: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
-	63,  // 97: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
-	66,  // 98: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
-	62,  // 99: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
-	66,  // 100: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
-	62,  // 101: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
-	66,  // 102: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
-	78,  // 103: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
-	66,  // 104: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
-	79,  // 105: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
-	80,  // 106: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
-	66,  // 107: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
-	66,  // 108: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
-	66,  // 109: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
-	66,  // 110: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
-	81,  // 111: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
-	66,  // 112: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
-	66,  // 113: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
-	66,  // 114: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
-	66,  // 115: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
-	116, // [116:116] is the sub-list for method output_type
-	116, // [116:116] is the sub-list for method input_type
-	116, // [116:116] is the sub-list for extension type_name
-	116, // [116:116] is the sub-list for extension extendee
-	0,   // [0:116] is the sub-list for field type_name
+	74,  // 85: hub.v1.EventModelSupportUpdated.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
+	69,  // 86: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
+	67,  // 87: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
+	67,  // 88: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
+	75,  // 89: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
+	76,  // 90: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
+	61,  // 91: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
+	61,  // 92: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
+	77,  // 93: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
+	66,  // 94: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
+	61,  // 95: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
+	78,  // 96: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
+	66,  // 97: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
+	63,  // 98: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
+	66,  // 99: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
+	62,  // 100: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
+	66,  // 101: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
+	62,  // 102: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
+	66,  // 103: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
+	79,  // 104: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
+	66,  // 105: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
+	80,  // 106: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
+	81,  // 107: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
+	66,  // 108: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
+	66,  // 109: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
+	66,  // 110: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
+	66,  // 111: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
+	82,  // 112: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
+	66,  // 113: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
+	66,  // 114: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
+	66,  // 115: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
+	66,  // 116: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
+	117, // [117:117] is the sub-list for method output_type
+	117, // [117:117] is the sub-list for method input_type
+	117, // [117:117] is the sub-list for extension type_name
+	117, // [117:117] is the sub-list for extension extendee
+	0,   // [0:117] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_event_proto_init() }

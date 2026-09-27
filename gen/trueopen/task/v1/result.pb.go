@@ -23,7 +23,7 @@ const (
 
 // MetricSampleVerdictV1 is the per-sample judgment produced by JudgeMetricSample
 // from the task-snapshot verification thresholds. Frozen values:
-// the API contract. Verifiers never submit a verdict field, and
+// the wire API. Verifiers never submit a verdict field, and
 // METRIC_SAMPLE_VERDICT_V1_INCONCLUSIVE can never become a final task verdict.
 // MetricSampleVerdictV1 defines the MetricSampleVerdictV1 wire type.
 type MetricSampleVerdictV1 int32
@@ -209,17 +209,18 @@ func (x *MetricSummaryV1) GetComparedRankCount() uint32 {
 	return 0
 }
 
-// ResultReceiptV2 is the verifier-signed result credential carried by
+// ResultReceiptV3 is the verifier-signed result credential carried by
 // MsgSubmitVerifyResult and MsgBatchSubmitVerifyResult. Field numbers, types and
 // order are frozen and are the length-framed preimage
 // of
 //
-//	result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V2",
+//	result_receipt_signing_digest = H_FIELDS_V1("TRUEOPEN_RESULT_V3",
 //	  schema_version, chain_id, task_id, verify_round,
 //	  verifier_operator_address, service_authorization_nonce,
 //	  generation_params_digest, metric_root, canonical metric_summary,
 //	  aggregate_proof_hash, verifier_evidence_bundle_hash,
-//	  verifier_evidence_manifest_size_bytes, salt, expiry_height)
+//	  verifier_evidence_manifest_size_bytes, salt, expiry_height,
+//	  verifier_value_root, metric_leaf_count, verifier_evidence_key_commitment)
 //
 // commit_key is recomputed by the Keeper and is not a caller field.
 // metric_root, aggregate_proof_hash, verifier_evidence_bundle_hash and salt must
@@ -227,11 +228,11 @@ func (x *MetricSummaryV1) GetComparedRankCount() uint32 {
 // result_payload_hash are recomputed by the Keeper and are never asserted by the
 // request. No final verdict field is accepted.
 //
-// schema_version is 2. V1 receipts are not accepted by the fresh v0.3.0 schema.
-// ResultReceiptV2 defines the ResultReceiptV2 wire type.
-type ResultReceiptV2 struct {
+// schema_version is 3. Earlier receipts are not accepted by the fresh schema.
+// ResultReceiptV3 defines the ResultReceiptV3 wire type.
+type ResultReceiptV3 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 2.
+	// Always 3.
 	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
 	TaskId        []byte `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -249,24 +250,28 @@ type ResultReceiptV2 struct {
 	Salt                              []byte           `protobuf:"bytes,13,opt,name=salt,proto3" json:"salt,omitempty"`
 	ExpiryHeight                      uint64           `protobuf:"varint,14,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	ServiceSignature                  []byte           `protobuf:"bytes,15,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
+	VerifierValueRoot                 []byte           `protobuf:"bytes,16,opt,name=verifier_value_root,json=verifierValueRoot,proto3" json:"verifier_value_root,omitempty"`
+	MetricLeafCount                   uint32           `protobuf:"varint,17,opt,name=metric_leaf_count,json=metricLeafCount,proto3" json:"metric_leaf_count,omitempty"`
+	// Reserved encryption commitment: all-zero Hash32 in plaintext Phase 0.
+	VerifierEvidenceKeyCommitment []byte `protobuf:"bytes,18,opt,name=verifier_evidence_key_commitment,json=verifierEvidenceKeyCommitment,proto3" json:"verifier_evidence_key_commitment,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
-func (x *ResultReceiptV2) Reset() {
-	*x = ResultReceiptV2{}
+func (x *ResultReceiptV3) Reset() {
+	*x = ResultReceiptV3{}
 	mi := &file_task_v1_result_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ResultReceiptV2) String() string {
+func (x *ResultReceiptV3) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ResultReceiptV2) ProtoMessage() {}
+func (*ResultReceiptV3) ProtoMessage() {}
 
-func (x *ResultReceiptV2) ProtoReflect() protoreflect.Message {
+func (x *ResultReceiptV3) ProtoReflect() protoreflect.Message {
 	mi := &file_task_v1_result_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -278,112 +283,133 @@ func (x *ResultReceiptV2) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ResultReceiptV2.ProtoReflect.Descriptor instead.
-func (*ResultReceiptV2) Descriptor() ([]byte, []int) {
+// Deprecated: Use ResultReceiptV3.ProtoReflect.Descriptor instead.
+func (*ResultReceiptV3) Descriptor() ([]byte, []int) {
 	return file_task_v1_result_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ResultReceiptV2) GetSchemaVersion() uint32 {
+func (x *ResultReceiptV3) GetSchemaVersion() uint32 {
 	if x != nil {
 		return x.SchemaVersion
 	}
 	return 0
 }
 
-func (x *ResultReceiptV2) GetChainId() string {
+func (x *ResultReceiptV3) GetChainId() string {
 	if x != nil {
 		return x.ChainId
 	}
 	return ""
 }
 
-func (x *ResultReceiptV2) GetTaskId() []byte {
+func (x *ResultReceiptV3) GetTaskId() []byte {
 	if x != nil {
 		return x.TaskId
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetVerifyRound() uint32 {
+func (x *ResultReceiptV3) GetVerifyRound() uint32 {
 	if x != nil {
 		return x.VerifyRound
 	}
 	return 0
 }
 
-func (x *ResultReceiptV2) GetVerifierOperatorAddress() string {
+func (x *ResultReceiptV3) GetVerifierOperatorAddress() string {
 	if x != nil {
 		return x.VerifierOperatorAddress
 	}
 	return ""
 }
 
-func (x *ResultReceiptV2) GetServiceAuthorizationNonce() uint64 {
+func (x *ResultReceiptV3) GetServiceAuthorizationNonce() uint64 {
 	if x != nil {
 		return x.ServiceAuthorizationNonce
 	}
 	return 0
 }
 
-func (x *ResultReceiptV2) GetGenerationParamsDigest() []byte {
+func (x *ResultReceiptV3) GetGenerationParamsDigest() []byte {
 	if x != nil {
 		return x.GenerationParamsDigest
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetMetricRoot() []byte {
+func (x *ResultReceiptV3) GetMetricRoot() []byte {
 	if x != nil {
 		return x.MetricRoot
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetMetricSummary() *MetricSummaryV1 {
+func (x *ResultReceiptV3) GetMetricSummary() *MetricSummaryV1 {
 	if x != nil {
 		return x.MetricSummary
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetAggregateProofHash() []byte {
+func (x *ResultReceiptV3) GetAggregateProofHash() []byte {
 	if x != nil {
 		return x.AggregateProofHash
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetVerifierEvidenceBundleHash() []byte {
+func (x *ResultReceiptV3) GetVerifierEvidenceBundleHash() []byte {
 	if x != nil {
 		return x.VerifierEvidenceBundleHash
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetVerifierEvidenceManifestSizeBytes() uint64 {
+func (x *ResultReceiptV3) GetVerifierEvidenceManifestSizeBytes() uint64 {
 	if x != nil {
 		return x.VerifierEvidenceManifestSizeBytes
 	}
 	return 0
 }
 
-func (x *ResultReceiptV2) GetSalt() []byte {
+func (x *ResultReceiptV3) GetSalt() []byte {
 	if x != nil {
 		return x.Salt
 	}
 	return nil
 }
 
-func (x *ResultReceiptV2) GetExpiryHeight() uint64 {
+func (x *ResultReceiptV3) GetExpiryHeight() uint64 {
 	if x != nil {
 		return x.ExpiryHeight
 	}
 	return 0
 }
 
-func (x *ResultReceiptV2) GetServiceSignature() []byte {
+func (x *ResultReceiptV3) GetServiceSignature() []byte {
 	if x != nil {
 		return x.ServiceSignature
+	}
+	return nil
+}
+
+func (x *ResultReceiptV3) GetVerifierValueRoot() []byte {
+	if x != nil {
+		return x.VerifierValueRoot
+	}
+	return nil
+}
+
+func (x *ResultReceiptV3) GetMetricLeafCount() uint32 {
+	if x != nil {
+		return x.MetricLeafCount
+	}
+	return 0
+}
+
+func (x *ResultReceiptV3) GetVerifierEvidenceKeyCommitment() []byte {
+	if x != nil {
+		return x.VerifierEvidenceKeyCommitment
 	}
 	return nil
 }
@@ -391,7 +417,7 @@ func (x *ResultReceiptV2) GetServiceSignature() []byte {
 // ResultReceiptState is the first accepted verifier result credential keyed by
 // commit_key. It retains enough authoritative scope
 // and commitments to reconstruct result_payload_hash and verify the accepted
-// TRUEOPEN_RESULT_COMMITMENT_V2 without storing a full-result body on chain.
+// TRUEOPEN_RESULT_COMMITMENT_V3 without storing a full-result body on chain.
 // ResultReceiptState defines the ResultReceiptState wire type.
 type ResultReceiptState struct {
 	state                             protoimpl.MessageState `protogen:"open.v1"`
@@ -413,10 +439,13 @@ type ResultReceiptState struct {
 	// The 64-byte signature was verified before initial live acceptance and is not retained.
 	// This digest is not authorization state and never enters a signing/business digest;
 	// replay compares it only to identify the same previously accepted signature.
-	SignatureDigest []byte `protobuf:"bytes,15,opt,name=signature_digest,json=signatureDigest,proto3" json:"signature_digest,omitempty"`
-	AcceptedHeight  uint64 `protobuf:"varint,16,opt,name=accepted_height,json=acceptedHeight,proto3" json:"accepted_height,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	SignatureDigest               []byte `protobuf:"bytes,15,opt,name=signature_digest,json=signatureDigest,proto3" json:"signature_digest,omitempty"`
+	AcceptedHeight                uint64 `protobuf:"varint,16,opt,name=accepted_height,json=acceptedHeight,proto3" json:"accepted_height,omitempty"`
+	MetricLeafCount               uint32 `protobuf:"varint,17,opt,name=metric_leaf_count,json=metricLeafCount,proto3" json:"metric_leaf_count,omitempty"`
+	VerifierEvidenceKeyCommitment []byte `protobuf:"bytes,18,opt,name=verifier_evidence_key_commitment,json=verifierEvidenceKeyCommitment,proto3" json:"verifier_evidence_key_commitment,omitempty"`
+	VerifierValueRoot             []byte `protobuf:"bytes,19,opt,name=verifier_value_root,json=verifierValueRoot,proto3" json:"verifier_value_root,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *ResultReceiptState) Reset() {
@@ -561,6 +590,27 @@ func (x *ResultReceiptState) GetAcceptedHeight() uint64 {
 	return 0
 }
 
+func (x *ResultReceiptState) GetMetricLeafCount() uint32 {
+	if x != nil {
+		return x.MetricLeafCount
+	}
+	return 0
+}
+
+func (x *ResultReceiptState) GetVerifierEvidenceKeyCommitment() []byte {
+	if x != nil {
+		return x.VerifierEvidenceKeyCommitment
+	}
+	return nil
+}
+
+func (x *ResultReceiptState) GetVerifierValueRoot() []byte {
+	if x != nil {
+		return x.VerifierValueRoot
+	}
+	return nil
+}
+
 var File_task_v1_result_proto protoreflect.FileDescriptor
 
 const file_task_v1_result_proto_rawDesc = "" +
@@ -579,8 +629,8 @@ const file_task_v1_result_proto_rawDesc = "" +
 	"\x13compared_rank_count\x18\n" +
 	" \x01(\rR\x11comparedRankCountB\x1b\n" +
 	"\x19_topk_jaccard_mean_fp_1e6B\x16\n" +
-	"\x14_union_js_p99_fp_1e6\"\xd4\x05\n" +
-	"\x0fResultReceiptV2\x12%\n" +
+	"\x14_union_js_p99_fp_1e6\"\xff\x06\n" +
+	"\x0fResultReceiptV3\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
 	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12!\n" +
@@ -597,7 +647,10 @@ const file_task_v1_result_proto_rawDesc = "" +
 	"%verifier_evidence_manifest_size_bytes\x18\f \x01(\x04R!verifierEvidenceManifestSizeBytes\x12\x12\n" +
 	"\x04salt\x18\r \x01(\fR\x04salt\x12#\n" +
 	"\rexpiry_height\x18\x0e \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\x0f \x01(\fR\x10serviceSignature\"\x97\x06\n" +
+	"\x11service_signature\x18\x0f \x01(\fR\x10serviceSignature\x12.\n" +
+	"\x13verifier_value_root\x18\x10 \x01(\fR\x11verifierValueRoot\x12*\n" +
+	"\x11metric_leaf_count\x18\x11 \x01(\rR\x0fmetricLeafCount\x12G\n" +
+	" verifier_evidence_key_commitment\x18\x12 \x01(\fR\x1dverifierEvidenceKeyCommitmentJ\x04\b\x13\x10\x14\"\xbc\a\n" +
 	"\x12ResultReceiptState\x12\x1d\n" +
 	"\n" +
 	"commit_key\x18\x01 \x01(\fR\tcommitKey\x12\x17\n" +
@@ -617,7 +670,10 @@ const file_task_v1_result_proto_rawDesc = "" +
 	"\x13result_payload_hash\x18\r \x01(\fR\x11resultPayloadHash\x12A\n" +
 	"\x1dresult_receipt_signing_digest\x18\x0e \x01(\fR\x1aresultReceiptSigningDigest\x12)\n" +
 	"\x10signature_digest\x18\x0f \x01(\fR\x0fsignatureDigest\x12'\n" +
-	"\x0faccepted_height\x18\x10 \x01(\x04R\x0eacceptedHeight*\xb4\x01\n" +
+	"\x0faccepted_height\x18\x10 \x01(\x04R\x0eacceptedHeight\x12*\n" +
+	"\x11metric_leaf_count\x18\x11 \x01(\rR\x0fmetricLeafCount\x12G\n" +
+	" verifier_evidence_key_commitment\x18\x12 \x01(\fR\x1dverifierEvidenceKeyCommitment\x12.\n" +
+	"\x13verifier_value_root\x18\x13 \x01(\fR\x11verifierValueRoot*\xb4\x01\n" +
 	"\x15MetricSampleVerdictV1\x12(\n" +
 	"$METRIC_SAMPLE_VERDICT_V1_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dMETRIC_SAMPLE_VERDICT_V1_PASS\x10\x01\x12#\n" +
@@ -641,11 +697,11 @@ var file_task_v1_result_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_task_v1_result_proto_goTypes = []any{
 	(MetricSampleVerdictV1)(0), // 0: task.v1.MetricSampleVerdictV1
 	(*MetricSummaryV1)(nil),    // 1: task.v1.MetricSummaryV1
-	(*ResultReceiptV2)(nil),    // 2: task.v1.ResultReceiptV2
+	(*ResultReceiptV3)(nil),    // 2: task.v1.ResultReceiptV3
 	(*ResultReceiptState)(nil), // 3: task.v1.ResultReceiptState
 }
 var file_task_v1_result_proto_depIdxs = []int32{
-	1, // 0: task.v1.ResultReceiptV2.metric_summary:type_name -> task.v1.MetricSummaryV1
+	1, // 0: task.v1.ResultReceiptV3.metric_summary:type_name -> task.v1.MetricSummaryV1
 	1, // 1: task.v1.ResultReceiptState.metric_summary:type_name -> task.v1.MetricSummaryV1
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type

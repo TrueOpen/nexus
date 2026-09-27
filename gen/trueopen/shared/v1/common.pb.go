@@ -257,19 +257,8 @@ func (FailureClassificationSource) EnumDescriptor() ([]byte, []int) {
 
 // StoredBodyStatus tells whether the bounded member body of a committed
 // collection row is still resident or has been pruned while its count and hash
-// stay auditable. The API contract registers the two values (and §9.6b
-// lists §16.5 as the numeric authority for them).
-//
-// CONTRACT-GAP: §16.5 calls this a Query-only projection enum that never lands in
-// Store, yet the data-structure contract gives both BuilderSetState and
-// TaskBuilderSelectionState a stored `body_status = ACTIVE / PRUNED` field with
-// exactly these two values. Declaring a second Store-only enum would break the
-// §9.6b rule of one numeric definition per closed enum, so the single definition
-// lives here and is shared by the Store rows and the §16.5 views. It is declared
-// in shared/v1 because both x/hub and x/task store and project it,
-// and the module-split closure rule makes a declaration referenced by two domains
-// shared. The contract must either drop the "Query-only" wording or register a
-// Store twin.
+// stay auditable. One shared enum serves both stored Hub/Task rows and their
+// query views; no second Store-only numeric definition is allowed.
 // StoredBodyStatus defines the StoredBodyStatus wire type.
 type StoredBodyStatus int32
 
@@ -438,7 +427,7 @@ func (TaskFinalityStatusV1) EnumDescriptor() ([]byte, []int) {
 }
 
 // BuilderEvidenceKind is the closed typed Builder evidence registry frozen by
-// the API contract and consumed by the ACTIVE evidence submission API.
+// the wire API and consumed by the ACTIVE evidence submission API.
 // BuilderEvidenceKind defines the BuilderEvidenceKind wire type.
 type BuilderEvidenceKind int32
 

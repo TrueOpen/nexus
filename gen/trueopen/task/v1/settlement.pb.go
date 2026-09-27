@@ -1671,7 +1671,7 @@ type TaskFailureClassState struct {
 	state                       protoimpl.MessageState         `protogen:"open.v1"`
 	TaskId                      []byte                         `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	VerifyRound                 uint32                         `protobuf:"varint,2,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
-	ModelId                     string                         `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                     []byte                         `protobuf:"bytes,3,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion              uint32                         `protobuf:"varint,4,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	SettlementId                []byte                         `protobuf:"bytes,5,opt,name=settlement_id,json=settlementId,proto3,oneof" json:"settlement_id,omitempty"`
 	FailureClass                TaskFailureClass               `protobuf:"varint,6,opt,name=failure_class,json=failureClass,proto3,enum=task.v1.TaskFailureClass" json:"failure_class,omitempty"`
@@ -1735,11 +1735,11 @@ func (x *TaskFailureClassState) GetVerifyRound() uint32 {
 	return 0
 }
 
-func (x *TaskFailureClassState) GetModelId() string {
+func (x *TaskFailureClassState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *TaskFailureClassState) GetProfileVersion() uint32 {
@@ -2003,7 +2003,7 @@ const file_task_v1_settlement_proto_rawDesc = "" +
 	"\x15TaskFailureClassState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fverify_round\x18\x02 \x01(\rR\vverifyRound\x12\x19\n" +
-	"\bmodel_id\x18\x03 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x03 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x04 \x01(\rR\x0eprofileVersion\x12(\n" +
 	"\rsettlement_id\x18\x05 \x01(\fH\x00R\fsettlementId\x88\x01\x01\x12>\n" +
 	"\rfailure_class\x18\x06 \x01(\x0e2\x19.task.v1.TaskFailureClassR\ffailureClass\x124\n" +

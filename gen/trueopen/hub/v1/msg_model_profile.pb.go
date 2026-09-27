@@ -78,7 +78,7 @@ func (x *MsgRegisterModelProfile) GetProfile() *v1.ModelProfileProjection {
 // MsgRegisterModelProfileResponse returns the committed registration receipt.
 type MsgRegisterModelProfileResponse struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	ModelId             string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId             []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion      uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	RegistrationDigest  []byte                 `protobuf:"bytes,3,opt,name=registration_digest,json=registrationDigest,proto3" json:"registration_digest,omitempty"`
 	IdempotentReplay    bool                   `protobuf:"varint,4,opt,name=idempotent_replay,json=idempotentReplay,proto3" json:"idempotent_replay,omitempty"`
@@ -118,11 +118,11 @@ func (*MsgRegisterModelProfileResponse) Descriptor() ([]byte, []int) {
 	return file_hub_v1_msg_model_profile_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *MsgRegisterModelProfileResponse) GetModelId() string {
+func (x *MsgRegisterModelProfileResponse) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *MsgRegisterModelProfileResponse) GetProfileVersion() uint32 {
@@ -169,7 +169,7 @@ const file_hub_v1_msg_model_profile_proto_rawDesc = "" +
 	"\x10proposer_address\x18\x01 \x01(\tR\x0fproposerAddress\x12;\n" +
 	"\aprofile\x18\x02 \x01(\v2!.shared.v1.ModelProfileProjectionR\aprofile\"\xb7\x02\n" +
 	"\x1fMsgRegisterModelProfileResponse\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12/\n" +
 	"\x13registration_digest\x18\x03 \x01(\fR\x12registrationDigest\x12+\n" +
 	"\x11idempotent_replay\x18\x04 \x01(\bR\x10idempotentReplay\x12+\n" +

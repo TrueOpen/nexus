@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"os"
@@ -28,7 +29,7 @@ func TestRunRespondsOverRealNATS(t *testing.T) {
 	// A unique order_sequence isolates each run (task_id is derived from (session, seq)).
 	signedOrder := testSignedOrder()
 	signedOrder.Order.OrderSequence = uint64(time.Now().UnixNano())
-	subject := msgbus.SubjectTaskOpen(signedOrder.GetOrder().GetModelId())
+	subject := msgbus.SubjectTaskOpen(hex.EncodeToString(signedOrder.GetOrder().GetModelId()))
 	data := testOrderBroadcastFrame(t, signedOrder, subject)
 	taskIDHex, _, err := orderIdentity(signedOrder.GetOrder())
 	if err != nil {

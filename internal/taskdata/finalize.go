@@ -1,19 +1,18 @@
 package taskdata
 
-// FinalizeTaskResult / FinalizeVerifierEvidence — the two atomic commit points of Task Data
-// Interface Design §5.5, and the only source of objects becoming READY and of the Builder issuing
-// a storage confirmation.
+// FinalizeTaskResult / FinalizeVerifierEvidence — the two commit points of the task data plane,
+// and the only source of objects becoming READY and of the Builder issuing a storage confirmation.
 //
-// Division of labour: FinalizeTaskResult commits the receipt, the Worker frozen manifest, all of
-// its objects and TaskData READY in one go; FinalizeVerifierEvidence commits only the manifest and
-// objects of the given producer/round plus VerifierBundle READY, touches no Worker readiness, and
-// does not mean the on-chain Result has been accepted.
+// Division of labour: a Worker has two evidence bundles, and FinalizeTaskResult commits one of them
+// per call, named by evidence_kind. The first call also freezes the OUTPUT with the receipt; the
+// second must carry the same receipt. The result is data-ready only once the OUTPUT and both bundles
+// are READY. FinalizeVerifierEvidence commits only the manifest and objects of the given
+// producer/round, touches no Worker readiness, and does not mean the on-chain Result has been accepted.
 //
-// Nexus does not parse model evidence semantics and does not recompute model-internal roots. What
-// it does is line up what each of the three parties committed to: the receipt says what the OUTPUT
-// is, the manifest says which artifacts are in the bundle, and the locked Verification Profile says
-// which schema this evidence belongs to. For the Worker bundle that includes recomputing the
-// receipt's typed commitment from the manifest and artifact hashes (data plane 02 §2).
+// What Nexus does is line up what each party committed to: the receipt says what the OUTPUT is, the
+// manifest says which artifacts are in the bundle, and the locked Verification Profile says which
+// schema this evidence belongs to. For a Worker bundle that includes recomputing the receipt's typed
+// commitment from its artifacts.
 
 import (
 	"context"
@@ -22,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -34,11 +32,13 @@ type FinalizeResultRequest struct {
 	Auth     RequestAuthV1
 	TaskHash string
 	Receipt  SignedInferReceipt
+	// EvidenceKind names the Worker bundle this call finalizes.
+	EvidenceKind EvidenceKind
 }
 
-// FinalizeResultOutcome is the internal form of FinalizeTaskResultResponse.
-// EvidenceConfirmations is ordered by ascending evidence_kind of the corresponding
-// required_evidence_commitments[], and its count is exactly equal to theirs.
+// FinalizeResultOutcome is the internal form of FinalizeTaskResultResponse. OutputConfirmation is
+// the same on both calls of a result; EvidenceConfirmations holds the confirmation of the bundle
+// this call finalized.
 type FinalizeResultOutcome struct {
 	Idempotent            bool
 	OutputConfirmation    StorageConfirmation
@@ -47,13 +47,13 @@ type FinalizeResultOutcome struct {
 
 // FinalizeVerifierRequest is the internal form of FinalizeVerifierEvidenceRequest.
 //
-// The ResultReceiptV2 body checks (shape, signature, verify_round, verifier identity) are done at
+// The ResultReceiptV3 body checks (shape, signature, verify_round, verifier identity) are done at
 // the ingress boundary — the same verifyParticipantRoleDigest is already built there for the three
 // relay RPCs, and a second copy would only add one more implementation that can disagree with it.
 // What reaches this point are its products: the verified signing digest, the signature digest, and
 // the receipt's two commitments about the bundle.
 //
-// Note that ResultReceiptV2 carries no task_hash: the task_hash of this Finalize comes from the
+// Note that ResultReceiptV3 carries no task_hash: the task_hash of this Finalize comes from the
 // request, and its consistency with the manifest is guaranteed by the object ref the manifest lives
 // under (compared at upload time).
 type FinalizeVerifierRequest struct {
@@ -61,7 +61,7 @@ type FinalizeVerifierRequest struct {
 	TaskHash         string
 	VerifyRound      uint32
 	VerifierOperator string
-	// SigningDigest is the TRUEOPEN_RESULT_V2 signing digest (lowercase 64-hex), already verified at
+	// SigningDigest is the TRUEOPEN_RESULT_V3 signing digest (lowercase 64-hex), already verified at
 	// ingress.
 	SigningDigest string
 	// SignatureDigest is SHA256(service_signature raw64), the seventh field of the body digest.
@@ -85,17 +85,31 @@ type finalizeRecord struct {
 	EvidenceConfirmations []StorageConfirmation `json:"evidence_confirmations,omitempty"`
 }
 
-// FinalizeTaskResult is the atomic commit point on the Worker side. When it first commits, the
-// result-finalized observer is told: that is when this Builder becomes data-ready. An exact replay
-// is answered before the request is authorized again, so it does not notify: otherwise anyone
-// holding one valid request could replay it to make this Builder rebroadcast its Verifier
-// proposal. A restart is covered by the coordinator's own reconcile.
+// FinalizeTaskResult is the commit point on the Worker side. When a call completes the result -- the
+// OUTPUT and both bundles are then READY -- the result-finalized observer is told: that is when this
+// Builder becomes data-ready. An exact replay is answered before the request is authorized again, so
+// it does not notify: otherwise anyone holding one valid request could replay it to make this Builder
+// rebroadcast its Verifier proposal. A restart is covered by the coordinator's own reconcile.
 func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
+	// The two bundle calls of one task may arrive in parallel; they share the OUTPUT confirmation.
+	unlock := s.lockResult(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
 	outcome, err := s.finalizeTaskResult(ctx, request)
-	if err == nil && !outcome.Idempotent && s.resultFinalized != nil {
+	unlock()
+	if err != nil || outcome.Idempotent || s.resultFinalized == nil {
+		return outcome, err
+	}
+	digest, derr := receiptDigest(request.Receipt)
+	if derr != nil {
+		return outcome, nil
+	}
+	ready, rerr := s.ResultReady(ctx, ResultReadyQuery{
+		TaskHash: request.TaskHash, SessionID: request.Auth.Key.SessionID, TaskID: request.Auth.Key.TaskID,
+		OutputHash: request.Receipt.OutputHash, InferReceiptHash: hex.EncodeToString(digest[:]),
+	})
+	if rerr == nil && ready {
 		s.resultFinalized(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
 	}
-	return outcome, err
+	return outcome, nil
 }
 
 func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResultRequest) (FinalizeResultOutcome, error) {
@@ -111,7 +125,7 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	}
 	scope := request.Auth.Key
 	body, err := TaskDataFinalizeResultBodyDigest(
-		request.TaskHash, scope.SessionID, scope.TaskID, receiptHash, signatureDigest)
+		request.TaskHash, scope.SessionID, scope.TaskID, receiptHash, signatureDigest, request.EvidenceKind)
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
@@ -143,11 +157,15 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	if err := s.authorizer.verifyInferReceipt(ctx, task, request.TaskHash, scope, receipt, receiptHash); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
+	// A plaintext receipt carries exactly the two Worker commitments and no encryption material.
+	if err := validatePlaintextReceipt(receipt); err != nil {
+		return FinalizeResultOutcome{}, err
+	}
 
 	// OUTPUT: the receipt says which object it is and how large; locally it must already be STORED
-	// and match exactly. The content_hash is exactly receipt.output_hash (after ADR-0017, the MMR
-	// root): a streamed object is indexed by the locally computed root when it is finalized, so
-	// finding it here is the same as "locally computed root == receipt.output_hash".
+	// (or READY, frozen by the other bundle's Finalize) and match exactly. The content_hash is exactly
+	// receipt.output_hash, the MMR root: a streamed object is indexed by the locally computed root
+	// when it is sealed, so finding it here is the same as "locally computed root == output_hash".
 	outputRef := ObjectRef{
 		TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
 		Kind: ObjectKindOutput, ContentHash: receipt.OutputHash,
@@ -160,10 +178,9 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output size %d, receipt says %d",
 			ErrHashMismatch, output.SizeBytes, receipt.OutputSizeBytes)
 	}
-	// Only a streamed OUTPUT can be finalized: the Worker commitment needs the finish_reason of its
-	// Fin (see verifyWorkerValueCommitment), which a whole-object upload does not have. The stream
-	// records the leaf count and InferReceiptV2 also carries output_leaf_count: the two must be
-	// equal, otherwise the root a Verifier recomputes from chunk_lengths will not match the
+	// Only a streamed OUTPUT can be finalized: the token commitment needs the finish_reason of its
+	// Fin. The stream records the leaf count and the receipt carries output_leaf_count: the two must
+	// be equal, otherwise the root a Verifier recomputes from chunk_lengths will not match the
 	// on-chain commitment.
 	if output.OutputMMRRoot == "" {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output was not streamed, finish_reason unknown", ErrConflict)
@@ -172,68 +189,126 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output leaf count %d, receipt says %d",
 			ErrHashMismatch, output.OutputLeafCount, receipt.OutputLeafCount)
 	}
+	// Both calls of a result must carry the same receipt: the first froze the OUTPUT with it.
+	if output.State == StateReady {
+		if output.Receipt == nil {
+			return FinalizeResultOutcome{}, fmt.Errorf("%w: output is READY without a receipt", ErrConflict)
+		}
+		frozen, err := receiptDigest(*output.Receipt)
+		if err != nil {
+			return FinalizeResultOutcome{}, err
+		}
+		if hex.EncodeToString(frozen[:]) != receiptHash {
+			return FinalizeResultOutcome{}, fmt.Errorf("%w: output was finalized with receipt %x, this call carries %s",
+				ErrConflict, frozen, receiptHash)
+		}
+	}
 
 	schemaHash, err := s.authorizer.lockedEvidenceSchemaHash(ctx, task)
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-
-	// Each required_evidence_commitments[] entry corresponds to one Worker manifest: the
-	// content_hash is exactly the commitment's evidence_hash_or_root (the closed-set semantics of
-	// §6.2). The Phase 0 set is exactly one WORKER_VALUE_OPENING (wire EvidenceCommitmentV1: no
-	// empty set, subset, superset or unknown kind). The chain rejects any other set, but Finalize
-	// runs before the chain accepts the receipt: an empty list would skip the recomputation and
-	// still sign, and a duplicate would confirm the same bundle twice. Today receiptDigest above
-	// already rejects a duplicate kind (the list must be strictly ascending with unique kinds), so a
-	// receipt with one cannot even be signed in tests; this check covers it on its own in case that
-	// rule ever changes.
-	if len(receipt.EvidenceCommitments) != 1 || receipt.EvidenceCommitments[0].Kind != evidenceKindWorkerValueOpening {
-		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt must carry exactly one WORKER_VALUE_OPENING commitment, got %d",
-			ErrMalformed, len(receipt.EvidenceCommitments))
+	var commitment EvidenceCommitment
+	for _, c := range receipt.EvidenceCommitments {
+		if EvidenceKind(c.Kind) == request.EvidenceKind {
+			commitment = c
+		}
 	}
-	commitments := append([]EvidenceCommitment(nil), receipt.EvidenceCommitments...)
-	sort.Slice(commitments, func(i, j int) bool { return commitments[i].Kind < commitments[j].Kind })
-	bundles := make([]Metadata, 0, len(commitments))
-	ready := []ObjectRef{outputRef}
-	for _, commitment := range commitments {
-		manifestRef := ObjectRef{
-			TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
-			Kind: ObjectKindEvidenceManifest, ContentHash: commitment.HashOrRoot,
-			// The round of a Worker manifest is always 1.
-			EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: worker,
-		}
-		bundle, artifacts, err := s.storedBundle(ctx, manifestRef, schemaHash)
-		if err != nil {
-			return FinalizeResultOutcome{}, err
-		}
-		// wire v0.4.1: EvidenceCommitmentV1.encoded_size_bytes is the checked sum of all artifact
-		// sizes in the bundle (per the WorkerValueCommitmentV2 comment), not the manifest byte count.
-		if bundle.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
-			return FinalizeResultOutcome{}, fmt.Errorf("%w: artifact total %d bytes, receipt encoded_size_bytes %d",
-				ErrHashMismatch, bundle.ArtifactTotalSizeBytes, commitment.EncodedSizeBytes)
-		}
-		if err := s.verifyWorkerValueCommitment(ctx, receipt, commitment, schemaHash, outputRef, bundle, artifacts); err != nil {
-			return FinalizeResultOutcome{}, err
-		}
-		bundles = append(bundles, bundle)
-		ready = append(ready, manifestRef)
-		ready = append(ready, artifacts...)
+	if commitment.HashOrRoot == "" {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt has no %s commitment", ErrMalformed, request.EvidenceKind)
 	}
-
-	confirmations, err := s.commitReady(ctx, ready, output, bundles, &receipt)
+	// The manifest's content_hash is exactly the commitment's evidence_hash_or_root.
+	manifestRef := ObjectRef{
+		TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
+		Kind: ObjectKindEvidenceManifest, ContentHash: commitment.HashOrRoot,
+		// The round of a Worker manifest is always 1.
+		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: worker,
+		EvidenceKind: request.EvidenceKind,
+	}
+	bundle, artifacts, err := s.storedBundle(ctx, manifestRef, schemaHash)
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	record := finalizeRecord{OutputConfirmation: &confirmations[0], EvidenceConfirmations: confirmations[1:]}
-	if err := s.putFinalizeRecord(request.Auth, record); err != nil {
+	// EvidenceCommitmentV1.encoded_size_bytes is the checked sum of the bundle's artifact sizes
+	// without generation_params, not the manifest byte count.
+	if size := commitmentSizeBytes(bundle); size != commitment.EncodedSizeBytes {
+		return FinalizeResultOutcome{}, fmt.Errorf("%w: artifact total %d bytes, receipt encoded_size_bytes %d",
+			ErrHashMismatch, size, commitment.EncodedSizeBytes)
+	}
+	if err := s.verifyWorkerCommitment(ctx, receipt, commitment, schemaHash, outputRef, bundle, artifacts); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
+
+	// Artifacts are switched before their manifest and the bundle before the OUTPUT, so a READY
+	// manifest always has READY artifacts and a READY OUTPUT never precedes the bundle whose Finalize
+	// froze it; a crash part-way leaves ResultReady false.
+	bundleConfirmations, err := s.commitReady(ctx, append(artifacts, manifestRef), Metadata{}, []Metadata{bundle}, nil)
+	if err != nil {
+		return FinalizeResultOutcome{}, err
+	}
+	outputConfirmation, err := s.freezeOutput(ctx, output, receipt, receiptHash)
+	if err != nil {
+		return FinalizeResultOutcome{}, err
+	}
+	// The nonce is consumed before the replay record is written: if the record write fails, a retry
+	// with a fresh nonce commits again and notifies; the other order would leave a record whose
+	// retry is answered as a replay and never notifies.
 	if err := s.authorizer.consumeRequestNonce(request.Auth, height); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	return FinalizeResultOutcome{
-		OutputConfirmation: confirmations[0], EvidenceConfirmations: confirmations[1:],
-	}, nil
+	record := finalizeRecord{OutputConfirmation: &outputConfirmation, EvidenceConfirmations: bundleConfirmations}
+	if err := s.putFinalizeRecord(request.Auth, record); err != nil {
+		return FinalizeResultOutcome{}, err
+	}
+	return FinalizeResultOutcome{OutputConfirmation: outputConfirmation, EvidenceConfirmations: bundleConfirmations}, nil
+}
+
+// freezeOutput switches the OUTPUT to READY with the receipt on the first Finalize of a result and
+// signs its confirmation once; the second Finalize gets back the persisted confirmation, so both
+// calls return the same bytes and signature.
+func (s *Service) freezeOutput(ctx context.Context, output Metadata, receipt SignedInferReceipt, receiptHash string) (StorageConfirmation, error) {
+	key, err := outputConfirmationKey(output.Key, receiptHash)
+	if err != nil {
+		return StorageConfirmation{}, err
+	}
+	raw, found, err := s.store.backend.GetWithError(kv.NSTaskDataFinalize, key)
+	if err != nil {
+		return StorageConfirmation{}, fmt.Errorf("%w: read output confirmation: %v", ErrStorage, err)
+	}
+	if found {
+		var confirmation StorageConfirmation
+		if err := json.Unmarshal(raw, &confirmation); err != nil {
+			return StorageConfirmation{}, fmt.Errorf("%w: decode output confirmation: %v", ErrStorage, err)
+		}
+		return confirmation, nil
+	}
+	if output.State != StateReady {
+		if _, err := s.store.MarkOutputReady(ctx, output.Key, receipt); err != nil {
+			return StorageConfirmation{}, err
+		}
+	}
+	confirmation, err := s.signReady(ctx, output.Key, 0)
+	if err != nil {
+		return StorageConfirmation{}, err
+	}
+	encoded, err := json.Marshal(confirmation)
+	if err != nil {
+		return StorageConfirmation{}, fmt.Errorf("%w: encode output confirmation: %v", ErrStorage, err)
+	}
+	if err := s.store.backend.Set(kv.NSTaskDataFinalize, key, encoded); err != nil {
+		return StorageConfirmation{}, fmt.Errorf("%w: persist output confirmation: %v", ErrStorage, err)
+	}
+	return confirmation, nil
+}
+
+// outputConfirmationKey keys the one OUTPUT confirmation of a result by object and receipt, in the
+// same namespace as the per-request finalize records but under a prefix they cannot take.
+func outputConfirmationKey(ref ObjectRef, receiptHash string) (string, error) {
+	digest, err := ObjectRefDigest(ref)
+	if err != nil {
+		return "", err
+	}
+	return "output|" + hex.EncodeToString(digest[:]) + "|" + receiptHash, nil
 }
 
 // FinalizeVerifierEvidence is the atomic commit point on the Verifier side. It switches only the
@@ -285,7 +360,7 @@ func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request Finalize
 		TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
 		Kind: ObjectKindEvidenceManifest, ContentHash: request.BundleHash,
 		EvidenceProducerKind: EvidenceProducerVerifier, VerifyRound: request.VerifyRound,
-		ProducerOperator: request.VerifierOperator,
+		ProducerOperator: request.VerifierOperator, EvidenceKind: EvidenceKindVerifierValueOpening,
 	}
 	bundle, artifacts, err := s.storedBundle(ctx, manifestRef, schemaHash)
 	if err != nil {
@@ -298,7 +373,7 @@ func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request Finalize
 			ErrHashMismatch, bundle.SizeBytes, request.ManifestSizeBytes)
 	}
 
-	confirmations, err := s.commitReady(ctx, append([]ObjectRef{manifestRef}, artifacts...), Metadata{}, []Metadata{bundle}, nil)
+	confirmations, err := s.commitReady(ctx, append(artifacts, manifestRef), Metadata{}, []Metadata{bundle}, nil)
 	if err != nil {
 		return FinalizeVerifierOutcome{}, err
 	}
@@ -356,13 +431,13 @@ func (s *Service) storedBundle(
 
 	refs := make([]ObjectRef, 0, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {
-		// An artifact's three producer fields are inherited from the manifest it belongs to: the same
-		// bytes under two producers are two different objects.
+		// An artifact's producer fields and evidence kind are inherited from the manifest it belongs
+		// to: the same bytes under two producers or bundles are two different objects.
 		artifactRef := ObjectRef{
 			TaskHash: manifestRef.TaskHash, SessionID: manifestRef.SessionID, TaskID: manifestRef.TaskID,
 			Kind: ObjectKindEvidenceArtifact, ContentHash: artifact.ContentHash,
 			EvidenceProducerKind: manifestRef.EvidenceProducerKind, VerifyRound: manifestRef.VerifyRound,
-			ProducerOperator: manifestRef.ProducerOperator,
+			ProducerOperator: manifestRef.ProducerOperator, EvidenceKind: manifestRef.EvidenceKind,
 		}
 		stored, err := s.storedObject(ctx, artifactRef)
 		if err != nil {
@@ -377,7 +452,7 @@ func (s *Service) storedBundle(
 	return manifest, refs, nil
 }
 
-// commitReady is the atomic commit of §5.5: first switch every object to READY, then sign a
+// commitReady is the atomic commit of a bundle: first switch every object to READY, then sign a
 // confirmation for the OUTPUT and for each complete bundle. Artifacts are not confirmed
 // individually — they are covered by the hash of their owning manifest and by that bundle's
 // confirmation.
@@ -520,6 +595,11 @@ func (a *Authorizer) verifyInferReceipt(
 		return fmt.Errorf("%w: receipt worker_operator_address", ErrUnauthorized)
 	case taskHash != task.Assignment.AcceptedTaskHash:
 		return fmt.Errorf("%w: task_hash does not match accepted_task_hash", ErrUnauthorized)
+	case task.Assignment.GenerationParamsDigest == "":
+		return fmt.Errorf("%w: task carries no generation_params_digest", ErrAuthorityUnavailable)
+	case receipt.GenerationParamsDigest != task.Assignment.GenerationParamsDigest:
+		// The chain rejects this receipt too; refusing here keeps its evidence out of the store.
+		return fmt.Errorf("%w: receipt generation_params_digest does not match the accepted order", ErrUnauthorized)
 	}
 	if err := a.verifyParticipantSignature(
 		ctx, receipt.WorkerOperatorAddress, receipt.ServiceAuthorizationNonce,

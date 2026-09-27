@@ -1,9 +1,7 @@
-// Object addressing and request authentication framing for the Task data plane (Interface &
-// Topic Catalogue §4.2.1).
+// Object addressing and request authentication framing for the Task data plane.
 //
-// Since wire v0.4.1 an object is uniquely determined by the eight fields of
-// TaskDataObjectRefV1, and request authentication is unified as TaskDataRequestAuthV1 plus
-// a closed set of five body domains. This file only encodes those two into canonical bytes;
+// An object is uniquely determined by the nine fields of TaskDataObjectRefV1, and request
+// authentication is unified as TaskDataRequestAuthV1 plus a closed set of five body domains. This file only encodes those two into canonical bytes;
 // authorization decisions live in authorizer.go.
 package taskdata
 
@@ -18,11 +16,11 @@ import (
 // closed set; never build a domain name per RPC.
 const (
 	DomainTaskDataRequest              = "TRUEOPEN_TASK_DATA_REQUEST_V1"
-	DomainTaskDataUploadBody           = "TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1"
-	DomainTaskDataMetadataBody         = "TRUEOPEN_TASK_DATA_METADATA_BODY_V1"
-	DomainTaskDataFetchBody            = "TRUEOPEN_TASK_DATA_FETCH_BODY_V1"
-	DomainTaskDataFinalizeResultBody   = "TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1"
-	DomainTaskDataFinalizeVerifierBody = "TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1"
+	DomainTaskDataUploadBody           = "TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2"
+	DomainTaskDataMetadataBody         = "TRUEOPEN_TASK_DATA_METADATA_BODY_V2"
+	DomainTaskDataFetchBody            = "TRUEOPEN_TASK_DATA_FETCH_BODY_V2"
+	DomainTaskDataFinalizeResultBody   = "TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2"
+	DomainTaskDataFinalizeVerifierBody = "TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2"
 )
 
 // ObjectKind is the internal form of TaskDataObjectKind. On the wire EVIDENCE splits into
@@ -70,6 +68,44 @@ const (
 	EvidenceProducerVerifier    EvidenceProducerKind = 2
 )
 
+// EvidenceKind is the numeric shared.v1.EvidenceKind of an evidence object: which bundle of its
+// producer it belongs to. A Worker has two bundles per round, so without it the token bundle and
+// the value bundle of the same Worker and round would be the same object.
+type EvidenceKind uint32
+
+const (
+	EvidenceKindUnspecified          EvidenceKind = 0
+	EvidenceKindWorkerValueOpening   EvidenceKind = 1
+	EvidenceKindVerifierValueOpening EvidenceKind = 2
+	EvidenceKindWorkerTokenOpening   EvidenceKind = 4
+)
+
+// String is the name a manifest's evidence_kind carries.
+func (k EvidenceKind) String() string {
+	switch k {
+	case EvidenceKindWorkerValueOpening:
+		return "WORKER_VALUE_OPENING"
+	case EvidenceKindVerifierValueOpening:
+		return "VERIFIER_VALUE_OPENING"
+	case EvidenceKindWorkerTokenOpening:
+		return "WORKER_TOKEN_OPENING"
+	default:
+		return ""
+	}
+}
+
+// belongsTo reports whether this kind is a bundle of the given producer.
+func (k EvidenceKind) belongsTo(producer EvidenceProducerKind) bool {
+	switch producer {
+	case EvidenceProducerWorker:
+		return k == EvidenceKindWorkerValueOpening || k == EvidenceKindWorkerTokenOpening
+	case EvidenceProducerVerifier:
+		return k == EvidenceKindVerifierValueOpening
+	default:
+		return false
+	}
+}
+
 // ObjectRef is the internal form of TaskDataObjectRefV1. Hash32 stays canonical lowercase
 // 64-hex text at this layer (same as Metadata.SemanticHash) and is decoded into raw 32 bytes
 // before entering the preimage.
@@ -86,6 +122,9 @@ type ObjectRef struct {
 	EvidenceProducerKind EvidenceProducerKind
 	VerifyRound          uint32
 	ProducerOperator     string
+	// EvidenceKind is required for evidence objects and must be a bundle kind of the producer;
+	// INPUT and OUTPUT leave it unspecified.
+	EvidenceKind EvidenceKind
 }
 
 // ByteRange is the optional sub-range of FetchTaskData. A whole read must be absent, never
@@ -116,7 +155,7 @@ func canonicalHash32(field, value string) ([]byte, error) {
 	return raw, nil
 }
 
-// CanonicalObjectRefFrame is the nested FieldFrameV1 of object_ref: eight fields in
+// CanonicalObjectRefFrame is the nested FieldFrameV1 of object_ref: nine fields in
 // ascending schema field number order, with no domain prefix. It is the first field of
 // four body domains and the fifth field of the storage confirmation, so it is defined once here.
 func CanonicalObjectRefFrame(ref ObjectRef) ([]byte, error) {
@@ -143,11 +182,14 @@ func CanonicalObjectRefFrame(ref ObjectRef) ([]byte, error) {
 	// yield multiple refs from different producer triples and retrieval and attribution
 	// would disagree.
 	if !ref.Kind.IsEvidence() {
-		if ref.EvidenceProducerKind != EvidenceProducerUnspecified || ref.VerifyRound != 0 || ref.ProducerOperator != "" {
-			return nil, fmt.Errorf("%w: non-evidence object must not carry producer fields", ErrMalformed)
+		if ref.EvidenceProducerKind != EvidenceProducerUnspecified || ref.VerifyRound != 0 || ref.ProducerOperator != "" ||
+			ref.EvidenceKind != EvidenceKindUnspecified {
+			return nil, fmt.Errorf("%w: non-evidence object must not carry producer fields or evidence_kind", ErrMalformed)
 		}
 	} else if ref.EvidenceProducerKind == EvidenceProducerUnspecified {
 		return nil, fmt.Errorf("%w: evidence_producer_kind", ErrMalformed)
+	} else if !ref.EvidenceKind.belongsTo(ref.EvidenceProducerKind) {
+		return nil, fmt.Errorf("%w: evidence_kind %d is not a bundle of this producer", ErrMalformed, ref.EvidenceKind)
 	}
 
 	producer := []byte(nil)
@@ -166,6 +208,7 @@ func CanonicalObjectRefFrame(ref ObjectRef) ([]byte, error) {
 		nodecontract.EnumBE(uint32(ref.EvidenceProducerKind)),
 		nodecontract.Uint32BE(ref.VerifyRound),
 		canonicalOptional(ref.ProducerOperator != "", producer),
+		nodecontract.EnumBE(uint32(ref.EvidenceKind)),
 	), nil
 }
 
@@ -210,9 +253,15 @@ func TaskDataFetchBodyDigest(ref ObjectRef, rng *ByteRange) ([32]byte, error) {
 		frame, canonicalOptional(rng != nil, inner)), nil
 }
 
-// TaskDataFinalizeResultBodyDigest is the body digest of FinalizeTaskResult.
-// infer_receipt_signature_digest is the SHA256 of the raw64 signature, not a hash of its text form.
-func TaskDataFinalizeResultBodyDigest(taskHash, sessionID, taskID, inferReceiptHash, receiptSignatureDigest string) ([32]byte, error) {
+// TaskDataFinalizeResultBodyDigest is the body digest of FinalizeTaskResult, which finalizes one
+// Worker bundle, named by evidenceKind. infer_receipt_signature_digest is the SHA256 of the raw64
+// signature, not a hash of its text form.
+func TaskDataFinalizeResultBodyDigest(
+	taskHash, sessionID, taskID, inferReceiptHash, receiptSignatureDigest string, evidenceKind EvidenceKind,
+) ([32]byte, error) {
+	if !evidenceKind.belongsTo(EvidenceProducerWorker) {
+		return [32]byte{}, fmt.Errorf("%w: finalize evidence_kind %d is not a Worker bundle", ErrMalformed, evidenceKind)
+	}
 	fields := make([][]byte, 0, 5)
 	for _, f := range []struct{ name, value string }{
 		{"task_hash", taskHash}, {"session_id", sessionID}, {"task_id", taskID},
@@ -224,6 +273,7 @@ func TaskDataFinalizeResultBodyDigest(taskHash, sessionID, taskID, inferReceiptH
 		}
 		fields = append(fields, raw)
 	}
+	fields = append(fields, nodecontract.EnumBE(uint32(evidenceKind)))
 	return nodecontract.CanonicalHashBytes(DomainTaskDataFinalizeResultBody, fields...), nil
 }
 

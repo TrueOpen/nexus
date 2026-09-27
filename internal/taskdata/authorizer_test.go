@@ -599,7 +599,7 @@ func TestServicePersistsAuthorizedUploader(t *testing.T) {
 	// canonical manifest — arbitrary bytes can no longer get through this path.
 	ref := ObjectKey{
 		TaskHash: testTaskHash, SessionID: testSessionID, TaskID: testTaskID, Kind: ObjectKindEvidenceManifest,
-		EvidenceProducerKind: EvidenceProducerVerifier, VerifyRound: 1, ProducerOperator: fx.verifier.Address(),
+		EvidenceProducerKind: EvidenceProducerVerifier, EvidenceKind: EvidenceKindVerifierValueOpening, VerifyRound: 1, ProducerOperator: fx.verifier.Address(),
 	}
 	body := buildManifest(t, ref, strings.Repeat("7", 64), []EvidenceArtifact{{
 		ArtifactID: "aggregate_proof", ContentHash: strings.Repeat("6", 64), SizeBytes: 487,
@@ -720,6 +720,7 @@ func TestUploadBodyDigestBindsRefSizeAndMediaType(t *testing.T) {
 		"verify round": func(h *UploadHeader) {
 			h.Key.Kind = ObjectKindEvidenceManifest
 			h.Key.EvidenceProducerKind = EvidenceProducerWorker
+			h.Key.EvidenceKind = EvidenceKindWorkerValueOpening
 			h.Key.VerifyRound = 2
 		},
 	} {
@@ -760,6 +761,7 @@ func readyMetadata(kind ObjectKind) Metadata {
 	}
 	if kind == ObjectKindEvidenceManifest {
 		key.EvidenceProducerKind = EvidenceProducerWorker
+		key.EvidenceKind = EvidenceKindWorkerValueOpening
 		key.VerifyRound = 1
 	}
 	return Metadata{
@@ -814,7 +816,7 @@ func validReceipt(t *testing.T, fx *authorizerFixture, metadata Metadata) Signed
 func receiptSignedBy(t *testing.T, workerOperator string, service signer.Signer, metadata Metadata) SignedInferReceipt {
 	t.Helper()
 	receipt := SignedInferReceipt{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainID: testChainID,
+		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainID: testChainID,
 		TaskID: metadata.Key.TaskID, TaskHash: strings.Repeat("a", 64),
 		WorkerOperatorAddress: workerOperator, ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: strings.Repeat("b", 64), OutputHash: metadata.SemanticHash,
@@ -1057,6 +1059,7 @@ func TestUploadBodyDigestMediaTypeOptional(t *testing.T) {
 	artifact := header
 	artifact.Key.Kind = ObjectKindEvidenceArtifact
 	artifact.Key.EvidenceProducerKind = EvidenceProducerWorker
+	artifact.Key.EvidenceKind = EvidenceKindWorkerValueOpening
 	artifact.Key.VerifyRound = 1
 	artifact.Key.ProducerOperator = fx.worker.Address()
 	if _, err := UploadBodyDigest(artifact); err != nil {

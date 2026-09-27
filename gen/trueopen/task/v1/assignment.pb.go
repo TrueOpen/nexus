@@ -23,7 +23,7 @@ const (
 )
 
 // TaskPhase is the aggregate task phase. Numeric values are frozen by
-// the API contract; ascending order is the mandatory forward order, so
+// the wire API; ascending order is the mandatory forward order, so
 // transition checks are monotonic with no rollback and no skipping.
 // TaskPhase defines the TaskPhase wire type.
 type TaskPhase int32
@@ -117,7 +117,7 @@ func (TaskPhase) EnumDescriptor() ([]byte, []int) {
 }
 
 // AssignmentStatus is the Worker assignment sub-state. Values are frozen by
-// §9.6b. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
+// this contract. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
 // copy.
 // AssignmentStatus defines the AssignmentStatus wire type.
 type AssignmentStatus int32
@@ -190,7 +190,7 @@ func (AssignmentStatus) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{1}
 }
 
-// ReceiptStatus is the inference receipt sub-state, frozen by §9.6b.
+// ReceiptStatus is the inference receipt sub-state, frozen by this contract.
 type ReceiptStatus int32
 
 const (
@@ -251,7 +251,7 @@ func (ReceiptStatus) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{2}
 }
 
-// VerificationStatus is the verification sub-state, frozen by §9.6b.
+// VerificationStatus is the verification sub-state, frozen by this contract.
 type VerificationStatus int32
 
 const (
@@ -347,7 +347,7 @@ func (VerificationStatus) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{3}
 }
 
-// SettlementStatus is the settlement sub-state, frozen by §9.6b.
+// SettlementStatus is the settlement sub-state, frozen by this contract.
 type SettlementStatus int32
 
 const (
@@ -409,7 +409,7 @@ func (SettlementStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 // AssignmentFailureReason is the single closed reason for a failed Worker
-// assignment, frozen by §9.6b.
+// assignment, frozen by this contract.
 // AssignmentFailureReason defines the AssignmentFailureReason wire type.
 type AssignmentFailureReason int32
 
@@ -478,13 +478,8 @@ func (AssignmentFailureReason) EnumDescriptor() ([]byte, []int) {
 
 // TaskCandidateStage selects the handraise stage of one task.
 //
-// CONTRACT-GAP: data_structure_contract §4.2 types the field as `TaskCandidateStage` but
-// §9.6b does not register it; api_contract §1.4 instead states that the `stage` field
-// inside TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 / TRUEOPEN_TASK_STAGE_ADDED_BITMAP_V1 uses
-// the §5.10 `BuilderDutyStageV1` numbers. The values below therefore keep the
-// §4.2 type name with the §5.10 numbers (OPEN_TASK=1, OPEN_VERIFY=2); SETTLE=3
-// is intentionally absent because it is not a candidate stage. The type name vs.
-// numbering-authority conflict must be resolved in the contract.
+// The bitmap domains use OPEN_TASK=1 and OPEN_VERIFY=2. SETTLE is not a
+// candidate stage and has no value in this enum.
 // TaskCandidateStage defines the TaskCandidateStage wire type.
 type TaskCandidateStage int32
 
@@ -541,7 +536,7 @@ func (TaskCandidateStage) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{6}
 }
 
-// TaskCandidateStageStatusV1 is the handraise window status, frozen by §9.6b.
+// TaskCandidateStageStatusV1 is the handraise window status, frozen by this contract.
 type TaskCandidateStageStatusV1 int32
 
 const (
@@ -602,7 +597,60 @@ func (TaskCandidateStageStatusV1) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{7}
 }
 
-// FinalizeCursorStatusV1 is the bounded finalize cursor status, frozen by §9.6b.
+// PayloadModeV1 reserves encrypted payload selection for a later activation.
+type PayloadModeV1 int32
+
+const (
+	// An unset mode is invalid in an accepted order.
+	PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED PayloadModeV1 = 0
+	// Phase 0 accepts only plaintext payloads.
+	PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT PayloadModeV1 = 1
+	// Encryption is reserved for a separately activated contract.
+	PayloadModeV1_PAYLOAD_MODE_V1_ENCRYPTED PayloadModeV1 = 2
+)
+
+// Enum value maps for PayloadModeV1.
+var (
+	PayloadModeV1_name = map[int32]string{
+		0: "PAYLOAD_MODE_V1_UNSPECIFIED",
+		1: "PAYLOAD_MODE_V1_PLAINTEXT",
+		2: "PAYLOAD_MODE_V1_ENCRYPTED",
+	}
+	PayloadModeV1_value = map[string]int32{
+		"PAYLOAD_MODE_V1_UNSPECIFIED": 0,
+		"PAYLOAD_MODE_V1_PLAINTEXT":   1,
+		"PAYLOAD_MODE_V1_ENCRYPTED":   2,
+	}
+)
+
+func (x PayloadModeV1) Enum() *PayloadModeV1 {
+	p := new(PayloadModeV1)
+	*p = x
+	return p
+}
+
+func (x PayloadModeV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PayloadModeV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_assignment_proto_enumTypes[8].Descriptor()
+}
+
+func (PayloadModeV1) Type() protoreflect.EnumType {
+	return &file_task_v1_assignment_proto_enumTypes[8]
+}
+
+func (x PayloadModeV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PayloadModeV1.Descriptor instead.
+func (PayloadModeV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{8}
+}
+
+// FinalizeCursorStatusV1 is the bounded finalize cursor status.
 type FinalizeCursorStatusV1 int32
 
 const (
@@ -642,11 +690,11 @@ func (x FinalizeCursorStatusV1) String() string {
 }
 
 func (FinalizeCursorStatusV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[8].Descriptor()
+	return file_task_v1_assignment_proto_enumTypes[9].Descriptor()
 }
 
 func (FinalizeCursorStatusV1) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[8]
+	return &file_task_v1_assignment_proto_enumTypes[9]
 }
 
 func (x FinalizeCursorStatusV1) Number() protoreflect.EnumNumber {
@@ -655,11 +703,11 @@ func (x FinalizeCursorStatusV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FinalizeCursorStatusV1.Descriptor instead.
 func (FinalizeCursorStatusV1) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{9}
 }
 
-// TaskCoreState is the only primary of the six task sub-states (data_structure_contract
-// §6.6, key = task_id). Stage tables store stage-local facts only and must not
+// TaskCoreState is the only primary of the six task sub-states (public storage contract
+// this contract, key = task_id). Stage tables store stage-local facts only and must not
 // copy these sub-states. The abandoned TaskStatus projection and the
 // SessionEscrow double ledger are deleted.
 // TaskCoreState defines the TaskCoreState wire type.
@@ -672,10 +720,10 @@ type TaskCoreState struct {
 	AcceptedTaskHash         []byte                 `protobuf:"bytes,5,opt,name=accepted_task_hash,json=acceptedTaskHash,proto3" json:"accepted_task_hash,omitempty"`
 	AcceptedInputHash        []byte                 `protobuf:"bytes,6,opt,name=accepted_input_hash,json=acceptedInputHash,proto3" json:"accepted_input_hash,omitempty"`
 	AcceptedOrderOpeningHash []byte                 `protobuf:"bytes,7,opt,name=accepted_order_opening_hash,json=acceptedOrderOpeningHash,proto3" json:"accepted_order_opening_hash,omitempty"`
-	ModelId                  string                 `protobuf:"bytes,8,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId                  []byte                 `protobuf:"bytes,8,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion           uint32                 `protobuf:"varint,9,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	// order_value is the immutable keeper-derived worker_max + verify_max from
-	// the accepted TaskOrderV2. It is not TaskBudgetState.original_reserved_amount,
+	// the accepted TaskOrderV3. It is not TaskBudgetState.original_reserved_amount,
 	// which is max_fee.
 	TaskType             v1.TaskType             `protobuf:"varint,10,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
 	OrderValue           *v1.Amount              `protobuf:"bytes,11,opt,name=order_value,json=orderValue,proto3" json:"order_value,omitempty"`
@@ -694,7 +742,8 @@ type TaskCoreState struct {
 	EvidenceRetentionBlocksSnapshot uint64 `protobuf:"varint,22,opt,name=evidence_retention_blocks_snapshot,json=evidenceRetentionBlocksSnapshot,proto3" json:"evidence_retention_blocks_snapshot,omitempty"`
 	// Frozen from Hub ServiceParamsV1.objective_forgery_slash_bps in the same
 	// transaction and used by objective Worker evidence.
-	ObjectiveForgerySlashBpsSnapshot uint32 `protobuf:"varint,23,opt,name=objective_forgery_slash_bps_snapshot,json=objectiveForgerySlashBpsSnapshot,proto3" json:"objective_forgery_slash_bps_snapshot,omitempty"`
+	ObjectiveForgerySlashBpsSnapshot uint32        `protobuf:"varint,23,opt,name=objective_forgery_slash_bps_snapshot,json=objectiveForgerySlashBpsSnapshot,proto3" json:"objective_forgery_slash_bps_snapshot,omitempty"`
+	AcceptedPayloadMode              PayloadModeV1 `protobuf:"varint,24,opt,name=accepted_payload_mode,json=acceptedPayloadMode,proto3,enum=task.v1.PayloadModeV1" json:"accepted_payload_mode,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -778,11 +827,11 @@ func (x *TaskCoreState) GetAcceptedOrderOpeningHash() []byte {
 	return nil
 }
 
-func (x *TaskCoreState) GetModelId() string {
+func (x *TaskCoreState) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *TaskCoreState) GetProfileVersion() uint32 {
@@ -890,11 +939,18 @@ func (x *TaskCoreState) GetObjectiveForgerySlashBpsSnapshot() uint32 {
 	return 0
 }
 
-// TaskAssignmentState holds Worker assignment facts only (§6.6, key = task_id).
+func (x *TaskCoreState) GetAcceptedPayloadMode() PayloadModeV1 {
+	if x != nil {
+		return x.AcceptedPayloadMode
+	}
+	return PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED
+}
+
+// TaskAssignmentState holds Worker assignment facts only (key = task_id).
 // assignment_status is NOT duplicated here. winner_draw_digest is derived at
-// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (api_contract §10.2).
+// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (the wire API).
 // candidate_pool_ref_released makes the CandidatePoolTaskRefState release
-// idempotent (data_structure_contract §3.3).
+// idempotent (the public storage contract).
 // TaskAssignmentState defines the TaskAssignmentState wire type.
 type TaskAssignmentState struct {
 	state                        protoimpl.MessageState  `protogen:"open.v1"`
@@ -924,8 +980,10 @@ type TaskAssignmentState struct {
 	// update cannot reinterpret an in-flight duty.
 	WorkerInferTimeoutSlashBps  uint32 `protobuf:"varint,21,opt,name=worker_infer_timeout_slash_bps,json=workerInferTimeoutSlashBps,proto3" json:"worker_infer_timeout_slash_bps,omitempty"`
 	ResultRevealMissingSlashBps uint32 `protobuf:"varint,22,opt,name=result_reveal_missing_slash_bps,json=resultRevealMissingSlashBps,proto3" json:"result_reveal_missing_slash_bps,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// Profile minimum stake frozen at admission for later Verifier eligibility.
+	MinStakeSnapshot *v1.Amount `protobuf:"bytes,23,opt,name=min_stake_snapshot,json=minStakeSnapshot,proto3" json:"min_stake_snapshot,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TaskAssignmentState) Reset() {
@@ -1112,8 +1170,15 @@ func (x *TaskAssignmentState) GetResultRevealMissingSlashBps() uint32 {
 	return 0
 }
 
+func (x *TaskAssignmentState) GetMinStakeSnapshot() *v1.Amount {
+	if x != nil {
+		return x.MinStakeSnapshot
+	}
+	return nil
+}
+
 // AssignmentCandidateSetState is the task-local dual commitment header
-// (data_structure_contract §4.3, key = task_id). The pool commitment and the task legal-set
+// (the public storage contract, key = task_id). The pool commitment and the task legal-set
 // commitment are separate: candidate_pool_snapshot_id/pool_hash commit to the
 // public candidate source, union_bitmap_hash plus
 // assignment_candidate_set_hash commit to the accepted handraise subset. No
@@ -1220,7 +1285,7 @@ func (x *AssignmentCandidateSetState) GetAssignmentCandidateSetHash() []byte {
 }
 
 // TaskCandidateFactState is the immutable accepted-time frozen fact for one
-// candidate bit (data_structure_contract §4.2, key = (task_id, stage, slot)). It is written
+// candidate bit (the public storage contract, key = (task_id, stage, slot)). It is written
 // in the same Tx that flips the bit; later bond, support, jail or performance
 // changes must never write back. Raw handraise JSON is never stored: only these
 // typed facts, the signing digest, bitmaps, counts and commitments.
@@ -1228,7 +1293,7 @@ func (x *AssignmentCandidateSetState) GetAssignmentCandidateSetHash() []byte {
 // Thirteen of these fields enter the TRUEOPEN_ASSIGNMENT_LEGAL_SET_V1 preimage per
 // frozen candidate slot, so they are consensus critical and part of the
 // cross-language vector. WARNING: the preimage order is NOT this message's field
-// number order. api_contract §4.3 freezes the repeated block explicitly as
+// number order. the wire API freezes the repeated block explicitly as
 //
 //	repeated(slot, slot_version, operator_address,
 //	         candidate_weight, active_bond_snapshot, available_bond_snapshot,
@@ -1239,45 +1304,15 @@ func (x *AssignmentCandidateSetState) GetAssignmentCandidateSetHash() []byte {
 //
 // so candidate_weight - field 17 here - is hashed FOURTH, right after
 // operator_address, and duty (field 7) does NOT enter the preimage at all, nor do
-// schema_version, task_id, stage or handraise_signing_digest. §1.2's default
-// "ascending schema field number" rule applies only where a section gives no
-// explicit order; §4.3 gives one, so §4.3 wins. An implementation that encodes this
-// message by field number produces a different assignment_candidate_set_hash.
+// schema_version, task_id, stage or handraise_signing_digest. This explicit
+// order overrides field-number order for the legal-set commitment.
 //
-// CONTRACT-GAP (performance_score_snapshot_ppm = 12,
-// performance_method_version = 13): both values are frozen into that preimage, but
-// no State in either keeper contract produces them. The candidate weight formula's
-//
-//	WorkerCandidateWeight   = (0.30*stake_score + 0.70*performance_score) * jail
-//	VerifierCandidateWeight = (0.20*stake_score + 0.80*performance_score) * jail
-//
-// and it sources performance_score from a "PerformanceState" mapped through
-// performance_method_version - a State that the data-structure contract never declares
-// and that the API contract never exposes (no PerformanceScoreState, no
-// QueryPerformanceScore; §16.3 QueryServiceLifecycle explicitly must not compute
-// performance on the fly). §9.6b also registers no numbering for
-// performance_method_version even though its uint32 value is hashed.
-//
-// V1 resolution (Decision 21, do not deviate): every accepted-time snapshot writes
-//
-//	performance_score_snapshot_ppm = 1000000   // 1.0 in ppm, the §1.1 ppm scale
-//	performance_method_version     = 1         // denotes PERFORMANCE_RAW_Q16_V1
-//
-// PERFORMANCE_RAW_Q16_V1 is the only registered method
-// [0,1]) and 1.0 is the frozen default for a node with no track record, so no
-// candidate is excluded for lacking history.
-//
-// The value must NEVER be written as 0. performance_score_snapshot_ppm = 0 makes
-// the weighted term 0; with 1.0 stake_score the Worker weight collapses to
-// 0.30*jail and with a jailed or zero-stake candidate it collapses to 0 outright.
-// Once every candidate in the frozen legal set weighs 0, §4.5's checked uint64
-// weight sum is 0, the unbiased draw has no positive cumulative weight to select
-// against and the handler must raise an invariant error and hold the Task pending
-// - i.e. a zero here disables Worker and Verifier selection chain-wide rather than
-// merely de-prioritising a candidate. A future real performance feed must clamp
-// into the §1.1 range 0..1000000 with a floor above 0, and must arrive together
-// with the missing State, its §9.6b method numbering and a new
-// performance_method_version - never by silently reinterpreting version 1.
+// V1 freezes performance_score_snapshot_ppm=1000000 and
+// performance_method_version=1 (PERFORMANCE_RAW_Q16_V1) at acceptance. There
+// is no live performance feed in this contract. A zero score could make every
+// candidate weight zero and block selection, so it must never be written.
+// A future feed requires a new method version and an explicit score source;
+// version 1 must not be reinterpreted.
 // TaskCandidateFactState defines the TaskCandidateFactState wire type.
 type TaskCandidateFactState struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
@@ -1469,7 +1504,7 @@ func (x *TaskCandidateFactState) GetCapabilityVersionSnapshot() uint64 {
 	return 0
 }
 
-// BuilderStageProposalState is one accepted proposal receipt (data_structure_contract §4.2,
+// BuilderStageProposalState is one accepted proposal receipt (the public storage contract,
 // key = (task_id, stage, proposal_digest)). data_ready_attestation is only set
 // for Builder Open Verify proposals.
 // BuilderStageProposalState defines the BuilderStageProposalState wire type.
@@ -1574,7 +1609,7 @@ func (x *BuilderStageProposalState) GetDataReadyAttestation() bool {
 }
 
 // TaskStageHandraiseUnionState is the authoritative stage union header
-// (data_structure_contract §4.2, key = (task_id, stage)). union_bitmap_hash is the single
+// (the public storage contract, key = (task_id, stage)). union_bitmap_hash is the single
 // TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 value shared with AssignmentCandidateSetState;
 // there is no separate bitmap_hash field. After finalize the segment bodies are
 // deleted and only hash/count/status remain.
@@ -1723,7 +1758,7 @@ func (x *TaskStageHandraiseUnionState) GetDataReadyAttestingBuilderBitmap() []by
 }
 
 // TaskStageHandraiseUnionSegmentState is one fixed-width union bitmap segment
-// (data_structure_contract §4.2, key = (task_id, stage, segment_index)). bitmap length is
+// (the public storage contract, key = (task_id, stage, segment_index)). bitmap length is
 // exactly candidate_bitmap_segment_bytes; the body is deleted at finalize.
 // TaskStageHandraiseUnionSegmentState defines the TaskStageHandraiseUnionSegmentState wire type.
 type TaskStageHandraiseUnionSegmentState struct {
@@ -1806,8 +1841,8 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 // Task admission is the only writer
 // of its frozen selection content; terminal and EvidenceCleanup helpers may only
 // advance the lifecycle fields described below. Every later Task stage reads it:
-// §10.1 writes it together with the first accepted Worker proposal, §10.4/§10.5
-// derive the fixed Builder bitmap order from selected_task_builders, and §10.10a
+// it is written together with the first accepted Worker proposal, later stages
+// derive the fixed Builder bitmap order from selected_task_builders, and settlement
 // derives the stable SETTLE duty Builder from the same frozen order and rank.
 //
 // Lifecycle: admission does a checked +1 on the referenced
@@ -1816,11 +1851,11 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 // selected_task_builders and builder_fault_slash_bps_snapshot for objective
 // evidence. EvidenceCleanup releases every BUS_OBJECTIVE_EVIDENCE responsibility,
 // then clears selected_task_builders and changes body_status to PRUNED in the
-// same transaction. The data-structure contract later deletes this whole row in
+// same transaction. The wire storage model later deletes this whole row in
 // TASK_COMPACTION, so the PRUNED header exists only before compaction; after
 // compaction the read path returns NotFound.
 //
-// Read path: rpc Query.TaskBuilders (§16.2), declared in task/v1/query.proto
+// Read path: rpc Query.TaskBuilders, declared in task/v1/query.proto
 // with QueryTaskBuildersRequest/Response and the projected
 // TaskBuilderSelectionViewV1 in task/v1/query_task.proto. That response
 // message carries the single normative statement of the ACTIVE / PRUNED /
@@ -1829,20 +1864,16 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 //
 // Bitmap order: the frozen index of a Builder inside selected_task_builders is
 // also the bit index of MsgReportDataUnavailable /
-// DataUnavailableReportState.unavailable_task_builder_bitmap (§10.5) and of
-// TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap (§10.4). Both
+// DataUnavailableReportState.unavailable_task_builder_bitmap and of
+// TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap. Both
 // bitmaps become unreplayable once the body is pruned, which is why
 // selected_task_builders_hash is retained.
 //
 // selected_task_builders_hash = H_FIELDS_V1("TRUEOPEN_SELECTED_TASK_BUILDERS_V1",
 // chain_id, task_id, builder_set_id, builder_set_hash, ordered builders).
 //
-// CONTRACT-GAP: §6.5 lists this row inside the Builder-set chapter and names no
-// owning module, while every writer and reader named above is a Task handler and
-// x/hub must not import x/task. It is therefore declared in
-// task/v1; §6.5 should state the owning module explicitly. Field numbers
-// follow the §6.5 listing order (the systematic no-field-number gap of the State
-// chapters).
+// Task handlers own this row; x/hub does not import x/task. Field numbers follow
+// the frozen selection projection order above.
 // TaskBuilderSelectionState defines the TaskBuilderSelectionState wire type.
 type TaskBuilderSelectionState struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
@@ -1978,7 +2009,7 @@ func (x *TaskBuilderSelectionState) GetBuilderFaultSlashBpsSnapshot() uint32 {
 }
 
 // TaskCandidateFinalizeCursorState is the shared EndBlock / public runner cursor
-// (data_structure_contract §4.6, key = (task_id, stage)). A partial exit persists only the
+// (the public storage contract, key = (task_id, stage)). A partial exit persists only the
 // cursor and already validated frozen rows, never the final commitment, winner or
 // selected verifiers. The cursor is deleted on completion; no DONE row is kept.
 // TaskCandidateFinalizeCursorState defines the TaskCandidateFinalizeCursorState wire type.
@@ -2107,7 +2138,8 @@ var File_task_v1_assignment_proto protoreflect.FileDescriptor
 
 const file_task_v1_assignment_proto_rawDesc = "" +
 	"\n" +
-	"\x18task/v1/assignment.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/model_profile.proto\"\xe3\t\n" +
+	"\x18task/v1/assignment.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/model_profile.proto\"\xaf\n" +
+	"\n" +
 	"\rTaskCoreState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fuser_address\x18\x02 \x01(\tR\vuserAddress\x12\x1d\n" +
@@ -2117,7 +2149,7 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\x12accepted_task_hash\x18\x05 \x01(\fR\x10acceptedTaskHash\x12.\n" +
 	"\x13accepted_input_hash\x18\x06 \x01(\fR\x11acceptedInputHash\x12=\n" +
 	"\x1baccepted_order_opening_hash\x18\a \x01(\fR\x18acceptedOrderOpeningHash\x12\x19\n" +
-	"\bmodel_id\x18\b \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\b \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\t \x01(\rR\x0eprofileVersion\x120\n" +
 	"\ttask_type\x18\n" +
 	" \x01(\x0e2\x13.shared.v1.TaskTypeR\btaskType\x122\n" +
@@ -2135,8 +2167,9 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\x0ecreated_height\x18\x14 \x01(\x04R\rcreatedHeight\x12%\n" +
 	"\x0eupdated_height\x18\x15 \x01(\x04R\rupdatedHeight\x12K\n" +
 	"\"evidence_retention_blocks_snapshot\x18\x16 \x01(\x04R\x1fevidenceRetentionBlocksSnapshot\x12N\n" +
-	"$objective_forgery_slash_bps_snapshot\x18\x17 \x01(\rR objectiveForgerySlashBpsSnapshotB\x17\n" +
-	"\x15_task_finality_height\"\xa4\n" +
+	"$objective_forgery_slash_bps_snapshot\x18\x17 \x01(\rR objectiveForgerySlashBpsSnapshot\x12J\n" +
+	"\x15accepted_payload_mode\x18\x18 \x01(\x0e2\x16.task.v1.PayloadModeV1R\x13acceptedPayloadModeB\x17\n" +
+	"\x15_task_finality_height\"\xe5\n" +
 	"\n" +
 	"\x13TaskAssignmentState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
@@ -2161,7 +2194,8 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\x14infer_timeout_blocks\x18\x13 \x01(\x04R\x12inferTimeoutBlocks\x12P\n" +
 	"%challenge_open_window_blocks_snapshot\x18\x14 \x01(\x04R!challengeOpenWindowBlocksSnapshot\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x15 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
-	"\x1fresult_reveal_missing_slash_bps\x18\x16 \x01(\rR\x1bresultRevealMissingSlashBps\"\xff\x02\n" +
+	"\x1fresult_reveal_missing_slash_bps\x18\x16 \x01(\rR\x1bresultRevealMissingSlashBps\x12?\n" +
+	"\x12min_stake_snapshot\x18\x17 \x01(\v2\x11.shared.v1.AmountR\x10minStakeSnapshot\"\xff\x02\n" +
 	"\x1bAssignmentCandidateSetState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12\x1b\n" +
@@ -2307,7 +2341,11 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"*TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED\x10\x00\x12'\n" +
 	"#TASK_CANDIDATE_STAGE_STATUS_V1_OPEN\x10\x01\x12-\n" +
 	")TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZING\x10\x02\x12,\n" +
-	"(TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZED\x10\x03*\x9c\x01\n" +
+	"(TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZED\x10\x03*n\n" +
+	"\rPayloadModeV1\x12\x1f\n" +
+	"\x1bPAYLOAD_MODE_V1_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19PAYLOAD_MODE_V1_PLAINTEXT\x10\x01\x12\x1d\n" +
+	"\x19PAYLOAD_MODE_V1_ENCRYPTED\x10\x02*\x9c\x01\n" +
 	"\x16FinalizeCursorStatusV1\x12)\n" +
 	"%FINALIZE_CURSOR_STATUS_V1_UNSPECIFIED\x10\x00\x12%\n" +
 	"!FINALIZE_CURSOR_STATUS_V1_RUNNING\x10\x01\x120\n" +
@@ -2325,7 +2363,7 @@ func file_task_v1_assignment_proto_rawDescGZIP() []byte {
 	return file_task_v1_assignment_proto_rawDescData
 }
 
-var file_task_v1_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_task_v1_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
 var file_task_v1_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_task_v1_assignment_proto_goTypes = []any{
 	(TaskPhase)(0),                              // 0: task.v1.TaskPhase
@@ -2336,50 +2374,53 @@ var file_task_v1_assignment_proto_goTypes = []any{
 	(AssignmentFailureReason)(0),                // 5: task.v1.AssignmentFailureReason
 	(TaskCandidateStage)(0),                     // 6: task.v1.TaskCandidateStage
 	(TaskCandidateStageStatusV1)(0),             // 7: task.v1.TaskCandidateStageStatusV1
-	(FinalizeCursorStatusV1)(0),                 // 8: task.v1.FinalizeCursorStatusV1
-	(*TaskCoreState)(nil),                       // 9: task.v1.TaskCoreState
-	(*TaskAssignmentState)(nil),                 // 10: task.v1.TaskAssignmentState
-	(*AssignmentCandidateSetState)(nil),         // 11: task.v1.AssignmentCandidateSetState
-	(*TaskCandidateFactState)(nil),              // 12: task.v1.TaskCandidateFactState
-	(*BuilderStageProposalState)(nil),           // 13: task.v1.BuilderStageProposalState
-	(*TaskStageHandraiseUnionState)(nil),        // 14: task.v1.TaskStageHandraiseUnionState
-	(*TaskStageHandraiseUnionSegmentState)(nil), // 15: task.v1.TaskStageHandraiseUnionSegmentState
-	(*TaskBuilderSelectionState)(nil),           // 16: task.v1.TaskBuilderSelectionState
-	(*TaskCandidateFinalizeCursorState)(nil),    // 17: task.v1.TaskCandidateFinalizeCursorState
-	(v1.TaskType)(0),                            // 18: shared.v1.TaskType
-	(*v1.Amount)(nil),                           // 19: shared.v1.Amount
-	(v1.TaskFinalityStatusV1)(0),                // 20: shared.v1.TaskFinalityStatusV1
-	(v1.Duty)(0),                                // 21: shared.v1.Duty
-	(v1.StoredBodyStatus)(0),                    // 22: shared.v1.StoredBodyStatus
+	(PayloadModeV1)(0),                          // 8: task.v1.PayloadModeV1
+	(FinalizeCursorStatusV1)(0),                 // 9: task.v1.FinalizeCursorStatusV1
+	(*TaskCoreState)(nil),                       // 10: task.v1.TaskCoreState
+	(*TaskAssignmentState)(nil),                 // 11: task.v1.TaskAssignmentState
+	(*AssignmentCandidateSetState)(nil),         // 12: task.v1.AssignmentCandidateSetState
+	(*TaskCandidateFactState)(nil),              // 13: task.v1.TaskCandidateFactState
+	(*BuilderStageProposalState)(nil),           // 14: task.v1.BuilderStageProposalState
+	(*TaskStageHandraiseUnionState)(nil),        // 15: task.v1.TaskStageHandraiseUnionState
+	(*TaskStageHandraiseUnionSegmentState)(nil), // 16: task.v1.TaskStageHandraiseUnionSegmentState
+	(*TaskBuilderSelectionState)(nil),           // 17: task.v1.TaskBuilderSelectionState
+	(*TaskCandidateFinalizeCursorState)(nil),    // 18: task.v1.TaskCandidateFinalizeCursorState
+	(v1.TaskType)(0),                            // 19: shared.v1.TaskType
+	(*v1.Amount)(nil),                           // 20: shared.v1.Amount
+	(v1.TaskFinalityStatusV1)(0),                // 21: shared.v1.TaskFinalityStatusV1
+	(v1.Duty)(0),                                // 22: shared.v1.Duty
+	(v1.StoredBodyStatus)(0),                    // 23: shared.v1.StoredBodyStatus
 }
 var file_task_v1_assignment_proto_depIdxs = []int32{
-	18, // 0: task.v1.TaskCoreState.task_type:type_name -> shared.v1.TaskType
-	19, // 1: task.v1.TaskCoreState.order_value:type_name -> shared.v1.Amount
+	19, // 0: task.v1.TaskCoreState.task_type:type_name -> shared.v1.TaskType
+	20, // 1: task.v1.TaskCoreState.order_value:type_name -> shared.v1.Amount
 	0,  // 2: task.v1.TaskCoreState.task_phase:type_name -> task.v1.TaskPhase
 	1,  // 3: task.v1.TaskCoreState.assignment_status:type_name -> task.v1.AssignmentStatus
 	2,  // 4: task.v1.TaskCoreState.receipt_status:type_name -> task.v1.ReceiptStatus
 	3,  // 5: task.v1.TaskCoreState.verification_status:type_name -> task.v1.VerificationStatus
 	4,  // 6: task.v1.TaskCoreState.settlement_status:type_name -> task.v1.SettlementStatus
-	20, // 7: task.v1.TaskCoreState.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
-	5,  // 8: task.v1.TaskAssignmentState.assignment_fail_reason:type_name -> task.v1.AssignmentFailureReason
-	6,  // 9: task.v1.TaskCandidateFactState.stage:type_name -> task.v1.TaskCandidateStage
-	21, // 10: task.v1.TaskCandidateFactState.duty:type_name -> shared.v1.Duty
-	19, // 11: task.v1.TaskCandidateFactState.active_bond_snapshot:type_name -> shared.v1.Amount
-	19, // 12: task.v1.TaskCandidateFactState.available_bond_snapshot:type_name -> shared.v1.Amount
-	19, // 13: task.v1.TaskCandidateFactState.required_task_liability_snapshot:type_name -> shared.v1.Amount
-	19, // 14: task.v1.TaskCandidateFactState.min_stake_snapshot:type_name -> shared.v1.Amount
-	6,  // 15: task.v1.BuilderStageProposalState.stage:type_name -> task.v1.TaskCandidateStage
-	6,  // 16: task.v1.TaskStageHandraiseUnionState.stage:type_name -> task.v1.TaskCandidateStage
-	7,  // 17: task.v1.TaskStageHandraiseUnionState.status:type_name -> task.v1.TaskCandidateStageStatusV1
-	6,  // 18: task.v1.TaskStageHandraiseUnionSegmentState.stage:type_name -> task.v1.TaskCandidateStage
-	22, // 19: task.v1.TaskBuilderSelectionState.body_status:type_name -> shared.v1.StoredBodyStatus
-	6,  // 20: task.v1.TaskCandidateFinalizeCursorState.stage:type_name -> task.v1.TaskCandidateStage
-	8,  // 21: task.v1.TaskCandidateFinalizeCursorState.status:type_name -> task.v1.FinalizeCursorStatusV1
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	21, // 7: task.v1.TaskCoreState.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
+	8,  // 8: task.v1.TaskCoreState.accepted_payload_mode:type_name -> task.v1.PayloadModeV1
+	5,  // 9: task.v1.TaskAssignmentState.assignment_fail_reason:type_name -> task.v1.AssignmentFailureReason
+	20, // 10: task.v1.TaskAssignmentState.min_stake_snapshot:type_name -> shared.v1.Amount
+	6,  // 11: task.v1.TaskCandidateFactState.stage:type_name -> task.v1.TaskCandidateStage
+	22, // 12: task.v1.TaskCandidateFactState.duty:type_name -> shared.v1.Duty
+	20, // 13: task.v1.TaskCandidateFactState.active_bond_snapshot:type_name -> shared.v1.Amount
+	20, // 14: task.v1.TaskCandidateFactState.available_bond_snapshot:type_name -> shared.v1.Amount
+	20, // 15: task.v1.TaskCandidateFactState.required_task_liability_snapshot:type_name -> shared.v1.Amount
+	20, // 16: task.v1.TaskCandidateFactState.min_stake_snapshot:type_name -> shared.v1.Amount
+	6,  // 17: task.v1.BuilderStageProposalState.stage:type_name -> task.v1.TaskCandidateStage
+	6,  // 18: task.v1.TaskStageHandraiseUnionState.stage:type_name -> task.v1.TaskCandidateStage
+	7,  // 19: task.v1.TaskStageHandraiseUnionState.status:type_name -> task.v1.TaskCandidateStageStatusV1
+	6,  // 20: task.v1.TaskStageHandraiseUnionSegmentState.stage:type_name -> task.v1.TaskCandidateStage
+	23, // 21: task.v1.TaskBuilderSelectionState.body_status:type_name -> shared.v1.StoredBodyStatus
+	6,  // 22: task.v1.TaskCandidateFinalizeCursorState.stage:type_name -> task.v1.TaskCandidateStage
+	9,  // 23: task.v1.TaskCandidateFinalizeCursorState.status:type_name -> task.v1.FinalizeCursorStatusV1
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_assignment_proto_init() }
@@ -2395,7 +2436,7 @@ func file_task_v1_assignment_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_assignment_proto_rawDesc), len(file_task_v1_assignment_proto_rawDesc)),
-			NumEnums:      9,
+			NumEnums:      10,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,

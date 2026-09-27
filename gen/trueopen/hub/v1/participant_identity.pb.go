@@ -197,9 +197,9 @@ func (x *ServiceDescriptorV1) GetEndpoints() []*ServiceEndpointV1 {
 	return nil
 }
 
-// CortexNodeState is the single stable Cortex identity row (§6.4). Fields 10-12
-// are the three online-responsibility counters that the API contract /
-// §10.0c1 require MsgRotateServiceKey to see at zero; they replace the previous
+// CortexNodeState is the single stable Cortex identity row. Fields 10-12
+// are the three online-responsibility counters that the wire API /
+// this contract require MsgRotateServiceKey to see at zero; they replace the previous
 // string-keyed TASK_LIABILITY_* responsibility rows.
 // CortexNodeState defines the CortexNodeState wire type.
 type CortexNodeState struct {
@@ -499,8 +499,8 @@ type ServiceKeyResponsibilityState struct {
 	OperatorAddress    string                       `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
 	ResponsibilityId   []byte                       `protobuf:"bytes,3,opt,name=responsibility_id,json=responsibilityId,proto3" json:"responsibility_id,omitempty"`
 	ResponsibilityKind ServiceKeyResponsibilityKind `protobuf:"varint,4,opt,name=responsibility_kind,json=responsibilityKind,proto3,enum=hub.v1.ServiceKeyResponsibilityKind" json:"responsibility_kind,omitempty"`
-	SessionId          string                       `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId             string                       `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	SessionId          []byte                       `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId             []byte                       `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	CreatedHeight      uint64                       `protobuf:"varint,7,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
 	// Service-key generation that acquired this responsibility. It distinguishes
 	// an exact acquire replay from the same responsibility ID presented under a
@@ -568,18 +568,18 @@ func (x *ServiceKeyResponsibilityState) GetResponsibilityKind() ServiceKeyRespon
 	return ServiceKeyResponsibilityKind_SERVICE_KEY_RESPONSIBILITY_KIND_UNSPECIFIED
 }
 
-func (x *ServiceKeyResponsibilityState) GetSessionId() string {
+func (x *ServiceKeyResponsibilityState) GetSessionId() []byte {
 	if x != nil {
 		return x.SessionId
 	}
-	return ""
+	return nil
 }
 
-func (x *ServiceKeyResponsibilityState) GetTaskId() string {
+func (x *ServiceKeyResponsibilityState) GetTaskId() []byte {
 	if x != nil {
 		return x.TaskId
 	}
-	return ""
+	return nil
 }
 
 func (x *ServiceKeyResponsibilityState) GetCreatedHeight() uint64 {
@@ -640,8 +640,8 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x11responsibility_id\x18\x03 \x01(\fR\x10responsibilityId\x12U\n" +
 	"\x13responsibility_kind\x18\x04 \x01(\x0e2$.hub.v1.ServiceKeyResponsibilityKindR\x12responsibilityKind\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x06 \x01(\tR\x06taskId\x12%\n" +
+	"session_id\x18\x05 \x01(\fR\tsessionId\x12\x17\n" +
+	"\atask_id\x18\x06 \x01(\fR\x06taskId\x12%\n" +
 	"\x0ecreated_height\x18\a \x01(\x04R\rcreatedHeight\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce*\xba\x01\n" +
 	"\x13ServiceEndpointKind\x12%\n" +

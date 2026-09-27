@@ -242,7 +242,7 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 			Core: &taskv1.TaskCoreState{
 				TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, UserAddress: "user-1",
 				OrderSequence: 7, AcceptedTaskHash: mustHash32("55"),
-				ModelId: "model-1", ProfileVersion: 2,
+				ModelId: testModelIDBytes, ProfileVersion: 2,
 				TaskPhase: taskv1.TaskPhase_TASK_PHASE_VERIFIER_ASSIGNED,
 			},
 			Assignment: &taskv1.TaskAssignmentViewV1{
@@ -287,7 +287,7 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 	if got.Deadlines.Commit != 60 || got.Deadlines.Reveal != 80 || got.Deadlines.Verify != 90 {
 		t.Fatalf("deadlines=%+v", got.Deadlines)
 	}
-	if got.Assignment.OrderSequence != 7 || got.Assignment.ModelID != "model-1" ||
+	if got.Assignment.OrderSequence != 7 || got.Assignment.ModelID != testModelIDHex ||
 		got.Assignment.AssignAcceptHeight != 44 || got.Assignment.WinnerConfirmHeight != 46 {
 		t.Fatalf("assignment view=%+v", got.Assignment)
 	}
@@ -601,20 +601,20 @@ func TestQueryTimeoutBucketRejectsWrongBucketKind(t *testing.T) {
 
 func TestQueryProfileMapsChallengeWindow(t *testing.T) {
 	fake := &recordHubQuery{profile: &hubv1.QueryProfileResponse{Profile: &hubv1.ProfileState{
-		ModelId: "model-1", ProfileVersion: 2,
+		ModelId: testModelIDBytes, ProfileVersion: 2,
 		Status:                    hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
 		ChallengeOpenWindowBlocks: 120,
 	}}}
 	c := &client{hubQuery: fake}
 
-	got, err := c.QueryProfile(context.Background(), "model-1", 2)
+	got, err := c.QueryProfile(context.Background(), testModelIDHex, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.profileRequest.GetModelId() != "model-1" || fake.profileRequest.GetProfileVersion() != 2 {
+	if !bytes.Equal(fake.profileRequest.GetModelId(), testModelIDBytes) || fake.profileRequest.GetProfileVersion() != 2 {
 		t.Fatalf("request=%+v", fake.profileRequest)
 	}
-	if got.ModelID != "model-1" || got.ProfileVersion != 2 || got.Status != "MODEL_PROFILE_STATUS_ACTIVE" || got.ChallengeOpenWindowBlocks != 120 {
+	if got.ModelID != testModelIDHex || got.ProfileVersion != 2 || got.Status != "MODEL_PROFILE_STATUS_ACTIVE" || got.ChallengeOpenWindowBlocks != 120 {
 		t.Fatalf("profile=%+v", got)
 	}
 }
@@ -622,11 +622,11 @@ func TestQueryProfileMapsChallengeWindow(t *testing.T) {
 func TestQueryProfilePreservesUint32Range(t *testing.T) {
 	const version = uint32(math.MaxUint32)
 	fake := &recordHubQuery{profile: &hubv1.QueryProfileResponse{Profile: &hubv1.ProfileState{
-		ModelId: "model-1", ProfileVersion: version,
+		ModelId: testModelIDBytes, ProfileVersion: version,
 		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
 	}}}
 	c := &client{hubQuery: fake}
-	got, err := c.QueryProfile(context.Background(), "model-1", version)
+	got, err := c.QueryProfile(context.Background(), testModelIDHex, version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestQueryProfilePreservesUint32Range(t *testing.T) {
 
 func TestQueryProfileRejectsZeroVersion(t *testing.T) {
 	c := &client{}
-	if _, err := c.QueryProfile(context.Background(), "model-1", 0); err == nil {
+	if _, err := c.QueryProfile(context.Background(), testModelIDHex, 0); err == nil {
 		t.Fatal("QueryProfile accepted profile_version 0")
 	}
 }
@@ -814,7 +814,7 @@ func TestQueryTaskMapsCompactedTerminalSummary(t *testing.T) {
 		TerminalPhase: taskv1.TaskPhase_TASK_PHASE_SETTLED, Verdict: taskv1.TaskVerdict_TASK_VERDICT_PASS,
 		SettlementStatus: taskv1.SettlementStatus_SETTLEMENT_STATUS_FINALIZED,
 		FinalityStatus:   sharedv1.TaskFinalityStatusV1_TASK_FINALITY_STATUS_V1_FINAL,
-		ModelId:          "model-1", ProfileVersion: 2, WinnerWorker: proto.String("worker-1"),
+		ModelId:          testModelIDBytes, ProfileVersion: 2, WinnerWorker: proto.String("worker-1"),
 		SettlementHeight: 90, TaskFinalityHeight: 88,
 	}
 	c := &client{taskQuery: &recordTaskQuery{response: terminalResponse(summary)}}
@@ -1069,3 +1069,9 @@ func TestQueryEpochLengthBlocks(t *testing.T) {
 		}
 	}
 }
+
+// A model_id is a raw 32-byte Hash32 on chain and its lowercase hex inside Nexus.
+var (
+	testModelIDBytes = bytes.Repeat([]byte{0x5a}, 32)
+	testModelIDHex   = hex.EncodeToString(testModelIDBytes)
+)

@@ -67,7 +67,7 @@ type OutputStreamConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// MaxOutputMMRLeaves is the maximum frame count (parameter table max_output_mmr_leaves, localnet placeholder 65536).
 	MaxOutputMMRLeaves uint64 `yaml:"max_output_mmr_leaves"`
-	// MinFrameBytes is the minimum bytes per frame, except for the last frame (parameter table min_output_stream_frame_bytes, localnet placeholder 16).
+	// MinFrameBytes is the minimum bytes per frame, except for the last frame; it must match the chain parameter min_output_stream_frame_bytes (256).
 	MinFrameBytes uint64 `yaml:"min_output_stream_frame_bytes"`
 	// MaxAttachmentBytes is the per-frame attachment limit; 0 means attachments are rejected (must be identical across Nexus instances until the protocol settles it).
 	MaxAttachmentBytes uint64 `yaml:"max_attachment_bytes"`
@@ -602,7 +602,7 @@ func defaults() Config {
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,
 			OutputStream: OutputStreamConfig{
-				Enabled: true, MaxOutputMMRLeaves: 65536, MinFrameBytes: 16, MaxAttachmentBytes: 65536, SubscriberBufferFrames: 256,
+				Enabled: true, MaxOutputMMRLeaves: 65536, MinFrameBytes: 256, MaxAttachmentBytes: 65536, SubscriberBufferFrames: 256,
 			},
 		},
 		Chain: ChainConfig{

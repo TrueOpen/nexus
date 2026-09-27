@@ -91,8 +91,11 @@ func validateWorkerHandraiseV1(chainID string, hr *taskv1.WorkerHandraiseV1) err
 	if hr.GetMember().GetSlotVersion() == 0 {
 		return fmt.Errorf("worker handraise %q member.slot_version is required", worker)
 	}
-	if hr.GetModelId() == "" || hr.GetProfileVersion() == 0 {
+	if len(hr.GetModelId()) != hash32Len || hr.GetProfileVersion() == 0 {
 		return fmt.Errorf("worker handraise %q model_id and profile_version are required", worker)
+	}
+	if len(hr.GetRecipientPubkey()) != 0 {
+		return fmt.Errorf("worker handraise %q carries a recipient_pubkey while encryption is inactive", worker)
 	}
 	// service_authorization_nonce is the nonce of the operator's current service binding, not a per-message
 	// counter (§4.1); 0 means Cortex did not fill it and the chain will reject.

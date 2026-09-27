@@ -8,7 +8,7 @@ import "shared/v1/model_profile.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // TaskPhase is the aggregate task phase. Numeric values are frozen by
-// the API contract; ascending order is the mandatory forward order, so
+// the wire API; ascending order is the mandatory forward order, so
 // transition checks are monotonic with no rollback and no skipping.
 // TaskPhase defines the TaskPhase wire type.
 enum TaskPhase {
@@ -45,7 +45,7 @@ enum TaskPhase {
 }
 
 // AssignmentStatus is the Worker assignment sub-state. Values are frozen by
-// §9.6b. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
+// this contract. It is stored only on TaskCoreState; TaskAssignmentState must not keep a
 // copy.
 // AssignmentStatus defines the AssignmentStatus wire type.
 enum AssignmentStatus {
@@ -69,7 +69,7 @@ enum AssignmentStatus {
   ASSIGNMENT_STATUS_WORKER_TIMEOUT = 5;
 }
 
-// ReceiptStatus is the inference receipt sub-state, frozen by §9.6b.
+// ReceiptStatus is the inference receipt sub-state, frozen by this contract.
 enum ReceiptStatus {
   // Never written; rejects zero-value rows.
   // RECEIPT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
@@ -85,7 +85,7 @@ enum ReceiptStatus {
   RECEIPT_STATUS_RECEIPT_TIMEOUT = 3;
 }
 
-// VerificationStatus is the verification sub-state, frozen by §9.6b.
+// VerificationStatus is the verification sub-state, frozen by this contract.
 enum VerificationStatus {
   // Never written; rejects zero-value rows.
   // VERIFICATION_STATUS_UNSPECIFIED identifies the corresponding protocol value.
@@ -122,7 +122,7 @@ enum VerificationStatus {
   VERIFICATION_STATUS_VERIFIER_SELECTION_PENDING = 10;
 }
 
-// SettlementStatus is the settlement sub-state, frozen by §9.6b.
+// SettlementStatus is the settlement sub-state, frozen by this contract.
 enum SettlementStatus {
   // Never written; rejects zero-value rows.
   // SETTLEMENT_STATUS_UNSPECIFIED identifies the corresponding protocol value.
@@ -139,7 +139,7 @@ enum SettlementStatus {
 }
 
 // AssignmentFailureReason is the single closed reason for a failed Worker
-// assignment, frozen by §9.6b.
+// assignment, frozen by this contract.
 // AssignmentFailureReason defines the AssignmentFailureReason wire type.
 enum AssignmentFailureReason {
   // No failure recorded.
@@ -161,13 +161,8 @@ enum AssignmentFailureReason {
 
 // TaskCandidateStage selects the handraise stage of one task.
 //
-// CONTRACT-GAP: data_structure_contract §4.2 types the field as `TaskCandidateStage` but
-// §9.6b does not register it; api_contract §1.4 instead states that the `stage` field
-// inside TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 / TRUEOPEN_TASK_STAGE_ADDED_BITMAP_V1 uses
-// the §5.10 `BuilderDutyStageV1` numbers. The values below therefore keep the
-// §4.2 type name with the §5.10 numbers (OPEN_TASK=1, OPEN_VERIFY=2); SETTLE=3
-// is intentionally absent because it is not a candidate stage. The type name vs.
-// numbering-authority conflict must be resolved in the contract.
+// The bitmap domains use OPEN_TASK=1 and OPEN_VERIFY=2. SETTLE is not a
+// candidate stage and has no value in this enum.
 // TaskCandidateStage defines the TaskCandidateStage wire type.
 enum TaskCandidateStage {
   // Never written; rejects zero-value rows and keys.
@@ -181,7 +176,7 @@ enum TaskCandidateStage {
   TASK_CANDIDATE_STAGE_OPEN_VERIFY = 2;
 }
 
-// TaskCandidateStageStatusV1 is the handraise window status, frozen by §9.6b.
+// TaskCandidateStageStatusV1 is the handraise window status, frozen by this contract.
 enum TaskCandidateStageStatusV1 {
   // Never written; rejects zero-value rows.
   // TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
@@ -197,7 +192,17 @@ enum TaskCandidateStageStatusV1 {
   TASK_CANDIDATE_STAGE_STATUS_V1_FINALIZED = 3;
 }
 
-// FinalizeCursorStatusV1 is the bounded finalize cursor status, frozen by §9.6b.
+// PayloadModeV1 reserves encrypted payload selection for a later activation.
+enum PayloadModeV1 {
+  // An unset mode is invalid in an accepted order.
+  PAYLOAD_MODE_V1_UNSPECIFIED = 0;
+  // Phase 0 accepts only plaintext payloads.
+  PAYLOAD_MODE_V1_PLAINTEXT = 1;
+  // Encryption is reserved for a separately activated contract.
+  PAYLOAD_MODE_V1_ENCRYPTED = 2;
+}
+
+// FinalizeCursorStatusV1 is the bounded finalize cursor status.
 enum FinalizeCursorStatusV1 {
   // Never written; rejects zero-value rows.
   // FINALIZE_CURSOR_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
@@ -210,14 +215,14 @@ enum FinalizeCursorStatusV1 {
   FINALIZE_CURSOR_STATUS_V1_WAITING_RANDOMNESS = 2;
 }
 
-// CandidateMemberRefV1 (api_contract §4.1) is the member reference shared by
+// CandidateMemberRefV1 (the wire API) is the member reference shared by
 // WorkerHandraiseV1 and VerifierHandraiseV1. It must exist exactly once in this
 // module and is currently declared in task/v1/open_verify.proto by the
 // verifier slice, so msg_assignment.proto imports it from there instead of
 // re-declaring it here.
 
-// TaskCoreState is the only primary of the six task sub-states (data_structure_contract
-// §6.6, key = task_id). Stage tables store stage-local facts only and must not
+// TaskCoreState is the only primary of the six task sub-states (public storage contract
+// this contract, key = task_id). Stage tables store stage-local facts only and must not
 // copy these sub-states. The abandoned TaskStatus projection and the
 // SessionEscrow double ledger are deleted.
 // TaskCoreState defines the TaskCoreState wire type.
@@ -229,10 +234,10 @@ message TaskCoreState {
   bytes accepted_task_hash = 5;
   bytes accepted_input_hash = 6;
   bytes accepted_order_opening_hash = 7;
-  string model_id = 8;
+  bytes model_id = 8;
   uint32 profile_version = 9;
   // order_value is the immutable keeper-derived worker_max + verify_max from
-  // the accepted TaskOrderV2. It is not TaskBudgetState.original_reserved_amount,
+  // the accepted TaskOrderV3. It is not TaskBudgetState.original_reserved_amount,
   // which is max_fee.
   shared.v1.TaskType task_type = 10;
   shared.v1.Amount order_value = 11;
@@ -252,13 +257,14 @@ message TaskCoreState {
   // Frozen from Hub ServiceParamsV1.objective_forgery_slash_bps in the same
   // transaction and used by objective Worker evidence.
   uint32 objective_forgery_slash_bps_snapshot = 23;
+  PayloadModeV1 accepted_payload_mode = 24;
 }
 
-// TaskAssignmentState holds Worker assignment facts only (§6.6, key = task_id).
+// TaskAssignmentState holds Worker assignment facts only (key = task_id).
 // assignment_status is NOT duplicated here. winner_draw_digest is derived at
-// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (api_contract §10.2).
+// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (the wire API).
 // candidate_pool_ref_released makes the CandidatePoolTaskRefState release
-// idempotent (data_structure_contract §3.3).
+// idempotent (the public storage contract).
 // TaskAssignmentState defines the TaskAssignmentState wire type.
 message TaskAssignmentState {
   bytes task_id = 1;
@@ -287,10 +293,12 @@ message TaskAssignmentState {
   // update cannot reinterpret an in-flight duty.
   uint32 worker_infer_timeout_slash_bps = 21;
   uint32 result_reveal_missing_slash_bps = 22;
+  // Profile minimum stake frozen at admission for later Verifier eligibility.
+  shared.v1.Amount min_stake_snapshot = 23;
 }
 
 // AssignmentCandidateSetState is the task-local dual commitment header
-// (data_structure_contract §4.3, key = task_id). The pool commitment and the task legal-set
+// (the public storage contract, key = task_id). The pool commitment and the task legal-set
 // commitment are separate: candidate_pool_snapshot_id/pool_hash commit to the
 // public candidate source, union_bitmap_hash plus
 // assignment_candidate_set_hash commit to the accepted handraise subset. No
@@ -308,7 +316,7 @@ message AssignmentCandidateSetState {
 }
 
 // TaskCandidateFactState is the immutable accepted-time frozen fact for one
-// candidate bit (data_structure_contract §4.2, key = (task_id, stage, slot)). It is written
+// candidate bit (the public storage contract, key = (task_id, stage, slot)). It is written
 // in the same Tx that flips the bit; later bond, support, jail or performance
 // changes must never write back. Raw handraise JSON is never stored: only these
 // typed facts, the signing digest, bitmaps, counts and commitments.
@@ -316,7 +324,7 @@ message AssignmentCandidateSetState {
 // Thirteen of these fields enter the TRUEOPEN_ASSIGNMENT_LEGAL_SET_V1 preimage per
 // frozen candidate slot, so they are consensus critical and part of the
 // cross-language vector. WARNING: the preimage order is NOT this message's field
-// number order. api_contract §4.3 freezes the repeated block explicitly as
+// number order. the wire API freezes the repeated block explicitly as
 //
 //   repeated(slot, slot_version, operator_address,
 //            candidate_weight, active_bond_snapshot, available_bond_snapshot,
@@ -327,43 +335,15 @@ message AssignmentCandidateSetState {
 //
 // so candidate_weight - field 17 here - is hashed FOURTH, right after
 // operator_address, and duty (field 7) does NOT enter the preimage at all, nor do
-// schema_version, task_id, stage or handraise_signing_digest. §1.2's default
-// "ascending schema field number" rule applies only where a section gives no
-// explicit order; §4.3 gives one, so §4.3 wins. An implementation that encodes this
-// message by field number produces a different assignment_candidate_set_hash.
+// schema_version, task_id, stage or handraise_signing_digest. This explicit
+// order overrides field-number order for the legal-set commitment.
 //
-// CONTRACT-GAP (performance_score_snapshot_ppm = 12,
-// performance_method_version = 13): both values are frozen into that preimage, but
-// no State in either keeper contract produces them. The candidate weight formula's
-//
-//   WorkerCandidateWeight   = (0.30*stake_score + 0.70*performance_score) * jail
-//   VerifierCandidateWeight = (0.20*stake_score + 0.80*performance_score) * jail
-//
-// and it sources performance_score from a "PerformanceState" mapped through
-// performance_method_version - a State that the data-structure contract never declares
-// and that the API contract never exposes (no PerformanceScoreState, no
-// QueryPerformanceScore; §16.3 QueryServiceLifecycle explicitly must not compute
-// performance on the fly). §9.6b also registers no numbering for
-// performance_method_version even though its uint32 value is hashed.
-//
-// V1 resolution (Decision 21, do not deviate): every accepted-time snapshot writes
-//   performance_score_snapshot_ppm = 1000000   // 1.0 in ppm, the §1.1 ppm scale
-//   performance_method_version     = 1         // denotes PERFORMANCE_RAW_Q16_V1
-// PERFORMANCE_RAW_Q16_V1 is the only registered method
-// [0,1]) and 1.0 is the frozen default for a node with no track record, so no
-// candidate is excluded for lacking history.
-//
-// The value must NEVER be written as 0. performance_score_snapshot_ppm = 0 makes
-// the weighted term 0; with 1.0 stake_score the Worker weight collapses to
-// 0.30*jail and with a jailed or zero-stake candidate it collapses to 0 outright.
-// Once every candidate in the frozen legal set weighs 0, §4.5's checked uint64
-// weight sum is 0, the unbiased draw has no positive cumulative weight to select
-// against and the handler must raise an invariant error and hold the Task pending
-// - i.e. a zero here disables Worker and Verifier selection chain-wide rather than
-// merely de-prioritising a candidate. A future real performance feed must clamp
-// into the §1.1 range 0..1000000 with a floor above 0, and must arrive together
-// with the missing State, its §9.6b method numbering and a new
-// performance_method_version - never by silently reinterpreting version 1.
+// V1 freezes performance_score_snapshot_ppm=1000000 and
+// performance_method_version=1 (PERFORMANCE_RAW_Q16_V1) at acceptance. There
+// is no live performance feed in this contract. A zero score could make every
+// candidate weight zero and block selection, so it must never be written.
+// A future feed requires a new method version and an explicit score source;
+// version 1 must not be reinterpreted.
 // TaskCandidateFactState defines the TaskCandidateFactState wire type.
 message TaskCandidateFactState {
   uint32 schema_version = 1;
@@ -389,7 +369,7 @@ message TaskCandidateFactState {
   uint64 capability_version_snapshot = 19;
 }
 
-// BuilderStageProposalState is one accepted proposal receipt (data_structure_contract §4.2,
+// BuilderStageProposalState is one accepted proposal receipt (the public storage contract,
 // key = (task_id, stage, proposal_digest)). data_ready_attestation is only set
 // for Builder Open Verify proposals.
 // BuilderStageProposalState defines the BuilderStageProposalState wire type.
@@ -405,7 +385,7 @@ message BuilderStageProposalState {
 }
 
 // TaskStageHandraiseUnionState is the authoritative stage union header
-// (data_structure_contract §4.2, key = (task_id, stage)). union_bitmap_hash is the single
+// (the public storage contract, key = (task_id, stage)). union_bitmap_hash is the single
 // TRUEOPEN_TASK_STAGE_UNION_BITMAP_V1 value shared with AssignmentCandidateSetState;
 // there is no separate bitmap_hash field. After finalize the segment bodies are
 // deleted and only hash/count/status remain.
@@ -430,7 +410,7 @@ message TaskStageHandraiseUnionState {
 }
 
 // TaskStageHandraiseUnionSegmentState is one fixed-width union bitmap segment
-// (data_structure_contract §4.2, key = (task_id, stage, segment_index)). bitmap length is
+// (the public storage contract, key = (task_id, stage, segment_index)). bitmap length is
 // exactly candidate_bitmap_segment_bytes; the body is deleted at finalize.
 // TaskStageHandraiseUnionSegmentState defines the TaskStageHandraiseUnionSegmentState wire type.
 message TaskStageHandraiseUnionSegmentState {
@@ -445,8 +425,8 @@ message TaskStageHandraiseUnionSegmentState {
 // Task admission is the only writer
 // of its frozen selection content; terminal and EvidenceCleanup helpers may only
 // advance the lifecycle fields described below. Every later Task stage reads it:
-// §10.1 writes it together with the first accepted Worker proposal, §10.4/§10.5
-// derive the fixed Builder bitmap order from selected_task_builders, and §10.10a
+// it is written together with the first accepted Worker proposal, later stages
+// derive the fixed Builder bitmap order from selected_task_builders, and settlement
 // derives the stable SETTLE duty Builder from the same frozen order and rank.
 //
 // Lifecycle: admission does a checked +1 on the referenced
@@ -455,11 +435,11 @@ message TaskStageHandraiseUnionSegmentState {
 // selected_task_builders and builder_fault_slash_bps_snapshot for objective
 // evidence. EvidenceCleanup releases every BUS_OBJECTIVE_EVIDENCE responsibility,
 // then clears selected_task_builders and changes body_status to PRUNED in the
-// same transaction. The data-structure contract later deletes this whole row in
+// same transaction. The wire storage model later deletes this whole row in
 // TASK_COMPACTION, so the PRUNED header exists only before compaction; after
 // compaction the read path returns NotFound.
 //
-// Read path: rpc Query.TaskBuilders (§16.2), declared in task/v1/query.proto
+// Read path: rpc Query.TaskBuilders, declared in task/v1/query.proto
 // with QueryTaskBuildersRequest/Response and the projected
 // TaskBuilderSelectionViewV1 in task/v1/query_task.proto. That response
 // message carries the single normative statement of the ACTIVE / PRUNED /
@@ -468,20 +448,16 @@ message TaskStageHandraiseUnionSegmentState {
 //
 // Bitmap order: the frozen index of a Builder inside selected_task_builders is
 // also the bit index of MsgReportDataUnavailable /
-// DataUnavailableReportState.unavailable_task_builder_bitmap (§10.5) and of
-// TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap (§10.4). Both
+// DataUnavailableReportState.unavailable_task_builder_bitmap and of
+// TaskStageHandraiseUnionState.data_ready_attesting_builder_bitmap. Both
 // bitmaps become unreplayable once the body is pruned, which is why
 // selected_task_builders_hash is retained.
 //
 // selected_task_builders_hash = H_FIELDS_V1("TRUEOPEN_SELECTED_TASK_BUILDERS_V1",
 // chain_id, task_id, builder_set_id, builder_set_hash, ordered builders).
 //
-// CONTRACT-GAP: §6.5 lists this row inside the Builder-set chapter and names no
-// owning module, while every writer and reader named above is a Task handler and
-// x/hub must not import x/task. It is therefore declared in
-// task/v1; §6.5 should state the owning module explicitly. Field numbers
-// follow the §6.5 listing order (the systematic no-field-number gap of the State
-// chapters).
+// Task handlers own this row; x/hub does not import x/task. Field numbers follow
+// the frozen selection projection order above.
 // TaskBuilderSelectionState defines the TaskBuilderSelectionState wire type.
 message TaskBuilderSelectionState {
   bytes task_id = 1;
@@ -507,7 +483,7 @@ message TaskBuilderSelectionState {
 }
 
 // TaskCandidateFinalizeCursorState is the shared EndBlock / public runner cursor
-// (data_structure_contract §4.6, key = (task_id, stage)). A partial exit persists only the
+// (the public storage contract, key = (task_id, stage)). A partial exit persists only the
 // cursor and already validated frozen rows, never the final commitment, winner or
 // selected verifiers. The cursor is deleted on completion; no DONE row is kept.
 // TaskCandidateFinalizeCursorState defines the TaskCandidateFinalizeCursorState wire type.

@@ -31,10 +31,10 @@ func testUserSignatureV2(fill byte) []byte { return append(bytes.Repeat([]byte{f
 func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 	amount := func(units string) *sharedv1.Amount { return &sharedv1.Amount{AtomicUnits: units} }
 	return &taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: "trueopen-localnet", UserAddress: testFrozenUserAddress,
+		Order: &taskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: "trueopen-localnet", UserAddress: testFrozenUserAddress,
 			SessionId: bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
-			ModelId: "model-1", ProfileVersion: 2,
+			ModelId: testOrderModelID, ProfileVersion: 2,
 			TaskType:  sharedv1.TaskType_TASK_TYPE_TEXT_GENERATION,
 			InputHash: bytes.Repeat([]byte{0x22}, 32), InputSizeBytes: 512,
 			InputBucket: 1, OutputBudgetBucket: 2,
@@ -55,6 +55,8 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
 			BuilderSetId:           "term-1",
 			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:     make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		UserSignature:   testUserSignatureV2(0x55),
@@ -84,7 +86,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	if !bytes.Equal(order.SignedOrder, raw) {
 		t.Fatal("SignedOrder must be preserved verbatim: the user signature covers the frozen TaskOrderV2 and nexus must not rebuild it")
 	}
-	if order.ModelID != "model-1" || order.ProfileVersion != 2 || order.TaskType != "text_generation" {
+	if order.ModelID != hex.EncodeToString(testOrderModelID) || order.ProfileVersion != 2 || order.TaskType != "text_generation" {
 		t.Fatalf("order model binding: %+v", order)
 	}
 	if order.DeadlineHeight != 1000 || order.ValidAfterHeight != 100 {
@@ -95,7 +97,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	}
 	// The order identity is the canonical task_hash derived from the user-signed TaskOrderV2,
 	// not sha256(order_envelope).
-	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV2(signed.GetOrder())
+	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV3(signed.GetOrder())
 	if hashErr != nil {
 		t.Fatalf("task order hash: %v", hashErr)
 	}
@@ -139,13 +141,13 @@ func TestParseOrderEnvelopeTaskHashIgnoresUserSignature(t *testing.T) {
 // an order whose canonical task_hash cannot be computed must not enter the flow -- the keeper would certainly reject it on chain,
 // and rather than broadcasting it with an empty identity and collecting a pile of hand-raises that match nothing, it is rejected at the entrance.
 func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
-	cases := map[string]func(*taskv1.TaskOrderV2){
-		"non-bech32 user_address": func(o *taskv1.TaskOrderV2) { o.UserAddress = "trueopen1user" },
-		"missing max_fee":         func(o *taskv1.TaskOrderV2) { o.MaxFee = nil },
-		"leading zero amount":     func(o *taskv1.TaskOrderV2) { o.PriceBid = &sharedv1.Amount{AtomicUnits: "04"} },
-		"no output budget bucket": func(o *taskv1.TaskOrderV2) { o.OutputBudgetBucket = 0 },
-		"no timeout bucket":       func(o *taskv1.TaskOrderV2) { o.TimeoutBucketVersion = 0 },
-		"short session_id":        func(o *taskv1.TaskOrderV2) { o.SessionId = bytes.Repeat([]byte{0x11}, 16) },
+	cases := map[string]func(*taskv1.TaskOrderV3){
+		"non-bech32 user_address": func(o *taskv1.TaskOrderV3) { o.UserAddress = "trueopen1user" },
+		"missing max_fee":         func(o *taskv1.TaskOrderV3) { o.MaxFee = nil },
+		"leading zero amount":     func(o *taskv1.TaskOrderV3) { o.PriceBid = &sharedv1.Amount{AtomicUnits: "04"} },
+		"no output budget bucket": func(o *taskv1.TaskOrderV3) { o.OutputBudgetBucket = 0 },
+		"no timeout bucket":       func(o *taskv1.TaskOrderV3) { o.TimeoutBucketVersion = 0 },
+		"short session_id":        func(o *taskv1.TaskOrderV3) { o.SessionId = bytes.Repeat([]byte{0x11}, 16) },
 	}
 	// Request-layer secp256k1 signature placeholder: 64 bytes, unrelated to the embedded eip712 user signature.
 	signature := bytes.Repeat([]byte{0x55}, 64)
@@ -217,8 +219,8 @@ func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
 		"short signature":   {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: bytes.Repeat([]byte{0x55}, 32)},
 		"bad V":             {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(bytes.Repeat([]byte{0x55}, 64), 1)},
 		"high-S":            {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(append(bytes.Repeat([]byte{0x55}, 32), bytes.Repeat([]byte{0xff}, 32)...), 27)},
-		"no profile":        {Order: &taskv1.TaskOrderV2{ModelId: "model-1"}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
-		"no model": {Order: &taskv1.TaskOrderV2{ProfileVersion: 1}, SignatureScheme: "eip712",
+		"no profile":        {Order: &taskv1.TaskOrderV3{ModelId: testOrderModelID}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
+		"no model": {Order: &taskv1.TaskOrderV3{ProfileVersion: 1}, SignatureScheme: "eip712",
 			UserSignature: testUserSignatureV2(0x55)},
 	}
 	for name, signed := range cases {
@@ -252,5 +254,32 @@ func TestParseOrderEnvelopeStillAcceptsLegacyJSON(t *testing.T) {
 	}
 	if order.ModelID != "model-1" {
 		t.Fatalf("order=%+v", order)
+	}
+}
+
+// testOrderModelID is a raw 32-byte model_id.
+var testOrderModelID = bytes.Repeat([]byte{0x5a}, 32)
+
+// Encryption is not active on chain: an order that selects it, or carries any key material, is
+// refused before it is broadcast, and an empty input_key_commitment is not padded into a zero one.
+func TestParseOrderEnvelopeAdmitsOnlyPlaintextOrders(t *testing.T) {
+	for name, edit := range map[string]func(*taskv1.TaskOrderV3){
+		"encrypted mode":         func(o *taskv1.TaskOrderV3) { o.PayloadMode = taskv1.PayloadModeV1_PAYLOAD_MODE_V1_ENCRYPTED },
+		"nonzero key commitment": func(o *taskv1.TaskOrderV3) { o.InputKeyCommitment = bytes.Repeat([]byte{1}, 32) },
+		"empty key commitment":   func(o *taskv1.TaskOrderV3) { o.InputKeyCommitment = nil },
+		"recipient key present":  func(o *taskv1.TaskOrderV3) { o.UserRecipientPubkey = bytes.Repeat([]byte{4}, 65) },
+		"text model_id":          func(o *taskv1.TaskOrderV3) { o.ModelId = []byte("model-1") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			signed := testFrozenSignedOrder()
+			edit(signed.GetOrder())
+			raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(signed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parseSignedOrderEnvelope(raw); err == nil {
+				t.Fatal("must be refused")
+			}
+		})
 	}
 }

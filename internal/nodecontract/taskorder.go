@@ -1,24 +1,21 @@
-// Canonical task_hash of TaskOrderV2 (TaskOrder Hashing and Signing
-// §4, Keeper Interface Contract §5.13, implementation design §4.2).
+// Canonical task_hash of TaskOrderV3.
 //
-// task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", canonical TaskOrderV2)
+// task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3)
 //
 // It is the Task's CONTENT identity: flip one bit in any TaskOrder field and task_hash changes; swapping
 // only the user signature does not. Its counterpart is task_id (taskid.go), the stable RBF slot identity:
 // multiple quote versions of the same (session_id, order_sequence) share one task_id and each has its own
-// task_hash. These two are the whole of Phase 0 Task identity; "envelope SHA-256" aliases such as
-// order_hash / order_digest / signed_order_hash do not exist.
+// task_hash.
 //
-// This file encodes field by field per the 25-field table in TaskOrder Hashing and Signing §4.1; field order is ascending TaskOrderV2
-// proto field number, encoding rules per the §1.2 table in hfields.go. V2 is the only order schema of the
-// fresh genesis: no V1, no field aliases, no compatibility decoder (TaskOrder Hashing and Signing §9). If either side changes the framing,
-// the same TaskOrder yields different task_hash values and the Keeper rejects Nexus's submission at admission using
-// the user signature, so field order or encoding here must NOT be "optimized"; changes must move with the contract.
-// The regression gate is the three contract-published digests in taskorder_test.go.
+// The 28 fields are encoded in ascending TaskOrderV3 field number, with the encoding rules of hfields.go.
+// V3 is the only order schema of the fresh genesis: no older schema, no field aliases, no compatibility
+// decoder. If either side changes the framing, the same TaskOrder yields different task_hash values and the
+// Keeper rejects Nexus's submission, so field order or encoding here must NOT be "optimized". The regression
+// gate is the wire task_order_v3 vectors in taskorder_test.go.
 //
 // Nexus only DERIVES this digest and does not verify the user signature: the user signature is a recoverable
-// signature over the order-domain EIP-712 digest (TaskOrder Hashing and Signing §7.4), verified against the on-chain account public key,
-// which is the Keeper's job. Nexus does not create consensus facts.
+// signature over the order-domain EIP-712 digest, verified against the on-chain account public key, which is
+// the Keeper's job.
 package nodecontract
 
 import (
@@ -32,41 +29,41 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-// DomainTaskOrderV2 is the TaskOrder row of the Task domain registry (TaskOrder Hashing and Signing §2).
-const DomainTaskOrderV2 = "TRUEOPEN_TASK_ORDER_V2"
+// DomainTaskOrderV3 is the TaskOrder signing domain.
+const DomainTaskOrderV3 = "TRUEOPEN_TASK_ORDER_V3"
 
-// TaskOrderSchemaVersionV2 is the only accepted value of TaskOrderV2.schema_version.
-const TaskOrderSchemaVersionV2 uint32 = 2
+// TaskOrderSchemaVersionV3 is the only accepted value of TaskOrderV3.schema_version.
+const TaskOrderSchemaVersionV3 uint32 = 3
 
 // GenerationParamsSchemaVersionV1 is the only currently accepted value of
-// GenerationParamsV1.generation_params_schema_version (TaskOrder Hashing and Signing §4.3).
+// GenerationParamsV1.generation_params_schema_version.
 const GenerationParamsSchemaVersionV1 uint32 = 1
 
-// TaskOrderHashV2 returns the canonical task_hash of TaskOrderV2 (raw 32 bytes).
+// TaskOrderHashV3 returns the canonical task_hash of TaskOrderV3 (raw 32 bytes).
 // An incomplete order or a non-canonical field is an error rather than a zero digest: an order whose
 // task_hash cannot be computed is certain to be rejected on chain, and failing early beats proceeding with a fake identity.
-func TaskOrderHashV2(order *taskv1.TaskOrderV2) ([32]byte, error) {
-	fields, err := canonicalTaskOrderFieldsV2(order)
+func TaskOrderHashV3(order *taskv1.TaskOrderV3) ([32]byte, error) {
+	fields, err := canonicalTaskOrderFieldsV3(order)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	return CanonicalHashBytes(DomainTaskOrderV2, fields...), nil
+	return CanonicalHashBytes(DomainTaskOrderV3, fields...), nil
 }
 
-// TaskOrderHashHexV2 is the canonical lowercase 64-hex form of TaskOrderHashV2.
+// TaskOrderHashHexV3 is the canonical lowercase 64-hex form of TaskOrderHashV3.
 // Inside Nexus (types.Order, NATS payload, logs) hex text is used throughout; it is decoded back to 32 bytes
-// only before entering an H_FIELDS_V1 preimage or an on-chain bytes field (§1.1 rule 3).
-func TaskOrderHashHexV2(order *taskv1.TaskOrderV2) (string, error) {
-	digest, err := TaskOrderHashV2(order)
+// only before entering an H_FIELDS_V1 preimage or an on-chain bytes field.
+func TaskOrderHashHexV3(order *taskv1.TaskOrderV3) (string, error) {
+	digest, err := TaskOrderHashV3(order)
 	if err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// canonicalTaskOrderFieldsV2 flattens TaskOrderV2 in ascending proto field number 1..25.
-func canonicalTaskOrderFieldsV2(order *taskv1.TaskOrderV2) ([][]byte, error) {
-	if err := validateTaskOrderScalarScopeV2(order); err != nil {
+// canonicalTaskOrderFieldsV3 flattens TaskOrderV3 in ascending proto field number 1..28.
+func canonicalTaskOrderFieldsV3(order *taskv1.TaskOrderV3) ([][]byte, error) {
+	if err := validateTaskOrderScalarScopeV3(order); err != nil {
 		return nil, err
 	}
 	user, err := CanonicalOperatorAddressBytes("user_address", order.GetUserAddress())
@@ -84,19 +81,19 @@ func canonicalTaskOrderFieldsV2(order *taskv1.TaskOrderV2) ([][]byte, error) {
 			return nil, fmt.Errorf("order amount field %d is not canonical: %w", index+14, err)
 		}
 		// Amount is a nested message whose framing is its own single-field FieldFrameV1
-		// (TaskOrder Hashing and Signing §4.4: FRAME_V1(ascii(canonical u64 decimal))), not a bare u64_be.
+		// (FRAME_V1(ascii(canonical u64 decimal))), not a bare u64_be.
 		encodedAmounts = append(encodedAmounts, CanonicalFrameBytes(units))
 	}
 	generation, err := canonicalGenerationParamsFrameV1(order.GetGenerationParams())
 	if err != nil {
 		return nil, err
 	}
-	// deadline_policy is likewise a nested single-field frame (TaskOrder Hashing and Signing §4.5), not a bare EnumBE.
+	// deadline_policy is likewise a nested single-field frame, not a bare EnumBE.
 	deadline := CanonicalFrameBytes(EnumBE(uint32(order.GetDeadlinePolicy().GetLatencyClass())))
 
 	fields := [][]byte{
 		Uint32BE(order.GetSchemaVersion()), []byte(order.GetChainId()), user, order.GetSessionId(),
-		Uint64BE(order.GetOrderSequence()), []byte(order.GetModelId()), Uint32BE(order.GetProfileVersion()),
+		Uint64BE(order.GetOrderSequence()), order.GetModelId(), Uint32BE(order.GetProfileVersion()),
 		EnumBE(uint32(order.GetTaskType())), order.GetInputHash(), Uint64BE(order.GetInputSizeBytes()),
 		Uint32BE(order.GetInputBucket()), Uint32BE(order.GetOutputBudgetBucket()), generation,
 	}
@@ -106,11 +103,12 @@ func canonicalTaskOrderFieldsV2(order *taskv1.TaskOrderV2) ([][]byte, error) {
 		Uint64BE(order.GetTimeoutBucketVersion()),
 		Uint64BE(order.GetSessionAnchorHeight()), order.GetSessionAnchorBlockHash(),
 		[]byte(order.GetBuilderSetId()), order.GetBuilderSetHash(),
+		EnumBE(uint32(order.GetPayloadMode())), order.GetInputKeyCommitment(), order.GetUserRecipientPubkey(),
 	)
 	return fields, nil
 }
 
-// canonicalGenerationParamsFrameV1 encodes field 13 (GenerationParamsV1, TaskOrder Hashing and Signing §4.3).
+// canonicalGenerationParamsFrameV1 encodes field 13 (GenerationParamsV1).
 // Two levels of nesting: the GenerationParams frame wraps a DecodingParams frame, whose two repeated
 // fields each wrap another "u32 element count + elements" frame; the count frame is encoded even when empty.
 func canonicalGenerationParamsFrameV1(params *taskv1.GenerationParamsV1) ([]byte, error) {
@@ -146,8 +144,8 @@ func canonicalGenerationParamsFrameV1(params *taskv1.GenerationParamsV1) ([]byte
 	), nil
 }
 
-// canonicalAmountUnitsV1 validates and extracts the canonical bytes of Amount.atomic_units
-// (TaskOrder Hashing and Signing §4.4 / §8.4): non-negative decimal, no `+`, no leading zeros, within uint64. What enters the preimage
+// canonicalAmountUnitsV1 validates and extracts the canonical bytes of Amount.atomic_units:
+// non-negative decimal, no `+`, no leading zeros, within uint64. What enters the preimage
 // is this DECIMAL TEXT, not the numeric value.
 func canonicalAmountUnitsV1(amount *sharedv1.Amount) ([]byte, error) {
 	units := amount.GetAtomicUnits()
@@ -168,23 +166,23 @@ func canonicalAmountUnitsV1(amount *sharedv1.Amount) ([]byte, error) {
 	return []byte(units), nil
 }
 
-// validateTaskOrderScalarScopeV2 is the precondition of the "Typed encoding" column in the TaskOrder Hashing and Signing §4.1 table,
-// not "application-level validation": a Hash32 must really be 32 bytes, text must be strict UTF-8, schema_version
-// must be 2, otherwise the computed digest silently disagrees with the Keeper.
-// "assignment_priority_fee must be 0 in Phase 0" is a Keeper admission rule and is not checked here;
-// the contract §8.3 u64-max vector has all four Amounts at maximum and must still compute.
-func validateTaskOrderScalarScopeV2(order *taskv1.TaskOrderV2) error {
+// validateTaskOrderScalarScopeV3 is the precondition of the typed encoding, not "application-level
+// validation": a Hash32 must really be 32 bytes, text must be strict UTF-8, schema_version must be 3,
+// otherwise the computed digest silently disagrees with the Keeper. Admission rules such as "only
+// plaintext orders while encryption is inactive" are checked by ValidatePlaintextOrderV3, not here, so
+// the digest stays defined for every well-formed order.
+func validateTaskOrderScalarScopeV3(order *taskv1.TaskOrderV3) error {
 	if order == nil {
 		return fmt.Errorf("task order is required")
 	}
-	// schema_version gets its own check and dedicated error: during integration the protocol is upgraded in lockstep
-	// on both sides, and an SDK request still sending V1 is the most likely mistake, worth a clearer hint than "scope validation failed".
-	if order.GetSchemaVersion() != TaskOrderSchemaVersionV2 {
-		return fmt.Errorf("task order schema_version must be %d (V1 orders are not accepted), got %d",
-			TaskOrderSchemaVersionV2, order.GetSchemaVersion())
+	// schema_version gets its own check and dedicated error: an SDK still sending an older order schema is
+	// the most likely integration mistake, worth a clearer hint than "scope validation failed".
+	if order.GetSchemaVersion() != TaskOrderSchemaVersionV3 {
+		return fmt.Errorf("task order schema_version must be %d (older order schemas are not accepted), got %d",
+			TaskOrderSchemaVersionV3, order.GetSchemaVersion())
 	}
 	if order.GetChainId() == "" || !utf8.ValidString(order.GetChainId()) ||
-		order.GetModelId() == "" || !utf8.ValidString(order.GetModelId()) ||
+		len(order.GetModelId()) != sha256.Size ||
 		len(order.GetSessionId()) != sha256.Size || order.GetProfileVersion() == 0 ||
 		order.GetTaskType() == sharedv1.TaskType_TASK_TYPE_UNSPECIFIED ||
 		len(order.GetInputHash()) != sha256.Size || order.GetInputSizeBytes() == 0 ||
@@ -195,8 +193,41 @@ func validateTaskOrderScalarScopeV2(order *taskv1.TaskOrderV2) error {
 		order.GetTimeoutBucketVersion() == 0 ||
 		order.GetSessionAnchorHeight() == 0 || len(order.GetSessionAnchorBlockHash()) != sha256.Size ||
 		order.GetBuilderSetId() == "" || !utf8.ValidString(order.GetBuilderSetId()) ||
-		len(order.GetBuilderSetHash()) != sha256.Size {
+		len(order.GetBuilderSetHash()) != sha256.Size ||
+		order.GetPayloadMode() == taskv1.PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED ||
+		len(order.GetInputKeyCommitment()) != sha256.Size {
 		return fmt.Errorf("task order scalar scope is invalid")
 	}
 	return nil
+}
+
+// ValidatePlaintextOrderV3 is the admission rule while encryption is not active on chain: the order
+// must select PLAINTEXT, input_key_commitment must be 32 zero bytes and user_recipient_pubkey must be
+// empty. An empty input_key_commitment is rejected rather than padded, because the Keeper hashes the
+// bytes as sent and a padded copy would give Nexus a task_hash the chain never computes.
+func ValidatePlaintextOrderV3(order *taskv1.TaskOrderV3) error {
+	if order.GetPayloadMode() != taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT {
+		return fmt.Errorf("payload_mode must be PLAINTEXT while encryption is not active, got %s", order.GetPayloadMode())
+	}
+	if !IsZeroHash32(order.GetInputKeyCommitment()) {
+		return fmt.Errorf("input_key_commitment must be 32 zero bytes for a plaintext order")
+	}
+	if len(order.GetUserRecipientPubkey()) != 0 {
+		return fmt.Errorf("user_recipient_pubkey must be empty for a plaintext order")
+	}
+	return nil
+}
+
+// IsZeroHash32 reports whether value is exactly 32 zero bytes (the plaintext value of every reserved
+// key commitment). An empty value is not zero32.
+func IsZeroHash32(value []byte) bool {
+	if len(value) != sha256.Size {
+		return false
+	}
+	for _, b := range value {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }

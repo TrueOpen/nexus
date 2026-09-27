@@ -122,7 +122,7 @@ func (BusMessageKind) EnumDescriptor() ([]byte, []int) {
 //	OPEN_VERIFY                -> OPEN_VERIFY_V1            (bus.v1.OpenVerifyV1)
 //	VERIFIER_HANDRAISE         -> VERIFIER_HANDRAISE_V1     (task.v1.VerifierHandraiseV1)
 //	VERIFIER_ASSIGNMENT_NOTIFY -> VERIFIER_ASSIGNMENT_NOTIFY_V1 (bus.v1.VerifierAssignmentNotifyV1)
-//	VERIFY_RESULT              -> VERIFY_RESULT_V1          (task.v1.ResultReceiptV2)
+//	VERIFY_RESULT              -> VERIFY_RESULT_V1          (task.v1.ResultReceiptV3)
 //
 // Chain-bound payloads reuse the frozen task.v1 messages verbatim: the
 // bytes a cortex signs and puts on the bus are the bytes the builder submits
@@ -155,7 +155,7 @@ const (
 	// bus.v1.VerifierAssignmentNotifyV1.
 	// BUS_PAYLOAD_TYPE_VERIFIER_ASSIGNMENT_NOTIFY_V1 identifies the corresponding protocol value.
 	BusPayloadType_BUS_PAYLOAD_TYPE_VERIFIER_ASSIGNMENT_NOTIFY_V1 BusPayloadType = 7
-	// task.v1.ResultReceiptV2, reused verbatim.
+	// task.v1.ResultReceiptV3, reused verbatim.
 	// BUS_PAYLOAD_TYPE_VERIFY_RESULT_V1 identifies the corresponding protocol value.
 	BusPayloadType_BUS_PAYLOAD_TYPE_VERIFY_RESULT_V1 BusPayloadType = 8
 )

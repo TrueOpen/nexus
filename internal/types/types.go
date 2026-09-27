@@ -150,9 +150,11 @@ const (
 // Order is a single order (delivered to the Coordinator after IngressAPI signature verification).
 // Composite key: session_id + task_id.
 type Order struct {
-	SessionID      string
-	TaskID         string
-	OrderSequence  uint64
+	SessionID     string
+	TaskID        string
+	OrderSequence uint64
+	// ModelID is the lowercase hex of the order's raw 32-byte model_id; it is decoded back only where
+	// it enters a chain or bus message.
 	ModelID        string
 	ProfileVersion uint32
 	TaskType       string
@@ -252,6 +254,12 @@ type InferReceiptSubmission struct {
 	// the root alone does not fix the tree shape; attribution needs it to locate each peak (ADR-0017).
 	GeneratedTokenCount uint64
 	OutputLeafCount     uint64
+	// The four InferReceiptV3 encryption fields (15-18). A plaintext task carries 32 zero bytes in each;
+	// they are kept as received so the recomputed digest matches what the Worker signed.
+	OutputKeyCommitment      []byte
+	WorkerTokenKeyCommitment []byte
+	WorkerValueKeyCommitment []byte
+	CiphertextOutputRoot     []byte
 }
 
 // EvidenceCommitment is a single entry of required_evidence_commitments[] frozen in §5.14.

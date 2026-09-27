@@ -14,7 +14,7 @@ import (
 // on-chain as "signature does not verify against signing digest".
 func TestReceiptDigestBindsV2Fields(t *testing.T) {
 	base := SignedInferReceipt{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainID: "trueopen-localnet-1",
+		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainID: "trueopen-localnet-1",
 		TaskID: strings.Repeat("1", 64), TaskHash: strings.Repeat("2", 64),
 		WorkerOperatorAddress: "trueopen1e9rxz3ssv5sqf4n23nfnlh4atv3uf3fs9s0pvm", ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: strings.Repeat("3", 64), OutputHash: strings.Repeat("4", 64),

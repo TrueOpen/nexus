@@ -5,7 +5,7 @@ package shared.v1;
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 
 // This file is the single home of the global Query pagination wire of
-// the API contract. The three types below are declared there as the only
+// the wire API. The three types below are declared there as the only
 // pagination request/response/token shapes of the whole protocol, so they must
 // exist exactly once. They previously existed twice (hub/v1/query_registry.proto
 // and task/v1/query_session.proto); both copies are deleted and both modules
@@ -13,7 +13,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // x/task (module-split import direction) and neither module owns global Query
 // wire.
 
-// QueryPageRequestV1 is the only pagination request wire (§16.1). V1 allows
+// QueryPageRequestV1 is the only pagination request wire. V1 allows
 // keyset pagination only: there is no offset and no count_total. limit = 0 uses
 // max_query_page_limit; a non-zero value above that cap is InvalidArgument and
 // must not be silently clamped. page_token is the optional canonical PageTokenV1
@@ -29,7 +29,7 @@ message QueryPageRequestV1 {
 }
 
 // QueryPageResponseV1 returns the next keyset token; it is empty when no next
-// item exists (§16.1). A non-empty token is only returned when the server has
+// item exists. A non-empty token is only returned when the server has
 // actually seen a next item.
 // QueryPageResponseV1 defines the QueryPageResponseV1 wire type.
 message QueryPageResponseV1 {
@@ -38,7 +38,7 @@ message QueryPageResponseV1 {
   bytes next_page_token = 1;
 }
 
-// PageTokenV1 is the canonical decoded form of page_token (§16.1). The server
+// PageTokenV1 is the canonical decoded form of page_token. The server
 // recomputes rpc_method_digest and selector_digest and rejects cross-RPC,
 // cross-selector, non-canonical or oversized tokens. query_height pins every
 // later page to the consensus height read by the first page.

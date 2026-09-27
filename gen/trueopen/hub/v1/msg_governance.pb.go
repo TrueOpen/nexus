@@ -23,8 +23,7 @@ const (
 )
 
 // MsgSubmitFreezeSignal is a permissionless trigger that asks the Keeper to
-// aggregate one profile risk window into a votable object (the API contract
-// §9.6a / §10.0a).
+// aggregate one profile risk window into a votable object.
 //
 // The request carries only the profile locator plus the gas payer. Every field
 // the previous wire accepted was Keeper-derived and has been removed:
@@ -39,7 +38,7 @@ const (
 // MsgSubmitFreezeSignal defines the MsgSubmitFreezeSignal wire type.
 type MsgSubmitFreezeSignal struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	ModelId          string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ModelId          []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	ProfileVersion   uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
 	SubmitterAddress string                 `protobuf:"bytes,3,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -76,11 +75,11 @@ func (*MsgSubmitFreezeSignal) Descriptor() ([]byte, []int) {
 	return file_hub_v1_msg_governance_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *MsgSubmitFreezeSignal) GetModelId() string {
+func (x *MsgSubmitFreezeSignal) GetModelId() []byte {
 	if x != nil {
 		return x.ModelId
 	}
-	return ""
+	return nil
 }
 
 func (x *MsgSubmitFreezeSignal) GetProfileVersion() uint32 {
@@ -169,13 +168,12 @@ func (x *MsgSubmitFreezeSignalResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgEmergencyFreezeVote records one validator ballot (the API contract
-// §9.6a / §10.0a).
+// MsgEmergencyFreezeVote records one validator ballot.
 //
 // validator_address is the validator operator account and the sole Cosmos
 // signer. validator_consensus_address, voting_power_snapshot and
 // signature_digest were removed: the first two are resolved from the frozen
-// validator snapshot through the staking keeper, and §10.0a no longer requires a
+// validator snapshot through the staking keeper, and this contract no longer requires a
 // same-account detached signature. Same validator plus same vote is an exact
 // replay noop; same validator plus a different vote is a conflict.
 // MsgEmergencyFreezeVote defines the MsgEmergencyFreezeVote wire type.
@@ -313,7 +311,7 @@ func (x *MsgEmergencyFreezeVoteResponse) GetStatus() v1.MutationStatusV1 {
 
 // MsgUpdateTimeoutBucket applies one x/gov accepted timeout bucket version.
 // It is registered on the Hub Msg service
-// because the data-structure contract makes the Hub governance handler the only
+// because the wire storage model makes the Hub governance handler the only
 // writer of the TimeoutBucket version and pointer rows. The
 // resulting timeout combination must cover the complete task window, so a
 // missing tail bucket cannot create a local fallback.
@@ -455,7 +453,7 @@ const file_hub_v1_msg_governance_proto_rawDesc = "" +
 	"\n" +
 	"\x1bhub/v1/msg_governance.proto\x12\x06hub.v1\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x13hub/v1/reward.proto\x1a\x16shared/v1/common.proto\"\x88\x01\n" +
 	"\x15MsgSubmitFreezeSignal\x12\x19\n" +
-	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12'\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12+\n" +
 	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"\x82\x02\n" +
 	"\x1dMsgSubmitFreezeSignalResponse\x12B\n" +
