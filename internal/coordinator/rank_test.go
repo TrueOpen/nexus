@@ -219,8 +219,8 @@ func TestSettleRank1SubmitsOnceChainReady(t *testing.T) {
 }
 
 // TestSettleOnlyInsideOwnSegment past its own slot it stops sending: by then the submitter has
-// moved on to the next rank, so sending would only be rejected by the chain. It resumes only once
-// every slot has passed (anyone may submit).
+// moved on to the next rank, so sending would only be rejected by the chain. It resumes once every
+// slot has passed (anyone may submit), after giving rank 1 its g blocks.
 func TestSettleOnlyInsideOwnSegment(t *testing.T) {
 	session, task := "sess-seg", testTaskID("task-seg")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
@@ -232,8 +232,12 @@ func TestSettleOnlyInsideOwnSegment(t *testing.T) {
 		t.Fatalf("rank 2 submitted inside rank 3's segment, got %d", settleCount(sub))
 	}
 	c.onNewBlock(rankPermissionless) // executing any later means every slot has passed
+	if settleCount(sub) != 0 {
+		t.Fatalf("rank 2 must give rank 1 g blocks once anyone may submit, got %d", settleCount(sub))
+	}
+	c.onNewBlock(rankPermissionless + rankGraceBlocks)
 	if settleCount(sub) != 1 {
-		t.Fatalf("rank 2 must submit once every segment has passed, got %d", settleCount(sub))
+		t.Fatalf("rank 2 must submit g blocks after anyone may submit, got %d", settleCount(sub))
 	}
 }
 
@@ -593,5 +597,45 @@ func TestPermissionlessSettleBackupTakesOver(t *testing.T) {
 	coords[1].onNewBlock(ready + 2*rankGraceBlocks)
 	if settleCount(subs[1]) != 1 {
 		t.Fatalf("rank 3 submissions = %d after 2·g blocks", settleCount(subs[1]))
+	}
+}
+
+// TestPermissionlessStaggerCountsFromFirstAcceptedHeight the chain can report a task ready a few
+// blocks before its challenge window closes and refuse settlements until then. The stagger counts
+// from the first height the chain accepts one, so rank 1 held by the window does not end up in the
+// same block as ranks whose waits ran out meanwhile.
+func TestPermissionlessStaggerCountsFromFirstAcceptedHeight(t *testing.T) {
+	session, task := "sess-open", testTaskID("task-open")
+	builders := []string{testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c")}
+	selection := settleSelection(session, task, builders...)
+	subs := make([]*simulatingSubmitter, len(builders))
+	coords := make([]*Coordinator, len(builders))
+	for i, self := range builders {
+		c, _, _ := newRankCoordinator(t, self, nil)
+		sub := &simulatingSubmitter{confirmSubmitter: newConfirmSubmitter(),
+			sim: chaincli.SimResult{OK: false, Error: "round 1 challenge window is still open"}}
+		c.submit = sub
+		driveToSettleReady(t, c, session, task, &selection)
+		coords[i], subs[i] = c, sub
+	}
+	ready := int64(rankPermissionless + 100)
+	for h := ready; h < ready+2*rankGraceBlocks; h++ { // longer than rank 3's wait
+		for _, c := range coords {
+			c.onNewBlock(h)
+		}
+	}
+	for i, sub := range subs {
+		if settleCount(sub.fakeSubmitter) != 0 {
+			t.Fatalf("rank %d submitted while the chain refused settlements", i+1)
+		}
+		sub.setSimulation(chaincli.SimResult{OK: true}, nil)
+	}
+	open := ready + 2*rankGraceBlocks
+	for _, c := range coords {
+		c.onNewBlock(open)
+	}
+	got := []int{settleCount(subs[0].fakeSubmitter), settleCount(subs[1].fakeSubmitter), settleCount(subs[2].fakeSubmitter)}
+	if !reflect.DeepEqual(got, []int{1, 0, 0}) {
+		t.Fatalf("submissions by rank at the first accepted height = %v, want only rank 1", got)
 	}
 }

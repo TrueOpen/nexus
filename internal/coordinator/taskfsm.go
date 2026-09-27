@@ -172,9 +172,10 @@ type taskFSM struct {
 	// reconciliation (QueryTaskStage). Not persisted: after a restart the next reconciliation
 	// reads it again, and until then this node only waits.
 	settleStage settleStage
-	// settleReadyHeight is the first chain height at which this node saw the task ready to
-	// settle; the permissionless stagger counts from it (settleSubmissionAllowed). 0 = not yet.
-	settleReadyHeight uint64
+	// settleOpenHeight is the first chain height at which the chain accepted this task's
+	// settlement in simulation, once anyone may submit; the stagger by rank counts from it
+	// (trySettle). Every Builder reads the same chain, so they agree on it. 0 = not yet.
+	settleOpenHeight uint64
 
 	// Backfilled once the chain finalizes.
 	settlement  chaincli.TaskSettlementState
@@ -1773,7 +1774,7 @@ func (f *taskFSM) setSettleStageLocked(stage settleStage) {
 	}
 	f.settleStage = stage
 	if !stage.ready {
-		f.settleReadyHeight = 0
+		f.settleOpenHeight = 0
 	}
 	if f.settleSelection.SessionID != "" {
 		f.trySettle()
@@ -1812,9 +1813,6 @@ func (f *taskFSM) trySettle() {
 	if f.observedHeight == 0 || f.settleSubmittedHeight == f.observedHeight {
 		return // no block seen yet, or already sent once in this block
 	}
-	if f.settleReadyHeight == 0 {
-		f.settleReadyHeight = f.observedHeight
-	}
 	if f.resubmitHeldLocked(&f.settleTx) {
 		return // awaiting the block result of the last one, waiting out a backoff, or given up
 	}
@@ -1825,9 +1823,13 @@ func (f *taskFSM) trySettle() {
 			"reveal_deadline", f.deadlines.Reveal, "grace_blocks", f.settleGraceBlocks)
 		return
 	}
-	// In the first block of this Builder's slot a simulation still sees the previous submitter's
-	// slot and would refuse; broadcast without it there.
-	if !f.settleSlotChangesAtExecution() && !f.settlePassesSimulationLocked() {
+	if permissionless {
+		if !f.settlePermissionlessTurnLocked(rank) {
+			return
+		}
+	} else if !f.settleSlotChangesAtExecution() && !f.settlePassesSimulationLocked() {
+		// In the first block of this Builder's slot a simulation still sees the previous
+		// submitter's slot and would refuse; broadcast without it there.
 		return
 	}
 	f.log.Info("settle window open; submitting", "task_id", f.taskID, "rank", rank,
@@ -1846,11 +1848,9 @@ func (f *taskFSM) trySettle() {
 // The schedule has no upper bound: settling is open until the task is settled. Whether the task
 // can be settled at all is settleStage's part.
 //
-// Once anyone may submit, every Builder would submit in the same block; the chain applies one and
-// replays the others as no-ops, each still paying its fee. So rank i waits (i-1)·g blocks from the
-// height this node first saw the task ready (settleReadyHeight), and stops once the chain settles
-// it; rank 1 does not wait. The schedule counts from the reveal deadline while settling opens only
-// after the challenge window, so under current parameters every settlement falls in this phase.
+// The schedule counts from the reveal deadline while settling opens only after the challenge
+// window, so under current parameters every settlement falls in the phase where anyone may
+// submit; trySettle staggers the Builders there (settlePermissionlessTurnLocked).
 //
 // The decision uses the height at which the transaction **executes**, not the height this
 // node just observed: the chain recomputes who may submit at the executing block, and the
@@ -1869,11 +1869,30 @@ func (f *taskFSM) settleSubmissionAllowed(rank int) (allowed bool, permissionles
 	if !ok {
 		return false, false
 	}
-	if permissionless {
-		wait := uint64(rank-1) * f.settleGraceBlocks
-		return f.settleReadyHeight != 0 && f.observedHeight >= f.settleReadyHeight+wait, true
+	return permissionless || slot == uint64(rank-1), permissionless
+}
+
+// settlePermissionlessTurnLocked decides whether it is this Builder's turn once anyone may submit.
+// Left alone every Builder would submit in the same block; the chain applies one and replays the
+// others as no-ops, each still paying its fee. So rank i waits (i-1)·g blocks from settleOpenHeight,
+// the first height at which the chain accepts the settlement in simulation, and stops once the
+// chain settles the task; rank 1 does not wait. Counting from the task turning ready instead would
+// let the challenge window hold rank 1 until the others' waits ran out as well. Every submission
+// is simulated first. Caller must hold the lock.
+func (f *taskFSM) settlePermissionlessTurnLocked(rank int) bool {
+	simulated := false
+	if f.settleOpenHeight == 0 {
+		if !f.settleSlotChangesAtExecution() && !f.settlePassesSimulationLocked() {
+			return false
+		}
+		f.settleOpenHeight, simulated = f.observedHeight, true
 	}
-	return slot == uint64(rank-1), false
+	if due := f.settleOpenHeight + uint64(rank-1)*f.settleGraceBlocks; f.observedHeight < due {
+		f.log.Debug("settlement open; waiting for this Builder's turn", "task_id", f.taskID,
+			"rank", rank, "height", f.observedHeight, "open_height", f.settleOpenHeight, "due_height", due)
+		return false
+	}
+	return simulated || f.settlePassesSimulationLocked()
 }
 
 // settleSlotAt is the chain's settlement submitter schedule at a height: the 0-based rank whose
