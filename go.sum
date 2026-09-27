@@ -35,8 +35,8 @@ github.com/DataDog/datadog-go v3.2.0+incompatible h1:qSG2N4FghB1He/r2mFrWKCaL7dX
 github.com/DataDog/datadog-go v3.2.0+incompatible/go.mod h1:LButxg5PwREeZtORoXG3tL4fMGNddJ+vMq1mwgfaqoQ=
 github.com/DataDog/zstd v1.5.7 h1:ybO8RBeh29qrxIhCA9E8gKY6xfONU9T6G6aP9DTKfLE=
 github.com/DataDog/zstd v1.5.7/go.mod h1:g4AWEaM3yOg3HYfnJ3YIawPnVdXJh9QME85blwSAmyw=
-github.com/TrueOpen/wire v0.3.0-rc.2 h1:YYDa38uYC/y/GiBW0NthUR6SYKEqocXNb3aR/KeLLSQ=
-github.com/TrueOpen/wire v0.3.0-rc.2/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
+github.com/TrueOpen/wire v0.3.0 h1:Lw+Wi9ru0B3LYUD7VDQPUMXJ0MhGSrmRhNJi6RWEi0w=
+github.com/TrueOpen/wire v0.3.0/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
 github.com/VividCortex/gohistogram v1.0.0 h1:6+hBz+qvs0JOrrNhhmR7lFxo5sINxBCGXrdtl/UvroE=
 github.com/VividCortex/gohistogram v1.0.0/go.mod h1:Pf5mBqqDxYaXu3hDrrU+w6nw50o/4+TcAqDqk/vUH7g=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=

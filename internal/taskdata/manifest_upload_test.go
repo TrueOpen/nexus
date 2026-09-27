@@ -37,10 +37,10 @@ func TestUploadManifestVerifiesBundleHashNotSHA256(t *testing.T) {
 	}
 	// The parse result is persisted with the object: Finalize checks the artifact details
 	// and schema hash and should not have to read the bytes back and re-parse them then.
-	if metadata.ArtifactTotalSizeBytes != 487 {
+	if metadata.ArtifactTotalSizeBytes != 504 {
 		t.Fatalf("artifact_total_size_bytes = %d", metadata.ArtifactTotalSizeBytes)
 	}
-	if metadata.EvidenceSchemaHash != "7777777777777777777777777777777777777777777777777777777777777777" {
+	if metadata.EvidenceSchemaHash != "6666666666666666666666666666666666666666666666666666666666666666" {
 		t.Fatalf("evidence_schema_hash = %q", metadata.EvidenceSchemaHash)
 	}
 }
@@ -91,7 +91,7 @@ func TestUploadNonManifestStillVerifiesSHA256(t *testing.T) {
 	store, _, _ := newTestStore(t, manifestStoreConfig())
 	header := testHeader(body)
 	header.Key.Kind = ObjectKindOutput
-	header.Uploader = "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+	header.Uploader = "trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97"
 
 	upload, err := store.Begin(context.Background(), header)
 	if err != nil {
@@ -119,9 +119,9 @@ func manifestUploadHeader(body []byte) UploadHeader {
 			TaskHash: strings.Repeat("2", 64), SessionID: testSessionID, TaskID: strings.Repeat("1", 64),
 			Kind: ObjectKindEvidenceManifest, ContentHash: contentHash,
 			EvidenceProducerKind: EvidenceProducerVerifier, EvidenceKind: EvidenceKindVerifierValueOpening, VerifyRound: 1,
-			ProducerOperator: "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+			ProducerOperator: "trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97",
 		},
-		Uploader:  "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+		Uploader:  "trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97",
 		SizeBytes: uint64(len(body)), SemanticHash: contentHash,
 		MediaType: "application/json", RetainUntilHeight: 100,
 	}

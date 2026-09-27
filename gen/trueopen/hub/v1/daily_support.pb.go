@@ -274,6 +274,81 @@ func (x *ModelSupportRecheckCursorState) GetMinStakeLowered() bool {
 	return false
 }
 
+// ModelSupportDeactivateCursorState resumes a bounded, one-way sweep that
+// deactivates every ModelSupportState row for a model after it transitions
+// to FROZEN or DELISTED. Unlike ModelSupportRecheckCursorState this cursor
+// has no branches: every visited row is deactivated. While this cursor
+// exists for a model_id, MsgSetModelStatus for that model_id is rejected,
+// including transitioning back to REGISTERED. The cursor is deleted when
+// the sweep completes; support declarations are not restored afterward.
+type ModelSupportDeactivateCursorState struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ModelId             []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	LastOperatorAddress string                 `protobuf:"bytes,2,opt,name=last_operator_address,json=lastOperatorAddress,proto3" json:"last_operator_address,omitempty"`
+	VisitedCount        uint64                 `protobuf:"varint,3,opt,name=visited_count,json=visitedCount,proto3" json:"visited_count,omitempty"`
+	DeactivatedCount    uint64                 `protobuf:"varint,4,opt,name=deactivated_count,json=deactivatedCount,proto3" json:"deactivated_count,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ModelSupportDeactivateCursorState) Reset() {
+	*x = ModelSupportDeactivateCursorState{}
+	mi := &file_hub_v1_daily_support_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelSupportDeactivateCursorState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelSupportDeactivateCursorState) ProtoMessage() {}
+
+func (x *ModelSupportDeactivateCursorState) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_daily_support_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelSupportDeactivateCursorState.ProtoReflect.Descriptor instead.
+func (*ModelSupportDeactivateCursorState) Descriptor() ([]byte, []int) {
+	return file_hub_v1_daily_support_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ModelSupportDeactivateCursorState) GetModelId() []byte {
+	if x != nil {
+		return x.ModelId
+	}
+	return nil
+}
+
+func (x *ModelSupportDeactivateCursorState) GetLastOperatorAddress() string {
+	if x != nil {
+		return x.LastOperatorAddress
+	}
+	return ""
+}
+
+func (x *ModelSupportDeactivateCursorState) GetVisitedCount() uint64 {
+	if x != nil {
+		return x.VisitedCount
+	}
+	return 0
+}
+
+func (x *ModelSupportDeactivateCursorState) GetDeactivatedCount() uint64 {
+	if x != nil {
+		return x.DeactivatedCount
+	}
+	return 0
+}
+
 // ModelSupportState is the single operator/model support row.
 type ModelSupportState struct {
 	state                  protoimpl.MessageState     `protogen:"open.v1"`
@@ -307,7 +382,7 @@ type ModelSupportState struct {
 
 func (x *ModelSupportState) Reset() {
 	*x = ModelSupportState{}
-	mi := &file_hub_v1_daily_support_proto_msgTypes[3]
+	mi := &file_hub_v1_daily_support_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -319,7 +394,7 @@ func (x *ModelSupportState) String() string {
 func (*ModelSupportState) ProtoMessage() {}
 
 func (x *ModelSupportState) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_daily_support_proto_msgTypes[3]
+	mi := &file_hub_v1_daily_support_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +407,7 @@ func (x *ModelSupportState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelSupportState.ProtoReflect.Descriptor instead.
 func (*ModelSupportState) Descriptor() ([]byte, []int) {
-	return file_hub_v1_daily_support_proto_rawDescGZIP(), []int{3}
+	return file_hub_v1_daily_support_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ModelSupportState) GetOperatorAddress() string {
@@ -505,7 +580,12 @@ const file_hub_v1_daily_support_proto_rawDesc = "" +
 	"\rvisited_count\x18\x04 \x01(\x04R\fvisitedCount\x12'\n" +
 	"\x0fsuspended_count\x18\x05 \x01(\x04R\x0esuspendedCount\x12%\n" +
 	"\x0erestored_count\x18\x06 \x01(\x04R\rrestoredCount\x12*\n" +
-	"\x11min_stake_lowered\x18\a \x01(\bR\x0fminStakeLowered\"\xa1\a\n" +
+	"\x11min_stake_lowered\x18\a \x01(\bR\x0fminStakeLowered\"\xc4\x01\n" +
+	"!ModelSupportDeactivateCursorState\x12\x19\n" +
+	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x122\n" +
+	"\x15last_operator_address\x18\x02 \x01(\tR\x13lastOperatorAddress\x12#\n" +
+	"\rvisited_count\x18\x03 \x01(\x04R\fvisitedCount\x12+\n" +
+	"\x11deactivated_count\x18\x04 \x01(\x04R\x10deactivatedCount\"\xa1\a\n" +
 	"\x11ModelSupportState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x12)\n" +
@@ -540,20 +620,21 @@ func file_hub_v1_daily_support_proto_rawDescGZIP() []byte {
 	return file_hub_v1_daily_support_proto_rawDescData
 }
 
-var file_hub_v1_daily_support_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_hub_v1_daily_support_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_hub_v1_daily_support_proto_goTypes = []any{
-	(*DailySupportState)(nil),              // 0: hub.v1.DailySupportState
-	(*ModelCapabilityState)(nil),           // 1: hub.v1.ModelCapabilityState
-	(*ModelSupportRecheckCursorState)(nil), // 2: hub.v1.ModelSupportRecheckCursorState
-	(*ModelSupportState)(nil),              // 3: hub.v1.ModelSupportState
-	(ModelSupportActivationKind)(0),        // 4: hub.v1.ModelSupportActivationKind
-	(v1.Duty)(0),                           // 5: shared.v1.Duty
-	(ModelSupportSuspendReason)(0),         // 6: hub.v1.ModelSupportSuspendReason
+	(*DailySupportState)(nil),                 // 0: hub.v1.DailySupportState
+	(*ModelCapabilityState)(nil),              // 1: hub.v1.ModelCapabilityState
+	(*ModelSupportRecheckCursorState)(nil),    // 2: hub.v1.ModelSupportRecheckCursorState
+	(*ModelSupportDeactivateCursorState)(nil), // 3: hub.v1.ModelSupportDeactivateCursorState
+	(*ModelSupportState)(nil),                 // 4: hub.v1.ModelSupportState
+	(ModelSupportActivationKind)(0),           // 5: hub.v1.ModelSupportActivationKind
+	(v1.Duty)(0),                              // 6: shared.v1.Duty
+	(ModelSupportSuspendReason)(0),            // 7: hub.v1.ModelSupportSuspendReason
 }
 var file_hub_v1_daily_support_proto_depIdxs = []int32{
-	4, // 0: hub.v1.ModelSupportState.activation_kind:type_name -> hub.v1.ModelSupportActivationKind
-	5, // 1: hub.v1.ModelSupportState.first_activation_duty:type_name -> shared.v1.Duty
-	6, // 2: hub.v1.ModelSupportState.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
+	5, // 0: hub.v1.ModelSupportState.activation_kind:type_name -> hub.v1.ModelSupportActivationKind
+	6, // 1: hub.v1.ModelSupportState.first_activation_duty:type_name -> shared.v1.Duty
+	7, // 2: hub.v1.ModelSupportState.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
@@ -567,7 +648,7 @@ func file_hub_v1_daily_support_proto_init() {
 		return
 	}
 	file_hub_v1_common_proto_init()
-	file_hub_v1_daily_support_proto_msgTypes[3].OneofWrappers = []any{
+	file_hub_v1_daily_support_proto_msgTypes[4].OneofWrappers = []any{
 		(*ModelSupportState_P30CutoffEpoch)(nil),
 		(*ModelSupportState_P30Bootstrap)(nil),
 	}
@@ -577,7 +658,7 @@ func file_hub_v1_daily_support_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_daily_support_proto_rawDesc), len(file_hub_v1_daily_support_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

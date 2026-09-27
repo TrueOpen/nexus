@@ -63,10 +63,15 @@ enum ProfileStatusSource {
 
 // ModelState is one registered model primary row (wire storage model 6.3).
 message ModelState {
+  reserved 4;
+  reserved "active_profile_count";
+
   bytes model_id = 1;
   string proposer_address = 2;
   ModelProfileStatus status = 3;
-  uint32 active_profile_count = 4;
+  // active_profile_count (4) counted profiles in ACTIVE status. ACTIVE is now
+  // derived from ModelSupportState alone (active_support_stake,
+  // active_supporter_count below), so no producer sets a per-profile count.
   uint32 latest_profile_version = 5;
   ModelStatusSource status_source = 6;
   uint64 registration_fee_paid = 7;

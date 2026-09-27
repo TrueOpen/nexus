@@ -67,15 +67,22 @@ message InferReceiptV3 {
 //
 //   evidence_commitments_hash =
 //     H_FIELDS_V1("TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
-//       uint32_be(count), commitment[0], commitment[1], ... commitment[count-1])
+//       uint32_be(count), REPEATED_V1([commitment[0], ... commitment[count-1]]))
 //
-// Expanded byte-exactly through the FieldFrameV1 rules, where every top-level
-// field carries its own u64_be length prefix and a repeated field writes
-// uint32_be(count) first and then length-frames each element:
+// The list is ONE top-level field, a repeated field: its frame starts with its
+// own uint32_be(count) and then length-frames each element. The leading count
+// therefore appears twice - once as the first top-level field and once inside
+// the repeated frame - and both must be equal. Elements are never written at
+// the top level. Expanded byte-exactly through the FieldFrameV1 rules, where
+// every top-level field carries its own u64_be length prefix:
 //
 //   preimage =
-//     u64_be(35) || "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"   // 35 ASCII bytes
-//     u64_be(4)  || uint32_be(count)
+//     u64_be(38)            || "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"  // 38 ASCII bytes
+//     u64_be(4)             || uint32_be(count)
+//     u64_be(len(repeated)) || repeated
+//
+//   repeated =
+//     u64_be(4) || uint32_be(count)
 //     for i in 0..count-1:
 //       u64_be(len(frame_i)) || frame_i
 //
@@ -86,11 +93,19 @@ message InferReceiptV3 {
 //     u64_be(4)  || uint32_be(evidence_kind)        // enum -> uint32_be
 //     u64_be(32) || evidence_hash_or_root           // raw Hash32 bytes, no hex
 //     u64_be(8)  || uint64_be(encoded_size_bytes)
-//   so len(frame_i) is exactly 68 bytes for every element.
+//   so len(frame_i) is exactly 68 bytes for every element, and len(repeated) is
+//   12 + 76 * count.
 //
 //   digest = SHA256(preimage)
 //
-// The domain literal is 35 ASCII bytes; an implementation must measure the UTF-8
+// For the two-element Phase 0 list the preimage is 230 bytes (repeated frame
+// 164 bytes). The empty list frames as count 0 followed by a 12-byte repeated
+// frame holding only uint32_be(0), a 78-byte preimage; it is frameable but
+// inadmissible. Vectors: testdata/v1/task/task_domains_v1.json
+// (infer_evidence_commitments_v1_*) and the commitment_list of
+// testdata/v1/task/infer_receipt_v3.json.
+//
+// The domain literal is 38 ASCII bytes; an implementation must measure the UTF-8
 // length of the constant rather than hard-code the number.
 //
 // Element order is NOT chosen by the caller: this contract and task/v1/evidence.proto

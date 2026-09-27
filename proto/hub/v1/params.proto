@@ -65,6 +65,12 @@ message SupportParamsV1 {
   uint32 max_model_support_prune_items_per_block = 11;
   uint32 max_support_expiry_items_per_block = 12;
   uint32 max_model_support_recheck_items_per_block = 13;
+  // max_model_support_deactivate_items_per_block bounds per-block visited
+  // count for the ModelSupportDeactivateCursorState sweep that runs after a
+  // model transitions to FROZEN or DELISTED, deactivating its
+  // ModelSupportState rows. Independent budget from field 13; the two
+  // cursors never run for the same model_id at the same time.
+  uint32 max_model_support_deactivate_items_per_block = 14;
 }
 
 // ModelParamsV1 governs parser allowlists and registration string bounds.

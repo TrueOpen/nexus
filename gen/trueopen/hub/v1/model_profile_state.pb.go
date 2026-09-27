@@ -211,23 +211,25 @@ func (ProfileStatusSource) EnumDescriptor() ([]byte, []int) {
 
 // ModelState is one registered model primary row (wire storage model 6.3).
 type ModelState struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	ModelId                []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProposerAddress        string                 `protobuf:"bytes,2,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
-	Status                 ModelProfileStatus     `protobuf:"varint,3,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
-	ActiveProfileCount     uint32                 `protobuf:"varint,4,opt,name=active_profile_count,json=activeProfileCount,proto3" json:"active_profile_count,omitempty"`
-	LatestProfileVersion   uint32                 `protobuf:"varint,5,opt,name=latest_profile_version,json=latestProfileVersion,proto3" json:"latest_profile_version,omitempty"`
-	StatusSource           ModelStatusSource      `protobuf:"varint,6,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ModelStatusSource" json:"status_source,omitempty"`
-	RegistrationFeePaid    uint64                 `protobuf:"varint,7,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
-	CreatedHeight          uint64                 `protobuf:"varint,8,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
-	UpdatedHeight          uint64                 `protobuf:"varint,9,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
-	ActiveSupportStake     uint64                 `protobuf:"varint,10,opt,name=active_support_stake,json=activeSupportStake,proto3" json:"active_support_stake,omitempty"`
-	ActiveSupporterCount   uint32                 `protobuf:"varint,11,opt,name=active_supporter_count,json=activeSupporterCount,proto3" json:"active_supporter_count,omitempty"`
-	SupportMinStake        uint64                 `protobuf:"varint,12,opt,name=support_min_stake,json=supportMinStake,proto3" json:"support_min_stake,omitempty"`
-	PendingSupportMinStake uint64                 `protobuf:"varint,13,opt,name=pending_support_min_stake,json=pendingSupportMinStake,proto3" json:"pending_support_min_stake,omitempty"`
-	PendingEffectiveHeight uint64                 `protobuf:"varint,14,opt,name=pending_effective_height,json=pendingEffectiveHeight,proto3" json:"pending_effective_height,omitempty"`
-	Provider               string                 `protobuf:"bytes,15,opt,name=provider,proto3" json:"provider,omitempty"`
-	RepoId                 string                 `protobuf:"bytes,16,opt,name=repo_id,json=repoId,proto3" json:"repo_id,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ModelId         []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ProposerAddress string                 `protobuf:"bytes,2,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
+	Status          ModelProfileStatus     `protobuf:"varint,3,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
+	// active_profile_count (4) counted profiles in ACTIVE status. ACTIVE is now
+	// derived from ModelSupportState alone (active_support_stake,
+	// active_supporter_count below), so no producer sets a per-profile count.
+	LatestProfileVersion   uint32            `protobuf:"varint,5,opt,name=latest_profile_version,json=latestProfileVersion,proto3" json:"latest_profile_version,omitempty"`
+	StatusSource           ModelStatusSource `protobuf:"varint,6,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ModelStatusSource" json:"status_source,omitempty"`
+	RegistrationFeePaid    uint64            `protobuf:"varint,7,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
+	CreatedHeight          uint64            `protobuf:"varint,8,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
+	UpdatedHeight          uint64            `protobuf:"varint,9,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
+	ActiveSupportStake     uint64            `protobuf:"varint,10,opt,name=active_support_stake,json=activeSupportStake,proto3" json:"active_support_stake,omitempty"`
+	ActiveSupporterCount   uint32            `protobuf:"varint,11,opt,name=active_supporter_count,json=activeSupporterCount,proto3" json:"active_supporter_count,omitempty"`
+	SupportMinStake        uint64            `protobuf:"varint,12,opt,name=support_min_stake,json=supportMinStake,proto3" json:"support_min_stake,omitempty"`
+	PendingSupportMinStake uint64            `protobuf:"varint,13,opt,name=pending_support_min_stake,json=pendingSupportMinStake,proto3" json:"pending_support_min_stake,omitempty"`
+	PendingEffectiveHeight uint64            `protobuf:"varint,14,opt,name=pending_effective_height,json=pendingEffectiveHeight,proto3" json:"pending_effective_height,omitempty"`
+	Provider               string            `protobuf:"bytes,15,opt,name=provider,proto3" json:"provider,omitempty"`
+	RepoId                 string            `protobuf:"bytes,16,opt,name=repo_id,json=repoId,proto3" json:"repo_id,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -281,13 +283,6 @@ func (x *ModelState) GetStatus() ModelProfileStatus {
 		return x.Status
 	}
 	return ModelProfileStatus_MODEL_PROFILE_STATUS_UNSPECIFIED
-}
-
-func (x *ModelState) GetActiveProfileCount() uint32 {
-	if x != nil {
-		return x.ActiveProfileCount
-	}
-	return 0
 }
 
 func (x *ModelState) GetLatestProfileVersion() uint32 {
@@ -710,13 +705,12 @@ var File_hub_v1_model_profile_state_proto protoreflect.FileDescriptor
 
 const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\n" +
-	" hub/v1/model_profile_state.proto\x12\x06hub.v1\x1a\x1dshared/v1/model_profile.proto\"\xee\x05\n" +
+	" hub/v1/model_profile_state.proto\x12\x06hub.v1\x1a\x1dshared/v1/model_profile.proto\"\xd8\x05\n" +
 	"\n" +
 	"ModelState\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12)\n" +
 	"\x10proposer_address\x18\x02 \x01(\tR\x0fproposerAddress\x122\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\x06status\x120\n" +
-	"\x14active_profile_count\x18\x04 \x01(\rR\x12activeProfileCount\x124\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\x06status\x124\n" +
 	"\x16latest_profile_version\x18\x05 \x01(\rR\x14latestProfileVersion\x12>\n" +
 	"\rstatus_source\x18\x06 \x01(\x0e2\x19.hub.v1.ModelStatusSourceR\fstatusSource\x122\n" +
 	"\x15registration_fee_paid\x18\a \x01(\x04R\x13registrationFeePaid\x12%\n" +
@@ -729,7 +723,7 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\x19pending_support_min_stake\x18\r \x01(\x04R\x16pendingSupportMinStake\x128\n" +
 	"\x18pending_effective_height\x18\x0e \x01(\x04R\x16pendingEffectiveHeight\x12\x1a\n" +
 	"\bprovider\x18\x0f \x01(\tR\bprovider\x12\x17\n" +
-	"\arepo_id\x18\x10 \x01(\tR\x06repoId\"\x81\r\n" +
+	"\arepo_id\x18\x10 \x01(\tR\x06repoIdJ\x04\b\x04\x10\x05R\x14active_profile_count\"\x81\r\n" +
 	"\fProfileState\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12#\n" +

@@ -12,9 +12,9 @@ import (
 
 // The minimal Verifier manifest (single-line UTF-8, no newline, 603 bytes), the
 // evidence_bundle_manifest_v1 vector of wire testdata/v1/task/canonical_json_v1.json.
-const goldenManifest = `{"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2","size_bytes":"487"}],"chain_id":"trueopen-golden-1","evidence_kind":"VERIFIER_VALUE_OPENING","evidence_schema_hash":"7777777777777777777777777777777777777777777777777777777777777777","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`
+const goldenManifest = `{"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c","size_bytes":"504"}],"chain_id":"trueopen-golden-1","evidence_kind":"VERIFIER_VALUE_OPENING","evidence_schema_hash":"6666666666666666666666666666666666666666666666666666666666666666","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`
 
-const goldenManifestDigest = "5b56779af1df4a720e944c89571cda6613e6749e4b4919eaa5fe6d526f3fe866"
+const goldenManifestDigest = "38670498f1a41aa0b22d38f4b4b2c28140388abac39da5dd668ef9b86f018e9e"
 
 // TestEvidenceBundleHashMatchesWireVectors checks the manifest vectors of the pinned wire release:
 // the Verifier manifest above and the two Worker manifests, each parsed strictly.
@@ -78,22 +78,22 @@ func TestParseEvidenceBundleManifestGolden(t *testing.T) {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 	if manifest.TaskHash != strings.Repeat("2", 64) || manifest.TaskID != strings.Repeat("1", 64) ||
-		manifest.EvidenceSchemaHash != strings.Repeat("7", 64) {
+		manifest.EvidenceSchemaHash != strings.Repeat("6", 64) {
 		t.Fatalf("unexpected identity: %#v", manifest)
 	}
-	if manifest.ProducerOperator != "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz" {
+	if manifest.ProducerOperator != "trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97" {
 		t.Fatalf("producer_operator = %q", manifest.ProducerOperator)
 	}
 	if len(manifest.Artifacts) != 1 {
 		t.Fatalf("artifacts = %d", len(manifest.Artifacts))
 	}
 	a := manifest.Artifacts[0]
-	if a.ArtifactID != "aggregate_proof" || a.SizeBytes != 487 ||
-		a.ContentHash != "6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2" {
+	if a.ArtifactID != "aggregate_proof" || a.SizeBytes != 504 ||
+		a.ContentHash != "fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c" {
 		t.Fatalf("unexpected artifact: %#v", a)
 	}
 	// The checked sum of artifact sizes goes into the storage confirmation; it is computed during parsing so callers need not do another pass.
-	if manifest.ArtifactTotalSizeBytes != 487 {
+	if manifest.ArtifactTotalSizeBytes != 504 {
 		t.Fatalf("artifact_total_size_bytes = %d", manifest.ArtifactTotalSizeBytes)
 	}
 	// The parsed structure must round-trip to the exact received bytes: canonical is not "approximately equal".
@@ -107,13 +107,13 @@ func TestParseEvidenceBundleManifestGolden(t *testing.T) {
 // key, a duplicate key, a trailing document.
 func TestParseEvidenceBundleManifestRejectsNonCanonical(t *testing.T) {
 	cases := map[string]string{
-		"key reordered": `{"chain_id":"trueopen-golden-1","artifacts":[{"artifact_id":"aggregate_proof","content_hash":"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2","size_bytes":"487"}],"evidence_schema_hash":"7777777777777777777777777777777777777777777777777777777777777777","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`,
+		"key reordered": `{"chain_id":"trueopen-golden-1","artifacts":[{"artifact_id":"aggregate_proof","content_hash":"fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c","size_bytes":"504"}],"evidence_schema_hash":"6666666666666666666666666666666666666666666666666666666666666666","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`,
 
 		"whitespace":       strings.Replace(goldenManifest, `{"artifacts"`, `{ "artifacts"`, 1),
 		"trailing newline": goldenManifest + "\n",
 		"leading bom":      "\ufeff" + goldenManifest,
 		"trailing document": goldenManifest + `{"artifacts":[],"chain_id":"x","evidence_schema_hash":"` +
-			strings.Repeat("7", 64) + `","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"` +
+			strings.Repeat("7", 64) + `","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97","task_hash":"` +
 			strings.Repeat("2", 64) + `","task_id":"` + strings.Repeat("1", 64) + `","verify_round":1}`,
 
 		"unknown key": strings.Replace(goldenManifest, `"chain_id"`, `"extra":1,"chain_id"`, 1),
@@ -121,8 +121,8 @@ func TestParseEvidenceBundleManifestRejectsNonCanonical(t *testing.T) {
 			`"chain_id":"trueopen-golden-1"`, `"chain_id":"trueopen-golden-1","chain_id":"trueopen-golden-1"`, 1),
 		"missing manifest_version": strings.Replace(goldenManifest, `"manifest_version":1,`, ``, 1),
 
-		"size_bytes as number":      strings.Replace(goldenManifest, `"size_bytes":"487"`, `"size_bytes":487`, 1),
-		"size_bytes leading zero":   strings.Replace(goldenManifest, `"size_bytes":"487"`, `"size_bytes":"0487"`, 1),
+		"size_bytes as number":      strings.Replace(goldenManifest, `"size_bytes":"504"`, `"size_bytes":504`, 1),
+		"size_bytes leading zero":   strings.Replace(goldenManifest, `"size_bytes":"504"`, `"size_bytes":"0504"`, 1),
 		"manifest_version as float": strings.Replace(goldenManifest, `"manifest_version":1`, `"manifest_version":1.0`, 1),
 
 		"hash uppercase": strings.Replace(goldenManifest,
@@ -139,15 +139,15 @@ func TestParseEvidenceBundleManifestRejectsNonCanonical(t *testing.T) {
 		"producer_kind lowercase": strings.Replace(goldenManifest,
 			`"producer_kind":"VERIFIER"`, `"producer_kind":"verifier"`, 1),
 		"producer_operator not bech32": strings.Replace(goldenManifest,
-			`"producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"`,
+			`"producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97"`,
 			`"producer_operator":"trueopen1notanaddress"`, 1),
 		"verify_round zero": strings.Replace(goldenManifest, `"verify_round":1`, `"verify_round":0`, 1),
 
 		"empty artifact id": strings.Replace(goldenManifest, `"artifact_id":"aggregate_proof"`, `"artifact_id":""`, 1),
 		"artifact size zero": strings.Replace(goldenManifest,
-			`"size_bytes":"487"`, `"size_bytes":"0"`, 1),
+			`"size_bytes":"504"`, `"size_bytes":"0"`, 1),
 		"no artifacts": strings.Replace(goldenManifest,
-			`"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2","size_bytes":"487"}]`,
+			`"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c","size_bytes":"504"}]`,
 			`"artifacts":[]`, 1),
 	}
 	for name, payload := range cases {
@@ -161,10 +161,10 @@ func TestParseEvidenceBundleManifestRejectsNonCanonical(t *testing.T) {
 
 // artifact_id must be unique and in ascending UTF-8 byte order: the order is part of the manifest and the parser does not reorder it.
 func TestParseEvidenceBundleManifestRejectsUnorderedArtifacts(t *testing.T) {
-	const h1 = "6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2"
+	const h1 = "fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c"
 	const h2 = "5a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2"
 	tail := `,"chain_id":"trueopen-golden-1","evidence_schema_hash":"` + strings.Repeat("7", 64) +
-		`","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"` +
+		`","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97","task_hash":"` +
 		strings.Repeat("2", 64) + `","task_id":"` + strings.Repeat("1", 64) + `","verify_round":1}`
 
 	descending := `{"artifacts":[{"artifact_id":"b","content_hash":"` + h1 + `","size_bytes":"1"},` +
@@ -213,11 +213,11 @@ func TestParseEvidenceBundleManifestOptionalFields(t *testing.T) {
 
 // The artifact size sum must use checked addition: overflow is an error, not a wraparound.
 func TestParseEvidenceBundleManifestRejectsArtifactSizeOverflow(t *testing.T) {
-	const h1 = "6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2"
+	const h1 = "fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c"
 	const h2 = "5a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2"
 	payload := `{"artifacts":[{"artifact_id":"a","content_hash":"` + h1 + `","size_bytes":"18446744073709551615"},` +
 		`{"artifact_id":"b","content_hash":"` + h2 + `","size_bytes":"1"}],"chain_id":"trueopen-golden-1","evidence_schema_hash":"` +
-		strings.Repeat("7", 64) + `","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"` +
+		strings.Repeat("7", 64) + `","manifest_version":1,"producer_kind":"WORKER","producer_operator":"trueopen19d6n78jdf0m9d79aeeyurqmzcj4p5f0jedgg97","task_hash":"` +
 		strings.Repeat("2", 64) + `","task_id":"` + strings.Repeat("1", 64) + `","verify_round":1}`
 	if _, err := ParseEvidenceBundleManifest([]byte(payload)); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("error = %v, want ErrMalformed", err)
