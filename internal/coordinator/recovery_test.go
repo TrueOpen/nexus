@@ -59,7 +59,7 @@ func TestRecoveryTracksActiveTaskEvents(t *testing.T) {
 	store := kv.NewMemStore()
 	snapshot := taskSnapshot{
 		Version: 2, SessionID: "session-recovered", TaskID: "task-recovered",
-		ModelID: "model", PayloadCID: "cid", State: types.Pending,
+		ModelID: testModelIDHex, PayloadCID: "cid", State: types.Pending,
 	}
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRecoveryRestoresAuthoritativeRevealFacts(t *testing.T) {
 	store := kv.NewMemStore()
 	snapshot := taskSnapshot{
 		Version: 2, SessionID: "session-recovered", TaskID: "task-recovered",
-		ModelID: "model", PayloadCID: "cid", State: types.Verifying, Phase: types.PhaseOpenVerify,
+		ModelID: testModelIDHex, PayloadCID: "cid", State: types.Verifying, Phase: types.PhaseOpenVerify,
 	}
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
@@ -229,7 +229,7 @@ func TestRecoverySettledTaskUsesChainHeight(t *testing.T) {
 			store := kv.NewMemStore()
 			snapshot := taskSnapshot{
 				Version: 2, SessionID: "session-1", TaskID: "task-1",
-				ModelID: "model", PayloadCID: "cid", State: types.Settled,
+				ModelID: testModelIDHex, PayloadCID: "cid", State: types.Settled,
 				Phase: types.PhaseSettle, Settlement: test.settlement,
 				LegacyChallengeUntil: test.legacyUntil,
 			}
@@ -299,7 +299,7 @@ func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
 	c, _, _ := newRecoveryCoordinator(t, store)
 	order := types.Order{
 		SessionID: "session-canonical", TaskID: testTaskID("task-canonical"), OrderSequence: 7,
-		ModelID: "model", ProfileVersion: math.MaxUint32, PayloadCID: "cid", User: "user",
+		ModelID: testModelIDHex, ProfileVersion: math.MaxUint32, PayloadCID: "cid", User: "user",
 		OrderEnvelope: `{"schema_version":"trueopen-order-envelope-v1"}`, TaskHash: testCanonicalTaskHash(testUserAddress),
 		SignatureScheme: "secp256k1", UserSignature: "user-signature", MaxFee: 1000,
 		InferTimeoutBlocks: 20,
@@ -360,7 +360,7 @@ func TestRestoreDropsLegacySnapshotMaterial(t *testing.T) {
 			taskID:        task,
 			workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 			verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
-			verifyResults: make(map[string]*taskv1.ResultReceiptV2),
+			verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 			fullReveals:   make(map[string]bool),
 		}
 	}
@@ -403,7 +403,7 @@ func TestSaveWritesCurrentSnapshotVersion(t *testing.T) {
 		taskID:        task,
 		workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
-		verifyResults: make(map[string]*taskv1.ResultReceiptV2),
+		verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 		fullReveals:   make(map[string]bool),
 		persist:       func(sn taskSnapshot) error { got = sn; return nil },
 	}
@@ -421,7 +421,7 @@ func TestSaveWritesCurrentSnapshotVersion(t *testing.T) {
 		taskID:        task,
 		workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
-		verifyResults: make(map[string]*taskv1.ResultReceiptV2),
+		verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 		fullReveals:   make(map[string]bool),
 	}
 	restored.restoreFrom(got)
@@ -438,7 +438,7 @@ func TestRecoveryPublishesMissedAssignmentNotify(t *testing.T) {
 	session, task := "sess-missed-assign", testTaskID("missed-assign")
 	snapshot := taskSnapshot{
 		Version: snapshotVersionProtoPayloadV4, SessionID: session, TaskID: task,
-		ModelID: "model", PayloadCID: "cid", State: types.Pending, Phase: types.PhaseUnspecified,
+		ModelID: testModelIDHex, PayloadCID: "cid", State: types.Pending, Phase: types.PhaseUnspecified,
 		Order: types.Order{SessionID: session, TaskID: task, TaskHash: task},
 	}
 	raw, err := json.Marshal(snapshot)

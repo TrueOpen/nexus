@@ -136,7 +136,7 @@ func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if onChain.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV2 ||
+	if onChain.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV3 ||
 		onChain.GetChainId() != testChainID || !bytes.Equal(onChain.GetTaskId(), wantTaskID) ||
 		onChain.GetWorkerOperatorAddress() != winner ||
 		!bytes.Equal(onChain.GetOutputHash(), outputHash) ||

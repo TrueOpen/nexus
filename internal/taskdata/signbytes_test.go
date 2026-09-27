@@ -40,7 +40,7 @@ func TestConfirmationMaterialDigest(t *testing.T) {
 	evidenceRef := ObjectRef{
 		TaskHash: testTaskHash, SessionID: testSessionID, TaskID: testTaskID,
 		Kind: ObjectKindEvidenceManifest, ContentHash: strings.Repeat("b", 64),
-		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: testBuilder,
+		EvidenceProducerKind: EvidenceProducerWorker, EvidenceKind: EvidenceKindWorkerValueOpening, VerifyRound: 1, ProducerOperator: testBuilder,
 	}
 	malformed := map[string]StorageConfirmation{
 		"output carries artifact total": func() StorageConfirmation { v := output; v.ArtifactTotalSizeBytes = 1; return v }(),

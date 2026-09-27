@@ -140,7 +140,7 @@ func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
 		if !bytesEqual(hr.GetTaskId(), wantTaskID) || !bytesEqual(hr.GetTaskHash(), wantTaskHash) {
 			t.Fatalf("handraise %d task binding: task_id=%x task_hash=%x", i, hr.GetTaskId(), hr.GetTaskHash())
 		}
-		if hr.GetModelId() != order.ModelID || hr.GetProfileVersion() != order.ProfileVersion {
+		if hex.EncodeToString(hr.GetModelId()) != order.ModelID || hr.GetProfileVersion() != order.ProfileVersion {
 			t.Fatalf("handraise %d model binding: %s/%d", i, hr.GetModelId(), hr.GetProfileVersion())
 		}
 		if len(hr.GetServiceSignature()) != 64 || len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 ||
@@ -175,7 +175,7 @@ func TestWorkerHandraiseBridgeAcceptsFrozenOnlyOrder(t *testing.T) {
 	// Keep only the fields ingress can fill from SignedOrderV2; leave the rest empty.
 	order := types.Order{
 		SessionID: session, TaskID: task, OrderSequence: 1,
-		ModelID: "model-1", ProfileVersion: 2, TaskType: "text_generation",
+		ModelID: testModelIDHex, ProfileVersion: 2, TaskType: "text_generation",
 		PayloadCID: "cid-in", User: testUserAddress,
 		OrderEnvelope:   hex.EncodeToString(signedOrder),
 		TaskHash:        testCanonicalTaskHash(testUserAddress),

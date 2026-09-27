@@ -150,9 +150,11 @@ const (
 // Order is a single order (delivered to the Coordinator after IngressAPI signature verification).
 // Composite key: session_id + task_id.
 type Order struct {
-	SessionID      string
-	TaskID         string
-	OrderSequence  uint64
+	SessionID     string
+	TaskID        string
+	OrderSequence uint64
+	// ModelID is the lowercase hex of the order's raw 32-byte model_id; it is decoded back only where
+	// it enters a chain or bus message.
 	ModelID        string
 	ProfileVersion uint32
 	TaskType       string

@@ -55,11 +55,11 @@ func validCommit(t *testing.T, taskID []byte, verifier, keyHex string) *taskv1.V
 	}, keyHex)
 }
 
-func validResultReceipt(t *testing.T, taskID []byte, verifier, keyHex string) *taskv1.ResultReceiptV2 {
+func validResultReceipt(t *testing.T, taskID []byte, verifier, keyHex string) *taskv1.ResultReceiptV3 {
 	t.Helper()
 	topk := uint32(750000)
-	receipt := &taskv1.ResultReceiptV2{
-		SchemaVersion: nodecontract.ResultReceiptSchemaVersionV2, ChainId: "trueopen-localnet",
+	receipt := &taskv1.ResultReceiptV3{
+		SchemaVersion: nodecontract.ResultReceiptSchemaVersionV3, ChainId: "trueopen-localnet",
 		TaskId: taskID, VerifyRound: 1, VerifierOperatorAddress: verifier,
 		ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest:    bytes.Repeat([]byte{0xee}, 32),
@@ -83,10 +83,10 @@ func validResultReceipt(t *testing.T, taskID []byte, verifier, keyHex string) *t
 	return receipt
 }
 
-func validRelayReceipt(t *testing.T, taskID []byte, worker, keyHex string) *taskv1.InferReceiptV2 {
+func validRelayReceipt(t *testing.T, taskID []byte, worker, keyHex string) *taskv1.InferReceiptV3 {
 	t.Helper()
-	receipt := &taskv1.InferReceiptV2{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainId: "trueopen-localnet",
+	receipt := &taskv1.InferReceiptV3{
+		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainId: "trueopen-localnet",
 		TaskId: taskID, TaskHash: bytes.Repeat([]byte{0x2a}, 32),
 		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: bytes.Repeat([]byte{0x3b}, 32),
@@ -213,7 +213,7 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 		t.Fatalf("relayed receipt session_id = %q, want the SessionForTask lookup", got.SessionID)
 	}
 	if got.TaskID != hex.EncodeToString(taskID) || got.WorkerAddress != worker.Address() ||
-		got.SchemaVersion != nodecontract.InferReceiptSchemaVersionV2 || got.ChainID != "trueopen-localnet" ||
+		got.SchemaVersion != nodecontract.InferReceiptSchemaVersionV3 || got.ChainID != "trueopen-localnet" ||
 		got.ServiceAuthorizationNonce != 7 || got.ExpiryHeight != 1200 ||
 		got.GeneratedTokenCount != 128 || got.OutputLeafCount != 3 || len(got.EvidenceCommitments) != 1 {
 		t.Fatalf("relayed receipt = %#v", got)
@@ -225,16 +225,16 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 func TestSubmitInferReceiptRejectsMalformedMaterial(t *testing.T) {
 	worker := mustSigner(t, workerKeyHex)
 	taskID := relayTaskID("malformed")
-	tests := map[string]func(*taskv1.InferReceiptV2){
+	tests := map[string]func(*taskv1.InferReceiptV3){
 		// From V2 on, schema_version is 2; falling back to 1 is an old receipt that Phase 0 explicitly does not accept.
-		"wrong schema version": func(r *taskv1.InferReceiptV2) { r.SchemaVersion = 1 },
-		"cross chain":          func(r *taskv1.InferReceiptV2) { r.ChainId = "trueopen-other" },
-		"short task id":        func(r *taskv1.InferReceiptV2) { r.TaskId = r.TaskId[:31] },
-		"short task hash":      func(r *taskv1.InferReceiptV2) { r.TaskHash = r.TaskHash[:31] },
-		"zero output size":     func(r *taskv1.InferReceiptV2) { r.OutputSizeBytes = 0 },
-		"zero nonce":           func(r *taskv1.InferReceiptV2) { r.ServiceAuthorizationNonce = 0 },
-		"zero expiry":          func(r *taskv1.InferReceiptV2) { r.ExpiryHeight = 0 },
-		"short signature":      func(r *taskv1.InferReceiptV2) { r.ServiceSignature = r.ServiceSignature[:32] },
+		"wrong schema version": func(r *taskv1.InferReceiptV3) { r.SchemaVersion = 1 },
+		"cross chain":          func(r *taskv1.InferReceiptV3) { r.ChainId = "trueopen-other" },
+		"short task id":        func(r *taskv1.InferReceiptV3) { r.TaskId = r.TaskId[:31] },
+		"short task hash":      func(r *taskv1.InferReceiptV3) { r.TaskHash = r.TaskHash[:31] },
+		"zero output size":     func(r *taskv1.InferReceiptV3) { r.OutputSizeBytes = 0 },
+		"zero nonce":           func(r *taskv1.InferReceiptV3) { r.ServiceAuthorizationNonce = 0 },
+		"zero expiry":          func(r *taskv1.InferReceiptV3) { r.ExpiryHeight = 0 },
+		"short signature":      func(r *taskv1.InferReceiptV3) { r.ServiceSignature = r.ServiceSignature[:32] },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -411,12 +411,12 @@ func TestSubmitVerifyResultBindsV2Fields(t *testing.T) {
 	verifier := mustSigner(t, workerKeyHex)
 	taskID := relayTaskID("v2-binding")
 	auth := relayAuth(t, verifier.Address(), alternateKeyHex, servicekey.ParticipantCortex)
-	for name, mutate := range map[string]func(*taskv1.ResultReceiptV2){
-		"evidence bundle hash": func(r *taskv1.ResultReceiptV2) {
+	for name, mutate := range map[string]func(*taskv1.ResultReceiptV3){
+		"evidence bundle hash": func(r *taskv1.ResultReceiptV3) {
 			r.VerifierEvidenceBundleHash = bytes.Repeat([]byte{0x11}, 32)
 		},
-		"manifest size": func(r *taskv1.ResultReceiptV2) { r.VerifierEvidenceManifestSizeBytes = 146 },
-		"salt":          func(r *taskv1.ResultReceiptV2) { r.Salt = bytes.Repeat([]byte{0x22}, 32) },
+		"manifest size": func(r *taskv1.ResultReceiptV3) { r.VerifierEvidenceManifestSizeBytes = 146 },
+		"salt":          func(r *taskv1.ResultReceiptV3) { r.Salt = bytes.Repeat([]byte{0x22}, 32) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			client := newTestClient(t, &fakeHandler{}, auth)

@@ -168,7 +168,7 @@ func TestVerifyResultRelayViaIngress(t *testing.T) {
 	if len(sub.verifyResults) != 1 || sub.verifyResults[0].Submitter != testBuilderSelf || !proto.Equal(sub.verifyResults[0].Receipt, vr) {
 		t.Fatalf("receipt was not relayed verbatim: %+v", sub.verifyResults)
 	}
-	ack, err = c.OnVerifyResult(ctx, session, task, proto.Clone(vr).(*taskv1.ResultReceiptV2))
+	ack, err = c.OnVerifyResult(ctx, session, task, proto.Clone(vr).(*taskv1.ResultReceiptV3))
 	if err != nil || !ack.Idempotent || len(sub.verifyResults) != 1 {
 		t.Fatalf("same receipt again: ack = %+v, err = %v, relayed = %d", ack, err, len(sub.verifyResults))
 	}

@@ -74,7 +74,8 @@ type EvidenceBundleManifest struct {
 	ProducerKind       EvidenceProducerKind
 	ProducerOperator   string
 	VerifyRound        uint32
-	// EvidenceKind is optional; its values are defined by the profile adapter and not interpreted by Nexus.
+	// EvidenceKind is required and names the producer's bundle: WORKER_TOKEN_OPENING or
+	// WORKER_VALUE_OPENING for a Worker, VERIFIER_VALUE_OPENING for a Verifier.
 	EvidenceKind string
 	// SchemaMetadata is optional: the exact bytes of a canonical JSON object.
 	SchemaMetadata string
@@ -210,10 +211,12 @@ func manifestFromJSON(raw manifestJSON) (EvidenceBundleManifest, error) {
 		return EvidenceBundleManifest{}, fmt.Errorf("%w: worker manifest verify_round %d", ErrMalformed, manifest.VerifyRound)
 	}
 
-	if raw.EvidenceKind != nil {
-		if manifest.EvidenceKind, err = manifestString("evidence_kind", raw.EvidenceKind, false); err != nil {
-			return EvidenceBundleManifest{}, err
-		}
+	if manifest.EvidenceKind, err = manifestString("evidence_kind", raw.EvidenceKind, false); err != nil {
+		return EvidenceBundleManifest{}, err
+	}
+	if !evidenceKindNamed(manifest.EvidenceKind).belongsTo(manifest.ProducerKind) {
+		return EvidenceBundleManifest{}, fmt.Errorf("%w: evidence_kind %q is not a bundle of this producer",
+			ErrMalformed, manifest.EvidenceKind)
 	}
 	if raw.SchemaMetadata != nil {
 		metadata, err := canonicalJSONValue(raw.SchemaMetadata)
@@ -489,6 +492,21 @@ func matchManifestToRef(manifest EvidenceBundleManifest, ref ObjectRef) error {
 		return fmt.Errorf("%w: manifest verify_round %d, ref %d", ErrMalformed, manifest.VerifyRound, ref.VerifyRound)
 	case manifest.ProducerOperator != ref.ProducerOperator:
 		return fmt.Errorf("%w: manifest producer_operator %s, ref %s", ErrMalformed, manifest.ProducerOperator, ref.ProducerOperator)
+	case manifest.EvidenceKind != ref.EvidenceKind.String():
+		return fmt.Errorf("%w: manifest evidence_kind %s, ref %s", ErrMalformed, manifest.EvidenceKind, ref.EvidenceKind)
 	}
 	return nil
+}
+
+// evidenceKindNamed maps a manifest's evidence_kind name to its number; an unknown name is
+// EvidenceKindUnspecified, which belongs to no producer.
+func evidenceKindNamed(name string) EvidenceKind {
+	for _, kind := range []EvidenceKind{
+		EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindWorkerTokenOpening,
+	} {
+		if kind.String() == name {
+			return kind
+		}
+	}
+	return EvidenceKindUnspecified
 }

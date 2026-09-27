@@ -98,7 +98,7 @@ func TestTaskEventToChainEventExportsResultAcceptedAttrs(t *testing.T) {
 			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_ResultAccepted{
 				ResultAccepted: &taskv1.EventResultAccepted{
 					SessionId: testSessionIDBytes, TaskId: testTaskIDBytes, VerifyRound: 1,
-					Verifier: "trueopen1verifier", ResultPayloadHash: payloadHash,
+					Verifier: "trueopen1verifier", VerifierValueRoot: payloadHash,
 				},
 			},
 		},
@@ -121,8 +121,8 @@ func TestTaskEventToChainEventExportsResultAcceptedAttrs(t *testing.T) {
 	if got := event.Attrs["verify_round"]; got != "1" {
 		t.Fatalf("verify_round = %q", got)
 	}
-	if got := event.Attrs["result_payload_hash"]; got != hex.EncodeToString(payloadHash) {
-		t.Fatalf("result_payload_hash = %q", got)
+	if got := event.Attrs["verifier_value_root"]; got != hex.EncodeToString(payloadHash) {
+		t.Fatalf("verifier_value_root = %q", got)
 	}
 }
 

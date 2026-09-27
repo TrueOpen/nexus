@@ -589,7 +589,7 @@ func (a *Authorizer) verifyOutputReceipt(ctx context.Context, task chaincli.OnCh
 	if receipt.ChainID != a.cfg.ChainID {
 		return fmt.Errorf("%w: infer receipt chain_id", ErrUnauthorized)
 	}
-	if receipt.SchemaVersion != nodecontract.InferReceiptSchemaVersionV2 {
+	if receipt.SchemaVersion != nodecontract.InferReceiptSchemaVersionV3 {
 		return fmt.Errorf("%w: infer receipt schema_version", ErrUnauthorized)
 	}
 	// infer_receipt_hash is always derived locally: §5.14 defines it as the same value as

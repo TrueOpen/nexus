@@ -41,6 +41,7 @@ type taskDataAPI interface {
 	RollbackInput(context.Context, taskdata.ObjectKey) error
 	FinalizeTaskResult(context.Context, taskdata.FinalizeResultRequest) (taskdata.FinalizeResultOutcome, error)
 	FinalizeVerifierEvidence(context.Context, taskdata.FinalizeVerifierRequest) (taskdata.FinalizeVerifierOutcome, error)
+	OutputFin(context.Context, taskdata.ObjectKey) (taskdata.OutputFin, bool, error)
 }
 
 type taskDataRuntime struct{ service *taskdata.Service }
@@ -91,6 +92,10 @@ func (r taskDataRuntime) MarkInputReady(ctx context.Context, key taskdata.Object
 
 func (r taskDataRuntime) RollbackInput(ctx context.Context, key taskdata.ObjectKey) error {
 	return r.service.RollbackInput(ctx, key)
+}
+
+func (r taskDataRuntime) OutputFin(ctx context.Context, key taskdata.ObjectKey) (taskdata.OutputFin, bool, error) {
+	return r.service.OutputFin(ctx, key)
 }
 
 func (r taskDataRuntime) FinalizeTaskResult(
@@ -309,6 +314,18 @@ func (s *service) GetTaskDataMetadata(ctx context.Context, req *connect.Request[
 	if exists && metadata.Key.Kind == taskdata.ObjectKindOutput && metadata.Receipt != nil {
 		response.InferReceipt = signedInferReceiptToPB(*metadata.Receipt)
 	}
+	// A stored OUTPUT carries the Worker's signed Fin, the same frame subscribers get, so a caller that
+	// only fetches can still tell a finished generation from one cut off by its budget.
+	if exists && metadata.Key.Kind == taskdata.ObjectKindOutput &&
+		(metadata.State == taskdata.StateStored || metadata.State == taskdata.StateReady) {
+		fin, found, err := s.taskData.OutputFin(ctx, metadata.Key)
+		if err != nil {
+			return nil, mapTaskDataError(err)
+		}
+		if found {
+			response.Metadata.Fin = outputFinToPB(fin)
+		}
+	}
 	return connect.NewResponse(response), nil
 }
 
@@ -450,8 +467,8 @@ func (s *service) UploadTaskResultObject(
 }
 
 // objectRefFromPB converts the wire TaskDataObjectRefV1 to the internal ref. All shape rules live in
-// taskdata.CanonicalObjectRefFrame (non-evidence must not carry the three producer fields, evidence
-// must carry producer kind); this only converts encoding and lets it validate once.
+// taskdata.CanonicalObjectRefFrame (non-evidence must not carry the producer fields or an evidence
+// kind, evidence must carry a producer kind and one of its bundle kinds); this only converts encoding and lets it validate once.
 func objectRefFromPB(pb *nexusv1.TaskDataObjectRefV1) (taskdata.ObjectRef, error) {
 	if pb == nil {
 		return taskdata.ObjectRef{}, fmt.Errorf("%w: object_ref required", taskdata.ErrMalformed)
@@ -468,7 +485,7 @@ func objectRefFromPB(pb *nexusv1.TaskDataObjectRefV1) (taskdata.ObjectRef, error
 		TaskHash: pb.GetTaskHash(), SessionID: pb.GetSessionId(), TaskID: pb.GetTaskId(),
 		Kind: kind, ContentHash: pb.GetContentHash(),
 		EvidenceProducerKind: producerKind, VerifyRound: pb.GetVerifyRound(),
-		ProducerOperator: pb.GetProducerOperator(),
+		ProducerOperator: pb.GetProducerOperator(), EvidenceKind: taskdata.EvidenceKind(pb.GetEvidenceKind()),
 	}
 	if _, err := taskdata.CanonicalObjectRefFrame(ref); err != nil {
 		return taskdata.ObjectRef{}, err
@@ -482,6 +499,7 @@ func objectRefToPB(ref taskdata.ObjectRef) *nexusv1.TaskDataObjectRefV1 {
 		ObjectKind: objectKindToPB(ref.Kind), ContentHash: ref.ContentHash,
 		EvidenceProducerKind: producerKindToPB(ref.EvidenceProducerKind),
 		VerifyRound:          ref.VerifyRound,
+		EvidenceKind:         sharedv1.EvidenceKind(ref.EvidenceKind),
 	}
 	if ref.ProducerOperator != "" {
 		operator := ref.ProducerOperator
@@ -636,7 +654,7 @@ func metadataToPB(metadata taskdata.Metadata, exists bool) *nexusv1.TaskDataObje
 // signedInferReceiptToPB is the inverse of finalize.go signedInferReceiptFromPB: hex fields are
 // restored to raw 32/64 bytes. Invalid hex can only come from a locally corrupted record; it is returned as empty
 // bytes, and the caller's comparison against the chain naturally rejects it.
-func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV2 {
+func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV3 {
 	fromHex := func(v string) []byte { raw, _ := hex.DecodeString(v); return raw }
 	commitments := make([]*taskv1.EvidenceCommitmentV1, 0, len(r.EvidenceCommitments))
 	for _, c := range r.EvidenceCommitments {
@@ -644,7 +662,7 @@ func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV
 			EvidenceKind: sharedv1.EvidenceKind(c.Kind), EvidenceHashOrRoot: fromHex(c.HashOrRoot), EncodedSizeBytes: c.EncodedSizeBytes,
 		})
 	}
-	return &taskv1.InferReceiptV2{
+	return &taskv1.InferReceiptV3{
 		SchemaVersion: r.SchemaVersion, ChainId: r.ChainID,
 		TaskId: fromHex(r.TaskID), TaskHash: fromHex(r.TaskHash),
 		WorkerOperatorAddress:       r.WorkerOperatorAddress,
@@ -657,6 +675,10 @@ func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV
 		ServiceSignature:            fromHex(r.ServiceSignature),
 		GeneratedTokenCount:         r.GeneratedTokenCount,
 		OutputLeafCount:             r.OutputLeafCount,
+		OutputKeyCommitment:         fromHex(r.OutputKeyCommitment),
+		WorkerTokenKeyCommitment:    fromHex(r.WorkerTokenKeyCommitment),
+		WorkerValueKeyCommitment:    fromHex(r.WorkerValueKeyCommitment),
+		CiphertextOutputRoot:        fromHex(r.CiphertextOutputRoot),
 	}
 }
 
@@ -673,7 +695,7 @@ func evidenceBundleToPB(metadata taskdata.Metadata, exists bool) *nexusv1.Eviden
 		bundleHash = metadata.Key.ContentHash
 	}
 	return &nexusv1.EvidenceBundleSummaryV1{
-		EvidenceBundleHash:     bundleHash,
+		EvidenceManifestHash:   bundleHash,
 		EvidenceSchemaHash:     metadata.EvidenceSchemaHash,
 		ArtifactCount:          uint32(len(metadata.Artifacts)),
 		ArtifactTotalSizeBytes: metadata.ArtifactTotalSizeBytes,

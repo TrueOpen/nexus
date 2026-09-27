@@ -80,11 +80,11 @@ type AssignTx struct {
 // READY, MsgSubmitVerifierHandraises (§4.2.1/§10.4). The Verifier window, legal
 // set, selected Verifier set and every deadline are Keeper-derived, so the
 // legacy selected_verifiers / window proof fields no longer reach the chain.
-// VerifyResultTx relays the Verifier-signed ResultReceiptV2 verbatim (Keeper Interface Contract
+// VerifyResultTx relays the Verifier-signed ResultReceiptV3 verbatim (Keeper Interface Contract
 // §10.9). Nexus rewrites or fills in no field: the receipt's signature preimage is locked by the
 // Verifier's current service key, and changing a single byte fails on-chain signature verification.
 type VerifyResultTx struct {
-	Receipt   *taskv1.ResultReceiptV2 `json:"-"`
+	Receipt   *taskv1.ResultReceiptV3 `json:"-"`
 	Submitter string                  `json:"submitter"`
 }
 
@@ -96,8 +96,8 @@ type VerifyCommitTx struct {
 }
 
 type OpenVerifyTx struct {
-	// InferReceipt is the Worker-signed InferReceiptV2 (§5.14).
-	InferReceipt *taskv1.InferReceiptV2 `json:"-"`
+	// InferReceipt is the Worker-signed InferReceiptV3.
+	InferReceipt *taskv1.InferReceiptV3 `json:"-"`
 	// VerifierHandraises are Cortex-authored signed VerifierHandraiseV1 facts
 	// belonging to the frozen window (§4.1/§4.4).
 	VerifierHandraises []*taskv1.VerifierHandraiseV1 `json:"-"`

@@ -118,7 +118,7 @@ func manifestUploadHeader(body []byte) UploadHeader {
 			// manifest claims is rejected, see TestUploadManifestRejectsRefMismatch.
 			TaskHash: strings.Repeat("2", 64), SessionID: testSessionID, TaskID: strings.Repeat("1", 64),
 			Kind: ObjectKindEvidenceManifest, ContentHash: contentHash,
-			EvidenceProducerKind: EvidenceProducerVerifier, VerifyRound: 1,
+			EvidenceProducerKind: EvidenceProducerVerifier, EvidenceKind: EvidenceKindVerifierValueOpening, VerifyRound: 1,
 			ProducerOperator: "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
 		},
 		Uploader:  "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
@@ -137,6 +137,7 @@ func TestUploadManifestRejectsRefMismatch(t *testing.T) {
 		"task_id":   func(h *UploadHeader) { h.Key.TaskID = testTaskID },
 		"producer_kind": func(h *UploadHeader) {
 			h.Key.EvidenceProducerKind = EvidenceProducerWorker
+			h.Key.EvidenceKind = EvidenceKindWorkerValueOpening
 		},
 		"verify_round":      func(h *UploadHeader) { h.Key.VerifyRound = 2 },
 		"producer_operator": func(h *UploadHeader) { h.Key.ProducerOperator = testBuilder },
@@ -182,7 +183,7 @@ func buildManifest(t *testing.T, ref ObjectKey, schemaHash string, artifacts []E
 		ManifestVersion: EvidenceBundleManifestVersionV1, ChainID: testChainID,
 		TaskID: ref.TaskID, TaskHash: ref.TaskHash, EvidenceSchemaHash: schemaHash,
 		ProducerKind: ref.EvidenceProducerKind, ProducerOperator: ref.ProducerOperator,
-		VerifyRound: ref.VerifyRound, Artifacts: artifacts,
+		VerifyRound: ref.VerifyRound, EvidenceKind: ref.EvidenceKind.String(), Artifacts: artifacts,
 	}
 	raw, err := manifest.canonicalBytes()
 	if err != nil {

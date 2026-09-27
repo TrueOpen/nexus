@@ -138,7 +138,7 @@ func waitForResponse(ctx context.Context, delay time.Duration) error {
 // The payload digest is still checked -- it needs no consensus fact, and skipping it would drop half the contract.
 func decodeOrderBroadcast(
 	subject string, data []byte, now time.Time,
-) (*busv1.BusEnvelopeV1, *taskv1.TaskOrderV2, error) {
+) (*busv1.BusEnvelopeV1, *taskv1.TaskOrderV3, error) {
 	var envelope busv1.BusEnvelopeV1
 	if err := proto.Unmarshal(data, &envelope); err != nil {
 		return nil, nil, fmt.Errorf("decode order envelope: %w", err)
@@ -169,7 +169,7 @@ func decodeOrderBroadcast(
 	if order == nil {
 		return nil, nil, fmt.Errorf("order broadcast has no signed order")
 	}
-	if wantSubject := msgbus.SubjectTaskOpen(order.GetModelId()); subject != wantSubject {
+	if wantSubject := msgbus.SubjectTaskOpen(hex.EncodeToString(order.GetModelId())); subject != wantSubject {
 		return nil, nil, fmt.Errorf("order subject mismatch: actual=%q model=%q", subject, wantSubject)
 	}
 	return &envelope, order, nil
@@ -177,12 +177,12 @@ func decodeOrderBroadcast(
 
 // orderIdentity recomputes task_id / task_hash from the signed order as the contract requires (OrderBroadcastV1 comments):
 // the hand-raiser may not invent its own and must carry back the recomputed values.
-func orderIdentity(order *taskv1.TaskOrderV2) (taskIDHex, taskHashHex string, err error) {
+func orderIdentity(order *taskv1.TaskOrderV3) (taskIDHex, taskHashHex string, err error) {
 	taskID, err := nodecontract.DeriveTaskIDFromRawSession(order.GetSessionId(), order.GetOrderSequence())
 	if err != nil {
 		return "", "", fmt.Errorf("derive task_id: %w", err)
 	}
-	taskHash, err := nodecontract.TaskOrderHashV2(order)
+	taskHash, err := nodecontract.TaskOrderHashV3(order)
 	if err != nil {
 		return "", "", fmt.Errorf("derive task_hash: %w", err)
 	}
@@ -201,7 +201,7 @@ func mockServiceSigner(index int) (signer.Signer, error) {
 // whose payload is the frozen contract's task.v1.WorkerHandraiseV1.
 // chain_id is carried over from the inbound ORDER_BROADCAST: the mock may not switch to another chain.
 func (r *orderResponder) publishWorkerHandraises(
-	ctx context.Context, inbound *busv1.BusEnvelopeV1, order *taskv1.TaskOrderV2,
+	ctx context.Context, inbound *busv1.BusEnvelopeV1, order *taskv1.TaskOrderV3,
 	taskIDHex, taskHashHex string,
 ) error {
 	if r.config.WorkerCount < 3 {
@@ -223,7 +223,7 @@ func (r *orderResponder) publishWorkerHandraises(
 	if profileVersion == 0 {
 		profileVersion = 1
 	}
-	// A hand-raise's expiry_height must not be later than the order's expiry height (TaskOrderV2 field 19).
+	// A hand-raise's expiry_height must not be later than the order's expiry height (TaskOrderV3 field 19).
 	expiryHeight := order.GetOrderExpireHeight()
 	if expiryHeight == 0 {
 		return fmt.Errorf("order is missing order_expire_height")

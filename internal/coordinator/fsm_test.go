@@ -222,7 +222,7 @@ func testInferReceipt(session, task, worker string, outputHash []byte) types.Inf
 	evidenceHash := sha256.Sum256([]byte("worker-value-opening-" + task))
 	return types.InferReceiptSubmission{
 		SessionID:                 session,
-		SchemaVersion:             nodecontract.InferReceiptSchemaVersionV2,
+		SchemaVersion:             nodecontract.InferReceiptSchemaVersionV3,
 		ChainID:                   testChainID,
 		TaskID:                    task,
 		TaskHash:                  hex.EncodeToString(taskHash[:]),
@@ -278,7 +278,7 @@ var testPlaceholderTaskHash = testHash32("placeholder-task-hash")
 func testPlaceholderOrder(session, task string) types.Order {
 	return types.Order{
 		TaskHash: testPlaceholderTaskHash, SessionID: session, TaskID: task,
-		ModelID: "m", PayloadCID: "cid", SignedOrder: testSignedOrderBytes(testUserAddress),
+		ModelID: testModelIDHex, PayloadCID: "cid", SignedOrder: testSignedOrderBytes(testUserAddress),
 	}
 }
 
@@ -287,7 +287,7 @@ func testPlaceholderOrder(session, task string) types.Order {
 // the order, the hand-raise and the proposal scope alike -- a mismatch between the three means
 // fail-closed took effect, not a fixture coincidence.
 func testCanonicalTaskHash(user string) string {
-	hash, err := nodecontract.TaskOrderHashHexV2(testSignedOrder(user).GetOrder())
+	hash, err := nodecontract.TaskOrderHashHexV3(testSignedOrder(user).GetOrder())
 	if err != nil {
 		panic(err)
 	}
@@ -316,7 +316,7 @@ func testSignedOrderBytes(user string) []byte {
 
 func testCurrentOrder(session, task, user string) types.Order {
 	envelope := nodecontract.AssignmentOrderEnvelopeV1{
-		SchemaVersion: nodecontract.OrderEnvelopeSchemaV1, ModelID: "model-1", ProfileVersion: 2, TaskType: "inference",
+		SchemaVersion: nodecontract.OrderEnvelopeSchemaV1, ModelID: testModelIDHex, ProfileVersion: 2, TaskType: "inference",
 		RewardBucket: 1, ProfileResourceTier: 2, InferInputUnitPriceBid: 2, InferOutputUnitPriceBid: 3,
 		VerifyUnitPriceBid: 4, MaxFee: 100, TxFeeReserve: 0, InferFeeCap: 70, VerifyFeeCap: 10, OrderValue: 80,
 		DeadlineHeight: 1000, PayloadHash: strings.Repeat("a", 64),
@@ -390,7 +390,7 @@ func testWorkerHandraise(session, task, candidate string) *taskv1.WorkerHandrais
 		// The hand-raise echoes the candidate task_hash from the broadcast verbatim: building a
 		// different value gets it dropped on the spot by validWorkerHandraise.
 		TaskHash:       mustHex32(order.TaskHash),
-		ModelId:        order.ModelID,
+		ModelId:        mustHex32(order.ModelID),
 		ProfileVersion: order.ProfileVersion,
 		Member: &taskv1.CandidateMemberRefV1{
 			CandidatePoolSnapshotId: snapshotID[:],
@@ -417,7 +417,7 @@ func testVerifierHandraise(session, task, candidate string, outputHash, inferRec
 		VerifyRound:      uint32(nodecontract.SupportedVerifyRoundV1),
 		InferReceiptHash: append([]byte(nil), inferReceiptHash...),
 		OutputHash:       append([]byte(nil), outputHash...),
-		ModelId:          "model-1",
+		ModelId:          testModelIDBytes,
 		ProfileVersion:   2,
 		Member: &taskv1.CandidateMemberRefV1{
 			CandidatePoolSnapshotId: snapshotID[:],
@@ -436,7 +436,7 @@ func testVerifierHandraise(session, task, candidate string, outputHash, inferRec
 // The metric fields are derived deterministically from vals: same vals → same metric_root /
 // summary (consistent), otherwise inconsistent; result_reveal_hash, by contrast, always differs
 // per node.
-func testVerifyResult(task, verifier string, vals [][]byte) *taskv1.ResultReceiptV2 {
+func testVerifyResult(task, verifier string, vals [][]byte) *taskv1.ResultReceiptV3 {
 	material := sha256.New()
 	for _, v := range vals {
 		material.Write(v)
@@ -448,8 +448,8 @@ func testVerifyResult(task, verifier string, vals [][]byte) *taskv1.ResultReceip
 	// re-execution results on three Verifiers are necessarily unequal.
 	revealHash := sha256.Sum256(append([]byte("result-reveal|"+verifier+"|"), material.Sum(nil)...))
 	paramsDigest := sha256.Sum256([]byte("generation-params|" + task))
-	return &taskv1.ResultReceiptV2{
-		SchemaVersion:             nodecontract.ResultReceiptSchemaVersionV2,
+	return &taskv1.ResultReceiptV3{
+		SchemaVersion:             nodecontract.ResultReceiptSchemaVersionV3,
 		ChainId:                   testChainID,
 		TaskId:                    mustHex32(task),
 		VerifyRound:               uint32(nodecontract.SupportedVerifyRoundV1),
@@ -486,7 +486,7 @@ func TestHappyPath(t *testing.T) {
 
 	const (
 		session = "sess-1"
-		model   = "model-1"
+		model   = testModelIDHex
 		winner  = "worker-1"
 	)
 	// task_id must have its real shape, or WorkerHandraiseV1 cannot be assembled.
@@ -514,14 +514,14 @@ func TestHappyPath(t *testing.T) {
 	assertContractEnvelope(t, orderEnvelope, msgbus.SubjectTaskOpen(model), wirebus.KindOrderBroadcast)
 	ob := decodeTestPayload[busv1.OrderBroadcastV1](t, orders.last())
 	// The broadcast carries only the complete user-signed order; task_hash is recomputed by the receiver from signed_order.order.
-	rebroadcastHash, err := nodecontract.TaskOrderHashHexV2(ob.GetSignedOrder().GetOrder())
+	rebroadcastHash, err := nodecontract.TaskOrderHashHexV3(ob.GetSignedOrder().GetOrder())
 	if err != nil {
 		t.Fatalf("recompute task_hash from broadcast: %v", err)
 	}
 	if rebroadcastHash != testCanonicalTaskHash(testUserAddress) {
 		t.Fatalf("OrderBroadcast signed order does not derive the canonical task_hash")
 	}
-	if ob.GetSignedOrder().GetOrder().GetModelId() != model {
+	if hex.EncodeToString(ob.GetSignedOrder().GetOrder().GetModelId()) != model {
 		t.Fatalf("OrderBroadcast model mismatch: %+v", ob)
 	}
 	assertState(t, c, session, task, types.Pending)
@@ -606,7 +606,7 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("InferReceipt.output_hash mismatch: %x", submitted.GetOutputHash())
 	}
 	if hex.EncodeToString(submitted.GetTaskId()) != task ||
-		submitted.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV2 ||
+		submitted.GetSchemaVersion() != nodecontract.InferReceiptSchemaVersionV3 ||
 		submitted.GetChainId() != testChainID || submitted.GetServiceAuthorizationNonce() == 0 ||
 		submitted.GetExpiryHeight() == 0 || len(submitted.GetGenerationParamsDigest()) != 32 ||
 		len(submitted.GetRequiredEvidenceCommitments()) != 1 {
@@ -1138,7 +1138,7 @@ func TestVerifyResultRelaySemantics(t *testing.T) {
 		log: log, chainID: testChainID, self: testBuilderSelf,
 		sessionID: "session-1", taskID: task,
 		state: types.Verifying, verifiers: []string{verifier},
-		verifyResults: map[string]*taskv1.ResultReceiptV2{},
+		verifyResults: map[string]*taskv1.ResultReceiptV3{},
 		submit:        sub,
 	}
 	receipt := testVerifyResult(task, verifier, [][]byte{[]byte("v0")})

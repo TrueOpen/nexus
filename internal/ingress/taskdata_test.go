@@ -346,6 +346,7 @@ func testObjectKey(kind taskdata.ObjectKind) taskdata.ObjectKey {
 	}
 	if kind.IsEvidence() {
 		key.EvidenceProducerKind = taskdata.EvidenceProducerWorker
+		key.EvidenceKind = taskdata.EvidenceKindWorkerValueOpening
 		key.VerifyRound = 1
 	}
 	return key

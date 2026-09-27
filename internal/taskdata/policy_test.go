@@ -33,6 +33,7 @@ func TestRecoveryPolicyRevalidatesPreparedUploaderAndAcceptedReceipt(t *testing.
 	evidence.State = StatePrepared
 	evidence.Uploader = fx.verifier.Address()
 	evidence.Key.EvidenceProducerKind = EvidenceProducerVerifier
+	evidence.Key.EvidenceKind = EvidenceKindVerifierValueOpening
 	evidence.Key.ProducerOperator = fx.verifier.Address()
 	if ok, err := policy.RevalidatePrepared(context.Background(), evidence); err != nil || !ok {
 		t.Fatalf("revalidate evidence = %t, %v", ok, err)

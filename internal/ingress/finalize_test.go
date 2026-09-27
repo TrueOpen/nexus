@@ -110,9 +110,9 @@ func TestFinalizeTaskResultRequiresReceipt(t *testing.T) {
 	}
 }
 
-func finalizeReceiptPB() *taskv1.InferReceiptV2 {
-	return &taskv1.InferReceiptV2{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainId: "chain",
+func finalizeReceiptPB() *taskv1.InferReceiptV3 {
+	return &taskv1.InferReceiptV3{
+		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainId: "chain",
 		TaskId: mustHex(testPBTask), TaskHash: mustHex(testPBHash),
 		WorkerOperatorAddress: testPBCaller, ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: bytes.Repeat([]byte{0xbb}, sha256.Size),

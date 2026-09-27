@@ -31,7 +31,7 @@ func testUserSignatureV2(fill byte) []byte { return append(bytes.Repeat([]byte{f
 func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 	amount := func(units string) *sharedv1.Amount { return &sharedv1.Amount{AtomicUnits: units} }
 	return &taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV2{
+		Order: &taskv1.TaskOrderV3{
 			SchemaVersion: 2, ChainId: "trueopen-localnet", UserAddress: testFrozenUserAddress,
 			SessionId: bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
 			ModelId: "model-1", ProfileVersion: 2,
@@ -95,7 +95,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	}
 	// The order identity is the canonical task_hash derived from the user-signed TaskOrderV2,
 	// not sha256(order_envelope).
-	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV2(signed.GetOrder())
+	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV3(signed.GetOrder())
 	if hashErr != nil {
 		t.Fatalf("task order hash: %v", hashErr)
 	}
@@ -139,13 +139,13 @@ func TestParseOrderEnvelopeTaskHashIgnoresUserSignature(t *testing.T) {
 // an order whose canonical task_hash cannot be computed must not enter the flow -- the keeper would certainly reject it on chain,
 // and rather than broadcasting it with an empty identity and collecting a pile of hand-raises that match nothing, it is rejected at the entrance.
 func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
-	cases := map[string]func(*taskv1.TaskOrderV2){
-		"non-bech32 user_address": func(o *taskv1.TaskOrderV2) { o.UserAddress = "trueopen1user" },
-		"missing max_fee":         func(o *taskv1.TaskOrderV2) { o.MaxFee = nil },
-		"leading zero amount":     func(o *taskv1.TaskOrderV2) { o.PriceBid = &sharedv1.Amount{AtomicUnits: "04"} },
-		"no output budget bucket": func(o *taskv1.TaskOrderV2) { o.OutputBudgetBucket = 0 },
-		"no timeout bucket":       func(o *taskv1.TaskOrderV2) { o.TimeoutBucketVersion = 0 },
-		"short session_id":        func(o *taskv1.TaskOrderV2) { o.SessionId = bytes.Repeat([]byte{0x11}, 16) },
+	cases := map[string]func(*taskv1.TaskOrderV3){
+		"non-bech32 user_address": func(o *taskv1.TaskOrderV3) { o.UserAddress = "trueopen1user" },
+		"missing max_fee":         func(o *taskv1.TaskOrderV3) { o.MaxFee = nil },
+		"leading zero amount":     func(o *taskv1.TaskOrderV3) { o.PriceBid = &sharedv1.Amount{AtomicUnits: "04"} },
+		"no output budget bucket": func(o *taskv1.TaskOrderV3) { o.OutputBudgetBucket = 0 },
+		"no timeout bucket":       func(o *taskv1.TaskOrderV3) { o.TimeoutBucketVersion = 0 },
+		"short session_id":        func(o *taskv1.TaskOrderV3) { o.SessionId = bytes.Repeat([]byte{0x11}, 16) },
 	}
 	// Request-layer secp256k1 signature placeholder: 64 bytes, unrelated to the embedded eip712 user signature.
 	signature := bytes.Repeat([]byte{0x55}, 64)
@@ -217,8 +217,8 @@ func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
 		"short signature":   {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: bytes.Repeat([]byte{0x55}, 32)},
 		"bad V":             {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(bytes.Repeat([]byte{0x55}, 64), 1)},
 		"high-S":            {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712", UserSignature: append(append(bytes.Repeat([]byte{0x55}, 32), bytes.Repeat([]byte{0xff}, 32)...), 27)},
-		"no profile":        {Order: &taskv1.TaskOrderV2{ModelId: "model-1"}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
-		"no model": {Order: &taskv1.TaskOrderV2{ProfileVersion: 1}, SignatureScheme: "eip712",
+		"no profile":        {Order: &taskv1.TaskOrderV3{ModelId: "model-1"}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
+		"no model": {Order: &taskv1.TaskOrderV3{ProfileVersion: 1}, SignatureScheme: "eip712",
 			UserSignature: testUserSignatureV2(0x55)},
 	}
 	for name, signed := range cases {

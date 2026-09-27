@@ -2,25 +2,57 @@ package taskdata
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"testing"
+
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// Byte for byte against monorepo Interface & Topic Catalogue §4.2.1
-// "USER Fetch auth (EIP-712 v4)". Every link in the chain has a published value, so a wrong
-// step is located directly instead of being reverse-engineered from the final digest.
+// Byte for byte against the USER task data request vector of wire
+// testdata/v1/shared/account_signing_v1.json ("task_data_request"). Every link in the chain has a
+// published value, so a wrong step is located directly instead of being reverse-engineered from
+// the final digest. The body digest is the fetch body vector of task_data_auth_v1.json.
 const (
 	goldenEIP712NumericChainID = 424242
 	goldenEIP712DomainTypeHash = "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e"
 	goldenEIP712RequestTypeHas = "b46d57a151e675bb90df1ffa518e88e93ae97b3e0400ab9064c2d3f84cb3735a"
 	goldenEIP712Separator      = "43a9e01264c13d99f777f935bb9125ec78f6d19732efca7d1e4328de85dd0d4f"
-	goldenEIP712HashStruct     = "9701c62f684c238216b1f8f6da7edecd161a0c1dfb3b13821b6ef6f5353285a3"
-	goldenEIP712SigningDigest  = "a4697bc65277f4214c034f720c0872579b6e2d4a718ca0117c4c8bf2041bf512"
-	goldenEIP712Signature      = "b07b5449de0058012712d5ea8fe5e12ed807ef2aea0ddd194468bc0730006b30" +
-		"5e93462045acab80fff3aeabaae44ec31cd86f0240e8710fd36739c6d20873531c"
+	goldenEIP712HashStruct     = "445fb9e9e1500a100a249cf7ab45c09dc5297012e8cf51b400a2162c6f090ace"
+	goldenEIP712SigningDigest  = "ad060d652820c86e43f63b35964c4872bdb93060df92556dc1476db12c2bffa5"
+	goldenEIP712Signature      = "943dca70514347d66504059b4f0e2c24c69e54c747ca4886a8ce072a2922d30f" +
+		"1a0f1e6cc46dc2848bbd23870c287fb0017c8507113527da36a4e4248daa38b51c"
 	goldenEIP712Recovered = "1a642f0e3c3af545e7acbd38b07251b3990914f1"
 	// Canonical bech32 of the same 20 bytes as recovered_address.
 	goldenEIP712User = "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
 )
+
+// TestEIP712VectorConstantsAreWires pins the constants above to the pinned wire file, so they cannot
+// drift from it.
+func TestEIP712VectorConstantsAreWires(t *testing.T) {
+	var file struct {
+		Request struct {
+			HashStruct    string `json:"hash_struct"`
+			SigningDigest string `json:"signing_digest"`
+			Signature     string `json:"signature_65"`
+			TypeHash      string `json:"type_hash"`
+			Recovered     string `json:"recovered_address"`
+			Domain        struct {
+				Separator string `json:"domain_separator"`
+				TypeHash  string `json:"type_hash"`
+			} `json:"domain"`
+		} `json:"task_data_request"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/account_signing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	r := file.Request
+	if r.HashStruct != goldenEIP712HashStruct || r.SigningDigest != goldenEIP712SigningDigest ||
+		r.Signature != goldenEIP712Signature || r.TypeHash != goldenEIP712RequestTypeHas ||
+		r.Recovered != goldenEIP712Recovered || r.Domain.Separator != goldenEIP712Separator ||
+		r.Domain.TypeHash != goldenEIP712DomainTypeHash {
+		t.Fatalf("constants differ from the wire vector: %+v", r)
+	}
+}
 
 // goldenUserFetchAuth is the USER Fetch request from the vector: nonce 00..1f, service
 // nonce 0, expiry 2000, chain trueopen-golden-1, same Builder as the Cortex vector.

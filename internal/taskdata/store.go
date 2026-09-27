@@ -920,7 +920,7 @@ func sameReceipt(left, right *SignedInferReceipt) bool {
 		return left == nil && right == nil
 	}
 	// EvidenceCommitments is a slice, so SignedInferReceipt is not comparable with ==; compare entry
-	// by entry, with order counting as a difference (the §5.14 frozen list is in strictly ascending
+	// by entry, with order counting as a difference (the frozen list is in strictly ascending
 	// evidence_kind order, so a reordering is a different receipt).
 	if len(left.EvidenceCommitments) != len(right.EvidenceCommitments) {
 		return false
@@ -936,7 +936,12 @@ func sameReceipt(left, right *SignedInferReceipt) bool {
 		left.ServiceAuthorizationNonce == right.ServiceAuthorizationNonce &&
 		left.GenerationParamsDigest == right.GenerationParamsDigest &&
 		left.OutputHash == right.OutputHash && left.OutputSizeBytes == right.OutputSizeBytes &&
-		left.ExpiryHeight == right.ExpiryHeight && left.ServiceSignature == right.ServiceSignature
+		left.ExpiryHeight == right.ExpiryHeight && left.ServiceSignature == right.ServiceSignature &&
+		left.GeneratedTokenCount == right.GeneratedTokenCount && left.OutputLeafCount == right.OutputLeafCount &&
+		left.OutputKeyCommitment == right.OutputKeyCommitment &&
+		left.WorkerTokenKeyCommitment == right.WorkerTokenKeyCommitment &&
+		left.WorkerValueKeyCommitment == right.WorkerValueKeyCommitment &&
+		left.CiphertextOutputRoot == right.CiphertextOutputRoot
 }
 
 func cloneMetadata(metadata Metadata) Metadata {

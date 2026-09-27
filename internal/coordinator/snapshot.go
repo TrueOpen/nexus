@@ -252,7 +252,7 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 		sn.VerifyResults, sn.WorkerHandraises, sn.VerifierHandraises = nil, nil, nil
 	}
 	for _, raw := range sn.VerifyResults {
-		var vr taskv1.ResultReceiptV2
+		var vr taskv1.ResultReceiptV3
 		if err := proto.Unmarshal(raw, &vr); err != nil || vr.GetVerifierOperatorAddress() == "" {
 			f.log.Warn("drop undecodable snapshotted verify result", "task_id", f.taskID)
 			continue

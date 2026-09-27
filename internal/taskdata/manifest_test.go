@@ -2,25 +2,44 @@ package taskdata
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// The minimal Verifier manifest published in Data Plane and Evidence Transport §2.1
-// (single-line UTF-8, no newline, 556 bytes), also the evidence_bundle_manifest_v1 of wire
-// v0.4.1 testdata/v1/task/canonical_json_v1.json.
-const goldenManifest = `{"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2","size_bytes":"487"}],"chain_id":"trueopen-golden-1","evidence_schema_hash":"7777777777777777777777777777777777777777777777777777777777777777","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`
+// The minimal Verifier manifest (single-line UTF-8, no newline, 603 bytes), the
+// evidence_bundle_manifest_v1 vector of wire testdata/v1/task/canonical_json_v1.json.
+const goldenManifest = `{"artifacts":[{"artifact_id":"aggregate_proof","content_hash":"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2","size_bytes":"487"}],"chain_id":"trueopen-golden-1","evidence_kind":"VERIFIER_VALUE_OPENING","evidence_schema_hash":"7777777777777777777777777777777777777777777777777777777777777777","manifest_version":1,"producer_kind":"VERIFIER","producer_operator":"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz","task_hash":"2222222222222222222222222222222222222222222222222222222222222222","task_id":"1111111111111111111111111111111111111111111111111111111111111111","verify_round":1}`
 
-const goldenManifestDigest = "9b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d341"
+const goldenManifestDigest = "5b56779af1df4a720e944c89571cda6613e6749e4b4919eaa5fe6d526f3fe866"
 
-func TestEvidenceBundleHashMatchesPublishedVector(t *testing.T) {
-	if len(goldenManifest) != 562 {
-		t.Fatalf("vector length = %d, contract says 562", len(goldenManifest))
-	}
-	digest := EvidenceBundleHash([]byte(goldenManifest))
-	if got := hex.EncodeToString(digest[:]); got != goldenManifestDigest {
-		t.Fatalf("bundle hash\n got %s\nwant %s", got, goldenManifestDigest)
+// TestEvidenceBundleHashMatchesWireVectors checks the manifest vectors of the pinned wire release:
+// the Verifier manifest above and the two Worker manifests, each parsed strictly.
+func TestEvidenceBundleHashMatchesWireVectors(t *testing.T) {
+	file := wirefixture.Load(t, "task/canonical_json_v1.json")
+	for _, name := range []string{
+		"evidence_bundle_manifest_v1", "evidence_bundle_manifest_worker_token_v1", "evidence_bundle_manifest_worker_value_v1",
+	} {
+		v := file.Vector(t, name, 0)
+		var payload struct {
+			UTF8 string `json:"payload_utf8"`
+		}
+		if err := json.Unmarshal(v.Raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if name == "evidence_bundle_manifest_v1" && payload.UTF8 != goldenManifest {
+			t.Fatal("goldenManifest differs from the wire vector")
+		}
+		digest := EvidenceBundleHash([]byte(payload.UTF8))
+		if hex.EncodeToString(digest[:]) != v.DigestHex {
+			t.Fatalf("%s: bundle hash %x, want %s", name, digest, v.DigestHex)
+		}
+		if _, err := ParseEvidenceBundleManifest([]byte(payload.UTF8)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
 
@@ -166,7 +185,7 @@ func TestParseEvidenceBundleManifestRejectsUnorderedArtifacts(t *testing.T) {
 func TestParseEvidenceBundleManifestOptionalFields(t *testing.T) {
 	withOptional := strings.Replace(goldenManifest,
 		`"chain_id":"trueopen-golden-1"`,
-		`"chain_id":"trueopen-golden-1","evidence_kind":"PREFILL_METRIC"`, 1)
+		`"chain_id":"trueopen-golden-1"`, 1)
 	// schema_metadata sorts after producer_operator and before task_hash (ascending UTF-8 byte order).
 	withOptional = strings.Replace(withOptional,
 		`,"task_hash"`, `,"schema_metadata":{"codec":"cbor"},"task_hash"`, 1)
@@ -175,7 +194,7 @@ func TestParseEvidenceBundleManifestOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if manifest.EvidenceKind != "PREFILL_METRIC" {
+	if manifest.EvidenceKind != "VERIFIER_VALUE_OPENING" {
 		t.Fatalf("evidence_kind = %q", manifest.EvidenceKind)
 	}
 	if manifest.SchemaMetadata != `{"codec":"cbor"}` {

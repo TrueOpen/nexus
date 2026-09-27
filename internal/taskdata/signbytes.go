@@ -16,9 +16,9 @@ const (
 	domainSelector = "TRUEOPEN_EVIDENCE_SELECTOR_V1"
 	domainRequest  = "TRUEOPEN_TASK_DATA_REQUEST_V1"
 	domainRange    = "TRUEOPEN_TASK_DATA_RANGE_V1"
-	// DomainStorageConfirmation is the signing domain of BuilderStorageConfirmationV1,
-	// H_FIELDS_V1 (wire v0.4.1 registry, Task Data Interface Design §6.3a).
-	DomainStorageConfirmation = "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1"
+	// DomainStorageConfirmation is the signing domain of BuilderStorageConfirmationV1, H_FIELDS_V1.
+	// V2 frames the nine-field object_ref.
+	DomainStorageConfirmation = "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2"
 )
 
 var zeroDigest = make([]byte, sha256.Size)
@@ -182,18 +182,18 @@ func validateStreamKey(key ObjectKey) error {
 // OutputStreamBodyDigest is the body digest of the streamed Header.
 //
 // The content_hash is not known when the stream starts (it can only be computed at Fin), so this
-// **must not** use the full object ref — the wire OutputStreamHeaderV1 also carries only
-// (session_id, task_id, task_hash). It reuses TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1 projected onto fixed
-// values: size 0 and empty media type, committing only to those three identity fields. This domain
-// has not yet entered the closed set of five body domains in §4.2.1 and will be registered once
-// the document is completed (the wire v0.4.1 comment says the same).
+// **must not** use the full object ref — the wire OutputStreamHeaderV2 also carries only
+// (session_id, task_id, task_hash). It reuses TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2 projected onto fixed
+// values: size 0 and empty media type, committing only to those three identity fields. wire has not
+// registered a body domain for the streamed upload yet; this projection moves to it once it does,
+// and Cortex computes the same projection.
 func OutputStreamBodyDigest(key ObjectKey) ([sha256.Size]byte, error) {
 	if key.Kind != ObjectKindOutput {
 		return [sha256.Size]byte{}, fmt.Errorf("%w: output stream kind", ErrMalformed)
 	}
-	// Fixed-value projection (Interface & Topic Catalogue §4.2.1): object_kind=OUTPUT,
-	// content_hash=0x00*32, evidence_producer_kind=UNSPECIFIED, verify_round=0, producer_operator
-	// absent; size_bytes=0, media_type="". At stream open the root and total length are unknown, so
+	// Fixed-value projection: object_kind=OUTPUT, content_hash=0x00*32,
+	// evidence_producer_kind=UNSPECIFIED, verify_round=0, producer_operator absent,
+	// evidence_kind=UNSPECIFIED; size_bytes=0, media_type="". At stream open the root and total length are unknown, so
 	// the content_hash sent by the caller does not enter the digest.
 	projected := ObjectRef{
 		TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID,
@@ -257,6 +257,19 @@ func receiptSubmission(receipt SignedInferReceipt) (types.InferReceiptSubmission
 	if err != nil {
 		return types.InferReceiptSubmission{}, err
 	}
+	var keys [4][]byte
+	for i, field := range []struct{ name, value string }{
+		{"output_key_commitment", receipt.OutputKeyCommitment},
+		{"worker_token_key_commitment", receipt.WorkerTokenKeyCommitment},
+		{"worker_value_key_commitment", receipt.WorkerValueKeyCommitment},
+		{"ciphertext_output_root", receipt.CiphertextOutputRoot},
+	} {
+		raw, err := hex.DecodeString(field.value)
+		if err != nil || hex.EncodeToString(raw) != field.value {
+			return types.InferReceiptSubmission{}, fmt.Errorf("%w: %s must be lowercase hex", ErrMalformed, field.name)
+		}
+		keys[i] = raw
+	}
 	return types.InferReceiptSubmission{
 		SchemaVersion: receipt.SchemaVersion, ChainID: receipt.ChainID, TaskID: receipt.TaskID,
 		TaskHash: receipt.TaskHash, WorkerAddress: receipt.WorkerOperatorAddress,
@@ -265,10 +278,29 @@ func receiptSubmission(receipt SignedInferReceipt) (types.InferReceiptSubmission
 		OutputSizeBytes: receipt.OutputSizeBytes, EvidenceCommitments: commitments,
 		ExpiryHeight: receipt.ExpiryHeight, WorkerServiceSignature: signature,
 		GeneratedTokenCount: receipt.GeneratedTokenCount, OutputLeafCount: receipt.OutputLeafCount,
+		OutputKeyCommitment: keys[0], WorkerTokenKeyCommitment: keys[1],
+		WorkerValueKeyCommitment: keys[2], CiphertextOutputRoot: keys[3],
 	}, nil
 }
 
-// receiptDigest recomputes the §5.14 infer_receipt_signing_digest (= infer_receipt_hash).
+// validatePlaintextReceipt applies the plaintext admission rule to a receipt: exactly the two
+// Worker commitments and every encryption field 32 zero bytes.
+func validatePlaintextReceipt(receipt SignedInferReceipt) error {
+	submission, err := receiptSubmission(receipt)
+	if err != nil {
+		return err
+	}
+	wire, err := nodecontract.InferReceiptV3FromSubmission(submission)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrMalformed, err)
+	}
+	if err := nodecontract.ValidatePlaintextInferReceiptV3(wire); err != nil {
+		return fmt.Errorf("%w: %v", ErrMalformed, err)
+	}
+	return nil
+}
+
+// receiptDigest recomputes infer_receipt_signing_digest (= infer_receipt_hash).
 func receiptDigest(receipt SignedInferReceipt) ([32]byte, error) {
 	submission, err := receiptSubmission(receipt)
 	if err != nil {
@@ -277,9 +309,9 @@ func receiptDigest(receipt SignedInferReceipt) ([32]byte, error) {
 	return nodecontract.InferReceiptSigningDigestFromSubmission(submission)
 }
 
-// All the rules of validateObjectKey live in CanonicalObjectRefFrame: the shape of the eight
-// fields, non-evidence objects not carrying the three producer fields, and evidence objects having
-// to carry a producer kind. No second copy is written here.
+// All the rules of validateObjectKey live in CanonicalObjectRefFrame: the shape of the nine
+// fields, non-evidence objects not carrying the producer fields or an evidence kind, and evidence
+// objects having to carry a producer kind and one of its bundle kinds. No second copy is written here.
 func validateObjectKey(key ObjectKey) ([sha256.Size]byte, error) {
 	return ObjectRefDigest(key)
 }

@@ -388,7 +388,7 @@ type fakeHandler struct {
 	lastInferReceipt    types.InferReceiptSubmission
 	inferReceiptErr     error
 	lastVerifyCommit    *taskv1.VerifyCommitV1
-	lastVerifyResult    *taskv1.ResultReceiptV2
+	lastVerifyResult    *taskv1.ResultReceiptV3
 	verifyRelayAck      types.VerifyRelayAck
 	verifyRelayErr      error
 	authorizedRequester string
@@ -430,7 +430,7 @@ func (f *fakeHandler) OnVerifyCommit(_ context.Context, _, _ string, commit *tas
 	return f.verifyRelayAck, f.verifyRelayErr
 }
 
-func (f *fakeHandler) OnVerifyResult(_ context.Context, _, _ string, receipt *taskv1.ResultReceiptV2) (types.VerifyRelayAck, error) {
+func (f *fakeHandler) OnVerifyResult(_ context.Context, _, _ string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	f.lastVerifyResult = receipt
 	return f.verifyRelayAck, f.verifyRelayErr
 }
@@ -621,8 +621,8 @@ func validInferReceiptRequest(
 		t.Fatal(err)
 	}
 	outputHash := sha256.Sum256(output)
-	return &nexusv1.SubmitInferReceiptRequest{Receipt: &taskv1.InferReceiptV2{
-		SchemaVersion: nodecontract.InferReceiptSchemaVersionV2, ChainId: "trueopen-localnet",
+	return &nexusv1.SubmitInferReceiptRequest{Receipt: &taskv1.InferReceiptV3{
+		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainId: "trueopen-localnet",
 		TaskId: rawTaskID, TaskHash: bytes.Repeat([]byte{0x2a}, 32),
 		WorkerOperatorAddress: operator.Address(), ServiceAuthorizationNonce: 7,
 		GenerationParamsDigest: bytes.Repeat([]byte{0x3b}, 32),

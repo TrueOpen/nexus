@@ -86,6 +86,13 @@ func (s *service) UploadTaskOutputStream(
 	}
 	session, progress, err := s.outputStream.service.OpenOutputStream(ctx, request, taskdata.OutputStreamHeader{
 		Key: key, TaskHash: headerPB.GetTaskHash(),
+		Declaration: taskdata.OutputStreamHeaderRecord{
+			Attempt: headerPB.GetAttempt(), StreamInstance: headerPB.GetStreamInstance(),
+			UserRecipientPubkey: headerPB.GetUserRecipientPubkey(),
+			OutputKeyCommitment: headerPB.GetOutputKeyCommitment(),
+			KeyPackageHash:      headerPB.GetKeyPackageHash(),
+			WorkerSignature:     headerPB.GetWorkerSignature(),
+		},
 	})
 	if err != nil {
 		// Stream already finalized or a complete object already exists: return progress first, then end with AlreadyExists;
@@ -287,12 +294,17 @@ func chunkToPB(chunk *taskdata.OutputChunk) *nexusv1.OutputChunkV1 {
 
 func outputFrameToPB(frame taskdata.OutputFrame) *nexusv1.SubscribeOutputResponse {
 	if frame.Fin != nil {
-		return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Fin{Fin: &nexusv1.OutputFinV1{
-			FinalSeq: frame.Fin.FinalSeq, OutputMmrRoot: frame.Fin.OutputMMRRoot,
-			FinishReason: taskv1.FinishReasonV1(frame.Fin.FinishReason), WorkerSignature: frame.Fin.WorkerSignature,
-		}}}
+		return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Fin{Fin: outputFinToPB(*frame.Fin)}}
 	}
 	return &nexusv1.SubscribeOutputResponse{Frame: &nexusv1.SubscribeOutputResponse_Chunk{Chunk: chunkToPB(frame.Chunk)}}
+}
+
+// outputFinToPB returns the Fin exactly as the Worker signed it.
+func outputFinToPB(fin taskdata.OutputFin) *nexusv1.OutputFinV1 {
+	return &nexusv1.OutputFinV1{
+		FinalSeq: fin.FinalSeq, OutputMmrRoot: fin.OutputMMRRoot,
+		FinishReason: taskv1.FinishReasonV1(fin.FinishReason), WorkerSignature: fin.WorkerSignature,
+	}
 }
 
 func progressToPB(progress taskdata.OutputStreamProgress) *nexusv1.OutputStreamProgressV1 {

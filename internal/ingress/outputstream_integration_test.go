@@ -302,7 +302,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 
 	// Diagram 1: Header -> progress (empty) -> three chunks -> receipt has arrived -> fin frame with the storage confirmation.
 	up := f.client.UploadTaskOutputStream(ctx)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0001")),
 	}}}); err != nil {
@@ -383,7 +383,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 
 	// Diagram 3 alt: opening a stream after it is sealed -> progress is returned first, then it ends with AlreadyExists.
 	again := f.client.UploadTaskOutputStream(ctx)
-	if err := again.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	if err := again.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0002")),
 	}}}); err != nil {
@@ -448,7 +448,7 @@ func TestOutputStreamFinStoresObjectUnderMMRRoot(t *testing.T) {
 	received := f.subscribeAsync(t, subCtx, f.user, nil, "nonce-subscribe-mismatch-01")
 
 	up := f.client.UploadTaskOutputStream(ctx)
-	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0003")),
 	}}}); err != nil {
@@ -504,7 +504,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	ctx := context.Background()
 	openStream := func(nonce string) *connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse] {
 		up := f.client.UploadTaskOutputStream(ctx)
-		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 			SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 			RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte(nonce)),
 		}}}); err != nil {
@@ -546,7 +546,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	const strangerKeyHex = "0000000000000000000000000000000000000000000000000000000000000003"
 	stranger := mustSigner(t, strangerKeyHex)
 	up = f.client.UploadTaskOutputStream(ctx)
-	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, stranger, strangerKeyHex, f.key, 110, []byte("nonce-stranger-000001")),
 	}}})
@@ -558,7 +558,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 func TestOutputStreamDisabledIsUnimplemented(t *testing.T) {
 	f := newStreamFixture(t, false)
 	up := f.client.UploadTaskOutputStream(context.Background())
-	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV1{
+	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: &nexusv1.OutputStreamHeaderV2{
 		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-disabled-000001")),
 	}}})

@@ -441,24 +441,25 @@ func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, 
 }
 
 func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error) {
-	if strings.TrimSpace(modelID) == "" || strings.TrimSpace(modelID) != modelID || profileVersion == 0 {
+	rawModelID, err := nodecontract.Hash32Bytes("model_id", modelID)
+	if err != nil || profileVersion == 0 {
 		return ProfileState{}, fmt.Errorf("query profile: model_id and profile_version are required and canonical")
 	}
 	resp, err := c.hubQuery.Profile(ctx, connect.NewRequest(&hubv1.QueryProfileRequest{
-		ModelId: modelID, ProfileVersion: profileVersion,
+		ModelId: rawModelID, ProfileVersion: profileVersion,
 	}))
 	if err != nil {
 		return ProfileState{}, applicationQueryError("profile", err)
 	}
 	profile := resp.Msg.GetProfile()
-	if profile == nil || profile.GetModelId() == "" {
+	if profile == nil || len(profile.GetModelId()) == 0 {
 		return ProfileState{}, ErrNotFound
 	}
-	if profile.GetModelId() != modelID || profile.GetProfileVersion() != profileVersion {
+	if !bytes.Equal(profile.GetModelId(), rawModelID) || profile.GetProfileVersion() != profileVersion {
 		return ProfileState{}, fmt.Errorf("query profile: response key does not match request")
 	}
 	return ProfileState{
-		ModelID: profile.GetModelId(), ProfileVersion: profile.GetProfileVersion(), Status: profile.GetStatus().String(),
+		ModelID: modelID, ProfileVersion: profile.GetProfileVersion(), Status: profile.GetStatus().String(),
 		ChallengeOpenWindowBlocks: profile.GetChallengeOpenWindowBlocks(),
 		EvidenceSchemaHash:        hex.EncodeToString(profile.GetVerificationProfile().GetEvidenceSchemaHash()),
 	}, nil
@@ -804,7 +805,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		ReceiptAccepted: core.GetReceiptStatus() == taskv1.ReceiptStatus_RECEIPT_STATUS_RECEIPT_ACCEPTED,
 		Assignment: TaskAssignmentState{
 			UserAddress: core.GetUserAddress(), OrderSequence: core.GetOrderSequence(),
-			ModelID: core.GetModelId(), ProfileVersion: core.GetProfileVersion(),
+			ModelID: hex.EncodeToString(core.GetModelId()), ProfileVersion: core.GetProfileVersion(),
 			AcceptedTaskHash: hex.EncodeToString(core.GetAcceptedTaskHash()),
 		},
 		Settlement: TaskSettlementState{
@@ -929,7 +930,7 @@ func mapTerminalTask(key TaskKey, summary *taskv1.TaskTerminalSummaryState) (OnC
 		TaskVerdict: mapTaskVerdict(summary.GetVerdict()),
 		Compacted:   true,
 		Assignment: TaskAssignmentState{
-			OrderSequence: summary.GetOrderSequence(), ModelID: summary.GetModelId(),
+			OrderSequence: summary.GetOrderSequence(), ModelID: hex.EncodeToString(summary.GetModelId()),
 			ProfileVersion: summary.GetProfileVersion(), SelectedWorkerOperatorAddress: summary.GetWinnerWorker(),
 			AcceptedTaskHash: hex.EncodeToString(summary.GetTaskHash()),
 		},

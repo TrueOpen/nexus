@@ -18,10 +18,10 @@ import (
 )
 
 // testSignedOrder has the same shape as the §5.13 fixture in coordinator submitter_test: a complete TaskOrderV2
-// that TaskOrderHashV2 can derive from.
+// that TaskOrderHashV3 can derive from.
 func testSignedOrder() *taskv1.SignedOrderV2 {
 	return &taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV2{
+		Order: &taskv1.TaskOrderV3{
 			SchemaVersion: 2, ChainId: "trueopen-localnet",
 			UserAddress: "trueopen1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3rsxm9a",
 			SessionId:   bytes.Repeat([]byte{0x11}, 32), OrderSequence: 7,
@@ -114,7 +114,7 @@ func TestPublishWorkerHandraisesMatchesNexusWireContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantTaskHash, err := nodecontract.TaskOrderHashV2(signedOrder.GetOrder())
+	wantTaskHash, err := nodecontract.TaskOrderHashV3(signedOrder.GetOrder())
 	if err != nil {
 		t.Fatal(err)
 	}

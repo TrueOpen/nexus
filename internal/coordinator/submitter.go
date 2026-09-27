@@ -137,7 +137,7 @@ func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignT
 	}
 	msg := &taskv1.MsgSubmitWorkerHandraises{SubmitterAddress: tx.Submitter}
 	// scopeTaskHash is the authoritative candidate identity this proposal binds to; the two scope branches source it
-	// differently: the signed_order branch computes it from the user-signed TaskOrderV2, the existing_task branch
+	// differently: the signed_order branch computes it from the user-signed TaskOrderV3, the existing_task branch
 	// uses the on-chain accepted_task_hash. It must then be byte-for-byte equal to every hand-raise.
 	var scopeTaskHash []byte
 	switch {
@@ -147,7 +147,7 @@ func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignT
 		if err := validateSignedOrder(tx.SignedOrder); err != nil {
 			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 		}
-		digest, err := nodecontract.TaskOrderHashV2(tx.SignedOrder.GetOrder())
+		digest, err := nodecontract.TaskOrderHashV3(tx.SignedOrder.GetOrder())
 		if err != nil {
 			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
 		}
@@ -282,7 +282,7 @@ func (s *defaultSubmitter) SubmitVerifyResult(ctx context.Context, tx chaincli.V
 		return chaincli.TxResult{}, prepareSubmissionError("MsgBatchSubmitVerifyResult: receipt is required")
 	}
 	return s.submitMsg(ctx, "MsgBatchSubmitVerifyResult", chaincli.TypeURLMsgBatchSubmitVerifyResult, &taskv1.MsgBatchSubmitVerifyResult{
-		Receipts:         []*taskv1.ResultReceiptV2{tx.Receipt},
+		Receipts:         []*taskv1.ResultReceiptV3{tx.Receipt},
 		SubmitterAddress: tx.Submitter,
 	})
 }
@@ -415,7 +415,7 @@ func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
 		return fmt.Errorf("signed_order order is required")
 	}
 	if order.GetSchemaVersion() == 0 || order.GetChainId() == "" || order.GetUserAddress() == "" ||
-		order.GetModelId() == "" || order.GetProfileVersion() == 0 || order.GetBuilderSetId() == "" {
+		len(order.GetModelId()) != hash32Len || order.GetProfileVersion() == 0 || order.GetBuilderSetId() == "" {
 		return fmt.Errorf("signed_order order identity fields are incomplete")
 	}
 	for field, value := range map[string][]byte{
@@ -453,7 +453,7 @@ func validateWorkerHandraises(handraises []*taskv1.WorkerHandraiseV1) error {
 		if handraise.GetDuty() != sharedv1.Duty_DUTY_WORKER {
 			return fmt.Errorf("handraise %d duty must be WORKER", i)
 		}
-		if handraise.GetSchemaVersion() == 0 || handraise.GetChainId() == "" || handraise.GetModelId() == "" ||
+		if handraise.GetSchemaVersion() == 0 || handraise.GetChainId() == "" || len(handraise.GetModelId()) != hash32Len ||
 			handraise.GetProfileVersion() == 0 || handraise.GetServiceAuthorizationNonce() == 0 ||
 			handraise.GetExpiryHeight() == 0 {
 			return fmt.Errorf("handraise %d is incomplete", i)
@@ -485,7 +485,7 @@ func validateVerifierHandraises(handraises []*taskv1.VerifierHandraiseV1, taskID
 		if handraise.GetDuty() != sharedv1.Duty_DUTY_VERIFIER {
 			return fmt.Errorf("handraise %d duty must be VERIFIER", i)
 		}
-		if handraise.GetSchemaVersion() == 0 || handraise.GetChainId() == "" || handraise.GetModelId() == "" ||
+		if handraise.GetSchemaVersion() == 0 || handraise.GetChainId() == "" || len(handraise.GetModelId()) != hash32Len ||
 			handraise.GetProfileVersion() == 0 || handraise.GetServiceAuthorizationNonce() == 0 ||
 			handraise.GetExpiryHeight() == 0 {
 			return fmt.Errorf("handraise %d is incomplete", i)
@@ -529,7 +529,7 @@ func validateCandidateMember(member *taskv1.CandidateMemberRefV1, index, previou
 // is Worker-signed, carries the ordered required evidence commitments and never
 // carries a caller-asserted receipt hash, evidence commitments hash or
 // work-unit field (the latter stays blocked until the settlement encoding is frozen).
-func validateInferReceipt(receipt *taskv1.InferReceiptV2) error {
+func validateInferReceipt(receipt *taskv1.InferReceiptV3) error {
 	if receipt == nil {
 		return fmt.Errorf("receipt is required")
 	}
