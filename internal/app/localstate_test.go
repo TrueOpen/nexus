@@ -11,6 +11,7 @@ import (
 
 	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/localschema"
 )
 
 type identitySource struct {
@@ -108,5 +109,25 @@ func TestOpenLocalStateWithoutIdentity(t *testing.T) {
 	}
 	if _, ok, _ := chainreset.Load(store); ok {
 		t.Fatal("an identity was recorded without a chain answer")
+	}
+}
+
+// A new kv is stamped with the running layout; a kv written by a newer binary is refused rather
+// than read with a layout it does not know.
+func TestOpenLocalStateStampsNewStateAndRefusesNewer(t *testing.T) {
+	dataDir := t.TempDir()
+	store, _ := openState(t, dataDir, identitySource{hash: []byte{0x0a}})
+	if version, err := localschema.Read(store); err != nil || version != localschema.Current {
+		t.Fatalf("version of a new kv = %d, %v; want %d", version, err, localschema.Current)
+	}
+	if err := localschema.Stamp(store, localschema.Current+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := openLocalState(slog.New(slog.NewTextHandler(io.Discard, nil)), dataDir, "trueopen-dev", identitySource{hash: []byte{0x0a}})
+	if !errors.Is(err, localschema.ErrNewerState) {
+		t.Fatalf("error = %v, want ErrNewerState", err)
 	}
 }
