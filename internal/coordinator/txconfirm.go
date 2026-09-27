@@ -13,6 +13,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -76,12 +77,23 @@ func (c *Coordinator) newTxConfirm() *txConfirm {
 	}
 }
 
-// chainModuleRefusal reports a failure raised by one of the chain's own modules: a verdict on
-// the transaction's content that resubmitting cannot change. Every other codespace (sdk and the
-// rest) concerns the transaction around the content -- sequence, fee, mempool, a recovered
-// panic -- and may pass on another try.
-func chainModuleRefusal(result chaincli.TxResult) bool {
-	return result.Code != 0 && (result.Codespace == "task" || result.Codespace == "hub")
+// temporaryTxFailure reports a refusal another try may pass. Only three cosmos-sdk refusals
+// clear by themselves: a sequence mismatch (32), a full mempool (20) and the tx already in the
+// mempool cache (19). Every other refusal -- a chain module's verdict, insufficient fee (13), out
+// of gas (11), a recovered panic (codespace "undefined") -- fails the same way on every try, and
+// retrying it only burns fees.
+func temporaryTxFailure(result chaincli.TxResult) bool {
+	return result.Codespace == "sdk" && (result.Code == 19 || result.Code == 20 || result.Code == 32)
+}
+
+// temporaryBroadcastError reports a broadcast that failed for a reason another try may clear:
+// the node could not be reached, or CheckTx refused it temporarily.
+func temporaryBroadcastError(err error) bool {
+	var submission *SubmissionError
+	if !errors.As(err, &submission) || !submission.Definitive {
+		return true
+	}
+	return submission.Phase == SubmissionBroadcast && temporaryTxFailure(submission.Result)
 }
 
 var (
@@ -200,8 +212,8 @@ func (f *taskFSM) lookupRelayed(item relayItem) (found, same bool, err error) {
 //   - refused by the chain: the Verifier's item may be refused because it is already there (a
 //     redelivery, a crash between broadcast and acknowledgement, the Verifier's own submission).
 //     Only the chain's stored item decides that: the same content is a success, different
-//     content is invalid. Otherwise a refusal by a chain module is invalid
-//     (types.ErrInvalidArgument), any other is temporary;
+//     content is invalid. Otherwise a temporary refusal (temporaryTxFailure) is temporary and
+//     any other is invalid (types.ErrInvalidArgument);
 //   - no block result within the wait: the chain's stored item decides as above if there is
 //     one, otherwise it is temporary and nothing is recorded.
 func (f *taskFSM) relayOutcome(item relayItem, res chaincli.TxResult, submitErr error) (ack types.VerifyRelayAck, onChain bool, err error) {
@@ -258,8 +270,7 @@ func (f *taskFSM) relayOutcome(item relayItem, res chaincli.TxResult, submitErr 
 			"codespace", refused.Codespace, "err", lookupErr)
 		return types.VerifyRelayAck{}, false, fmt.Errorf("%w: %s; chain record unreadable: %v", errRelayTemporary, refusal, lookupErr)
 	}
-	// A CheckTx refusal without a codespace keeps its old reading as a verdict on the content.
-	if chainModuleRefusal(refused) || (checkTx && refused.Codespace == "") {
+	if !temporaryTxFailure(refused) {
 		f.log.Warn(item.kind+" rejected on chain as invalid", "task_id", f.taskID, "verifier", item.verifier,
 			"stage", stage, "code", refused.Code, "codespace", refused.Codespace,
 			"raw_log", chaincli.TruncateRawLog(refused.RawLog))
@@ -303,26 +314,30 @@ func (k asyncTx) msgKind() string {
 }
 
 const (
-	// asyncTxChainModuleRetries is how many resubmissions a refusal by a chain module gets.
-	asyncTxChainModuleRetries = 1
-	// asyncTxInclusionBlocks is how long a broadcast transaction may stay out of every block
-	// before it counts as dropped (a temporary failure).
-	asyncTxInclusionBlocks = 5
-	// asyncTxMaxBackoffBlocks caps the doubling wait between resubmissions after temporary failures.
-	asyncTxMaxBackoffBlocks = 16
+	// receiptRefusalRetries is how many resubmissions a receipt refused for good gets.
+	receiptRefusalRetries = 1
+	// txVerdictBlocks is how long a broadcast transaction may go without a block result -- not
+	// found, or its result unreadable -- before it counts as lost (a temporary failure).
+	txVerdictBlocks = 5
+	// maxBackoffBlocks caps the doubling wait between resubmissions.
+	maxBackoffBlocks = 16
 )
 
+// backoffBlocks is the wait before the n-th retry (n ≥ 1): 1, 2, 4, ... blocks, capped.
+func backoffBlocks(n int) uint64 {
+	return min(uint64(1)<<min(max(n, 1)-1, 30), maxBackoffBlocks)
+}
+
 // submittedTx follows one asynchronous transaction from broadcast to its block result and paces
-// resubmission after a failure. Not persisted: after a restart the transaction is submitted anew
-// and the chain's own idempotency catches a duplicate.
+// resubmission after a failure.
 type submittedTx struct {
 	hash   []byte // broadcast and awaiting its block result; nil when none is outstanding
 	height uint64 // chain height seen at broadcast (0: none seen yet)
 	// retryAt is the first chain height a resubmission may go out at; retry marks one as due.
 	retryAt uint64
 	retry   bool
-	// moduleRefusals / temporaryFailures count the failed block results so far.
-	moduleRefusals    int
+	// refusals / temporaryFailures count the failed block results so far.
+	refusals          int
 	temporaryFailures int
 	stopped           bool // given up and logged at ERROR; nothing more is submitted
 }
@@ -337,10 +352,19 @@ func (f *taskFSM) sentLocked(tx *submittedTx, txHash []byte) {
 	tx.retry = false
 }
 
-// resubmitHeldLocked reports whether a resubmission must wait: the transaction was given up, or
-// its backoff has not passed yet. Caller must hold the lock.
+// resubmitHeldLocked reports whether a resubmission must wait: the transaction awaits its block
+// result, its backoff has not passed yet, or it was given up. Caller must hold the lock.
 func (f *taskFSM) resubmitHeldLocked(tx *submittedTx) bool {
 	return tx.stopped || len(tx.hash) > 0 || (tx.retry && f.observedHeight < tx.retryAt)
+}
+
+// awaitingVerdict reports whether a transaction without a block result may still get one: it has
+// been out of every readable block for fewer than txVerdictBlocks. Caller must hold the lock.
+func awaitingVerdict(tx *submittedTx, height uint64) bool {
+	if tx.height == 0 {
+		tx.height = height // broadcast before any block was seen: count from now
+	}
+	return height < tx.height+txVerdictBlocks
 }
 
 func (f *taskFSM) submittedTxLocked(kind asyncTx) *submittedTx {
@@ -410,18 +434,17 @@ func (f *taskFSM) onSubmittedTxResult(kind asyncTx, txHash []byte, result chainc
 	}
 	height = max(height, f.observedHeight)
 	switch {
-	case errors.Is(queryErr, chaincli.ErrNotFound):
-		if tx.height == 0 {
-			tx.height = height // broadcast before any block was seen: count from now
+	case queryErr != nil:
+		// Not found, or not readable (tx indexing off, result pruned, query failing): either way no
+		// verdict. Past txVerdictBlocks the transaction is taken as lost and sent again.
+		if !errors.Is(queryErr, chaincli.ErrNotFound) {
+			f.log.Warn(kind.msgKind()+" block result query failed", "task_id", f.taskID,
+				"tx_hash", hex.EncodeToString(txHash), "err", queryErr)
 		}
-		if height < tx.height+asyncTxInclusionBlocks {
-			f.log.Debug(kind.msgKind()+" awaiting its block", "task_id", f.taskID, "tx_hash", hex.EncodeToString(txHash))
+		if awaitingVerdict(tx, height) {
 			return
 		}
-		f.asyncTxFailedLocked(kind, tx, chaincli.TxResult{TxHash: txHash, RawLog: "not included in a block"}, height)
-	case queryErr != nil:
-		f.log.Warn(kind.msgKind()+" block result query failed; will query again", "task_id", f.taskID,
-			"tx_hash", hex.EncodeToString(txHash), "err", queryErr)
+		f.asyncTxFailedLocked(kind, tx, chaincli.TxResult{TxHash: txHash, RawLog: "no block result"}, height)
 	case result.Code == 0:
 		tx.hash = nil
 		f.log.Info(kind.msgKind()+" executed in a block", "task_id", f.taskID,
@@ -435,23 +458,29 @@ func (f *taskFSM) onSubmittedTxResult(kind asyncTx, txHash []byte, result chainc
 	}
 }
 
-// asyncTxFailedLocked handles a failed or missing block result. A refusal by a chain module is
-// retried once; any other failure is retried with a doubling wait until the transaction's
-// deadline. Past either limit the transaction is given up with an ERROR. Caller must hold the lock.
+// asyncTxFailedLocked handles a failed or missing block result (a missing one has Code 0 and
+// counts as temporary). Temporary failures are resubmitted with a doubling wait until the
+// transaction's deadline. A receipt refused for good is resubmitted once and then given up. A
+// refused settlement is not given up: the chain judges it at the height it executes, so a
+// settlement sent in the last block of this Builder's slot and executed in the next is refused
+// only for its timing; it waits out a doubling backoff and goes again at the next height this
+// Builder may settle at (trySettle), until the chain settles or the deadline passes. Caller must
+// hold the lock.
 func (f *taskFSM) asyncTxFailedLocked(kind asyncTx, tx *submittedTx, result chaincli.TxResult, height uint64) {
 	tx.hash = nil
-	module := chainModuleRefusal(result)
-	var backoff uint64 = 1
-	if module {
-		tx.moduleRefusals++
+	refused := result.Code != 0 && !temporaryTxFailure(result)
+	var backoff uint64
+	if refused {
+		tx.refusals++
+		backoff = backoffBlocks(tx.refusals)
 	} else {
 		tx.temporaryFailures++
-		backoff = min(uint64(1)<<min(tx.temporaryFailures-1, 30), asyncTxMaxBackoffBlocks)
+		backoff = backoffBlocks(tx.temporaryFailures)
 	}
 	deadline := f.asyncTxDeadlineLocked(kind)
 	retryAt := height + backoff
 	switch {
-	case module && tx.moduleRefusals > asyncTxChainModuleRetries:
+	case kind == asyncReceipt && refused && tx.refusals > receiptRefusalRetries:
 		f.stopAsyncTxLocked(kind, tx, result, "the chain refused it again", deadline)
 		return
 	case deadline != 0 && retryAt > deadline:
@@ -467,7 +496,7 @@ func (f *taskFSM) asyncTxFailedLocked(kind asyncTx, tx *submittedTx, result chai
 	}
 	f.log.Warn(kind.msgKind()+" failed on chain; will resubmit", "task_id", f.taskID,
 		"tx_hash", hex.EncodeToString(result.TxHash), "code", result.Code, "codespace", result.Codespace,
-		"chain_module", module, "retry_at_height", retryAt, "deadline_height", deadline)
+		"refused", refused, "retry_at_height", retryAt, "deadline_height", deadline)
 }
 
 func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chaincli.TxResult, why string, deadline uint64) {
@@ -475,7 +504,7 @@ func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chainc
 	attrs := []any{"task_id", f.taskID, "reason", why,
 		"tx_hash", hex.EncodeToString(result.TxHash), "code", result.Code, "codespace", result.Codespace,
 		"raw_log", chaincli.TruncateRawLog(result.RawLog),
-		"chain_module_refusals", tx.moduleRefusals, "temporary_failures", tx.temporaryFailures,
+		"refusals", tx.refusals, "temporary_failures", tx.temporaryFailures,
 		"deadline_height", deadline}
 	if kind == asyncSettle {
 		f.log.Error("MsgSettleTask failed on chain; this Builder stopped resubmitting. "+
@@ -485,9 +514,9 @@ func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chainc
 	f.log.Error("MsgSubmitInferReceipt failed on chain; stopped resubmitting", attrs...)
 }
 
-// followSubmittedTxsLocked runs on each new block: it resubmits a receipt whose backoff has
-// passed, and reports whether a transaction awaits its block result (the caller then asks
-// reconciliation to read it, off the lock). Caller must hold the lock.
+// followSubmittedTxsLocked runs on each new block: it resubmits a receipt or a bus result whose
+// backoff has passed, and reports whether something awaits its block result or a chain lookup
+// (the caller then asks reconciliation to read it, off the lock). Caller must hold the lock.
 func (f *taskFSM) followSubmittedTxsLocked() bool {
 	if f.confirm == nil || f.terminal {
 		return false
@@ -496,13 +525,15 @@ func (f *taskFSM) followSubmittedTxsLocked() bool {
 		f.observedHeight >= f.receiptTx.retryAt {
 		f.submitOpenVerifyLocked()
 	}
-	return (len(f.receiptTx.hash) > 0 && f.observedHeight > f.receiptTx.height) ||
+	check := f.resendPendingResultsLocked()
+	return check || (len(f.receiptTx.hash) > 0 && f.observedHeight > f.receiptTx.height) ||
 		(len(f.settleTx.hash) > 0 && f.observedHeight > f.settleTx.height)
 }
 
-// confirmSubmittedTxs reads the block results of the task's outstanding receipt and settlement
-// transactions. Runs in reconciliation after the chain snapshot was applied, so a receipt the
-// chain accepted or a task it settled is already visible and nothing is resubmitted for it.
+// confirmSubmittedTxs reads the block results of the task's outstanding receipt, settlement and
+// bus-relayed result transactions. Runs in reconciliation after the chain snapshot was applied,
+// so a receipt the chain accepted or a task it settled is already visible and nothing is
+// resubmitted for it.
 func (c *Coordinator) confirmSubmittedTxs(fsm *taskFSM) {
 	if c.txQuery == nil {
 		return
@@ -518,4 +549,294 @@ func (c *Coordinator) confirmSubmittedTxs(fsm *taskFSM) {
 		height, _ := c.currentChainHeight()
 		fsm.onSubmittedTxResult(kind, txHash, result, err, height)
 	}
+	c.confirmPendingResults(fsm)
+}
+
+// ---- Verifier results taken off the bus ----
+
+// pendingResult is a Verifier result that arrived on the bus and was broadcast. The bus message
+// is acknowledged at once -- waiting for the block in the handler would hold every later result
+// of the same consumer behind it -- and reconciliation confirms it: only then is it recorded and
+// counted towards settlement. Persisted with the snapshot, since the bus will not deliver it
+// again.
+type pendingResult struct {
+	receipt *taskv1.ResultReceiptV3
+	tx      submittedTx
+	// lookup: there is no transaction to query (CheckTx refused it, or its result was lost), so
+	// the chain's record is read next. refused is that CheckTx refusal, if any.
+	lookup  bool
+	refused chaincli.TxResult
+}
+
+// busRetryLocked asks the bus to redeliver a result after a temporary failure, after a doubling
+// number of block intervals per Verifier. Caller must hold the lock.
+func (f *taskFSM) busRetryLocked(verifier string, err error) error {
+	if f.busRetries == nil {
+		f.busRetries = make(map[string]int)
+	}
+	f.busRetries[verifier]++
+	delay := f.blockInterval() * time.Duration(backoffBlocks(f.busRetries[verifier]))
+	f.log.Warn("verify result relay failed; the bus redelivers it later", "task_id", f.taskID,
+		"verifier", verifier, "delay", delay, "err", err)
+	return msgbus.RetryAfter(err, delay)
+}
+
+func (f *taskFSM) blockInterval() time.Duration {
+	if f.confirm != nil {
+		return f.confirm.interval
+	}
+	return config.DefaultTxConfirmBlockInterval
+}
+
+// relayBusResultLocked broadcasts a result that arrived on the bus and registers it for
+// reconciliation to confirm, returning at once. The returned error asks the bus for a delayed
+// redelivery (a temporary failure before the transaction reached the mempool); nil acknowledges
+// the message. Caller must hold the lock.
+func (f *taskFSM) relayBusResultLocked(vr *taskv1.ResultReceiptV3) error {
+	verifier := vr.GetVerifierOperatorAddress()
+	if existing, ok := f.verifyResults[verifier]; ok && proto.Equal(existing, vr) {
+		return nil
+	}
+	var inFlight proto.Message
+	if flight := f.resultFlights[verifier]; flight != nil {
+		inFlight = flight.msg // a unary relay is waiting for it and records it
+	} else if pending := f.pendingResults[verifier]; pending != nil {
+		inFlight = pending.receipt
+	}
+	if inFlight != nil {
+		if !proto.Equal(inFlight, vr) {
+			f.log.Warn("drop verify result: a different one from this verifier is being relayed",
+				"task_id", f.taskID, "verifier", verifier)
+		}
+		return nil
+	}
+	if f.submit == nil {
+		return f.busRetryLocked(verifier, fmt.Errorf("verify result relay: submitter is not configured"))
+	}
+	pending := &pendingResult{receipt: vr}
+	if keep, temporary := f.broadcastPendingResultLocked(pending); !keep {
+		if temporary != nil {
+			return f.busRetryLocked(verifier, temporary)
+		}
+		return nil
+	}
+	if f.pendingResults == nil {
+		f.pendingResults = make(map[string]*pendingResult)
+	}
+	f.pendingResults[verifier] = pending
+	if err := f.save(); err != nil {
+		delete(f.pendingResults, verifier)
+		return f.busRetryLocked(verifier, fmt.Errorf("persist pending verify result: %w", err))
+	}
+	delete(f.busRetries, verifier)
+	f.log.Info("verify result broadcast; reconciliation confirms it", "task_id", f.taskID,
+		"verifier", verifier, "tx_hash", hex.EncodeToString(pending.tx.hash), "chain_lookup", pending.lookup)
+	return nil
+}
+
+// broadcastPendingResultLocked broadcasts a pending result. keep is false when it is not in the
+// mempool: temporary then carries a failure another try may clear, and is nil for a result
+// refused before it could reach the chain (dropped). A CheckTx refusal keeps it for a chain
+// lookup, since the chain may refuse it because it already holds it. Caller must hold the lock.
+func (f *taskFSM) broadcastPendingResultLocked(pending *pendingResult) (keep bool, temporary error) {
+	verifier := pending.receipt.GetVerifierOperatorAddress()
+	res, submitErr := f.submit.SubmitVerifyResult(context.Background(), chaincli.VerifyResultTx{
+		Receipt: pending.receipt, Submitter: f.self,
+	})
+	var submission *SubmissionError
+	switch {
+	case submitErr == nil:
+		f.sentLocked(&pending.tx, res.TxHash)
+		pending.lookup = len(pending.tx.hash) == 0
+	case temporaryBroadcastError(submitErr):
+		return false, submitErr
+	case errors.As(submitErr, &submission) && submission.Phase == SubmissionBroadcast:
+		pending.lookup, pending.refused = true, submission.Result
+	default:
+		f.log.Warn("drop verify result: rejected before broadcast", "task_id", f.taskID,
+			"verifier", verifier, "err", submitErr)
+		return false, nil
+	}
+	return true, nil
+}
+
+// resendPendingResultsLocked rebroadcasts pending results whose backoff has passed, and reports
+// whether any awaits a block result or a chain lookup. Caller must hold the lock.
+func (f *taskFSM) resendPendingResultsLocked() bool {
+	check := false
+	for verifier, pending := range f.pendingResults {
+		if pending.tx.retry && f.observedHeight >= pending.tx.retryAt && f.submit != nil {
+			keep, temporary := f.broadcastPendingResultLocked(pending)
+			switch {
+			case keep:
+				f.save()
+			case temporary != nil:
+				f.scheduleResultRetryLocked(verifier, pending, chaincli.TxResult{RawLog: temporary.Error()})
+				continue
+			default:
+				f.dropPendingResultLocked(verifier, chaincli.TxResult{}, "rejected before broadcast")
+				continue
+			}
+		}
+		if pending.lookup || (len(pending.tx.hash) > 0 && f.observedHeight > pending.tx.height) {
+			check = true
+		}
+	}
+	return check
+}
+
+// resultDeadlineLocked is the last height a result can still be accepted at: the reveal deadline
+// (the verify deadline when that is unknown). Caller must hold the lock.
+func (f *taskFSM) resultDeadlineLocked() uint64 {
+	if f.deadlines.Reveal > 0 {
+		return uint64(f.deadlines.Reveal)
+	}
+	return uint64(max(f.deadlines.Verify, 0))
+}
+
+// scheduleResultRetryLocked schedules a rebroadcast of a pending result after a temporary
+// failure, or drops it with an ERROR once the backoff passes the deadline. Caller must hold the lock.
+func (f *taskFSM) scheduleResultRetryLocked(verifier string, pending *pendingResult, result chaincli.TxResult) {
+	pending.tx.hash, pending.lookup = nil, false
+	pending.tx.temporaryFailures++
+	retryAt := max(f.observedHeight, pending.tx.height) + backoffBlocks(pending.tx.temporaryFailures)
+	if deadline := f.resultDeadlineLocked(); deadline != 0 && retryAt > deadline {
+		f.dropPendingResultLocked(verifier, result, "its deadline has passed")
+		return
+	}
+	pending.tx.retry, pending.tx.retryAt = true, retryAt
+	f.log.Warn("verify result failed on chain; will rebroadcast", "task_id", f.taskID, "verifier", verifier,
+		"code", result.Code, "codespace", result.Codespace, "retry_at_height", retryAt)
+}
+
+func (f *taskFSM) dropPendingResultLocked(verifier string, result chaincli.TxResult, why string) {
+	delete(f.pendingResults, verifier)
+	f.save()
+	f.log.Error("verify result is not on chain; stopped relaying it", "task_id", f.taskID,
+		"verifier", verifier, "reason", why, "tx_hash", hex.EncodeToString(result.TxHash),
+		"code", result.Code, "codespace", result.Codespace, "raw_log", chaincli.TruncateRawLog(result.RawLog))
+}
+
+// pendingResultCheck is what reconciliation reads for one pending result.
+type pendingResultCheck struct {
+	verifier string
+	hash     []byte
+	item     relayItem
+}
+
+func (f *taskFSM) pendingResultChecks() []pendingResultCheck {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.terminal || f.state != types.Verifying {
+		if len(f.pendingResults) > 0 {
+			f.pendingResults = nil
+			f.save()
+		}
+		return nil
+	}
+	checks := make([]pendingResultCheck, 0, len(f.pendingResults))
+	for verifier, pending := range f.pendingResults {
+		if pending.tx.retry {
+			continue // waiting to be rebroadcast
+		}
+		checks = append(checks, pendingResultCheck{verifier: verifier, hash: bytes.Clone(pending.tx.hash),
+			item: f.resultRelayItem(pending.receipt)})
+	}
+	return checks
+}
+
+// confirmPendingResults reads, for each pending bus result, its block result and -- unless the
+// block executed it -- the chain's record for the Verifier.
+func (c *Coordinator) confirmPendingResults(fsm *taskFSM) {
+	for _, check := range fsm.pendingResultChecks() {
+		var result chaincli.TxResult
+		var queryErr error
+		if len(check.hash) > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+			result, queryErr = c.txQuery.QueryTx(ctx, check.hash)
+			cancel()
+		}
+		var found, same bool
+		var lookupErr error
+		if len(check.hash) == 0 || queryErr != nil || result.Code != 0 {
+			found, same, lookupErr = fsm.lookupRelayed(check.item)
+		}
+		height, _ := c.currentChainHeight()
+		fsm.onPendingResultChecked(check, result, queryErr, found, same, lookupErr, height)
+	}
+}
+
+// onPendingResultChecked applies what reconciliation read for one pending result. It is recorded
+// once the block executed it or the chain holds the same content; the chain holding different
+// content, or a refusal that fails every time, drops it with an ERROR; a temporary failure or a
+// transaction lost for txVerdictBlocks schedules a rebroadcast.
+func (f *taskFSM) onPendingResultChecked(check pendingResultCheck, result chaincli.TxResult, queryErr error,
+	found, same bool, lookupErr error, height uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	pending := f.pendingResults[check.verifier]
+	if pending == nil || pending.tx.retry || !bytes.Equal(pending.tx.hash, check.hash) {
+		return // confirmed, dropped or rebroadcast meanwhile
+	}
+	if f.terminal || f.state != types.Verifying {
+		return
+	}
+	height = max(height, f.observedHeight)
+	if len(result.TxHash) == 0 {
+		result.TxHash = check.hash
+	}
+	switch {
+	case len(check.hash) > 0 && queryErr == nil && result.Code == 0:
+		f.confirmPendingResultLocked(check.verifier, pending, "executed in a block")
+		return
+	case lookupErr == nil && found && same:
+		f.confirmPendingResultLocked(check.verifier, pending, "already on chain with the same content")
+		return
+	case lookupErr == nil && found:
+		f.dropPendingResultLocked(check.verifier, result, "a different result from this verifier is on chain")
+		return
+	}
+	switch {
+	case len(check.hash) > 0 && queryErr == nil:
+		chaincli.LogTxFailure(f.log, "MsgBatchSubmitVerifyResult", f.taskID, result)
+		f.pendingResultRefusedLocked(check.verifier, pending, result, lookupErr)
+	case len(check.hash) > 0:
+		if !errors.Is(queryErr, chaincli.ErrNotFound) {
+			f.log.Warn("MsgBatchSubmitVerifyResult block result query failed", "task_id", f.taskID,
+				"verifier", check.verifier, "tx_hash", hex.EncodeToString(check.hash), "err", queryErr)
+		}
+		if awaitingVerdict(&pending.tx, height) {
+			return
+		}
+		// Lost: read the chain's record next, then rebroadcast if it is not there.
+		pending.tx.hash, pending.lookup, pending.refused = nil, true, chaincli.TxResult{}
+	case lookupErr != nil:
+		f.log.Warn("verify result chain record unreadable; will read it again", "task_id", f.taskID,
+			"verifier", check.verifier, "err", lookupErr)
+	case pending.refused.Code != 0 && !temporaryTxFailure(pending.refused):
+		f.dropPendingResultLocked(check.verifier, pending.refused, "the chain refused it")
+	default:
+		f.scheduleResultRetryLocked(check.verifier, pending, pending.refused)
+	}
+}
+
+// pendingResultRefusedLocked handles a result the block refused and the chain does not hold.
+// Caller must hold the lock.
+func (f *taskFSM) pendingResultRefusedLocked(verifier string, pending *pendingResult, result chaincli.TxResult, lookupErr error) {
+	switch {
+	case lookupErr != nil:
+		// Whether the chain already holds it is unknown: read its record again first.
+		pending.tx.hash, pending.lookup, pending.refused = nil, true, result
+	case temporaryTxFailure(result):
+		f.scheduleResultRetryLocked(verifier, pending, result)
+	default:
+		f.dropPendingResultLocked(verifier, result, "the chain refused it")
+	}
+}
+
+// confirmPendingResultLocked records a pending result the chain holds. Caller must hold the lock.
+func (f *taskFSM) confirmPendingResultLocked(verifier string, pending *pendingResult, how string) {
+	delete(f.pendingResults, verifier)
+	f.log.Info("verify result confirmed on chain", "task_id", f.taskID, "verifier", verifier, "how", how)
+	f.recordVerifyResultLocked(pending.receipt, false)
 }

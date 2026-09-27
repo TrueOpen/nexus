@@ -35,6 +35,7 @@ type txChainFake struct {
 	commits   map[string]chaincli.AcceptedVerifyCommit
 	receipts  map[string]chaincli.AcceptedResultReceipt
 	lookupErr error
+	queryErrs map[string]error // QueryTx fails for these hashes
 }
 
 func newTxChainFake() *txChainFake {
@@ -57,6 +58,9 @@ func (f *txChainFake) QueryTx(_ context.Context, txHash []byte) (chaincli.TxResu
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.queryErrs[string(txHash)]; err != nil {
+		return chaincli.TxResult{}, err
+	}
 	result, ok := f.results[string(txHash)]
 	if !ok {
 		return chaincli.TxResult{}, chaincli.ErrNotFound
@@ -109,18 +113,22 @@ type confirmSubmitter struct {
 	*fakeSubmitter
 	hashMu  sync.Mutex
 	counts  map[string]int
-	refusal map[string]*SubmissionError
+	refusal map[string]error
 }
 
 func newConfirmSubmitter() *confirmSubmitter {
-	return &confirmSubmitter{fakeSubmitter: &fakeSubmitter{}, counts: make(map[string]int), refusal: make(map[string]*SubmissionError)}
+	return &confirmSubmitter{fakeSubmitter: &fakeSubmitter{}, counts: make(map[string]int), refusal: make(map[string]error)}
 }
 
 func (s *confirmSubmitter) next(kind string) (chaincli.TxResult, error) {
 	s.hashMu.Lock()
 	defer s.hashMu.Unlock()
 	if refusal := s.refusal[kind]; refusal != nil {
-		return refusal.Result, refusal
+		var submission *SubmissionError
+		if errors.As(refusal, &submission) {
+			return submission.Result, refusal
+		}
+		return chaincli.TxResult{}, refusal
 	}
 	s.counts[kind]++
 	return chaincli.TxResult{TxHash: []byte(fmt.Sprintf("%s-%d", kind, s.counts[kind]))}, nil
@@ -135,6 +143,17 @@ func (s *confirmSubmitter) refuse(kind string, result chaincli.TxResult) {
 	}
 	s.refusal[kind] = &SubmissionError{Phase: SubmissionBroadcast, Definitive: true, Result: result,
 		Err: fmt.Errorf("rejected by CheckTx (code %d)", result.Code)}
+}
+
+// fail makes the next broadcasts of a kind fail with err (nil: succeed again).
+func (s *confirmSubmitter) fail(kind string, err error) {
+	s.hashMu.Lock()
+	defer s.hashMu.Unlock()
+	if err == nil {
+		delete(s.refusal, kind)
+		return
+	}
+	s.refusal[kind] = err
 }
 
 func (s *confirmSubmitter) broadcasts(kind string) int {
@@ -242,9 +261,32 @@ func verifyResultRecorded(c *Coordinator, session, task, verifier string) bool {
 	return ok
 }
 
-// A commit or result relay answers from the block result: executed → recorded and acknowledged;
-// refused by a chain module → invalid; refused otherwise → temporary; no result within the wait
-// → temporary. Only an executed one is recorded.
+// Only three cosmos-sdk refusals clear by themselves; every other refusal fails the same way
+// again and counts as final.
+func TestTemporaryTxFailureClassification(t *testing.T) {
+	for _, test := range []struct {
+		result    chaincli.TxResult
+		temporary bool
+	}{
+		{chaincli.TxResult{Code: 19, Codespace: "sdk"}, true},  // tx already in mempool cache
+		{chaincli.TxResult{Code: 20, Codespace: "sdk"}, true},  // mempool full
+		{chaincli.TxResult{Code: 32, Codespace: "sdk"}, true},  // sequence mismatch
+		{chaincli.TxResult{Code: 11, Codespace: "sdk"}, false}, // out of gas
+		{chaincli.TxResult{Code: 13, Codespace: "sdk"}, false}, // insufficient fee
+		{chaincli.TxResult{Code: 111222, Codespace: "undefined"}, false},
+		{chaincli.TxResult{Code: 1138, Codespace: "task"}, false},
+		{chaincli.TxResult{Code: 32, Codespace: "task"}, false},
+		{chaincli.TxResult{Code: 5}, false},
+	} {
+		if got := temporaryTxFailure(test.result); got != test.temporary {
+			t.Errorf("%+v: temporary = %v, want %v", test.result, got, test.temporary)
+		}
+	}
+}
+
+// A unary commit or result relay answers from the block result: executed → recorded and
+// acknowledged; refused temporarily (sdk 19/20/32) → temporary; any other refusal → invalid;
+// no result within the wait → temporary. Only an executed one is recorded.
 func TestVerifyRelayRecordsOnlyWhatTheBlockExecuted(t *testing.T) {
 	c, _, chain, sink := newConfirmCoordinator(t, testBuilderSelf)
 	const session = "sess-relay-block"
@@ -259,16 +301,26 @@ func TestVerifyRelayRecordsOnlyWhatTheBlockExecuted(t *testing.T) {
 		t.Fatalf("executed commit: ack = %+v, err = %v", ack, err)
 	}
 
-	chain.setResult("commit-2", chaincli.TxResult{Code: 1150, Codespace: "task", RawLog: "invalid commit signature"})
-	if _, err := c.OnVerifyCommit(ctx, session, task, testVerifyCommit(task, verifiers[1])); !errors.Is(err, types.ErrInvalidArgument) {
-		t.Fatalf("refused by the task module: err = %v, want invalid", err)
+	refusals := []struct {
+		result  chaincli.TxResult
+		invalid bool
+	}{
+		{chaincli.TxResult{Code: 1150, Codespace: "task", RawLog: "invalid commit signature"}, true},
+		{chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"}, true},
+		{chaincli.TxResult{Code: 11, Codespace: "sdk", RawLog: "out of gas"}, true},
+		{chaincli.TxResult{Code: 111222, Codespace: "undefined", RawLog: "panic: " + strings.Repeat("x", 4096)}, true},
+		{chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"}, false},
+		{chaincli.TxResult{Code: 32, Codespace: "sdk", RawLog: "account sequence mismatch"}, false},
 	}
-	chain.setResult("commit-3", chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
-	if _, err := c.OnVerifyCommit(ctx, session, task, testVerifyCommit(task, verifiers[1])); !errors.Is(err, errRelayTemporary) ||
-		errors.Is(err, types.ErrInvalidArgument) {
-		t.Fatalf("refused by sdk: err = %v, want temporary", err)
+	for i, refusal := range refusals {
+		chain.setResult(fmt.Sprintf("commit-%d", i+2), refusal.result)
+		_, err := c.OnVerifyCommit(ctx, session, task, testVerifyCommit(task, verifiers[1]))
+		if refusal.invalid && !errors.Is(err, types.ErrInvalidArgument) ||
+			!refusal.invalid && (!errors.Is(err, errRelayTemporary) || errors.Is(err, types.ErrInvalidArgument)) {
+			t.Fatalf("refusal %+v: err = %v, want invalid = %v", refusal.result, err, refusal.invalid)
+		}
 	}
-	// commit-4 never reaches a block.
+	// The next commit never reaches a block.
 	if _, err := c.OnVerifyCommit(ctx, session, task, testVerifyCommit(task, verifiers[1])); !errors.Is(err, errRelayUnconfirmed) ||
 		errors.Is(err, types.ErrInvalidArgument) {
 		t.Fatalf("no block result: err = %v, want temporary", err)
@@ -276,8 +328,14 @@ func TestVerifyRelayRecordsOnlyWhatTheBlockExecuted(t *testing.T) {
 	if verifyCommitRecorded(c, session, task, verifiers[1]) {
 		t.Fatal("a commit the chain does not hold was recorded")
 	}
-	if len(sink.find(t, "WARN", "tx failed in block execution")) != 2 {
-		t.Fatal("each block execution failure must be logged once at WARN")
+	failures := sink.find(t, "WARN", "tx failed in block execution")
+	if len(failures) != len(refusals) {
+		t.Fatalf("block execution failures logged = %d, want one each", len(failures))
+	}
+	for _, record := range failures {
+		if logged := fmt.Sprint(record["raw_log"]); len(logged) > chaincli.RawLogLimit {
+			t.Fatalf("raw_log logged with %d bytes", len(logged))
+		}
 	}
 
 	vals := [][]byte{[]byte("v0"), []byte("v1")}
@@ -286,26 +344,129 @@ func TestVerifyRelayRecordsOnlyWhatTheBlockExecuted(t *testing.T) {
 		string(ack.TxHash) != "result-1" || !verifyResultRecorded(c, session, task, verifiers[0]) {
 		t.Fatalf("executed result: ack = %+v, err = %v", ack, err)
 	}
-	chain.setResult("result-2", chaincli.TxResult{Code: 111222, Codespace: "undefined", RawLog: "panic: " + strings.Repeat("x", 4096)})
-	if _, err := c.OnVerifyResult(ctx, session, task, testVerifyResult(task, verifiers[1], vals)); !errors.Is(err, errRelayTemporary) {
-		t.Fatalf("recovered panic: err = %v, want temporary", err)
+	chain.setResult("result-2", chaincli.TxResult{Code: 1160, Codespace: "task", RawLog: "bad metric root"})
+	if _, err := c.OnVerifyResult(ctx, session, task, testVerifyResult(task, verifiers[1], vals)); !errors.Is(err, types.ErrInvalidArgument) ||
+		verifyResultRecorded(c, session, task, verifiers[1]) {
+		t.Fatalf("refused result: err = %v, want invalid and not recorded", err)
 	}
-	for _, record := range sink.find(t, "WARN", "tx failed in block execution") {
-		if logged := fmt.Sprint(record["raw_log"]); len(logged) > chaincli.RawLogLimit {
-			t.Fatalf("raw_log logged with %d bytes", len(logged))
+}
+
+// The bus handler does not wait for the block: it broadcasts, acknowledges at once and leaves the
+// block result to reconciliation. The result is recorded -- and counted towards settlement -- only
+// once reconciliation confirms it; it survives a restart in the snapshot meanwhile.
+func TestBusResultIsAcknowledgedAtOnceAndRecordedAfterConfirmation(t *testing.T) {
+	c, sub, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
+	const session = "sess-bus-result"
+	task := testTaskID("bus-result")
+	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
+	verifyingTask(t, c, session, task, verifiers)
+	fsm, _ := c.getFSM(session, task)
+	chain.mu.Lock()
+	chain.gate = make(chan struct{}) // any block result read in the handler would hang it
+	chain.mu.Unlock()
+
+	vals := [][]byte{[]byte("v0"), []byte("v1")}
+	done := make(chan error, 1)
+	go func() { done <- fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals)) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("bus handler: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the bus handler waited for the block result")
+	}
+	if chain.queryCount("result-1") != 0 || verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("the handler read the block result or recorded an unconfirmed result")
+	}
+	// Redelivery of the same result while it is pending: acknowledged, not broadcast again.
+	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals)); err != nil || sub.broadcasts("result") != 1 {
+		t.Fatalf("redelivery while pending: err = %v, broadcasts = %d", err, sub.broadcasts("result"))
+	}
+	raw, ok := c.kv.Get(kv.NSTask, taskKey(session, task))
+	var snapshot taskSnapshot
+	if !ok || json.Unmarshal(raw, &snapshot) != nil || len(snapshot.PendingVerifyResults) != 1 ||
+		string(snapshot.PendingVerifyResults[0].TxHash) != "result-1" {
+		t.Fatalf("pending result not persisted: %+v", snapshot.PendingVerifyResults)
+	}
+	close(chain.gate)
+	chain.mu.Lock()
+	chain.gate = nil
+	chain.mu.Unlock()
+
+	c.confirmSubmittedTxs(fsm) // result-1 not in a block yet
+	if verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("recorded before the block executed it")
+	}
+	chain.setResult("result-1", chaincli.TxResult{Height: 70})
+	c.confirmSubmittedTxs(fsm)
+	if !verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("not recorded once the block executed it")
+	}
+
+	// A result the block refuses for good is dropped with an ERROR and never recorded.
+	chain.setResult("result-2", chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
+	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals)); err != nil {
+		t.Fatalf("bus handler: %v", err)
+	}
+	c.confirmSubmittedTxs(fsm)
+	for height := int64(300); height < 320; height++ {
+		c.onNewBlock(height)
+	}
+	if verifyResultRecorded(c, session, task, verifiers[1]) || sub.broadcasts("result") != 2 {
+		t.Fatalf("refused result: recorded = %v, broadcasts = %d", verifyResultRecorded(c, session, task, verifiers[1]),
+			sub.broadcasts("result"))
+	}
+
+	// A temporary refusal is rebroadcast once its backoff has passed, then confirmed.
+	fsm.mu.Lock()
+	fsm.deadlines.Reveal = 1000
+	fsm.mu.Unlock()
+	chain.setResult("result-3", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
+	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[2], vals)); err != nil {
+		t.Fatalf("bus handler: %v", err)
+	}
+	c.confirmSubmittedTxs(fsm) // refused temporarily: rebroadcast from 320
+	c.onNewBlock(320)
+	if sub.broadcasts("result") != 4 {
+		t.Fatalf("broadcasts = %d, want the temporary refusal rebroadcast", sub.broadcasts("result"))
+	}
+	chain.setResult("result-4", chaincli.TxResult{Height: 321})
+	c.confirmSubmittedTxs(fsm)
+	if !verifyResultRecorded(c, session, task, verifiers[2]) {
+		t.Fatal("rebroadcast result not recorded after confirmation")
+	}
+}
+
+// When the bus path must redeliver -- a broadcast that did not reach the mempool for a reason
+// that may clear -- it asks for a delayed redelivery that doubles per Verifier, never an
+// immediate one. A final refusal is acknowledged instead.
+func TestBusResultTemporaryBroadcastFailureDelaysRedelivery(t *testing.T) {
+	c, sub, _, _ := newConfirmCoordinator(t, testBuilderSelf)
+	const session = "sess-bus-delay"
+	task := testTaskID("bus-delay")
+	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
+	verifyingTask(t, c, session, task, verifiers)
+	fsm, _ := c.getFSM(session, task)
+	vals := [][]byte{[]byte("v0"), []byte("v1")}
+	interval := fsm.blockInterval()
+
+	sub.refuse("result", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
+	for i, want := range []time.Duration{interval, 2 * interval, 4 * interval} {
+		err := fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals))
+		if delay, ok := msgbus.RetryDelay(err); err == nil || !ok || delay != want {
+			t.Fatalf("attempt %d: err = %v, delay = %v, want a delayed redelivery after %v", i+1, err, delay, want)
 		}
 	}
-	// The JetStream path: a temporary failure is redelivered, a refusal of the content is dropped.
-	fsm, _ := c.getFSM(session, task)
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals)); err == nil {
-		t.Fatal("a result without a block result was acknowledged on the bus")
+	sub.fail("result", errors.New("connection refused"))
+	if delay, ok := msgbus.RetryDelay(fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals))); !ok || delay != interval {
+		t.Fatalf("unreachable node: delay = %v, %v", delay, ok)
 	}
-	chain.setResult("result-4", chaincli.TxResult{Code: 1160, Codespace: "task", RawLog: "bad metric root"})
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals)); err != nil {
-		t.Fatalf("a result refused by the task module must be dropped, got %v", err)
-	}
-	if verifyResultRecorded(c, session, task, verifiers[1]) {
-		t.Fatal("a result the chain does not hold was recorded")
+
+	// A final CheckTx refusal is kept for a chain lookup and acknowledged, not redelivered.
+	sub.refuse("result", chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
+	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[2], vals)); err != nil {
+		t.Fatalf("final refusal must be acknowledged, got %v", err)
 	}
 }
 
@@ -428,8 +589,12 @@ func TestVerifyRelayDecidesAlreadyOnChainFromTheChainRecord(t *testing.T) {
 	chain.receipts[verifiers[0]] = chaincli.AcceptedResultReceipt{SigningDigest: digest[:]}
 	sub.refuse("result", chaincli.TxResult{Code: 1161, Codespace: "task", RawLog: "result receipt already exists"})
 	fsm, _ := c.getFSM(session, task)
-	if err := fsm.onVerifyResult(vr); err != nil || !verifyResultRecorded(c, session, task, verifiers[0]) {
-		t.Fatalf("same receipt on chain: err = %v", err)
+	if err := fsm.onVerifyResult(vr); err != nil {
+		t.Fatalf("bus handler: %v", err)
+	}
+	c.confirmSubmittedTxs(fsm) // reconciliation reads the chain's record
+	if !verifyResultRecorded(c, session, task, verifiers[0]) {
+		t.Fatal("same receipt on chain was not recorded")
 	}
 
 	other := signedShapeVerifyResult(task, verifiers[1], [][]byte{[]byte("other")})
@@ -537,7 +702,7 @@ func TestReceiptTemporaryFailureBacksOffUntilTheDeadline(t *testing.T) {
 		c.onNewBlock(height)
 		if n := receiptSubmissions(sub); n > 1+len(submittedAt) {
 			submittedAt[height] = n
-			chain.setResult(fmt.Sprintf("receipt-%d", n), chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
+			chain.setResult(fmt.Sprintf("receipt-%d", n), chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
 			c.confirmSubmittedTxs(fsm)
 		}
 	}
@@ -590,43 +755,87 @@ func settleTask(t *testing.T, c *Coordinator, session, task string, verifyDeadli
 	selection := settleSelection(session, task, testBuilderSelf)
 	driveToSettleReady(t, c, session, task, &selection)
 	fsm, _ := c.getFSM(session, task)
+	c.confirmSubmittedTxs(fsm) // the two results arrived on the bus: confirm them
 	fsm.mu.Lock()
 	fsm.deadlines.Verify = verifyDeadline
 	fsm.mu.Unlock()
 	return fsm
 }
 
-// The settlement is resubmitted only after its block result failed -- not on every block -- and a
-// refusal by a chain module is retried once, then given up with an ERROR naming the fallbacks.
-func TestSettleRefusedByTheChainIsRetriedOnceThenStops(t *testing.T) {
+// The settlement is resubmitted only after its block result failed -- not on every block. A
+// refusal does not end it: the chain judges a settlement at the height it executes, so one sent in
+// the last block of this Builder's slot is refused for its timing. It goes again at the next
+// height this Builder may settle at -- here the permissionless phase -- and keeps going until the
+// chain settles.
+func TestSettleRefusalDefersToTheNextAllowedHeight(t *testing.T) {
 	c, sub, chain, sink := newConfirmCoordinator(t, testBuilderSelf)
-	const session = "sess-settle-module"
-	task := testTaskID("settle-module")
-	fsm := settleTask(t, c, session, task, rankVerifyDeadline)
+	const session = "sess-settle-refused"
+	task := testTaskID("settle-refused")
+	chain.setResult("result-1", chaincli.TxResult{Height: 2})
+	chain.setResult("result-2", chaincli.TxResult{Height: 2})
+	selection := settleSelection(session, task, testBuilderSelf, testOperator("builder-b"), testOperator("builder-c"))
+	driveToSettleReady(t, c, session, task, &selection)
+	fsm, _ := c.getFSM(session, task)
+	c.confirmSubmittedTxs(fsm)
 
-	c.onNewBlock(rankRevealDeadline)
-	c.onNewBlock(rankRevealDeadline + 1)
+	lastOwnBlock := int64(rankRevealDeadline + rankGraceBlocks - 1) // executes in the last block of this slot
+	c.onNewBlock(lastOwnBlock)
+	c.onNewBlock(lastOwnBlock + 1)
 	if settleCount(sub.fakeSubmitter) != 1 {
 		t.Fatalf("settle submissions = %d; a settlement awaiting its block result is not resent", settleCount(sub.fakeSubmitter))
 	}
-	refused := chaincli.TxResult{Code: 1170, Codespace: "task", RawLog: "settlement inputs incomplete"}
+	refused := chaincli.TxResult{Code: 1172, Codespace: "task", RawLog: "submitter is not the Builder of the current slot"}
 	chain.setResult("settle-1", refused)
 	c.confirmSubmittedTxs(fsm)
-	c.onNewBlock(rankRevealDeadline + 2)
-	if settleCount(sub.fakeSubmitter) != 2 {
-		t.Fatalf("settle submissions = %d, want one resubmission", settleCount(sub.fakeSubmitter))
-	}
-	chain.setResult("settle-2", refused)
-	c.confirmSubmittedTxs(fsm)
-	for height := int64(rankRevealDeadline + 3); height < rankRevealDeadline+20; height++ {
+	for height := lastOwnBlock + 2; height < rankPermissionless; height++ {
 		c.onNewBlock(height)
 	}
-	if settleCount(sub.fakeSubmitter) != 2 {
-		t.Fatalf("settle submissions = %d after giving up", settleCount(sub.fakeSubmitter))
+	if settleCount(sub.fakeSubmitter) != 1 {
+		t.Fatalf("settle resent inside other Builders' slots: %d", settleCount(sub.fakeSubmitter))
 	}
-	stops := sink.find(t, "ERROR", "Another Builder or the chain's own fallback may still settle the task")
-	if len(stops) != 1 || stops[0]["code"] != float64(1170) {
-		t.Fatalf("ERROR records = %v", stops)
+	c.onNewBlock(rankPermissionless)
+	if settleCount(sub.fakeSubmitter) != 2 {
+		t.Fatalf("settle submissions = %d, want a resend once anyone may settle", settleCount(sub.fakeSubmitter))
+	}
+	chain.setResult("settle-2", refused)
+	c.confirmSubmittedTxs(fsm) // a second refusal backs off two blocks, and still does not stop
+	c.onNewBlock(rankPermissionless + 1)
+	c.onNewBlock(rankPermissionless + 2)
+	if settleCount(sub.fakeSubmitter) != 3 {
+		t.Fatalf("settle submissions = %d after a second refusal", settleCount(sub.fakeSubmitter))
+	}
+	if len(sink.find(t, "ERROR", "MsgSettleTask")) != 0 {
+		t.Fatal("a refused settlement was given up before the deadline")
+	}
+}
+
+// A block result that cannot be read (tx indexing off, result pruned, the query failing) gives
+// no verdict; after txVerdictBlocks the transaction counts as lost and goes out again.
+func TestSettleWithUnreadableResultIsResentAfterVerdictBlocks(t *testing.T) {
+	c, sub, chain, sink := newConfirmCoordinator(t, testBuilderSelf)
+	const session = "sess-settle-unreadable"
+	task := testTaskID("settle-unreadable")
+	fsm := settleTask(t, c, session, task, rankVerifyDeadline)
+	chain.mu.Lock()
+	chain.queryErrs = map[string]error{"settle-1": errors.New("transaction indexing is disabled")}
+	chain.mu.Unlock()
+
+	c.onNewBlock(rankRevealDeadline) // settle-1
+	for height := int64(rankRevealDeadline + 1); height < rankRevealDeadline+txVerdictBlocks; height++ {
+		c.onNewBlock(height)
+		c.confirmSubmittedTxs(fsm)
+	}
+	if settleCount(sub.fakeSubmitter) != 1 {
+		t.Fatalf("settle resent before %d blocks without a verdict: %d", txVerdictBlocks, settleCount(sub.fakeSubmitter))
+	}
+	c.onNewBlock(rankRevealDeadline + txVerdictBlocks)
+	c.confirmSubmittedTxs(fsm) // no verdict for txVerdictBlocks: lost
+	c.onNewBlock(rankRevealDeadline + txVerdictBlocks + 1)
+	if settleCount(sub.fakeSubmitter) != 2 {
+		t.Fatalf("settle submissions = %d, want a resend after the result stayed unreadable", settleCount(sub.fakeSubmitter))
+	}
+	if len(sink.find(t, "WARN", "MsgSettleTask block result query failed")) == 0 {
+		t.Fatal("the failing block result query left no trace")
 	}
 }
 

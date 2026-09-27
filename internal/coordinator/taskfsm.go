@@ -96,6 +96,11 @@ type taskFSM struct {
 	// Verifier address (txconfirm.go).
 	commitFlights map[string]*relayFlight
 	resultFlights map[string]*relayFlight
+	// pendingResults: results taken off the bus and broadcast, awaiting confirmation by
+	// reconciliation before they are recorded in verifyResults; busRetries paces the delayed
+	// redelivery of a result whose broadcast failed temporarily, by Verifier address (txconfirm.go).
+	pendingResults map[string]*pendingResult
+	busRetries     map[string]int
 	// workerRevealed: on-chain Worker reveal. The frozen contract has no such Msg / Event,
 	// so it is always false in Phase 0; kept only as "record if present", no longer a
 	// settlement precondition.
@@ -1130,16 +1135,19 @@ func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
 		"task_id", f.taskID, "ready_height", ev.ReadyHeight)
 }
 
-// onVerifyResult receives a Verifier verification result receipt: relay it on-chain verbatim first,
-// and only once the chain holds it store it locally and Ack; then try to settle.
+// onVerifyResult receives a Verifier verification result receipt from the bus: relay it on-chain
+// verbatim first, and only once the chain holds it store it locally; then try to settle.
 //
 // The order is mandatory: MsgSettleTask submits only task_id, and the Keeper derives the
 // settlement inputs from the on-chain accepted ResultReceiptState -- without the receipt
-// on-chain there are no settlement inputs. A rejection of the receipt itself (invalid
-// signature/fields, or a different receipt from this Verifier already on chain) is Acked and
-// dropped as a bad message; a temporary failure, or no block result within the wait, returns
-// an error so JetStream redelivers. A redelivery of a receipt already on chain (say the
-// process crashed between broadcast and Ack) is recognised from the chain's record and Acked.
+// on-chain there are no settlement inputs.
+//
+// The handler does not wait for the block: one consumer's messages are handled one after
+// another, so waiting would hold every later result behind this one, past the redelivery wait.
+// It validates and broadcasts under the lock, registers the result for reconciliation to confirm
+// (relayBusResultLocked) and acknowledges. An invalid receipt is acknowledged and dropped; a
+// temporary failure before the transaction reached the mempool asks for a delayed redelivery.
+// Without block results (no Tx Query) the broadcast is the outcome, as before.
 func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 	f.mu.Lock()
 	if f.state != types.Verifying || !bytes.Equal(vr.GetTaskId(), f.taskIDBytes()) {
@@ -1150,12 +1158,20 @@ func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 		f.mu.Unlock()
 		return nil
 	}
+	if f.confirm != nil {
+		defer f.mu.Unlock()
+		return f.relayBusResultLocked(vr)
+	}
+	verifier := vr.GetVerifierOperatorAddress()
 	_, err := f.relayVerifyResultLocked(vr)
-	if errors.Is(err, types.ErrInvalidArgument) {
-		// The receipt itself is invalid and redelivery will not make it valid; Ack and drop as a bad message.
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err == nil || errors.Is(err, types.ErrInvalidArgument) {
+		// An invalid receipt stays invalid on redelivery; Ack and drop it as a bad message.
+		delete(f.busRetries, verifier)
 		return nil
 	}
-	return err
+	return f.busRetryLocked(verifier, err)
 }
 
 // relayVerifyResult is the Ingress unary path (contract §2.6): it carries the same
@@ -1275,6 +1291,14 @@ func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.Ver
 		f.mu.Unlock()
 		return flight.join(vr, "verify result")
 	}
+	if pending, ok := f.pendingResults[verifier]; ok {
+		f.mu.Unlock()
+		// Taken off the bus and broadcast; reconciliation confirms it. Ask the caller to come back.
+		if !proto.Equal(pending.receipt, vr) {
+			return types.VerifyRelayAck{}, fmt.Errorf("%w: a different verify result from this verifier is being relayed", types.ErrInvalidArgument)
+		}
+		return types.VerifyRelayAck{}, fmt.Errorf("%w: verify result is being confirmed", errRelayUnconfirmed)
+	}
 	if f.submit == nil {
 		f.mu.Unlock()
 		return types.VerifyRelayAck{}, fmt.Errorf("verify result relay: submitter is not configured")
@@ -1290,19 +1314,26 @@ func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.Ver
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if onChain && !f.terminal {
-		f.verifyResults[verifier] = vr
-		if err := f.save(); err != nil {
-			// The receipt is on-chain (the authoritative fact already holds); the local snapshot is
-			// only a cache and can be completed from in-memory state on the next save.
-			f.log.Warn("verify result persisted on chain but local snapshot save failed",
-				"task_id", f.taskID, "verifier", verifier, "err", err)
-		}
-		f.log.Debug("verify result relayed and stored", "task_id", f.taskID,
-			"verifier", verifier, "count", len(f.verifyResults), "idempotent", ack.Idempotent)
-		f.trySettle()
+		f.recordVerifyResultLocked(vr, ack.Idempotent)
 	}
 	flight.finishLocked(f.resultFlights, verifier, ack, relayErr)
 	return ack, relayErr
+}
+
+// recordVerifyResultLocked stores a result the chain holds and tries to settle. Caller must hold
+// the lock.
+func (f *taskFSM) recordVerifyResultLocked(vr *taskv1.ResultReceiptV3, idempotent bool) {
+	verifier := vr.GetVerifierOperatorAddress()
+	f.verifyResults[verifier] = vr
+	if err := f.save(); err != nil {
+		// The receipt is on-chain (the authoritative fact already holds); the local snapshot is
+		// only a cache and can be completed from in-memory state on the next save.
+		f.log.Warn("verify result persisted on chain but local snapshot save failed",
+			"task_id", f.taskID, "verifier", verifier, "err", err)
+	}
+	f.log.Debug("verify result relayed and stored", "task_id", f.taskID,
+		"verifier", verifier, "count", len(f.verifyResults), "idempotent", idempotent)
+	f.trySettle()
 }
 
 // validVerifyCommit checks each field of the frozen VerifyCommitV1 field table (Keeper
@@ -2363,7 +2394,7 @@ func (f *taskFSM) subscribeVerifyResult() {
 			// Nak'ed for redelivery; "message invalid" is acked, or a bad frame would be
 			// redelivered forever.
 			if retryableBusError(err) {
-				return err
+				return msgbus.RetryAfter(err, f.blockInterval())
 			}
 			return nil
 		}
