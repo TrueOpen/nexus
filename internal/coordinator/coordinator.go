@@ -71,6 +71,8 @@ type Coordinator struct {
 	inferReceipts   InferReceiptQuerier
 	taskEvents      chaincli.TaskEventTracker
 	txQuery         TxQuerier
+	verifyState     VerifyStateQuerier
+	txConfirmPolicy TxConfirmPolicy
 	height          HeightQuerier
 	selection       BuilderSelectionQuerier
 	epochLength     atomic.Uint64
@@ -308,6 +310,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 		c.settlementFacts, _ = query.(SettlementFactsQuerier)
 		c.challenge, _ = query.(ChallengeQuerier)
 		c.inferReceipts, _ = query.(InferReceiptQuerier)
+		c.verifyState, _ = query.(VerifyStateQuerier)
 	}
 }
 
@@ -374,6 +377,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 		settlementFacts:    chain,
 		challenge:          chain,
 		inferReceipts:      chain,
+		verifyState:        chain,
 		height:             chain,
 		relay:              rl,
 		kv:                 store,
@@ -600,6 +604,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		fullReveals:           make(map[string]bool),
 		prepareSeen:           make(map[string]int64),
 		requestReconcile:      c.requestReconcile,
+		confirm:               c.newTxConfirm(),
 		beginExternalHandler:  c.beginCallback,
 		endExternalHandler:    c.callbackWG.Done,
 		onClose: func() {
@@ -641,6 +646,9 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 	fsm.onAbandon = func() {
 		c.deletePayload(o.SessionID, o.TaskID)
 		c.abandonTask(key, fsm)
+	}
+	fsm.requestTxCheck = func() {
+		c.requestTaskReconcile(o.SessionID, o.TaskID, 0, "read submitted transaction result")
 	}
 	return fsm
 }
@@ -890,7 +898,8 @@ func (c *Coordinator) OnInferReceipt(_ context.Context, receipt types.InferRecei
 }
 
 // OnVerifyCommit relays a verify commit signed by a selected Verifier (Cortex contract §2.5).
-// The initial relay implementation trusts the Builder: after validation it is submitted on-chain as MsgBatchSubmitVerifyCommit; return means broadcast only.
+// The initial relay implementation trusts the Builder: after validation it is submitted on-chain as MsgBatchSubmitVerifyCommit;
+// it returns once the chain holds the commit, or with the reason it does not (see taskFSM.relayVerifyCommit).
 func (c *Coordinator) OnVerifyCommit(_ context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error) {
 	if commit == nil {
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: commit is required", types.ErrInvalidArgument)
@@ -1787,6 +1796,7 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 		return false
 	}
 	c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
+	c.confirmSubmittedTxs(fsm)
 	var settlementFacts *chaincli.SettlementBuildFacts
 	if snapshot.State == types.Verifying && snapshot.Status != "RECEIPT_ONLY_ACCEPTED" {
 		if c.settlementFacts == nil {

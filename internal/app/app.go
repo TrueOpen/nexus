@@ -198,6 +198,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Chain.TxConfirm.Validate(); err != nil {
+		return nil, err
+	}
 	if err := cfg.ValidateSecurity(); err != nil {
 		return nil, err
 	}
@@ -287,6 +290,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		coordinator.WithDeadlineSweep(coordinator.DeadlineSweepPolicy{
 			Enabled:     cfg.Chain.DeadlineSweep.Enabled,
 			GraceBlocks: cfg.Chain.DeadlineSweep.GraceBlocks,
+		}),
+		coordinator.WithTxConfirmPolicy(coordinator.TxConfirmPolicy{
+			BlockInterval: cfg.Chain.TxConfirm.BlockInterval,
+			WaitBlocks:    cfg.Chain.TxConfirm.WaitBlocks,
 		}),
 	}
 	if eventOptions.protocolOnHub {

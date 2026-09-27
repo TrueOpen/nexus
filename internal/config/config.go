@@ -495,6 +495,48 @@ type ChainConfig struct {
 
 	// DeadlineSweep decides whether this Builder actively submits MsgSweepDeadline.
 	DeadlineSweep DeadlineSweepConfig `yaml:"deadline_sweep"`
+	// TxConfirm bounds how long a Verifier commit or result relay waits for its block result.
+	TxConfirm TxConfirmConfig `yaml:"tx_confirm"`
+}
+
+// MaxTxConfirmWait caps block_interval × wait_blocks. The wait sits inside a Cortex relay call,
+// whose HTTP client gives up after 60 s, and inside a VERIFY_RESULT JetStream delivery, which
+// the server redelivers after the consumer's AckWait; nexus sets none, so the 30 s server
+// default applies. 20 s leaves room under 30 s for the broadcast and one chain lookup.
+const MaxTxConfirmWait = 20 * time.Second
+
+// Defaults of TxConfirmConfig: 3 blocks of about 5 s.
+const (
+	DefaultTxConfirmBlockInterval        = 5 * time.Second
+	DefaultTxConfirmWaitBlocks    uint64 = 3
+)
+
+// TxConfirmConfig is the block result wait of a Verifier commit or result relay: the relay
+// answers the Verifier only once its transaction has executed in a block, or after WaitBlocks
+// block intervals without a result (then as a temporary failure the Verifier retries). Zero
+// fields take the defaults.
+type TxConfirmConfig struct {
+	// BlockInterval is the expected time between blocks; the result is queried at this spacing.
+	BlockInterval time.Duration `yaml:"block_interval"`
+	// WaitBlocks is how many block intervals to wait.
+	WaitBlocks uint64 `yaml:"wait_blocks"`
+}
+
+func (c TxConfirmConfig) Validate() error {
+	interval, blocks := c.BlockInterval, c.WaitBlocks
+	if interval < 0 {
+		return fmt.Errorf("chain.tx_confirm block_interval must not be negative")
+	}
+	if interval == 0 {
+		interval = DefaultTxConfirmBlockInterval
+	}
+	if blocks == 0 {
+		blocks = DefaultTxConfirmWaitBlocks
+	}
+	if blocks > uint64(MaxTxConfirmWait/interval) {
+		return fmt.Errorf("chain.tx_confirm block_interval × wait_blocks must not exceed %s", MaxTxConfirmWait)
+	}
+	return nil
 }
 
 // DeadlineSweepConfig controls the public deadline runner (Keeper Interface Contract §9.6a).
@@ -606,9 +648,10 @@ func defaults() Config {
 			},
 		},
 		Chain: ChainConfig{
-			GRPCAddr: "localhost:9090",
-			ChainID:  "trueopen-localnet-1",
-			GasLimit: 200000,
+			GRPCAddr:  "localhost:9090",
+			ChainID:   "trueopen-localnet-1",
+			GasLimit:  200000,
+			TxConfirm: TxConfirmConfig{BlockInterval: DefaultTxConfirmBlockInterval, WaitBlocks: DefaultTxConfirmWaitBlocks},
 		},
 		Hub: HubConfig{
 			GasLimit: 200000,
@@ -695,6 +738,8 @@ func applyEnv(cfg *Config) {
 	cfg.Chain.FeeAmount = env("NEXUS_TX_FEE_AMOUNT", cfg.Chain.FeeAmount)
 	cfg.Chain.DeadlineSweep.Enabled = envBool("NEXUS_DEADLINE_SWEEP_ENABLED", cfg.Chain.DeadlineSweep.Enabled)
 	cfg.Chain.DeadlineSweep.GraceBlocks = envUint64("NEXUS_DEADLINE_SWEEP_GRACE_BLOCKS", cfg.Chain.DeadlineSweep.GraceBlocks)
+	cfg.Chain.TxConfirm.BlockInterval = envDuration("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", cfg.Chain.TxConfirm.BlockInterval)
+	cfg.Chain.TxConfirm.WaitBlocks = envUint64("NEXUS_TX_CONFIRM_WAIT_BLOCKS", cfg.Chain.TxConfirm.WaitBlocks)
 	cfg.Hub.Enabled = envBool("NEXUS_HUB_ENABLED", cfg.Hub.Enabled)
 	cfg.Hub.GRPCAddr = env("NEXUS_HUB_GRPC", cfg.Hub.GRPCAddr)
 	cfg.Hub.ChainID = env("NEXUS_HUB_CHAIN_ID", cfg.Hub.ChainID)

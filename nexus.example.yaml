@@ -113,6 +113,13 @@ chain:
     # EndBlock executor and other Builders get first crack. 0 = sweep on expiry,
     # which makes every Builder race for the same mostly-NOOP transaction.
     grace_blocks: 10
+  # A Verifier commit or result relay answers only after its transaction executed in a
+  # block, waiting at most block_interval × wait_blocks (capped at 20s: below the 60s
+  # Cortex relay call timeout and the 30s JetStream redelivery wait). No result in time
+  # is reported as a temporary failure and the Verifier retries.
+  tx_confirm:
+    block_interval: 5s
+    wait_blocks: 3
 
 # Hub is the sole source of truth for the Builder registry and stake when enabled. The chain block
 # above remains the Task Chain used for task execution and events.

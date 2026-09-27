@@ -654,6 +654,28 @@ type recordTaskQuery struct {
 	assignmentErr     error
 	assignmentRequest *taskv1.QueryVerifierAssignmentRequest
 	inferReceipt      *taskv1.QueryInferReceiptResponse
+	verifyCommit      *taskv1.QueryVerifyCommitResponse
+	resultReceipt     *taskv1.QueryResultReceiptResponse
+	verifyItemErr     error
+	verifyItemTaskID  []byte // the last commit/receipt query
+	verifyItemRound   uint32
+	verifyItemWho     string
+}
+
+func (q *recordTaskQuery) VerifyCommit(_ context.Context, req *connect.Request[taskv1.QueryVerifyCommitRequest]) (*connect.Response[taskv1.QueryVerifyCommitResponse], error) {
+	q.verifyItemTaskID, q.verifyItemRound, q.verifyItemWho = req.Msg.GetTaskId(), req.Msg.GetVerifyRound(), req.Msg.GetVerifierOperatorAddress()
+	if q.verifyItemErr != nil {
+		return nil, q.verifyItemErr
+	}
+	return connect.NewResponse(q.verifyCommit), nil
+}
+
+func (q *recordTaskQuery) ResultReceipt(_ context.Context, req *connect.Request[taskv1.QueryResultReceiptRequest]) (*connect.Response[taskv1.QueryResultReceiptResponse], error) {
+	q.verifyItemTaskID, q.verifyItemRound, q.verifyItemWho = req.Msg.GetTaskId(), req.Msg.GetVerifyRound(), req.Msg.GetVerifierOperatorAddress()
+	if q.verifyItemErr != nil {
+		return nil, q.verifyItemErr
+	}
+	return connect.NewResponse(q.resultReceipt), nil
 }
 
 func (q *recordTaskQuery) InferReceipt(context.Context, *connect.Request[taskv1.QueryInferReceiptRequest]) (*connect.Response[taskv1.QueryInferReceiptResponse], error) {
@@ -966,6 +988,72 @@ func TestQueryInferReceiptReadsAcceptedHashes(t *testing.T) {
 		if _, err := c.QueryInferReceipt(context.Background(), testTaskIDHex); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
+	}
+}
+
+// A relay reads the commit and the result receipt the chain holds for one Verifier and round, to
+// tell "already on chain" from the chain's record.
+func TestQueryVerifyCommitAndResultReceipt(t *testing.T) {
+	const verifier = "trueopen1verifier"
+	commit := func(taskID []byte, round uint32, who string, commitHash []byte) *taskv1.QueryVerifyCommitResponse {
+		return &taskv1.QueryVerifyCommitResponse{Commit: &taskv1.CommitState{
+			TaskId: taskID, VerifyRound: round, VerifierOperatorAddress: who, CommitHash: commitHash,
+			SignatureDigest: mustHash32("cc"), CommitHeight: 40,
+		}}
+	}
+	query := &recordTaskQuery{verifyCommit: commit(testTaskIDBytes, 1, verifier, mustHash32("bb"))}
+	c := &client{taskQuery: query}
+	got, err := c.QueryVerifyCommit(context.Background(), testTaskIDHex, 1, verifier)
+	if err != nil || !bytes.Equal(got.CommitHash, mustHash32("bb")) || got.CommitHeight != 40 {
+		t.Fatalf("commit = %+v, %v", got, err)
+	}
+	if !bytes.Equal(query.verifyItemTaskID, testTaskIDBytes) || query.verifyItemRound != 1 || query.verifyItemWho != verifier {
+		t.Fatalf("request = %x/%d/%s", query.verifyItemTaskID, query.verifyItemRound, query.verifyItemWho)
+	}
+	for name, response := range map[string]*taskv1.QueryVerifyCommitResponse{
+		"other task":       commit(mustHash32("99"), 1, verifier, mustHash32("bb")),
+		"other round":      commit(testTaskIDBytes, 2, verifier, mustHash32("bb")),
+		"other verifier":   commit(testTaskIDBytes, 1, "trueopen1other", mustHash32("bb")),
+		"short commitment": commit(testTaskIDBytes, 1, verifier, []byte{1}),
+		"no commit":        {},
+	} {
+		c := &client{taskQuery: &recordTaskQuery{verifyCommit: response}}
+		if _, err := c.QueryVerifyCommit(context.Background(), testTaskIDHex, 1, verifier); err == nil {
+			t.Fatalf("commit %s: accepted", name)
+		}
+	}
+
+	receipt := func(taskID []byte, digest []byte) *taskv1.QueryResultReceiptResponse {
+		return &taskv1.QueryResultReceiptResponse{Receipt: &taskv1.ResultReceiptState{
+			TaskId: taskID, VerifyRound: 1, VerifierOperatorAddress: verifier,
+			ResultReceiptSigningDigest: digest, SignatureDigest: mustHash32("cc"), AcceptedHeight: 41,
+		}}
+	}
+	c = &client{taskQuery: &recordTaskQuery{resultReceipt: receipt(testTaskIDBytes, mustHash32("dd"))}}
+	accepted, err := c.QueryResultReceipt(context.Background(), testTaskIDHex, 1, verifier)
+	if err != nil || !bytes.Equal(accepted.SigningDigest, mustHash32("dd")) || accepted.AcceptedHeight != 41 {
+		t.Fatalf("receipt = %+v, %v", accepted, err)
+	}
+	for name, response := range map[string]*taskv1.QueryResultReceiptResponse{
+		"other task":   receipt(mustHash32("99"), mustHash32("dd")),
+		"short digest": receipt(testTaskIDBytes, []byte{1}),
+		"no receipt":   {},
+	} {
+		c := &client{taskQuery: &recordTaskQuery{resultReceipt: response}}
+		if _, err := c.QueryResultReceipt(context.Background(), testTaskIDHex, 1, verifier); err == nil {
+			t.Fatalf("receipt %s: accepted", name)
+		}
+	}
+
+	missing := &client{taskQuery: &recordTaskQuery{verifyItemErr: connect.NewError(connect.CodeNotFound, errors.New("absent"))}}
+	if _, err := missing.QueryVerifyCommit(context.Background(), testTaskIDHex, 1, verifier); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("absent commit: %v", err)
+	}
+	if _, err := missing.QueryResultReceipt(context.Background(), testTaskIDHex, 1, verifier); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("absent receipt: %v", err)
+	}
+	if _, err := c.QueryVerifyCommit(context.Background(), testTaskIDHex, 0, verifier); err == nil {
+		t.Fatal("verify_round 0 accepted")
 	}
 }
 

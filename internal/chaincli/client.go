@@ -418,6 +418,73 @@ func (c *client) QueryInferReceipt(ctx context.Context, taskID string) (Accepted
 	}, nil
 }
 
+// QueryVerifyCommit reads the commit the chain accepted from one Verifier in one round
+// (task.v1.Query/VerifyCommit). A Verifier without an accepted commit returns ErrNotFound.
+func (c *client) QueryVerifyCommit(ctx context.Context, taskID string, verifyRound uint32, verifier string) (AcceptedVerifyCommit, error) {
+	id, err := verifierItemKey("verify commit", taskID, verifyRound, verifier)
+	if err != nil {
+		return AcceptedVerifyCommit{}, err
+	}
+	resp, err := c.taskQuery.VerifyCommit(ctx, connect.NewRequest(&taskv1.QueryVerifyCommitRequest{
+		TaskId: id, VerifyRound: verifyRound, VerifierOperatorAddress: verifier,
+	}))
+	if err != nil {
+		return AcceptedVerifyCommit{}, applicationQueryError("verify commit", err)
+	}
+	commit := resp.Msg.GetCommit()
+	if commit == nil || !bytes.Equal(commit.GetTaskId(), id) || commit.GetVerifyRound() != verifyRound ||
+		commit.GetVerifierOperatorAddress() != verifier {
+		return AcceptedVerifyCommit{}, fmt.Errorf("query verify commit: response does not match request")
+	}
+	if len(commit.GetCommitHash()) != 32 {
+		return AcceptedVerifyCommit{}, fmt.Errorf("query verify commit: commit_hash must be 32 bytes")
+	}
+	return AcceptedVerifyCommit{
+		CommitHash:      bytes.Clone(commit.GetCommitHash()),
+		SignatureDigest: bytes.Clone(commit.GetSignatureDigest()),
+		CommitHeight:    commit.GetCommitHeight(),
+	}, nil
+}
+
+// QueryResultReceipt reads the result receipt the chain accepted from one Verifier in one round
+// (task.v1.Query/ResultReceipt). A Verifier without an accepted receipt returns ErrNotFound.
+func (c *client) QueryResultReceipt(ctx context.Context, taskID string, verifyRound uint32, verifier string) (AcceptedResultReceipt, error) {
+	id, err := verifierItemKey("result receipt", taskID, verifyRound, verifier)
+	if err != nil {
+		return AcceptedResultReceipt{}, err
+	}
+	resp, err := c.taskQuery.ResultReceipt(ctx, connect.NewRequest(&taskv1.QueryResultReceiptRequest{
+		TaskId: id, VerifyRound: verifyRound, VerifierOperatorAddress: verifier,
+	}))
+	if err != nil {
+		return AcceptedResultReceipt{}, applicationQueryError("result receipt", err)
+	}
+	receipt := resp.Msg.GetReceipt()
+	if receipt == nil || !bytes.Equal(receipt.GetTaskId(), id) || receipt.GetVerifyRound() != verifyRound ||
+		receipt.GetVerifierOperatorAddress() != verifier {
+		return AcceptedResultReceipt{}, fmt.Errorf("query result receipt: response does not match request")
+	}
+	if len(receipt.GetResultReceiptSigningDigest()) != 32 {
+		return AcceptedResultReceipt{}, fmt.Errorf("query result receipt: result_receipt_signing_digest must be 32 bytes")
+	}
+	return AcceptedResultReceipt{
+		SigningDigest:   bytes.Clone(receipt.GetResultReceiptSigningDigest()),
+		SignatureDigest: bytes.Clone(receipt.GetSignatureDigest()),
+		AcceptedHeight:  receipt.GetAcceptedHeight(),
+	}, nil
+}
+
+func verifierItemKey(kind, taskID string, verifyRound uint32, verifier string) ([]byte, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
+	if err != nil {
+		return nil, fmt.Errorf("query %s task=%q: %w", kind, taskID, err)
+	}
+	if verifyRound == 0 || verifier == "" {
+		return nil, fmt.Errorf("query %s: verify_round and verifier are required", kind)
+	}
+	return id, nil
+}
+
 // QueryTaskStage reads task.v1.Query/TaskStage. A task the chain does not know returns ErrNotFound.
 func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error) {
 	id, err := nodecontract.Hash32Bytes("task_id", taskID)

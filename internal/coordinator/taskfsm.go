@@ -92,6 +92,10 @@ type taskFSM struct {
 	// verifyCommits: Verifier commits already relayed on-chain (by Verifier address), for idempotent dedup.
 	verifyCommits map[string]*taskv1.VerifyCommitV1
 	fullReveals   map[string]bool // Verifiers that already self-rescued on-chain via FullResultRevealTx
+	// commitFlights / resultFlights: relays waiting for their block result outside the lock, by
+	// Verifier address (txconfirm.go).
+	commitFlights map[string]*relayFlight
+	resultFlights map[string]*relayFlight
 	// workerRevealed: on-chain Worker reveal. The frozen contract has no such Msg / Event,
 	// so it is always false in Phase 0; kept only as "record if present", no longer a
 	// settlement precondition.
@@ -134,7 +138,16 @@ type taskFSM struct {
 	// phase's submitter), in which case no SettleAccepted event arrives and a boolean would
 	// stop this node from ever retrying. Once the chain really settles,
 	// onSettleAccepted sets state to Settled and trySettle's state check stops naturally.
+	// With block results readable (confirm), settleTx paces the resubmissions instead of
+	// one per block.
 	settleSubmittedHeight uint64
+	// receiptTx / settleTx follow this node's MsgSubmitInferReceipt and MsgSettleTask to their
+	// block results; confirm reads them (nil: broadcast only, see txConfirm). requestTxCheck asks
+	// reconciliation to read an outstanding result.
+	receiptTx      submittedTx
+	settleTx       submittedTx
+	confirm        *txConfirm
+	requestTxCheck func()
 	// sweepSubmitted records the deadline kinds for which this node has already submitted
 	// MsgSweepDeadline, so the same one is not resubmitted on every new block. Deliberately
 	// not in taskSnapshot: after restart it is submitted at most once more, a NOOP on-chain.
@@ -976,6 +989,12 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 		f.log.Debug("OpenVerifyTx already submitted for this task", "task_id", f.taskID)
 		return
 	}
+	// After a failed block result: given up, or waiting out the backoff (txconfirm.go).
+	if f.resubmitHeldLocked(&f.receiptTx) {
+		f.log.Debug("OpenVerifyTx resubmission held", "task_id", f.taskID, "stopped", f.receiptTx.stopped,
+			"retry_at_height", f.receiptTx.retryAt, "height", f.observedHeight)
+		return
+	}
 	if !f.inProposalGroup(set) {
 		f.log.Info("not submitting OpenVerifyTx: this Builder is not in the task's proposal group",
 			"task_id", f.taskID, "self", f.self, "builder_set", builderAddresses(set),
@@ -1014,13 +1033,17 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 		BuilderOperatorAddress: f.self, SessionID: f.sessionID, TaskID: f.taskID, WorkerOperatorAddress: f.winner,
 		Submitter: f.self,
 	}
-	if _, err := f.submit.SubmitOpenVerify(context.Background(), tx); err != nil {
+	res, err := f.submit.SubmitOpenVerify(context.Background(), tx)
+	if err != nil {
 		f.log.Warn("submit OpenVerifyTx failed", "task_id", f.taskID, "err", err)
 		f.openVerifySubmitted = false
 		return
 	}
+	// CheckTx passing is not acceptance: reconciliation reads the block result by this hash.
+	f.sentLocked(&f.receiptTx, res.TxHash)
 	f.save()
-	f.log.Info("OpenVerifyTx submitted", "task_id", f.taskID, "verifier_handraise", len(f.verifierHR))
+	f.log.Info("OpenVerifyTx submitted", "task_id", f.taskID, "verifier_handraise", len(f.verifierHR),
+		"tx_hash", hex.EncodeToString(res.TxHash))
 }
 
 // onOpenVerifyAccepted: on-chain open-verify included: record the selected Verifiers and
@@ -1108,35 +1131,28 @@ func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
 }
 
 // onVerifyResult receives a Verifier verification result receipt: relay it on-chain verbatim first,
-// and only after on-chain acceptance store it locally and Ack; then try to settle.
+// and only once the chain holds it store it locally and Ack; then try to settle.
 //
 // The order is mandatory: MsgSettleTask submits only task_id, and the Keeper derives the
 // settlement inputs from the on-chain accepted ResultReceiptState -- without the receipt
-// on-chain there are no settlement inputs. A definitive on-chain rejection (invalid
-// signature/fields) is Acked and dropped as a bad message; a transient failure returns an
-// error so JetStream redelivers.
-//
-// Known boundaries (follow-ups, see the PR description): (1) "accepted" currently only
-// means CheckTx passed; a receipt that passes CheckTx but is rejected at inclusion is
-// stored locally yet absent on-chain and needs a reconcile fallback; (2) if the process
-// crashes between successful submission and Ack, the redelivered second submission may be
-// rejected by the Keeper as "already exists" and dropped as Definitive, leaving the receipt
-// missing locally and settlement to the on-chain sweep fallback. The clean fix for both is
-// to include verify results in on-chain reconcile (local yes/on-chain no → resubmit;
-// on-chain yes/local no → backfill), to be implemented once chaincli offers a
-// single-receipt query or an acceptance event.
+// on-chain there are no settlement inputs. A rejection of the receipt itself (invalid
+// signature/fields, or a different receipt from this Verifier already on chain) is Acked and
+// dropped as a bad message; a temporary failure, or no block result within the wait, returns
+// an error so JetStream redelivers. A redelivery of a receipt already on chain (say the
+// process crashed between broadcast and Ack) is recognised from the chain's record and Acked.
 func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if f.state != types.Verifying || !bytes.Equal(vr.GetTaskId(), f.taskIDBytes()) {
+		f.mu.Unlock()
 		return nil
 	}
 	if !f.validVerifyResult(vr) {
+		f.mu.Unlock()
 		return nil
 	}
 	_, err := f.relayVerifyResultLocked(vr)
 	if errors.Is(err, types.ErrInvalidArgument) {
-		// Definitive on-chain rejection: the receipt itself is invalid and redelivery will not make it valid; Ack and drop as a bad message.
+		// The receipt itself is invalid and redelivery will not make it valid; Ack and drop as a bad message.
 		return nil
 	}
 	return err
@@ -1148,11 +1164,12 @@ func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 // silently dropped as on the bus path.
 func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if err := f.verifyRelayPreconditionsLocked(vr.GetTaskId(), vr.GetVerifierOperatorAddress()); err != nil {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, err
 	}
 	if !f.validVerifyResult(vr) {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: result receipt fails the frozen field checks", types.ErrInvalidArgument)
 	}
 	return f.relayVerifyResultLocked(vr)
@@ -1160,21 +1177,27 @@ func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV3) (types.VerifyRel
 
 // relayVerifyCommit is the Ingress unary path (contract §2.5): in the initial relay implementation the Builder is
 // trusted, and the Verifier-signed commit is relayed by this Builder via
-// MsgBatchSubmitVerifyCommit. Recorded locally only after a successful broadcast; resending
-// the same commit passes idempotently. The return only means broadcast, not on-chain
-// accepted -- a Verifier that does not observe acceptance before the deadline still submits
-// the same message itself per the contract.
+// MsgBatchSubmitVerifyCommit. It answers once the chain holds the commit (recorded locally
+// then; resending the same commit passes idempotently), or with an error when the chain
+// refused it (types.ErrInvalidArgument for the content, otherwise temporary) or showed no
+// block result within the wait (temporary). A Verifier that does not observe acceptance
+// before the deadline still submits the same message itself per the contract.
+//
+// The lock is held to validate and broadcast, released while the block result is awaited, and
+// taken again to record; meanwhile other operations on this task proceed.
 func (f *taskFSM) relayVerifyCommit(commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	verifier := commit.GetVerifierOperatorAddress()
 	if err := f.verifyRelayPreconditionsLocked(commit.GetTaskId(), verifier); err != nil {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, err
 	}
 	if !f.validVerifyCommit(commit) {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: verify commit fails the frozen field checks", types.ErrInvalidArgument)
 	}
 	if existing, ok := f.verifyCommits[verifier]; ok {
+		f.mu.Unlock()
 		if proto.Equal(existing, commit) {
 			return types.VerifyRelayAck{Idempotent: true}, nil
 		}
@@ -1183,27 +1206,33 @@ func (f *taskFSM) relayVerifyCommit(commit *taskv1.VerifyCommitV1) (types.Verify
 		// waste a fee.
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: a different verify commit from this verifier was already relayed", types.ErrInvalidArgument)
 	}
+	if flight, ok := f.commitFlights[verifier]; ok {
+		f.mu.Unlock()
+		return flight.join(commit, "verify commit")
+	}
 	if f.submit == nil {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, fmt.Errorf("verify commit relay: submitter is not configured")
 	}
 	res, err := f.submit.SubmitVerifyCommit(context.Background(), chaincli.VerifyCommitTx{Commit: commit, Submitter: f.self})
-	if err != nil {
-		var submission *SubmissionError
-		if errors.As(err, &submission) && submission.Definitive {
-			f.log.Warn("verify commit rejected on chain", "task_id", f.taskID, "verifier", verifier, "err", err)
-			return types.VerifyRelayAck{}, fmt.Errorf("%w: verify commit rejected on chain: %v", types.ErrInvalidArgument, err)
+	flight := startRelayFlightLocked(&f.commitFlights, verifier, commit)
+	f.mu.Unlock()
+
+	ack, onChain, relayErr := f.relayOutcome(f.commitRelayItem(commit), res, err)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if onChain && !f.terminal {
+		f.verifyCommits[verifier] = commit
+		if err := f.save(); err != nil {
+			f.log.Warn("verify commit relayed but local snapshot save failed",
+				"task_id", f.taskID, "verifier", verifier, "err", err)
 		}
-		f.log.Warn("verify commit relay failed", "task_id", f.taskID, "verifier", verifier, "err", err)
-		return types.VerifyRelayAck{}, err
+		f.log.Info("verify commit relayed", "task_id", f.taskID, "verifier", verifier,
+			"tx_hash", hex.EncodeToString(ack.TxHash), "idempotent", ack.Idempotent)
 	}
-	f.verifyCommits[verifier] = commit
-	if err := f.save(); err != nil {
-		f.log.Warn("verify commit relayed but local snapshot save failed",
-			"task_id", f.taskID, "verifier", verifier, "err", err)
-	}
-	f.log.Info("verify commit relayed", "task_id", f.taskID, "verifier", verifier,
-		"tx_hash", hex.EncodeToString(res.TxHash))
-	return types.VerifyRelayAck{TxHash: res.TxHash}, nil
+	flight.finishLocked(f.commitFlights, verifier, ack, relayErr)
+	return ack, relayErr
 }
 
 // verifyRelayPreconditionsLocked are the relay preconditions: the task is in the
@@ -1223,62 +1252,57 @@ func (f *taskFSM) verifyRelayPreconditionsLocked(taskID []byte, verifier string)
 }
 
 // relayVerifyResultLocked relays a receipt that passed validVerifyResult on-chain via
-// MsgBatchSubmitVerifyResult: only after a successful broadcast is it stored locally and
-// counted as received; then try to settle. Resending the same receipt passes
-// idempotently. Caller must hold the lock.
+// MsgBatchSubmitVerifyResult: only once the chain holds it is it stored locally and counted
+// as received; then try to settle. Resending the same receipt passes idempotently, and a
+// resend while the first is still awaiting its block result shares that result. Caller must
+// hold the lock; it is released on return, and also while the block result is awaited.
 //
 // The order is mandatory: MsgSettleTask submits only task_id, and the Keeper derives the
 // settlement inputs from the on-chain accepted ResultReceiptState -- without the receipt
-// on-chain there are no settlement inputs. A definitive on-chain rejection (invalid
-// signature/fields) returns types.ErrInvalidArgument; a transient failure is returned as is
-// for the caller to retry.
-//
-// Known boundaries (follow-ups, see the PR description): (1) "accepted" currently only
-// means CheckTx passed; a receipt that passes CheckTx but is rejected at inclusion is
-// stored locally yet absent on-chain and needs a reconcile fallback; (2) if the process
-// crashes between successful submission and Ack, the redelivered second submission may be
-// rejected by the Keeper as "already exists" and dropped as Definitive, leaving the receipt
-// missing locally and settlement to the on-chain sweep fallback. The clean fix for both is
-// to include verify results in on-chain reconcile (local yes/on-chain no → resubmit;
-// on-chain yes/local no → backfill), to be implemented once chaincli offers a
-// single-receipt query or an acceptance event.
+// on-chain there are no settlement inputs. A rejection of the receipt's content returns
+// types.ErrInvalidArgument; a temporary failure, or no block result within the wait, returns
+// another error for the caller to retry. Whether the chain already holds this receipt is read
+// from the chain's record (relayOutcome), which also settles a redelivery after a crash
+// between broadcast and Ack.
 func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	verifier := vr.GetVerifierOperatorAddress()
 	if existing, ok := f.verifyResults[verifier]; ok && proto.Equal(existing, vr) {
+		f.mu.Unlock()
 		// Redelivery of the same receipt: the previous round already put it on-chain and stored it locally (e.g. the Ack was lost in flight); pass idempotently.
 		return types.VerifyRelayAck{Idempotent: true}, nil
 	}
+	if flight, ok := f.resultFlights[verifier]; ok {
+		f.mu.Unlock()
+		return flight.join(vr, "verify result")
+	}
 	if f.submit == nil {
+		f.mu.Unlock()
 		return types.VerifyRelayAck{}, fmt.Errorf("verify result relay: submitter is not configured")
 	}
 	res, err := f.submit.SubmitVerifyResult(context.Background(), chaincli.VerifyResultTx{
 		Receipt: vr, Submitter: f.self,
 	})
-	if err != nil {
-		var submission *SubmissionError
-		if errors.As(err, &submission) && submission.Definitive {
-			f.log.Warn("verify result rejected on chain", "task_id", f.taskID,
-				"verifier", verifier, "err", err)
-			return types.VerifyRelayAck{}, fmt.Errorf("%w: verify result rejected on chain: %v", types.ErrInvalidArgument, err)
+	flight := startRelayFlightLocked(&f.resultFlights, verifier, vr)
+	f.mu.Unlock()
+
+	ack, onChain, relayErr := f.relayOutcome(f.resultRelayItem(vr), res, err)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if onChain && !f.terminal {
+		f.verifyResults[verifier] = vr
+		if err := f.save(); err != nil {
+			// The receipt is on-chain (the authoritative fact already holds); the local snapshot is
+			// only a cache and can be completed from in-memory state on the next save.
+			f.log.Warn("verify result persisted on chain but local snapshot save failed",
+				"task_id", f.taskID, "verifier", verifier, "err", err)
 		}
-		f.log.Warn("verify result relay failed; leaving message for redelivery",
-			"task_id", f.taskID, "verifier", verifier, "err", err)
-		return types.VerifyRelayAck{}, err
+		f.log.Debug("verify result relayed and stored", "task_id", f.taskID,
+			"verifier", verifier, "count", len(f.verifyResults), "idempotent", ack.Idempotent)
+		f.trySettle()
 	}
-	f.verifyResults[verifier] = vr
-	if err := f.save(); err != nil {
-		// The receipt is on-chain (the authoritative fact already holds); the local snapshot is
-		// only a cache and can be completed from in-memory state on the next save. Rolling
-		// back + Nak is not an option here: redelivery would submit on-chain a second time,
-		// the Keeper's rejection of the duplicate would be classified as Definitive and dropped, and
-		// the receipt would instead be permanently missing locally.
-		f.log.Warn("verify result persisted on chain but local snapshot save failed",
-			"task_id", f.taskID, "verifier", verifier, "err", err)
-	}
-	f.log.Debug("verify result relayed and stored", "task_id", f.taskID,
-		"verifier", verifier, "count", len(f.verifyResults))
-	f.trySettle()
-	return types.VerifyRelayAck{TxHash: res.TxHash}, nil
+	flight.finishLocked(f.resultFlights, verifier, ack, relayErr)
+	return ack, relayErr
 }
 
 // validVerifyCommit checks each field of the frozen VerifyCommitV1 field table (Keeper
@@ -1689,10 +1713,11 @@ func (f *taskFSM) onSweepDeadlineAccepted(ev chaincli.SweepDeadlineAccepted) {
 //
 // Timing is decided entirely by chain height (§10.10a, see settleSubmissionAllowed): do not
 // send before the height at which this node may send; sending early or in someone else's
-// slot is rejected by the chain and wastes the fee. At most one send per block; if the
-// chain has not settled after a send (execution rejected or not included), the next block
-// within the window sends again. Chain height comes from NewBlock (onHeight), not the local
-// clock. Caller must hold the lock.
+// slot is rejected by the chain and wastes the fee. At most one send per block. When block
+// results can be read, the next send waits for the last one's result and, after a failure,
+// for its backoff (txconfirm.go); otherwise, if the chain has not settled after a send, the
+// next block within the window sends again. Chain height comes from NewBlock (onHeight), not
+// the local clock. Caller must hold the lock.
 func (f *taskFSM) trySettle() {
 	if f.state != types.Verifying || f.terminal || f.consistentVerifyGroup() == nil {
 		return
@@ -1709,6 +1734,9 @@ func (f *taskFSM) trySettle() {
 	}
 	if f.observedHeight == 0 || f.settleSubmittedHeight == f.observedHeight {
 		return // no block seen yet, or already sent once in this block
+	}
+	if f.resubmitHeldLocked(&f.settleTx) {
+		return // awaiting the block result of the last one, waiting out a backoff, or given up
 	}
 	allowed, permissionless := f.settleSubmissionAllowed(rank)
 	if !allowed {
@@ -1757,12 +1785,18 @@ func (f *taskFSM) settleSubmissionAllowed(rank int) (allowed bool, permissionles
 // onHeight: a new block arrived: record the chain height, then check whether the settlement window has opened (including retries after a failed submission).
 func (f *taskFSM) onHeight(height uint64) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if height <= f.observedHeight {
+		f.mu.Unlock()
 		return
 	}
 	f.observedHeight = height
 	f.trySettle()
+	check := f.followSubmittedTxsLocked()
+	f.mu.Unlock()
+	// Enqueued off the lock: the reconcile worker takes this lock too.
+	if check && f.requestTxCheck != nil {
+		f.requestTxCheck()
+	}
 }
 
 // submitSettle assembles and submits SettleTx; before submitting it broadcasts a prepare
@@ -1800,14 +1834,16 @@ func (f *taskFSM) submitSettle() {
 	tx := chaincli.SettleTx{
 		Submitter: f.self, SessionID: f.sessionID, TaskID: f.taskID,
 	}
-	if _, err := f.submit.SubmitSettle(context.Background(), tx); err != nil {
+	res, err := f.submit.SubmitSettle(context.Background(), tx)
+	if err != nil {
 		f.log.Warn("submit SettleTx failed", "task_id", f.taskID, "err", err)
 		f.settleSubmittedHeight = 0
 		// Retry on the next block (onHeight); if someone else settled on-chain, SettleAccepted arrives first and this becomes a no-op.
 		return
 	}
+	f.sentLocked(&f.settleTx, res.TxHash)
 	f.save()
-	f.log.Info("SettleTx submitted", "task_id", f.taskID,
+	f.log.Info("SettleTx submitted", "task_id", f.taskID, "tx_hash", hex.EncodeToString(res.TxHash),
 		"consistent_results", len(group), "missing", strings.Join(missing, ","),
 		"outlier", strings.Join(outliers, ","))
 }

@@ -97,6 +97,38 @@ func TestExampleConfigStrictlyLoadsWithTaskDataDefaults(t *testing.T) {
 	}
 }
 
+// The relay's block result wait stays under the 30 s JetStream redelivery wait and the 60 s
+// Cortex relay call timeout.
+func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
+	cfg, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chain.TxConfirm != defaults().Chain.TxConfirm || cfg.Chain.TxConfirm.Validate() != nil {
+		t.Fatalf("example tx_confirm = %+v, want the valid defaults", cfg.Chain.TxConfirm)
+	}
+	for _, valid := range []TxConfirmConfig{{}, {BlockInterval: 2 * time.Second, WaitBlocks: 10}, {WaitBlocks: 4}} {
+		if err := valid.Validate(); err != nil {
+			t.Fatalf("%+v: %v", valid, err)
+		}
+	}
+	for _, invalid := range []TxConfirmConfig{
+		{BlockInterval: 10 * time.Second},
+		{BlockInterval: time.Second, WaitBlocks: 21},
+		{BlockInterval: -time.Second, WaitBlocks: 1},
+	} {
+		if err := invalid.Validate(); err == nil {
+			t.Fatalf("%+v accepted", invalid)
+		}
+	}
+	t.Setenv("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", "2s")
+	t.Setenv("NEXUS_TX_CONFIRM_WAIT_BLOCKS", "4")
+	cfg = Load()
+	if cfg.Chain.TxConfirm != (TxConfirmConfig{BlockInterval: 2 * time.Second, WaitBlocks: 4}) {
+		t.Fatalf("environment tx_confirm = %+v", cfg.Chain.TxConfirm)
+	}
+}
+
 func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 	valid := defaults().TaskData
 	tests := map[string]TaskDataConfig{
