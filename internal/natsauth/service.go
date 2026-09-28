@@ -16,6 +16,11 @@ import (
 // AuthSubject is the fixed request subject of the NATS auth callout.
 const AuthSubject = "$SYS.REQ.USER.AUTH"
 
+// AuthQueueGroup is the queue group every natsauth instance joins on AuthSubject: with several
+// instances (one per server of a NATS cluster), each login request goes to exactly one of them
+// instead of every instance querying the chain and signing a reply the server then discards.
+const AuthQueueGroup = "trueopen-natsauth"
+
 // defaultHandleTimeout is the default total time limit for chain queries within one request.
 const defaultHandleTimeout = 5 * time.Second
 
@@ -213,7 +218,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopping = false
 	s.mu.Unlock()
-	sub, err := nc.Subscribe(AuthSubject, func(msg *nats.Msg) {
+	sub, err := nc.QueueSubscribe(AuthSubject, AuthQueueGroup, func(msg *nats.Msg) {
 		var reply func([]byte) error
 		if strings.TrimSpace(msg.Reply) != "" {
 			reply = msg.Respond
@@ -230,7 +235,8 @@ func (s *Service) Start(ctx context.Context) error {
 	s.started = true
 	s.cancel, s.nc, s.sub = cancel, nc, sub
 	s.mu.Unlock()
-	s.cfg.Log.Info("nats auth callout serving", "subject", AuthSubject, "server", nc.ConnectedServerName(), "tls", nc.TLSRequired())
+	s.cfg.Log.Info("nats auth callout serving", "subject", AuthSubject, "queue_group", AuthQueueGroup,
+		"server", nc.ConnectedServerName(), "tls", nc.TLSRequired())
 	return nil
 }
 

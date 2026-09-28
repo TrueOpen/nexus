@@ -120,6 +120,15 @@ issued by the testnet's private CA, so the host running the callout service must
 `SSL_CERT_FILE=<ca.pem>`; otherwise `check` passes but after `start` every authorization is rejected with `CHAIN_UNAVAILABLE`
 (the log `cause` shows `x509: certificate signed by unknown authority`). No switch is provided to skip verification.
 
+Several instances may run at once, for example one next to each server of a NATS cluster. They all join the
+queue group `trueopen-natsauth` on `$SYS.REQ.USER.AUTH`, so each login request is handled by exactly one of them.
+With a plain subscription every instance would query the chain and sign a reply, and the server would keep only
+the first.
+
+In a NATS cluster, set `nats.stream_replicas` in the main nexus configuration (for example 3) so the
+`TRUEOPEN_TASK` stream nexus creates is kept on several servers. Nexus never lowers the replica count of an
+existing stream.
+
 `xkey_file` (response encryption) is not implemented in the current version: if a non-empty value is configured, `natsauth` refuses to start outright rather than silently sending plaintext responses.
 
 ## Rejections and logging

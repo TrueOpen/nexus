@@ -107,6 +107,11 @@ func (b *natsBus) Start(_ context.Context) error {
 // which is the easiest thing to miss here.
 // **This function never deletes an existing stream**: deleting one also drops in-flight messages and every
 // durable consumer position. That is an operations action left to the operator.
+//
+// The stream asks for nats.stream_replicas copies. An update never lowers the replica count of an
+// existing stream: every Builder runs this at start, and one configured with fewer replicas (or an
+// older one that asked for the default) must not shrink a stream the operator or another Builder
+// scaled up.
 func (b *natsBus) ensureStreams() {
 	subjects := JetStreamSubjectWildcardsV1()
 	cfg := &nats.StreamConfig{
@@ -116,18 +121,44 @@ func (b *natsBus) ensureStreams() {
 		Retention:  nats.LimitsPolicy,
 		Duplicates: jsDuplicatesWindow,
 		MaxAge:     24 * time.Hour,
+		Replicas:   b.cfg.Replicas(),
 	}
-	if _, err := b.js.AddStream(cfg); err != nil {
-		if _, uerr := b.js.UpdateStream(cfg); uerr != nil {
-			b.log.Warn("ensure jetstream stream failed (the server must pre-create the stream or the account must be authorized)",
-				"stream", jsStreamName, "add_err", err, "update_err", uerr)
+	info, err := b.js.AddStream(cfg)
+	if err != nil {
+		// The stream exists with another configuration, or cannot be created. Read what is there
+		// before updating: an update carrying fewer replicas than the stream has would shrink it,
+		// so when the current stream cannot be read, nothing is updated.
+		current, ierr := b.js.StreamInfo(jsStreamName)
+		if ierr != nil || current == nil {
+			b.log.Warn("ensure jetstream stream failed: it could not be created and the existing stream could not be read, so it is left unchanged "+
+				"(check that nats.stream_replicas does not exceed the number of servers in the NATS cluster, and that the account may manage streams)",
+				"stream", jsStreamName, "replicas", cfg.Replicas, "add_err", err, "info_err", ierr)
 			return
 		}
+		if current.Config.Replicas > cfg.Replicas {
+			b.log.Info("jetstream stream keeps its replica count above nats.stream_replicas",
+				"stream", jsStreamName, "replicas", current.Config.Replicas, "configured", cfg.Replicas)
+			cfg.Replicas = current.Config.Replicas
+		}
+		updated, uerr := b.js.UpdateStream(cfg)
+		if uerr != nil {
+			b.log.Warn("ensure jetstream stream failed (the server must pre-create the stream or the account must be authorized; "+
+				"nats.stream_replicas must not exceed the number of servers in the NATS cluster)",
+				"stream", jsStreamName, "replicas", cfg.Replicas, "add_err", err, "update_err", uerr)
+			return
+		}
+		info = updated
 		b.log.Warn("jetstream stream subjects updated in place; in-flight messages on the old subjects are no longer delivered, "+
 			"and existing durable consumers must be handled per the migration document",
 			"stream", jsStreamName, "subjects", subjects)
 	}
-	b.log.Info("jetstream stream ready", "stream", jsStreamName, "subjects", subjects, "dedup_window", jsDuplicatesWindow)
+	// The replica count the server reports, not the one requested.
+	replicas := cfg.Replicas
+	if info != nil {
+		replicas = info.Config.Replicas
+	}
+	b.log.Info("jetstream stream ready", "stream", jsStreamName, "subjects", subjects, "dedup_window", jsDuplicatesWindow,
+		"replicas", replicas)
 }
 
 func (b *natsBus) Stop(_ context.Context) error {
