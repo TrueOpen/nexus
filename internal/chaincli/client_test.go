@@ -1095,6 +1095,22 @@ func TestQueryMaxVerifyRoundReadsTaskParams(t *testing.T) {
 	}
 }
 
+func TestQueryAnchorFreshnessWindowBlocksReadsTaskParams(t *testing.T) {
+	params := func(window uint64) *taskv1.QueryTaskParamsResponse {
+		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
+			Session: &taskv1.SessionParamsV1{AnchorFreshnessWindowBlocks: window},
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{params: params(120)}}
+	if got, err := c.QueryAnchorFreshnessWindowBlocks(context.Background()); err != nil || got != 120 {
+		t.Fatalf("anchor freshness window = %d, %v", got, err)
+	}
+	c = &client{taskQuery: &recordTaskQuery{params: params(0)}}
+	if _, err := c.QueryAnchorFreshnessWindowBlocks(context.Background()); err == nil {
+		t.Fatal("zero anchor_freshness_window_blocks accepted")
+	}
+}
+
 // The active view carries the finality the coordinator closes settled tasks on.
 func TestQueryTaskMapsCoreFinality(t *testing.T) {
 	finality := uint64(88)

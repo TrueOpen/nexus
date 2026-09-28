@@ -83,6 +83,12 @@ type Client interface {
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
 	// QueryMaxVerifyRound reads task params challenge.max_verify_round.
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
+	// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks: how
+	// far behind the executing block a signed order's session anchor may be.
+	QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error)
+	// BlockHash returns the hash of the block at height, the value the chain records as that
+	// height's anchor hash.
+	BlockHash(ctx context.Context, height int64) ([]byte, error)
 	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
 	// QueryInferReceipt reads the hashes of the task's accepted InferReceipt (task.v1.Query/InferReceipt).
@@ -194,6 +200,15 @@ func (c *stubClient) QuerySettlementBuilderGraceBlocks(context.Context) (uint64,
 
 func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
 	return 0, ErrNotFound
+}
+
+// QueryAnchorFreshnessWindowBlocks and BlockHash have no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
+	return 0, ErrNotSupportedOnChain
+}
+
+func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
+	return nil, ErrNotSupportedOnChain
 }
 
 func (c *stubClient) QueryEVMChainID(context.Context) (uint64, error) {

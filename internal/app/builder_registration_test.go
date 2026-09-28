@@ -174,8 +174,9 @@ func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
 	}
 	const setHash = "7c1d3e5a9b2f4068d1c3e5a7b9f20416d8c3e5a7b9f20416d8c3e5a7b9f20416"
 	anchorHash := bytes.Repeat([]byte{0x42}, 32)
-	taskID := taskOutsideSelection(t, taskChainID, setHash, anchorHash, sg.Address(), builders)
+	sessionID, sequence, taskID := taskOutsideSelection(t, taskChainID, setHash, anchorHash, sg.Address(), builders)
 	registry := &stage1Registry{
+		anchorHash:      anchorHash,
 		builder:         chaincli.BuilderState{Address: sg.Address(), ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
 		buildersPerTask: 3,
 		set: chaincli.BuilderSet{
@@ -198,7 +199,7 @@ func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
 		stage1AdmissionOption(sg, registry, taskChainID),
 	)
 
-	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: taskID, ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: stage1SignedOrderBytes(t, taskChainID, anchorHash, "7", setHash)}); err != nil {
+	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: taskID, ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: stage1SignedOrderBytes(t, taskChainID, sessionID, sequence, anchorHash, "7", setHash)}); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
 	if registry.address != sg.Address() || registry.queriedHeight != stage1AnchorHeight {
@@ -221,7 +222,7 @@ func appTestSignedOrderBytes(t *testing.T) []byte {
 }
 
 // stage1SignedOrderBytes is a SignedOrderV2 carrying the fields admission ranks the BuilderSet under.
-func stage1SignedOrderBytes(t *testing.T, chainID string, anchorHash []byte, setID, setHash string) []byte {
+func stage1SignedOrderBytes(t *testing.T, chainID string, sessionID []byte, sequence uint64, anchorHash []byte, setID, setHash string) []byte {
 	t.Helper()
 	rawSetHash, err := hex.DecodeString(setHash)
 	if err != nil {
@@ -229,7 +230,8 @@ func stage1SignedOrderBytes(t *testing.T, chainID string, anchorHash []byte, set
 	}
 	raw, err := proto.Marshal(&taskv1.SignedOrderV2{
 		Order: &taskv1.TaskOrderV3{
-			ChainId: chainID, SessionAnchorHeight: stage1AnchorHeight, SessionAnchorBlockHash: anchorHash,
+			ChainId: chainID, SessionId: sessionID, OrderSequence: sequence,
+			SessionAnchorHeight: stage1AnchorHeight, SessionAnchorBlockHash: anchorHash,
 			BuilderSetId: setID, BuilderSetHash: rawSetHash,
 		},
 		SignatureScheme: "eip712",
@@ -240,7 +242,9 @@ func stage1SignedOrderBytes(t *testing.T, chainID string, anchorHash []byte, set
 	return raw
 }
 
-func taskOutsideSelection(t *testing.T, chainID, setHash string, anchorHash []byte, self string, builders []string) string {
+// taskOutsideSelection returns a session, an order sequence and the task_id they derive, for a task
+// whose selection leaves self out.
+func taskOutsideSelection(t *testing.T, chainID, setHash string, anchorHash []byte, self string, builders []string) ([]byte, uint64, string) {
 	t.Helper()
 	rawSetHash, err := hex.DecodeString(setHash)
 	if err != nil {
@@ -265,11 +269,11 @@ func taskOutsideSelection(t *testing.T, chainID, setHash string, anchorHash []by
 			inSelection = inSelection || address == self
 		}
 		if !inSelection {
-			return hex.EncodeToString(taskIDRaw[:])
+			return sessionID[:], uint64(sequence), hex.EncodeToString(taskIDRaw[:])
 		}
 	}
 	t.Fatal("could not find task outside selection")
-	return ""
+	return nil, 0, ""
 }
 
 func appBuilderRefs(addresses ...string) []types.BuilderRef {
@@ -281,6 +285,7 @@ func appBuilderRefs(addresses ...string) []types.BuilderRef {
 }
 
 type stage1Registry struct {
+	anchorHash      []byte
 	address         string
 	queriedHeight   uint64
 	builder         chaincli.BuilderState
@@ -293,8 +298,20 @@ func (r *stage1Registry) QueryBuilder(_ context.Context, address string) (chainc
 	return r.builder, nil
 }
 
+// The latest block sits right above the order's anchor, well inside the freshness window.
 func (r *stage1Registry) LatestHeight(context.Context) (uint64, error) {
-	return 0, errors.New("unused")
+	return stage1AnchorHeight + 1, nil
+}
+
+func (r *stage1Registry) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
+	return 100, nil
+}
+
+func (r *stage1Registry) BlockHash(_ context.Context, height int64) ([]byte, error) {
+	if uint64(height) != stage1AnchorHeight {
+		return nil, errors.New("no block recorded at that height")
+	}
+	return r.anchorHash, nil
 }
 
 func (r *stage1Registry) QueryBuilderSetAtHeight(_ context.Context, height uint64) (chaincli.BuilderSet, error) {

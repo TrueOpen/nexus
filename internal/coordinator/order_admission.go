@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -42,11 +43,17 @@ type OrderAdmissionResult struct {
 	Proof string
 }
 
-// AdmissionRegistry is the Hub state order admission reads.
+// AdmissionRegistry is the chain state order admission reads.
 type AdmissionRegistry interface {
 	BuilderRegistry
-	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task.
+	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task. It is read at
+	// admission, while the chain reads it when the assignment executes; the two differ only across
+	// a governance change of the parameter.
 	QueryBuildersPerTask(context.Context) (uint32, error)
+	// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks.
+	QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error)
+	// BlockHash returns the hash of the block at height.
+	BlockHash(context.Context, int64) ([]byte, error)
 }
 
 type hubStage1Admission struct {
@@ -90,9 +97,21 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 	if signed.GetChainId() != a.taskChainID {
 		return OrderAdmissionResult{}, authorityUnavailable(fmt.Sprintf("signed order chain_id %q is not the task chain %q", signed.GetChainId(), a.taskChainID), nil)
 	}
+	// The chain derives task_id from the signed order's session_id and order_sequence; the task ID
+	// the request carries must be that one, or Nexus would rank a different task than the chain.
+	signedTaskID, err := nodecontract.DeriveTaskIDFromRawSession(signed.GetSessionId(), signed.GetOrderSequence())
+	if err != nil {
+		return OrderAdmissionResult{}, authorityUnavailable("derive task_id from the signed order", err)
+	}
+	if !bytes.Equal(signedTaskID[:], taskID) {
+		return OrderAdmissionResult{}, authorityUnavailable(fmt.Sprintf("task_id %s is not the task_id %x the signed order derives", order.TaskID, signedTaskID[:]), nil)
+	}
 	anchorHeight := signed.GetSessionAnchorHeight()
 	if anchorHeight == 0 {
 		return OrderAdmissionResult{}, authorityUnavailable("signed order has no session_anchor_height", nil)
+	}
+	if err := a.checkSessionAnchor(ctx, anchorHeight, signed.GetSessionAnchorBlockHash()); err != nil {
+		return OrderAdmissionResult{}, err
 	}
 
 	builder, err := a.registry.QueryBuilder(ctx, a.localAddress)
@@ -181,6 +200,40 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 		return OrderAdmissionResult{TermID: set.Epoch, Rank: uint64(index + 1), Proof: hex.EncodeToString(digest[:])}, nil
 	}
 	return OrderAdmissionResult{}, fmt.Errorf("%w: builder %q builder_set_version %d", ErrNotSelectedBuilder, a.localAddress, set.Epoch)
+}
+
+// checkSessionAnchor applies the chain's anchor rules to a signed order, so an order the chain will
+// refuse is refused here instead of being answered with a rank and a doomed assignment: the anchor
+// must lie below the executing height and at most anchor_freshness_window_blocks behind it, and its
+// block hash must be the hash of the block at that height. The executing height is taken as the
+// block after the latest one, the earliest an assignment can execute.
+func (a *hubStage1Admission) checkSessionAnchor(ctx context.Context, anchorHeight uint64, anchorHash []byte) error {
+	latest, err := a.registry.LatestHeight(ctx)
+	if err != nil {
+		return authorityUnavailable("query latest height", err)
+	}
+	if latest == 0 || latest == math.MaxUint64 {
+		return authorityUnavailable(fmt.Sprintf("latest height %d is not usable", latest), nil)
+	}
+	window, err := a.registry.QueryAnchorFreshnessWindowBlocks(ctx)
+	if err != nil {
+		return authorityUnavailable("query anchor_freshness_window_blocks", err)
+	}
+	executing := latest + 1
+	if anchorHeight >= executing || executing-anchorHeight > window {
+		return authorityUnavailable(fmt.Sprintf("session anchor height %d is outside the freshness window of %d blocks before height %d", anchorHeight, window, executing), nil)
+	}
+	if anchorHeight > math.MaxInt64 {
+		return authorityUnavailable(fmt.Sprintf("session anchor height %d is out of range", anchorHeight), nil)
+	}
+	hash, err := a.registry.BlockHash(ctx, int64(anchorHeight))
+	if err != nil {
+		return authorityUnavailable(fmt.Sprintf("query block hash at session anchor height %d", anchorHeight), err)
+	}
+	if len(hash) != 32 || !bytes.Equal(hash, anchorHash) {
+		return authorityUnavailable(fmt.Sprintf("session anchor block hash does not match the block at height %d", anchorHeight), nil)
+	}
+	return nil
 }
 
 // signedTaskOrder decodes the TaskOrderV3 inside the SDK-provided SignedOrderV2. Orders that still
