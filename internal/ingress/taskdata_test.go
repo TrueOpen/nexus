@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"net/http"
 	"reflect"
@@ -176,7 +178,7 @@ func (u *fakeTaskDataUpload) Idempotent() bool { return u.idempotent }
 
 func newTaskDataClient(t *testing.T, api taskDataAPI) nexusv1connect.IngressAPIClient {
 	t.Helper()
-	return newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{})
+	return newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID})
 }
 
 func newTaskDataClientWithHandler(t *testing.T, handler Handler, api taskDataAPI, auth AuthParams) nexusv1connect.IngressAPIClient {
@@ -526,11 +528,7 @@ func TestTaskDataErrorMapping(t *testing.T) {
 	}
 }
 
-// TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
-// canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under the current wire. Restore once wire settles this.
 func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 4}
 	handler := &fakeHandler{}
@@ -543,7 +541,7 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 		}
 		return nil
 	}
-	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-open"), 9, []byte("abcdefgh"))
 	stream := client.OpenTask(context.Background())
 	if err := stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}}); err != nil {
@@ -567,7 +565,7 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen",
 	})
 	header := openTaskHeader(t, user, testSessionID("session-text"), 9, []byte("input"))
@@ -581,15 +579,11 @@ func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
 	}
 }
 
-// TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
-// canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under the current wire. Restore once wire settles this.
 func TestOpenTaskRollsBackPreparedInputOnCoordinatorFailure(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
 	handler := &fakeHandler{orderErr: errors.New("order rejected")}
-	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-reject"), 10, []byte("input"))
 	stream := client.OpenTask(context.Background())
 	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
@@ -603,7 +597,7 @@ func TestOpenTaskRollsBackPreparedInputOnCoordinatorFailure(t *testing.T) {
 func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-expiry"), 11, []byte("input"))
 	header.RequestEnvelope.ExpiryHeightOrTime = time.Now().Add(time.Minute).UnixMilli()
 	resignTaskEnvelope(t, user, header.RequestEnvelope)
@@ -615,14 +609,10 @@ func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 	}
 }
 
-// TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
-// canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under the current wire. Restore once wire settles this.
 func TestOpenTaskForwardsChainHeightReplayFields(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-height"), 12, []byte("input"))
 	stream := client.OpenTask(context.Background())
 	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
@@ -636,26 +626,32 @@ func TestOpenTaskForwardsChainHeightReplayFields(t *testing.T) {
 	}
 }
 
+// openTaskHeader builds a valid OpenTask header: order_envelope is a SignedOrderV2 for user, and the
+// request envelope is wallet-signed by user with a chain-height expiry. There is no outer signature.
 func openTaskHeader(t *testing.T, user signer.Signer, sessionID string, sequence uint64, payload []byte) *nexusv1.OpenTaskHeader {
 	t.Helper()
-	req := canonicalOrderRequest(t, user, sessionID, sequence, "model-open")
 	digest := sha256.Sum256(payload)
-	envelope, err := nodecontract.ParseAssignmentOrderEnvelope(string(req.GetOrderEnvelope()))
-	if err != nil {
-		t.Fatal(err)
+	session, err := hex.DecodeString(sessionID)
+	if err != nil || len(session) != 32 {
+		session = make([]byte, 32) // a malformed session_id is what some tests exercise
 	}
-	envelope.PayloadHash = hex.EncodeToString(digest[:])
-	raw, err := nodecontract.CanonicalAssignmentOrderEnvelope(envelope)
+	signed := testFrozenSignedOrder()
+	signed.Order.UserAddress = user.Address()
+	signed.Order.SessionId = session
+	signed.Order.OrderSequence = sequence
+	signed.Order.InputHash = digest[:]
+	signed.Order.InputSizeBytes = uint64(len(payload))
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(signed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	taskID := mustDeriveTaskID(t, sessionID, sequence)
 	header := &nexusv1.OpenTaskHeader{
-		OrderEnvelope: []byte(raw), PayloadRef: payloadstore.RefFor(payload), SessionId: sessionID,
-		OrderSequence: sequence, UserAddress: user.Address(), SignatureScheme: "secp256k1",
+		OrderEnvelope: raw, PayloadRef: payloadstore.RefFor(payload), SessionId: sessionID,
+		OrderSequence: sequence, UserAddress: user.Address(),
 		InputSizeBytes: uint64(len(payload)), InputHash: hex.EncodeToString(digest[:]), InputMediaType: "application/octet-stream",
+		IdempotencyKey: "idem-" + sessionID,
 	}
-	header.Signature = mustSign(t, user, nodecontract.CurrentOrderSigningBytes("trueopen-localnet", user.Address(), sessionID, sequence, raw))
 	header.RequestEnvelope = signedTaskEnvelope(
 		t, user, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, sessionID, taskID,
 		openTaskBodyDigest(header), []byte("nonce-open-task-"+sessionID),
@@ -700,35 +696,63 @@ func reEnvelopeOpenTask(t *testing.T, sg signer.Signer, header *nexusv1.OpenTask
 	resignTaskEnvelope(t, sg, header.RequestEnvelope)
 }
 
-// An OpenTask refused for its signer says which check failed; the code stays NEXUS_DATA_UNAUTHORIZED.
-func TestOpenTaskUnauthorizedNamesTheFailedCheck(t *testing.T) {
+// An OpenTask must be signed by the order user's wallet, and carries no outer order signature.
+func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	other := mustSigner(t, strings.Repeat("22", 32))
 	tests := []struct {
 		name string
 		edit func(*nexusv1.OpenTaskHeader)
+		code connect.Code
 		want string
 	}{
 		{name: "envelope signed by someone else", edit: func(h *nexusv1.OpenTaskHeader) { reEnvelopeOpenTask(t, other, h) },
-			want: "is not the order user"},
-		{name: "header signature over other bytes", edit: func(h *nexusv1.OpenTaskHeader) {
-			h.Signature = mustSign(t, user, []byte("not the order signing bytes"))
+			code: connect.CodePermissionDenied, want: "is not the order user"},
+		{name: "outer signature present", edit: func(h *nexusv1.OpenTaskHeader) {
+			h.Signature = bytes.Repeat([]byte{1}, 64) //nolint:staticcheck // the deprecated field must be empty
+			h.SignatureScheme = "secp256k1"           //nolint:staticcheck
 			reEnvelopeOpenTask(t, user, h)
-		}, want: "OpenTask header signature does not verify"},
+		}, code: connect.CodeInvalidArgument, want: "must be empty"},
+		{name: "session key signs OpenTask", edit: func(h *nexusv1.OpenTaskHeader) {
+			h.RequestEnvelope.SessionGrant = &nexusv1.SessionGrantV1{ChainId: "trueopen-localnet", User: user.Address(),
+				SessionKey: make([]byte, 20), ExpiryHeight: 150, GrantNonce: make([]byte, 32), UserSignature: make([]byte, 65)}
+		}, code: connect.CodePermissionDenied, want: sdkauth.ErrSessionMethodNotAllowed.Error()},
 	}
 	for index, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeTaskDataAPI{chunkSize: 64}
-			client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-deny-%d", index)), 13, []byte("input"))
 			tt.edit(header)
 			stream := client.OpenTask(context.Background())
 			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
 			_, err := stream.CloseAndReceive()
-			if connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), taskdata.ErrUnauthorized.Error()) ||
-				!strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("error=%v code=%v, want PermissionDenied naming %q", err, connect.CodeOf(err), tt.want)
+			if connect.CodeOf(err) != tt.code || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v code=%v, want %v naming %q", err, connect.CodeOf(err), tt.code, tt.want)
 			}
 		})
 	}
+}
+
+// openTaskBodyDigest is the TRUEOPEN_SDK_BODY_OPEN_TASK_V1 digest of header, with task_hash
+// recomputed from the signed order it carries.
+func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(header.GetOrderEnvelope(), &signed); err != nil {
+		return make([]byte, 32)
+	}
+	taskHashHex, err := nodecontract.TaskOrderHashHexV3(signed.GetOrder())
+	if err != nil {
+		return make([]byte, 32)
+	}
+	taskHash, err := sdkauth.Hash32Hex("task_hash", taskHashHex)
+	if err != nil {
+		return make([]byte, 32)
+	}
+	body, err := sdkauth.OpenTaskBody(taskHash, header.GetSessionId(), header.GetOrderSequence(), header.GetUserAddress(),
+		header.GetInputSizeBytes(), header.GetInputHash(), header.GetInputMediaType(), header.GetIdempotencyKey())
+	if err != nil {
+		return make([]byte, 32)
+	}
+	return body[:]
 }

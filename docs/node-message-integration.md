@@ -1,6 +1,6 @@
 # Node Message Integration Notes
 
-> Wire baseline: TrueOpen/wire `v0.3.3`, which TrueOpen/node must pin in `wire/pin.json`.
+> Wire baseline: TrueOpen/wire `v0.4.0`, which TrueOpen/node must pin in `wire/pin.json`.
 > Authoritative interface definitions: TrueOpen/node `docs/static/node-api.md` and the TrueOpen/wire protos.
 
 Nexus currently uses only the Node's `hub.v1` and `task.v1` application-layer ABI. The proto in this repository is the exact wire mirror covering everything Nexus needs at runtime; package, message names, field numbers, field types and gRPC methods must stay identical to the Node.
@@ -92,7 +92,7 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
 - the K5 Builder rank/proof comes from the frozen Task Builder selection (`TaskBuilders`), or is computed deterministically from the same BuilderSet and stage input;
 - the Builder application signature uses the service key and the `TRUEOPEN_ASSIGN_BUILDER_V1` signing frame.
 
-The Order signature binds chain ID, owner, session ID, order sequence and the canonical envelope. Production configuration requires the SDK request envelope, and Nexus uses the signer pubkey inside it to verify the order signature at the ingress; when the relaxed dev configuration lacks that public key, the Node performs the same verification in `MsgAssign`. Neither the Worker handraise nor the Assign Builder signature binds the payload keyring any more. Old signatures are not converted or re-signed.
+The Order signature binds chain ID, owner, session ID, order sequence and the canonical envelope. At the ingress, `OpenTask` must carry an SDK request envelope signed by the order's user wallet, and Nexus checks the recovered key against the account's key stored on chain; the Node verifies the order signature itself in `MsgAssign`. Neither the Worker handraise nor the Assign Builder signature binds the payload keyring any more. Old signatures are not converted or re-signed.
 
 `tx_fee_reserve` may be zero, but must match the order.
 

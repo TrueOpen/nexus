@@ -487,7 +487,7 @@ func newTestClient(t *testing.T, h Handler, auth AuthParams) nexusv1connect.Ingr
 }
 
 func TestPrepareChallengeReturnsCloseHeight(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID})
 	response, err := client.PrepareChallenge(context.Background(), connect.NewRequest(&nexusv1.PrepareChallengeRequest{
 		SessionId: "session-1", TaskId: "task-1", ChallengeKind: "VERDICT_FRAUD_PROOF",
 	}))
@@ -684,65 +684,82 @@ func mustSignDigest(t *testing.T, hexKey string, digest []byte) []byte {
 	return out
 }
 
-// signedEnvelope builds a valid SDK envelope.
-func signedEnvelope(t *testing.T, sg signer.Signer, method string, body []byte) *nexusv1.SDKRequestEnvelopeV1 {
-	t.Helper()
-	env := &sdkauth.Envelope{
-		RequestDomain:      sdkauth.RequestDomain,
-		ChainID:            "trueopen-localnet",
-		Method:             method,
-		ExpiryHeightOrTime: time.Now().Add(time.Hour).UnixMilli(),
-		BodyDigest:         body,
-		RequestNonce:       []byte("nonce-" + method),
-		SignerAddress:      sg.Address(),
-		SignerPubKey:       sg.PubKeyCompressed(),
+// testEVMChainID is the EVM chain ID the ingress tests sign under.
+const testEVMChainID = uint64(4242)
+
+// testUserChain answers the chain reads User request verification needs: the account key of every
+// test signer (registered by mustSigner) and a fixed current height.
+type fakeUserChain struct{ height uint64 }
+
+var testUserChain = &fakeUserChain{height: 100}
+
+func (c *fakeUserChain) CurrentHeight(context.Context) (uint64, error) { return c.height, nil }
+func (c *fakeUserChain) AccountPubKey(_ context.Context, address string) ([]byte, error) {
+	keyHex, ok := testSignerKeys.byAddress[address]
+	if !ok {
+		return nil, sdkauth.ErrNoAccountKey
 	}
-	sig := mustSign(t, sg, sdkauth.SignBytes(env))
-	return &nexusv1.SDKRequestEnvelopeV1{
-		RequestDomain:      env.RequestDomain,
-		ChainId:            env.ChainID,
-		Method:             env.Method,
-		ExpiryHeightOrTime: env.ExpiryHeightOrTime,
-		BodyDigest:         env.BodyDigest,
-		RequestNonce:       env.RequestNonce,
-		SignerAddress:      env.SignerAddress,
-		Signature:          sig,
-		SignerPubkey:       env.SignerPubKey,
+	raw, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
 	}
+	return secp256k1.PrivKeyFromBytes(raw).PubKey().SerializeCompressed(), nil
 }
 
+// signEIP712 signs digest as a wallet does: 65 bytes R||S||V, V in {27, 28}.
+func signEIP712(t *testing.T, sg signer.Signer, digest [32]byte) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(keyHexOf(t, sg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := ecdsa.SignCompact(secp256k1.PrivKeyFromBytes(raw), digest[:], false)
+	return append(append([]byte{}, compact[1:]...), compact[0])
+}
+
+// testNonce stretches a label into the 32-byte request nonce the envelope requires.
+func testNonce(label []byte) []byte {
+	sum := sha256.Sum256(label)
+	return sum[:]
+}
+
+// signedEnvelope builds an envelope for a deprecated method that has no body domain; it is only used
+// to show such requests are refused.
+func signedEnvelope(t *testing.T, sg signer.Signer, method string, _ []byte) *nexusv1.SDKRequestEnvelopeV2 {
+	t.Helper()
+	return signedTaskEnvelope(t, sg, method, sdkauth.EndpointPrefix+method,
+		strings.Repeat("ab", 32), strings.Repeat("cd", 32), make([]byte, 32), []byte("nonce-"+method))
+}
+
+// signedTaskEnvelope builds a wallet-signed SDKRequestEnvelopeV2 over body (the method's body digest).
 func signedTaskEnvelope(
 	t *testing.T,
 	sg signer.Signer,
 	method, endpoint, sessionID, taskID string,
 	body, nonce []byte,
-) *nexusv1.SDKRequestEnvelopeV1 {
+) *nexusv1.SDKRequestEnvelopeV2 {
 	t.Helper()
-	env := &sdkauth.Envelope{
-		RequestDomain: sdkauth.RequestDomain, ChainID: "trueopen-localnet",
-		Method: method, Endpoint: endpoint, SessionID: sessionID, TaskID: taskID,
-		RequestNonce: nonce, ExpiryHeightOrTime: time.Now().Add(time.Hour).UnixMilli(),
-		BodyDigest: body, SignerAddress: sg.Address(), SignerPubKey: sg.PubKeyCompressed(),
+	pb := &nexusv1.SDKRequestEnvelopeV2{
+		RequestDomain: sdkauth.RequestDomain, ChainId: "trueopen-localnet", Method: method,
+		Endpoint: endpoint, SessionId: sessionID, TaskId: taskID,
+		RequestNonce: testNonce(nonce), ExpiryHeightOrTime: time.Now().Add(time.Hour).UnixMilli(),
+		BodyDigest: append([]byte(nil), body...), SignerAddress: sg.Address(),
 	}
-	signature := mustSign(t, sg, sdkauth.SignBytes(env))
-	return &nexusv1.SDKRequestEnvelopeV1{
-		RequestDomain: env.RequestDomain, ChainId: env.ChainID, Method: env.Method,
-		Endpoint: env.Endpoint, SessionId: env.SessionID, TaskId: env.TaskID,
-		RequestNonce: env.RequestNonce, ExpiryHeightOrTime: env.ExpiryHeightOrTime,
-		BodyDigest: env.BodyDigest, SignerAddress: env.SignerAddress,
-		Signature: signature, SignerPubkey: env.SignerPubKey,
-	}
+	resignTaskEnvelope(t, sg, pb)
+	return pb
 }
 
-func resignTaskEnvelope(t *testing.T, sg signer.Signer, pb *nexusv1.SDKRequestEnvelopeV1) {
+// resignTaskEnvelope re-signs pb (after a field changed) with sg's wallet key.
+func resignTaskEnvelope(t *testing.T, sg signer.Signer, pb *nexusv1.SDKRequestEnvelopeV2) {
 	t.Helper()
-	env := &sdkauth.Envelope{
-		RequestDomain: pb.GetRequestDomain(), ChainID: pb.GetChainId(), Method: pb.GetMethod(),
-		Endpoint: pb.GetEndpoint(), SessionID: pb.GetSessionId(), TaskID: pb.GetTaskId(),
-		RequestNonce: pb.GetRequestNonce(), ExpiryHeightOrTime: pb.GetExpiryHeightOrTime(),
-		BodyDigest: pb.GetBodyDigest(), SignerAddress: pb.GetSignerAddress(), SignerPubKey: pb.GetSignerPubkey(),
+	e := envelopeFromPB(pb)
+	var body [32]byte
+	copy(body[:], pb.GetBodyDigest())
+	digest, err := sdkauth.RequestDigest(e, body, [32]byte{}, testEVMChainID)
+	if err != nil {
+		t.Fatalf("request digest: %v", err)
 	}
-	pb.Signature = mustSign(t, sg, sdkauth.SignBytes(env))
+	pb.Signature = signEIP712(t, sg, digest)
 }
 
 type subscribeStreamResult struct {
@@ -777,52 +794,28 @@ func receiveSubscribe(
 }
 
 // TestSubmitOrderEnvelopeEnforcement covers enforcing mode: no envelope is rejected; a valid envelope is admitted and Order.User is set.
-func TestSubmitOrderEnvelopeEnforcement(t *testing.T) {
+// SubmitOrder is deprecated and has no registered request body domain: an SDK envelope on it cannot
+// be verified, so any envelope, or required-envelope mode, refuses it before the order is looked at.
+func TestSubmitOrderRefusesSDKEnvelope(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
-	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
 	ctx := context.Background()
-	req := canonicalOrderRequest(t, sg, testSessionID("sess-env"), 1, "model-test")
-
-	// No envelope -> Unauthenticated.
-	_, err := client.SubmitOrder(ctx, connect.NewRequest(req))
-	if connect.CodeOf(err) != connect.CodeUnauthenticated {
-		t.Fatalf("want Unauthenticated, got %v", err)
-	}
-
-	// Valid envelope -> admitted, and the signer address becomes the order user.
-	env := signedEnvelope(t, sg, "SubmitOrder", submitOrderBodyDigest(req))
-	req.RequestEnvelope = env
-	resp, err := client.SubmitOrder(ctx, connect.NewRequest(req))
-	if err != nil {
-		t.Fatalf("submit with envelope: %v", err)
-	}
-	if !resp.Msg.GetAccepted() || fake.lastOrder.User != sg.Address() {
-		t.Fatalf("order user not bound: %+v", fake.lastOrder)
-	}
-
-	// Tampered body (the envelope digest no longer matches) -> InvalidArgument.
-	tampered := proto.Clone(req).(*nexusv1.SubmitOrderRequest)
-	tampered.PayloadRef = "bafy-tampered"
-	_, err = client.SubmitOrder(ctx, connect.NewRequest(tampered))
-	if connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Fatalf("want InvalidArgument on body mismatch, got %v", err)
-	}
-}
-
-func TestSubmitOrderRejectsReplayEnvelope(t *testing.T) {
-	sg := mustSigner(t, testKeyHex)
-	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
-	ctx := context.Background()
-
-	req := canonicalOrderRequest(t, sg, testSessionID("sess-replay"), 1, "model-replay")
-	req.RequestEnvelope = signedEnvelope(t, sg, "SubmitOrder", submitOrderBodyDigest(req))
-	if _, err := client.SubmitOrder(ctx, connect.NewRequest(req)); err != nil {
-		t.Fatalf("first SubmitOrder: %v", err)
-	}
-	if _, err := client.SubmitOrder(ctx, connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeUnauthenticated {
-		t.Fatalf("want Unauthenticated replay rejection, got %v", err)
+	for _, required := range []bool{false, true} {
+		fake := &fakeHandler{}
+		client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: required})
+		req := canonicalOrderRequest(t, sg, testSessionID("sess-env"), 1, "model-test")
+		if required {
+			if _, err := client.SubmitOrder(ctx, connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				t.Fatalf("required mode without envelope: %v", err)
+			}
+		}
+		req.RequestEnvelope = signedEnvelope(t, sg, "SubmitOrder", nil)
+		if _, err := client.SubmitOrder(ctx, connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeFailedPrecondition ||
+			!strings.Contains(err.Error(), "NEXUS_INGRESS_CONTRACT_NOT_FROZEN") {
+			t.Fatalf("envelope on SubmitOrder (required=%t): %v", required, err)
+		}
+		if fake.lastOrder.TaskID != "" {
+			t.Fatal("a refused SubmitOrder reached the coordinator")
+		}
 	}
 }
 
@@ -841,9 +834,8 @@ func TestSubmitOrderMapsStage1AdmissionErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeHandler{orderErr: tt.err}
-			client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 			req := canonicalOrderRequest(t, user, testSessionID("sess-admission-"+tt.name), 1, "model-test")
-			req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
 
 			_, err := client.SubmitOrder(context.Background(), connect.NewRequest(req))
 			if connect.CodeOf(err) != tt.code || !strings.Contains(err.Error(), tt.message) {
@@ -858,12 +850,11 @@ func TestSubmitOrderMapsStage1AdmissionErrors(t *testing.T) {
 func TestSubmitOrderProductParameters(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	ctx := context.Background()
 
 	wantSessionID := testSessionID("sess-product")
 	req := canonicalOrderRequest(t, user, wantSessionID, 7, "model-qwen-72b")
-	req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
 
 	resp, err := client.SubmitOrder(ctx, connect.NewRequest(req))
 	if err != nil {
@@ -892,11 +883,10 @@ func TestSubmitOrderProductParameters(t *testing.T) {
 
 func TestSubmitOrderRejectsNonHash32SessionID(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{
-		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true,
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false,
 	})
 	req := canonicalOrderRequest(t, user, "session-text", 7, "model-test")
-	req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
 
 	_, err := client.SubmitOrder(context.Background(), connect.NewRequest(req))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "session_id") {
@@ -907,10 +897,9 @@ func TestSubmitOrderRejectsNonHash32SessionID(t *testing.T) {
 func TestSubmitOrderBindsAndValidatesPayload(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	ctx := context.Background()
 	req := canonicalOrderRequest(t, user, testSessionID("sess-payload"), 1, "model-payload")
-	req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
 
 	if _, err := client.SubmitOrder(ctx, connect.NewRequest(req)); err != nil {
 		t.Fatalf("SubmitOrder: %v", err)
@@ -921,16 +910,14 @@ func TestSubmitOrderBindsAndValidatesPayload(t *testing.T) {
 
 	tamperedPayload := proto.Clone(req).(*nexusv1.SubmitOrderRequest)
 	tamperedPayload.Payload = []byte("different encrypted payload")
-	tamperedPayload.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(tamperedPayload))
-	client = newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client = newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	if _, err := client.SubmitOrder(ctx, connect.NewRequest(tamperedPayload)); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("payload hash mismatch code = %v, want InvalidArgument: %v", connect.CodeOf(err), err)
 	}
 
 	tamperedRef := proto.Clone(req).(*nexusv1.SubmitOrderRequest)
 	tamperedRef.PayloadRef = payloadstore.RefFor([]byte("different encrypted payload"))
-	tamperedRef.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(tamperedRef))
-	client = newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client = newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	if _, err := client.SubmitOrder(ctx, connect.NewRequest(tamperedRef)); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("payload ref mismatch code = %v, want InvalidArgument: %v", connect.CodeOf(err), err)
 	}
@@ -942,7 +929,7 @@ func TestWorkerServiceKeyAuthenticatesRoleRPCs(t *testing.T) {
 	resolver := &fakeServiceKeyResolver{states: map[string]chaincli.ServiceKeyState{
 		servicekey.ParticipantCortex + "|" + operator.Address(): activeServiceKey(servicekey.ParticipantCortex, operator.Address(), serviceKey),
 	}}
-	auth := AuthParams{
+	auth := AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", BuilderAddress: "trueopen1builder", Bech32Prefix: "trueopen",
 		RequireEnvelope: true, ServiceKeys: resolver,
 	}
@@ -1007,7 +994,7 @@ func TestWorkerServiceKeyAuthenticationRejectsUnauthorizedKeys(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resolver := &fakeServiceKeyResolver{states: tc.states}
-			client := newTestClient(t, &fakeHandler{}, AuthParams{
+			client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 			})
 			req := validInferReceiptRequest(t, operator, "rejected-session", canonicalTestTaskID("rejected"), []byte("output"))
@@ -1040,7 +1027,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 	for name, failure := range authorityFailures {
 		t.Run(name, func(t *testing.T) {
 			resolver := &fakeServiceKeyResolver{err: failure}
-			auth := AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver}
+			auth := AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver}
 
 			receipt := validInferReceiptRequest(t, operator, "authority-session", canonicalTestTaskID("authority"), []byte("output"))
 			signInferReceiptRequest(t, serviceKey, receipt)
@@ -1071,7 +1058,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 	}}
 	receipt := validInferReceiptRequest(t, operator, "rejected-session", canonicalTestTaskID("rejected"), []byte("output"))
 	signInferReceiptRequest(t, serviceKey, receipt)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 	})
 	if _, err := client.SubmitInferReceipt(
@@ -1086,7 +1073,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 func TestOperatorKeyFallbackIsGoneAndAuthorityFailureFailsClosed(t *testing.T) {
 	operator := mustSigner(t, testKeyHex)
 	resolver := &fakeServiceKeyResolver{err: errors.New("chain unavailable")}
-	client := newTestClient(t, &fakeHandler{}, AuthParams{
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 	})
 	req := validInferReceiptRequest(t, operator, "operator-session", canonicalTestTaskID("operator"), []byte("output"))
@@ -1103,34 +1090,14 @@ func TestOperatorKeyFallbackIsGoneAndAuthorityFailureFailsClosed(t *testing.T) {
 func TestSubmitOrderRejectsMalformedOrderEnvelope(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	ctx := context.Background()
 
 	req := canonicalOrderRequest(t, user, "sess-bad", 1, "model-bad")
 	req.OrderEnvelope = []byte(`{"session_id":"sess-bad","order_sequence":1,"model_id":"model-bad"}`)
-	req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
 	_, err := client.SubmitOrder(ctx, connect.NewRequest(req))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("want InvalidArgument for missing model_id, got %v", err)
-	}
-
-	// A request-level order_sequence that differs from the one the user signature covers -> rejected.
-	//
-	// This section previously asserted "order_sequence == 0 -> InvalidArgument", and that criterion was itself
-	// wrong: 0 is the valid first value for every session on chain (see order_sequence_zero_test.go),
-	// so rejecting on it would keep the first order of any new session out.
-	//
-	// The invariant that actually needs guarding is this one: this request's signature covers sequence=1, so after changing it to 0
-	// the signature no longer matches and order signature verification stops it -- `Unauthenticated`, not `InvalidArgument`.
-	// That is stronger than the old zero check: it stops any value inconsistent with the user signature,
-	// not just the single special case of 0.
-	client = newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
-	req = canonicalOrderRequest(t, user, "sess-bad", 1, "model-bad")
-	req.OrderSequence = 0
-	req.RequestEnvelope = signedEnvelope(t, user, "SubmitOrder", submitOrderBodyDigest(req))
-	_, err = client.SubmitOrder(ctx, connect.NewRequest(req))
-	if connect.CodeOf(err) != connect.CodeUnauthenticated {
-		t.Fatalf("want Unauthenticated for an order_sequence the user did not sign, got %v", err)
 	}
 }
 
@@ -1177,9 +1144,9 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 			Text: "hello", Hash: []byte("hash"), CreatedAt: 10, ExpiresAt: 20,
 		}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	const session, task = "session-stream", "task-stream"
-	body := sdkauth.BodyDigest([]byte(session), []byte(task))
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	session, task := testSessionID("session-stream"), testSessionID("task-stream")
+	body := subscribeBody(t, session, task, nil)
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
@@ -1202,7 +1169,7 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 }
 
 func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
 		SessionId: "session", TaskId: "task",
 	})
@@ -1213,12 +1180,12 @@ func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
 
 func TestSubscribeOutputRejectsEnvelopeTaskMismatch(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	const session, task = "session", "task"
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	session, task := testSessionID("session"), testSessionID("task")
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-		session, "other-task", sdkauth.BodyDigest([]byte(session), []byte(task)), []byte("nonce-subscribe-mismatch"),
+		session, testSessionID("other-task"), subscribeBody(t, session, task, nil), []byte("nonce-subscribe-mismatch"),
 	)
 	result := <-receiveSubscribe(context.Background(), client, req)
 	if connect.CodeOf(result.err) != connect.CodeInvalidArgument {
@@ -1242,12 +1209,12 @@ func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
 			fake := &fakeHandler{subscribeOutput: func(context.Context, string, string, string) (types.PlaintextOutput, error) {
 				return types.PlaintextOutput{}, tc.err
 			}}
-			client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			const session, task = "session", "task"
+			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			session, task := testSessionID("session"), testSessionID("task")
 			req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 			req.RequestEnvelope = signedTaskEnvelope(
 				t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-				session, task, sdkauth.BodyDigest([]byte(session), []byte(task)), []byte{byte(index + 1)},
+				session, task, subscribeBody(t, session, task, nil), []byte{byte(index + 1)},
 			)
 			result := <-receiveSubscribe(context.Background(), client, req)
 			if connect.CodeOf(result.err) != tc.code {
@@ -1260,7 +1227,7 @@ func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
 func TestSubscribeOutputAuthorizationMatrix(t *testing.T) {
 	owner := mustSigner(t, testKeyHex)
 	other := mustSigner(t, workerKeyHex)
-	const session, task = "session-auth-matrix", "task-auth-matrix"
+	session, task := testSessionID("session-auth-matrix"), testSessionID("task-auth-matrix")
 	fake := &fakeHandler{subscribeOutput: func(_ context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
 		if requester != owner.Address() {
 			return types.PlaintextOutput{}, outputdelivery.ErrUnauthorized
@@ -1269,10 +1236,10 @@ func TestSubscribeOutputAuthorizationMatrix(t *testing.T) {
 			OutputID: "output-auth", SessionID: sessionID, TaskID: taskID, Text: "authorized",
 		}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false,
 	})
-	body := sdkauth.BodyDigest([]byte(session), []byte(task))
+	body := subscribeBody(t, session, task, nil)
 	request := func(sg signer.Signer, nonce string) *nexusv1.SubscribeOutputRequest {
 		return &nexusv1.SubscribeOutputRequest{
 			SessionId: session,
@@ -1316,13 +1283,13 @@ func TestAckOutputSignsBodyAndReturnsIdempotentResult(t *testing.T) {
 		gotSession, gotTask, gotOutputID, gotRequester = sessionID, taskID, outputID, requester
 		return types.OutputAck{Acked: true, AlreadyAcked: true, AckedAt: 42}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	const session, task, outputID = "session-ack", "task-ack", "output-ack"
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	session, task, outputID := testSessionID("session-ack"), testSessionID("task-ack"), "output-ack"
 	req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
 		session, task,
-		sdkauth.BodyDigest([]byte(session), []byte(task), []byte(outputID)),
+		ackBody(t, session, task, 0),
 		[]byte("nonce-ack-success"),
 	)
 	resp, err := client.AckOutput(context.Background(), connect.NewRequest(req))
@@ -1333,9 +1300,11 @@ func TestAckOutputSignsBodyAndReturnsIdempotentResult(t *testing.T) {
 		t.Fatalf("handler args = %q/%q/%q/%q", gotSession, gotTask, gotOutputID, gotRequester)
 	}
 
+	// last_seq is signed (the deprecated output_id is not): changing it breaks the signature.
 	tampered := proto.Clone(req).(*nexusv1.AckOutputRequest)
-	tampered.OutputId = "other-output"
-	if _, err := client.AckOutput(context.Background(), connect.NewRequest(tampered)); connect.CodeOf(err) != connect.CodeInvalidArgument {
+	tampered.LastSeq = 5
+	if _, err := client.AckOutput(context.Background(), connect.NewRequest(tampered)); connect.CodeOf(err) != connect.CodeUnauthenticated ||
+		!strings.Contains(err.Error(), sdkauth.ErrInvalidSignature.Error()) {
 		t.Fatalf("tampered AckOutput code = %v, err = %v", connect.CodeOf(err), err)
 	}
 }
@@ -1360,13 +1329,13 @@ func TestAckOutputMapsStableErrors(t *testing.T) {
 			fake := &fakeHandler{ackOutput: func(context.Context, string, string, string, string) (types.OutputAck, error) {
 				return types.OutputAck{}, tc.err
 			}}
-			client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			const session, task, outputID = "session", "task", "output"
+			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			session, task, outputID := testSessionID("session"), testSessionID("task"), "output"
 			req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
 			req.RequestEnvelope = signedTaskEnvelope(
 				t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
 				session, task,
-				sdkauth.BodyDigest([]byte(session), []byte(task), []byte(outputID)),
+				ackBody(t, session, task, 0),
 				[]byte{byte(index + 20)},
 			)
 			if _, err := client.AckOutput(context.Background(), connect.NewRequest(req)); connect.CodeOf(err) != tc.code {
@@ -1386,7 +1355,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 		},
 		live: live,
 	}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1415,7 +1384,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 func TestFetchOutputRefErrorMapping(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
 	fake := &fakeHandler{authorizedRequester: sg.Address()}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	ctx := context.Background()
 
 	_, err := client.FetchOutputRef(ctx, connect.NewRequest(&nexusv1.FetchOutputRefRequest{
@@ -1465,4 +1434,28 @@ func (h *fakeHandler) TaskOwner(_ context.Context, _, _ string) (string, error) 
 		return "", types.ErrTaskNotFound
 	}
 	return h.taskOwner, nil
+}
+
+// submitOrderBodyDigest stands in for the deprecated SubmitOrder body: SubmitOrder has no registered
+// body domain, so any envelope on it is refused before a body is looked at.
+func submitOrderBodyDigest(*nexusv1.SubmitOrderRequest) []byte { return make([]byte, 32) }
+
+// subscribeBody is the TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1 digest of a SubscribeOutput request.
+func subscribeBody(t *testing.T, sessionID, taskID string, resumeAfterSeq *uint64) []byte {
+	t.Helper()
+	body, err := sdkauth.SubscribeOutputBody(sessionID, taskID, resumeAfterSeq)
+	if err != nil {
+		t.Fatalf("subscribe body: %v", err)
+	}
+	return body[:]
+}
+
+// ackBody is the TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1 digest of an AckOutput request.
+func ackBody(t *testing.T, sessionID, taskID string, lastSeq uint64) []byte {
+	t.Helper()
+	body, err := sdkauth.AckOutputBody(sessionID, taskID, lastSeq)
+	if err != nil {
+		t.Fatalf("ack body: %v", err)
+	}
+	return body[:]
 }

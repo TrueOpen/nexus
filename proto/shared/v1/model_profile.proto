@@ -155,7 +155,10 @@ message ProfileSourceRefV1 {
 }
 
 // ParserRefV1 selects one governance-approved parser specification.
-// The zero value is the sole representation of an absent parser.
+// The zero value is the sole representation of an absent parser. In the
+// canonical projection an absent parser is written as {} and a present one as
+// {"name": ..., "version": ...}; see
+// testdata/v1/hub/model_registration_chain_v1.json.
 message ParserRefV1 {
   string name = 1;
   uint32 version = 2;
@@ -172,6 +175,8 @@ message ModelProfileProjection {
   repeated TaskType task_types = 7;
   GenerationType generation_type = 8;
   uint32 resource_tier = 9;
+  // denom must equal hub.v1 Params phase0.business_denom and amount must be a
+  // positive u64; ProfileState keeps the amount only.
   cosmos.base.v1beta1.Coin min_stake = 10;
   uint64 challenge_open_window_blocks = 11;
   VerificationProfile verification_profile = 12;
@@ -181,6 +186,9 @@ message ModelProfileProjection {
   TimeoutBootstrapProfile timeout_bootstrap_profile = 16;
   bytes schema_hash = 17;
   uint32 previous_profile_version = 18;
+  // denom must equal hub.v1 Params phase0.business_denom and amount must equal
+  // the effective registration fee parameter (see
+  // ProfileState.registration_fee_paid); ProfileState keeps the amount only.
   cosmos.base.v1beta1.Coin registration_fee = 19;
   SourceRefV1 source = 20;
   ParserRefV1 tool_call_parser = 21;

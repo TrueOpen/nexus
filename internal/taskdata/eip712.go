@@ -7,62 +7,41 @@
 package taskdata
 
 import (
-	"encoding/binary"
+	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"math/big"
 
+	"github.com/TrueOpen/nexus/internal/eip712"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
-	"golang.org/x/crypto/sha3"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 )
 
-// EIP-712 domain and struct types. encodeType is single-line ASCII with no spaces between
-// fields: one extra space changes the typeHash and nothing a wallet signs would ever verify.
+// EIP-712 domain and struct type of the USER path, domain version 2. encodeType is single-line
+// ASCII with no spaces between fields: one extra space changes the typeHash and nothing a wallet
+// signs would ever verify. Version 1 (without sessionGrantHash) is not accepted.
 const (
-	eip712DomainType = "EIP712Domain(string name,string version,uint256 chainId)"
 	eip712DomainName = "TrueOpen Task Data Request"
-	eip712Version    = "1"
+	eip712Version    = "2"
 
 	eip712RequestType = "TaskDataRequest(uint32 schemaVersion,string chainId," +
 		"string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,uint32 requesterKind," +
-		"string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight)"
+		"string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight," +
+		"bytes32 sessionGrantHash)"
 )
 
-func keccak256(parts ...[]byte) [32]byte {
-	h := sha3.NewLegacyKeccak256()
-	for _, p := range parts {
-		h.Write(p)
-	}
-	var out [32]byte
-	copy(out[:], h.Sum(nil))
-	return out
-}
-
-// eip712Word left-pads an integer into a 32-byte big-endian word, the EIP-712 encoding of uintN.
-func eip712Word(value uint64) []byte {
-	word := make([]byte, 32)
-	binary.BigEndian.PutUint64(word[24:], value)
-	return word
-}
-
-// EIP712DomainSeparator is keccak(typeHash || keccak(name) || keccak(version) || chainId).
-// numericChainID comes from the chain's Hub parameters; it and the auth.ChainID
-// string must both match the current chain. Checking only one lets the same signature from
-// another chain be replayed here.
+// EIP712DomainSeparator is the "TrueOpen Task Data Request" version 2 domain separator.
+// numericChainID comes from the chain's Hub parameters; it and the auth.ChainID string must both
+// match the current chain. Checking only one lets the same signature from another chain be
+// replayed here.
 func EIP712DomainSeparator(numericChainID uint64) [32]byte {
-	typeHash := keccak256([]byte(eip712DomainType))
-	name := keccak256([]byte(eip712DomainName))
-	version := keccak256([]byte(eip712Version))
-	return keccak256(typeHash[:], name[:], version[:], eip712Word(numericChainID))
+	return eip712.DomainSeparator(eip712DomainName, eip712Version, numericChainID)
 }
 
-// eip712HashStruct projects auth fields 1..10 one by one: the two addresses as canonical
-// bech32 text (wallets display them to humans), body/nonce as raw bytes32, integers padded
-// to 32-byte words per their uint width.
-func eip712HashStruct(auth RequestAuthV1) ([32]byte, error) {
+// eip712HashStruct projects auth fields 1..10 one by one (the two addresses as canonical bech32
+// text, which wallets display, body/nonce as raw bytes32, integers as uint words), then
+// sessionGrantHash: 32 zero bytes without a grant, hashStruct(SessionGrant) with one.
+func eip712HashStruct(auth RequestAuthV1, grantHash [32]byte) ([32]byte, error) {
 	bodyDigest, err := canonicalHash32("body_digest", auth.BodyDigest)
 	if err != nil {
 		return [32]byte{}, err
@@ -70,77 +49,28 @@ func eip712HashStruct(auth RequestAuthV1) ([32]byte, error) {
 	if len(auth.RequestNonce) != 32 {
 		return [32]byte{}, fmt.Errorf("%w: request_nonce must be 32 bytes", ErrMalformed)
 	}
-	typeHash := keccak256([]byte(eip712RequestType))
-	chainID := keccak256([]byte(auth.ChainID))
-	builder := keccak256([]byte(auth.BuilderOperatorAddress))
-	method := keccak256([]byte(auth.RPCMethod))
-	requester := keccak256([]byte(auth.RequesterAddress))
-	return keccak256(
-		typeHash[:],
-		eip712Word(uint64(auth.SchemaVersion)),
-		chainID[:],
-		builder[:],
-		method[:],
+	return eip712.HashStruct(eip712RequestType,
+		eip712.Uint(uint64(auth.SchemaVersion)),
+		eip712.String(auth.ChainID),
+		eip712.String(auth.BuilderOperatorAddress),
+		eip712.String(auth.RPCMethod),
 		bodyDigest,
-		eip712Word(uint64(auth.RequesterKind)),
-		requester[:],
-		eip712Word(auth.ServiceAuthorizationNonce),
+		eip712.Uint(uint64(auth.RequesterKind)),
+		eip712.String(auth.RequesterAddress),
+		eip712.Uint(auth.ServiceAuthorizationNonce),
 		auth.RequestNonce,
-		eip712Word(auth.ExpiryHeight),
+		eip712.Uint(auth.ExpiryHeight),
+		grantHash[:],
 	), nil
 }
 
-// UserTaskDataRequestDigest is the 32 bytes signed on the USER path:
-// keccak(0x19 0x01 || domainSeparator || hashStruct).
-func UserTaskDataRequestDigest(auth RequestAuthV1, numericChainID uint64) ([32]byte, error) {
-	hashStruct, err := eip712HashStruct(auth)
+// UserTaskDataRequestDigest is the 32 bytes signed on the USER path with the given sessionGrantHash.
+func UserTaskDataRequestDigest(auth RequestAuthV1, numericChainID uint64, grantHash [32]byte) ([32]byte, error) {
+	hashStruct, err := eip712HashStruct(auth, grantHash)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	separator := EIP712DomainSeparator(numericChainID)
-	return keccak256([]byte{0x19, 0x01}, separator[:], hashStruct[:]), nil
-}
-
-// secp256k1HalfOrder is the low-S criterion: an S above it is high-S and must be rejected,
-// otherwise the same authorization has two valid signatures and the replay key cannot stop
-// the second one.
-var secp256k1HalfOrder = new(big.Int).Rsh(secp256k1.S256().N, 1)
-
-// RecoverUserTaskDataRequester recovers the signer's 20-byte address from 65-byte R||S||V.
-//
-// Only V in {27, 28} is accepted: personal_sign and eth_sign wrap the digest in an extra
-// prefix, so their signatures cannot pass here, and they must be rejected.
-func RecoverUserTaskDataRequester(digest [32]byte, signature []byte) ([20]byte, error) {
-	if len(signature) != 65 {
-		return [20]byte{}, fmt.Errorf("%w: USER signature must be exactly 65 bytes", ErrMalformed)
-	}
-	v := signature[64]
-	if v != 27 && v != 28 {
-		return [20]byte{}, fmt.Errorf("%w: USER signature V must be 27 or 28", ErrMalformed)
-	}
-	s := new(big.Int).SetBytes(signature[32:64])
-	if s.Sign() == 0 || s.Cmp(secp256k1HalfOrder) > 0 {
-		return [20]byte{}, fmt.Errorf("%w: USER signature must be low-S", ErrMalformed)
-	}
-	r := new(big.Int).SetBytes(signature[:32])
-	if r.Sign() == 0 {
-		return [20]byte{}, fmt.Errorf("%w: USER signature R must be non-zero", ErrMalformed)
-	}
-	// dcrec's compact layout is [V R S], with V based at 27 and +4 for the compressed bit.
-	// We recover the uncompressed public key, so that bit is not added.
-	compact := make([]byte, 65)
-	compact[0] = v
-	copy(compact[1:], signature[:64])
-	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
-	if err != nil {
-		return [20]byte{}, fmt.Errorf("%w: USER signature does not recover", ErrUnauthorized)
-	}
-	// Ethereum address = last 20 bytes of keccak(uncompressed pubkey without the 0x04 prefix).
-	uncompressed := pub.SerializeUncompressed()
-	sum := keccak256(uncompressed[1:])
-	var address [20]byte
-	copy(address[:], sum[12:])
-	return address, nil
+	return eip712.Digest(EIP712DomainSeparator(numericChainID), hashStruct), nil
 }
 
 // UserAddressBytes returns the 20-byte address codec value of requester_address, for
@@ -158,11 +88,24 @@ func UserAddressBytes(bech32Address string) ([20]byte, error) {
 	return out, nil
 }
 
-// VerifyUserTaskDataRequest is the full USER-path check: compute the digest, recover the
-// address, compare with requester_address. It only answers "was this signature made by this
-// address"; authorization still depends solely on on-chain roles, and the role the requester
-// claims for itself does not count.
-func VerifyUserTaskDataRequest(auth RequestAuthV1, numericChainID uint64) error {
+// SessionGrantEnv is what a USER request carrying a session grant is verified against.
+type SessionGrantEnv struct {
+	Chain     sdkauth.Chain
+	MaxBlocks uint64
+}
+
+// sessionAllowed reports whether a session key may sign this request: only metadata and fetch of an
+// OUTPUT object.
+func sessionAllowed(auth RequestAuthV1) bool {
+	return (auth.RPCMethod == rpcMethodPath(MethodGetMetadata) || auth.RPCMethod == rpcMethodPath(MethodFetch)) &&
+		auth.Key.Kind == ObjectKindOutput
+}
+
+// VerifyUserTaskDataRequest is the full USER-path check. It answers only "is this request signed for
+// requester_address": without a grant the signature must recover to requester_address; with one, the
+// grant must be the requester's, valid now, and the request must recover to its session key.
+// Authorization still depends solely on on-chain roles.
+func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericChainID uint64, env SessionGrantEnv) error {
 	if auth.RequesterKind != RequesterKindUser {
 		return fmt.Errorf("%w: requester_kind", ErrMalformed)
 	}
@@ -170,21 +113,44 @@ func VerifyUserTaskDataRequest(auth RequestAuthV1, numericChainID uint64) error 
 	if auth.ServiceAuthorizationNonce != 0 {
 		return fmt.Errorf("%w: USER service_authorization_nonce must be 0", ErrMalformed)
 	}
-	digest, err := UserTaskDataRequestDigest(auth, numericChainID)
-	if err != nil {
-		return err
-	}
-	recovered, err := RecoverUserTaskDataRequester(digest, auth.Signature)
-	if err != nil {
-		return err
-	}
 	declared, err := UserAddressBytes(auth.RequesterAddress)
 	if err != nil {
 		return err
 	}
-	if recovered != declared {
+	var grantHash [32]byte
+	var sessionKey [20]byte
+	if auth.SessionGrant != nil {
+		if !sessionAllowed(auth) {
+			return fmt.Errorf("%w: only metadata and fetch of an OUTPUT object may be signed by a session key", ErrSessionMethodNotAllowed)
+		}
+		grantHash, sessionKey, err = sdkauth.VerifyGrant(ctx, auth.SessionGrant, sdkauth.GrantCheck{
+			ChainID: auth.ChainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
+			Chain: env.Chain, MaxBlocks: env.MaxBlocks,
+		})
+		switch {
+		case errors.Is(err, sdkauth.ErrSessionGrantExpired):
+			return fmt.Errorf("%w: %v", ErrSessionGrantExpired, err)
+		case errors.Is(err, sdkauth.ErrUnavailable):
+			return fmt.Errorf("%w: %v", ErrAuthorityUnavailable, err)
+		case err != nil:
+			return fmt.Errorf("%w: %v", ErrSessionGrantInvalid, err)
+		}
+	}
+	digest, err := UserTaskDataRequestDigest(auth, numericChainID, grantHash)
+	if err != nil {
+		return err
+	}
+	recovered, err := eip712.Recover(digest, auth.Signature)
+	if err != nil {
+		return fmt.Errorf("%w: USER signature: %v", ErrUnauthorized, err)
+	}
+	want := declared
+	if auth.SessionGrant != nil {
+		want = sessionKey
+	}
+	if recovered.Address != want {
 		return fmt.Errorf("%w: USER signature recovers %s, not %s",
-			ErrUnauthorized, hex.EncodeToString(recovered[:]), hex.EncodeToString(declared[:]))
+			ErrUnauthorized, hex.EncodeToString(recovered.Address[:]), hex.EncodeToString(want[:]))
 	}
 	return nil
 }

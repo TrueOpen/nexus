@@ -37,7 +37,7 @@ func TestFinalizeTaskResultConvertsRequestAndConfirmations(t *testing.T) {
 		}},
 	}}
 	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api,
-		AuthParams{ChainID: "chain", Bech32Prefix: "trueopen"})
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "chain", Bech32Prefix: "trueopen"})
 
 	response, err := client.FinalizeTaskResult(context.Background(), connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{
 		TaskHash: testPBHash, SessionId: testPBSession, TaskId: testPBTask,
@@ -86,7 +86,7 @@ func TestFinalizeTaskResultConvertsRequestAndConfirmations(t *testing.T) {
 // into the preimage as Hash32, and placeholder strings would only fail deep inside.
 func TestFinalizeTaskResultRejectsNonCanonicalScope(t *testing.T) {
 	client := newTaskDataClientWithHandler(t, &fakeHandler{}, &fakeTaskDataAPI{},
-		AuthParams{ChainID: "chain", Bech32Prefix: "trueopen"})
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "chain", Bech32Prefix: "trueopen"})
 	_, err := client.FinalizeTaskResult(context.Background(), connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{
 		TaskHash: testPBHash, SessionId: "session-1", TaskId: testPBTask,
 		Receipt:     finalizeReceiptPB(),
@@ -100,7 +100,7 @@ func TestFinalizeTaskResultRejectsNonCanonicalScope(t *testing.T) {
 // receipt is required: without it the body digest cannot be computed, so there is no verifiable authorization.
 func TestFinalizeTaskResultRequiresReceipt(t *testing.T) {
 	client := newTaskDataClientWithHandler(t, &fakeHandler{}, &fakeTaskDataAPI{},
-		AuthParams{ChainID: "chain", Bech32Prefix: "trueopen"})
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "chain", Bech32Prefix: "trueopen"})
 	_, err := client.FinalizeTaskResult(context.Background(), connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{
 		TaskHash: testPBHash, SessionId: testPBSession, TaskId: testPBTask,
 		RequestAuth: testAuthPB("FinalizeTaskResult", 9),

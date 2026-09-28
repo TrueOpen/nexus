@@ -385,43 +385,74 @@ message TaskDataRequestAuthV1 {
   uint64 expiry_height = 10;
   // USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
   bytes signature = 11;
+  // USER only: a wallet-signed grant that lets a short-lived session key sign this request.
+  // Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
+  SessionGrantV1 session_grant = 12;
 }
 
-// SDKRequestEnvelopeV1 is the signed envelope of User-side SDK requests, used by OpenTask /
+// SessionGrantV1 lets a short-lived, client-generated session key sign a closed set of User
+// requests after one wallet prompt: SubscribeOutput, AckOutput, GetTaskEvents and PrepareChallenge
+// on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT object on
+// TaskDataRequestAuthV1. OpenTask and every other request must be signed by the wallet directly
+// and are rejected when they carry a grant.
+//
+// user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
+// "TrueOpen SDK Request" domain. It must recover to user, an existing account whose stored public
+// key it matches. The grant is valid while
+// current_height <= expiry_height <= current_height + max_session_grant_blocks; there is no
+// revocation, and the grant may be reused until it expires. The request signature is compared
+// only with session_key.
+message SessionGrantV1 {
+  string chain_id = 1;
+  string user = 2;              // canonical bech32 address of the granting user
+  bytes session_key = 3;        // raw 20-byte address of the session key
+  uint64 expiry_height = 4;
+  bytes grant_nonce = 5;        // 32 bytes from a CSPRNG
+  bytes user_signature = 6;     // 65 bytes R||S||V
+}
+
+// SDKRequestEnvelopeV2 is the signed envelope of User-side SDK requests, used by OpenTask /
 // ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
 // Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
 //
-// SignBytes (concatenated in order, each with a 4-byte big-endian length prefix):
-//   TRUEOPEN_SDK_REQUEST_V1, chain_id, method, endpoint, session_id, task_id,
-//   request_nonce, i64be(expiry_height_or_time), body_digest
+// signature is 65 bytes R||S||V (V in {27, 28}, low S) over the EIP-712 SDKRequest digest in the
+// "TrueOpen SDK Request" domain (chainId = the chain's EVM chain ID):
+//   SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
+//              bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
+// The verifier recovers the signer; signer_address must equal the recovered address (the granting
+// user when session_grant is set). request_domain, signer_address, signature and the deprecated
+// signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
+// TRUEOPEN_SDK_BODY_*_V1 domain.
 // Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
-// SignBytes does not cover signer_address; the address is checked via bech32(signer_pubkey).
-message SDKRequestEnvelopeV1 {
-  string request_domain = 1;        // fixed "TRUEOPEN_SDK_REQUEST_V1"
+message SDKRequestEnvelopeV2 {
+  string request_domain = 1;        // fixed "TRUEOPEN_SDK_REQUEST_V2"
   string chain_id = 2;              // prevents cross-chain replay
-  string method = 3;                // IngressAPI method name
-  string endpoint = 4;              // endpoint being accessed
-  string session_id = 5;            // required for requests that have a session
-  string task_id = 6;               // required for requests that have a task
-  bytes request_nonce = 7;          // client request nonce
-  int64 expiry_height_or_time = 8;  // expiry height or Unix milliseconds
-  bytes body_digest = 9;            // canonical digest of the request body
+  string method = 3;                // bare IngressAPI method name
+  string endpoint = 4;              // "/nexus.v1.IngressAPI/<Method>", <Method> equal to method
+  string session_id = 5;            // 64 lowercase hex
+  string task_id = 6;               // 64 lowercase hex
+  bytes request_nonce = 7;          // exactly 32 bytes
+  int64 expiry_height_or_time = 8;  // expiry height or Unix milliseconds; must be > 0
+  bytes body_digest = 9;            // 32 bytes, see above
   string signer_address = 10;       // on-chain address of the SDK user
-  bytes signature = 11;             // covers the fields above (sha256 then secp256k1, 64B r||s)
-  bytes signer_pubkey = 12;         // compressed public key (for verification)
+  bytes signature = 11;             // 65 bytes R||S||V over the SDKRequest digest
+  bytes signer_pubkey = 12 [deprecated = true]; // ignored
+  SessionGrantV1 session_grant = 13; // optional; absent = signed by the user's wallet
 }
 
-// OpenTaskHeader is the first frame of OpenTask. order_envelope + signature_scheme +
-// signature together form the SignedOrder.
+// OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
+// protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
+// verifies. There is no outer order signature: signature and signature_scheme must be empty.
+// The request envelope must be signed by the order user's wallet (no session grant).
 message OpenTaskHeader {
   bytes order_envelope = 1;
-  string payload_ref = 2;
-  bytes signature = 3;
-  SDKRequestEnvelopeV1 request_envelope = 4;
+  string payload_ref = 2;           // must equal "nexus://sha256/" || lowercase_hex(input_hash)
+  bytes signature = 3 [deprecated = true];
+  SDKRequestEnvelopeV2 request_envelope = 4;
   string session_id = 5;
   uint64 order_sequence = 6;
   string user_address = 7;
-  string signature_scheme = 8;
+  string signature_scheme = 8 [deprecated = true];
   uint64 input_size_bytes = 9;
   string input_hash = 10;
   string input_media_type = 11;
@@ -454,7 +485,7 @@ message OpenTaskResponse {
 message ConfirmOpenTaskRequest {
   string session_id = 1;
   string task_id = 2;
-  SDKRequestEnvelopeV1 request_envelope = 3;
+  SDKRequestEnvelopeV2 request_envelope = 3;
   // Strictly ascending and unique by Builder operator raw bytes, and all must reference the
   // same INPUT object ref. Confirmations for an old RBF task_hash do not count toward the new version.
   repeated BuilderStorageConfirmationV1 input_confirmations = 4;
@@ -783,7 +814,7 @@ message SubmitOrderRequest {
   bytes order_envelope = 1; // signed order (contains model_id/price/timeout/nonce)
   string payload_ref = 2;   // nexus://sha256/<hex>; must match the payload content
   bytes signature = 3;      // user signature
-  SDKRequestEnvelopeV1 request_envelope = 4; // request signature envelope (required; may be absent in lenient mode)
+  SDKRequestEnvelopeV2 request_envelope = 4; // request signature envelope (required; may be absent in lenient mode)
   string session_id = 5;
   uint64 order_sequence = 6;
   string user_address = 7;
@@ -816,7 +847,7 @@ message FetchOutputRefRequest {
   string session_id = 4;      // session identifier (composite key)
   AccessLevel access_level = 5; // fetch authorization level (default PACKAGE: no sealed key)
   string usage = 6;             // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-  SDKRequestEnvelopeV1 request_envelope = 7; // for SDK users; Verifiers use the role signature (signature)
+  SDKRequestEnvelopeV2 request_envelope = 7; // for SDK users; Verifiers use the role signature (signature)
   bytes requester_pubkey = 8; // compressed public key for the role-signature path; check bech32(pubkey)==requester
 }
 
@@ -832,7 +863,7 @@ message FetchOutputRefResponse {
 message SubscribeOutputRequest {
   string session_id = 1;
   string task_id = 2;
-  SDKRequestEnvelopeV1 request_envelope = 3;
+  SDKRequestEnvelopeV2 request_envelope = 3;
   // Resume point; only frames with seq greater than this value are replayed. Leave
   // unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
   // any Task Builder with the last locally verified chunk index to resume. Explicit presence
@@ -873,7 +904,7 @@ message AckOutputRequest {
   string session_id = 1;
   string task_id = 2;
   string output_id = 3 [deprecated = true];
-  SDKRequestEnvelopeV1 request_envelope = 4;
+  SDKRequestEnvelopeV2 request_envelope = 4;
   // Index of the last chunk the User has verified locally.
   uint64 last_seq = 5;
 }
@@ -891,7 +922,7 @@ message GetTaskEventsRequest {
   string session_id = 1;
   string task_id = 2;
   string from_cursor = 3; // resume cursor after disconnect (last received cursor; empty = from the beginning)
-  SDKRequestEnvelopeV1 request_envelope = 4;
+  SDKRequestEnvelopeV2 request_envelope = 4;
 }
 
 // GetTaskEventsResponse: at most 256 events per task, events may be dropped when
@@ -918,7 +949,7 @@ message RefreshCredentialRequest {
   string recipient = 4;                     // target recipient (must match the original credential)
   string usage = 5;                         // fetch usage (must match the original credential)
   int64 requested_valid_until = 6;          // requested extension time (Unix milliseconds; clamped to the upper bound)
-  SDKRequestEnvelopeV1 request_envelope = 7;
+  SDKRequestEnvelopeV2 request_envelope = 7;
 }
 
 // RefreshCredential response: the new fetch credential.
@@ -935,7 +966,7 @@ message PrepareChallengeRequest {
   string task_id = 2;
   string challenge_kind = 3;        // the challenge kind planned to be submitted
   bytes local_evidence_digest = 4;  // evidence digest already computed locally by the SDK (optional)
-  SDKRequestEnvelopeV1 request_envelope = 5;
+  SDKRequestEnvelopeV2 request_envelope = 5;
 }
 
 // PrepareChallenge response.

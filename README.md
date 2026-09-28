@@ -67,7 +67,7 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
 repository keeps the documented version (the wire copy is comment-stripped and is therefore not
 produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
-fingerprint to the wire v0.3.3 definition; `internal/chaincli/node_descriptor_test.go` does the same
+fingerprint to the wire v0.4.0 definition; `internal/chaincli/node_descriptor_test.go` does the same
 for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
 
 ### Consuming the contract (`gen/trueopen` standalone module)
@@ -78,7 +78,7 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.3.3`, which starts from a fresh genesis. TrueOpen/node
+nexus is built against TrueOpen/wire `v0.4.0`. TrueOpen/node
 must pin the same release in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
@@ -103,6 +103,9 @@ Open items:
 - `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are superseded by `OpenTask`,
   `GetTaskDataMetadata` / `FetchTaskData`; they are marked deprecated and still served until a
   removal date is decided.
+- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` have no request-signing rule for
+  `SDKRequestEnvelopeV2`: a request that carries an envelope, or any request while
+  `require_sdk_envelope=true`, gets `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`).
 - `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
   SDK-side field table and storage-confirmation proto are frozen.
 - Several task event codes still use Nexus names rather than the SDK-facing event names (for
@@ -157,6 +160,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_LOG_MAX_AGE_DAYS` | `28` | Days to keep old files |
 | `NEXUS_LOG_COMPRESS` | `true` | gzip rotated files |
 | `NEXUS_DATA_DIR` | `./data` | Local data directory (used once pebble is wired in) |
+| `NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS` | `17280` | Longest session grant a user may sign, in blocks past the current height; must be the same on every Builder |
 | `NEXUS_API_KEYS` | (empty) | Comma-separated list of valid api-keys; empty = no check |
 | `NEXUS_IP_WHITELIST` | (empty) | Comma-separated allowed IPs/CIDRs; empty = unrestricted |
 | `NEXUS_PAYLOAD_MAX_BYTES` | `16777216` | Max bytes of a single encrypted task input; also derives the Ingress message/body limit; inputs are retained until the on-chain deadline or task terminal state |
@@ -201,15 +205,15 @@ subscription returns `unavailable`.
 
 Legacy plaintext retrieval flow:
 
-1. Sign the `SDKRequestEnvelopeV1` for `SubscribeOutput` with the original ordering address. The method is
-   `SubscribeOutput`, the endpoint is
-   `/nexus.v1.IngressAPI/SubscribeOutput`, and the body digest is
-   `BodyDigest(session_id, task_id)`.
+1. Sign the `SDKRequestEnvelopeV2` for `SubscribeOutput` with the original ordering address (or a
+   session key it granted). The method is `SubscribeOutput`, the endpoint is
+   `/nexus.v1.IngressAPI/SubscribeOutput`, and the body digest uses the
+   `TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1` domain.
 2. Call the server-streaming `SubscribeOutput`. The connection waits while the output has not arrived; once it arrives it returns
    exactly one response containing `output_id/output_text/output_hash/created_at/expires_at` and ends.
 3. After the SDK has durably saved the plaintext, sign and call `AckOutput`. The method is `AckOutput`, the endpoint is
-   `/nexus.v1.IngressAPI/AckOutput`, and the body digest is
-   `BodyDigest(session_id, task_id, output_id)`.
+   `/nexus.v1.IngressAPI/AckOutput`, and the body digest uses the
+   `TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1` domain.
 4. Only a successful ACK means consumption is complete. On disconnect or missing ACK, the SDK can re-subscribe and receive the same
    `output_id`; ACK is idempotent within the tombstone retention period, and repeated calls return `already_acked=true`.
 
@@ -218,6 +222,26 @@ Nexus only allows the original ordering address to subscribe and ACK. Plaintext 
 after the first ACK it is immediately removed from the read path and physical deletion is attempted, and un-ACKed data is
 force-cleaned after the default 4-hour hard TTL. A tombstone is kept for at least 24 hours by default to block replay recovery; it contains no plaintext.
 Production deployments should restrict data directory permissions, disk backup scope and operator access to the node.
+
+## User request signing
+
+User requests carry an `SDKRequestEnvelopeV2`: a 65-byte `R || S || V` signature (`V` 27 or 28,
+low-S) over the EIP-712 `SDKRequest` typed data in the domain `"TrueOpen SDK Request"` version `"1"`,
+with `chainId` = the chain's EVM chain ID, so browser wallets can sign it. Nexus recovers the signer
+and requires it to match the account's public key stored on chain; an account with no stored key is
+rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` domain.
+
+- `OpenTask` must be signed by the order's user wallet; the header's own `signature` /
+  `signature_scheme` must be empty, and `order_envelope` must be a `SignedOrderV2`.
+- A user can sign a `SessionGrantV1` once to let a session key sign `SubscribeOutput`, `AckOutput`,
+  `GetTaskEvents`, `PrepareChallenge`, and `GetTaskDataMetadata` / `FetchTaskData` of an OUTPUT
+  object. The grant expires at a chain height no more than `ingress.max_session_grant_blocks` past
+  the current height.
+- USER task data requests use the EIP-712 `TaskDataRequest` domain version `"2"`; version 1
+  signatures are rejected.
+
+This is not compatible with SDK releases built for wire v0.3.x; nexus and the SDK must be upgraded
+together.
 
 ## Builder registration
 

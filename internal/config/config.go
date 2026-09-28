@@ -171,11 +171,29 @@ type IngressConfig struct {
 	ListenAddr  string   `yaml:"listen_addr"`  // public :8080 (Connect: gRPC + gRPC-Web + HTTP/JSON + /healthz)
 	APIKeys     []string `yaml:"api_keys"`     // list of valid api-keys; empty = no check
 	IPWhitelist []string `yaml:"ip_whitelist"` // allowed IPs / CIDRs; empty = unrestricted
-	// RequireSDKEnvelope true = every SDK request must carry a valid SDKRequestEnvelopeV1 (production);
+	// RequireSDKEnvelope true = every SDK request must carry a valid SDKRequestEnvelopeV2 (production);
 	// false = lenient (devnet): if one is present it must verify, if absent the request passes.
 	RequireSDKEnvelope bool `yaml:"require_sdk_envelope"`
+	// MaxSessionGrantBlocks bounds a session grant: it is valid while
+	// current_height <= expiry_height <= current_height + max_session_grant_blocks. It is off-chain
+	// configuration that every Task Builder of a network must set to the same value, and the SDK must
+	// issue grants inside it. 0 = DefaultMaxSessionGrantBlocks.
+	MaxSessionGrantBlocks uint64 `yaml:"max_session_grant_blocks"`
 	// TLS lets ingress terminate TLS itself (HTTP/2 over TLS) instead of depending on a front proxy.
 	TLS IngressTLSConfig `yaml:"tls"`
+}
+
+// DefaultMaxSessionGrantBlocks is the session grant window when ingress.max_session_grant_blocks is
+// unset: 17280 blocks, 24 hours at 5-second blocks. Every Task Builder of a network must use the same
+// value; set it explicitly when the network's block time differs.
+const DefaultMaxSessionGrantBlocks = uint64(17280)
+
+// SessionGrantBlocks returns MaxSessionGrantBlocks, or the default when unset.
+func (c IngressConfig) SessionGrantBlocks() uint64 {
+	if c.MaxSessionGrantBlocks == 0 {
+		return DefaultMaxSessionGrantBlocks
+	}
+	return c.MaxSessionGrantBlocks
 }
 
 // IngressTLSConfig is the TLS listener configuration of ingress.
@@ -746,6 +764,7 @@ func applyEnv(cfg *Config) {
 		cfg.NATS.AdvertiseServers = splitNonEmpty(value)
 	}
 	cfg.NATS.StreamReplicas = int(envUint32("NEXUS_NATS_STREAM_REPLICAS", uint32(cfg.NATS.StreamReplicas)))
+	cfg.Ingress.MaxSessionGrantBlocks = envUint64("NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS", cfg.Ingress.MaxSessionGrantBlocks)
 	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
 		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
 	}

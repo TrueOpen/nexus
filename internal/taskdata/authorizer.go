@@ -53,6 +53,9 @@ type AuthorizerConfig struct {
 	// retention_until_height in a storage confirmation (extending the retention
 	// window is managed through a retention lease and does not modify the original confirmation).
 	RetentionLeaseBlocks uint64
+	// SessionGrants verifies session grants on USER requests: the chain reads (current height,
+	// account keys) and the network's max_session_grant_blocks.
+	SessionGrants SessionGrantEnv
 }
 
 type Authorizer struct {
@@ -334,7 +337,7 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		}
 		requesterKey = publicKey
 	case RequesterKindUser:
-		if err := VerifyUserTaskDataRequest(request, a.cfg.EVMChainID); err != nil {
+		if err := VerifyUserTaskDataRequest(ctx, request, a.cfg.EVMChainID, a.cfg.SessionGrants); err != nil {
 			return chaincli.OnChainTask{}, 0, nil, err
 		}
 	default:

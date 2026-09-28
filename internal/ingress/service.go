@@ -75,6 +75,15 @@ type AuthParams struct {
 	Bech32Prefix    string
 	RequireEnvelope bool
 	ServiceKeys     ServiceKeyResolver
+	// EVMChainID is the chain's EVM chain ID, the chainId of the EIP-712 domains User requests are
+	// signed in.
+	EVMChainID uint64
+	// Chain answers the reads request verification needs: the current height (session grant
+	// windows) and the public key an account holds on chain.
+	Chain sdkauth.Chain
+	// MaxSessionGrantBlocks bounds a session grant's expiry above the current height. Every Task
+	// Builder of a network must use the same value.
+	MaxSessionGrantBlocks uint64
 }
 
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.
@@ -106,22 +115,9 @@ func newService(h Handler, auth AuthParams, options ...serviceOption) *service {
 	return s
 }
 
-// checkEnvelope verifies the request envelope and returns the signer address (empty when the envelope is absent in lenient mode).
-func (s *service) checkEnvelope(pb *nexusv1.SDKRequestEnvelopeV1, method string, wantBody []byte) (string, error) {
-	return s.checkEnvelopeWithReplay(pb, method, wantBody, s.replay, false)
-}
-
-func (s *service) checkEnvelopeWithReplay(
-	pb *nexusv1.SDKRequestEnvelopeV1, method string, wantBody []byte, replay sdkauth.ReplayCache, allowHeightExpiry bool,
-) (string, error) {
-	if pb == nil {
-		if s.auth.RequireEnvelope {
-			return "", connect.NewError(connect.CodeUnauthenticated,
-				errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
-		}
-		return "", nil
-	}
-	env := &sdkauth.Envelope{
+// envelopeFromPB converts the transport envelope; the deprecated signer_pubkey is dropped unread.
+func envelopeFromPB(pb *nexusv1.SDKRequestEnvelopeV2) *sdkauth.Envelope {
+	e := &sdkauth.Envelope{
 		RequestDomain:      pb.GetRequestDomain(),
 		ChainID:            pb.GetChainId(),
 		Method:             pb.GetMethod(),
@@ -133,72 +129,111 @@ func (s *service) checkEnvelopeWithReplay(
 		BodyDigest:         pb.GetBodyDigest(),
 		SignerAddress:      pb.GetSignerAddress(),
 		Signature:          pb.GetSignature(),
-		SignerPubKey:       pb.GetSignerPubkey(),
 	}
-	err := sdkauth.Verify(env, sdkauth.VerifyOpts{
-		ChainID:           s.auth.ChainID,
-		Method:            method,
-		NowMS:             time.Now().UnixMilli(),
-		WantBody:          wantBody,
-		Bech32Prefix:      s.auth.Bech32Prefix,
-		ReplayCache:       replay,
-		AllowHeightExpiry: allowHeightExpiry,
+	e.SessionGrant = sessionGrantFromPB(pb.GetSessionGrant())
+	return e
+}
+
+// sessionGrantFromPB converts an optional SessionGrantV1 (nil when absent).
+func sessionGrantFromPB(pb *nexusv1.SessionGrantV1) *sdkauth.SessionGrant {
+	if pb == nil {
+		return nil
+	}
+	return &sdkauth.SessionGrant{
+		ChainID: pb.GetChainId(), User: pb.GetUser(), SessionKey: pb.GetSessionKey(),
+		ExpiryHeight: pb.GetExpiryHeight(), GrantNonce: pb.GetGrantNonce(), UserSignature: pb.GetUserSignature(),
+	}
+}
+
+// envelopeCheck names what a method's envelope must satisfy.
+type envelopeCheck struct {
+	method string
+	body   [32]byte
+	// sessionAllowed lets a session key sign the request under a grant.
+	sessionAllowed bool
+	// allowHeightExpiry and replay: see sdkauth.VerifyOpts. OpenTask leaves its height expiry and
+	// nonce to the taskdata Authorizer and so passes no replay cache.
+	allowHeightExpiry bool
+	replay            sdkauth.ReplayCache
+}
+
+// verifyEnvelope runs sdkauth.Verify and maps its result to a connect error. It returns the user the
+// request acts for.
+func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, c envelopeCheck) (string, error) {
+	e := envelopeFromPB(pb)
+	err := sdkauth.Verify(ctx, e, sdkauth.VerifyOpts{
+		ChainID:               s.auth.ChainID,
+		EVMChainID:            s.auth.EVMChainID,
+		Method:                c.method,
+		NowMS:                 time.Now().UnixMilli(),
+		Body:                  c.body,
+		Bech32Prefix:          s.auth.Bech32Prefix,
+		ReplayCache:           c.replay,
+		AllowHeightExpiry:     c.allowHeightExpiry,
+		SessionAllowed:        c.sessionAllowed,
+		Chain:                 s.auth.Chain,
+		MaxSessionGrantBlocks: s.auth.MaxSessionGrantBlocks,
 	})
+	if err != nil {
+		return "", mapEnvelopeErr(err)
+	}
+	return e.SignerAddress, nil
+}
+
+func mapEnvelopeErr(err error) error {
 	switch {
-	case err == nil:
-		return env.SignerAddress, nil
-	case errors.Is(err, sdkauth.ErrExpired):
-		return "", connect.NewError(connect.CodeDeadlineExceeded, err)
 	case errors.Is(err, sdkauth.ErrMalformed):
-		return "", connect.NewError(connect.CodeInvalidArgument, err)
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, sdkauth.ErrSessionMethodNotAllowed):
+		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, sdkauth.ErrSessionGrantExpired), errors.Is(err, sdkauth.ErrExpired):
+		return connect.NewError(connect.CodeDeadlineExceeded, err)
+	case errors.Is(err, sdkauth.ErrUnavailable):
+		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, sdkauth.ErrMisconfigured):
-		return "", connect.NewError(connect.CodeInternal, err)
-	default:
-		return "", connect.NewError(connect.CodeUnauthenticated, err)
+		return connect.NewError(connect.CodeInternal, err)
+	default: // invalid signature, invalid grant, replay
+		return connect.NewError(connect.CodeUnauthenticated, err)
 	}
 }
 
-func (s *service) checkRequiredTaskEnvelopeWithoutReplay(
-	pb *nexusv1.SDKRequestEnvelopeV1,
-	method, endpoint, sessionID, taskID string,
-	wantBody []byte,
+// bodyErr reports a request body that cannot be projected into its body domain.
+func bodyErr(err error) error {
+	return connect.NewError(connect.CodeInvalidArgument, err)
+}
+
+// checkOptionalEnvelope verifies an envelope where lenient mode lets it be absent (returns "").
+func (s *service) checkOptionalEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, c envelopeCheck) (string, error) {
+	if pb == nil {
+		if s.auth.RequireEnvelope {
+			return "", connect.NewError(connect.CodeUnauthenticated,
+				errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
+		}
+		return "", nil
+	}
+	return s.verifyEnvelope(ctx, pb, c)
+}
+
+// checkTaskEnvelope verifies a required envelope bound to one session and task.
+func (s *service) checkTaskEnvelope(
+	ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, sessionID, taskID string, c envelopeCheck,
 ) (string, error) {
 	if pb == nil {
 		return "", connect.NewError(connect.CodeUnauthenticated,
 			errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
 	}
-	// OpenTask signs a chain-height expiry; the taskdata Authorizer checks it and consumes the nonce.
-	signerAddress, err := s.checkEnvelopeWithReplay(pb, method, wantBody, nil, true)
-	if err != nil {
-		return "", err
-	}
-	if signerAddress == "" || pb.GetEndpoint() != endpoint ||
-		pb.GetSessionId() != sessionID || pb.GetTaskId() != taskID {
+	if pb.GetSessionId() != sessionID || pb.GetTaskId() != taskID {
 		return "", connect.NewError(connect.CodeInvalidArgument,
 			errors.New("NEXUS_INGRESS_MALFORMED: envelope binding mismatch"))
 	}
-	return signerAddress, nil
+	return s.verifyEnvelope(ctx, pb, c)
 }
 
-func (s *service) checkRequiredTaskEnvelope(
-	pb *nexusv1.SDKRequestEnvelopeV1,
-	method, endpoint, sessionID, taskID string,
-	wantBody []byte,
-) (string, error) {
-	if pb == nil {
-		return "", connect.NewError(connect.CodeUnauthenticated,
-			errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
-	}
-	signerAddress, err := s.checkEnvelope(pb, method, wantBody)
-	if err != nil {
-		return "", err
-	}
-	if signerAddress == "" || pb.GetEndpoint() != endpoint ||
-		pb.GetSessionId() != sessionID || pb.GetTaskId() != taskID {
-		return "", connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_MALFORMED: envelope binding mismatch"))
-	}
-	return signerAddress, nil
+// errNoBodyDomain refuses the deprecated requests that carry an SDK envelope but have no registered
+// body domain: no body digest can be verified for them.
+func errNoBodyDomain(method string) error {
+	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+		"NEXUS_INGRESS_CONTRACT_NOT_FROZEN: %s has no registered request body domain; use OpenTask and the Task data interface", method))
 }
 
 func (s *service) SubmitOrder(ctx context.Context, req *connect.Request[nexusv1.SubmitOrderRequest]) (*connect.Response[nexusv1.SubmitOrderResponse], error) {
@@ -225,10 +260,10 @@ func (s *service) SubmitOrder(ctx context.Context, req *connect.Request[nexusv1.
 	if m.GetSessionId() == "" || m.GetUserAddress() == "" || m.GetSignatureScheme() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session_id, user_address, and signature_scheme are required"))
 	}
-	user, err := s.checkEnvelope(m.GetRequestEnvelope(), "SubmitOrder", submitOrderBodyDigest(m))
-	if err != nil {
-		return nil, err
+	if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
+		return nil, errNoBodyDomain("SubmitOrder")
 	}
+	user := "" // lenient mode without an envelope: no request signer to bind
 	order, err := parseOrderEnvelope(m.GetOrderEnvelope(), m.GetSignatureScheme(), hex.EncodeToString(m.GetSignature()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -280,11 +315,7 @@ func (s *service) FetchOutputRef(ctx context.Context, req *connect.Request[nexus
 	}
 	var signerAddr string
 	if m.GetRequestEnvelope() != nil {
-		var err error
-		signerAddr, err = s.checkEnvelope(m.GetRequestEnvelope(), "FetchOutputRef", fetchOutputRefBodyDigest(m, level))
-		if err != nil {
-			return nil, err
-		}
+		return nil, errNoBodyDomain("FetchOutputRef")
 	}
 	switch {
 	case signerAddr != "":
@@ -333,15 +364,7 @@ func (s *service) SubscribeOutput(
 		return connect.NewError(connect.CodeInvalidArgument,
 			errors.New("NEXUS_INGRESS_MALFORMED: session_id and task_id are required"))
 	}
-	body := sdkauth.BodyDigest([]byte(m.GetSessionId()), []byte(m.GetTaskId()))
-	requester, err := s.checkRequiredTaskEnvelope(
-		m.GetRequestEnvelope(),
-		"SubscribeOutput",
-		nexusv1connect.IngressAPISubscribeOutputProcedure,
-		m.GetSessionId(),
-		m.GetTaskId(),
-		body,
-	)
+	requester, err := s.checkSubscribeEnvelope(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -371,19 +394,7 @@ func (s *service) AckOutput(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			errors.New("NEXUS_INGRESS_MALFORMED: session_id, task_id, and output_id are required"))
 	}
-	body := sdkauth.BodyDigest(
-		[]byte(m.GetSessionId()),
-		[]byte(m.GetTaskId()),
-		[]byte(m.GetOutputId()),
-	)
-	requester, err := s.checkRequiredTaskEnvelope(
-		m.GetRequestEnvelope(),
-		"AckOutput",
-		nexusv1connect.IngressAPIAckOutputProcedure,
-		m.GetSessionId(),
-		m.GetTaskId(),
-		body,
-	)
+	requester, err := s.checkAckEnvelope(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -400,8 +411,15 @@ func (s *service) AckOutput(
 // until the client disconnects. The event stream is only for UX hints; on-chain state is authoritative via chain query.
 func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv1.GetTaskEventsRequest], stream *connect.ServerStream[nexusv1.GetTaskEventsResponse]) error {
 	m := req.Msg
-	if _, err := s.checkEnvelope(m.GetRequestEnvelope(), "GetTaskEvents", sdkauth.BodyDigest(
-		[]byte(m.GetSessionId()), []byte(m.GetTaskId()), []byte(m.GetFromCursor()))); err != nil {
+	body, err := sdkauth.GetTaskEventsBody(m.GetSessionId(), m.GetTaskId(), m.GetFromCursor())
+	if err != nil {
+		if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
+			return bodyErr(err)
+		}
+	}
+	if _, err := s.checkOptionalEnvelope(ctx, m.GetRequestEnvelope(), envelopeCheck{
+		method: "GetTaskEvents", body: body, sessionAllowed: true, replay: s.replay,
+	}); err != nil {
 		return err
 	}
 	var fromCursor uint64
@@ -443,10 +461,8 @@ func (s *service) RefreshCredential(ctx context.Context, req *connect.Request[ne
 	if m.GetCredential() == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("missing credential"))
 	}
-	if _, err := s.checkEnvelope(m.GetRequestEnvelope(), "RefreshCredential", sdkauth.BodyDigest(
-		[]byte(m.GetCredential().GetCredentialId()), []byte(m.GetSessionId()), []byte(m.GetTaskId()),
-		[]byte(m.GetRecipient()), []byte(m.GetUsage()), i64be(m.GetRequestedValidUntil()))); err != nil {
-		return nil, err
+	if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
+		return nil, errNoBodyDomain("RefreshCredential")
 	}
 	cred, err := s.h.RefreshCredential(ctx, credFromPB(m.GetCredential()), m.GetRecipient(), m.GetUsage(), m.GetRequestedValidUntil())
 	if err != nil {
@@ -457,8 +473,15 @@ func (s *service) RefreshCredential(ctx context.Context, req *connect.Request[ne
 
 func (s *service) PrepareChallenge(ctx context.Context, req *connect.Request[nexusv1.PrepareChallengeRequest]) (*connect.Response[nexusv1.PrepareChallengeResponse], error) {
 	m := req.Msg
-	if _, err := s.checkEnvelope(m.GetRequestEnvelope(), "PrepareChallenge", sdkauth.BodyDigest(
-		[]byte(m.GetSessionId()), []byte(m.GetTaskId()), []byte(m.GetChallengeKind()), m.GetLocalEvidenceDigest())); err != nil {
+	body, err := sdkauth.PrepareChallengeBody(m.GetSessionId(), m.GetTaskId(), m.GetChallengeKind(), m.GetLocalEvidenceDigest())
+	if err != nil {
+		if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
+			return nil, bodyErr(err)
+		}
+	}
+	if _, err := s.checkOptionalEnvelope(ctx, m.GetRequestEnvelope(), envelopeCheck{
+		method: "PrepareChallenge", body: body, sessionAllowed: true, replay: s.replay,
+	}); err != nil {
 		return nil, err
 	}
 	plan, err := s.h.PrepareChallenge(ctx, m.GetSessionId(), m.GetTaskId(), m.GetChallengeKind())
@@ -592,19 +615,6 @@ func i64be(v int64) []byte {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(v))
 	return b[:]
-}
-
-func submitOrderBodyDigest(m *nexusv1.SubmitOrderRequest) []byte {
-	return sdkauth.BodyDigest(
-		m.GetOrderEnvelope(),
-		[]byte(m.GetPayloadRef()),
-		m.GetSignature(),
-		[]byte(m.GetSessionId()),
-		u64be(m.GetOrderSequence()),
-		[]byte(m.GetUserAddress()),
-		[]byte(m.GetSignatureScheme()),
-		m.GetPayload(),
-	)
 }
 
 func validateOrderPayload(payloadHash, payloadRef string, payload []byte) error {
@@ -833,14 +843,10 @@ func u32be(v uint32) []byte {
 	return b[:]
 }
 
-func fetchOutputRefBodyDigest(m *nexusv1.FetchOutputRefRequest, level types.AccessLevel) []byte {
-	return sdkauth.BodyDigest(
-		[]byte(m.GetSessionId()), []byte(m.GetTaskId()), []byte(m.GetRequester()),
-		[]byte(level.String()), []byte(m.GetUsage()))
-}
-
+// fetchOutputRefSignBytes is the message of the deprecated FetchOutputRef role signature: sha256 over
+// the length-prefixed fields (the role signature hashes it once more when verifying).
 func fetchOutputRefSignBytes(m *nexusv1.FetchOutputRefRequest, level types.AccessLevel) []byte {
-	return sdkauth.BodyDigest(
+	return legacyDigest(
 		[]byte("TRUEOPEN_FETCH_OUTPUT_REF_V1"),
 		[]byte(m.GetSessionId()), []byte(m.GetTaskId()), []byte(m.GetRequester()),
 		[]byte(level.String()), []byte(m.GetUsage()))
@@ -873,4 +879,10 @@ func mapOrderErr(err error) error {
 	default:
 		return mapPayloadErr(err)
 	}
+}
+
+// legacyDigest is sha256 over lengthPrefixed(fields...), kept for the deprecated role-signature messages.
+func legacyDigest(fields ...[]byte) []byte {
+	sum := sha256.Sum256(lengthPrefixed(fields...))
+	return sum[:]
 }

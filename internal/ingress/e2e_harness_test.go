@@ -80,7 +80,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(os.Stderr, nil)), config.IngressConfig{},
-		AuthParams{ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {

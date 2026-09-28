@@ -133,7 +133,7 @@ func cortexResolver(t *testing.T, operator, keyHex, domain string) *fakeServiceK
 
 func relayAuth(t *testing.T, operator, keyHex, domain string) AuthParams {
 	t.Helper()
-	return AuthParams{
+	return AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen",
 		ServiceKeys: cortexResolver(t, operator, keyHex, domain),
 	}
@@ -442,7 +442,7 @@ func TestSubmitVerifyResultBindsV2Fields(t *testing.T) {
 }
 
 func TestRelayRejectsMissingMessage(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	for name, call := range map[string]func() error{
 		"infer receipt": func() error {
 			_, err := client.SubmitInferReceipt(context.Background(),

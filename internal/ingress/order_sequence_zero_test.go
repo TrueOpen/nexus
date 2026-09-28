@@ -22,11 +22,10 @@ import (
 func TestSubmitOrderAcceptsSequenceZero(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
 	fake := &fakeHandler{}
-	client := newTestClient(t, fake, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: true})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	ctx := context.Background()
 
 	req := canonicalOrderRequest(t, sg, testSessionID("sess-seq-zero"), 0, "model-test")
-	req.RequestEnvelope = signedEnvelope(t, sg, "SubmitOrder", submitOrderBodyDigest(req))
 
 	resp, err := client.SubmitOrder(ctx, connect.NewRequest(req))
 	if err != nil {

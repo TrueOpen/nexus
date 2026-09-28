@@ -73,7 +73,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	handler := &fakeHandler{}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		handler, WithPayloadMaxBytes(16), WithReadMaxBytes(4), WithTaskDataService(dataService),
 	)
 	if err != nil {

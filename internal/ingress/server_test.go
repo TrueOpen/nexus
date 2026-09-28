@@ -43,7 +43,7 @@ func TestServerExposesBuilderDescriptor(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		config.IngressConfig{},
-		AuthParams{},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID},
 		&fakeHandler{},
 		WithBuilderDescriptor(body),
 	)
@@ -61,7 +61,7 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	fake := &fakeHandler{}
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, fake,
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, fake,
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 func TestServerCapsRawHTTPBody(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestServerCapsRawHTTPBody(t *testing.T) {
 func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
 		WithReadMaxBytes(256<<10),
 	)
 	if err != nil {

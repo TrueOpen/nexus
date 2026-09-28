@@ -15,6 +15,10 @@ var (
 	ErrServiceKeyUnavailable = errors.New("NEXUS_DATA_SERVICE_KEY_UNAVAILABLE")
 	ErrStorage               = errors.New("NEXUS_DATA_STORAGE")
 	ErrAuthorityUnavailable  = errors.New("NEXUS_DATA_AUTHORITY_UNAVAILABLE")
+	// Session grant failures on the USER path.
+	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
+	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")
+	ErrSessionGrantExpired     = errors.New("DATA_ACCESS_SESSION_GRANT_EXPIRED")
 	// ErrNotReady is TASK_DATA_NOT_READY: the object is stored
 	// but not READY yet, for example OUTPUT before the Worker's FinalizeTaskResult. It maps to the
 	// same transport code as the two *_UNAVAILABLE errors above, so callers tell "ask this Builder

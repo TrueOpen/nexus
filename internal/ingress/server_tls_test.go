@@ -28,7 +28,7 @@ func TestStartServesTLSWhenCertificateConfigured(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		config.IngressConfig{ListenAddr: "127.0.0.1:0"},
-		AuthParams{},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID},
 		&fakeHandler{},
 		WithTLS(material.Certificate),
 	)
@@ -97,7 +97,7 @@ func TestTLSClientRejectsUnexpectedPubKeyHash(t *testing.T) {
 		t.Fatalf("self-signed material: %v", err)
 	}
 	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{ListenAddr: "127.0.0.1:0"},
-		AuthParams{}, &fakeHandler{}, WithTLS(material.Certificate))
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{}, WithTLS(material.Certificate))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

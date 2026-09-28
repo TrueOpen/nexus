@@ -16,6 +16,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	ethsecp256k1 "github.com/TrueOpen/nexus/gen/cosmosevm/crypto/v1/ethsecp256k1"
 	"log/slog"
 	"math"
 	"net"
@@ -788,6 +789,43 @@ func (c *client) AccountInfo(ctx context.Context, address string) (AccountInfo, 
 		return AccountInfo{}, fmt.Errorf("query account %q: decode %s: %w", address, anyAcc.GetTypeUrl(), err)
 	}
 	return AccountInfo{AccountNumber: base.GetAccountNumber(), Sequence: base.GetSequence()}, nil
+}
+
+// ethSecp256k1PubKeyTypeURL is the only account key type user requests verify against: accounts are
+// EVM-style, their address derived from the key with keccak.
+const ethSecp256k1PubKeyTypeURL = "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey"
+
+// AccountPubKey returns the 33-byte compressed public key the account holds on chain. An account that
+// does not exist, holds no key yet (it has not sent a transaction), or holds a key of another type
+// returns ErrNotFound; a failed query returns another error.
+func (c *client) AccountPubKey(ctx context.Context, address string) ([]byte, error) {
+	resp, err := c.auth.Account(ctx, connect.NewRequest(&authv1beta1.QueryAccountRequest{Address: address}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return nil, fmt.Errorf("query account %q: %w", address, ErrNotFound)
+		}
+		return nil, fmt.Errorf("query account %q: endpoint unavailable: %s", address, redactSensitiveText(err.Error()))
+	}
+	anyAcc := resp.Msg.GetAccount()
+	if anyAcc == nil {
+		return nil, fmt.Errorf("query account %q: %w", address, ErrNotFound)
+	}
+	var base authv1beta1.BaseAccount
+	if err := proto.Unmarshal(anyAcc.GetValue(), &base); err != nil {
+		return nil, fmt.Errorf("query account %q: decode %s: %w", address, anyAcc.GetTypeUrl(), err)
+	}
+	if base.GetAddress() != address {
+		return nil, fmt.Errorf("query account %q: response is for %q", address, base.GetAddress())
+	}
+	key := base.GetPubKey()
+	if key == nil || key.GetTypeUrl() != ethSecp256k1PubKeyTypeURL {
+		return nil, fmt.Errorf("query account %q: no %s public key: %w", address, ethSecp256k1PubKeyTypeURL, ErrNotFound)
+	}
+	var pub ethsecp256k1.PubKey
+	if err := proto.Unmarshal(key.GetValue(), &pub); err != nil || len(pub.GetKey()) != 33 {
+		return nil, fmt.Errorf("query account %q: public key is not a 33-byte compressed key", address)
+	}
+	return append([]byte(nil), pub.GetKey()...), nil
 }
 
 func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error) {

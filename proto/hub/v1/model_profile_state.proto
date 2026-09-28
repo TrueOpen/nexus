@@ -97,6 +97,10 @@ message ProfileState {
   repeated shared.v1.TaskType task_types = 7;
   shared.v1.GenerationType generation_type = 8;
   uint32 resource_tier = 9;
+  // Amount only, in hub.v1 Params phase0.business_denom. Registration accepts
+  // ModelProfileProjection.min_stake only as a Coin of that denomination and
+  // stores its amount here; a projection rebuilt from this row writes the
+  // Coin back with the current business_denom.
   uint64 min_stake = 10;
   uint64 challenge_open_window_blocks = 11;
   shared.v1.VerificationProfile verification_profile = 12;
@@ -107,6 +111,10 @@ message ProfileState {
   bytes schema_hash = 17;
   ModelProfileStatus status = 18;
   ProfileStatusSource status_source = 22;
+  // Amount only, in hub.v1 Params phase0.business_denom: the
+  // ModelProfileProjection.registration_fee this registration paid. It equals
+  // Params treasury.model_profile_registration_fee for the first profile of a
+  // model and treasury.profile_version_update_fee for a later version.
   uint64 registration_fee_paid = 23;
   uint32 previous_profile_version = 24;
   string proposer_address = 25;

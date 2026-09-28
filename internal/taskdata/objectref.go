@@ -8,6 +8,7 @@ package taskdata
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
@@ -336,6 +337,8 @@ type RequestAuthV1 struct {
 	RequestNonce              []byte
 	ExpiryHeight              uint64
 	Signature                 []byte
+	// SessionGrant (USER only) lets a session key sign the request; nil = wallet signed.
+	SessionGrant *sdkauth.SessionGrant
 
 	// Key is the object this request addresses; it enters no preimage.
 	Key ObjectRef

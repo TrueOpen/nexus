@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/nexus/internal/eip712"
 	"io"
 	"strings"
 	"sync"
@@ -906,7 +907,7 @@ func ethAddressOf(t *testing.T, caller signer.Signer) string {
 		t.Fatalf("no raw key for %s", caller.Address())
 	}
 	priv := secp256k1.PrivKeyFromBytes(raw)
-	sum := keccak256(priv.PubKey().SerializeUncompressed()[1:])
+	sum := eip712.Keccak256(priv.PubKey().SerializeUncompressed()[1:])
 	encoded, err := bech32.ConvertAndEncode("trueopen", sum[12:])
 	if err != nil {
 		t.Fatal(err)
@@ -954,7 +955,7 @@ func userSignedRequest(
 		ExpiryHeight:              expiry,
 		Key:                       key,
 	}
-	digest, err := UserTaskDataRequestDigest(request, testEVMChainID)
+	digest, err := UserTaskDataRequestDigest(request, testEVMChainID, [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
