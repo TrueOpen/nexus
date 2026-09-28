@@ -209,6 +209,9 @@ func (c IngressTLSConfig) Validate() error {
 // ValidateTransport checks that the listener mode and the public address agree: when ingress terminates
 // TLS itself, the on-chain descriptor must not point clients at plaintext http.
 func (c Config) ValidateTransport() error {
+	if err := c.NATS.ValidateStream(); err != nil {
+		return err
+	}
 	if err := c.Ingress.TLS.Validate(); err != nil {
 		return err
 	}
@@ -247,6 +250,29 @@ type NATSConfig struct {
 	// certificates of CAFile. They are not Servers: nexus itself may
 	// reach NATS on a private or loopback address. Requires SentinelFile; empty = neither is served.
 	AdvertiseServers []string `yaml:"advertise_servers"`
+	// StreamReplicas is how many servers keep a copy of the JetStream stream nexus creates
+	// (1..MaxStreamReplicas; 0 = 1). More than 1 needs a clustered NATS. Nexus never lowers the
+	// replica count of a stream that already has more.
+	StreamReplicas int `yaml:"stream_replicas"`
+}
+
+// MaxStreamReplicas is the most copies NATS JetStream keeps of one stream.
+const MaxStreamReplicas = 5
+
+// Replicas returns the stream replica count to request (StreamReplicas, 1 when unset).
+func (n NATSConfig) Replicas() int {
+	if n.StreamReplicas == 0 {
+		return 1
+	}
+	return n.StreamReplicas
+}
+
+// ValidateStream checks nats.stream_replicas.
+func (n NATSConfig) ValidateStream() error {
+	if n.StreamReplicas < 0 || n.StreamReplicas > MaxStreamReplicas {
+		return fmt.Errorf("nats.stream_replicas must be between 1 and %d (0 = 1), got %d", MaxStreamReplicas, n.StreamReplicas)
+	}
+	return nil
 }
 
 // TLS reports whether any server is connected over tls://.
@@ -718,6 +744,7 @@ func applyEnv(cfg *Config) {
 	if value, ok := nonEmptyEnv("NEXUS_NATS_ADVERTISE_SERVERS"); ok {
 		cfg.NATS.AdvertiseServers = splitNonEmpty(value)
 	}
+	cfg.NATS.StreamReplicas = int(envUint32("NEXUS_NATS_STREAM_REPLICAS", uint32(cfg.NATS.StreamReplicas)))
 	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
 		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
 	}

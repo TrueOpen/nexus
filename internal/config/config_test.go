@@ -506,3 +506,37 @@ func TestExampleYAMLMatchesSchema(t *testing.T) {
 		t.Fatalf("incomplete example: %+v", cfg)
 	}
 }
+
+func TestNATSStreamReplicas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nexus.yaml")
+	if err := os.WriteFile(path, []byte("nats:\n  stream_replicas: 3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.StreamReplicas != 3 || cfg.NATS.Replicas() != 3 {
+		t.Fatalf("stream_replicas = %d / %d, want 3", cfg.NATS.StreamReplicas, cfg.NATS.Replicas())
+	}
+	if (NATSConfig{}).Replicas() != 1 {
+		t.Fatal("unset stream_replicas must mean 1")
+	}
+	for _, n := range []int{0, 1, 3, MaxStreamReplicas} {
+		if err := (NATSConfig{StreamReplicas: n}).ValidateStream(); err != nil {
+			t.Fatalf("stream_replicas %d: %v", n, err)
+		}
+	}
+	for _, n := range []int{-1, MaxStreamReplicas + 1} {
+		if err := (NATSConfig{StreamReplicas: n}).ValidateStream(); err == nil {
+			t.Fatalf("stream_replicas %d accepted", n)
+		}
+		if err := (Config{NATS: NATSConfig{StreamReplicas: n}}).ValidateTransport(); err == nil {
+			t.Fatalf("transport validation accepted stream_replicas %d", n)
+		}
+	}
+	t.Setenv("NEXUS_NATS_STREAM_REPLICAS", "3")
+	if got := Load().NATS.StreamReplicas; got != 3 {
+		t.Fatalf("env stream_replicas = %d, want 3", got)
+	}
+}

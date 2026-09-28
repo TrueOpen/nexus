@@ -107,6 +107,11 @@ func (b *natsBus) Start(_ context.Context) error {
 // which is the easiest thing to miss here.
 // **This function never deletes an existing stream**: deleting one also drops in-flight messages and every
 // durable consumer position. That is an operations action left to the operator.
+//
+// The stream asks for nats.stream_replicas copies. An update never lowers the replica count of an
+// existing stream: every Builder runs this at start, and one configured with fewer replicas (or an
+// older one that asked for the default) must not shrink a stream the operator or another Builder
+// scaled up.
 func (b *natsBus) ensureStreams() {
 	subjects := JetStreamSubjectWildcardsV1()
 	cfg := &nats.StreamConfig{
@@ -116,8 +121,14 @@ func (b *natsBus) ensureStreams() {
 		Retention:  nats.LimitsPolicy,
 		Duplicates: jsDuplicatesWindow,
 		MaxAge:     24 * time.Hour,
+		Replicas:   b.cfg.Replicas(),
 	}
 	if _, err := b.js.AddStream(cfg); err != nil {
+		if info, ierr := b.js.StreamInfo(jsStreamName); ierr == nil && info != nil && info.Config.Replicas > cfg.Replicas {
+			b.log.Info("jetstream stream keeps its replica count above nats.stream_replicas",
+				"stream", jsStreamName, "replicas", info.Config.Replicas, "configured", cfg.Replicas)
+			cfg.Replicas = info.Config.Replicas
+		}
 		if _, uerr := b.js.UpdateStream(cfg); uerr != nil {
 			b.log.Warn("ensure jetstream stream failed (the server must pre-create the stream or the account must be authorized)",
 				"stream", jsStreamName, "add_err", err, "update_err", uerr)
@@ -127,7 +138,8 @@ func (b *natsBus) ensureStreams() {
 			"and existing durable consumers must be handled per the migration document",
 			"stream", jsStreamName, "subjects", subjects)
 	}
-	b.log.Info("jetstream stream ready", "stream", jsStreamName, "subjects", subjects, "dedup_window", jsDuplicatesWindow)
+	b.log.Info("jetstream stream ready", "stream", jsStreamName, "subjects", subjects, "dedup_window", jsDuplicatesWindow,
+		"replicas", cfg.Replicas)
 }
 
 func (b *natsBus) Stop(_ context.Context) error {
