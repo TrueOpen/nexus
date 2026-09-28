@@ -119,7 +119,7 @@ func (a *Authorizer) verifyMetadataRequest(ctx context.Context, request RequestA
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canInspect(request.Key, request.RequesterAddress) {
-		return metadataAccess{}, fmt.Errorf("%w: metadata role", ErrUnauthorized)
+		return metadataAccess{}, fmt.Errorf("%w: metadata role", roleDenied(request))
 	}
 	return metadataAccess{height: height, inferReceipt: task.InferReceipt}, nil
 }
@@ -224,7 +224,7 @@ func (a *Authorizer) AuthorizeFetch(
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canDownload(request.Key, request.RequesterAddress) {
-		return FetchGrant{}, fmt.Errorf("%w: download role", ErrUnauthorized)
+		return FetchGrant{}, fmt.Errorf("%w: download role", roleDenied(request))
 	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
 		return FetchGrant{}, err
@@ -296,6 +296,15 @@ func (a *Authorizer) SignStorageConfirmation(ctx context.Context, metadata Metad
 // path after one fails; neither path accepts a public key supplied by the caller — CORTEX_SERVICE
 // reads the current service key from the chain by (CORTEX, requester_address), and USER recovers the
 // address from the 65-byte signature.
+// roleDenied is the error for a verified requester without the Task duty: DATA_ACCESS_DENIED for a
+// USER, the Nexus code the CORTEX_SERVICE path has always returned otherwise.
+func roleDenied(request RequestAuth) error {
+	if request.RequesterKind == RequesterKindUser {
+		return ErrDenied
+	}
+	return ErrUnauthorized
+}
+
 func (a *Authorizer) verifyRequest(ctx context.Context, request RequestAuth, method RequestMethod) (chaincli.OnChainTask, uint64, error) {
 	task, height, _, err := a.verifyRequestKey(ctx, request, method)
 	return task, height, err
@@ -337,7 +346,9 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		}
 		requesterKey = publicKey
 	case RequesterKindUser:
-		if err := VerifyUserTaskDataRequest(ctx, request, a.cfg.EVMChainID, a.cfg.SessionGrants); err != nil {
+		env := a.cfg.SessionGrants
+		env.AddressPrefix = a.cfg.AddressPrefix
+		if err := VerifyUserTaskDataRequest(ctx, request, a.cfg.EVMChainID, env); err != nil {
 			return chaincli.OnChainTask{}, 0, nil, err
 		}
 	default:

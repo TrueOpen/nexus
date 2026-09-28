@@ -217,3 +217,28 @@ func TestSessionGrantWindowEdgesAccept(t *testing.T) {
 		}
 	}
 }
+
+// A signer_address under another Bech32 prefix is malformed at step 1, before any chain read could
+// turn it into "chain unavailable"; a body_digest that is not the recomputed body is a signature failure.
+func TestVerifyFormatAndBodyDigest(t *testing.T) {
+	f := loadAccountSigning(t)
+	e := envelopeFrom(t, f.SDKRequestSession)
+	e.SessionGrant = grantFrom(t, f)
+	opts := optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
+	opts.SessionAllowed = true
+	opts.Bech32Prefix = "cosmos"
+	opts.Chain.(*fakeChain).keyErr = errors.New("must not be asked")
+	if err := Verify(context.Background(), e, opts); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("other prefix: %v, want malformed", err)
+	}
+
+	e = envelopeFrom(t, f.SDKRequestSession)
+	e.SessionGrant = grantFrom(t, f)
+	opts = optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
+	opts.SessionAllowed = true
+	e.BodyDigest = append([]byte{}, e.BodyDigest...)
+	e.BodyDigest[0] ^= 1
+	if err := Verify(context.Background(), e, opts); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("body_digest mismatch: %v, want invalid signature", err)
+	}
+}

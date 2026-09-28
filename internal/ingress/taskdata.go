@@ -273,8 +273,8 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		return types.Order{}, taskdata.UploadHeader{}, err
 	}
 	if requester != order.User {
-		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
-			"request envelope signer %q is not the order user %q", requester, order.User)
+		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
+			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
 	}
 	expiry := header.GetRequestEnvelope().GetExpiryHeightOrTime()
 	if expiry <= 0 || expiry >= sdkauth.HeightExpiryThreshold {
@@ -724,14 +724,6 @@ func readinessToPB(state taskdata.State) nexusv1.TaskDataObjectReadinessV1 {
 	}
 }
 
-// openTaskUnauthorized refuses an OpenTask whose signer does not check out. The code stays
-// NEXUS_DATA_UNAUTHORIZED; the message says which check failed, since the request log records it
-// and the client sees it, and the three checks otherwise look the same from outside.
-func openTaskUnauthorized(format string, args ...any) error {
-	return connect.NewError(connect.CodePermissionDenied,
-		fmt.Errorf("%w: %s", taskdata.ErrUnauthorized, fmt.Sprintf(format, args...)))
-}
-
 func mapTaskDataError(err error) error {
 	var code connect.Code
 	switch {
@@ -739,8 +731,10 @@ func mapTaskDataError(err error) error {
 		code = connect.CodeInvalidArgument
 	case errors.Is(err, taskdata.ErrSessionMethodNotAllowed):
 		code = connect.CodePermissionDenied
-	case errors.Is(err, taskdata.ErrSessionGrantInvalid):
+	case errors.Is(err, taskdata.ErrSessionGrantInvalid), errors.Is(err, taskdata.ErrInvalidSignature):
 		code = connect.CodeUnauthenticated
+	case errors.Is(err, taskdata.ErrDenied):
+		code = connect.CodePermissionDenied
 	case errors.Is(err, taskdata.ErrSessionGrantExpired):
 		code = connect.CodeDeadlineExceeded
 	case errors.Is(err, taskdata.ErrUnauthorized):

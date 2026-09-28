@@ -540,3 +540,18 @@ func TestNATSStreamReplicas(t *testing.T) {
 		t.Fatalf("env stream_replicas = %d, want 3", got)
 	}
 }
+
+func TestSessionGrantBlocksDefaultAndLimit(t *testing.T) {
+	cfg := defaults()
+	if got := cfg.Ingress.SessionGrantBlocks(); got != DefaultMaxSessionGrantBlocks {
+		t.Fatalf("default window = %d", got)
+	}
+	cfg.Ingress.MaxSessionGrantBlocks = MaxSessionGrantBlocksLimit
+	if err := cfg.ValidateTransport(); err != nil {
+		t.Fatalf("window at the limit: %v", err)
+	}
+	cfg.Ingress.MaxSessionGrantBlocks = MaxSessionGrantBlocksLimit + 1
+	if err := cfg.ValidateTransport(); err == nil {
+		t.Fatal("window above the limit was accepted")
+	}
+}

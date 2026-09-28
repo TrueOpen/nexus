@@ -202,16 +202,23 @@ func bodyErr(err error) error {
 	return connect.NewError(connect.CodeInvalidArgument, err)
 }
 
-// checkOptionalEnvelope verifies an envelope where lenient mode lets it be absent (returns "").
-func (s *service) checkOptionalEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, c envelopeCheck) (string, error) {
+// checkOptionalOwnerEnvelope verifies a task-bound envelope where lenient mode lets it be absent. A
+// present envelope must be bound to this session and task and act for the user who ordered it.
+func (s *service) checkOptionalOwnerEnvelope(
+	ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, sessionID, taskID string, c envelopeCheck,
+) error {
 	if pb == nil {
 		if s.auth.RequireEnvelope {
-			return "", connect.NewError(connect.CodeUnauthenticated,
+			return connect.NewError(connect.CodeUnauthenticated,
 				errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))
 		}
-		return "", nil
+		return nil
 	}
-	return s.verifyEnvelope(ctx, pb, c)
+	requester, err := s.checkTaskEnvelope(ctx, pb, sessionID, taskID, c)
+	if err != nil {
+		return err
+	}
+	return s.requireTaskOwner(ctx, sessionID, taskID, requester)
 }
 
 // checkTaskEnvelope verifies a required envelope bound to one session and task.
@@ -256,41 +263,24 @@ func (s *service) SubmitOrder(ctx context.Context, req *connect.Request[nexusv1.
 	// Rejecting it as unset means the first order of any new session can never get in.
 	//
 	// uint64 has no "unset" state to test anyway -- proto3 scalars carry no presence. The real safeguard is the
-	// SDKRequestEnvelope signature check below: order_sequence enters the body digest, and a mismatching signature is rejected.
+	// signature over the order, which the chain verifies again in MsgAssign.
 	if m.GetSessionId() == "" || m.GetUserAddress() == "" || m.GetSignatureScheme() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("session_id, user_address, and signature_scheme are required"))
 	}
 	if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
 		return nil, errNoBodyDomain("SubmitOrder")
 	}
-	user := "" // lenient mode without an envelope: no request signer to bind
+	// Only lenient mode without an envelope gets here: there is no request signer to bind.
 	order, err := parseOrderEnvelope(m.GetOrderEnvelope(), m.GetSignatureScheme(), hex.EncodeToString(m.GetSignature()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if user != "" && m.GetUserAddress() != user {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("order user does not match request signer"))
-	}
-	if envelope := m.GetRequestEnvelope(); envelope != nil {
-		if envelope.GetSessionId() != "" && envelope.GetSessionId() != m.GetSessionId() {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request envelope session_id mismatch"))
-		}
-	}
 	order.SessionID = m.GetSessionId()
 	order.OrderSequence = m.GetOrderSequence()
 	order.User = m.GetUserAddress()
-	if envelope := m.GetRequestEnvelope(); envelope != nil && len(envelope.GetSignerPubkey()) > 0 &&
-		!s.verifyRoleSignature(order.User, envelope.GetSignerPubkey(), nodecontract.OrderSigningBytes(
-			s.auth.ChainID, order.User, order.SessionID, order.OrderSequence, order.OrderEnvelope,
-		), m.GetSignature()) {
-		return nil, connect.NewError(connect.CodeUnauthenticated, types.ErrInvalidSignature)
-	}
 	order.TaskID, err = deriveTaskID(order.SessionID, order.OrderSequence)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if envelope := m.GetRequestEnvelope(); envelope != nil && envelope.GetTaskId() != "" && envelope.GetTaskId() != order.TaskID {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request envelope task_id mismatch"))
 	}
 	order.PayloadCID = m.GetPayloadRef()
 	if err := validateOrderPayload(order.PayloadHash, order.PayloadCID, m.GetPayload()); err != nil {
@@ -417,7 +407,7 @@ func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv
 			return bodyErr(err)
 		}
 	}
-	if _, err := s.checkOptionalEnvelope(ctx, m.GetRequestEnvelope(), envelopeCheck{
+	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
 		method: "GetTaskEvents", body: body, sessionAllowed: true, replay: s.replay,
 	}); err != nil {
 		return err
@@ -479,7 +469,7 @@ func (s *service) PrepareChallenge(ctx context.Context, req *connect.Request[nex
 			return nil, bodyErr(err)
 		}
 	}
-	if _, err := s.checkOptionalEnvelope(ctx, m.GetRequestEnvelope(), envelopeCheck{
+	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
 		method: "PrepareChallenge", body: body, sessionAllowed: true, replay: s.replay,
 	}); err != nil {
 		return nil, err

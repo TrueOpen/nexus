@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
@@ -92,6 +93,8 @@ func UserAddressBytes(bech32Address string) ([20]byte, error) {
 type SessionGrantEnv struct {
 	Chain     sdkauth.Chain
 	MaxBlocks uint64
+	// AddressPrefix, when set, is the Bech32 prefix requester_address must carry.
+	AddressPrefix string
 }
 
 // sessionAllowed reports whether a session key may sign this request: only metadata and fetch of an
@@ -117,6 +120,9 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	if err != nil {
 		return err
 	}
+	if p := env.AddressPrefix; p != "" && auth.RequesterAddress[:strings.LastIndex(auth.RequesterAddress, "1")] != p {
+		return fmt.Errorf("%w: requester_address is not a %q address", ErrMalformed, p)
+	}
 	var grantHash [32]byte
 	var sessionKey [20]byte
 	if auth.SessionGrant != nil {
@@ -124,16 +130,24 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 			return fmt.Errorf("%w: only metadata and fetch of an OUTPUT object may be signed by a session key", ErrSessionMethodNotAllowed)
 		}
 		grantHash, sessionKey, err = sdkauth.VerifyGrant(ctx, auth.SessionGrant, sdkauth.GrantCheck{
-			ChainID: auth.ChainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
+			ChainID: auth.ChainID, RequestChainID: auth.ChainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
 			Chain: env.Chain, MaxBlocks: env.MaxBlocks,
 		})
+		// Report the grant failure under this path's own code, without the SDK code in front.
+		reason := ""
+		var grantErr *sdkauth.GrantError
+		if errors.As(err, &grantErr) {
+			reason = grantErr.Reason
+		} else if err != nil {
+			reason = err.Error()
+		}
 		switch {
 		case errors.Is(err, sdkauth.ErrSessionGrantExpired):
-			return fmt.Errorf("%w: %v", ErrSessionGrantExpired, err)
+			return fmt.Errorf("%w: %s", ErrSessionGrantExpired, reason)
 		case errors.Is(err, sdkauth.ErrUnavailable):
-			return fmt.Errorf("%w: %v", ErrAuthorityUnavailable, err)
+			return fmt.Errorf("%w: %s", ErrAuthorityUnavailable, reason)
 		case err != nil:
-			return fmt.Errorf("%w: %v", ErrSessionGrantInvalid, err)
+			return fmt.Errorf("%w: %s", ErrSessionGrantInvalid, reason)
 		}
 	}
 	digest, err := UserTaskDataRequestDigest(auth, numericChainID, grantHash)
@@ -142,7 +156,7 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	}
 	recovered, err := eip712.Recover(digest, auth.Signature)
 	if err != nil {
-		return fmt.Errorf("%w: USER signature: %v", ErrUnauthorized, err)
+		return fmt.Errorf("%w: USER signature: %v", ErrInvalidSignature, err)
 	}
 	want := declared
 	if auth.SessionGrant != nil {
@@ -150,7 +164,7 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	}
 	if recovered.Address != want {
 		return fmt.Errorf("%w: USER signature recovers %s, not %s",
-			ErrUnauthorized, hex.EncodeToString(recovered.Address[:]), hex.EncodeToString(want[:]))
+			ErrInvalidSignature, hex.EncodeToString(recovered.Address[:]), hex.EncodeToString(want[:]))
 	}
 	return nil
 }

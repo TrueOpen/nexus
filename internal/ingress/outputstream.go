@@ -256,7 +256,8 @@ func (s *service) ackOutputStream(
 	return connect.NewResponse(&nexusv1.AckOutputResponse{Acked: true, AckedAt: now}), nil
 }
 
-// requireTaskOwner: streaming subscribe and ACK are allowed only for the ordering user.
+// requireTaskOwner: output subscribe and ACK, task events and challenge preparation are allowed only
+// for the ordering user.
 func (s *service) requireTaskOwner(ctx context.Context, sessionID, taskID, requester string) error {
 	owner, err := s.h.TaskOwner(ctx, sessionID, taskID)
 	if err != nil {
@@ -266,7 +267,7 @@ func (s *service) requireTaskOwner(ctx context.Context, sessionID, taskID, reque
 		return connect.NewError(connect.CodeUnavailable, err)
 	}
 	if owner == "" || owner != requester {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may subscribe"))
+		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may read this task"))
 	}
 	return nil
 }

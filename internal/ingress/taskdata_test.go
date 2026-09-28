@@ -707,7 +707,7 @@ func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 		want string
 	}{
 		{name: "envelope signed by someone else", edit: func(h *nexusv1.OpenTaskHeader) { reEnvelopeOpenTask(t, other, h) },
-			code: connect.CodePermissionDenied, want: "is not the order user"},
+			code: connect.CodeUnauthenticated, want: sdkauth.ErrInvalidSignature.Error()},
 		{name: "outer signature present", edit: func(h *nexusv1.OpenTaskHeader) {
 			h.Signature = bytes.Repeat([]byte{1}, 64) //nolint:staticcheck // the deprecated field must be empty
 			h.SignatureScheme = "secp256k1"           //nolint:staticcheck

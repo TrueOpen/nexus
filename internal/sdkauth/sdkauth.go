@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
@@ -241,8 +242,10 @@ func RequestDigest(e *Envelope, body, grantHash [32]byte, evmChainID uint64) ([3
 
 // GrantCheck is the environment a session grant is verified in.
 type GrantCheck struct {
-	ChainID    string
-	EVMChainID uint64
+	// ChainID is this chain; RequestChainID the chain_id the request carries. The grant must name both.
+	ChainID        string
+	RequestChainID string
+	EVMChainID     uint64
 	// User is the account the grant must be for: signer_address of an SDK request, requester_address
 	// of a Task data request.
 	User      string
@@ -275,8 +278,9 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	if g == nil {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is absent")
 	}
-	if g.ChainID != c.ChainID {
-		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for chain %q, not %q", g.ChainID, c.ChainID)
+	if g.ChainID != c.ChainID || g.ChainID != c.RequestChainID {
+		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for chain %q; the request is for %q on chain %q",
+			g.ChainID, c.RequestChainID, c.ChainID)
 	}
 	if g.User != c.User {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the request signer %q", g.User, c.User)
@@ -339,6 +343,19 @@ func matchAccountKey(ctx context.Context, chain Chain, address string, compresse
 	return nil
 }
 
+// checkUserAddress requires a canonical 20-byte Bech32 address under prefix (any prefix when prefix
+// is empty). An address under another prefix is malformed, not an account the chain can be asked about.
+func checkUserAddress(address, prefix string) error {
+	raw, err := nodecontract.CanonicalOperatorAddressBytes("signer_address", address)
+	if err != nil || len(raw) != 20 {
+		return fmt.Errorf("%w: signer_address is not a canonical 20-byte address", ErrMalformed)
+	}
+	if prefix != "" && address[:strings.LastIndex(address, "1")] != prefix {
+		return fmt.Errorf("%w: signer_address is not a %q address", ErrMalformed, prefix)
+	}
+	return nil
+}
+
 // checkFormat is step 1: everything a request must satisfy before any signature is looked at.
 func checkFormat(e *Envelope, opts VerifyOpts) error {
 	if e == nil {
@@ -351,8 +368,8 @@ func checkFormat(e *Envelope, opts VerifyOpts) error {
 		return fmt.Errorf("%w: method %q and endpoint %q do not name the called method %q",
 			ErrMalformed, e.Method, e.Endpoint, opts.Method)
 	}
-	if e.SignerAddress == "" {
-		return fmt.Errorf("%w: signer_address is required", ErrMalformed)
+	if err := checkUserAddress(e.SignerAddress, opts.Bech32Prefix); err != nil {
+		return err
 	}
 	if _, err := Hash32Hex("session_id", e.SessionID); err != nil {
 		return err
@@ -391,7 +408,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	var sessionKey [20]byte
 	if e.SessionGrant != nil {
 		hash, key, err := VerifyGrant(ctx, e.SessionGrant, GrantCheck{
-			ChainID: opts.ChainID, EVMChainID: opts.EVMChainID, User: e.SignerAddress,
+			ChainID: opts.ChainID, RequestChainID: e.ChainID, EVMChainID: opts.EVMChainID, User: e.SignerAddress,
 			Chain: opts.Chain, MaxBlocks: opts.MaxSessionGrantBlocks,
 		})
 		if err != nil {
@@ -411,6 +428,10 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	if e.ChainID != opts.ChainID {
 		return fmt.Errorf("%w: chain_id %q is not this chain", ErrInvalidSignature, e.ChainID)
 	}
+	// The digest above signs the body the verifier recomputed; the envelope's own copy must agree.
+	if !bytes.Equal(e.BodyDigest, opts.Body[:]) {
+		return fmt.Errorf("%w: body_digest does not match the request body", ErrInvalidSignature)
+	}
 	recovered, err := eip712.Recover(digest, e.Signature)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
@@ -420,10 +441,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 			return fmt.Errorf("%w: the request does not recover to the grant's session key", ErrInvalidSignature)
 		}
 	} else {
-		signer, err := nodecontract.CanonicalOperatorAddressBytes("signer_address", e.SignerAddress)
-		if err != nil || len(signer) != 20 {
-			return fmt.Errorf("%w: signer_address is not a canonical address", ErrMalformed)
-		}
+		signer, _ := nodecontract.CanonicalOperatorAddressBytes("signer_address", e.SignerAddress) // checked in checkFormat
 		if !bytes.Equal(recovered.Address[:], signer) {
 			return fmt.Errorf("%w: the request does not recover to signer_address", ErrInvalidSignature)
 		}

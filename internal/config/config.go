@@ -188,6 +188,11 @@ type IngressConfig struct {
 // value; set it explicitly when the network's block time differs.
 const DefaultMaxSessionGrantBlocks = uint64(17280)
 
+// MaxSessionGrantBlocksLimit caps ingress.max_session_grant_blocks at 518400 blocks, 30 days at
+// 5-second blocks: a session key lives in client memory and cannot be revoked, so a grant must not
+// be allowed to last almost forever.
+const MaxSessionGrantBlocksLimit = uint64(518400)
+
 // SessionGrantBlocks returns MaxSessionGrantBlocks, or the default when unset.
 func (c IngressConfig) SessionGrantBlocks() uint64 {
 	if c.MaxSessionGrantBlocks == 0 {
@@ -232,6 +237,9 @@ func (c Config) ValidateTransport() error {
 	}
 	if err := c.Ingress.TLS.Validate(); err != nil {
 		return err
+	}
+	if n := c.Ingress.SessionGrantBlocks(); n > MaxSessionGrantBlocksLimit {
+		return fmt.Errorf("ingress.max_session_grant_blocks %d is above the limit %d", n, MaxSessionGrantBlocksLimit)
 	}
 	endpoint := strings.TrimSpace(c.Identity.PublicEndpoint)
 	if !c.Ingress.TLS.Enabled || endpoint == "" {

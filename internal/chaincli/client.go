@@ -795,9 +795,13 @@ func (c *client) AccountInfo(ctx context.Context, address string) (AccountInfo, 
 // EVM-style, their address derived from the key with keccak.
 const ethSecp256k1PubKeyTypeURL = "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey"
 
+// baseAccountTypeURL is the only account type that can sign user requests. Module accounts and
+// vesting accounts are not user wallets.
+const baseAccountTypeURL = "/cosmos.auth.v1beta1.BaseAccount"
+
 // AccountPubKey returns the 33-byte compressed public key the account holds on chain. An account that
-// does not exist, holds no key yet (it has not sent a transaction), or holds a key of another type
-// returns ErrNotFound; a failed query returns another error.
+// does not exist, is not a plain BaseAccount, holds no key yet (it has not sent a transaction), or
+// holds a key of another type or shape returns ErrNotFound; only a failed query returns another error.
 func (c *client) AccountPubKey(ctx context.Context, address string) ([]byte, error) {
 	resp, err := c.auth.Account(ctx, connect.NewRequest(&authv1beta1.QueryAccountRequest{Address: address}))
 	if err != nil {
@@ -809,6 +813,9 @@ func (c *client) AccountPubKey(ctx context.Context, address string) ([]byte, err
 	anyAcc := resp.Msg.GetAccount()
 	if anyAcc == nil {
 		return nil, fmt.Errorf("query account %q: %w", address, ErrNotFound)
+	}
+	if anyAcc.GetTypeUrl() != baseAccountTypeURL {
+		return nil, fmt.Errorf("query account %q: %s is not a user account: %w", address, anyAcc.GetTypeUrl(), ErrNotFound)
 	}
 	var base authv1beta1.BaseAccount
 	if err := proto.Unmarshal(anyAcc.GetValue(), &base); err != nil {
@@ -823,7 +830,7 @@ func (c *client) AccountPubKey(ctx context.Context, address string) ([]byte, err
 	}
 	var pub ethsecp256k1.PubKey
 	if err := proto.Unmarshal(key.GetValue(), &pub); err != nil || len(pub.GetKey()) != 33 {
-		return nil, fmt.Errorf("query account %q: public key is not a 33-byte compressed key", address)
+		return nil, fmt.Errorf("query account %q: public key is not a 33-byte compressed key: %w", address, ErrNotFound)
 	}
 	return append([]byte(nil), pub.GetKey()...), nil
 }

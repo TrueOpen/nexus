@@ -225,8 +225,8 @@ func TestAuthorizerPermissionMatrix(t *testing.T) {
 				if err != nil {
 					t.Fatalf("metadata: %v", err)
 				}
-			} else if !errors.Is(err, ErrUnauthorized) {
-				t.Fatalf("metadata error = %v, want ErrUnauthorized", err)
+			} else if !deniedAccess(err) {
+				t.Fatalf("metadata error = %v, want a denial", err)
 			}
 
 			// Authorization compares the requester declared in the request: the ordering user is an

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1458,4 +1459,63 @@ func ackBody(t *testing.T, sessionID, taskID string, lastSeq uint64) []byte {
 		t.Fatalf("ack body: %v", err)
 	}
 	return body[:]
+}
+
+// GetTaskEvents and PrepareChallenge serve only the user who ordered the task: a request signed by
+// anyone else, or an envelope bound to another task, is refused.
+func TestTaskEventsAndChallengeRequireOrderUser(t *testing.T) {
+	owner := mustSigner(t, testKeyHex)
+	other := mustSigner(t, workerKeyHex)
+	session, task := testSessionID("session-owner-only"), testSessionID("task-owner-only")
+	otherTask := testSessionID("task-owner-other")
+	live := make(chan types.TaskEvent)
+	close(live)
+	fake := &fakeHandler{taskOwner: owner.Address(), live: live}
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	nonce := 0
+	events := func(sg signer.Signer, envelopeTask string) error {
+		nonce++
+		body, err := sdkauth.GetTaskEventsBody(session, envelopeTask, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream, err := client.GetTaskEvents(context.Background(), connect.NewRequest(&nexusv1.GetTaskEventsRequest{
+			SessionId: session, TaskId: task,
+			RequestEnvelope: signedTaskEnvelope(t, sg, "GetTaskEvents", nexusv1connect.IngressAPIGetTaskEventsProcedure,
+				session, envelopeTask, body[:], []byte("events-"+strconv.Itoa(nonce))),
+		}))
+		if err != nil {
+			return err
+		}
+		for stream.Receive() {
+		}
+		return stream.Err()
+	}
+	challenge := func(sg signer.Signer, envelopeTask string) error {
+		nonce++
+		body, err := sdkauth.PrepareChallengeBody(session, envelopeTask, "VERDICT_FRAUD_PROOF", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.PrepareChallenge(context.Background(), connect.NewRequest(&nexusv1.PrepareChallengeRequest{
+			SessionId: session, TaskId: task, ChallengeKind: "VERDICT_FRAUD_PROOF",
+			RequestEnvelope: signedTaskEnvelope(t, sg, "PrepareChallenge", nexusv1connect.IngressAPIPrepareChallengeProcedure,
+				session, envelopeTask, body[:], []byte("challenge-"+strconv.Itoa(nonce))),
+		}))
+		return err
+	}
+	for name, call := range map[string]func(signer.Signer, string) error{"GetTaskEvents": events, "PrepareChallenge": challenge} {
+		t.Run(name, func(t *testing.T) {
+			if err := call(owner, task); err != nil {
+				t.Fatalf("order user: %v", err)
+			}
+			if err := call(other, task); connect.CodeOf(err) != connect.CodePermissionDenied {
+				t.Fatalf("another user: code %v (%v), want permission_denied", connect.CodeOf(err), err)
+			}
+			if err := call(owner, otherTask); connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Fatalf("envelope for another task: code %v (%v), want invalid_argument", connect.CodeOf(err), err)
+			}
+		})
+	}
 }

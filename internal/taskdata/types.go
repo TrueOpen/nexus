@@ -15,6 +15,10 @@ var (
 	ErrServiceKeyUnavailable = errors.New("NEXUS_DATA_SERVICE_KEY_UNAVAILABLE")
 	ErrStorage               = errors.New("NEXUS_DATA_STORAGE")
 	ErrAuthorityUnavailable  = errors.New("NEXUS_DATA_AUTHORITY_UNAVAILABLE")
+	// USER requests: a signature that does not verify (including a wrong derived grant hash, a wrong
+	// domain chainId or a version 1 signature), and a verified requester without the Task duty.
+	ErrInvalidSignature = errors.New("DATA_ACCESS_INVALID_SIGNATURE")
+	ErrDenied           = errors.New("DATA_ACCESS_DENIED")
 	// Session grant failures on the USER path.
 	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
 	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")

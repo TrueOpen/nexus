@@ -238,16 +238,15 @@ func TestEIP712UserSessionRejects(t *testing.T) {
 	t.Run("request signed without the grant hash", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		auth.SessionGrant = nil // the session-key signature no longer recovers to the requester
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrUnauthorized) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrInvalidSignature) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("version 1 signature", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
-		// The obsolete version 1 vector's signature over the same request.
-		auth.Signature = mustHexT(t, "943dca70514347d66504059b4f0e2c24c69e54c747ca4886a8ce072a2922d30f"+
-			"1a0f1e6cc46dc2848bbd23870c287fb0017c8507113527da36a4e4248daa38b51c")
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, SessionGrantEnv{}); !errors.Is(err, ErrUnauthorized) {
+		// wire's obsolete version 1 signature over the same request.
+		auth.Signature = mustHexT(t, loadGoldenV1Signature(t))
+		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, SessionGrantEnv{}); !errors.Is(err, ErrInvalidSignature) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -332,4 +331,116 @@ func TestEIP712UserRejects(t *testing.T) {
 			t.Fatal("requester_kind selects the path; paths must not be mixed")
 		}
 	})
+}
+
+// The Task data rows of wire request_auth_negative_cases, byte for byte: the digest the verifier
+// rebuilds, the address the signature recovers to over it, and the error code.
+func TestEIP712UserWireNegativeCases(t *testing.T) {
+	var file struct {
+		Cases []struct {
+			Name      string `json:"name"`
+			Error     string `json:"error"`
+			Signature string `json:"signature_65"`
+			Digest    string `json:"signing_digest"`
+			Recovered string `json:"recovered_address"`
+			Signed    *struct {
+				Message map[string]string `json:"message"`
+			} `json:"signed"`
+			Verified *struct {
+				Domain map[string]string `json:"domain"`
+			} `json:"verified"`
+		} `json:"request_auth_negative_cases"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/account_signing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]error{
+		ErrInvalidSignature.Error():        ErrInvalidSignature,
+		ErrSessionMethodNotAllowed.Error(): ErrSessionMethodNotAllowed,
+	}
+	ctx := context.Background()
+	seen := 0
+	for _, row := range file.Cases {
+		t.Run(row.Name, func(t *testing.T) {
+			var auth RequestAuthV1
+			env := SessionGrantEnv{}
+			separator := EIP712DomainSeparator(goldenEIP712NumericChainID)
+			verifierChainID := uint64(goldenEIP712NumericChainID)
+			var grantHash [32]byte
+			switch row.Name {
+			case "task_data_request_other_evm_chain_id":
+				auth = goldenUserFetchAuth(t)
+				verifierChainID = mustUintT(t, row.Verified.Domain["chain_id"])
+				separator = EIP712DomainSeparator(verifierChainID)
+			case "task_data_request_domain_version_1":
+				auth = goldenUserFetchAuth(t)
+				separator = eip712.DomainSeparator(eip712DomainName, row.Verified.Domain["version"], goldenEIP712NumericChainID)
+			case "task_data_upload_with_session_grant":
+				auth, env = goldenUserSessionAuth(t)
+				auth.RPCMethod = row.Signed.Message["rpcMethod"]
+				auth.BodyDigest = row.Signed.Message["bodyDigest"]
+				auth.Signature = mustHexT(t, row.Signature)
+				h, err := sdkauth.SessionGrantHash(auth.SessionGrant)
+				if err != nil {
+					t.Fatal(err)
+				}
+				grantHash = h
+			default:
+				t.Skip("not a Task data row with published bytes")
+			}
+			seen++
+			hashStruct, err := eip712HashStruct(auth, grantHash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := eip712.Digest(separator, hashStruct)
+			if got := hex.EncodeToString(digest[:]); got != row.Digest {
+				t.Fatalf("signing_digest = %s, want %s", got, row.Digest)
+			}
+			recovered, err := eip712.Recover(digest, auth.Signature)
+			if err != nil || hex.EncodeToString(recovered.Address[:]) != row.Recovered {
+				t.Fatalf("recovered_address = %x (%v), want %s", recovered.Address, err, row.Recovered)
+			}
+			if row.Name == "task_data_request_domain_version_1" {
+				// Nexus has no version 1 route; the published version 1 signature must not verify.
+				auth.Signature = mustHexT(t, loadGoldenV1Signature(t))
+			}
+			want := codes[row.Error]
+			if want == nil {
+				t.Fatalf("unknown error %q", row.Error)
+			}
+			if err := VerifyUserTaskDataRequest(ctx, auth, verifierChainID, env); !errors.Is(err, want) {
+				t.Fatalf("err = %v, want %s", err, row.Error)
+			}
+		})
+	}
+	if seen != 3 {
+		t.Fatalf("checked %d Task data rows, want 3", seen)
+	}
+}
+
+func mustUintT(t *testing.T, s string) uint64 {
+	t.Helper()
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// loadGoldenV1Signature is the signature of wire's task_data_request_v1_obsolete section.
+func loadGoldenV1Signature(t *testing.T) string {
+	t.Helper()
+	var file struct {
+		V1 struct {
+			Signature string `json:"signature_65"`
+		} `json:"task_data_request_v1_obsolete"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/account_signing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.V1.Signature == "" {
+		t.Fatal("no task_data_request_v1_obsolete signature")
+	}
+	return file.V1.Signature
 }
