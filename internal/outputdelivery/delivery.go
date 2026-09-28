@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -177,14 +177,18 @@ func New(log *slog.Logger, store kv.Store, cfg Config, opts ...Option) (Manager,
 
 func deliveryKey(sessionID, taskID string) string { return sessionID + "|" + taskID }
 
+// outputID is a local delivery identifier: sha256 over the fields, each with a 4-byte big-endian
+// length prefix. It is never signed and has no wire contract; it only has to stay stable.
 func outputID(sessionID, taskID string, outputHash []byte) string {
-	sum := sdkauth.BodyDigest(
-		[]byte("TRUEOPEN_OUTPUT_DELIVERY_V1"),
-		[]byte(sessionID),
-		[]byte(taskID),
-		outputHash,
-	)
-	return hex.EncodeToString(sum)
+	var buf bytes.Buffer
+	var l [4]byte
+	for _, f := range [][]byte{[]byte("TRUEOPEN_OUTPUT_DELIVERY_V1"), []byte(sessionID), []byte(taskID), outputHash} {
+		binary.BigEndian.PutUint32(l[:], uint32(len(f)))
+		buf.Write(l[:])
+		buf.Write(f)
+	}
+	sum := sha256.Sum256(buf.Bytes())
+	return hex.EncodeToString(sum[:])
 }
 
 func (m *manager) Prepare(sub Submission) (string, bool, error) {

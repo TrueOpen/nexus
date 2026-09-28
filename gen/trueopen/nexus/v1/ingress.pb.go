@@ -909,7 +909,10 @@ type TaskDataRequestAuthV1 struct {
 	// the addition must be checked; never mix in Unix time or guess the unit from the magnitude.
 	ExpiryHeight uint64 `protobuf:"varint,10,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	// USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
-	Signature     []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	// USER only: a wallet-signed grant that lets a short-lived session key sign this request.
+	// Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
+	SessionGrant  *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1021,49 +1024,51 @@ func (x *TaskDataRequestAuthV1) GetSignature() []byte {
 	return nil
 }
 
-// SDKRequestEnvelopeV1 is the signed envelope of User-side SDK requests, used by OpenTask /
-// ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
-// Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
-//
-// SignBytes (concatenated in order, each with a 4-byte big-endian length prefix):
-//
-//	TRUEOPEN_SDK_REQUEST_V1, chain_id, method, endpoint, session_id, task_id,
-//	request_nonce, i64be(expiry_height_or_time), body_digest
-//
-// Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
-// SignBytes does not cover signer_address; the address is checked via bech32(signer_pubkey).
-type SDKRequestEnvelopeV1 struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	RequestDomain      string                 `protobuf:"bytes,1,opt,name=request_domain,json=requestDomain,proto3" json:"request_domain,omitempty"`                     // fixed "TRUEOPEN_SDK_REQUEST_V1"
-	ChainId            string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`                                       // prevents cross-chain replay
-	Method             string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`                                                        // IngressAPI method name
-	Endpoint           string                 `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`                                                    // endpoint being accessed
-	SessionId          string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                 // required for requests that have a session
-	TaskId             string                 `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                          // required for requests that have a task
-	RequestNonce       []byte                 `protobuf:"bytes,7,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`                        // client request nonce
-	ExpiryHeightOrTime int64                  `protobuf:"varint,8,opt,name=expiry_height_or_time,json=expiryHeightOrTime,proto3" json:"expiry_height_or_time,omitempty"` // expiry height or Unix milliseconds
-	BodyDigest         []byte                 `protobuf:"bytes,9,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`                              // canonical digest of the request body
-	SignerAddress      string                 `protobuf:"bytes,10,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`                    // on-chain address of the SDK user
-	Signature          []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`                                                 // covers the fields above (sha256 then secp256k1, 64B r||s)
-	SignerPubkey       []byte                 `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"`                       // compressed public key (for verification)
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+func (x *TaskDataRequestAuthV1) GetSessionGrant() *SessionGrantV1 {
+	if x != nil {
+		return x.SessionGrant
+	}
+	return nil
 }
 
-func (x *SDKRequestEnvelopeV1) Reset() {
-	*x = SDKRequestEnvelopeV1{}
+// SessionGrantV1 lets a short-lived, client-generated session key sign a closed set of User
+// requests after one wallet prompt: SubscribeOutput, AckOutput, GetTaskEvents and PrepareChallenge
+// on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT object on
+// TaskDataRequestAuthV1. OpenTask and every other request must be signed by the wallet directly
+// and are rejected when they carry a grant.
+//
+// user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
+// "TrueOpen SDK Request" domain. It must recover to user, an existing account whose stored public
+// key it matches. The grant is valid while
+// current_height <= expiry_height <= current_height + max_session_grant_blocks; there is no
+// revocation, and the grant may be reused until it expires. The request signature is compared
+// only with session_key.
+type SessionGrantV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChainId       string                 `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	User          string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`                               // canonical bech32 address of the granting user
+	SessionKey    []byte                 `protobuf:"bytes,3,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"` // raw 20-byte address of the session key
+	ExpiryHeight  uint64                 `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	GrantNonce    []byte                 `protobuf:"bytes,5,opt,name=grant_nonce,json=grantNonce,proto3" json:"grant_nonce,omitempty"`          // 32 bytes from a CSPRNG
+	UserSignature []byte                 `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"` // 65 bytes R||S||V
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionGrantV1) Reset() {
+	*x = SessionGrantV1{}
 	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SDKRequestEnvelopeV1) String() string {
+func (x *SessionGrantV1) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SDKRequestEnvelopeV1) ProtoMessage() {}
+func (*SessionGrantV1) ProtoMessage() {}
 
-func (x *SDKRequestEnvelopeV1) ProtoReflect() protoreflect.Message {
+func (x *SessionGrantV1) ProtoReflect() protoreflect.Message {
 	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1075,110 +1080,229 @@ func (x *SDKRequestEnvelopeV1) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SDKRequestEnvelopeV1.ProtoReflect.Descriptor instead.
-func (*SDKRequestEnvelopeV1) Descriptor() ([]byte, []int) {
+// Deprecated: Use SessionGrantV1.ProtoReflect.Descriptor instead.
+func (*SessionGrantV1) Descriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *SDKRequestEnvelopeV1) GetRequestDomain() string {
-	if x != nil {
-		return x.RequestDomain
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV1) GetChainId() string {
+func (x *SessionGrantV1) GetChainId() string {
 	if x != nil {
 		return x.ChainId
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetMethod() string {
+func (x *SessionGrantV1) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
+func (x *SessionGrantV1) GetSessionKey() []byte {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (x *SessionGrantV1) GetExpiryHeight() uint64 {
+	if x != nil {
+		return x.ExpiryHeight
+	}
+	return 0
+}
+
+func (x *SessionGrantV1) GetGrantNonce() []byte {
+	if x != nil {
+		return x.GrantNonce
+	}
+	return nil
+}
+
+func (x *SessionGrantV1) GetUserSignature() []byte {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+// SDKRequestEnvelopeV2 is the signed envelope of User-side SDK requests, used by OpenTask /
+// ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
+// Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
+//
+// signature is 65 bytes R||S||V (V in {27, 28}, low S) over the EIP-712 SDKRequest digest in the
+// "TrueOpen SDK Request" domain (chainId = the chain's EVM chain ID):
+//
+//	SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
+//	           bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
+//
+// The verifier recovers the signer; signer_address must equal the recovered address (the granting
+// user when session_grant is set). request_domain, signer_address, signature and the deprecated
+// signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
+// TRUEOPEN_SDK_BODY_*_V1 domain.
+// Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
+type SDKRequestEnvelopeV2 struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestDomain      string                 `protobuf:"bytes,1,opt,name=request_domain,json=requestDomain,proto3" json:"request_domain,omitempty"`                     // fixed "TRUEOPEN_SDK_REQUEST_V2"
+	ChainId            string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`                                       // prevents cross-chain replay
+	Method             string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`                                                        // bare IngressAPI method name
+	Endpoint           string                 `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`                                                    // "/nexus.v1.IngressAPI/<Method>", <Method> equal to method
+	SessionId          string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                 // 64 lowercase hex
+	TaskId             string                 `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                          // 64 lowercase hex
+	RequestNonce       []byte                 `protobuf:"bytes,7,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`                        // exactly 32 bytes
+	ExpiryHeightOrTime int64                  `protobuf:"varint,8,opt,name=expiry_height_or_time,json=expiryHeightOrTime,proto3" json:"expiry_height_or_time,omitempty"` // expiry height or Unix milliseconds; must be > 0
+	BodyDigest         []byte                 `protobuf:"bytes,9,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`                              // 32 bytes, see above
+	SignerAddress      string                 `protobuf:"bytes,10,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`                    // on-chain address of the SDK user
+	Signature          []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`                                                 // 65 bytes R||S||V over the SDKRequest digest
+	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
+	SignerPubkey  []byte          `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"` // ignored
+	SessionGrant  *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = signed by the user's wallet
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SDKRequestEnvelopeV2) Reset() {
+	*x = SDKRequestEnvelopeV2{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SDKRequestEnvelopeV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SDKRequestEnvelopeV2) ProtoMessage() {}
+
+func (x *SDKRequestEnvelopeV2) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SDKRequestEnvelopeV2.ProtoReflect.Descriptor instead.
+func (*SDKRequestEnvelopeV2) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SDKRequestEnvelopeV2) GetRequestDomain() string {
+	if x != nil {
+		return x.RequestDomain
+	}
+	return ""
+}
+
+func (x *SDKRequestEnvelopeV2) GetChainId() string {
+	if x != nil {
+		return x.ChainId
+	}
+	return ""
+}
+
+func (x *SDKRequestEnvelopeV2) GetMethod() string {
 	if x != nil {
 		return x.Method
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetEndpoint() string {
+func (x *SDKRequestEnvelopeV2) GetEndpoint() string {
 	if x != nil {
 		return x.Endpoint
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetSessionId() string {
+func (x *SDKRequestEnvelopeV2) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetTaskId() string {
+func (x *SDKRequestEnvelopeV2) GetTaskId() string {
 	if x != nil {
 		return x.TaskId
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetRequestNonce() []byte {
+func (x *SDKRequestEnvelopeV2) GetRequestNonce() []byte {
 	if x != nil {
 		return x.RequestNonce
 	}
 	return nil
 }
 
-func (x *SDKRequestEnvelopeV1) GetExpiryHeightOrTime() int64 {
+func (x *SDKRequestEnvelopeV2) GetExpiryHeightOrTime() int64 {
 	if x != nil {
 		return x.ExpiryHeightOrTime
 	}
 	return 0
 }
 
-func (x *SDKRequestEnvelopeV1) GetBodyDigest() []byte {
+func (x *SDKRequestEnvelopeV2) GetBodyDigest() []byte {
 	if x != nil {
 		return x.BodyDigest
 	}
 	return nil
 }
 
-func (x *SDKRequestEnvelopeV1) GetSignerAddress() string {
+func (x *SDKRequestEnvelopeV2) GetSignerAddress() string {
 	if x != nil {
 		return x.SignerAddress
 	}
 	return ""
 }
 
-func (x *SDKRequestEnvelopeV1) GetSignature() []byte {
+func (x *SDKRequestEnvelopeV2) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
 	}
 	return nil
 }
 
-func (x *SDKRequestEnvelopeV1) GetSignerPubkey() []byte {
+// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
+func (x *SDKRequestEnvelopeV2) GetSignerPubkey() []byte {
 	if x != nil {
 		return x.SignerPubkey
 	}
 	return nil
 }
 
-// OpenTaskHeader is the first frame of OpenTask. order_envelope + signature_scheme +
-// signature together form the SignedOrder.
+func (x *SDKRequestEnvelopeV2) GetSessionGrant() *SessionGrantV1 {
+	if x != nil {
+		return x.SessionGrant
+	}
+	return nil
+}
+
+// OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
+// protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
+// verifies. There is no outer order signature: signature and signature_scheme must be empty.
+// The request envelope must be signed by the order user's wallet (no session grant).
 type OpenTaskHeader struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	OrderEnvelope   []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
-	PayloadRef      string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"`
-	Signature       []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	SessionId       string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence   uint64                 `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	UserAddress     string                 `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
-	SignatureScheme string                 `protobuf:"bytes,8,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
-	InputSizeBytes  uint64                 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
-	InputHash       string                 `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
-	InputMediaType  string                 `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrderEnvelope []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
+	PayloadRef    string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"` // must equal "nexus://sha256/" || lowercase_hex(input_hash)
+	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
+	Signature       []byte                `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	SessionId       string                `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence   uint64                `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	UserAddress     string                `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
+	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
+	SignatureScheme string `protobuf:"bytes,8,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
+	InputSizeBytes  uint64 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
+	InputHash       string `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
+	InputMediaType  string `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
 	// Required: the User keeps it unchanged across retries; same key + same
 	// input_hash returns the same result, same key + different input_hash is rejected.
 	IdempotencyKey string `protobuf:"bytes,12,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
@@ -1188,7 +1312,7 @@ type OpenTaskHeader struct {
 
 func (x *OpenTaskHeader) Reset() {
 	*x = OpenTaskHeader{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1324,7 @@ func (x *OpenTaskHeader) String() string {
 func (*OpenTaskHeader) ProtoMessage() {}
 
 func (x *OpenTaskHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1337,7 @@ func (x *OpenTaskHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskHeader.ProtoReflect.Descriptor instead.
 func (*OpenTaskHeader) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{7}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OpenTaskHeader) GetOrderEnvelope() []byte {
@@ -1230,6 +1354,7 @@ func (x *OpenTaskHeader) GetPayloadRef() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 func (x *OpenTaskHeader) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
@@ -1237,7 +1362,7 @@ func (x *OpenTaskHeader) GetSignature() []byte {
 	return nil
 }
 
-func (x *OpenTaskHeader) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *OpenTaskHeader) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -1265,6 +1390,7 @@ func (x *OpenTaskHeader) GetUserAddress() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 func (x *OpenTaskHeader) GetSignatureScheme() string {
 	if x != nil {
 		return x.SignatureScheme
@@ -1316,7 +1442,7 @@ type OpenTaskRequest struct {
 
 func (x *OpenTaskRequest) Reset() {
 	*x = OpenTaskRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1328,7 +1454,7 @@ func (x *OpenTaskRequest) String() string {
 func (*OpenTaskRequest) ProtoMessage() {}
 
 func (x *OpenTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1341,7 +1467,7 @@ func (x *OpenTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskRequest.ProtoReflect.Descriptor instead.
 func (*OpenTaskRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{8}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *OpenTaskRequest) GetFrame() isOpenTaskRequest_Frame {
@@ -1401,7 +1527,7 @@ type OpenTaskResponse struct {
 
 func (x *OpenTaskResponse) Reset() {
 	*x = OpenTaskResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1413,7 +1539,7 @@ func (x *OpenTaskResponse) String() string {
 func (*OpenTaskResponse) ProtoMessage() {}
 
 func (x *OpenTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1426,7 +1552,7 @@ func (x *OpenTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskResponse.ProtoReflect.Descriptor instead.
 func (*OpenTaskResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{9}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *OpenTaskResponse) GetTaskId() string {
@@ -1476,7 +1602,7 @@ type ConfirmOpenTaskRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	// Strictly ascending and unique by Builder operator raw bytes, and all must reference the
 	// same INPUT object ref. Confirmations for an old RBF task_hash do not count toward the new version.
 	InputConfirmations []*BuilderStorageConfirmationV1 `protobuf:"bytes,4,rep,name=input_confirmations,json=inputConfirmations,proto3" json:"input_confirmations,omitempty"`
@@ -1486,7 +1612,7 @@ type ConfirmOpenTaskRequest struct {
 
 func (x *ConfirmOpenTaskRequest) Reset() {
 	*x = ConfirmOpenTaskRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1498,7 +1624,7 @@ func (x *ConfirmOpenTaskRequest) String() string {
 func (*ConfirmOpenTaskRequest) ProtoMessage() {}
 
 func (x *ConfirmOpenTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1511,7 +1637,7 @@ func (x *ConfirmOpenTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfirmOpenTaskRequest.ProtoReflect.Descriptor instead.
 func (*ConfirmOpenTaskRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{10}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ConfirmOpenTaskRequest) GetSessionId() string {
@@ -1528,7 +1654,7 @@ func (x *ConfirmOpenTaskRequest) GetTaskId() string {
 	return ""
 }
 
-func (x *ConfirmOpenTaskRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *ConfirmOpenTaskRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -1553,7 +1679,7 @@ type ConfirmOpenTaskResponse struct {
 
 func (x *ConfirmOpenTaskResponse) Reset() {
 	*x = ConfirmOpenTaskResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1565,7 +1691,7 @@ func (x *ConfirmOpenTaskResponse) String() string {
 func (*ConfirmOpenTaskResponse) ProtoMessage() {}
 
 func (x *ConfirmOpenTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1578,7 +1704,7 @@ func (x *ConfirmOpenTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfirmOpenTaskResponse.ProtoReflect.Descriptor instead.
 func (*ConfirmOpenTaskResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{11}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ConfirmOpenTaskResponse) GetRecorded() bool {
@@ -1610,7 +1736,7 @@ type UploadTaskResultObjectHeaderV1 struct {
 
 func (x *UploadTaskResultObjectHeaderV1) Reset() {
 	*x = UploadTaskResultObjectHeaderV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1622,7 +1748,7 @@ func (x *UploadTaskResultObjectHeaderV1) String() string {
 func (*UploadTaskResultObjectHeaderV1) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectHeaderV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1635,7 +1761,7 @@ func (x *UploadTaskResultObjectHeaderV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectHeaderV1.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectHeaderV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{12}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UploadTaskResultObjectHeaderV1) GetObjectRef() *TaskDataObjectRefV1 {
@@ -1682,7 +1808,7 @@ type UploadTaskResultObjectRequest struct {
 
 func (x *UploadTaskResultObjectRequest) Reset() {
 	*x = UploadTaskResultObjectRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1694,7 +1820,7 @@ func (x *UploadTaskResultObjectRequest) String() string {
 func (*UploadTaskResultObjectRequest) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1707,7 +1833,7 @@ func (x *UploadTaskResultObjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectRequest.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{13}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UploadTaskResultObjectRequest) GetFrame() isUploadTaskResultObjectRequest_Frame {
@@ -1764,7 +1890,7 @@ type UploadTaskResultObjectResponse struct {
 
 func (x *UploadTaskResultObjectResponse) Reset() {
 	*x = UploadTaskResultObjectResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1776,7 +1902,7 @@ func (x *UploadTaskResultObjectResponse) String() string {
 func (*UploadTaskResultObjectResponse) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1789,7 +1915,7 @@ func (x *UploadTaskResultObjectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectResponse.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{14}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UploadTaskResultObjectResponse) GetAccepted() bool {
@@ -1848,7 +1974,7 @@ type OutputStreamHeaderV2 struct {
 
 func (x *OutputStreamHeaderV2) Reset() {
 	*x = OutputStreamHeaderV2{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1860,7 +1986,7 @@ func (x *OutputStreamHeaderV2) String() string {
 func (*OutputStreamHeaderV2) ProtoMessage() {}
 
 func (x *OutputStreamHeaderV2) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1873,7 +1999,7 @@ func (x *OutputStreamHeaderV2) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamHeaderV2.ProtoReflect.Descriptor instead.
 func (*OutputStreamHeaderV2) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{15}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *OutputStreamHeaderV2) GetSessionId() string {
@@ -1971,7 +2097,7 @@ type OutputChunkV1 struct {
 
 func (x *OutputChunkV1) Reset() {
 	*x = OutputChunkV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1983,7 +2109,7 @@ func (x *OutputChunkV1) String() string {
 func (*OutputChunkV1) ProtoMessage() {}
 
 func (x *OutputChunkV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1996,7 +2122,7 @@ func (x *OutputChunkV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputChunkV1.ProtoReflect.Descriptor instead.
 func (*OutputChunkV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{16}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *OutputChunkV1) GetSeq() uint64 {
@@ -2062,7 +2188,7 @@ type OutputFinV1 struct {
 
 func (x *OutputFinV1) Reset() {
 	*x = OutputFinV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2074,7 +2200,7 @@ func (x *OutputFinV1) String() string {
 func (*OutputFinV1) ProtoMessage() {}
 
 func (x *OutputFinV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2087,7 +2213,7 @@ func (x *OutputFinV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputFinV1.ProtoReflect.Descriptor instead.
 func (*OutputFinV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{17}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *OutputFinV1) GetFinalSeq() uint64 {
@@ -2135,7 +2261,7 @@ type UploadTaskOutputStreamRequest struct {
 
 func (x *UploadTaskOutputStreamRequest) Reset() {
 	*x = UploadTaskOutputStreamRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2147,7 +2273,7 @@ func (x *UploadTaskOutputStreamRequest) String() string {
 func (*UploadTaskOutputStreamRequest) ProtoMessage() {}
 
 func (x *UploadTaskOutputStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2160,7 +2286,7 @@ func (x *UploadTaskOutputStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskOutputStreamRequest.ProtoReflect.Descriptor instead.
 func (*UploadTaskOutputStreamRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{18}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *UploadTaskOutputStreamRequest) GetFrame() isUploadTaskOutputStreamRequest_Frame {
@@ -2238,7 +2364,7 @@ type OutputStreamProgressV1 struct {
 
 func (x *OutputStreamProgressV1) Reset() {
 	*x = OutputStreamProgressV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2250,7 +2376,7 @@ func (x *OutputStreamProgressV1) String() string {
 func (*OutputStreamProgressV1) ProtoMessage() {}
 
 func (x *OutputStreamProgressV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2263,7 +2389,7 @@ func (x *OutputStreamProgressV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamProgressV1.ProtoReflect.Descriptor instead.
 func (*OutputStreamProgressV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{19}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *OutputStreamProgressV1) GetLastSeq() uint64 {
@@ -2302,7 +2428,7 @@ type OutputStreamResultV1 struct {
 
 func (x *OutputStreamResultV1) Reset() {
 	*x = OutputStreamResultV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +2440,7 @@ func (x *OutputStreamResultV1) String() string {
 func (*OutputStreamResultV1) ProtoMessage() {}
 
 func (x *OutputStreamResultV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2327,7 +2453,7 @@ func (x *OutputStreamResultV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamResultV1.ProtoReflect.Descriptor instead.
 func (*OutputStreamResultV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{20}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *OutputStreamResultV1) GetAccepted() bool {
@@ -2375,7 +2501,7 @@ type UploadTaskOutputStreamResponse struct {
 
 func (x *UploadTaskOutputStreamResponse) Reset() {
 	*x = UploadTaskOutputStreamResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2387,7 +2513,7 @@ func (x *UploadTaskOutputStreamResponse) String() string {
 func (*UploadTaskOutputStreamResponse) ProtoMessage() {}
 
 func (x *UploadTaskOutputStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2400,7 +2526,7 @@ func (x *UploadTaskOutputStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskOutputStreamResponse.ProtoReflect.Descriptor instead.
 func (*UploadTaskOutputStreamResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{21}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UploadTaskOutputStreamResponse) GetReply() isUploadTaskOutputStreamResponse_Reply {
@@ -2456,7 +2582,7 @@ type GetTaskDataMetadataRequest struct {
 
 func (x *GetTaskDataMetadataRequest) Reset() {
 	*x = GetTaskDataMetadataRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2468,7 +2594,7 @@ func (x *GetTaskDataMetadataRequest) String() string {
 func (*GetTaskDataMetadataRequest) ProtoMessage() {}
 
 func (x *GetTaskDataMetadataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2481,7 +2607,7 @@ func (x *GetTaskDataMetadataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskDataMetadataRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskDataMetadataRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{22}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetTaskDataMetadataRequest) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2514,7 +2640,7 @@ type GetTaskDataMetadataResponse struct {
 
 func (x *GetTaskDataMetadataResponse) Reset() {
 	*x = GetTaskDataMetadataResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2526,7 +2652,7 @@ func (x *GetTaskDataMetadataResponse) String() string {
 func (*GetTaskDataMetadataResponse) ProtoMessage() {}
 
 func (x *GetTaskDataMetadataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2539,7 +2665,7 @@ func (x *GetTaskDataMetadataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskDataMetadataResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskDataMetadataResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{23}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetTaskDataMetadataResponse) GetMetadata() *TaskDataObjectMetadataV1 {
@@ -2585,7 +2711,7 @@ type FetchTaskDataRequest struct {
 
 func (x *FetchTaskDataRequest) Reset() {
 	*x = FetchTaskDataRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2597,7 +2723,7 @@ func (x *FetchTaskDataRequest) String() string {
 func (*FetchTaskDataRequest) ProtoMessage() {}
 
 func (x *FetchTaskDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2610,7 +2736,7 @@ func (x *FetchTaskDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataRequest.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{24}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FetchTaskDataRequest) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2650,7 +2776,7 @@ type FetchTaskDataHeaderV1 struct {
 
 func (x *FetchTaskDataHeaderV1) Reset() {
 	*x = FetchTaskDataHeaderV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2662,7 +2788,7 @@ func (x *FetchTaskDataHeaderV1) String() string {
 func (*FetchTaskDataHeaderV1) ProtoMessage() {}
 
 func (x *FetchTaskDataHeaderV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2675,7 +2801,7 @@ func (x *FetchTaskDataHeaderV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataHeaderV1.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataHeaderV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{25}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *FetchTaskDataHeaderV1) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2719,7 +2845,7 @@ type FetchTaskDataChunkV1 struct {
 
 func (x *FetchTaskDataChunkV1) Reset() {
 	*x = FetchTaskDataChunkV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2731,7 +2857,7 @@ func (x *FetchTaskDataChunkV1) String() string {
 func (*FetchTaskDataChunkV1) ProtoMessage() {}
 
 func (x *FetchTaskDataChunkV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2744,7 +2870,7 @@ func (x *FetchTaskDataChunkV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataChunkV1.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataChunkV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{26}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *FetchTaskDataChunkV1) GetOffset() uint64 {
@@ -2784,7 +2910,7 @@ type FetchTaskDataResponse struct {
 
 func (x *FetchTaskDataResponse) Reset() {
 	*x = FetchTaskDataResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2796,7 +2922,7 @@ func (x *FetchTaskDataResponse) String() string {
 func (*FetchTaskDataResponse) ProtoMessage() {}
 
 func (x *FetchTaskDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2809,7 +2935,7 @@ func (x *FetchTaskDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataResponse.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{27}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *FetchTaskDataResponse) GetFrame() isFetchTaskDataResponse_Frame {
@@ -2879,7 +3005,7 @@ type FinalizeTaskResultRequest struct {
 
 func (x *FinalizeTaskResultRequest) Reset() {
 	*x = FinalizeTaskResultRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2891,7 +3017,7 @@ func (x *FinalizeTaskResultRequest) String() string {
 func (*FinalizeTaskResultRequest) ProtoMessage() {}
 
 func (x *FinalizeTaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2904,7 +3030,7 @@ func (x *FinalizeTaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeTaskResultRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeTaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{28}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *FinalizeTaskResultRequest) GetTaskHash() string {
@@ -2967,7 +3093,7 @@ type FinalizeTaskResultResponse struct {
 
 func (x *FinalizeTaskResultResponse) Reset() {
 	*x = FinalizeTaskResultResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2979,7 +3105,7 @@ func (x *FinalizeTaskResultResponse) String() string {
 func (*FinalizeTaskResultResponse) ProtoMessage() {}
 
 func (x *FinalizeTaskResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2992,7 +3118,7 @@ func (x *FinalizeTaskResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeTaskResultResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeTaskResultResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{29}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *FinalizeTaskResultResponse) GetAccepted() bool {
@@ -3045,7 +3171,7 @@ type FinalizeVerifierEvidenceRequest struct {
 
 func (x *FinalizeVerifierEvidenceRequest) Reset() {
 	*x = FinalizeVerifierEvidenceRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3057,7 +3183,7 @@ func (x *FinalizeVerifierEvidenceRequest) String() string {
 func (*FinalizeVerifierEvidenceRequest) ProtoMessage() {}
 
 func (x *FinalizeVerifierEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3070,7 +3196,7 @@ func (x *FinalizeVerifierEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeVerifierEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeVerifierEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{30}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *FinalizeVerifierEvidenceRequest) GetTaskHash() string {
@@ -3135,7 +3261,7 @@ type FinalizeVerifierEvidenceResponse struct {
 
 func (x *FinalizeVerifierEvidenceResponse) Reset() {
 	*x = FinalizeVerifierEvidenceResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3147,7 +3273,7 @@ func (x *FinalizeVerifierEvidenceResponse) String() string {
 func (*FinalizeVerifierEvidenceResponse) ProtoMessage() {}
 
 func (x *FinalizeVerifierEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3160,7 +3286,7 @@ func (x *FinalizeVerifierEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeVerifierEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeVerifierEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{31}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FinalizeVerifierEvidenceResponse) GetAccepted() bool {
@@ -3195,7 +3321,7 @@ type SubmitInferReceiptRequest struct {
 
 func (x *SubmitInferReceiptRequest) Reset() {
 	*x = SubmitInferReceiptRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3207,7 +3333,7 @@ func (x *SubmitInferReceiptRequest) String() string {
 func (*SubmitInferReceiptRequest) ProtoMessage() {}
 
 func (x *SubmitInferReceiptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3220,7 +3346,7 @@ func (x *SubmitInferReceiptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitInferReceiptRequest.ProtoReflect.Descriptor instead.
 func (*SubmitInferReceiptRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{32}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SubmitInferReceiptRequest) GetReceipt() *v11.InferReceiptV3 {
@@ -3243,7 +3369,7 @@ type SubmitInferReceiptResponse struct {
 
 func (x *SubmitInferReceiptResponse) Reset() {
 	*x = SubmitInferReceiptResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3255,7 +3381,7 @@ func (x *SubmitInferReceiptResponse) String() string {
 func (*SubmitInferReceiptResponse) ProtoMessage() {}
 
 func (x *SubmitInferReceiptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3268,7 +3394,7 @@ func (x *SubmitInferReceiptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitInferReceiptResponse.ProtoReflect.Descriptor instead.
 func (*SubmitInferReceiptResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{33}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SubmitInferReceiptResponse) GetRelayAccepted() bool {
@@ -3302,7 +3428,7 @@ type SubmitVerifyCommitRequest struct {
 
 func (x *SubmitVerifyCommitRequest) Reset() {
 	*x = SubmitVerifyCommitRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3314,7 +3440,7 @@ func (x *SubmitVerifyCommitRequest) String() string {
 func (*SubmitVerifyCommitRequest) ProtoMessage() {}
 
 func (x *SubmitVerifyCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3327,7 +3453,7 @@ func (x *SubmitVerifyCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyCommitRequest.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyCommitRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{34}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SubmitVerifyCommitRequest) GetCommit() *v11.VerifyCommitV1 {
@@ -3350,7 +3476,7 @@ type SubmitVerifyCommitResponse struct {
 
 func (x *SubmitVerifyCommitResponse) Reset() {
 	*x = SubmitVerifyCommitResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3362,7 +3488,7 @@ func (x *SubmitVerifyCommitResponse) String() string {
 func (*SubmitVerifyCommitResponse) ProtoMessage() {}
 
 func (x *SubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3375,7 +3501,7 @@ func (x *SubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyCommitResponse.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{35}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SubmitVerifyCommitResponse) GetRelayAccepted() bool {
@@ -3416,7 +3542,7 @@ type SubmitVerifyResultRequest struct {
 
 func (x *SubmitVerifyResultRequest) Reset() {
 	*x = SubmitVerifyResultRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3428,7 +3554,7 @@ func (x *SubmitVerifyResultRequest) String() string {
 func (*SubmitVerifyResultRequest) ProtoMessage() {}
 
 func (x *SubmitVerifyResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3441,7 +3567,7 @@ func (x *SubmitVerifyResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyResultRequest.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyResultRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{36}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SubmitVerifyResultRequest) GetReceipt() *v11.ResultReceiptV3 {
@@ -3464,7 +3590,7 @@ type SubmitVerifyResultResponse struct {
 
 func (x *SubmitVerifyResultResponse) Reset() {
 	*x = SubmitVerifyResultResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3476,7 +3602,7 @@ func (x *SubmitVerifyResultResponse) String() string {
 func (*SubmitVerifyResultResponse) ProtoMessage() {}
 
 func (x *SubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3489,7 +3615,7 @@ func (x *SubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyResultResponse.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyResultResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{37}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SubmitVerifyResultResponse) GetRelayAccepted() bool {
@@ -3539,7 +3665,7 @@ type CredentialV1 struct {
 
 func (x *CredentialV1) Reset() {
 	*x = CredentialV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3551,7 +3677,7 @@ func (x *CredentialV1) String() string {
 func (*CredentialV1) ProtoMessage() {}
 
 func (x *CredentialV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3564,7 +3690,7 @@ func (x *CredentialV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialV1.ProtoReflect.Descriptor instead.
 func (*CredentialV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{38}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *CredentialV1) GetCredentialId() string {
@@ -3636,7 +3762,7 @@ type SubmitOrderRequest struct {
 	OrderEnvelope   []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`       // signed order (contains model_id/price/timeout/nonce)
 	PayloadRef      string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"`                // nexus://sha256/<hex>; must match the payload content
 	Signature       []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`                                    // user signature
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"` // request signature envelope (required; may be absent in lenient mode)
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"` // request signature envelope (required; may be absent in lenient mode)
 	SessionId       string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	OrderSequence   uint64                 `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
 	UserAddress     string                 `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
@@ -3648,7 +3774,7 @@ type SubmitOrderRequest struct {
 
 func (x *SubmitOrderRequest) Reset() {
 	*x = SubmitOrderRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3660,7 +3786,7 @@ func (x *SubmitOrderRequest) String() string {
 func (*SubmitOrderRequest) ProtoMessage() {}
 
 func (x *SubmitOrderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3673,7 +3799,7 @@ func (x *SubmitOrderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitOrderRequest.ProtoReflect.Descriptor instead.
 func (*SubmitOrderRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{39}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SubmitOrderRequest) GetOrderEnvelope() []byte {
@@ -3697,7 +3823,7 @@ func (x *SubmitOrderRequest) GetSignature() []byte {
 	return nil
 }
 
-func (x *SubmitOrderRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *SubmitOrderRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -3752,7 +3878,7 @@ type SubmitOrderResponse struct {
 
 func (x *SubmitOrderResponse) Reset() {
 	*x = SubmitOrderResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3764,7 +3890,7 @@ func (x *SubmitOrderResponse) String() string {
 func (*SubmitOrderResponse) ProtoMessage() {}
 
 func (x *SubmitOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3777,7 +3903,7 @@ func (x *SubmitOrderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitOrderResponse.ProtoReflect.Descriptor instead.
 func (*SubmitOrderResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{40}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *SubmitOrderResponse) GetTaskId() string {
@@ -3817,7 +3943,7 @@ type FetchOutputRefRequest struct {
 	SessionId       string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                  // session identifier (composite key)
 	AccessLevel     AccessLevel            `protobuf:"varint,5,opt,name=access_level,json=accessLevel,proto3,enum=nexus.v1.AccessLevel" json:"access_level,omitempty"` // fetch authorization level (default PACKAGE: no sealed key)
 	Usage           string                 `protobuf:"bytes,6,opt,name=usage,proto3" json:"usage,omitempty"`                                                           // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`                // for SDK users; Verifiers use the role signature (signature)
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`                // for SDK users; Verifiers use the role signature (signature)
 	RequesterPubkey []byte                 `protobuf:"bytes,8,opt,name=requester_pubkey,json=requesterPubkey,proto3" json:"requester_pubkey,omitempty"`                // compressed public key for the role-signature path; check bech32(pubkey)==requester
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -3825,7 +3951,7 @@ type FetchOutputRefRequest struct {
 
 func (x *FetchOutputRefRequest) Reset() {
 	*x = FetchOutputRefRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3837,7 +3963,7 @@ func (x *FetchOutputRefRequest) String() string {
 func (*FetchOutputRefRequest) ProtoMessage() {}
 
 func (x *FetchOutputRefRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3850,7 +3976,7 @@ func (x *FetchOutputRefRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchOutputRefRequest.ProtoReflect.Descriptor instead.
 func (*FetchOutputRefRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *FetchOutputRefRequest) GetTaskId() string {
@@ -3895,7 +4021,7 @@ func (x *FetchOutputRefRequest) GetUsage() string {
 	return ""
 }
 
-func (x *FetchOutputRefRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *FetchOutputRefRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -3919,7 +4045,7 @@ type FetchOutputRefResponse struct {
 
 func (x *FetchOutputRefResponse) Reset() {
 	*x = FetchOutputRefResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3931,7 +4057,7 @@ func (x *FetchOutputRefResponse) String() string {
 func (*FetchOutputRefResponse) ProtoMessage() {}
 
 func (x *FetchOutputRefResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3944,7 +4070,7 @@ func (x *FetchOutputRefResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchOutputRefResponse.ProtoReflect.Descriptor instead.
 func (*FetchOutputRefResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *FetchOutputRefResponse) GetCredential() *CredentialV1 {
@@ -3960,7 +4086,7 @@ type SubscribeOutputRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	// Resume point; only frames with seq greater than this value are replayed. Leave
 	// unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
 	// any Task Builder with the last locally verified chunk index to resume. Explicit presence
@@ -3972,7 +4098,7 @@ type SubscribeOutputRequest struct {
 
 func (x *SubscribeOutputRequest) Reset() {
 	*x = SubscribeOutputRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3984,7 +4110,7 @@ func (x *SubscribeOutputRequest) String() string {
 func (*SubscribeOutputRequest) ProtoMessage() {}
 
 func (x *SubscribeOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3997,7 +4123,7 @@ func (x *SubscribeOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeOutputRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeOutputRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SubscribeOutputRequest) GetSessionId() string {
@@ -4014,7 +4140,7 @@ func (x *SubscribeOutputRequest) GetTaskId() string {
 	return ""
 }
 
-func (x *SubscribeOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *SubscribeOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -4066,7 +4192,7 @@ type SubscribeOutputResponse struct {
 
 func (x *SubscribeOutputResponse) Reset() {
 	*x = SubscribeOutputResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4078,7 +4204,7 @@ func (x *SubscribeOutputResponse) String() string {
 func (*SubscribeOutputResponse) ProtoMessage() {}
 
 func (x *SubscribeOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4091,7 +4217,7 @@ func (x *SubscribeOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeOutputResponse.ProtoReflect.Descriptor instead.
 func (*SubscribeOutputResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
 }
 
 // Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
@@ -4202,7 +4328,7 @@ type AckOutputRequest struct {
 	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 	OutputId        string                `protobuf:"bytes,3,opt,name=output_id,json=outputId,proto3" json:"output_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV1 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	// Index of the last chunk the User has verified locally.
 	LastSeq       uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -4211,7 +4337,7 @@ type AckOutputRequest struct {
 
 func (x *AckOutputRequest) Reset() {
 	*x = AckOutputRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4223,7 +4349,7 @@ func (x *AckOutputRequest) String() string {
 func (*AckOutputRequest) ProtoMessage() {}
 
 func (x *AckOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4236,7 +4362,7 @@ func (x *AckOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckOutputRequest.ProtoReflect.Descriptor instead.
 func (*AckOutputRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AckOutputRequest) GetSessionId() string {
@@ -4261,7 +4387,7 @@ func (x *AckOutputRequest) GetOutputId() string {
 	return ""
 }
 
-func (x *AckOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *AckOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -4287,7 +4413,7 @@ type AckOutputResponse struct {
 
 func (x *AckOutputResponse) Reset() {
 	*x = AckOutputResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4299,7 +4425,7 @@ func (x *AckOutputResponse) String() string {
 func (*AckOutputResponse) ProtoMessage() {}
 
 func (x *AckOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4312,7 +4438,7 @@ func (x *AckOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckOutputResponse.ProtoReflect.Descriptor instead.
 func (*AckOutputResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AckOutputResponse) GetAcked() bool {
@@ -4343,14 +4469,14 @@ type GetTaskEventsRequest struct {
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	FromCursor      string                 `protobuf:"bytes,3,opt,name=from_cursor,json=fromCursor,proto3" json:"from_cursor,omitempty"` // resume cursor after disconnect (last received cursor; empty = from the beginning)
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetTaskEventsRequest) Reset() {
 	*x = GetTaskEventsRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4362,7 +4488,7 @@ func (x *GetTaskEventsRequest) String() string {
 func (*GetTaskEventsRequest) ProtoMessage() {}
 
 func (x *GetTaskEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4375,7 +4501,7 @@ func (x *GetTaskEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskEventsRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{47}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetTaskEventsRequest) GetSessionId() string {
@@ -4399,7 +4525,7 @@ func (x *GetTaskEventsRequest) GetFromCursor() string {
 	return ""
 }
 
-func (x *GetTaskEventsRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *GetTaskEventsRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -4429,7 +4555,7 @@ type GetTaskEventsResponse struct {
 
 func (x *GetTaskEventsResponse) Reset() {
 	*x = GetTaskEventsResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4441,7 +4567,7 @@ func (x *GetTaskEventsResponse) String() string {
 func (*GetTaskEventsResponse) ProtoMessage() {}
 
 func (x *GetTaskEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4454,7 +4580,7 @@ func (x *GetTaskEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskEventsResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{48}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GetTaskEventsResponse) GetCursor() string {
@@ -4501,14 +4627,14 @@ type RefreshCredentialRequest struct {
 	Recipient           string                 `protobuf:"bytes,4,opt,name=recipient,proto3" json:"recipient,omitempty"`                                                   // target recipient (must match the original credential)
 	Usage               string                 `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`                                                           // fetch usage (must match the original credential)
 	RequestedValidUntil int64                  `protobuf:"varint,6,opt,name=requested_valid_until,json=requestedValidUntil,proto3" json:"requested_valid_until,omitempty"` // requested extension time (Unix milliseconds; clamped to the upper bound)
-	RequestEnvelope     *SDKRequestEnvelopeV1  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope     *SDKRequestEnvelopeV2  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RefreshCredentialRequest) Reset() {
 	*x = RefreshCredentialRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4520,7 +4646,7 @@ func (x *RefreshCredentialRequest) String() string {
 func (*RefreshCredentialRequest) ProtoMessage() {}
 
 func (x *RefreshCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4533,7 +4659,7 @@ func (x *RefreshCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshCredentialRequest.ProtoReflect.Descriptor instead.
 func (*RefreshCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{49}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *RefreshCredentialRequest) GetCredential() *CredentialV1 {
@@ -4578,7 +4704,7 @@ func (x *RefreshCredentialRequest) GetRequestedValidUntil() int64 {
 	return 0
 }
 
-func (x *RefreshCredentialRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *RefreshCredentialRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -4595,7 +4721,7 @@ type RefreshCredentialResponse struct {
 
 func (x *RefreshCredentialResponse) Reset() {
 	*x = RefreshCredentialResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4607,7 +4733,7 @@ func (x *RefreshCredentialResponse) String() string {
 func (*RefreshCredentialResponse) ProtoMessage() {}
 
 func (x *RefreshCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4620,7 +4746,7 @@ func (x *RefreshCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshCredentialResponse.ProtoReflect.Descriptor instead.
 func (*RefreshCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{50}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *RefreshCredentialResponse) GetCredential() *CredentialV1 {
@@ -4638,14 +4764,14 @@ type PrepareChallengeRequest struct {
 	TaskId              string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	ChallengeKind       string                 `protobuf:"bytes,3,opt,name=challenge_kind,json=challengeKind,proto3" json:"challenge_kind,omitempty"`                     // the challenge kind planned to be submitted
 	LocalEvidenceDigest []byte                 `protobuf:"bytes,4,opt,name=local_evidence_digest,json=localEvidenceDigest,proto3" json:"local_evidence_digest,omitempty"` // evidence digest already computed locally by the SDK (optional)
-	RequestEnvelope     *SDKRequestEnvelopeV1  `protobuf:"bytes,5,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	RequestEnvelope     *SDKRequestEnvelopeV2  `protobuf:"bytes,5,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PrepareChallengeRequest) Reset() {
 	*x = PrepareChallengeRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4657,7 +4783,7 @@ func (x *PrepareChallengeRequest) String() string {
 func (*PrepareChallengeRequest) ProtoMessage() {}
 
 func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4670,7 +4796,7 @@ func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeRequest.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{51}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *PrepareChallengeRequest) GetSessionId() string {
@@ -4701,7 +4827,7 @@ func (x *PrepareChallengeRequest) GetLocalEvidenceDigest() []byte {
 	return nil
 }
 
-func (x *PrepareChallengeRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
+func (x *PrepareChallengeRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	if x != nil {
 		return x.RequestEnvelope
 	}
@@ -4725,7 +4851,7 @@ type PrepareChallengeResponse struct {
 
 func (x *PrepareChallengeResponse) Reset() {
 	*x = PrepareChallengeResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4737,7 +4863,7 @@ func (x *PrepareChallengeResponse) String() string {
 func (*PrepareChallengeResponse) ProtoMessage() {}
 
 func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4750,7 +4876,7 @@ func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeResponse.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{52}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *PrepareChallengeResponse) GetChallengeOpen() bool {
@@ -4799,7 +4925,7 @@ type Coin struct {
 
 func (x *Coin) Reset() {
 	*x = Coin{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4811,7 +4937,7 @@ func (x *Coin) String() string {
 func (*Coin) ProtoMessage() {}
 
 func (x *Coin) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4824,7 +4950,7 @@ func (x *Coin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Coin.ProtoReflect.Descriptor instead.
 func (*Coin) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{53}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *Coin) GetDenom() string {
@@ -4852,7 +4978,7 @@ type GetTaskStatusRequest struct {
 
 func (x *GetTaskStatusRequest) Reset() {
 	*x = GetTaskStatusRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4864,7 +4990,7 @@ func (x *GetTaskStatusRequest) String() string {
 func (*GetTaskStatusRequest) ProtoMessage() {}
 
 func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4877,7 +5003,7 @@ func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{54}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *GetTaskStatusRequest) GetTaskId() string {
@@ -4911,7 +5037,7 @@ type GetTaskStatusResponse struct {
 
 func (x *GetTaskStatusResponse) Reset() {
 	*x = GetTaskStatusResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4923,7 +5049,7 @@ func (x *GetTaskStatusResponse) String() string {
 func (*GetTaskStatusResponse) ProtoMessage() {}
 
 func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4936,7 +5062,7 @@ func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{55}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GetTaskStatusResponse) GetState() string {
@@ -5024,7 +5150,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"size_bytes\x18\x06 \x01(\x04R\tsizeBytes\x129\n" +
 	"\x19artifact_total_size_bytes\x18\a \x01(\x04R\x16artifactTotalSizeBytes\x124\n" +
 	"\x16retention_until_height\x18\b \x01(\x04R\x14retentionUntilHeight\x12+\n" +
-	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xf2\x03\n" +
+	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xb1\x04\n" +
 	"\x15TaskDataRequestAuthV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x128\n" +
@@ -5039,8 +5165,18 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\rrequest_nonce\x18\t \x01(\fR\frequestNonce\x12#\n" +
 	"\rexpiry_height\x18\n" +
 	" \x01(\x04R\fexpiryHeight\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\"\xa7\x03\n" +
-	"\x14SDKRequestEnvelopeV1\x12%\n" +
+	"\tsignature\x18\v \x01(\fR\tsignature\x12=\n" +
+	"\rsession_grant\x18\f \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\"\xcd\x01\n" +
+	"\x0eSessionGrantV1\x12\x19\n" +
+	"\bchain_id\x18\x01 \x01(\tR\achainId\x12\x12\n" +
+	"\x04user\x18\x02 \x01(\tR\x04user\x12\x1f\n" +
+	"\vsession_key\x18\x03 \x01(\fR\n" +
+	"sessionKey\x12#\n" +
+	"\rexpiry_height\x18\x04 \x01(\x04R\fexpiryHeight\x12\x1f\n" +
+	"\vgrant_nonce\x18\x05 \x01(\fR\n" +
+	"grantNonce\x12%\n" +
+	"\x0euser_signature\x18\x06 \x01(\fR\ruserSignature\"\xea\x03\n" +
+	"\x14SDKRequestEnvelopeV2\x12%\n" +
 	"\x0erequest_domain\x18\x01 \x01(\tR\rrequestDomain\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x16\n" +
 	"\x06method\x18\x03 \x01(\tR\x06method\x12\x1a\n" +
@@ -5054,19 +5190,20 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"bodyDigest\x12%\n" +
 	"\x0esigner_address\x18\n" +
 	" \x01(\tR\rsignerAddress\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\x12#\n" +
-	"\rsigner_pubkey\x18\f \x01(\fR\fsignerPubkey\"\xf1\x03\n" +
+	"\tsignature\x18\v \x01(\fR\tsignature\x12'\n" +
+	"\rsigner_pubkey\x18\f \x01(\fB\x02\x18\x01R\fsignerPubkey\x12=\n" +
+	"\rsession_grant\x18\r \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\"\xf9\x03\n" +
 	"\x0eOpenTaskHeader\x12%\n" +
 	"\x0eorder_envelope\x18\x01 \x01(\fR\rorderEnvelope\x12\x1f\n" +
 	"\vpayload_ref\x18\x02 \x01(\tR\n" +
-	"payloadRef\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12\x1d\n" +
+	"payloadRef\x12 \n" +
+	"\tsignature\x18\x03 \x01(\fB\x02\x18\x01R\tsignature\x12I\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x05 \x01(\tR\tsessionId\x12%\n" +
 	"\x0eorder_sequence\x18\x06 \x01(\x04R\rorderSequence\x12!\n" +
-	"\fuser_address\x18\a \x01(\tR\vuserAddress\x12)\n" +
-	"\x10signature_scheme\x18\b \x01(\tR\x0fsignatureScheme\x12(\n" +
+	"\fuser_address\x18\a \x01(\tR\vuserAddress\x12-\n" +
+	"\x10signature_scheme\x18\b \x01(\tB\x02\x18\x01R\x0fsignatureScheme\x12(\n" +
 	"\x10input_size_bytes\x18\t \x01(\x04R\x0einputSizeBytes\x12\x1d\n" +
 	"\n" +
 	"input_hash\x18\n" +
@@ -5089,7 +5226,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
-	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12W\n" +
+	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12W\n" +
 	"\x13input_confirmations\x18\x04 \x03(\v2&.nexus.v1.BuilderStorageConfirmationV1R\x12inputConfirmations\"M\n" +
 	"\x17ConfirmOpenTaskResponse\x12\x1a\n" +
 	"\brecorded\x18\x01 \x01(\bR\brecorded\x12\x16\n" +
@@ -5264,7 +5401,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\vpayload_ref\x18\x02 \x01(\tR\n" +
 	"payloadRef\x12\x1c\n" +
 	"\tsignature\x18\x03 \x01(\fR\tsignature\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12\x1d\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x05 \x01(\tR\tsessionId\x12%\n" +
 	"\x0eorder_sequence\x18\x06 \x01(\x04R\rorderSequence\x12!\n" +
@@ -5285,7 +5422,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x128\n" +
 	"\faccess_level\x18\x05 \x01(\x0e2\x15.nexus.v1.AccessLevelR\vaccessLevel\x12\x14\n" +
 	"\x05usage\x18\x06 \x01(\tR\x05usage\x12I\n" +
-	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12)\n" +
+	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12)\n" +
 	"\x10requester_pubkey\x18\b \x01(\fR\x0frequesterPubkey\"b\n" +
 	"\x16FetchOutputRefResponse\x126\n" +
 	"\n" +
@@ -5296,7 +5433,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
-	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12-\n" +
+	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12-\n" +
 	"\x10resume_after_seq\x18\x04 \x01(\x04H\x00R\x0eresumeAfterSeq\x88\x01\x01B\x13\n" +
 	"\x11_resume_after_seq\"\xef\x02\n" +
 	"\x17SubscribeOutputResponse\x12\x1f\n" +
@@ -5320,7 +5457,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +
 	"\toutput_id\x18\x03 \x01(\tB\x02\x18\x01R\boutputId\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\x12\x19\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x19\n" +
 	"\blast_seq\x18\x05 \x01(\x04R\alastSeq\"i\n" +
 	"\x11AckOutputResponse\x12\x14\n" +
 	"\x05acked\x18\x01 \x01(\bR\x05acked\x12#\n" +
@@ -5332,7 +5469,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +
 	"\vfrom_cursor\x18\x03 \x01(\tR\n" +
 	"fromCursor\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\"\xa6\x01\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\xa6\x01\n" +
 	"\x15GetTaskEventsResponse\x12\x16\n" +
 	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1d\n" +
@@ -5351,7 +5488,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\trecipient\x18\x04 \x01(\tR\trecipient\x12\x14\n" +
 	"\x05usage\x18\x05 \x01(\tR\x05usage\x122\n" +
 	"\x15requested_valid_until\x18\x06 \x01(\x03R\x13requestedValidUntil\x12I\n" +
-	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\"e\n" +
+	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"e\n" +
 	"\x19RefreshCredentialResponse\x126\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\v2\x16.nexus.v1.CredentialV1R\n" +
@@ -5363,7 +5500,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12%\n" +
 	"\x0echallenge_kind\x18\x03 \x01(\tR\rchallengeKind\x122\n" +
 	"\x15local_evidence_digest\x18\x04 \x01(\fR\x13localEvidenceDigest\x12I\n" +
-	"\x10request_envelope\x18\x05 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV1R\x0frequestEnvelope\"\x80\x02\n" +
+	"\x10request_envelope\x18\x05 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\x80\x02\n" +
 	"\x18PrepareChallengeResponse\x12%\n" +
 	"\x0echallenge_open\x18\x01 \x01(\bR\rchallengeOpen\x124\n" +
 	"\x16challenge_close_height\x18\x02 \x01(\x04R\x14challengeCloseHeight\x12+\n" +
@@ -5448,7 +5585,7 @@ func file_nexus_v1_ingress_proto_rawDescGZIP() []byte {
 }
 
 var file_nexus_v1_ingress_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_nexus_v1_ingress_proto_goTypes = []any{
 	(TaskDataObjectKind)(0),                  // 0: nexus.v1.TaskDataObjectKind
 	(TaskDataObjectReadinessV1)(0),           // 1: nexus.v1.TaskDataObjectReadinessV1
@@ -5462,169 +5599,172 @@ var file_nexus_v1_ingress_proto_goTypes = []any{
 	(*ByteRangeV1)(nil),                      // 9: nexus.v1.ByteRangeV1
 	(*BuilderStorageConfirmationV1)(nil),     // 10: nexus.v1.BuilderStorageConfirmationV1
 	(*TaskDataRequestAuthV1)(nil),            // 11: nexus.v1.TaskDataRequestAuthV1
-	(*SDKRequestEnvelopeV1)(nil),             // 12: nexus.v1.SDKRequestEnvelopeV1
-	(*OpenTaskHeader)(nil),                   // 13: nexus.v1.OpenTaskHeader
-	(*OpenTaskRequest)(nil),                  // 14: nexus.v1.OpenTaskRequest
-	(*OpenTaskResponse)(nil),                 // 15: nexus.v1.OpenTaskResponse
-	(*ConfirmOpenTaskRequest)(nil),           // 16: nexus.v1.ConfirmOpenTaskRequest
-	(*ConfirmOpenTaskResponse)(nil),          // 17: nexus.v1.ConfirmOpenTaskResponse
-	(*UploadTaskResultObjectHeaderV1)(nil),   // 18: nexus.v1.UploadTaskResultObjectHeaderV1
-	(*UploadTaskResultObjectRequest)(nil),    // 19: nexus.v1.UploadTaskResultObjectRequest
-	(*UploadTaskResultObjectResponse)(nil),   // 20: nexus.v1.UploadTaskResultObjectResponse
-	(*OutputStreamHeaderV2)(nil),             // 21: nexus.v1.OutputStreamHeaderV2
-	(*OutputChunkV1)(nil),                    // 22: nexus.v1.OutputChunkV1
-	(*OutputFinV1)(nil),                      // 23: nexus.v1.OutputFinV1
-	(*UploadTaskOutputStreamRequest)(nil),    // 24: nexus.v1.UploadTaskOutputStreamRequest
-	(*OutputStreamProgressV1)(nil),           // 25: nexus.v1.OutputStreamProgressV1
-	(*OutputStreamResultV1)(nil),             // 26: nexus.v1.OutputStreamResultV1
-	(*UploadTaskOutputStreamResponse)(nil),   // 27: nexus.v1.UploadTaskOutputStreamResponse
-	(*GetTaskDataMetadataRequest)(nil),       // 28: nexus.v1.GetTaskDataMetadataRequest
-	(*GetTaskDataMetadataResponse)(nil),      // 29: nexus.v1.GetTaskDataMetadataResponse
-	(*FetchTaskDataRequest)(nil),             // 30: nexus.v1.FetchTaskDataRequest
-	(*FetchTaskDataHeaderV1)(nil),            // 31: nexus.v1.FetchTaskDataHeaderV1
-	(*FetchTaskDataChunkV1)(nil),             // 32: nexus.v1.FetchTaskDataChunkV1
-	(*FetchTaskDataResponse)(nil),            // 33: nexus.v1.FetchTaskDataResponse
-	(*FinalizeTaskResultRequest)(nil),        // 34: nexus.v1.FinalizeTaskResultRequest
-	(*FinalizeTaskResultResponse)(nil),       // 35: nexus.v1.FinalizeTaskResultResponse
-	(*FinalizeVerifierEvidenceRequest)(nil),  // 36: nexus.v1.FinalizeVerifierEvidenceRequest
-	(*FinalizeVerifierEvidenceResponse)(nil), // 37: nexus.v1.FinalizeVerifierEvidenceResponse
-	(*SubmitInferReceiptRequest)(nil),        // 38: nexus.v1.SubmitInferReceiptRequest
-	(*SubmitInferReceiptResponse)(nil),       // 39: nexus.v1.SubmitInferReceiptResponse
-	(*SubmitVerifyCommitRequest)(nil),        // 40: nexus.v1.SubmitVerifyCommitRequest
-	(*SubmitVerifyCommitResponse)(nil),       // 41: nexus.v1.SubmitVerifyCommitResponse
-	(*SubmitVerifyResultRequest)(nil),        // 42: nexus.v1.SubmitVerifyResultRequest
-	(*SubmitVerifyResultResponse)(nil),       // 43: nexus.v1.SubmitVerifyResultResponse
-	(*CredentialV1)(nil),                     // 44: nexus.v1.CredentialV1
-	(*SubmitOrderRequest)(nil),               // 45: nexus.v1.SubmitOrderRequest
-	(*SubmitOrderResponse)(nil),              // 46: nexus.v1.SubmitOrderResponse
-	(*FetchOutputRefRequest)(nil),            // 47: nexus.v1.FetchOutputRefRequest
-	(*FetchOutputRefResponse)(nil),           // 48: nexus.v1.FetchOutputRefResponse
-	(*SubscribeOutputRequest)(nil),           // 49: nexus.v1.SubscribeOutputRequest
-	(*SubscribeOutputResponse)(nil),          // 50: nexus.v1.SubscribeOutputResponse
-	(*AckOutputRequest)(nil),                 // 51: nexus.v1.AckOutputRequest
-	(*AckOutputResponse)(nil),                // 52: nexus.v1.AckOutputResponse
-	(*GetTaskEventsRequest)(nil),             // 53: nexus.v1.GetTaskEventsRequest
-	(*GetTaskEventsResponse)(nil),            // 54: nexus.v1.GetTaskEventsResponse
-	(*RefreshCredentialRequest)(nil),         // 55: nexus.v1.RefreshCredentialRequest
-	(*RefreshCredentialResponse)(nil),        // 56: nexus.v1.RefreshCredentialResponse
-	(*PrepareChallengeRequest)(nil),          // 57: nexus.v1.PrepareChallengeRequest
-	(*PrepareChallengeResponse)(nil),         // 58: nexus.v1.PrepareChallengeResponse
-	(*Coin)(nil),                             // 59: nexus.v1.Coin
-	(*GetTaskStatusRequest)(nil),             // 60: nexus.v1.GetTaskStatusRequest
-	(*GetTaskStatusResponse)(nil),            // 61: nexus.v1.GetTaskStatusResponse
-	(v1.EvidenceKind)(0),                     // 62: shared.v1.EvidenceKind
-	(v11.FinishReasonV1)(0),                  // 63: task.v1.FinishReasonV1
-	(*v11.InferReceiptV3)(nil),               // 64: task.v1.InferReceiptV3
-	(*v11.ResultReceiptV3)(nil),              // 65: task.v1.ResultReceiptV3
-	(*v11.VerifyCommitV1)(nil),               // 66: task.v1.VerifyCommitV1
+	(*SessionGrantV1)(nil),                   // 12: nexus.v1.SessionGrantV1
+	(*SDKRequestEnvelopeV2)(nil),             // 13: nexus.v1.SDKRequestEnvelopeV2
+	(*OpenTaskHeader)(nil),                   // 14: nexus.v1.OpenTaskHeader
+	(*OpenTaskRequest)(nil),                  // 15: nexus.v1.OpenTaskRequest
+	(*OpenTaskResponse)(nil),                 // 16: nexus.v1.OpenTaskResponse
+	(*ConfirmOpenTaskRequest)(nil),           // 17: nexus.v1.ConfirmOpenTaskRequest
+	(*ConfirmOpenTaskResponse)(nil),          // 18: nexus.v1.ConfirmOpenTaskResponse
+	(*UploadTaskResultObjectHeaderV1)(nil),   // 19: nexus.v1.UploadTaskResultObjectHeaderV1
+	(*UploadTaskResultObjectRequest)(nil),    // 20: nexus.v1.UploadTaskResultObjectRequest
+	(*UploadTaskResultObjectResponse)(nil),   // 21: nexus.v1.UploadTaskResultObjectResponse
+	(*OutputStreamHeaderV2)(nil),             // 22: nexus.v1.OutputStreamHeaderV2
+	(*OutputChunkV1)(nil),                    // 23: nexus.v1.OutputChunkV1
+	(*OutputFinV1)(nil),                      // 24: nexus.v1.OutputFinV1
+	(*UploadTaskOutputStreamRequest)(nil),    // 25: nexus.v1.UploadTaskOutputStreamRequest
+	(*OutputStreamProgressV1)(nil),           // 26: nexus.v1.OutputStreamProgressV1
+	(*OutputStreamResultV1)(nil),             // 27: nexus.v1.OutputStreamResultV1
+	(*UploadTaskOutputStreamResponse)(nil),   // 28: nexus.v1.UploadTaskOutputStreamResponse
+	(*GetTaskDataMetadataRequest)(nil),       // 29: nexus.v1.GetTaskDataMetadataRequest
+	(*GetTaskDataMetadataResponse)(nil),      // 30: nexus.v1.GetTaskDataMetadataResponse
+	(*FetchTaskDataRequest)(nil),             // 31: nexus.v1.FetchTaskDataRequest
+	(*FetchTaskDataHeaderV1)(nil),            // 32: nexus.v1.FetchTaskDataHeaderV1
+	(*FetchTaskDataChunkV1)(nil),             // 33: nexus.v1.FetchTaskDataChunkV1
+	(*FetchTaskDataResponse)(nil),            // 34: nexus.v1.FetchTaskDataResponse
+	(*FinalizeTaskResultRequest)(nil),        // 35: nexus.v1.FinalizeTaskResultRequest
+	(*FinalizeTaskResultResponse)(nil),       // 36: nexus.v1.FinalizeTaskResultResponse
+	(*FinalizeVerifierEvidenceRequest)(nil),  // 37: nexus.v1.FinalizeVerifierEvidenceRequest
+	(*FinalizeVerifierEvidenceResponse)(nil), // 38: nexus.v1.FinalizeVerifierEvidenceResponse
+	(*SubmitInferReceiptRequest)(nil),        // 39: nexus.v1.SubmitInferReceiptRequest
+	(*SubmitInferReceiptResponse)(nil),       // 40: nexus.v1.SubmitInferReceiptResponse
+	(*SubmitVerifyCommitRequest)(nil),        // 41: nexus.v1.SubmitVerifyCommitRequest
+	(*SubmitVerifyCommitResponse)(nil),       // 42: nexus.v1.SubmitVerifyCommitResponse
+	(*SubmitVerifyResultRequest)(nil),        // 43: nexus.v1.SubmitVerifyResultRequest
+	(*SubmitVerifyResultResponse)(nil),       // 44: nexus.v1.SubmitVerifyResultResponse
+	(*CredentialV1)(nil),                     // 45: nexus.v1.CredentialV1
+	(*SubmitOrderRequest)(nil),               // 46: nexus.v1.SubmitOrderRequest
+	(*SubmitOrderResponse)(nil),              // 47: nexus.v1.SubmitOrderResponse
+	(*FetchOutputRefRequest)(nil),            // 48: nexus.v1.FetchOutputRefRequest
+	(*FetchOutputRefResponse)(nil),           // 49: nexus.v1.FetchOutputRefResponse
+	(*SubscribeOutputRequest)(nil),           // 50: nexus.v1.SubscribeOutputRequest
+	(*SubscribeOutputResponse)(nil),          // 51: nexus.v1.SubscribeOutputResponse
+	(*AckOutputRequest)(nil),                 // 52: nexus.v1.AckOutputRequest
+	(*AckOutputResponse)(nil),                // 53: nexus.v1.AckOutputResponse
+	(*GetTaskEventsRequest)(nil),             // 54: nexus.v1.GetTaskEventsRequest
+	(*GetTaskEventsResponse)(nil),            // 55: nexus.v1.GetTaskEventsResponse
+	(*RefreshCredentialRequest)(nil),         // 56: nexus.v1.RefreshCredentialRequest
+	(*RefreshCredentialResponse)(nil),        // 57: nexus.v1.RefreshCredentialResponse
+	(*PrepareChallengeRequest)(nil),          // 58: nexus.v1.PrepareChallengeRequest
+	(*PrepareChallengeResponse)(nil),         // 59: nexus.v1.PrepareChallengeResponse
+	(*Coin)(nil),                             // 60: nexus.v1.Coin
+	(*GetTaskStatusRequest)(nil),             // 61: nexus.v1.GetTaskStatusRequest
+	(*GetTaskStatusResponse)(nil),            // 62: nexus.v1.GetTaskStatusResponse
+	(v1.EvidenceKind)(0),                     // 63: shared.v1.EvidenceKind
+	(v11.FinishReasonV1)(0),                  // 64: task.v1.FinishReasonV1
+	(*v11.InferReceiptV3)(nil),               // 65: task.v1.InferReceiptV3
+	(*v11.ResultReceiptV3)(nil),              // 66: task.v1.ResultReceiptV3
+	(*v11.VerifyCommitV1)(nil),               // 67: task.v1.VerifyCommitV1
 }
 var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	0,  // 0: nexus.v1.TaskDataObjectRefV1.object_kind:type_name -> nexus.v1.TaskDataObjectKind
 	3,  // 1: nexus.v1.TaskDataObjectRefV1.evidence_producer_kind:type_name -> nexus.v1.EvidenceProducerKindV1
-	62, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
+	63, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
 	6,  // 3: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	1,  // 4: nexus.v1.TaskDataObjectMetadataV1.readiness:type_name -> nexus.v1.TaskDataObjectReadinessV1
-	23, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
+	24, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
 	6,  // 6: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	4,  // 7: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
-	12, // 8: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	13, // 9: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
-	7,  // 10: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	10, // 11: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	12, // 12: nexus.v1.ConfirmOpenTaskRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	10, // 13: nexus.v1.ConfirmOpenTaskRequest.input_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	6,  // 14: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 15: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	18, // 16: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
-	7,  // 17: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	11, // 18: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	63, // 19: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
-	21, // 20: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
-	22, // 21: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
-	23, // 22: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
-	25, // 23: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
-	26, // 24: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
-	6,  // 25: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 26: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	7,  // 27: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	8,  // 28: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
-	64, // 29: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
-	6,  // 30: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 31: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
-	11, // 32: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	6,  // 33: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 34: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
-	31, // 35: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
-	32, // 36: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
-	64, // 37: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
-	11, // 38: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	62, // 39: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
-	10, // 40: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	10, // 41: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	65, // 42: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	11, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	10, // 44: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	64, // 45: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
-	66, // 46: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
-	65, // 47: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	5,  // 48: nexus.v1.CredentialV1.access_level:type_name -> nexus.v1.AccessLevel
-	12, // 49: nexus.v1.SubmitOrderRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	5,  // 50: nexus.v1.FetchOutputRefRequest.access_level:type_name -> nexus.v1.AccessLevel
-	12, // 51: nexus.v1.FetchOutputRefRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 52: nexus.v1.FetchOutputRefResponse.credential:type_name -> nexus.v1.CredentialV1
-	12, // 53: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	22, // 54: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
-	23, // 55: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
-	12, // 56: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	12, // 57: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 58: nexus.v1.RefreshCredentialRequest.credential:type_name -> nexus.v1.CredentialV1
-	12, // 59: nexus.v1.RefreshCredentialRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	44, // 60: nexus.v1.RefreshCredentialResponse.credential:type_name -> nexus.v1.CredentialV1
-	12, // 61: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV1
-	59, // 62: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
-	14, // 63: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
-	16, // 64: nexus.v1.IngressAPI.ConfirmOpenTask:input_type -> nexus.v1.ConfirmOpenTaskRequest
-	49, // 65: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
-	51, // 66: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
-	60, // 67: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
-	53, // 68: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
-	57, // 69: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
-	19, // 70: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
-	24, // 71: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
-	28, // 72: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
-	30, // 73: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
-	34, // 74: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
-	36, // 75: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
-	38, // 76: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
-	40, // 77: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
-	42, // 78: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
-	45, // 79: nexus.v1.IngressAPI.SubmitOrder:input_type -> nexus.v1.SubmitOrderRequest
-	47, // 80: nexus.v1.IngressAPI.FetchOutputRef:input_type -> nexus.v1.FetchOutputRefRequest
-	55, // 81: nexus.v1.IngressAPI.RefreshCredential:input_type -> nexus.v1.RefreshCredentialRequest
-	15, // 82: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
-	17, // 83: nexus.v1.IngressAPI.ConfirmOpenTask:output_type -> nexus.v1.ConfirmOpenTaskResponse
-	50, // 84: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
-	52, // 85: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
-	61, // 86: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
-	54, // 87: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
-	58, // 88: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
-	20, // 89: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
-	27, // 90: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
-	29, // 91: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
-	33, // 92: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
-	35, // 93: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
-	37, // 94: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
-	39, // 95: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
-	41, // 96: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
-	43, // 97: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
-	46, // 98: nexus.v1.IngressAPI.SubmitOrder:output_type -> nexus.v1.SubmitOrderResponse
-	48, // 99: nexus.v1.IngressAPI.FetchOutputRef:output_type -> nexus.v1.FetchOutputRefResponse
-	56, // 100: nexus.v1.IngressAPI.RefreshCredential:output_type -> nexus.v1.RefreshCredentialResponse
-	82, // [82:101] is the sub-list for method output_type
-	63, // [63:82] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	12, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
+	12, // 9: nexus.v1.SDKRequestEnvelopeV2.session_grant:type_name -> nexus.v1.SessionGrantV1
+	13, // 10: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	14, // 11: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
+	7,  // 12: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	10, // 13: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	13, // 14: nexus.v1.ConfirmOpenTaskRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	10, // 15: nexus.v1.ConfirmOpenTaskRequest.input_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	6,  // 16: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	11, // 17: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	19, // 18: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
+	7,  // 19: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	11, // 20: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	64, // 21: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	22, // 22: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
+	23, // 23: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
+	24, // 24: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
+	26, // 25: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
+	27, // 26: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
+	6,  // 27: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	11, // 28: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	7,  // 29: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	8,  // 30: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
+	65, // 31: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
+	6,  // 32: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	9,  // 33: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
+	11, // 34: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	6,  // 35: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	9,  // 36: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
+	32, // 37: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
+	33, // 38: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
+	65, // 39: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
+	11, // 40: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	63, // 41: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
+	10, // 42: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	10, // 43: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	66, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	11, // 45: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	10, // 46: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	65, // 47: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
+	67, // 48: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
+	66, // 49: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	5,  // 50: nexus.v1.CredentialV1.access_level:type_name -> nexus.v1.AccessLevel
+	13, // 51: nexus.v1.SubmitOrderRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	5,  // 52: nexus.v1.FetchOutputRefRequest.access_level:type_name -> nexus.v1.AccessLevel
+	13, // 53: nexus.v1.FetchOutputRefRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	45, // 54: nexus.v1.FetchOutputRefResponse.credential:type_name -> nexus.v1.CredentialV1
+	13, // 55: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	23, // 56: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
+	24, // 57: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
+	13, // 58: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	13, // 59: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	45, // 60: nexus.v1.RefreshCredentialRequest.credential:type_name -> nexus.v1.CredentialV1
+	13, // 61: nexus.v1.RefreshCredentialRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	45, // 62: nexus.v1.RefreshCredentialResponse.credential:type_name -> nexus.v1.CredentialV1
+	13, // 63: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	60, // 64: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
+	15, // 65: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
+	17, // 66: nexus.v1.IngressAPI.ConfirmOpenTask:input_type -> nexus.v1.ConfirmOpenTaskRequest
+	50, // 67: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
+	52, // 68: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
+	61, // 69: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
+	54, // 70: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
+	58, // 71: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
+	20, // 72: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
+	25, // 73: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
+	29, // 74: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
+	31, // 75: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
+	35, // 76: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
+	37, // 77: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
+	39, // 78: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
+	41, // 79: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
+	43, // 80: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
+	46, // 81: nexus.v1.IngressAPI.SubmitOrder:input_type -> nexus.v1.SubmitOrderRequest
+	48, // 82: nexus.v1.IngressAPI.FetchOutputRef:input_type -> nexus.v1.FetchOutputRefRequest
+	56, // 83: nexus.v1.IngressAPI.RefreshCredential:input_type -> nexus.v1.RefreshCredentialRequest
+	16, // 84: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
+	18, // 85: nexus.v1.IngressAPI.ConfirmOpenTask:output_type -> nexus.v1.ConfirmOpenTaskResponse
+	51, // 86: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
+	53, // 87: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
+	62, // 88: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
+	55, // 89: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
+	59, // 90: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
+	21, // 91: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
+	28, // 92: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
+	30, // 93: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
+	34, // 94: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
+	36, // 95: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
+	38, // 96: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
+	40, // 97: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
+	42, // 98: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
+	44, // 99: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
+	47, // 100: nexus.v1.IngressAPI.SubmitOrder:output_type -> nexus.v1.SubmitOrderResponse
+	49, // 101: nexus.v1.IngressAPI.FetchOutputRef:output_type -> nexus.v1.FetchOutputRefResponse
+	57, // 102: nexus.v1.IngressAPI.RefreshCredential:output_type -> nexus.v1.RefreshCredentialResponse
+	84, // [84:103] is the sub-list for method output_type
+	65, // [65:84] is the sub-list for method input_type
+	65, // [65:65] is the sub-list for extension type_name
+	65, // [65:65] is the sub-list for extension extendee
+	0,  // [0:65] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_ingress_proto_init() }
@@ -5634,31 +5774,31 @@ func file_nexus_v1_ingress_proto_init() {
 	}
 	file_nexus_v1_ingress_proto_msgTypes[0].OneofWrappers = []any{}
 	file_nexus_v1_ingress_proto_msgTypes[1].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[8].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[9].OneofWrappers = []any{
 		(*OpenTaskRequest_Header)(nil),
 		(*OpenTaskRequest_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[13].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[14].OneofWrappers = []any{
 		(*UploadTaskResultObjectRequest_Header)(nil),
 		(*UploadTaskResultObjectRequest_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[18].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[19].OneofWrappers = []any{
 		(*UploadTaskOutputStreamRequest_Header)(nil),
 		(*UploadTaskOutputStreamRequest_Chunk)(nil),
 		(*UploadTaskOutputStreamRequest_Fin)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[19].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[21].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[20].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[22].OneofWrappers = []any{
 		(*UploadTaskOutputStreamResponse_Progress)(nil),
 		(*UploadTaskOutputStreamResponse_Result)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[24].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[27].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[25].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[28].OneofWrappers = []any{
 		(*FetchTaskDataResponse_Header)(nil),
 		(*FetchTaskDataResponse_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[43].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[44].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[44].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[45].OneofWrappers = []any{
 		(*SubscribeOutputResponse_Chunk)(nil),
 		(*SubscribeOutputResponse_Fin)(nil),
 	}
@@ -5668,7 +5808,7 @@ func file_nexus_v1_ingress_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nexus_v1_ingress_proto_rawDesc), len(file_nexus_v1_ingress_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   56,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

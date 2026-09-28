@@ -64,7 +64,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	}}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(os.Stderr, nil)), config.IngressConfig{},
-		AuthParams{ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {

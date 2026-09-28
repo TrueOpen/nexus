@@ -17,7 +17,7 @@ import (
 // the same way and updating both this value and the proto.
 func TestNexusWireDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("nexus/v1/")
-	const want = "26633e10622327717a43e63d72f9618cfc2b1e01be1d82ab11c423212711e959"
+	const want = "8d0418b7453ccb60b1b33d084e16feb0040ca7f0156d3dd919fd0f8a47204e52"
 	if got != want {
 		t.Fatalf("nexus.v1 descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}

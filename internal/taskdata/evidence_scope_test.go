@@ -86,9 +86,15 @@ func expectAccess(t *testing.T, label string, err error, allowed bool) {
 	if allowed && err != nil {
 		t.Fatalf("%s: %v, want allowed", label, err)
 	}
-	if !allowed && !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("%s: %v, want ErrUnauthorized", label, err)
+	if !allowed && !deniedAccess(err) {
+		t.Fatalf("%s: %v, want a denial", label, err)
 	}
+}
+
+// deniedAccess reports a role denial: DATA_ACCESS_DENIED for a USER requester, NEXUS_DATA_UNAUTHORIZED
+// for a CORTEX_SERVICE one.
+func deniedAccess(err error) bool {
+	return errors.Is(err, ErrDenied) || errors.Is(err, ErrUnauthorized)
 }
 
 // A Verifier never reads another Verifier's bundle of its own round, before or after that round's

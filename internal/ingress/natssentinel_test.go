@@ -65,7 +65,7 @@ func writeSentinel(t *testing.T, bearer bool) (string, string) {
 
 func newSentinelServer(t *testing.T, opts ...Option) *Server {
 	t.Helper()
-	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{}, AuthParams{}, &fakeHandler{}, opts...)
+	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{}, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

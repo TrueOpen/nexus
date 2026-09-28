@@ -161,7 +161,7 @@ func (s *Service) OpenFetch(
 	// The caller is already authorized for this task, so telling a deleted or not yet READY object
 	// apart reveals nothing to a caller without a role on it.
 	if metadata.RetentionStatus == RetentionDeleted {
-		return nil, ByteRange{}, Metadata{}, fmt.Errorf("%w: object deleted by retention", ErrExpired)
+		return nil, ByteRange{}, Metadata{}, fmt.Errorf("%w: object deleted by retention", ErrRetentionExpired)
 	}
 	if metadata.State != StateReady {
 		return nil, ByteRange{}, Metadata{}, fmt.Errorf("%w: object is %s", ErrNotReady, metadata.State)

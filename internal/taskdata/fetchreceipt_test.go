@@ -289,7 +289,7 @@ func TestFetchOfStoredObjectIsNotReady(t *testing.T) {
 	}
 }
 
-// An object removed by retention is reported as expired.
+// An object removed by retention is reported as DATA_EXPIRED, not as an expired request.
 func TestFetchOfDeletedObjectIsExpired(t *testing.T) {
 	f := newFetchReceiptFixture(t, nil)
 	resolver := recoveryResolver{retention: map[string]RetentionDecision{
@@ -302,7 +302,7 @@ func TestFetchOfDeletedObjectIsExpired(t *testing.T) {
 	if deleted, err := f.store.Metadata(context.Background(), f.output.Key); err != nil || deleted.RetentionStatus != RetentionDeleted {
 		t.Fatalf("output metadata = %+v, %v", deleted, err)
 	}
-	if err := f.fetch(t, f.verifier, f.output.Key, nil, 1, true); !errors.Is(err, ErrExpired) {
-		t.Fatalf("error = %v, want ErrExpired", err)
+	if err := f.fetch(t, f.verifier, f.output.Key, nil, 1, true); !errors.Is(err, ErrRetentionExpired) || errors.Is(err, ErrExpired) {
+		t.Fatalf("error = %v, want DATA_EXPIRED", err)
 	}
 }

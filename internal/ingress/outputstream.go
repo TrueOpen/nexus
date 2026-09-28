@@ -11,7 +11,6 @@ import (
 	"connectrpc.com/connect"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
-	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
@@ -156,9 +155,7 @@ func (s *service) subscribeOutputStream(
 	if m.GetSessionId() == "" || m.GetTaskId() == "" {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("NEXUS_INGRESS_MALFORMED: session_id and task_id are required"))
 	}
-	body := sdkauth.BodyDigest([]byte(m.GetSessionId()), []byte(m.GetTaskId()))
-	requester, err := s.checkRequiredTaskEnvelope(m.GetRequestEnvelope(), "SubscribeOutput",
-		nexusv1connect.IngressAPISubscribeOutputProcedure, m.GetSessionId(), m.GetTaskId(), body)
+	requester, err := s.checkSubscribeEnvelope(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -234,9 +231,7 @@ func (s *service) ackOutputStream(
 	if m.GetSessionId() == "" || m.GetTaskId() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("NEXUS_INGRESS_MALFORMED: session_id and task_id are required"))
 	}
-	body := sdkauth.BodyDigest([]byte(m.GetSessionId()), []byte(m.GetTaskId()), []byte(m.GetOutputId()))
-	requester, err := s.checkRequiredTaskEnvelope(m.GetRequestEnvelope(), "AckOutput",
-		nexusv1connect.IngressAPIAckOutputProcedure, m.GetSessionId(), m.GetTaskId(), body)
+	requester, err := s.checkAckEnvelope(ctx, m)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +256,8 @@ func (s *service) ackOutputStream(
 	return connect.NewResponse(&nexusv1.AckOutputResponse{Acked: true, AckedAt: now}), nil
 }
 
-// requireTaskOwner: streaming subscribe and ACK are allowed only for the ordering user.
+// requireTaskOwner: output subscribe and ACK, task events and challenge preparation are allowed only
+// for the ordering user.
 func (s *service) requireTaskOwner(ctx context.Context, sessionID, taskID, requester string) error {
 	owner, err := s.h.TaskOwner(ctx, sessionID, taskID)
 	if err != nil {
@@ -271,7 +267,7 @@ func (s *service) requireTaskOwner(ctx context.Context, sessionID, taskID, reque
 		return connect.NewError(connect.CodeUnavailable, err)
 	}
 	if owner == "" || owner != requester {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may subscribe"))
+		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may read this task"))
 	}
 	return nil
 }
@@ -314,3 +310,37 @@ func progressToPB(progress taskdata.OutputStreamProgress) *nexusv1.OutputStreamP
 	}
 	return pb
 }
+
+// checkSubscribeEnvelope verifies SubscribeOutput's envelope (always required; a session key may sign
+// it) over its TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1 body.
+func (s *service) checkSubscribeEnvelope(ctx context.Context, m *nexusv1.SubscribeOutputRequest) (string, error) {
+	if m.GetRequestEnvelope() == nil {
+		return "", errEnvelopeRequired
+	}
+	body, err := sdkauth.SubscribeOutputBody(m.GetSessionId(), m.GetTaskId(), m.ResumeAfterSeq)
+	if err != nil {
+		return "", bodyErr(err)
+	}
+	return s.checkTaskEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
+		method: "SubscribeOutput", body: body, sessionAllowed: true, replay: s.replay,
+	})
+}
+
+// checkAckEnvelope verifies AckOutput's envelope (always required; a session key may sign it) over its
+// TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1 body; the deprecated output_id does not enter it.
+func (s *service) checkAckEnvelope(ctx context.Context, m *nexusv1.AckOutputRequest) (string, error) {
+	if m.GetRequestEnvelope() == nil {
+		return "", errEnvelopeRequired
+	}
+	body, err := sdkauth.AckOutputBody(m.GetSessionId(), m.GetTaskId(), m.GetLastSeq())
+	if err != nil {
+		return "", bodyErr(err)
+	}
+	return s.checkTaskEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
+		method: "AckOutput", body: body, sessionAllowed: true, replay: s.replay,
+	})
+}
+
+// errEnvelopeRequired refuses a request that must be signed and carries no envelope.
+var errEnvelopeRequired = connect.NewError(connect.CodeUnauthenticated,
+	errors.New("SDK_AUTH_INVALID_SIGNATURE: request_envelope required"))

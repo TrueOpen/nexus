@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"io"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -174,7 +177,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 	backend := kv.NewMemStore()
 	a, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, backend, authority, service)
 	if err != nil {
 		t.Fatal(err)
@@ -224,8 +227,8 @@ func TestAuthorizerPermissionMatrix(t *testing.T) {
 				if err != nil {
 					t.Fatalf("metadata: %v", err)
 				}
-			} else if !errors.Is(err, ErrUnauthorized) {
-				t.Fatalf("metadata error = %v, want ErrUnauthorized", err)
+			} else if !deniedAccess(err) {
+				t.Fatalf("metadata error = %v, want a denial", err)
 			}
 
 			// Authorization compares the requester declared in the request: the ordering user is an
@@ -390,7 +393,7 @@ func TestAuthorizerOpenTaskHeightAndReplaySurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); !errors.Is(err, ErrUnauthorized) {
+	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); !errors.Is(err, ErrReplay) {
 		t.Fatalf("replayed OpenTask after restart error = %v", err)
 	}
 }
@@ -493,7 +496,7 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	wrong := testSigner(t, 40)
 	a, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, wrong)
 	if err != nil {
 		t.Fatal(err)
@@ -906,7 +909,7 @@ func ethAddressOf(t *testing.T, caller signer.Signer) string {
 		t.Fatalf("no raw key for %s", caller.Address())
 	}
 	priv := secp256k1.PrivKeyFromBytes(raw)
-	sum := keccak256(priv.PubKey().SerializeUncompressed()[1:])
+	sum := eip712.Keccak256(priv.PubKey().SerializeUncompressed()[1:])
 	encoded, err := bech32.ConvertAndEncode("trueopen", sum[12:])
 	if err != nil {
 		t.Fatal(err)
@@ -954,7 +957,7 @@ func userSignedRequest(
 		ExpiryHeight:              expiry,
 		Key:                       key,
 	}
-	digest, err := UserTaskDataRequestDigest(request, testEVMChainID)
+	digest, err := UserTaskDataRequestDigest(request, testEVMChainID, [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1094,9 +1097,176 @@ func TestNewAuthorizerRejectsZeroEVMChainID(t *testing.T) {
 	fx := newAuthorizerFixture(t)
 	_, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, fx.service)
 	if !errors.Is(err, ErrMalformed) {
 		t.Fatalf("error = %v, want ErrMalformed", err)
+	}
+}
+
+// testAccountChain answers the user-request chain reads for every test key: each key's EVM-style
+// account (the address ethAddressOf gives) holds that key on chain.
+type testAccountChain struct{}
+
+func (testAccountChain) CurrentHeight(context.Context) (uint64, error) { return 100, nil }
+func (testAccountChain) AccountPubKey(_ context.Context, address string) ([]byte, error) {
+	testKeys.Lock()
+	defer testKeys.Unlock()
+	for _, raw := range testKeys.byAddress {
+		priv := secp256k1.PrivKeyFromBytes(raw)
+		sum := eip712.Keccak256(priv.PubKey().SerializeUncompressed()[1:])
+		if encoded, err := bech32.ConvertAndEncode("trueopen", sum[12:]); err == nil && encoded == address {
+			return priv.PubKey().SerializeCompressed(), nil
+		}
+	}
+	return nil, sdkauth.ErrNoAccountKey
+}
+
+// noKeyChain is a chain on which no account holds a key.
+type noKeyChain struct{}
+
+func (noKeyChain) CurrentHeight(context.Context) (uint64, error) { return 100, nil }
+func (noKeyChain) AccountPubKey(context.Context, string) ([]byte, error) {
+	return nil, sdkauth.ErrNoAccountKey
+}
+
+// A USER Task data request is checked in the wire order and each failure has the wire code: format
+// -> NEXUS_INGRESS_MALFORMED, signature (including chain and account key) ->
+// DATA_ACCESS_INVALID_SIGNATURE, then another Builder -> DATA_ACCESS_DENIED, expiry outside
+// max_service_material_expiry_blocks -> NEXUS_DATA_EXPIRED, replay -> NEXUS_DATA_REPLAY.
+func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.MaxRequestExpiryBlocks = 604800
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	height := fx.authority.height
+	meta := fx.metadata[ObjectKindOutput]
+	nonce := byte(0)
+	request := func(edit func(*RequestAuth)) RequestAuth {
+		nonce++
+		r := userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, height+800)
+		if edit != nil {
+			edit(&r)
+			digest, err := UserTaskDataRequestDigest(r, testEVMChainID, [32]byte{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Signature = signRecoverableForTest(t, fx.user, digest)
+		}
+		return r
+	}
+	metadata := func(a *Authorizer, r RequestAuth) error {
+		m := meta
+		return a.AuthorizeMetadata(context.Background(), r, &m)
+	}
+
+	valid := request(nil)
+	if err := metadata(authorizer, valid); err != nil {
+		t.Fatalf("expiry 800 blocks ahead: %v", err)
+	}
+	if err := metadata(authorizer, valid); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay: %v, want NEXUS_DATA_REPLAY", err)
+	}
+	cases := []struct {
+		name string
+		r    RequestAuth
+		call func(RequestAuth) error
+		want error
+	}{
+		{"expiry beyond the window", request(func(r *RequestAuth) { r.ExpiryHeight = height + 604801 }), nil, ErrExpired},
+		{"signed for another chain", request(func(r *RequestAuth) { r.ChainID = "trueopen-other" }), nil, ErrInvalidSignature},
+		{"for another Builder", request(func(r *RequestAuth) { r.BuilderOperatorAddress = fx.other.Address() }), nil, ErrDenied},
+		{"16-byte nonce", func() RequestAuth { r := request(nil); r.RequestNonce = r.RequestNonce[:16]; return r }(), nil, ErrRequestMalformed},
+		{"metadata request sent to fetch", request(nil), func(r RequestAuth) error {
+			_, err := authorizer.AuthorizeFetch(context.Background(), r, nil)
+			return err
+		}, ErrRequestMalformed},
+		{"account without a stored key", request(nil), func(r RequestAuth) error {
+			noKey := cfg
+			noKey.SessionGrants.Chain = noKeyChain{}
+			a, err := NewAuthorizer(noKey, kv.NewMemStore(), fx.authority, fx.service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return metadata(a, r)
+		}, ErrInvalidSignature},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			call := tc.call
+			if call == nil {
+				call = func(r RequestAuth) error { return metadata(authorizer, r) }
+			}
+			if err := call(tc.r); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// A USER account over its per-minute cap is refused (NEXUS_DATA_CAPACITY) before its nonce is
+// stored, so the same request succeeds once the window moves on.
+func TestUserRequestRateCap(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.UserRequestsPerMinute = 2
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := fx.metadata[ObjectKindOutput]
+	request := func(nonce byte) RequestAuth {
+		return userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, fx.authority.height+10)
+	}
+	for nonce := byte(1); nonce <= 2; nonce++ {
+		m := meta
+		if err := authorizer.AuthorizeMetadata(context.Background(), request(nonce), &m); err != nil {
+			t.Fatalf("request %d: %v", nonce, err)
+		}
+	}
+	m := meta
+	third := request(3)
+	if err := authorizer.AuthorizeMetadata(context.Background(), third, &m); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("third request: %v, want NEXUS_DATA_CAPACITY", err)
+	}
+	authorizer.userRate.window = authorizer.userRate.window.Add(-time.Minute)
+	if err := authorizer.AuthorizeMetadata(context.Background(), third, &m); err != nil {
+		t.Fatalf("the refused request's nonce was stored: %v", err)
+	}
+}
+
+// The Task data expiry window is re-read from the chain once per interval; a failed read keeps the
+// last value.
+func TestRequestExpiryWindowRefreshes(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.MaxRequestExpiryBlocks = 100
+	next, fail := uint64(300), false
+	cfg.RefreshMaxRequestExpiryBlocks = func(context.Context) (uint64, error) {
+		if fail {
+			return 0, errors.New("chain down")
+		}
+		return next, nil
+	}
+	cfg.RequestExpiryRefreshInterval = time.Hour
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if got := authorizer.requestExpiryBlocks(ctx); got != 100 {
+		t.Fatalf("before the interval: %d", got)
+	}
+	authorizer.expiryRefreshed = time.Now().Add(-2 * time.Hour)
+	if got := authorizer.requestExpiryBlocks(ctx); got != 300 {
+		t.Fatalf("after the interval: %d, want 300", got)
+	}
+	fail = true
+	authorizer.expiryRefreshed = time.Now().Add(-2 * time.Hour)
+	if got := authorizer.requestExpiryBlocks(ctx); got != 300 {
+		t.Fatalf("after a failed read: %d, want 300", got)
 	}
 }

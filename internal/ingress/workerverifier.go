@@ -1,8 +1,10 @@
 package ingress
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,7 +16,6 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -294,7 +295,7 @@ func inferReceiptSignBytes(receipt types.InferReceiptSubmission) []byte {
 	for _, commitment := range receipt.EvidenceCommitments {
 		fields = append(fields, u32be(commitment.Kind), commitment.HashOrRoot, u64be(commitment.EncodedSizeBytes))
 	}
-	return sdkauth.BodyPreimage(fields...)
+	return lengthPrefixed(fields...)
 }
 
 // verifyCommitFromPB does admission checks only: the request carries the on-chain
@@ -400,7 +401,7 @@ func decodeSignatureHex(value string) ([]byte, error) {
 // the consensus preimage -- that is covered by commit.ServiceSignature). The domain carries V2: the field set
 // changed to the on-chain body with the initial relay implementation and is incompatible with the old TRUEOPEN_SUBMIT_VERIFY_COMMIT_V1.
 func verifyCommitSignBytes(sessionID string, c *taskv1.VerifyCommitV1) []byte {
-	return sdkauth.BodyPreimage(
+	return lengthPrefixed(
 		[]byte("TRUEOPEN_SUBMIT_VERIFY_COMMIT_V2"),
 		[]byte(sessionID), u32be(c.GetSchemaVersion()), []byte(c.GetChainId()), c.GetTaskId(),
 		u32be(c.GetVerifyRound()), []byte(c.GetVerifierOperatorAddress()),
@@ -422,7 +423,7 @@ func verifyResultSignBytes(sessionID string, r *taskv1.ResultReceiptV3) []byte {
 		}
 		return append([]byte{1}, u32be(*v)...)
 	}
-	return sdkauth.BodyPreimage(
+	return lengthPrefixed(
 		[]byte("TRUEOPEN_SUBMIT_VERIFY_RESULT_V2"),
 		[]byte(sessionID), u32be(r.GetSchemaVersion()), []byte(r.GetChainId()), r.GetTaskId(),
 		u32be(r.GetVerifyRound()), []byte(r.GetVerifierOperatorAddress()),
@@ -453,4 +454,17 @@ func mapInferReceiptErr(err error) error {
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
+}
+
+// lengthPrefixed concatenates fields, each with a 4-byte big-endian length prefix: the preimage of
+// the Worker/Verifier role signatures and of the deprecated order endpoints' bodies.
+func lengthPrefixed(fields ...[]byte) []byte {
+	var buf bytes.Buffer
+	var l [4]byte
+	for _, f := range fields {
+		binary.BigEndian.PutUint32(l[:], uint32(len(f)))
+		buf.Write(l[:])
+		buf.Write(f)
+	}
+	return buf.Bytes()
 }

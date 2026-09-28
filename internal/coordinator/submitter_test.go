@@ -106,6 +106,9 @@ func (c *captureChain) QueryTaskBuilders(context.Context, chaincli.TaskKey) (cha
 	return chaincli.TaskBuilderSelectionState{}, c.selectionErr
 }
 func (c *captureChain) QueryEVMChainID(context.Context) (uint64, error) { return 31337, nil }
+func (c *captureChain) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {
+	return 604800, nil
+}
 
 func (c *captureChain) QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error) {
 	return 0, c.selectionErr

@@ -26,7 +26,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -215,7 +214,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	}}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +230,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {
@@ -265,7 +264,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 
 func (f *streamFixture) subscribe(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse] {
 	t.Helper()
-	body := sdkauth.BodyDigest([]byte(f.session), []byte(f.taskID))
+	body := subscribeBody(t, f.session, f.taskID, resumeAfter)
 	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
 	stream, err := f.client.SubscribeOutput(ctx, connect.NewRequest(&nexusv1.SubscribeOutputRequest{
 		SessionId: f.session, TaskId: f.taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
@@ -285,7 +284,7 @@ type subscribeResult struct {
 // response headers are sent with the first message), so both the call and the frame reads run in a goroutine, with the envelope signed here up front.
 func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) <-chan subscribeResult {
 	t.Helper()
-	body := sdkauth.BodyDigest([]byte(f.session), []byte(f.taskID))
+	body := subscribeBody(t, f.session, f.taskID, resumeAfter)
 	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
 	request := connect.NewRequest(&nexusv1.SubscribeOutputRequest{
 		SessionId: f.session, TaskId: f.taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
@@ -450,7 +449,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	}
 
 	// AckOutput only records local progress; the same last_seq is idempotent.
-	ackBody := sdkauth.BodyDigest([]byte(f.session), []byte(f.taskID), []byte(""))
+	ackBody := ackBody(t, f.session, f.taskID, 2)
 	ackEnv := signedTaskEnvelope(t, f.user, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure, f.session, f.taskID, ackBody, []byte("nonce-ack-0001"))
 	ack, err := f.client.AckOutput(ctx, connect.NewRequest(&nexusv1.AckOutputRequest{SessionId: f.session, TaskId: f.taskID, RequestEnvelope: ackEnv, LastSeq: 2}))
 	if err != nil || !ack.Msg.GetAcked() || ack.Msg.GetAlreadyAcked() {

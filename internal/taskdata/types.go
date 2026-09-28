@@ -15,6 +15,23 @@ var (
 	ErrServiceKeyUnavailable = errors.New("NEXUS_DATA_SERVICE_KEY_UNAVAILABLE")
 	ErrStorage               = errors.New("NEXUS_DATA_STORAGE")
 	ErrAuthorityUnavailable  = errors.New("NEXUS_DATA_AUTHORITY_UNAVAILABLE")
+	// USER requests: a signature that does not verify (including a wrong derived grant hash, a wrong
+	// domain chainId or a version 1 signature), and a verified requester without the Task duty.
+	ErrInvalidSignature = errors.New("DATA_ACCESS_INVALID_SIGNATURE")
+	ErrDenied           = errors.New("DATA_ACCESS_DENIED")
+	// ErrRequestMalformed is a USER request that fails the format step (step 1 of the user request
+	// checks), which shares the code of a malformed SDK request envelope.
+	ErrRequestMalformed = errors.New("NEXUS_INGRESS_MALFORMED")
+	// ErrReplay is a request nonce already used within its expiry. On the CORTEX_SERVICE path it is
+	// reported as NEXUS_DATA_UNAUTHORIZED, as before; OpenTask reports it as SDK_AUTH_REPLAY.
+	ErrReplay = errors.New("NEXUS_DATA_REPLAY")
+	// ErrRetentionExpired is a stored object deleted when its retention ran out; unlike
+	// NEXUS_DATA_EXPIRED (the request expired, sign again) it is final.
+	ErrRetentionExpired = errors.New("DATA_EXPIRED")
+	// Session grant failures on the USER path.
+	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
+	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")
+	ErrSessionGrantExpired     = errors.New("DATA_ACCESS_SESSION_GRANT_EXPIRED")
 	// ErrNotReady is TASK_DATA_NOT_READY: the object is stored
 	// but not READY yet, for example OUTPUT before the Worker's FinalizeTaskResult. It maps to the
 	// same transport code as the two *_UNAVAILABLE errors above, so callers tell "ask this Builder

@@ -143,22 +143,36 @@ func (x *DeadlinePolicyV1) GetLatencyClass() DeadlineLatencyClass {
 // fill defaults explicitly before signing; stop_sequences ascend by UTF-8 bytes
 // and stop_token_ids ascend numerically. Unknown fields, floats and out-of-range
 // values are rejected.
+//
+// Ranges are inclusive. The Keeper enforces them when it projects the order
+// (TRUEOPEN_TASK_ORDER_V3) and again when it derives generation_params_digest
+// (TRUEOPEN_TASK_GENERATION_PARAMS_V1); top_k is bounded only by the second,
+// against a governance parameter. The chain fills no default: every value is
+// an explicit order fact. Boundary vectors are in
+// testdata/v1/task/generation_params_ranges_v1.json.
 // DecodingParamsV1 defines the DecodingParamsV1 wire type.
 type DecodingParamsV1 struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	SamplingEnabled  bool                   `protobuf:"varint,1,opt,name=sampling_enabled,json=samplingEnabled,proto3" json:"sampling_enabled,omitempty"`
-	TemperatureMilli uint32                 `protobuf:"varint,2,opt,name=temperature_milli,json=temperatureMilli,proto3" json:"temperature_milli,omitempty"`
-	TopPPpm          uint32                 `protobuf:"varint,3,opt,name=top_p_ppm,json=topPPpm,proto3" json:"top_p_ppm,omitempty"`
-	// 0 disables top-k.
-	TopK                  uint32   `protobuf:"varint,4,opt,name=top_k,json=topK,proto3" json:"top_k,omitempty"`
-	Seed                  uint64   `protobuf:"varint,5,opt,name=seed,proto3" json:"seed,omitempty"`
-	PresencePenaltyMilli  int32    `protobuf:"varint,6,opt,name=presence_penalty_milli,json=presencePenaltyMilli,proto3" json:"presence_penalty_milli,omitempty"`
-	FrequencyPenaltyMilli int32    `protobuf:"varint,7,opt,name=frequency_penalty_milli,json=frequencyPenaltyMilli,proto3" json:"frequency_penalty_milli,omitempty"`
-	RepetitionPenaltyPpm  uint32   `protobuf:"varint,8,opt,name=repetition_penalty_ppm,json=repetitionPenaltyPpm,proto3" json:"repetition_penalty_ppm,omitempty"`
-	StopSequences         []string `protobuf:"bytes,9,rep,name=stop_sequences,json=stopSequences,proto3" json:"stop_sequences,omitempty"`
-	StopTokenIds          []uint32 `protobuf:"varint,10,rep,packed,name=stop_token_ids,json=stopTokenIds,proto3" json:"stop_token_ids,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SamplingEnabled bool                   `protobuf:"varint,1,opt,name=sampling_enabled,json=samplingEnabled,proto3" json:"sampling_enabled,omitempty"`
+	// 0..2000; 1000 means 1.0.
+	TemperatureMilli uint32 `protobuf:"varint,2,opt,name=temperature_milli,json=temperatureMilli,proto3" json:"temperature_milli,omitempty"`
+	// 1..1000000; 1000000 means 1.0. 0 is rejected.
+	TopPPpm uint32 `protobuf:"varint,3,opt,name=top_p_ppm,json=topPPpm,proto3" json:"top_p_ppm,omitempty"`
+	// 0 disables top-k. Otherwise at most task.v1 Params
+	// generation.top_k_max (default 1000), checked when
+	// generation_params_digest is derived.
+	TopK uint32 `protobuf:"varint,4,opt,name=top_k,json=topK,proto3" json:"top_k,omitempty"`
+	Seed uint64 `protobuf:"varint,5,opt,name=seed,proto3" json:"seed,omitempty"`
+	// -2000..2000; 0 is neutral.
+	PresencePenaltyMilli int32 `protobuf:"varint,6,opt,name=presence_penalty_milli,json=presencePenaltyMilli,proto3" json:"presence_penalty_milli,omitempty"`
+	// -2000..2000; 0 is neutral.
+	FrequencyPenaltyMilli int32 `protobuf:"varint,7,opt,name=frequency_penalty_milli,json=frequencyPenaltyMilli,proto3" json:"frequency_penalty_milli,omitempty"`
+	// 100000..2000000; 1000000 means 1.0. 0 is rejected.
+	RepetitionPenaltyPpm uint32   `protobuf:"varint,8,opt,name=repetition_penalty_ppm,json=repetitionPenaltyPpm,proto3" json:"repetition_penalty_ppm,omitempty"`
+	StopSequences        []string `protobuf:"bytes,9,rep,name=stop_sequences,json=stopSequences,proto3" json:"stop_sequences,omitempty"`
+	StopTokenIds         []uint32 `protobuf:"varint,10,rep,packed,name=stop_token_ids,json=stopTokenIds,proto3" json:"stop_token_ids,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *DecodingParamsV1) Reset() {
@@ -340,6 +354,22 @@ func (x *GenerationParamsV1) GetDecodingParams() *DecodingParamsV1 {
 // derives task_id, task_hash, generation_params_digest, order_value,
 // task_builder_seed, reward bucket, resource tier and the Task Builders; none of
 // them may be submitted here.
+//
+// Amounts (price_bid, max_fee, assignment_priority_fee, tx_fee_reserve) carry
+// no denomination: every amount is in the chain's hub.v1 Params
+// phase0.business_denom. The order's EIP-712 message signs that denomination
+// as feeDenom; it is not a TaskOrderV3 field and does not enter taskHash, and
+// the Keeper verifies the signature with feeDenom set to its current
+// business_denom, so a signature over any other string fails.
+//
+// order_value is derived with one floor per step, all in u64 with a 128-bit
+// intermediate: worker_max = floor(max_output_tokens * price_bid / 1000000),
+// verify_max = floor(worker_max * verify_ratio_bps / 10000) with the profile's
+// PricingProfile.verify_ratio_bps, order_value = worker_max + verify_max. The
+// order is rejected when price_bid is zero, either step overflows u64,
+// order_value is zero, order_value + tx_fee_reserve overflows or exceeds
+// max_fee, or order_value is below the profile's min_order_value. Vectors are in
+// testdata/v1/task/order_economics_v1.json.
 // TaskOrderV3 defines the TaskOrderV3 wire type.
 type TaskOrderV3 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -606,7 +636,8 @@ func (x *TaskOrderV3) GetUserRecipientPubkey() []byte {
 // SignedOrderV2 is the upstream-locked signed order envelope.
 // signature_scheme accepts exactly lowercase "eip712" and is not persisted on
 // Task state. user_signature is recoverable 65-byte R||S||V with V in {27,28}
-// and low-S.
+// and low-S. It signs the "TrueOpen Task Order" version "3" EIP-712 digest,
+// whose feeDenom is hub.v1 Params phase0.business_denom (see TaskOrderV3).
 // SignedOrderV2 defines the SignedOrderV2 wire type.
 type SignedOrderV2 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`

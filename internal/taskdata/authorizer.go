@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -44,15 +45,30 @@ type AuthorizerConfig struct {
 	// EVMChainID is the numeric chainId of the EIP-712 domain (from the chain's Hub
 	// parameters). It and the ChainID string must both match the current chain: checking only one of
 	// them would let the same USER signature from another chain be replayed here.
-	EVMChainID       uint64
-	ChainID          string
-	BuilderAddress   string
-	AddressPrefix    string
+	EVMChainID     uint64
+	ChainID        string
+	BuilderAddress string
+	AddressPrefix  string
+	// RequestTTLBlocks bounds an OpenTask chain-height expiry above the current height.
 	RequestTTLBlocks uint64
+	// MaxRequestExpiryBlocks bounds a Task data request's expiry_height above the current height:
+	// the Hub parameter service.max_service_material_expiry_blocks. 0 falls back to RequestTTLBlocks.
+	MaxRequestExpiryBlocks uint64
+	// RefreshMaxRequestExpiryBlocks, when set, re-reads MaxRequestExpiryBlocks from the chain at
+	// most once per RequestExpiryRefreshInterval (default 10 minutes), so a governance change takes
+	// effect without a restart. A failed read keeps the last value.
+	RefreshMaxRequestExpiryBlocks func(context.Context) (uint64, error)
+	RequestExpiryRefreshInterval  time.Duration
+	// UserRequestsPerMinute caps the requests one USER account may make per minute, checked after
+	// the signature and before the nonce is stored. 0 disables the cap.
+	UserRequestsPerMinute uint32
 	// RetentionLeaseBlocks is the fallback length of the retention window for
 	// retention_until_height in a storage confirmation (extending the retention
 	// window is managed through a retention lease and does not modify the original confirmation).
 	RetentionLeaseBlocks uint64
+	// SessionGrants verifies session grants on USER requests: the chain reads (current height,
+	// account keys) and the network's max_session_grant_blocks.
+	SessionGrants SessionGrantEnv
 }
 
 type Authorizer struct {
@@ -62,6 +78,12 @@ type Authorizer struct {
 	signer    signer.Signer
 
 	replayMu sync.Mutex
+
+	expiryMu        sync.Mutex
+	expiryBlocks    uint64
+	expiryRefreshed time.Time
+
+	userRate userRateLimiter
 }
 
 type metadataAccess struct {
@@ -85,6 +107,8 @@ func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, 
 	}
 	return &Authorizer{
 		cfg: cfg, backend: backend, authority: authority, signer: serviceSigner,
+		expiryBlocks: cfg.MaxRequestExpiryBlocks, expiryRefreshed: time.Now(),
+		userRate: userRateLimiter{limit: cfg.UserRequestsPerMinute, counts: map[string]uint32{}},
 	}, nil
 }
 
@@ -105,18 +129,18 @@ func (a *Authorizer) verifyMetadataRequest(ctx context.Context, request RequestA
 	// the ref does not enter the request preimage.
 	digest, err := TaskDataMetadataBodyDigest(request.Key)
 	if err != nil {
+		return metadataAccess{}, formatErr(request, err)
+	}
+	if err := serviceBodyBound(request, true, digest, "metadata"); err != nil {
 		return metadataAccess{}, err
 	}
-	if request.BodyDigest != hex.EncodeToString(digest[:]) {
-		return metadataAccess{}, fmt.Errorf("%w: metadata body binding", ErrUnauthorized)
-	}
-	task, height, err := a.verifyRequest(ctx, request, MethodGetMetadata)
+	task, height, err := a.verifyRequest(ctx, request, MethodGetMetadata, digest)
 	if err != nil {
 		return metadataAccess{}, err
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canInspect(request.Key, request.RequesterAddress) {
-		return metadataAccess{}, fmt.Errorf("%w: metadata role", ErrUnauthorized)
+		return metadataAccess{}, fmt.Errorf("%w: metadata role", roleDenied(request))
 	}
 	return metadataAccess{height: height, inferReceipt: task.InferReceipt}, nil
 }
@@ -138,14 +162,17 @@ func (a *Authorizer) finishMetadata(request RequestAuth, access metadataAccess, 
 func (a *Authorizer) AuthorizeUploadObject(ctx context.Context, request RequestAuth, header UploadHeader) (string, uint64, error) {
 	digest, err := UploadBodyDigest(header)
 	if err != nil {
+		return "", 0, formatErr(request, err)
+	}
+	if err := serviceBodyBound(request, request.Key == header.Key, digest, "upload"); err != nil {
 		return "", 0, err
 	}
-	if request.Key != header.Key || request.BodyDigest != hex.EncodeToString(digest[:]) {
-		return "", 0, fmt.Errorf("%w: upload body binding", ErrUnauthorized)
-	}
-	task, height, err := a.verifyRequest(ctx, request, MethodUpload)
+	task, height, err := a.verifyRequest(ctx, request, MethodUpload, digest)
 	if err != nil {
 		return "", 0, err
+	}
+	if request.Key != header.Key {
+		return "", 0, fmt.Errorf("%w: upload object ref is not the one the request signed", ErrInvalidSignature)
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canUpload(request.Key, request.RequesterAddress) {
@@ -169,14 +196,17 @@ func (a *Authorizer) AuthorizeUploadObject(ctx context.Context, request RequestA
 func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestAuth, key ObjectKey, taskHash string) (chaincli.OnChainTask, uint64, []byte, error) {
 	digest, err := OutputStreamBodyDigest(key)
 	if err != nil {
+		return chaincli.OnChainTask{}, 0, nil, formatErr(request, err)
+	}
+	if err := serviceBodyBound(request, request.Key == key, digest, "output stream header"); err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
 	}
-	if request.Key != key || request.BodyDigest != hex.EncodeToString(digest[:]) {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream header binding", ErrUnauthorized)
-	}
-	task, height, err := a.verifyRequest(ctx, request, MethodUploadStream)
+	task, height, err := a.verifyRequest(ctx, request, MethodUploadStream, digest)
 	if err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
+	}
+	if request.Key != key {
+		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream object ref is not the one the request signed", ErrInvalidSignature)
 	}
 	if task.Assignment.SelectedWorkerOperatorAddress == "" || task.Assignment.SelectedWorkerOperatorAddress != request.RequesterAddress {
 		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream uploader is not the selected worker", ErrUnauthorized)
@@ -210,18 +240,18 @@ func (a *Authorizer) AuthorizeFetch(
 ) (FetchGrant, error) {
 	digest, err := TaskDataFetchBodyDigest(request.Key, byteRange)
 	if err != nil {
+		return FetchGrant{}, formatErr(request, err)
+	}
+	if err := serviceBodyBound(request, true, digest, "fetch"); err != nil {
 		return FetchGrant{}, err
 	}
-	if request.BodyDigest != hex.EncodeToString(digest[:]) {
-		return FetchGrant{}, fmt.Errorf("%w: fetch body binding", ErrUnauthorized)
-	}
-	task, height, requesterKey, err := a.verifyRequestKey(ctx, request, MethodFetch)
+	task, height, requesterKey, err := a.verifyRequestKey(ctx, request, MethodFetch, digest)
 	if err != nil {
 		return FetchGrant{}, err
 	}
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canDownload(request.Key, request.RequesterAddress) {
-		return FetchGrant{}, fmt.Errorf("%w: download role", ErrUnauthorized)
+		return FetchGrant{}, fmt.Errorf("%w: download role", roleDenied(request))
 	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
 		return FetchGrant{}, err
@@ -293,21 +323,64 @@ func (a *Authorizer) SignStorageConfirmation(ctx context.Context, metadata Metad
 // path after one fails; neither path accepts a public key supplied by the caller — CORTEX_SERVICE
 // reads the current service key from the chain by (CORTEX, requester_address), and USER recovers the
 // address from the 65-byte signature.
-func (a *Authorizer) verifyRequest(ctx context.Context, request RequestAuth, method RequestMethod) (chaincli.OnChainTask, uint64, error) {
-	task, height, _, err := a.verifyRequestKey(ctx, request, method)
+// roleDenied is the error for a verified requester without the Task duty: DATA_ACCESS_DENIED for a
+// USER, the Nexus code the CORTEX_SERVICE path has always returned otherwise.
+func roleDenied(request RequestAuth) error {
+	if request.RequesterKind == RequesterKindUser {
+		return ErrDenied
+	}
+	return ErrUnauthorized
+}
+
+// formatErr reports a USER request that fails the format step under NEXUS_INGRESS_MALFORMED, the
+// code of step 1; the CORTEX_SERVICE path keeps NEXUS_DATA_MALFORMED.
+func formatErr(request RequestAuth, err error) error {
+	return UserFormatErr(request.RequesterKind == RequesterKindUser, err)
+}
+
+// UserFormatErr turns a NEXUS_DATA_MALFORMED error of a USER request into NEXUS_INGRESS_MALFORMED;
+// anything else is returned unchanged.
+func UserFormatErr(user bool, err error) error {
+	if !user || !errors.Is(err, ErrMalformed) {
+		return err
+	}
+	return fmt.Errorf("%w: %s", ErrRequestMalformed, strings.TrimPrefix(err.Error(), ErrMalformed.Error()+": "))
+}
+
+// serviceBodyBound refuses a CORTEX_SERVICE request whose signed body_digest (or object ref) is not
+// the body the verifier recomputed. A USER request needs no separate check: the verifier rebuilds
+// its signed digest with the recomputed body, so a mismatch fails at the signature step.
+func serviceBodyBound(request RequestAuth, sameKey bool, body [32]byte, label string) error {
+	if request.RequesterKind == RequesterKindUser {
+		return nil
+	}
+	if !sameKey || request.BodyDigest != hex.EncodeToString(body[:]) {
+		return fmt.Errorf("%w: %s body binding", ErrUnauthorized, label)
+	}
+	return nil
+}
+
+func (a *Authorizer) verifyRequest(ctx context.Context, request RequestAuth, method RequestMethod, body [32]byte) (chaincli.OnChainTask, uint64, error) {
+	task, height, _, err := a.verifyRequestKey(ctx, request, method, body)
 	return task, height, err
 }
 
 // verifyRequestKey is verifyRequest that also returns the CORTEX_SERVICE key the signature
-// verified against (nil on the USER path).
-func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, method RequestMethod) (chaincli.OnChainTask, uint64, []byte, error) {
-	if request.ChainID != a.cfg.ChainID || request.BuilderOperatorAddress != a.cfg.BuilderAddress ||
-		request.RPCMethod != rpcMethodPath(method) {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
-	}
+// verified against (nil on the USER path). body is the body digest the verifier recomputed.
+//
+// A USER request runs the five steps in order and stops at the first failure: format (including
+// rpc_method naming the called method) -> NEXUS_INGRESS_MALFORMED; the session method set, the
+// grant and the signature (VerifyUserTaskDataRequest); then builder_operator_address ->
+// DATA_ACCESS_DENIED, expiry -> NEXUS_DATA_EXPIRED, replay -> NEXUS_DATA_REPLAY. The caller checks
+// the Task duty last.
+func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, method RequestMethod, body [32]byte) (chaincli.OnChainTask, uint64, []byte, error) {
 	var requesterKey []byte
 	switch request.RequesterKind {
 	case RequesterKindCortexService:
+		if request.ChainID != a.cfg.ChainID || request.BuilderOperatorAddress != a.cfg.BuilderAddress ||
+			request.RPCMethod != rpcMethodPath(method) {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
+		}
 		if len(request.Signature) != 64 {
 			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: CORTEX_SERVICE signature must be exactly 64 bytes", ErrMalformed)
 		}
@@ -334,20 +407,96 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		}
 		requesterKey = publicKey
 	case RequesterKindUser:
-		if err := VerifyUserTaskDataRequest(request, a.cfg.EVMChainID); err != nil {
-			return chaincli.OnChainTask{}, 0, nil, err
+		if request.RPCMethod != rpcMethodPath(method) {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: rpc_method %q is not the called method %q",
+				ErrRequestMalformed, request.RPCMethod, rpcMethodPath(method))
+		}
+		env := a.cfg.SessionGrants
+		env.AddressPrefix = a.cfg.AddressPrefix
+		env.ChainID = a.cfg.ChainID
+		env.BodyDigest = hex.EncodeToString(body[:])
+		if err := VerifyUserTaskDataRequest(ctx, request, a.cfg.EVMChainID, env); err != nil {
+			return chaincli.OnChainTask{}, 0, nil, formatErr(request, err)
+		}
+		if request.BuilderOperatorAddress != a.cfg.BuilderAddress {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: the request is for Builder %q", ErrDenied, request.BuilderOperatorAddress)
+		}
+		// The nonce of a signed request is stored before the Task duty is checked (wire order), so an
+		// account may not store nonces faster than the cap.
+		if !a.userRate.allow(request.RequesterAddress, time.Now()) {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: too many Task data requests from %q", ErrCapacity, request.RequesterAddress)
 		}
 	default:
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: requester_kind", ErrMalformed)
+		return chaincli.OnChainTask{}, 0, nil, formatErr(request, fmt.Errorf("%w: requester_kind", ErrMalformed))
 	}
 	height, task, err := a.currentTask(ctx, request.Key)
 	if err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
 	}
-	if err := a.validateExpiry(height, request.ExpiryHeight); err != nil {
+	if err := validateExpiry(height, request.ExpiryHeight, a.requestExpiryBlocks(ctx)); err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
 	}
+	if request.RequesterKind == RequesterKindUser {
+		// A USER nonce is consumed here, before the Task duty is checked; consumeRequestNonce is a
+		// no-op for it afterwards.
+		if err := a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height); err != nil {
+			return chaincli.OnChainTask{}, 0, nil, err
+		}
+	}
 	return task, height, requesterKey, nil
+}
+
+// requestExpiryBlocks is the Task data request expiry window, re-read from the chain once per
+// refresh interval when a reader is configured.
+func (a *Authorizer) requestExpiryBlocks(ctx context.Context) uint64 {
+	interval := a.cfg.RequestExpiryRefreshInterval
+	if interval <= 0 {
+		interval = 10 * time.Minute
+	}
+	a.expiryMu.Lock()
+	refresh := a.cfg.RefreshMaxRequestExpiryBlocks != nil && time.Since(a.expiryRefreshed) >= interval
+	if refresh {
+		a.expiryRefreshed = time.Now() // one reader per interval; the others keep the current value
+	}
+	a.expiryMu.Unlock()
+	if refresh {
+		if blocks, err := a.cfg.RefreshMaxRequestExpiryBlocks(ctx); err == nil && blocks != 0 {
+			a.expiryMu.Lock()
+			a.expiryBlocks = blocks
+			a.expiryMu.Unlock()
+		}
+	}
+	a.expiryMu.Lock()
+	defer a.expiryMu.Unlock()
+	if a.expiryBlocks != 0 {
+		return a.expiryBlocks
+	}
+	return a.cfg.RequestTTLBlocks
+}
+
+// userRateLimiter counts USER requests per account in one-minute windows.
+type userRateLimiter struct {
+	mu     sync.Mutex
+	limit  uint32
+	window time.Time
+	counts map[string]uint32
+}
+
+func (l *userRateLimiter) allow(account string, now time.Time) bool {
+	if l.limit == 0 {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.window) >= time.Minute {
+		l.window = now
+		clear(l.counts)
+	}
+	if l.counts[account] >= l.limit {
+		return false
+	}
+	l.counts[account]++
+	return true
 }
 
 // verifyRequesterKey confirms that the presented pubkey really represents the operator address the
@@ -386,8 +535,17 @@ func (a *Authorizer) verifyRequesterKey(ctx context.Context, requester string, p
 	return nil
 }
 
+// consumeRequestNonce consumes a CORTEX_SERVICE request nonce, reporting a replay as
+// NEXUS_DATA_UNAUTHORIZED as before. A USER nonce was already consumed by verifyRequestKey.
 func (a *Authorizer) consumeRequestNonce(request RequestAuth, height uint64) error {
-	return a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height)
+	if request.RequesterKind == RequesterKindUser {
+		return nil
+	}
+	err := a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height)
+	if errors.Is(err, ErrReplay) {
+		return fmt.Errorf("%w: request replay", ErrUnauthorized)
+	}
+	return err
 }
 
 func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry uint64) error {
@@ -398,7 +556,7 @@ func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester str
 	if err != nil || height == 0 {
 		return fmt.Errorf("%w: latest height", ErrAuthorityUnavailable)
 	}
-	if err := a.validateExpiry(height, expiry); err != nil {
+	if err := validateExpiry(height, expiry, a.cfg.RequestTTLBlocks); err != nil {
 		return err
 	}
 	return a.consumeNonce("sdk_open_task", requester, nonce, expiry, height)
@@ -423,8 +581,9 @@ func (a *Authorizer) currentTask(ctx context.Context, key ObjectKey) (uint64, ch
 	return height, task, nil
 }
 
-func (a *Authorizer) validateExpiry(height, expiry uint64) error {
-	if expiry < height || height > math.MaxUint64-a.cfg.RequestTTLBlocks || expiry > height+a.cfg.RequestTTLBlocks {
+// validateExpiry requires current_height <= expiry <= current_height + window, with checked addition.
+func validateExpiry(height, expiry, window uint64) error {
+	if expiry < height || height > math.MaxUint64-window || expiry > height+window {
 		return fmt.Errorf("%w: request height", ErrExpired)
 	}
 	return nil
@@ -446,7 +605,7 @@ func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry
 		}
 		previousExpiry := binary.BigEndian.Uint64(raw)
 		if previousExpiry >= height {
-			return fmt.Errorf("%w: request replay", ErrUnauthorized)
+			return fmt.Errorf("%w: request nonce already used", ErrReplay)
 		}
 		if err := a.backend.Delete(kv.NSTaskDataReplay, key); err != nil {
 			return fmt.Errorf("%w: delete expired replay record", ErrStorage)

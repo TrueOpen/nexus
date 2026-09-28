@@ -73,6 +73,10 @@ type Client interface {
 	// to verify user signatures, and nexus must use the same value when verifying USER Task
 	// data requests, so it is read from chain instead of configured separately.
 	QueryEVMChainID(ctx context.Context) (uint64, error)
+	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
+	// service.max_service_material_expiry_blocks: how far above the current height a Task data
+	// request's expiry_height may lie.
+	QueryServiceMaterialExpiryBlocks(ctx context.Context) (uint64, error)
 	QueryBuilder(ctx context.Context, address string) (BuilderState, error)
 	QueryCurrentServiceKey(ctx context.Context, participantType, operatorAddress string) (ServiceKeyState, error)
 	// QueryCortexNode reads the Cortex stable identity row (hub.v1.Query/CortexNode); returns ErrNotFound when absent.
@@ -104,6 +108,9 @@ type Client interface {
 	Simulate(ctx context.Context, unsignedTx []byte) (SimResult, error)
 	// AccountInfo queries the signer account's account_number / sequence (cosmos auth, used to assemble the SignDoc).
 	AccountInfo(ctx context.Context, address string) (AccountInfo, error)
+	// AccountPubKey returns the 33-byte compressed eth_secp256k1 public key the account holds on
+	// chain; ErrNotFound when the account does not exist or holds no such key.
+	AccountPubKey(ctx context.Context, address string) ([]byte, error)
 
 	// --- Broadcast signed Tx (Assign / OpenVerify / WorkerReveal / Settle / Register / Unbond) ---
 	BroadcastTx(ctx context.Context, tx []byte) (TxResult, error)
@@ -198,6 +205,11 @@ func (c *stubClient) QuerySettlementBuilderGraceBlocks(context.Context) (uint64,
 	return 0, ErrNotFound
 }
 
+// AccountPubKey has no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) AccountPubKey(context.Context, string) ([]byte, error) {
+	return nil, ErrNotSupportedOnChain
+}
+
 func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
 	return 0, ErrNotFound
 }
@@ -212,6 +224,10 @@ func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
 }
 
 func (c *stubClient) QueryEVMChainID(context.Context) (uint64, error) {
+	return 0, ErrNotFound
+}
+
+func (c *stubClient) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {
 	return 0, ErrNotFound
 }
 

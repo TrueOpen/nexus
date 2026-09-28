@@ -371,37 +371,45 @@ func (x *ModelState) GetRepoId() string {
 
 // ProfileState is one registered model profile primary row.
 type ProfileState struct {
-	state                         protoimpl.MessageState      `protogen:"open.v1"`
-	ModelId                       []byte                      `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion                uint32                      `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	ManifestHash                  []byte                      `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
-	TokenizerHash                 []byte                      `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
-	RuntimeClass                  string                      `protobuf:"bytes,5,opt,name=runtime_class,json=runtimeClass,proto3" json:"runtime_class,omitempty"`
-	RequiredTopK                  uint32                      `protobuf:"varint,6,opt,name=required_top_k,json=requiredTopK,proto3" json:"required_top_k,omitempty"`
-	TaskTypes                     []v1.TaskType               `protobuf:"varint,7,rep,packed,name=task_types,json=taskTypes,proto3,enum=shared.v1.TaskType" json:"task_types,omitempty"`
-	GenerationType                v1.GenerationType           `protobuf:"varint,8,opt,name=generation_type,json=generationType,proto3,enum=shared.v1.GenerationType" json:"generation_type,omitempty"`
-	ResourceTier                  uint32                      `protobuf:"varint,9,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
-	MinStake                      uint64                      `protobuf:"varint,10,opt,name=min_stake,json=minStake,proto3" json:"min_stake,omitempty"`
-	ChallengeOpenWindowBlocks     uint64                      `protobuf:"varint,11,opt,name=challenge_open_window_blocks,json=challengeOpenWindowBlocks,proto3" json:"challenge_open_window_blocks,omitempty"`
-	VerificationProfile           *v1.VerificationProfile     `protobuf:"bytes,12,opt,name=verification_profile,json=verificationProfile,proto3" json:"verification_profile,omitempty"`
-	VerificationThresholds        *v1.VerificationThresholds  `protobuf:"bytes,13,opt,name=verification_thresholds,json=verificationThresholds,proto3" json:"verification_thresholds,omitempty"`
-	BatchVerification             *v1.BatchVerification       `protobuf:"bytes,14,opt,name=batch_verification,json=batchVerification,proto3" json:"batch_verification,omitempty"`
-	PricingProfile                *v1.PricingProfile          `protobuf:"bytes,15,opt,name=pricing_profile,json=pricingProfile,proto3" json:"pricing_profile,omitempty"`
-	TimeoutBootstrapProfile       *v1.TimeoutBootstrapProfile `protobuf:"bytes,16,opt,name=timeout_bootstrap_profile,json=timeoutBootstrapProfile,proto3" json:"timeout_bootstrap_profile,omitempty"`
-	SchemaHash                    []byte                      `protobuf:"bytes,17,opt,name=schema_hash,json=schemaHash,proto3" json:"schema_hash,omitempty"`
-	Status                        ModelProfileStatus          `protobuf:"varint,18,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
-	StatusSource                  ProfileStatusSource         `protobuf:"varint,22,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ProfileStatusSource" json:"status_source,omitempty"`
-	RegistrationFeePaid           uint64                      `protobuf:"varint,23,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
-	PreviousProfileVersion        uint32                      `protobuf:"varint,24,opt,name=previous_profile_version,json=previousProfileVersion,proto3" json:"previous_profile_version,omitempty"`
-	ProposerAddress               string                      `protobuf:"bytes,25,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
-	RegistrationDigest            []byte                      `protobuf:"bytes,26,opt,name=registration_digest,json=registrationDigest,proto3" json:"registration_digest,omitempty"`
-	CreatedHeight                 uint64                      `protobuf:"varint,27,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
-	UpdatedHeight                 uint64                      `protobuf:"varint,28,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
-	LastFreezeRiskWindowEvaluated *uint64                     `protobuf:"varint,29,opt,name=last_freeze_risk_window_evaluated,json=lastFreezeRiskWindowEvaluated,proto3,oneof" json:"last_freeze_risk_window_evaluated,omitempty"`
-	RefPrice                      uint64                      `protobuf:"varint,30,opt,name=ref_price,json=refPrice,proto3" json:"ref_price,omitempty"`
-	Source                        *v1.ProfileSourceRefV1      `protobuf:"bytes,31,opt,name=source,proto3" json:"source,omitempty"`
-	ToolCallParser                *v1.ParserRefV1             `protobuf:"bytes,32,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
-	ReasoningParser               *v1.ParserRefV1             `protobuf:"bytes,33,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ManifestHash   []byte                 `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
+	TokenizerHash  []byte                 `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
+	RuntimeClass   string                 `protobuf:"bytes,5,opt,name=runtime_class,json=runtimeClass,proto3" json:"runtime_class,omitempty"`
+	RequiredTopK   uint32                 `protobuf:"varint,6,opt,name=required_top_k,json=requiredTopK,proto3" json:"required_top_k,omitempty"`
+	TaskTypes      []v1.TaskType          `protobuf:"varint,7,rep,packed,name=task_types,json=taskTypes,proto3,enum=shared.v1.TaskType" json:"task_types,omitempty"`
+	GenerationType v1.GenerationType      `protobuf:"varint,8,opt,name=generation_type,json=generationType,proto3,enum=shared.v1.GenerationType" json:"generation_type,omitempty"`
+	ResourceTier   uint32                 `protobuf:"varint,9,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
+	// Amount only, in hub.v1 Params phase0.business_denom. Registration accepts
+	// ModelProfileProjection.min_stake only as a Coin of that denomination and
+	// stores its amount here; a projection rebuilt from this row writes the
+	// Coin back with the current business_denom.
+	MinStake                  uint64                      `protobuf:"varint,10,opt,name=min_stake,json=minStake,proto3" json:"min_stake,omitempty"`
+	ChallengeOpenWindowBlocks uint64                      `protobuf:"varint,11,opt,name=challenge_open_window_blocks,json=challengeOpenWindowBlocks,proto3" json:"challenge_open_window_blocks,omitempty"`
+	VerificationProfile       *v1.VerificationProfile     `protobuf:"bytes,12,opt,name=verification_profile,json=verificationProfile,proto3" json:"verification_profile,omitempty"`
+	VerificationThresholds    *v1.VerificationThresholds  `protobuf:"bytes,13,opt,name=verification_thresholds,json=verificationThresholds,proto3" json:"verification_thresholds,omitempty"`
+	BatchVerification         *v1.BatchVerification       `protobuf:"bytes,14,opt,name=batch_verification,json=batchVerification,proto3" json:"batch_verification,omitempty"`
+	PricingProfile            *v1.PricingProfile          `protobuf:"bytes,15,opt,name=pricing_profile,json=pricingProfile,proto3" json:"pricing_profile,omitempty"`
+	TimeoutBootstrapProfile   *v1.TimeoutBootstrapProfile `protobuf:"bytes,16,opt,name=timeout_bootstrap_profile,json=timeoutBootstrapProfile,proto3" json:"timeout_bootstrap_profile,omitempty"`
+	SchemaHash                []byte                      `protobuf:"bytes,17,opt,name=schema_hash,json=schemaHash,proto3" json:"schema_hash,omitempty"`
+	Status                    ModelProfileStatus          `protobuf:"varint,18,opt,name=status,proto3,enum=hub.v1.ModelProfileStatus" json:"status,omitempty"`
+	StatusSource              ProfileStatusSource         `protobuf:"varint,22,opt,name=status_source,json=statusSource,proto3,enum=hub.v1.ProfileStatusSource" json:"status_source,omitempty"`
+	// Amount only, in hub.v1 Params phase0.business_denom: the
+	// ModelProfileProjection.registration_fee this registration paid. It equals
+	// Params treasury.model_profile_registration_fee for the first profile of a
+	// model and treasury.profile_version_update_fee for a later version.
+	RegistrationFeePaid           uint64                 `protobuf:"varint,23,opt,name=registration_fee_paid,json=registrationFeePaid,proto3" json:"registration_fee_paid,omitempty"`
+	PreviousProfileVersion        uint32                 `protobuf:"varint,24,opt,name=previous_profile_version,json=previousProfileVersion,proto3" json:"previous_profile_version,omitempty"`
+	ProposerAddress               string                 `protobuf:"bytes,25,opt,name=proposer_address,json=proposerAddress,proto3" json:"proposer_address,omitempty"`
+	RegistrationDigest            []byte                 `protobuf:"bytes,26,opt,name=registration_digest,json=registrationDigest,proto3" json:"registration_digest,omitempty"`
+	CreatedHeight                 uint64                 `protobuf:"varint,27,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
+	UpdatedHeight                 uint64                 `protobuf:"varint,28,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
+	LastFreezeRiskWindowEvaluated *uint64                `protobuf:"varint,29,opt,name=last_freeze_risk_window_evaluated,json=lastFreezeRiskWindowEvaluated,proto3,oneof" json:"last_freeze_risk_window_evaluated,omitempty"`
+	RefPrice                      uint64                 `protobuf:"varint,30,opt,name=ref_price,json=refPrice,proto3" json:"ref_price,omitempty"`
+	Source                        *v1.ProfileSourceRefV1 `protobuf:"bytes,31,opt,name=source,proto3" json:"source,omitempty"`
+	ToolCallParser                *v1.ParserRefV1        `protobuf:"bytes,32,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
+	ReasoningParser               *v1.ParserRefV1        `protobuf:"bytes,33,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
 	// manifest_uri is the registrant-hosted retrieval pointer for the manifest
 	// body, copied from the registered ModelProfileProjection.manifest_uri and
 	// frozen with this profile version. QueryProfile returns it together with

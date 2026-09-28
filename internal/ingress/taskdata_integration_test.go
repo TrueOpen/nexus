@@ -61,7 +61,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	handler := &fakeHandler{}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		handler, WithPayloadMaxBytes(16), WithReadMaxBytes(4), WithTaskDataService(dataService),
 	)
 	if err != nil {

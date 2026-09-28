@@ -16,6 +16,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	ethsecp256k1 "github.com/TrueOpen/nexus/gen/cosmosevm/crypto/v1/ethsecp256k1"
 	"log/slog"
 	"math"
 	"net"
@@ -363,6 +364,20 @@ func (c *client) QueryEVMChainID(ctx context.Context) (uint64, error) {
 		return 0, fmt.Errorf("query hub params: phase0.evm_chain_id is zero")
 	}
 	return evmChainID, nil
+}
+
+// QueryServiceMaterialExpiryBlocks reads the Hub parameter service.max_service_material_expiry_blocks.
+// 0 is treated as unconfigured.
+func (c *client) QueryServiceMaterialExpiryBlocks(ctx context.Context) (uint64, error) {
+	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("hub params", err)
+	}
+	blocks := resp.Msg.GetParams().GetService().GetMaxServiceMaterialExpiryBlocks()
+	if blocks == 0 {
+		return 0, fmt.Errorf("query hub params: service.max_service_material_expiry_blocks is zero")
+	}
+	return blocks, nil
 }
 
 // QueryEvidenceCleanup reads whether the chain has started compacting a task's evidence
@@ -788,6 +803,50 @@ func (c *client) AccountInfo(ctx context.Context, address string) (AccountInfo, 
 		return AccountInfo{}, fmt.Errorf("query account %q: decode %s: %w", address, anyAcc.GetTypeUrl(), err)
 	}
 	return AccountInfo{AccountNumber: base.GetAccountNumber(), Sequence: base.GetSequence()}, nil
+}
+
+// ethSecp256k1PubKeyTypeURL is the only account key type user requests verify against: accounts are
+// EVM-style, their address derived from the key with keccak.
+const ethSecp256k1PubKeyTypeURL = "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey"
+
+// baseAccountTypeURL is the only account type that can sign user requests. Module accounts and
+// vesting accounts are not user wallets.
+const baseAccountTypeURL = "/cosmos.auth.v1beta1.BaseAccount"
+
+// AccountPubKey returns the 33-byte compressed public key the account holds on chain. An account that
+// does not exist, is not a plain BaseAccount, holds no key yet (it has not sent a transaction), or
+// holds a key of another type or shape returns ErrNotFound; only a failed query returns another error.
+func (c *client) AccountPubKey(ctx context.Context, address string) ([]byte, error) {
+	resp, err := c.auth.Account(ctx, connect.NewRequest(&authv1beta1.QueryAccountRequest{Address: address}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return nil, fmt.Errorf("query account %q: %w", address, ErrNotFound)
+		}
+		return nil, fmt.Errorf("query account %q: endpoint unavailable: %s", address, redactSensitiveText(err.Error()))
+	}
+	anyAcc := resp.Msg.GetAccount()
+	if anyAcc == nil {
+		return nil, fmt.Errorf("query account %q: %w", address, ErrNotFound)
+	}
+	if anyAcc.GetTypeUrl() != baseAccountTypeURL {
+		return nil, fmt.Errorf("query account %q: %s is not a user account: %w", address, anyAcc.GetTypeUrl(), ErrNotFound)
+	}
+	var base authv1beta1.BaseAccount
+	if err := proto.Unmarshal(anyAcc.GetValue(), &base); err != nil {
+		return nil, fmt.Errorf("query account %q: decode %s: %w", address, anyAcc.GetTypeUrl(), err)
+	}
+	if base.GetAddress() != address {
+		return nil, fmt.Errorf("query account %q: response is for %q", address, base.GetAddress())
+	}
+	key := base.GetPubKey()
+	if key == nil || key.GetTypeUrl() != ethSecp256k1PubKeyTypeURL {
+		return nil, fmt.Errorf("query account %q: no %s public key: %w", address, ethSecp256k1PubKeyTypeURL, ErrNotFound)
+	}
+	var pub ethsecp256k1.PubKey
+	if err := proto.Unmarshal(key.GetValue(), &pub); err != nil || len(pub.GetKey()) != 33 {
+		return nil, fmt.Errorf("query account %q: public key is not a 33-byte compressed key: %w", address, ErrNotFound)
+	}
+	return append([]byte(nil), pub.GetKey()...), nil
 }
 
 func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error) {

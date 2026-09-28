@@ -5,19 +5,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"math"
 
 	"connectrpc.com/connect"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
-	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
-	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -132,15 +130,18 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 		return nil, err
 	}
-	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
-	if err != nil {
-		return nil, mapTaskDataError(err)
-	}
+	// Step 5 (expiry window, then the nonce) comes before any storage, so a replayed OpenTask is
+	// SDK_AUTH_REPLAY rather than a conflict with the stored input.
 	envelope := headerPB.GetRequestEnvelope()
 	if err := s.taskData.AuthorizeOpenTaskRequest(
 		ctx, envelope.GetSignerAddress(), envelope.GetRequestNonce(), uint64(envelope.GetExpiryHeightOrTime()),
 	); err != nil {
-		_ = upload.Abort()
+		for stream.Receive() {
+		}
+		return nil, mapOpenTaskRequestErr(err)
+	}
+	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
+	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
 	prepared := false
@@ -209,65 +210,78 @@ func (s *service) ConfirmOpenTask(
 }
 
 func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.OpenTaskHeader) (types.Order, taskdata.UploadHeader, error) {
-	// order_sequence is not among the required-field checks: 0 is the valid first value of every on-chain session,
-	// not "unset". Same rationale as SubmitOrder in service.go; change both together.
+	// OpenTask is a user request: a header that fails the format step is NEXUS_INGRESS_MALFORMED.
+	malformed := func(format string, args ...any) error {
+		return mapTaskDataError(fmt.Errorf("%w: %s", taskdata.ErrRequestMalformed, fmt.Sprintf(format, args...)))
+	}
+	// order_sequence is not among the required-field checks: 0 is the valid first value of every
+	// on-chain session, not "unset".
 	if header == nil || header.GetSessionId() == "" || header.GetUserAddress() == "" ||
 		header.GetInputSizeBytes() == 0 || header.GetInputHash() == "" || header.GetInputMediaType() == "" ||
-		header.GetPayloadRef() == "" || len(header.GetOrderEnvelope()) == 0 || len(header.GetSignature()) != 64 ||
-		header.GetSignatureScheme() != "secp256k1" {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: OpenTask header", taskdata.ErrMalformed))
+		header.GetPayloadRef() == "" || len(header.GetOrderEnvelope()) == 0 {
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask header")
 	}
-	order, err := parseOrderEnvelope(header.GetOrderEnvelope(), header.GetSignatureScheme(), hex.EncodeToString(header.GetSignature()))
+	if err := sdkauth.CheckUserAddress("user_address", header.GetUserAddress(), s.auth.Bech32Prefix); err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
+	}
+	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
+	// user signature, which the chain verifies.
+	if len(header.GetSignature()) != 0 || header.GetSignatureScheme() != "" { //nolint:staticcheck // deprecated fields must be empty
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask signature and signature_scheme must be empty")
+	}
+	// order_envelope carries the SignedOrderV2 protobuf bytes; the legacy JSON envelope is not accepted.
+	order, err := parseSignedOrderEnvelope(header.GetOrderEnvelope())
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: %v", taskdata.ErrMalformed, err))
+		return types.Order{}, taskdata.UploadHeader{}, malformed("%v", err)
+	}
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(header.GetOrderEnvelope(), &signed); err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, malformed("order_envelope: %v", err)
+	}
+	signedOrder := signed.GetOrder()
+	if signedOrder.GetUserAddress() != header.GetUserAddress() ||
+		signedOrder.GetInputSizeBytes() != header.GetInputSizeBytes() ||
+		hex.EncodeToString(signedOrder.GetSessionId()) != header.GetSessionId() ||
+		signedOrder.GetOrderSequence() != header.GetOrderSequence() {
+		return types.Order{}, taskdata.UploadHeader{}, malformed(
+			"OpenTask user_address, input_size_bytes, session_id and order_sequence must equal the signed order's")
 	}
 	order.SessionID = header.GetSessionId()
 	order.OrderSequence = header.GetOrderSequence()
 	order.TaskID, err = deriveTaskID(order.SessionID, order.OrderSequence)
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: %v", taskdata.ErrMalformed, err))
+		return types.Order{}, taskdata.UploadHeader{}, malformed("%v", err)
 	}
 	order.User = header.GetUserAddress()
 	if order.PayloadHash != header.GetInputHash() {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: OpenTask input hash", taskdata.ErrMalformed))
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input hash")
 	}
+	// payload_ref is not in the signed body; it is a transport check against input_hash.
 	order.PayloadCID = payloadstore.RefForHash(header.GetInputHash())
 	if order.PayloadCID == "" || header.GetPayloadRef() != order.PayloadCID || order.DeadlineHeight == 0 {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: OpenTask input commitment", taskdata.ErrMalformed))
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input commitment")
 	}
-	requester, err := s.checkRequiredTaskEnvelopeWithoutReplay(
-		header.GetRequestEnvelope(), "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure,
-		order.SessionID, order.TaskID, openTaskBodyDigest(header),
-	)
+	// task_hash enters the body recomputed from the order, never from the caller.
+	taskHash, err := sdkauth.Hash32Hex("task_hash", order.TaskHash)
+	if err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, malformed("order task_hash: %v", err)
+	}
+	body, err := sdkauth.OpenTaskBody(taskHash, order.SessionID, order.OrderSequence, order.User,
+		header.GetInputSizeBytes(), header.GetInputHash(), header.GetInputMediaType(), header.GetIdempotencyKey())
+	if err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
+	}
+	// The wallet signs OpenTask directly (no session grant). Its height expiry and nonce are checked
+	// by the taskdata Authorizer against the chain, so no replay cache here.
+	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), order.SessionID, order.TaskID, envelopeCheck{
+		method: "OpenTask", body: body, heightExpiry: true,
+	})
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, err
 	}
-	if requester != order.User || header.GetRequestEnvelope() == nil {
-		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
-			"request envelope signer %q is not the order user %q", requester, order.User)
-	}
-	expiry := header.GetRequestEnvelope().GetExpiryHeightOrTime()
-	if expiry <= 0 || expiry >= sdkauth.HeightExpiryThreshold {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: OpenTask expiry must be a chain height", taskdata.ErrExpired))
-	}
-	userPubKey := header.GetRequestEnvelope().GetSignerPubkey()
-	derived, err := signer.AddressFromPubKey(s.auth.Bech32Prefix, userPubKey)
-	if err != nil || derived != order.User {
-		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
-			"request envelope public key derives %q, not the order user %q", derived, order.User)
-	}
-	if !signer.VerifySig(userPubKey, nodecontract.CurrentOrderSigningBytes(
-		s.auth.ChainID, order.User, order.SessionID, order.OrderSequence, order.OrderEnvelope,
-	), header.GetSignature()) {
-		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
-			"OpenTask header signature does not verify: it must be a 64-byte secp256k1 signature over the SHA-256 of the order signing bytes")
-	}
-	// task_hash is the first field of the object ref; without it the INPUT object cannot be stored. The legacy JSON envelope
-	// cannot yield a canonical task_hash (see parseOrderEnvelope), and such orders could never be submitted on-chain
-	// anyway -- reject explicitly here instead of carrying on with an empty identity.
-	if order.TaskHash == "" {
-		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_ORDER_HAS_NO_TASK_HASH: order envelope yields no canonical task_hash"))
+	if requester != order.User {
+		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
+			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
 	}
 	// Full object ref for INPUT: task_hash is the order identity, content_hash is input_hash itself --
 	// the same bytes can have only one identity.
@@ -282,26 +296,17 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	return order, uploadHeader, nil
 }
 
-func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
-	return sdkauth.BodyDigest(
-		header.GetOrderEnvelope(), []byte(header.GetPayloadRef()), header.GetSignature(),
-		[]byte(header.GetSessionId()), u64be(header.GetOrderSequence()), []byte(header.GetUserAddress()),
-		[]byte(header.GetSignatureScheme()), u64be(header.GetInputSizeBytes()), []byte(header.GetInputHash()),
-		[]byte(header.GetInputMediaType()),
-	)
-}
-
 func (s *service) GetTaskDataMetadata(ctx context.Context, req *connect.Request[nexusv1.GetTaskDataMetadataRequest]) (*connect.Response[nexusv1.GetTaskDataMetadataResponse], error) {
 	if s.taskData == nil {
 		return nil, mapTaskDataError(taskdata.ErrServiceKeyUnavailable)
 	}
 	ref, err := objectRefFromPB(req.Msg.GetObjectRef())
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	request, err := requestAuthFromPB(req.Msg.GetRequestAuth(), ref)
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	metadata, exists, err := s.taskData.GetMetadata(ctx, request)
 	if err != nil {
@@ -348,7 +353,7 @@ func (s *service) FetchTaskData(
 	}
 	ref, err := objectRefFromPB(req.Msg.GetObjectRef())
 	if err != nil {
-		return mapTaskDataError(err)
+		return mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	byteRange, err := rangeFromPB(req.Msg.GetRange())
 	if err != nil {
@@ -356,7 +361,7 @@ func (s *service) FetchTaskData(
 	}
 	request, err := requestAuthFromPB(req.Msg.GetRequestAuth(), ref)
 	if err != nil {
-		return mapTaskDataError(err)
+		return mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	reader, served, stored, err := s.taskData.OpenFetch(ctx, request, byteRange)
 	if err != nil {
@@ -429,7 +434,7 @@ func (s *service) UploadTaskResultObject(
 	}
 	header, request, err := uploadHeaderFromPB(headerPB)
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(headerPB.GetRequestAuth(), err))
 	}
 	upload, err := s.taskData.BeginUpload(ctx, request, header)
 	if err != nil {
@@ -578,6 +583,13 @@ func requesterKindFromPB(kind nexusv1.TaskDataRequesterKindV1) (taskdata.Request
 	}
 }
 
+// userFormatErr reports a malformed USER Task data request under NEXUS_INGRESS_MALFORMED, the code of
+// the format step; CORTEX_SERVICE requests keep NEXUS_DATA_MALFORMED.
+func userFormatErr(auth *nexusv1.TaskDataRequestAuthV1, err error) error {
+	return taskdata.UserFormatErr(
+		auth.GetRequesterKind() == nexusv1.TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_USER, err)
+}
+
 // requestAuthFromPB converts the wire TaskDataRequestAuthV1 to the internal form. The body digest is computed
 // by the caller for its own body domain -- the body_digest in auth is what the caller claims and must equal
 // ours byte for byte; that comparison happens in the authorizer.
@@ -605,6 +617,7 @@ func requestAuthFromPB(
 		RequestNonce:              append([]byte(nil), pb.GetRequestNonce()...),
 		ExpiryHeight:              pb.GetExpiryHeight(),
 		Signature:                 append([]byte(nil), pb.GetSignature()...),
+		SessionGrant:              sessionGrantFromPB(pb.GetSessionGrant()),
 		Key:                       ref,
 	}, nil
 }
@@ -721,19 +734,37 @@ func readinessToPB(state taskdata.State) nexusv1.TaskDataObjectReadinessV1 {
 	}
 }
 
-// openTaskUnauthorized refuses an OpenTask whose signer does not check out. The code stays
-// NEXUS_DATA_UNAUTHORIZED; the message says which check failed, since the request log records it
-// and the client sees it, and the three checks otherwise look the same from outside.
-func openTaskUnauthorized(format string, args ...any) error {
-	return connect.NewError(connect.CodePermissionDenied,
-		fmt.Errorf("%w: %s", taskdata.ErrUnauthorized, fmt.Sprintf(format, args...)))
+// mapOpenTaskRequestErr reports step 5 of OpenTask under the SDK request codes: a height expiry
+// outside [current_height, current_height + request_ttl_blocks] is SDK_AUTH_EXPIRED and a used nonce
+// SDK_AUTH_REPLAY.
+func mapOpenTaskRequestErr(err error) error {
+	switch {
+	case errors.Is(err, taskdata.ErrExpired):
+		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrExpired, err))
+	case errors.Is(err, taskdata.ErrReplay):
+		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrReplay, err))
+	default:
+		return mapTaskDataError(err)
+	}
 }
 
 func mapTaskDataError(err error) error {
 	var code connect.Code
 	switch {
-	case errors.Is(err, taskdata.ErrMalformed):
+	case errors.Is(err, taskdata.ErrMalformed), errors.Is(err, taskdata.ErrRequestMalformed):
 		code = connect.CodeInvalidArgument
+	case errors.Is(err, taskdata.ErrReplay):
+		code = connect.CodeUnauthenticated
+	case errors.Is(err, taskdata.ErrRetentionExpired):
+		code = connect.CodeNotFound
+	case errors.Is(err, taskdata.ErrSessionMethodNotAllowed):
+		code = connect.CodePermissionDenied
+	case errors.Is(err, taskdata.ErrSessionGrantInvalid), errors.Is(err, taskdata.ErrInvalidSignature):
+		code = connect.CodeUnauthenticated
+	case errors.Is(err, taskdata.ErrDenied):
+		code = connect.CodePermissionDenied
+	case errors.Is(err, taskdata.ErrSessionGrantExpired):
+		code = connect.CodeDeadlineExceeded
 	case errors.Is(err, taskdata.ErrUnauthorized):
 		code = connect.CodePermissionDenied
 	case errors.Is(err, taskdata.ErrNotFound):

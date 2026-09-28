@@ -40,15 +40,18 @@ type OutputDeliveryConfig struct {
 }
 
 type TaskDataConfig struct {
-	InlineMaxBytes             uint64        `yaml:"inline_max_bytes"`
-	ChunkSizeBytes             uint64        `yaml:"chunk_size_bytes"`
-	MaxRangeBytes              uint64        `yaml:"max_range_bytes"`
-	MaxBlobBytes               uint64        `yaml:"max_blob_bytes"`
-	SpoolReservationBytes      uint64        `yaml:"spool_reservation_bytes"`
-	DiskAcceptWatermarkPercent uint32        `yaml:"disk_accept_watermark_percent"`
-	RequestTTLBlocks           uint64        `yaml:"request_ttl_blocks"`
-	RetentionLeaseBlocks       uint64        `yaml:"retention_lease_blocks"`
-	SweepInterval              time.Duration `yaml:"sweep_interval"`
+	InlineMaxBytes             uint64 `yaml:"inline_max_bytes"`
+	ChunkSizeBytes             uint64 `yaml:"chunk_size_bytes"`
+	MaxRangeBytes              uint64 `yaml:"max_range_bytes"`
+	MaxBlobBytes               uint64 `yaml:"max_blob_bytes"`
+	SpoolReservationBytes      uint64 `yaml:"spool_reservation_bytes"`
+	DiskAcceptWatermarkPercent uint32 `yaml:"disk_accept_watermark_percent"`
+	RequestTTLBlocks           uint64 `yaml:"request_ttl_blocks"`
+	// UserRequestsPerMinute caps the Task data requests one user account may make per minute; a
+	// request over the cap is refused before its nonce is stored. 0 disables the cap.
+	UserRequestsPerMinute uint32        `yaml:"user_requests_per_minute"`
+	RetentionLeaseBlocks  uint64        `yaml:"retention_lease_blocks"`
+	SweepInterval         time.Duration `yaml:"sweep_interval"`
 	// OutputStream is the streaming OUTPUT data plane.
 	OutputStream OutputStreamConfig `yaml:"output_stream"`
 }
@@ -171,11 +174,34 @@ type IngressConfig struct {
 	ListenAddr  string   `yaml:"listen_addr"`  // public :8080 (Connect: gRPC + gRPC-Web + HTTP/JSON + /healthz)
 	APIKeys     []string `yaml:"api_keys"`     // list of valid api-keys; empty = no check
 	IPWhitelist []string `yaml:"ip_whitelist"` // allowed IPs / CIDRs; empty = unrestricted
-	// RequireSDKEnvelope true = every SDK request must carry a valid SDKRequestEnvelopeV1 (production);
+	// RequireSDKEnvelope true = every SDK request must carry a valid SDKRequestEnvelopeV2 (production);
 	// false = lenient (devnet): if one is present it must verify, if absent the request passes.
 	RequireSDKEnvelope bool `yaml:"require_sdk_envelope"`
+	// MaxSessionGrantBlocks bounds a session grant: it is valid while
+	// current_height <= expiry_height <= current_height + max_session_grant_blocks. It is off-chain
+	// configuration that every Task Builder of a network must set to the same value, and the SDK must
+	// issue grants inside it. 0 = DefaultMaxSessionGrantBlocks.
+	MaxSessionGrantBlocks uint64 `yaml:"max_session_grant_blocks"`
 	// TLS lets ingress terminate TLS itself (HTTP/2 over TLS) instead of depending on a front proxy.
 	TLS IngressTLSConfig `yaml:"tls"`
+}
+
+// DefaultMaxSessionGrantBlocks is the session grant window when ingress.max_session_grant_blocks is
+// unset: 17280 blocks, 24 hours at 5-second blocks. Every Task Builder of a network must use the same
+// value; set it explicitly when the network's block time differs.
+const DefaultMaxSessionGrantBlocks = uint64(17280)
+
+// MaxSessionGrantBlocksLimit caps ingress.max_session_grant_blocks at 518400 blocks, 30 days at
+// 5-second blocks: a session key lives in client memory and cannot be revoked, so a grant must not
+// be allowed to last almost forever.
+const MaxSessionGrantBlocksLimit = uint64(518400)
+
+// SessionGrantBlocks returns MaxSessionGrantBlocks, or the default when unset.
+func (c IngressConfig) SessionGrantBlocks() uint64 {
+	if c.MaxSessionGrantBlocks == 0 {
+		return DefaultMaxSessionGrantBlocks
+	}
+	return c.MaxSessionGrantBlocks
 }
 
 // IngressTLSConfig is the TLS listener configuration of ingress.
@@ -214,6 +240,9 @@ func (c Config) ValidateTransport() error {
 	}
 	if err := c.Ingress.TLS.Validate(); err != nil {
 		return err
+	}
+	if n := c.Ingress.SessionGrantBlocks(); n > MaxSessionGrantBlocksLimit {
+		return fmt.Errorf("ingress.max_session_grant_blocks %d is above the limit %d", n, MaxSessionGrantBlocksLimit)
 	}
 	endpoint := strings.TrimSpace(c.Identity.PublicEndpoint)
 	if !c.Ingress.TLS.Enabled || endpoint == "" {
@@ -668,6 +697,7 @@ func defaults() Config {
 			SpoolReservationBytes:      4 << 30,
 			DiskAcceptWatermarkPercent: 85,
 			RequestTTLBlocks:           20,
+			UserRequestsPerMinute:      600,
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,
 			OutputStream: OutputStreamConfig{
@@ -721,6 +751,7 @@ func applyEnv(cfg *Config) {
 	cfg.TaskData.SpoolReservationBytes = envUint64("NEXUS_TASK_DATA_SPOOL_RESERVATION_BYTES", cfg.TaskData.SpoolReservationBytes)
 	cfg.TaskData.DiskAcceptWatermarkPercent = envUint32("NEXUS_TASK_DATA_DISK_ACCEPT_WATERMARK_PERCENT", cfg.TaskData.DiskAcceptWatermarkPercent)
 	cfg.TaskData.RequestTTLBlocks = envUint64("NEXUS_TASK_DATA_REQUEST_TTL_BLOCKS", cfg.TaskData.RequestTTLBlocks)
+	cfg.TaskData.UserRequestsPerMinute = envUint32("NEXUS_TASK_DATA_USER_REQUESTS_PER_MINUTE", cfg.TaskData.UserRequestsPerMinute)
 	cfg.TaskData.RetentionLeaseBlocks = envUint64("NEXUS_TASK_DATA_RETENTION_LEASE_BLOCKS", cfg.TaskData.RetentionLeaseBlocks)
 	cfg.TaskData.SweepInterval = envDuration("NEXUS_TASK_DATA_SWEEP_INTERVAL", cfg.TaskData.SweepInterval)
 	cfg.TaskData.OutputStream.Enabled = envBool("NEXUS_TASK_DATA_OUTPUT_STREAM_ENABLED", cfg.TaskData.OutputStream.Enabled)
@@ -746,6 +777,7 @@ func applyEnv(cfg *Config) {
 		cfg.NATS.AdvertiseServers = splitNonEmpty(value)
 	}
 	cfg.NATS.StreamReplicas = int(envUint32("NEXUS_NATS_STREAM_REPLICAS", uint32(cfg.NATS.StreamReplicas)))
+	cfg.Ingress.MaxSessionGrantBlocks = envUint64("NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS", cfg.Ingress.MaxSessionGrantBlocks)
 	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
 		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
 	}

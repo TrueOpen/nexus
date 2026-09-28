@@ -43,7 +43,7 @@ func TestServerExposesBuilderDescriptor(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		config.IngressConfig{},
-		AuthParams{},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID},
 		&fakeHandler{},
 		WithBuilderDescriptor(body),
 	)
@@ -61,7 +61,7 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	fake := &fakeHandler{}
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, fake,
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, fake,
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -70,21 +70,25 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	client := nexusv1connect.NewIngressAPIClient(
 		&http.Client{Transport: handlerRoundTripper{h: s.handler()}}, "http://ingress.test",
 	)
-	_, err = client.SubmitOrder(context.Background(), connect.NewRequest(&nexusv1.SubmitOrderRequest{
-		Payload: bytes.Repeat([]byte("x"), s.readMaxBytes+1),
+	_, err = client.GetTaskStatus(context.Background(), connect.NewRequest(&nexusv1.GetTaskStatusRequest{
+		TaskId: strings.Repeat("x", s.readMaxBytes+1),
 	}))
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("oversized request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
 	}
-	if fake.lastOrder.TaskID != "" {
-		t.Fatalf("oversized request reached service: %+v", fake.lastOrder)
+	// The retired procedures decode nothing but still refuse a large body instead of buffering it.
+	_, err = client.SubmitOrder(context.Background(), connect.NewRequest(&nexusv1.SubmitOrderRequest{
+		Payload: bytes.Repeat([]byte("x"), retiredMaxBodyBytes+1),
+	}))
+	if connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("oversized retired request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
 	}
 }
 
 func TestServerCapsRawHTTPBody(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -115,7 +119,7 @@ func TestServerCapsRawHTTPBody(t *testing.T) {
 func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
 		WithReadMaxBytes(256<<10),
 	)
 	if err != nil {
@@ -133,5 +137,31 @@ func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.
 	s.handler().ServeHTTP(recorder, request)
 	if recorder.Code == http.StatusTooManyRequests {
 		t.Fatal("client-streaming OpenTask was capped by total HTTP body size")
+	}
+}
+
+// A retired procedure answers Unimplemented / NEXUS_INGRESS_METHOD_RETIRED even when its body is not
+// a valid message: it is refused before the request is parsed.
+func TestRetiredMethodsIgnoreTheBody(t *testing.T) {
+	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
+		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, procedure := range []string{
+		nexusv1connect.IngressAPISubmitOrderProcedure,
+		nexusv1connect.IngressAPIFetchOutputRefProcedure,
+		nexusv1connect.IngressAPIRefreshCredentialProcedure,
+	} {
+		for _, contentType := range []string{"application/proto", "application/json"} {
+			req := httptest.NewRequest(http.MethodPost, procedure, strings.NewReader("\xff\xfe not a message {"))
+			req.Header.Set("Content-Type", contentType)
+			rec := httptest.NewRecorder()
+			s.handler().ServeHTTP(rec, req)
+			body := rec.Body.String()
+			if !strings.Contains(body, "unimplemented") || !strings.Contains(body, "NEXUS_INGRESS_METHOD_RETIRED") {
+				t.Fatalf("%s %s: status %d body %s", procedure, contentType, rec.Code, body)
+			}
+		}
 	}
 }
