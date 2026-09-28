@@ -303,7 +303,7 @@ func (x *TaskAssignmentViewV1) GetMinStakeSnapshot() *v1.Amount {
 // TaskBuilderSelectionViewV1 projects one TaskBuilderSelectionState and hides the
 // internal builder_set_ref_released and builder_fault_slash_bps_snapshot fields
 // . Fields 1-9 are the frozen public prefix of the
-// the wire storage model State field order.
+// State field order.
 //
 // This view is the ONLY read path for the per-Task Builder identity. The Worker
 // fetches INPUT from and uploads OUTPUT to exactly these Builders, the
@@ -1521,21 +1521,20 @@ func (x *QueryTaskBuildersRequest) GetTaskId() []byte {
 // identity reachable at all; see TaskBuilderSelectionViewV1 for the bitmap-order
 // contract the two Builder bitmaps depend on.
 //
-// Pruning and compaction semantics, exactly as frozen by this contract and
-// the wire storage model:
+// Pruning and compaction semantics, exactly as frozen by this contract:
 //   - body_status = ACTIVE: selected_task_builders has exactly
 //     selected_task_builder_count == builders_per_task members in frozen order.
 //   - body_status = PRUNED: the cleanup runner's ACTIVE_INDEXES_AND_LIABILITIES
-//     phase (this contract step 7), after finality and the evidence-retention window,
+//     phase, after finality and the evidence-retention window,
 //     released every BUS_OBJECTIVE_EVIDENCE responsibility and cleared the member
 //     body. selected_task_builders MUST be empty while count/hash and the other
 //     public header fields remain auditable. The RPC is NOT NotFound in this
 //     window, and an empty member array with body_status = ACTIVE is Internal.
-//   - After the TASK_COMPACTION phase (this contract step 8) the whole
+//   - After the TASK_COMPACTION phase the whole
 //     TaskBuilderSelectionState row is deleted together with the rest of the Task
 //     detail, so the RPC returns NotFound and the long-lived commitment must be
 //     read from TaskTerminalSummaryState.selected_task_builders_hash instead. The
-//     PRUNED body therefore only exists between step 7 and step 8; a compacted
+//     PRUNED body therefore only exists between those two phases; a compacted
 //     Task must never be answered with a fabricated header.
 //   - An unknown task_id is NotFound; a non-canonical task_id is InvalidArgument;
 //     a header whose retained selected_task_builders_hash does not recompute from

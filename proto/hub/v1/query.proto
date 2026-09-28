@@ -98,8 +98,8 @@ service Query {
 // De-registered on purpose (no alias, no compatibility projection):
 //   QueryPerformanceScore   - the wire API registers no performance
 //     Query and there is no production PerformanceScoreState collection.
-//   QueryChallengeEffectPool - K-BLOCK-03/04: V1 registers no public challenge
-//     custody Query.
+//   QueryChallengeEffectPool - V1 registers no public challenge custody
+//     Query.
 //   QueryBuilderRewardEpoch / QueryTreasuryEpoch - the per-epoch builder reward
 //     and treasury epoch ledgers are deleted; QueryCompetitionEpoch and
 //     QueryTreasury are the registered surfaces.

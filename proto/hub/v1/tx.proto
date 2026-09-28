@@ -61,8 +61,7 @@ service Msg {
   rpc SubmitFreezeSignal(MsgSubmitFreezeSignal) returns (MsgSubmitFreezeSignalResponse);
   // EmergencyFreezeVote records one validator ballot.
   rpc EmergencyFreezeVote(MsgEmergencyFreezeVote) returns (MsgEmergencyFreezeVoteResponse);
-  // UpdateTimeoutBucket moved here from task.v1.Msg: the wire storage model
-  // this contract names the Hub governance handler the only writer of parameter bucket
+  // UpdateTimeoutBucket moved here from task.v1.Msg: this contract names the Hub governance handler the only writer of parameter bucket
   // versions, and x/task only reference-counts them.
   // UpdateTimeoutBucket executes the UpdateTimeoutBucket operation.
   rpc UpdateTimeoutBucket(MsgUpdateTimeoutBucket) returns (MsgUpdateTimeoutBucketResponse);

@@ -87,6 +87,9 @@ message ModelParamsV1 {
   uint32 max_resolver_version_bytes = 9;
   uint32 max_repo_id_bytes = 10;
   uint32 max_repo_type_bytes = 11;
+  // max_manifest_uri_bytes caps ModelProfileProjection.manifest_uri; a
+  // registration whose manifest_uri is empty or longer is rejected.
+  uint32 max_manifest_uri_bytes = 12;
 }
 
 // CandidatePoolParamsV1 groups global candidate pool parameters.

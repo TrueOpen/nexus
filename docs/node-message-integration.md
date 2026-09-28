@@ -1,6 +1,6 @@
 # Node Message Integration Notes
 
-> Contract baseline: TrueOpen/wire `v0.3.0`, which TrueOpen/node must pin in `wire/pin.json`.
+> Wire baseline: TrueOpen/wire `v0.3.3`, which TrueOpen/node must pin in `wire/pin.json`.
 > Authoritative interface definitions: TrueOpen/node `docs/static/node-api.md` and the TrueOpen/wire protos.
 
 Nexus currently uses only the Node's `hub.v1` and `task.v1` application-layer ABI. The proto in this repository is the exact wire mirror covering everything Nexus needs at runtime; package, message names, field numbers, field types and gRPC methods must stay identical to the Node.

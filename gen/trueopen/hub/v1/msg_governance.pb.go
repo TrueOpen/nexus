@@ -311,7 +311,7 @@ func (x *MsgEmergencyFreezeVoteResponse) GetStatus() v1.MutationStatusV1 {
 
 // MsgUpdateTimeoutBucket applies one x/gov accepted timeout bucket version.
 // It is registered on the Hub Msg service
-// because the wire storage model makes the Hub governance handler the only
+// because the contract makes the Hub governance handler the only
 // writer of the TimeoutBucket version and pointer rows. The
 // resulting timeout combination must cover the complete task window, so a
 // missing tail bucket cannot create a local fallback.

@@ -444,7 +444,7 @@ message TaskStageHandraiseUnionSegmentState {
 // selected_task_builders and builder_fault_slash_bps_snapshot for objective
 // evidence. EvidenceCleanup releases every BUS_OBJECTIVE_EVIDENCE responsibility,
 // then clears selected_task_builders and changes body_status to PRUNED in the
-// same transaction. The wire storage model later deletes this whole row in
+// same transaction. The contract later deletes this whole row in
 // TASK_COMPACTION, so the PRUNED header exists only before compaction; after
 // compaction the read path returns NotFound.
 //

@@ -6,7 +6,7 @@ import "shared/v1/common.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
-// DailySupportState is one operator/epoch support heartbeat row (wire storage model 6.1).
+// DailySupportState is one operator/epoch support heartbeat row.
 message DailySupportState {
   uint64 epoch = 1;
   string operator_address = 2;

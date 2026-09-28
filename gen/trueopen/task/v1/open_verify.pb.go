@@ -1114,10 +1114,10 @@ func (x *DataUnavailableReportState) GetReportDigest() []byte {
 // data-unavailable aggregate. It exists so a slot that filed no valid report can
 // say so with field presence instead of with a zero-length Hash32.
 //
-// The two contracts used to disagree about how to spell an empty slot:
-// the wire storage model fixed the vector length to
+// The storage and API rules used to disagree about how to spell an empty slot:
+// the storage rule fixed the vector length to
 // selected_verifier_count and let an empty element mean "this verifier has not
-// reported", while the wire API reject a zero-length
+// reported", while the API rule rejected a zero-length
 // element inside a repeated Hash32. It is resolved in favour of
 // this contract: Store and Query projection both carry per-slot presence, so the schema
 // now says what the preimage always said.

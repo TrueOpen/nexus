@@ -1124,8 +1124,27 @@ type ModelProfileProjection struct {
 	Source                    *SourceRefV1             `protobuf:"bytes,20,opt,name=source,proto3" json:"source,omitempty"`
 	ToolCallParser            *ParserRefV1             `protobuf:"bytes,21,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
 	ReasoningParser           *ParserRefV1             `protobuf:"bytes,22,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// manifest_uri says where the registrant hosts the manifest body: the exact
+	// canonical bytes whose TRUEOPEN_MODEL_MANIFEST_V4 digest is manifest_hash.
+	// It is not inside the manifest and does not enter manifest_hash; it does
+	// enter this projection and therefore TRUEOPEN_MODEL_CHAIN_PROJECTION_V3 and
+	// TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3. It is a retrieval hint, not a trust
+	// source: a reader fetches (local cache, then this URI, then any mirror),
+	// recomputes manifest_hash over the fetched bytes and discards a mismatch.
+	//
+	// Syntax, checked by the Keeper without fetching and kept byte for byte (no
+	// normalization, since it is hashed): printable ASCII 0x21-0x7E only, length
+	// 1..ModelParamsV1.max_manifest_uri_bytes, and either
+	//
+	//	https:// host [":" port] [path] ["?" query]   (no userinfo, no fragment;
+	//	         host is a DNS name, an IPv4 literal or a bracketed IPv6 literal)
+	//	ipfs://  CID [path]    (CIDv0 base58btc or CIDv1 lowercase base32)
+	//
+	// testdata/v1/hub/manifest_uri_v1.json is the reference for accepted and
+	// rejected forms.
+	ManifestUri   string `protobuf:"bytes,23,opt,name=manifest_uri,json=manifestUri,proto3" json:"manifest_uri,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ModelProfileProjection) Reset() {
@@ -1310,6 +1329,13 @@ func (x *ModelProfileProjection) GetReasoningParser() *ParserRefV1 {
 		return x.ReasoningParser
 	}
 	return nil
+}
+
+func (x *ModelProfileProjection) GetManifestUri() string {
+	if x != nil {
+		return x.ManifestUri
+	}
+	return ""
 }
 
 // ProfileExecutionSnapshot is the immutable execution subset copied into assignments.
@@ -1498,7 +1524,8 @@ const file_shared_v1_model_profile_proto_rawDesc = "" +
 	"\trepo_type\x18\x04 \x01(\tR\brepoType\";\n" +
 	"\vParserRefV1\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\rR\aversion\"\xff\t\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\"\xa2\n" +
+	"\n" +
 	"\x16ModelProfileProjection\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12#\n" +
@@ -1524,7 +1551,8 @@ const file_shared_v1_model_profile_proto_rawDesc = "" +
 	"\x10registration_fee\x18\x13 \x01(\v2\x19.cosmos.base.v1beta1.CoinR\x0fregistrationFee\x12.\n" +
 	"\x06source\x18\x14 \x01(\v2\x16.shared.v1.SourceRefV1R\x06source\x12@\n" +
 	"\x10tool_call_parser\x18\x15 \x01(\v2\x16.shared.v1.ParserRefV1R\x0etoolCallParser\x12A\n" +
-	"\x10reasoning_parser\x18\x16 \x01(\v2\x16.shared.v1.ParserRefV1R\x0freasoningParser\"\x92\x04\n" +
+	"\x10reasoning_parser\x18\x16 \x01(\v2\x16.shared.v1.ParserRefV1R\x0freasoningParser\x12!\n" +
+	"\fmanifest_uri\x18\x17 \x01(\tR\vmanifestUri\"\x92\x04\n" +
 	"\x18ProfileExecutionSnapshot\x12#\n" +
 	"\rmanifest_hash\x18\x01 \x01(\fR\fmanifestHash\x12%\n" +
 	"\x0etokenizer_hash\x18\x02 \x01(\fR\rtokenizerHash\x12#\n" +

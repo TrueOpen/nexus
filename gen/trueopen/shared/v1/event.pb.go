@@ -89,8 +89,9 @@ const (
 	// Task-domain payload; declared in task/v1/event.proto.
 	// PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED identifies the corresponding protocol value.
 	ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED ProtocolEventCodeV1 = 17
-	// Task-domain payload; declared in task/v1/event.proto. K-BLOCK-16: the
-	// number is frozen but nothing may emit this code until final settlement
+	// Task-domain payload; declared in task/v1/event.proto. The number is
+	// frozen, but nothing may emit this code until funded final settlement is
+	// enabled.
 	// PROTOCOL_EVENT_CODE_V1_TASK_SETTLED identifies the corresponding protocol value.
 	ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_TASK_SETTLED ProtocolEventCodeV1 = 19
 	// Task-domain payload; declared in task/v1/event.proto.

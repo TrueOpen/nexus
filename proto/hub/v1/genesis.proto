@@ -75,7 +75,7 @@ message GenesisState {
 
   // Jail and tombstone facts are operator-global counters on ServiceBondState
   // (status / jail_count / normal_action_count_since_jail) per
-  // the wire storage model, so there is no separate jail or tombstone
+  // the contract, so there is no separate jail or tombstone
   // collection to export.
   repeated RoleFaultState role_faults = 30;
   repeated SlashSummaryState slash_summaries = 31;

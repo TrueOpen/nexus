@@ -44,7 +44,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 //   Every EventChallenge* / EventEvidenceRequest* message and the
 //   CommitDeadlineOutcome / EvidenceCleanupDeferReason / ChallengeExpiredReason /
 //   ChallengeBondAction enums
-//     -> K-BLOCK-03/04: no public challenge event code or enum may be assigned,
+//     -> V1 has no public challenge flow: no public challenge event code or enum may be assigned,
 //        and none of these four enums is registered in this contract.
 
 // RevealPhaseTrigger identifies why the reveal phase started. Values are the
