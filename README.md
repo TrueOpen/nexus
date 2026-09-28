@@ -34,11 +34,10 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 # Health check (plain HTTP, hit it with curl)
 curl localhost:8080/healthz                       # {"status":"ok"}
 
-# Option 1: HTTP/JSON (Connect protocol, no grpcurl needed; signature fields should be built by the SDK)
-curl -X POST localhost:8080/nexus.v1.IngressAPI/SubmitOrder \
-  -H 'Content-Type: application/json' \
-  -d '{"orderEnvelope":"<base64 canonical envelope>","payloadRef":"nexus://sha256/<64 lowercase hex>","payload":"<base64 encrypted payload>","signature":"<base64 signature>","sessionId":"<session_id>","orderSequence":"1","userAddress":"<trueopen address>","signatureScheme":"secp256k1"}'
-# {"taskId":"...","accepted":true}
+# Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
+# client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up:
+curl -X POST localhost:8080/nexus.v1.IngressAPI/GetTaskStatus \
+  -H 'Content-Type: application/json' -d '{"taskId":"<task_id>"}'
 
 # Option 2: gRPC (reflection is enabled, so grpcurl needs no proto files)
 grpcurl -plaintext localhost:8080 list
@@ -100,12 +99,9 @@ NATS layer they follow the public TrueOpen/wire definitions.
 
 Open items:
 
-- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are superseded by `OpenTask`,
-  `GetTaskDataMetadata` / `FetchTaskData`; they are marked deprecated and still served until a
-  removal date is decided.
-- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` have no request-signing rule for
-  `SDKRequestEnvelopeV2`: a request that carries an envelope, or any request while
-  `require_sdk_envelope=true`, gets `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`).
+- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are retired (replaced by `OpenTask`,
+  `GetTaskDataMetadata` / `FetchTaskData`): each always returns `Unimplemented`
+  (`NEXUS_INGRESS_METHOD_RETIRED`) before the request is parsed.
 - `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
   SDK-side field table and storage-confirmation proto are frozen.
 - Several task event codes still use Nexus names rather than the SDK-facing event names (for
@@ -247,9 +243,9 @@ together.
 
 In Hub + Task Chain mode, `chain` always means the task chain; the Coordinator's task queries, transactions and events go through that chain. With `hub.enabled=true`, the Builder's Node Registry, stake and unbond use only `hub`. The Task Chain does not accept Builder registration transactions; identity and stake state are obtained later via Hub snapshots. Incomplete Hub configuration blocks startup and does not silently fall back to the Task Chain. Without the Hub, single-chain compatibility mode is retained and an explicit warning is printed.
 
-Once an account signer is configured, Nexus performs Stage-1 validation on every new `SubmitOrder`. It reproduces the Task Builder selection the task chain runs when it admits the signed order: it reads this node's `ACTIVE` Builder state, the BuilderSet at the order's `session_anchor_height` (which must be the `builder_set_id` / `builder_set_hash` the user signed) and the Hub parameter `builders_per_task`, derives `TRUEOPEN_TASK_BUILDERS_V1(chain_id, task_id, builder_set_hash, session_anchor_block_hash)`, ranks every member with `TRUEOPEN_TASK_BUILDER_RANK_V1`, and takes the first `builders_per_task` in ascending rank order. The rank, and the `TRUEOPEN_SELECTED_TASK_BUILDERS_V1` digest the chain later commits for the task, are kept with the order snapshot. The result does not depend on BuilderSet return order and is pinned by wire's `task_builder_rank_v1.json` and `task_domains_v1.json` vectors. Orders that carry only the legacy JSON envelope have no session anchor and cannot be ranked.
+Once an account signer is configured, Nexus performs Stage-1 validation on every new `OpenTask`. It reproduces the Task Builder selection the task chain runs when it admits the signed order: it reads this node's `ACTIVE` Builder state, the BuilderSet at the order's `session_anchor_height` (which must be the `builder_set_id` / `builder_set_hash` the user signed) and the Hub parameter `builders_per_task`, derives `TRUEOPEN_TASK_BUILDERS_V1(chain_id, task_id, builder_set_hash, session_anchor_block_hash)`, ranks every member with `TRUEOPEN_TASK_BUILDER_RANK_V1`, and takes the first `builders_per_task` in ascending rank order. The rank, and the `TRUEOPEN_SELECTED_TASK_BUILDERS_V1` digest the chain later commits for the task, are kept with the order snapshot. The result does not depend on BuilderSet return order and is pinned by wire's `task_builder_rank_v1.json` and `task_domains_v1.json` vectors. Orders that carry only the legacy JSON envelope have no session anchor and cannot be ranked.
 
-During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `SubmitOrder`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs several Builder registry chain queries (Builder, BuilderSet and Hub parameters), so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
+During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `OpenTask`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs several Builder registry chain queries (Builder, BuilderSet and Hub parameters), so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
 
 The Node must enable TaskEventService. Task node setting:
 

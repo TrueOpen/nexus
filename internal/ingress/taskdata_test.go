@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"google.golang.org/protobuf/proto"
 	"io"
@@ -755,4 +756,33 @@ func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
 		return make([]byte, 32)
 	}
 	return body[:]
+}
+
+// Stage-1 admission failures reach the OpenTask caller under their stable codes.
+func TestOpenTaskMapsStage1AdmissionErrors(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	tests := []struct {
+		name    string
+		err     error
+		code    connect.Code
+		message string
+	}{
+		{name: "not selected", err: coordinator.ErrNotSelectedBuilder, code: connect.CodePermissionDenied, message: "NEXUS_INGRESS_NOT_SELECTED_BUILDER"},
+		{name: "authority unavailable", err: coordinator.ErrAdmissionUnavailable, code: connect.CodeUnavailable, message: "NEXUS_INGRESS_STAGE1_UNAVAILABLE"},
+	}
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := &fakeTaskDataAPI{chunkSize: 64}
+			client := newTaskDataClientWithHandler(t, &fakeHandler{orderErr: tt.err}, api, AuthParams{Chain: testUserChain,
+				EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-admission-%d", index)), 3, []byte("input"))
+			stream := client.OpenTask(context.Background())
+			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})
+			_, err := stream.CloseAndReceive()
+			if connect.CodeOf(err) != tt.code || !strings.Contains(err.Error(), tt.message) {
+				t.Fatalf("OpenTask error=%v code=%v want code=%v message=%q", err, connect.CodeOf(err), tt.code, tt.message)
+			}
+		})
+	}
 }

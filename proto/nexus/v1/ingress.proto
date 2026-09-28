@@ -147,21 +147,19 @@ service IngressAPI {
   // Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
   rpc SubmitVerifyResult(SubmitVerifyResultRequest) returns (SubmitVerifyResultResponse);
 
-  // ---- Superseded legacy SDK methods: marked deprecated, removal pending a team decision ----
+  // ---- Retired legacy SDK methods ----
+  // Each always returns Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+  // verifying any signature. No body domain is defined for them under SDKRequestEnvelopeV2.
 
-  // Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
+  // Replaced by OpenTask (client stream).
   rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse) {
     option deprecated = true;
   }
-  // Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
-  // no fetch credential. This method has no reference left to return, only CredentialV1;
-  // whether to keep it is still an open item.
+  // Replaced by GetTaskDataMetadata + FetchTaskData.
   rpc FetchOutputRef(FetchOutputRefRequest) returns (FetchOutputRefResponse) {
     option deprecated = true;
   }
-  // Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
-  // is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
-  // download credentials; whether to keep it is pending a team decision.
+  // Replaced by GetTaskDataMetadata + FetchTaskData; there are no standalone download credentials.
   rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse) {
     option deprecated = true;
   }

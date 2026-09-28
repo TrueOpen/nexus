@@ -181,19 +181,15 @@ type IngressAPIClient interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
+	// Replaced by OpenTask (client stream).
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
-	// no fetch credential. This method has no reference left to return, only CredentialV1;
-	// whether to keep it is still an open item.
+	// Replaced by GetTaskDataMetadata + FetchTaskData.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
-	// is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
-	// download credentials; whether to keep it is pending a team decision.
+	// Replaced by GetTaskDataMetadata + FetchTaskData; there are no standalone download credentials.
 	//
 	// Deprecated: do not use.
 	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
@@ -543,19 +539,15 @@ type IngressAPIHandler interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
+	// Replaced by OpenTask (client stream).
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
-	// no fetch credential. This method has no reference left to return, only CredentialV1;
-	// whether to keep it is still an open item.
+	// Replaced by GetTaskDataMetadata + FetchTaskData.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
-	// is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
-	// download credentials; whether to keep it is pending a team decision.
+	// Replaced by GetTaskDataMetadata + FetchTaskData; there are no standalone download credentials.
 	//
 	// Deprecated: do not use.
 	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)

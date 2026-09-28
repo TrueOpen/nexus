@@ -1046,7 +1046,10 @@ func (x *ProfileSourceRefV1) GetRepoType() string {
 }
 
 // ParserRefV1 selects one governance-approved parser specification.
-// The zero value is the sole representation of an absent parser.
+// The zero value is the sole representation of an absent parser. In the
+// canonical projection an absent parser is written as {} and a present one as
+// {"name": ..., "version": ...}; see
+// testdata/v1/hub/model_registration_chain_v1.json.
 type ParserRefV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -1101,16 +1104,18 @@ func (x *ParserRefV1) GetVersion() uint32 {
 
 // ModelProfileProjection is the canonical signed registration payload.
 type ModelProfileProjection struct {
-	state                     protoimpl.MessageState   `protogen:"open.v1"`
-	ModelId                   []byte                   `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion            uint32                   `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	ManifestHash              []byte                   `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
-	TokenizerHash             []byte                   `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
-	RuntimeClass              string                   `protobuf:"bytes,5,opt,name=runtime_class,json=runtimeClass,proto3" json:"runtime_class,omitempty"`
-	RequiredTopK              uint32                   `protobuf:"varint,6,opt,name=required_top_k,json=requiredTopK,proto3" json:"required_top_k,omitempty"`
-	TaskTypes                 []TaskType               `protobuf:"varint,7,rep,packed,name=task_types,json=taskTypes,proto3,enum=shared.v1.TaskType" json:"task_types,omitempty"`
-	GenerationType            GenerationType           `protobuf:"varint,8,opt,name=generation_type,json=generationType,proto3,enum=shared.v1.GenerationType" json:"generation_type,omitempty"`
-	ResourceTier              uint32                   `protobuf:"varint,9,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ModelId        []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ProfileVersion uint32                 `protobuf:"varint,2,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	ManifestHash   []byte                 `protobuf:"bytes,3,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
+	TokenizerHash  []byte                 `protobuf:"bytes,4,opt,name=tokenizer_hash,json=tokenizerHash,proto3" json:"tokenizer_hash,omitempty"`
+	RuntimeClass   string                 `protobuf:"bytes,5,opt,name=runtime_class,json=runtimeClass,proto3" json:"runtime_class,omitempty"`
+	RequiredTopK   uint32                 `protobuf:"varint,6,opt,name=required_top_k,json=requiredTopK,proto3" json:"required_top_k,omitempty"`
+	TaskTypes      []TaskType             `protobuf:"varint,7,rep,packed,name=task_types,json=taskTypes,proto3,enum=shared.v1.TaskType" json:"task_types,omitempty"`
+	GenerationType GenerationType         `protobuf:"varint,8,opt,name=generation_type,json=generationType,proto3,enum=shared.v1.GenerationType" json:"generation_type,omitempty"`
+	ResourceTier   uint32                 `protobuf:"varint,9,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
+	// denom must equal hub.v1 Params phase0.business_denom and amount must be a
+	// positive u64; ProfileState keeps the amount only.
 	MinStake                  *types.Coin              `protobuf:"bytes,10,opt,name=min_stake,json=minStake,proto3" json:"min_stake,omitempty"`
 	ChallengeOpenWindowBlocks uint64                   `protobuf:"varint,11,opt,name=challenge_open_window_blocks,json=challengeOpenWindowBlocks,proto3" json:"challenge_open_window_blocks,omitempty"`
 	VerificationProfile       *VerificationProfile     `protobuf:"bytes,12,opt,name=verification_profile,json=verificationProfile,proto3" json:"verification_profile,omitempty"`
@@ -1120,10 +1125,13 @@ type ModelProfileProjection struct {
 	TimeoutBootstrapProfile   *TimeoutBootstrapProfile `protobuf:"bytes,16,opt,name=timeout_bootstrap_profile,json=timeoutBootstrapProfile,proto3" json:"timeout_bootstrap_profile,omitempty"`
 	SchemaHash                []byte                   `protobuf:"bytes,17,opt,name=schema_hash,json=schemaHash,proto3" json:"schema_hash,omitempty"`
 	PreviousProfileVersion    uint32                   `protobuf:"varint,18,opt,name=previous_profile_version,json=previousProfileVersion,proto3" json:"previous_profile_version,omitempty"`
-	RegistrationFee           *types.Coin              `protobuf:"bytes,19,opt,name=registration_fee,json=registrationFee,proto3" json:"registration_fee,omitempty"`
-	Source                    *SourceRefV1             `protobuf:"bytes,20,opt,name=source,proto3" json:"source,omitempty"`
-	ToolCallParser            *ParserRefV1             `protobuf:"bytes,21,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
-	ReasoningParser           *ParserRefV1             `protobuf:"bytes,22,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
+	// denom must equal hub.v1 Params phase0.business_denom and amount must equal
+	// the effective registration fee parameter (see
+	// ProfileState.registration_fee_paid); ProfileState keeps the amount only.
+	RegistrationFee *types.Coin  `protobuf:"bytes,19,opt,name=registration_fee,json=registrationFee,proto3" json:"registration_fee,omitempty"`
+	Source          *SourceRefV1 `protobuf:"bytes,20,opt,name=source,proto3" json:"source,omitempty"`
+	ToolCallParser  *ParserRefV1 `protobuf:"bytes,21,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
+	ReasoningParser *ParserRefV1 `protobuf:"bytes,22,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
 	// manifest_uri says where the registrant hosts the manifest body: the exact
 	// canonical bytes whose TRUEOPEN_MODEL_MANIFEST_V4 digest is manifest_hash.
 	// It is not inside the manifest and does not enter manifest_hash; it does
