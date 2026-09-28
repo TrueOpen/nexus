@@ -206,7 +206,9 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 // refuse is refused here instead of being answered with a rank and a doomed assignment: the anchor
 // must lie below the executing height and at most anchor_freshness_window_blocks behind it, and its
 // block hash must be the hash of the block at that height. The executing height is taken as the
-// block after the latest one, the earliest an assignment can execute.
+// block after the latest one, the earliest an assignment can execute, so this only refuses orders
+// the chain is certain to refuse. Passing it does not mean the chain will accept the assignment:
+// the chain applies the window again at the height the assignment actually executes.
 func (a *hubStage1Admission) checkSessionAnchor(ctx context.Context, anchorHeight uint64, anchorHash []byte) error {
 	latest, err := a.registry.LatestHeight(ctx)
 	if err != nil {
