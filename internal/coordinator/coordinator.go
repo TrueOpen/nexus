@@ -1,6 +1,6 @@
-// Package coordinator is the orchestration core of nexus (Implementation Design §4.2 / Detailed Design §3).
+// Package coordinator is the orchestration core of nexus.
 // One state machine per order (taskFSM) drives the three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal.
-// Covers: happy path, SETTLE rank timing and failover (§4), snapshot persistence and restart recovery reconciliation (§6.2).
+// Covers: happy path, SETTLE rank timing and failover, snapshot persistence and restart recovery reconciliation.
 package coordinator
 
 import (
@@ -111,7 +111,7 @@ type Coordinator struct {
 
 	// serviceSigner is the current service key private key; serviceKeys is its on-chain query port.
 	// Without either, BusEnvelopeV1 cannot be signed and the coordinator sends no task-control frame at all
-	// (none of the 20 fields in contract §5.2 is optional; there is no "send unsigned for now" degradation).
+	// (none of the 20 BusEnvelopeV1 fields is optional; there is no "send unsigned for now" degradation).
 	serviceSigner signer.Signer
 	serviceKeys   servicekey.Resolver
 	addressPrefix string
@@ -172,7 +172,7 @@ type BuilderRegistry interface {
 	QueryBuilderSetAtHeight(context.Context, uint64) (chaincli.BuilderSet, error)
 }
 
-// ResultReadiness answers this Builder's local data-ready for one Worker result (04 §326); the
+// ResultReadiness answers this Builder's local data-ready for one Worker result; the
 // task data plane (taskdata.Service) implements it.
 type ResultReadiness interface {
 	ResultReady(context.Context, taskdata.ResultReadyQuery) (bool, error)
@@ -206,8 +206,7 @@ type InferReceiptQuerier interface {
 	QueryInferReceipt(context.Context, string) (chaincli.AcceptedInferReceipt, error)
 }
 
-// ChallengeQuerier reads the chain's verification round limit and a task's challenge window
-// (06 §5, §9).
+// ChallengeQuerier reads the chain's verification round limit and a task's challenge window.
 type ChallengeQuerier interface {
 	QueryMaxVerifyRound(context.Context) (uint32, error)
 	QueryTaskStage(context.Context, string) (chaincli.TaskStage, error)
@@ -222,7 +221,7 @@ type HeightQuerier interface {
 }
 
 // BuilderSelectionQuerier provides on-chain facts for settlement ordering: the frozen Task Builder
-// order and the grace blocks per rank (§10.10a).
+// order and the grace blocks per rank.
 type BuilderSelectionQuerier interface {
 	QueryTaskBuilders(context.Context, chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error)
 	QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error)
@@ -291,7 +290,7 @@ func WithBuilderRegistry(registry BuilderRegistry) Option {
 }
 
 // WithServiceKey injects the current service key private key and its on-chain query port.
-// Not injected = this node can neither send nor accept BusEnvelopeV1 (contract §5.2).
+// Not injected = this node can neither send nor accept BusEnvelopeV1.
 func WithServiceKey(serviceSigner signer.Signer, resolver servicekey.Resolver, addressPrefix string) Option {
 	return func(c *Coordinator) {
 		c.serviceSigner = serviceSigner
@@ -341,7 +340,7 @@ func WithPayloadStore(payloads payloadstore.Store) Option {
 }
 
 // WithSettleRankDelay is a no-op: fallback settlement submission timing is decided by chain height and the Hub
-// parameter settlement_builder_grace_blocks (§10.10a), no longer by the local clock. Signature kept for callers.
+// parameter settlement_builder_grace_blocks, no longer by the local clock. Signature kept for callers.
 func WithSettleRankDelay(time.Duration) Option {
 	return func(*Coordinator) {}
 }
@@ -439,7 +438,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		c.log.Warn("initial chain height refresh failed; recovery remains non-authoritative", "err", err)
 	}
 
-	// Restart recovery (§6.2): load snapshots -> reconcile on-chain -> resume subscriptions; done before the event loop
+	// Restart recovery: load snapshots -> reconcile on-chain -> resume subscriptions; done before the event loop
 	// so recovery does not race with live events over the same state machine's initialization.
 	if err := c.recoverTasks(ctx); err != nil {
 		return err
@@ -478,7 +477,7 @@ func (c *Coordinator) seedBuilderSet(ctx context.Context) error {
 	if builder.Address != c.active.self {
 		return fmt.Errorf("Hub Builder row address %q does not match local Builder %q", builder.Address, c.active.self)
 	}
-	// wire v0.4.1 BuilderState carries no admission status; the Builder row only tells the service key status.
+	// BuilderState carries no admission status; the Builder row only tells the service key status.
 	// "Admitted or not" is answered by the next step: BuilderSet membership at a fixed height.
 	if builder.ServiceKeyStatus != serviceKeyStatusActive {
 		return fmt.Errorf("Hub Builder %q service key status is %q, want %s", c.active.self, builder.ServiceKeyStatus, serviceKeyStatusActive)
@@ -865,13 +864,13 @@ func (c *Coordinator) retryPayloadCleanup(ctx context.Context) error {
 	return nil
 }
 
-// OnInferReceipt receives the signed InferReceipt submitted by the selected Worker (Nexus<->Cortex
-// contract §2.4): feeds the state machine + hands it to the relay credential store (called by IngressAPI SubmitInferReceipt).
+// OnInferReceipt receives the signed InferReceipt submitted by the selected Worker: feeds the
+// state machine + hands it to the relay credential store (called by IngressAPI SubmitInferReceipt).
 //
-// The contract "target-state baseline" removed SubmitOutputRef / the OutputRef object, so this no longer
+// There is no SubmitOutputRef / OutputRef object any more, so this no longer
 // receives output_cid, sealed keys or inline plaintext: actual output/evidence content is persisted via
 // UploadTaskResultData and fetched via FetchTaskData.
-// Accepting the receipt neither waits for output/evidence upload to finish (§2.4) nor implies on-chain acceptance.
+// Accepting the receipt neither waits for output/evidence upload to finish nor implies on-chain acceptance.
 func (c *Coordinator) OnInferReceipt(_ context.Context, receipt types.InferReceiptSubmission) error {
 	c.log.Info("infer receipt received", "session_id", receipt.SessionID, "task_id", receipt.TaskID,
 		"worker", receipt.WorkerAddress)
@@ -897,7 +896,7 @@ func (c *Coordinator) OnInferReceipt(_ context.Context, receipt types.InferRecei
 	return nil
 }
 
-// OnVerifyCommit relays a verify commit signed by a selected Verifier (Cortex contract §2.5).
+// OnVerifyCommit relays a verify commit signed by a selected Verifier.
 // The initial relay implementation trusts the Builder: after validation it is submitted on-chain as MsgBatchSubmitVerifyCommit;
 // it returns once the chain holds the commit, or with the reason it does not (see taskFSM.relayVerifyCommit).
 func (c *Coordinator) OnVerifyCommit(_ context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error) {
@@ -911,7 +910,7 @@ func (c *Coordinator) OnVerifyCommit(_ context.Context, sessionID, taskID string
 	return fsm.relayVerifyCommit(commit)
 }
 
-// OnVerifyResult relays a result receipt signed by a selected Verifier (Cortex contract §2.6):
+// OnVerifyResult relays a result receipt signed by a selected Verifier:
 // carries the same ResultReceiptV2 as the VERIFY_RESULT JetStream path and shares the same relay logic.
 func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	if receipt == nil {
@@ -924,11 +923,11 @@ func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string
 	return fsm.relayVerifyResult(receipt)
 }
 
-// validateInferReceiptShape checks the minimal semantic fields of contract §2.4.
-// The field set is the InferReceiptV2 frozen in §5.14: commit hash / trace / checkpoint / batch /
+// validateInferReceiptShape checks the minimal semantic fields of a submitted InferReceipt.
+// The field set is the wire InferReceiptV2: commit hash / trace / checkpoint / batch /
 // token_count / work_unit were removed from wire and are now carried by typed required_evidence_commitments.
-// The kind set and count limit are Keeper admission checks (contract §8.5; a known contract gap);
-// locally we only require a non-empty list -- the §9.7 V1 text path always has WORKER_VALUE_OPENING.
+// The kind set and count limit are Keeper admission checks;
+// locally we only require a non-empty list -- the V1 text path always has WORKER_VALUE_OPENING.
 func validateInferReceiptShape(receipt types.InferReceiptSubmission) error {
 	switch {
 	case receipt.SessionID == "":
@@ -1162,7 +1161,7 @@ func (c *Coordinator) CompleteOutputRecovery() error {
 }
 
 // FetchOutputRef only issues a bound credential (called by IngressAPI, deprecated).
-// The Nexus<->Cortex contract "target-state baseline" removed the OutputRef object, so there is no ref to return;
+// The OutputRef object no longer exists, so there is no ref to return;
 // it is kept only because the fate of this RPC is still undecided. access_level still decides the authorization surface:
 //   - SEALED_KEY: only the order user or a selected Verifier (within the verify-select set).
 //   - PACKAGE: task existence suffices.
@@ -1199,9 +1198,9 @@ func (c *Coordinator) issueCredential(sessionID, taskID, recipient, usage string
 	})
 }
 
-// RefreshCredential exchanges an old credential for a new one (v1.5 §3.5, deprecated): stateless check of the old one
+// RefreshCredential exchanges an old credential for a new one (deprecated): stateless check of the old one
 // (signature/ID/not expired) + matching recipient/usage + credential still held, then renew.
-// The Nexus<->Cortex contract "target-state baseline" states V1 does not refresh standalone download credentials; this method's fate is pending;
+// V1 does not refresh standalone download credentials; this method's fate is pending;
 // the OutputRef object was removed, so only the new credential is returned.
 func (c *Coordinator) RefreshCredential(_ context.Context, old types.Credential, recipient, usage string, requestedValidUntil int64) (types.Credential, error) {
 	if recipient != old.Recipient {
@@ -1233,7 +1232,7 @@ func (c *Coordinator) RefreshCredential(_ context.Context, old types.Credential,
 	return cred, nil
 }
 
-// TaskEvents subscribes to the task event stream (v1.5 §3.4): history replay after cursor + live channel.
+// TaskEvents subscribes to the task event stream: history replay after cursor + live channel.
 // The journal is kept after task close, so history remains queryable.
 func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error) {
 	key := taskKey(sessionID, taskID)
@@ -1247,15 +1246,15 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 	return replay, live, cancel, nil
 }
 
-// PrepareChallenge assembles challenge inputs (v1.5 §3.6): challenge window facts + estimate.
+// PrepareChallenge assembles challenge inputs: challenge window facts + estimate.
 // It submits no verdict; the challenge itself is MsgOpenChallengeRound, which anyone may submit on
-// chain. The opener holds no evidence (06 §5): the round's Verifiers fetch the task data
+// chain. The opener holds no evidence: the round's Verifiers fetch the task data
 // themselves, so the plan lists no required evidence and the challenge kind does not change it.
 //
 // A round can open while the task is not final, the round limit allows a second round, and the
 // challenge window is the task's next deadline without the chain height having passed it. The
 // Keeper reports that window through TaskStage only after round 1 has closed and while no round
-// is open (06 §5, §9).
+// is open.
 func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _ string) (types.ChallengePlan, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
@@ -1318,7 +1317,7 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 	}, nil
 }
 
-// TaskStatus returns a task status snapshot (called by IngressAPI): coarse state + fine-grained phase (v1.5 §3.3).
+// TaskStatus returns a task status snapshot (called by IngressAPI): coarse state + fine-grained phase.
 func (c *Coordinator) TaskStatus(_ context.Context, sessionID, taskID string) (types.TaskStatus, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
@@ -1398,7 +1397,7 @@ func (c *Coordinator) OnSettleAccepted(ev chaincli.SettleAccepted) {
 
 // ---- Internal ----
 
-// SessionForTask looks up session_id by task_id. The three relay requests of wire v0.4.1 carry only the
+// SessionForTask looks up session_id by task_id. The three relay requests carry only the
 // on-chain message body, the on-chain task_id has no session, and the FSM is keyed by (session, task); this
 // index is written together with the task snapshot and deleted with it, and creates no new fact itself.
 func (c *Coordinator) SessionForTask(_ context.Context, taskID string) (string, error) {
@@ -1742,7 +1741,7 @@ func (c *Coordinator) onNewBlock(rawHeight int64) {
 }
 
 // observeSettleHeight feeds the chain height to every task: submission windows for settlement rank >= 2 open
-// by chain height (§10.10a), not by local clock.
+// by chain height, not by local clock.
 func (c *Coordinator) observeSettleHeight(height uint64) {
 	c.mu.RLock()
 	tasks := make([]*taskFSM, 0, len(c.tasks))
@@ -2101,7 +2100,7 @@ func (c *Coordinator) fillAcceptedReceipt(fsm *taskFSM) {
 
 func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
 	// task_hash is a consensus fact and may only come from on-chain query/event. Once recorded, subsequent
-	// Worker proposals for the same task can take the ExistingTaskRefV1 branch per §4.2.1.
+	// Worker proposals for the same task can take the ExistingTaskRefV1 branch.
 	fsm.rememberAcceptedTaskHash(snapshot.Assignment.AcceptedTaskHash)
 	if snapshot.State == types.Failed {
 		fsm.onAuthoritativeFailure(snapshot, height)
@@ -2221,7 +2220,7 @@ func sweepConvergesTask(event chaincli.ChainEvent) bool {
 
 // parseDeadlineKindAttr / parseDeadlineTransitionAttr restore the event attr (prefix stripped by chaincli)
 // into the mirror enums. Uses the proto-generated _value tables rather than a hand-written switch so
-// that a new kind / transition in the contract is not silently missed here.
+// that a new kind / transition in the wire is not silently missed here.
 func parseDeadlineKindAttr(value string) taskv1.DeadlineKindV1 {
 	if value == "" {
 		return taskv1.DeadlineKindV1_DEADLINE_KIND_V1_UNSPECIFIED

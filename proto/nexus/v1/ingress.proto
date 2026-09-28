@@ -12,12 +12,11 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 
 // IngressAPI is the single external interface of nexus (toward SDK / Worker / Verifier).
 //
-// The method table follows Interface & Topic Catalogue.md §4.2; the
-// Task data-plane messages and digests follow Task Data Interface Design.md §6; the OUTPUT
-// frame stream follows Streaming Output Delivery Design.md §5.
+// The file defines three groups: the SDK methods, the Task data-plane messages and digests,
+// and the streaming OUTPUT frame messages.
 //
-// BREAKING (first version after v0.3.0): the Task data plane is replaced wholesale per the two
-// documents above, with no compatibility layer:
+// BREAKING (first version after v0.3.0): the Task data plane is replaced wholesale, with no
+// compatibility layer:
 //   - the three relay RPCs embed the authoritative task.v1 messages directly and no
 //     longer declare a second set of field authorities such as
 //     SignedInferReceiptV1 / VerifyMetricSummaryV1;
@@ -29,15 +28,14 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 //   - UploadTaskResultData is renamed and reworked into UploadTaskResultObject;
 //     FinalizeTaskResult / FinalizeVerifierEvidence are added;
 //   - BuilderStorageConfirmationV1 becomes 9 fields, signed under TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2.
-// The ADR-0017 frame-stream messages keep their v0.3.0 shape; only the referenced types are
+// The streaming OUTPUT frame messages keep their v0.3.0 shape; only the referenced types are
 // swapped for the new ones above.
-// SubmitOrder / FetchOutputRef / RefreshCredential, superseded by the contract, are kept as is;
-// the removal date is pending a team decision.
+// SubmitOrder / FetchOutputRef / RefreshCredential are superseded and kept as is; the removal
+// date is pending a team decision.
 //
-// Dependency direction: this file importing task.v1 is an explicit requirement of
-// Interface & Topic Catalogue.md §4.2 ("Nexus derives the locator from the imported Task
-// message and places the very same protobuf message verbatim into the corresponding
-// Msg/Batch or Bus payload"). Nested Task messages keep Hash32 as raw bytes; this file's own
+// Dependency direction: this file imports task.v1 on purpose: Nexus derives the locator from
+// the imported Task message and places the very same protobuf message verbatim into the
+// corresponding Msg/Batch or Bus payload. Nested Task messages keep Hash32 as raw bytes; this file's own
 // Hash32 fields remain 64-char lowercase hex strings.
 //
 // Cross-cutting concerns (access log / api-key / IP allowlist) are handled uniformly by a
@@ -45,32 +43,31 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 service IngressAPI {
   // ---- SDK (User side) ----
 
-  // §3.1 The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
+  // The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
   // after the input is fully received, input_hash / input_size_bytes are verified, the bytes
   // are persisted and the storage confirmation is signed.
   rpc OpenTask(stream OpenTaskRequest) returns (OpenTaskResponse);
-  // §3.2 Records the cross-Builder input storage confirmations collected by the SDK, for
+  // Records the cross-Builder input storage confirmations collected by the SDK, for
   // reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
   // the V1 baseline does not require calling it.
   rpc ConfirmOpenTask(ConfirmOpenTaskRequest) returns (ConfirmOpenTaskResponse);
-  // §3.5 The user SDK subscribes to the signed OUTPUT frame stream (ADR-0017). The Builder
+  // The user SDK subscribes to the signed OUTPUT frame stream. The Builder
   // forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
   // the User verifies each frame's signature and recomputes the root itself.
   rpc SubscribeOutput(SubscribeOutputRequest) returns (stream SubscribeOutputResponse);
-  // §3.6 Only records local delivery progress (task, last_seq); takes no part in settlement /
+  // Only records local delivery progress (task, last_seq); takes no part in settlement /
   // retention / fault attribution.
   rpc AckOutput(AckOutputRequest) returns (AckOutputResponse);
-  // §3.7 Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
+  // Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
   // signature required.
   rpc GetTaskStatus(GetTaskStatusRequest) returns (GetTaskStatusResponse);
-  // §3.8 Historical events after the cursor plus live events.
+  // Historical events after the cursor plus live events.
   rpc GetTaskEvents(GetTaskEventsRequest) returns (stream GetTaskEventsResponse);
-  // §3.9 Returns the challenge plan; submits no transaction.
+  // Returns the challenge plan; submits no transaction.
   rpc PrepareChallenge(PrepareChallengeRequest) returns (PrepareChallengeResponse);
 
   // ---- Task data plane (Cortex and authenticated Users) ----
-  // The six methods below are authenticated by TaskDataRequestAuthV1, see
-  // Interface & Topic Catalogue.md §4.2.1.
+  // The six methods below are authenticated by TaskDataRequestAuthV1.
 
   // Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
   // Only the first-frame header is signed; the following chunks must in the end exactly
@@ -78,10 +75,10 @@ service IngressAPI {
   // accepted only means this object is STORED, not that the whole Task Result is complete.
   rpc UploadTaskResultObject(stream UploadTaskResultObjectRequest) returns (UploadTaskResultObjectResponse);
   // The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
-  // InferReceipt (ADR-0017).
+  // InferReceipt.
   // Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
-  // mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-  // Verification Algorithm §8.1.
+  // mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, in that field order (see the
+  // wire output_chunk vectors).
   // The Builder verifies each frame's signature, computes the leaf itself and appends to its
   // own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
   // The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -89,7 +86,7 @@ service IngressAPI {
   //
   // Any error closes the stream; the rejection reason is carried by the gRPC status code with
   // no separate reason field: two sources of error truth on one stream will diverge sooner or
-  // later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+  // later. The Worker must distinguish
   // "own cause" from "external cause" -- resending the former yields the same result however
   // many times, resending the latter may succeed -- and the two call for opposite responses,
   // so this mapping is a contract shared by both sides, not a Builder implementation detail.
@@ -107,7 +104,7 @@ service IngressAPI {
   //     FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
   //     DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
   //
-  //   External cause (may resend Header and resume per §9.5):
+  //   External cause (may resend Header and resume):
   //     Unavailable        transport interrupted, Builder process or storage unavailable
   //     AlreadyExists      an object already exists for this key or the stream is finalized.
   //                        Resend Header to get the progress reply first, then decide: if the
@@ -150,19 +147,19 @@ service IngressAPI {
   // Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
   rpc SubmitVerifyResult(SubmitVerifyResultRequest) returns (SubmitVerifyResultResponse);
 
-  // ---- Legacy SDK methods superseded by the contract: marked deprecated, removal pending a team decision ----
+  // ---- Superseded legacy SDK methods: marked deprecated, removal pending a team decision ----
 
-  // Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
+  // Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
   rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse) {
     option deprecated = true;
   }
-  // Superseded by GetTaskDataMetadata + FetchTaskData: the contract returns no locator and issues
+  // Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
   // no fetch credential. This method has no reference left to return, only CredentialV1;
   // whether to keep it is still an open item.
   rpc FetchOutputRef(FetchOutputRefRequest) returns (FetchOutputRefResponse) {
     option deprecated = true;
   }
-  // Fetch credential refresh: the contract has no counterpart (the CredentialV1 route as a whole
+  // Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
   // is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
   // download credentials; whether to keep it is pending a team decision.
   rpc RefreshCredential(RefreshCredentialRequest) returns (RefreshCredentialResponse) {
@@ -191,8 +188,8 @@ enum TaskDataObjectKind {
 // bytes are persisted and hash/size are verified, READY only via the atomic switch on Finalize.
 //
 // The _V1_ prefix in value names is required by buf lint ENUM_VALUE_PREFIX, consistent with the
-// other V1 enums in this repo; document §6.2 omits that segment, values and semantics match
-// item by item. The same applies to the three enums below.
+// other V1 enums in this repo; values and semantics are otherwise unchanged. The same applies to
+// the three enums below.
 enum TaskDataObjectReadinessV1 {
   // Unspecified; treated as a broken invariant when it appears in a response.
   TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED = 0;
@@ -241,8 +238,8 @@ enum TaskDataRequesterKindV1 {
 
 // TaskDataObjectRefV1 is the only way to address a Task data object.
 //
-// When entering a body digest, use the canonical projection of Interface & Topic
-// Catalogue.md §4.2.1: the eight fields in the order of this table; Hash32 is a lowercase hex
+// When entering a body digest, use the canonical projection: the eight fields in the order of
+// this table; Hash32 is a lowercase hex
 // string on the transport and must be decoded to raw32 before entering the preimage.
 // Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
 // producer_operator absent.
@@ -273,11 +270,11 @@ message TaskDataObjectMetadataV1 {
   // is defined solely by the evidence schema.
   string media_type = 3;
   TaskDataObjectReadinessV1 readiness = 4;
-  // ADR-0017: OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
+  // OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
   // leaves from it to rebuild the MMR and check output_hash and output_leaf_count. Returned only
   // for READY OUTPUT objects; not part of the receipt.
   repeated uint32 chunk_lengths = 5;
-  // ADR-0017: OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
+  // OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
   // length 0, not an empty tree.
   uint64 output_leaf_count = 6;
   // The Worker-signed terminal frame of this object's output stream, byte-identical to the one
@@ -307,7 +304,7 @@ message ByteRangeV1 {
 }
 
 // BuilderStorageConfirmationV1 is the storage confirmation shared by INPUT, OUTPUT and complete
-// evidence bundles (Task Data Interface Design.md §6.3a). Object differences are expressed only
+// evidence bundles. Object differences are expressed only
 // by object_ref; there is no separate, highly repetitive confirmation type per object kind.
 //
 // The single signing digest (service_signature itself is not included):
@@ -376,7 +373,7 @@ message TaskDataRequestAuthV1 {
   string builder_operator_address = 3;
   // Must equal, byte for byte, the ASCII "/nexus.v1.IngressAPI/<Method>" actually called.
   string rpc_method = 4;
-  // Digest under one of the five body domains, see Interface & Topic Catalogue.md §4.2.1.
+  // Digest under one of the five task data body domains.
   string body_digest = 5;
   TaskDataRequesterKindV1 requester_kind = 6;
   string requester_address = 7;
@@ -414,8 +411,8 @@ message SDKRequestEnvelopeV1 {
   bytes signer_pubkey = 12;         // compressed public key (for verification)
 }
 
-// OpenTaskHeader is the first frame of OpenTask (contract §3.1). order_envelope +
-// signature_scheme + signature together form what the contract calls the SignedOrder.
+// OpenTaskHeader is the first frame of OpenTask. order_envelope + signature_scheme +
+// signature together form the SignedOrder.
 message OpenTaskHeader {
   bytes order_envelope = 1;
   string payload_ref = 2;
@@ -428,7 +425,7 @@ message OpenTaskHeader {
   uint64 input_size_bytes = 9;
   string input_hash = 10;
   string input_media_type = 11;
-  // Required by contract §3.1: the User keeps it unchanged across retries; same key + same
+  // Required: the User keeps it unchanged across retries; same key + same
   // input_hash returns the same result, same key + different input_hash is rejected.
   string idempotency_key = 12;
 }
@@ -453,7 +450,7 @@ message OpenTaskResponse {
   BuilderStorageConfirmationV1 input_confirmation = 6;
 }
 
-// ConfirmOpenTaskRequest, contract §3.2.
+// ConfirmOpenTaskRequest.
 message ConfirmOpenTaskRequest {
   string session_id = 1;
   string task_id = 2;
@@ -496,13 +493,13 @@ message UploadTaskResultObjectResponse {
   TaskDataObjectMetadataV1 metadata = 3;
 }
 
-// First frame of UploadTaskOutputStream: opens an OUTPUT stream (ADR-0017).
+// First frame of UploadTaskOutputStream: opens an OUTPUT stream.
 //
 // Carries neither a receipt nor a starting chunk index -- the starting point is given by the
 // Builder's OutputStreamProgressV1 reply. On disconnect, resend this frame to reconnect.
 // request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
-// domain is not yet in the closed set of five body domains of Interface & Topic
-// Catalogue.md §4.2.1 and will be registered here once the document is completed.
+// domain is not yet in the closed set of five task data body domains and will be registered
+// here once it is defined.
 //
 // worker_signature binds the stream declaration to the selected Worker's service key,
 // independently of the upload request authorization; it signs
@@ -526,8 +523,7 @@ message OutputStreamHeaderV2 {
   bytes worker_signature = 10;
 }
 
-// One chunk of OUTPUT text and its cumulative commitment
-// (Data Plane & Evidence Transport §9.2).
+// One chunk of OUTPUT text and its cumulative commitment.
 //
 // The same message is used both for Worker->Builder upload and Builder->User forwarding: the
 // Builder forwards it verbatim, without modifying the frame or adding its own signature.
@@ -547,7 +543,7 @@ message OutputChunkV1 {
   bytes attachment_signature = 6;
 }
 
-// Closing frame of an OUTPUT stream (Data Plane & Evidence Transport §9.2).
+// Closing frame of an OUTPUT stream.
 //
 // The authoritative commitment to the final root is InferReceipt.output_hash; output_mmr_root
 // here only lets the receiver detect early that it disagrees with the Worker. Since wire v0.1.1
@@ -768,7 +764,7 @@ message SubmitVerifyResultResponse {
   bool idempotent = 4;
 }
 
-// CredentialV1 fetch credential (v1.5 §3.2/§3.5): bound to task/recipient/usage/expiry, issued
+// CredentialV1 fetch credential: bound to task/recipient/usage/expiry, issued
 // by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
 message CredentialV1 {
   string credential_id = 1;    // = hex(sha256(sign_bytes))
@@ -787,7 +783,7 @@ message SubmitOrderRequest {
   bytes order_envelope = 1; // signed order (contains model_id/price/timeout/nonce)
   string payload_ref = 2;   // nexus://sha256/<hex>; must match the payload content
   bytes signature = 3;      // user signature
-  SDKRequestEnvelopeV1 request_envelope = 4; // request signature envelope (required in v1.5; may be absent in lenient mode)
+  SDKRequestEnvelopeV1 request_envelope = 4; // request signature envelope (required; may be absent in lenient mode)
   string session_id = 5;
   uint64 order_sequence = 6;
   string user_address = 7;
@@ -803,7 +799,7 @@ message SubmitOrderResponse {
   string session_id = 4; // session identifier (generated on chain as session_id=hash(user,nonce); composite key)
 }
 
-// AccessLevel is the fetch authorization level (v1.5 §3.2).
+// AccessLevel is the fetch authorization level.
 enum AccessLevel {
   // Fetch the canonical output package + commitments (for candidate Verifier checks before
   // hand-raise); no sealed key is given.
@@ -812,7 +808,7 @@ enum AccessLevel {
   ACCESS_LEVEL_SEALED_KEY = 1;
 }
 
-// FetchOutputRef request (RESERVED: contract v0.2 removed the output reference object).
+// FetchOutputRef request (RESERVED: the output reference object has been removed).
 message FetchOutputRefRequest {
   string task_id = 1;
   string requester = 2; // requester identity (SDK user / candidate Verifier / selected Verifier)
@@ -826,25 +822,25 @@ message FetchOutputRefRequest {
 
 // FetchOutputRef response (RESERVED).
 message FetchOutputRefResponse {
-  reserved 1; // former output_ref: the OutputRef object was removed by the Cortex contract "target-state baseline"
+  reserved 1; // former output_ref: the OutputRef object has been removed
   reserved "output_ref";
   CredentialV1 credential = 2; // fetch credential bound to task/recipient/usage/expiry
 }
 
-// SubscribeOutputRequest, contract §3.5.
+// SubscribeOutputRequest.
 // BodyDigest = BodyDigest(session_id, task_id), frozen and consistent with the implementation.
 message SubscribeOutputRequest {
   string session_id = 1;
   string task_id = 2;
   SDKRequestEnvelopeV1 request_envelope = 3;
-  // ADR-0017: resume point; only frames with seq greater than this value are replayed. Leave
+  // Resume point; only frames with seq greater than this value are replayed. Leave
   // unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
   // any Task Builder with the last locally verified chunk index to resume. Explicit presence
   // since wire v0.2.0: 0 means "chunk 0 verified, replay from seq 1", not "from the beginning".
   optional uint64 resume_after_seq = 4;
 }
 
-// SubscribeOutputResponse is the forwarded stream of Worker-signed frames (ADR-0017).
+// SubscribeOutputResponse is the forwarded stream of Worker-signed frames.
 //
 // The Builder forwards OutputChunkV1 / OutputFinV1 verbatim, without modifying frames, adding
 // its own signature or waiting for the receipt.
@@ -868,12 +864,11 @@ message SubscribeOutputResponse {
   }
 }
 
-// AckOutputRequest, contract §3.6.
+// AckOutputRequest.
 //
-// After ADR-0017 the delivery progress is just (task, last_seq); stream_id or output_hash is no
+// With the streaming OUTPUT frames the delivery progress is just (task, last_seq); stream_id or output_hash is no
 // longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
-// an input to settlement, challenge, fault attribution or deletion permission
-// (Data Plane & Evidence Transport §9.4).
+// an input to settlement, challenge, fault attribution or deletion permission.
 message AckOutputRequest {
   string session_id = 1;
   string task_id = 2;
@@ -890,7 +885,7 @@ message AckOutputResponse {
   int64 acked_at = 3;
 }
 
-// GetTaskEventsRequest, contract §3.8.
+// GetTaskEventsRequest.
 // The BodyDigest order session_id, task_id, from_cursor is frozen and consistent with the implementation.
 message GetTaskEventsRequest {
   string session_id = 1;
@@ -899,10 +894,10 @@ message GetTaskEventsRequest {
   SDKRequestEnvelopeV1 request_envelope = 4;
 }
 
-// GetTaskEventsResponse, contract §3.8: at most 256 events per task, events may be dropped when
+// GetTaskEventsResponse: at most 256 events per task, events may be dropped when
 // the channel is full, replay from the cursor on reconnect.
 //
-// Full set of stable event_code values (Interface & Topic Catalogue.md §4.10):
+// Full set of stable event_code values:
 //   ORDER_RECEIVED, WORKER_HANDRAISES_ACCEPTED, WORKER_ASSIGNMENT_FINALIZED,
 //   OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
 //   TASK_SETTLED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED
@@ -929,11 +924,11 @@ message RefreshCredentialRequest {
 // RefreshCredential response: the new fetch credential.
 message RefreshCredentialResponse {
   CredentialV1 credential = 1; // new credential
-  reserved 2; // former output_ref: the OutputRef object was removed by the Cortex contract "target-state baseline"
+  reserved 2; // former output_ref: the OutputRef object has been removed
   reserved "output_ref";
 }
 
-// PrepareChallengeRequest, contract §3.9. The BodyDigest order
+// PrepareChallengeRequest. The BodyDigest order
 // session_id, task_id, challenge_kind, local_evidence_digest is frozen and consistent with the implementation.
 message PrepareChallengeRequest {
   string session_id = 1;
@@ -946,7 +941,7 @@ message PrepareChallengeRequest {
 // PrepareChallenge response.
 message PrepareChallengeResponse {
   bool challenge_open = 1;
-  // Interface & Topic Catalogue.md §4.11 calls this field challenge_close; the unit (block
+  // Elsewhere this field is called challenge_close; the unit (block
   // height vs Unix ms) is still to be unified. Here it is named by block height and typed
   // uint64; the rename will be handled together with the unit decision.
   uint64 challenge_close_height = 2;     // last block height at which a new challenge can still be opened
@@ -967,10 +962,10 @@ message GetTaskStatusRequest {
   string session_id = 2; // session identifier (composite key)
 }
 
-// GetTaskStatusResponse, contract §3.7: local FSM snapshot, not on-chain authority.
+// GetTaskStatusResponse: local FSM snapshot, not on-chain authority.
 // stage / set_id / updated_at are reserved in the proto and not populated by the implementation.
 //
-// The contract's state values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
+// State values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
 message GetTaskStatusResponse {
   string state = 1;      // TaskState coarse state
   string stage = 2;      // Stage (reserved, not populated)

@@ -1,7 +1,6 @@
 package taskdata
 
-// Strict parsing and bundle hash of EvidenceBundleManifestV1 (Data Plane and Evidence
-// Transport §2, §2.1).
+// Strict parsing and bundle hash of EvidenceBundleManifestV1.
 //
 // Nexus's stance on the manifest: it is just an EVIDENCE_MANIFEST data object. Nexus stores
 // and returns the exact manifest bytes without re-serializing; it does not interpret
@@ -30,7 +29,7 @@ const DomainEvidenceBundleManifest = "TRUEOPEN_EVIDENCE_BUNDLE_MANIFEST_V1"
 // EvidenceBundleManifestVersionV1 is the only valid manifest_version value.
 const EvidenceBundleManifestVersionV1 uint32 = 1
 
-// maxManifestStringBytes gives bounded strings a structural upper limit. The contract says
+// maxManifestStringBytes gives bounded strings a structural upper limit. The protocol says
 // bounded without a number, so a loose value is used: it guards against stuffing a whole
 // artifact into an id, not defining a length on behalf of the protocol.
 const maxManifestStringBytes = 256
@@ -267,7 +266,7 @@ func manifestFromJSON(raw manifestJSON) (EvidenceBundleManifest, error) {
 	return manifest, nil
 }
 
-// canonicalBytes re-encodes per §2.1: object keys in ascending UTF-8 byte order, no
+// canonicalBytes re-encodes canonically: object keys in ascending UTF-8 byte order, no
 // whitespace, uint64 as a decimal string without leading zeros, uint32 as a JSON integer,
 // Hash32 as 64 lowercase hex digits.
 func (m EvidenceBundleManifest) canonicalBytes() (string, error) {
@@ -393,7 +392,7 @@ func writeCanonicalJSON(b *strings.Builder, value any) error {
 	return nil
 }
 
-// canonicalJSONString is the "shortest valid JSON escaping" of §2.1: only " and \ and C0
+// canonicalJSONString is the "shortest valid JSON escaping" of the canonical manifest: only " and \ and C0
 // control characters are escaped, control characters preferring the single-character
 // escapes. encoding/json additionally escapes < > & and U+2028/U+2029, which is not the
 // shortest form, hence the hand-written version.
@@ -463,7 +462,7 @@ func manifestUint32(field string, value *json.Number) (uint32, error) {
 	return uint32(parsed), nil
 }
 
-// manifestUint64String reads a §2.1 uint64: a decimal string without leading zeros, not a JSON number.
+// manifestUint64String reads a manifest uint64: a decimal string without leading zeros, not a JSON number.
 func manifestUint64String(field string, value *string) (uint64, error) {
 	if value == nil {
 		return 0, fmt.Errorf("%w: manifest %s is missing", ErrMalformed, field)

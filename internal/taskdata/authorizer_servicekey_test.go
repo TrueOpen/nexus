@@ -161,7 +161,7 @@ func TestAuthorizerRejectsInvalidCortexServiceKeys(t *testing.T) {
 				t.Fatalf("download error = %v, want ErrUnauthorized", err)
 			}
 
-			// Since wire v0.4.1 the operator self-signed compatibility path no longer exists:
+			// The operator self-signed compatibility path no longer exists:
 			// the CORTEX_SERVICE public key is fetched from the chain only by (CORTEX,
 			// requester_address), and requester_kind alone selects the verification path.
 			// After the service key is rejected there is no second path; this is the

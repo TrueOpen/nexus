@@ -12,7 +12,7 @@ import (
 )
 
 // Asserts the core behaviour of this ticket: when BuilderState carries **neither** active_term nor
-// admission status (wire v0.4.1), a Builder whose service key is ACTIVE and who is in the BuilderSet
+// admission status, a Builder whose service key is ACTIVE and who is in the BuilderSet
 // still seeds successfully, and builder_set_version is taken from the height-selector query result,
 // not derived locally.
 func TestCoordinatorSeedsBuilderSetFromHeightSelector(t *testing.T) {

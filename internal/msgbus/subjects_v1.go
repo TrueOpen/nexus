@@ -1,9 +1,9 @@
-// The NATS subject catalogue and tiers (Nexus-Cortex Interface Contract §5.1).
+// The NATS subject catalogue and tiers.
 //
-// This file is the **only** subject catalogue: the contract states explicitly that "trueopen.orders.* and
-// trueopen.assign.<task_id> do not exist". Besides the 8 contract subjects of §5.1 there is a second,
+// This file is the **only** subject catalogue: trueopen.orders.* and
+// trueopen.assign.<task_id> do not exist. Besides the 8 trueopen.* subjects there is a second,
 // internal Builder-to-Builder catalogue (internalSubjectSpecsV1) which deliberately stays out of the
-// trueopen.* namespace: the contract's subject table is a closed set, and adding a row to it would mean an implementation
+// trueopen.* namespace: the trueopen.* subject table is a closed set, and adding a row to it would mean an implementation
 // extending the protocol on its own.
 //
 // The envelope layer has moved to the proto BusEnvelopeV1 + TRUEOPEN_BUS_ENVELOPE_V2 (internal/busadapter,
@@ -25,10 +25,10 @@ const (
 	TierJetStream SubjectTier = "JETSTREAM"
 )
 
-// JetStreamName is the JetStream stream name mandated by contract §5.12.
+// JetStreamName is the JetStream stream name that every Builder and Cortex agree on.
 const JetStreamName = "TRUEOPEN_TASK"
 
-// Subject prefixes (contract §5.1). Model-level subjects append <model_id>, the rest append <task_id>.
+// Subject prefixes. Model-level subjects append <model_id>, the rest append <task_id>.
 const (
 	subjectV1TaskOpenPrefix           = "trueopen.task.open."
 	subjectV1HandraiseWorkerPrefix    = "trueopen.handraise.worker."
@@ -40,7 +40,7 @@ const (
 	subjectV1VerifyResultPrefix       = "trueopen.verify-result."
 
 	// subjectV1BuilderPreparePrefix is not under trueopen.*: prepare is an internal Builder-to-Builder
-	// de-duplication announcement, it is not part of the nexus-cortex contract and it is not wrapped in a
+	// de-duplication announcement, it is not part of the Nexus-Cortex subject catalogue and it is not wrapped in a
 	// BusEnvelopeV1 (see internal/coordinator/prepare.go).
 	subjectV1BuilderPreparePrefix = "nexus.builder-prepare."
 )
@@ -63,7 +63,7 @@ func SubjectVerifierHandraiseV1(taskID string) string {
 }
 
 // SubjectWorkerAssignment Builder → selected Worker (JetStream).
-// Contract §5.7: may only be sent after the on-chain EventWorkerAssignmentFinalized;
+// May only be sent after the on-chain EventWorkerAssignmentFinalized;
 // Cortex must take the on-chain assignment as authoritative, and this message does not decide the selected Worker.
 func SubjectWorkerAssignment(taskID string) string { return subjectV1WorkerAssignmentPrefix + taskID }
 
@@ -71,7 +71,7 @@ func SubjectWorkerAssignment(taskID string) string { return subjectV1WorkerAssig
 func SubjectOutputAvailableV1(taskID string) string { return subjectV1OutputAvailPrefix + taskID }
 
 // SubjectVerifierAssignment Builder → selected Worker/selected Verifier (JetStream).
-// Contract §5.9: may only be sent after the on-chain EventVerifierAssignmentFinalized.
+// May only be sent after the on-chain EventVerifierAssignmentFinalized.
 func SubjectVerifierAssignment(taskID string) string {
 	return subjectV1VerifierAssignmentPrefix + taskID
 }
@@ -92,7 +92,7 @@ type SubjectSpecV1 struct {
 	Tier        SubjectTier
 }
 
-// subjectSpecsV1 holds the 8 subjects of contract §5.1. kind maps one-to-one onto subject;
+// subjectSpecsV1 holds the 8 trueopen.* subjects. kind maps one-to-one onto subject;
 // the frozen kind -> payload message type mapping lives in gen/bus/v1 (the BusPayloadType comments).
 var subjectSpecsV1 = []SubjectSpecV1{
 	{subjectV1TaskOpenPrefix, "model_id", bus.KindOrderBroadcast, TierCore},
@@ -112,7 +112,7 @@ var internalSubjectSpecsV1 = []SubjectSpecV1{
 	{subjectV1BuilderPreparePrefix, "task_id", 0, TierCore},
 }
 
-// SubjectSpecsV1 returns the subject catalogue of contract §5.1 (a copy).
+// SubjectSpecsV1 returns the trueopen.* subject catalogue (a copy).
 func SubjectSpecsV1() []SubjectSpecV1 {
 	out := make([]SubjectSpecV1, len(subjectSpecsV1))
 	copy(out, subjectSpecsV1)
@@ -144,7 +144,7 @@ func allSubjectSpecsV1() []SubjectSpecV1 {
 	return append(out, internalSubjectSpecsV1...)
 }
 
-// JetStreamSubjectWildcardsV1 returns the subject wildcards that JetStream must cover (contract §5.12).
+// JetStreamSubjectWildcardsV1 returns the subject wildcards that JetStream must cover.
 func JetStreamSubjectWildcardsV1() []string {
 	out := make([]string, 0, len(subjectSpecsV1))
 	for _, spec := range subjectSpecsV1 {
@@ -155,7 +155,7 @@ func JetStreamSubjectWildcardsV1() []string {
 	return out
 }
 
-// DurableConsumer builds the name of a JetStream durable consumer (contract §5.12):
+// DurableConsumer builds the name of a JetStream durable consumer:
 // it carries the node ID and the purpose, which helps when troubleshooting.
 func DurableConsumer(nodeID, purpose string) string {
 	return "nexus-" + nodeID + "-" + purpose

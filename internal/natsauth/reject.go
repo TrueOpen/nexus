@@ -2,7 +2,7 @@ package natsauth
 
 import "fmt"
 
-// Code is the closed set of error codes from §5.14.3. The response error field is "<Code>: <detail>"; no new values may be added.
+// Code is the closed set of auth-callout error codes. The response error field is "<Code>: <detail>"; no new values may be added.
 type Code string
 
 const (
@@ -17,7 +17,7 @@ const (
 	CodeChainUnavailable        Code = "CHAIN_UNAVAILABLE"
 )
 
-// AllCodes returns the closed set in §5.14.3 table order; tests use it to prevent drift.
+// AllCodes returns the closed set in its fixed order; tests use it to prevent drift.
 func AllCodes() []Code {
 	return []Code{CodeBindingMalformed, CodeChainIDMismatch, CodeNkeyMismatch, CodeNonceSignatureInvalid,
 		CodeServiceKeyNotActive, CodeServiceKeyNonceMismatch, CodeBindingSignatureInvalid, CodeCortexNotRegistered, CodeChainUnavailable}

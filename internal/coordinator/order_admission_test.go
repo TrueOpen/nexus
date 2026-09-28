@@ -121,7 +121,7 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 		{name: "missing registry", self: self, chainID: "chain-1", taskID: "task-1"},
 		{name: "builder query failure", registry: &fakeBuilderRegistry{builderErr: errors.New("hub unavailable")}, self: self, chainID: "chain-1", taskID: "task-1"},
 		{name: "builder address mismatch", registry: admissionRegistry(chaincli.BuilderState{Address: addresses[1], ServiceKeyStatus: "ACTIVE"}, validSet), self: self, chainID: "chain-1", taskID: "task-1"},
-		// Since wire v0.4.1 BuilderState has no admission status; only the service key on the Builder row can be checked.
+		// BuilderState has no admission status; only the service key on the Builder row can be checked.
 		{name: "revoked service key", registry: admissionRegistry(chaincli.BuilderState{Address: self, ServiceKeyStatus: "REVOKED"}, validSet), self: self, chainID: "chain-1", taskID: "task-1"},
 		// Latest height unavailable / zero: must report STAGE1_UNAVAILABLE, no falling back to guessing by term.
 		{name: "latest height failure", registry: &fakeBuilderRegistry{builder: validBuilder, height: admissionHeight, heightErr: errors.New("hub unavailable"), set: validSet}, self: self, chainID: "chain-1", taskID: "task-1"},

@@ -15,8 +15,8 @@ import (
 )
 
 // testFrozenUserAddress must be canonical bech32: ingress derives task_hash from this
-// TaskOrderV2, and the preimage frames the address codec bytes of user_address
-// (§1.2 / ruling 24), so a value that cannot be decoded yields no digest.
+// TaskOrderV3, and the preimage frames the address codec bytes of user_address
+// (never the Bech32 text), so a value that cannot be decoded yields no digest.
 // Value = bech32("trueopen", 20 x 0x11).
 const testFrozenUserAddress = "trueopen1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3rsxm9a"
 
@@ -24,7 +24,7 @@ const testFrozenUserAddress = "trueopen1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3rsxm9a"
 // and passes it through; signature verification happens in the keeper.
 func testUserSignatureV2(fill byte) []byte { return append(bytes.Repeat([]byte{fill}, 64), 27) }
 
-// testFrozenSignedOrder is a §5.13 task order **complete enough to derive task_hash**.
+// testFrozenSignedOrder is a signed task order **complete enough to derive task_hash**.
 // Previously amounts / output_budget_bucket / the bucket version could be missing here, because
 // the order identity was then sha256(envelope), which ignores the content; now a single missing item makes the canonical
 // task_hash uncomputable and the order is rejected at ingress -- which is exactly the fail-closed behaviour wanted.
@@ -65,7 +65,7 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 
 // TestParseOrderEnvelopeAcceptsFrozenSignedOrder pins the two carriers of order_envelope:
 // a leading '{' means the old canonical JSON, otherwise it is decoded as a proto-encoded task.v1.SignedOrderV2.
-// The first-proposal scope of the frozen contract accepts only the latter, and order_envelope is bytes anyway, so this
+// The chain's first-proposal scope accepts only the latter, and order_envelope is bytes anyway, so this
 // path needs no change to the fields of SubmitOrderRequest and the body digest of the SDK request envelope stays the same.
 func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	signed := testFrozenSignedOrder()
@@ -84,7 +84,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 		t.Fatalf("parseOrderEnvelope: %v", err)
 	}
 	if !bytes.Equal(order.SignedOrder, raw) {
-		t.Fatal("SignedOrder must be preserved verbatim: the user signature covers the frozen TaskOrderV2 and nexus must not rebuild it")
+		t.Fatal("SignedOrder must be preserved verbatim: the user signature covers the signed TaskOrderV3 and nexus must not rebuild it")
 	}
 	if order.ModelID != hex.EncodeToString(testOrderModelID) || order.ProfileVersion != 2 || order.TaskType != "text_generation" {
 		t.Fatalf("order model binding: %+v", order)
@@ -95,7 +95,7 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	if order.PayloadHash != strings.Repeat("22", 32) {
 		t.Fatalf("payload hash = %q", order.PayloadHash)
 	}
-	// The order identity is the canonical task_hash derived from the user-signed TaskOrderV2,
+	// The order identity is the canonical task_hash derived from the user-signed TaskOrderV3,
 	// not sha256(order_envelope).
 	wantTaskHash, hashErr := nodecontract.TaskOrderHashHexV3(signed.GetOrder())
 	if hashErr != nil {
@@ -167,7 +167,7 @@ func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
 }
 
 // TestParseLegacyOrderEnvelopeCarriesNoTaskHash records the position of the old JSON envelope: it lacks
-// chain_id / session_anchor_* / builder_set_* / generation_params, so the TRUEOPEN_TASK_ORDER_V2 preimage cannot be
+// chain_id / session_anchor_* / builder_set_* / generation_params, so the TRUEOPEN_TASK_ORDER_V3 preimage cannot be
 // built and there is **no** task_hash to fill in. This used to be filled with
 // sha256(envelope) posing as the identity, which has been removed; the consequence is that such orders cannot be broadcast
 // (taskfsm.onOrder rejects them), and they never passed the first-proposal scope branch anyway.

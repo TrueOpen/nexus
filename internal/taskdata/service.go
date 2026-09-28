@@ -15,7 +15,7 @@ type Service struct {
 	authorizer *Authorizer
 	chunkSize  uint64
 
-	// Streamed OUTPUT (ADR-0017): outputStream holds the network-wide limits. The receipt
+	// Streamed OUTPUT: outputStream holds the network-wide limits. The receipt
 	// is not compared against the locally computed root inside the stream: the object uses
 	// the MMR root as content_hash and FinalizeTaskResult looks the object up by
 	// receipt.output_hash, so a successful lookup is the comparison; READY and the storage
@@ -137,7 +137,7 @@ func (s *Service) GetMetadata(ctx context.Context, request RequestAuth) (Metadat
 	return metadata, true, nil
 }
 
-// OpenDownload contract §2.2: the range request carries the requester's own signature and
+// OpenDownload: the range request carries the requester's own signature and
 // authorization derives from on-chain roles, so no pre-signed download credential is needed.
 // OpenFetch is the data path of FetchTaskData. It verifies the request before consulting
 // local state: in the reverse order an unauthorized caller could tell from response
@@ -220,12 +220,12 @@ func (s *Service) BeginUpload(ctx context.Context, request RequestAuth, header U
 	return upload, nil
 }
 
-// CommitUpload crosses the first boundary of §5.5: once the complete data is persisted and
+// CommitUpload crosses the first commit boundary: once the complete data is persisted and
 // the size and hash/root checks pass, the object enters STORED.
 //
 // No storage confirmation is signed here. The confirmation commits that "this bundle is
 // consistently bound to the Receipt and manifest", which a single persisted object cannot
-// prove; it is issued once by FinalizeTaskResult / FinalizeVerifierEvidence (§5.5).
+// prove; it is issued once by FinalizeTaskResult / FinalizeVerifierEvidence.
 func (s *Service) CommitUpload(ctx context.Context, upload *Upload) (Metadata, error) {
 	if upload == nil {
 		return Metadata{}, ErrMalformed

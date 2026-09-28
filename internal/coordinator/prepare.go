@@ -1,11 +1,11 @@
-// BuilderPrepare: Builder<->Builder submission-intent announcement that lets Builders avoid duplicate submissions (Detailed Design §8.1 / §4.3).
+// BuilderPrepare: Builder<->Builder submission-intent announcement that lets Builders avoid duplicate submissions.
 //
-// It is not in the wire-frozen bus kind set -- the contract's subject table is closed, and prepare only
+// It is not in the wire-frozen bus kind set -- the wire subject table is closed, and prepare only
 // flows between Builders, Cortex neither receives nor sends it, so it does not use BusEnvelopeV1 but the
 // nexus-internal signed format defined in this file: JSON transport encoding, signature over the H_FIELDS
 // digest of the typed field projection (domain NEXUS_BUILDER_PREPARE_V1), signed by the sender's current service key.
 //
-// No replay store: prepare is purely an advisory de-duplication signal (§4.1: must not be a blocking requirement for abandoning a
+// No replay store: prepare is purely an advisory de-duplication signal (it must not be a blocking requirement for abandoning a
 // proposal); replaying a prepare within its freshness window has the same effect as the original, expired ones are rejected, no dedup needed.
 package coordinator
 

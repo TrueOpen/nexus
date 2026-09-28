@@ -211,7 +211,7 @@ type SettlementEvidenceInput struct {
 	ProfileVersion         uint32
 	VerificationSampleSeed string
 	// EvidenceCommitmentsHash replaces the pre-freeze TraceCommitRoot / CheckpointCommitRoot:
-	// §5.14 collapses the Worker's set of commitments into typed required_evidence_commitments
+	// InferReceiptV3 collapses the Worker's set of commitments into typed required_evidence_commitments
 	// and enters the receipt preimage as a single TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 derived value.
 	// This helper as a whole is still the pre-freeze shape (settlement leaf encoding not frozen,
 	// no SETTLEMENT_BILL leaf written on chain), so this is only an

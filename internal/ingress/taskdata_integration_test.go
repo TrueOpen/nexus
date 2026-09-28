@@ -27,15 +27,15 @@ import (
 const integrationBuilderAddress = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man"
 
 // TODO(wire): OpenTaskHeader carries nothing from which the canonical task_hash can be derived -- it only carries
-// the old JSON order_envelope, while task_hash can only be computed from the frozen SignedOrderV2 under
-// TRUEOPEN_TASK_ORDER_V2 (nodecontract.TaskOrderHashHexV3). Meanwhile task_hash is the mandatory first field of
+// the old JSON order_envelope, while task_hash can only be computed from the signed SignedOrderV2 under
+// TRUEOPEN_TASK_ORDER_V3 (nodecontract.TaskOrderHashHexV3). Meanwhile task_hash is the mandatory first field of
 // TaskDataObjectRefV1, so the OpenTask path cannot create an INPUT object.
 //
-// This is a contract gap, not an implementation problem: either OpenTaskHeader adds SignedOrderV2 / task_hash,
+// This is a wire gap, not an implementation problem: either OpenTaskHeader adds SignedOrderV2 / task_hash,
 // or the INPUT ref allows task_hash to be absent. Reported to wire; this case will be restored once it is decided.
 // Production now rejects explicitly (NEXUS_INGRESS_ORDER_HAS_NO_TASK_HASH) instead of proceeding with an empty identity.
 func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting the wire contract answer")
+	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	ctx := context.Background()
 	user := mustSigner(t, testKeyHex)
 	worker := mustSigner(t, workerKeyHex)

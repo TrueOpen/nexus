@@ -30,12 +30,12 @@ func CurrentOrderSigningBytes(chainID, ownerAddress, sessionID string, orderSequ
 // TRUEOPEN_CURRENT_SERVICE_KEY_V2, ServiceDescriptorAuthorizationBytes / domain
 // TRUEOPEN_SERVICE_DESCRIPTOR_V2) have been removed entirely, **with no aliases kept**:
 //
-//   - The authoritative domain for the service key PoP is TRUEOPEN_SERVICE_REGISTRATION_V1 in
-//     §10.0c, with H_FIELDS_V1 framing (enum as uint32_be, operator as address codec bytes,
+//   - The authoritative domain for the service key PoP is TRUEOPEN_SERVICE_REGISTRATION_V1,
+//     with H_FIELDS_V1 framing (enum as uint32_be, operator as address codec bytes,
 //     pubkey as the raw 33 bytes); the old helper wrote them all as decimal/hex text, which
 //     the Keeper must reject. The new form is ServiceRegistrationBytes in servicedescriptor.go.
-//   - MsgUpdateServiceDescriptor has no controller_signature field at all in the frozen
-//     contract: authorization is carried by the Cosmos account signature
+//   - MsgUpdateServiceDescriptor has no controller_signature field at all on
+//     chain: authorization is carried by the Cosmos account signature
 //     (signer=operator_address), so there is no second-layer detached signature to build.
 func AssignBuilderSigningBytes(chainID, taskID, orderDigest, candidateSetHash, workerHandraiseSet, builderAddress string, builderRank uint64) []byte {
 	return domainHash(
@@ -82,9 +82,9 @@ func OpenVerifyBuilderSigningBytes(chainID, taskID, winnerWorker, inferReceiptCo
 // InferReceiptHashV1 / InferReceiptHash in this file) have been removed entirely,
 // **with no aliases kept**: it wrote uint64 as
 // decimal text and covered infer_receipt_commit_hash / trace_commit_root /
-// checkpoint_commit_root / batch_log_root / token_count / work_unit, six fields that §5.14
+// checkpoint_commit_root / batch_log_root / token_count / work_unit, six fields that InferReceiptV3
 // removed from the wire. Keeping an alias would let callers keep producing digests the
-// frozen wire never accepts.
+// chain never accepts.
 //
 // New form: InferReceiptSigningDigest (inferreceipt.go), H_FIELDS_V1 typed framing.
 

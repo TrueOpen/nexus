@@ -69,7 +69,7 @@ func TestStartCommandStartsAndStopsWithCommandContext(t *testing.T) {
 	}
 }
 
-// `nexus start` only checks and never submits (ADR-0015): when the Builder is not registered it refuses to start,
+// `nexus start` only checks and never submits: when the Builder is not registered it refuses to start,
 // broadcasts nothing and points at `nexus builder register`.
 func TestStartCommandRefusesUnregisteredBuilderWithoutBroadcasting(t *testing.T) {
 	fake := &fakeStartNode{chainID: "trueopen-localnet"}
@@ -113,7 +113,7 @@ func TestStartCommandRefusesUnregisteredBuilderWithoutBroadcasting(t *testing.T)
 // BuilderBond is fixed at zero, so there is no staking transaction).
 //
 // Flipping the assertion from "startup must fail" to "startup must succeed" is the core behavior change of this work item: the
-// fake Hub's BuilderState carries neither active_term nor an admission status (wire v0.4.1), so the old code classified the on-chain
+// fake Hub's BuilderState carries neither active_term nor an admission status in the current wire, so the old code classified the on-chain
 // Builder to have "no active term" and kept the coordinator from starting. Now builder_set_version comes from the height
 // selector query, and the very same fake data must be able to bring the coordinator up.
 func TestStartCommandRoutesBuilderRegistrationToHubOnly(t *testing.T) {
@@ -248,7 +248,7 @@ func (n *fakeStartNode) Builder(_ context.Context, req *connect.Request[hubv1.Qu
 func (n *fakeStartNode) BuilderSet(_ context.Context, req *connect.Request[hubv1.QueryBuilderSetRequest]) (*connect.Response[hubv1.QueryBuilderSetResponse], error) {
 	n.builderSetQueries.Add(1)
 	// Accept the height selector only: builder_set_version is a query result and Nexus holds no term it could send
-	// (the wire v0.4.1 selector is height | builder_set_id only). Sending any other selector is a regression.
+	// (the wire selector is height | builder_set_id only). Sending any other selector is a regression.
 	if req.Msg.GetHeight() == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("exactly one builder set selector is required"))
 	}

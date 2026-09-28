@@ -208,7 +208,7 @@ func TestTaskDataMetadataOmitsLocatorAndAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := response.Msg.GetMetadata()
-	// The new contract has no object_exists bit: when the object does not exist the whole metadata is absent.
+	// The current wire has no object_exists bit: when the object does not exist the whole metadata is absent.
 	if got.GetSizeBytes() != 7 || got.GetObjectRef().GetContentHash() != testPBContent ||
 		got.GetReadiness() != nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_READY {
 		t.Fatalf("metadata = %#v", got)
@@ -220,7 +220,7 @@ func TestTaskDataMetadataOmitsLocatorAndAuthorization(t *testing.T) {
 	}
 }
 
-// The convenience copy of infer_receipt for an OUTPUT (§6.5): field for field identical to the InferReceiptV2
+// The convenience copy of infer_receipt for an OUTPUT: field for field identical to the InferReceiptV2
 // FinalizeTaskResult received, with hex fields restored to raw bytes.
 func TestTaskDataMetadataReturnsInferReceiptCopy(t *testing.T) {
 	receipt := &taskdata.SignedInferReceipt{
@@ -273,7 +273,7 @@ func TestTaskDataMetadataReturnsInferReceiptCopy(t *testing.T) {
 	}
 }
 
-// Querying an EVIDENCE_MANIFEST returns the bundle summary (§6.5): evidence_bundle_hash is the H_V1 of the manifest
+// Querying an EVIDENCE_MANIFEST returns the bundle summary: evidence_bundle_hash is the H_V1 of the manifest
 // bytes, which is not the same value as the ref content_hash of the Worker manifest (the receipt's evidence_hash_or_root);
 // after fetching the bytes the Verifier checks them against the value in the summary. An OUTPUT returns no summary.
 func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
@@ -319,12 +319,12 @@ func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
 	}
 }
 
-// ConfirmOpenTask is the skeleton of contract §3.2: it accepts no calls until the field table (§8.2) and the storage
-// confirmation encoding (§8.3) are frozen, so that no wire structure that will later be overturned gets committed.
+// ConfirmOpenTask is a skeleton: it accepts no calls until its field table and the storage
+// confirmation encoding are frozen, so that no wire structure that will later be overturned gets committed.
 //
-// It must be FailedPrecondition rather than Unimplemented: an unfrozen contract is a deterministic unmet precondition,
+// It must be FailedPrecondition rather than Unimplemented: an unfrozen interface is a deterministic unmet precondition,
 // whereas callers read Unimplemented as "the server is too old" and blindly retry.
-// Object addressing and request authentication fixtures for the new contract. A Hash32 must be canonical lowercase 64-hex --
+// Object addressing and request authentication fixtures for the current wire. A Hash32 must be canonical lowercase 64-hex --
 // these cases do not verify real signatures, but the shape check runs in the conversion layer.
 const (
 	testPBSession = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -476,7 +476,7 @@ func TestTaskResultUploadFramesAndConfirmation(t *testing.T) {
 	if len(api.uploadRequest.BodyDigest) != 64 {
 		t.Fatalf("upload body digest = %q", api.uploadRequest.BodyDigest)
 	}
-	// wire v0.4.1: the upload acknowledgement only states that the single object is STORED and no longer carries a storage confirmation --
+	// The upload acknowledgement only states that the single object is STORED and no longer carries a storage confirmation --
 	// the confirmation is issued once by FinalizeTaskResult after it checks the receipt, the output and all evidence.
 	if response.Msg.GetMetadata().GetReadiness() ==
 		nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED {
@@ -494,7 +494,7 @@ func TestTaskResultUploadRejectsChunkBeforeHeader(t *testing.T) {
 	}
 }
 
-// The wire v0.4.1 upload header carries no receipt: uploading a single object only commits to object_ref, size
+// The wire upload header carries no receipt: uploading a single object only commits to object_ref, size
 // and media_type, while the receipt is committed by FinalizeTaskResult's body domain
 // (TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1). The former
 // TestTaskResultOutputUploadPropagatesCompleteReceipt here covered "the receipt passes through the upload header
@@ -528,9 +528,9 @@ func TestTaskDataErrorMapping(t *testing.T) {
 
 // TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
 // canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under wire v0.4.1. Restore once the contract answer arrives.
+// under the current wire. Restore once wire settles this.
 func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting the wire contract answer")
+	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 4}
 	handler := &fakeHandler{}
@@ -583,9 +583,9 @@ func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
 
 // TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
 // canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under wire v0.4.1. Restore once the contract answer arrives.
+// under the current wire. Restore once wire settles this.
 func TestOpenTaskRollsBackPreparedInputOnCoordinatorFailure(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting the wire contract answer")
+	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
 	handler := &fakeHandler{orderErr: errors.New("order rejected")}
@@ -617,9 +617,9 @@ func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 
 // TODO(wire): same as TestTaskDataIntegrationCortexAcceptancePath -- OpenTaskHeader cannot supply a
 // canonical task_hash, while the INPUT object ref requires one, so the OpenTask path does not work
-// under wire v0.4.1. Restore once the contract answer arrives.
+// under the current wire. Restore once wire settles this.
 func TestOpenTaskForwardsChainHeightReplayFields(t *testing.T) {
-	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting the wire contract answer")
+	t.Skip("OpenTaskHeader cannot supply a canonical task_hash; awaiting a wire decision")
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
 	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})

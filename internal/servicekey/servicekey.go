@@ -17,7 +17,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
-// participant type is the lookup domain of the current service key (Nexus<->Cortex contract §3.2 field 5).
+// participant type is the lookup domain of the current service key.
 //
 // It and sender_role are two distinct value domains and must not be mixed: sender_role (BUILDER / WORKER /
 // VERIFIER) is the Task duty carried in the message, whereas one and the same Cortex Node registers its

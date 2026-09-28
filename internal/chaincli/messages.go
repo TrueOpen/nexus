@@ -1,4 +1,4 @@
-// On-chain message definitions shared with node (Interface & Topic Catalogue §2 / Nexus Detailed Design §5).
+// On-chain message definitions shared with node.
 // Three groups: Txs that nexus assembles and broadcasts, chain events nexus subscribes to, and query results nexus reads.
 // Field names align with the proto / the TrueOpen mainnet mechanism V1 integration plan.
 package chaincli
@@ -25,14 +25,14 @@ func (k TaskKey) Validate() error {
 	return nil
 }
 
-// ---- 1. Txs that nexus assembles, signs and broadcasts (§2.2) ----
+// ---- 1. Txs that nexus assembles, signs and broadcasts ----
 // These structs are encoded and signed, then submitted via BroadcastTx([]byte); field-level definitions live here.
 
 // AssignTx carries the Worker-duty handraise proposal that nexus relays as
-// MsgSubmitWorkerHandraises (Keeper Interface Contract §4.2.1/§10.1).
+// MsgSubmitWorkerHandraises.
 //
 // SignedOrder / ExistingTask / WorkerHandraises are the only fields that reach
-// the chain: the contract requires every other assignment fact (Builder
+// the chain: the chain requires every other assignment fact (Builder
 // operator, BuilderSet, Task Builders, pool hash, candidate weights, legal-set
 // hash, deadlines, thresholds) to be Keeper-derived, so they must not be sent as
 // request copies. The remaining legacy fields below stay as local coordination
@@ -40,12 +40,12 @@ func (k TaskKey) Validate() error {
 // are no longer part of the Msg wire.
 type AssignTx struct {
 	// SignedOrder is the user-signed SignedOrderV2 required for the first
-	// proposal of a Task (§4.2.1 scope oneof).
+	// proposal of a Task.
 	SignedOrder *taskv1.SignedOrderV2 `json:"-"`
 	// ExistingTask addresses an already accepted Task for follow-up proposals.
 	ExistingTask *taskv1.ExistingTaskRefV1 `json:"-"`
 	// WorkerHandraises are Cortex-authored signed WorkerHandraiseV1 facts,
-	// ascending by slot and unique (§4.1/§4.2.2).
+	// ascending by slot and unique.
 	WorkerHandraises []*taskv1.WorkerHandraiseV1 `json:"-"`
 
 	BuilderOperatorAddress string `json:"builder_operator_address"`
@@ -76,8 +76,8 @@ type AssignTx struct {
 }
 
 // OpenVerifyTx carries the two contract messages that replace the old single
-// MsgOpenVerify: MsgSubmitInferReceipt (§10.3) and, once the Verifier window is
-// READY, MsgSubmitVerifierHandraises (§4.2.1/§10.4). The Verifier window, legal
+// MsgOpenVerify: MsgSubmitInferReceipt and, once the Verifier window is
+// READY, MsgSubmitVerifierHandraises. The Verifier window, legal
 // set, selected Verifier set and every deadline are Keeper-derived, so the
 // legacy selected_verifiers / window proof fields no longer reach the chain.
 // VerifyResultTx relays the Verifier-signed ResultReceiptV3 verbatim as MsgSubmitVerifyResult.
@@ -88,7 +88,7 @@ type VerifyResultTx struct {
 	Submitter string                  `json:"submitter"`
 }
 
-// VerifyCommitTx relays the Verifier-signed VerifyCommitV1 verbatim (Keeper Interface Contract §10.6).
+// VerifyCommitTx relays the Verifier-signed VerifyCommitV1 verbatim.
 // Same rule as VerifyResultTx: Nexus rewrites or fills in no field.
 type VerifyCommitTx struct {
 	Commit    *taskv1.VerifyCommitV1 `json:"-"`
@@ -99,7 +99,7 @@ type OpenVerifyTx struct {
 	// InferReceipt is the Worker-signed InferReceiptV3.
 	InferReceipt *taskv1.InferReceiptV3 `json:"-"`
 	// VerifierHandraises are Cortex-authored signed VerifierHandraiseV1 facts
-	// belonging to the frozen window (§4.1/§4.4).
+	// belonging to the frozen window.
 	VerifierHandraises []*taskv1.VerifierHandraiseV1 `json:"-"`
 
 	// The pre-freeze MsgOpenVerify string copies of receipt fields (infer_receipt_commit_hash /
@@ -119,13 +119,13 @@ type OpenVerifyTx struct {
 	VerifierCandidateWindowProof string `json:"verifier_candidate_window_proof"`
 }
 
-// MsgWorkerReveal does not exist in the Keeper contract: §9.4 registers no
-// Worker reveal Msg, and §10.11 keeps Worker metric evidence off chain unless a
+// MsgWorkerReveal does not exist on chain: wire registers no
+// Worker reveal Msg, and keeps Worker metric evidence off chain unless a
 // Verifier registers MsgSubmitFullResultReveal. WorkerRevealTx is therefore
 // removed rather than renamed.
 
 // SettleTx prepares MsgSettleTask. Only TaskID and Submitter reach the chain:
-// §10.10a fixes the public request at `1=task_id:Hash32,2=submitter_address`
+// The chain fixes the public request at `1=task_id:Hash32,2=submitter_address`
 // and forbids callers from submitting verdict, cluster, receipt refs, payout,
 // refund, fault, evidence root, plan hash, completion height or a Builder
 // identity copy. The remaining fields stay as local settlement-readiness state
@@ -197,21 +197,21 @@ type SettleTx struct {
 	ServiceSignature               string   `json:"service_signature"`
 }
 
-// SweepDeadlineTx triggers MsgSweepDeadline (Keeper Interface Contract §9.6a BOUNDED_RUNNER).
+// SweepDeadlineTx triggers MsgSweepDeadline.
 //
 // MsgSweepDeadline is the only public deadline runner in V1: any account may submit it, the public
 // runner pays its own gas, and EndBlock goes through the same internal executor. It is therefore not
 // "relaying someone else's signature": Nexus is entitled to act as this runner itself, with no detached
 // signature from the Cortex/Verifier side.
 //
-// This struct expresses only the task branch of §5.9 DeadlineLocatorV1: the challenge / evidence_request
+// This struct expresses only the task branch of DeadlineLocatorV1: the challenge / evidence_request
 // branches are not active yet (no ACTIVE writer can create the object, the executor must reject),
 // and the session_lifecycle branch is not single-task orchestration; neither is exposed here.
 type SweepDeadlineTx struct {
 	Submitter string `json:"submitter"`
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
-	// DeadlineKind must be a TaskDeadlineLocator kind from the §5.9 table.
+	// DeadlineKind must be a TaskDeadlineLocator kind.
 	DeadlineKind taskv1.DeadlineKindV1 `json:"deadline_kind"`
 }
 
@@ -222,7 +222,7 @@ type ServiceEndpoint = nodecontract.ServiceEndpoint
 
 // RegisterBuilderTx establishes the Builder identity in the global Node Registry.
 //
-// The frozen contract's MsgRegisterBuilder is
+// The wire MsgRegisterBuilder is
 // (service_pubkey, service_key_proof, descriptor, builder_operator_address):
 // descriptor is the endpoints list, descriptor_version is always the 1 assigned by the Keeper, and
 // descriptor_uri / descriptor_hash / schema / expires_height are not on the wire.
@@ -238,7 +238,7 @@ type RegisterBuilderTx struct {
 
 // UpdateServiceDescriptorTx publishes a new version of the endpoints list.
 //
-// The frozen contract's MsgUpdateServiceDescriptor is
+// The wire MsgUpdateServiceDescriptor is
 // (participant_type, expected_descriptor_version, descriptor, operator_address).
 // ExpectedDescriptorVersion is the **current** on-chain version (the Keeper asserts equality, then writes
 // current+1), not the target version; authorization is the Cosmos account signature, with no
@@ -250,7 +250,7 @@ type UpdateServiceDescriptorTx struct {
 	Endpoints                 []ServiceEndpoint `json:"endpoints"`
 }
 
-// ---- 2. Chain events nexus subscribes to (§2.3) ----
+// ---- 2. Chain events nexus subscribes to ----
 // ChainEvent.Type takes one of the constants below; Attrs carries each event's fields, decodable into the matching struct.
 
 const (
@@ -269,7 +269,7 @@ const (
 	EventNewBlock                 = "NewBlock"                    // independent height polling signal, used for gap detection
 )
 
-// AssignAccepted: AssignTx included in a block (v1.5 two-phase step one): enters randomness pending,
+// AssignAccepted: AssignTx included in a block (two-phase step one): enters randomness pending,
 // winner not yet decided, so no start-work notification is sent.
 type AssignAccepted struct {
 	SessionID   string             `json:"session_id"`
@@ -278,7 +278,7 @@ type AssignAccepted struct {
 	Height      int64              `json:"height"`
 }
 
-// AssignmentFinalized: randomness settled and winner decided (v1.5 two-phase step two):
+// AssignmentFinalized: randomness settled and winner decided (two-phase step two):
 // only after receiving it is the winner told to start work via trueopen.assign.
 type AssignmentFinalized struct {
 	SessionID  string `json:"session_id"`
@@ -325,7 +325,7 @@ type WorkerRevealAccepted struct {
 	Height    int64             `json:"height"`
 }
 
-// FullResultRevealAccepted: Verifier full-result reveal self-rescue included on-chain (v1.5 §2.3):
+// FullResultRevealAccepted: Verifier full-result reveal self-rescue included on-chain:
 // V_i+salt is written to FullResultRevealState and SettleTx can reference it via full_result_reveal.
 type FullResultRevealAccepted struct {
 	SessionID string `json:"session_id"`
@@ -337,7 +337,7 @@ type FullResultRevealAccepted struct {
 // SweepDeadlineAccepted: any party triggered a deadline sweep that advanced a timed-out state
 // (EventDeadlineSwept, ProtocolEventCodeV1 = 20).
 //
-// The frozen contract replaced the old swept_stage with DeadlineKindV1 + DeadlineTransitionCode:
+// The current wire replaced the old swept_stage with DeadlineKindV1 + DeadlineTransitionCode:
 // "which deadline was swept" and "how the state actually transitioned" are two different things, and only
 // the latter tells whether the task converged to a terminal state. COMMIT_CLOSED is the classic
 // counterexample: a closed commit window usually means the reveal phase starts and the task is still
@@ -345,9 +345,9 @@ type FullResultRevealAccepted struct {
 type SweepDeadlineAccepted struct {
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
-	// DeadlineKind is the deadline that was swept (§5.9).
+	// DeadlineKind is the deadline that was swept.
 	DeadlineKind taskv1.DeadlineKindV1 `json:"deadline_kind"`
-	// TransitionCode is the state transition this sweep actually performed (§9.6b closed enum).
+	// TransitionCode is the state transition this sweep actually performed.
 	TransitionCode taskv1.DeadlineTransitionCode `json:"transition_code"`
 	Height         int64                         `json:"height"`
 }
@@ -396,9 +396,9 @@ type BuilderSetUpdated struct {
 	Height  int64              `json:"height"`
 }
 
-// ---- 3. Query results nexus reads (§2.1 / §2.4) ----
+// ---- 3. Query results nexus reads ----
 
-// BuilderSet is the BuilderSetViewV1 returned by QueryBuilderSet (Keeper Interface Contract §16.5).
+// BuilderSet is the BuilderSetViewV1 returned by QueryBuilderSet.
 //
 // The old term_start_height / term_end_height were removed from the wire: term boundaries now have only
 // epoch semantics (start_epoch / end_epoch), and at the height level only snapshot_height remains as the
@@ -407,7 +407,7 @@ type BuilderSetUpdated struct {
 // builder_set_members_hash, and any recomputation would necessarily use a different formula, so the
 // comparison would fail consistently.
 type BuilderSet struct {
-	// Epoch is builder_set_version: since wire v0.4.1 the BuilderSet has only a version number, no
+	// Epoch is builder_set_version: the BuilderSet has only a version number, no
 	// term / epoch range (Phase 0 is a governance-fixed set with no rotation). It is returned by the Hub in a
 	// single fixed-height query; Nexus neither derives nor hardcodes it.
 	Epoch        uint64 `json:"epoch"`
@@ -423,8 +423,7 @@ type BuilderSet struct {
 	UpdatedHeight int64 `json:"updated_height"`
 }
 
-// TaskBuilderSelectionState is the on-chain frozen Task Builder selection (task.v1.Query/TaskBuilders,
-// wire v0.1.2). SelectedBuilders is in committed order; settlement submission rights rotate in that order (§10.10a).
+// TaskBuilderSelectionState is the on-chain frozen Task Builder selection (task.v1.Query/TaskBuilders). SelectedBuilders is in committed order; settlement submission rights rotate in that order.
 type TaskBuilderSelectionState struct {
 	TaskID           string   `json:"task_id"`
 	SelectedBuilders []string `json:"selected_builders"`
@@ -455,7 +454,7 @@ type StageBuilderSelectionState struct {
 // There is no ActiveTerm here: the current Node BuilderState dropped `active_term`, and keeping a field
 // that always deserializes to zero is a trap: code reading it would classify an on-chain ACTIVE Builder as
 // "no active term". The current term can only be read from the QueryBuilderSetAtHeight result.
-// BuilderState is the local projection of wire v0.4.1 hub.v1.BuilderState: Builder identity +
+// BuilderState is the local projection of wire hub.v1.BuilderState: Builder identity +
 // current service key + descriptor version. Admission status (ADMITTED / REVOKED) is not here; it lives
 // in BuilderAdmissionState, is governance-fixed in Phase 0 and is not delivered by a separate public
 // Query; "admitted or not" is decided by whether active_builders of the BuilderSet at that height
@@ -480,7 +479,7 @@ type ServiceKeyState struct {
 	Status             string `json:"status"`
 }
 
-// CortexNodeState is the stable Cortex identity row returned by QueryCortexNode (CortexNodeState, §6.4).
+// CortexNodeState is the stable Cortex identity row returned by QueryCortexNode (CortexNodeState).
 // The auth callback service reads it only to confirm "this operator is registered as a Cortex"; pubkey and
 // nonce are authoritative in QueryCurrentServiceKey, and here they are just a copy of the same row.
 // It does not carry schema_version or current_descriptor_version: the callback service only decides the
@@ -497,7 +496,7 @@ type CortexNodeState struct {
 }
 
 // ServiceDescriptorState is the current descriptor row returned by QueryServiceDescriptor.
-// The frozen contract's ServiceDescriptorState stores endpoints + descriptor_hash directly,
+// The wire ServiceDescriptorState stores endpoints + descriptor_hash directly,
 // with no URI / schema_version / effective_height / expires_height.
 type ServiceDescriptorState struct {
 	ParticipantType   string            `json:"participant_type"`
@@ -608,8 +607,7 @@ type TaskSettlementState struct {
 	SettlementHeight   uint64 `json:"settlement_height,omitempty"`
 	TaskFinalityHeight uint64 `json:"task_finality_height,omitempty"`
 	// FinalityStatus is TaskCoreState.finality_status by short name (PENDING / FINAL). Settlement
-	// and finality are one step, taken after every verification round has closed (Challenge
-	// and Evidence spec §9), so FINAL means the task has nothing left to drive.
+	// and finality are one step, taken after every verification round has closed, so FINAL means the task has nothing left to drive.
 	FinalityStatus string `json:"finality_status,omitempty"`
 }
 
@@ -639,8 +637,8 @@ type AcceptedResultReceipt struct {
 }
 
 // TaskStage is task.v1.Query/TaskStage: the task's statuses and its next deadline. While round 1
-// has closed and no challenge round is open, the next deadline is the challenge window close
-// (06 §9); QueryTask does not carry the round summary that holds it.
+// has closed and no challenge round is open, the next deadline is the challenge window close;
+// QueryTask does not carry the round summary that holds it.
 type TaskStage struct {
 	TaskPhase          string `json:"task_phase,omitempty"`        // TaskPhase short name (SETTLING, ...)
 	SettlementStatus   string `json:"settlement_status,omitempty"` // SettlementStatus short name (NONE, ...)
@@ -675,8 +673,8 @@ type SettlementBuildFacts struct {
 type EvidenceCleanupStatus string
 
 const (
-	// EvidenceCleanupNotScheduled: the task has not met the cleanup preconditions yet (06 §10:
-	// task finality reached, no open round, max_evidence_retention_blocks passed).
+	// EvidenceCleanupNotScheduled: the task has not met the cleanup preconditions yet (task
+	// finality reached, no open round, max_evidence_retention_blocks passed).
 	EvidenceCleanupNotScheduled EvidenceCleanupStatus = "NOT_SCHEDULED"
 	EvidenceCleanupRunning      EvidenceCleanupStatus = "RUNNING"
 	EvidenceCleanupCompacted    EvidenceCleanupStatus = "COMPACTED"
@@ -737,8 +735,7 @@ type VerifierRound struct {
 
 // CommitsLocked reports whether no further commit of this round can be accepted at height:
 // either the round has entered reveal (every selected Verifier committed, or the deadline
-// passed with enough commits), or the commit deadline has passed. Task Execution spec §8: a
-// commit is accepted only while current_height <= commit_deadline_height and the task is still
+// passed with enough commits), or the commit deadline has passed. A commit is accepted only while current_height <= commit_deadline_height and the task is still
 // in the commit stage.
 //
 // The commit deadline is frozen when the round's assignment is written and is never zero; a zero

@@ -29,7 +29,7 @@ func validNATSAuth(t *testing.T) NATSAuthConfig {
 func TestNATSAuthDefaults(t *testing.T) {
 	cfg := defaults().NATSAuth
 	if cfg.UserJWTTTLMS != 3_600_000 || cfg.ChainQueryCacheTTLMS != 60_000 || cfg.MaxClockSkewMS != 300_000 {
-		t.Fatalf("defaults drifted from §5.14.5: %+v", cfg)
+		t.Fatalf("defaults drifted from the auth-callout bounds: %+v", cfg)
 	}
 }
 

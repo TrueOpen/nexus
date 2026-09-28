@@ -19,8 +19,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// Connect handlers for the ADR-0017 streaming OUTPUT data plane (streaming output delivery design §5; sequence
-// diagrams 1-5 in "Nexus streaming output sequence"). When task_data.output_stream.enabled is off, the three RPCs
+// Connect handlers for the streaming OUTPUT data plane. When task_data.output_stream.enabled is off, the three RPCs
 // in this file go Unimplemented / legacy path, behaving exactly as before the change.
 
 // outputStreamAPI is the streaming part of taskdata.Service (replaceable in tests).
@@ -133,8 +132,8 @@ func (s *service) UploadTaskOutputStream(
 			}
 			s.outputStream.dispatcher.Publish(key, taskdata.OutputFrame{Fin: &fin})
 			// Fin only means this stream is fully persisted, not that the whole Task Result is READY:
-			// wire v0.4.1 removed the storage_confirmation here; the confirmation is now issued by
-			// FinalizeTaskResult after checking the receipt, output and all evidence (design §5.5).
+			// wire removed the storage_confirmation here; the confirmation is now issued by
+			// FinalizeTaskResult after checking the receipt, output and all evidence.
 			result := &nexusv1.OutputStreamResultV1{
 				Accepted: true, LastSeq: fin.FinalSeq, OutputMmrRoot: fin.OutputMMRRoot, LeafCount: metadata.OutputLeafCount,
 			}
@@ -262,7 +261,7 @@ func (s *service) ackOutputStream(
 	return connect.NewResponse(&nexusv1.AckOutputResponse{Acked: true, AckedAt: now}), nil
 }
 
-// requireTaskOwner: streaming subscribe and ACK are allowed only for the ordering user (design §5.6).
+// requireTaskOwner: streaming subscribe and ACK are allowed only for the ordering user.
 func (s *service) requireTaskOwner(ctx context.Context, sessionID, taskID, requester string) error {
 	owner, err := s.h.TaskOwner(ctx, sessionID, taskID)
 	if err != nil {

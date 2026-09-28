@@ -16,7 +16,7 @@ import (
 
 func repeatByte(value byte, size int) []byte { return bytes.Repeat([]byte{value}, size) }
 
-// accAddress encodes a 20-byte address codec into bech32. The hrp does not enter the preimage (§1.2
+// accAddress encodes a 20-byte address codec into bech32. The hrp does not enter the preimage (H_FIELDS_V1
 // frames the codec bytes); "trueopen" is used only to match node's AccountAddressPrefix.
 func accAddress(t *testing.T, raw []byte) string {
 	t.Helper()
@@ -226,7 +226,7 @@ func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 			v.GenerationParams.DecodingParams.Seed++
 		}},
 		// The negative penalty term goes through Int32BE (two's complement big-endian); writing it as decimal text
-		// would fork this mutation from the contract digest, so it must be covered separately.
+		// would fork this mutation from the canonical digest, so it must be covered separately.
 		{name: "decoding_params.presence_penalty_milli", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) {
 			v.GenerationParams.DecodingParams.PresencePenaltyMilli = -251
 		}},

@@ -91,8 +91,8 @@ func (TaskDataObjectKind) EnumDescriptor() ([]byte, []int) {
 // bytes are persisted and hash/size are verified, READY only via the atomic switch on Finalize.
 //
 // The _V1_ prefix in value names is required by buf lint ENUM_VALUE_PREFIX, consistent with the
-// other V1 enums in this repo; document §6.2 omits that segment, values and semantics match
-// item by item. The same applies to the three enums below.
+// other V1 enums in this repo; values and semantics are otherwise unchanged. The same applies to
+// the three enums below.
 type TaskDataObjectReadinessV1 int32
 
 const (
@@ -317,7 +317,7 @@ func (TaskDataRequesterKindV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{4}
 }
 
-// AccessLevel is the fetch authorization level (v1.5 §3.2).
+// AccessLevel is the fetch authorization level.
 type AccessLevel int32
 
 const (
@@ -369,8 +369,8 @@ func (AccessLevel) EnumDescriptor() ([]byte, []int) {
 
 // TaskDataObjectRefV1 is the only way to address a Task data object.
 //
-// When entering a body digest, use the canonical projection of Interface & Topic
-// Catalogue.md §4.2.1: the eight fields in the order of this table; Hash32 is a lowercase hex
+// When entering a body digest, use the canonical projection: the eight fields in the order of
+// this table; Hash32 is a lowercase hex
 // string on the transport and must be decoded to raw32 before entering the preimage.
 // Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
 // producer_operator absent.
@@ -498,11 +498,11 @@ type TaskDataObjectMetadataV1 struct {
 	// is defined solely by the evidence schema.
 	MediaType string                    `protobuf:"bytes,3,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
 	Readiness TaskDataObjectReadinessV1 `protobuf:"varint,4,opt,name=readiness,proto3,enum=nexus.v1.TaskDataObjectReadinessV1" json:"readiness,omitempty"`
-	// ADR-0017: OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
+	// OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
 	// leaves from it to rebuild the MMR and check output_hash and output_leaf_count. Returned only
 	// for READY OUTPUT objects; not part of the receipt.
 	ChunkLengths []uint32 `protobuf:"varint,5,rep,packed,name=chunk_lengths,json=chunkLengths,proto3" json:"chunk_lengths,omitempty"`
-	// ADR-0017: OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
+	// OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
 	// length 0, not an empty tree.
 	OutputLeafCount uint64 `protobuf:"varint,6,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
 	// The Worker-signed terminal frame of this object's output stream, byte-identical to the one
@@ -728,7 +728,7 @@ func (x *ByteRangeV1) GetLength() uint64 {
 }
 
 // BuilderStorageConfirmationV1 is the storage confirmation shared by INPUT, OUTPUT and complete
-// evidence bundles (Task Data Interface Design.md §6.3a). Object differences are expressed only
+// evidence bundles. Object differences are expressed only
 // by object_ref; there is no separate, highly repetitive confirmation type per object kind.
 //
 // The single signing digest (service_signature itself is not included):
@@ -898,7 +898,7 @@ type TaskDataRequestAuthV1 struct {
 	BuilderOperatorAddress string `protobuf:"bytes,3,opt,name=builder_operator_address,json=builderOperatorAddress,proto3" json:"builder_operator_address,omitempty"`
 	// Must equal, byte for byte, the ASCII "/nexus.v1.IngressAPI/<Method>" actually called.
 	RpcMethod string `protobuf:"bytes,4,opt,name=rpc_method,json=rpcMethod,proto3" json:"rpc_method,omitempty"`
-	// Digest under one of the five body domains, see Interface & Topic Catalogue.md §4.2.1.
+	// Digest under one of the five task data body domains.
 	BodyDigest                string                  `protobuf:"bytes,5,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`
 	RequesterKind             TaskDataRequesterKindV1 `protobuf:"varint,6,opt,name=requester_kind,json=requesterKind,proto3,enum=nexus.v1.TaskDataRequesterKindV1" json:"requester_kind,omitempty"`
 	RequesterAddress          string                  `protobuf:"bytes,7,opt,name=requester_address,json=requesterAddress,proto3" json:"requester_address,omitempty"`
@@ -1164,8 +1164,8 @@ func (x *SDKRequestEnvelopeV1) GetSignerPubkey() []byte {
 	return nil
 }
 
-// OpenTaskHeader is the first frame of OpenTask (contract §3.1). order_envelope +
-// signature_scheme + signature together form what the contract calls the SignedOrder.
+// OpenTaskHeader is the first frame of OpenTask. order_envelope + signature_scheme +
+// signature together form the SignedOrder.
 type OpenTaskHeader struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	OrderEnvelope   []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
@@ -1179,7 +1179,7 @@ type OpenTaskHeader struct {
 	InputSizeBytes  uint64                 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
 	InputHash       string                 `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
 	InputMediaType  string                 `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
-	// Required by contract §3.1: the User keeps it unchanged across retries; same key + same
+	// Required: the User keeps it unchanged across retries; same key + same
 	// input_hash returns the same result, same key + different input_hash is rejected.
 	IdempotencyKey string `protobuf:"bytes,12,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -1471,7 +1471,7 @@ func (x *OpenTaskResponse) GetInputConfirmation() *BuilderStorageConfirmationV1 
 	return nil
 }
 
-// ConfirmOpenTaskRequest, contract §3.2.
+// ConfirmOpenTaskRequest.
 type ConfirmOpenTaskRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -1813,13 +1813,13 @@ func (x *UploadTaskResultObjectResponse) GetMetadata() *TaskDataObjectMetadataV1
 	return nil
 }
 
-// First frame of UploadTaskOutputStream: opens an OUTPUT stream (ADR-0017).
+// First frame of UploadTaskOutputStream: opens an OUTPUT stream.
 //
 // Carries neither a receipt nor a starting chunk index -- the starting point is given by the
 // Builder's OutputStreamProgressV1 reply. On disconnect, resend this frame to reconnect.
 // request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
-// domain is not yet in the closed set of five body domains of Interface & Topic
-// Catalogue.md §4.2.1 and will be registered here once the document is completed.
+// domain is not yet in the closed set of five task data body domains and will be registered
+// here once it is defined.
 //
 // worker_signature binds the stream declaration to the selected Worker's service key,
 // independently of the upload request authorization; it signs
@@ -1946,8 +1946,7 @@ func (x *OutputStreamHeaderV2) GetWorkerSignature() []byte {
 	return nil
 }
 
-// One chunk of OUTPUT text and its cumulative commitment
-// (Data Plane & Evidence Transport §9.2).
+// One chunk of OUTPUT text and its cumulative commitment.
 //
 // The same message is used both for Worker->Builder upload and Builder->User forwarding: the
 // Builder forwards it verbatim, without modifying the frame or adding its own signature.
@@ -2042,7 +2041,7 @@ func (x *OutputChunkV1) GetAttachmentSignature() []byte {
 	return nil
 }
 
-// Closing frame of an OUTPUT stream (Data Plane & Evidence Transport §9.2).
+// Closing frame of an OUTPUT stream.
 //
 // The authoritative commitment to the final root is InferReceipt.output_hash; output_mmr_root
 // here only lets the receiver detect early that it disagrees with the Worker. Since wire v0.1.1
@@ -3521,7 +3520,7 @@ func (x *SubmitVerifyResultResponse) GetIdempotent() bool {
 	return false
 }
 
-// CredentialV1 fetch credential (v1.5 §3.2/§3.5): bound to task/recipient/usage/expiry, issued
+// CredentialV1 fetch credential: bound to task/recipient/usage/expiry, issued
 // by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
 type CredentialV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3637,7 +3636,7 @@ type SubmitOrderRequest struct {
 	OrderEnvelope   []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`       // signed order (contains model_id/price/timeout/nonce)
 	PayloadRef      string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"`                // nexus://sha256/<hex>; must match the payload content
 	Signature       []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`                                    // user signature
-	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"` // request signature envelope (required in v1.5; may be absent in lenient mode)
+	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"` // request signature envelope (required; may be absent in lenient mode)
 	SessionId       string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	OrderSequence   uint64                 `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
 	UserAddress     string                 `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
@@ -3809,7 +3808,7 @@ func (x *SubmitOrderResponse) GetSessionId() string {
 	return ""
 }
 
-// FetchOutputRef request (RESERVED: contract v0.2 removed the output reference object).
+// FetchOutputRef request (RESERVED: the output reference object has been removed).
 type FetchOutputRefRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	TaskId          string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -3955,14 +3954,14 @@ func (x *FetchOutputRefResponse) GetCredential() *CredentialV1 {
 	return nil
 }
 
-// SubscribeOutputRequest, contract §3.5.
+// SubscribeOutputRequest.
 // BodyDigest = BodyDigest(session_id, task_id), frozen and consistent with the implementation.
 type SubscribeOutputRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	RequestEnvelope *SDKRequestEnvelopeV1  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	// ADR-0017: resume point; only frames with seq greater than this value are replayed. Leave
+	// Resume point; only frames with seq greater than this value are replayed. Leave
 	// unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
 	// any Task Builder with the last locally verified chunk index to resume. Explicit presence
 	// since wire v0.2.0: 0 means "chunk 0 verified, replay from seq 1", not "from the beginning".
@@ -4029,7 +4028,7 @@ func (x *SubscribeOutputRequest) GetResumeAfterSeq() uint64 {
 	return 0
 }
 
-// SubscribeOutputResponse is the forwarded stream of Worker-signed frames (ADR-0017).
+// SubscribeOutputResponse is the forwarded stream of Worker-signed frames.
 //
 // The Builder forwards OutputChunkV1 / OutputFinV1 verbatim, without modifying frames, adding
 // its own signature or waiting for the receipt.
@@ -4192,12 +4191,11 @@ func (*SubscribeOutputResponse_Chunk) isSubscribeOutputResponse_Frame() {}
 
 func (*SubscribeOutputResponse_Fin) isSubscribeOutputResponse_Frame() {}
 
-// AckOutputRequest, contract §3.6.
+// AckOutputRequest.
 //
-// After ADR-0017 the delivery progress is just (task, last_seq); stream_id or output_hash is no
+// With the streaming OUTPUT frames the delivery progress is just (task, last_seq); stream_id or output_hash is no
 // longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
-// an input to settlement, challenge, fault attribution or deletion permission
-// (Data Plane & Evidence Transport §9.4).
+// an input to settlement, challenge, fault attribution or deletion permission.
 type AckOutputRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -4338,7 +4336,7 @@ func (x *AckOutputResponse) GetAckedAt() int64 {
 	return 0
 }
 
-// GetTaskEventsRequest, contract §3.8.
+// GetTaskEventsRequest.
 // The BodyDigest order session_id, task_id, from_cursor is frozen and consistent with the implementation.
 type GetTaskEventsRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -4408,10 +4406,10 @@ func (x *GetTaskEventsRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
 	return nil
 }
 
-// GetTaskEventsResponse, contract §3.8: at most 256 events per task, events may be dropped when
+// GetTaskEventsResponse: at most 256 events per task, events may be dropped when
 // the channel is full, replay from the cursor on reconnect.
 //
-// Full set of stable event_code values (Interface & Topic Catalogue.md §4.10):
+// Full set of stable event_code values:
 //
 //	ORDER_RECEIVED, WORKER_HANDRAISES_ACCEPTED, WORKER_ASSIGNMENT_FINALIZED,
 //	OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
@@ -4632,7 +4630,7 @@ func (x *RefreshCredentialResponse) GetCredential() *CredentialV1 {
 	return nil
 }
 
-// PrepareChallengeRequest, contract §3.9. The BodyDigest order
+// PrepareChallengeRequest. The BodyDigest order
 // session_id, task_id, challenge_kind, local_evidence_digest is frozen and consistent with the implementation.
 type PrepareChallengeRequest struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -4714,7 +4712,7 @@ func (x *PrepareChallengeRequest) GetRequestEnvelope() *SDKRequestEnvelopeV1 {
 type PrepareChallengeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChallengeOpen bool                   `protobuf:"varint,1,opt,name=challenge_open,json=challengeOpen,proto3" json:"challenge_open,omitempty"`
-	// Interface & Topic Catalogue.md §4.11 calls this field challenge_close; the unit (block
+	// Elsewhere this field is called challenge_close; the unit (block
 	// height vs Unix ms) is still to be unified. Here it is named by block height and typed
 	// uint64; the rename will be handled together with the unit decision.
 	ChallengeCloseHeight uint64   `protobuf:"varint,2,opt,name=challenge_close_height,json=challengeCloseHeight,proto3" json:"challenge_close_height,omitempty"` // last block height at which a new challenge can still be opened
@@ -4896,10 +4894,10 @@ func (x *GetTaskStatusRequest) GetSessionId() string {
 	return ""
 }
 
-// GetTaskStatusResponse, contract §3.7: local FSM snapshot, not on-chain authority.
+// GetTaskStatusResponse: local FSM snapshot, not on-chain authority.
 // stage / set_id / updated_at are reserved in the proto and not populated by the implementation.
 //
-// The contract's state values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
+// State values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
 type GetTaskStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	State         string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`                           // TaskState coarse state

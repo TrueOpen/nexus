@@ -52,8 +52,8 @@ func driveToVerifying(t *testing.T, c *Coordinator, session, task, user string, 
 }
 
 // TestFetchOutputRefAuthorization the strict SEALED_KEY authorization surface: a stranger is
-// refused, a selected Verifier and the order user are admitted; PACKAGE is lenient. The contract's
-// target-state baseline removed the OutputRef object and the sealed key, so this method only issues
+// refused, a selected Verifier and the order user are admitted; PACKAGE is lenient. The
+// OutputRef object and the sealed key were removed, so this method only issues
 // a bound credential.
 func TestFetchOutputRefAuthorization(t *testing.T) {
 	c, _ := newTestCoordinator(t)
@@ -77,7 +77,7 @@ func TestFetchOutputRefAuthorization(t *testing.T) {
 	if _, err := c.FetchOutputRef(ctx, session, task, user, types.AccessSealedKey, "SDK_DELIVERY"); err != nil {
 		t.Fatalf("order user sealed-key: %v", err)
 	}
-	// A candidate asks for PACKAGE -> admitted (contract §2.2: a candidate may only see metadata; the
+	// A candidate asks for PACKAGE -> admitted (a candidate may only see metadata; the
 	// actual content is still authorized by FetchTaskData against the on-chain duty).
 	pkgCred, err := c.FetchOutputRef(ctx, session, task, "trueopen1candidate", types.AccessPackage, "VERIFIER_FETCH")
 	if err != nil {
@@ -245,7 +245,7 @@ func TestPrepareChallengeUsesInclusiveChainHeightBoundary(t *testing.T) {
 	}
 }
 
-// The opener of a challenge round holds no evidence (06 §5), whatever kind the SDK names.
+// The opener of a challenge round holds no evidence, whatever kind the SDK names.
 func TestPrepareChallengeListsNoRequiredEvidence(t *testing.T) {
 	facts := newChallengeFacts(95, "PENDING")
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
@@ -265,7 +265,7 @@ func TestPrepareChallengeListsNoRequiredEvidence(t *testing.T) {
 
 // The window is open only while TaskStage reports the challenge window close as the next
 // deadline: not before round 1 closes, not while a round is open or the task is settling, and not
-// when the round limit allows no second round (06 §5, §9).
+// when the round limit allows no second round.
 func TestPrepareChallengeFollowsChainTaskStage(t *testing.T) {
 	tests := []struct {
 		name      string

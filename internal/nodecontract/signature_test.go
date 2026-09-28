@@ -9,7 +9,7 @@ import (
 )
 
 // task_data_plane_v1_golden.json covers only the pre-freeze domainHash(domain, fields ...string)
-// helpers not registered in §1.4 (uint64 decimal-text framing). The infer_receipt vectors were
+// helpers not registered in the wire domain registry (uint64 decimal-text framing). The infer_receipt vectors were
 // deleted together with the old preimage; the vectors for the new form live in
 // testdata/task_domains_v1.json (H_FIELDS_V1, see hfields_golden_test.go).
 type taskDataPlaneGolden struct {
@@ -74,7 +74,7 @@ func goldenUint64(t *testing.T, value string) uint64 {
 
 const testPrivateKeyHex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
 
-// The service key PoP golden moved to servicedescriptor_test.go: the frozen contract's domain is
+// The service key PoP golden moved to servicedescriptor_test.go: the chain's domain is
 // TRUEOPEN_SERVICE_REGISTRATION_V1 / H_FIELDS_V1, and the old TRUEOPEN_CURRENT_SERVICE_KEY_V2
 // decimal-text framing was deleted together with its golden; keeping it would only tempt people
 // into signing proofs that are bound to be rejected.

@@ -11,7 +11,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
-// ADR-0015: changing the descriptor is an explicit operator-key action by the operator
+// Changing the descriptor is an explicit operator-key action by the operator
 // (`nexus builder register`); `nexus start` only checks that the on-chain descriptor matches the local
 // configuration and sends no transaction at all.
 

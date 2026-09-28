@@ -8,7 +8,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/mmr"
 )
 
-// monorepo Verification Algorithm §8.1 "business conformance vectors",
+// Streaming output conformance vectors,
 // compared byte-for-byte: TRUEOPEN_OUTPUT_MMR_V1 prefix roots / final root / empty output, and
 // TRUEOPEN_OUTPUT_CHUNK_V1 signing digest and full preimage.
 const (
@@ -103,7 +103,7 @@ func TestGoldenOutputChunkSigningDigest(t *testing.T) {
 	}
 }
 
-// §8.1 gives the full H_FIELDS_V1 preimage for seq = 1, pinning field order and length prefixes byte-for-byte.
+// The full H_FIELDS_V1 preimage for seq = 1, pinning field order and length prefixes byte-for-byte.
 func TestGoldenOutputChunkPreimage(t *testing.T) {
 	taskHash, _ := hex.DecodeString(goldenTaskHash)
 	root, _ := hex.DecodeString("6dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77")

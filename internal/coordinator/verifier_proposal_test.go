@@ -117,7 +117,7 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 }
 
 // proposalOperators flattens the hand-raisers across a batch of proposals, and also checks that each
-// proposal is strictly ascending by slot (one of the keeper's §4.2.1 acceptance conditions).
+// proposal is strictly ascending by slot (one of the keeper's acceptance conditions).
 func proposalOperators(t *testing.T, proposals []chaincli.OpenVerifyTx) []string {
 	t.Helper()
 	var operators []string

@@ -9,7 +9,7 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
-// pebbleStore is the production persistence implementation (Implementation Design §4.6 selects pebble).
+// pebbleStore is the production persistence implementation, backed by pebble.
 // Key encoding: <ns> 0x00 <key> -- neither ns nor key contains 0x00 (ns is a constant of this package and key is a
 // session|task composite key or a subject name, which satisfy this naturally).
 // Writes use pebble.Sync. Besides rebuildable task snapshots, this store also keeps held credential keys and plaintext

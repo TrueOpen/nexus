@@ -14,9 +14,9 @@ const participantTypeBuilder = "BUILDER"
 
 // resolveBuilderEndpoint resolves a peer Builder's public nexus gRPC address.
 //
-// The frozen contract changed the descriptor from "on-chain descriptor_uri +
+// The current wire changed the descriptor from "on-chain descriptor_uri +
 // descriptor_hash, JSON document fetched off-chain over HTTPS" to "endpoints stored
-// directly on chain" (§9.6b), so no document is fetched here and no hash comparison or
+// directly on chain", so no document is fetched here and no hash comparison or
 // local cache is needed: the endpoint itself is consensus-protected, and whatever
 // QueryServiceDescriptor returns is taken as is.
 func (c *client) resolveBuilderEndpoint(ctx context.Context, address string) (string, uint64, error) {
@@ -55,8 +55,8 @@ func serviceEndpointByKind(endpoints []ServiceEndpoint, kind hubv1.ServiceEndpoi
 }
 
 // validateServiceDescriptor only asserts that "this row really is this Builder's current
-// descriptor and its content satisfies the §9.6b structural constraints". Validity period
-// is not among them: the frozen contract's descriptor has no effective/expires height,
+// descriptor and its content satisfies the wire structural constraints". Validity period
+// is not among them: the wire descriptor has no effective/expires height,
 // the current row is the current fact.
 func validateServiceDescriptor(descriptor ServiceDescriptorState, address string, version uint64) error {
 	if descriptor.ParticipantType != participantTypeBuilder {

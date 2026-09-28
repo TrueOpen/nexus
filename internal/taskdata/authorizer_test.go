@@ -24,7 +24,7 @@ import (
 
 const (
 	testChainID = "trueopen-task-test"
-	// All three Hash32 values are canonical lowercase 64-hex: the object ref and the §5.14 preimage
+	// All three Hash32 values are canonical lowercase 64-hex: the object ref and the receipt preimage
 	// both need the raw 32 bytes, so the fixture can no longer use a placeholder like "session-1".
 	testTaskID    = "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
 	testSessionID = "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
@@ -395,7 +395,7 @@ func TestAuthorizerOpenTaskHeightAndReplaySurviveRestart(t *testing.T) {
 	}
 }
 
-// Contract §2.2: a range request is self-signed, authorization looks only at on-chain roles and
+// A range request is self-signed, authorization looks only at on-chain roles and
 // there are no pre-signed download credentials any more, so rotating the Builder service key no
 // longer affects downloads already in flight.
 func TestAuthorizeFetchReplayAndRoleChange(t *testing.T) {
@@ -440,7 +440,7 @@ func TestAuthorizeFetchReplayAndRoleChange(t *testing.T) {
 	}
 }
 
-// §6.3a: the storage confirmation is issued after the data is ready and covers the object ref
+// The storage confirmation is issued after the data is ready and covers the object ref
 // itself; the signature is made over the digest directly.
 func TestSignStorageConfirmation(t *testing.T) {
 	fx := newAuthorizerFixture(t)
@@ -498,8 +498,8 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The storage confirmation must be signed with the current Builder service key on the Hub
-	// (contract §5): when the local signer does not match the chain it must fail closed. The fetch
+	// The storage confirmation must be signed with the current Builder service key on the Hub:
+	// when the local signer does not match the chain it must fail closed. The fetch
 	// path no longer issues credentials, so a signer mismatch is visible only when a confirmation is
 	// issued.
 	if _, err := a.SignStorageConfirmation(context.Background(), meta, 0); !errors.Is(err, ErrServiceKeyUnavailable) {
@@ -629,8 +629,7 @@ func TestServicePersistsAuthorizedUploader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An upload commits only up to STORED: READY and the storage confirmation both wait for Finalize
-	// (§5.5).
+	// An upload commits only up to STORED: READY and the storage confirmation both wait for Finalize.
 	if metadata.State != StateStored {
 		t.Fatalf("state = %s, want STORED", metadata.State)
 	}
@@ -697,7 +696,7 @@ func TestServiceRejectsDownloadWhenChainAcceptsDifferentOutputReceipt(t *testing
 	}
 }
 
-// Since wire v0.4.1 the upload body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1, committing to
+// The upload body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1, committing to
 // object_ref, size and media_type; the receipt no longer enters the upload body — it is committed by
 // the body domain of FinalizeTaskResult. This test pins the new commitment scope: changing any of the
 // three must change the digest, while changing the receipt must not.
@@ -804,14 +803,14 @@ func participantServiceKey(participantType, operator string, service signer.Sign
 	}
 }
 
-// validReceipt models the contract: the receipt records the Worker's operator address, but the
+// validReceipt models the protocol: the receipt records the Worker's operator address, but the
 // service_signature is issued by that Node's current service key under the CORTEX participant type.
 func validReceipt(t *testing.T, fx *authorizerFixture, metadata Metadata) SignedInferReceipt {
 	t.Helper()
 	return receiptSignedBy(t, fx.worker.Address(), fx.workerService, metadata)
 }
 
-// receiptSignedBy builds a receipt in the frozen §5.14 shape and signs the H_FIELDS_V1 digest
+// receiptSignedBy builds a receipt in the InferReceiptV3 shape and signs the H_FIELDS_V1 digest
 // (nodecontract.InferReceiptSigningDigest; the old 11-field decimal preimage was removed).
 func receiptSignedBy(t *testing.T, workerOperator string, service signer.Signer, metadata Metadata) SignedInferReceipt {
 	t.Helper()
@@ -873,7 +872,7 @@ func (f *authorizerFixture) fixtureRequest(
 ) RequestAuth {
 	t.Helper()
 	// The body of a metadata request is the object ref itself; when the fixture is passed nil it fills
-	// it in per the contract, so that every call site does not have to write it out.
+	// it in per the protocol, so that every call site does not have to write it out.
 	if body == nil && method == MethodGetMetadata {
 		digest, err := TaskDataMetadataBodyDigest(key)
 		if err != nil {
@@ -1016,7 +1015,7 @@ func signedRequestAs(
 	return request
 }
 
-// fetchRequest builds a fetch request. Since wire v0.4.1 a fetch shares TaskDataRequestAuthV1 with
+// fetchRequest builds a fetch request. A fetch shares TaskDataRequestAuthV1 with
 // upload and metadata: the range is no longer signed separately, it is the second field of the body
 // domain.
 // A nil byteRange means reading the whole object — which is not the same as a present range with
@@ -1040,7 +1039,7 @@ func fetchRequestAs(
 	return signedRequestAs(t, requester, caller, MethodFetch, key, digest[:], nonce, expiry)
 }
 
-// Task Data Interface Design §6.2: media_type is only an optional transport hint and may be empty in
+// media_type is only an optional transport hint and may be empty in
 // the upload body; the codec of EVIDENCE_ARTIFACT is defined solely by the evidence schema, so its
 // media_type must be empty.
 // Cortex uploads evidence with an empty media_type, and this test pins that Nexus must not reject it

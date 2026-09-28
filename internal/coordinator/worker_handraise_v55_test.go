@@ -15,13 +15,13 @@ import (
 	"github.com/TrueOpen/nexus/internal/relay"
 )
 
-// The old "§5.5 JSON field-set line-by-line assertion" was removed with the bus format migration:
+// The old JSON field-set assertion was removed with the bus format migration:
 // the hand-raise payload is now the frozen wire task.v1.WorkerHandraiseV1 proto itself; the
 // field set is pinned by the proto mirror + make proto generation discipline, both sides share one
 // declaration, and there is no drift surface of "each side writing its own JSON field table"
 // (which was the root cause of the old gh incident).
 
-// TestWorkerHandraiseAcceptsFrozenFrame: a hand-raise built per the frozen contract must be
+// TestWorkerHandraiseAcceptsFrozenFrame: a hand-raise built per the wire proto must be
 // accepted and recorded under member.operator_address.
 func TestWorkerHandraiseAcceptsFrozenFrame(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

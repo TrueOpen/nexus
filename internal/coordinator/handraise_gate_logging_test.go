@@ -47,7 +47,7 @@ func TestHandraiseGatesAreVisibleAtInfo(t *testing.T) {
 		if !strings.Contains(buf.String(), "worker handraise accepted") {
 			t.Fatalf("accepted hand-raise not visible at Info level:\n%s", buf.String())
 		}
-		// The §5.5 threshold is 1, so the first one is enough to propose; no "N more needed" should appear.
+		// The threshold is 1, so the first one is enough to propose; no "N more needed" should appear.
 		if strings.Contains(buf.String(), "waiting for more worker handraises") {
 			t.Fatalf("with proposalHandraiseMin=1 it must not wait for more hand-raises:\n%s", buf.String())
 		}
@@ -74,15 +74,15 @@ func TestHandraiseGatesAreVisibleAtInfo(t *testing.T) {
 	})
 }
 
-// TestSingleHandraiseIsEnoughToPropose pins the §5.5 threshold itself.
+// TestSingleHandraiseIsEnoughToPropose pins the single-hand-raise threshold itself.
 //
 // This used to be hard-coded to 3, which moved the on-chain "sufficiency" decision to a local one
 // with narrower input: when three Task Builders each receive 1 distinct hand-raise, the union of 3
-// is plenty, but under the local threshold nobody submits and the task can only time out. The spec
+// is plenty, but under the local threshold nobody submits and the task can only time out. The chain
 // leaves sufficiency to the Keeper, evaluated on the accumulated union bitmap when the window closes.
 func TestSingleHandraiseIsEnoughToPropose(t *testing.T) {
 	if proposalHandraiseMin != 1 {
-		t.Fatalf("Interface & Topic Catalogue §5.5 requires a single proposal to need only 1 hand-raise, current threshold = %d", proposalHandraiseMin)
+		t.Fatalf("a single proposal is required to need only 1 hand-raise, current threshold = %d", proposalHandraiseMin)
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

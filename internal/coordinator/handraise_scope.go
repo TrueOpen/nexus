@@ -1,7 +1,6 @@
-// This file is the admission layer from NATS hand-raises to MsgSubmitWorkerHandraises (Keeper Interface Contract
-// §4.1 / §4.2.1, Implementation Design §4.2).
+// This file is the admission layer from NATS hand-raises to MsgSubmitWorkerHandraises.
 //
-// After the bus format migration (TRUEOPEN_BUS_ENVELOPE_V2) the hand-raise payload is the frozen contract's
+// After the bus format migration (TRUEOPEN_BUS_ENVELOPE_V2) the hand-raise payload is the wire's
 // task.v1.WorkerHandraiseV1 proto itself; the old msgbus JSON -> proto translation layer is gone:
 // whatever bytes Cortex signed are the bytes the Builder submits. Only field validation, slot ordering
 // and scope selection remain here.
@@ -23,11 +22,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// workerHandraisesV1 validates, sorts and deduplicates NATS hand-raises (already the frozen contract's
+// workerHandraisesV1 validates, sorts and deduplicates NATS hand-raises (already the wire's
 // WorkerHandraiseV1 proto: whatever bytes Cortex signed are the bytes submitted here,
 // no translation).
 //
-// §4.2.2 requires handraises within one proposal to be strictly ascending by member.slot with unique slots -- the
+// The Keeper requires handraises within one proposal to be strictly ascending by member.slot with unique slots -- the
 // chain ORs legal bits into the stage union in this order and rejects out-of-order or duplicate slots outright.
 // Hand-raises are deduplicated in the map by candidate address, so sorting must be done explicitly by slot, not address order.
 func workerHandraisesV1(chainID string, input map[string]*taskv1.WorkerHandraiseV1) ([]*taskv1.WorkerHandraiseV1, error) {
@@ -98,7 +97,7 @@ func validateWorkerHandraiseV1(chainID string, hr *taskv1.WorkerHandraiseV1) err
 		return fmt.Errorf("worker handraise %q carries a recipient_pubkey while encryption is inactive", worker)
 	}
 	// service_authorization_nonce is the nonce of the operator's current service binding, not a per-message
-	// counter (§4.1); 0 means Cortex did not fill it and the chain will reject.
+	// counter; 0 means Cortex did not fill it and the chain will reject.
 	if hr.GetServiceAuthorizationNonce() == 0 {
 		return fmt.Errorf("worker handraise %q service_authorization_nonce is required", worker)
 	}
@@ -108,7 +107,7 @@ func validateWorkerHandraiseV1(chainID string, hr *taskv1.WorkerHandraiseV1) err
 	return nil
 }
 
-// workerHandraiseScope selects the single proposal scope per §4.2.1.
+// workerHandraiseScope selects the single proposal scope (SignedOrderV2 for the first proposal, ExistingTaskRefV1 after acceptance).
 //
 // The first proposal must carry signed_order: the task does not exist on-chain yet and the Keeper admits the
 // order from the user-signed SignedOrderV2. Later proposals must carry existing_task instead; both set or

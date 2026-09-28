@@ -18,7 +18,7 @@ var (
 )
 
 // serviceKeyStatusActive is the short name of the ServiceKeyStatus enum (chaincli's enumShortName strips
-// the SERVICE_KEY_STATUS_ prefix). From wire v0.4.1 BuilderState no longer carries an admission status:
+// the SERVICE_KEY_STATUS_ prefix). BuilderState no longer carries an admission status:
 // "can this Builder work" = current service key ACTIVE and this address is in active_builders of the
 // BuilderSet at that height (admission is fixed by governance and can only be inferred from set membership).
 const serviceKeyStatusActive = "ACTIVE"

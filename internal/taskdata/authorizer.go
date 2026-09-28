@@ -41,8 +41,8 @@ type Authority interface {
 }
 
 type AuthorizerConfig struct {
-	// EVMChainID is the numeric chainId of the EIP-712 domain (the Genesis/account contract
-	// mapping). It and the ChainID string must both match the current chain: checking only one of
+	// EVMChainID is the numeric chainId of the EIP-712 domain (from the chain's Hub
+	// parameters). It and the ChainID string must both match the current chain: checking only one of
 	// them would let the same USER signature from another chain be replayed here.
 	EVMChainID       uint64
 	ChainID          string
@@ -50,7 +50,7 @@ type AuthorizerConfig struct {
 	AddressPrefix    string
 	RequestTTLBlocks uint64
 	// RetentionLeaseBlocks is the fallback length of the retention window for
-	// retention_until_height in a storage confirmation (contract §5: extending the retention
+	// retention_until_height in a storage confirmation (extending the retention
 	// window is managed through a retention lease and does not modify the original confirmation).
 	RetentionLeaseBlocks uint64
 }
@@ -89,7 +89,7 @@ func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, 
 }
 
 // AuthorizeMetadata establishes the current caller role before disclosing
-// whether an object exists. Contract §2.3: this method returns no content, locator or download
+// whether an object exists. This method returns no content, locator or download
 // authorization.
 func (a *Authorizer) AuthorizeMetadata(ctx context.Context, request RequestAuth, metadata *Metadata) error {
 	access, err := a.verifyMetadataRequest(ctx, request)
@@ -161,8 +161,7 @@ func (a *Authorizer) AuthorizeUploadObject(ctx context.Context, request RequestA
 	return acceptedReceiptHash, height, nil
 }
 
-// AuthorizeOutputStream authorizes the streamed upload Header (streamed output delivery design
-// §5.3, Header row): the request signature and body binding follow the whole-object upload; only the
+// AuthorizeOutputStream authorizes the streamed upload Header: the request signature and body binding follow the whole-object upload; only the
 // Task's selected Worker is allowed; task_hash must equal the accepted_task_hash accepted on chain;
 // the task must be in ASSIGNED / VERIFYING (otherwise DeadlineExceeded).
 // It also returns the Worker's current service key for per-frame signature verification; the same
@@ -195,7 +194,7 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 	return task, height, workerPublicKey, nil
 }
 
-// AuthorizeFetch authorizes a fetch. Since wire v0.4.1 a fetch uses the same TaskDataRequestAuthV1
+// AuthorizeFetch authorizes a fetch. A fetch uses the same TaskDataRequestAuthV1
 // as upload and metadata: there is no separate range signature any more and no pre-signed download
 // credential — the range is committed by body_digest as part of the body domain.
 //
@@ -239,7 +238,7 @@ type FetchGrant struct {
 	RequesterKey []byte
 }
 
-// SignStorageConfirmation issues a BuilderStorageConfirmationV1 (Task Data Interface Design §6.3a)
+// SignStorageConfirmation issues a BuilderStorageConfirmationV1
 // after the data has been fully persisted and verified. The confirmation covers the object ref
 // itself and contains no locator.
 //
@@ -289,7 +288,7 @@ func (a *Authorizer) SignStorageConfirmation(ctx context.Context, metadata Metad
 	return confirmation, nil
 }
 
-// verifyRequest performs wire v0.4.1 request authentication: requester_kind alone decides the
+// verifyRequest performs request authentication: requester_kind alone decides the
 // verification path, sniffing by signature length is not allowed and neither is trying the other
 // path after one fails; neither path accepts a public key supplied by the caller — CORTEX_SERVICE
 // reads the current service key from the chain by (CORTEX, requester_address), and USER recovers the
@@ -584,7 +583,7 @@ func (a *Authorizer) verifyOutputReceipt(ctx context.Context, task chaincli.OnCh
 	if _, err := receiptFrame(*receipt); err != nil {
 		return err
 	}
-	// chain_id is field 2 of the §5.14 preimage: the receipt must claim this chain, otherwise it is a
+	// chain_id is field 2 of the receipt signing preimage: the receipt must claim this chain, otherwise it is a
 	// cross-chain replay.
 	if receipt.ChainID != a.cfg.ChainID {
 		return fmt.Errorf("%w: infer receipt chain_id", ErrUnauthorized)
@@ -592,7 +591,7 @@ func (a *Authorizer) verifyOutputReceipt(ctx context.Context, task chaincli.OnCh
 	if receipt.SchemaVersion != nodecontract.InferReceiptSchemaVersionV3 {
 		return fmt.Errorf("%w: infer receipt schema_version", ErrUnauthorized)
 	}
-	// infer_receipt_hash is always derived locally: §5.14 defines it as the same value as
+	// infer_receipt_hash is always derived locally: wire defines it as the same value as
 	// infer_receipt_signing_digest, and the wire carries no self-declared copy to compare against
 	// (the old 11-field decimal preimage was removed).
 	digest, err := receiptDigest(*receipt)
@@ -605,7 +604,7 @@ func (a *Authorizer) verifyOutputReceipt(ctx context.Context, task chaincli.OnCh
 	if err != nil {
 		return err
 	}
-	// digest is the frozen signing digest of §5.14; the chain verifies the signature against the
+	// digest is the InferReceiptV3 signing digest; the chain verifies the signature against the
 	// digest directly, so the same convention must be used here.
 	signature, err := hex.DecodeString(receipt.ServiceSignature)
 	if err != nil || !signer.VerifyDigestSig(workerPublicKey, digest[:], signature) {
@@ -658,7 +657,7 @@ func verifyAcceptedOutputMetadata(metadata Metadata, accepted chaincli.InferRece
 //
 // Candidates hold no role here: the metadata a candidate Worker/Verifier needs is broadcast in
 // ORDER_BROADCAST / OPEN_VERIFY, and a candidate reads nothing through the data interface —
-// not content, not metadata (Data Plane spec §6).
+// not content, not metadata.
 type rolePermissions struct {
 	worker bool
 	user   bool
@@ -729,8 +728,7 @@ func (p rolePermissions) canDownload(key ObjectRef, requester string) bool {
 	return false
 }
 
-// canReadEvidence scopes evidence by (round, producer, phase) — Challenge and Evidence spec
-// §5.2, Data Plane spec §11:
+// canReadEvidence scopes evidence by (round, producer, phase):
 //
 //   - The Worker bundle (verify_round 1) is readable by a selected Verifier of any round: it is
 //     the input of every verification.
@@ -763,7 +761,6 @@ func (p rolePermissions) canReadEvidence(key ObjectRef, requester string) bool {
 // the artifacts it lists) is uploaded by the producer declared in the ref itself — producer_kind must
 // agree with the on-chain role, a Verifier bundle's verify_round must be a round the requester was
 // selected in, and producer_operator, if given, must be the requester.
-// Task Data Interface Design §6.2; Data Plane spec §2.1.
 func (p rolePermissions) canUpload(key ObjectRef, requester string) bool {
 	switch key.Kind {
 	case ObjectKindOutput:

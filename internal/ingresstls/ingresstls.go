@@ -1,8 +1,8 @@
-// Package ingresstls prepares TLS material for ingress (implementation design §4.1 transport security).
+// Package ingresstls prepares TLS material for ingress transport security.
 //
 // The Builder does not need a certificate from a CA: on first start a self-signed certificate is
 // generated, and the sha256 of its public key is written on-chain as tls_pubkey_hash in the service
-// descriptor when the Builder registers (Keeper Interface Contract §9.6b). The SDK and cortex verify
+// descriptor when the Builder registers (ServiceDescriptorV1 endpoints). The SDK and cortex verify
 // certificate changes the public key and requires resubmitting the descriptor.
 package ingresstls
 
@@ -82,7 +82,7 @@ func LoadOrCreate(cfg config.IngressTLSConfig, dataDir string, hosts []string) (
 }
 
 // Load only loads, never generates: used by `nexus start`. If the certificate is missing it errors and points to
-// `nexus tls init` -- a certificate freshly generated at startup has a fingerprint not on-chain, so nobody could connect even with TLS on (ADR-0015 decision 2).
+// `nexus tls init` -- a certificate freshly generated at startup has a fingerprint not on-chain, so nobody could connect even with TLS on.
 func Load(cfg config.IngressTLSConfig, dataDir string) (Material, error) {
 	if err := cfg.Validate(); err != nil {
 		return Material{}, err

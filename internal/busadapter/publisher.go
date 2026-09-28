@@ -24,7 +24,7 @@ type PublishBus interface {
 	JSPublish(subject string, data []byte, msgID string) error
 }
 
-// Tier is the message tier; its values match the tier column of Interface & Topic Catalogue §5.1.
+// Tier is the message tier; its values match the tier of each bus subject.
 type Tier uint8
 
 const (
@@ -67,7 +67,7 @@ func NewPublisher(cfg PublisherConfig) *Publisher {
 }
 
 // newEnvelopeIdentity generates a UUIDv7 message_id and a 32-byte CSPRNG nonce.
-// Contract: generated once and reused on retry (reuse is the outbox's job; this function only covers the first time).
+// Rule: generated once and reused on retry (reuse is the outbox's job; this function only covers the first time).
 func newEnvelopeIdentity(unixMS uint64) (string, []byte, error) {
 	var uuid [16]byte
 	binary.BigEndian.PutUint64(uuid[:8], unixMS<<16)

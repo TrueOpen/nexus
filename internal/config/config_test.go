@@ -91,7 +91,7 @@ func TestExampleConfigStrictlyLoadsWithTaskDataDefaults(t *testing.T) {
 	if cfg.TaskData.RequestTTLBlocks != 20 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute {
 		t.Fatalf("example task data config = %+v", cfg.TaskData)
 	}
-	// The example configuration of the public deadline runner (§9.6a): disabled by default, turning it on is an operational decision.
+	// The example configuration of the public deadline runner: disabled by default, turning it on is an operational decision.
 	if cfg.Chain.DeadlineSweep.Enabled || cfg.Chain.DeadlineSweep.GraceBlocks != 10 {
 		t.Fatalf("example deadline sweep config = %+v, want disabled with a non-zero grace window", cfg.Chain.DeadlineSweep)
 	}
@@ -444,7 +444,7 @@ func TestBuilderAuthorityUsesCompatibilityChainWhenHubDisabled(t *testing.T) {
 	}
 }
 
-// identity.service_endpoints is the new on-chain descriptor input (§9.6b); the YAML is parsed strictly,
+// identity.service_endpoints is the new on-chain descriptor input; the YAML is parsed strictly,
 // so a wrong field name or shape blocks startup outright. This test locks in that it parses.
 func TestIdentityServiceEndpointsParseFromYAML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nexus.yaml")

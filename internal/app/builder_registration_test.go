@@ -30,7 +30,7 @@ import (
 
 // End-to-end run of the builder-registration module: MsgRegisterBuilder really is broadcast carrying the three
 // ServiceEndpointV1 entries derived from public_endpoint (in Phase 0 BuilderBond is fixed at zero, so there is no bond step).
-// `nexus start` only checks and never submits (ADR-0015): if the Builder is not registered, startup fails with zero broadcasts and no observation left behind;
+// `nexus start` only checks and never submits: if the Builder is not registered, startup fails with zero broadcasts and no observation left behind;
 // registration and descriptor submission go through `nexus builder register`.
 func TestBuilderRegistrationModuleDoesNotSubmitAtStart(t *testing.T) {
 	sg := appTestSigner(t)

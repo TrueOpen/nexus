@@ -1,14 +1,13 @@
-// Package mmr implements the `MMR_ROOT_V1` framing frozen in Base Spec §9: a Merkle
+// Package mmr implements the `MMR_ROOT_V1` framing: a Merkle
 // Mountain Range commitment over an append-only ordered list of variable-length byte
 // leaves, able to recompute the root of any prefix in addition to the final root.
-// Its only current user is the output_hash of streamed output (Verification
-// Algorithm §8.1, domain `TRUEOPEN_OUTPUT_MMR_V1`).
+// Its only current user is the output_hash of streamed output (domain `TRUEOPEN_OUTPUT_MMR_V1`).
 //
 //	MmrLeafV1(domain, index, leaf)  = SHA256("TRUEOPEN_MMR_LEAF_V1"  || u32_be(len(domain)) || domain || u64_be(index) || u64_be(len(leaf)) || leaf)
 //	MmrNodeV1(domain, left, right)  = SHA256("TRUEOPEN_MMR_NODE_V1"  || u32_be(len(domain)) || domain || left || right)
 //	MmrEmptyV1(domain)              = SHA256("TRUEOPEN_MMR_EMPTY_V1" || u32_be(len(domain)) || domain)
 //
-// Tree rules (§9 items 1-8): index is contiguous from 0; a new leaf is pushed as a
+// Tree rules: index is contiguous from 0; a new leaf is pushed as a
 // height-0 peak and the last two peaks merge while they have equal height; the peak
 // shape is uniquely determined by the binary form of the leaf count; folding runs right
 // to left and with n == 1 the root is that single peak; the empty-list root is
@@ -28,11 +27,11 @@ const (
 	leafPrefix  = "TRUEOPEN_MMR_LEAF_V1"
 	nodePrefix  = "TRUEOPEN_MMR_NODE_V1"
 	emptyPrefix = "TRUEOPEN_MMR_EMPTY_V1"
-	// MaxDomainBytes matches the MERKLE_ROOT_V1 domain limit (Base Spec §9).
+	// MaxDomainBytes matches the MERKLE_ROOT_V1 domain limit.
 	MaxDomainBytes = 128
 )
 
-// ErrDomain means the domain violates Base Spec §4.2 (empty, too long or not UTF-8).
+// ErrDomain means the domain is empty, too long or not UTF-8.
 var ErrDomain = errors.New("mmr: invalid domain")
 
 // Hash is a 32-byte SHA-256 digest.

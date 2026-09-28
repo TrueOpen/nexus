@@ -10,7 +10,7 @@ import (
 
 const testDomain = "TRUEOPEN_OUTPUT_MMR_V1"
 
-// Recomputed by hand from the §9 formulas, without borrowing the code under test.
+// Recomputed by hand from the MMR formulas, without borrowing the code under test.
 func manualLeaf(domain string, index uint64, leaf []byte) Hash {
 	var buf bytes.Buffer
 	buf.WriteString("TRUEOPEN_MMR_LEAF_V1")

@@ -1,4 +1,4 @@
-// Package app is the composition root of nexus: it wires the modules in dependency order and provides a single Start/Stop (Implementation Design §2).
+// Package app is the composition root of nexus: it wires the modules in dependency order and provides a single Start/Stop.
 package app
 
 import (
@@ -207,7 +207,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err := cfg.ValidateTransport(); err != nil {
 		return nil, err
 	}
-	// The ingress terminates TLS itself (ADR-0015): the certificate is created by `nexus tls init` and the operator puts the
+	// The ingress terminates TLS itself: the certificate is created by `nexus tls init` and the operator puts the
 	// fingerprint on chain via `nexus builder register`; start only loads it and checks it against the on-chain fingerprint in the registration module.
 	// When TLS is not enabled it stays plaintext h2c.
 	tlsMaterial, err := ingresstls.Load(cfg.Ingress.TLS, cfg.DataDir)
@@ -323,7 +323,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ingressOpts = append(ingressOpts, ingress.WithNATSSentinelFile(cfg.NATS.SentinelFile))
 	}
 	if len(cfg.NATS.AdvertiseServers) > 0 {
-		// The NATS address and certificate go to Cortex with the sentinel (ADR-0016 decision one item 1).
+		// The NATS address and certificate go to Cortex with the sentinel.
 		ingressOpts = append(ingressOpts, ingress.WithNATSAdvertise(cfg.NATS.AdvertiseServers, cfg.NATS.CAFile))
 	}
 	if tlsMaterial.Enabled() {
@@ -340,7 +340,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		if sharedServiceKey {
 			log.Warn("builder account and service signatures share one key; configure identity.service_keystore_file for key separation")
 		}
-		// /.well-known/trueopen-builder.json is now only a convenience document for off-chain discovery: the frozen contract
+		// /.well-known/trueopen-builder.json is now only a convenience document for off-chain discovery: the chain
 		// replaced the on-chain descriptor with an endpoints list, and there is no descriptor_uri/hash left to anchor it.
 		// So leaving public_endpoint empty (with only identity.service_endpoints configured) is no longer an error,
 		// it just means this document is not served.
@@ -371,15 +371,15 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// registrationChain rather than taskChain.
 	taskAuthority := newTaskDataAuthority(taskChain, registrationChain, registrationChain)
 	if serviceSG != nil {
-		// The signing/verification port of BusEnvelopeV1 (contract §5.2): outbound frames are signed with the current
+		// The signing/verification port of BusEnvelopeV1: outbound frames are signed with the current
 		// service key's private key, inbound frames are verified against the on-chain current binding looked up by (participant_type, operator).
 		// No service key configured means not a single task-control frame can be sent or received -- this is fail-closed,
-		// not a degradation: the contract does not allow "fall back to unsigned after verification fails".
+		// not a degradation: the bus protocol does not allow "fall back to unsigned after verification fails".
 		coordOpts = append(coordOpts,
 			coordinator.WithServiceKey(serviceSG, taskAuthority, cfg.Identity.Bech32Prefix))
 	} else {
 		log.Warn("service key NOT configured; NATS task-control frames cannot be signed or verified " +
-			"(contract §5.2 does not allow unsigned envelopes, so the coordinator emits no trueopen.* frames)")
+			"(the bus protocol does not allow unsigned envelopes, so the coordinator emits no trueopen.* frames)")
 	}
 
 	coord := coordinator.New(log, bus, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
@@ -410,12 +410,12 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, fmt.Errorf("task data service: %w", serviceErr)
 		}
 		ingressOpts = append(ingressOpts, ingress.WithTaskDataService(taskService))
-		// OPEN_VERIFY and the Verifier proposal wait for local data-ready (04 §326), which the task
+		// OPEN_VERIFY and the Verifier proposal wait for local data-ready, which the task
 		// data plane answers and announces when the Worker's Finalize succeeds.
 		coord.SetResultReadiness(taskService)
 		taskService.SetResultFinalizedObserver(coord.OnResultFinalized)
 		if stream := cfg.TaskData.OutputStream; stream.Enabled {
-			// ADR-0017 streaming OUTPUT: the limits are network-wide uniform (Deployment Baseline) and frames are fanned out to subscribers per Task;
+			// Streaming OUTPUT: the limits are uniform across the network and frames are fanned out to subscribers per Task;
 			// enabled by default (cortex only streams); when disabled the three RPCs return Unimplemented.
 			taskService.SetOutputStreamConfig(taskdata.OutputStreamConfig{
 				MaxLeaves: stream.MaxOutputMMRLeaves, MinFrameBytes: stream.MinFrameBytes,
@@ -423,7 +423,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			})
 			dispatcher := taskdata.NewOutputDispatcher(int(stream.SubscriberBufferFrames))
 			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store))
-			log.Info("streaming output enabled (ADR-0017)",
+			log.Info("streaming output enabled",
 				"max_output_mmr_leaves", stream.MaxOutputMMRLeaves, "min_frame_bytes", stream.MinFrameBytes,
 				"max_frame_bytes", cfg.TaskData.ChunkSizeBytes, "subscriber_buffer_frames", stream.SubscriberBufferFrames)
 		}

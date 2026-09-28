@@ -1,4 +1,4 @@
-// Per-task event journal: backs IngressAPI GetTaskEvents (v1.5 §3.4).
+// Per-task event journal: backs IngressAPI GetTaskEvents.
 // The event stream is only for UX hints and reconnect recovery (cursor replay); on-chain state is what the chain query
 // says, so a slow consumer losing live events is acceptable -- the client reconnects with its cursor to catch up.
 package coordinator
@@ -94,8 +94,8 @@ const (
 	EvAssignAccepted      = "ASSIGN_ACCEPTED"      // randomness pending
 	EvAssignmentFinalized = "ASSIGNMENT_FINALIZED" // winner settled
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
-	// event_code set frozen in SDK contract v0.1 §3.8, while Cortex contract §9 requires that the word
-	// OutputRef no longer appear in code -- the two conflict; the rename awaits a member/SDK-side decision (see
+	// SDK's frozen event_code set, while the word OutputRef is
+	// otherwise retired from code -- the two conflict; the rename awaits a member/SDK-side decision (see
 	// the open items in README.md).
 	EvInferReceiptReceived     = "OUTPUT_REF_RECEIVED"         // selected Worker submitted a signed InferReceipt
 	EvOpenVerifyAccepted       = "OPEN_VERIFY_ACCEPTED"        // formal Verifiers decided (no seed)

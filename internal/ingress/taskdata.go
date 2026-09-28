@@ -188,19 +188,18 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 
 // errConfirmOpenTaskContractNotFrozen is the deterministic rejection of ConfirmOpenTask.
 //
-// Contract §8.2 has not frozen this method's request/response field table, and §8.3 has not frozen the proto
+// This method's request/response field table is not frozen yet, and neither are the proto
 // name, field numbers and encoding order of the storage confirmation itself, so the confirmation list cannot be defined
 // and the server has nothing to validate against; shipping a wire structure that will be overturned is worse than rejecting.
 //
-// But "contract not frozen" is an unmet deterministic precondition, not a transient fault: Unimplemented would make
+// But "interface not frozen" is an unmet deterministic precondition, not a transient fault: Unimplemented would make
 // callers assume the server is too old and retry repeatedly, so FailedPrecondition is used here.
-// The expected freeze date lives in the monorepo service design docs, not in this repository, and is not yet given;
-// once decided, update the open items in README.md.
+// No freeze date has been set yet; once decided, update the open items in README.md.
 var errConfirmOpenTaskContractNotFrozen = errors.New(
-	"NEXUS_INGRESS_CONTRACT_NOT_FROZEN: ConfirmOpenTask stays closed until contract §8.2 (field table) " +
-		"and §8.3 (save-confirmation proto) freeze; do not retry")
+	"NEXUS_INGRESS_CONTRACT_NOT_FROZEN: ConfirmOpenTask stays closed until its field table " +
+		"and the storage-confirmation proto are frozen; do not retry")
 
-// ConfirmOpenTask, contract §3.2: records the cross-Builder input storage confirmations collected by the SDK.
+// ConfirmOpenTask records the cross-Builder input storage confirmations collected by the SDK.
 // Not a precondition for Open Task progress; the V1 baseline does not require the SDK to call it.
 func (s *service) ConfirmOpenTask(
 	_ context.Context,
@@ -303,13 +302,13 @@ func (s *service) GetTaskDataMetadata(ctx context.Context, req *connect.Request[
 		return nil, mapTaskDataError(err)
 	}
 	// Return only boundary metadata, never content, Builder-internal locators or download authorization.
-	// metadata is nil when the object does not exist: the new contract expresses this via field absence, there is no object_exists bit.
+	// metadata is nil when the object does not exist: the current wire expresses this via field absence, there is no object_exists bit.
 	response := &nexusv1.GetTaskDataMetadataResponse{
 		Metadata:          metadataToPB(metadata, exists),
 		EvidenceBundle:    evidenceBundleToPB(metadata, exists),
 		RetainUntilHeight: metadata.RetainUntilHeight,
 	}
-	// infer_receipt is only a convenience copy (§6.5), persisted alongside OUTPUT at FinalizeTaskResult;
+	// infer_receipt is only a convenience copy, persisted alongside OUTPUT at FinalizeTaskResult;
 	// callers must compare it with the on-chain accepted receipt before trusting it.
 	if exists && metadata.Key.Kind == taskdata.ObjectKindOutput && metadata.Receipt != nil {
 		response.InferReceipt = signedInferReceiptToPB(*metadata.Receipt)
@@ -329,7 +328,7 @@ func (s *service) GetTaskDataMetadata(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(response), nil
 }
 
-// FetchTaskData streams Task data by signed range (SDK contract §3.4 / Cortex contract §2.2,
+// FetchTaskData streams Task data by signed range (SDK and Cortex callers,
 // formerly DownloadTaskData). Authorization looks only at on-chain duties
 // (internal/taskdata.rolePermissions.canDownload); the requester signature over the range binds
 // requester, Task, data_kind, range, validity and anti-replay nonce; there are no pre-signed download credentials anymore.
@@ -402,7 +401,7 @@ func (s *service) FetchTaskData(
 	return nil
 }
 
-// UploadTaskResultData, Cortex contract §2.1: the selected Worker uploads OUTPUT or EVIDENCE in chunks.
+// UploadTaskResultData: the selected Worker uploads OUTPUT or EVIDENCE in chunks.
 // OUTPUT / EVIDENCE are uploaded and stored separately; only after the complete data is persisted and size,
 // hash/root and the Worker role signature all verify is the current Builder's signed storage confirmation returned.
 // A single RPC represents only the current Builder and cannot claim a cross-Builder 2/3 confirmation.
@@ -460,7 +459,7 @@ func (s *service) UploadTaskResultObject(
 	}
 	committed = true
 	// The receipt only proves a single object is fully stored as STORED, not that the whole Task Result is complete,
-	// and it does not issue the final StorageConfirmation -- that is FinalizeTaskResult's job (design §5.5).
+	// and it does not issue the final StorageConfirmation -- that is FinalizeTaskResult's job.
 	return connect.NewResponse(&nexusv1.UploadTaskResultObjectResponse{
 		Accepted: true, Idempotent: upload.Idempotent(), Metadata: metadataToPB(metadata, true),
 	}), nil
@@ -640,7 +639,7 @@ func metadataToPB(metadata taskdata.Metadata, exists bool) *nexusv1.TaskDataObje
 	}
 	if metadata.Key.Kind == taskdata.ObjectKindOutput && metadata.OutputLeafCount > 0 &&
 		metadata.State == taskdata.StateReady {
-		// ADR-0017: return chunk boundaries and leaf count only for READY streaming OUTPUT.
+		// Return chunk boundaries and leaf count only for READY streaming OUTPUT.
 		pb.ChunkLengths = append([]uint32(nil), metadata.ChunkLengths...)
 		pb.OutputLeafCount = metadata.OutputLeafCount
 	}
@@ -682,7 +681,7 @@ func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV
 	}
 }
 
-// evidenceBundleToPB returns the bundle summary only for EVIDENCE_MANIFEST (Task Data Interface Design §6.5).
+// evidenceBundleToPB returns the bundle summary only for EVIDENCE_MANIFEST.
 // evidence_bundle_hash is the H_V1 of the manifest bytes; the Worker manifest's ref content_hash is the
 // receipt's evidence_hash_or_root, and the Verifier checks the fetched bytes against the value here.
 func evidenceBundleToPB(metadata taskdata.Metadata, exists bool) *nexusv1.EvidenceBundleSummaryV1 {

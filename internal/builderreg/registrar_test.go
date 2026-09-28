@@ -22,7 +22,7 @@ import (
 
 const testKeyHex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
 
-// Registration = one MsgRegisterBuilder; the Phase 0 BuilderBond is fixed at zero (wire v0.4.1 has no
+// Registration = one MsgRegisterBuilder; the Phase 0 BuilderBond is fixed at zero (wire has no
 // Builder bond message), so nothing beyond the registration may be written and a repeated Ensure is idempotent.
 func TestRegistrarRegistersFromChainState(t *testing.T) {
 	sg := testSigner(t)
@@ -85,7 +85,7 @@ func TestRegistrarUpdatesChangedDescriptorWithExpectedVersion(t *testing.T) {
 	assertDerivedEndpoints(t, update.Endpoints, "https://builder.example")
 }
 
-// Unchanged descriptor content must not be resubmitted: the frozen-contract on-chain descriptor has no
+// Unchanged descriptor content must not be resubmitted: the on-chain descriptor has no
 // validity period, so N restarts still mean 0 MsgUpdateServiceDescriptor transactions.
 func TestRegistrarDoesNotResubmitUnchangedDescriptor(t *testing.T) {
 	sg := testSigner(t)
@@ -149,7 +149,7 @@ func TestRegistrarSubmitsExplicitlyConfiguredEndpoints(t *testing.T) {
 	}
 }
 
-// The wire v0.4.1 BuilderState carries only the service key status: a Builder that is REVOKED (or missing)
+// The wire BuilderState carries only the service key status: a Builder that is REVOKED (or missing)
 // can send nothing carrying a service signature, so Ensure must fail closed and must not submit a descriptor update.
 func TestRegistrarRejectsNonOperationalBuilderState(t *testing.T) {
 	sg := testSigner(t)

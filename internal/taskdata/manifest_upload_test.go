@@ -65,7 +65,7 @@ func TestUploadManifestRejectsWrongBundleHash(t *testing.T) {
 	}
 }
 
-// A non-canonical manifest must not enter STORED: the contract requires the manifest to be
+// A non-canonical manifest must not enter STORED: the protocol requires the manifest to be
 // strictly parsed by Finalize time; blocking at upload is easier to locate than failing at
 // Finalize and keeps bad bytes from occupying the ref.
 func TestUploadManifestRejectsNonCanonicalJSON(t *testing.T) {
@@ -174,7 +174,7 @@ func manifestStoreConfig() Config {
 	}
 }
 
-// buildManifest assembles a canonical manifest per §2.1 as a fixture for cases that need
+// buildManifest assembles a canonical manifest as a fixture for cases that need
 // "this manifest belongs to this producer". Nexus production code never generates a
 // manifest, so this builder exists only in tests.
 func buildManifest(t *testing.T, ref ObjectKey, schemaHash string, artifacts []EvidenceArtifact) []byte {

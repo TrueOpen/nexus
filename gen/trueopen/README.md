@@ -16,7 +16,7 @@ the whole Cosmos toolchain into consumers.
 `bus/v1` (the bus payloads between Builders and Cortex) stays in the root module
 `gen/bus` and is not part of this module.
 
-## Streaming OUTPUT data plane (ADR-0017)
+## Streaming OUTPUT data plane
 
 `UploadTaskOutputStream`, `OutputStreamHeaderV2` / `OutputChunkV1` / `OutputFinV1`,
 `SubscribeOutput`'s `resume_after_seq` and `frame`, `AckOutput`'s `last_seq`, and

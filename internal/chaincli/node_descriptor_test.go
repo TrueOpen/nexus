@@ -24,12 +24,12 @@ func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	}
 }
 
-// TestNodeDescriptorKeeperContract pins the Task Msg wire against the Keeper Interface
-// Contract: §9.4 names the Task Msg surface, and §4.2.1/§5.14 define typed sub-messages
+// TestNodeDescriptorTaskMsgWire pins the Task Msg wire: wire names the Task Msg surface and
+// defines typed sub-messages
 // for the assignment and open-verify requests.
-func TestNodeDescriptorKeeperContract(t *testing.T) {
+func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 	t.Run("worker handraise proposal wire", func(t *testing.T) {
-		// §4.2.1: scope is the WorkerHandraiseScopeV1 carrier (the oneof lives in the sub-message),
+		// Scope is the WorkerHandraiseScopeV1 carrier (the oneof lives in the sub-message),
 		// handraises=2, submitter_address=3.
 		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 1, "scope", protoreflect.MessageKind, false)
 		assertContractOneof(t, "task.v1.WorkerHandraiseScopeV1", "scope", 1, 2)
@@ -37,13 +37,13 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 3, "submitter_address", protoreflect.StringKind, false)
 		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 2, "proposal_digest", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 5, "stage_status", protoreflect.EnumKind, false)
-		// §4.1: handraise field order is part of the signing digest preimage.
+		// Handraise field order is part of the signing digest preimage.
 		assertContractField(t, "task.v1.WorkerHandraiseV1", 7, "member", protoreflect.MessageKind, false)
 		assertContractField(t, "task.v1.WorkerHandraiseV1", 8, "duty", protoreflect.EnumKind, false)
 		assertContractField(t, "task.v1.WorkerHandraiseV1", 9, "service_authorization_nonce", protoreflect.Uint64Kind, false)
 		assertContractField(t, "task.v1.WorkerHandraiseV1", 11, "service_signature", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
-		// Since wire v0.4.1 the sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
+		// The sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
 		assertContractFieldEnumType(t, "task.v1.WorkerHandraiseV1", 8, "shared.v1.Duty")
 		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
 	})
@@ -72,20 +72,20 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("settlement and sweep wire", func(t *testing.T) {
-		// §10.10a: the public request is exactly task_id + submitter_address.
+		// The public request is exactly task_id + submitter_address.
 		assertContractField(t, "task.v1.MsgSettleTask", 1, "task_id", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.MsgSettleTask", 2, "submitter_address", protoreflect.StringKind, false)
 		assertContractField(t, "task.v1.MsgSettleTask", 3, "", protoreflect.StringKind, true)
-		// wire v0.4.1: after registered_full_result_refs_hash was removed, challenge_close_height moved forward to 13.
+		// After registered_full_result_refs_hash was removed, challenge_close_height moved forward to 13.
 		assertContractField(t, "task.v1.SettlementFactsV1", 13, "challenge_close_height", protoreflect.Uint64Kind, false)
 		assertContractField(t, "task.v1.SettlementFactsV1", 14, "", protoreflect.Uint64Kind, true)
-		// §5.9: locator is task(1) / task_round(2) / session_lifecycle(4); the old
+		// Locator is task(1) / task_round(2) / session_lifecycle(4); the old
 		// challenge(2) / evidence_request(3) were removed with the Phase 0 challenge Msgs, so 3 must be empty.
 		assertContractOneof(t, "task.v1.DeadlineLocatorV1", "locator", 1, 4)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 2, "task_round", protoreflect.MessageKind, false)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 3, "", protoreflect.MessageKind, true)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 4, "session_lifecycle", protoreflect.MessageKind, false)
-		// §5.11: DeadlineKindV1 4/11/12/13 are the kinds the nexus submit gate rejects by name
+		// DeadlineKindV1 4/11/12/13 are the kinds the nexus submit gate rejects by name
 		// (validateTaskDeadlineKind); EVIDENCE_REQUEST(3) / CHALLENGE_RESOLVE /
 		// CHALLENGE_CLOSE were removed.
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE", 4)
@@ -100,20 +100,20 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("blocked entries stay unregistered", func(t *testing.T) {
-		// §9.5 + keeper implementation blockers §3: no ACTIVE public Challenge Msg.
+		// No ACTIVE public Challenge Msg.
 		for _, name := range []string{
 			"task.v1.MsgUserChallenge",
 			"task.v1.MsgChallengeCommit",
 			"task.v1.MsgChallengeResult",
 			"task.v1.MsgSubmitChallengeFullResultReveal",
-			// §9.4: no Worker reveal Msg and no MsgFailSettle / alias.
+			// No Worker reveal Msg and no MsgFailSettle / alias.
 			"task.v1.MsgWorkerReveal",
 			"task.v1.MsgSweepExpiredTask",
 			"task.v1.MsgFailSettle",
 			"task.v1.MsgAssign",
 			"task.v1.MsgOpenVerify",
 			"task.v1.MsgSettle",
-			// Local event enums and old States removed by the frozen contract (§17: event codes have a single authority).
+			// Local event enums and old States removed by the current wire.
 			"task.v1.TaskEventCode",
 			"task.v1.ProtocolEventCode",
 			"task.v1.TaskAssignment",
@@ -121,19 +121,19 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 			// hardware_tier.proto was deleted as a whole file (ModelState still exists, it only moved to
 			// model_profile_state.proto, so it is not a deletion).
 			"hub.v1.HardwareTierState",
-			// wire v0.4.1: all Builder bond Query / Msg removed (Phase 0 BuilderBond is fixed at zero).
+			// All Builder bond Query / Msg removed (Phase 0 BuilderBond is fixed at zero).
 			"hub.v1.MsgBondBuilder",
 			"hub.v1.MsgBeginBuilderUnbonding",
 			"hub.v1.MsgWithdrawBuilderUnbonded",
 			"hub.v1.BuilderBondState",
 			"hub.v1.QueryBuilderBondRequest",
-			// wire v0.4.1: FullResultReveal Query / Msg / events removed.
+			// FullResultReveal Query / Msg / events removed.
 			"task.v1.MsgSubmitFullResultReveal",
 			"task.v1.FullResultRevealV1",
 			"task.v1.EventFullResultRevealAccepted",
 			"task.v1.QueryFullResultRevealRequest",
-			// wire v0.4.1: these enums / messages moved to shared.v1; hub / task must not
-			// keep a same-range copy (§9.6b: a closed enum has exactly one numeric definition).
+			// These enums / messages moved to shared.v1; hub / task must not
+			// keep a same-range copy.
 			"hub.v1.ParticipantType",
 			"hub.v1.Duty",
 			"hub.v1.StoredBodyStatus",
@@ -152,8 +152,8 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("typed task events", func(t *testing.T) {
-		// §5.11: the envelope carries only code + one typed payload sub-message; each payload oneof
-		// member's field number equals the code itself, and the event code registry lives in shared.v1 (ADR-0013).
+		// The envelope carries only code + one typed payload sub-message; each payload oneof
+		// member's field number equals the code itself, and the event code registry lives in shared.v1.
 		assertContractField(t, "task.v1.TaskEvent", 8, "session_id", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.TaskEvent", 9, "task_id", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.TaskEvent", 15, "code", protoreflect.EnumKind, false)
@@ -176,7 +176,7 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("hub protocol event stream", func(t *testing.T) {
-		// ADR-0013: the non-Task protocol event stream moved from TaskEventService to hub.v1.HubEventService,
+		// The non-Task protocol event stream moved from TaskEventService to hub.v1.HubEventService,
 		// keeping field numbers; nexus subscribes only to BUILDER_SET_UPDATED(60), payload oneof field number equals code.
 		assertContractMethod(t, "hub.v1.HubEventService", "SubscribeProtocolEvents",
 			"hub.v1.SubscribeProtocolEventsRequest", "hub.v1.SubscribeProtocolEventsResponse")
@@ -202,12 +202,12 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 			t.Fatalf("Node service task.v1.TaskEventService is missing: %v", err)
 		}
 		if descriptor.(protoreflect.ServiceDescriptor).Methods().ByName("SubscribeProtocolEvents") != nil {
-			t.Fatal("task.v1.TaskEventService must not expose SubscribeProtocolEvents after ADR-0013")
+			t.Fatal("task.v1.TaskEventService must not expose SubscribeProtocolEvents; it moved to hub.v1.HubEventService")
 		}
 	})
 
 	t.Run("builder msg wire", func(t *testing.T) {
-		// §9.6a/§9.6b: since wire v0.4.1 Builders have no bond/unbond/withdraw Msgs (Phase 0
+		// Builders have no bond/unbond/withdraw Msgs (Phase 0
 		// BuilderBond is fixed at zero), only evidence and term rotation remain; the signer field is submitter_address.
 		// The Builder evidence Msg belongs to task.v1, the payload is canonical bytes, and the response is directly
 		// shared.v1.BuilderObjectiveEvidenceReceiptV2.
@@ -237,7 +237,7 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("service descriptor msg wire", func(t *testing.T) {
-		// §9.6a/§9.6b: the descriptor payload is ServiceDescriptorV1{repeated ServiceEndpointV1},
+		// The descriptor payload is ServiceDescriptorV1{repeated ServiceEndpointV1},
 		// with no descriptor_uri / descriptor_hash / descriptor_schema_version /
 		// effective_height / expires_height and no controller_signature.
 		// The nexus submit point assembles by this field order; a field-order change must blow up here first.
@@ -270,12 +270,12 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 		assertContractField(t, "hub.v1.ServiceDescriptorState", 5, "endpoints", protoreflect.MessageKind, false)
 		assertContractField(t, "hub.v1.ServiceDescriptorState", 6, "descriptor_hash", protoreflect.BytesKind, false)
 
-		// The three-value closed enum of §9.6b: the numbers are frozen, no reordering or additions.
+		// The three-value closed enum: the numbers are frozen, no reordering or additions.
 		assertServiceEndpointKindValues(t)
 	})
 
 	t.Run("task params msg wire", func(t *testing.T) {
-		// §9.6a: governance param updates are an expected_version check + grouped TaskParamsV1 payload,
+		// Governance param updates are an expected_version check + grouped TaskParamsV1 payload,
 		// responding with the new version and params_hash, not the Cosmos default authority+params empty response.
 		assertContractField(t, "task.v1.MsgUpdateTaskParams", 1, "expected_version", protoreflect.Uint64Kind, false)
 		assertContractField(t, "task.v1.MsgUpdateTaskParams", 2, "params", protoreflect.MessageKind, false)
@@ -287,7 +287,7 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("evidence kind belongs to shared", func(t *testing.T) {
-		// §9.6b: the sole numeric authority for evidence_kind is shared.v1; the Task package no longer
+		// The sole numeric authority for evidence_kind is shared.v1; the Task package no longer
 		// carries a same-range copy (same value range but different generated Go type, which comparing kind alone misses).
 		assertContractFieldEnumType(t, "task.v1.EvidenceCommitmentV1", 1, "shared.v1.EvidenceKind")
 		assertContractFieldEnumType(t, "shared.v1.InferEvidenceRequirementV1", 1, "shared.v1.EvidenceKind")
@@ -297,7 +297,7 @@ func TestNodeDescriptorKeeperContract(t *testing.T) {
 	})
 
 	t.Run("protocol event envelope and participant type", func(t *testing.T) {
-		// Hub-side envelope + ParticipantType enum (since wire v0.4.1 ParticipantType lives in shared.v1).
+		// Hub-side envelope + ParticipantType enum (ParticipantType lives in shared.v1).
 		assertContractField(t, "hub.v1.ProtocolEventEnvelopeV1", 2, "event_code", protoreflect.EnumKind, false)
 		assertContractFieldEnumType(t, "hub.v1.ProtocolEventEnvelopeV1", 2, "shared.v1.ProtocolEventCodeV1")
 		assertContractField(t, "hub.v1.ProtocolEventEnvelopeV1", 7, "primary_locator", protoreflect.MessageKind, false)
@@ -318,7 +318,7 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		kind    protoreflect.Kind
 		absent  bool
 	}{
-		// wire v0.4.1: BuilderState carries only identity + current service key + descriptor version +
+		// BuilderState carries only identity + current service key + descriptor version +
 		// three pending counters; neither the admission status nor the fault counters are on this State.
 		// Everything after 12 must be empty, so the mirror cannot quietly grow a field with no authoritative source.
 		{message: "hub.v1.BuilderState", number: 2, name: "builder_address", kind: protoreflect.StringKind},
@@ -347,8 +347,8 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "hub.v1.QueryServiceDescriptorRequest", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.QueryServiceDescriptorRequest", number: 3, absent: true},
 
-		// §1.3: every ACTIVE Task Msg names its stable operator/submitter address
-		// field explicitly; §4.2.1/§10.3/§10.10a forbid Builder identity copies.
+		// Every ACTIVE Task Msg names its stable operator/submitter address
+		// field explicitly; Builder identity copies are forbidden.
 		{message: "task.v1.MsgSubmitWorkerHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitInferReceipt", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitVerifierHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
@@ -363,7 +363,7 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		// The three-part QueryTask projection replaces the old giant TaskAssignment / TaskSettlementState.
 		{message: "task.v1.TaskCoreState", number: 2, name: "user_address", kind: protoreflect.StringKind},
 		{message: "task.v1.TaskCoreState", number: 3, name: "session_id", kind: protoreflect.BytesKind},
-		// wire v0.4.1: TaskCoreState inserts order_value = 11, task_phase moves back to 12.
+		// TaskCoreState inserts order_value = 11, task_phase moves back to 12.
 		{message: "task.v1.TaskCoreState", number: 11, name: "order_value", kind: protoreflect.MessageKind},
 		{message: "task.v1.TaskCoreState", number: 12, name: "task_phase", kind: protoreflect.EnumKind},
 		{message: "task.v1.TaskAssignmentViewV1", number: 10, name: "winner_worker", kind: protoreflect.StringKind},
@@ -453,7 +453,7 @@ func assertContractFieldEnumType(t *testing.T, messageName string, number protor
 	}
 }
 
-// assertServiceEndpointKindValues pins the §9.6b ServiceEndpointKind numbers:
+// assertServiceEndpointKindValues pins the ServiceEndpointKind numbers:
 // they enter the descriptor_hash preimage (enum → uint32_be), so a reorder would silently fork the
 // locally recomputed digest from the Keeper's.
 func assertServiceEndpointKindValues(t *testing.T) {

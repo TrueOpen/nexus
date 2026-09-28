@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// security.mode=production is the deployment security baseline switch: it rejects a plaintext bus, plaintext
+// security.mode=production switches on the production security checks: it rejects a plaintext bus, plaintext
 // chain connections, inline private keys and passphrases in the config, and ingress without TLS. The dev
 // default performs none of these checks and leaves behaviour unchanged.
 

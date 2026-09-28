@@ -1,16 +1,16 @@
 // Package signer is the minimal account-key implementation: deterministic secp256k1 signing (64-byte r||s)
 // plus eth_secp256k1 account address derivation.
 //
-// The whole chain has exactly one account type (Account & Signing Protocol §2.1):
+// The whole chain has exactly one account type:
 //
 //	account_type = eth_secp256k1
-//	address      = bech32(prefix, keccak256(pub_uncompressed_xy)[12:32])   (§3.1)
+//	address      = bech32(prefix, keccak256(pub_uncompressed_xy)[12:32])
 //
 // Builder keys, Cortex service keys and user accounts are all derived by this rule; there is no second address space.
 // The ripemd160(sha256(compressed)) form customary in Cosmos yields a different address for the same key,
 // and that account does not exist on chain -- it must **not** be kept here as a fallback.
 //
-// On-chain transactions take §5.1 path A: SIGN_MODE_DIRECT, keccak256(SignDoc), raw64 R||S, with the digest
+// On-chain transactions use SIGN_MODE_DIRECT, keccak256(SignDoc), raw64 R||S, with the digest
 // derived by chaincli and signed directly through SignDigest; the SHA-256 semantics of Sign(msg) serve only
 // the off-chain protocols (bus envelopes, SDK request envelopes, credentials).
 //
@@ -224,7 +224,7 @@ func AddressFromPubKey(prefix string, pubCompressed []byte) (string, error) {
 	return deriveAddress(pubCompressed, prefix)
 }
 
-// AddressBytesFromPubKey is the 20-byte address_bytes of §3.1: keccak256 over the **64-byte X||Y without the 0x04
+// AddressBytesFromPubKey is the 20-byte address_bytes: keccak256 over the **64-byte X||Y without the 0x04
 // prefix**, keeping the last 20 bytes. It is byte-for-byte identical to the EVM address of the same private key.
 func AddressBytesFromPubKey(pubCompressed []byte) ([20]byte, error) {
 	pub, err := secp256k1.ParsePubKey(pubCompressed)
@@ -239,7 +239,7 @@ func AddressBytesFromPubKey(pubCompressed []byte) ([20]byte, error) {
 	return out, nil
 }
 
-// deriveAddress bech32(prefix, keccak256(pub_uncompressed_xy)[12:32]) (§3.1).
+// deriveAddress bech32(prefix, keccak256(pub_uncompressed_xy)[12:32]).
 func deriveAddress(compressedPub []byte, prefix string) (string, error) {
 	raw, err := AddressBytesFromPubKey(compressedPub)
 	if err != nil {

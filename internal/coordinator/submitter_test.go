@@ -156,7 +156,7 @@ func TestSignedSubmitterBuildsWorkerHandraiseProposalTx(t *testing.T) {
 	if err := proto.Unmarshal(body.Messages[0].Value, &msg); err != nil {
 		t.Fatalf("unmarshal msg: %v", err)
 	}
-	// §4.2.1: the request carries only the scope oneof, the signed handraises and
+	// The request carries only the scope oneof, the signed handraises and
 	// the Cosmos signer. Builder rank, selection proof, candidate set hash,
 	// min-handraise threshold, reserved fee and infer deadline are Keeper-derived
 	// and have no wire field left to carry them.
@@ -428,7 +428,7 @@ func testBuilderEndpoints() []chaincli.ServiceEndpoint {
 	}
 }
 
-// assertCanonicalDescriptor asserts that the endpoints on the wire have exactly the shape §9.6b
+// assertCanonicalDescriptor asserts that the endpoints on the wire have exactly the ServiceDescriptorV1 shape
 // requires: ascending by kind, unique kinds, and the optional tls_pubkey_hash set only when the
 // configuration supplied a fingerprint.
 func assertCanonicalDescriptor(t *testing.T, descriptor *hubv1.ServiceDescriptorV1) {
@@ -526,7 +526,7 @@ func TestSignedSubmitterBuildsInferReceiptTx(t *testing.T) {
 	if err := proto.Unmarshal(body.Messages[0].Value, &msg); err != nil {
 		t.Fatalf("unmarshal MsgSubmitInferReceipt: %v", err)
 	}
-	// §10.3/§5.14: the request is the Worker-signed receipt plus the submitter.
+	// The request is the Worker-signed receipt plus the submitter.
 	// Selected verifiers, window proof, builder rank/proof, token count and work
 	// unit are gone; the receipt commits to the ordered evidence commitments.
 	receipt := msg.GetReceipt()
@@ -589,7 +589,7 @@ func TestSignedSubmitterBuildsMinimalSettleTaskTx(t *testing.T) {
 	if res.Code != 0 || len(chain.broadcast) != 1 {
 		t.Fatalf("broadcast: code=%d n=%d", res.Code, len(chain.broadcast))
 	}
-	// §10.10a: the Keeper derives every settlement fact, so nexus must not query
+	// The Keeper derives every settlement fact, so nexus must not query
 	// the task or the profile to build the request any more.
 	if chain.taskCalls != 0 || chain.profileCalls != 0 {
 		t.Fatalf("settlement must not require task/profile queries: task=%d profile=%d", chain.taskCalls, chain.profileCalls)
@@ -667,8 +667,8 @@ func TestTaskPrepareFailureDoesNotConsumeAccountSequence(t *testing.T) {
 	}
 }
 
-// MsgSweepDeadline is the public deadline runner of §9.6a: the signer is nexus's own Cosmos account
-// and the locator takes the task branch of §5.9.
+// MsgSweepDeadline is the public deadline runner: the signer is nexus's own Cosmos account
+// and the locator takes the task branch of DeadlineLocatorV1.
 func TestSignedSubmitterBuildsSweepDeadlineTx(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sg, err := signer.NewFromHex(testKeyHex, "trueopen")
@@ -758,8 +758,8 @@ func TestUnsignedFallbackRejectsMismatchedTypeURLBeforeBroadcast(t *testing.T) {
 	}
 }
 
-// testSignedOrder builds a minimal but structurally canonical SignedOrderV2
-// (Keeper Interface Contract §5.13). The signature bytes are fixture data: the Keeper
+// testSignedOrder builds a minimal but structurally canonical SignedOrderV2.
+// The signature bytes are fixture data: the Keeper
 // verifies them against the order-domain EIP-712 digest using the on-chain
 // account key.
 //
@@ -802,8 +802,7 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 	}
 }
 
-// testWorkerHandraises returns two slot-ascending WorkerHandraiseV1 facts
-// (Keeper Interface Contract §4.1/§4.2.2).
+// testWorkerHandraises returns two slot-ascending WorkerHandraiseV1 facts.
 func testWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
 	// task_hash is the canonical digest of the testSignedOrder(user) order: the proposal scope and
 	// every hand-raise must be bound to the same value, or validateScopeTaskHash rejects outright.
@@ -847,7 +846,7 @@ func testVerifierHandraises(taskIDHex string, t *testing.T) []*taskv1.VerifierHa
 }
 
 // testInferReceipt returns a structurally canonical InferReceiptV2
-// (Keeper Interface Contract §5.14) with kind-ascending evidence commitments.
+// with kind-ascending evidence commitments.
 func testInferReceiptV1(worker string) *taskv1.InferReceiptV3 {
 	return &taskv1.InferReceiptV3{
 		SchemaVersion: 1, ChainId: "trueopen-localnet",

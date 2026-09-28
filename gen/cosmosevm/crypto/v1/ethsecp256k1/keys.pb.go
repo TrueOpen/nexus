@@ -21,8 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Wire mirror of the pinned cosmos/evm ethsecp256k1 public key
-// (Account & Signature Protocol §2.3):
+// Wire mirror of the pinned cosmos/evm ethsecp256k1 public key:
 //
 //	pubkey_type_url = /cosmos.evm.crypto.v1.ethsecp256k1.PubKey
 //	pubkey_bytes    = 33-byte SEC1 compressed point

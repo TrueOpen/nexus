@@ -1,4 +1,4 @@
-// Package credential issues and verifies the retrieval credential CredentialV1 (Interface & Topic Catalogue v1.5 §3.2/§3.5).
+// Package credential issues and verifies the retrieval credential CredentialV1.
 // A credential is bound to task/recipient/usage/access_level/validity and signed with the Builder private key;
 // verification is stateless: nothing is persisted, validity is decided from the signature plus the credential held locally (the same on refresh).
 package credential

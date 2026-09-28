@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// §5.13 CORTEX row plus the three JetStream subject groups; changing this table means changing the protocol, so the test pins it down.
+// The Cortex subject permissions plus the three JetStream subject groups; changing this table means changing the protocol, so the test pins it down.
 func TestCortexPermissionsMatchTopicList(t *testing.T) {
 	p := CortexPermissions("TRUEOPEN_TASK")
 	wantPub := []string{

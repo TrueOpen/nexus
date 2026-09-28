@@ -67,7 +67,7 @@ func TestBuildSignedTxRoundTrip(t *testing.T) {
 	if si.Sequence != 42 {
 		t.Fatalf("sequence = %d", si.Sequence)
 	}
-	// Account and Signing Protocol §2.3: SignerInfo.public_key must be the eth_secp256k1 type URL;
+	// SignerInfo.public_key must be the eth_secp256k1 type URL;
 	// the message shape is identical to cosmos.crypto.secp256k1.PubKey, but a different type URL is a
 	// different type, and node's ante (requireEthSecp256k1PublicKey) rejects /cosmos.crypto.secp256k1.PubKey.
 	if si.PublicKey.TypeUrl != "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey" {
@@ -84,7 +84,7 @@ func TestBuildSignedTxRoundTrip(t *testing.T) {
 		t.Fatalf("fee: %+v", auth.Fee)
 	}
 
-	// Rebuild the SignDoc: the signature covers keccak256(SignDoc) of §5.1 path A, not SHA-256.
+	// Rebuild the SignDoc: the signature covers keccak256(SignDoc) of path A, not SHA-256.
 	// Signing the keccak digest directly with the signer must match byte for byte
 	// (deterministic → the signature covers the right content), while the SHA-256 path
 	// signature must *not* be equal; otherwise node's ante would fail keccak verification.
@@ -140,11 +140,11 @@ func TestNodeMessageDescriptorsMatchNodeAPI(t *testing.T) {
 		typeURL string
 		msg     proto.Message
 	}{
-		// wire v0.4.1: the Builder bond Msgs (MsgBondBuilder / MsgBeginBuilderUnbonding)
+		// The Builder bond Msgs (MsgBondBuilder / MsgBeginBuilderUnbonding)
 		// were removed; Phase 0 BuilderBond is fixed at zero.
 		{"/hub.v1.MsgRegisterBuilder", &hubv1.MsgRegisterBuilder{}},
 		{"/hub.v1.MsgUpdateServiceDescriptor", &hubv1.MsgUpdateServiceDescriptor{}},
-		// Keeper Interface Contract §9.4 Task Msg surface.
+		// The wire Task Msg surface.
 		{"/task.v1.MsgSubmitWorkerHandraises", &taskv1.MsgSubmitWorkerHandraises{}},
 		{"/task.v1.MsgSubmitInferReceipt", &taskv1.MsgSubmitInferReceipt{}},
 		{"/task.v1.MsgSubmitVerifierHandraises", &taskv1.MsgSubmitVerifierHandraises{}},
@@ -164,7 +164,7 @@ func TestNodeMessageDescriptorsMatchNodeAPI(t *testing.T) {
 		})
 	}
 
-	// The frozen contract reshaped MsgRegisterBuilder: the signer is builder_operator_address(4),
+	// The current wire reshaped MsgRegisterBuilder: the signer is builder_operator_address(4),
 	// the descriptor payload is ServiceDescriptorV1(3), and there is no authorization_nonce.
 	register := (&hubv1.MsgRegisterBuilder{}).ProtoReflect().Descriptor().Fields()
 	if field := register.ByNumber(4); field.Name() != "builder_operator_address" || field.Kind() != protoreflect.StringKind {

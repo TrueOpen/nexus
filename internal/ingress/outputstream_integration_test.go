@@ -374,9 +374,9 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 		hex.EncodeToString(result.GetOutputMmrRoot()) != hex.EncodeToString(final[:]) {
 		t.Fatalf("result = %v", last)
 	}
-	// wire v0.4.1 marks OutputStreamResultV1.storage_confirmation as reserved:
+	// wire marks OutputStreamResultV1.storage_confirmation as reserved:
 	// the fin frame only states that this stream has been fully persisted, and the storage confirmation is instead issued once by
-	// FinalizeTaskResult after it checks the receipt, the STORED output and all required evidence (design §5.5).
+	// FinalizeTaskResult after it checks the receipt, the STORED output and all required evidence.
 	_ = up.CloseResponse()
 
 	// The subscriber receives the three chunks and the fin frame, with the frames unchanged.
@@ -406,8 +406,8 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := metadataResponse.Msg.GetMetadata()
-	// The new contract has no object_exists bit: when the object does not exist the whole metadata is absent.
-	// The fin frame only reaches STORED: READY waits for FinalizeTaskResult (§5.5). chunk_lengths and
+	// The current wire has no object_exists bit: when the object does not exist the whole metadata is absent.
+	// The fin frame only reaches STORED: READY waits for FinalizeTaskResult. chunk_lengths and
 	// output_leaf_count are returned only for a READY streaming OUTPUT, so they are not visible yet.
 	if metadata == nil || metadata.GetSizeBytes() != 14 ||
 		metadata.GetReadiness() != nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED {

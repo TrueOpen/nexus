@@ -56,7 +56,7 @@ func newTable[T any]() *table[T] {
 	return &table[T]{entries: map[string]cacheEntry[T]{}, flights: map[string]*flight[T]{}}
 }
 
-// CachedChain caches chain queries per §5.14.3: only successful results are cached; negative results and chain
+// CachedChain caches chain queries: only successful results are cached; negative results and chain
 // unavailability are not. After expiry, an unreachable chain means rejection; stale results never let a request through. ttl 0 disables caching.
 //
 // Concurrent misses for the same key share one chain query. The sharing never weakens the rules above:

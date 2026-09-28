@@ -25,7 +25,7 @@ func settleSelection(session, task string, builders ...string) chaincli.StageBui
 	}
 }
 
-// Settlement window fixture (§10.10a): the reveal deadline is rankRevealDeadline, the verify
+// Settlement window fixture: the reveal deadline is rankRevealDeadline, the verify
 // deadline is rankVerifyDeadline, and each rank gets a grace of rankGraceBlocks blocks. The three
 // Builders' submission slots are (3,13], (13,23] and (23,33] in order; after 33 anyone may submit.
 const (
@@ -314,7 +314,7 @@ func TestSettleRank2StandsDownWhenSettled(t *testing.T) {
 	}
 }
 
-// TestProposalGroupGating ASSIGN proposal gate (§4.1): outside the group it does not submit; inside
+// TestProposalGroupGating ASSIGN proposal gate: outside the group it does not submit; inside
 // the group it submits right away (without waiting for others).
 func TestProposalGroupGating(t *testing.T) {
 	members := []types.BuilderRef{{Address: testOperator("builder-a")}, {Address: testOperator("builder-b")}}

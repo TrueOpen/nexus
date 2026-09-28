@@ -20,7 +20,7 @@ func configureTLSCommand(t *testing.T, dataDir string) {
 	t.Setenv("NEXUS_INGRESS_TLS_KEY_FILE", "")
 }
 
-// The first step of the ADR-0015 registration order: `nexus tls init` creates the self-signed certificate and prints the
+// The first step of the Builder registration order: `nexus tls init` creates the self-signed certificate and prints the
 // public-key fingerprint, which the operator writes into the descriptor. Running it again reuses the same certificate and the fingerprint stays the same.
 func TestTLSInitGeneratesCertificateAndPrintsFingerprint(t *testing.T) {
 	dataDir := t.TempDir()

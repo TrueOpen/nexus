@@ -91,27 +91,27 @@ const (
 
 // IngressAPIClient is a client for the nexus.v1.IngressAPI service.
 type IngressAPIClient interface {
-	// §3.1 The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
+	// The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
 	// after the input is fully received, input_hash / input_size_bytes are verified, the bytes
 	// are persisted and the storage confirmation is signed.
 	OpenTask(context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	// §3.2 Records the cross-Builder input storage confirmations collected by the SDK, for
+	// Records the cross-Builder input storage confirmations collected by the SDK, for
 	// reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
 	// the V1 baseline does not require calling it.
 	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// §3.5 The user SDK subscribes to the signed OUTPUT frame stream (ADR-0017). The Builder
+	// The user SDK subscribes to the signed OUTPUT frame stream. The Builder
 	// forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
 	// the User verifies each frame's signature and recomputes the root itself.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest]) (*connect.ServerStreamForClient[v1.SubscribeOutputResponse], error)
-	// §3.6 Only records local delivery progress (task, last_seq); takes no part in settlement /
+	// Only records local delivery progress (task, last_seq); takes no part in settlement /
 	// retention / fault attribution.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
-	// §3.7 Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
+	// Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
 	// signature required.
 	GetTaskStatus(context.Context, *connect.Request[v1.GetTaskStatusRequest]) (*connect.Response[v1.GetTaskStatusResponse], error)
-	// §3.8 Historical events after the cursor plus live events.
+	// Historical events after the cursor plus live events.
 	GetTaskEvents(context.Context, *connect.Request[v1.GetTaskEventsRequest]) (*connect.ServerStreamForClient[v1.GetTaskEventsResponse], error)
-	// §3.9 Returns the challenge plan; submits no transaction.
+	// Returns the challenge plan; submits no transaction.
 	PrepareChallenge(context.Context, *connect.Request[v1.PrepareChallengeRequest]) (*connect.Response[v1.PrepareChallengeResponse], error)
 	// Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
 	// Only the first-frame header is signed; the following chunks must in the end exactly
@@ -119,10 +119,10 @@ type IngressAPIClient interface {
 	// accepted only means this object is STORED, not that the whole Task Result is complete.
 	UploadTaskResultObject(context.Context) *connect.ClientStreamForClient[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
 	// The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
-	// InferReceipt (ADR-0017).
+	// InferReceipt.
 	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
-	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-	// Verification Algorithm §8.1.
+	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, in that field order (see the
+	// wire output_chunk vectors).
 	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
 	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
 	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -130,7 +130,7 @@ type IngressAPIClient interface {
 	//
 	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
 	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+	// later. The Worker must distinguish
 	// "own cause" from "external cause" -- resending the former yields the same result however
 	// many times, resending the latter may succeed -- and the two call for opposite responses,
 	// so this mapping is a contract shared by both sides, not a Builder implementation detail.
@@ -148,7 +148,7 @@ type IngressAPIClient interface {
 	//	  FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
 	//	  DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
 	//
-	//	External cause (may resend Header and resume per §9.5):
+	//	External cause (may resend Header and resume):
 	//	  Unavailable        transport interrupted, Builder process or storage unavailable
 	//	  AlreadyExists      an object already exists for this key or the stream is finalized.
 	//	                     Resend Header to get the progress reply first, then decide: if the
@@ -181,17 +181,17 @@ type IngressAPIClient interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
+	// Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Superseded by GetTaskDataMetadata + FetchTaskData: the contract returns no locator and issues
+	// Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
 	// no fetch credential. This method has no reference left to return, only CredentialV1;
 	// whether to keep it is still an open item.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Fetch credential refresh: the contract has no counterpart (the CredentialV1 route as a whole
+	// Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
 	// is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
 	// download credentials; whether to keep it is pending a team decision.
 	//
@@ -453,27 +453,27 @@ func (c *ingressAPIClient) RefreshCredential(ctx context.Context, req *connect.R
 
 // IngressAPIHandler is an implementation of the nexus.v1.IngressAPI service.
 type IngressAPIHandler interface {
-	// §3.1 The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
+	// The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
 	// after the input is fully received, input_hash / input_size_bytes are verified, the bytes
 	// are persisted and the storage confirmation is signed.
 	OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error)
-	// §3.2 Records the cross-Builder input storage confirmations collected by the SDK, for
+	// Records the cross-Builder input storage confirmations collected by the SDK, for
 	// reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
 	// the V1 baseline does not require calling it.
 	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// §3.5 The user SDK subscribes to the signed OUTPUT frame stream (ADR-0017). The Builder
+	// The user SDK subscribes to the signed OUTPUT frame stream. The Builder
 	// forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
 	// the User verifies each frame's signature and recomputes the root itself.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error
-	// §3.6 Only records local delivery progress (task, last_seq); takes no part in settlement /
+	// Only records local delivery progress (task, last_seq); takes no part in settlement /
 	// retention / fault attribution.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
-	// §3.7 Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
+	// Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
 	// signature required.
 	GetTaskStatus(context.Context, *connect.Request[v1.GetTaskStatusRequest]) (*connect.Response[v1.GetTaskStatusResponse], error)
-	// §3.8 Historical events after the cursor plus live events.
+	// Historical events after the cursor plus live events.
 	GetTaskEvents(context.Context, *connect.Request[v1.GetTaskEventsRequest], *connect.ServerStream[v1.GetTaskEventsResponse]) error
-	// §3.9 Returns the challenge plan; submits no transaction.
+	// Returns the challenge plan; submits no transaction.
 	PrepareChallenge(context.Context, *connect.Request[v1.PrepareChallengeRequest]) (*connect.Response[v1.PrepareChallengeResponse], error)
 	// Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
 	// Only the first-frame header is signed; the following chunks must in the end exactly
@@ -481,10 +481,10 @@ type IngressAPIHandler interface {
 	// accepted only means this object is STORED, not that the whole Task Result is complete.
 	UploadTaskResultObject(context.Context, *connect.ClientStream[v1.UploadTaskResultObjectRequest]) (*connect.Response[v1.UploadTaskResultObjectResponse], error)
 	// The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
-	// InferReceipt (ADR-0017).
+	// InferReceipt.
 	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
-	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, field order per
-	// Verification Algorithm §8.1.
+	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, in that field order (see the
+	// wire output_chunk vectors).
 	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
 	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
 	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
@@ -492,7 +492,7 @@ type IngressAPIHandler interface {
 	//
 	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
 	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. Data Plane & Evidence Transport §9.5 requires the Worker to distinguish
+	// later. The Worker must distinguish
 	// "own cause" from "external cause" -- resending the former yields the same result however
 	// many times, resending the latter may succeed -- and the two call for opposite responses,
 	// so this mapping is a contract shared by both sides, not a Builder implementation detail.
@@ -510,7 +510,7 @@ type IngressAPIHandler interface {
 	//	  FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
 	//	  DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
 	//
-	//	External cause (may resend Header and resume per §9.5):
+	//	External cause (may resend Header and resume):
 	//	  Unavailable        transport interrupted, Builder process or storage unavailable
 	//	  AlreadyExists      an object already exists for this key or the stream is finalized.
 	//	                     Resend Header to get the progress reply first, then decide: if the
@@ -543,17 +543,17 @@ type IngressAPIHandler interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Superseded by OpenTask (client stream): contract §3.1 no longer has unary ordering + inline payload.
+	// Superseded by OpenTask (client stream): unary ordering with an inline payload is no longer supported.
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Superseded by GetTaskDataMetadata + FetchTaskData: the contract returns no locator and issues
+	// Superseded by GetTaskDataMetadata + FetchTaskData, which return no locator and issue
 	// no fetch credential. This method has no reference left to return, only CredentialV1;
 	// whether to keep it is still an open item.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Fetch credential refresh: the contract has no counterpart (the CredentialV1 route as a whole
+	// Fetch credential refresh: the current data plane has no counterpart (the CredentialV1 route as a whole
 	// is superseded by GetTaskDataMetadata / FetchTaskData), and V1 does not refresh standalone
 	// download credentials; whether to keep it is pending a team decision.
 	//

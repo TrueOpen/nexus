@@ -2,7 +2,7 @@ package taskdata
 
 import "sync"
 
-// OutputDispatcher fans out streamed OUTPUT (Streaming Output Delivery Design §5.6): per
+// OutputDispatcher fans out streamed OUTPUT: per
 // Task it pushes validated frames to subscribers unchanged, without re-signing, without
 // waiting for Fin or the receipt. Each subscriber has a bounded buffer and publishing never
 // blocks the write path: a full buffer disconnects that subscriber, and the SDK resubscribes
@@ -26,7 +26,7 @@ type OutputSubscription struct {
 	over   bool
 }
 
-// NewOutputDispatcher creates a dispatcher; bufferFrames is the per-subscriber buffer size in frames (design §6 subscriber_buffer_frames).
+// NewOutputDispatcher creates a dispatcher; bufferFrames is the per-subscriber buffer size in frames (subscriber_buffer_frames).
 func NewOutputDispatcher(bufferFrames int) *OutputDispatcher {
 	if bufferFrames <= 0 {
 		bufferFrames = 1

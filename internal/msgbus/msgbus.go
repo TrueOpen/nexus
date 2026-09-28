@@ -1,4 +1,4 @@
-// Package msgbus is the off-chain message bus client (Implementation Design §4.3).
+// Package msgbus is the off-chain message bus client.
 // The chosen bus is NATS (core + JetStream). In the skeleton stage it is a stub: it never actually
 // connects to NATS and only logs, so the process runs offline; it is replaced by the nats.go implementation later.
 package msgbus
@@ -55,12 +55,12 @@ type Bus interface {
 	// core NATS: best effort, lowest latency (orders / hand-raise / prepare)
 	Publish(subject string, data []byte) error
 	Subscribe(subject string, h MsgHandler) (Unsubscribe, error)
-	// QueueSubscribe is a queue subscription (§6.1): delivery is load-balanced within one queue (for
+	// QueueSubscribe is a queue subscription: delivery is load-balanced within one queue (for
 	// example a single operator's pool of workers jointly consuming trueopen.orders.*).
 	QueueSubscribe(subject, queue string, h MsgHandler) (Unsubscribe, error)
 
 	// JetStream: at-least-once + dedup + durable (output availability / VerifyResult).
-	// Contract §5.12: msgID must be BusEnvelopeV1.message_id (Nats-Msg-Id), no longer the dedup_id inside the payload.
+	// msgID must be BusEnvelopeV1.message_id (Nats-Msg-Id), no longer the dedup_id inside the payload.
 	JSPublish(subject string, data []byte, msgID string) error
 	JSSubscribe(subject, durable string, h MsgHandler) (Unsubscribe, error)
 }

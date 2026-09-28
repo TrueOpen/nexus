@@ -156,7 +156,7 @@ func (c *client) subscribeTaskEventsOnce(ctx context.Context, sessionID string) 
 	if err != nil {
 		return false, err
 	}
-	// The frozen contract's SubscribeTaskEventsRequest carries session_id / task_id as bytes.
+	// The wire SubscribeTaskEventsRequest carries session_id / task_id as bytes.
 	sessionKey, err := nodecontract.Hash32Bytes("session_id", sessionID)
 	if err != nil {
 		return false, fmt.Errorf("subscribe task events: %w", err)
@@ -296,7 +296,7 @@ func (c *client) subscribeProtocolEventsOnce(ctx context.Context) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	// Since wire v0.4.1 BuilderSet rotation has its own event code BUILDER_SET_UPDATED; subscribe only to it.
+	// BuilderSet rotation has its own event code BUILDER_SET_UPDATED; subscribe only to it.
 	// Each new stream still emits one BuilderSetUpdated first: a rotation may have been missed
 	// while the stream was down, and having the coordinator reconcile via Query once is the safest.
 	request := &hubv1.SubscribeProtocolEventsRequest{

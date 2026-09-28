@@ -90,7 +90,7 @@ func (p *RecoveryPolicy) RevalidatePrepared(ctx context.Context, metadata Metada
 }
 
 // Retention decides how long an object is kept. For a task on chain the only signal is the
-// chain's own evidence cleanup (06 §10): once the chain has started compacting the task
+// chain's own evidence cleanup: once the chain has started compacting the task
 // (RUNNING or COMPACTED) the Builder deletes its copy; until then, or when the chain cannot be
 // asked, the object is kept with its existing lease. The cleanup preconditions (task finality,
 // no open round, max_evidence_retention_blocks) are not recomputed here.

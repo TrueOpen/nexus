@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror the Node public wire proto of TrueOpen/wire into this repository (Implementation Design §2.1, generated-artifact discipline).
+"""Mirror the Node public wire proto of TrueOpen/wire into this repository (generated artifacts are never hand-edited).
 
 Usage:
     python3 tools/mirror_wire.py            # use the wire version pinned in go.mod

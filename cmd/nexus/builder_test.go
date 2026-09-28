@@ -28,7 +28,7 @@ func TestBuilderCommandRegisterTargetsHubAuthority(t *testing.T) {
 	assertAuthorityOutput(t, out)
 }
 
-// Since wire v0.4.1 there are no Builder bond / unbond subcommands and no pending-bond switch:
+// There are no Builder bond / unbond subcommands (wire has no such messages) and no pending-bond switch:
 // keeping them would make operators believe they can top up or withdraw a bond that does not exist on chain.
 func TestBuilderCommandHasNoBondSubcommands(t *testing.T) {
 	for _, args := range [][]string{

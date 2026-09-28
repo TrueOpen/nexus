@@ -37,7 +37,7 @@ import (
 //
 // "Included in a block" can only go as far as CheckTx code=0 in this repository: a real DeliverTx
 // needs a running Task Chain, which the repository does not have. So what is asserted here is that
-// "the Tx assembled on the nexus side matches the frozen contract exactly and is accepted by the
+// "the Tx assembled on the nexus side matches the wire exactly and is accepted by the
 // node interface"; on-chain inclusion has to be verified in the four-component integration
 // environment.
 func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
@@ -52,7 +52,7 @@ func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
 	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log),
 		kv.NewMemStore(), sg.Address(), testChainID)
 	keys := enableTestBusEnvelopes(c)
-	// The real submitter: full §4.2.1 validation + Cosmos signing + broadcast.
+	// The real submitter: full proposal-scope validation + Cosmos signing + broadcast.
 	c.submit = NewSignedSubmitter(log, chain, chain, sg, sg, config.ChainConfig{
 		ChainID: testChainID, GasLimit: 200000, FeeDenom: "utrueopen", FeeAmount: "5000",
 	})
@@ -106,7 +106,7 @@ func TestWorkerHandraiseBridgeFromNATSToBroadcastTx(t *testing.T) {
 		t.Fatal("signed_order is not the one the SDK forwarded verbatim: the user signature covers the frozen TaskOrderV2, nexus must not rebuild it")
 	}
 
-	// 3) handraises: §5.5 states that a single proposal only needs 1 valid hand-raise, so the first
+	// 3) handraises: a single proposal only needs 1 valid hand-raise, so the first
 	// one to arrive triggers the proposal and the two that follow produce no new broadcast
 	// (chain.broadcast stays 1). Sufficiency is decided by the keeper over the union of all Builder
 	// proposals when the window closes; it is not padded here.
@@ -199,14 +199,14 @@ func TestWorkerHandraiseBridgeAcceptsFrozenOnlyOrder(t *testing.T) {
 	if len(sub.assign) != 1 {
 		t.Fatalf("assign submissions = %d, want 1 (the frozen order was blocked by the old envelope validation)", len(sub.assign))
 	}
-	// §5.5: a single proposal needs at least 1 entry, so the first hand-raise triggers the proposal
+	// A single proposal needs at least 1 entry, so the first hand-raise triggers the proposal
 	// and the two that follow open no new submission.
 	if sub.assign[0].SignedOrder == nil || len(sub.assign[0].WorkerHandraises) != proposalHandraiseMin {
 		t.Fatalf("assign tx = %+v", sub.assign[0])
 	}
 }
 
-// TestWorkerHandraiseBridgeUsesExistingTaskAfterAcceptance covers the other half of §4.2.1: once
+// TestWorkerHandraiseBridgeUsesExistingTaskAfterAcceptance covers the other half of the proposal scope rule: once
 // the chain has accepted the task, later proposals must carry existing_task instead of another
 // signed_order (filling both is rejected). The only criterion is the authoritative on-chain
 // task_hash.
@@ -279,7 +279,7 @@ func TestWorkerHandraiseBridgeRefusesFirstProposalWithoutSignedOrder(t *testing.
 }
 
 // assertTopLevelFieldNumbers scans the proto wire and asserts that the top-level field numbers and
-// wire types match the frozen contract exactly. Decoding into Go structs cannot reveal misplaced
+// wire types match the wire proto exactly. Decoding into Go structs cannot reveal misplaced
 // field numbers -- both sides use the same mirror.
 func assertTopLevelFieldNumbers(t *testing.T, raw []byte, want map[protowire.Number]protowire.Type) {
 	t.Helper()
@@ -302,7 +302,7 @@ func assertTopLevelFieldNumbers(t *testing.T, raw []byte, want map[protowire.Num
 	}
 	for number, typ := range want {
 		if got[number] != typ {
-			t.Fatalf("field %d wire type = %v, want %v (field number differs from the frozen contract)", number, got[number], typ)
+			t.Fatalf("field %d wire type = %v, want %v (field number differs from the wire proto)", number, got[number], typ)
 		}
 	}
 }

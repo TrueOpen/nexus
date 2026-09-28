@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// MMR_ROOT_V1 primitive vectors from monorepo Canonical
-// Encoding and Domain Hashing §11.5, compared byte for byte. These are cross-language
+// MMR_ROOT_V1 primitive vectors, compared byte for byte. These are cross-language
 // conformance vectors, not expectations computed by this implementation.
 const goldenDomain = "TRUEOPEN_TEST_MMR_V1"
 
@@ -59,7 +58,7 @@ func TestGoldenPrimitiveVectors(t *testing.T) {
 	}
 }
 
-// §11.5 pins the peak shape: n=3 is [height 1, height 0], n=7 is [height 2, height 1, height 0].
+// The vectors pin the peak shape: n=3 is [height 1, height 0], n=7 is [height 2, height 1, height 0].
 func TestGoldenPeakShapes(t *testing.T) {
 	for _, c := range []struct {
 		n     int
@@ -100,14 +99,14 @@ func TestGoldenPeakShapes(t *testing.T) {
 	); root3 != want {
 		t.Fatal("root_n3 must fold the height-1 peak as left and the height-0 peak as right")
 	}
-	// root_2 equals byte for byte the height-1 peak of the n=3 tree (smallest example of §9 item 6).
+	// root_2 equals byte for byte the height-1 peak of the n=3 tree (the smallest case where a prefix root reappears as a peak of a longer list).
 	root2, _ := Root(goldenDomain, goldenLeaves[:2])
 	if hex.EncodeToString(root2[:]) != "9862fe9d7ba78edad8ca4cb4b03a30a2be04c5d6ac8db82f4e4253f2286d302d" {
 		t.Fatal("root_2 must equal the height-1 peak of the n=3 tree")
 	}
 }
 
-// Negative vector from §11.5: folding in the wrong direction (acc = Node(acc, peak)
+// Negative vector: folding in the wrong direction (acc = Node(acc, peak)
 // starting from the leftmost peak) yields a different root and must be rejected as
 // non-conformant. n=7 is the smallest leaf count that distinguishes the two directions.
 func TestGoldenFoldDirectionIsRightToLeft(t *testing.T) {
@@ -125,7 +124,7 @@ func TestGoldenFoldDirectionIsRightToLeft(t *testing.T) {
 	}
 	const wrong = "e295ae79a9d65352bb7f66ea5c55c7736c230d194206c1f334c0f8281a3ea88b"
 	if got := hex.EncodeToString(reversed[:]); got != wrong {
-		t.Fatalf("left-to-right fold = %s, want the spec's non-compliant value %s", got, wrong)
+		t.Fatalf("left-to-right fold = %s, want the known non-compliant value %s", got, wrong)
 	}
 	if acc.Root() == reversed {
 		t.Fatal("right-to-left fold must differ from left-to-right at n=7")

@@ -1,7 +1,8 @@
 # nexus
 
 The off-chain coordinator process co-located with the local `node` on a TrueOpen Builder machine.
-Integration notes live in `docs/`; the protocol rules live in TrueOpen/monorepo.
+Integration notes live in `docs/`; the protocol wire (proto, domain registry and golden vectors) is published in the public
+[TrueOpen/wire](https://github.com/TrueOpen/wire) repository.
 
 > Current state: a **runnable skeleton**. Module boundaries, lifecycle and the order ingress are in place;
 > chaincli is wired to the local node for query / broadcast / subscription transport, while NATS / pebble can still run offline as stubs.
@@ -92,10 +93,10 @@ that raises the local state version, back up `data_dir`: going back to the older
 possible by restoring that backup. Only a reset of the chain (a different block
 at height 1) moves the local state aside.
 
-## Interface contract alignment
+## Interface alignment
 
-The SDK-side (User) methods of `IngressAPI` follow the "Nexus↔SDK Interface Contract" v0.1;
-the Worker / Verifier-side methods and the NATS layer follow the "Nexus↔Cortex Interface Contract" v0.2.
+`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; together with the
+NATS layer they follow the public TrueOpen/wire definitions.
 
 Open items:
 
@@ -103,12 +104,12 @@ Open items:
   `GetTaskDataMetadata` / `FetchTaskData`; they are marked deprecated and still served until a
   removal date is decided.
 - `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
-  SDK contract freezes its field table (§8.2) and the storage-confirmation proto (§8.3).
-- Several task event codes still use Nexus names rather than the SDK contract §3.8 names (for
+  SDK-side field table and storage-confirmation proto are frozen.
+- Several task event codes still use Nexus names rather than the SDK-facing event names (for
   example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
-  are not in the contract set; renaming them is a wire-visible change pending a decision.
-- `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
-  field `challenge_close` without fixing its unit; the rename waits for that decision.
+  are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.
+- `PrepareChallengeResponse.challenge_close_height` is a block height, while the SDK-facing name of the
+  field is `challenge_close` without a fixed unit; the rename waits for that decision.
 - Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->
   IDLE -> CLOSED on chain) are skipped on the task event stream; the coordinator does not yet
   react to a session closing (rejecting new orders, releasing per-session state).

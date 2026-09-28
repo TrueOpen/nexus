@@ -56,14 +56,14 @@ func TestCurrentNodeQueryWireFields(t *testing.T) {
 	assertNodeField(t, profile, 18, "status", protoreflect.EnumKind, false, "hub.v1.ModelProfileStatus")
 	assertNodeField(t, profile, 28, "updated_height", protoreflect.Uint64Kind, false, "")
 
-	// Frozen contract QueryTask projection: TaskAssignmentViewV1 replaced the old monolithic TaskAssignment.
+	// QueryTask projection: TaskAssignmentViewV1 replaced the old monolithic TaskAssignment.
 	assignment := (&taskv1.TaskAssignmentViewV1{}).ProtoReflect().Descriptor()
 	assertNodeField(t, assignment, 12, "profile_execution_snapshot_hash", protoreflect.BytesKind, false, "")
 	assertNodeField(t, assignment, 16, "generation_params_digest", protoreflect.BytesKind, false, "")
 	assertNodeField(t, assignment, 18, "assignment_status", protoreflect.EnumKind, false, "task.v1.AssignmentStatus")
 
-	// The event model is unified on shared.v1.ProtocolEventCodeV1 (since wire v0.4.1
-	// the event code registry lives in shared) + typed payload oneof.
+	// The event model is unified on shared.v1.ProtocolEventCodeV1 (the event
+	// code registry lives in shared) + typed payload oneof.
 	envelope := (&taskv1.TaskEvent{}).ProtoReflect().Descriptor()
 	assertNodeField(t, envelope, 8, "session_id", protoreflect.BytesKind, false, "")
 	assertNodeField(t, envelope, 15, "code", protoreflect.EnumKind, false, "shared.v1.ProtocolEventCodeV1")
@@ -136,7 +136,7 @@ func TestRemoteAddressNormalization(t *testing.T) {
 			got:  grpcBaseURL("tcp://" + host + ":12345"),
 			want: "http://" + host + ":12345",
 		},
-		// Deployment Security Baseline: once the node port has TLS enabled, grpc_addr is
+		// Once the node port has TLS enabled, grpc_addr is
 		// written as https:// or grpcs://, verified against system CA roots, and no longer rewritten to http.
 		{
 			name: "https grpc address stays https",
@@ -232,7 +232,7 @@ func TestLatestHeightUsesGRPC(t *testing.T) {
 	}
 }
 
-// The frozen contract's QueryTask queries by task_id only and returns
+// The wire QueryTask queries by task_id only and returns
 // TaskViewV1{active{core, assignment, verifier_assignment}}: infer receipt / settlement /
 // failure class were split into separate RPCs, so those sections of OnChainTask stay zero
 // (see the mapTask comment).
@@ -251,7 +251,7 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 				CandidatePoolSnapshotId: mustHash32("66"), AssignmentCandidateSetHash: mustHash32("77"),
 				WinnerWorker: proto.String("worker-1"),
 			},
-			// Since wire v0.4.1 the bundle is split per round into round1 / round2; Phase 0 reads only round1.
+			// The bundle is split per round into round1 / round2; Phase 0 reads only round1.
 			Round1VerifierAssignment: &taskv1.VerifierAssignmentState{
 				TaskId: testTaskIDBytes, VerifyRound: 1, OpenVerifyHeight: 55,
 				SelectedVerifiers: []*taskv1.SelectedVerifierV1{
@@ -380,8 +380,8 @@ func TestQueryTaskRejectsMismatchedScope(t *testing.T) {
 	}
 }
 
-// SettlementBuildFacts is deregistered in the frozen contract (§16 no longer registers
-// any settlement-build/preview RPC) and must fail closed.
+// SettlementBuildFacts is deregistered in the current wire (no settlement-build/preview
+// RPC is registered) and must fail closed.
 func TestQuerySettlementBuildFactsIsDeregistered(t *testing.T) {
 	c := &client{}
 	_, err := c.QuerySettlementBuildFacts(context.Background(), TaskKey{SessionID: testSessionIDHex, TaskID: testTaskIDHex})
@@ -410,7 +410,7 @@ func TestMapTaskRejectsMissingActiveBundle(t *testing.T) {
 }
 
 // Positive mapping: the request carries only the height selector, and the response is
-// mapped field by field from BuilderSetViewV1. Since wire v0.4.1 the BuilderSet has only
+// mapped field by field from BuilderSetViewV1. The BuilderSet has only
 // builder_set_version (mapped to Epoch) and effective_height (mapped to UpdatedHeight),
 // no term / epoch range; the request selector is only height | builder_set_id.
 func TestQueryBuilderSetAtHeightSendsHeightSelectorAndMapsView(t *testing.T) {
@@ -443,8 +443,8 @@ func TestQueryBuilderSetAtHeightSendsHeightSelectorAndMapsView(t *testing.T) {
 	}
 }
 
-// Negative: every case must fail closed. The PRUNED case is the trap named in contract
-// §16.5: members empty but count retained; reading it as an "empty BuilderSet" means
+// Negative: every case must fail closed. The PRUNED case is the trap:
+// members empty but count retained; reading it as an "empty BuilderSet" means
 // starting with a nonexistent empty set.
 func TestQueryBuilderSetAtHeightFailsClosed(t *testing.T) {
 	validView := func() *hubv1.BuilderSetViewV1 {
@@ -585,7 +585,7 @@ func TestQueryTimeoutBucketUsesHubParameterBucket(t *testing.T) {
 	}
 }
 
-// bucket_kind must be TIMEOUT: since wire v0.4.1 BucketKind has only the TIMEOUT family;
+// bucket_kind must be TIMEOUT: BucketKind has only the TIMEOUT family;
 // a missing / zero (UNSPECIFIED) bucket must error rather than be used as timeout parameters.
 func TestQueryTimeoutBucketRejectsWrongBucketKind(t *testing.T) {
 	fake := &recordHubQuery{timeoutBucket: &hubv1.QueryTimeoutBucketResponse{

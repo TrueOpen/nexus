@@ -16,7 +16,7 @@ func testReplayRecord() bus.ReplayRecord {
 	}
 	return bus.ReplayRecord{
 		ChainID: "trueopen-localnet-1",
-		// Since wire v0.4.1 the replay key is domain-separated by the address codec bytes, so operator must be canonical bech32.
+		// The replay key is domain-separated by the address codec bytes, so operator must be canonical bech32.
 		SenderOperator:     "trueopen1e9rxz3ssv5sqf4n23nfnlh4atv3uf3fs9s0pvm",
 		AuthorizationNonce: 7,
 		MessageID:          "01890000-0000-7000-8000-000000000000",
