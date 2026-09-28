@@ -251,7 +251,8 @@ type NATSConfig struct {
 	// reach NATS on a private or loopback address. Requires SentinelFile; empty = neither is served.
 	AdvertiseServers []string `yaml:"advertise_servers"`
 	// StreamReplicas is how many servers keep a copy of the JetStream stream nexus creates
-	// (1..MaxStreamReplicas; 0 = 1). More than 1 needs a clustered NATS. Nexus never lowers the
+	// (1..MaxStreamReplicas; 0 = 1). More than 1 needs a clustered NATS, and it must not exceed the
+	// number of servers in the cluster or the stream cannot be created. Nexus never lowers the
 	// replica count of a stream that already has more.
 	StreamReplicas int `yaml:"stream_replicas"`
 }

@@ -16,12 +16,17 @@ import (
 type streamJS struct {
 	nats.JetStreamContext
 	existing *nats.StreamConfig
+	addErr   error // AddStream fails with it even when no stream exists
+	infoErr  error
 	added    []nats.StreamConfig
 	updated  []nats.StreamConfig
 }
 
 func (j *streamJS) AddStream(cfg *nats.StreamConfig, _ ...nats.JSOpt) (*nats.StreamInfo, error) {
 	j.added = append(j.added, *cfg)
+	if j.addErr != nil {
+		return nil, j.addErr
+	}
 	if j.existing != nil {
 		return nil, errors.New("stream name already in use with a different configuration")
 	}
@@ -29,6 +34,9 @@ func (j *streamJS) AddStream(cfg *nats.StreamConfig, _ ...nats.JSOpt) (*nats.Str
 }
 
 func (j *streamJS) StreamInfo(string, ...nats.JSOpt) (*nats.StreamInfo, error) {
+	if j.infoErr != nil {
+		return nil, j.infoErr
+	}
 	if j.existing == nil {
 		return nil, nats.ErrStreamNotFound
 	}
@@ -70,5 +78,23 @@ func TestEnsureStreamsNeverLowersReplicas(t *testing.T) {
 		if len(js.updated) != 1 || js.updated[0].Replicas != tt.want {
 			t.Fatalf("existing %d configured %d: updated=%+v", tt.existing, tt.configured, js.updated)
 		}
+	}
+}
+
+// When the existing stream cannot be read, nothing is updated: an update with the configured, lower
+// replica count could shrink it. The same holds when no stream exists and creating it fails (for
+// example more replicas than the cluster has servers).
+func TestEnsureStreamsLeavesStreamWhenItCannotBeRead(t *testing.T) {
+	js := &streamJS{existing: &nats.StreamConfig{Name: jsStreamName, Replicas: 3}, infoErr: errors.New("cluster leader election in progress")}
+	bus := &natsBus{log: slog.New(slog.NewTextHandler(io.Discard, nil)), cfg: config.NATSConfig{StreamReplicas: 1}, js: js}
+	bus.ensureStreams()
+	if len(js.updated) != 0 {
+		t.Fatalf("updated %+v without reading the existing stream", js.updated)
+	}
+	js = &streamJS{addErr: errors.New("insufficient resources")}
+	bus = &natsBus{log: slog.New(slog.NewTextHandler(io.Discard, nil)), cfg: config.NATSConfig{StreamReplicas: 5}, js: js}
+	bus.ensureStreams()
+	if len(js.updated) != 0 {
+		t.Fatalf("updated %+v a stream that does not exist", js.updated)
 	}
 }
