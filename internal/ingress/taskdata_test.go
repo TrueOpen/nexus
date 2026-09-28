@@ -687,3 +687,48 @@ func toString(value any) string {
 		return ""
 	}
 }
+
+// reEnvelopeOpenTask signs a fresh request envelope over the header as it stands now, with sg.
+func reEnvelopeOpenTask(t *testing.T, sg signer.Signer, header *nexusv1.OpenTaskHeader) {
+	t.Helper()
+	taskID := mustDeriveTaskID(t, header.GetSessionId(), header.GetOrderSequence())
+	header.RequestEnvelope = signedTaskEnvelope(
+		t, sg, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, header.GetSessionId(), taskID,
+		openTaskBodyDigest(header), []byte("nonce-open-task-"+header.GetSessionId()),
+	)
+	header.RequestEnvelope.ExpiryHeightOrTime = 110
+	resignTaskEnvelope(t, sg, header.RequestEnvelope)
+}
+
+// An OpenTask refused for its signer says which check failed; the code stays NEXUS_DATA_UNAUTHORIZED.
+func TestOpenTaskUnauthorizedNamesTheFailedCheck(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	other := mustSigner(t, strings.Repeat("22", 32))
+	tests := []struct {
+		name string
+		edit func(*nexusv1.OpenTaskHeader)
+		want string
+	}{
+		{name: "envelope signed by someone else", edit: func(h *nexusv1.OpenTaskHeader) { reEnvelopeOpenTask(t, other, h) },
+			want: "is not the order user"},
+		{name: "header signature over other bytes", edit: func(h *nexusv1.OpenTaskHeader) {
+			h.Signature = mustSign(t, user, []byte("not the order signing bytes"))
+			reEnvelopeOpenTask(t, user, h)
+		}, want: "OpenTask header signature does not verify"},
+	}
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := &fakeTaskDataAPI{chunkSize: 64}
+			client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-deny-%d", index)), 13, []byte("input"))
+			tt.edit(header)
+			stream := client.OpenTask(context.Background())
+			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+			_, err := stream.CloseAndReceive()
+			if connect.CodeOf(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), taskdata.ErrUnauthorized.Error()) ||
+				!strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v code=%v, want PermissionDenied naming %q", err, connect.CodeOf(err), tt.want)
+			}
+		})
+	}
+}

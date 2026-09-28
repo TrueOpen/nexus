@@ -243,7 +243,8 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		return types.Order{}, taskdata.UploadHeader{}, err
 	}
 	if requester != order.User || header.GetRequestEnvelope() == nil {
-		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodePermissionDenied, taskdata.ErrUnauthorized)
+		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
+			"request envelope signer %q is not the order user %q", requester, order.User)
 	}
 	expiry := header.GetRequestEnvelope().GetExpiryHeightOrTime()
 	if expiry <= 0 || expiry >= sdkauth.HeightExpiryThreshold {
@@ -251,10 +252,15 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	}
 	userPubKey := header.GetRequestEnvelope().GetSignerPubkey()
 	derived, err := signer.AddressFromPubKey(s.auth.Bech32Prefix, userPubKey)
-	if err != nil || derived != order.User || !signer.VerifySig(userPubKey, nodecontract.CurrentOrderSigningBytes(
+	if err != nil || derived != order.User {
+		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
+			"request envelope public key derives %q, not the order user %q", derived, order.User)
+	}
+	if !signer.VerifySig(userPubKey, nodecontract.CurrentOrderSigningBytes(
 		s.auth.ChainID, order.User, order.SessionID, order.OrderSequence, order.OrderEnvelope,
 	), header.GetSignature()) {
-		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodePermissionDenied, taskdata.ErrUnauthorized)
+		return types.Order{}, taskdata.UploadHeader{}, openTaskUnauthorized(
+			"OpenTask header signature does not verify: it must be a 64-byte secp256k1 signature over the SHA-256 of the order signing bytes")
 	}
 	// task_hash is the first field of the object ref; without it the INPUT object cannot be stored. The legacy JSON envelope
 	// cannot yield a canonical task_hash (see parseOrderEnvelope), and such orders could never be submitted on-chain
@@ -713,6 +719,14 @@ func readinessToPB(state taskdata.State) nexusv1.TaskDataObjectReadinessV1 {
 		// visible externally. Only STORED and READY are externally visible.
 		return nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED
 	}
+}
+
+// openTaskUnauthorized refuses an OpenTask whose signer does not check out. The code stays
+// NEXUS_DATA_UNAUTHORIZED; the message says which check failed, since the request log records it
+// and the client sees it, and the three checks otherwise look the same from outside.
+func openTaskUnauthorized(format string, args ...any) error {
+	return connect.NewError(connect.CodePermissionDenied,
+		fmt.Errorf("%w: %s", taskdata.ErrUnauthorized, fmt.Sprintf(format, args...)))
 }
 
 func mapTaskDataError(err error) error {
