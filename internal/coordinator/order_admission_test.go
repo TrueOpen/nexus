@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cosmos/btcutil/bech32"
@@ -16,6 +17,7 @@ import (
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
@@ -29,6 +31,8 @@ const (
 	admissionSetID        = "builder-set-7"
 	admissionSetVersion   = uint64(7)
 	admissionPerTask      = uint32(3)
+	admissionSequence     = uint64(0)
+	admissionWindow       = uint64(100)
 )
 
 var (
@@ -90,7 +94,7 @@ func TestHubStage1AdmissionIgnoresMemberOrder(t *testing.T) {
 func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 	addresses := admissionTestAddresses(t, 4)
 	self := addresses[0]
-	taskID := hex.EncodeToString(bytes.Repeat([]byte{0x7a}, 32))
+	taskID := admissionTaskFor(t, bytes.Repeat([]byte{0x7a}, 32))
 	validBuilder := activeBuilder(self)
 	validSet := admissionSet(addresses[:3]...)
 	withSet := func(edit func(*chaincli.BuilderSet)) *fakeBuilderRegistry {
@@ -123,6 +127,16 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 	perTaskFailure.perTaskErr = errors.New("hub unavailable")
 	perTaskTooLarge := admissionRegistry(validBuilder, validSet)
 	perTaskTooLarge.buildersPerTask = 4
+	setFailure := admissionRegistry(validBuilder, validSet)
+	setFailure.setErr = errors.New("hub unavailable")
+	withChain := func(edit func(*fakeBuilderRegistry)) *fakeBuilderRegistry {
+		registry := admissionRegistry(validBuilder, validSet)
+		edit(registry)
+		return registry
+	}
+	// The request names a well-formed task_id the signed order does not derive.
+	otherTaskID := valid
+	otherTaskID.TaskID = hex.EncodeToString(bytes.Repeat([]byte{0x7b}, 32))
 
 	tests := []struct {
 		name     string
@@ -136,7 +150,7 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 		{name: "builder address mismatch", registry: admissionRegistry(activeBuilder(addresses[1]), validSet), self: self, chainID: admissionChainID, order: valid},
 		// BuilderState has no admission status; only the service key on the Builder row can be checked.
 		{name: "revoked service key", registry: admissionRegistry(chaincli.BuilderState{Address: self, ServiceKeyStatus: "REVOKED"}, validSet), self: self, chainID: admissionChainID, order: valid},
-		{name: "set query failure", registry: &fakeBuilderRegistry{builder: validBuilder, setErr: errors.New("hub unavailable"), buildersPerTask: admissionPerTask}, self: self, chainID: admissionChainID, order: valid},
+		{name: "set query failure", registry: setFailure, self: self, chainID: admissionChainID, order: valid},
 		{name: "no version returned", registry: withSet(func(s *chaincli.BuilderSet) { s.Epoch = 0 }), self: self, chainID: admissionChainID, order: valid},
 		{name: "missing set hash", registry: withSet(func(s *chaincli.BuilderSet) { s.SetHash = "" }), self: self, chainID: admissionChainID, order: valid},
 		{name: "non hash32 set hash", registry: withSet(func(s *chaincli.BuilderSet) { s.SetHash = "deadbeef" }), self: self, chainID: admissionChainID, order: valid},
@@ -158,6 +172,18 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 		{name: "signed order for another chain", registry: admissionRegistry(validBuilder, validSet), self: self, chainID: admissionChainID, order: withOrder(func(o *taskv1.TaskOrderV3) { o.ChainId = "other-chain" })},
 		{name: "signed order without anchor height", registry: admissionRegistry(validBuilder, validSet), self: self, chainID: admissionChainID, order: withOrder(func(o *taskv1.TaskOrderV3) { o.SessionAnchorHeight = 0 })},
 		{name: "signed order with short anchor hash", registry: admissionRegistry(validBuilder, validSet), self: self, chainID: admissionChainID, order: withOrder(func(o *taskv1.TaskOrderV3) { o.SessionAnchorBlockHash = o.SessionAnchorBlockHash[:31] })},
+		// The chain derives task_id from the signed session and sequence, not from the request.
+		{name: "task id not derived by the signed order", registry: admissionRegistry(validBuilder, validSet), self: self, chainID: admissionChainID, order: otherTaskID},
+		{name: "signed order for another sequence", registry: admissionRegistry(validBuilder, validSet), self: self, chainID: admissionChainID, order: withOrder(func(o *taskv1.TaskOrderV3) { o.OrderSequence = 1 })},
+		// The chain refuses an anchor that is not below the executing block, or too far behind it.
+		{name: "anchor not below the executing block", registry: withChain(func(r *fakeBuilderRegistry) { r.height = admissionAnchorHeight - 1 }), self: self, chainID: admissionChainID, order: valid},
+		{name: "anchor older than the freshness window", registry: withChain(func(r *fakeBuilderRegistry) { r.height = admissionAnchorHeight + admissionWindow }), self: self, chainID: admissionChainID, order: valid},
+		{name: "anchor block hash differs from the chain", registry: withChain(func(r *fakeBuilderRegistry) {
+			r.blockHashes = map[uint64][]byte{admissionAnchorHeight: bytes.Repeat([]byte{0x9d}, 32)}
+		}), self: self, chainID: admissionChainID, order: valid},
+		{name: "anchor block unavailable", registry: withChain(func(r *fakeBuilderRegistry) { r.blockErr = errors.New("block pruned") }), self: self, chainID: admissionChainID, order: valid},
+		{name: "latest height failure", registry: withChain(func(r *fakeBuilderRegistry) { r.heightErr = errors.New("node unavailable") }), self: self, chainID: admissionChainID, order: valid},
+		{name: "freshness window failure", registry: withChain(func(r *fakeBuilderRegistry) { r.windowErr = errors.New("task params unavailable") }), self: self, chainID: admissionChainID, order: valid},
 	}
 
 	for _, tt := range tests {
@@ -179,7 +205,7 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 func TestHubStage1AdmissionRejectsBuilderIdentityChangeBetweenQueries(t *testing.T) {
 	addresses := admissionTestAddresses(t, 3)
 	set := admissionSet(addresses...)
-	taskID := hex.EncodeToString(bytes.Repeat([]byte{0x7a}, 32))
+	taskID := admissionTaskFor(t, bytes.Repeat([]byte{0x7a}, 32))
 	tests := []struct {
 		name      string
 		responses []chaincli.BuilderState
@@ -195,7 +221,8 @@ func TestHubStage1AdmissionRejectsBuilderIdentityChangeBetweenQueries(t *testing
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			registry := &fakeBuilderRegistry{builderResponses: tt.responses, set: set, buildersPerTask: admissionPerTask}
+			registry := admissionRegistry(chaincli.BuilderState{}, set)
+			registry.builderResponses = tt.responses
 			_, err := NewHubStage1Admission(registry, addresses[0], admissionChainID).AdmitOrder(context.Background(), admissionOrder(t, taskID))
 			if !errors.Is(err, ErrAdmissionUnavailable) {
 				t.Fatalf("Admit error=%v want ErrAdmissionUnavailable", err)
@@ -204,8 +231,30 @@ func TestHubStage1AdmissionRejectsBuilderIdentityChangeBetweenQueries(t *testing
 	}
 }
 
+// admissionRegistry is chain state that admits admissionOrder: the latest block sits right above the
+// session anchor, inside the freshness window, and the anchor's block hash is the one the order signed.
 func admissionRegistry(builder chaincli.BuilderState, set chaincli.BuilderSet) *fakeBuilderRegistry {
-	return &fakeBuilderRegistry{builder: builder, set: set, buildersPerTask: admissionPerTask}
+	return &fakeBuilderRegistry{
+		builder: builder, set: set, buildersPerTask: admissionPerTask,
+		height: admissionAnchorHeight + 1, anchorWindow: admissionWindow,
+		blockHashes: map[uint64][]byte{admissionAnchorHeight: admissionAnchorHash},
+	}
+}
+
+// admissionSessions maps each test task_id to the session that derives it at admissionSequence.
+var admissionSessions sync.Map
+
+// admissionTaskFor returns the task_id a session derives at admissionSequence, and records the
+// session so admissionOrder can sign it.
+func admissionTaskFor(t *testing.T, session []byte) string {
+	t.Helper()
+	raw, err := nodecontract.DeriveTaskIDFromRawSession(session, admissionSequence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskID := hex.EncodeToString(raw[:])
+	admissionSessions.Store(taskID, append([]byte(nil), session...))
+	return taskID
 }
 
 func activeBuilder(address string) chaincli.BuilderState {
@@ -222,9 +271,15 @@ func admissionSet(members ...string) chaincli.BuilderSet {
 // admissionOrder is an order whose SignedOrderV2 carries the fields admission ranks under.
 func admissionOrder(t *testing.T, taskID string) types.Order {
 	t.Helper()
+	session, ok := admissionSessions.Load(taskID)
+	if !ok {
+		t.Fatalf("task %s has no recorded session; derive it with admissionTaskFor", taskID)
+	}
 	raw, err := proto.Marshal(&taskv1.SignedOrderV2{
 		Order: &taskv1.TaskOrderV3{
 			ChainId:                admissionChainID,
+			SessionId:              session.([]byte),
+			OrderSequence:          admissionSequence,
 			SessionAnchorHeight:    admissionAnchorHeight,
 			SessionAnchorBlockHash: admissionAnchorHash,
 			BuilderSetId:           admissionSetID,
@@ -243,10 +298,12 @@ func admissionOrder(t *testing.T, taskID string) types.Order {
 func admissionTaskWhere(t *testing.T, builders []string, match func([]string) bool) (string, []string) {
 	t.Helper()
 	for i := 0; i < 1000; i++ {
-		raw := sha256.Sum256([]byte(fmt.Sprintf("admission-task-%d", i)))
-		order := independentRankOrder(t, raw[:], builders)
+		session := sha256.Sum256([]byte(fmt.Sprintf("admission-session-%d", i)))
+		taskID := admissionTaskFor(t, session[:])
+		raw, _ := hex.DecodeString(taskID)
+		order := independentRankOrder(t, raw, builders)
 		if match(order) {
-			return hex.EncodeToString(raw[:]), order[:admissionPerTask]
+			return taskID, order[:admissionPerTask]
 		}
 	}
 	t.Fatal("no task_id satisfies the requested selection")
@@ -325,4 +382,25 @@ func admissionTestAddresses(t *testing.T, count int) []string {
 		addresses = append(addresses, sg.Address())
 	}
 	return addresses
+}
+
+// The freshness window is inclusive: an anchor exactly anchor_freshness_window_blocks behind the
+// executing block is admitted, one more block is not.
+func TestHubStage1AdmissionAnchorFreshnessBoundary(t *testing.T) {
+	builders := admissionTestAddresses(t, 3)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	for _, tt := range []struct {
+		latest uint64
+		admit  bool
+	}{
+		{latest: admissionAnchorHeight + admissionWindow - 1, admit: true},
+		{latest: admissionAnchorHeight + admissionWindow, admit: false},
+	} {
+		registry := admissionRegistry(activeBuilder(builders[0]), admissionSet(builders...))
+		registry.height = tt.latest
+		_, err := NewHubStage1Admission(registry, builders[0], admissionChainID).AdmitOrder(context.Background(), admissionOrder(t, taskID))
+		if (err == nil) != tt.admit {
+			t.Fatalf("latest=%d admit=%v err=%v", tt.latest, tt.admit, err)
+		}
+	}
 }

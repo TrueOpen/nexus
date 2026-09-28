@@ -406,6 +406,21 @@ func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 	return limit, nil
 }
 
+// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks. The
+// chain admits a signed order only while its session anchor is below the executing height and at
+// most this many blocks behind it. Zero is refused: no anchor could satisfy it.
+func (c *client) QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error) {
+	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("task params", err)
+	}
+	window := resp.Msg.GetParams().GetSession().GetAnchorFreshnessWindowBlocks()
+	if window == 0 {
+		return 0, fmt.Errorf("query task params: session.anchor_freshness_window_blocks is zero")
+	}
+	return window, nil
+}
+
 // QueryInferReceipt reads the output_hash and infer_receipt_hash of the task's accepted
 // InferReceipt. A task without an accepted receipt returns ErrNotFound.
 func (c *client) QueryInferReceipt(ctx context.Context, taskID string) (AcceptedInferReceipt, error) {

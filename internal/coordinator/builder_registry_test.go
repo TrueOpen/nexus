@@ -123,6 +123,10 @@ type fakeBuilderRegistry struct {
 	setErr           error
 	buildersPerTask  uint32
 	perTaskErr       error
+	anchorWindow     uint64
+	windowErr        error
+	blockHashes      map[uint64][]byte
+	blockErr         error
 }
 
 func (r *fakeBuilderRegistry) QueryBuilder(_ context.Context, address string) (chaincli.BuilderState, error) {
@@ -150,4 +154,19 @@ func (r *fakeBuilderRegistry) QueryBuilderSetAtHeight(_ context.Context, height 
 
 func (r *fakeBuilderRegistry) QueryBuildersPerTask(context.Context) (uint32, error) {
 	return r.buildersPerTask, r.perTaskErr
+}
+
+func (r *fakeBuilderRegistry) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
+	return r.anchorWindow, r.windowErr
+}
+
+func (r *fakeBuilderRegistry) BlockHash(_ context.Context, height int64) ([]byte, error) {
+	if r.blockErr != nil {
+		return nil, r.blockErr
+	}
+	hash, ok := r.blockHashes[uint64(height)]
+	if !ok {
+		return nil, chaincli.ErrNotFound
+	}
+	return hash, nil
 }
