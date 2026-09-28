@@ -3,16 +3,14 @@ package nodecontract
 import (
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"strconv"
 	"testing"
+
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 func TestDeriveTaskIDFromRawSessionMatchesNodeNormativeVector(t *testing.T) {
-	raw, err := os.ReadFile("testdata/task_data_plane_v1_golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := wirefixture.ReadFile(t, "testdata/v1/task/task_data_plane_v1_golden.json")
 	var fixture struct {
 		TaskID struct {
 			SessionIDRawHex string `json:"session_id_raw_hex"`

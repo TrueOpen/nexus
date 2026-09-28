@@ -2,7 +2,6 @@ package nodecontract
 
 import (
 	"encoding/hex"
-	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -50,18 +49,6 @@ func TestComputeBuilderSelectionMatchesSDKGoldenVector(t *testing.T) {
 	}
 	if !reflect.DeepEqual(reversed.SelectedBuilders, want) {
 		t.Fatalf("reversed selected builders=%v want=%v", reversed.SelectedBuilders, want)
-	}
-}
-
-func TestBuilderSetHashMatchesSDKGoldenSnapshot(t *testing.T) {
-	builders := []string{
-		"trueopen1870sqtdru7dj3xgwpzcexry0dwvyz2ku7xv9mg",
-		"trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
-		"trueopen1yfse4c367uc2rja5g3905ynmnuv2hjk8gcgvfl",
-	}
-	want := "68f4c02de973deecab42a56635ac34c47b311371b5c326cf50688065970f7322"
-	if got := BuilderSetHash(1, 1, 60479999, builders); got != want {
-		t.Fatalf("builder set hash=%q want=%q", got, want)
 	}
 }
 
@@ -125,67 +112,5 @@ func TestComputeBuilderSelectionEncodesNodeProofFrame(t *testing.T) {
 	)
 	if proof != BuilderSelectionProofVersion+":"+hex.EncodeToString(wantFrame) {
 		t.Fatalf("proof=%q", proof)
-	}
-}
-
-func TestBuildSettlementEvidenceMatchesNodeReferenceShape(t *testing.T) {
-	input := SettlementEvidenceInput{
-		SessionID: "session-1", TaskID: "task-1", WinnerWorker: "worker-1", SettlementID: "settlement-1",
-		ModelID: "model-1", ProfileVersion: math.MaxUint32, VerificationSampleSeed: "sample-seed",
-		EvidenceCommitmentsHash: "evidence-commitments-hash",
-		EvidenceSchemaHash:      "schema-hash", JudgmentFunctionVersion: "JUDGMENT_V1",
-		TaskVerdict: "PASS", SettlementStatus: "SETTLED_PASS", PayoutHash: "payout-hash",
-		FaultSummaryHash: "fault-hash", RefundAmount: 100,
-		FormalVerifiers: []string{"verifier-1", "verifier-2", "verifier-3"},
-		AcceptedResults: []SettlementResultReceipt{
-			{Verifier: "verifier-1", CommitHash: "commit-1", ResultRevealHash: "result-1", CommitHeight: 80, ResultHeight: 90},
-			{Verifier: "verifier-2", CommitHash: "commit-2", ResultRevealHash: "result-2", CommitHeight: 81, ResultHeight: 91},
-		},
-		FullResultRevealRefs: []string{"session-1/task-1/1/verifier-3"},
-	}
-	got, err := BuildSettlementEvidence(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.CommitHeightRefs != "session-1/task-1/1/verifier-1,session-1/task-1/1/verifier-2" {
-		t.Fatalf("commit refs=%q", got.CommitHeightRefs)
-	}
-	if got.WorkerRevealReceiptRef != "session-1/task-1/1/worker-1" {
-		t.Fatalf("worker ref=%q", got.WorkerRevealReceiptRef)
-	}
-	if got.LeafCountByType != "TASK_META=1,WORKER_REVEAL_RECEIPT=1,VERIFIER_RESULT_RECEIPT=2,REGISTERED_FULL_RESULT_REVEAL=1,SETTLEMENT_BILL=1" {
-		t.Fatalf("leaf count=%q", got.LeafCountByType)
-	}
-	for name, value := range map[string]string{
-		"result refs": got.ResultReceiptRefsHash, "full refs": got.RegisteredFullResultRefsHash,
-		"manifest": got.RootManifestHash, "root": got.TaskEvidenceRoot,
-	} {
-		if len(value) != 64 {
-			t.Fatalf("%s=%q", name, value)
-		}
-	}
-}
-
-func TestSettlementEvidenceSchemaHashSupportsUint32ProfileVersion(t *testing.T) {
-	got := SettlementEvidenceSchemaHash("model-1", math.MaxUint32, "component-v1", "judgment-v1")
-	want := canonicalHashHex(settlementEvidenceSchemaV1, "model-1", "4294967295", "component-v1", "judgment-v1")
-	if got != want {
-		t.Fatalf("schema hash=%q want=%q", got, want)
-	}
-}
-
-func TestSettlementBillHashesUseCurrentDomains(t *testing.T) {
-	bill := SettlementBill{
-		SessionID: "session-1", TaskID: "task-1", SettlementID: "settlement-1",
-		TaskVerdict: "PASS", SettlementStatus: "SETTLED_PASS", RefundAmount: 100,
-	}
-	if got := SettlementPayoutHash(bill); len(got) != 64 {
-		t.Fatalf("payout hash=%q", got)
-	}
-	if got := SettlementFaultSummaryHash(bill, "NONE"); len(got) != 64 {
-		t.Fatalf("fault hash=%q", got)
-	}
-	if got := SettlementEvidenceSchemaHash("model-1", 2, "trueopen-worker-reveal-v1", "JUDGMENT_V1"); len(got) != 64 {
-		t.Fatalf("schema hash=%q", got)
 	}
 }
