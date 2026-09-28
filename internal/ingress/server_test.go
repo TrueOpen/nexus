@@ -76,6 +76,13 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("oversized request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
 	}
+	// The retired procedures decode nothing but still refuse a large body instead of buffering it.
+	_, err = client.SubmitOrder(context.Background(), connect.NewRequest(&nexusv1.SubmitOrderRequest{
+		Payload: bytes.Repeat([]byte("x"), retiredMaxBodyBytes+1),
+	}))
+	if connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("oversized retired request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
+	}
 }
 
 func TestServerCapsRawHTTPBody(t *testing.T) {

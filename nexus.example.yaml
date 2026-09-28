@@ -52,8 +52,11 @@ task_data:
   max_blob_bytes: 1073741824
   spool_reservation_bytes: 4294967296
   disk_accept_watermark_percent: 85
-  # Signed requests may expire at most this many Task Chain blocks ahead.
+  # OpenTask requests may expire at most this many Task Chain blocks ahead. Task data requests use
+  # the Hub parameter service.max_service_material_expiry_blocks instead.
   request_ttl_blocks: 20
+  # Task data requests one user account may make per minute; 0 disables the cap.
+  user_requests_per_minute: 600
   # Fallback retention window for Builder storage confirmations
   # when the object carries no authoritative retention height.
   # Must outlast the verify + challenge windows (devnet: ~700 blocks after

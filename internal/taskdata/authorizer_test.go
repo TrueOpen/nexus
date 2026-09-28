@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -1203,5 +1204,69 @@ func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+// A USER account over its per-minute cap is refused (NEXUS_DATA_CAPACITY) before its nonce is
+// stored, so the same request succeeds once the window moves on.
+func TestUserRequestRateCap(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.UserRequestsPerMinute = 2
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := fx.metadata[ObjectKindOutput]
+	request := func(nonce byte) RequestAuth {
+		return userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, fx.authority.height+10)
+	}
+	for nonce := byte(1); nonce <= 2; nonce++ {
+		m := meta
+		if err := authorizer.AuthorizeMetadata(context.Background(), request(nonce), &m); err != nil {
+			t.Fatalf("request %d: %v", nonce, err)
+		}
+	}
+	m := meta
+	third := request(3)
+	if err := authorizer.AuthorizeMetadata(context.Background(), third, &m); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("third request: %v, want NEXUS_DATA_CAPACITY", err)
+	}
+	authorizer.userRate.window = authorizer.userRate.window.Add(-time.Minute)
+	if err := authorizer.AuthorizeMetadata(context.Background(), third, &m); err != nil {
+		t.Fatalf("the refused request's nonce was stored: %v", err)
+	}
+}
+
+// The Task data expiry window is re-read from the chain once per interval; a failed read keeps the
+// last value.
+func TestRequestExpiryWindowRefreshes(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.MaxRequestExpiryBlocks = 100
+	next, fail := uint64(300), false
+	cfg.RefreshMaxRequestExpiryBlocks = func(context.Context) (uint64, error) {
+		if fail {
+			return 0, errors.New("chain down")
+		}
+		return next, nil
+	}
+	cfg.RequestExpiryRefreshInterval = time.Hour
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if got := authorizer.requestExpiryBlocks(ctx); got != 100 {
+		t.Fatalf("before the interval: %d", got)
+	}
+	authorizer.expiryRefreshed = time.Now().Add(-2 * time.Hour)
+	if got := authorizer.requestExpiryBlocks(ctx); got != 300 {
+		t.Fatalf("after the interval: %d, want 300", got)
+	}
+	fail = true
+	authorizer.expiryRefreshed = time.Now().Add(-2 * time.Hour)
+	if got := authorizer.requestExpiryBlocks(ctx); got != 300 {
+		t.Fatalf("after a failed read: %d, want 300", got)
 	}
 }

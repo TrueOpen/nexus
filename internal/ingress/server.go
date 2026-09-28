@@ -246,7 +246,7 @@ func (s *Server) handler() http.Handler {
 		nexusv1connect.IngressAPIFetchOutputRefProcedure,
 		nexusv1connect.IngressAPIRefreshCredentialProcedure,
 	} {
-		mux.Handle(procedure, retiredHandler(procedure, baseHandlerOptions))
+		mux.Handle(procedure, http.MaxBytesHandler(retiredHandler(procedure, baseHandlerOptions), retiredMaxBodyBytes))
 	}
 
 	// gRPC reflection (grpcurl debugging)
@@ -310,13 +310,18 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
+// retiredMaxBodyBytes caps the body a retired procedure reads: it decodes nothing, so a request
+// larger than this is refused (ResourceExhausted) instead of being buffered.
+const retiredMaxBodyBytes = 64 << 10
+
 // retiredHandler answers a retired procedure with Unimplemented / NEXUS_INGRESS_METHOD_RETIRED before
 // the request is parsed: its codecs accept any bytes and decode nothing, so even a body that is not a
 // valid message gets the retired answer rather than a decoding error.
 func retiredHandler(procedure string, options []connect.HandlerOption) http.Handler {
 	method := procedure[strings.LastIndex(procedure, "/")+1:]
 	options = append(append([]connect.HandlerOption(nil), options...),
-		connect.WithCodec(discardCodec{name: "proto"}), connect.WithCodec(discardCodec{name: "json"}))
+		connect.WithCodec(discardCodec{name: "proto"}), connect.WithCodec(discardCodec{name: "json"}),
+		connect.WithReadMaxBytes(retiredMaxBodyBytes))
 	return connect.NewUnaryHandler(procedure,
 		func(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error) {
 			return nil, errMethodRetired(method)

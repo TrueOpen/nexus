@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -53,6 +54,14 @@ type AuthorizerConfig struct {
 	// MaxRequestExpiryBlocks bounds a Task data request's expiry_height above the current height:
 	// the Hub parameter service.max_service_material_expiry_blocks. 0 falls back to RequestTTLBlocks.
 	MaxRequestExpiryBlocks uint64
+	// RefreshMaxRequestExpiryBlocks, when set, re-reads MaxRequestExpiryBlocks from the chain at
+	// most once per RequestExpiryRefreshInterval (default 10 minutes), so a governance change takes
+	// effect without a restart. A failed read keeps the last value.
+	RefreshMaxRequestExpiryBlocks func(context.Context) (uint64, error)
+	RequestExpiryRefreshInterval  time.Duration
+	// UserRequestsPerMinute caps the requests one USER account may make per minute, checked after
+	// the signature and before the nonce is stored. 0 disables the cap.
+	UserRequestsPerMinute uint32
 	// RetentionLeaseBlocks is the fallback length of the retention window for
 	// retention_until_height in a storage confirmation (extending the retention
 	// window is managed through a retention lease and does not modify the original confirmation).
@@ -69,6 +78,12 @@ type Authorizer struct {
 	signer    signer.Signer
 
 	replayMu sync.Mutex
+
+	expiryMu        sync.Mutex
+	expiryBlocks    uint64
+	expiryRefreshed time.Time
+
+	userRate userRateLimiter
 }
 
 type metadataAccess struct {
@@ -92,6 +107,8 @@ func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, 
 	}
 	return &Authorizer{
 		cfg: cfg, backend: backend, authority: authority, signer: serviceSigner,
+		expiryBlocks: cfg.MaxRequestExpiryBlocks, expiryRefreshed: time.Now(),
+		userRate: userRateLimiter{limit: cfg.UserRequestsPerMinute, counts: map[string]uint32{}},
 	}, nil
 }
 
@@ -404,6 +421,11 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		if request.BuilderOperatorAddress != a.cfg.BuilderAddress {
 			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: the request is for Builder %q", ErrDenied, request.BuilderOperatorAddress)
 		}
+		// The nonce of a signed request is stored before the Task duty is checked (wire order), so an
+		// account may not store nonces faster than the cap.
+		if !a.userRate.allow(request.RequesterAddress, time.Now()) {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: too many Task data requests from %q", ErrCapacity, request.RequesterAddress)
+		}
 	default:
 		return chaincli.OnChainTask{}, 0, nil, formatErr(request, fmt.Errorf("%w: requester_kind", ErrMalformed))
 	}
@@ -411,7 +433,7 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 	if err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
 	}
-	if err := validateExpiry(height, request.ExpiryHeight, a.requestExpiryBlocks()); err != nil {
+	if err := validateExpiry(height, request.ExpiryHeight, a.requestExpiryBlocks(ctx)); err != nil {
 		return chaincli.OnChainTask{}, 0, nil, err
 	}
 	if request.RequesterKind == RequesterKindUser {
@@ -424,12 +446,57 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 	return task, height, requesterKey, nil
 }
 
-// requestExpiryBlocks is the Task data request expiry window.
-func (a *Authorizer) requestExpiryBlocks() uint64 {
-	if a.cfg.MaxRequestExpiryBlocks != 0 {
-		return a.cfg.MaxRequestExpiryBlocks
+// requestExpiryBlocks is the Task data request expiry window, re-read from the chain once per
+// refresh interval when a reader is configured.
+func (a *Authorizer) requestExpiryBlocks(ctx context.Context) uint64 {
+	interval := a.cfg.RequestExpiryRefreshInterval
+	if interval <= 0 {
+		interval = 10 * time.Minute
+	}
+	a.expiryMu.Lock()
+	refresh := a.cfg.RefreshMaxRequestExpiryBlocks != nil && time.Since(a.expiryRefreshed) >= interval
+	if refresh {
+		a.expiryRefreshed = time.Now() // one reader per interval; the others keep the current value
+	}
+	a.expiryMu.Unlock()
+	if refresh {
+		if blocks, err := a.cfg.RefreshMaxRequestExpiryBlocks(ctx); err == nil && blocks != 0 {
+			a.expiryMu.Lock()
+			a.expiryBlocks = blocks
+			a.expiryMu.Unlock()
+		}
+	}
+	a.expiryMu.Lock()
+	defer a.expiryMu.Unlock()
+	if a.expiryBlocks != 0 {
+		return a.expiryBlocks
 	}
 	return a.cfg.RequestTTLBlocks
+}
+
+// userRateLimiter counts USER requests per account in one-minute windows.
+type userRateLimiter struct {
+	mu     sync.Mutex
+	limit  uint32
+	window time.Time
+	counts map[string]uint32
+}
+
+func (l *userRateLimiter) allow(account string, now time.Time) bool {
+	if l.limit == 0 {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.window) >= time.Minute {
+		l.window = now
+		clear(l.counts)
+	}
+	if l.counts[account] >= l.limit {
+		return false
+	}
+	l.counts[account]++
+	return true
 }
 
 // verifyRequesterKey confirms that the presented pubkey really represents the operator address the

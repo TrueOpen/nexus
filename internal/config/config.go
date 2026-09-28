@@ -40,15 +40,18 @@ type OutputDeliveryConfig struct {
 }
 
 type TaskDataConfig struct {
-	InlineMaxBytes             uint64        `yaml:"inline_max_bytes"`
-	ChunkSizeBytes             uint64        `yaml:"chunk_size_bytes"`
-	MaxRangeBytes              uint64        `yaml:"max_range_bytes"`
-	MaxBlobBytes               uint64        `yaml:"max_blob_bytes"`
-	SpoolReservationBytes      uint64        `yaml:"spool_reservation_bytes"`
-	DiskAcceptWatermarkPercent uint32        `yaml:"disk_accept_watermark_percent"`
-	RequestTTLBlocks           uint64        `yaml:"request_ttl_blocks"`
-	RetentionLeaseBlocks       uint64        `yaml:"retention_lease_blocks"`
-	SweepInterval              time.Duration `yaml:"sweep_interval"`
+	InlineMaxBytes             uint64 `yaml:"inline_max_bytes"`
+	ChunkSizeBytes             uint64 `yaml:"chunk_size_bytes"`
+	MaxRangeBytes              uint64 `yaml:"max_range_bytes"`
+	MaxBlobBytes               uint64 `yaml:"max_blob_bytes"`
+	SpoolReservationBytes      uint64 `yaml:"spool_reservation_bytes"`
+	DiskAcceptWatermarkPercent uint32 `yaml:"disk_accept_watermark_percent"`
+	RequestTTLBlocks           uint64 `yaml:"request_ttl_blocks"`
+	// UserRequestsPerMinute caps the Task data requests one user account may make per minute; a
+	// request over the cap is refused before its nonce is stored. 0 disables the cap.
+	UserRequestsPerMinute uint32        `yaml:"user_requests_per_minute"`
+	RetentionLeaseBlocks  uint64        `yaml:"retention_lease_blocks"`
+	SweepInterval         time.Duration `yaml:"sweep_interval"`
 	// OutputStream is the streaming OUTPUT data plane.
 	OutputStream OutputStreamConfig `yaml:"output_stream"`
 }
@@ -694,6 +697,7 @@ func defaults() Config {
 			SpoolReservationBytes:      4 << 30,
 			DiskAcceptWatermarkPercent: 85,
 			RequestTTLBlocks:           20,
+			UserRequestsPerMinute:      600,
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,
 			OutputStream: OutputStreamConfig{
@@ -747,6 +751,7 @@ func applyEnv(cfg *Config) {
 	cfg.TaskData.SpoolReservationBytes = envUint64("NEXUS_TASK_DATA_SPOOL_RESERVATION_BYTES", cfg.TaskData.SpoolReservationBytes)
 	cfg.TaskData.DiskAcceptWatermarkPercent = envUint32("NEXUS_TASK_DATA_DISK_ACCEPT_WATERMARK_PERCENT", cfg.TaskData.DiskAcceptWatermarkPercent)
 	cfg.TaskData.RequestTTLBlocks = envUint64("NEXUS_TASK_DATA_REQUEST_TTL_BLOCKS", cfg.TaskData.RequestTTLBlocks)
+	cfg.TaskData.UserRequestsPerMinute = envUint32("NEXUS_TASK_DATA_USER_REQUESTS_PER_MINUTE", cfg.TaskData.UserRequestsPerMinute)
 	cfg.TaskData.RetentionLeaseBlocks = envUint64("NEXUS_TASK_DATA_RETENTION_LEASE_BLOCKS", cfg.TaskData.RetentionLeaseBlocks)
 	cfg.TaskData.SweepInterval = envDuration("NEXUS_TASK_DATA_SWEEP_INTERVAL", cfg.TaskData.SweepInterval)
 	cfg.TaskData.OutputStream.Enabled = envBool("NEXUS_TASK_DATA_OUTPUT_STREAM_ENABLED", cfg.TaskData.OutputStream.Enabled)

@@ -755,6 +755,8 @@ func mapTaskDataError(err error) error {
 		code = connect.CodeInvalidArgument
 	case errors.Is(err, taskdata.ErrReplay):
 		code = connect.CodeUnauthenticated
+	case errors.Is(err, taskdata.ErrRetentionExpired):
+		code = connect.CodeNotFound
 	case errors.Is(err, taskdata.ErrSessionMethodNotAllowed):
 		code = connect.CodePermissionDenied
 	case errors.Is(err, taskdata.ErrSessionGrantInvalid), errors.Is(err, taskdata.ErrInvalidSignature):

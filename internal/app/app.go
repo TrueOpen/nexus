@@ -417,13 +417,19 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, fmt.Errorf("query hub max_service_material_expiry_blocks: %w", expiryErr)
 		}
 		log.Info("task data request expiry window", "max_service_material_expiry_blocks", requestExpiryBlocks,
-			"open_task_request_ttl_blocks", cfg.TaskData.RequestTTLBlocks)
+			"open_task_request_ttl_blocks", cfg.TaskData.RequestTTLBlocks, "user_requests_per_minute", cfg.TaskData.UserRequestsPerMinute)
 		taskAuthorizer, err = taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 			ChainID: cfg.Chain.ChainID, EVMChainID: evmChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
 			RequestTTLBlocks:       cfg.TaskData.RequestTTLBlocks,
 			MaxRequestExpiryBlocks: requestExpiryBlocks,
-			RetentionLeaseBlocks:   cfg.TaskData.RetentionLeaseBlocks,
-			SessionGrants:          taskdata.SessionGrantEnv{Chain: userChain, MaxBlocks: sessionGrantBlocks},
+			RefreshMaxRequestExpiryBlocks: func(ctx context.Context) (uint64, error) {
+				refreshCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				return registrationChain.QueryServiceMaterialExpiryBlocks(refreshCtx)
+			},
+			UserRequestsPerMinute: cfg.TaskData.UserRequestsPerMinute,
+			RetentionLeaseBlocks:  cfg.TaskData.RetentionLeaseBlocks,
+			SessionGrants:         taskdata.SessionGrantEnv{Chain: userChain, MaxBlocks: sessionGrantBlocks},
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()

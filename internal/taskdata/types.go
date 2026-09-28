@@ -25,6 +25,9 @@ var (
 	// ErrReplay is a request nonce already used within its expiry. On the CORTEX_SERVICE path it is
 	// reported as NEXUS_DATA_UNAUTHORIZED, as before; OpenTask reports it as SDK_AUTH_REPLAY.
 	ErrReplay = errors.New("NEXUS_DATA_REPLAY")
+	// ErrRetentionExpired is a stored object deleted when its retention ran out; unlike
+	// NEXUS_DATA_EXPIRED (the request expired, sign again) it is final.
+	ErrRetentionExpired = errors.New("DATA_EXPIRED")
 	// Session grant failures on the USER path.
 	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
 	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")
