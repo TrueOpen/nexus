@@ -155,9 +155,8 @@ func TestStage1AdmissionOptionSkippedWithoutSigner(t *testing.T) {
 	}
 }
 
-// stage1RegistryHeight is the latest height the fake registry reports: admission must use it to look up the
-// BuilderSet, and term may only come from the returned value.
-const stage1RegistryHeight = uint64(1234)
+// stage1AnchorHeight is the session_anchor_height of the signed order; admission reads the BuilderSet there.
+const stage1AnchorHeight = uint64(1234)
 
 func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
 	const (
@@ -174,10 +173,11 @@ func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
 		builders = append(builders, builder.Address())
 	}
 	const setHash = "7c1d3e5a9b2f4068d1c3e5a7b9f20416d8c3e5a7b9f20416d8c3e5a7b9f20416"
-	taskID := taskOutsideSelection(t, termID, taskChainID, setHash, sg.Address(), builders)
+	anchorHash := bytes.Repeat([]byte{0x42}, 32)
+	taskID := taskOutsideSelection(t, taskChainID, setHash, anchorHash, sg.Address(), builders)
 	registry := &stage1Registry{
-		builder: chaincli.BuilderState{Address: sg.Address(), ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
-		height:  stage1RegistryHeight,
+		builder:         chaincli.BuilderState{Address: sg.Address(), ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
+		buildersPerTask: 3,
 		set: chaincli.BuilderSet{
 			Epoch: termID, BuilderSetID: "7", SetHash: setHash,
 			ActiveBuilderCount: uint32(len(builders)), BodyStatus: "ACTIVE",
@@ -198,10 +198,10 @@ func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
 		stage1AdmissionOption(sg, registry, taskChainID),
 	)
 
-	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: taskID, ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: appTestSignedOrderBytes(t)}); err != nil {
+	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: taskID, ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: stage1SignedOrderBytes(t, taskChainID, anchorHash, "7", setHash)}); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
-	if registry.address != sg.Address() || registry.queriedHeight != stage1RegistryHeight {
+	if registry.address != sg.Address() || registry.queriedHeight != stage1AnchorHeight {
 		t.Fatalf("registry query address=%q height=%d", registry.address, registry.queriedHeight)
 	}
 	if !strings.Contains(logs.String(), "code="+coordinator.ErrNotSelectedBuilder.Error()) {
@@ -220,25 +220,52 @@ func appTestSignedOrderBytes(t *testing.T) []byte {
 	return raw
 }
 
-func taskOutsideSelection(t *testing.T, termID uint64, chainID, setHash, self string, builders []string) string {
+// stage1SignedOrderBytes is a SignedOrderV2 carrying the fields admission ranks the BuilderSet under.
+func stage1SignedOrderBytes(t *testing.T, chainID string, anchorHash []byte, setID, setHash string) []byte {
 	t.Helper()
+	rawSetHash, err := hex.DecodeString(setHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := proto.Marshal(&taskv1.SignedOrderV2{
+		Order: &taskv1.TaskOrderV3{
+			ChainId: chainID, SessionAnchorHeight: stage1AnchorHeight, SessionAnchorBlockHash: anchorHash,
+			BuilderSetId: setID, BuilderSetHash: rawSetHash,
+		},
+		SignatureScheme: "eip712",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func taskOutsideSelection(t *testing.T, chainID, setHash string, anchorHash []byte, self string, builders []string) string {
+	t.Helper()
+	rawSetHash, err := hex.DecodeString(setHash)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessionID := sha256.Sum256([]byte("session-stage1"))
 	for sequence := 1; sequence <= 100; sequence++ {
 		taskIDRaw, err := nodecontract.DeriveTaskIDFromRawSession(sessionID[:], uint64(sequence))
 		if err != nil {
 			t.Fatal(err)
 		}
-		taskID := hex.EncodeToString(taskIDRaw[:])
-		selection, err := nodecontract.ComputeBuilderSelection(termID, chainID, "", taskID, "ASSIGN", "", setHash, builders)
+		seed, err := nodecontract.TaskBuilderSeed(chainID, taskIDRaw[:], rawSetHash, anchorHash)
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected := false
-		for _, address := range selection.SelectedBuilders {
-			selected = selected || address == self
+		selected, err := nodecontract.SelectTaskBuilders(seed, builders, 3)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !selected {
-			return taskID
+		inSelection := false
+		for _, address := range selected {
+			inSelection = inSelection || address == self
+		}
+		if !inSelection {
+			return hex.EncodeToString(taskIDRaw[:])
 		}
 	}
 	t.Fatal("could not find task outside selection")
@@ -254,11 +281,11 @@ func appBuilderRefs(addresses ...string) []types.BuilderRef {
 }
 
 type stage1Registry struct {
-	address       string
-	queriedHeight uint64
-	height        uint64
-	builder       chaincli.BuilderState
-	set           chaincli.BuilderSet
+	address         string
+	queriedHeight   uint64
+	builder         chaincli.BuilderState
+	set             chaincli.BuilderSet
+	buildersPerTask uint32
 }
 
 func (r *stage1Registry) QueryBuilder(_ context.Context, address string) (chaincli.BuilderState, error) {
@@ -266,11 +293,17 @@ func (r *stage1Registry) QueryBuilder(_ context.Context, address string) (chainc
 	return r.builder, nil
 }
 
-func (r *stage1Registry) LatestHeight(context.Context) (uint64, error) { return r.height, nil }
+func (r *stage1Registry) LatestHeight(context.Context) (uint64, error) {
+	return 0, errors.New("unused")
+}
 
 func (r *stage1Registry) QueryBuilderSetAtHeight(_ context.Context, height uint64) (chaincli.BuilderSet, error) {
 	r.queriedHeight = height
 	return r.set, nil
+}
+
+func (r *stage1Registry) QueryBuildersPerTask(context.Context) (uint32, error) {
+	return r.buildersPerTask, nil
 }
 
 func appTestSigner(t *testing.T) signer.Signer {

@@ -148,7 +148,7 @@ func TestOnOrderStage1AdmissionFailureIsObserveOnly(t *testing.T) {
 }
 
 func TestOnOrderStage1AdmissionAllowsNormalPath(t *testing.T) {
-	policy := &fakeOrderAdmission{result: OrderAdmissionResult{TermID: 7, Rank: 2, Proof: nodecontract.BuilderSelectionProofVersion + ":00"}}
+	policy := &fakeOrderAdmission{result: OrderAdmissionResult{TermID: 7, Rank: 2, Proof: strings.Repeat("ab", 32)}}
 	c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
 	order := testPlaceholderOrder("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b")
 
@@ -168,7 +168,7 @@ func TestOnOrderStage1AdmissionAllowsNormalPath(t *testing.T) {
 }
 
 func TestOnOrderCarriesStage1SelectionIntoAssign(t *testing.T) {
-	const proof = nodecontract.BuilderSelectionProofVersion + ":00"
+	proof := strings.Repeat("ab", 32)
 	policy := &fakeOrderAdmission{result: OrderAdmissionResult{TermID: 7, Rank: 2, Proof: proof}}
 	c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
 	order := testCurrentOrder("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", testTaskID("2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"), testUserAddress)

@@ -320,6 +320,20 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 	return grace, nil
 }
 
+// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task, the number of Builders the
+// task Keeper selects for each task. Zero is refused: the Keeper cannot admit an order under it.
+func (c *client) QueryBuildersPerTask(ctx context.Context) (uint32, error) {
+	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("hub params", err)
+	}
+	count := resp.Msg.GetParams().GetBuilder().GetBuildersPerTask()
+	if count == 0 {
+		return 0, fmt.Errorf("query hub params: builders_per_task is zero")
+	}
+	return count, nil
+}
+
 // defaultEpochLengthBlocks is the Hub's epoch length when epoch.epoch_length_blocks is zero
 // (node x/hub/keeper/epoch_runtime.go normalizedEpochLengthBlocks, types.DefaultEpochLengthBlocks).
 const defaultEpochLengthBlocks uint64 = 60_480

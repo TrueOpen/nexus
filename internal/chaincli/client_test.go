@@ -552,6 +552,21 @@ func TestQuerySettlementBuilderGraceBlocksReadsHubParams(t *testing.T) {
 	}
 }
 
+func TestQueryBuildersPerTaskReadsHubParams(t *testing.T) {
+	fake := &recordHubQuery{params: &hubv1.QueryHubParamsResponse{Params: &hubv1.HubParamsV2{
+		Builder: &hubv1.BuilderParamsV1{BuildersPerTask: 3},
+	}}}
+	c := &client{hubQuery: fake}
+	got, err := c.QueryBuildersPerTask(context.Background())
+	if err != nil || got != 3 {
+		t.Fatalf("builders_per_task=%d err=%v", got, err)
+	}
+	fake.params.Params.Builder.BuildersPerTask = 0
+	if _, err := c.QueryBuildersPerTask(context.Background()); err == nil {
+		t.Fatal("zero builders_per_task must be refused")
+	}
+}
+
 // The timeout bucket query moved from task.v1.Query to hub.v1.Query and the
 // response became the generic ParameterBucketVersionViewV1; height is no longer a query
 // key, and the four per-stage timeout fields are not on the wire either.

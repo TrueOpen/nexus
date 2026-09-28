@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// SupportedVerifyRoundV1 is the only verify_round Nexus handles.
+const SupportedVerifyRoundV1 = uint64(1)
+
 const (
 	OrderEnvelopeSchemaV1     = "trueopen-order-envelope-v1"
 	WorkerHandraiseSchemaV1   = "trueopen-worker-handraise-v1"
@@ -258,4 +261,14 @@ func canonicalOptionalStrings(values ...string) bool {
 		}
 	}
 	return true
+}
+
+// canonicalHash is the length-prefixed text framing (same as domainHash) used by the verifier
+// ordering helpers above.
+func canonicalHash(domain string, fields ...string) []byte {
+	return domainHash(domain, fields...)
+}
+
+func canonicalHashHex(domain string, fields ...string) string {
+	return hex.EncodeToString(canonicalHash(domain, fields...))
 }

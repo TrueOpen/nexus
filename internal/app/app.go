@@ -486,7 +486,7 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 	return legacyMax
 }
 
-func stage1AdmissionOption(accountSigner signer.Signer, registry coordinator.BuilderRegistry, taskChainID string) coordinator.Option {
+func stage1AdmissionOption(accountSigner signer.Signer, registry coordinator.AdmissionRegistry, taskChainID string) coordinator.Option {
 	if accountSigner == nil {
 		return coordinator.WithOrderAdmission(nil)
 	}
