@@ -1,10 +1,10 @@
-// Package natsauth is the NATS auth-callout service (ADR-0016 decision three; Interface & Topic Catalogue §5.14):
+// Package natsauth is the NATS auth-callout service:
 // Cortex connects to NATS with its on-chain identity; this package checks its binding against the chain and issues a short-lived user JWT.
 package natsauth
 
 import "github.com/nats-io/jwt/v2"
 
-// CortexPermissions is the subject permission set issued in Cortex user JWTs: the CORTEX row of Interface & Topic Catalogue §5.13,
+// CortexPermissions is the subject permission set issued in Cortex user JWTs: the subjects Cortex publishes and subscribes on,
 // plus the three JetStream subject groups (stream name supplied by deployment; TRUEOPEN_TASK on devnet).
 // allow only, no deny: the allow list is the entire authorization.
 func CortexPermissions(jetStreamStream string) jwt.Permissions {

@@ -366,7 +366,7 @@ func TestCoordinatorConflictingOutputRetryDoesNotReplaceCustody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first delivery: %v", err)
 	}
-	// Contract §6 I3: the receipt material digest of the same Task must not be replaced by a second, different receipt.
+	// The receipt material digest of the same Task must not be replaced by a second, different receipt.
 	conflict := first
 	conflict.InferReceiptHash = []byte("infer-receipt-conflict")
 	if err := c.OnInferReceipt(context.Background(), conflict); !errors.Is(err, types.ErrInvalidArgument) {

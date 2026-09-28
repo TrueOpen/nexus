@@ -1,5 +1,4 @@
-// Canonical form of the 65-byte recoverable signature (base spec §10.1a,
-// TaskOrder Hashing and Signing §7.3/§7.5).
+// Canonical form of the 65-byte recoverable signature carried by SignedOrderV2.
 //
 // The user signature of SignedOrderV2 is a recoverable ECDSA over the order-domain EIP-712
 // digest: R || S || V, V ∈ {27,28}, low-S. Nexus **does not verify the signature**: the user
@@ -16,8 +15,8 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
-// SignedOrderSchemeV2 is the only accepted value of SignedOrderV2.signature_scheme
-// (TaskOrder Hashing and Signing §7.3): byte-for-byte lowercase ASCII; no alias, case variant or the historical "secp256k1".
+// SignedOrderSchemeV2 is the only accepted value of SignedOrderV2.signature_scheme:
+// byte-for-byte lowercase ASCII; no alias, case variant or the historical "secp256k1".
 const SignedOrderSchemeV2 = "eip712"
 
 // RecoverableSignatureLen is the raw length of R||S||V.
@@ -29,7 +28,7 @@ var secp256k1HalfOrder = new(big.Int).Rsh(secp256k1.S256().N, 1)
 
 // ValidateRecoverableSignature checks the canonical form of a 65-byte recoverable signature:
 // length, V ∈ {27,28} (the personal_sign / eth_sign prefixed paths cannot produce a valid
-// signature with any other value, and §7.4 explicitly forbids those paths), R ∈ [1, N-1],
+// signature with any other value, and those paths are not accepted), R ∈ [1, N-1],
 // S non-zero and low-S. No recovery on the curve is performed.
 func ValidateRecoverableSignature(signature []byte) error {
 	if len(signature) != RecoverableSignatureLen {
@@ -53,8 +52,8 @@ func ValidateRecoverableSignature(signature []byte) error {
 	return nil
 }
 
-// ValidateSignedOrderEnvelopeV2 is the shape check of the SignedOrderV2 transport envelope
-// (TaskOrder Hashing and Signing §7.3, §7.5): the scheme literal plus the signature canonical form.
+// ValidateSignedOrderEnvelopeV2 is the shape check of the SignedOrderV2 transport envelope:
+// the scheme literal plus the signature canonical form.
 func ValidateSignedOrderEnvelopeV2(signatureScheme string, userSignature []byte) error {
 	if signatureScheme != SignedOrderSchemeV2 {
 		return fmt.Errorf("signed_order signature_scheme must be exactly %q, got %q",

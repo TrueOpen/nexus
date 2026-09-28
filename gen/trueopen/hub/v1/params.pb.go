@@ -488,8 +488,11 @@ type ModelParamsV1 struct {
 	MaxResolverVersionBytes      uint32                 `protobuf:"varint,9,opt,name=max_resolver_version_bytes,json=maxResolverVersionBytes,proto3" json:"max_resolver_version_bytes,omitempty"`
 	MaxRepoIdBytes               uint32                 `protobuf:"varint,10,opt,name=max_repo_id_bytes,json=maxRepoIdBytes,proto3" json:"max_repo_id_bytes,omitempty"`
 	MaxRepoTypeBytes             uint32                 `protobuf:"varint,11,opt,name=max_repo_type_bytes,json=maxRepoTypeBytes,proto3" json:"max_repo_type_bytes,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// max_manifest_uri_bytes caps ModelProfileProjection.manifest_uri; a
+	// registration whose manifest_uri is empty or longer is rejected.
+	MaxManifestUriBytes uint32 `protobuf:"varint,12,opt,name=max_manifest_uri_bytes,json=maxManifestUriBytes,proto3" json:"max_manifest_uri_bytes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ModelParamsV1) Reset() {
@@ -595,6 +598,13 @@ func (x *ModelParamsV1) GetMaxRepoIdBytes() uint32 {
 func (x *ModelParamsV1) GetMaxRepoTypeBytes() uint32 {
 	if x != nil {
 		return x.MaxRepoTypeBytes
+	}
+	return 0
+}
+
+func (x *ModelParamsV1) GetMaxManifestUriBytes() uint32 {
+	if x != nil {
+		return x.MaxManifestUriBytes
 	}
 	return 0
 }
@@ -1957,7 +1967,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"'max_model_support_prune_items_per_block\x18\v \x01(\rR!maxModelSupportPruneItemsPerBlock\x12I\n" +
 	"\"max_support_expiry_items_per_block\x18\f \x01(\rR\x1dmaxSupportExpiryItemsPerBlock\x12V\n" +
 	")max_model_support_recheck_items_per_block\x18\r \x01(\rR#maxModelSupportRecheckItemsPerBlock\x12\\\n" +
-	",max_model_support_deactivate_items_per_block\x18\x0e \x01(\rR&maxModelSupportDeactivateItemsPerBlock\"\xa2\x05\n" +
+	",max_model_support_deactivate_items_per_block\x18\x0e \x01(\rR&maxModelSupportDeactivateItemsPerBlock\"\xd7\x05\n" +
 	"\rModelParamsV1\x12U\n" +
 	"\x1bsupported_tool_call_parsers\x18\x01 \x03(\v2\x16.shared.v1.ParserRefV1R\x18supportedToolCallParsers\x12V\n" +
 	"\x1bsupported_reasoning_parsers\x18\x02 \x03(\v2\x16.shared.v1.ParserRefV1R\x19supportedReasoningParsers\x12D\n" +
@@ -1970,7 +1980,8 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\x1amax_resolver_version_bytes\x18\t \x01(\rR\x17maxResolverVersionBytes\x12)\n" +
 	"\x11max_repo_id_bytes\x18\n" +
 	" \x01(\rR\x0emaxRepoIdBytes\x12-\n" +
-	"\x13max_repo_type_bytes\x18\v \x01(\rR\x10maxRepoTypeBytes\"\xb6\x06\n" +
+	"\x13max_repo_type_bytes\x18\v \x01(\rR\x10maxRepoTypeBytes\x123\n" +
+	"\x16max_manifest_uri_bytes\x18\f \x01(\rR\x13maxManifestUriBytes\"\xb6\x06\n" +
 	"\x15CandidatePoolParamsV1\x12?\n" +
 	"\x1ccandidate_slot_hard_capacity\x18\x01 \x01(\rR\x19candidateSlotHardCapacity\x12C\n" +
 	"\x1ecandidate_bitmap_segment_bytes\x18\x02 \x01(\rR\x1bcandidateBitmapSegmentBytes\x12F\n" +

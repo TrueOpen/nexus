@@ -1,5 +1,5 @@
 // tlsproxy is the reverse proxy that adds TLS to the node's three ports: the node's own gRPC / RPC / REST do not support TLS,
-// and in production that is handled by a CA-issued certificate plus a reverse proxy (Deployment Security Baseline); this tool is for integration environments, with a self-signed certificate.
+// and in production that is handled by a CA-issued certificate plus a reverse proxy; this tool is for integration environments, with a self-signed certificate.
 //
 //	tlsproxy -cert cert.pem -key key.pem -bind 0.0.0.0 //	  -map 9443=h2c://127.0.0.1:9090 -map 26667=127.0.0.1:26657 -map 1443=127.0.0.1:1317
 //

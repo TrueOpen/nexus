@@ -2,14 +2,13 @@ package coordinator
 
 import "time"
 
-// Orchestration parameters (Detailed Design §8 parameter table; happy-path values are fixed, the rest are placeholder defaults).
+// Orchestration parameters (happy-path values are fixed, the rest are placeholder defaults).
 const (
 	// proposalHandraiseMin is the minimum number of valid hand-raises one proposal must carry.
 	//
-	// Interface & Topic Catalogue §5.5: "a single proposal only needs to contain at least 1 legal, non-duplicate
-	// Worker handraise; whether the candidate count needed for Worker assignment is reached is evaluated only at
-	// window close against the accumulated union bitmap." §13.3 acceptance scenarios 2 and 6 (same rule on the
-	// Verifier side) restate this.
+	// A single proposal only needs to contain at least 1 legal, non-duplicate Worker handraise; whether the
+	// candidate count needed for Worker assignment is reached is evaluated only at window close against the
+	// accumulated union bitmap. The same rule applies on the Verifier side.
 	//
 	// Sufficiency is decided by the Keeper over the **union of all Task Builder proposals**, not by a single
 	// Builder over the few it received. Hard-coding 3 here moved the chain's decision locally with a narrower
@@ -20,7 +19,7 @@ const (
 	// selectedVerifierCount is the pick count for the local legacy selected-verifier CSV;
 	// it and proposalHandraiseMin are two different quantities -- do not share one constant again.
 	//
-	// The authoritative source is the Task's locked selected_verifier_count (§5.9), not this literal;
+	// The authoritative source is the Task's locked selected_verifier_count, not this literal;
 	// the CSV is not submitted on-chain either (SubmitOpenVerify only takes InferReceipt and Submitter). It is kept
 	// only because OpenVerifyTx still carries this historical field.
 	selectedVerifierCount = 3

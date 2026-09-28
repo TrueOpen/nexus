@@ -22,10 +22,10 @@ const testKeyHex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae
 
 const cosmosArmorPassphrase = "passphrase"
 
-// TestAddressDerivationMatchesContractVector pins the account vector of wire v0.4.1
+// TestAddressDerivationMatchesContractVector pins the account vector of wire
 // testdata/v1/shared/account_signing_v1.json: private key 01x32 ->
 // keccak256(XY)[12:] = 1a642f0e…14f1 → trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz
-// (Account & Signing Protocol §3.1). The whole chain has only the eth_secp256k1 account type (§2.1); the Cosmos
+// The whole chain has only the eth_secp256k1 account type; the Cosmos
 // ripemd160(sha256(compressed)) form yields a different address for the same key, one that does not exist on chain.
 func TestAddressDerivationMatchesContractVector(t *testing.T) {
 	const (

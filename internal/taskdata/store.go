@@ -116,7 +116,7 @@ type Upload struct {
 	id        string
 	spoolPath string
 	file      *os.File
-	// hash computes the §6.2 content_hash: SHA256(bytes) for INPUT / OUTPUT / EVIDENCE_ARTIFACT, and
+	// hash computes the content_hash: SHA256(bytes) for INPUT / OUTPUT / EVIDENCE_ARTIFACT, and
 	// evidence_bundle_hash for EVIDENCE_MANIFEST — the H_V1 preimage has only one variable-length
 	// segment whose length is already known from the header, so it can be fed chunk by chunk too.
 	hash hash.Hash
@@ -477,7 +477,7 @@ func (s *Store) RecordRetentionLease(_ context.Context, key ObjectKey, height ui
 	return cloneMetadata(record.Metadata), nil
 }
 
-// MarkStored commits the first boundary of §5.5: an object reaches STORED only after the bytes are
+// MarkStored commits the first boundary: an object reaches STORED only after the bytes are
 // persisted and the hash/size checks have passed. An object that is already READY stays READY — a
 // finalized bundle is not rolled back by a replayed upload.
 func (s *Store) MarkStored(_ context.Context, key ObjectKey) (Metadata, error) {
@@ -492,7 +492,7 @@ func (s *Store) MarkReady(_ context.Context, key ObjectKey) (Metadata, error) {
 
 // MarkOutputReady is how FinalizeTaskResult switches the OUTPUT to READY: it also records the
 // InferReceiptV2 that Finalize verified onto the object, so that GetTaskDataMetadata has a
-// convenience copy of infer_receipt to return (Task Data Interface Design §6.5; a Cortex Verifier
+// convenience copy of infer_receipt to return (a Cortex Verifier
 // requires it to be present when confirming the OUTPUT). A streamed object has no receipt when it is
 // finalized, so this is its only source. An object that is already READY is returned unchanged and
 // its receipt is not modified.
@@ -646,7 +646,7 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 			return fmt.Errorf("%w: delete metadata: %v", ErrStorage, err)
 		}
 	}
-	// The chunk records of a streamed OUTPUT are cleaned up together with the object (design §5.4).
+	// The chunk records of a streamed OUTPUT are cleaned up together with the object.
 	if active, ok := s.outputStreams[encoded]; ok {
 		active.supersedeLocked()
 	}

@@ -169,8 +169,7 @@ const (
 	// Locked Task Builder is still exposed to objective BusEnvelope evidence for
 	// one task, so its service key must stay verifiable.
 	//
-	// Lifecycle (the wire storage model plus the wire API
-	// ), all inside one cache transaction
+	// Lifecycle, all inside one cache transaction
 	// with the participant counter and the ByTask index:
 	//
 	//	create  - when the first Task proposal is accepted and the Task Builders
@@ -307,7 +306,7 @@ func (GovernanceReason) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
-// ServiceBondStatus is the operator-global service bond lifecycle (wire storage model 6.4).
+// ServiceBondStatus is the operator-global service bond lifecycle.
 type ServiceBondStatus int32
 
 const (

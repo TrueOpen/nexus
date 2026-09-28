@@ -18,13 +18,12 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
-// Storage semantics of the streamed OUTPUT upload (streamed output delivery design §5.2-§5.5,
-// Data Plane & Evidence Transport §9).
+// Storage semantics of the streamed OUTPUT upload.
 //
 // A Task has at most one write stream at a time. When a chunk arrives: the text is appended to the
 // stream's spool file and the attachment to the .attach file of the same name, each fsynced; then
 // "the record of that chunk" and "the progress of the whole stream" are written into kv in one
-// atomic batch (progress and chunk record in the same transaction, see design §5.4).
+// atomic batch (progress and chunk record in the same transaction).
 //
 // There is one chunk record per chunk (key = object key|zero-padded seq), not one record per stream:
 // the latter would rewrite the signatures and roots of all previous chunks on every chunk received,
@@ -36,9 +35,9 @@ import (
 // it for GetTaskDataMetadata to return.
 //
 // Persisted chunks are never rolled back: a failed check only closes the stream, and after
-// reconnecting the Worker resumes from the acknowledged progress (§9.5).
+// reconnecting the Worker resumes from the acknowledged progress.
 
-// OutputStreamConfig holds the limits that decide whether a stream is valid (design §6): every
+// OutputStreamConfig holds the limits that decide whether a stream is valid: every
 // nexus in the network must use the same values.
 type OutputStreamConfig struct {
 	// MaxLeaves is the upper bound on the number of chunks (parameter max_output_mmr_leaves).
@@ -223,7 +222,7 @@ func (st *OutputStream) pendingBytes() uint64 {
 
 // admitStreamLocked performs the same capacity reservation and disk watermark checks as a
 // whole-object upload, based on "this stream may still write pending bytes in the worst case"
-// (design §5.4 reuses the existing Task data storage rules).
+// (streams reuse the existing Task data storage rules).
 func (s *Store) admitStreamLocked(pending uint64) error {
 	committed := s.reserved + s.streamPendingLocked()
 	if committed > s.cfg.SpoolReservationBytes || pending > s.cfg.SpoolReservationBytes-committed {
@@ -580,7 +579,7 @@ func (st *OutputStream) Finish(ctx context.Context, fin OutputFin) (Metadata, er
 		}
 	}
 	// The object identity is only completed at Fin. The content_hash of an OUTPUT is exactly its
-	// output_hash (the closed-set semantics of TaskDataObjectRefV1), and after ADR-0017 output_hash
+	// output_hash (the closed-set semantics of TaskDataObjectRefV1), and for streamed output output_hash
 	// is the MMR root — the Worker's InferReceipt, the lookup in FinalizeTaskResult and the user's
 	// fetch all locate the object by that root. The SHA-256 of the concatenated content is used only
 	// to content-address the blob file (BlobHash); it enters neither the object identity nor any
@@ -898,8 +897,8 @@ func (s *Store) persistOutputStreamRecord(encoded string, record outputStreamRec
 	return nil
 }
 
-// persistOutputFrame writes the chunk record and the progress to disk in one atomic batch (design
-// §5.4, "the same transaction").
+// persistOutputFrame writes the chunk record and the progress to disk in one atomic batch
+// ("the same transaction").
 func (s *Store) persistOutputFrame(encoded string, frame outputFrameRecord, progress outputStreamRecord) error {
 	frameRaw, err := json.Marshal(frame)
 	if err != nil {

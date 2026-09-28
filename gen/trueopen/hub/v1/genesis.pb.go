@@ -77,7 +77,7 @@ type GenesisState struct {
 	PendingBuilderSetReplacement *BuilderSetPendingReplacementState `protobuf:"bytes,29,opt,name=pending_builder_set_replacement,json=pendingBuilderSetReplacement,proto3" json:"pending_builder_set_replacement,omitempty"`
 	// Jail and tombstone facts are operator-global counters on ServiceBondState
 	// (status / jail_count / normal_action_count_since_jail) per
-	// the wire storage model, so there is no separate jail or tombstone
+	// the contract, so there is no separate jail or tombstone
 	// collection to export.
 	RoleFaults     []*RoleFaultState    `protobuf:"bytes,30,rep,name=role_faults,json=roleFaults,proto3" json:"role_faults,omitempty"`
 	SlashSummaries []*SlashSummaryState `protobuf:"bytes,31,rep,name=slash_summaries,json=slashSummaries,proto3" json:"slash_summaries,omitempty"`

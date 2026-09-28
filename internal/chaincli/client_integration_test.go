@@ -59,7 +59,7 @@ func TestRemoteNodeReadOnlyIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Frozen contract: QueryTask queries by task_id (Hash32 bytes) only and returns TaskViewV1.
+		// QueryTask queries by task_id (Hash32 bytes) only and returns TaskViewV1.
 		taskKey, err := nodecontract.Hash32Bytes("task_id", taskID)
 		if err != nil {
 			t.Fatalf("NEXUS_CHAIN_IT_TASK_ID must be canonical 64-hex: %v", err)

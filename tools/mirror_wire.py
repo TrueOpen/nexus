@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Mirror the Node public wire proto of TrueOpen/wire into this repository (Implementation Design §2.1, generated-artifact discipline).
+"""Mirror the Node public wire proto of TrueOpen/wire into this repository (generated artifacts are never hand-edited).
 
 Usage:
     python3 tools/mirror_wire.py            # use the wire version pinned in go.mod
     python3 tools/mirror_wire.py <wire directory>
+    python3 tools/mirror_wire.py <wire directory> <output directory>   # write <pkg>/v1/*.proto there instead of proto/
+
+internal/wirefixture/mirror_test.go regenerates the mirror from the pinned wire module into a temporary
+directory and fails if it differs from proto/, so moving the wire pin without re-running this tool fails `go test`.
 
 Mirroring rules (field-for-field identical to wire, dropping only what nexus does not need and should not carry):
   - go_package is rewritten to this repository's path;
@@ -100,8 +104,9 @@ def mirror_file(src: pathlib.Path, rel: str, go_package: str) -> str:
 
 def main() -> None:
     src_root = wire_dir() / "proto"
+    out_root = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "proto"
     for pkg, go_package in PACKAGES.items():
-        dst_dir = ROOT / "proto" / pkg / "v1"
+        dst_dir = out_root / pkg / "v1"
         for old in dst_dir.glob("*.proto"):
             old.unlink()
         dst_dir.mkdir(parents=True, exist_ok=True)

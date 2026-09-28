@@ -116,7 +116,7 @@ func (sess *OutputStreamSession) Append(ctx context.Context, chunk OutputChunk) 
 //
 // No storage confirmation is signed here. Fin cannot prove the OUTPUT is consistent with
 // the Receipt and the Worker manifest; the consistent binding of the three is committed
-// once by FinalizeTaskResult, which also issues the confirmation (§5.5).
+// once by FinalizeTaskResult, which also issues the confirmation.
 func (sess *OutputStreamSession) Finish(ctx context.Context, fin OutputFin) (Metadata, error) {
 	if len(fin.OutputMMRRoot) != sha256.Size || len(fin.WorkerSignature) != 64 {
 		return Metadata{}, sess.stream.fail(fmt.Errorf("%w: fin output_mmr_root or worker_signature shape", ErrMalformed))

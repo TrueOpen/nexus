@@ -100,7 +100,7 @@ func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 		t.Fatal("OpenVerifyTx.InferReceipt is nil: MsgSubmitInferReceipt could never be built")
 	}
 
-	// Real submitter: validateInferReceipt checks the §5.14 structure item by item, then signs and broadcasts.
+	// Real submitter: validateInferReceipt checks the InferReceipt structure item by item, then signs and broadcasts.
 	// The Builder's Cosmos signing key and the Worker's service key must be two different keys.
 	builder, err := signer.NewFromHex(
 		"4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d", "trueopen")

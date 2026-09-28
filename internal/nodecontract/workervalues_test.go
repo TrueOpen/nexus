@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/wirefixture"
@@ -18,7 +19,7 @@ func wireWorkerValues(t *testing.T) (artifact []byte, leaves [][]byte, root wire
 	t.Helper()
 	file := wirefixture.Load(t, "task/worker_value_leaf_v1.json")
 	for i := 0; i < 3; i++ {
-		v := file.Vector(t, "worker_value_leaf", i)
+		v := file.Vector(t, fmt.Sprintf("worker_value_leaf_position_%d", i), 0)
 		v.CheckPreimage(t)
 		preimage, err := hex.DecodeString(v.PreimageHex)
 		if err != nil {
@@ -40,7 +41,7 @@ func wireWorkerValues(t *testing.T) (artifact []byte, leaves [][]byte, root wire
 		artifact = append(artifact, leaf...)
 	}
 	root = file.Vector(t, "worker_value_root", 0)
-	leaf0 := file.Vector(t, "worker_value_leaf", 0).Field(t, "worker_value_leaf_bytes")
+	leaf0 := file.Vector(t, "worker_value_leaf_position_0", 0).Field(t, "worker_value_leaf_bytes")
 	sub := func(name string) wirefixture.Field {
 		for _, f := range leaf0.Fields {
 			if f.Name == name {

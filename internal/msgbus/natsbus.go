@@ -1,7 +1,7 @@
 // natsBus is the real NATS implementation of Bus (core + JetStream), replacing the stub.
 // core: best effort, lowest latency (orders / hand-raise / prepare).
 // JetStream: at-least-once + dedup (dedup_id = MsgId) + durable (output-avail / verify-select / assign / verify-result).
-// Reconnects indefinitely after a disconnect (matching Nexus Detailed Design §6.1 "NATS reconnect backoff").
+// Reconnects indefinitely after a disconnect with backoff.
 package msgbus
 
 import (
@@ -17,11 +17,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 )
 
-// jsStreamName is the single stream covering every task-level JS subject (contract §5.12).
+// jsStreamName is the single stream covering every task-level JS subject.
 const jsStreamName = JetStreamName
 
-// jsDuplicatesWindow is the JetStream dedup window (should be >= the stage timeout; parameterization is TBD, Nexus Detailed Design §8).
-// Contract §5.12: broker dedup is only an optimization and cannot replace the application-level replay store.
+// jsDuplicatesWindow is the JetStream dedup window (should be >= the stage timeout; parameterization is TBD).
+// Broker dedup is only an optimization and cannot replace the application-level replay store.
 const jsDuplicatesWindow = 2 * time.Minute
 
 // Core NATS has no per-message ack; the PONG from Flush is the boundary confirming the server processed the preceding publishes.
@@ -102,7 +102,7 @@ func (b *natsBus) Start(_ context.Context) error {
 // ensureStreams idempotently creates or updates the stream covering the JS subjects. Without permission to
 // create streams it only warns and runs degraded.
 //
-// The JS subject list is the v1 list of contract §5.1. An existing stream can only
+// The JS subject list is the v1 subject catalogue (subjects_v1.go). An existing stream can only
 // have its subjects changed through UpdateStream: AddStream has no effect on a stream that already exists,
 // which is the easiest thing to miss here.
 // **This function never deletes an existing stream**: deleting one also drops in-flight messages and every
@@ -178,7 +178,7 @@ func (b *natsBus) JSPublish(subject string, data []byte, msgID string) error {
 	if b.js == nil {
 		return fmt.Errorf("jetstream not available")
 	}
-	// Contract §5.12: Nats-Msg-Id = BusEnvelopeV1.message_id.
+	// Nats-Msg-Id = BusEnvelopeV1.message_id.
 	_, err := b.js.Publish(subject, data, nats.MsgId(msgID))
 	return err
 }
@@ -220,7 +220,7 @@ func (b *natsBus) settleJS(m jsAcker, subject, durable string, err error) {
 	_ = m.Nak()
 }
 
-// natsConnectOptions assembles the authentication and transport options (ADR-0016 transition state):
+// natsConnectOptions assembles the authentication and transport options:
 //   - creds_file: NATS creds (user JWT + nkey seed) replacing username and password;
 //   - ca_file: the server certificate / CA PEM the server is verified against;
 //   - any server on tls://: TLS is required (without ca_file the system root certificates are used);

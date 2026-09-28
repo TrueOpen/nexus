@@ -26,7 +26,7 @@ var zeroDigest = make([]byte, sha256.Size)
 // ObjectRefDigest is the object's local identity: the SHA-256 of the canonical object_ref frame.
 // It is also the source of the storage key, so the local key and what the caller's signature
 // commits to are the same set of fields — the old TRUEOPEN_EVIDENCE_SELECTOR_V1 allowed the two to
-// disagree and was removed with wire v0.4.1.
+// disagree and was removed from wire.
 func ObjectRefDigest(ref ObjectRef) ([sha256.Size]byte, error) {
 	framed, err := CanonicalObjectRefFrame(ref)
 	if err != nil {
@@ -35,14 +35,13 @@ func ObjectRefDigest(ref ObjectRef) ([sha256.Size]byte, error) {
 	return sha256.Sum256(framed), nil
 }
 
-// RangeSignBytes binds every element required by contract §2.2: requester, Task, data_kind
+// RangeSignBytes binds every required element: requester, Task, data_kind
 // (including the evidence selector), range, validity and anti-replay nonce, plus chain_id /
 // builder to prevent cross-chain and cross-Builder replay.
 //
-// Difference from the SDK contract v0.1 round: authorization_id is no longer bound — pre-signed
-// download credentials were removed by Cortex contract §2.2 ("Nexus verifies the current service
-// key and the on-chain role on the spot and does not use pre-signed download credentials").
-// The exact wire structure of the range request is still unfrozen (contract §8.4).
+// authorization_id is no longer bound: there are no pre-signed download credentials, and Nexus
+// verifies the current service key and the on-chain role on the spot.
+// The exact wire structure of the range request is not frozen yet.
 func RangeSignBytes(chainID, builderAddress string, key ObjectKey, request SignedRange) ([]byte, error) {
 	selector, err := validateObjectKey(key)
 	if err != nil {
@@ -129,7 +128,7 @@ func ServiceKeyFingerprint(publicKey []byte) ([sha256.Size]byte, error) {
 	return sha256.Sum256(publicKey), nil
 }
 
-// UploadBodyDigest is the body digest of an upload request. Since wire v0.4.1 it is exactly
+// UploadBodyDigest is the body digest of an upload request. It is exactly
 // TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1 (objectref.go), committing to object_ref, size and media_type;
 // the receipt no longer enters the body — it is committed by FinalizeTaskResult.
 func UploadBodyDigest(header UploadHeader) ([sha256.Size]byte, error) {
@@ -143,8 +142,7 @@ func UploadBodyDigest(header UploadHeader) ([sha256.Size]byte, error) {
 	return TaskDataUploadBodyDigest(header.Key, header.SizeBytes, header.MediaType)
 }
 
-// OutputStreamBodyDigest is the body digest of the streamed upload Header (Interface & Topic
-// Catalogue §4.2.1): it reuses the whole-object upload body frame projected onto fixed values —
+// OutputStreamBodyDigest is the body digest of the streamed upload Header: it reuses the whole-object upload body frame projected onto fixed values —
 // at stream open the final root and total length are unknown, so size_bytes = 0,
 // content hash = all zeros, media_type = "", and no receipt; it is distinguished from the
 // whole-object upload by rpc_method = UploadTaskOutputStream entering the request signature.
@@ -203,7 +201,7 @@ func OutputStreamBodyDigest(key ObjectKey) ([sha256.Size]byte, error) {
 }
 
 // receiptFrame is the local 4-byte length-prefixed frame of the Builder storage confirmation
-// (contract §8.3, unfrozen); it is not the §5.14 consensus preimage — for that see
+// (not frozen); it is not the InferReceiptV3 consensus preimage — for that see
 // InferReceiptSubmission / receiptDigest.
 // The field set follows the frozen wire: commit hash / trace / checkpoint / batch / token_count /
 // work_unit were removed and are now carried by typed evidence commitments.
@@ -330,7 +328,7 @@ func canonicalText(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value && !strings.ContainsRune(value, '\x00')
 }
 
-// validMediaType follows Task Data Interface Design §6.2: media_type is only an optional transport
+// validMediaType: media_type is only an optional transport
 // hint and may be empty; the codec of EVIDENCE_ARTIFACT is defined solely by the evidence schema,
 // so it must be empty.
 func validMediaType(kind ObjectKind, mediaType string) bool {

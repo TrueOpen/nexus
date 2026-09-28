@@ -22,7 +22,7 @@ func newBuilderCmd() *cobra.Command {
 		Short: "Builder registration operations",
 	}
 	// Phase 0 has no BuilderBond (the staking and slashing protocol fixes it at zero and creates no bonded stake record),
-	// and wire v0.4.1 has no Builder bond / unbond messages either, so register is the only subcommand.
+	// and wire has no Builder bond / unbond messages either, so register is the only subcommand.
 	cmd.AddCommand(newBuilderRegisterCmd())
 	return cmd
 }

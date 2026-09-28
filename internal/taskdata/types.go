@@ -15,7 +15,7 @@ var (
 	ErrServiceKeyUnavailable = errors.New("NEXUS_DATA_SERVICE_KEY_UNAVAILABLE")
 	ErrStorage               = errors.New("NEXUS_DATA_STORAGE")
 	ErrAuthorityUnavailable  = errors.New("NEXUS_DATA_AUTHORITY_UNAVAILABLE")
-	// ErrNotReady is TASK_DATA_NOT_READY of the task data interface design §9: the object is stored
+	// ErrNotReady is TASK_DATA_NOT_READY: the object is stored
 	// but not READY yet, for example OUTPUT before the Worker's FinalizeTaskResult. It maps to the
 	// same transport code as the two *_UNAVAILABLE errors above, so callers tell "ask this Builder
 	// again later" from "this Builder cannot serve" by the NEXUS_DATA_NOT_READY message prefix.
@@ -32,7 +32,7 @@ type RequestMethod string
 const (
 	MethodOpenTask    RequestMethod = "OpenTask"
 	MethodGetMetadata RequestMethod = "GetTaskDataMetadata"
-	// MethodFetch follows the method rename in contract §3.4 (formerly "DownloadTaskData").
+	// MethodFetch follows the method rename (formerly "DownloadTaskData").
 	// The fetch path builds no RequestAuth (it uses the range signature under the
 	// TRUEOPEN_TASK_DATA_RANGE_V1 domain), so the rename affects no signed bytes.
 	MethodFetch RequestMethod = "FetchTaskData"
@@ -41,17 +41,17 @@ const (
 	// Connect path, so writing the old name "UploadTaskResultData" here would reject every
 	// whole-object OUTPUT/EVIDENCE upload as a request binding failure.
 	MethodUpload RequestMethod = "UploadTaskResultObject"
-	// MethodUploadStream is the Header authorization method name of the ADR-0017 streamed
-	// upload (wire v0.4.0 `UploadTaskOutputStream`): it is what distinguishes the stream from
+	// MethodUploadStream is the Header authorization method name of the streamed
+	// upload (`UploadTaskOutputStream`): it is what distinguishes the stream from
 	// the whole-object upload once it enters the request signature.
 	MethodUploadStream RequestMethod = "UploadTaskOutputStream"
-	// MethodFinalizeResult / MethodFinalizeVerifier are the two atomic commit points of §5.5.
+	// MethodFinalizeResult / MethodFinalizeVerifier are the two atomic commit points.
 	// The method name enters the request signature, so the two are not interchangeable.
 	MethodFinalizeResult   RequestMethod = "FinalizeTaskResult"
 	MethodFinalizeVerifier RequestMethod = "FinalizeVerifierEvidence"
 )
 
-// The definition of RequestAuth moved to objectref.go with wire v0.4.1 (TaskDataRequestAuthV1).
+// The definition of RequestAuth moved to objectref.go (TaskDataRequestAuthV1).
 
 // rpcMethodPath maps the internal method name back to the Connect path that auth.rpc_method must
 // equal byte for byte. The method name enters the signature, so no approximation is allowed here —
@@ -60,7 +60,7 @@ func rpcMethodPath(method RequestMethod) string {
 	return "/nexus.v1.IngressAPI/" + string(method)
 }
 
-// StorageConfirmation is BuilderStorageConfirmationV1 (Task Data Interface Design §6.3a):
+// StorageConfirmation is BuilderStorageConfirmationV1:
 // it only proves that the signing Builder has fully stored and verified the named data and can
 // serve it for download within the retention window.
 // It carries no local path, CID, endpoint, chunk location or locator.
@@ -109,7 +109,7 @@ type SignedRange struct {
 // SignedInferReceipt is the internal form of task.v1.InferReceiptV3; its fields correspond one to
 // one. At this layer Hash32 is still canonical lowercase 64-hex text (the same convention as
 // Metadata.SemanticHash) and nodecontract decodes it into the raw 32 bytes before it enters the
-// §5.14 preimage.
+// receipt preimage.
 //
 // The receipt carries no infer_receipt_hash field: it is defined as the same value as
 // infer_receipt_signing_digest, so it is always recomputed locally (InferReceiptDigestHex) and no
@@ -157,7 +157,7 @@ const (
 type State string
 
 const (
-	// StatePrepared is STAGING in Task Data Interface Design §5.5: the logical reference exists
+	// StatePrepared is the staging state: the logical reference exists
 	// and the bytes are still being written. Objects in this stage are not externally visible.
 	StatePrepared State = "PREPARED"
 	// StateStored is STORED: the bytes are fully written and the hash/size checks passed, but the
@@ -181,7 +181,7 @@ type Metadata struct {
 	RetainUntilHeight   uint64
 	Receipt             *SignedInferReceipt
 	AcceptedReceiptHash string
-	// Streamed OUTPUT (ADR-0017): OutputMMRRoot is the TRUEOPEN_OUTPUT_MMR_V1 root (lowercase hex),
+	// Streamed OUTPUT: OutputMMRRoot is the TRUEOPEN_OUTPUT_MMR_V1 root (lowercase hex),
 	// i.e. output_hash; ChunkLengths gives the byte count of each chunk in order; OutputLeafCount
 	// is the chunk count (>= 1). All three are empty on the old whole-object upload path.
 	OutputMMRRoot   string

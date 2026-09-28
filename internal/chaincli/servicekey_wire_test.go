@@ -1,4 +1,4 @@
-// End-to-end wire test for the current service key query (Implementation Design §4.2).
+// End-to-end wire test for the current service key query.
 //
 // The external test package chaincli_test is deliberate: only here can both chaincli and
 // servicekey be imported at once (the latter depends on the former, so an in-package test would
@@ -223,7 +223,7 @@ func TestCurrentKeepsTripleCheckOnViewV1(t *testing.T) {
 			},
 		},
 		{
-			// The contract requires the status branch to match participant_type. Since wire v0.4.1 both
+			// Wire requires the status branch to match participant_type. Both
 			// branches are ServiceKeyStatus, but reading across domains still means admitting on the
 			// status of the wrong domain, so it must be rejected.
 			name: "CORTEX domain carries builder_service_key_status",

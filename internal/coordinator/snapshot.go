@@ -1,4 +1,4 @@
-// Task state machine snapshot persistence + restart recovery reconciliation (Detailed Design §2.6 / §6.2).
+// Task state machine snapshot persistence + restart recovery reconciliation.
 // The local snapshot is only a non-authoritative cache: on any doubt the on-chain query wins, and a lost snapshot can be rebuilt from the chain.
 package coordinator
 
@@ -80,7 +80,7 @@ type taskSnapshot struct {
 	// the authoritative DeliverTx result without rebroadcasting the same order.
 	AssignTxHash []byte `json:"assign_tx_hash,omitempty"`
 	// AcceptedTaskHash is the authoritative task_hash after on-chain acceptance. Must survive recovery, otherwise
-	// later proposals are mistaken for the "first" one, carry signed_order again and get rejected by §4.2.1.
+	// later proposals are mistaken for the "first" one, carry signed_order again and get rejected by the Keeper.
 	AcceptedTaskHash []byte `json:"accepted_task_hash,omitempty"`
 	// The openVerify/settle "submitted" flags are not persisted; they only mean broadcast, not on-chain fact.
 	WorkerRevealed bool     `json:"worker_revealed,omitempty"`
@@ -324,7 +324,7 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 
 // reconcile against the chain}
 
-// reconcile reconciles with the chain (§6.2 step 3): chain advanced, local behind -> jump straight to the on-chain state.
+// reconcile reconciles with the chain: chain advanced, local behind -> jump straight to the on-chain state.
 // Only forward, never back; on-chain fields overwrite local ones only when non-empty. Caller must hold the lock.
 func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	// On-chain RECEIPT_COMMITTED also maps to Verifying, but that only means the verify window is open, verifiers undecided.
@@ -356,7 +356,7 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 		}
 	}
 	// Merge non-empty on-chain fields even within the same coarse state: events missed during recovery may have
-	// left new facts on-chain such as seed/deadline/settlement (§6.2 "on any doubt the on-chain query wins").
+	// left new facts on-chain such as seed/deadline/settlement (on any doubt the on-chain query wins).
 	if t.Winner != "" {
 		f.winner = t.Winner
 	}
@@ -437,7 +437,7 @@ func (f *taskFSM) resume() bool {
 	return true
 }
 
-// recoverTasks is the restart recovery at startup (§6.2): load snapshots -> reconcile each task on-chain -> resume subscriptions.
+// recoverTasks is the restart recovery at startup: load snapshots -> reconcile each task on-chain -> resume subscriptions.
 // A failed reconciliation query does not block recovery (local state continues; the event stream catches up naturally).
 func (c *Coordinator) recoverTasks(ctx context.Context) error {
 	if err := c.retryPayloadCleanup(ctx); err != nil {

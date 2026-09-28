@@ -12,7 +12,7 @@ import (
 )
 
 // Asserts the core behaviour of this ticket: when BuilderState carries **neither** active_term nor
-// admission status (wire v0.4.1), a Builder whose service key is ACTIVE and who is in the BuilderSet
+// admission status, a Builder whose service key is ACTIVE and who is in the BuilderSet
 // still seeds successfully, and builder_set_version is taken from the height-selector query result,
 // not derived locally.
 func TestCoordinatorSeedsBuilderSetFromHeightSelector(t *testing.T) {
@@ -121,6 +121,8 @@ type fakeBuilderRegistry struct {
 	heightErr        error
 	set              chaincli.BuilderSet
 	setErr           error
+	buildersPerTask  uint32
+	perTaskErr       error
 }
 
 func (r *fakeBuilderRegistry) QueryBuilder(_ context.Context, address string) (chaincli.BuilderState, error) {
@@ -144,4 +146,8 @@ func (r *fakeBuilderRegistry) LatestHeight(context.Context) (uint64, error) {
 func (r *fakeBuilderRegistry) QueryBuilderSetAtHeight(_ context.Context, height uint64) (chaincli.BuilderSet, error) {
 	r.queriedHeight = height
 	return r.set, r.setErr
+}
+
+func (r *fakeBuilderRegistry) QueryBuildersPerTask(context.Context) (uint32, error) {
+	return r.buildersPerTask, r.perTaskErr
 }

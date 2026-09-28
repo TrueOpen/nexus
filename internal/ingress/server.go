@@ -1,4 +1,4 @@
-// Package ingress is the single external entry point (implementation design §4.1).
+// Package ingress is the single external entry point.
 // Connect: one net/http port (:8080) serving gRPC, gRPC-Web and HTTP/JSON at once.
 // Cross-cutting concerns go through Connect unary interceptors (reusing middleware's pure functions);
 // /healthz is a plain HTTP route on the same port, callable directly with curl.

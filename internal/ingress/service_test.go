@@ -80,11 +80,11 @@ func TestPlaintextOutputProtoContract(t *testing.T) {
 	if ack == nil || ack.IsStreamingServer() || ack.IsStreamingClient() {
 		t.Fatalf("AckOutput descriptor = %v", ack)
 	}
-	// The target-state baseline of the nexus<->Cortex contract removes SubmitOutputRef and the inline output_text:
+	// The Worker/Verifier surface removes SubmitOutputRef and the inline output_text:
 	// the target state for plaintext delivery to the SDK is FetchTaskData(OUTPUT).
 	for _, name := range []protoreflect.Name{"SubmitOutputRef", "FetchPayload", "UploadTaskData", "RefreshTaskDataAuthorization"} {
 		if method := svc.Methods().ByName(name); method != nil {
-			t.Fatalf("%s must be removed by the Cortex contract, got %v", name, method)
+			t.Fatalf("%s must be removed from the Worker/Verifier surface, got %v", name, method)
 		}
 	}
 	for _, name := range []protoreflect.Name{
@@ -94,10 +94,10 @@ func TestPlaintextOutputProtoContract(t *testing.T) {
 		"OutputRef", "TaskDataAuthorizationV1",
 	} {
 		if message := file.Messages().ByName(name); message != nil {
-			t.Fatalf("message %s must be removed by the Cortex contract", name)
+			t.Fatalf("message %s must be removed from the Worker/Verifier surface", name)
 		}
 	}
-	// §9 implementation alignment check: no OutputRef-related field may remain on the nexus ingress contract surface.
+	// No OutputRef-related field may remain on the nexus ingress surface.
 	for _, entry := range []struct {
 		message protoreflect.Name
 		field   protoreflect.Name
@@ -112,12 +112,12 @@ func TestPlaintextOutputProtoContract(t *testing.T) {
 			t.Fatalf("message %s descriptor missing", entry.message)
 		}
 		if field := message.Fields().ByName(entry.field); field != nil {
-			t.Fatalf("%s.%s must be removed by the Cortex contract", entry.message, entry.field)
+			t.Fatalf("%s.%s must be removed from the Worker/Verifier surface", entry.message, entry.field)
 		}
 	}
 }
 
-// TestWorkerVerifierContractSurface pins the Worker/Verifier method surface of §2 of the nexus<->Cortex contract.
+// TestWorkerVerifierContractSurface pins the Worker/Verifier method surface of the ingress API.
 func TestWorkerVerifierContractSurface(t *testing.T) {
 	file := nexusv1.File_nexus_v1_ingress_proto
 	svc := file.Services().ByName("IngressAPI")
@@ -130,12 +130,12 @@ func TestWorkerVerifierContractSurface(t *testing.T) {
 	}{
 		{"UploadTaskResultObject", true, false},
 		{"FinalizeTaskResult", false, false},
-		{"FinalizeVerifierEvidence", false, false}, // §2.1 client stream
-		{"FetchTaskData", false, true},             // §2.2 server stream
-		{"GetTaskDataMetadata", false, false},      // §2.3
-		{"SubmitInferReceipt", false, false},       // §2.4
-		{"SubmitVerifyCommit", false, false},       // §2.5
-		{"SubmitVerifyResult", false, false},       // §2.6
+		{"FinalizeVerifierEvidence", false, false}, // client stream
+		{"FetchTaskData", false, true},             // server stream
+		{"GetTaskDataMetadata", false, false},
+		{"SubmitInferReceipt", false, false},
+		{"SubmitVerifyCommit", false, false},
+		{"SubmitVerifyResult", false, false},
 	}
 	for _, want := range methods {
 		method := svc.Methods().ByName(want.name)
@@ -143,7 +143,7 @@ func TestWorkerVerifierContractSurface(t *testing.T) {
 			t.Fatalf("%s descriptor = %v", want.name, method)
 		}
 		if options, _ := method.Options().(*descriptorpb.MethodOptions); options.GetDeprecated() {
-			t.Fatalf("contract method %s must not be deprecated", want.name)
+			t.Fatalf("API method %s must not be deprecated", want.name)
 		}
 	}
 	// An upload commits to a single object only: object_ref + size + media_type, with the receipt not among them --
@@ -261,14 +261,14 @@ func TestTaskDataProtoContract(t *testing.T) {
 	assertProtoFields(t, file.Messages().ByName("ByteRangeV1"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"offset": 1, "length": 2,
 	})
-	// Contract §3.1 requires OpenTask to carry an idempotency_key (server-side deduplication is still to be implemented).
+	// OpenTask is required to carry an idempotency_key (server-side deduplication is still to be implemented).
 	assertProtoFields(t, file.Messages().ByName("OpenTaskHeader"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"input_size_bytes": 9, "input_hash": 10, "input_media_type": 11, "idempotency_key": 12,
 	})
 }
 
-// TestSDKContractSurface pins the SDK method surface of §3 of the nexus<->SDK interface contract v0.1:
-// all 9 contract methods present with the right streaming shape; the pre-existing SDK methods the contract supersedes stay deprecated
+// TestSDKContractSurface pins the SDK method surface of the ingress API:
+// all 9 SDK methods present with the right streaming shape; the pre-existing SDK methods they supersede stay deprecated
 // until the members rule on a removal date (see the open items in README.md).
 func TestSDKContractSurface(t *testing.T) {
 	svc := nexusv1.File_nexus_v1_ingress_proto.Services().ByName("IngressAPI")
@@ -279,23 +279,23 @@ func TestSDKContractSurface(t *testing.T) {
 		name           protoreflect.Name
 		client, server bool
 	}{
-		{"OpenTask", true, false},             // §3.1
-		{"ConfirmOpenTask", false, false},     // §3.2
-		{"GetTaskDataMetadata", false, false}, // §3.3
-		{"FetchTaskData", false, true},        // §3.4
-		{"SubscribeOutput", false, true},      // §3.5
-		{"AckOutput", false, false},           // §3.6
-		{"GetTaskStatus", false, false},       // §3.7
-		{"GetTaskEvents", false, true},        // §3.8
-		{"PrepareChallenge", false, false},    // §3.9
+		{"OpenTask", true, false},
+		{"ConfirmOpenTask", false, false},
+		{"GetTaskDataMetadata", false, false},
+		{"FetchTaskData", false, true},
+		{"SubscribeOutput", false, true},
+		{"AckOutput", false, false},
+		{"GetTaskStatus", false, false},
+		{"GetTaskEvents", false, true},
+		{"PrepareChallenge", false, false},
 	}
 	for _, want := range contract {
 		method := svc.Methods().ByName(want.name)
 		if method == nil || method.IsStreamingClient() != want.client || method.IsStreamingServer() != want.server {
-			t.Fatalf("contract method %s descriptor = %v", want.name, method)
+			t.Fatalf("API method %s descriptor = %v", want.name, method)
 		}
 		if options, _ := method.Options().(*descriptorpb.MethodOptions); options.GetDeprecated() {
-			t.Fatalf("contract method %s must not be deprecated", want.name)
+			t.Fatalf("API method %s must not be deprecated", want.name)
 		}
 	}
 	for _, name := range []protoreflect.Name{
@@ -326,7 +326,7 @@ func assertProtoFields(t *testing.T, message protoreflect.MessageDescriptor, fie
 
 // TestOutputStreamContractSurface pins the wire shape of the streaming OUTPUT data plane
 // (nexus/v1/ingress.proto): RPC shapes and field numbers. The implementation sits behind
-// task_data.output_stream.enabled (another PR); this only guarantees the contract does not drift.
+// task_data.output_stream.enabled (another PR); this only guarantees the wire shape does not drift.
 func TestOutputStreamContractSurface(t *testing.T) {
 	file := nexusv1.File_nexus_v1_ingress_proto
 	svc := file.Services().ByName("IngressAPI")
@@ -398,7 +398,7 @@ type fakeHandler struct {
 	subscribeOutput     func(context.Context, string, string, string) (types.PlaintextOutput, error)
 	ackOutput           func(context.Context, string, string, string, string) (types.OutputAck, error)
 	onOrder             func(context.Context, types.Order) error
-	// sessionForTask is the lookup the wire v0.4.1 relay path requires: the request carries only the on-chain message,
+	// sessionForTask is the lookup the wire relay path requires: the request carries only the on-chain message,
 	// and the on-chain task_id does not contain the session.
 	sessionForTask    string
 	sessionForTaskErr error
@@ -612,7 +612,7 @@ func canonicalTestTaskID(seed string) string {
 }
 
 // validInferReceiptRequest builds a SubmitInferReceiptRequest in the frozen on-chain shape.
-// The wire v0.4.1 request carries only the receipt body: the session is looked up by task_id, and there is no request envelope.
+// The wire request carries only the receipt body: the session is looked up by task_id, and there is no request envelope.
 func validInferReceiptRequest(
 	t *testing.T, operator signer.Signer, _ string, taskID string, output []byte,
 ) *nexusv1.SubmitInferReceiptRequest {
@@ -641,7 +641,7 @@ func validInferReceiptRequest(
 }
 
 // signInferReceiptRequest signs the receipt's on-chain digest with the given key. Authorization is that
-// signature -- the request envelope no longer exists in wire v0.4.1.
+// signature -- the request envelope no longer exists in wire.
 func signInferReceiptRequest(t *testing.T, key signer.Signer, req *nexusv1.SubmitInferReceiptRequest) {
 	t.Helper()
 	// As above: a 64-byte placeholder lets the shape check pass, and the digest is unaffected by it.
@@ -1080,7 +1080,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 	}
 }
 
-// From wire v0.4.1 on there is no operator self-signing compatibility path: the CORTEX_SERVICE public key is read from the chain
+// There is no operator self-signing compatibility path: the CORTEX_SERVICE public key is read from the chain
 // only by (CORTEX, requester_address). When the chain is unreachable it must fail closed and report chain lookup unavailable,
 // never degrade into "no service key, so admit an operator self-signature".
 func TestOperatorKeyFallbackIsGoneAndAuthorityFailureFailsClosed(t *testing.T) {
@@ -1454,7 +1454,7 @@ func TestFetchOutputRefErrorMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authorized fetch: %v", err)
 	}
-	// The contract's target-state baseline removes the OutputRef object: only the binding credential is returned.
+	// The OutputRef object was removed: only the binding credential is returned.
 	if resp.Msg.GetCredential().GetCredentialId() == "" {
 		t.Fatalf("authorized fetch payload: %+v", resp.Msg)
 	}

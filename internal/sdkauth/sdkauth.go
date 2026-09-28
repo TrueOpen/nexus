@@ -1,4 +1,4 @@
-// Package sdkauth verifies the SDK request envelope SDKRequestEnvelopeV1 (Interface & Topic Catalogue v1.5 §3.0).
+// Package sdkauth verifies the SDK request envelope SDKRequestEnvelopeV1.
 // All SDK -> IngressAPI requests share this envelope: anti cross-chain replay (chain_id), anti cross-method replay
 // (method/endpoint), anti stale replay (expiry), request body binding (body_digest),
 // user chain-account signature (signer_address + signature).
@@ -24,7 +24,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
-// RequestDomain is the fixed domain separator (v1.5 §3.0).
+// RequestDomain is the fixed domain separator.
 const RequestDomain = "TRUEOPEN_SDK_REQUEST_V1"
 
 // Errors aligned with the documented error codes (ingress maps them to connect codes + error code strings).

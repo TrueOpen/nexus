@@ -131,7 +131,7 @@ func TestEIP712UserFetchVector(t *testing.T) {
 	}
 }
 
-// Inputs §4.2.1 explicitly requires rejecting. Each is a concrete form of "a signature from
+// Inputs that must be rejected. Each is a concrete form of "a signature from
 // another chain / another body / another path impersonating this request".
 func TestEIP712UserRejects(t *testing.T) {
 	t.Run("wrong numeric chain id", func(t *testing.T) {

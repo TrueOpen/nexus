@@ -78,7 +78,7 @@ func TestNATSIntegration(t *testing.T) {
 	defer jsUnsub()
 	time.Sleep(200 * time.Millisecond)
 
-	// Contract §5.12: Nats-Msg-Id = envelope message_id, and a retry reuses the same id.
+	// Nats-Msg-Id = envelope message_id, and a retry reuses the same id.
 	// Generating message_id moved into busadapter with the envelope change; this test only exercises broker
 	// dedup, so a UUID text of fixed shape is enough.
 	messageID := "01890000-0000-7000-8000-00000000abcd"

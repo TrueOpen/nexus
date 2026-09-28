@@ -1,5 +1,5 @@
 // Package relay is a credential store: it holds only fetch credentials (key + reference), never the blob
-// itself (implementation design §4.4 / detailed design §2.4). In-memory first + optional KV write-through:
+// itself. In-memory first + optional KV write-through:
 // held credentials are restored after restart until the authoritative chain height and final settlement allow explicit release.
 package relay
 
@@ -26,7 +26,7 @@ var (
 // Custodian is the credential store interface.
 // The credential store key is the composite session_id + task_id.
 //
-// The Nexus<->Cortex contract "target-state baseline" removed the OutputRef object and sealed-key delivery: the
+// The OutputRef object and sealed-key delivery were removed from the protocol: the
 // held object is now just the selected Worker's signed InferReceipt (commitment + signature, no locator, no key),
 // so access_level tiers no longer affect the returned content; they are kept only for the pending FetchOutputRef.
 type Custodian interface {

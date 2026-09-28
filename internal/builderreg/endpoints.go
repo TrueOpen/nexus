@@ -12,7 +12,7 @@ import (
 )
 
 // defaultEndpointProtocolVersion is the protocol_version written into the descriptor when the
-// configuration does not state one. The contract only constrains the character set and the length bound,
+// configuration does not state one. The chain only constrains the character set and the length bound,
 // it does not register the values.
 const defaultEndpointProtocolVersion = "v1"
 
@@ -23,16 +23,16 @@ const healthEndpointPath = "/healthz"
 //
 // Two paths:
 //
-//   - identity.service_endpoints non-empty: each entry is validated against §9.6b and then used as is,
+//   - identity.service_endpoints non-empty: each entry is validated against the ServiceDescriptorV1 endpoint rules and then used as is,
 //     exactly as configured.
 //   - left empty: three entries are derived from identity.public_endpoint. The single Connect port of
 //     nexus serves gRPC, object reads and /healthz at once, so all three kinds point at the same
 //     host:port and only HEALTH_HTTPS carries the /healthz path.
 //
-// [Pending protocol confirmation] The contract does not fix which URI each of the three endpoint_kind
+// [Pending protocol confirmation] The protocol does not fix which URI each of the three endpoint_kind
 // values should carry (in particular whether OBJECT_GATEWAY_HTTPS needs a path prefix and whether
 // HEALTH_HTTPS is simply /healthz). The derivation above is this repository's recommended implementation,
-// not a ruling; until that settles it can be overridden explicitly through identity.service_endpoints.
+// not a protocol rule; until that settles it can be overridden explicitly through identity.service_endpoints.
 //
 // When neither is available it returns a readable error: failing at startup beats submitting an empty or
 // half-filled endpoints list.

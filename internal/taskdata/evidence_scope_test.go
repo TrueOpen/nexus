@@ -177,7 +177,7 @@ func TestNonVerifiersCannotReadVerifierEvidence(t *testing.T) {
 }
 
 // A candidate listed in both handraise sets reads nothing through the data interface: no
-// content, and no metadata either, so no chunk_lengths (Data Plane spec §6).
+// content, and no metadata either, so no chunk_lengths.
 func TestCandidateReadsNoTaskData(t *testing.T) {
 	fx := newEvidenceScopeFixture(t)
 	for _, kind := range []ObjectKind{ObjectKindInput, ObjectKindOutput, ObjectKindEvidenceManifest} {

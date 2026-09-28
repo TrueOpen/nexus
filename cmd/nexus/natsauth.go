@@ -21,7 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/natsauth"
 )
 
-// The natsauth subcommand is the NATS auth callout service of ADR-0016 decision three:
+// The natsauth subcommand is the NATS auth callout service:
 //
 //	nexus natsauth check  -> load the config and the key material, print the identities it would use, connect to nothing
 //	nexus natsauth start  -> connect to NATS (AUTH account) and to the chain, subscribe to $SYS.REQ.USER.AUTH and stay resident
@@ -38,7 +38,7 @@ func newNATSAuthCmd() *cobra.Command {
 	return cmd
 }
 
-// defaultJetStreamStream is the devnet stream name (§5.13 permission set); check uses it to build the issuer for validation,
+// defaultJetStreamStream is the devnet stream name used by the Cortex permission set; check uses it to build the issuer for validation,
 // and start uses it as the default value of --jetstream-stream.
 const defaultJetStreamStream = "TRUEOPEN_TASK"
 

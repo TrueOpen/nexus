@@ -105,7 +105,7 @@ func (a *activeSet) Rank(seed []byte, addr string) (rank int, inSet bool) {
 }
 
 // rankAmong computes an address's deterministic rank (1..N) within the given member group.
-// Group members compute the same order from the same seed, reaching agreement without communication (Detailed Design §4.2).
+// Group members compute the same order from the same seed, reaching agreement without communication.
 func rankAmong(seed []byte, members []types.BuilderRef, addr string) (rank int, inSet bool) {
 	if len(members) == 0 {
 		return 0, false

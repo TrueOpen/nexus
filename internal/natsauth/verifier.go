@@ -15,7 +15,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 )
 
-// Request holds the fields extracted from the NATS authorization request that §5.14.3 uses.
+// Request holds the fields extracted from the NATS authorization request that the checks use.
 type Request struct {
 	UserNkey    string // user public key the server assigned to this connection; sub of the issued JWT
 	ServerID    string // echoed back as the response aud
@@ -45,7 +45,7 @@ type VerifierConfig struct {
 	Now          func() time.Time
 }
 
-// Verifier executes the nine steps of §5.14.3 in fixed order; any failing step returns its RejectError immediately without continuing.
+// Verifier executes the nine auth-callout checks in fixed order; any failing step returns its RejectError immediately without continuing.
 type Verifier struct {
 	cfg VerifierConfig
 }
@@ -58,15 +58,15 @@ func NewVerifier(cfg VerifierConfig) *Verifier {
 	return &Verifier{cfg: cfg}
 }
 
-// Verify runs the nine checks in the fixed order of §5.14.3; no chain query is issued before step 7.
+// Verify runs the nine checks in fixed order; no chain query is issued before step 7.
 func (v *Verifier) Verify(ctx context.Context, req Request) (Decision, error) {
 	// 1. token prefix / base64 / length / strict decode / schema_version; 3. participant_type and address shape
 	//    -- all done by bus in one pass; any failure is BINDING_MALFORMED.
-	// Documented deviation (1): row 4 of the spec table files nats_user_pubkey validity under NKEY_MISMATCH,
+	// Deviation (1): step 4 nominally files nats_user_pubkey validity under NKEY_MISMATCH,
 	// but the shape check is delegated to bus.DecodeBinding, which runs before step 4,
 	// so a textually invalid nats_user_pubkey is rejected earlier as BINDING_MALFORMED;
 	// NKEY_MISMATCH is reserved for "both valid but not equal".
-	// Documented deviation (2): row 4 of the spec table assumes CONNECT always carries an nkey. In operator mode the
+	// Deviation (2): step 4 nominally assumes CONNECT always carries an nkey. In operator mode the
 	// server requires CONNECT to present a user JWT before routing to the auth callout, and nats.go does not allow
 	// nkey and jwt together, so Cortex sends sentinel JWT + sig + auth_token with an empty nkey. Identity is then taken
 	// from nats_user_pubkey in the binding (endorsed by the on-chain service key signature), and step 4 degrades to "if given, it must be equal".
@@ -129,7 +129,7 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Decision, error) {
 		return Decision{}, Reject(CodeServiceKeyNonceMismatch, "binding nonce %d, chain nonce %d", fields.ServiceAuthorizationNonce, key.AuthorizationNonce)
 	}
 
-	// 8. Verify the binding signature with the on-chain current_service_pubkey (projection and rules in wire §7.5)
+	// 8. Verify the binding signature with the on-chain current_service_pubkey (projection and rules of wire's NatsUserBindingV1)
 	pubkey, err := hex.DecodeString(key.ServicePubKey)
 	if err != nil || len(pubkey) != 33 {
 		return Decision{}, Reject(CodeBindingSignatureInvalid, "chain service pubkey is not 33-byte compressed hex")

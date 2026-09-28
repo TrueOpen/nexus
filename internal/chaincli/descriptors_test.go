@@ -147,7 +147,7 @@ func TestQueryBuilderSetPreservesMembershipWhenEndpointUnavailable(t *testing.T)
 	}
 }
 
-// QueryBuilder maps by the wire v0.4.1 field names/enums: builder_address,
+// QueryBuilder maps by the wire field names/enums: builder_address,
 // current_service_address, ServiceKeyStatus short name, service_authorization_nonce,
 // registered_height, current_descriptor_version. BuilderState no longer carries an
 // admission status (BuilderStatus lives in the governance-side BuilderAdmissionState and

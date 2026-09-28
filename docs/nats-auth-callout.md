@@ -1,11 +1,11 @@
 # NATS Auth Callout Service (nexus natsauth)
 
-wire dependency: TrueOpen/wire `v0.3.0`.
+wire dependency: TrueOpen/wire `v0.3.3`.
 
 ## What it does
 
 When Cortex connects to NATS it carries no creds; instead it presents a binding declaration (`bus.v1.NatsUserBindingV1`) signed with its on-chain service key.
-The NATS server forwards the connection request to this service, which runs the nine-step check of §5.14.3 (query the chain for `current_service_pubkey`, verify both signatures,
+The NATS server forwards the connection request to this service, which runs a nine-step check (query the chain for `current_service_pubkey`, verify both signatures,
 check status) and, on success, signs a user JWT valid for <= 1 hour. The user is signed into the **TRUEOPEN application account** -- the same account as nexus, with roles distinguished by the subject permissions in the JWT;
 no separate CORTEX account is created, because JetStream streams are isolated per account and the `TRUEOPEN_TASK` stream Cortex needs to consume lives in the TRUEOPEN account.
 No keys or credentials are ever handed between operators manually.
@@ -82,7 +82,7 @@ if it is configured but is not a valid bearer user JWT, nexus refuses to start (
 `sentinel_file` is read only once at startup; after changing the file content or path, restart nexus for it to take effect.
 
 The same response can also carry the NATS address and the certificate Cortex verifies NATS with, so a new
-Cortex needs neither handed to it by hand (ADR-0016 decision one item 1):
+Cortex needs neither handed to it by hand:
 
 ```yaml
 nats:
@@ -124,7 +124,7 @@ issued by the testnet's private CA, so the host running the callout service must
 
 ## Rejections and logging
 
-The closed set of error codes is in §5.14.3. The NATS server does not forward the error text to the client (the client only sees `Authorization Violation`),
+The closed set of error codes is defined in `internal/natsauth/reject.go`. The NATS server does not forward the error text to the client (the client only sees `Authorization Violation`),
 so troubleshooting relies on this service's log line `authorization request rejected reason=<CODE>: …`.
 
 With sentinel onboarding, `nkey=` in the log is empty (CONNECT carries no nkey); this is normal, not a client misconfiguration;

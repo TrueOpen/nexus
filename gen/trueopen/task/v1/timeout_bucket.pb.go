@@ -23,11 +23,11 @@ const (
 )
 
 // TaskBucketRefState is the single reference row that pins one governance
-// parameter bucket version to one Task (the wire storage model, key
+// parameter bucket version to one Task (key
 // (task_id, bucket_kind, bucket_key)).
 //
 // The version bodies, current pointer and pending pointer live in x/hub
-// because the wire storage model names the Hub governance handler their only
+// because the contract names the Hub governance handler their only
 // writer and leaves the Task module with reference counting only. BucketKind is
 // imported from shared/v1/common.proto instead of being redeclared:
 // the wire API allows exactly one numeric definition per closed

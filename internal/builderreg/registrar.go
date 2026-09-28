@@ -32,21 +32,21 @@ const participantTypeBuilder = servicekey.ParticipantBuilder
 // the wire and only scopes the TRUEOPEN_SERVICE_REGISTRATION_V1 PoP; the keeper fixes its value at 1.
 const initialServiceKeyNonce = uint64(1)
 
-// The Phase 0 BuilderBond is fixed at zero and creates no bonded stake or unbonding record (Staking and Slashing
-// Protocol), and wire v0.4.1 has no Builder bond query or message either, so there is no bond step here:
+// The Phase 0 BuilderBond is fixed at zero and creates no bonded stake or unbonding record,
+// and wire has no Builder bond query or message either, so there is no bond step here:
 // registration = MsgRegisterBuilder (identity + service key + descriptor), with admission fixed by
 // governance or genesis.
 var (
 	ErrPendingRegistration = errors.New("builder registration outcome is pending chain reconciliation")
 	// ErrNotRegistered / ErrDescriptorStale are the two outcomes of `nexus start`, which only checks and
-	// never submits: changing the descriptor is an explicit operator-key action by the operator (ADR-0015),
+	// never submits: changing the descriptor is an explicit operator-key action by the operator,
 	// submitted by `nexus builder register`.
 	ErrNotRegistered   = errors.New("builder is not registered on the authority chain")
 	ErrDescriptorStale = errors.New("on-chain service descriptor differs from the local configuration")
 )
 
 // StateReader is the read-only Hub surface the registrar needs. A descriptor update no longer needs the
-// service key authorization nonce (the frozen-contract MsgUpdateServiceDescriptor carries no detached
+// service key authorization nonce (MsgUpdateServiceDescriptor carries no detached
 // authorization signature), so QueryCurrentServiceKey is no longer required here.
 type StateReader interface {
 	QueryBuilder(context.Context, string) (chaincli.BuilderState, error)
@@ -364,7 +364,7 @@ func (r *Registrar) waitForDescriptorVersion(ctx context.Context, builder string
 }
 
 // descriptorObservation assembles the local view of what we believe the chain currently holds: the hash is
-// recomputed with the §9.6b formula, and the version is the one this batch of endpoints actually landed at
+// recomputed with the on-chain descriptor_hash formula, and the version is the one this batch of endpoints actually landed at
 // (it enters the preimage, so it cannot be omitted).
 func (r *Registrar) descriptorObservation(desired desiredState, version uint64) (chaincli.ServiceDescriptorState, error) {
 	hash, err := nodecontract.ServiceDescriptorHash(
@@ -417,7 +417,7 @@ func (r *Registrar) desired(height uint64) (desiredState, error) {
 	}, nil
 }
 
-// validateBuilderOperational: the wire v0.4.1 BuilderState carries only the service key status. Admission
+// validateBuilderOperational: the wire BuilderState carries only the service key status. Admission
 // (ADMITTED / REVOKED) is not on this path and is fixed by governance; a Builder whose key was REVOKED can
 // send nothing carrying a service signature, so the registration flow fails closed here.
 func validateBuilderOperational(builder chaincli.BuilderState) error {
@@ -428,11 +428,11 @@ func validateBuilderOperational(builder chaincli.BuilderState) error {
 }
 
 // descriptorMatches decides whether the current on-chain descriptor already equals what we want. The
-// criterion is field-by-field equality of the endpoints: the frozen-contract on-chain descriptor has no
+// criterion is field-by-field equality of the endpoints: the on-chain descriptor has no
 // validity period, so unchanged content is no reason to resubmit anything, and a restart therefore never
 // re-sends MsgUpdateServiceDescriptor.
 //
-// Along the way it recomputes the §9.6b descriptor_hash and reconciles it against the on-chain value: equal
+// Along the way it recomputes the descriptor_hash and reconciles it against the on-chain value: equal
 // content with an unequal hash can only mean the local H_FIELDS_V1 convention has diverged from the
 // keeper's. That case is not blocking (the hash never goes on the wire and a submission is still handled
 // correctly by the keeper), but it must leave a WARN, or such a divergence would go unnoticed.

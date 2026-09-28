@@ -93,7 +93,7 @@ func waitDataReadyIdle(t *testing.T, f *taskFSM) {
 }
 
 // Receipt accepted locally and on chain, but the Worker has not finalized its result on this
-// Builder: no OPEN_VERIFY and no proposal (04 §326). Finalize then sends both.
+// Builder: no OPEN_VERIFY and no proposal. Finalize then sends both.
 func TestOpenVerifyAndProposalWaitForLocalDataReady(t *testing.T) {
 	fx, readiness, openVerify := newDataReadyFixture(t, "data-ready-wait")
 	fx.chainAcceptsReceipt(t, 150)

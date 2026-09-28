@@ -57,7 +57,7 @@ message TreasuryState {
 }
 
 // TreasurySpendReceiptState deduplicates one governance spend item inside the
-// x/gov replay window (the wire storage model, key
+// x/gov replay window (key
 // (proposal_id, item_index)).
 //
 // prune_height and the action facts are stored explicitly so Genesis can rebuild

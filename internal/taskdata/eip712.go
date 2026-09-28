@@ -1,5 +1,4 @@
-// EIP-712 v4 signature verification for USER-side Task data plane requests (Interface &
-// Topic Catalogue §4.2.1).
+// EIP-712 v4 signature verification for USER-side Task data plane requests.
 //
 // USER and CORTEX_SERVICE are two mutually exclusive paths, chosen solely by
 // requester_kind: never sniff by signature length, and never try the other path after one
@@ -50,7 +49,7 @@ func eip712Word(value uint64) []byte {
 }
 
 // EIP712DomainSeparator is keccak(typeHash || keccak(name) || keccak(version) || chainId).
-// numericChainID comes from the Genesis/account contract mapping; it and the auth.ChainID
+// numericChainID comes from the chain's Hub parameters; it and the auth.ChainID
 // string must both match the current chain. Checking only one lets the same signature from
 // another chain be replayed here.
 func EIP712DomainSeparator(numericChainID uint64) [32]byte {
@@ -110,7 +109,7 @@ var secp256k1HalfOrder = new(big.Int).Rsh(secp256k1.S256().N, 1)
 // RecoverUserTaskDataRequester recovers the signer's 20-byte address from 65-byte R||S||V.
 //
 // Only V in {27, 28} is accepted: personal_sign and eth_sign wrap the digest in an extra
-// prefix, so their signatures cannot pass here, which §4.2.1 explicitly requires rejecting.
+// prefix, so their signatures cannot pass here, and they must be rejected.
 func RecoverUserTaskDataRequester(digest [32]byte, signature []byte) ([20]byte, error) {
 	if len(signature) != 65 {
 		return [20]byte{}, fmt.Errorf("%w: USER signature must be exactly 65 bytes", ErrMalformed)

@@ -376,7 +376,7 @@ func TestTaskEventRetryPolicy(t *testing.T) {
 }
 
 // protocolEventTestService simulates hub.v1.HubEventService, which carries the
-// protocol event stream since wire v0.4.1 (ADR-0013: SubscribeProtocolEvents moved from
+// protocol event stream (SubscribeProtocolEvents moved from
 // TaskEventService to Hub); the Task event stream is still served by TaskEventService.
 type protocolEventTestService struct {
 	hubv1connect.UnimplementedHubEventServiceHandler

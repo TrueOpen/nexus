@@ -19,7 +19,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 )
 
-// ADR-0016 transition state: the client connects to NATS over tls:// with a creds file (JWT + seed) instead
+// The client connects to NATS over tls:// with a creds file (JWT + seed) instead
 // of a username and password. This only checks how the connection options are assembled and starts no real NATS.
 
 func applyOptions(t *testing.T, cfg config.NATSConfig) nats.Options {

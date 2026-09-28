@@ -1,4 +1,4 @@
-// Package config loads and validates the nexus startup configuration (Implementation Design §3).
+// Package config loads and validates the nexus startup configuration.
 // Configuration precedence: defaults < YAML < environment variables < cobra flag; hot reload is not supported.
 package config
 
@@ -49,7 +49,7 @@ type TaskDataConfig struct {
 	RequestTTLBlocks           uint64        `yaml:"request_ttl_blocks"`
 	RetentionLeaseBlocks       uint64        `yaml:"retention_lease_blocks"`
 	SweepInterval              time.Duration `yaml:"sweep_interval"`
-	// OutputStream is the ADR-0017 streaming OUTPUT data plane (Streaming Output Delivery Design §6).
+	// OutputStream is the streaming OUTPUT data plane.
 	OutputStream OutputStreamConfig `yaml:"output_stream"`
 }
 
@@ -115,7 +115,7 @@ func (c TaskDataConfig) Validate() error {
 	}
 }
 
-// IdentityConfig is this node's own Builder identity (Implementation Design §3).
+// IdentityConfig is this node's own Builder identity.
 // Used by the coordinator self-check (whether this node is in the active set) and the per-order rank computation.
 type IdentityConfig struct {
 	BuilderAddress string `yaml:"builder_address"` // this node's on-chain builder address (bech32); empty = identity not configured
@@ -135,12 +135,12 @@ type IdentityConfig struct {
 	Moniker        string `yaml:"moniker"`
 	P2PHint        string `yaml:"p2p_hint"`
 
-	// ServiceEndpoints is the ServiceDescriptorV1.endpoints submitted on chain (§9.6b).
+	// ServiceEndpoints is the ServiceDescriptorV1.endpoints submitted on chain.
 	// When left empty, three entries are derived from PublicEndpoint (see builderreg.ServiceEndpoints),
 	// so older deployments that only configured public_endpoint can upgrade without config changes.
 	ServiceEndpoints []ServiceEndpointConfig `yaml:"service_endpoints"`
 
-	// Deprecated: the frozen-contract on-chain descriptor no longer has an effective/expires height;
+	// Deprecated: the on-chain descriptor no longer has an effective/expires height;
 	// without a validity period a descriptor has no renewal window, so these two fields no longer take
 	// part in any decision. They are kept only so existing nexus.yaml files still pass strict YAML
 	// validation, and will be removed in the next breaking config version.
@@ -148,7 +148,7 @@ type IdentityConfig struct {
 	DescriptorRenewBeforeBlocks uint64 `yaml:"descriptor_renew_before_blocks"`
 }
 
-// ServiceEndpointConfig is one on-chain service endpoint. Kind takes a short name from the closed three-value enum of §9.6b:
+// ServiceEndpointConfig is one on-chain service endpoint. Kind takes a short name from the closed three-value on-chain endpoint kind enum:
 // NEXUS_GRPC / OBJECT_GATEWAY_HTTPS / HEALTH_HTTPS.
 type ServiceEndpointConfig struct {
 	Kind            string `yaml:"kind"`
@@ -232,7 +232,7 @@ type NATSConfig struct {
 	Servers  []string `yaml:"servers"`  // NATS servers to connect to (local/nearby + fallbacks); empty = stub mode; use tls:// in production
 	User     string   `yaml:"user"`     // NATS username (dev only; rejected in production mode)
 	Password string   `yaml:"password"` // NATS password (dev only; rejected in production mode)
-	// ADR-0016 transition state: PEM file of the server certificate (or of the CA that issued it); with
+	// Transitional TLS setup: PEM file of the server certificate (or of the CA that issued it); with
 	// tls:// the server is verified against it, and without it the system root certificates are used.
 	// CredsFile is the NATS creds (user JWT + nkey seed) that replaces username and password.
 	CAFile    string `yaml:"ca_file"`
@@ -244,7 +244,7 @@ type NATSConfig struct {
 	// Empty = the route is not served.
 	SentinelFile string `yaml:"sentinel_file"`
 	// AdvertiseServers are the NATS addresses handed to Cortex with the sentinel, together with the
-	// certificates of CAFile (ADR-0016 decision one item 1). They are not Servers: nexus itself may
+	// certificates of CAFile. They are not Servers: nexus itself may
 	// reach NATS on a private or loopback address. Requires SentinelFile; empty = neither is served.
 	AdvertiseServers []string `yaml:"advertise_servers"`
 }
@@ -259,7 +259,7 @@ func (n NATSConfig) TLS() bool {
 	return false
 }
 
-// SecurityMode is the deployment security baseline switch (monorepo Deployment Security Baseline).
+// SecurityMode switches the production security checks on or off.
 type SecurityMode string
 
 const (
@@ -276,7 +276,7 @@ type SecurityConfig struct {
 // ValidateSecurity checks the configuration according to security.mode. dev only validates the value;
 // production rejects item by item:
 //   - nats.servers must all be tls://, must not carry user/password, and must provide creds_file and ca_file
-//     (in the ADR-0016 transition state the server is verified against the distributed certificate file,
+//     (in the transitional TLS setup the server is verified against the distributed certificate file,
 //     with no fallback to the system root certificates);
 //   - chain.grpc_addr / hub.grpc_addr must be https:// or grpcs:// unless they are loopback addresses;
 //   - identity must not carry private_key_hex / private_key / keystore_password / service_keystore_password,
@@ -304,7 +304,7 @@ func (c Config) ValidateSecurity() error {
 			problems = append(problems, "nats.creds_file is required in production")
 		}
 		if strings.TrimSpace(c.NATS.CAFile) == "" {
-			problems = append(problems, "nats.ca_file is required in production: verify the server against the distributed certificate, not the system roots (ADR-0016)")
+			problems = append(problems, "nats.ca_file is required in production: verify the server against the distributed certificate, not the system roots")
 		}
 	}
 	for _, server := range c.NATS.AdvertiseServers {
@@ -343,7 +343,7 @@ func (c Config) ValidateSecurity() error {
 		problems = append(problems, "identity.service_keystore_password is not allowed in production; use service_keystore_password_file")
 	}
 	if !c.Ingress.TLS.Enabled {
-		problems = append(problems, "ingress.tls.enabled must be true in production (ADR-0015)")
+		problems = append(problems, "ingress.tls.enabled must be true in production")
 	}
 	if len(problems) == 0 {
 		return nil
@@ -351,7 +351,7 @@ func (c Config) ValidateSecurity() error {
 	return fmt.Errorf("security.mode=production: %s", strings.Join(problems, "; "))
 }
 
-// requireTLSUnlessLoopback: once the node port runs TLS per the deployment security baseline, clients
+// requireTLSUnlessLoopback: when the node port runs TLS, clients
 // write https://; plaintext over loopback on the same host as node is a deployment choice and is allowed.
 func requireTLSUnlessLoopback(field, addr string) error {
 	addr = strings.TrimSpace(addr)
@@ -373,7 +373,7 @@ func requireTLSUnlessLoopback(field, addr string) error {
 	return fmt.Errorf("%s %q must use https:// (or grpcs://) in production unless it is a loopback address", field, addr)
 }
 
-// NATSAuthConfig is the configuration of the `nexus natsauth` subcommand (Interface & Topic Catalogue §5.14.5).
+// NATSAuthConfig is the configuration of the `nexus natsauth` subcommand.
 // The callout service runs on the same host as NATS and is operated by whoever runs NATS; it connects to
 // NATS with the AUTH account creds, signs user JWTs with the signing key of the application account (TRUEOPEN,
 // where Cortex users share the account with nexus), and signs responses with the AUTH account signing key.
@@ -402,13 +402,13 @@ type NATSAuthConfig struct {
 const (
 	MaxNATSAuthUserJWTTTLMS         uint64 = 3_600_000
 	MaxNATSAuthChainQueryCacheTTLMS uint64 = 60_000
-	// MaxNATSAuthClockSkewMS: §5.14.5 itself gives no upper bound; this is a local backstop that keeps a
+	// MaxNATSAuthClockSkewMS: the auth-callout protocol gives no upper bound; this is a local backstop that keeps a
 	// mistyped astronomical value from disabling the expiry check. 0 is valid (no skew tolerated at all);
 	// only values above the bound are rejected.
 	MaxNATSAuthClockSkewMS uint64 = 3_600_000
 )
 
-// Validate checks against §5.14.5; anything missing is rejected, nothing is defaulted through.
+// Validate checks the auth-callout requirements; anything missing is rejected, nothing is defaulted through.
 func (c NATSAuthConfig) Validate() error {
 	var problems []string
 	if len(c.NATS.Servers) == 0 {
@@ -539,7 +539,7 @@ func (c TxConfirmConfig) Validate() error {
 	return nil
 }
 
-// DeadlineSweepConfig controls the public deadline runner (Keeper Interface Contract §9.6a).
+// DeadlineSweepConfig controls the public deadline runner (MsgSweepDeadline).
 //
 // MsgSweepDeadline can be submitted by any account and the runner pays its own gas, so this is an
 // operational choice rather than a protocol obligation: disabled by default, with Nexus only observing
@@ -661,8 +661,8 @@ func defaults() Config {
 			DescriptorValidityBlocks:    100000,
 			DescriptorRenewBeforeBlocks: 10000,
 		},
-		// UserJWTTTLMS / ChainQueryCacheTTLMS default to the upper bounds from §5.14.5,
-		// because the spec text reads "default 3,600,000 / default 60,000" (the default is the bound).
+		// UserJWTTTLMS / ChainQueryCacheTTLMS default to the upper bounds of the auth-callout protocol,
+		// because the protocol sets each default equal to its bound (3,600,000 and 60,000).
 		NATSAuth: NATSAuthConfig{UserJWTTTLMS: MaxNATSAuthUserJWTTTLMS, ChainQueryCacheTTLMS: MaxNATSAuthChainQueryCacheTTLMS, MaxClockSkewMS: 300_000},
 	}
 }

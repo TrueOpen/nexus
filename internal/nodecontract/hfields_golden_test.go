@@ -93,7 +93,7 @@ func encodeGoldenField(t *testing.T, field goldenField) []byte {
 	case "enum":
 		return EnumBE(uint32(field.Value))
 	case "int32":
-		// Signed integers use the two's-complement int32_be of §1.2, not decimal text.
+		// Signed integers use the two's-complement int32_be of H_FIELDS_V1, not decimal text.
 		return Int32BE(field.Signed)
 	case "bool":
 		return BoolByte(field.Bool)
@@ -111,7 +111,7 @@ func encodeGoldenField(t *testing.T, field goldenField) []byte {
 		return encoded
 	case "address":
 		// The fixture records both the bech32 text and the address codec bytes so cross-language
-		// implementations can verify their own decoding (ruling 24). Only the codec bytes
+		// implementations can verify their own decoding. Only the codec bytes
 		// enter the preimage.
 		encoded, err := CanonicalOperatorAddressBytes(field.Name, field.Bech32)
 		if err != nil {
@@ -128,7 +128,7 @@ func encodeGoldenField(t *testing.T, field goldenField) []byte {
 		}
 		return CanonicalFrameBytes(nested...)
 	case "optional":
-		// OPTIONAL_V1 (base spec §10.3): absent is the single byte 0x00; present is
+		// OPTIONAL_V1: absent is the single byte 0x00; present is
 		// 0x01 || FRAME(value). "Present but empty" and "absent" deliberately encode differently.
 		if !field.Present {
 			if len(field.Fields) != 0 {
@@ -169,7 +169,7 @@ func encodeGoldenFields(t *testing.T, fields []goldenField) [][]byte {
 	return encoded
 }
 
-// TestTaskDomainsGoldenPreimage aligns the preimage and digest of all 9 vectors byte for byte.
+// TestTaskDomainsGoldenPreimage aligns the preimage and digest of every vector byte for byte.
 // It covers uint32/uint64 big-endian, raw bytes, strict UTF-8 strings (including multi-byte),
 // enum uint32 big-endian, address codec bytes and nested frames.
 func TestTaskDomainsGoldenPreimage(t *testing.T) {

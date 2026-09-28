@@ -18,7 +18,7 @@
         "schema_version": 1,
         "service_authorization_nonce": "1"
       },
-      "name": "minimum vector from 07-task_builder_coordination §7.5.4",
+      "name": "minimum vector",
       "operator_codec_bytes": "77d7bb07580b39fb949df09f7bb9f80a1d0641b8"
     },
     {

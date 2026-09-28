@@ -49,7 +49,7 @@ func TestRealNATSHappyPath(t *testing.T) {
 	// A unique ID isolates each run (JetStream messages persist for 24h).
 	run := time.Now().UnixNano()
 	session := fmt.Sprintf("sess-e2e-%d", run)
-	// task_id must be a real-shaped Hash32: the frozen contract's WorkerHandraiseV1.task_id is 32
+	// task_id must be a real-shaped Hash32: the wire WorkerHandraiseV1.task_id is 32
 	// bytes, and a fake ID cannot form a proposal.
 	task := testTaskID(fmt.Sprintf("task-e2e-%d", run))
 	model := testModelIDHex
@@ -61,7 +61,7 @@ func TestRealNATSHappyPath(t *testing.T) {
 	keys := enableTestBusEnvelopes(c)
 	c.submit = sub
 
-	// Observe the four contract subjects nexus publishes on (a JS publish is equally visible to core
+	// Observe the four wire subjects nexus publishes on (a JS publish is equally visible to core
 	// subscribers).
 	orders, assign, verifySelect, openVerify := &captured{}, &captured{}, &captured{}, &captured{}
 	mustSub(t, bus, msgbus.SubjectTaskOpen(model), orders)
@@ -134,7 +134,7 @@ func TestRealNATSHappyPath(t *testing.T) {
 	waitFor(t, "VerifySelectNotify arrives over JetStream", func() bool { return verifySelect.count() >= 1 })
 	t.Log("✅ VerifySelectNotify(JS, no seed) real round trip ok")
 
-	// The on-chain SampleReady only records the seed: contract §5.1 has no trueopen.sample-ready.*.
+	// The on-chain SampleReady only records the seed: there is no trueopen.sample-ready.* subject.
 	c.OnSampleReady(chaincli.SampleReady{SessionID: session, TaskID: task, SampleSeed: []byte("seed-e2e"), ReadyHeight: 210, Height: 211})
 	time.Sleep(300 * time.Millisecond)
 	fsm, ok := c.getFSM(session, task)
@@ -153,13 +153,13 @@ func TestRealNATSHappyPath(t *testing.T) {
 		subject := msgbus.SubjectVerifyResultV1(task)
 		wire := signTestEnvelope(t, keys, wirebus.ParticipantCortex, v, subject,
 			wirebus.KindVerifyResult, testVerifyResult(task, v, vi), nil)
-		// Contract §5.12: Nats-Msg-Id = the envelope message_id.
+		// Nats-Msg-Id = the envelope message_id.
 		if err := bus.JSPublish(subject, wire, decodeTestEnvelope(t, wire).GetMessageId()); err != nil {
 			t.Fatalf("JS publish verify-result: %v", err)
 		}
 	}
 	// 8) Once the coordinator has 2 matching V_i it submits SettleTx; normal verification has no
-	// Worker reveal step. Settlement timing follows the chain height (§10.10a): feed one new block
+	// Worker reveal step. Settlement timing follows the chain height: feed one new block
 	// per round until the V_i are complete and the height enters this node's slot.
 	settleHeight := int64(rankRevealDeadline)
 	waitFor(t, "SettleTx submitted (2 matching V_i)", func() bool {

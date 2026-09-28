@@ -36,7 +36,7 @@ const (
 	mockServiceAuthorizationNonce uint64 = 1
 )
 
-// ordersWildcard is the wildcard ORDER_BROADCAST subject the mock subscribes to (contract §5.1).
+// ordersWildcard is the wildcard ORDER_BROADCAST subject the mock subscribes to.
 const ordersWildcard = subjectTaskOpenPrefix + "*"
 
 const subjectTaskOpenPrefix = "trueopen.task.open."
@@ -135,7 +135,7 @@ func waitForResponse(ctx context.Context, delay time.Duration) error {
 //
 // It does **not** verify signatures: the mock has no on-chain QueryCurrentServiceKey and cannot obtain the Builder's current
 // binding. A real Cortex must run all 7 steps of wire bus.Verify; do not treat this as a reference implementation.
-// The payload digest is still checked -- it needs no consensus fact, and skipping it would drop half the contract.
+// The payload digest is still checked -- it needs no consensus fact, and skipping it would drop half the check.
 func decodeOrderBroadcast(
 	subject string, data []byte, now time.Time,
 ) (*busv1.BusEnvelopeV1, *taskv1.TaskOrderV3, error) {
@@ -175,7 +175,7 @@ func decodeOrderBroadcast(
 	return &envelope, order, nil
 }
 
-// orderIdentity recomputes task_id / task_hash from the signed order as the contract requires (OrderBroadcastV1 comments):
+// orderIdentity recomputes task_id / task_hash from the signed order as the OrderBroadcastV1 comments require:
 // the hand-raiser may not invent its own and must carry back the recomputed values.
 func orderIdentity(order *taskv1.TaskOrderV3) (taskIDHex, taskHashHex string, err error) {
 	taskID, err := nodecontract.DeriveTaskIDFromRawSession(order.GetSessionId(), order.GetOrderSequence())
@@ -198,7 +198,7 @@ func mockServiceSigner(index int) (signer.Signer, error) {
 }
 
 // publishWorkerHandraises assembles and publishes one fully signed TRUEOPEN_BUS_ENVELOPE_V2 frame per mock worker,
-// whose payload is the frozen contract's task.v1.WorkerHandraiseV1.
+// whose payload is the wire task.v1.WorkerHandraiseV1.
 // chain_id is carried over from the inbound ORDER_BROADCAST: the mock may not switch to another chain.
 func (r *orderResponder) publishWorkerHandraises(
 	ctx context.Context, inbound *busv1.BusEnvelopeV1, order *taskv1.TaskOrderV3,
@@ -215,7 +215,7 @@ func (r *orderResponder) publishWorkerHandraises(
 	if err != nil {
 		return err
 	}
-	// candidate_pool_snapshot_id is a Hash32 in the frozen contract; the mock derives one deterministically.
+	// candidate_pool_snapshot_id is a Hash32 on the wire; the mock derives one deterministically.
 	snapshotID := hashBytes("candidate-pool-snapshot", taskIDHex)
 	subject := msgbus.SubjectWorkerHandraiseV1(taskIDHex)
 	now := uint64(r.config.Now().UnixMilli())

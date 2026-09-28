@@ -6,13 +6,13 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-// Since wire v0.4.1 the three relay requests carry only the on-chain message body, and the
+// The three relay requests carry only the on-chain message body, and the
 // authorization is the message's own service_signature. Nexus therefore must be able to compute
 // the signing digest of every on-chain message it forwards. Previously commit / result
 // authorization went through nexus's own request envelope and the body was relayed as is;
 // that no longer works.
 const (
-	// DomainCommitKeyV1 is the domain of commit_key (Keeper Interface Contract §10.9): the
+	// DomainCommitKeyV1 is the domain of commit_key: the
 	// primary key of CommitState / ResultReceiptState and also SubmitVerifyCommitResponse.commit_key.
 	DomainCommitKeyV1     = "TRUEOPEN_COMMIT_KEY_V1"
 	DomainVerifyCommitV1  = "TRUEOPEN_COMMIT_V1"
@@ -24,7 +24,7 @@ const (
 // receipts, which are at 3.
 const VerifyCommitSchemaVersionV1 uint32 = 1
 
-// VerifyCommitSigningDigest is the verify_commit_signing_digest frozen in §5.14:
+// VerifyCommitSigningDigest is the verify_commit_signing_digest:
 //
 //	H_FIELDS_V1("TRUEOPEN_COMMIT_V1", schema_version, chain_id, task_id, verify_round,
 //	  verifier_operator_address, service_authorization_nonce, commit_hash, expiry_height)
@@ -66,7 +66,7 @@ func VerifyCommitSigningDigest(commit *taskv1.VerifyCommitV1) ([32]byte, error) 
 
 // CanonicalMetricSummaryFrame is the nested FieldFrameV1 of MetricSummaryV1: ten fields in
 // ascending schema field-number order, no domain prefix. Fields 7 and 8 are proto3 optional and
-// encoded per §4.4 (absent: single byte 0x00; present: 0x01 || u64be(len) || value). Whether they
+// encoded as OPTIONAL_V1 (absent: single byte 0x00; present: 0x01 || u64be(len) || value). Whether they
 // are present is decided by the locked profile MetricSpec; the implementation must not fill in
 // defaults on its own.
 func CanonicalMetricSummaryFrame(summary *taskv1.MetricSummaryV1) ([]byte, error) {
@@ -93,7 +93,7 @@ func CanonicalMetricSummaryFrame(summary *taskv1.MetricSummaryV1) ([]byte, error
 	), nil
 }
 
-// MetricSummaryHash is the metric_summary_hash of §9.7. It is recomputed by the Keeper and
+// MetricSummaryHash is the metric_summary_hash. It is recomputed by the Keeper and
 // requests must not assert it; nexus uses it only in local decisions and never puts it into
 // any upstream message.
 func MetricSummaryHash(summary *taskv1.MetricSummaryV1) ([32]byte, error) {
@@ -185,7 +185,7 @@ func ValidatePlaintextResultReceiptV3(receipt *taskv1.ResultReceiptV3) error {
 	return nil
 }
 
-// CommitKey recomputes commit_key per Keeper Interface Contract §10.9:
+// CommitKey recomputes commit_key:
 //
 //	H_FIELDS_V1("TRUEOPEN_COMMIT_KEY_V1", chain_id, task_id, verify_round, verifier_operator_address)
 //

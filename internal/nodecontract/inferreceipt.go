@@ -15,7 +15,7 @@ import (
 
 // DomainInferEvidenceCommitmentsV1 is the domain of evidence_commitments_hash.
 // Note the domain name is TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 (35 ASCII bytes), not
-// TRUEOPEN_EVIDENCE_COMMITMENTS_V1; §1.4 registers the former.
+// TRUEOPEN_EVIDENCE_COMMITMENTS_V1; the wire domain registry lists the former.
 const DomainInferEvidenceCommitmentsV1 = "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"
 
 // InferReceiptSchemaVersionV3 is the schema_version value of InferReceiptV3; older receipt schemas
@@ -39,8 +39,8 @@ const evidenceCommitmentFrameBytesV1 = (8 + 4) + (8 + sha256.Size) + (8 + 8)
 // CanonicalEvidenceCommitmentFrameV1 encodes one EvidenceCommitmentV1 as the nested
 // FieldFrameV1 that TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1 wraps as a single length-prefixed element.
 //
-// §1.2: "a required nested message recursively encodes its field frames in ascending schema
-// field-number order", so the element frame has NO domain prefix and is written by field number 1/2/3:
+// A required nested message recursively encodes its field frames in ascending schema
+// field-number order, so the element frame has NO domain prefix and is written by field number 1/2/3:
 //
 //	u64_be(4)  || uint32_be(evidence_kind)   // enum → uint32_be
 //	u64_be(32) || evidence_hash_or_root      // raw Hash32, not hex
@@ -72,8 +72,7 @@ func CanonicalEvidenceCommitmentFrameV1(item *taskv1.EvidenceCommitmentV1) ([]by
 }
 
 // EvidenceCommitmentsHash derives the 10th field of the InferReceiptV3 preimage,
-// evidence_commitments_hash. It is a Keeper-derived value, NEVER a wire field submitted by the caller
-// (§5.14):
+// evidence_commitments_hash. It is a Keeper-derived value, NEVER a wire field submitted by the caller:
 //
 //	evidence_commitments_hash =
 //	  H_FIELDS_V1("TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
@@ -90,8 +89,8 @@ func CanonicalEvidenceCommitmentFrameV1(item *taskv1.EvidenceCommitmentV1) ([]by
 // count == 0 stays fully defined: write uint32_be(0) with no element frames, giving
 // 393ca3fb29b409f454b6f870f972c4a8fdffbf9934eadd628ecfdf0f03789764,
 // which is NEVER 32 zero bytes, nor an empty byte string, and the count field must not be omitted; nil and [] share the digest.
-// Whether count == 0 is *acceptable* is an admission question the contract does not register
-// (a known contract gap), so no lower bound is enforced here.
+// Whether count == 0 is *acceptable* is an admission question the protocol does not answer
+// yet, so no lower bound is enforced here.
 func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, error) {
 	if uint64(len(items)) > uint64(math.MaxUint32) {
 		return [32]byte{}, fmt.Errorf("evidence commitment count %d overflows uint32", len(items))
@@ -112,8 +111,8 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 	}
 	// The repeated value is ONE nested field, not N top-level fields: the nested frame first writes the
 	// element count, then each element (each with its own length prefix), and the whole thing is wrapped
-	// into the top level as one field (§1.2 repeated nested message rule; on-chain CanonicalRepeatedFramesV1 encodes it this way).
-	// The top-level count is a separate field required by §5.14 and is not the same position as the one inside the nested frame.
+	// into the top level as one field (H_FIELDS_V1 repeated nested message rule; on-chain CanonicalRepeatedFramesV1 encodes it this way).
+	// The top-level count is a separate field of the receipt preimage and is not the same position as the one inside the nested frame.
 	nested := make([][]byte, 0, len(frames)+1)
 	nested = append(nested, Uint32BE(uint32(len(items))))
 	nested = append(nested, frames...)
@@ -139,7 +138,7 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 // hashed as sent; ValidatePlaintextInferReceiptV3 is what requires them to be 32 zero bytes. The 10th field is not a wire field:
 // required_evidence_commitments (wire field 10) enters the preimage only through EvidenceCommitmentsHash,
 // so the signature still covers the whole typed list. worker_operator_address is framed as address codec
-// bytes, not bech32 text (ruling 24).
+// bytes, not bech32 text.
 //
 // The returned 32 bytes are the message handed to the strict secp256k1 verifier; consistent with the other
 // nexus domains, signer.VerifySig applies SHA256 once more internally, byte-for-byte identical to Cosmos

@@ -35,30 +35,30 @@ import (
 // Every task-level entry point carries the composite key session_id + task_id.
 type Handler interface {
 	OnOrder(ctx context.Context, o types.Order) error
-	// OnInferReceipt accepts the selected Worker's signed InferReceipt (Cortex contract §2.4).
+	// OnInferReceipt accepts the selected Worker's signed InferReceipt.
 	// Acceptance means the Builder commits to relaying it; it does not wait for output/evidence upload and does not mean on-chain accepted.
-	// SessionForTask looks up session_id by task_id: wire v0.4.1 relay requests carry only the on-chain
+	// SessionForTask looks up session_id by task_id: wire relay requests carry only the on-chain
 	// message body, and the on-chain task_id contains no session.
 	SessionForTask(ctx context.Context, taskID string) (string, error)
 	OnInferReceipt(ctx context.Context, receipt types.InferReceiptSubmission) error
 	// OnVerifyCommit / OnVerifyResult relay the selected Verifier's signed commit / result
-	// (Cortex contract §2.5 / §2.6; the initial relay implementation trusts the Builder). Return only means broadcast, not on-chain accepted.
+	// (the initial relay implementation trusts the Builder). Return only means broadcast, not on-chain accepted.
 	OnVerifyCommit(ctx context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error)
 	OnVerifyResult(ctx context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error)
 	SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error)
 	AckOutput(ctx context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error)
-	// TaskOwner returns the ordering user's address (authorization for ADR-0017 streaming subscribe / ACK);
+	// TaskOwner returns the ordering user's address (authorization for streaming subscribe / ACK);
 	// returns types.ErrTaskNotFound for an unknown task.
 	TaskOwner(ctx context.Context, sessionID, taskID string) (string, error)
 	// FetchOutputRef issues bound credentials tiered by access_level only (deprecated):
-	// the Cortex contract "target-state baseline" removed the OutputRef object, so there is no reference left to return.
+	// the OutputRef object was removed from the protocol, so there is no reference left to return.
 	FetchOutputRef(ctx context.Context, sessionID, taskID, requester string, level types.AccessLevel, usage string) (types.Credential, error)
 	TaskStatus(ctx context.Context, sessionID, taskID string) (types.TaskStatus, error)
-	// TaskEvents subscribes to the event stream (v1.5 §3.4): replay after cursor + live channel + unsubscribe.
+	// TaskEvents subscribes to the event stream: replay after cursor + live channel + unsubscribe.
 	TaskEvents(ctx context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error)
-	// RefreshCredential exchanges an old credential for a new one (v1.5 §3.5, deprecated).
+	// RefreshCredential exchanges an old credential for a new one (deprecated).
 	RefreshCredential(ctx context.Context, old types.Credential, recipient, usage string, requestedValidUntil int64) (types.Credential, error)
-	// PrepareChallenge assembles challenge inputs (v1.5 §3.6) without submitting a verdict.
+	// PrepareChallenge assembles challenge inputs without submitting a verdict.
 	PrepareChallenge(ctx context.Context, sessionID, taskID, kind string) (types.ChallengePlan, error)
 }
 
@@ -66,7 +66,7 @@ type ServiceKeyResolver interface {
 	QueryCurrentServiceKey(context.Context, string, string) (chaincli.ServiceKeyState, error)
 }
 
-// AuthParams is the SDK envelope verification environment (v1.5 §3.0).
+// AuthParams is the SDK envelope verification environment.
 // RequireEnvelope=false (default lenient, devnet): an envelope, if present, must verify; absent ones pass;
 // RequireEnvelope=true (production): every SDK request must carry a valid envelope.
 type AuthParams struct {
@@ -265,7 +265,7 @@ func (s *service) SubmitOrder(ctx context.Context, req *connect.Request[nexusv1.
 	if err := s.h.OnOrder(ctx, order); err != nil {
 		return nil, mapOrderErr(err)
 	}
-	// accepted=true only means ingress accepted it into the local queue, not on-chain accepted (v1.5 §3.1).
+	// accepted=true only means ingress accepted it into the local queue, not on-chain accepted.
 	return connect.NewResponse(&nexusv1.SubmitOrderResponse{SessionId: order.SessionID, TaskId: order.TaskID, Accepted: true}), nil
 }
 
@@ -397,7 +397,7 @@ func (s *service) AckOutput(
 }
 
 // GetTaskEvents is the SDK event stream (server streaming): replays history after cursor, then pushes live events
-// until the client disconnects. The event stream is only for UX hints; on-chain state is authoritative via chain query (v1.5 §3.4).
+// until the client disconnects. The event stream is only for UX hints; on-chain state is authoritative via chain query.
 func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv1.GetTaskEventsRequest], stream *connect.ServerStream[nexusv1.GetTaskEventsResponse]) error {
 	m := req.Msg
 	if _, err := s.checkEnvelope(m.GetRequestEnvelope(), "GetTaskEvents", sdkauth.BodyDigest(
@@ -485,7 +485,7 @@ func mapPrepareChallengeErr(err error) error {
 	}
 }
 
-// ---- error mapping (aligned with v1.5 §3 error code semantics) ----
+// ---- error mapping (aligned with the SDK error code semantics) ----
 
 func mapFetchErr(err error) error {
 	switch {
@@ -643,7 +643,7 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if err := nodecontract.ValidatePlaintextOrderV3(order); err != nil {
 		return types.Order{}, fmt.Errorf("signed_order: %w", err)
 	}
-	// TaskOrder Hashing and Signing §7.3/§7.5: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
+	// Signed order envelope: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
 	// The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
 	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
 		return types.Order{}, err
@@ -703,12 +703,12 @@ func parseOrderEnvelope(raw []byte, signatureScheme, userSignature string) (type
 		return types.Order{}, err
 	}
 	// The legacy JSON envelope has no TaskHash: it lacks chain_id / session_anchor_* / builder_set_* /
-	// generation_params, so the TRUEOPEN_TASK_ORDER_V2 preimage cannot be built and **no**
+	// generation_params, so the TRUEOPEN_TASK_ORDER_V3 preimage cannot be built and **no**
 	// canonical task_hash exists to fill in. The sha256(order_envelope) formerly filled in here was not a
 	// substitute but an alias, and has been removed.
 	//
 	// The consequence is explicit: an order with an empty task_hash is not broadcast (taskfsm.onOrder rejects it outright),
-	// which matches its original situation -- the first-proposal scope branch accepts only the frozen SignedOrderV2, and
+	// which matches its original situation -- the first-proposal scope branch accepts only a SignedOrderV2, and
 	// legacy-envelope orders could never be submitted on-chain anyway. The only difference is that it now fails before broadcast
 	// instead of in workerHandraiseScope after enough hand-raises were collected.
 	return types.Order{
@@ -762,7 +762,7 @@ func (s *service) verifyRoleSignature(address string, pubKey, signBytes, sig []b
 // nil means pass; an error wrapping errServiceKeyAuthority means **undecidable**
 // (chain query failed, malformed query domain) and the caller must report Unavailable; any other error is a
 // decided invalid signature. Collapsing both into one boolean would misreport a chain-side fault as an auth failure.
-// verifyParticipantRoleDigest verifies the on-chain message's own service_signature: wire v0.4.1
+// verifyParticipantRoleDigest verifies the on-chain message's own service_signature: wire
 // relay requests no longer wrap a request envelope, so this signature is the authorization. The public key is not presented
 // by the caller but fetched from the chain as the current service key by (participantType, operator) -- an old key is invalid immediately after rotation.
 func (s *service) verifyParticipantRoleDigest(

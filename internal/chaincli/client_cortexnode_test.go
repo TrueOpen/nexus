@@ -36,7 +36,7 @@ func testCortexNodeClient(hub *cortexNodeHubQuery) *client {
 	return &client{log: slog.New(slog.NewTextHandler(io.Discard, nil)), hubQuery: hub}
 }
 
-// QueryCortexNode maps the frozen contract's CortexNodeState to the local CortexNodeState:
+// QueryCortexNode maps the wire CortexNodeState to the local CortexNodeState:
 // pubkey becomes lowercase hex, status is the ServiceKeyStatus short name;
 // operator_address must pass through verbatim.
 func TestQueryCortexNodeMapsFrozenRow(t *testing.T) {

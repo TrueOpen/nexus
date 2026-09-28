@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// DailySupportState is one operator/epoch support heartbeat row (wire storage model 6.1).
+// DailySupportState is one operator/epoch support heartbeat row.
 type DailySupportState struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	Epoch               uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`

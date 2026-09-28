@@ -185,6 +185,23 @@ message ModelProfileProjection {
   SourceRefV1 source = 20;
   ParserRefV1 tool_call_parser = 21;
   ParserRefV1 reasoning_parser = 22;
+  // manifest_uri says where the registrant hosts the manifest body: the exact
+  // canonical bytes whose TRUEOPEN_MODEL_MANIFEST_V4 digest is manifest_hash.
+  // It is not inside the manifest and does not enter manifest_hash; it does
+  // enter this projection and therefore TRUEOPEN_MODEL_CHAIN_PROJECTION_V3 and
+  // TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3. It is a retrieval hint, not a trust
+  // source: a reader fetches (local cache, then this URI, then any mirror),
+  // recomputes manifest_hash over the fetched bytes and discards a mismatch.
+  //
+  // Syntax, checked by the Keeper without fetching and kept byte for byte (no
+  // normalization, since it is hashed): printable ASCII 0x21-0x7E only, length
+  // 1..ModelParamsV1.max_manifest_uri_bytes, and either
+  //   https:// host [":" port] [path] ["?" query]   (no userinfo, no fragment;
+  //            host is a DNS name, an IPv4 literal or a bracketed IPv6 literal)
+  //   ipfs://  CID [path]    (CIDv0 base58btc or CIDv1 lowercase base32)
+  // testdata/v1/hub/manifest_uri_v1.json is the reference for accepted and
+  // rejected forms.
+  string manifest_uri = 23;
 }
 
 // ProfileExecutionSnapshot is the immutable execution subset copied into assignments.

@@ -32,10 +32,10 @@ import (
 
 var errTaskFSMStopping = errors.New("coordinator: task FSM stopping")
 
-// taskFSM is the per-order state machine instance (Detailed Design §3). One per order;
+// taskFSM is the per-order state machine instance. One per order;
 // events are routed by the coordinator into the matching instance, which serializes
 // them with its own mutex, so orders never interfere with one another.
-// v1.5 happy path: Pending(RANDOMNESS_PENDING)→Assigned(FINALIZED)→
+// Happy path: Pending(RANDOMNESS_PENDING)→Assigned(FINALIZED)→
 // Verifying(OPEN_VERIFY→SAMPLE_READY→…)→Settled→Closed; sweep events can converge from any phase.
 type taskFSM struct {
 	mu sync.Mutex
@@ -66,7 +66,7 @@ type taskFSM struct {
 	order          types.Order
 
 	state types.TaskState
-	phase types.TaskPhase // fine-grained phase (v1.5 §0.1), drives the external task_phase
+	phase types.TaskPhase // fine-grained phase, drives the external task_phase
 	// terminal records that this FSM already crossed its irreversible local
 	// cleanup boundary, including StageSettle sweeps whose coarse state is Settled.
 	terminal bool
@@ -100,7 +100,7 @@ type taskFSM struct {
 	// redelivery of a result whose broadcast failed temporarily, by Verifier address (txconfirm.go).
 	pendingResults map[string]*pendingResult
 	busRetries     map[string]int
-	// workerRevealed: on-chain Worker reveal. The frozen contract has no such Msg / Event,
+	// workerRevealed: on-chain Worker reveal. The chain has no such Msg / Event,
 	// so it is always false in Phase 0; kept only as "record if present", no longer a
 	// settlement precondition.
 	workerRevealed bool
@@ -108,7 +108,7 @@ type taskFSM struct {
 	// acceptedTaskHash is the authoritative on-chain task_hash (only from query/event;
 	// Nexus never creates it). Non-empty means the task has been accepted, and later Worker
 	// proposals must take the ExistingTaskRefV1 branch instead of carrying signed_order
-	// again (§4.2.1).
+	// again.
 	acceptedTaskHash []byte
 	// assignRetries counts filtered resubmissions after an invalid-assignment rejection.
 	assignRetries int
@@ -118,7 +118,7 @@ type taskFSM struct {
 	assignTxHash        []byte
 	openVerifySubmitted bool
 	// receiptOnChain: the chain has accepted this InferReceipt. OPEN_VERIFY may only be sent
-	// after it is true (§5.8): a Verifier queries the chain as soon as it receives the
+	// after it is true: a Verifier queries the chain as soon as it receives the
 	// message and cannot hand-raise without an on-chain receipt, while OPEN_VERIFY is Core
 	// tier and sent once. At least one block lies between accepting the receipt locally and
 	// the transaction being included.
@@ -128,7 +128,7 @@ type taskFSM struct {
 	acceptedOutputHash  []byte
 	acceptedReceiptHash []byte
 	openVerifyPublished bool // OPEN_VERIFY already sent by this process; reconcile reruns do not resend
-	// resultReadiness answers local data-ready (04 §326); dataReady caches a positive answer.
+	// resultReadiness answers local data-ready; dataReady caches a positive answer.
 	// Neither is persisted: the answer is derived from task data storage. The question is asked
 	// off the FSM lock (checkDataReady), since storage can be held by a sweep for a long time;
 	// dataReadyChecking marks one in flight and dataReadyRecheck asks it to run once more.
@@ -157,7 +157,7 @@ type taskFSM struct {
 	// not in taskSnapshot: after restart it is submitted at most once more, a NOOP on-chain.
 	sweepSubmitted map[taskv1.DeadlineKindV1]bool
 
-	// SETTLE rank timing (Detailed Design §4.2/§4.3; chain rule §10.10a).
+	// SETTLE rank timing.
 	prepareSeen map[string]int64 // when other Builders in the group announced prepare (per phase; advisory de-duplication signal, not a blocking requirement)
 	// settleGraceBlocks is the grace block count per rank (Hub parameter, read and persisted
 	// together with the settlement ordering); observedHeight is the chain height of the
@@ -211,7 +211,7 @@ type taskFSM struct {
 	endExternalHandler   func()
 	requestReconcile     func(string)
 
-	// Snapshot persistence seam (crash recovery, Detailed Design §2.6); nil = no persistence
+	// Snapshot persistence seam (crash recovery); nil = no persistence
 	// (some unit tests construct the fsm directly).
 	persist   func(taskSnapshot) error // write KV after every state transition
 	unpersist func()                   // clear KV once the task reaches a terminal state
@@ -236,7 +236,7 @@ func (f *taskFSM) emit(code string, height int64) {
 
 // ---- Entry points (called via coordinator routing) ----
 
-// onOrder is the first action after construction: broadcast the order to solicit hand-raises and subscribe to Worker hand-raises (Detailed Design §3, Pending row).
+// onOrder is the first action after construction: broadcast the order to solicit hand-raises and subscribe to Worker hand-raises (Pending).
 func (f *taskFSM) onOrder() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -341,7 +341,7 @@ func (f *taskFSM) submitAssignLocked() bool {
 			return false
 		}
 	}
-	// Frozen contract §4.2.1: what goes on-chain is only the scope oneof + the
+	// What goes on-chain is only the scope oneof + the
 	// WorkerHandraiseV1 list + submitter_address; everything else is a Keeper-derived fact.
 	// Neither step may set assignSubmitted on failure, or later hand-raises would never
 	// trigger a retry.
@@ -482,7 +482,7 @@ func (f *taskFSM) onAssignTimeout(height uint64) {
 }
 
 // acceptInferReceipt records the first signed InferReceipt and makes exact
-// retries idempotent (contract §6 I3: the material digest is unchanged under any legitimate retry).
+// retries idempotent (the material digest is unchanged under any legitimate retry).
 // A retry still persists the snapshot so a prior persistence failure can recover.
 func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool, error) {
 	f.mu.Lock()
@@ -515,20 +515,20 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 	return false, nil
 }
 
-// publishOpenVerify opens hand-raising to Verifier candidates (contract §5.6,
-// subject=trueopen.verify.open.<task_id>, kind=OPEN_VERIFY). Caller must hold the lock.
+// publishOpenVerify opens hand-raising to Verifier candidates
+// (subject=trueopen.verify.open.<task_id>, kind=OPEN_VERIFY). Caller must hold the lock.
 //
 // The publish point is "after the InferReceipt is accepted locally", not "after on-chain
 // acceptance": on-chain acceptance goes through MsgSubmitInferReceipt, and that message
 // itself must carry the VerifierHandraise list -- waiting for on-chain acceptance before
 // opening verification would be a deadlock. The "Task whose InferReceipt has been accepted"
-// of contract §5.6 can, on the Builder side, only mean the winner's signed InferReceipt
+// can, on the Builder side, only mean the winner's signed InferReceipt
 // has been received locally.
 //
 // The message carries no input/output/evidence bodies and does not mean any Verifier has
 // been selected.
 //
-// It also waits for this Builder's local data-ready (04 §326): input, output and all required
+// It also waits for this Builder's local data-ready: input, output and all required
 // evidence stored and checked here, i.e. the Worker's FinalizeTaskResult succeeded on this
 // Builder with the receipt this FSM holds. Opening verification without the data would make the
 // Builder answer for data it cannot serve. The usual order is receipt accepted on chain, then
@@ -645,7 +645,7 @@ func (f *taskFSM) checkDataReady() {
 // openVerifyPayload builds this message's payload; nil means it must not be sent yet.
 // Only a Builder that holds the Worker's signed receipt sends it: the receipt reaches this
 // Builder together with the finalized output, and Verifiers fetch task data from the sender.
-// Hashes taken from the chain do not make this Builder data-ready (04 §326).
+// Hashes taken from the chain do not make this Builder data-ready.
 func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
 	if len(f.outputHash) == 0 || f.winner == "" {
 		return nil
@@ -728,7 +728,7 @@ func (f *taskFSM) setAcceptedReceipt(receipt chaincli.AcceptedInferReceipt) {
 
 // onAssignAccepted: AssignTx included (first step of two): winner undecided, enter
 // randomness pending. **No start-work notification** -- work starts after
-// AssignmentFinalized (v1.5 §2.3/§4.3). Subscribe early to Verifier hand-raises + recompute
+// AssignmentFinalized. Subscribe early to Verifier hand-raises + recompute
 // returns (subscribing before messages is harmless; subscribing after loses core messages).
 func (f *taskFSM) onAssignAccepted(ev chaincli.AssignAccepted) {
 	f.mu.Lock()
@@ -861,7 +861,7 @@ func (f *taskFSM) stopVerifierProposalTimerLocked() {
 }
 
 // submitVerifierProposalLocked submits the Verifier hand-raises not yet on-chain as one
-// MsgSubmitVerifierHandraises proposal (Keeper Interface Contract §4.2.1/§10.4). Caller
+// MsgSubmitVerifierHandraises proposal. Caller
 // must hold the lock.
 //
 // There are two triggers: a new hand-raise, and on-chain reconcile
@@ -874,7 +874,7 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 	if f.state != types.Assigned || !f.receiptOnChain {
 		return
 	}
-	// An accepted proposal declares this Builder data-ready for the selected Verifiers (02 §8).
+	// An accepted proposal declares this Builder data-ready for the selected Verifiers.
 	// Only a Builder that received the signed receipt and holds the finalized result may make
 	// that claim; one that knows the accepted hashes from the chain keeps the handraises but does
 	// not submit them.
@@ -1018,7 +1018,7 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 			"task_id", f.taskID, "handraises", len(f.verifierHR))
 		return
 	}
-	// v1.5: OpenVerifyTx carries no sample_seed -- the chain derives the seed after OpenVerify
+	// OpenVerifyTx carries no sample_seed -- the chain derives the seed after OpenVerify
 	// from the aggregated future proposer-VRF beacon (SampleReady event).
 	//
 	// The old verifier_handraise_list / selected_verifiers / window_proof string copies are
@@ -1030,7 +1030,7 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 		f.log.Warn("prepare OpenVerifyTx failed", "task_id", f.taskID, "err", err)
 		return
 	}
-	// MsgSubmitInferReceipt carries the frozen-wire InferReceiptV2 body (§5.14 / §10.3), not
+	// MsgSubmitInferReceipt carries the frozen-wire InferReceiptV2 body, not
 	// the old MsgOpenVerify string copies. If it cannot be filled, do not submit -- otherwise
 	// the submitter fails with "receipt is required" while the Builder has already answered
 	// the Worker with relay_accepted=true.
@@ -1060,7 +1060,7 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 
 // onOpenVerifyAccepted: on-chain open-verify included: record the selected Verifiers and
 // the four deadlines, and send the open-verify notification.
-// v1.5: **the notification carries no seed** -- the seed is delivered separately via
+// **The notification carries no seed** -- the seed is delivered separately via
 // onSampleReady after the chain's SampleReady.
 func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	f.mu.Lock()
@@ -1122,9 +1122,9 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 // onSampleReady: the on-chain sample seed is ready (aggregated future proposer-VRF beacon):
 // only record the seed and phase.
 //
-// The subject table in contract §5.1 has no trueopen.sample-ready.*, and §5.9 states that in
-// V1 the selected Verifiers recompute all committed generated tokens and the notification
-// "carries no additional verification position selection material". So this notification
+// There is no trueopen.sample-ready.* subject, and in V1 the selected Verifiers recompute all
+// committed generated tokens, so the notification carries no additional verification position
+// selection material. So this notification
 // is no longer sent; the seed remains an authoritative on-chain fact and is
 // kept locally for assembling SettleTx evidence.
 func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
@@ -1181,7 +1181,7 @@ func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
 	return f.busRetryLocked(verifier, err)
 }
 
-// relayVerifyResult is the Ingress unary path (contract §2.6): it carries the same
+// relayVerifyResult is the Ingress unary path: it carries the same
 // ResultReceiptV2 as the JetStream path and goes through the same relay logic, except that
 // validation failures are reported to the caller with types sentinels instead of being
 // silently dropped as on the bus path.
@@ -1198,13 +1198,13 @@ func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV3) (types.VerifyRel
 	return f.relayVerifyResultLocked(vr)
 }
 
-// relayVerifyCommit is the Ingress unary path (contract §2.5): in the initial relay implementation the Builder is
+// relayVerifyCommit is the Ingress unary path: in the initial relay implementation the Builder is
 // trusted, and the Verifier-signed commit is relayed by this Builder via
 // MsgBatchSubmitVerifyCommit. It answers once the chain holds the commit (recorded locally
 // then; resending the same commit passes idempotently), or with an error when the chain
 // refused it (types.ErrInvalidArgument for the content, otherwise temporary) or showed no
 // block result within the wait (temporary). A Verifier that does not observe acceptance
-// before the deadline still submits the same message itself per the contract.
+// before the deadline still submits the same message itself.
 //
 // The lock is held to validate and broadcast, released while the block result is awaited, and
 // taken again to record; meanwhile other operations on this task proceed.
@@ -1345,8 +1345,8 @@ func (f *taskFSM) recordVerifyResultLocked(vr *taskv1.ResultReceiptV3, idempoten
 	f.trySettle()
 }
 
-// validVerifyCommit checks each field of the frozen VerifyCommitV1 field table (Keeper
-// Interface Contract §5.14). Membership is decided by verifyRelayPreconditionsLocked; this
+// validVerifyCommit checks each field of the frozen VerifyCommitV1 field table.
+// Membership is decided by verifyRelayPreconditionsLocked; this
 // only checks that the fields are complete.
 func (f *taskFSM) validVerifyCommit(commit *taskv1.VerifyCommitV1) bool {
 	verifier := commit.GetVerifierOperatorAddress()
@@ -1434,7 +1434,7 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 	case uint64(hr.GetVerifyRound()) != nodecontract.SupportedVerifyRoundV1:
 		f.log.Warn("drop verifier handraise for an unsupported verify round", "task_id", f.taskID,
 			"candidate", candidate, "verify_round", hr.GetVerifyRound())
-	// Contract §4.6: the Verifier handraise binds infer_receipt_hash / output_hash; there is
+	// The Verifier handraise binds infer_receipt_hash / output_hash; there is
 	// no longer a canonical_output_package_hash or a package pre-fetch declaration.
 	case !bytes.Equal(hr.GetOutputHash(), outputHash):
 		f.log.Warn("drop verifier handraise with mismatched output_hash", "task_id", f.taskID, "candidate", candidate)
@@ -1471,7 +1471,7 @@ func (f *taskFSM) validVerifyResult(vr *taskv1.ResultReceiptV3) bool {
 		f.log.Warn("drop verify result for an unsupported verify round", "task_id", f.taskID,
 			"verifier", verifier, "verify_round", vr.GetVerifyRound())
 	// metric_root / metric_summary / verifier_evidence_bundle_hash are the grouping inputs
-	// for re-execution consistency (contract §5.11); generation_params_digest binds the re-execution
+	// for re-execution consistency; generation_params_digest binds the re-execution
 	// parameters. Missing any of them makes the consistency check impossible, so drop at the
 	// entrance and leave a diagnosable log. From ResultReceiptV2 on, result_reveal_hash is
 	// replaced by verifier_evidence_bundle_hash.
@@ -1618,7 +1618,7 @@ func (f *taskFSM) onAuthoritativeFailure(snapshot chaincli.OnChainTask, height i
 
 // DeadlineSweepPolicy decides whether this Builder actively acts as a public deadline runner.
 //
-// Keeper Interface Contract §9.6a defines MsgSweepDeadline as BOUNDED_RUNNER: any account
+// MsgSweepDeadline is a BOUNDED_RUNNER: any account
 // may submit it, public runners pay their own gas, and EndBlock goes through the same
 // internal executor. That is, "to sweep or not" is an operational choice rather than a
 // protocol obligation, so it is off by default and the deployer enables it explicitly in
@@ -1674,7 +1674,7 @@ func (f *taskFSM) sweepDueDeadlines(policy DeadlineSweepPolicy, height uint64) {
 }
 
 // dueDeadlineKind returns, in protocol advancement order, the first expired (grace
-// included) verify-phase deadline. The deadlines of §5.9 are closed intervals:
+// included) verify-phase deadline. Task deadlines are closed intervals:
 // current_height >= deadline_height is executable. Caller must hold the lock.
 func (f *taskFSM) dueDeadlineKind(height, grace uint64) (taskv1.DeadlineKindV1, uint64, bool) {
 	if f.terminal || f.self == "" || f.submit == nil || f.state != types.Verifying {
@@ -2014,8 +2014,8 @@ func (f *taskFSM) onSettleAccepted(ev chaincli.SettleAccepted) {
 }
 
 // settlementAllowsCustodyRelease decides when a settled task can be closed and what it holds
-// released. Settlement state is decided only by finality_status and task_finality_height
-// (Challenge and Evidence spec §9): the chain reporting the task FINAL, with the chain height at
+// released. Settlement state is decided only by finality_status and task_finality_height:
+// the chain reporting the task FINAL, with the chain height at
 // or past task_finality_height, is the whole condition.
 func settlementAllowsCustodyRelease(s chaincli.TaskSettlementState, height uint64) bool {
 	return height != 0 && s.FinalityStatus == "FINAL" && s.TaskFinalityHeight != 0 && height >= s.TaskFinalityHeight
@@ -2031,7 +2031,7 @@ func (f *taskFSM) lifecycleBoundaryDue(height uint64) bool {
 		return false
 	}
 	// challenge_close_height is not a boundary of its own: without a challenge round it equals
-	// task_finality_height, and with one the task becomes final when the last round closes (06 §9).
+	// task_finality_height, and with one the task becomes final when the last round closes.
 	return height == f.settlement.TaskFinalityHeight
 }
 
@@ -2121,8 +2121,8 @@ func (f *taskFSM) closeLocked(height uint64) bool {
 
 // onPrepare receives a prepare announcement from another Builder in the group: only the
 // observation time is recorded (advisory de-duplication signal).
-// §4.1: prepare must not be a blocking requirement for abandoning an ASSIGN/OPEN_VERIFY proposal;
-// §4.3: SETTLE rank_k gives up this round and defers one step on seeing a fresh prepare
+// Prepare must not be a blocking requirement for abandoning an ASSIGN/OPEN_VERIFY proposal;
+// SETTLE rank_k gives up this round and defers one step on seeing a fresh prepare
 // (on-chain idempotency fallback).
 func (f *taskFSM) onPrepare(p builderPrepare) {
 	// self/sessionID/taskID never change after construction, so they can be pre-filtered
@@ -2174,7 +2174,7 @@ func builderAddresses(set []types.BuilderRef) []string {
 	return addresses
 }
 
-// inProposalGroup is the submission gate for ASSIGN / OPEN_VERIFY (§4.1 proposal window):
+// inProposalGroup is the submission gate for ASSIGN / OPEN_VERIFY (proposal window):
 // if this node belongs to the phase's Builder group it submits its own proposal, **without
 // waiting for others or looking at prepare** -- the Keeper takes the legitimate union after
 // the window ends. If the group or our own identity is unknown (legacy / devnet), allow
@@ -2211,7 +2211,7 @@ func (f *taskFSM) needsSettleSelection() bool {
 	return f.state == types.Verifying && f.settleSelection.SessionID == "" && f.settleStage.ready
 }
 
-// authorizedForSealedKey is the SEALED_KEY retrieval authorization (v1.5 §3.2):
+// authorizedForSealedKey is the SEALED_KEY retrieval authorization:
 // the order's user, or a member of the selected Verifier set after verify-select.
 // When the order's user is unknown (SDK envelope not enabled), only selected Verifiers are allowed.
 func (f *taskFSM) authorizedForSealedKey(requester string) bool {
@@ -2383,7 +2383,7 @@ func (f *taskFSM) subscribeVerifierHandraise() {
 	})
 }
 
-// subscribeBuilderPrepare: prepare de-duplication announcements (Detailed Design §8.1):
+// subscribeBuilderPrepare: prepare de-duplication announcements:
 // the submission intent of Builders in the group, advisory only, never a
 // blocking requirement. Uses the nexus.* internal subject and the internal signature format
 // (prepare.go); Cortex is not involved.
@@ -2551,10 +2551,10 @@ type workerAssignmentFacts struct {
 	// (lowercase 64-hex). Mixing different task_hash values within one proposal fails
 	// outright.
 	TaskHash string
-	// CandidateSnapshotID comes from member.candidate_pool_snapshot_id of §5.5: hand-raises in
+	// CandidateSnapshotID comes from member.candidate_pool_snapshot_id: hand-raises in
 	// the same proposal must reference the same candidate pool snapshot, otherwise the
 	// Keeper's slot lookups land on different snapshots and the union bitmap is meaningless.
-	// candidate_set_hash used to be cross-checked too; §5.5 removed that field from the wire.
+	// candidate_set_hash used to be cross-checked too; that field was removed from the wire.
 	CandidateSnapshotID string
 }
 
@@ -2625,11 +2625,11 @@ func validateOrderForAssign(order types.Order, facts workerAssignmentFacts) erro
 }
 
 // validateReceiptForOpenVerify checks the frozen wire fields needed to assemble
-// MsgSubmitInferReceipt (Keeper Interface Contract §5.14 / §10.3). The field set follows
+// MsgSubmitInferReceipt. The field set follows
 // InferReceiptV2:
 // batch_log_root / token_count / work_unit were removed from the wire and are no longer
 // required. The kind set and count cap of evidence commitments are the Keeper's admission
-// checks; locally only non-emptiness is required (the V1 text path of §9.7 always has
+// checks; locally only non-emptiness is required (the V1 text path always has
 // WORKER_VALUE_OPENING).
 func validateReceiptForOpenVerify(receipt types.InferReceiptSubmission, winner string) error {
 	if receipt.SessionID == "" || receipt.TaskID == "" || receipt.TaskHash == "" ||

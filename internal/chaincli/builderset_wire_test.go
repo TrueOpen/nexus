@@ -1,4 +1,4 @@
-// Proto descriptor guard for the BuilderSet query surface (Keeper Interface Contract §16.3 / §16.5).
+// Proto descriptor guard for the BuilderSet query surface.
 //
 // Why descriptor reflection instead of "build a struct and see whether it compiles": field
 // numbers and wire types are a **cross-process** contract. If the nexus mirror changed
@@ -15,8 +15,8 @@ import (
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 )
 
-// QueryBuilderSetRequest must be the §16.3 oneof selector, with exactly two branches
-// (no term since wire v0.4.1: the Phase 0 BuilderSet only has a version, it never rotates terms).
+// QueryBuilderSetRequest must be the wire oneof selector, with exactly two branches
+// (no term: the Phase 0 BuilderSet only has a version, it never rotates terms).
 func TestQueryBuilderSetRequestSelectorIsFrozen(t *testing.T) {
 	desc := (&hubv1.QueryBuilderSetRequest{}).ProtoReflect().Descriptor()
 
@@ -64,8 +64,8 @@ func TestQueryBuilderSetResponseCarriesBuilderSetView(t *testing.T) {
 	}
 }
 
-// The 8 field numbers/types of BuilderSetViewV1 are checked one by one against §16.5
-// (wire v0.4.1: builder_set_version + effective_height, no term / epoch range / duty score version).
+// The 8 field numbers/types of BuilderSetViewV1 are checked one by one against wire
+// (builder_set_version + effective_height, no term / epoch range / duty score version).
 func TestBuilderSetViewV1FieldsAreFrozen(t *testing.T) {
 	desc := (&hubv1.BuilderSetViewV1{}).ProtoReflect().Descriptor()
 	assertFields(t, "BuilderSetViewV1", desc, []fieldSpec{
@@ -85,7 +85,7 @@ func TestBuilderSetViewV1FieldsAreFrozen(t *testing.T) {
 }
 
 // BuilderState must no longer carry active_term (the root-cause field of a past startup failure),
-// nor an admission status: since wire v0.4.1 the admission state lives on the governance side in
+// nor an admission status: the admission state lives on the governance side in
 // BuilderAdmissionState, and BuilderState only carries identity + current service key + descriptor
 // version + the three pending counters.
 func TestBuilderStateHasNoActiveTermAndCarriesServiceKey(t *testing.T) {

@@ -54,7 +54,7 @@ type ReceiverConfig struct {
 	LookupBinding BindingLookup
 	Replay        bus.ReplayStore
 	// MaxEnvelopeBytes is the local early-rejection bound, only there to stop oversized messages before
-	// decoding. Since wire v0.4.1 bus.Verify checks against the protocol constant
+	// decoding. bus.Verify checks against the protocol constant
 	// bus.MaxEnvelopeBytes itself and no longer accepts a caller-supplied value, so this must equal
 	// that constant: a looser local value is the same as no check, and a stricter one would reject
 	// envelopes the protocol allows.
@@ -97,7 +97,7 @@ func (r *Receiver) Receive(ctx context.Context, subject string, data []byte) (*I
 		return nil, fmt.Errorf("bus receive: %w: decode envelope: %v", bus.ErrStructure, err)
 	}
 	if unknown := envelope.ProtoReflect().GetUnknown(); len(unknown) > 0 {
-		// The frozen contract allows no unknown fields: an extra field means the peer is sending against a different field table.
+		// The wire envelope allows no unknown fields: an extra field means the peer is sending against a different field table.
 		return nil, fmt.Errorf("bus receive: %w: unknown envelope fields", bus.ErrStructure)
 	}
 	fields := bus.Fields{
@@ -141,7 +141,7 @@ func (r *Receiver) Receive(ctx context.Context, subject string, data []byte) (*I
 		}
 		return nil, fmt.Errorf("bus receive: %w", err)
 	}
-	// Decode the payload only after the signature verified (contract: decode only after verify).
+	// Decode the payload only after the signature verified (decode only after verify).
 	payload, ok := payloadMessageForType(fields.PayloadType)
 	if !ok {
 		return nil, fmt.Errorf("bus receive: %w: unknown payload type %d",

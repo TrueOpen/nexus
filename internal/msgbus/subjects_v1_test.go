@@ -7,7 +7,7 @@ import (
 	"github.com/TrueOpen/wire/bus"
 )
 
-// The 8 subjects of contract §5.1, checked one by one against their wire kind and tier.
+// The 8 trueopen.* subjects, checked one by one against their wire kind and tier.
 // The frozen kind -> payload message type mapping is owned and tested by wire bus.
 func TestSubjectListV1MatchesContract(t *testing.T) {
 	taskID := strings.Repeat("a", 64)
@@ -47,7 +47,7 @@ func TestSubjectListV1MatchesContract(t *testing.T) {
 	}
 }
 
-// Contract §5.1: there is no trueopen.orders.* and no trueopen.assign.<task_id>.
+// There is no trueopen.orders.* and no trueopen.assign.<task_id>.
 func TestSubjectListV1RejectsRetiredSubjects(t *testing.T) {
 	taskID := strings.Repeat("a", 64)
 	for _, subject := range []string{
@@ -73,7 +73,7 @@ func TestJetStreamNameV1(t *testing.T) {
 	}
 }
 
-// Contract §5.12: the stream only covers the subjects marked JetStream in §5.1.
+// The stream only covers the subjects marked JetStream in the catalogue.
 // The wildcards used to create the stream must derive from that same table, otherwise the stream
 // configuration silently falls behind whenever the subjects change.
 func TestJetStreamSubjectWildcardsV1(t *testing.T) {
@@ -94,8 +94,8 @@ func TestJetStreamSubjectWildcardsV1(t *testing.T) {
 	}
 }
 
-// The internal Builder-to-Builder subject deliberately stays out of the trueopen.* namespace: the table of
-// contract §5.1 is a closed set, and adding a row to it would mean an implementation extending the protocol on its own. It
+// The internal Builder-to-Builder subject deliberately stays out of the trueopen.* namespace: the trueopen.*
+// subject table is a closed set, and adding a row to it would mean an implementation extending the protocol on its own. It
 // must also not appear in the SubjectSpecsV1() contract surface, and it carries no BusEnvelopeV1
 // (WireKind = 0; for the signature format see coordinator/prepare.go).
 func TestInternalPrepareSubjectStaysOutOfTheContractNamespace(t *testing.T) {

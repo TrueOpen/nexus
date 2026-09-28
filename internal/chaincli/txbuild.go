@@ -1,10 +1,10 @@
 // SIGN_MODE_DIRECT transaction assembly (using the Cosmos SDK's official protobuf types),
-// i.e. path A of the Account and Signing Protocol §5.1:
+// i.e. signing path A (keccak256 over the SignDoc):
 // Flow: TxBody(msgs) + AuthInfo(pubkey/sequence/fee) → SignDoc(chain_id/account_number)
 // → keccak256(SignDoc) → signer.SignDigest → raw64 R||S → TxRaw bytes → BroadcastTx.
 //
 // The digest is keccak256 rather than the SHA-256 Cosmos usually uses: on-chain accounts
-// are eth_secp256k1 (§2.1), and node's ante verifies path A only with keccak256(SignDoc).
+// are eth_secp256k1, and node's ante verifies path A only with keccak256(SignDoc).
 // A transaction signed over the wrong digest is rejected at CheckTx.
 package chaincli
 
@@ -22,8 +22,7 @@ import (
 	ethsecp256k1 "github.com/TrueOpen/nexus/gen/cosmosevm/crypto/v1/ethsecp256k1"
 )
 
-// pubKeyTypeURL is the Any type_url of SignerInfo.public_key (Account and Signing
-// Protocol §2.3, from the pinned cosmos/evm, mirrored in proto/cosmos/evm/crypto/v1/ethsecp256k1).
+// pubKeyTypeURL is the Any type_url of SignerInfo.public_key (from the pinned cosmos/evm, mirrored in proto/cosmos/evm/crypto/v1/ethsecp256k1).
 // The message shape is identical to cosmos.crypto.secp256k1.PubKey (single bytes key = 1),
 // but a different type URL is a different type: writing /cosmos.crypto.secp256k1.PubKey
 // makes the chain derive the address via ripemd160, which does not match the signer's
@@ -40,8 +39,8 @@ func keccak256(data []byte) [32]byte {
 }
 
 // Task / Builder Msg type URLs must match the current Node descriptors exactly.
-// The Task names come from Keeper Interface Contract §9.4; V1 registers no MsgFailSettle,
-// no Worker reveal Msg and no public Challenge Msg (§9.5/§10.14).
+// The Task Msg names come from wire task.v1; V1 registers no MsgFailSettle,
+// no Worker reveal Msg and no public Challenge Msg.
 const (
 	TypeURLMsgSubmitWorkerHandraises   = "/task.v1.MsgSubmitWorkerHandraises"
 	TypeURLMsgSubmitInferReceipt       = "/task.v1.MsgSubmitInferReceipt"

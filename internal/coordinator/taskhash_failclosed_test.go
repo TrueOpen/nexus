@@ -48,7 +48,7 @@ func TestWorkerHandraiseWithForeignTaskHashIsDropped(t *testing.T) {
 	}
 
 	// The envelope's payload digest passed off as the task_hash: structurally valid (32 bytes of
-	// hex), but it can never equal the result of H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", ...).
+	// hex), but it can never equal the result of H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", ...).
 	envelopeDigest := sha256.Sum256([]byte(order.OrderEnvelope))
 
 	cases := map[string][]byte{

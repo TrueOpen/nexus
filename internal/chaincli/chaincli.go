@@ -1,4 +1,4 @@
-// Package chaincli is the only module that talks to the local node (Implementation Design §4.5).
+// Package chaincli is the only module that talks to the local node.
 // gRPC :9090 query/simulate/broadcast + TaskEventService subscription (single endpoint).
 // The real client lives in client.go / events.go; NewStub remains for offline runs: it does
 // not connect to node and returns placeholder results.
@@ -18,7 +18,7 @@ import (
 var ErrNotSupportedOnChain = errors.New("chaincli: operation is not wired to the current node api")
 
 // ErrInvalidTaskKey means a task-scoped node request is missing the compound
-// identity required by the target contract: (session_id, task_id).
+// identity required by the chain: (session_id, task_id).
 var ErrInvalidTaskKey = errors.New("chaincli: invalid task key")
 
 // ErrNotFound is returned when an application Query has no state for its key.
@@ -52,19 +52,22 @@ type AccountInfo struct {
 	Sequence      uint64
 }
 
-// Client abstracts chain interaction (query / broadcast / subscribe, see Interface & Topic Catalogue §2, §4.3).
+// Client abstracts chain interaction (query / broadcast / subscribe).
 type Client interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 
-	// --- Queries (gRPC :9090, §2.1) ---
+	// --- Queries (gRPC :9090) ---
 	// QueryBuilderSetAtHeight fetches the authoritative BuilderSet at the height via the
 	// height selector; term is a result, not an input (the current Node BuilderState has no active_term).
 	QueryBuilderSetAtHeight(ctx context.Context, height uint64) (BuilderSet, error)
 	// QueryTaskBuilders reads the task's frozen Task Builder selection (task.v1.Query/TaskBuilders).
 	QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error)
-	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks (§10.10a).
+	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks.
 	QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error)
+	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task: how many Builders the
+	// chain selects for each task.
+	QueryBuildersPerTask(ctx context.Context) (uint32, error)
 	// QueryEVMChainID reads the Hub parameter phase0.evm_chain_id: the numeric chainId of
 	// the EIP-712 domain, unrelated to the Cosmos chain-id string. The Keeper ante uses it
 	// to verify user signatures, and nexus must use the same value when verifying USER Task
@@ -76,9 +79,9 @@ type Client interface {
 	QueryCortexNode(ctx context.Context, operatorAddress string) (CortexNodeState, error)
 	QueryServiceDescriptor(ctx context.Context, participantType, operatorAddress string, descriptorVersion uint64) (ServiceDescriptorState, error)
 	QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error)
-	// QueryEvidenceCleanup reads whether the chain has started compacting a task (06 §10).
+	// QueryEvidenceCleanup reads whether the chain has started compacting a task.
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
-	// QueryMaxVerifyRound reads task params challenge.max_verify_round (06 §5).
+	// QueryMaxVerifyRound reads task params challenge.max_verify_round.
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
 	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
@@ -186,6 +189,10 @@ func (c *stubClient) QueryEvidenceCleanup(context.Context, string) (EvidenceClea
 }
 
 func (c *stubClient) QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error) {
+	return 0, ErrNotFound
+}
+
+func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
 	return 0, ErrNotFound
 }
 

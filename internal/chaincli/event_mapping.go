@@ -14,11 +14,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// The frozen contract unified the event model into "envelope + numeric
+// The current wire unified the event model into "envelope + numeric
 // hub.v1.ProtocolEventCodeV1 code + typed payload oneof partitioned by code": the
 // local TaskEventCode / ProtocolEventCode enums were removed, session_id / task_id / all
 // hashes are bytes, and the payload oneof member's field number equals the code itself
-// (the old contract used code+19).
+// (the old wire used code+19).
 //
 // The nexus-side ChainEvent contract is unchanged: IDs still propagate upward as
 // lowercase hex strings, and when Attrs are missing the coordinator falls back to Query
@@ -66,7 +66,7 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 }
 
 // errSessionScopedTaskEvent marks a valid session-level event the coordinator has no use
-// for (§5.11 code 1 SESSION_CREATED, and code 20 DEADLINE_SWEPT for the session lifecycle
+// for (code 1 SESSION_CREATED, and code 20 DEADLINE_SWEPT for the session lifecycle
 // deadline): the wire payload has no task_id by design, and node still pushes it on the
 // task stream for session subscriptions. The
 // subscription loop must advance the cursor past it and keep receiving, not treat it as a
@@ -86,7 +86,7 @@ func taskEventIsSessionScoped(event *taskv1.TaskEvent) bool {
 	return field.Message().Fields().ByName("task_id") == nil
 }
 
-// isSessionLifecycleSweep recognises DEADLINE_SWEPT (§5.11 code 20) for the session
+// isSessionLifecycleSweep recognises DEADLINE_SWEPT for the session
 // lifecycle deadline (ACTIVE -> IDLE and its successors): EventDeadlineSwept declares task_id
 // optional precisely for this kind, and node pushes the sweep on every session subscription.
 // A task-deadline sweep without task_id stays a hard error.
@@ -100,8 +100,7 @@ func isSessionLifecycleSweep(event *taskv1.TaskEvent) bool {
 }
 
 // validateTaskEventPayload asserts that the payload oneof field number equals the
-// envelope's code and that the session/task identity in the payload matches the envelope
-// (Keeper Interface Contract §5.11).
+// envelope's code and that the session/task identity in the payload matches the envelope.
 //
 // This validation only applies to codes known to this mirror: if the typed_event oneof of
 // TaskProtocolEventPayloadV1 has no such field number, the code is either not a Task-domain
@@ -149,8 +148,8 @@ func validateTaskEventPayloadIdentity(payload protoreflect.Message, sessionID, t
 // through Query reconciliation.
 //
 // Two local constants are deliberately unmapped: EventSampleReady and
-// EventWorkerRevealAccepted. The frozen contract has neither a sample seed event nor a
-// Worker reveal event (§9.4 registers no Worker reveal Msg); forcing a code would treat a
+// EventWorkerRevealAccepted. The current wire has neither a sample seed event nor a
+// Worker reveal event; forcing a code would treat a
 // wrong fact as a consensus fact.
 func taskEventType(code string) string {
 	switch code {
@@ -181,7 +180,7 @@ func protocolEventCodeName(code sharedv1.ProtocolEventCodeV1) string {
 //
 // The old Attrs formal_verifier_set, worker_reveal_deadline_height,
 // verification_sample_seed_hash, sample_seed_ready_height and swept_stage have no
-// corresponding fields on the frozen contract's payload (the formal Verifier set is now
+// corresponding fields on the wire payload (the formal Verifier set is now
 // only selected_verifiers_hash, and deadline sweep gives DeadlineKindV1), so they are no
 // longer populated.
 func taskEventAttributes(event *taskv1.TaskEvent) map[string]string {

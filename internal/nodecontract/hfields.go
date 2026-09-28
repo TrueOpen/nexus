@@ -11,13 +11,13 @@ import (
 )
 
 // H_FIELDS_V1 is the single framing primitive for the frozen V1 consensus preimage
-// (Keeper Interface Contract §1.2; x/shared/types/canonical.go in node).
+// (x/shared/types/canonical.go in node).
 //
 //	preimage = u64_be(len(domain)) || domain
 //	           || for each field: u64_be(len(field)) || field
 //	digest   = SHA256(preimage)
 //
-// Field encoding (§1.2, item by item identical to the node reference implementation):
+// Field encoding (item by item identical to the node reference implementation):
 //
 //	string  bytes after strict UTF-8 validation; no trim, no case folding, no NFC normalization
 //	bytes   raw bytes; a Hash32 is exactly 32 bytes, never hex text
@@ -25,35 +25,35 @@ import (
 //	uint64  8-byte big-endian
 //	bool    0x00 / 0x01
 //	enum    uint32 big-endian
-//	address address codec bytes (the 20 bytes decoded from bech32), never bech32 text (ruling 24)
+//	address address codec bytes (the 20 bytes decoded from bech32), never bech32 text
 //	frame   nested FieldFrameV1: no domain prefix, encoded recursively in ascending schema field-number order
 //
 // The old domainHash(domain, fields ...string) wrote uint64 as decimal text and Hash32 as
 // hex text and is incompatible with this framing: it only serves the pre-freeze helpers not
-// registered in §1.4, and the two must never be mixed.
+// registered in the wire domain registry, and the two must never be mixed.
 
 // canonicalLengthBytes is the length-prefix width of every field (u64 big-endian).
 const canonicalLengthBytes = 8
 
-// maxAddressCodecBytes matches the cosmos-sdk address length limit. §1.2 frames the address
+// maxAddressCodecBytes matches the cosmos-sdk address length limit. H_FIELDS_V1 frames the address
 // codec bytes, so the only structural upper bound the derivation can impose is the codec's own.
 const maxAddressCodecBytes = 255
 
-// Uint32BE is the §1.2 uint32 encoding.
+// Uint32BE is the H_FIELDS_V1 uint32 encoding.
 func Uint32BE(value uint32) []byte {
 	encoded := make([]byte, 4)
 	binary.BigEndian.PutUint32(encoded, value)
 	return encoded
 }
 
-// Uint64BE is the §1.2 uint64 encoding.
+// Uint64BE is the H_FIELDS_V1 uint64 encoding.
 func Uint64BE(value uint64) []byte {
 	encoded := make([]byte, canonicalLengthBytes)
 	binary.BigEndian.PutUint64(encoded, value)
 	return encoded
 }
 
-// Int32BE is the §1.2 int32 encoding: reinterpret as uint32 via two's complement, then write
+// Int32BE is the H_FIELDS_V1 int32 encoding: reinterpret as uint32 via two's complement, then write
 // big-endian, byte-for-byte identical to Int32BE in node x/shared/types/canonical.go.
 // Negative values (e.g. presence_penalty_milli = -500) must go through here and never be
 // converted to decimal text first.
@@ -61,7 +61,7 @@ func Int32BE(value int32) []byte {
 	return Uint32BE(uint32(value))
 }
 
-// BoolByte is the §1.2 bool encoding.
+// BoolByte is the H_FIELDS_V1 bool encoding.
 func BoolByte(value bool) []byte {
 	if value {
 		return []byte{1}
@@ -69,7 +69,7 @@ func BoolByte(value bool) []byte {
 	return []byte{0}
 }
 
-// EnumBE is the §1.2 enum encoding: the enum value is written as uint32 big-endian, not as name text.
+// EnumBE is the H_FIELDS_V1 enum encoding: the enum value is written as uint32 big-endian, not as name text.
 func EnumBE(value uint32) []byte {
 	return Uint32BE(value)
 }
@@ -107,7 +107,7 @@ func CanonicalHashBytes(domain string, fields ...[]byte) [32]byte {
 	return sha256.Sum256(CanonicalFramePreimage(domain, fields...))
 }
 
-// CanonicalUTF8Field applies the §1.2 string rule: validate strict UTF-8 first, then take the
+// CanonicalUTF8Field applies the H_FIELDS_V1 string rule: validate strict UTF-8 first, then take the
 // bytes. No sanitizing happens here: the bytes the caller signed are the bytes that get framed.
 func CanonicalUTF8Field(field, value string) ([]byte, error) {
 	if !utf8.ValidString(value) {
@@ -116,7 +116,7 @@ func CanonicalUTF8Field(field, value string) ([]byte, error) {
 	return []byte(value), nil
 }
 
-// CanonicalHash32Field applies §1.1/§1.4 rule 3: a Hash32 in a consensus preimage is the raw
+// CanonicalHash32Field applies the Hash32 rule: a Hash32 in a consensus preimage is the raw
 // 32 bytes, neither hex text nor a shorter placeholder value.
 func CanonicalHash32Field(field string, value []byte) ([]byte, error) {
 	if len(value) != sha256.Size {
@@ -126,7 +126,7 @@ func CanonicalHash32Field(field string, value []byte) ([]byte, error) {
 }
 
 // CanonicalOperatorAddressBytes converts a bech32 operator address into the address codec
-// bytes that every §1.2 preimage actually frames (ruling 24). The bech32 text
+// bytes that every H_FIELDS_V1 preimage actually frames. The bech32 text
 // **never enters the preimage**: the human-readable prefix belongs to the presentation layer,
 // and cross-chain isolation is the job of the chain_id field.
 //

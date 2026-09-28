@@ -210,7 +210,7 @@ func (c *captured) last() []byte {
 	return c.msgs[len(c.msgs)-1]
 }
 
-// testInferReceipt builds a signed InferReceipt in the frozen §5.14 shape. The field set is
+// testInferReceipt builds a signed InferReceipt in the wire InferReceipt shape. The field set is
 // exactly that one:
 // token_count / work_unit were removed from the wire and are now carried by typed evidence commitments.
 //
@@ -242,7 +242,7 @@ func testInferReceipt(session, task, worker string, outputHash []byte) types.Inf
 	}
 }
 
-// testTaskID builds a task_id in its real shape. In the frozen contract task_id / task_hash
+// testTaskID builds a task_id in its real shape. On the wire task_id / task_hash
 // are both Hash32 and only 64 lowercase hex characters pass wire validation; in production it
 // comes from nodecontract.DeriveTaskIDFromRawSession, and tests can no longer run the
 // submission path with a fake ID like "task-1".
@@ -253,7 +253,7 @@ func testTaskID(name string) string {
 
 // testUserAddress is the test address of the ordering user. It must be **canonical bech32**:
 // the preimage framing of task_hash frames the address-codec bytes of user_address
-// (§1.2 / adjudication 24), and task_hash cannot be computed if they cannot be decoded. The
+// (H_FIELDS_V1 address rule), and task_hash cannot be computed if they cannot be decoded. The
 // testUserAddress of the old fixture was not valid bech32, which did not matter earlier
 // (the order identity was sha256(envelope) then and ignored the address); now it gets the
 // whole order rejected at ingress.
@@ -301,7 +301,7 @@ func testSignature64(parts ...string) string {
 	return testHash32(append([]string{"lo"}, parts...)...) + testHash32(append([]string{"hi"}, parts...)...)
 }
 
-// testSignedOrderBytes reuses the §5.13 fixture of submitter_test to give the proto-encoded
+// testSignedOrderBytes reuses the SignedOrderV2 fixture of submitter_test to give the proto-encoded
 // SignedOrderV2 that the SDK side should submit. It is the only legitimate carrier of the
 // first-proposal scope branch of MsgSubmitWorkerHandraises, and in production it can only be
 // supplied by the SDK (the user signs the frozen TaskOrderV2, which Nexus has no right to
@@ -345,7 +345,7 @@ func testCurrentOrder(session, task, user string) types.Order {
 	}
 }
 
-// testWorkerSlots gives candidate addresses a stable slot. §4.2.2 requires handraises within
+// testWorkerSlots gives candidate addresses a stable slot. The Keeper requires handraises within
 // one proposal to be strictly ascending and unique by member.slot, so tests cannot let everyone
 // share one slot.
 var testWorkerSlots = map[string]uint32{}
@@ -432,7 +432,7 @@ func testVerifierHandraise(session, task, candidate string, outputHash, inferRec
 	}
 }
 
-// testVerifyResult builds a verification result receipt in the frozen wire shape (contract §5.11).
+// testVerifyResult builds a verification result receipt in the frozen wire shape.
 // The metric fields are derived deterministically from vals: same vals → same metric_root /
 // summary (consistent), otherwise inconsistent; result_reveal_hash, by contrast, always differs
 // per node.
@@ -468,7 +468,7 @@ func testVerifyResult(task, verifier string, vals [][]byte) *taskv1.ResultReceip
 	}
 }
 
-// TestHappyPath walks one order's complete happy path (v1.5 two-phase + seed afterwards):
+// TestHappyPath walks one order's complete happy path (two-phase + seed afterwards):
 // order → 3×worker handraise → AssignTx → AssignAccepted(randomness pending, no start-work) →
 // AssignmentFinalized(winner determined → start-work notification) → result reference →
 // 3×verifier handraise → OpenVerifyTx → OpenVerifyAccepted(no seed) →
@@ -493,7 +493,7 @@ func TestHappyPath(t *testing.T) {
 	task := testTaskID("task-1")
 	ctx := context.Background()
 
-	// Observe the four contract subjects nexus will publish on.
+	// Observe the four wire subjects nexus will publish on.
 	orders := &captured{}
 	assign := &captured{}
 	verifySelect := &captured{}
@@ -535,7 +535,7 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("expected 1 AssignTx, got %d", len(sub.assign))
 	}
 	// What goes on-chain is the Cortex-signed proto hand-raise body; there are no string copies any more.
-	// §5.5: one proposal needs only 1 hand-raise: the first arrival proposes.
+	// One proposal needs only 1 hand-raise: the first arrival proposes.
 	if sub.assign[0].SessionID != session || sub.assign[0].TaskID != task ||
 		len(sub.assign[0].WorkerHandraises) != proposalHandraiseMin {
 		t.Fatalf("AssignTx mismatch: %+v", sub.assign[0])
@@ -596,7 +596,7 @@ func TestHappyPath(t *testing.T) {
 	if len(sub.openVerify) != 1 {
 		t.Fatalf("expected 1 OpenVerifyTx, got %d", len(sub.openVerify))
 	}
-	// OpenVerifyTx carries only the InferReceipt body (§10.3 MsgSubmitInferReceipt);
+	// OpenVerifyTx carries only the InferReceipt body (MsgSubmitInferReceipt);
 	// the string copies of the old MsgOpenVerify are gone.
 	submitted := sub.openVerify[0].InferReceipt
 	if submitted == nil {
@@ -613,7 +613,7 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("InferReceipt is not the frozen InferReceiptV2 shape: %+v", submitted)
 	}
 
-	// 6a) On-chain open-verify included → Verifying + open-verify notification (v1.5: no seed, with package hash).
+	// 6a) On-chain open-verify included → Verifying + open-verify notification (no seed, with package hash).
 	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
 	c.OnOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
 		SessionID: session, TaskID: task, Verifiers: verifiers,
@@ -628,8 +628,8 @@ func TestHappyPath(t *testing.T) {
 	if len(vs.GetVerifiers()) != 3 || !bytes.Equal(vs.GetOutputHash(), outputHash) || vs.GetOpenVerifyHeight() != 200 {
 		t.Fatalf("VerifySelectNotify mismatch: %+v", vs)
 	}
-	// 6b) On-chain SampleReady: record only the seed and phase. Contract §5.1 has no
-	// trueopen.sample-ready.*, and §5.9 states the notification carries no verification position
+	// 6b) On-chain SampleReady: record only the seed and phase. There is no
+	// trueopen.sample-ready.* subject, and the notification carries no verification position
 	// selection data, so this notification no longer goes on NATS.
 	seed := []byte("chain-sample-seed")
 	c.OnSampleReady(chaincli.SampleReady{
@@ -670,7 +670,7 @@ func TestHappyPath(t *testing.T) {
 	if len(sub.settle) != 1 {
 		t.Fatalf("expected 1 SettleTx once the chain reports the task ready, got %d", len(sub.settle))
 	}
-	// 8) The Worker reveal event does not exist in the frozen contract; even if it arrives it is only recorded and triggers no second transaction.
+	// 8) The Worker reveal event does not exist on chain; even if it arrives it is only recorded and triggers no second transaction.
 	c.OnWorkerRevealAccepted(chaincli.WorkerRevealAccepted{SessionID: session, TaskID: task, Height: 300})
 	if len(sub.settle) != 1 {
 		t.Fatalf("expected still 1 SettleTx, got %d", len(sub.settle))
@@ -692,7 +692,7 @@ func TestHappyPath(t *testing.T) {
 	if string(held.InferReceiptHash) != "infer-receipt" || held.WorkerAddress == "" {
 		t.Fatalf("custody must hold the signed InferReceipt: %+v", held)
 	}
-	// The contract's "target state baseline" removed sealed key delivery: tiers no longer change the returned content.
+	// Sealed key delivery was removed: tiers no longer change the returned content.
 	pkg, err := rl.Serve(session, task, types.AccessPackage)
 	if err != nil {
 		t.Fatalf("PACKAGE serve: %v", err)

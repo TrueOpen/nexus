@@ -135,7 +135,7 @@ type ByteRange struct {
 	Length uint64
 }
 
-// canonicalOptional applies Base Spec §4.4: absent is the single byte 0x00, present is
+// canonicalOptional applies OPTIONAL_V1: absent is the single byte 0x00, present is
 // 0x01 || u64be(len(value)) || value.
 func canonicalOptional(present bool, value []byte) []byte {
 	if !present {

@@ -20,15 +20,15 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// Worker / Verifier side submission methods (Nexus<->Cortex interface contract v0.2 §2.4 / §2.5 / §2.6).
+// Worker / Verifier side submission methods.
 //
 // Common conventions:
 //   - Cortex does not use the SDK request envelope but Worker/Verifier role signatures; the exact structure of the role
-//     signature envelope and SignBytes is not frozen (contract §8.2) and currently lands on TaskDataRequestAuthV1.
-//   - RPC success only means the current Builder commits to relaying it, never on-chain accepted (contract §7 mandatory rule).
+//     signature envelope and SignBytes is not frozen and currently lands on TaskDataRequestAuthV1.
+//   - RPC success only means the current Builder commits to relaying it, never on-chain accepted.
 //   - Nexus must not generate role signatures on behalf of a Cortex Node, nor re-sign or generate verdicts.
 
-// SubmitInferReceipt, contract §2.4: the Builder commits to relaying it after accepting a valid signed InferReceipt,
+// SubmitInferReceipt: the Builder commits to relaying it after accepting a valid signed InferReceipt,
 // without waiting for output/evidence upload to finish; the Worker must still upload large objects to the Task Builders afterwards.
 func (s *service) SubmitInferReceipt(
 	ctx context.Context,
@@ -39,7 +39,7 @@ func (s *service) SubmitInferReceipt(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	// Since wire v0.4.1 the request carries only the on-chain message body: the authorization is the receipt's own
+	// The request carries only the on-chain message body: the authorization is the receipt's own
 	// service_signature over the TRUEOPEN_INFER_RECEIPT_V2 digest, with no extra request envelope. The Worker's
 	// current service key is registered under the CORTEX domain.
 	digest, err := nodecontract.InferReceiptSigningDigestFromSubmission(receipt)
@@ -63,18 +63,18 @@ func (s *service) SubmitInferReceipt(
 	response := &nexusv1.SubmitInferReceiptResponse{
 		RelayAccepted: true, InferReceiptHash: hex.EncodeToString(receipt.InferReceiptHash),
 	}
-	// wire v0.4.1 marked output_storage_confirmation here as reserved: the storage confirmation is now issued once by
-	// FinalizeTaskResult after checking the receipt, the STORED output and all required evidence
-	// (design §5.5); the transport-level receipt must not prematurely express "the whole Task Result is READY".
+	// wire marks output_storage_confirmation here as reserved: the storage confirmation is now issued once by
+	// FinalizeTaskResult after checking the receipt, the STORED output and all required evidence;
+	// the transport-level receipt must not prematurely express "the whole Task Result is READY".
 	return connect.NewResponse(response), nil
 }
 
-// SubmitVerifyCommit, contract §2.5: the initial relay implementation trusts the Builder; the commit signed by the selected Verifier is
+// SubmitVerifyCommit: the initial relay implementation trusts the Builder; the commit signed by the selected Verifier is
 // relayed on-chain by this Builder as MsgBatchSubmitVerifyCommit.
 //
 // Request validation and role signature verification come first: invalid requests are rejected with InvalidArgument / PermissionDenied here;
 // the body is relayed as is, Nexus rewrites or fills in nothing. Success only means broadcast, not on-chain accepted;
-// a Verifier that does not observe accepted before the deadline still submits the same message directly per the contract.
+// a Verifier that does not observe accepted before the deadline still submits the same message directly.
 func (s *service) SubmitVerifyCommit(
 	ctx context.Context,
 	req *connect.Request[nexusv1.SubmitVerifyCommitRequest],
@@ -100,7 +100,7 @@ func (s *service) SubmitVerifyCommit(
 	if err != nil {
 		return nil, mapVerifyRelayErr(err)
 	}
-	// commit_key is the primary key of the Keeper-side CommitState (interface contract §10.9), returned to the Verifier
+	// commit_key is the primary key of the Keeper-side CommitState, returned to the Verifier
 	// so it can match on-chain state; Cortex requires it to be a non-zero Hash32, and an empty value makes the commit look unsuccessful.
 	commitKey, err := nodecontract.CommitKey(commit.GetChainId(), commit.GetTaskId(),
 		commit.GetVerifyRound(), commit.GetVerifierOperatorAddress())
@@ -114,7 +114,7 @@ func (s *service) SubmitVerifyCommit(
 	}), nil
 }
 
-// SubmitVerifyResult, contract §2.6: same rules as SubmitVerifyCommit, relayed as
+// SubmitVerifyResult: same rules as SubmitVerifyCommit, relayed as
 // MsgBatchSubmitVerifyResult. It carries the same ResultReceiptV2 as the VERIFY_RESULT JetStream path,
 // and material_digest is identical on both paths.
 func (s *service) SubmitVerifyResult(
@@ -151,7 +151,7 @@ func (s *service) SubmitVerifyResult(
 	}), nil
 }
 
-// verifyResultMaterialDigest is the §2.6 material digest: sha256 of the deterministic proto encoding of
+// verifyResultMaterialDigest is the material digest: sha256 of the deterministic proto encoding of
 // ResultReceiptV2; the API and JetStream paths compute the same value for the same receipt.
 func verifyResultMaterialDigest(receipt *taskv1.ResultReceiptV3) (string, error) {
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(receipt)
@@ -163,7 +163,7 @@ func verifyResultMaterialDigest(receipt *taskv1.ResultReceiptV3) (string, error)
 }
 
 // mapVerifyRelayErr maps relay failures to Connect error codes. Transient failures such as a temporarily unreachable
-// chain map to Unavailable: the caller may retry or fall back to direct submission per the contract.
+// chain map to Unavailable: the caller may retry or fall back to direct submission.
 func mapVerifyRelayErr(err error) error {
 	switch {
 	case errors.Is(err, types.ErrTaskNotFound):
@@ -179,9 +179,9 @@ func mapVerifyRelayErr(err error) error {
 	}
 }
 
-// inferReceiptFromPB validates the minimal semantics of contract §2.4 and converts to the internal submission object.
+// inferReceiptFromPB validates the minimal semantics of the receipt and converts to the internal submission object.
 //
-// The receipt no longer carries a self-declared copy of infer_receipt_hash: §5.14 defines infer_receipt_hash and
+// The receipt no longer carries a self-declared copy of infer_receipt_hash: wire defines infer_receipt_hash and
 // infer_receipt_signing_digest as the same value, so it is **derived** here rather than compared --
 // the structural checks of InferReceiptSigningDigest (Hash32 length, strict UTF-8, canonical addresses,
 // closed evidence kind, strictly ascending list) are the framing-layer admission checks.
@@ -279,8 +279,8 @@ func decodeSHA256Hex(value string) ([]byte, error) {
 	return decoded, nil
 }
 
-// inferReceiptSignBytes is the request body covered by the Worker role signature (contract §8.2, not frozen).
-// It is the **request envelope** layer binding, not the §5.14 consensus preimage: the latter is
+// inferReceiptSignBytes is the request body covered by the Worker role signature (not frozen).
+// It is the **request envelope** layer binding, not the consensus preimage: the latter is
 // nodecontract.InferReceiptSigningDigest, covered by receipt.WorkerServiceSignature.
 func inferReceiptSignBytes(receipt types.InferReceiptSubmission) []byte {
 	fields := [][]byte{
@@ -297,7 +297,7 @@ func inferReceiptSignBytes(receipt types.InferReceiptSubmission) []byte {
 	return sdkauth.BodyPreimage(fields...)
 }
 
-// verifyCommitFromPB does admission checks only: since wire v0.4.1 the request carries the on-chain frozen
+// verifyCommitFromPB does admission checks only: the request carries the on-chain
 // VerifyCommitV1 body itself, there is no second field authority to convert, and Nexus rewrites no fields.
 func verifyCommitFromPB(m *nexusv1.SubmitVerifyCommitRequest, chainID string) (*taskv1.VerifyCommitV1, error) {
 	pb := m.GetCommit()
@@ -397,7 +397,7 @@ func decodeSignatureHex(value string) ([]byte, error) {
 }
 
 // verifyCommitSignBytes is the request body covered by the Verifier role signature (request envelope layer binding, not
-// the §5.14 consensus preimage -- that is covered by commit.ServiceSignature). The domain carries V2: the field set
+// the consensus preimage -- that is covered by commit.ServiceSignature). The domain carries V2: the field set
 // changed to the on-chain body with the initial relay implementation and is incompatible with the old TRUEOPEN_SUBMIT_VERIFY_COMMIT_V1.
 func verifyCommitSignBytes(sessionID string, c *taskv1.VerifyCommitV1) []byte {
 	return sdkauth.BodyPreimage(

@@ -26,7 +26,7 @@ const natsSentinelSchemaVersion = 1
 
 // natsSentinelDocument is the response body of GET /v1/nats/sentinel.
 // auth_account_public_key lets Cortex verify that this JWT really comes from the AUTH account it expects.
-// nats_servers and nats_ca_pem are optional (interface list §4.12, ADR-0016 decision one item 1):
+// nats_servers and nats_ca_pem are optional:
 // the NATS address and the PEM that verifies the NATS server, so a Cortex needs neither handed to
 // it by hand. The response travels over the ingress TLS pinned by the on-chain tls_pubkey_hash,
 // which is what makes the certificate trustworthy. Adding optional fields keeps schema_version 1;

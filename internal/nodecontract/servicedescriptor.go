@@ -13,18 +13,18 @@ import (
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 )
 
-// The frozen contract replaced the Builder/Cortex service descriptor shape "descriptor_uri + descriptor_hash
+// The chain replaced the Builder/Cortex service descriptor shape "descriptor_uri + descriptor_hash
 // stored on chain, document fetched off-chain over HTTPS" with "repeated ServiceEndpointV1 stored directly
-// on chain" (Keeper Interface Contract §9.6b). This file is the single canonicalization entry point for that
+// on chain". This file is the single canonicalization entry point for that
 // shape on the nexus side: ordering, per-field validation and the H_FIELDS_V1 rule for descriptor_hash must
 // all match node x/hub/types/participant_identity.go CanonicalServiceDescriptorEndpointFields /
 // CanonicalServiceDescriptorHash byte-for-byte, otherwise the local "is an update needed" decision
 // drifts from the on-chain fact.
 const (
-	// DomainServiceDescriptorV1 is the descriptor hash domain registered in §1.4. §9.6b deliberately keeps
+	// DomainServiceDescriptorV1 is the descriptor hash domain registered in wire. The chain deliberately keeps
 	// chain_id out of this preimage: scope is carried by participant_type + operator_address.
 	DomainServiceDescriptorV1 = "TRUEOPEN_SERVICE_DESCRIPTOR_V1"
-	// DomainServiceRegistrationV1 is the domain of the service key PoP (§10.0c).
+	// DomainServiceRegistrationV1 is the domain of the service key PoP.
 	DomainServiceRegistrationV1 = "TRUEOPEN_SERVICE_REGISTRATION_V1"
 )
 
@@ -66,7 +66,7 @@ var serviceEndpointSchemes = map[string]struct{}{
 	"http": {}, "https": {}, "grpc": {}, "grpcs": {},
 }
 
-// ParseServiceEndpointKind accepts the §9.6b short names (NEXUS_GRPC / OBJECT_GATEWAY_HTTPS /
+// ParseServiceEndpointKind accepts the short names (NEXUS_GRPC / OBJECT_GATEWAY_HTTPS /
 // HEALTH_HTTPS) as well as the full names from generated code. UNSPECIFIED is always rejected.
 func ParseServiceEndpointKind(name string) (hubv1.ServiceEndpointKind, error) {
 	trimmed := strings.TrimSpace(name)
@@ -82,7 +82,7 @@ func ParseServiceEndpointKind(name string) (hubv1.ServiceEndpointKind, error) {
 	return hubv1.ServiceEndpointKind(value), nil
 }
 
-// ServiceEndpointKindName returns the §9.6b short name, for config echo and logs.
+// ServiceEndpointKindName returns the short name, for config echo and logs.
 func ServiceEndpointKindName(kind hubv1.ServiceEndpointKind) string {
 	return strings.TrimPrefix(kind.String(), "SERVICE_ENDPOINT_KIND_")
 }
@@ -100,7 +100,7 @@ func IsValidServiceEndpointKind(kind hubv1.ServiceEndpointKind) bool {
 }
 
 // CanonicalServiceEndpoints normalizes endpoints read from config or chain into the submission shape the
-// contract requires: ascending by (endpoint_kind, uri bytes), unique kind, each field within the §9.6b bounds.
+// chain requires: ascending by (endpoint_kind, uri bytes), unique kind, each field within the chain's bounds.
 // It returns a copy; mutating it does not affect the input.
 func CanonicalServiceEndpoints(endpoints []ServiceEndpoint, limits ServiceEndpointLimits) ([]ServiceEndpoint, error) {
 	sorted := make([]ServiceEndpoint, len(endpoints))
@@ -161,7 +161,7 @@ func CanonicalServiceEndpointFields(endpoints []ServiceEndpoint, limits ServiceE
 	return fields, nil
 }
 
-// ServiceDescriptorFields are the top-level fields of the §9.6b descriptor_hash (byte-for-byte with wire v0.4.1
+// ServiceDescriptorFields are the top-level fields of descriptor_hash (byte-for-byte with wire
 // testdata/v1/hub/hub_domains_v1.json service_descriptor_v1):
 //
 //	participant_type, operator_address, descriptor_version, endpoint_count,
@@ -206,7 +206,7 @@ func ServiceDescriptorFields(
 	}, nil
 }
 
-// ServiceDescriptorHash recomputes the §9.6b descriptor_hash:
+// ServiceDescriptorHash recomputes descriptor_hash:
 //
 //	H_FIELDS_V1("TRUEOPEN_SERVICE_DESCRIPTOR_V1", ServiceDescriptorFields...)
 //
@@ -229,12 +229,12 @@ func ServiceDescriptorHash(
 }
 
 // ServiceRegistrationBytes is the signing preimage digest of the service key proof-of-possession
-// (§10.0c, domain TRUEOPEN_SERVICE_REGISTRATION_V1):
+// (domain TRUEOPEN_SERVICE_REGISTRATION_V1):
 //
 //	H_FIELDS_V1(domain, chain_id, participant_type, operator_address,
 //	            service_pubkey, initial_service_authorization_nonce)
 //
-// operator_address enters the preimage as address codec bytes, not bech32 text (ruling 24), and
+// operator_address enters the preimage as address codec bytes, not bech32 text, and
 // service_pubkey as the raw 33-byte compressed public key, not hex text. The return value is the 32-byte
 // signing digest itself: sign it with Signer.SignDigest, since the Keeper verifies the proof strictly over
 // these bytes (VerifyStrictSecp256k1Digest) with no further hashing.

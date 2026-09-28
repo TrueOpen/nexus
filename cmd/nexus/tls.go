@@ -9,7 +9,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/ingresstls"
 )
 
-// The tls subcommand is the first step of the ADR-0015 registration order:
+// The tls subcommand is the first step of the Builder registration order:
 //
 //	nexus tls init                -> create the self-signed certificate, print the public-key fingerprint (tls_pubkey_hash)
 //	nexus builder register        -> the operator writes the https endpoint + fingerprint into the descriptor with the operator key

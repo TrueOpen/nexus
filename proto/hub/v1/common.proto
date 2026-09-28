@@ -66,8 +66,7 @@ enum ServiceKeyResponsibilityKind {
   // Locked Task Builder is still exposed to objective BusEnvelope evidence for
   // one task, so its service key must stay verifiable.
   //
-  // Lifecycle (the wire storage model plus the wire API
-  //), all inside one cache transaction
+  // Lifecycle, all inside one cache transaction
   // with the participant counter and the ByTask index:
   //   create  - when the first Task proposal is accepted and the Task Builders
   //             are locked, exactly one row per Builder is created for that
@@ -108,7 +107,7 @@ enum GovernanceReason {
   GOVERNANCE_REASON_EMERGENCY_RECOVERY = 4;
 }
 
-// ServiceBondStatus is the operator-global service bond lifecycle (wire storage model 6.4).
+// ServiceBondStatus is the operator-global service bond lifecycle.
 enum ServiceBondStatus {
   // Never written; rejects zero-value rows.
   // SERVICE_BOND_STATUS_UNSPECIFIED identifies the corresponding protocol value.

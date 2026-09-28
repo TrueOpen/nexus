@@ -18,7 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// From wire v0.4.1 on, the three relay requests carry only the on-chain message body: no session_id, no
+// The three relay requests carry only the on-chain message body: no session_id, no
 // request_auth and no SDK envelope. Authorization is the message's own service_signature over the on-chain digest,
 // and the public key is read from the chain by (CORTEX, operator) -- a public key presented by the caller is never trusted.
 //
@@ -305,7 +305,7 @@ func TestRelayResolvesSessionFromTaskID(t *testing.T) {
 		if fake.lastVerifyCommit == nil {
 			t.Fatal("commit was not relayed")
 		}
-		// commit_key in the acknowledgement is the primary key of the Keeper CommitState (Keeper Interface Contract §10.9);
+		// commit_key in the acknowledgement is the primary key of the Keeper CommitState;
 		// Cortex requires a non-zero Hash32, whereas an empty string used to be returned.
 		wantKey, err := nodecontract.CommitKey(commit.GetChainId(), commit.GetTaskId(), commit.GetVerifyRound(), commit.GetVerifierOperatorAddress())
 		if err != nil {
@@ -365,7 +365,7 @@ func TestSubmitVerifyCommitMapsRelayErrors(t *testing.T) {
 	}{
 		"not found":    {types.ErrTaskNotFound, connect.CodeNotFound},
 		"unauthorized": {types.ErrUnauthorized, connect.CodePermissionDenied},
-		// A temporarily unreachable chain is a transient failure: it maps to Unavailable, so the caller can retry or switch to direct submission per the contract.
+		// A temporarily unreachable chain is a transient failure: it maps to Unavailable, so the caller can retry or switch to direct submission.
 		"chain down": {errors.New("chain unreachable"), connect.CodeUnavailable},
 	}
 	for name, tt := range tests {

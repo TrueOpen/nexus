@@ -37,7 +37,7 @@ type Config struct {
 type Submission struct {
 	SessionID string
 	TaskID    string
-	// TaskHash is the first field of the object ref (wire v0.4.1). INPUT is created
+	// TaskHash is the first field of the object ref. INPUT is created
 	// together with the Task, so the caller already knows it at submission.
 	TaskHash       string
 	Ref            string

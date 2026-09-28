@@ -26,8 +26,8 @@ import (
 //     reaches the chain in the next block, so a Verifier that received the message and queried the
 //     chain immediately did not find the receipt yet and reported "receipt is not available";
 //     OPEN_VERIFY is Core-tier and sent once, so that error was the end of the line and the verify
-//     window expired and was swept as INSUFFICIENT. Contract §5.8 says it is "published only after
-//     the InferReceipt has been accepted by the keeper".
+//     window expired and was swept as INSUFFICIENT. OPEN_VERIFY must be published only after
+//     the InferReceipt has been accepted by the keeper.
 //   - Reconcile treated "the verify window is open" (RECEIPT_COMMITTED on chain) as "the verifiers
 //     are decided", sent an assignment notice with 0 verifiers, and advanced the local state to
 //     Verifying.

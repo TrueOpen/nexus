@@ -79,8 +79,8 @@ type client struct {
 func New(log *slog.Logger, cfg config.ChainConfig, options ...Option) Client {
 	grpcBase := grpcBaseURL(cfg.GRPCAddr)
 	// http:// uses h2c (plaintext HTTP/2 prior-knowledge, node's default plaintext gRPC port);
-	// https:// uses TLS verified against the system CA roots (Deployment Security Baseline:
-	// write https once the node port has TLS enabled).
+	// https:// uses TLS verified against the system CA roots (write
+	// https once the node port has TLS enabled).
 	h2cTransport := newGRPCTransport(grpcBase)
 	grpcHTTP := &http.Client{Transport: h2cTransport, Timeout: 15 * time.Second}
 
@@ -94,7 +94,7 @@ func New(log *slog.Logger, cfg config.ChainConfig, options ...Option) Client {
 	// Event streams are long-lived connections: no client Timeout; the lifetime is controlled by ctx.
 	streamHTTP := &http.Client{Transport: h2cTransport}
 	taskEvents := taskv1connect.NewTaskEventServiceClient(streamHTTP, grpcBase, connect.WithGRPC())
-	// wire v0.4.1: non-Task protocol events (BuilderSet rotation etc.) go through hub.v1.HubEventService.
+	// Non-Task protocol events (BuilderSet rotation etc.) go through hub.v1.HubEventService.
 	hubEvents := hubv1connect.NewHubEventServiceClient(streamHTTP, grpcBase, connect.WithGRPC())
 
 	c := &client{
@@ -170,7 +170,7 @@ func (c *client) Stop(_ context.Context) error {
 func (c *client) Events() <-chan ChainEvent { return c.events }
 
 // QueryBuilderSetAtHeight fetches the authoritative BuilderSet at the given height
-// via the height selector (Interface Contract §16.3: exactly one oneof selector).
+// via the height selector.
 //
 // Why only the height branch is exposed: term is the *result* of the query, not an
 // input. The current Node BuilderState no longer publishes active_term, so the caller
@@ -191,7 +191,7 @@ func (c *client) QueryBuilderSetAtHeight(ctx context.Context, height uint64) (Bu
 	if set == nil || set.GetBuilderSetVersion() == 0 {
 		return BuilderSet{}, ErrNotFound
 	}
-	// body_status must be checked first: §16.5 requires that when PRUNED, active_builders
+	// body_status must be checked first: wire requires that when PRUNED, active_builders
 	// is empty but active_builder_count is retained, and "an empty array must not be
 	// interpreted as an empty BuilderSet". Parsing members before checking the status
 	// would already have read a pruned body as an empty set.
@@ -231,7 +231,7 @@ func (c *client) QueryBuilderSetAtHeight(ctx context.Context, height uint64) (Bu
 		members[i] = types.BuilderRef{Address: address, Rank: i + 1}
 	}
 	// The endpoint is not on BuilderSetViewV1 (field 6 carries only Address), so the
-	// on-chain descriptor must be queried per member (§9.6b). A single member's resolve
+	// on-chain descriptor must be queried per member. A single member's resolve
 	// failure only degrades its endpoint; membership and rank stay intact. Rank is a
 	// consensus fact and must not be reordered because one peer's descriptor is missing.
 	for i := range members {
@@ -259,10 +259,9 @@ func (c *client) QueryBuilderSetAtHeight(ctx context.Context, height uint64) (Bu
 	}, nil
 }
 
-// QueryTaskBuilders reads the task's frozen Task Builder selection (wire v0.1.2
-// task.v1.Query/TaskBuilders). The old hub.v1.Query/StageBuilderSelection does
+// QueryTaskBuilders reads the task's frozen Task Builder selection (task.v1.Query/TaskBuilders). The old hub.v1.Query/StageBuilderSelection does
 // not exist on chain; settlement submission rights rotate in
-// selected_task_builders order (§10.10a), and this is the only read path.
+// selected_task_builders order, and this is the only read path.
 func (c *client) QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error) {
 	if err := key.Validate(); err != nil {
 		return TaskBuilderSelectionState{}, err
@@ -308,7 +307,7 @@ func (c *client) QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilde
 
 // QuerySettlementBuilderGraceBlocks reads the Hub parameter builder.settlement_builder_grace_blocks:
 // after the reveal deadline, rank i has exclusive rights in (reveal+(i-1)·g, reveal+i·g];
-// only after all windows pass may anyone submit (§10.10a).
+// only after all windows pass may anyone submit.
 func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error) {
 	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
 	if err != nil {
@@ -319,6 +318,20 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 		return 0, fmt.Errorf("query hub params: settlement_builder_grace_blocks is zero")
 	}
 	return grace, nil
+}
+
+// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task, the number of Builders the
+// task Keeper selects for each task. Zero is refused: the Keeper cannot admit an order under it.
+func (c *client) QueryBuildersPerTask(ctx context.Context) (uint32, error) {
+	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("hub params", err)
+	}
+	count := resp.Msg.GetParams().GetBuilder().GetBuildersPerTask()
+	if count == 0 {
+		return 0, fmt.Errorf("query hub params: builders_per_task is zero")
+	}
+	return count, nil
 }
 
 // defaultEpochLengthBlocks is the Hub's epoch length when epoch.epoch_length_blocks is zero
@@ -353,7 +366,7 @@ func (c *client) QueryEVMChainID(ctx context.Context) (uint64, error) {
 }
 
 // QueryEvidenceCleanup reads whether the chain has started compacting a task's evidence
-// (task.v1.Query/EvidenceCleanup, 06 §10). A task the chain does not know returns ErrNotFound.
+// (task.v1.Query/EvidenceCleanup). A task the chain does not know returns ErrNotFound.
 func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error) {
 	id, err := nodecontract.Hash32Bytes("task_id", taskID)
 	if err != nil {
@@ -380,8 +393,7 @@ func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (Evide
 }
 
 // QueryMaxVerifyRound reads task params challenge.max_verify_round: the highest verification
-// round a task may reach, so a challenge round can open only while max_closed_round is below it
-// (06 §5).
+// round a task may reach, so a challenge round can open only while max_closed_round is below it.
 func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
 	if err != nil {
@@ -568,7 +580,7 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 	if b == nil || b.GetOperatorAddress() == "" {
 		return ServiceKeyState{}, ErrNotFound
 	}
-	// The frozen contract replaced the binding with CurrentServiceKeyViewV1: service_pubkey
+	// The current wire replaced the binding with CurrentServiceKeyViewV1: service_pubkey
 	// is bytes, authorization_nonce was renamed service_authorization_nonce, the status
 	// became a oneof selected by participant_type, and updated_height was removed from the wire.
 	state := ServiceKeyState{
@@ -584,8 +596,8 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 // currentServiceKeyStatus reads the status only from the oneof branch matching
 // binding.participant_type.
 //
-// The contract (query_registry.proto:301) requires "Exactly one status matching
-// participant_type is set". Since wire v0.4.1 both branches are ServiceKeyStatus, but the
+// The wire hub.v1 query_registry.proto requires "Exactly one status matching
+// participant_type is set". Both branches are ServiceKeyStatus, but the
 // branch is still selected by participant_type: reading across domains would admit on the
 // wrong domain's status. Returns an empty string when the branch is missing or
 // mismatched, so the ACTIVE assertion in servicekey fails closed.
@@ -636,7 +648,7 @@ func (c *client) QueryServiceDescriptor(ctx context.Context, participantType, op
 	if err != nil {
 		return ServiceDescriptorState{}, fmt.Errorf("query service descriptor: %w", err)
 	}
-	// The frozen contract's QueryServiceDescriptorRequest has only (participant_type,
+	// The wire QueryServiceDescriptorRequest has only (participant_type,
 	// operator_address): descriptor_version is no longer a query key, so we can only
 	// assert consistency against the returned current version.
 	resp, err := c.hubQuery.ServiceDescriptor(ctx, connect.NewRequest(&hubv1.QueryServiceDescriptorRequest{
@@ -665,7 +677,7 @@ func (c *client) QueryServiceDescriptor(ctx context.Context, participantType, op
 
 // mapServiceEndpoints copies the wire endpoints into value types. An absent optional
 // tls_pubkey_hash is left as an empty string. Empty and present-empty are distinct in
-// the §1.2 canonical encoding, but "absent" on the wire is nil, and we do not fabricate
+// the H_FIELDS_V1 canonical encoding, but "absent" on the wire is nil, and we do not fabricate
 // a present value here.
 func mapServiceEndpoints(wire []*hubv1.ServiceEndpointV1) []ServiceEndpoint {
 	if len(wire) == 0 {
@@ -767,7 +779,7 @@ func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error
 	if err := key.Validate(); err != nil {
 		return OnChainTask{}, err
 	}
-	// The frozen contract's QueryTaskRequest has only `1=task_id:Hash32`: session is no
+	// The wire QueryTaskRequest has only `1=task_id:Hash32`: session is no
 	// longer a query key, so we can only assert consistency against the returned core.session_id.
 	taskID, err := nodecontract.Hash32Bytes("task_id", key.TaskID)
 	if err != nil {
@@ -786,8 +798,8 @@ func (c *client) QueryTask(ctx context.Context, key TaskKey) (OnChainTask, error
 	return c.mapTask(ctx, key, resp.Msg)
 }
 
-// QuerySettlementBuildFacts has no corresponding RPC in the frozen contract: §16 no
-// longer registers any settlement-build/preview interface, §10.10a explicitly forbids
+// QuerySettlementBuildFacts has no corresponding RPC in the current wire: no
+// settlement-build/preview interface is registered, the chain explicitly forbids
 // exposing SettlementFactsV1 as a submitted settlement, and QuerySettlement /
 // QuerySettlementFinality may only be registered once the open settlement and
 // finality blockers are resolved. This fails closed rather than assembling approximate facts
@@ -804,7 +816,7 @@ func (c *client) QueryTimeoutBucket(ctx context.Context, bucketKey string, versi
 	if strings.TrimSpace(bucketKey) == "" || strings.TrimSpace(bucketKey) != bucketKey {
 		return TimeoutBucketState{}, fmt.Errorf("query timeout bucket: bucket_key is required and canonical")
 	}
-	// The frozen contract moved the timeout bucket query to hub.v1.Query; the request
+	// The current wire moved the timeout bucket query to hub.v1.Query; the request
 	// has only (bucket_key, optional version) and height is no longer a query key. The
 	// response became the generic ParameterBucketVersionViewV1 (BucketKind + entry table)
 	// with no per-stage infer/verify/reveal/challenge timeout fields.
@@ -835,12 +847,12 @@ func (c *client) QueryTimeoutBucket(ctx context.Context, bucketKey string, versi
 	}, nil
 }
 
-// mapTask projects the frozen contract's TaskViewV1 back onto nexus's OnChainTask.
+// mapTask projects the wire TaskViewV1 back onto nexus's OnChainTask.
 //
 // The new wire differs from the old one by splitting rather than renaming: QueryTask
 // returns only `TaskActiveBundleV1{core, assignment, verifier_assignment}`, while the
 // infer receipt, settlement and failure class are carried by separate RPCs such as
-// QueryInferReceipt / QueryTaskFailureClass (§16.2/§16.5). All status fields changed from
+// QueryInferReceipt / QueryTaskFailureClass. All status fields changed from
 // free-form strings to closed enums and all IDs/hashes to bytes. Hence the InferReceipt /
 // TaskVerdict / FailureClass / SampleSeed / AssignedSet sections of OnChainTask stay zero:
 // they are not in the QueryTask response. Of Settlement only what TaskCoreState carries is
@@ -910,7 +922,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		result.Assignment.WinnerConfirmHeight = assignment.GetWinnerConfirmHeight()
 	}
 
-	// Since wire v0.4.1 the bundle is published per round (round1 / round2). The coordinator
+	// The bundle is published per round (round1 / round2). The coordinator
 	// view (Verifiers, VerifierAssignment, Deadlines) is round 1 only; VerifierRounds carries
 	// both rounds for task data authorization. The Keeper fills only round 1 in QueryTask, so
 	// the challenge round's assignment is read on its own.
@@ -981,7 +993,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 }
 
 // mapTerminalTask maps the TaskTerminalSummaryState that QueryTask returns once the chain has
-// compacted a task (Challenge and Evidence spec §10). Only a SETTLED or FAILED phase can be
+// compacted a task. Only a SETTLED or FAILED phase can be
 // compacted; anything else is an inconsistent response.
 func mapTerminalTask(key TaskKey, summary *taskv1.TaskTerminalSummaryState) (OnChainTask, error) {
 	if hex.EncodeToString(summary.GetTaskId()) != key.TaskID {
@@ -1023,7 +1035,7 @@ func mapTerminalTask(key TaskKey, summary *taskv1.TaskTerminalSummaryState) (OnC
 
 // challengeRoundAssignment returns the round 2 (challenge round) verifier assignment. A challenge
 // round can exist only after round 1 has closed: the Keeper sets effective_verify_round to 1 when
-// one opens (06 §5, §7), and once the task is settling or terminal no round reads data any more.
+// one opens, and once the task is settling or terminal no round reads data any more.
 // Otherwise it is read with task.v1.Query/VerifierAssignment; not found means no round 2 yet.
 func (c *client) challengeRoundAssignment(ctx context.Context, core *taskv1.TaskCoreState, bundle *taskv1.TaskActiveBundleV1) (*taskv1.VerifierAssignmentState, error) {
 	if round2 := bundle.GetRound2VerifierAssignment(); round2 != nil {
@@ -1085,7 +1097,7 @@ func mapTaskVerdict(verdict taskv1.TaskVerdict) types.TaskVerdict {
 	}
 }
 
-// mapTaskPhase maps the frozen contract's TaskPhase enum to the local FSM state. The old
+// mapTaskPhase maps the wire TaskPhase enum to the local FSM state. The old
 // ASSIGN_RANDOMNESS_PENDING / RECEIPT_ONLY_ACCEPTED / VERIFYING /
 // VERIFY_FAILED string states were replaced by this enum.
 func mapTaskPhase(phase taskv1.TaskPhase) (types.TaskState, error) {
@@ -1110,7 +1122,7 @@ func mapTaskPhase(phase taskv1.TaskPhase) (types.TaskState, error) {
 }
 
 // enumShortName strips the type prefix from a protobuf enum value, yielding the short
-// name nexus uses internally (SERVICE_KEY_STATUS_ACTIVE → ACTIVE). The frozen contract
+// name nexus uses internally (SERVICE_KEY_STATUS_ACTIVE → ACTIVE). The current wire
 // replaced all free-form string status fields with closed enums, while nexus's Go structs
 // and downstream modules still compare short-name strings, so the conversion happens
 // once at the chaincli layer and enum types are not propagated upward.
@@ -1122,7 +1134,7 @@ func enumShortName[E interface {
 }
 
 // parseParticipantType converts the participant type short name used inside nexus to the
-// frozen contract's hub.v1.ParticipantType. enum and string are different protobuf
+// wire shared.v1.ParticipantType. enum and string are different protobuf
 // wire types, so an unrecognized value must error rather than silently sending UNSPECIFIED.
 func parseParticipantType(participantType string) (sharedv1.ParticipantType, error) {
 	value, ok := sharedv1.ParticipantType_value["PARTICIPANT_TYPE_"+participantType]
@@ -1134,11 +1146,11 @@ func parseParticipantType(participantType string) (sharedv1.ParticipantType, err
 }
 
 // mapTaskVerdict / mapTaskStatus were removed together with the string task status /
-// task_verdict wire: the frozen contract replaced them with the TaskPhase / TaskVerdict
+// task_verdict wire: the current wire replaced them with the TaskPhase / TaskVerdict
 // enums, and the verdict no longer appears in the QueryTask response (see mapTask).
 
 // queryWorkerHandraise / parseWorkerHandraiseBuilders were removed together with the
-// TaskAssignment worker_handraise_set string field: the frozen contract no longer puts
+// TaskAssignment worker_handraise_set string field: the current wire no longer puts
 // the hand-raise set into Task state as a JSON string (raw hand-raises are never persisted).
 
 func parseCanonicalList(field, value string, expected int) ([]string, error) {

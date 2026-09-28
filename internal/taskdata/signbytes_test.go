@@ -65,7 +65,7 @@ func TestConfirmationMaterialDigest(t *testing.T) {
 }
 
 // The UploadTaskOutputStream Header body reuses TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1 with the
-// fixed-value projection of Interface & Topic Catalogue §4.2.1: canonical
+// fixed-value projection: canonical
 // TaskDataObjectRefV1 (kind=OUTPUT, content_hash=0x00*32, producer defaulted) +
 // size_bytes=0 + media_type="". It must equal the whole-object upload body function
 // applied to the same fixed values; that is how Cortex computes it, and hashing only the

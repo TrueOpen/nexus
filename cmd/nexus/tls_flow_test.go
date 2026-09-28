@@ -14,7 +14,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/ingresstls"
 )
 
-// The full ADR-0015 registration order: tls init -> builder register (the descriptor carries the fingerprint) -> start with TLS enabled.
+// The full Builder registration order: tls init -> builder register (the descriptor carries the fingerprint) -> start with TLS enabled.
 // start only checks: it comes up only when the on-chain fingerprint matches the local certificate, and the ingress really presents that certificate over TLS.
 func TestTLSInitRegisterThenStartServesThePinnedCertificate(t *testing.T) {
 	taskNode, hubNode, taskGRPC, hubGRPC, stop := startBuilderCommandNodes(t)

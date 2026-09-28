@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// SupportedVerifyRoundV1 is the only verify_round Nexus handles.
+const SupportedVerifyRoundV1 = uint64(1)
+
 const (
 	OrderEnvelopeSchemaV1     = "trueopen-order-envelope-v1"
 	WorkerHandraiseSchemaV1   = "trueopen-worker-handraise-v1"
@@ -120,7 +123,7 @@ func assignmentOrderValue(maxFee, inferFeeCap, verifyFeeCap uint64) (uint64, boo
 // Those bytes currently enter NO consensus preimage and do NOT go on chain (SubmitAssign takes only scope /
 // handraises / submitter_address), so this rename is not a signing-rule change; should anyone wire it
 // back into the signing path later, the field order here becomes a frozen surface and must then be aligned with Node.
-// candidate_set_hash and membership_proof were removed from here: Interface & Topic Catalogue §5.5 dropped
+// candidate_set_hash and membership_proof were removed from here: the wire dropped
 // them from the WORKER_HANDRAISE wire (membership is now looked up directly on chain by the Keeper from the
 // member 4-tuple in the snapshot bitmap and slot binding), so the source has no value to fill; the on-chain
 // assignment wire also no longer echoes worker_handraise_set (see the note in chaincli/client.go).
@@ -258,4 +261,14 @@ func canonicalOptionalStrings(values ...string) bool {
 		}
 	}
 	return true
+}
+
+// canonicalHash is the length-prefixed text framing (same as domainHash) used by the verifier
+// ordering helpers above.
+func canonicalHash(domain string, fields ...string) []byte {
+	return domainHash(domain, fields...)
+}
+
+func canonicalHashHex(domain string, fields ...string) string {
+	return hex.EncodeToString(canonicalHash(domain, fields...))
 }

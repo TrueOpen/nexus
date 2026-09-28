@@ -754,7 +754,7 @@ func (x *FreezeSignalBuildCursorState) GetVisitedCount() uint64 {
 }
 
 // EmergencyFreezeVoteState is one validator ballot
-// (the wire storage model, key
+// (key
 // (freeze_signal_id, validator_consensus_address)).
 //
 // validator_consensus_address is ConsensusAddressBytes resolved by the Keeper

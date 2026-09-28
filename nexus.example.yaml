@@ -15,7 +15,7 @@ ingress:
   api_keys: []
   ip_whitelist: []
   require_sdk_envelope: false
-  # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed (monorepo ADR-0015).
+  # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed.
   # Order: `nexus tls init` generates a self-signed certificate (default <data_dir>/tls/) and prints the public key fingerprint →
   # the operator runs `nexus builder register` with the operator key to write the https address and fingerprint
   # (tls_pubkey_hash = sha256(certificate public key)) into the on-chain descriptor → set enabled=true and start.
@@ -52,13 +52,13 @@ task_data:
   # Signed requests may expire at most this many Task Chain blocks ahead.
   request_ttl_blocks: 20
   # Fallback retention window for Builder storage confirmations
-  # (contract §5) when the object carries no authoritative retention height.
+  # when the object carries no authoritative retention height.
   # Must outlast the verify + challenge windows (devnet: ~700 blocks after
   # open verify), otherwise the Builder promises less than the chain requires.
   retention_lease_blocks: 1000
   # Rechecks quarantined objects and authoritative cleanup heights.
   sweep_interval: 1m
-  # ADR-0017 streaming OUTPUT (UploadTaskOutputStream / frame-based SubscribeOutput).
+  # Streaming OUTPUT (UploadTaskOutputStream / frame-based SubscribeOutput).
   # On by default: Cortex only delivers OUTPUT through this stream. Set
   # enabled: false to make the three RPCs answer Unimplemented (no OUTPUT can
   # then be uploaded at all).
@@ -78,15 +78,15 @@ task_data:
 
 nats:
   servers:
-    - nats://127.0.0.1:4222         # production uses tls://host:4222 (ADR-0016 transitional state)
+    - nats://127.0.0.1:4222         # production uses tls://host:4222
   user: ""                          # dev only; production mode rejects username/password
   password: ""
   ca_file: ""                       # NATS server certificate / CA PEM; verified against it for tls://; dev empty = system root CAs, required in production
   creds_file: ""                    # NATS creds (user JWT + nkey seed), replaces username/password; relative paths are relative to this file
   sentinel_file: ""                 # AUTH account bearer user JWT (e.g. ./nats-sentinel.jwt), public, non-secret data, served to Cortex via GET /v1/nats/sentinel; relative paths are relative to this file; empty = route not served
-  advertise_servers: []             # NATS addresses served to Cortex with the sentinel, e.g. [tls://203.0.113.10:4222], together with the certificates of ca_file (ADR-0016); needs sentinel_file; production needs tls:// and ca_file; empty = not served
+  advertise_servers: []             # NATS addresses served to Cortex with the sentinel, e.g. [tls://203.0.113.10:4222], together with the certificates of ca_file; needs sentinel_file; production needs tls:// and ca_file; empty = not served
 
-# Deployment Security Baseline switch: dev (default, behavior unchanged) | production.
+# Production security switch: dev (default, behavior unchanged) | production.
 # production rejects: nats:// and user/password; non-loopback plaintext chain/hub grpc_addr;
 # private_key_hex / private_key / keystore_password / service_keystore_password in identity;
 # ingress.tls.enabled=false. Private keys and passphrases always come from files.
@@ -102,7 +102,7 @@ chain:
   gas_limit: 200000
   fee_denom: utrueopen
   fee_amount: "5000"
-  # MsgSweepDeadline is the single public deadline runner (Keeper Interface Contract §9.6a):
+  # MsgSweepDeadline is the single public deadline runner:
   # any account may submit it and the runner pays its own gas, so acting as that
   # runner is an operational choice, not a protocol duty. Default off — nexus only
   # observes DEADLINE_SWEPT events. When enabled, nexus sweeps only the verify
@@ -149,14 +149,14 @@ identity:
   service_keystore_password: ""
   service_keystore_password_file: ""
   # Production endpoint must be absolute HTTPS: turn on ingress.tls so Nexus
-  # terminates TLS itself and clients can check tls_pubkey_hash (ADR-0015).
+  # terminates TLS itself and clients can check tls_pubkey_hash.
   public_endpoint: ""
   # Phase 0 has no BuilderBond: the former builder_bond block and the
   # NEXUS_BUILDER_BOND_DENOM / NEXUS_BUILDER_BOND_AMOUNT variables are gone;
   # a leftover builder_bond key in YAML fails startup (strict schema).
   moniker: ""
   p2p_hint: ""
-  # On-chain ServiceDescriptorV1.endpoints (Keeper Interface Contract §9.6b). Leave the list
+  # On-chain ServiceDescriptorV1.endpoints. Leave the list
   # empty to derive three endpoints from public_endpoint: NEXUS_GRPC and
   # OBJECT_GATEWAY_HTTPS point at it directly, HEALTH_HTTPS appends /healthz.
   # Set it explicitly when the three services are not all on the Connect port.
@@ -176,16 +176,16 @@ identity:
   #     uri: "https://builder.example:8080"
   #   - kind: HEALTH_HTTPS
   #     uri: "https://builder.example:8080/healthz"
-  # Deprecated and ignored: the frozen contract's on-chain descriptor has no
+  # Deprecated and ignored: the on-chain descriptor has no
   # effective/expires height, so there is no validity window to renew. Both keys
   # are still accepted so existing nexus.yaml files keep passing strict parsing.
   descriptor_validity_blocks: 100000
   descriptor_renew_before_blocks: 10000
 
-# NATS auth-callout service (ADR-0016 decision 3; Interface & Topic Catalogue §5.14). Read only by `nexus natsauth`.
+# NATS auth-callout service. Read only by `nexus natsauth`.
 # Runs on the same machine as NATS, started by whoever runs NATS. None of the three keys leaves the machine.
-# natsauth has no separate chain config: it reuses the top-level chain.chain_id / chain.grpc_addr to look up the Cortex on-chain identity
-# (Interface & Topic Catalogue §5.14.5); both are required; a non-loopback chain.grpc_addr must be https://.
+# natsauth has no separate chain config: it reuses the top-level chain.chain_id / chain.grpc_addr to look up the Cortex on-chain identity;
+# both are required; a non-loopback chain.grpc_addr must be https://.
 natsauth:
   nats:
     servers: [tls://127.0.0.1:4222]

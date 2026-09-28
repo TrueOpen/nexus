@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -18,7 +19,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/msgbus"
-	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -305,7 +305,7 @@ func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
 		OrderEnvelope: `{"schema_version":"trueopen-order-envelope-v1"}`, TaskHash: testCanonicalTaskHash(testUserAddress),
 		SignatureScheme: "secp256k1", UserSignature: "user-signature", MaxFee: 1000,
 		InferTimeoutBlocks: 20,
-		Stage1BuilderRank:  2, Stage1SelectionProof: nodecontract.BuilderSelectionProofVersion + ":00",
+		Stage1BuilderRank:  2, Stage1SelectionProof: strings.Repeat("ab", 32),
 		SignedOrder: testSignedOrderBytes(testUserAddress),
 	}
 	if err := c.OnOrder(context.Background(), order); err != nil {

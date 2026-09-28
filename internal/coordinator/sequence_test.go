@@ -71,7 +71,7 @@ func newSeqSubmitter(t *testing.T, chain chaincli.Client) (Submitter, string) {
 
 // sequenceAssign builds a MsgSubmitWorkerHandraises proposal whose only
 // chain-visible data is the scope oneof, the signed handraises and the
-// submitter (Keeper Interface Contract §4.2.1).
+// submitter.
 func sequenceAssign(address, taskID string) chaincli.AssignTx {
 	return chaincli.AssignTx{
 		SessionID: "sess-1", TaskID: taskID,

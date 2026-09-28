@@ -27,25 +27,25 @@ import (
 //   - isolate Tx wrapping/signing (the orchestration state machine does not care about chain encoding);
 //   - let the orchestration state machine use a fake submitter for deterministic unit tests.
 //
-// A successful submit only means "broadcast", not state progress -- truth still comes from chain events (Detailed Design §3 core rule).
-// The method set mirrors the Task Msg surface of Keeper Interface Contract §9.4:
-//   - SubmitAssign          -> MsgSubmitWorkerHandraises (§4.2.1/§10.1)
-//   - SubmitOpenVerify      -> MsgSubmitInferReceipt (§10.3)
-//   - SubmitVerifierHandraises -> MsgSubmitVerifierHandraises (§4.2.1/§10.4)
-//   - SubmitVerifyCommit    -> MsgBatchSubmitVerifyCommit (§10.6, one per batch)
-//   - SubmitVerifyResult    -> MsgBatchSubmitVerifyResult (§10.9, one per batch)
-//   - SubmitSettle          -> MsgSettleTask (§10.10a)
-//   - SubmitSweepDeadline   -> MsgSweepDeadline (§9.6a/§10.14)
+// A successful submit only means "broadcast", not state progress -- truth still comes from chain events.
+// The method set mirrors the Task Msg surface of the chain:
+//   - SubmitAssign          -> MsgSubmitWorkerHandraises
+//   - SubmitOpenVerify      -> MsgSubmitInferReceipt
+//   - SubmitVerifierHandraises -> MsgSubmitVerifierHandraises
+//   - SubmitVerifyCommit    -> MsgBatchSubmitVerifyCommit (one per batch)
+//   - SubmitVerifyResult    -> MsgBatchSubmitVerifyResult (one per batch)
+//   - SubmitSettle          -> MsgSettleTask
+//   - SubmitSweepDeadline   -> MsgSweepDeadline
 //
-// There is no Worker reveal method: §9.4 registers no such Msg and §10.11 keeps
+// There is no Worker reveal method: the chain registers no such Msg and keeps
 // Worker metric evidence off chain.
 //
 // MsgSubmitVerifyResult relay is enabled: NATS VERIFY_RESULT now carries the complete frozen
 // ResultReceiptV2 signed by the Verifier (including service_authorization_nonce / expiry_height /
 // MetricSummaryV1), so it is forwarded verbatim -- the old reason for "intentionally not enabled this round"
 // (Nexus could not obtain those fields) went away with the bus migration. MsgSubmitVerifyCommit / MsgSubmitFullResultReveal
-// are still not enabled: the Cortex contract has not given them a NATS payload yet.
-// MsgReportDataUnavailable must not be relayed per the contract (see the chaincli/txbuild.go comment).
+// are still not enabled: the Cortex bus defines no NATS payload for them yet.
+// MsgReportDataUnavailable must not be relayed (see the chaincli/txbuild.go comment).
 type Submitter interface {
 	SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (ProposalResult, error)
 	SubmitOpenVerify(ctx context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error)
@@ -57,7 +57,7 @@ type Submitter interface {
 }
 
 // BuilderSubmitter covers the two transactions Builder identity maintenance sends. In Phase 0 BuilderBond is fixed
-// at zero and creates no bonded stake record (Staking and Slashing Protocol §Phase 0); wire v0.4.1 has no Builder
+// at zero and creates no bonded stake record; the wire has no Builder
 // bond / unbond messages, so neither does this interface.
 type BuilderSubmitter interface {
 	SubmitRegisterBuilder(ctx context.Context, tx chaincli.RegisterBuilderTx) (chaincli.TxResult, error)
@@ -95,7 +95,7 @@ type defaultSubmitter struct {
 	serviceSigner signer.Signer
 	chainCfg      config.ChainConfig
 
-	// Local sequence cache (Detailed Design §6.1): avoids querying the account per Tx and sequence races under concurrent submits.
+	// Local sequence cache: avoids querying the account per Tx and sequence races under concurrent submits.
 	// seqMu serializes signed submissions (the sequence of one account is inherently a serial resource).
 	seqMu    sync.Mutex
 	accNum   uint64
@@ -121,7 +121,7 @@ func NewBuilderSubmitter(log *slog.Logger, chain chaincli.Client, s chaincli.TxS
 }
 
 // SubmitAssign relays a Worker-duty handraise proposal as
-// MsgSubmitWorkerHandraises (Keeper Interface Contract §4.2.1/§10.1).
+// MsgSubmitWorkerHandraises.
 //
 // Only the scope oneof, the Cortex-signed handraises and submitter_address reach
 // the chain. Builder rank, selection proof, candidate set hash, min-handraise
@@ -185,8 +185,8 @@ func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignT
 	})
 }
 
-// SubmitOpenVerify relays the Worker-signed receipt as MsgSubmitInferReceipt
-// (Keeper Interface Contract §10.3). The Verifier window, legal set, selected Verifier set
+// SubmitOpenVerify relays the Worker-signed receipt as MsgSubmitInferReceipt.
+// The Verifier window, legal set, selected Verifier set
 // and every deadline are derived by the Keeper in the same transaction, so the
 // old MsgOpenVerify request copies (selected verifiers, window proof, builder
 // rank/proof, work unit, token count) are gone.
@@ -207,9 +207,9 @@ func (s *defaultSubmitter) SubmitOpenVerify(ctx context.Context, tx chaincli.Ope
 }
 
 // SubmitVerifierHandraises relays a Verifier-duty handraise proposal as
-// MsgSubmitVerifierHandraises (Keeper Interface Contract §4.2.1/§10.4).
+// MsgSubmitVerifierHandraises.
 //
-// It is a separate stage on purpose: §4.4 only opens the Builder proposal window
+// It is a separate stage on purpose: the chain only opens the Builder proposal window
 // at `h_window`, after the InferReceipt transaction froze the eligibility source
 // and the whole clock. Submitting handraises inside the receipt transaction would
 // be rejected as out-of-window.
@@ -245,9 +245,8 @@ func (s *defaultSubmitter) SubmitVerifierHandraises(ctx context.Context, tx chai
 }
 
 // SubmitVerifyResult relays a Verifier-signed result receipt as
-// MsgSubmitVerifyResult (Keeper Interface Contract §10.9). Receipt bytes are passed through verbatim.
-// SubmitVerifyCommit relays one Verifier-signed VerifyCommitV1 via MsgBatchSubmitVerifyCommit
-// (Keeper Interface Contract §10.6).
+// MsgSubmitVerifyResult. Receipt bytes are passed through verbatim.
+// SubmitVerifyCommit relays one Verifier-signed VerifyCommitV1 via MsgBatchSubmitVerifyCommit.
 //
 // Why batch: the single MsgSubmitVerifyCommit only accepts the Verifier's own current service address
 // as submitter (direct-submission path); Builder relay must go through batch, whose outer signer must be the
@@ -268,8 +267,8 @@ func (s *defaultSubmitter) SubmitVerifyCommit(ctx context.Context, tx chaincli.V
 	})
 }
 
-// SubmitVerifyResult relays one Verifier-signed ResultReceiptV2 via MsgBatchSubmitVerifyResult
-// (Keeper Interface Contract §10.9). The single MsgSubmitVerifyResult likewise only accepts the Verifier
+// SubmitVerifyResult relays one Verifier-signed ResultReceiptV2 via MsgBatchSubmitVerifyResult.
+// The single MsgSubmitVerifyResult likewise only accepts the Verifier
 // itself as submitter; Builder relay must use batch (the single form was previously rejected by the chain).
 func (s *defaultSubmitter) SubmitVerifyResult(ctx context.Context, tx chaincli.VerifyResultTx) (chaincli.TxResult, error) {
 	if s.signer == nil {
@@ -287,8 +286,8 @@ func (s *defaultSubmitter) SubmitVerifyResult(ctx context.Context, tx chaincli.V
 	})
 }
 
-// SubmitSettle triggers normal settlement as MsgSettleTask
-// (Keeper Interface Contract §10.10a). The public request is exactly
+// SubmitSettle triggers normal settlement as MsgSettleTask.
+// The public request is exactly
 // `1=task_id:Hash32,2=submitter_address:Address`: the Keeper derives verdict,
 // consensus cluster, receipt refs, evidence root, facts hash, cutoff height,
 // challenge close height and the settlement duty Builder from authoritative
@@ -345,14 +344,13 @@ func (s *defaultSubmitter) SimulateSettle(ctx context.Context, tx chaincli.Settl
 	return s.simulateRetryingSequenceLocked(ctx, msgAny)
 }
 
-// SubmitSweepDeadline runs one bounded deadline sweep as MsgSweepDeadline
-// (Keeper Interface Contract §9.6a/§10.14).
+// SubmitSweepDeadline runs one bounded deadline sweep as MsgSweepDeadline.
 //
 // This is not a relay: MsgSweepDeadline is the only public deadline runner in V1; the public runner and
 // EndBlock share one internal executor, any account may submit it and pays its own gas, so the Cosmos Tx
 // signer is Nexus's own account and no external detached signature is needed.
 //
-// Only the task branch of §5.9 DeadlineLocatorV1 is exposed. challenge / evidence_request and the four kinds
+// Only the task branch of DeadlineLocatorV1 is exposed. challenge / evidence_request and the four kinds
 // EVIDENCE_REQUEST / CHALLENGE_RESOLVE / CHALLENGE_CLOSE / EVIDENCE_CLEANUP are not active yet --
 // no ACTIVE writer can create the corresponding objects, so the sweep executor must reject them --
 // so we fail closed here rather than broadcast a Tx that is certain to be rejected and burn gas for nothing.
@@ -380,7 +378,7 @@ func (s *defaultSubmitter) SubmitSweepDeadline(ctx context.Context, tx chaincli.
 	})
 }
 
-// validateTaskDeadlineKind admits only kinds that belong to TaskDeadlineLocator in the §5.9 table and
+// validateTaskDeadlineKind admits only kinds that belong to TaskDeadlineLocator and
 // are registered in the V1 handler surface.
 func validateTaskDeadlineKind(kind taskv1.DeadlineKindV1) error {
 	switch kind {
@@ -396,27 +394,27 @@ func validateTaskDeadlineKind(kind taskv1.DeadlineKindV1) error {
 	case taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP:
-		// wire v0.4.1 challenge/evidence kinds: Phase 0 does not activate challenge rounds, Nexus has no
+		// Challenge/evidence kinds: Phase 0 does not activate challenge rounds, Nexus has no
 		// corresponding local object to sweep; leave them to the chain's own EndBlock.
 		return fmt.Errorf("deadline_kind %s is not swept by the Builder in Phase 0", kind.String())
 	case taskv1.DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE:
 		return fmt.Errorf("deadline_kind SESSION_LIFECYCLE belongs to the session_lifecycle locator, not a task locator")
 	default:
-		return fmt.Errorf("deadline_kind must be a task-scoped kind of §5.9")
+		return fmt.Errorf("deadline_kind must be a task-scoped deadline kind")
 	}
 }
 
-// hash32Len is the raw consensus length of every Hash32 field (§1.1).
+// hash32Len is the raw consensus length of every Hash32 field.
 const hash32Len = 32
 
-// signature64Len is the raw length of a compact secp256k1 service signature
-// (§1.1). User order signatures are recoverable 65-byte R||S||V instead; see
+// signature64Len is the raw length of a compact secp256k1 service signature.
+// User order signatures are recoverable 65-byte R||S||V instead; see
 // nodecontract.ValidateSignedOrderEnvelopeV2.
 const signature64Len = 64
 
 // validateScopeTaskHash is the last gate on Task identity before submitting on-chain.
 //
-// Frozen contract §4.2.1 requires the scope (SignedOrderV2 or ExistingTaskRefV1) and every
+// The chain requires the scope (SignedOrderV2 or ExistingTaskRefV1) and every
 // WorkerHandraiseV1.task_hash in this proposal to point at the same order version. The Keeper repeats this
 // check (node x/task/keeper/msg_server_worker_handraises.go:62); doing it locally first avoids
 // sending a Tx that is doomed to rejection and, more importantly, fails closed in one place for these four cases:
@@ -426,7 +424,7 @@ const signature64Len = 64
 //   - a hand-raise is bound to a stale RBF version -- an older quote version of the same task_id has a
 //     different task_hash and is ruled out by comparison with the current scope;
 //   - the envelope's payload digest (or any other 32-byte commitment) is passed off as task_hash --
-//     it can never equal the value computed by H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V2", ...).
+//     it can never equal the value computed by H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", ...).
 func validateScopeTaskHash(scopeTaskHash []byte, handraises []*taskv1.WorkerHandraiseV1) error {
 	if len(scopeTaskHash) != hash32Len {
 		return fmt.Errorf("scope task_hash must be 32 raw bytes")
@@ -441,7 +439,7 @@ func validateScopeTaskHash(scopeTaskHash []byte, handraises []*taskv1.WorkerHand
 }
 
 func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
-	// TaskOrder Hashing and Signing §7.3/§7.5: "eip712" + 65-byte recoverable signature. Same rule as ingress.
+	// Order signatures are "eip712" + 65-byte recoverable signature. Same rule as ingress.
 	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
 		return err
 	}
@@ -472,7 +470,7 @@ func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
 	return nil
 }
 
-// validateWorkerHandraises enforces the caller-side half of §4.2.2: a proposal
+// validateWorkerHandraises enforces the caller-side half of the handraise ordering rule: a proposal
 // carries at least one handraise, handraises ascend by slot and each slot is
 // unique. Membership, eligibility, liability and signature validity stay with
 // the Keeper, which reloads the authoritative snapshot.
@@ -566,7 +564,7 @@ func validateCandidateMember(member *taskv1.CandidateMemberRefV1, index, previou
 	return slot, nil
 }
 
-// validateInferReceipt enforces the caller-side structure of §5.14: the receipt
+// validateInferReceipt enforces the caller-side structure of InferReceipt: the receipt
 // is Worker-signed, carries the ordered required evidence commitments and never
 // carries a caller-asserted receipt hash, evidence commitments hash or
 // work-unit field (the latter stays blocked until the settlement encoding is frozen).
@@ -619,11 +617,11 @@ func prepareSubmissionError(format string, args ...any) error {
 	}
 }
 
-// SubmitRegisterBuilder submits MsgRegisterBuilder (§9.6a).
+// SubmitRegisterBuilder submits MsgRegisterBuilder.
 //
 // wire has only (service_pubkey, service_key_proof, descriptor, builder_operator_address):
 // builder_status / descriptor_version / bond / term are all Keeper-derived, and the descriptor is
-// the endpoints list itself -- descriptor URI + hash commitment were removed by the frozen contract.
+// the endpoints list itself -- descriptor URI + hash commitment were removed from the wire.
 func (s *defaultSubmitter) SubmitRegisterBuilder(ctx context.Context, tx chaincli.RegisterBuilderTx) (chaincli.TxResult, error) {
 	if tx.Builder == "" {
 		return chaincli.TxResult{}, fmt.Errorf("RegisterBuilderTx: empty builder")
@@ -652,7 +650,7 @@ func (s *defaultSubmitter) SubmitRegisterBuilder(ctx context.Context, tx chaincl
 	})
 }
 
-// serviceDescriptorMessage normalizes nexus-side endpoints into the §9.6b submission shape:
+// serviceDescriptorMessage normalizes nexus-side endpoints into the ServiceDescriptorV1 submission shape:
 // ascending by (endpoint_kind, uri bytes), unique kind, URI/protocol_version field-by-field compliant.
 // Normalization failures are always definitive, since retrying would only produce the same Keeper-rejected message.
 func serviceDescriptorMessage(endpoints []chaincli.ServiceEndpoint) (*hubv1.ServiceDescriptorV1, error) {
@@ -669,7 +667,7 @@ func serviceDescriptorMessage(endpoints []chaincli.ServiceEndpoint) (*hubv1.Serv
 		}
 		if endpoint.TLSPubKeyHash != "" {
 			// optional field: set only when the config really provides a fingerprint; absent and present-empty
-			// are two different encodings in §1.2.
+			// are two different encodings in H_FIELDS_V1.
 			raw, err := nodecontract.Hash32Bytes("service endpoint tls_pubkey_hash", endpoint.TLSPubKeyHash)
 			if err != nil {
 				return nil, err
@@ -680,7 +678,7 @@ func serviceDescriptorMessage(endpoints []chaincli.ServiceEndpoint) (*hubv1.Serv
 	return &hubv1.ServiceDescriptorV1{Endpoints: wire}, nil
 }
 
-// SubmitUpdateServiceDescriptor submits MsgUpdateServiceDescriptor (§9.6a).
+// SubmitUpdateServiceDescriptor submits MsgUpdateServiceDescriptor.
 //
 // expected_descriptor_version is the **current** on-chain version: the Keeper asserts equality, writes current+1
 // and recomputes descriptor_hash itself. Hence no hash, no activation/expiry heights and no
@@ -733,7 +731,7 @@ func (s *defaultSubmitter) submitMsg(ctx context.Context, kind, typeURL string, 
 		return chaincli.TxResult{}, prepareSubmissionError("submit %s: account signer is required", kind)
 	}
 
-	// sequence cache (Detailed Design §6.1): serial submits per account; increment on success,
+	// sequence cache: serial submits per account; increment on success,
 	// refresh and retry once on sequence mismatch, mark dirty on network uncertainty for the next refresh.
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()

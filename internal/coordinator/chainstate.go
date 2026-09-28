@@ -39,7 +39,7 @@ type reconcileRequest struct {
 }
 
 // settleSelectionFromTaskBuilders converts the frozen Task Builder selection into the locally stored settlement order:
-// order is rank (§10.10a).
+// order is rank.
 func settleSelectionFromTaskBuilders(key chaincli.TaskKey, selection chaincli.TaskBuilderSelectionState) chaincli.StageBuilderSelectionState {
 	return chaincli.StageBuilderSelectionState{
 		SessionID: key.SessionID, TaskID: key.TaskID, Stage: prepareStageSettle,

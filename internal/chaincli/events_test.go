@@ -11,7 +11,7 @@ import (
 	"github.com/TrueOpen/nexus/gen/trueopen/task/v1/taskv1connect"
 )
 
-// The frozen contract carries session_id / task_id as bytes; tests use canonical 32-byte values throughout.
+// The current wire carries session_id / task_id as bytes; tests use canonical 32-byte values throughout.
 var (
 	testSessionIDBytes = mustHash32("11")
 	testTaskIDBytes    = mustHash32("22")
@@ -36,13 +36,13 @@ func TestTaskEventServiceProcedureMatchesNode(t *testing.T) {
 	}
 }
 
-// The frozen contract deregistered the whole SettlementBuildFacts RPC; this procedure
+// The current wire deregistered the whole SettlementBuildFacts RPC; this procedure
 // constant must no longer appear in the mirror. QueryTask remains.
 func TestSettlementBuildFactsProcedureIsGone(t *testing.T) {
 	if got, want := taskv1connect.QueryTaskProcedure, "/task.v1.Query/Task"; got != want {
 		t.Fatalf("query task procedure = %q, want %q", got, want)
 	}
-	// Since wire v0.4.1 the FullResultReveal Queries were removed together with
+	// The FullResultReveal Queries were removed together with
 	// MsgSubmitFullResultReveal; Verifier results are carried by ResultReceipt.
 	for _, procedure := range []string{
 		taskv1connect.QueryInferReceiptProcedure,
@@ -82,7 +82,7 @@ func TestTaskEventToChainEventMapsStableEnvelope(t *testing.T) {
 	}
 }
 
-// Since wire v0.4.1 the Verifier result on-chain event is RESULT_ACCEPTED
+// The Verifier result on-chain event is RESULT_ACCEPTED
 // (ResultReceiptV2); the old FULL_RESULT_REVEAL_ACCEPTED was removed together with
 // MsgSubmitFullResultReveal. verifier / verify_round / result_payload_hash on the payload
 // must all be exported; this code has no dedicated local event type yet, so it degrades
@@ -176,7 +176,7 @@ func TestTaskEventToChainEventKeepsUnknownCodeQueryFirst(t *testing.T) {
 	}
 }
 
-// The payload oneof field number must equal the envelope's code (frozen contract §5.11);
+// The payload oneof field number must equal the envelope's code;
 // the old code+19 offset no longer holds.
 func TestTaskEventToChainEventRejectsCodePayloadMismatch(t *testing.T) {
 	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
@@ -210,7 +210,7 @@ func TestTaskEventToChainEventRejectsPayloadIdentityMismatch(t *testing.T) {
 	}
 }
 
-// Since wire v0.4.1 BuilderSet rotation has its own event code BUILDER_SET_UPDATED
+// BuilderSet rotation has its own event code BUILDER_SET_UPDATED
 // (code 60), which the protocol event side uses for local mapping; the short name strips
 // the PROTOCOL_EVENT_CODE_V1_ prefix.
 func TestProtocolEventCodeNameStripsPrefix(t *testing.T) {
@@ -225,7 +225,7 @@ func TestProtocolEventCodeNameStripsPrefix(t *testing.T) {
 	}
 }
 
-// SESSION_CREATED (§5.11 code 1) is a session-level event: the wire EventSessionCreated
+// SESSION_CREATED is a session-level event: the wire EventSessionCreated
 // has no task_id field, yet node still pushes it on the task stream for session
 // subscriptions. It is not an invalid envelope, just useless to the coordinator; the
 // mapping layer must use a sentinel error to tell the subscription loop "skip and advance
@@ -245,7 +245,7 @@ func TestTaskEventToChainEventSkipsSessionScopedEvent(t *testing.T) {
 	}
 }
 
-// DEADLINE_SWEPT (§5.11 code 20) with deadline_kind SESSION_LIFECYCLE is the session
+// DEADLINE_SWEPT with deadline_kind SESSION_LIFECYCLE is the session
 // ACTIVE -> IDLE sweep: the wire declares task_id optional and node pushes it on every
 // session subscription. Killing the subscription on it left the cursor before the event,
 // so each reconnect hit it again and the task stream never delivered anything.

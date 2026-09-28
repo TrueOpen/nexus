@@ -1,4 +1,4 @@
-// Package kv is the local persistence wrapper (Implementation Design §4.6 / Detailed Design §2.6).
+// Package kv is the local persistence wrapper.
 // The in-memory implementation is for tests/degraded runs; production uses pebble (see pebble.go).
 // Task snapshots can be rebuilt from the chain; held credential keys, plaintext outputs and terminal delivery state cannot,
 // so their callers must handle persistence and scan errors explicitly.
@@ -26,7 +26,7 @@ const (
 	NSPayload         Namespace = "payload"
 	NSPayloadCleanup  Namespace = "payload_cleanup"
 	NSTerminalTask    Namespace = "terminal_task"
-	// NSTaskSession is the task_id -> session_id index. A wire v0.4.1 relay request carries only the
+	// NSTaskSession is the task_id -> session_id index. A relay request carries only the
 	// on-chain message body, the on-chain task_id contains no session, and the FSM is keyed by (session, task).
 	NSTaskSession      Namespace = "task_session"
 	NSChainState       Namespace = "chain_state"
@@ -39,7 +39,7 @@ const (
 	NSTaskDataTombstone    Namespace = "task_data_tombstone"
 	NSTaskDataReplay       Namespace = "task_data_replay"
 	NSTaskDataReplayExpiry Namespace = "task_data_replay_expiry"
-	// NSTaskDataOutputStream is the write progress of a streaming OUTPUT (ADR-0017); key = object key, one record.
+	// NSTaskDataOutputStream is the write progress of a streaming OUTPUT; key = object key, one record.
 	NSTaskDataOutputStream Namespace = "task_data_output_stream"
 	// NSTaskDataOutputFrame holds the frame records of a streaming OUTPUT; key = object key|zero-padded seq, one record per frame.
 	// It is kept separate from the progress record to avoid rewriting the whole record on every frame (O(n^2) write amplification).
@@ -73,7 +73,7 @@ type Store interface {
 	// Iteration follows byte order of the keys; concurrent writes during iteration are not guaranteed to be visible.
 	Scan(ns Namespace, fn func(key string, val []byte) bool) error
 	// WriteBatch applies several writes atomically: either all of them are persisted or none takes effect.
-	// It is what guarantees "progress and frame record in the same transaction" for a streaming OUTPUT (ADR-0017).
+	// It is what guarantees "progress and frame record in the same transaction" for a streaming OUTPUT.
 	WriteBatch(ops ...WriteOp) error
 	Close() error
 }

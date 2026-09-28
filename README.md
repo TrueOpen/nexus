@@ -1,7 +1,8 @@
 # nexus
 
 The off-chain coordinator process co-located with the local `node` on a TrueOpen Builder machine.
-Integration notes live in `docs/`; the protocol rules live in TrueOpen/monorepo.
+Integration notes live in `docs/`; the protocol wire (proto, domain registry and golden vectors) is published in the public
+[TrueOpen/wire](https://github.com/TrueOpen/wire) repository.
 
 > Current state: a **runnable skeleton**. Module boundaries, lifecycle and the order ingress are in place;
 > chaincli is wired to the local node for query / broadcast / subscription transport, while NATS / pebble can still run offline as stubs.
@@ -66,7 +67,7 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
 repository keeps the documented version (the wire copy is comment-stripped and is therefore not
 produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
-fingerprint to the wire v0.3.0 definition; `internal/chaincli/node_descriptor_test.go` does the same
+fingerprint to the wire v0.3.3 definition; `internal/chaincli/node_descriptor_test.go` does the same
 for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
 
 ### Consuming the contract (`gen/trueopen` standalone module)
@@ -77,7 +78,7 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.3.0`, which starts from a fresh genesis. TrueOpen/node
+nexus is built against TrueOpen/wire `v0.3.3`, which starts from a fresh genesis. TrueOpen/node
 must pin the same release in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
@@ -92,10 +93,10 @@ that raises the local state version, back up `data_dir`: going back to the older
 possible by restoring that backup. Only a reset of the chain (a different block
 at height 1) moves the local state aside.
 
-## Interface contract alignment
+## Interface alignment
 
-The SDK-side (User) methods of `IngressAPI` follow the "Nexus↔SDK Interface Contract" v0.1;
-the Worker / Verifier-side methods and the NATS layer follow the "Nexus↔Cortex Interface Contract" v0.2.
+`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; together with the
+NATS layer they follow the public TrueOpen/wire definitions.
 
 Open items:
 
@@ -103,12 +104,12 @@ Open items:
   `GetTaskDataMetadata` / `FetchTaskData`; they are marked deprecated and still served until a
   removal date is decided.
 - `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
-  SDK contract freezes its field table (§8.2) and the storage-confirmation proto (§8.3).
-- Several task event codes still use Nexus names rather than the SDK contract §3.8 names (for
+  SDK-side field table and storage-confirmation proto are frozen.
+- Several task event codes still use Nexus names rather than the SDK-facing event names (for
   example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
-  are not in the contract set; renaming them is a wire-visible change pending a decision.
-- `PrepareChallengeResponse.challenge_close_height` is a block height, while the contract names the
-  field `challenge_close` without fixing its unit; the rename waits for that decision.
+  are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.
+- `PrepareChallengeResponse.challenge_close_height` is a block height, while the SDK-facing name of the
+  field is `challenge_close` without a fixed unit; the rename waits for that decision.
 - Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->
   IDLE -> CLOSED on chain) are skipped on the task event stream; the coordinator does not yet
   react to a session closing (rejecting new orders, releasing per-session state).
@@ -222,9 +223,9 @@ Production deployments should restrict data directory permissions, disk backup s
 
 In Hub + Task Chain mode, `chain` always means the task chain; the Coordinator's task queries, transactions and events go through that chain. With `hub.enabled=true`, the Builder's Node Registry, stake and unbond use only `hub`. The Task Chain does not accept Builder registration transactions; identity and stake state are obtained later via Hub snapshots. Incomplete Hub configuration blocks startup and does not silently fall back to the Task Chain. Without the Hub, single-chain compatibility mode is retained and an explicit warning is printed.
 
-Once an account signer is configured, Nexus performs Stage-1 validation on every new `SubmitOrder`. It queries this node's `ACTIVE` Builder state and the currently frozen BuilderSet in real time from the Builder registry chain, checks the `TRUEOPEN_BUILDER_SET_V1` commitment, member Bech32 addresses and term stability during the query, then reproduces the `TRUEOPEN_BUILDER_STAGE1_V1` ranking from the Task Chain ID, active term, task ID and set hash. The rank/proof produced by a successful validation is kept with the order snapshot and used directly for `AssignTx`. This computation matches trueopen-sdk's order routing and the Node's ASSIGN selection rules, and does not depend on BuilderSet return order.
+Once an account signer is configured, Nexus performs Stage-1 validation on every new `SubmitOrder`. It reproduces the Task Builder selection the task chain runs when it admits the signed order: it reads this node's `ACTIVE` Builder state, the BuilderSet at the order's `session_anchor_height` (which must be the `builder_set_id` / `builder_set_hash` the user signed) and the Hub parameter `builders_per_task`, derives `TRUEOPEN_TASK_BUILDERS_V1(chain_id, task_id, builder_set_hash, session_anchor_block_hash)`, ranks every member with `TRUEOPEN_TASK_BUILDER_RANK_V1`, and takes the first `builders_per_task` in ascending rank order. The rank, and the `TRUEOPEN_SELECTED_TASK_BUILDERS_V1` digest the chain later commits for the task, are kept with the order snapshot. The result does not depend on BuilderSet return order and is pinned by wire's `task_builder_rank_v1.json` and `task_domains_v1.json` vectors. Orders that carry only the legacy JSON envelope have no session anchor and cannot be ranked.
 
-During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `SubmitOrder`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs two Builder registry chain queries, so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
+During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `SubmitOrder`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs several Builder registry chain queries (Builder, BuilderSet and Hub parameters), so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
 
 The Node must enable TaskEventService. Task node setting:
 

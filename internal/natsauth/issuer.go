@@ -10,7 +10,7 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// MaxUserJWTTTL is the user JWT TTL upper bound of §5.14.3 (3,600,000 ms).
+// MaxUserJWTTTL is the user JWT TTL upper bound (3,600,000 ms).
 const MaxUserJWTTTL = time.Hour
 
 // genericFailureDetail is the detail written into the response for the non-RejectError fallback: no internal error text leaks.
@@ -24,13 +24,13 @@ type IssuerConfig struct {
 	CortexSigningKey nkeys.KeyPair
 	// AuthSigningKey is the AUTH account's key (account-type nkey); it signs the authorization response.
 	AuthSigningKey nkeys.KeyPair
-	// JetStreamStream enters the permission set (§5.13); TRUEOPEN_TASK on devnet.
+	// JetStreamStream enters the permission set; TRUEOPEN_TASK on devnet.
 	JetStreamStream string
 	// UserJWTTTL is the user JWT validity period; must fall in (0, MaxUserJWTTTL].
 	UserJWTTTL time.Duration
 }
 
-// Issuer generates JWTs per the "issue" and "response" tables of §5.14.3.
+// Issuer generates the Cortex user JWT and the authorization response JWT.
 type Issuer struct {
 	cfg IssuerConfig
 	// cortexSigningPub is the public key of CortexSigningKey, computed once at construction:
@@ -75,7 +75,7 @@ func NewIssuer(cfg IssuerConfig) (*Issuer, error) {
 }
 
 // UserJWT issues a short-lived user JWT: sub = server-assigned user_nkey, name = cortex:<operator>,
-// aud = application account (TRUEOPEN), permissions = §5.13 CORTEX permission set plus JetStream, exp = issue time + ttl.
+// aud = application account (TRUEOPEN), permissions = CortexPermissions plus JetStream, exp = issue time + ttl.
 // issuer_account is written only when a signing key is used (public key != account public key) -- writing it when the account identity key self-signs makes validators reject it.
 // iat is written by jwt/v2 itself in Encode from the real clock; it is not set here and no clock can be injected.
 func (i *Issuer) UserJWT(userNkey string, decision Decision) (string, error) {
