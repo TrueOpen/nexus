@@ -89,12 +89,19 @@ func UserAddressBytes(bech32Address string) ([20]byte, error) {
 	return out, nil
 }
 
-// SessionGrantEnv is what a USER request carrying a session grant is verified against.
+// SessionGrantEnv is what a USER request is verified against: the chain reads (current height for a
+// grant window, account keys for the wallet check) and the verifier's own values.
 type SessionGrantEnv struct {
 	Chain     sdkauth.Chain
 	MaxBlocks uint64
 	// AddressPrefix, when set, is the Bech32 prefix requester_address must carry.
 	AddressPrefix string
+	// ChainID, when set, is the verifier's own chain_id: the digest is rebuilt with it, never the
+	// request's, and a request whose chain_id field differs fails as a signature.
+	ChainID string
+	// BodyDigest, when set, is the body digest the verifier recomputed from the request body (hex);
+	// the digest is rebuilt with it, so a request body that does not match fails as a signature.
+	BodyDigest string
 }
 
 // sessionAllowed reports whether a session key may sign this request: only metadata and fetch of an
@@ -104,17 +111,26 @@ func sessionAllowed(auth RequestAuthV1) bool {
 		auth.Key.Kind == ObjectKindOutput
 }
 
-// VerifyUserTaskDataRequest is the full USER-path check. It answers only "is this request signed for
-// requester_address": without a grant the signature must recover to requester_address; with one, the
-// grant must be the requester's, valid now, and the request must recover to its session key.
-// Authorization still depends solely on on-chain roles.
+// VerifyUserTaskDataRequest runs steps 1-4 of a USER request: format, the session method set, the
+// grant, then the signature over the digest rebuilt with the verifier's own chain_id and body. It
+// answers only "is this request signed for requester_address": without a grant the signature must
+// recover to requester_address, whose account must hold the recovered key on chain; with one, the
+// grant must be the requester's, valid now, and the request must recover to its session key. The
+// caller runs step 5 (Builder, expiry, replay, Task duty).
 func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericChainID uint64, env SessionGrantEnv) error {
+	// Step 1: format.
 	if auth.RequesterKind != RequesterKindUser {
 		return fmt.Errorf("%w: requester_kind", ErrMalformed)
 	}
 	// USER has no service key, so the nonce field must be 0; non-zero means the caller mixed up the two paths.
 	if auth.ServiceAuthorizationNonce != 0 {
 		return fmt.Errorf("%w: USER service_authorization_nonce must be 0", ErrMalformed)
+	}
+	if len(auth.RequestNonce) != 32 {
+		return fmt.Errorf("%w: request_nonce must be 32 bytes", ErrMalformed)
+	}
+	if _, err := canonicalHash32("body_digest", auth.BodyDigest); err != nil {
+		return err
 	}
 	declared, err := UserAddressBytes(auth.RequesterAddress)
 	if err != nil {
@@ -123,6 +139,11 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	if p := env.AddressPrefix; p != "" && auth.RequesterAddress[:strings.LastIndex(auth.RequesterAddress, "1")] != p {
 		return fmt.Errorf("%w: requester_address is not a %q address", ErrMalformed, p)
 	}
+	chainID := auth.ChainID
+	if env.ChainID != "" {
+		chainID = env.ChainID
+	}
+	// Steps 2 and 3: the session method set and the grant.
 	var grantHash [32]byte
 	var sessionKey [20]byte
 	if auth.SessionGrant != nil {
@@ -130,7 +151,7 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 			return fmt.Errorf("%w: only metadata and fetch of an OUTPUT object may be signed by a session key", ErrSessionMethodNotAllowed)
 		}
 		grantHash, sessionKey, err = sdkauth.VerifyGrant(ctx, auth.SessionGrant, sdkauth.GrantCheck{
-			ChainID: auth.ChainID, RequestChainID: auth.ChainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
+			ChainID: chainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
 			Chain: env.Chain, MaxBlocks: env.MaxBlocks,
 		})
 		// Report the grant failure under this path's own code, without the SDK code in front.
@@ -150,7 +171,13 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 			return fmt.Errorf("%w: %s", ErrSessionGrantInvalid, reason)
 		}
 	}
-	digest, err := UserTaskDataRequestDigest(auth, numericChainID, grantHash)
+	// Step 4: the signature over the digest the verifier rebuilds with its own chain_id and body.
+	rebuilt := auth
+	rebuilt.ChainID = chainID
+	if env.BodyDigest != "" {
+		rebuilt.BodyDigest = env.BodyDigest
+	}
+	digest, err := UserTaskDataRequestDigest(rebuilt, numericChainID, grantHash)
 	if err != nil {
 		return err
 	}
@@ -165,6 +192,19 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	if recovered.Address != want {
 		return fmt.Errorf("%w: USER signature recovers %s, not %s",
 			ErrInvalidSignature, hex.EncodeToString(recovered.Address[:]), hex.EncodeToString(want[:]))
+	}
+	if auth.ChainID != chainID {
+		return fmt.Errorf("%w: chain_id %q is not this chain", ErrInvalidSignature, auth.ChainID)
+	}
+	if auth.SessionGrant == nil {
+		// The same account check as an SDK request: the wallet's recovered key must be the key the
+		// account holds on chain. The grant carries this check on the session path.
+		if err := sdkauth.MatchAccountKey(ctx, env.Chain, auth.RequesterAddress, recovered.Compressed); err != nil {
+			if errors.Is(err, sdkauth.ErrUnavailable) {
+				return fmt.Errorf("%w: %v", ErrAuthorityUnavailable, err)
+			}
+			return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+		}
 	}
 	return nil
 }

@@ -605,8 +605,9 @@ func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 	stream := client.OpenTask(context.Background())
 	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
 	_, err := stream.CloseAndReceive()
-	if connect.CodeOf(err) != connect.CodeDeadlineExceeded || api.openTaskExpiry != 0 {
-		t.Fatalf("time expiry error=%v code=%v forwarded=%d", err, connect.CodeOf(err), api.openTaskExpiry)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "NEXUS_INGRESS_MALFORMED") ||
+		api.openTaskExpiry != 0 {
+		t.Fatalf("time expiry error=%v code=%v forwarded=%d, want NEXUS_INGRESS_MALFORMED", err, connect.CodeOf(err), api.openTaskExpiry)
 	}
 }
 
@@ -784,5 +785,30 @@ func TestOpenTaskMapsStage1AdmissionErrors(t *testing.T) {
 				t.Fatalf("OpenTask error=%v code=%v want code=%v message=%q", err, connect.CodeOf(err), tt.code, tt.message)
 			}
 		})
+	}
+}
+
+// OpenTask step 5 uses the SDK request codes: a height outside the request_ttl_blocks window is
+// SDK_AUTH_EXPIRED and a used nonce SDK_AUTH_REPLAY.
+func TestOpenTaskExpiryAndReplayCodes(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	for index, tc := range []struct {
+		err  error
+		code connect.Code
+		want string
+	}{
+		{taskdata.ErrExpired, connect.CodeDeadlineExceeded, sdkauth.ErrExpired.Error()},
+		{taskdata.ErrReplay, connect.CodeUnauthenticated, sdkauth.ErrReplay.Error()},
+	} {
+		api := &fakeTaskDataAPI{chunkSize: 64, err: tc.err}
+		client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain,
+			EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+		header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-step5-%d", index)), 5, []byte("input"))
+		stream := client.OpenTask(context.Background())
+		_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+		_, err := stream.CloseAndReceive()
+		if connect.CodeOf(err) != tc.code || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%v: error=%v code=%v, want %v %s", tc.err, err, connect.CodeOf(err), tc.code, tc.want)
+		}
 	}
 }

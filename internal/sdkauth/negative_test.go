@@ -46,7 +46,7 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 	wallet := func() (*Envelope, VerifyOpts) {
 		e := envelopeFrom(t, f.SDKRequest)
 		opts := optsFor(t, f, f.SDKRequest, chainFor(t, f))
-		opts.AllowHeightExpiry = true
+		opts.HeightExpiry = true
 		return e, opts
 	}
 	session := func() (*Envelope, VerifyOpts) {

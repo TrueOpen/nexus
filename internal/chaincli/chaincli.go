@@ -73,6 +73,10 @@ type Client interface {
 	// to verify user signatures, and nexus must use the same value when verifying USER Task
 	// data requests, so it is read from chain instead of configured separately.
 	QueryEVMChainID(ctx context.Context) (uint64, error)
+	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
+	// service.max_service_material_expiry_blocks: how far above the current height a Task data
+	// request's expiry_height may lie.
+	QueryServiceMaterialExpiryBlocks(ctx context.Context) (uint64, error)
 	QueryBuilder(ctx context.Context, address string) (BuilderState, error)
 	QueryCurrentServiceKey(ctx context.Context, participantType, operatorAddress string) (ServiceKeyState, error)
 	// QueryCortexNode reads the Cortex stable identity row (hub.v1.Query/CortexNode); returns ErrNotFound when absent.
@@ -220,6 +224,10 @@ func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
 }
 
 func (c *stubClient) QueryEVMChainID(context.Context) (uint64, error) {
+	return 0, ErrNotFound
+}
+
+func (c *stubClient) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {
 	return 0, ErrNotFound
 }
 

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"connectrpc.com/grpcreflect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/config"
@@ -239,6 +241,13 @@ func (s *Server) handler() http.Handler {
 		})
 	}
 	mux.Handle(path, handler)
+	for _, procedure := range []string{
+		nexusv1connect.IngressAPISubmitOrderProcedure,
+		nexusv1connect.IngressAPIFetchOutputRefProcedure,
+		nexusv1connect.IngressAPIRefreshCredentialProcedure,
+	} {
+		mux.Handle(procedure, retiredHandler(procedure, baseHandlerOptions))
+	}
 
 	// gRPC reflection (grpcurl debugging)
 	reflector := grpcreflect.NewStaticReflector(nexusv1connect.IngressAPIName)
@@ -300,3 +309,26 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	return nil
 }
+
+// retiredHandler answers a retired procedure with Unimplemented / NEXUS_INGRESS_METHOD_RETIRED before
+// the request is parsed: its codecs accept any bytes and decode nothing, so even a body that is not a
+// valid message gets the retired answer rather than a decoding error.
+func retiredHandler(procedure string, options []connect.HandlerOption) http.Handler {
+	method := procedure[strings.LastIndex(procedure, "/")+1:]
+	options = append(append([]connect.HandlerOption(nil), options...),
+		connect.WithCodec(discardCodec{name: "proto"}), connect.WithCodec(discardCodec{name: "json"}))
+	return connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error) {
+			return nil, errMethodRetired(method)
+		}, options...)
+}
+
+// discardCodec reads nothing from a request body; it never marshals, since a retired procedure only
+// returns an error.
+type discardCodec struct{ name string }
+
+func (c discardCodec) Name() string { return c.name }
+func (discardCodec) Marshal(any) ([]byte, error) {
+	return nil, errors.New("retired procedure returns no message")
+}
+func (discardCodec) Unmarshal([]byte, any) error { return nil }

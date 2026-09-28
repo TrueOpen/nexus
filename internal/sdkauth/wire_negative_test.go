@@ -77,7 +77,7 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 			if row.Base == "sdk_request" {
 				e = envelopeFrom(t, f.SDKRequest)
 				opts = optsFor(t, f, f.SDKRequest, chainFor(t, f))
-				opts.AllowHeightExpiry = true
+				opts.HeightExpiry = true
 			} else {
 				e = envelopeFrom(t, f.SDKRequestSession)
 				e.SessionGrant = grantFrom(t, f)

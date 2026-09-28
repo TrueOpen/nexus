@@ -19,6 +19,12 @@ var (
 	// domain chainId or a version 1 signature), and a verified requester without the Task duty.
 	ErrInvalidSignature = errors.New("DATA_ACCESS_INVALID_SIGNATURE")
 	ErrDenied           = errors.New("DATA_ACCESS_DENIED")
+	// ErrRequestMalformed is a USER request that fails the format step (step 1 of the user request
+	// checks), which shares the code of a malformed SDK request envelope.
+	ErrRequestMalformed = errors.New("NEXUS_INGRESS_MALFORMED")
+	// ErrReplay is a request nonce already used within its expiry. On the CORTEX_SERVICE path it is
+	// reported as NEXUS_DATA_UNAUTHORIZED, as before; OpenTask reports it as SDK_AUTH_REPLAY.
+	ErrReplay = errors.New("NEXUS_DATA_REPLAY")
 	// Session grant failures on the USER path.
 	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
 	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")

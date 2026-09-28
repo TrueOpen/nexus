@@ -235,6 +235,12 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
   the current height.
 - USER task data requests use the EIP-712 `TaskDataRequest` domain version `"2"`; version 1
   signatures are rejected.
+- Checks run in wire order and stop at the first failure: format (`NEXUS_INGRESS_MALFORMED`),
+  session method set, grant, signature over the digest rebuilt with this chain's `chain_id` and
+  EVM chain ID (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
+  replay. An OpenTask expiry is a chain height within `task_data.request_ttl_blocks` (default 20);
+  a Task data request expiry lies within the Hub parameter
+  `service.max_service_material_expiry_blocks`, read at startup.
 
 This is not compatible with SDK releases built for wire v0.3.x; nexus and the SDK must be upgraded
 together.

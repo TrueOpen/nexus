@@ -145,7 +145,7 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 		}, nil
 	}
 
-	task, height, err := s.authorizer.verifyRequest(ctx, request.Auth, MethodFinalizeResult)
+	task, height, err := s.authorizer.verifyRequest(ctx, request.Auth, MethodFinalizeResult, body)
 	if err != nil {
 		return FinalizeResultOutcome{}, err
 	}
@@ -335,7 +335,7 @@ func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request Finalize
 		return FinalizeVerifierOutcome{Idempotent: true, Confirmation: cached.EvidenceConfirmations[0]}, nil
 	}
 
-	task, height, err := s.authorizer.verifyRequest(ctx, request.Auth, MethodFinalizeVerifier)
+	task, height, err := s.authorizer.verifyRequest(ctx, request.Auth, MethodFinalizeVerifier, body)
 	if err != nil {
 		return FinalizeVerifierOutcome{}, err
 	}

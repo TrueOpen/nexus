@@ -179,8 +179,13 @@ func TestEIP712UserFetchVector(t *testing.T) {
 	if err != nil || hex.EncodeToString(recovered.Address[:]) != file.Request.Recovered {
 		t.Fatalf("recovered_address = %x (%v)", recovered.Address, err)
 	}
-	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err != nil {
+	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, goldenAccountEnv(t)); err != nil {
 		t.Fatalf("full verification failed: %v", err)
+	}
+	// The same request from an account the chain holds no key for fails as a signature.
+	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID,
+		SessionGrantEnv{Chain: goldenGrantChain{height: 1200}}); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("account without a stored key: %v, want DATA_ACCESS_INVALID_SIGNATURE", err)
 	}
 }
 
@@ -443,4 +448,12 @@ func loadGoldenV1Signature(t *testing.T) string {
 		t.Fatal("no task_data_request_v1_obsolete signature")
 	}
 	return file.V1.Signature
+}
+
+// goldenAccountEnv is a verifier whose chain holds the vector account's key.
+func goldenAccountEnv(t *testing.T) SessionGrantEnv {
+	t.Helper()
+	file := loadGoldenAccountSigning(t)
+	return SessionGrantEnv{Chain: goldenGrantChain{height: 1200,
+		keys: map[string][]byte{file.Account.Bech32: mustHexT(t, file.Account.PubCompressed)}}, MaxBlocks: 400}
 }

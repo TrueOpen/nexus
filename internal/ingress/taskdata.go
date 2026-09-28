@@ -130,15 +130,18 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 		return nil, err
 	}
-	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
-	if err != nil {
-		return nil, mapTaskDataError(err)
-	}
+	// Step 5 (expiry window, then the nonce) comes before any storage, so a replayed OpenTask is
+	// SDK_AUTH_REPLAY rather than a conflict with the stored input.
 	envelope := headerPB.GetRequestEnvelope()
 	if err := s.taskData.AuthorizeOpenTaskRequest(
 		ctx, envelope.GetSignerAddress(), envelope.GetRequestNonce(), uint64(envelope.GetExpiryHeightOrTime()),
 	); err != nil {
-		_ = upload.Abort()
+		for stream.Receive() {
+		}
+		return nil, mapOpenTaskRequestErr(err)
+	}
+	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
+	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
 	prepared := false
@@ -207,8 +210,9 @@ func (s *service) ConfirmOpenTask(
 }
 
 func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.OpenTaskHeader) (types.Order, taskdata.UploadHeader, error) {
+	// OpenTask is a user request: a header that fails the format step is NEXUS_INGRESS_MALFORMED.
 	malformed := func(format string, args ...any) error {
-		return mapTaskDataError(fmt.Errorf("%w: %s", taskdata.ErrMalformed, fmt.Sprintf(format, args...)))
+		return mapTaskDataError(fmt.Errorf("%w: %s", taskdata.ErrRequestMalformed, fmt.Sprintf(format, args...)))
 	}
 	// order_sequence is not among the required-field checks: 0 is the valid first value of every
 	// on-chain session, not "unset".
@@ -216,6 +220,9 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		header.GetInputSizeBytes() == 0 || header.GetInputHash() == "" || header.GetInputMediaType() == "" ||
 		header.GetPayloadRef() == "" || len(header.GetOrderEnvelope()) == 0 {
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask header")
+	}
+	if err := sdkauth.CheckUserAddress("user_address", header.GetUserAddress(), s.auth.Bech32Prefix); err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
 	}
 	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
 	// user signature, which the chain verifies.
@@ -267,7 +274,7 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	// The wallet signs OpenTask directly (no session grant). Its height expiry and nonce are checked
 	// by the taskdata Authorizer against the chain, so no replay cache here.
 	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), order.SessionID, order.TaskID, envelopeCheck{
-		method: "OpenTask", body: body, allowHeightExpiry: true,
+		method: "OpenTask", body: body, heightExpiry: true,
 	})
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, err
@@ -275,10 +282,6 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	if requester != order.User {
 		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
 			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
-	}
-	expiry := header.GetRequestEnvelope().GetExpiryHeightOrTime()
-	if expiry <= 0 || expiry >= sdkauth.HeightExpiryThreshold {
-		return types.Order{}, taskdata.UploadHeader{}, mapTaskDataError(fmt.Errorf("%w: OpenTask expiry must be a chain height", taskdata.ErrExpired))
 	}
 	// Full object ref for INPUT: task_hash is the order identity, content_hash is input_hash itself --
 	// the same bytes can have only one identity.
@@ -299,11 +302,11 @@ func (s *service) GetTaskDataMetadata(ctx context.Context, req *connect.Request[
 	}
 	ref, err := objectRefFromPB(req.Msg.GetObjectRef())
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	request, err := requestAuthFromPB(req.Msg.GetRequestAuth(), ref)
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	metadata, exists, err := s.taskData.GetMetadata(ctx, request)
 	if err != nil {
@@ -350,7 +353,7 @@ func (s *service) FetchTaskData(
 	}
 	ref, err := objectRefFromPB(req.Msg.GetObjectRef())
 	if err != nil {
-		return mapTaskDataError(err)
+		return mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	byteRange, err := rangeFromPB(req.Msg.GetRange())
 	if err != nil {
@@ -358,7 +361,7 @@ func (s *service) FetchTaskData(
 	}
 	request, err := requestAuthFromPB(req.Msg.GetRequestAuth(), ref)
 	if err != nil {
-		return mapTaskDataError(err)
+		return mapTaskDataError(userFormatErr(req.Msg.GetRequestAuth(), err))
 	}
 	reader, served, stored, err := s.taskData.OpenFetch(ctx, request, byteRange)
 	if err != nil {
@@ -431,7 +434,7 @@ func (s *service) UploadTaskResultObject(
 	}
 	header, request, err := uploadHeaderFromPB(headerPB)
 	if err != nil {
-		return nil, mapTaskDataError(err)
+		return nil, mapTaskDataError(userFormatErr(headerPB.GetRequestAuth(), err))
 	}
 	upload, err := s.taskData.BeginUpload(ctx, request, header)
 	if err != nil {
@@ -580,6 +583,13 @@ func requesterKindFromPB(kind nexusv1.TaskDataRequesterKindV1) (taskdata.Request
 	}
 }
 
+// userFormatErr reports a malformed USER Task data request under NEXUS_INGRESS_MALFORMED, the code of
+// the format step; CORTEX_SERVICE requests keep NEXUS_DATA_MALFORMED.
+func userFormatErr(auth *nexusv1.TaskDataRequestAuthV1, err error) error {
+	return taskdata.UserFormatErr(
+		auth.GetRequesterKind() == nexusv1.TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_USER, err)
+}
+
 // requestAuthFromPB converts the wire TaskDataRequestAuthV1 to the internal form. The body digest is computed
 // by the caller for its own body domain -- the body_digest in auth is what the caller claims and must equal
 // ours byte for byte; that comparison happens in the authorizer.
@@ -724,11 +734,27 @@ func readinessToPB(state taskdata.State) nexusv1.TaskDataObjectReadinessV1 {
 	}
 }
 
+// mapOpenTaskRequestErr reports step 5 of OpenTask under the SDK request codes: a height expiry
+// outside [current_height, current_height + request_ttl_blocks] is SDK_AUTH_EXPIRED and a used nonce
+// SDK_AUTH_REPLAY.
+func mapOpenTaskRequestErr(err error) error {
+	switch {
+	case errors.Is(err, taskdata.ErrExpired):
+		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrExpired, err))
+	case errors.Is(err, taskdata.ErrReplay):
+		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrReplay, err))
+	default:
+		return mapTaskDataError(err)
+	}
+}
+
 func mapTaskDataError(err error) error {
 	var code connect.Code
 	switch {
-	case errors.Is(err, taskdata.ErrMalformed):
+	case errors.Is(err, taskdata.ErrMalformed), errors.Is(err, taskdata.ErrRequestMalformed):
 		code = connect.CodeInvalidArgument
+	case errors.Is(err, taskdata.ErrReplay):
+		code = connect.CodeUnauthenticated
 	case errors.Is(err, taskdata.ErrSessionMethodNotAllowed):
 		code = connect.CodePermissionDenied
 	case errors.Is(err, taskdata.ErrSessionGrantInvalid), errors.Is(err, taskdata.ErrInvalidSignature):

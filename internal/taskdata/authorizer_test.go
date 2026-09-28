@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"io"
 	"strings"
 	"sync"
@@ -175,7 +176,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 	backend := kv.NewMemStore()
 	a, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, backend, authority, service)
 	if err != nil {
 		t.Fatal(err)
@@ -391,7 +392,7 @@ func TestAuthorizerOpenTaskHeightAndReplaySurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); !errors.Is(err, ErrUnauthorized) {
+	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); !errors.Is(err, ErrReplay) {
 		t.Fatalf("replayed OpenTask after restart error = %v", err)
 	}
 }
@@ -494,7 +495,7 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	wrong := testSigner(t, 40)
 	a, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, wrong)
 	if err != nil {
 		t.Fatal(err)
@@ -1095,9 +1096,112 @@ func TestNewAuthorizerRejectsZeroEVMChainID(t *testing.T) {
 	fx := newAuthorizerFixture(t)
 	_, err := NewAuthorizer(AuthorizerConfig{
 		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50,
+		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, fx.service)
 	if !errors.Is(err, ErrMalformed) {
 		t.Fatalf("error = %v, want ErrMalformed", err)
+	}
+}
+
+// testAccountChain answers the user-request chain reads for every test key: each key's EVM-style
+// account (the address ethAddressOf gives) holds that key on chain.
+type testAccountChain struct{}
+
+func (testAccountChain) CurrentHeight(context.Context) (uint64, error) { return 100, nil }
+func (testAccountChain) AccountPubKey(_ context.Context, address string) ([]byte, error) {
+	testKeys.Lock()
+	defer testKeys.Unlock()
+	for _, raw := range testKeys.byAddress {
+		priv := secp256k1.PrivKeyFromBytes(raw)
+		sum := eip712.Keccak256(priv.PubKey().SerializeUncompressed()[1:])
+		if encoded, err := bech32.ConvertAndEncode("trueopen", sum[12:]); err == nil && encoded == address {
+			return priv.PubKey().SerializeCompressed(), nil
+		}
+	}
+	return nil, sdkauth.ErrNoAccountKey
+}
+
+// noKeyChain is a chain on which no account holds a key.
+type noKeyChain struct{}
+
+func (noKeyChain) CurrentHeight(context.Context) (uint64, error) { return 100, nil }
+func (noKeyChain) AccountPubKey(context.Context, string) ([]byte, error) {
+	return nil, sdkauth.ErrNoAccountKey
+}
+
+// A USER Task data request is checked in the wire order and each failure has the wire code: format
+// -> NEXUS_INGRESS_MALFORMED, signature (including chain and account key) ->
+// DATA_ACCESS_INVALID_SIGNATURE, then another Builder -> DATA_ACCESS_DENIED, expiry outside
+// max_service_material_expiry_blocks -> NEXUS_DATA_EXPIRED, replay -> NEXUS_DATA_REPLAY.
+func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	cfg := fx.authorizer.cfg
+	cfg.MaxRequestExpiryBlocks = 604800
+	authorizer, err := NewAuthorizer(cfg, kv.NewMemStore(), fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	height := fx.authority.height
+	meta := fx.metadata[ObjectKindOutput]
+	nonce := byte(0)
+	request := func(edit func(*RequestAuth)) RequestAuth {
+		nonce++
+		r := userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, height+800)
+		if edit != nil {
+			edit(&r)
+			digest, err := UserTaskDataRequestDigest(r, testEVMChainID, [32]byte{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Signature = signRecoverableForTest(t, fx.user, digest)
+		}
+		return r
+	}
+	metadata := func(a *Authorizer, r RequestAuth) error {
+		m := meta
+		return a.AuthorizeMetadata(context.Background(), r, &m)
+	}
+
+	valid := request(nil)
+	if err := metadata(authorizer, valid); err != nil {
+		t.Fatalf("expiry 800 blocks ahead: %v", err)
+	}
+	if err := metadata(authorizer, valid); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay: %v, want NEXUS_DATA_REPLAY", err)
+	}
+	cases := []struct {
+		name string
+		r    RequestAuth
+		call func(RequestAuth) error
+		want error
+	}{
+		{"expiry beyond the window", request(func(r *RequestAuth) { r.ExpiryHeight = height + 604801 }), nil, ErrExpired},
+		{"signed for another chain", request(func(r *RequestAuth) { r.ChainID = "trueopen-other" }), nil, ErrInvalidSignature},
+		{"for another Builder", request(func(r *RequestAuth) { r.BuilderOperatorAddress = fx.other.Address() }), nil, ErrDenied},
+		{"16-byte nonce", func() RequestAuth { r := request(nil); r.RequestNonce = r.RequestNonce[:16]; return r }(), nil, ErrRequestMalformed},
+		{"metadata request sent to fetch", request(nil), func(r RequestAuth) error {
+			_, err := authorizer.AuthorizeFetch(context.Background(), r, nil)
+			return err
+		}, ErrRequestMalformed},
+		{"account without a stored key", request(nil), func(r RequestAuth) error {
+			noKey := cfg
+			noKey.SessionGrants.Chain = noKeyChain{}
+			a, err := NewAuthorizer(noKey, kv.NewMemStore(), fx.authority, fx.service)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return metadata(a, r)
+		}, ErrInvalidSignature},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			call := tc.call
+			if call == nil {
+				call = func(r RequestAuth) error { return metadata(authorizer, r) }
+			}
+			if err := call(tc.r); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
 	}
 }

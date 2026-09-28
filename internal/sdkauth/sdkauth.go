@@ -68,7 +68,7 @@ var (
 	// ErrUnavailable is a chain read (current height, account key) that failed; the request may be
 	// retried. It never means the request is bad.
 	ErrUnavailable = errors.New("NEXUS_SDKAUTH_CHAIN_UNAVAILABLE")
-	// ErrMisconfigured is a caller bug, not a client error: see VerifyOpts.AllowHeightExpiry.
+	// ErrMisconfigured is a caller bug, not a client error: see VerifyOpts.HeightExpiry.
 	ErrMisconfigured = errors.New("NEXUS_SDKAUTH_MISCONFIGURED")
 	// ErrNoAccountKey is what an AccountKeys implementation returns when the account does not exist or
 	// holds no public key yet. Any other error is treated as the chain being unavailable.
@@ -151,11 +151,12 @@ type VerifyOpts struct {
 	Body         [32]byte
 	Bech32Prefix string
 	ReplayCache  ReplayCache
-	// AllowHeightExpiry accepts an expiry below HeightExpiryThreshold (a chain height) without
-	// checking it. Only OpenTask sets it: its height expiry and nonce are checked by the taskdata
-	// Authorizer against the chain. A caller that allows it must not pass a ReplayCache, since this
-	// package cannot bound a height expiry; Verify rejects that combination.
-	AllowHeightExpiry bool
+	// HeightExpiry is set for OpenTask, which accepts only a chain-height expiry (below
+	// HeightExpiryThreshold); every other method accepts only Unix milliseconds. Either way the other
+	// form is malformed. The height window and the nonce of OpenTask are checked by the taskdata
+	// Authorizer against the chain, so a caller that sets it must not pass a ReplayCache; Verify
+	// rejects that combination.
+	HeightExpiry bool
 	// SessionAllowed says the method may be signed by a session key under a grant.
 	SessionAllowed bool
 	Chain          Chain
@@ -166,8 +167,7 @@ type VerifyOpts struct {
 
 // An expiry below HeightExpiryThreshold is a chain height, at or above it Unix milliseconds.
 // 10^12 ms ~ year 2001; chain heights are far smaller. The generic SDK envelope accepts only Unix
-// milliseconds; a chain height is accepted only where VerifyOpts.AllowHeightExpiry says another
-// check owns it (OpenTask).
+// milliseconds; OpenTask accepts only a chain height (VerifyOpts.HeightExpiry).
 const HeightExpiryThreshold = int64(1_000_000_000_000)
 
 // Hash32Hex decodes a session or task ID: exactly 64 lowercase hex characters, no 0x prefix.
@@ -242,10 +242,10 @@ func RequestDigest(e *Envelope, body, grantHash [32]byte, evmChainID uint64) ([3
 
 // GrantCheck is the environment a session grant is verified in.
 type GrantCheck struct {
-	// ChainID is this chain; RequestChainID the chain_id the request carries. The grant must name both.
-	ChainID        string
-	RequestChainID string
-	EVMChainID     uint64
+	// ChainID is the verifier's own chain; the grant must name it. Whether the request's own chain_id
+	// field matches is decided at the signature step.
+	ChainID    string
+	EVMChainID uint64
 	// User is the account the grant must be for: signer_address of an SDK request, requester_address
 	// of a Task data request.
 	User      string
@@ -278,9 +278,8 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	if g == nil {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is absent")
 	}
-	if g.ChainID != c.ChainID || g.ChainID != c.RequestChainID {
-		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for chain %q; the request is for %q on chain %q",
-			g.ChainID, c.RequestChainID, c.ChainID)
+	if g.ChainID != c.ChainID {
+		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for chain %q, not %q", g.ChainID, c.ChainID)
 	}
 	if g.User != c.User {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the request signer %q", g.User, c.User)
@@ -300,7 +299,7 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	if !bytes.Equal(recovered.Address[:], user) {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant user_signature does not recover to %q", g.User)
 	}
-	if err := matchAccountKey(ctx, c.Chain, g.User, recovered.Compressed); err != nil {
+	if err := MatchAccountKey(ctx, c.Chain, g.User, recovered.Compressed); err != nil {
 		if errors.Is(err, ErrUnavailable) {
 			return none, key, grantErr(ErrUnavailable, "%v", err)
 		}
@@ -324,9 +323,9 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	return hash, key, nil
 }
 
-// matchAccountKey requires the account to hold exactly this public key on chain. A missing account
+// MatchAccountKey requires the account to hold exactly this public key on chain. A missing account
 // or key is a mismatch; a failed read is ErrUnavailable.
-func matchAccountKey(ctx context.Context, chain Chain, address string, compressed []byte) error {
+func MatchAccountKey(ctx context.Context, chain Chain, address string, compressed []byte) error {
 	if chain == nil {
 		return fmt.Errorf("%w: no chain to read account keys from", ErrUnavailable)
 	}
@@ -343,15 +342,16 @@ func matchAccountKey(ctx context.Context, chain Chain, address string, compresse
 	return nil
 }
 
-// checkUserAddress requires a canonical 20-byte Bech32 address under prefix (any prefix when prefix
-// is empty). An address under another prefix is malformed, not an account the chain can be asked about.
-func checkUserAddress(address, prefix string) error {
-	raw, err := nodecontract.CanonicalOperatorAddressBytes("signer_address", address)
+// CheckUserAddress requires a canonical lowercase 20-byte Bech32 address under prefix (any prefix
+// when prefix is empty). An address under another prefix is malformed, not an account the chain can
+// be asked about.
+func CheckUserAddress(field, address, prefix string) error {
+	raw, err := nodecontract.CanonicalOperatorAddressBytes(field, address)
 	if err != nil || len(raw) != 20 {
-		return fmt.Errorf("%w: signer_address is not a canonical 20-byte address", ErrMalformed)
+		return fmt.Errorf("%w: %s is not a canonical 20-byte address", ErrMalformed, field)
 	}
 	if prefix != "" && address[:strings.LastIndex(address, "1")] != prefix {
-		return fmt.Errorf("%w: signer_address is not a %q address", ErrMalformed, prefix)
+		return fmt.Errorf("%w: %s is not a %q address", ErrMalformed, field, prefix)
 	}
 	return nil
 }
@@ -368,7 +368,7 @@ func checkFormat(e *Envelope, opts VerifyOpts) error {
 		return fmt.Errorf("%w: method %q and endpoint %q do not name the called method %q",
 			ErrMalformed, e.Method, e.Endpoint, opts.Method)
 	}
-	if err := checkUserAddress(e.SignerAddress, opts.Bech32Prefix); err != nil {
+	if err := CheckUserAddress("signer_address", e.SignerAddress, opts.Bech32Prefix); err != nil {
 		return err
 	}
 	if _, err := Hash32Hex("session_id", e.SessionID); err != nil {
@@ -383,7 +383,10 @@ func checkFormat(e *Envelope, opts VerifyOpts) error {
 	if e.ExpiryHeightOrTime <= 0 {
 		return fmt.Errorf("%w: expiry_height_or_time must be above zero", ErrMalformed)
 	}
-	if e.ExpiryHeightOrTime < HeightExpiryThreshold && !opts.AllowHeightExpiry {
+	if isHeight := e.ExpiryHeightOrTime < HeightExpiryThreshold; isHeight != opts.HeightExpiry {
+		if opts.HeightExpiry {
+			return fmt.Errorf("%w: %s accepts only a chain-height expiry", ErrMalformed, opts.Method)
+		}
 		return fmt.Errorf("%w: only OpenTask may carry a chain-height expiry", ErrMalformed)
 	}
 	if len(e.BodyDigest) != 32 {
@@ -395,7 +398,7 @@ func checkFormat(e *Envelope, opts VerifyOpts) error {
 // Verify runs the five steps in order. nil means the request is authentic: e.SignerAddress is the
 // user it acts for (the granting user when a session key signed it).
 func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
-	if opts.AllowHeightExpiry && opts.ReplayCache != nil {
+	if opts.HeightExpiry && opts.ReplayCache != nil {
 		return ErrMisconfigured
 	}
 	if err := checkFormat(e, opts); err != nil {
@@ -408,7 +411,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	var sessionKey [20]byte
 	if e.SessionGrant != nil {
 		hash, key, err := VerifyGrant(ctx, e.SessionGrant, GrantCheck{
-			ChainID: opts.ChainID, RequestChainID: e.ChainID, EVMChainID: opts.EVMChainID, User: e.SignerAddress,
+			ChainID: opts.ChainID, EVMChainID: opts.EVMChainID, User: e.SignerAddress,
 			Chain: opts.Chain, MaxBlocks: opts.MaxSessionGrantBlocks,
 		})
 		if err != nil {
@@ -445,7 +448,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 		if !bytes.Equal(recovered.Address[:], signer) {
 			return fmt.Errorf("%w: the request does not recover to signer_address", ErrInvalidSignature)
 		}
-		if err := matchAccountKey(ctx, opts.Chain, e.SignerAddress, recovered.Compressed); err != nil {
+		if err := MatchAccountKey(ctx, opts.Chain, e.SignerAddress, recovered.Compressed); err != nil {
 			if errors.Is(err, ErrUnavailable) {
 				return err
 			}
@@ -455,7 +458,8 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	if e.ExpiryHeightOrTime >= HeightExpiryThreshold && e.ExpiryHeightOrTime < opts.NowMS {
 		return ErrExpired
 	}
-	if opts.ReplayCache != nil && !opts.ReplayCache.StoreOnce(ReplayKey(e), e.ExpiryHeightOrTime, opts.NowMS) {
+	// The replay record is keyed by this chain's chain_id (signed carries it), not the envelope field.
+	if opts.ReplayCache != nil && !opts.ReplayCache.StoreOnce(ReplayKey(&signed), e.ExpiryHeightOrTime, opts.NowMS) {
 		return ErrReplay
 	}
 	return nil

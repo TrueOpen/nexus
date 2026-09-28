@@ -148,10 +148,10 @@ type envelopeCheck struct {
 	body   [32]byte
 	// sessionAllowed lets a session key sign the request under a grant.
 	sessionAllowed bool
-	// allowHeightExpiry and replay: see sdkauth.VerifyOpts. OpenTask leaves its height expiry and
+	// heightExpiry and replay: see sdkauth.VerifyOpts. OpenTask leaves its height expiry and
 	// nonce to the taskdata Authorizer and so passes no replay cache.
-	allowHeightExpiry bool
-	replay            sdkauth.ReplayCache
+	heightExpiry bool
+	replay       sdkauth.ReplayCache
 }
 
 // verifyEnvelope runs sdkauth.Verify and maps its result to a connect error. It returns the user the
@@ -166,7 +166,7 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 		Body:                  c.body,
 		Bech32Prefix:          s.auth.Bech32Prefix,
 		ReplayCache:           c.replay,
-		AllowHeightExpiry:     c.allowHeightExpiry,
+		HeightExpiry:          c.heightExpiry,
 		SessionAllowed:        c.sessionAllowed,
 		Chain:                 s.auth.Chain,
 		MaxSessionGrantBlocks: s.auth.MaxSessionGrantBlocks,

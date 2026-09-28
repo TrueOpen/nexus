@@ -211,7 +211,7 @@ func TestWalletSignedRequestMatchesWire(t *testing.T) {
 		t.Fatalf("replay key %q, want %q", ReplayKey(e), v.Envelope.ReplayKey)
 	}
 	opts := optsFor(t, f, v, chainFor(t, f))
-	opts.AllowHeightExpiry = true // the OpenTask vector carries a chain-height expiry
+	opts.HeightExpiry = true // the OpenTask vector carries a chain-height expiry
 	if err := Verify(context.Background(), e, opts); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

@@ -366,6 +366,20 @@ func (c *client) QueryEVMChainID(ctx context.Context) (uint64, error) {
 	return evmChainID, nil
 }
 
+// QueryServiceMaterialExpiryBlocks reads the Hub parameter service.max_service_material_expiry_blocks.
+// 0 is treated as unconfigured.
+func (c *client) QueryServiceMaterialExpiryBlocks(ctx context.Context) (uint64, error) {
+	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
+	if err != nil {
+		return 0, applicationQueryError("hub params", err)
+	}
+	blocks := resp.Msg.GetParams().GetService().GetMaxServiceMaterialExpiryBlocks()
+	if blocks == 0 {
+		return 0, fmt.Errorf("query hub params: service.max_service_material_expiry_blocks is zero")
+	}
+	return blocks, nil
+}
+
 // QueryEvidenceCleanup reads whether the chain has started compacting a task's evidence
 // (task.v1.Query/EvidenceCleanup). A task the chain does not know returns ErrNotFound.
 func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error) {
