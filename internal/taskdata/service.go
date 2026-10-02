@@ -72,8 +72,8 @@ func NewService(store *Store, authorizer *Authorizer) (*Service, error) {
 
 func (s *Service) ChunkSize() uint64 { return s.chunkSize }
 
-func (s *Service) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry uint64) error {
-	return s.authorizer.AuthorizeOpenTaskRequest(ctx, requester, nonce, expiry)
+func (s *Service) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry, orderExpireHeight uint64) error {
+	return s.authorizer.AuthorizeOpenTaskRequest(ctx, requester, nonce, expiry, orderExpireHeight)
 }
 
 func (s *Service) BeginInput(ctx context.Context, header UploadHeader) (*Upload, error) {

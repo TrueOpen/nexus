@@ -582,7 +582,15 @@ func (a *Authorizer) consumeRequestNonce(request RequestAuth, height uint64) err
 	return err
 }
 
-func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry uint64) error {
+// AuthorizeOpenTaskRequest checks the OpenTask request window, the signed order's expiry and the
+// request nonce, in that order.
+//
+// An order past its order_expire_height is refused before the nonce is used, with the chain's
+// boundary: the chain admits a new task while height <= order_expire_height. The observed height
+// only lags the chain, so this check can refuse a block or two late but never refuses an order the
+// chain still admits; a late order that gets through is refused by chain admission and the task
+// fails on the existing path.
+func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry, orderExpireHeight uint64) error {
 	if !canonicalText(requester) || len(nonce) < 16 {
 		return fmt.Errorf("%w: OpenTask requester or nonce", ErrMalformed)
 	}
@@ -592,6 +600,9 @@ func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester str
 	}
 	if err := validateExpiry(height, expiry, a.cfg.RequestTTLBlocks); err != nil {
 		return err
+	}
+	if height > orderExpireHeight {
+		return fmt.Errorf("%w: height %d is past order_expire_height %d", ErrOrderExpired, height, orderExpireHeight)
 	}
 	return a.consumeNonce("sdk_open_task", requester, nonce, expiry, height)
 }

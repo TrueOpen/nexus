@@ -34,6 +34,8 @@ type fakeTaskDataAPI struct {
 	openTaskRequester string
 	openTaskNonce     []byte
 	openTaskExpiry    uint64
+	orderExpiry       uint64 // order_expire_height passed to AuthorizeOpenTaskRequest
+	openTaskErr       error  // returned by AuthorizeOpenTaskRequest when set
 	metadata          taskdata.Metadata
 	exists            bool
 	confirmation      taskdata.StorageConfirmation
@@ -59,10 +61,14 @@ type fakeTaskDataAPI struct {
 	fin               *taskdata.OutputFin
 }
 
-func (f *fakeTaskDataAPI) AuthorizeOpenTaskRequest(_ context.Context, requester string, nonce []byte, expiry uint64) error {
+func (f *fakeTaskDataAPI) AuthorizeOpenTaskRequest(_ context.Context, requester string, nonce []byte, expiry, orderExpireHeight uint64) error {
 	f.openTaskRequester = requester
 	f.openTaskNonce = append([]byte(nil), nonce...)
 	f.openTaskExpiry = expiry
+	f.orderExpiry = orderExpireHeight
+	if f.openTaskErr != nil {
+		return f.openTaskErr
+	}
 	return f.err
 }
 
