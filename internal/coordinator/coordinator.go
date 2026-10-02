@@ -844,19 +844,39 @@ func (c *Coordinator) terminalVersionErr(key, taskHash string) error {
 	return nil
 }
 
-// HasAcceptedOrder reports durable local acceptance for taskdata recovery.
+// HasAcceptedOrder reports whether key is the INPUT version this Builder durably accepted, for
+// taskdata recovery: the persisted order's task_hash and input hash for a live task, or the
+// task_hash in the terminal marker for a finished one. Another version of a known task is not
+// accepted, so recovery never promotes it. A snapshot without an order, or a terminal marker
+// written before the task_hash field existed, cannot name the version and keeps the old answer.
 func (c *Coordinator) HasAcceptedOrder(_ context.Context, key taskdata.ObjectKey) (bool, error) {
 	if key.Kind != taskdata.ObjectKindInput || key.SessionID == "" || key.TaskID == "" {
 		return false, taskdata.ErrMalformed
 	}
 	encoded := taskKey(key.SessionID, key.TaskID)
-	if _, found, err := c.kv.GetWithError(kv.NSTask, encoded); err != nil {
+	raw, found, err := c.kv.GetWithError(kv.NSTask, encoded)
+	if err != nil {
 		return false, err
-	} else if found {
-		return true, nil
 	}
-	_, found, err := c.kv.GetWithError(kv.NSTerminalTask, encoded)
-	return found, err
+	if found {
+		var sn taskSnapshot
+		if err := json.Unmarshal(raw, &sn); err != nil {
+			return false, fmt.Errorf("decode task snapshot %q: %w", encoded, err)
+		}
+		if sn.Order.TaskHash == "" {
+			return true, nil
+		}
+		return sn.Order.TaskHash == key.TaskHash && sn.Order.PayloadHash == key.ContentHash, nil
+	}
+	raw, found, err = c.kv.GetWithError(kv.NSTerminalTask, encoded)
+	if err != nil || !found {
+		return false, err
+	}
+	var record terminalTaskRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.Version != terminalTaskVersion {
+		return false, fmt.Errorf("invalid terminal task marker %q", encoded)
+	}
+	return record.TaskHash == "" || record.TaskHash == key.TaskHash, nil
 }
 
 // HasTerminatedOrder requires a durable terminal marker; absence from the

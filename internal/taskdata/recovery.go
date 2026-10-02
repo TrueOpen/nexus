@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -73,8 +74,14 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 			if err := s.persistMetadataRecord(key, record); err != nil {
 				return err
 			}
+			if record.Metadata.Key.Kind == ObjectKindInput {
+				if err := s.indexInput(record.Metadata.Key); err != nil {
+					return err
+				}
+			}
 			records[key] = record
 		case record.Metadata.Key.Kind == ObjectKindInput:
+			s.unindex(record.Metadata.Key)
 			if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
 				return fmt.Errorf("%w: delete rejected prepared metadata: %v", ErrStorage, err)
 			}
@@ -87,7 +94,47 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 			records[key] = record
 		}
 	}
+	s.checkInputIndex(ctx, resolver)
 	return s.removeUnreferencedBlobs(records)
+}
+
+// checkInputIndex reports, without changing anything, every INPUT index that names a missing object
+// or a version the resolver has no accepted order for. Such an index can be left by a release that
+// accepted an order replacement or indexed an INPUT before it was READY; the operator decides.
+func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver) {
+	suffix := "|" + ObjectKindInput.String()
+	var refs []ObjectRef
+	if err := s.backend.Scan(kv.NSTaskDataObjectIndex, func(indexKey string, raw []byte) bool {
+		if !strings.HasSuffix(indexKey, suffix) {
+			return true
+		}
+		var ref ObjectRef
+		if err := json.Unmarshal(raw, &ref); err != nil {
+			s.log.Error("task input index entry is not decodable", "index_key", indexKey, "err", err)
+			return true
+		}
+		refs = append(refs, ref)
+		return true
+	}); err != nil {
+		s.log.Warn("task input index check skipped", "err", err)
+		return
+	}
+	for _, ref := range refs {
+		if _, found, err := s.metadataRecord(objectKeyString(ref)); err != nil || !found {
+			s.log.Warn("task input index names a missing object",
+				"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash, "err", err)
+			continue
+		}
+		accepted, err := resolver.HasAcceptedOrder(ctx, ref)
+		if err != nil {
+			s.log.Warn("task input index check failed", "session_id", ref.SessionID, "task_id", ref.TaskID, "err", err)
+			continue
+		}
+		if !accepted {
+			s.log.Error("task input index names a version without an accepted order; left unchanged",
+				"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash, "content_hash", ref.ContentHash)
+		}
+	}
 }
 
 func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResolver) error {
@@ -114,6 +161,7 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 			}
 			if !accepted {
 				if record.Metadata.Key.Kind == ObjectKindInput {
+					s.unindex(record.Metadata.Key)
 					if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
 						return fmt.Errorf("%w: delete rejected quarantined input: %v", ErrStorage, err)
 					}
@@ -124,6 +172,11 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 			record.Metadata.State = StateReady
 			if err := s.persistMetadataRecord(key, record); err != nil {
 				return err
+			}
+			if record.Metadata.Key.Kind == ObjectKindInput {
+				if err := s.indexInput(record.Metadata.Key); err != nil {
+					return err
+				}
 			}
 			records[key] = record
 		}
@@ -155,6 +208,7 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 		if err := s.persistTombstone(record.Metadata); err != nil {
 			return err
 		}
+		s.unindex(record.Metadata.Key)
 		if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
 			return fmt.Errorf("%w: delete task data metadata: %v", ErrStorage, err)
 		}

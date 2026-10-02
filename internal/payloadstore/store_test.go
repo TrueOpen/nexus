@@ -25,26 +25,28 @@ var (
 	testTaskHashV2 = strings.Repeat("6f", 32)
 )
 
-// Delete removes the version it names, not the one the INPUT index happens to point at.
+// Delete removes the version it names, not the one the INPUT index points at.
 func TestDeleteRemovesNamedInputVersion(t *testing.T) {
 	backend := kv.NewMemStore()
 	taskStore := newTaskDataStore(t, backend)
 	store := newTestStoreWithOptions(t, backend, 1024, WithTaskData(taskStore))
-	first := stageInput(t, taskStore, testTaskHashV1, []byte("first version"), true)
-	// A later version prepared for the same task repoints the index at itself.
-	second := stageInput(t, taskStore, testTaskHashV2, []byte("second version"), false)
-	if ref, err := taskStore.ResolveObject(context.Background(), testSession, testTask, taskdata.ObjectKindInput); err != nil || ref != second {
-		t.Fatalf("index = %#v, %v; want the second version", ref, err)
+	indexed := stageInput(t, taskStore, testTaskHashV1, []byte("indexed version"), true)
+	named := stageInput(t, taskStore, testTaskHashV2, []byte("named version"), false)
+	if ref, err := taskStore.ResolveObject(context.Background(), testSession, testTask, taskdata.ObjectKindInput); err != nil || ref != indexed {
+		t.Fatalf("index = %#v, %v; want the READY version", ref, err)
 	}
 
-	if err := store.Delete(context.Background(), inputOf(first)); err != nil {
+	if err := store.Delete(context.Background(), inputOf(named)); err != nil {
 		t.Fatal(err)
 	}
-	if !deleted(t, taskStore, first) {
-		t.Fatal("first version survived Delete")
+	if !deleted(t, taskStore, named) {
+		t.Fatal("named version survived Delete")
 	}
-	if deleted(t, taskStore, second) {
-		t.Fatal("second version was removed with the first")
+	if deleted(t, taskStore, indexed) {
+		t.Fatal("the indexed version was removed instead of the named one")
+	}
+	if ref, err := taskStore.ResolveObject(context.Background(), testSession, testTask, taskdata.ObjectKindInput); err != nil || ref != indexed {
+		t.Fatalf("index after Delete = %#v, %v; want it unchanged", ref, err)
 	}
 }
 

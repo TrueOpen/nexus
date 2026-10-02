@@ -398,9 +398,10 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 	if err == nil {
 		err = u.store.backend.Set(kv.NSTaskDataMetadata, objectKeyString(u.header.Key), raw)
 	}
-	if err == nil {
+	if err == nil && u.header.Key.Kind != ObjectKindInput {
 		// The index shares the metadata's source of truth: it is written only after the metadata
-		// write succeeds.
+		// write succeeds. An INPUT is indexed only once it is READY (indexInput), so a version
+		// that the coordinator refuses never repoints the index.
 		var indexed []byte
 		if indexed, err = json.Marshal(u.header.Key); err == nil {
 			err = u.store.backend.Set(kv.NSTaskDataObjectIndex,
@@ -526,6 +527,12 @@ func (s *Store) advanceState(key ObjectKey, target State, mutate func(*Metadata)
 	}
 	current := record.Metadata.State
 	if stateRank(current) >= stateRank(target) && stateRank(current) > 0 {
+		// A repeated MarkReady also repairs an INPUT index whose write failed the first time.
+		if current == StateReady && key.Kind == ObjectKindInput {
+			if err := s.indexInput(key); err != nil {
+				return Metadata{}, err
+			}
+		}
 		return cloneMetadata(record.Metadata), nil
 	}
 	if stateRank(current) == 0 {
@@ -541,6 +548,11 @@ func (s *Store) advanceState(key ObjectKey, target State, mutate func(*Metadata)
 	}
 	if err != nil {
 		return Metadata{}, fmt.Errorf("%w: persist %s metadata: %v", ErrStorage, target, err)
+	}
+	if target == StateReady && key.Kind == ObjectKindInput {
+		if err := s.indexInput(key); err != nil {
+			return Metadata{}, err
+		}
 	}
 	return cloneMetadata(record.Metadata), nil
 }
@@ -580,9 +592,9 @@ func (s *Store) RollbackPrepared(_ context.Context, key ObjectKey) error {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: object is not prepared", ErrConflict)
 	}
-	// The index is deleted along with the object: leaving a dangling index would make later lifecycle
-	// operations resolve to an object that no longer exists.
-	_ = s.backend.Delete(kv.NSTaskDataObjectIndex, objectIndexKey(key.SessionID, key.TaskID, key.Kind))
+	// The index is deleted along with the object, but only when it names this object: a refused
+	// version must not drop the index of the version that is kept.
+	s.unindex(key)
 	if err := s.backend.Delete(kv.NSTaskDataMetadata, encoded); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: delete prepared metadata: %v", ErrStorage, err)
@@ -639,8 +651,9 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 	}
 	if metadataFound {
 		// The index is deleted along with the object: leaving a dangling index would make later
-		// lifecycle operations resolve to an object that no longer exists.
-		_ = s.backend.Delete(kv.NSTaskDataObjectIndex, objectIndexKey(key.SessionID, key.TaskID, key.Kind))
+		// lifecycle operations resolve to an object that no longer exists. An index that names
+		// another object is left alone.
+		s.unindex(key)
 		if err := s.backend.Delete(kv.NSTaskDataMetadata, encoded); err != nil {
 			s.mu.Unlock()
 			return fmt.Errorf("%w: delete metadata: %v", ErrStorage, err)
@@ -887,19 +900,81 @@ func objectIndexKey(sessionID, taskID string, kind ObjectKind) string {
 	return sessionID + "|" + taskID + "|" + kind.String()
 }
 
-// ResolveObject recovers the full object ref from (session, task, kind). A Task has only one INPUT,
-// so this key is unambiguous; not found is ErrNotFound, with no guessing.
-func (s *Store) ResolveObject(_ context.Context, sessionID, taskID string, kind ObjectKind) (ObjectRef, error) {
-	raw, found, err := s.backend.GetWithError(kv.NSTaskDataObjectIndex, objectIndexKey(sessionID, taskID, kind))
+// indexInput points the (session, task, INPUT) index at key when that INPUT becomes READY. Once
+// OpenTask refuses other versions, only one INPUT version of a task reaches READY, so an index that
+// already names another READY object is a broken invariant: it is kept and logged, never silently
+// repointed. An index naming a missing or not-READY object is replaced. Callers hold s.mu or the
+// exclusive maintenance lock.
+func (s *Store) indexInput(key ObjectKey) error {
+	indexKey := objectIndexKey(key.SessionID, key.TaskID, ObjectKindInput)
+	current, found, err := s.indexedRef(indexKey)
 	if err != nil {
-		return ObjectRef{}, fmt.Errorf("%w: read object index: %v", ErrStorage, err)
+		return err
+	}
+	if found && current == key {
+		return nil
+	}
+	if found {
+		record, ok, err := s.metadataRecord(objectKeyString(current))
+		if err != nil {
+			return err
+		}
+		if ok && record.Metadata.State == StateReady {
+			s.log.Error("task input index names another READY version; keeping it",
+				"session_id", key.SessionID, "task_id", key.TaskID,
+				"indexed_task_hash", current.TaskHash, "ready_task_hash", key.TaskHash)
+			return nil
+		}
+	}
+	raw, err := json.Marshal(key)
+	if err == nil {
+		err = s.backend.Set(kv.NSTaskDataObjectIndex, indexKey, raw)
+	}
+	if err != nil {
+		return fmt.Errorf("%w: persist object index: %v", ErrStorage, err)
+	}
+	return nil
+}
+
+// unindex removes the (session, task, kind) index only when it names key, so removing one version
+// never drops the index of another. A failure leaves at worst a dangling index, which lifecycle
+// operations already treat as a missing object, so it is logged rather than returned.
+func (s *Store) unindex(key ObjectKey) {
+	indexKey := objectIndexKey(key.SessionID, key.TaskID, key.Kind)
+	current, found, err := s.indexedRef(indexKey)
+	if err == nil && found && current == key {
+		err = s.backend.Delete(kv.NSTaskDataObjectIndex, indexKey)
+	}
+	if err != nil {
+		s.log.Warn("task data object index cleanup failed",
+			"session_id", key.SessionID, "task_id", key.TaskID, "kind", key.Kind.String(), "err", err)
+	}
+}
+
+func (s *Store) indexedRef(indexKey string) (ObjectRef, bool, error) {
+	raw, found, err := s.backend.GetWithError(kv.NSTaskDataObjectIndex, indexKey)
+	if err != nil {
+		return ObjectRef{}, false, fmt.Errorf("%w: read object index: %v", ErrStorage, err)
 	}
 	if !found {
-		return ObjectRef{}, ErrNotFound
+		return ObjectRef{}, false, nil
 	}
 	var ref ObjectRef
 	if err := json.Unmarshal(raw, &ref); err != nil {
-		return ObjectRef{}, fmt.Errorf("%w: decode object index: %v", ErrStorage, err)
+		return ObjectRef{}, false, fmt.Errorf("%w: decode object index: %v", ErrStorage, err)
+	}
+	return ref, true, nil
+}
+
+// ResolveObject recovers the full object ref from (session, task, kind). A Task has only one INPUT,
+// so this key is unambiguous; not found is ErrNotFound, with no guessing.
+func (s *Store) ResolveObject(_ context.Context, sessionID, taskID string, kind ObjectKind) (ObjectRef, error) {
+	ref, found, err := s.indexedRef(objectIndexKey(sessionID, taskID, kind))
+	if err != nil {
+		return ObjectRef{}, err
+	}
+	if !found {
+		return ObjectRef{}, ErrNotFound
 	}
 	return ref, nil
 }

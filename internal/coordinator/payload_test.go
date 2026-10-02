@@ -21,20 +21,47 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-func TestHasAcceptedOrderUsesDurableSnapshot(t *testing.T) {
+func TestHasAcceptedOrderNamesTheAcceptedVersion(t *testing.T) {
 	c, _ := newTestCoordinator(t)
-	key := taskdata.ObjectKey{SessionID: "session-accepted", TaskID: "task-accepted", Kind: taskdata.ObjectKindInput}
-	accepted, err := c.HasAcceptedOrder(context.Background(), key)
-	if err != nil || accepted {
-		t.Fatalf("before OnOrder = %t, %v", accepted, err)
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
+	key := taskdata.ObjectKey{
+		TaskHash: order.TaskHash, SessionID: order.SessionID, TaskID: order.TaskID,
+		Kind: taskdata.ObjectKindInput, ContentHash: order.PayloadHash,
 	}
-	if err := c.OnOrder(context.Background(), testCurrentOrder(key.SessionID, key.TaskID, testUserAddress)); err != nil {
+	otherTask, otherInput := key, key
+	otherTask.TaskHash = strings.Repeat("6f", 32)
+	otherInput.ContentHash = strings.Repeat("7a", 32)
+	check := func(stage string, want map[*taskdata.ObjectKey]bool) {
+		t.Helper()
+		for k, w := range want {
+			got, err := c.HasAcceptedOrder(context.Background(), *k)
+			if err != nil || got != w {
+				t.Fatalf("%s: HasAcceptedOrder(task_hash=%s content_hash=%s) = %t, %v; want %t", stage, k.TaskHash, k.ContentHash, got, err, w)
+			}
+		}
+	}
+	check("before OnOrder", map[*taskdata.ObjectKey]bool{&key: false})
+	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err = c.HasAcceptedOrder(context.Background(), key)
-	if err != nil || !accepted {
-		t.Fatalf("after OnOrder = %t, %v", accepted, err)
+	check("tracked", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: false, &otherInput: false})
+
+	// Finished: the terminal marker's task_hash decides once the snapshot is gone.
+	c.removeTask(taskKey(order.SessionID, order.TaskID))
+	if err := c.kv.Delete(kv.NSTask, taskKey(order.SessionID, order.TaskID)); err != nil {
+		t.Fatal(err)
 	}
+	check("terminal", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: false})
+
+	// A marker written before the task_hash field existed cannot name the version.
+	legacy, err := json.Marshal(map[string]any{"version": terminalTaskVersion, "recipient": testUserAddress})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.kv.Set(kv.NSTerminalTask, taskKey(order.SessionID, order.TaskID), legacy); err != nil {
+		t.Fatal(err)
+	}
+	check("legacy terminal marker", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: true})
 }
 
 func TestHasTerminatedOrderRequiresDurableTerminalMarker(t *testing.T) {
@@ -151,11 +178,16 @@ func TestTerminalTaskRemovesItsInputVersion(t *testing.T) {
 	taskStore, payloads := newCoordinatorTaskData(t, backend)
 	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
 	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("tracked input"), 100)
-	tracked := stageOrderInput(t, taskStore, order, []byte("tracked input"), true)
 	other := order
 	other.TaskHash = strings.Repeat("6f", 32)
 	other = withPayload(t, other, []byte("other input"))
-	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), false)
+	// The other version becomes READY first and keeps the index (the store refuses to repoint an
+	// index that names a READY object), so only a delete by version can find the tracked one.
+	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
+	tracked := stageOrderInput(t, taskStore, order, []byte("tracked input"), true)
+	if ref, err := taskStore.ResolveObject(context.Background(), order.SessionID, order.TaskID, taskdata.ObjectKindInput); err != nil || ref != otherKey {
+		t.Fatalf("index = %#v, %v; want the other version", ref, err)
+	}
 	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
