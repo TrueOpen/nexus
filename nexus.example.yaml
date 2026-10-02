@@ -64,6 +64,11 @@ task_data:
   retention_lease_blocks: 1000
   # Rechecks quarantined objects and authoritative cleanup heights.
   sweep_interval: 1m
+  # A deleted object's tombstone refuses re-uploads of its key and answers it as
+  # expired. The sweep reclaims it this many blocks after max(deletion height,
+  # retention height); 0 keeps tombstones forever. The unit is blocks: 120960 is
+  # about 7 days at 5-second blocks (about 1.4 days at 1-second blocks).
+  tombstone_retention_blocks: 120960
   # Streaming OUTPUT (UploadTaskOutputStream / frame-based SubscribeOutput).
   # On by default: Cortex only delivers OUTPUT through this stream. Set
   # enabled: false to make the three RPCs answer Unimplemented (no OUTPUT can

@@ -33,7 +33,14 @@ type tombstoneRecord struct {
 	RetentionStatus     RetentionStatus `json:"retention_status"`
 	RetainUntilHeight   uint64          `json:"retain_until_height"`
 	DeletedAtUnixMillis int64           `json:"deleted_at_unix_millis"`
+	// DeletedAtHeight is the chain height the tombstone counts its retention from. A tombstone
+	// written without a height (DeleteObject, or an older release) gets one from the next Sweep.
+	DeletedAtHeight uint64 `json:"deleted_at_height,omitempty"`
 }
+
+// tombstoneSweepBatch bounds the tombstones one Sweep stamps or reclaims, so a large backlog is
+// worked off over several sweeps instead of stalling one.
+const tombstoneSweepBatch = 1000
 
 func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 	if resolver == nil {
@@ -205,7 +212,7 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 			continue
 		}
 		record.Metadata.RetainUntilHeight = decision.RetainUntilHeight
-		if err := s.persistTombstone(record.Metadata); err != nil {
+		if err := s.persistTombstone(record.Metadata, height); err != nil {
 			return err
 		}
 		s.unindex(record.Metadata.Key)
@@ -214,17 +221,80 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 		}
 		delete(records, key)
 	}
+	if err := s.reclaimTombstones(height); err != nil {
+		return err
+	}
 	if err := s.pruneFetchReceiptsLocked(records); err != nil {
 		return err
 	}
 	return s.removeUnreferencedBlobs(records)
 }
 
-func (s *Store) persistTombstone(metadata Metadata) error {
+// reclaimTombstones stamps tombstones that have no deletion height yet and removes those whose
+// retention has run out: height >= max(deleted_at_height, retain_until_height) +
+// TombstoneRetentionBlocks. Until then a tombstone keeps refusing a re-upload of the deleted key
+// and keeps answering it as deleted; retain_until_height is the order's expiry for an INPUT and
+// the signed retention lease otherwise, so no upload of the key can be authorized once a
+// tombstone is reclaimed (OpenTask refuses an expired order). A retention of 0 stamps but never
+// reclaims. Caller holds the exclusive maintenance lock.
+func (s *Store) reclaimTombstones(height uint64) error {
+	window := s.cfg.TombstoneRetentionBlocks
+	stamps := map[string]tombstoneRecord{}
+	var reclaim []string
+	if err := s.backend.Scan(kv.NSTaskDataTombstone, func(key string, raw []byte) bool {
+		var record tombstoneRecord
+		if err := json.Unmarshal(raw, &record); err != nil {
+			// One undecodable record must not stop the sweep at the same place every minute;
+			// it is left as it is for the operator.
+			s.log.Warn("task data tombstone is not decodable; skipping it", "key", key, "err", err)
+			return true
+		}
+		switch {
+		case record.DeletedAtHeight == 0:
+			record.DeletedAtHeight = height
+			stamps[key] = record
+		case window > 0 && tombstoneExpired(record, height, window):
+			reclaim = append(reclaim, key)
+		}
+		return len(stamps)+len(reclaim) < tombstoneSweepBatch
+	}); err != nil {
+		return fmt.Errorf("%w: scan tombstones: %v", ErrStorage, err)
+	}
+	for key, record := range stamps {
+		raw, err := json.Marshal(record)
+		if err == nil {
+			err = s.backend.Set(kv.NSTaskDataTombstone, key, raw)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: stamp tombstone: %v", ErrStorage, err)
+		}
+	}
+	for _, key := range reclaim {
+		if err := s.backend.Delete(kv.NSTaskDataTombstone, key); err != nil {
+			return fmt.Errorf("%w: reclaim tombstone: %v", ErrStorage, err)
+		}
+	}
+	if len(stamps)+len(reclaim) > 0 {
+		s.log.Debug("task data tombstones swept", "height", height, "stamped", len(stamps), "reclaimed", len(reclaim))
+	}
+	return nil
+}
+
+// tombstoneExpired reports height >= max(deleted_at_height, retain_until_height) + window; a sum
+// that overflows never expires.
+func tombstoneExpired(record tombstoneRecord, height, window uint64) bool {
+	from := max(record.DeletedAtHeight, record.RetainUntilHeight)
+	until := from + window
+	return until >= from && height >= until
+}
+
+// persistTombstone records that key was deleted. height is the chain height of the deletion, or 0
+// when the caller does not know it; the next Sweep then stamps its own height.
+func (s *Store) persistTombstone(metadata Metadata, height uint64) error {
 	tombstone := tombstoneRecord{
 		Key: metadata.Key, SemanticHash: metadata.SemanticHash, SizeBytes: metadata.SizeBytes,
 		RetentionStatus: RetentionDeleted, RetainUntilHeight: metadata.RetainUntilHeight,
-		DeletedAtUnixMillis: time.Now().UnixMilli(),
+		DeletedAtUnixMillis: time.Now().UnixMilli(), DeletedAtHeight: height,
 	}
 	raw, err := json.Marshal(tombstone)
 	if err != nil {

@@ -31,7 +31,8 @@ func TestTaskDataDefaults(t *testing.T) {
 	got := defaults().TaskData
 	if got.InlineMaxBytes != 1<<20 || got.ChunkSizeBytes != 256<<10 || got.MaxRangeBytes != 8<<20 ||
 		got.MaxBlobBytes != 1<<30 || got.SpoolReservationBytes != 4<<30 || got.DiskAcceptWatermarkPercent != 85 ||
-		got.RequestTTLBlocks != 20 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute {
+		got.RequestTTLBlocks != 20 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute ||
+		got.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("task data defaults = %+v", got)
 	}
 	if err := got.Validate(); err != nil {
@@ -49,10 +50,12 @@ func TestTaskDataEnvironment(t *testing.T) {
 	t.Setenv("NEXUS_TASK_DATA_REQUEST_TTL_BLOCKS", "12")
 	t.Setenv("NEXUS_TASK_DATA_RETENTION_LEASE_BLOCKS", "34")
 	t.Setenv("NEXUS_TASK_DATA_SWEEP_INTERVAL", "30s")
+	t.Setenv("NEXUS_TASK_DATA_TOMBSTONE_RETENTION_BLOCKS", "0")
 	got := Load().TaskData
 	if got.InlineMaxBytes != 1024 || got.ChunkSizeBytes != 2048 || got.MaxRangeBytes != 4096 ||
 		got.MaxBlobBytes != 8192 || got.SpoolReservationBytes != 16384 || got.DiskAcceptWatermarkPercent != 72 ||
-		got.RequestTTLBlocks != 12 || got.RetentionLeaseBlocks != 34 || got.SweepInterval != 30*time.Second {
+		got.RequestTTLBlocks != 12 || got.RetentionLeaseBlocks != 34 || got.SweepInterval != 30*time.Second ||
+		got.TombstoneRetentionBlocks != 0 {
 		t.Fatalf("task data environment = %+v", got)
 	}
 }
@@ -66,7 +69,7 @@ func TestTaskDataWatermarkEnvironmentRejectsUint32Overflow(t *testing.T) {
 
 func TestLoadFileTaskData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nexus.yaml")
-	body := []byte("task_data:\n  inline_max_bytes: 1024\n  chunk_size_bytes: 2048\n  max_range_bytes: 4096\n  max_blob_bytes: 8192\n  spool_reservation_bytes: 16384\n  disk_accept_watermark_percent: 70\n  request_ttl_blocks: 12\n  retention_lease_blocks: 34\n  sweep_interval: 45s\n")
+	body := []byte("task_data:\n  inline_max_bytes: 1024\n  chunk_size_bytes: 2048\n  max_range_bytes: 4096\n  max_blob_bytes: 8192\n  spool_reservation_bytes: 16384\n  disk_accept_watermark_percent: 70\n  request_ttl_blocks: 12\n  retention_lease_blocks: 34\n  sweep_interval: 45s\n  tombstone_retention_blocks: 77\n")
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,8 @@ func TestLoadFileTaskData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.TaskData.MaxBlobBytes != 8192 || cfg.TaskData.DiskAcceptWatermarkPercent != 70 ||
-		cfg.TaskData.RequestTTLBlocks != 12 || cfg.TaskData.RetentionLeaseBlocks != 34 || cfg.TaskData.SweepInterval != 45*time.Second {
+		cfg.TaskData.RequestTTLBlocks != 12 || cfg.TaskData.RetentionLeaseBlocks != 34 || cfg.TaskData.SweepInterval != 45*time.Second ||
+		cfg.TaskData.TombstoneRetentionBlocks != 77 {
 		t.Fatalf("task data yaml = %+v", cfg.TaskData)
 	}
 }
@@ -88,7 +92,8 @@ func TestExampleConfigStrictlyLoadsWithTaskDataDefaults(t *testing.T) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		t.Fatalf("example task data config: %v", err)
 	}
-	if cfg.TaskData.RequestTTLBlocks != 20 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute {
+	if cfg.TaskData.RequestTTLBlocks != 20 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute ||
+		cfg.TaskData.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("example task data config = %+v", cfg.TaskData)
 	}
 	// The example configuration of the public deadline runner: disabled by default, turning it on is an operational decision.

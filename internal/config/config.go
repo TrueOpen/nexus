@@ -52,6 +52,10 @@ type TaskDataConfig struct {
 	UserRequestsPerMinute uint32        `yaml:"user_requests_per_minute"`
 	RetentionLeaseBlocks  uint64        `yaml:"retention_lease_blocks"`
 	SweepInterval         time.Duration `yaml:"sweep_interval"`
+	// TombstoneRetentionBlocks is how long, in blocks, a deleted object's tombstone is kept after
+	// max(deletion height, retention height) before the sweep reclaims it; 0 keeps tombstones
+	// forever. The unit is blocks, not time: the default is about 7 days at 5-second blocks.
+	TombstoneRetentionBlocks uint64 `yaml:"tombstone_retention_blocks"`
 	// OutputStream is the streaming OUTPUT data plane.
 	OutputStream OutputStreamConfig `yaml:"output_stream"`
 }
@@ -700,6 +704,7 @@ func defaults() Config {
 			UserRequestsPerMinute:      600,
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,
+			TombstoneRetentionBlocks:   120960,
 			OutputStream: OutputStreamConfig{
 				Enabled: true, MaxOutputMMRLeaves: 65536, MinFrameBytes: 256, MaxAttachmentBytes: 65536, SubscriberBufferFrames: 256,
 			},
@@ -753,6 +758,7 @@ func applyEnv(cfg *Config) {
 	cfg.TaskData.RequestTTLBlocks = envUint64("NEXUS_TASK_DATA_REQUEST_TTL_BLOCKS", cfg.TaskData.RequestTTLBlocks)
 	cfg.TaskData.UserRequestsPerMinute = envUint32("NEXUS_TASK_DATA_USER_REQUESTS_PER_MINUTE", cfg.TaskData.UserRequestsPerMinute)
 	cfg.TaskData.RetentionLeaseBlocks = envUint64("NEXUS_TASK_DATA_RETENTION_LEASE_BLOCKS", cfg.TaskData.RetentionLeaseBlocks)
+	cfg.TaskData.TombstoneRetentionBlocks = envUint64("NEXUS_TASK_DATA_TOMBSTONE_RETENTION_BLOCKS", cfg.TaskData.TombstoneRetentionBlocks)
 	cfg.TaskData.SweepInterval = envDuration("NEXUS_TASK_DATA_SWEEP_INTERVAL", cfg.TaskData.SweepInterval)
 	cfg.TaskData.OutputStream.Enabled = envBool("NEXUS_TASK_DATA_OUTPUT_STREAM_ENABLED", cfg.TaskData.OutputStream.Enabled)
 	cfg.TaskData.OutputStream.MaxOutputMMRLeaves = envUint64("NEXUS_TASK_DATA_OUTPUT_STREAM_MAX_LEAVES", cfg.TaskData.OutputStream.MaxOutputMMRLeaves)
