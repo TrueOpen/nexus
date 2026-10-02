@@ -845,8 +845,9 @@ func (c *Coordinator) terminalVersionErr(key, taskHash string) error {
 }
 
 // HasAcceptedOrder reports whether key is the INPUT version this Builder durably accepted, for
-// taskdata recovery: the persisted order's task_hash and input hash for a live task, or the
-// task_hash in the terminal marker for a finished one. Another version of a known task is not
+// taskdata recovery: the chain's accepted version once the snapshot records it, else the persisted
+// order's task_hash and input hash for a live task, or the task_hash in the terminal marker for a
+// finished one. Another version of a known task is not
 // accepted, so recovery never promotes it. A snapshot without an order, or a terminal marker
 // written before the task_hash field existed, cannot name the version and keeps the old answer.
 func (c *Coordinator) HasAcceptedOrder(_ context.Context, key taskdata.ObjectKey) (bool, error) {
@@ -862,6 +863,12 @@ func (c *Coordinator) HasAcceptedOrder(_ context.Context, key taskdata.ObjectKey
 		var sn taskSnapshot
 		if err := json.Unmarshal(raw, &sn); err != nil {
 			return false, fmt.Errorf("decode task snapshot %q: %w", encoded, err)
+		}
+		if len(sn.AcceptedTaskHash) == hash32Len {
+			// Once the chain accepted a version, that is the only one recovery may promote,
+			// even when this Builder's order was another one.
+			return hex.EncodeToString(sn.AcceptedTaskHash) == key.TaskHash &&
+				(sn.AcceptedInputHash == "" || sn.AcceptedInputHash == key.ContentHash), nil
 		}
 		if sn.Order.TaskHash == "" {
 			return true, nil
@@ -1564,7 +1571,13 @@ func (c *Coordinator) removeTask(key string) string {
 			recipient = fsm.user
 		}
 		if taskHash == "" {
-			taskHash = fsm.order.TaskHash
+			// The version the task ran is the chain's accepted one; the local order is only
+			// the fallback while acceptance is unknown.
+			if len(fsm.acceptedTaskHash) == hash32Len {
+				taskHash = hex.EncodeToString(fsm.acceptedTaskHash)
+			} else {
+				taskHash = fsm.order.TaskHash
+			}
 		}
 		fsm.mu.Unlock()
 	}

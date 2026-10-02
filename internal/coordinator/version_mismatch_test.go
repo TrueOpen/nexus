@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -168,5 +170,54 @@ func TestDataReadyQueryNamesTheAcceptedInput(t *testing.T) {
 	}
 	if got := readiness.queries[len(readiness.queries)-1].InputHash; got != fx.fsm.order.PayloadHash || got == "" {
 		t.Fatalf("data-ready query input_hash = %q, want %q", got, fx.fsm.order.PayloadHash)
+	}
+}
+
+// The terminal marker of a mismatched task records the chain's version: an exact retry of the
+// accepted version is a retry, the local version is refused, and recovery accepts only the former.
+func TestTerminalMarkerRecordsTheAcceptedVersion(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	local := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("local input"), 100)
+	if err := c.OnOrder(context.Background(), local); err != nil {
+		t.Fatal(err)
+	}
+	fsm, _ := c.getFSM(local.SessionID, local.TaskID)
+	c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{
+		SessionID: local.SessionID, TaskID: local.TaskID, State: types.Pending,
+		Assignment: chaincli.TaskAssignmentState{AcceptedTaskHash: testAcceptedTaskHash, AcceptedInputHash: testAcceptedInputHash},
+	}, 120)
+	key := taskKey(local.SessionID, local.TaskID)
+	c.removeTask(key)
+
+	raw, ok := c.kv.Get(kv.NSTerminalTask, key)
+	if !ok {
+		t.Fatal("terminal marker missing")
+	}
+	var record terminalTaskRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.TaskHash != testAcceptedTaskHash {
+		t.Fatalf("terminal marker task_hash = %s, want the accepted %s", record.TaskHash, testAcceptedTaskHash)
+	}
+	accepted := local
+	accepted.TaskHash = testAcceptedTaskHash
+	if err := c.CheckOrder(context.Background(), accepted); err != nil {
+		t.Fatalf("retry of the accepted version = %v", err)
+	}
+	if err := c.CheckOrder(context.Background(), local); !errors.Is(err, ErrTaskTerminal) {
+		t.Fatalf("retry of the local version = %v, want ErrTaskTerminal", err)
+	}
+	for _, tc := range []struct {
+		taskHash, contentHash string
+		want                  bool
+	}{{testAcceptedTaskHash, testAcceptedInputHash, true}, {local.TaskHash, local.PayloadHash, false}} {
+		got, err := c.HasAcceptedOrder(context.Background(), taskdata.ObjectKey{
+			TaskHash: tc.taskHash, SessionID: local.SessionID, TaskID: local.TaskID,
+			Kind: taskdata.ObjectKindInput, ContentHash: tc.contentHash,
+		})
+		if err != nil || got != tc.want {
+			t.Fatalf("HasAcceptedOrder(task_hash=%s) = %t, %v; want %t", tc.taskHash, got, err, tc.want)
+		}
 	}
 }
