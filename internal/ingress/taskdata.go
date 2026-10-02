@@ -140,6 +140,13 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 		return nil, mapOpenTaskRequestErr(err)
 	}
+	// Refuse another version of a known task before storing anything, so the refused input never
+	// replaces the stored version's index. OnOrder repeats the check after the upload.
+	if err := s.h.CheckOrder(ctx, order); err != nil {
+		for stream.Receive() {
+		}
+		return nil, mapOrderErr(err)
+	}
 	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
 	if err != nil {
 		return nil, mapTaskDataError(err)

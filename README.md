@@ -104,6 +104,12 @@ Open items:
   (`NEXUS_INGRESS_METHOD_RETIRED`) before the request is parsed.
 - `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
   SDK-side field table and storage-confirmation proto are frozen.
+- Replacing a pending order is not supported yet. An `OpenTask` for a `(session_id, task_id)` this
+  Builder already tracks with a different `task_hash` returns `FailedPrecondition`
+  (`NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED`), and one for a task that already finished with a
+  different `task_hash` returns `FailedPrecondition` (`NEXUS_INGRESS_TASK_TERMINAL`). The tracked
+  version is kept and the refused input is not kept. An exact retry of the tracked version still
+  succeeds. The caller must not retry the refused version, here or on another Builder.
 - Several task event codes still use Nexus names rather than the SDK-facing event names (for
   example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
   are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.

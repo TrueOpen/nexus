@@ -41,6 +41,16 @@ var (
 	ErrUnauthorized = types.ErrUnauthorized
 )
 
+var (
+	// ErrOrderReplacementUnsupported refuses an order whose task_hash differs from the version this
+	// Builder already tracks for the same (session_id, task_id). Replacing a pending order is not
+	// supported yet: the tracked version stays, and the caller must not retry the new one.
+	ErrOrderReplacementUnsupported = errors.New("NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED")
+	// ErrTaskTerminal refuses an order whose task_hash differs from the version of a task that has
+	// already reached a terminal state. An exact retry of the terminal version is still accepted.
+	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
+)
+
 const terminalTaskVersion = 1
 
 const payloadCleanupVersion = 1
@@ -48,6 +58,10 @@ const payloadCleanupVersion = 1
 type terminalTaskRecord struct {
 	Version   int    `json:"version"`
 	Recipient string `json:"recipient"`
+	// TaskHash is the order version the task ran. Markers written before it existed leave it
+	// empty, and then a later order cannot be told apart from an exact retry. removeTask keeps an
+	// existing value when it rewrites the marker (terminalTaskHash).
+	TaskHash string `json:"task_hash,omitempty"`
 }
 
 type payloadCleanupRecord struct {
@@ -679,8 +693,18 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 		return fmt.Errorf("read terminal task marker: %w", err)
 	}
 	if alreadyTerminal {
+		if err := c.terminalVersionErr(key, o.TaskHash); err != nil {
+			c.log.Info("order for terminal task refused",
+				"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+			return err
+		}
 		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
 		return nil
+	}
+	if err := c.trackedVersionErr(key, o.TaskHash); err != nil {
+		c.log.Info("order replacement refused",
+			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+		return err
 	}
 	if c.admission != nil {
 		result, err := c.admission.AdmitOrder(ctx, o)
@@ -715,6 +739,11 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 	c.mu.Lock()
 	if _, terminal := c.terminalTasks[key]; terminal {
 		c.mu.Unlock()
+		if err := c.terminalVersionErr(key, o.TaskHash); err != nil {
+			c.log.Info("order for terminal task refused",
+				"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+			return err
+		}
 		c.deletePayload(o.SessionID, o.TaskID)
 		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
 		return nil
@@ -723,6 +752,14 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 	if !exists {
 		fsm = c.newFSM(o)
 		c.tasks[key] = fsm
+	} else if tracked := fsm.order.TaskHash; tracked != o.TaskHash {
+		// Checked again under c.mu: a concurrent OnOrder may have created the FSM after the
+		// trackedVersionErr check above.
+		c.mu.Unlock()
+		err := fmt.Errorf("%w: tracked task_hash %s", ErrOrderReplacementUnsupported, tracked)
+		c.log.Info("order replacement refused",
+			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+		return err
 	}
 	n := len(c.tasks)
 	c.mu.Unlock()
@@ -760,6 +797,65 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 	}
 	c.log.Info("order accepted locally",
 		"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "tasks_inflight", n)
+	return nil
+}
+
+// CheckOrder reports whether OnOrder would refuse o because of its version, without changing any
+// state. Ingress calls it before storing the input, so a refused version is never written. OnOrder
+// repeats the same checks and stays authoritative.
+func (c *Coordinator) CheckOrder(_ context.Context, o types.Order) error {
+	key := taskKey(o.SessionID, o.TaskID)
+	_, terminal, err := c.terminalMarker(key)
+	if err != nil {
+		return fmt.Errorf("read terminal task marker: %w", err)
+	}
+	if terminal {
+		err = c.terminalVersionErr(key, o.TaskHash)
+	} else {
+		err = c.trackedVersionErr(key, o.TaskHash)
+	}
+	if errors.Is(err, ErrOrderReplacementUnsupported) || errors.Is(err, ErrTaskTerminal) {
+		c.log.Info("order refused before input upload",
+			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+	}
+	return err
+}
+
+// trackedVersionErr refuses taskHash when an FSM already tracks a different version of the task.
+// fsm.order is set before the FSM is published in c.tasks and never written afterwards, so reading
+// it under c.mu alone is safe.
+func (c *Coordinator) trackedVersionErr(key, taskHash string) error {
+	c.mu.RLock()
+	fsm, exists := c.tasks[key]
+	tracked := ""
+	if exists {
+		tracked = fsm.order.TaskHash
+	}
+	c.mu.RUnlock()
+	if exists && tracked != taskHash {
+		return fmt.Errorf("%w: tracked task_hash %s", ErrOrderReplacementUnsupported, tracked)
+	}
+	return nil
+}
+
+// terminalVersionErr refuses taskHash when the durable terminal marker records a different version.
+// A marker without a task_hash (written before the field existed, or not persisted yet) cannot tell
+// the two apart, so the order is treated as an exact retry, as before.
+func (c *Coordinator) terminalVersionErr(key, taskHash string) error {
+	raw, found, err := c.kv.GetWithError(kv.NSTerminalTask, key)
+	if err != nil {
+		return fmt.Errorf("read terminal task marker: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	var record terminalTaskRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.Version != terminalTaskVersion {
+		return fmt.Errorf("invalid terminal task marker %q", key)
+	}
+	if record.TaskHash != "" && record.TaskHash != taskHash {
+		return fmt.Errorf("%w: terminal task_hash %s", ErrTaskTerminal, record.TaskHash)
+	}
 	return nil
 }
 
@@ -1472,15 +1568,19 @@ func (c *Coordinator) removeTask(key string) string {
 	}
 	var accepted []byte
 	recipient := existingRecipient
+	taskHash := c.terminalTaskHash(key)
 	if fsm != nil {
 		fsm.mu.Lock()
 		accepted = append([]byte(nil), fsm.outputHash...)
 		if !alreadyTerminal {
 			recipient = fsm.user
 		}
+		if taskHash == "" {
+			taskHash = fsm.order.TaskHash
+		}
 		fsm.mu.Unlock()
 	}
-	raw, err := json.Marshal(terminalTaskRecord{Version: terminalTaskVersion, Recipient: recipient})
+	raw, err := json.Marshal(terminalTaskRecord{Version: terminalTaskVersion, Recipient: recipient, TaskHash: taskHash})
 	if err != nil {
 		c.log.Error("terminal task marker encode failed; retaining snapshot for retry", "key", key, "err", err)
 	} else if err := c.kv.Set(kv.NSTerminalTask, key, raw); err != nil {
@@ -1552,6 +1652,20 @@ func (c *Coordinator) onOutputFinalized(sessionID, taskID string) {
 	c.outputFinalized[key] = struct{}{}
 	c.mu.Unlock()
 	c.deleteTaskSnapshot(key)
+}
+
+// terminalTaskHash returns the task_hash an existing terminal marker records, or "" when there is
+// no readable marker or it predates the field. removeTask keeps it when rewriting the marker.
+func (c *Coordinator) terminalTaskHash(key string) string {
+	raw, found, err := c.kv.GetWithError(kv.NSTerminalTask, key)
+	if err != nil || !found {
+		return ""
+	}
+	var record terminalTaskRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.Version != terminalTaskVersion {
+		return ""
+	}
+	return record.TaskHash
 }
 
 func (c *Coordinator) isOutputFinalized(key string) bool {
