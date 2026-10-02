@@ -31,6 +31,10 @@ import (
 // Handler is the application-level implementation behind IngressAPI, satisfied by the Coordinator.
 // Every task-level entry point carries the composite key session_id + task_id.
 type Handler interface {
+	// CheckOrder refuses, without changing state, an order that OnOrder would refuse for its
+	// version (a different task_hash for a tracked or terminal task). OpenTask calls it before
+	// storing the input.
+	CheckOrder(ctx context.Context, o types.Order) error
 	OnOrder(ctx context.Context, o types.Order) error
 	// OnInferReceipt accepts the selected Worker's signed InferReceipt.
 	// Acceptance means the Builder commits to relaying it; it does not wait for output/evidence upload and does not mean on-chain accepted.
@@ -637,6 +641,12 @@ func mapOrderErr(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_INGRESS_NOT_SELECTED_BUILDER"))
 	case errors.Is(err, coordinator.ErrAdmissionUnavailable):
 		return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_INGRESS_STAGE1_UNAVAILABLE"))
+	case errors.Is(err, coordinator.ErrOrderReplacementUnsupported):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
+			"NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED: this Builder already tracks another version of the task; do not retry"))
+	case errors.Is(err, coordinator.ErrTaskTerminal):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
+			"NEXUS_INGRESS_TASK_TERMINAL: the task already finished with another version; do not retry"))
 	default:
 		return mapPayloadErr(err)
 	}

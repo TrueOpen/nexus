@@ -398,6 +398,7 @@ type fakeHandler struct {
 	subscribeOutput     func(context.Context, string, string, string) (types.PlaintextOutput, error)
 	ackOutput           func(context.Context, string, string, string, string) (types.OutputAck, error)
 	onOrder             func(context.Context, types.Order) error
+	checkOrder          func(context.Context, types.Order) error
 	// sessionForTask is the lookup the wire relay path requires: the request carries only the on-chain message,
 	// and the on-chain task_id does not contain the session.
 	sessionForTask    string
@@ -412,6 +413,13 @@ func (f *fakeHandler) SessionForTask(_ context.Context, _ string) (string, error
 		return "sess-relay", nil
 	}
 	return f.sessionForTask, nil
+}
+
+func (f *fakeHandler) CheckOrder(ctx context.Context, o types.Order) error {
+	if f.checkOrder != nil {
+		return f.checkOrder(ctx, o)
+	}
+	return nil
 }
 
 func (f *fakeHandler) OnOrder(ctx context.Context, o types.Order) error {
