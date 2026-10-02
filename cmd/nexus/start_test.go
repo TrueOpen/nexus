@@ -223,11 +223,15 @@ func (n *fakeStartNode) GetLatestBlock(context.Context, *connect.Request[cmtv1be
 	}), nil
 }
 
-// Params lets app.New read phase0.evm_chain_id: the EIP-712 chainId comes from Hub params only,
-// and nexus does not start if it cannot be read.
+// Params lets app.New read phase0.evm_chain_id and service.max_service_material_expiry_blocks: the
+// EIP-712 chainId and the service material expiry bound come from Hub params only, and nexus does
+// not start if either is missing or zero.
 func (n *fakeStartNode) Params(context.Context, *connect.Request[hubv1.QueryHubParamsRequest]) (*connect.Response[hubv1.QueryHubParamsResponse], error) {
 	return connect.NewResponse(&hubv1.QueryHubParamsResponse{
-		Params: &hubv1.HubParamsV2{Phase0: &hubv1.Phase0ParamsV1{EvmChainId: 31337}},
+		Params: &hubv1.HubParamsV2{
+			Phase0:  &hubv1.Phase0ParamsV1{EvmChainId: 31337},
+			Service: &hubv1.ServiceParamsV1{MaxServiceMaterialExpiryBlocks: 604800},
+		},
 	}), nil
 }
 
