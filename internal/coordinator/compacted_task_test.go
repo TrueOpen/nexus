@@ -105,9 +105,13 @@ func TestReconcileClosesCompactedTask(t *testing.T) {
 	if !c.reconcileTask("session-1", "task-1", 0, "test", nil) {
 		t.Fatal("reconciliation of a compacted task did not complete")
 	}
-	if _, err := c.TaskStatus(context.Background(), "session-1", "task-1"); !errors.Is(err, ErrTaskNotFound) {
-		t.Fatalf("compacted task was not closed: %v", err)
-	}
+	// The started coordinator's background reconciliation may reach the task first. It then marks
+	// the FSM terminal before this call and removes it just after, so wait for the removal rather
+	// than expect it the instant this call returns.
+	eventually(t, func() bool {
+		_, err := c.TaskStatus(context.Background(), "session-1", "task-1")
+		return errors.Is(err, ErrTaskNotFound)
+	})
 }
 
 // A compacted settled summary that is not FINAL is inconsistent with how the chain compacts;
