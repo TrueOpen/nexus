@@ -647,6 +647,18 @@ type TaskStage struct {
 	NextDeadlineHeight uint64 `json:"next_deadline_height,omitempty"`
 }
 
+// VerifierWindow is the header of one round's verifier candidate window
+// (task.v1.Query/VerifierCandidateWindow). The chain writes it when it accepts the receipt, with
+// every close height already frozen; only Ready and GeneratedHeight change, once the window
+// randomness has arrived.
+type VerifierWindow struct {
+	WindowRandomnessHeight     uint64
+	BuilderProposalCloseHeight uint64 // last height at which a selected Task Builder may submit a proposal
+	HandraiseCloseHeight       uint64 // last height at which the winner Worker may still submit one
+	GeneratedHeight            uint64 // 0 until Ready
+	Ready                      bool
+}
+
 // ChallengeCloseHeight returns challenge_close_height while the challenge window is the task's
 // next deadline, and 0 otherwise.
 func (s TaskStage) ChallengeCloseHeight() uint64 {

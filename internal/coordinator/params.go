@@ -23,6 +23,10 @@ const (
 	// the CSV is not submitted on-chain either (SubmitOpenVerify only takes InferReceipt and Submitter). It is kept
 	// only because OpenVerifyTx still carries this historical field.
 	selectedVerifierCount = 3
+	// verifierProposalCloseLeadBlocks is how many blocks before BuilderProposalCloseHeight batched
+	// Verifier hand-raises are submitted without waiting out the batching delay. It covers a height
+	// poll that skips a block or two.
+	verifierProposalCloseLeadBlocks = 2
 
 	// verifierProposalBatchDelay: how long to accumulate after the first Verifier hand-raise before submitting a proposal.
 	// Hand-raises usually arrive within a few hundred milliseconds; submitting one by one becomes several

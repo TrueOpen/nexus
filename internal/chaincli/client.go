@@ -553,6 +553,36 @@ func (c *client) QueryTaskStage(ctx context.Context, taskID string) (TaskStage, 
 	return result, nil
 }
 
+// QueryVerifierCandidateWindow reads the header of one round's verifier candidate window
+// (task.v1.Query/VerifierCandidateWindow). A window the chain does not have returns ErrNotFound.
+// The member list in the response is not used.
+func (c *client) QueryVerifierCandidateWindow(ctx context.Context, taskID string, verifyRound uint32) (VerifierWindow, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
+	if err != nil || verifyRound == 0 {
+		return VerifierWindow{}, fmt.Errorf("query verifier window task=%q round=%d: task_id and verify_round are required", taskID, verifyRound)
+	}
+	resp, err := c.taskQuery.VerifierCandidateWindow(ctx, connect.NewRequest(&taskv1.QueryVerifierCandidateWindowRequest{
+		TaskId: id, VerifyRound: verifyRound,
+	}))
+	if err != nil {
+		return VerifierWindow{}, applicationQueryError("verifier window", err)
+	}
+	window := resp.Msg.GetWindow()
+	if window == nil || len(window.GetTaskId()) == 0 {
+		return VerifierWindow{}, ErrNotFound
+	}
+	if !bytes.Equal(window.GetTaskId(), id) || window.GetVerifyRound() != verifyRound {
+		return VerifierWindow{}, fmt.Errorf("query verifier window: response key does not match request")
+	}
+	return VerifierWindow{
+		WindowRandomnessHeight:     window.GetWindowRandomnessHeight(),
+		BuilderProposalCloseHeight: window.GetBuilderProposalCloseHeight(),
+		HandraiseCloseHeight:       window.GetHandraiseCloseHeight(),
+		GeneratedHeight:            window.GetGeneratedHeight(),
+		Ready:                      window.GetStatus() == taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY,
+	}, nil
+}
+
 func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error) {
 	rawModelID, err := nodecontract.Hash32Bytes("model_id", modelID)
 	if err != nil || profileVersion == 0 {

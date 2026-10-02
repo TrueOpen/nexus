@@ -42,10 +42,12 @@ type fakeSubmitter struct {
 
 	verifierHandraises    []chaincli.OpenVerifyTx
 	verifierHandraisesErr error
-	verifyResults         []chaincli.VerifyResultTx
-	verifyCommits         []chaincli.VerifyCommitTx
-	verifyCommitErr       error
-	verifyResultErr       error
+	// verifierHandraiseAttempts counts every submission, including refused ones.
+	verifierHandraiseAttempts int
+	verifyResults             []chaincli.VerifyResultTx
+	verifyCommits             []chaincli.VerifyCommitTx
+	verifyCommitErr           error
+	verifyResultErr           error
 
 	// verifierExcluded is reported as left out of every verifier handraise proposal.
 	verifierExcluded []ExcludedHandraise
@@ -129,6 +131,7 @@ func (s *fakeSubmitter) SubmitOpenVerify(_ context.Context, tx chaincli.OpenVeri
 func (s *fakeSubmitter) SubmitVerifierHandraises(_ context.Context, tx chaincli.OpenVerifyTx) (ProposalResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.verifierHandraiseAttempts++
 	if s.verifierHandraisesErr != nil {
 		return ProposalResult{}, s.verifierHandraisesErr
 	}

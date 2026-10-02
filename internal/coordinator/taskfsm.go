@@ -167,7 +167,18 @@ type taskFSM struct {
 	// verifierProposalTimer batches hand-raises; when verifierProposalDelay is 0, submit synchronously (for tests).
 	verifierProposalTimer *time.Timer
 	verifierProposalDelay time.Duration
-	settleSelection       chaincli.StageBuilderSelectionState
+	// verifierWindow is the round 1 verifier window header, read by reconciliation. A selected
+	// Task Builder may submit Verifier proposals up to BuilderProposalCloseHeight; after that only
+	// the winner Worker may. verifierProposalClosed records that this Builder is past that height
+	// and stops submitting. Neither is persisted: both are derived from the chain, and after a
+	// restart the next reconciliation reads the window again.
+	verifierWindow         chaincli.VerifierWindow
+	verifierWindowKnown    bool
+	verifierProposalClosed bool
+	// verifierRandomnessTried records that the attempt due once the window randomness height has
+	// passed was made, so each new block does not repeat it.
+	verifierRandomnessTried bool
+	settleSelection         chaincli.StageBuilderSelectionState
 	// settleStage is the chain's word on whether the task can be settled now, read by
 	// reconciliation (QueryTaskStage). Not persisted: after a restart the next reconciliation
 	// reads it again, and until then this node only waits.
@@ -821,7 +832,11 @@ func (f *taskFSM) onVerifierHandraise(hr *taskv1.VerifierHandraiseV1) {
 	candidate := hr.GetMember().GetOperatorAddress()
 	f.verifierHR[candidate] = hr
 	f.save()
-	f.log.Info("verifier handraise accepted", "task_id", f.taskID, "candidate", candidate,
+	logAccepted := f.log.Info
+	if f.verifierProposalClosed {
+		logAccepted = f.log.Debug // kept, but this Builder can no longer submit it
+	}
+	logAccepted("verifier handraise accepted", "task_id", f.taskID, "candidate", candidate,
 		"count", len(f.verifierHR), "need", proposalHandraiseMin)
 
 	f.submitOpenVerifyLocked()
@@ -833,6 +848,9 @@ func (f *taskFSM) onVerifierHandraise(hr *taskv1.VerifierHandraiseV1) {
 // verifierProposalDelay timer and submit whatever has been collected when it fires.
 // Caller must hold the lock.
 func (f *taskFSM) scheduleVerifierProposalLocked() {
+	if f.verifierProposalClosed {
+		return
+	}
 	pending := len(f.pendingVerifierHandraises())
 	if pending == 0 {
 		return
@@ -894,6 +912,9 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 			"task_id", f.taskID, "self", f.self, "handraises", len(pending))
 		return
 	}
+	if !f.verifierProposalOpenLocked(len(pending)) {
+		return
+	}
 	tx := chaincli.OpenVerifyTx{
 		BuilderOperatorAddress: f.self, SessionID: f.sessionID, TaskID: f.taskID, WorkerOperatorAddress: f.winner,
 		VerifierHandraises: pending, Submitter: f.self,
@@ -903,6 +924,11 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 	if err != nil {
 		f.log.Warn("submit MsgSubmitVerifierHandraises failed; will retry on the next chain reconciliation",
 			"task_id", f.taskID, "handraises", len(pending), "excluded", len(result.Excluded), "err", err)
+		// The chain gives the same "window is unavailable" before the window is READY and after it
+		// closes, so whether to keep retrying is decided by height, never by the error text.
+		if f.pastBuilderProposalCloseLocked() {
+			f.closeVerifierProposalsLocked(len(pending))
+		}
 		return
 	}
 	for _, hr := range pending {
@@ -915,6 +941,100 @@ func (f *taskFSM) submitVerifierProposalLocked() {
 	f.log.Info("MsgSubmitVerifierHandraises submitted", "task_id", f.taskID,
 		"handraises", len(pending)-len(result.Excluded), "excluded", len(result.Excluded),
 		"proposed_total", len(f.verifierHRProposed))
+}
+
+// verifierProposalOpenLocked reports whether this Builder may submit a Verifier proposal now.
+// Without the window (not read yet, or the read failed) it keeps the default: submit, and retry on
+// the next reconciliation if the chain refuses. A proposal executes at observedHeight+1 at the
+// earliest, and the chain accepts a Builder's proposal while the height is at most
+// BuilderProposalCloseHeight. Caller must hold the lock.
+func (f *taskFSM) verifierProposalOpenLocked(pending int) bool {
+	if !f.verifierWindowKnown || f.observedHeight == 0 {
+		return true
+	}
+	if f.pastBuilderProposalCloseLocked() {
+		f.closeVerifierProposalsLocked(pending)
+		return false
+	}
+	next := f.observedHeight + 1
+	if f.verifierWindow.Ready {
+		// GeneratedHeight is at most the height at which READY was read, so this almost never holds
+		// back a proposal; nothing re-triggers one when it does, and the next reconciliation retries.
+		return next >= f.verifierWindow.GeneratedHeight
+	}
+	// Not READY when last read. Until the window randomness height the beacon cannot have arrived,
+	// so a submission would surely be refused; after it the cached status may be stale, so try, and
+	// a refusal is retried on the next reconciliation as before.
+	return next > f.verifierWindow.WindowRandomnessHeight
+}
+
+// pastBuilderProposalCloseLocked reports whether a proposal sent now would execute after the last
+// height at which the chain accepts one from a Task Builder. Caller must hold the lock.
+func (f *taskFSM) pastBuilderProposalCloseLocked() bool {
+	return f.verifierWindowKnown && f.observedHeight > 0 &&
+		f.observedHeight+1 > f.verifierWindow.BuilderProposalCloseHeight
+}
+
+// closeVerifierProposalsLocked stops this Builder submitting Verifier proposals for the task. The
+// hand-raises still pending are kept, but only the winner Worker can put them on chain now.
+// Caller must hold the lock.
+func (f *taskFSM) closeVerifierProposalsLocked(pending int) {
+	if f.verifierProposalClosed {
+		return
+	}
+	f.verifierProposalClosed = true
+	f.stopVerifierProposalTimerLocked()
+	f.log.Info("Builder Verifier proposal window closed; remaining hand-raises are left to the winner Worker",
+		"task_id", f.taskID, "builder_proposal_close_height", f.verifierWindow.BuilderProposalCloseHeight,
+		"height", f.observedHeight, "pending_handraises", pending)
+}
+
+// needsVerifierWindow reports whether reconciliation should read the round 1 verifier window:
+// while this Builder may still submit proposals and the window is not known READY. Reconciliation
+// asks only once the chain has accepted the receipt, which is when the window is written.
+func (f *taskFSM) needsVerifierWindow() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state == types.Assigned && !f.verifierProposalClosed &&
+		(!f.verifierWindowKnown || !f.verifierWindow.Ready)
+}
+
+// setVerifierWindow records the round 1 verifier window header read by reconciliation.
+func (f *taskFSM) setVerifierWindow(window chaincli.VerifierWindow) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.verifierWindow = window
+	f.verifierWindowKnown = true
+}
+
+// onHeightVerifierProposalLocked acts on two points in the Builder proposal window that a new
+// block can pass without any reconciliation or hand-raise to trigger a submission. Heights come
+// from polling and can skip blocks, so both are ranges, not exact heights:
+//   - once the next block is past the window randomness height, hand-raises held back by
+//     verifierProposalOpenLocked are tried once;
+//   - once the next block is within verifierProposalCloseLeadBlocks of BuilderProposalCloseHeight,
+//     batched hand-raises are submitted instead of letting the batching delay carry them past it.
+//
+// Caller must hold the lock.
+func (f *taskFSM) onHeightVerifierProposalLocked() {
+	if !f.verifierWindowKnown || f.verifierProposalClosed {
+		return
+	}
+	next := f.observedHeight + 1
+	if !f.verifierWindow.Ready && !f.verifierRandomnessTried && next > f.verifierWindow.WindowRandomnessHeight {
+		f.verifierRandomnessTried = true
+		f.scheduleVerifierProposalLocked()
+	}
+	// Checked before stopping the timer, in the same order as submitVerifierProposalLocked: only a
+	// Builder holding the signed receipt and data-ready can submit, and if the window holds the
+	// proposal back the batch keeps its timer instead of waiting for the next reconciliation. A
+	// Builder that could never submit therefore does not close the window or log it.
+	if f.verifierProposalTimer != nil && next+verifierProposalCloseLeadBlocks >= f.verifierWindow.BuilderProposalCloseHeight &&
+		len(f.outputHash) > 0 && f.dataReadyLocked() &&
+		f.verifierProposalOpenLocked(len(f.pendingVerifierHandraises())) {
+		f.stopVerifierProposalTimerLocked()
+		f.submitVerifierProposalLocked()
+	}
 }
 
 // excludeVerifierHandraisesLocked records hand-raisers the chain refused on their own, with
@@ -1931,6 +2051,7 @@ func (f *taskFSM) onHeight(height uint64) {
 		return
 	}
 	f.observedHeight = height
+	f.onHeightVerifierProposalLocked()
 	f.trySettle()
 	check := f.followSubmittedTxsLocked()
 	f.mu.Unlock()

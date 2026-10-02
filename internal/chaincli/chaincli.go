@@ -195,6 +195,11 @@ func (c *stubClient) QueryTaskStage(context.Context, string) (TaskStage, error) 
 	return TaskStage{}, ErrNotFound
 }
 
+// QueryVerifierCandidateWindow has no chain to ask in stub mode; callers keep their default.
+func (c *stubClient) QueryVerifierCandidateWindow(context.Context, string, uint32) (VerifierWindow, error) {
+	return VerifierWindow{}, ErrNotFound
+}
+
 // QueryEvidenceCleanup has no chain to ask in stub mode; ErrNotFound keeps every object on the
 // pre-chain retention path.
 func (c *stubClient) QueryEvidenceCleanup(context.Context, string) (EvidenceCleanupStatus, error) {

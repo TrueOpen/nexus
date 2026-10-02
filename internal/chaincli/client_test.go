@@ -665,6 +665,8 @@ type recordTaskQuery struct {
 	builders          *taskv1.QueryTaskBuildersResponse
 	params            *taskv1.QueryTaskParamsResponse
 	stage             *taskv1.QueryTaskStageResponse
+	window            *taskv1.QueryVerifierCandidateWindowResponse
+	windowRequest     *taskv1.QueryVerifierCandidateWindowRequest
 	assignment        *taskv1.QueryVerifierAssignmentResponse
 	assignmentErr     error
 	assignmentRequest *taskv1.QueryVerifierAssignmentRequest
@@ -699,6 +701,11 @@ func (q *recordTaskQuery) InferReceipt(context.Context, *connect.Request[taskv1.
 
 func (q *recordTaskQuery) TaskStage(context.Context, *connect.Request[taskv1.QueryTaskStageRequest]) (*connect.Response[taskv1.QueryTaskStageResponse], error) {
 	return connect.NewResponse(q.stage), nil
+}
+
+func (q *recordTaskQuery) VerifierCandidateWindow(_ context.Context, req *connect.Request[taskv1.QueryVerifierCandidateWindowRequest]) (*connect.Response[taskv1.QueryVerifierCandidateWindowResponse], error) {
+	q.windowRequest = req.Msg
+	return connect.NewResponse(q.window), nil
 }
 
 func (q *recordTaskQuery) VerifierAssignment(_ context.Context, req *connect.Request[taskv1.QueryVerifierAssignmentRequest]) (*connect.Response[taskv1.QueryVerifierAssignmentResponse], error) {
@@ -926,6 +933,51 @@ func TestQueryTaskStageMapsChallengeWindow(t *testing.T) {
 	c = &client{taskQuery: &recordTaskQuery{stage: stage(mustHash32("99"), taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE)}}
 	if _, err := c.QueryTaskStage(context.Background(), testTaskIDHex); err == nil {
 		t.Fatal("stage for another task accepted")
+	}
+}
+
+// VerifierCandidateWindow maps the window header; READY is the only ready status, a missing window
+// is ErrNotFound, and a window for another task or round is rejected.
+func TestQueryVerifierCandidateWindowMapsHeader(t *testing.T) {
+	window := func(taskID []byte, round uint32, status taskv1.VerifierCandidateWindowStatusV1) *taskv1.QueryVerifierCandidateWindowResponse {
+		return &taskv1.QueryVerifierCandidateWindowResponse{Window: &taskv1.VerifierCandidateWindowState{
+			TaskId: taskID, VerifyRound: round, Status: status,
+			WindowRandomnessHeight: 105, BuilderProposalCloseHeight: 200, HandraiseCloseHeight: 230, GeneratedHeight: 106,
+		}}
+	}
+	q := &recordTaskQuery{window: window(testTaskIDBytes, 1, taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY)}
+	c := &client{taskQuery: q}
+	got, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := VerifierWindow{WindowRandomnessHeight: 105, BuilderProposalCloseHeight: 200, HandraiseCloseHeight: 230, GeneratedHeight: 106, Ready: true}
+	if got != want {
+		t.Fatalf("window = %+v, want %+v", got, want)
+	}
+	if q.windowRequest.GetVerifyRound() != 1 || !bytes.Equal(q.windowRequest.GetTaskId(), testTaskIDBytes) {
+		t.Fatalf("request = %+v", q.windowRequest)
+	}
+
+	c = &client{taskQuery: &recordTaskQuery{window: window(testTaskIDBytes, 1, taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_SOURCE_FROZEN)}}
+	if got, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 1); err != nil || got.Ready {
+		t.Fatalf("SOURCE_FROZEN read as ready: %+v, %v", got, err)
+	}
+	c = &client{taskQuery: &recordTaskQuery{window: &taskv1.QueryVerifierCandidateWindowResponse{}}}
+	if _, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing window: err = %v, want ErrNotFound", err)
+	}
+	for name, resp := range map[string]*taskv1.QueryVerifierCandidateWindowResponse{
+		"other task":  window(mustHash32("99"), 1, taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY),
+		"other round": window(testTaskIDBytes, 2, taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY),
+	} {
+		c = &client{taskQuery: &recordTaskQuery{window: resp}}
+		if _, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 1); err == nil {
+			t.Fatalf("%s: window accepted", name)
+		}
+	}
+	if _, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 0); err == nil {
+		t.Fatal("round 0 accepted")
 	}
 }
 
