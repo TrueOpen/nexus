@@ -69,6 +69,7 @@ type Coordinator struct {
 	settlementFacts SettlementFactsQuerier
 	challenge       ChallengeQuerier
 	inferReceipts   InferReceiptQuerier
+	verifierWindows VerifierWindowQuerier
 	taskEvents      chaincli.TaskEventTracker
 	txQuery         TxQuerier
 	verifyState     VerifyStateQuerier
@@ -212,6 +213,11 @@ type ChallengeQuerier interface {
 	QueryTaskStage(context.Context, string) (chaincli.TaskStage, error)
 }
 
+// VerifierWindowQuerier reads the header of one round's verifier candidate window.
+type VerifierWindowQuerier interface {
+	QueryVerifierCandidateWindow(ctx context.Context, taskID string, verifyRound uint32) (chaincli.VerifierWindow, error)
+}
+
 type TxQuerier interface {
 	QueryTx(context.Context, []byte) (chaincli.TxResult, error)
 }
@@ -309,6 +315,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 		c.settlementFacts, _ = query.(SettlementFactsQuerier)
 		c.challenge, _ = query.(ChallengeQuerier)
 		c.inferReceipts, _ = query.(InferReceiptQuerier)
+		c.verifierWindows, _ = query.(VerifierWindowQuerier)
 		c.verifyState, _ = query.(VerifyStateQuerier)
 	}
 }
@@ -398,6 +405,7 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 		reconcileRetryBase: time.Second,
 		reconcileRetryMax:  30 * time.Second,
 	}
+	c.verifierWindows, _ = chain.(VerifierWindowQuerier)
 	if query, ok := chain.(TxQuerier); ok {
 		c.txQuery = query
 	}
@@ -2098,6 +2106,24 @@ func (c *Coordinator) fillAcceptedReceipt(fsm *taskFSM) {
 	fsm.setAcceptedReceipt(receipt)
 }
 
+// fillVerifierWindow reads the round 1 verifier window while this Builder may still submit Verifier
+// proposals for it. The close heights are frozen when the chain accepts the receipt, so one read
+// would do; it is read again only until the window is READY. A failed read leaves the FSM on its
+// default, which is to submit and retry.
+func (c *Coordinator) fillVerifierWindow(fsm *taskFSM) {
+	if c.verifierWindows == nil || !fsm.needsVerifierWindow() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
+	window, err := c.verifierWindows.QueryVerifierCandidateWindow(ctx, fsm.taskID, 1)
+	cancel()
+	if err != nil {
+		c.log.Debug("verifier window query failed", "task_id", fsm.taskID, "err", err)
+		return
+	}
+	fsm.setVerifierWindow(window)
+}
+
 func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
 	// task_hash is a consensus fact and may only come from on-chain query/event. Once recorded, subsequent
 	// Worker proposals for the same task can take the ExistingTaskRefV1 branch.
@@ -2146,6 +2172,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	if (state == types.Assigned || state == types.Verifying) &&
 		(snapshot.ReceiptAccepted || snapshot.InferReceipt.InferReceiptHash != "") {
 		c.fillAcceptedReceipt(fsm)
+		c.fillVerifierWindow(fsm)
 		fsm.onInferReceiptAccepted()
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also
