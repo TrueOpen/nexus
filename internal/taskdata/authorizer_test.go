@@ -380,21 +380,21 @@ func TestAuthorizerReplayCheckDoesNotScanLiveNonceRecords(t *testing.T) {
 func TestAuthorizerOpenTaskHeightAndReplaySurviveRestart(t *testing.T) {
 	fx := newAuthorizerFixture(t)
 	ctx := context.Background()
-	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), bytes.Repeat([]byte{1}, 16), 99); !errors.Is(err, ErrExpired) {
+	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), bytes.Repeat([]byte{1}, 16), 99, 1000); !errors.Is(err, ErrExpired) {
 		t.Fatalf("expired OpenTask error = %v", err)
 	}
-	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), bytes.Repeat([]byte{2}, 16), 121); !errors.Is(err, ErrExpired) {
+	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), bytes.Repeat([]byte{2}, 16), 121, 1000); !errors.Is(err, ErrExpired) {
 		t.Fatalf("overlong OpenTask error = %v", err)
 	}
 	nonce := bytes.Repeat([]byte{3}, 16)
-	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); err != nil {
+	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); err != nil {
 		t.Fatal(err)
 	}
 	restarted, err := NewAuthorizer(fx.authorizer.cfg, fx.backend, fx.authority, fx.service)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110); !errors.Is(err, ErrReplay) {
+	if err := restarted.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); !errors.Is(err, ErrReplay) {
 		t.Fatalf("replayed OpenTask after restart error = %v", err)
 	}
 }
@@ -1269,5 +1269,20 @@ func TestRequestExpiryWindowRefreshes(t *testing.T) {
 	authorizer.expiryRefreshed = time.Now().Add(-2 * time.Hour)
 	if got := authorizer.requestExpiryBlocks(ctx); got != 300 {
 		t.Fatalf("after a failed read: %d, want 300", got)
+	}
+}
+
+// An order is refused once the observed height is past its order_expire_height, the chain's
+// boundary, and the refused request does not use its nonce.
+func TestAuthorizerOpenTaskRefusesExpiredOrder(t *testing.T) {
+	fx := newAuthorizerFixture(t) // observed height 100
+	ctx := context.Background()
+	nonce := bytes.Repeat([]byte{4}, 16)
+	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 99); !errors.Is(err, ErrOrderExpired) {
+		t.Fatalf("order expired at 99, height 100: error = %v, want ErrOrderExpired", err)
+	}
+	// The refused request left its nonce unused.
+	if err := fx.authorizer.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 100); err != nil {
+		t.Fatalf("order expiring at the current height: %v", err)
 	}
 }

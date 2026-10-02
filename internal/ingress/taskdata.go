@@ -27,7 +27,7 @@ type taskDataUpload interface {
 }
 
 type taskDataAPI interface {
-	AuthorizeOpenTaskRequest(context.Context, string, []byte, uint64) error
+	AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry, orderExpireHeight uint64) error
 	GetMetadata(context.Context, taskdata.RequestAuth) (taskdata.Metadata, bool, error)
 	OpenFetch(context.Context, taskdata.RequestAuth, *taskdata.ByteRange) (io.ReadCloser, taskdata.ByteRange, taskdata.Metadata, error)
 	BeginUpload(context.Context, taskdata.RequestAuth, taskdata.UploadHeader) (taskDataUpload, error)
@@ -44,8 +44,8 @@ type taskDataAPI interface {
 
 type taskDataRuntime struct{ service *taskdata.Service }
 
-func (r taskDataRuntime) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry uint64) error {
-	return r.service.AuthorizeOpenTaskRequest(ctx, requester, nonce, expiry)
+func (r taskDataRuntime) AuthorizeOpenTaskRequest(ctx context.Context, requester string, nonce []byte, expiry, orderExpireHeight uint64) error {
+	return r.service.AuthorizeOpenTaskRequest(ctx, requester, nonce, expiry, orderExpireHeight)
 }
 
 func (r taskDataRuntime) GetMetadata(ctx context.Context, request taskdata.RequestAuth) (taskdata.Metadata, bool, error) {
@@ -130,11 +130,13 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 		return nil, err
 	}
-	// Step 5 (expiry window, then the nonce) comes before any storage, so a replayed OpenTask is
-	// SDK_AUTH_REPLAY rather than a conflict with the stored input.
+	// Step 5 (expiry window, the order's own expiry, then the nonce) comes before any storage, so a
+	// replayed OpenTask is SDK_AUTH_REPLAY rather than a conflict with the stored input, and an
+	// expired order is never stored.
 	envelope := headerPB.GetRequestEnvelope()
 	if err := s.taskData.AuthorizeOpenTaskRequest(
 		ctx, envelope.GetSignerAddress(), envelope.GetRequestNonce(), uint64(envelope.GetExpiryHeightOrTime()),
+		order.DeadlineHeight,
 	); err != nil {
 		for stream.Receive() {
 		}
@@ -750,6 +752,9 @@ func mapOpenTaskRequestErr(err error) error {
 		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrExpired, err))
 	case errors.Is(err, taskdata.ErrReplay):
 		return mapEnvelopeErr(fmt.Errorf("%w: %v", sdkauth.ErrReplay, err))
+	case errors.Is(err, taskdata.ErrOrderExpired):
+		// FailedPrecondition, not DeadlineExceeded: a new request cannot fix an expired order.
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%v; do not retry", err))
 	default:
 		return mapTaskDataError(err)
 	}

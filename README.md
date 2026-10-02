@@ -110,6 +110,9 @@ Open items:
   different `task_hash` returns `FailedPrecondition` (`NEXUS_INGRESS_TASK_TERMINAL`). The tracked
   version is kept and the refused input is not kept. An exact retry of the tracked version still
   succeeds. The caller must not retry the refused version, here or on another Builder.
+- `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
+  boundary the chain applies when it admits a new task: `FailedPrecondition`
+  (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
 - Several task event codes still use Nexus names rather than the SDK-facing event names (for
   example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
   are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.

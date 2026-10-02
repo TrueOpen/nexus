@@ -28,6 +28,9 @@ var (
 	// ErrRetentionExpired is a stored object deleted when its retention ran out; unlike
 	// NEXUS_DATA_EXPIRED (the request expired, sign again) it is final.
 	ErrRetentionExpired = errors.New("DATA_EXPIRED")
+	// ErrOrderExpired is an OpenTask whose signed order is past its order_expire_height: the chain
+	// no longer admits it, so the input is not stored.
+	ErrOrderExpired = errors.New("NEXUS_INGRESS_ORDER_EXPIRED")
 	// Session grant failures on the USER path.
 	ErrSessionMethodNotAllowed = errors.New("DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED")
 	ErrSessionGrantInvalid     = errors.New("DATA_ACCESS_SESSION_GRANT_INVALID")
