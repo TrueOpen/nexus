@@ -2229,7 +2229,12 @@ func (c *Coordinator) fillVerifierWindow(fsm *taskFSM) {
 func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
 	// task_hash is a consensus fact and may only come from on-chain query/event. Once recorded, subsequent
 	// Worker proposals for the same task can take the ExistingTaskRefV1 branch.
-	fsm.rememberAcceptedTaskHash(snapshot.Assignment.AcceptedTaskHash)
+	if fsm.rememberAcceptedVersion(snapshot.Assignment.AcceptedTaskHash, snapshot.Assignment.AcceptedInputHash) {
+		// The local input is another version than the accepted one: it must not be served, and
+		// Workers and Verifiers fetch the accepted input from the Builders that hold it. The
+		// tombstone keeps what this Builder held.
+		c.deletePayload(orderInput(fsm.order))
+	}
 	if snapshot.State == types.Failed {
 		fsm.onAuthoritativeFailure(snapshot, height)
 		return

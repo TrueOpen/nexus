@@ -15,6 +15,9 @@ type ResultReadyQuery struct {
 	TaskID           string
 	OutputHash       string
 	InferReceiptHash string
+	// InputHash is the accepted order's input_hash. The INPUT under TaskHash and InputHash must be
+	// READY here too; empty means the accepted input is unknown, and the result is not ready.
+	InputHash string
 }
 
 // ResultFinalizedObserver is told that a FinalizeTaskResult call completed a task's result (not on
@@ -26,11 +29,36 @@ func (s *Service) SetResultFinalizedObserver(observer ResultFinalizedObserver) {
 	s.resultFinalized = observer
 }
 
-// ResultReady reports this Builder's local data-ready for one Worker result: the OUTPUT is READY,
-// was finalized with exactly this receipt, and both Worker bundles the receipt commits to are READY.
+// ResultReady reports this Builder's local data-ready for one Worker result: the accepted INPUT is
+// READY, the OUTPUT is READY and was finalized with exactly this receipt, and both Worker bundles
+// the receipt commits to are READY. Data-ready is a promise to serve Verifiers the whole data set,
+// so a Builder holding another input version, or none, is never ready.
 // The answer is derived from storage and needs no recovery of its own after a restart. With only
 // one bundle finalized the result stays not ready, so no Verifier is invited to fetch it.
 func (s *Service) ResultReady(ctx context.Context, q ResultReadyQuery) (bool, error) {
+	if q.InputHash == "" {
+		return false, nil
+	}
+	input, err := s.store.Metadata(ctx, ObjectRef{
+		TaskHash: q.TaskHash, SessionID: q.SessionID, TaskID: q.TaskID,
+		Kind: ObjectKindInput, ContentHash: q.InputHash,
+	})
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if input.State != StateReady || input.RetentionStatus == RetentionDeleted {
+		return false, nil
+	}
+	return s.resultComplete(ctx, q)
+}
+
+// resultComplete reports whether the Worker result is complete here: the OUTPUT is READY and was
+// finalized with exactly this receipt, and every Worker bundle it commits to is READY. q.InputHash
+// is not consulted.
+func (s *Service) resultComplete(ctx context.Context, q ResultReadyQuery) (bool, error) {
 	metadata, err := s.store.Metadata(ctx, ObjectRef{
 		TaskHash: q.TaskHash, SessionID: q.SessionID, TaskID: q.TaskID,
 		Kind: ObjectKindOutput, ContentHash: q.OutputHash,

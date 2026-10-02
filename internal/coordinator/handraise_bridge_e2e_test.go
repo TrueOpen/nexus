@@ -217,7 +217,8 @@ func TestWorkerHandraiseBridgeUsesExistingTaskAfterAcceptance(t *testing.T) {
 
 	session := "sess-existing"
 	task := testTaskID("task-existing")
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, testUserAddress)); err != nil {
+	order := testCurrentOrder(session, task, testUserAddress)
+	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
 	fsm, ok := c.getFSM(session, task)
@@ -225,7 +226,8 @@ func TestWorkerHandraiseBridgeUsesExistingTaskAfterAcceptance(t *testing.T) {
 		t.Fatal("task FSM was not created")
 	}
 
-	acceptedTaskHash := testHash32("accepted-task-hash", task)
+	// The chain accepted this Builder's own version.
+	acceptedTaskHash := order.TaskHash
 	c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{
 		SessionID: session, TaskID: task, State: types.Pending,
 		Assignment: chaincli.TaskAssignmentState{AcceptedTaskHash: acceptedTaskHash},

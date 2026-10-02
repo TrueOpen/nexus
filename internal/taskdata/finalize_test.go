@@ -3,6 +3,7 @@ package taskdata
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -1052,7 +1053,27 @@ func (f *finalizeFixture) readyQuery(t *testing.T) ResultReadyQuery {
 	return ResultReadyQuery{
 		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
 		OutputHash: f.receipt.OutputHash, InferReceiptHash: hex.EncodeToString(digest[:]),
+		InputHash: f.readyInput(t).ContentHash,
 	}
+}
+
+// readyInput stores the accepted INPUT the way OpenTask does, READY.
+func (f *finalizeFixture) readyInput(t *testing.T) ObjectKey {
+	t.Helper()
+	body := []byte("accepted task input")
+	sum := sha256.Sum256(body)
+	ref := ObjectKey{
+		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
+		Kind: ObjectKindInput, ContentHash: hex.EncodeToString(sum[:]),
+	}
+	if _, err := f.store.Metadata(context.Background(), ref); err == nil {
+		return ref
+	}
+	storeObject(t, f.store, ref, body, "", "")
+	if _, err := f.store.MarkReady(context.Background(), ref); err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }
 
 func (f *finalizeFixture) resultReady(t *testing.T, q ResultReadyQuery) bool {
@@ -1104,6 +1125,23 @@ func TestResultReadyFollowsFinalize(t *testing.T) {
 	missing.OutputHash = strings.Repeat("f", 64)
 	if f.resultReady(t, missing) {
 		t.Fatal("ready for an OUTPUT that does not exist")
+	}
+	// Without the accepted INPUT this Builder cannot serve the whole data set.
+	otherInput := q
+	otherInput.InputHash = strings.Repeat("d", 64)
+	if f.resultReady(t, otherInput) {
+		t.Fatal("ready without the accepted INPUT")
+	}
+	unknownInput := q
+	unknownInput.InputHash = ""
+	if f.resultReady(t, unknownInput) {
+		t.Fatal("ready with an unknown accepted INPUT")
+	}
+	if err := f.store.DeleteObject(context.Background(), f.readyInput(t)); err != nil {
+		t.Fatal(err)
+	}
+	if f.resultReady(t, q) {
+		t.Fatal("ready after the INPUT was deleted")
 	}
 
 	for i, kind := range []EvidenceKind{EvidenceKindWorkerTokenOpening, EvidenceKindWorkerValueOpening} {

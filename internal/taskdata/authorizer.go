@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -69,10 +70,13 @@ type AuthorizerConfig struct {
 	// SessionGrants verifies session grants on USER requests: the chain reads (current height,
 	// account keys) and the network's max_session_grant_blocks.
 	SessionGrants SessionGrantEnv
+	// Log receives authorization notices; nil discards them.
+	Log *slog.Logger
 }
 
 type Authorizer struct {
 	cfg       AuthorizerConfig
+	log       *slog.Logger
 	backend   kv.Store
 	authority Authority
 	signer    signer.Signer
@@ -105,8 +109,12 @@ func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, 
 	if backend == nil || authority == nil || serviceSigner == nil {
 		return nil, fmt.Errorf("%w: authorizer dependencies", ErrMalformed)
 	}
+	log := cfg.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	return &Authorizer{
-		cfg: cfg, backend: backend, authority: authority, signer: serviceSigner,
+		cfg: cfg, log: log, backend: backend, authority: authority, signer: serviceSigner,
 		expiryBlocks: cfg.MaxRequestExpiryBlocks, expiryRefreshed: time.Now(),
 		userRate: userRateLimiter{limit: cfg.UserRequestsPerMinute, counts: map[string]uint32{}},
 	}, nil
@@ -141,6 +149,9 @@ func (a *Authorizer) verifyMetadataRequest(ctx context.Context, request RequestA
 	permissions := permissionsFor(task, request.RequesterAddress, height)
 	if !permissions.canInspect(request.Key, request.RequesterAddress) {
 		return metadataAccess{}, fmt.Errorf("%w: metadata role", roleDenied(request))
+	}
+	if !a.acceptedInputVersion(task, request) {
+		return metadataAccess{}, fmt.Errorf("%w: input version is not the accepted one", roleDenied(request))
 	}
 	return metadataAccess{height: height, inferReceipt: task.InferReceipt}, nil
 }
@@ -253,10 +264,33 @@ func (a *Authorizer) AuthorizeFetch(
 	if !permissions.canDownload(request.Key, request.RequesterAddress) {
 		return FetchGrant{}, fmt.Errorf("%w: download role", roleDenied(request))
 	}
+	if !a.acceptedInputVersion(task, request) {
+		return FetchGrant{}, fmt.Errorf("%w: input version is not the accepted one", roleDenied(request))
+	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
 		return FetchGrant{}, err
 	}
 	return FetchGrant{Task: task, Height: height, RequesterKey: requesterKey}, nil
+}
+
+// acceptedInputVersion reports whether a request for an INPUT names the chain's accepted version:
+// accepted_task_hash, and accepted_input_hash once the chain query carries it. Only selected
+// Workers and Verifiers may read INPUT and they exist only after acceptance, so a correct request
+// always names it; another version this Builder may hold is not served. Other kinds pass.
+func (a *Authorizer) acceptedInputVersion(task chaincli.OnChainTask, request RequestAuth) bool {
+	if request.Key.Kind != ObjectKindInput {
+		return true
+	}
+	accepted := task.Assignment
+	if accepted.AcceptedTaskHash != "" && request.Key.TaskHash == accepted.AcceptedTaskHash &&
+		(accepted.AcceptedInputHash == "" || request.Key.ContentHash == accepted.AcceptedInputHash) {
+		return true
+	}
+	a.log.Info("task input request names a version the chain did not accept",
+		"session_id", request.Key.SessionID, "task_id", request.Key.TaskID, "requester", request.RequesterAddress,
+		"task_hash", request.Key.TaskHash, "accepted_task_hash", accepted.AcceptedTaskHash,
+		"content_hash", request.Key.ContentHash, "accepted_input_hash", accepted.AcceptedInputHash)
+	return false
 }
 
 // FetchGrant is an authorized FetchTaskData request.
