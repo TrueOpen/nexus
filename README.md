@@ -250,6 +250,10 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
 - One user account may make at most `task_data.user_requests_per_minute` Task data requests per
   minute (default 600); over the cap the request is refused with `NEXUS_DATA_CAPACITY` before its
   nonce is stored. An object deleted when its retention ran out is `DATA_EXPIRED`.
+- INPUT is served only in the version the chain accepted: a fetch or metadata request must name
+  the task's `accepted_task_hash` (and its `accepted_input_hash` once the chain reports it);
+  another version is refused with `DATA_ACCESS_DENIED`. A Builder whose own order was another
+  version deletes that input and never reports itself data-ready for verification of the task.
 
 This is not compatible with SDK releases built for wire v0.3.x; nexus and the SDK must be upgraded
 together.

@@ -110,6 +110,14 @@ type taskFSM struct {
 	// proposals must take the ExistingTaskRefV1 branch instead of carrying signed_order
 	// again.
 	acceptedTaskHash []byte
+	// acceptedInputHash is the accepted order's input_hash (lowercase hex), from the same chain
+	// query; empty until it is known.
+	acceptedInputHash string
+	// versionMismatch is set once the chain accepted a version other than f.order: this Builder
+	// then works with the accepted task_hash, holds no input for it, and is never data-ready.
+	versionMismatch bool
+	// mismatchNotReadyLogged keeps the "not data-ready" notice to one line per process.
+	mismatchNotReadyLogged bool
 	// assignRetries counts filtered resubmissions after an invalid-assignment rejection.
 	assignRetries int
 
@@ -405,26 +413,74 @@ func isInvalidAssignment(result chaincli.TxResult) bool {
 	return result.Codespace == "task" && result.Code == 1109
 }
 
-// rememberAcceptedTaskHash records the authoritative task_hash (lowercase hex) after
-// on-chain acceptance. Only a canonical 32-byte value is accepted; invalid or empty values
-// are ignored -- better to fall back to the first-proposal branch and fail there than to
-// build ExistingTaskRefV1 from half a hash.
-func (f *taskFSM) rememberAcceptedTaskHash(taskHash string) {
+// rememberAcceptedVersion records the authoritative task_hash and input_hash (lowercase hex) after
+// on-chain acceptance. Only canonical 32-byte values are accepted; invalid or empty values are
+// ignored -- better to fall back to the first-proposal branch and fail there than to build
+// ExistingTaskRefV1 from half a hash.
+//
+// It reports true the first time the accepted version is found to differ from this Builder's
+// order. From then on the task is identified by the accepted task_hash, hand-raises collected for
+// the local version are dropped, and this Builder is never data-ready; the caller removes the local
+// input.
+func (f *taskFSM) rememberAcceptedVersion(taskHash, inputHash string) bool {
 	if taskHash == "" {
-		return
+		return false
 	}
 	raw, err := nodecontract.Hash32Bytes("accepted task_hash", taskHash)
 	if err != nil {
 		f.log.Warn("ignore non-canonical accepted task_hash", "task_id", f.taskID, "err", err)
-		return
+		return false
+	}
+	if inputHash != "" {
+		if _, err := nodecontract.Hash32Bytes("accepted input_hash", inputHash); err != nil {
+			f.log.Warn("ignore non-canonical accepted input_hash", "task_id", f.taskID, "err", err)
+			inputHash = ""
+		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if bytes.Equal(f.acceptedTaskHash, raw) {
-		return
+	changed := false
+	if !bytes.Equal(f.acceptedTaskHash, raw) {
+		f.acceptedTaskHash = raw
+		changed = true
 	}
-	f.acceptedTaskHash = raw
-	f.save()
+	if inputHash != "" && f.acceptedInputHash != inputHash {
+		f.acceptedInputHash = inputHash
+		changed = true
+	}
+	detected := false
+	if !f.versionMismatch && f.order.TaskHash != "" && (f.order.TaskHash != taskHash ||
+		(f.acceptedInputHash != "" && f.order.PayloadHash != "" && f.order.PayloadHash != f.acceptedInputHash)) {
+		f.versionMismatch = true
+		for worker, hr := range f.workerHR {
+			if !bytes.Equal(hr.GetTaskHash(), f.acceptedTaskHash) {
+				delete(f.workerHR, worker)
+			}
+		}
+		f.log.Error("chain accepted another version of this task",
+			"task_id", f.taskID, "local_task_hash", f.order.TaskHash, "accepted_task_hash", taskHash)
+		f.log.Error("chain accepted another version of this task: input differs",
+			"task_id", f.taskID, "local_input_hash", f.order.PayloadHash, "accepted_input_hash", f.acceptedInputHash)
+		changed, detected = true, true
+	}
+	if changed {
+		f.save()
+	}
+	return detected
+}
+
+// acceptedInputHashLocked returns the input_hash of the accepted version: the chain's value once
+// known, else this Builder's order's while the receipt's task_hash is the order's own. Empty means
+// unknown, and then this Builder is not data-ready. Caller must hold the lock.
+func (f *taskFSM) acceptedInputHashLocked() string {
+	switch {
+	case f.acceptedInputHash != "":
+		return f.acceptedInputHash
+	case !f.versionMismatch && f.order.TaskHash != "" && f.order.TaskHash == f.inferReceipt.TaskHash:
+		return f.order.PayloadHash
+	default:
+		return ""
+	}
 }
 
 func (f *taskFSM) onAssignRejected(result chaincli.TxResult) {
@@ -437,7 +493,7 @@ func (f *taskFSM) onAssignRejected(result chaincli.TxResult) {
 	// against the state of the block that includes it; one that stopped qualifying in between
 	// fails the whole proposal. Filter against the current state and submit again, a bounded
 	// number of times; any other rejection ends the task as before.
-	if isInvalidAssignment(result) && f.assignRetries < assignRejectionRetries {
+	if isInvalidAssignment(result) && f.assignRetries < assignRejectionRetries && !f.versionMismatch {
 		f.assignRetries++
 		f.assignSubmitted = false
 		f.assignTxHash = nil
@@ -630,6 +686,20 @@ func (f *taskFSM) checkDataReady() {
 			TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
 			OutputHash:       hex.EncodeToString(f.outputHash),
 			InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
+			InputHash:        f.acceptedInputHashLocked(),
+		}
+		if f.versionMismatch {
+			// Not a fault to retry: the input this Builder holds is not the accepted one, so it
+			// cannot serve Verifiers the whole data set. It never sends OPEN_VERIFY or a Verifier
+			// proposal for this task.
+			if !f.mismatchNotReadyLogged {
+				f.mismatchNotReadyLogged = true
+				f.log.Info("holds a different input version; not data-ready for verification", "task_id", f.taskID)
+			}
+			f.dataReadyChecking = false
+			f.dataReadyRecheck = false
+			f.mu.Unlock()
+			return
 		}
 		f.mu.Unlock()
 
@@ -661,7 +731,7 @@ func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
 	if len(f.outputHash) == 0 || f.winner == "" {
 		return nil
 	}
-	taskID, taskHash := f.taskIDBytes(), f.orderTaskHashBytes()
+	taskID, taskHash := f.taskIDBytes(), f.taskHashBytes()
 	modelID, err := hex.DecodeString(f.modelID)
 	if taskID == nil || taskHash == nil || err != nil || len(modelID) != hash32Len {
 		f.log.Warn("skip OPEN_VERIFY publish: task identity is not canonical", "task_id", f.taskID)
@@ -788,7 +858,7 @@ func (f *taskFSM) onAssignmentFinalized(ev chaincli.AssignmentFinalized) {
 // on-chain, and duplicates are deduplicated by the receiver against the on-chain
 // assignment.
 func (f *taskFSM) publishWorkerAssignmentNotify() {
-	taskID, taskHash := f.taskIDBytes(), f.orderTaskHashBytes()
+	taskID, taskHash := f.taskIDBytes(), f.taskHashBytes()
 	if taskID == nil || taskHash == nil {
 		f.log.Warn("skip WORKER_ASSIGNMENT_NOTIFY publish: task identity is not canonical", "task_id", f.taskID)
 		return
@@ -797,12 +867,16 @@ func (f *taskFSM) publishWorkerAssignmentNotify() {
 		f.log.Warn("skip WORKER_ASSIGNMENT_NOTIFY publish: winner is unknown", "task_id", f.taskID)
 		return
 	}
-	// input_hash comes from the user-signed order (TaskOrderV2 field 9); left empty when the
-	// order lacks a frozen SignedOrderV2, in which case the receiver relies on the on-chain
-	// accepted input.
+	// input_hash is the chain's accepted input_hash once known, else the user-signed order's
+	// (TaskOrderV2 field 9). It is left empty when neither applies -- the order lacks a frozen
+	// SignedOrderV2, or the chain accepted another version than this Builder's order -- and the
+	// receiver then relies on the on-chain accepted input.
 	var inputHash []byte
 	var signedOrder taskv1.SignedOrderV2
-	if len(f.order.SignedOrder) > 0 && proto.Unmarshal(f.order.SignedOrder, &signedOrder) == nil {
+	switch {
+	case f.acceptedInputHash != "":
+		inputHash, _ = hex.DecodeString(f.acceptedInputHash)
+	case !f.versionMismatch && len(f.order.SignedOrder) > 0 && proto.Unmarshal(f.order.SignedOrder, &signedOrder) == nil:
 		inputHash = signedOrder.GetOrder().GetInputHash()
 	}
 	f.publish(msgbus.SubjectWorkerAssignment(f.taskID), bus.KindWorkerAssignmentNotify,
@@ -1200,7 +1274,7 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	f.state = types.Verifying
 	f.phase = types.PhaseOpenVerify
 
-	taskID, taskHash := f.taskIDBytes(), f.orderTaskHashBytes()
+	taskID, taskHash := f.taskIDBytes(), f.taskHashBytes()
 	outputHash, _ := f.acceptedReceiptHashesLocked()
 	if len(outputHash) == 0 {
 		// The Worker hands its receipt to a single Builder; a notification sent by a Builder
@@ -1510,9 +1584,9 @@ func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
 	// A hand-raise must bind to the candidate task_hash of this broadcast.
 	// Any other value from the hand-raiser -- a stale RBF version, a different order --
 	// fails closed here and never enters f.workerHR to make up the count.
-	case !bytes.Equal(hr.GetTaskHash(), f.orderTaskHashBytes()):
+	case !bytes.Equal(hr.GetTaskHash(), f.taskHashBytes()):
 		f.log.Warn("drop worker handraise bound to a different task_hash", "task_id", f.taskID,
-			"candidate", worker, "want", f.order.TaskHash, "got", hex.EncodeToString(hr.GetTaskHash()))
+			"candidate", worker, "want", hex.EncodeToString(f.taskHashBytes()), "got", hex.EncodeToString(hr.GetTaskHash()))
 	case hr.GetDuty() != sharedv1.Duty_DUTY_WORKER:
 		f.log.Warn("drop worker handraise whose duty is not DUTY_WORKER", "task_id", f.taskID,
 			"candidate", worker, "duty", hr.GetDuty())
@@ -2352,24 +2426,6 @@ func (f *taskFSM) authorizedForSealedKey(requester string) bool {
 	return false
 }
 
-func (f *taskFSM) authorizedForPayload(requester, usage string) bool {
-	if requester == "" {
-		return false
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch usage {
-	case "WORKER_INFERENCE":
-		return f.winner != "" && requester == f.winner
-	case "VERIFIER_RECOMPUTE":
-		return containsString(f.verifiers, requester)
-	case "CHALLENGE_EVIDENCE":
-		return (f.user != "" && requester == f.user) || containsString(f.verifiers, requester)
-	default:
-		return false
-	}
-}
-
 // subscribe subscribes to one core task-level subject and registers the unsubscribe function. Caller must hold the lock.
 func (f *taskFSM) subscribe(subject string, h func(data []byte)) {
 	unsub, err := f.bus.Subscribe(subject, func(_ string, data []byte) error {
@@ -2643,6 +2699,16 @@ func (f *taskFSM) taskIDBytes() []byte {
 		return nil
 	}
 	return raw
+}
+
+// taskHashBytes returns the task_hash that identifies the task: the chain's accepted task_hash once
+// it is known, else this Builder's order's candidate task_hash. After acceptance the task is the
+// chain's version, even when this Builder's order was another one.
+func (f *taskFSM) taskHashBytes() []byte {
+	if len(f.acceptedTaskHash) == hash32Len {
+		return append([]byte(nil), f.acceptedTaskHash...)
+	}
+	return f.orderTaskHashBytes()
 }
 
 // orderTaskHashBytes returns the candidate task_hash bound by this broadcast in 32-byte

@@ -993,7 +993,8 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		Assignment: TaskAssignmentState{
 			UserAddress: core.GetUserAddress(), OrderSequence: core.GetOrderSequence(),
 			ModelID: hex.EncodeToString(core.GetModelId()), ProfileVersion: core.GetProfileVersion(),
-			AcceptedTaskHash: hex.EncodeToString(core.GetAcceptedTaskHash()),
+			AcceptedTaskHash:  hex.EncodeToString(core.GetAcceptedTaskHash()),
+			AcceptedInputHash: hex.EncodeToString(core.GetAcceptedInputHash()),
 		},
 		Settlement: TaskSettlementState{
 			SettlementStatus:   settlementStatusName(core.GetSettlementStatus()),

@@ -1,16 +1,15 @@
-// Package payloadstore persists encrypted task inputs until their chain
-// deadline or explicit task termination.
+// Package payloadstore removes task inputs when a task terminates and sweeps the inline payload
+// records older releases wrote, by their chain deadline. Inputs themselves are stored and served
+// by taskdata.
 package payloadstore
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -34,42 +33,22 @@ type Config struct {
 	MaxBytes int
 }
 
-type Submission struct {
-	SessionID string
-	TaskID    string
-	// TaskHash is the first field of the object ref. INPUT is created
-	// together with the Task, so the caller already knows it at submission.
-	TaskHash       string
-	Ref            string
-	Hash           string
-	Payload        []byte
-	DeadlineHeight uint64
+// Input names a task's INPUT for deletion. TaskHash and ContentHash identify the exact version
+// (the order's task_hash and input hash); when either is empty the version is unknown and the
+// INPUT index decides which object is removed.
+type Input struct {
+	SessionID   string
+	TaskID      string
+	TaskHash    string
+	ContentHash string
 }
 
-type Payload struct {
-	SessionID string
-	TaskID    string
-	// TaskHash is the first field of the object ref. Records written before V1 lack it; migration skips them.
-	TaskHash       string
-	Ref            string
-	Hash           string
-	Payload        []byte
-	DeadlineHeight uint64
-}
-
+// Store removes task inputs. The bytes are written and served by taskdata; what is left here is
+// the cleanup when a task terminates, and the sweep of inline payload records written by older
+// releases.
 type Store interface {
-	Put(context.Context, Submission) error
-	Fetch(context.Context, string, string, uint64) (Payload, error)
-	Delete(context.Context, string, string) error
+	Delete(context.Context, Input) error
 	Sweep(context.Context, uint64) error
-}
-
-// AcceptanceStore is implemented by the taskdata adapter. Coordinator uses
-// it to move INPUT from PREPARED to READY only after local order acceptance.
-type AcceptanceStore interface {
-	Store
-	MarkAccepted(context.Context, string, string) error
-	RollbackPrepared(context.Context, string, string) error
 }
 
 type Option func(*store)
@@ -127,248 +106,41 @@ func RefForHash(hash string) string {
 	return "nexus://sha256/" + hash
 }
 
-func (s *store) Put(_ context.Context, sub Submission) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.taskData != nil {
-		return s.putTaskData(context.Background(), sub)
-	}
-
-	if sub.SessionID == "" || sub.TaskID == "" || sub.TaskHash == "" || len(sub.Payload) == 0 || sub.DeadlineHeight == 0 {
-		return ErrInvalid
-	}
-	if len(sub.Payload) > s.max {
-		return ErrTooLarge
-	}
-	sum := sha256.Sum256(sub.Payload)
-	wantHash := hex.EncodeToString(sum[:])
-	if sub.Hash != wantHash || !canonicalSHA256(sub.Hash) {
-		return ErrHashMismatch
-	}
-	if sub.Ref != RefFor(sub.Payload) {
-		return ErrRefMismatch
-	}
-
-	rec := record{
-		SessionID: sub.SessionID, TaskID: sub.TaskID, TaskHash: sub.TaskHash, Ref: sub.Ref,
-		Hash: sub.Hash, Payload: append([]byte(nil), sub.Payload...), DeadlineHeight: sub.DeadlineHeight,
-	}
-	key := payloadKey(sub.SessionID, sub.TaskID)
-	if raw, ok, err := s.backend.GetWithError(kv.NSPayload, key); err != nil {
-		return fmt.Errorf("%w: inspect existing payload: %v", ErrStore, err)
-	} else if ok {
-		var current record
-		if err := json.Unmarshal(raw, &current); err != nil {
-			return fmt.Errorf("%w: decode existing payload: %v", ErrStore, err)
-		}
-		if equalRecord(current, rec) {
-			return nil
-		}
-		return ErrConflict
-	}
-
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return fmt.Errorf("%w: encode payload: %v", ErrStore, err)
-	}
-	if err := s.backend.Set(kv.NSPayload, key, raw); err != nil {
-		return fmt.Errorf("%w: persist payload: %v", ErrStore, err)
-	}
-	return nil
-}
-
-func (s *store) Fetch(_ context.Context, sessionID, taskID string, height uint64) (Payload, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.taskData != nil {
-		if payload, err := s.fetchTaskData(context.Background(), sessionID, taskID, height); err == nil {
-			return payload, nil
-		} else if !errors.Is(err, ErrNotFound) {
-			return Payload{}, err
-		}
-	}
-
-	key := payloadKey(sessionID, taskID)
-	raw, ok, err := s.backend.GetWithError(kv.NSPayload, key)
-	if err != nil {
-		return Payload{}, fmt.Errorf("%w: read payload: %v", ErrStore, err)
-	}
-	if !ok {
-		return Payload{}, ErrNotFound
-	}
-	var rec record
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return Payload{}, fmt.Errorf("%w: decode payload: %v", ErrStore, err)
-	}
-	if rec.SessionID != sessionID || rec.TaskID != taskID || key != payloadKey(rec.SessionID, rec.TaskID) {
-		return Payload{}, fmt.Errorf("%w: payload key mismatch", ErrStore)
-	}
-	if height != 0 && height >= rec.DeadlineHeight {
-		if err := s.backend.Delete(kv.NSPayload, key); err != nil {
-			return Payload{}, fmt.Errorf("%w: delete expired payload: %v", ErrStore, err)
-		}
-		return Payload{}, ErrExpired
-	}
-	payload := payloadFromRecord(rec)
-	// A legacy record without task_hash cannot be migrated: it is the first field of the
-	// object ref, was never stored, and cannot be derived elsewhere. Such records keep
-	// serving as-is; we do not invent an identity.
-	if s.taskData != nil && payload.TaskHash != "" {
-		if err := s.migrateLegacy(context.Background(), payload); err != nil {
-			return Payload{}, err
-		}
-		if err := s.backend.Delete(kv.NSPayload, key); err != nil {
-			return Payload{}, fmt.Errorf("%w: delete migrated payload: %v", ErrStore, err)
-		}
-	}
-	return payload, nil
-}
-
-func (s *store) Delete(_ context.Context, sessionID, taskID string) error {
+func (s *store) Delete(ctx context.Context, input Input) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.taskData != nil {
-		ref, err := s.taskData.ResolveObject(context.Background(), sessionID, taskID, taskdata.ObjectKindInput)
-		switch {
-		case err == nil:
-			if err := s.taskData.DeleteObject(context.Background(), ref); err != nil {
-				return mapTaskDataError(err)
-			}
-		case errors.Is(err, taskdata.ErrNotFound):
-			// Object already absent: deletion is idempotent, continue clearing the local payload record.
-		default:
-			return mapTaskDataError(err)
+		if err := s.deleteTaskData(ctx, input); err != nil {
+			return err
 		}
 	}
-	if err := s.backend.Delete(kv.NSPayload, payloadKey(sessionID, taskID)); err != nil {
+	if err := s.backend.Delete(kv.NSPayload, payloadKey(input.SessionID, input.TaskID)); err != nil {
 		return fmt.Errorf("%w: delete payload: %v", ErrStore, err)
 	}
 	return nil
 }
 
-func (s *store) MarkAccepted(ctx context.Context, sessionID, taskID string) error {
-	if s.taskData == nil {
-		return nil
+// deleteTaskData removes the INPUT object of the named version; DeleteObject is idempotent. A
+// version that was never stored here (a Builder that knows the task only from the chain) gets a
+// tombstone only, which also stops that input from being uploaded after the task ended. Without a version it falls back to the
+// INPUT index, which is how cleanup intents queued by older releases name the object, and an
+// unresolvable index means there is nothing to delete.
+func (s *store) deleteTaskData(ctx context.Context, input Input) error {
+	ref := taskdata.ObjectKey{
+		TaskHash: input.TaskHash, SessionID: input.SessionID, TaskID: input.TaskID,
+		Kind: taskdata.ObjectKindInput, ContentHash: input.ContentHash,
 	}
-	ref, err := s.taskData.ResolveObject(ctx, sessionID, taskID, taskdata.ObjectKindInput)
-	if err != nil {
-		return mapTaskDataError(err)
-	}
-	_, err = s.taskData.MarkReady(ctx, ref)
-	return mapTaskDataError(err)
-}
-
-func (s *store) RollbackPrepared(ctx context.Context, sessionID, taskID string) error {
-	if s.taskData == nil {
-		return s.Delete(ctx, sessionID, taskID)
-	}
-	ref, err := s.taskData.ResolveObject(ctx, sessionID, taskID, taskdata.ObjectKindInput)
-	if err != nil {
-		return mapTaskDataError(err)
-	}
-	return mapTaskDataError(s.taskData.RollbackPrepared(ctx, ref))
-}
-
-func (s *store) putTaskData(ctx context.Context, sub Submission) error {
-	if err := validateSubmission(sub, s.max); err != nil {
-		return err
-	}
-	upload, err := s.taskData.Begin(ctx, taskdata.UploadHeader{
-		Key: inputKey(sub), SizeBytes: uint64(len(sub.Payload)), SemanticHash: sub.Hash,
-		MediaType: "application/octet-stream", RetainUntilHeight: sub.DeadlineHeight,
-	})
-	if err != nil {
-		return mapTaskDataError(err)
-	}
-	defer upload.Abort()
-	for offset := 0; offset < len(sub.Payload); {
-		end := offset + int(s.taskDataChunkSize())
-		if end > len(sub.Payload) {
-			end = len(sub.Payload)
-		}
-		if err := upload.WriteChunk(sub.Payload[offset:end]); err != nil {
+	if input.TaskHash == "" || input.ContentHash == "" {
+		resolved, err := s.taskData.ResolveObject(ctx, input.SessionID, input.TaskID, taskdata.ObjectKindInput)
+		if errors.Is(err, taskdata.ErrNotFound) {
+			return nil
+		} else if err != nil {
 			return mapTaskDataError(err)
 		}
-		offset = end
+		ref = resolved
 	}
-	_, err = upload.Prepare(ctx)
-	return mapTaskDataError(err)
-}
-
-func (s *store) taskDataChunkSize() uint64 {
-	return s.taskData.ChunkSize()
-}
-
-func (s *store) fetchTaskData(ctx context.Context, sessionID, taskID string, height uint64) (Payload, error) {
-	key, err := s.taskData.ResolveObject(ctx, sessionID, taskID, taskdata.ObjectKindInput)
-	if err != nil {
-		if errors.Is(err, taskdata.ErrNotFound) {
-			return Payload{}, ErrNotFound
-		}
-		return Payload{}, mapTaskDataError(err)
-	}
-	metadata, err := s.taskData.Metadata(ctx, key)
-	if err != nil || metadata.State != taskdata.StateReady {
-		if errors.Is(err, taskdata.ErrNotFound) || err == nil {
-			return Payload{}, ErrNotFound
-		}
-		return Payload{}, mapTaskDataError(err)
-	}
-	if height != 0 && metadata.RetainUntilHeight != 0 && height >= metadata.RetainUntilHeight {
-		return Payload{}, ErrExpired
-	}
-	reader, err := s.taskData.OpenRange(ctx, key, 0, 0)
-	if err != nil {
-		return Payload{}, mapTaskDataError(err)
-	}
-	defer reader.Close()
-	body, err := io.ReadAll(io.LimitReader(reader, int64(s.max)+1))
-	if err != nil || len(body) > s.max {
-		return Payload{}, ErrStore
-	}
-	return Payload{
-		SessionID: sessionID, TaskID: taskID, Ref: RefForHash(metadata.SemanticHash), Hash: metadata.SemanticHash,
-		Payload: body, DeadlineHeight: metadata.RetainUntilHeight,
-	}, nil
-}
-
-func (s *store) migrateLegacy(ctx context.Context, payload Payload) error {
-	if err := s.putTaskData(ctx, Submission{
-		SessionID: payload.SessionID, TaskID: payload.TaskID, TaskHash: payload.TaskHash,
-		Ref: payload.Ref, Hash: payload.Hash,
-		Payload: payload.Payload, DeadlineHeight: payload.DeadlineHeight,
-	}); err != nil {
-		return err
-	}
-	return s.MarkAccepted(ctx, payload.SessionID, payload.TaskID)
-}
-
-func validateSubmission(sub Submission, max int) error {
-	if sub.SessionID == "" || sub.TaskID == "" || sub.TaskHash == "" || len(sub.Payload) == 0 || sub.DeadlineHeight == 0 {
-		return ErrInvalid
-	}
-	if len(sub.Payload) > max {
-		return ErrTooLarge
-	}
-	sum := sha256.Sum256(sub.Payload)
-	wantHash := hex.EncodeToString(sum[:])
-	if sub.Hash != wantHash || !canonicalSHA256(sub.Hash) {
-		return ErrHashMismatch
-	}
-	if sub.Ref != RefFor(sub.Payload) {
-		return ErrRefMismatch
-	}
-	return nil
-}
-
-// inputKey builds the full object ref used for upload. content_hash is the payload hash:
-// the same bytes can have only one identity, so it must equal UploadHeader.SemanticHash.
-func inputKey(sub Submission) taskdata.ObjectKey {
-	return taskdata.ObjectKey{
-		TaskHash: sub.TaskHash, SessionID: sub.SessionID, TaskID: sub.TaskID,
-		Kind: taskdata.ObjectKindInput, ContentHash: sub.Hash,
-	}
+	return mapTaskDataError(s.taskData.DeleteObject(ctx, ref))
 }
 
 func mapTaskDataError(err error) error {
@@ -442,15 +214,3 @@ func canonicalSHA256(value string) bool {
 }
 
 func payloadKey(sessionID, taskID string) string { return sessionID + "|" + taskID }
-
-func equalRecord(a, b record) bool {
-	return a.SessionID == b.SessionID && a.TaskID == b.TaskID && a.Ref == b.Ref &&
-		a.Hash == b.Hash && a.DeadlineHeight == b.DeadlineHeight && bytes.Equal(a.Payload, b.Payload)
-}
-
-func payloadFromRecord(rec record) Payload {
-	return Payload{
-		SessionID: rec.SessionID, TaskID: rec.TaskID, TaskHash: rec.TaskHash, Ref: rec.Ref, Hash: rec.Hash,
-		Payload: append([]byte(nil), rec.Payload...), DeadlineHeight: rec.DeadlineHeight,
-	}
-}

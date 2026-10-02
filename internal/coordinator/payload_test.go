@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -20,66 +21,47 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-func TestOnOrderPersistsPayloadBeforeCreatingTask(t *testing.T) {
-	payloads := newCoordinatorPayloadStore(t, kv.NewMemStore(), 4)
-	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
-	order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("oversized"), 100)
-
-	err := c.OnOrder(context.Background(), order)
-	if !errors.Is(err, payloadstore.ErrTooLarge) {
-		t.Fatalf("OnOrder error = %v, want ErrTooLarge", err)
+func TestHasAcceptedOrderNamesTheAcceptedVersion(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
+	key := taskdata.ObjectKey{
+		TaskHash: order.TaskHash, SessionID: order.SessionID, TaskID: order.TaskID,
+		Kind: taskdata.ObjectKindInput, ContentHash: order.PayloadHash,
 	}
-	if _, exists := c.getFSM(order.SessionID, order.TaskID); exists {
-		t.Fatal("task was created after payload persistence failed")
+	otherTask, otherInput := key, key
+	otherTask.TaskHash = strings.Repeat("6f", 32)
+	otherInput.ContentHash = strings.Repeat("7a", 32)
+	check := func(stage string, want map[*taskdata.ObjectKey]bool) {
+		t.Helper()
+		for k, w := range want {
+			got, err := c.HasAcceptedOrder(context.Background(), *k)
+			if err != nil || got != w {
+				t.Fatalf("%s: HasAcceptedOrder(task_hash=%s content_hash=%s) = %t, %v; want %t", stage, k.TaskHash, k.ContentHash, got, err, w)
+			}
+		}
 	}
-}
-
-func TestLegacyPayloadAdapterMarksReadyOnlyAfterOrderAccepted(t *testing.T) {
-	backend := kv.NewMemStore()
-	taskStore, err := taskdata.NewStore(slog.New(slog.NewTextHandler(io.Discard, nil)), t.TempDir(), backend, taskdata.Config{
-		InlineMaxBytes: 1024, ChunkSizeBytes: 1024, MaxRangeBytes: 1024, MaxBlobBytes: 1024,
-		SpoolReservationBytes: 4096, DiskAcceptWatermarkPercent: 99,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payloads, err := payloadstore.New(slog.New(slog.NewTextHandler(io.Discard, nil)), backend, payloadstore.Config{MaxBytes: 1024}, payloadstore.WithTaskData(taskStore))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
-	order := taskPayloadOrder(t, "8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b", "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c", testUserAddress, []byte("encrypted input"), 100)
+	check("before OnOrder", map[*taskdata.ObjectKey]bool{&key: false})
 	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatal(err)
 	}
-	// The object is located by the full ref and resolved by index, same source as the production path.
-	inputKey, err := taskStore.ResolveObject(context.Background(), order.SessionID, order.TaskID, taskdata.ObjectKindInput)
+	check("tracked", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: false, &otherInput: false})
+
+	// Finished: the terminal marker's task_hash decides once the snapshot is gone.
+	c.removeTask(taskKey(order.SessionID, order.TaskID))
+	if err := c.kv.Delete(kv.NSTask, taskKey(order.SessionID, order.TaskID)); err != nil {
+		t.Fatal(err)
+	}
+	check("terminal", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: false})
+
+	// A marker written before the task_hash field existed cannot name the version.
+	legacy, err := json.Marshal(map[string]any{"version": terminalTaskVersion, "recipient": testUserAddress})
 	if err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := taskStore.Metadata(context.Background(), inputKey)
-	if err != nil || metadata.State != taskdata.StateReady {
-		t.Fatalf("metadata = %#v, %v", metadata, err)
-	}
-	if _, ok := backend.Get(kv.NSPayload, order.SessionID+"|"+order.TaskID); ok {
-		t.Fatal("Coordinator adapter left an NSPayload copy")
-	}
-}
-
-func TestHasAcceptedOrderUsesDurableSnapshot(t *testing.T) {
-	c, _ := newTestCoordinator(t)
-	key := taskdata.ObjectKey{SessionID: "session-accepted", TaskID: "task-accepted", Kind: taskdata.ObjectKindInput}
-	accepted, err := c.HasAcceptedOrder(context.Background(), key)
-	if err != nil || accepted {
-		t.Fatalf("before OnOrder = %t, %v", accepted, err)
-	}
-	if err := c.OnOrder(context.Background(), testCurrentOrder(key.SessionID, key.TaskID, testUserAddress)); err != nil {
+	if err := c.kv.Set(kv.NSTerminalTask, taskKey(order.SessionID, order.TaskID), legacy); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err = c.HasAcceptedOrder(context.Background(), key)
-	if err != nil || !accepted {
-		t.Fatalf("after OnOrder = %t, %v", accepted, err)
-	}
+	check("legacy terminal marker", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: true})
 }
 
 func TestHasTerminatedOrderRequiresDurableTerminalMarker(t *testing.T) {
@@ -111,10 +93,8 @@ func TestOnOrderStage1AdmissionFailureIsObserveOnly(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			backend := kv.NewMemStore()
-			payloads := newCoordinatorPayloadStore(t, backend, 1024)
 			policy := &fakeOrderAdmission{err: tt.err}
-			c, _ := newTestCoordinator(t, WithPayloadStore(payloads), WithOrderAdmission(policy))
+			c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
 			var logs bytes.Buffer
 			c.log = slog.New(slog.NewTextHandler(&logs, nil))
 			order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("encrypted input"), 100)
@@ -134,9 +114,6 @@ func TestOnOrderStage1AdmissionFailureIsObserveOnly(t *testing.T) {
 			}
 			if _, exists := c.kv.Get(kv.NSTask, taskKey(order.SessionID, order.TaskID)); !exists {
 				t.Fatal("task snapshot was not written after observed admission failure")
-			}
-			if _, err := payloads.Fetch(context.Background(), order.SessionID, order.TaskID, 0); err != nil {
-				t.Fatalf("payload was not written after observed admission failure: %v", err)
 			}
 			for _, want := range []string{"stage1 order admission failed", "session_id=" + order.SessionID, "task_id=" + order.TaskID, "code=" + tt.code, tt.errText} {
 				if !strings.Contains(logs.String(), want) {
@@ -194,109 +171,44 @@ func TestOnOrderCarriesStage1SelectionIntoAssign(t *testing.T) {
 	}
 }
 
-func TestFetchPayloadAuthorizesTaskParticipants(t *testing.T) {
+// A task's INPUT is removed by the version its order names, even when the INPUT index points at
+// another version of the same task.
+func TestTerminalTaskRemovesItsInputVersion(t *testing.T) {
 	backend := kv.NewMemStore()
-	payloads := newCoordinatorPayloadStore(t, backend, 1024)
+	taskStore, payloads := newCoordinatorTaskData(t, backend)
 	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
-	const session, task = "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
-	order := taskPayloadOrder(t, session, task, testUserAddress, []byte("encrypted inference input"), 100)
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("tracked input"), 100)
+	other := order
+	other.TaskHash = strings.Repeat("6f", 32)
+	other = withPayload(t, other, []byte("other input"))
+	// The other version becomes READY first and keeps the index (the store refuses to repoint an
+	// index that names a READY object), so only a delete by version can find the tracked one.
+	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
+	tracked := stageOrderInput(t, taskStore, order, []byte("tracked input"), true)
+	if ref, err := taskStore.ResolveObject(context.Background(), order.SessionID, order.TaskID, taskdata.ObjectKindInput); err != nil || ref != otherKey {
+		t.Fatalf("index = %#v, %v; want the other version", ref, err)
+	}
 	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
 
-	if _, _, err := c.FetchPayload(context.Background(), session, task, "worker-1", "WORKER_INFERENCE"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("pre-handraise FetchPayload error = %v, want ErrUnauthorized", err)
-	}
-	fsm, _ := c.getFSM(session, task)
-	fsm.mu.Lock()
-	fsm.workerHR["worker-1"] = &taskv1.WorkerHandraiseV1{
-		Member: &taskv1.CandidateMemberRefV1{OperatorAddress: "worker-1"},
-	}
-	fsm.mu.Unlock()
-	if _, _, err := c.FetchPayload(context.Background(), session, task, "worker-1", "WORKER_INFERENCE"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("handraiser FetchPayload error = %v, want ErrUnauthorized", err)
-	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 10})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "winner-1", Height: 11})
-	got, cred, err := c.FetchPayload(context.Background(), session, task, "winner-1", "WORKER_INFERENCE")
-	if err != nil {
-		t.Fatalf("winner FetchPayload: %v", err)
-	}
-	if got.Ref != order.PayloadCID || got.Hash != order.PayloadHash || string(got.Payload) != string(order.Payload) ||
-		cred.Recipient != "winner-1" || cred.Usage != "WORKER_INFERENCE" {
-		t.Fatalf("winner payload/credential = %+v / %+v", got, cred)
-	}
-	c.OnOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
-		SessionID: session, TaskID: task, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, Height: 12,
-	})
-	if _, _, err := c.FetchPayload(context.Background(), session, task, "verifier-2", "VERIFIER_RECOMPUTE"); err != nil {
-		t.Fatalf("verifier FetchPayload: %v", err)
-	}
-	if _, _, err := c.FetchPayload(context.Background(), session, task, order.User, "CHALLENGE_EVIDENCE"); err != nil {
-		t.Fatalf("order user challenge FetchPayload: %v", err)
-	}
-	if _, _, err := c.FetchPayload(context.Background(), session, task, "verifier-2", "CHALLENGE_EVIDENCE"); err != nil {
-		t.Fatalf("formal verifier challenge FetchPayload: %v", err)
-	}
-	if _, _, err := c.FetchPayload(context.Background(), session, task, order.User, "WORKER_INFERENCE"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("order user worker FetchPayload error = %v, want ErrUnauthorized", err)
-	}
-	if _, _, err := c.FetchPayload(context.Background(), session, task, "stranger", "WORKER_INFERENCE"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("stranger FetchPayload error = %v, want ErrUnauthorized", err)
-	}
-}
-
-func TestPayloadRemovedAtDeadlineAndTaskTerminal(t *testing.T) {
-	backend := kv.NewMemStore()
-	payloads := newCoordinatorPayloadStore(t, backend, 1024)
-	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
-	first := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("first encrypted input"), 100)
-	if err := c.OnOrder(context.Background(), first); err != nil {
-		t.Fatalf("first OnOrder: %v", err)
-	}
-	c.onNewBlock(100)
-	if _, err := payloads.Fetch(context.Background(), first.SessionID, first.TaskID, 0); !errors.Is(err, payloadstore.ErrNotFound) {
-		t.Fatalf("payload after deadline error = %v, want ErrNotFound", err)
-	}
-
-	second := taskPayloadOrder(t, "6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f", "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a", testUserAddress, []byte("second encrypted input"), 200)
-	if err := c.OnOrder(context.Background(), second); err != nil {
-		t.Fatalf("second OnOrder: %v", err)
-	}
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
-		SessionID: second.SessionID, TaskID: second.TaskID, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED, Height: 150,
+		SessionID: order.SessionID, TaskID: order.TaskID, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED, Height: 50,
 	})
-	if _, err := payloads.Fetch(context.Background(), second.SessionID, second.TaskID, 0); !errors.Is(err, payloadstore.ErrNotFound) {
-		t.Fatalf("payload after terminal error = %v, want ErrNotFound", err)
+	if !inputDeleted(t, taskStore, tracked) {
+		t.Fatal("tracked input survived task termination")
+	}
+	if inputDeleted(t, taskStore, otherKey) {
+		t.Fatal("termination removed another version of the input")
 	}
 }
 
-func TestFetchPayloadHonorsLastKnownHeightWhenChainRefreshIsUnavailable(t *testing.T) {
-	payloads := newCoordinatorPayloadStore(t, kv.NewMemStore(), 1024)
-	c, _ := newTestCoordinator(t, WithPayloadStore(payloads))
-	order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("encrypted input"), 100)
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	fsm, _ := c.getFSM(order.SessionID, order.TaskID)
-	fsm.mu.Lock()
-	fsm.winner = "worker-1"
-	fsm.mu.Unlock()
-	c.chainStateMu.Lock()
-	c.chainState.LastObservedHeight = 101
-	c.heightAuthoritative = false
-	c.chainStateMu.Unlock()
-
-	if _, _, err := c.FetchPayload(context.Background(), order.SessionID, order.TaskID, "worker-1", "WORKER_INFERENCE"); !errors.Is(err, payloadstore.ErrExpired) {
-		t.Fatalf("FetchPayload at persisted expired height error = %v, want ErrExpired", err)
-	}
-}
-
-func TestRecoveryRemovesPayloadForTerminalSnapshot(t *testing.T) {
+func TestRecoveryRemovesInputForTerminalSnapshot(t *testing.T) {
 	c, _ := newTestCoordinator(t)
-	payloads := newCoordinatorPayloadStore(t, c.kv, 1024)
+	taskStore, payloads := newCoordinatorTaskData(t, c.kv)
 	c.payloads = payloads
-	order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("encrypted input"), 100)
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
+	input := stageOrderInput(t, taskStore, order, []byte("encrypted input"), true)
 	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
@@ -320,8 +232,8 @@ func TestRecoveryRemovesPayloadForTerminalSnapshot(t *testing.T) {
 	if err := restarted.recoverTasks(context.Background()); err != nil {
 		t.Fatalf("recoverTasks: %v", err)
 	}
-	if _, err := payloads.Fetch(context.Background(), order.SessionID, order.TaskID, 0); !errors.Is(err, payloadstore.ErrNotFound) {
-		t.Fatalf("payload after terminal recovery error = %v, want ErrNotFound", err)
+	if !inputDeleted(t, taskStore, input) {
+		t.Fatal("input survived terminal recovery")
 	}
 }
 
@@ -330,20 +242,25 @@ func TestTerminalPayloadDeleteFailureIsRetriedFromCleanupIntent(t *testing.T) {
 	faults := &payloadDeleteFaultStore{Store: base, remaining: 1}
 	c, _ := newTestCoordinator(t)
 	c.kv = faults
-	payloads := newCoordinatorPayloadStore(t, faults, 1024)
+	_, payloads := newCoordinatorTaskData(t, faults)
 	c.payloads = payloads
-	order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("encrypted input"), 100)
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
 	if err := c.OnOrder(context.Background(), order); err != nil {
 		t.Fatalf("OnOrder: %v", err)
 	}
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
 		SessionID: order.SessionID, TaskID: order.TaskID, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED, Height: 50,
 	})
-	if _, err := payloads.Fetch(context.Background(), order.SessionID, order.TaskID, 0); err != nil {
-		t.Fatalf("payload should remain after injected Delete failure: %v", err)
-	}
-	if _, ok := base.Get(kv.NSPayloadCleanup, taskKey(order.SessionID, order.TaskID)); !ok {
+	raw, ok := base.Get(kv.NSPayloadCleanup, taskKey(order.SessionID, order.TaskID))
+	if !ok {
 		t.Fatal("payload cleanup intent was not persisted")
+	}
+	var intent payloadCleanupRecord
+	if err := json.Unmarshal(raw, &intent); err != nil {
+		t.Fatal(err)
+	}
+	if intent.TaskHash != order.TaskHash || intent.ContentHash != order.PayloadHash {
+		t.Fatalf("cleanup intent = %+v, want the order's task_hash and input hash", intent)
 	}
 
 	restarted, _ := newTestCoordinator(t)
@@ -352,23 +269,100 @@ func TestTerminalPayloadDeleteFailureIsRetriedFromCleanupIntent(t *testing.T) {
 	if err := restarted.recoverTasks(context.Background()); err != nil {
 		t.Fatalf("recoverTasks: %v", err)
 	}
-	if _, err := payloads.Fetch(context.Background(), order.SessionID, order.TaskID, 0); !errors.Is(err, payloadstore.ErrNotFound) {
-		t.Fatalf("payload after cleanup retry error = %v, want ErrNotFound", err)
-	}
 	if _, ok := base.Get(kv.NSPayloadCleanup, taskKey(order.SessionID, order.TaskID)); ok {
 		t.Fatal("payload cleanup intent remained after successful retry")
 	}
 }
 
-func newCoordinatorPayloadStore(t *testing.T, backend kv.Store, maxBytes int) payloadstore.Store {
-	t.Helper()
-	store, err := payloadstore.New(
-		slog.New(slog.NewTextHandler(io.Discard, nil)), backend, payloadstore.Config{MaxBytes: maxBytes},
-	)
+// An intent queued by an older release names no version: the retry removes what the INPUT index
+// points at.
+func TestCleanupIntentWithoutVersionUsesInputIndex(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	taskStore, payloads := newCoordinatorTaskData(t, c.kv)
+	c.payloads = payloads
+	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
+	input := stageOrderInput(t, taskStore, order, []byte("encrypted input"), true)
+	legacy, err := json.Marshal(map[string]any{
+		"version": payloadCleanupVersion, "session_id": order.SessionID, "task_id": order.TaskID,
+	})
 	if err != nil {
-		t.Fatalf("payloadstore.New: %v", err)
+		t.Fatal(err)
 	}
-	return store
+	if err := c.kv.Set(kv.NSPayloadCleanup, taskKey(order.SessionID, order.TaskID), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.retryPayloadCleanup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !inputDeleted(t, taskStore, input) {
+		t.Fatal("legacy cleanup intent did not remove the indexed input")
+	}
+}
+
+const (
+	testPayloadSession = "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+	testPayloadTask    = "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
+)
+
+func newCoordinatorTaskData(t *testing.T, backend kv.Store) (*taskdata.Store, payloadstore.Store) {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	taskStore, err := taskdata.NewStore(log, t.TempDir(), backend, taskdata.Config{
+		InlineMaxBytes: 1024, ChunkSizeBytes: 1024, MaxRangeBytes: 1024, MaxBlobBytes: 1024,
+		SpoolReservationBytes: 4096, DiskAcceptWatermarkPercent: 99,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := payloadstore.New(log, backend, payloadstore.Config{MaxBytes: 1024}, payloadstore.WithTaskData(taskStore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return taskStore, payloads
+}
+
+// stageOrderInput stores the order's INPUT version the way OpenTask does: prepared, and READY
+// once the order is accepted.
+func stageOrderInput(t *testing.T, taskStore *taskdata.Store, order types.Order, payload []byte, ready bool) taskdata.ObjectKey {
+	t.Helper()
+	ctx := context.Background()
+	key := taskdata.ObjectKey{
+		TaskHash: order.TaskHash, SessionID: order.SessionID, TaskID: order.TaskID,
+		Kind: taskdata.ObjectKindInput, ContentHash: order.PayloadHash,
+	}
+	upload, err := taskStore.Begin(ctx, taskdata.UploadHeader{
+		Key: key, SizeBytes: uint64(len(payload)), SemanticHash: key.ContentHash,
+		MediaType: "application/octet-stream", RetainUntilHeight: order.DeadlineHeight,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upload.Abort()
+	if err := upload.WriteChunk(payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upload.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ready {
+		if _, err := taskStore.MarkReady(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return key
+}
+
+// inputDeleted reports whether the object is gone: taskdata answers a deleted key with its tombstone.
+func inputDeleted(t *testing.T, taskStore *taskdata.Store, key taskdata.ObjectKey) bool {
+	t.Helper()
+	metadata, err := taskStore.Metadata(context.Background(), key)
+	if errors.Is(err, taskdata.ErrNotFound) {
+		return true
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return metadata.RetentionStatus == taskdata.RetentionDeleted
 }
 
 type fakeOrderAdmission struct {
@@ -401,9 +395,27 @@ func taskPayloadOrder(t *testing.T, sessionID, taskID, user string, payload []by
 	order.OrderEnvelope = raw
 	order.PayloadHash = envelope.PayloadHash
 	order.PayloadCID = payloadstore.RefFor(payload)
-	order.Payload = append([]byte(nil), payload...)
 	order.Deadline = int64(deadline)
 	order.DeadlineHeight = deadline
+	return order
+}
+
+// withPayload points the order at another input: its envelope payload hash, payload hash and ref.
+func withPayload(t *testing.T, order types.Order, payload []byte) types.Order {
+	t.Helper()
+	envelope, err := nodecontract.ParseAssignmentOrderEnvelope(order.OrderEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	envelope.PayloadHash = hex.EncodeToString(sum[:])
+	raw, err := nodecontract.CanonicalAssignmentOrderEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	order.OrderEnvelope = raw
+	order.PayloadHash = envelope.PayloadHash
+	order.PayloadCID = payloadstore.RefFor(payload)
 	return order
 }
 

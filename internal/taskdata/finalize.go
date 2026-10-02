@@ -102,11 +102,13 @@ func (s *Service) FinalizeTaskResult(ctx context.Context, request FinalizeResult
 	if derr != nil {
 		return outcome, nil
 	}
-	ready, rerr := s.ResultReady(ctx, ResultReadyQuery{
+	// The observer only learns that the result is complete; the coordinator then runs its own
+	// data-ready check, which also requires the accepted INPUT.
+	complete, rerr := s.resultComplete(ctx, ResultReadyQuery{
 		TaskHash: request.TaskHash, SessionID: request.Auth.Key.SessionID, TaskID: request.Auth.Key.TaskID,
 		OutputHash: request.Receipt.OutputHash, InferReceiptHash: hex.EncodeToString(digest[:]),
 	})
-	if rerr == nil && ready {
+	if rerr == nil && complete {
 		s.resultFinalized(request.Auth.Key.SessionID, request.Auth.Key.TaskID)
 	}
 	return outcome, nil

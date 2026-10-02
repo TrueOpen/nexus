@@ -430,6 +430,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			UserRequestsPerMinute: cfg.TaskData.UserRequestsPerMinute,
 			RetentionLeaseBlocks:  cfg.TaskData.RetentionLeaseBlocks,
 			SessionGrants:         taskdata.SessionGrantEnv{Chain: userChain, MaxBlocks: sessionGrantBlocks},
+			Log:                   log,
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()

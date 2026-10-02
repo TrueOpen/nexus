@@ -160,6 +160,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 			}},
 			Assignment: chaincli.TaskAssignmentState{
 				UserAddress: ethAddressOf(t, user), SelectedWorkerOperatorAddress: worker.Address(), WorkerHandraiseSet: workerSet,
+				AcceptedTaskHash: testTaskHash,
 			},
 			VerifierAssignment: chaincli.VerifierAssignmentState{VerifierHandraiseList: verifierCandidates},
 		},

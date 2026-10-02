@@ -16,6 +16,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -82,6 +83,11 @@ type taskSnapshot struct {
 	// AcceptedTaskHash is the authoritative task_hash after on-chain acceptance. Must survive recovery, otherwise
 	// later proposals are mistaken for the "first" one, carry signed_order again and get rejected by the Keeper.
 	AcceptedTaskHash []byte `json:"accepted_task_hash,omitempty"`
+	// AcceptedInputHash is the accepted order's input_hash (lowercase hex), from the same chain
+	// query as AcceptedTaskHash.
+	AcceptedInputHash string `json:"accepted_input_hash,omitempty"`
+	// VersionMismatch records that the chain accepted another version than this Builder's order.
+	VersionMismatch bool `json:"version_mismatch,omitempty"`
 	// The openVerify/settle "submitted" flags are not persisted; they only mean broadcast, not on-chain fact.
 	WorkerRevealed bool     `json:"worker_revealed,omitempty"`
 	FullReveals    []string `json:"full_reveals,omitempty"`
@@ -150,9 +156,11 @@ func (f *taskFSM) save() error {
 
 		Verdict: f.verdict,
 
-		AssignTxHash:     append([]byte(nil), f.assignTxHash...),
-		AcceptedTaskHash: append([]byte(nil), f.acceptedTaskHash...),
-		WorkerRevealed:   f.workerRevealed,
+		AssignTxHash:      append([]byte(nil), f.assignTxHash...),
+		AcceptedTaskHash:  append([]byte(nil), f.acceptedTaskHash...),
+		AcceptedInputHash: f.acceptedInputHash,
+		VersionMismatch:   f.versionMismatch,
+		WorkerRevealed:    f.workerRevealed,
 	}
 	for v := range f.fullReveals {
 		sn.FullReveals = append(sn.FullReveals, v)
@@ -224,6 +232,15 @@ func (f *taskFSM) save() error {
 	return f.persist(sn)
 }
 
+// snapshotInput names the INPUT version of a recovered task. A snapshot without an order names
+// only the task, and the INPUT index then decides.
+func snapshotInput(sn taskSnapshot) payloadstore.Input {
+	if sn.Order.SessionID == "" {
+		return payloadstore.Input{SessionID: sn.SessionID, TaskID: sn.TaskID}
+	}
+	return orderInput(sn.Order)
+}
+
 // restoreFrom refills state machine fields from a snapshot (called after construction, before subscribing; no concurrency).
 func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	if sn.Order.SessionID != "" {
@@ -261,6 +278,8 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	f.verdict = sn.Verdict
 	f.assignTxHash = append([]byte(nil), sn.AssignTxHash...)
 	f.acceptedTaskHash = append([]byte(nil), sn.AcceptedTaskHash...)
+	f.acceptedInputHash = sn.AcceptedInputHash
+	f.versionMismatch = sn.VersionMismatch
 	f.assignSubmitted = len(f.assignTxHash) > 0
 	f.workerRevealed = sn.WorkerRevealed
 	for _, v := range sn.FullReveals {
@@ -554,7 +573,7 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 			// Keep the terminal snapshot until outputdelivery has durably
 			// reconciled a possible PREPARED plaintext record.
 			recipient := c.removeTask(key)
-			c.deletePayload(sn.SessionID, sn.TaskID)
+			c.deletePayload(snapshotInput(sn))
 			c.relay.Release(sn.SessionID, sn.TaskID)
 			if c.outputs != nil {
 				if err := c.outputs.Terminate(sn.SessionID, sn.TaskID, recipient); err != nil {
