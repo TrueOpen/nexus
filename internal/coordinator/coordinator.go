@@ -68,6 +68,10 @@ type payloadCleanupRecord struct {
 	Version   int    `json:"version"`
 	SessionID string `json:"session_id"`
 	TaskID    string `json:"task_id"`
+	// TaskHash and ContentHash name the INPUT version to delete. Intents queued by older releases
+	// leave them empty, and the INPUT index then decides.
+	TaskHash    string `json:"task_hash,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // taskKey is the composite task key = session_id|task_id.
@@ -629,7 +633,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		beginExternalHandler:  c.beginCallback,
 		endExternalHandler:    c.callbackWG.Done,
 		onClose: func() {
-			c.deletePayload(o.SessionID, o.TaskID)
+			c.deletePayload(orderInput(o))
 			// The terminal marker goes first, as in recovery: Terminate may report the output
 			// finalized synchronously, and that deletes the snapshot only once the marker is durable.
 			recipient := c.removeTask(key)
@@ -665,7 +669,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		},
 	}
 	fsm.onAbandon = func() {
-		c.deletePayload(o.SessionID, o.TaskID)
+		c.deletePayload(orderInput(o))
 		c.abandonTask(key, fsm)
 	}
 	fsm.requestTxCheck = func() {
@@ -687,7 +691,6 @@ func (c *Coordinator) beginCallback() bool {
 // OnOrder implements the ingress order entry (called by IngressAPI after signature verification): build FSM -> Pending.
 func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 	key := taskKey(o.SessionID, o.TaskID)
-	hadInlinePayload := len(o.Payload) > 0
 	_, alreadyTerminal, err := c.terminalRecipient(o.SessionID, o.TaskID)
 	if err != nil {
 		return fmt.Errorf("read terminal task marker: %w", err)
@@ -724,18 +727,8 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 			c.log.Debug("stage1 order admission accepted", "task_id", o.TaskID, "term", result.TermID, "rank", result.Rank)
 		}
 	}
-	if len(o.Payload) > 0 {
-		if c.payloads == nil {
-			return fmt.Errorf("%w: payload store is not configured", payloadstore.ErrStore)
-		}
-		if err := c.payloads.Put(ctx, payloadstore.Submission{
-			SessionID: o.SessionID, TaskID: o.TaskID, TaskHash: o.TaskHash, Ref: o.PayloadCID,
-			Hash: o.PayloadHash, Payload: o.Payload, DeadlineHeight: o.DeadlineHeight,
-		}); err != nil {
-			return err
-		}
-		o.Payload = nil // payload bytes live only in payloadstore, never in FSM snapshots.
-	}
+	// Input bytes arrive through OpenTask and live in taskdata; they are never part of the order.
+	o.Payload = nil
 	c.mu.Lock()
 	if _, terminal := c.terminalTasks[key]; terminal {
 		c.mu.Unlock()
@@ -744,7 +737,7 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 				"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
 			return err
 		}
-		c.deletePayload(o.SessionID, o.TaskID)
+		c.deletePayload(orderInput(o))
 		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
 		return nil
 	}
@@ -769,30 +762,22 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 		"task_id", o.TaskID,
 		"task_hash", o.TaskHash,
 		"model_id", o.ModelID,
-		"has_inline_payload", hadInlinePayload,
 		"tasks_inflight", n,
 	)
 	if !exists {
 		if err := c.trackTaskEvents(key, fsm); err != nil {
 			c.log.Error("order initialization failed",
 				"phase", "track_task_events", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-			c.deletePayload(o.SessionID, o.TaskID)
+			c.deletePayload(orderInput(o))
 			c.abandonTask(key, fsm)
 			return fmt.Errorf("track task events: %w", err)
 		}
 		if err := fsm.onOrder(); err != nil {
 			c.log.Error("order initialization failed",
 				"phase", "initialize_task", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-			c.deletePayload(o.SessionID, o.TaskID)
+			c.deletePayload(orderInput(o))
 			c.abandonTask(key, fsm)
 			return fmt.Errorf("initialize task FSM: %w", err)
-		}
-	}
-	if accepted, ok := c.payloads.(payloadstore.AcceptanceStore); ok && hadInlinePayload {
-		if err := accepted.MarkAccepted(ctx, o.SessionID, o.TaskID); err != nil {
-			c.log.Error("order initialization failed",
-				"phase", "mark_payload_accepted", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-			return fmt.Errorf("mark task input accepted: %w", err)
 		}
 	}
 	c.log.Info("order accepted locally",
@@ -884,43 +869,24 @@ func (c *Coordinator) HasTerminatedOrder(_ context.Context, key taskdata.ObjectK
 	return found, err
 }
 
-// FetchPayload returns the encrypted task input to an authenticated task participant.
-func (c *Coordinator) FetchPayload(ctx context.Context, sessionID, taskID, requester, usage string) (types.TaskPayload, types.Credential, error) {
-	if c.payloads == nil {
-		return types.TaskPayload{}, types.Credential{}, fmt.Errorf("%w: payload store is not configured", payloadstore.ErrStore)
-	}
-	fsm, ok := c.getFSM(sessionID, taskID)
-	if !ok {
-		return types.TaskPayload{}, types.Credential{}, ErrTaskNotFound
-	}
-	if !fsm.authorizedForPayload(requester, usage) {
-		c.log.Warn("payload fetch denied", "session_id", sessionID, "task_id", taskID, "requester", requester, "usage", usage)
-		return types.TaskPayload{}, types.Credential{}, ErrUnauthorized
-	}
-	height, _ := c.currentChainHeight()
-	stored, err := c.payloads.Fetch(ctx, sessionID, taskID, height)
-	if err != nil {
-		return types.TaskPayload{}, types.Credential{}, err
-	}
-	cred, err := c.issueCredential(sessionID, taskID, requester, usage, types.AccessPackage, nowMS()+credentialTTL.Milliseconds())
-	if err != nil {
-		return types.TaskPayload{}, types.Credential{}, err
-	}
-	c.log.Debug("payload served", "session_id", sessionID, "task_id", taskID, "requester", requester, "usage", usage)
-	return types.TaskPayload{
-		SessionID: stored.SessionID, TaskID: stored.TaskID, Ref: stored.Ref, Hash: stored.Hash,
-		Payload: stored.Payload, DeadlineHeight: stored.DeadlineHeight,
-	}, cred, nil
+// orderInput names the INPUT version an order carries: its task_hash and input hash (ingress
+// checks that the order's payload hash equals the uploaded input_hash).
+func orderInput(o types.Order) payloadstore.Input {
+	return payloadstore.Input{SessionID: o.SessionID, TaskID: o.TaskID, TaskHash: o.TaskHash, ContentHash: o.PayloadHash}
 }
 
-func (c *Coordinator) deletePayload(sessionID, taskID string) {
+// deletePayload removes the task's INPUT version named by input; on failure it queues a durable
+// cleanup intent and retries from reconcile.
+func (c *Coordinator) deletePayload(input payloadstore.Input) {
 	if c.payloads == nil {
 		return
 	}
+	sessionID, taskID := input.SessionID, input.TaskID
 	key := taskKey(sessionID, taskID)
-	if err := c.payloads.Delete(context.Background(), sessionID, taskID); err != nil {
+	if err := c.payloads.Delete(context.Background(), input); err != nil {
 		record, marshalErr := json.Marshal(payloadCleanupRecord{
 			Version: payloadCleanupVersion, SessionID: sessionID, TaskID: taskID,
+			TaskHash: input.TaskHash, ContentHash: input.ContentHash,
 		})
 		if marshalErr != nil {
 			c.log.Error("payload cleanup intent encode failed", "session_id", sessionID, "task_id", taskID, "err", marshalErr)
@@ -958,7 +924,9 @@ func (c *Coordinator) retryPayloadCleanup(ctx context.Context) error {
 		return decodeErr
 	}
 	for _, record := range pending {
-		if err := c.payloads.Delete(ctx, record.SessionID, record.TaskID); err != nil {
+		if err := c.payloads.Delete(ctx, payloadstore.Input{
+			SessionID: record.SessionID, TaskID: record.TaskID, TaskHash: record.TaskHash, ContentHash: record.ContentHash,
+		}); err != nil {
 			return fmt.Errorf("retry payload cleanup %s: %w", taskKey(record.SessionID, record.TaskID), err)
 		}
 		if err := c.kv.Delete(kv.NSPayloadCleanup, taskKey(record.SessionID, record.TaskID)); err != nil {

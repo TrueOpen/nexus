@@ -2352,24 +2352,6 @@ func (f *taskFSM) authorizedForSealedKey(requester string) bool {
 	return false
 }
 
-func (f *taskFSM) authorizedForPayload(requester, usage string) bool {
-	if requester == "" {
-		return false
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	switch usage {
-	case "WORKER_INFERENCE":
-		return f.winner != "" && requester == f.winner
-	case "VERIFIER_RECOMPUTE":
-		return containsString(f.verifiers, requester)
-	case "CHALLENGE_EVIDENCE":
-		return (f.user != "" && requester == f.user) || containsString(f.verifiers, requester)
-	default:
-		return false
-	}
-}
-
 // subscribe subscribes to one core task-level subject and registers the unsubscribe function. Caller must hold the lock.
 func (f *taskFSM) subscribe(subject string, h func(data []byte)) {
 	unsub, err := f.bus.Subscribe(subject, func(_ string, data []byte) error {

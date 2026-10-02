@@ -16,6 +16,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -222,6 +223,15 @@ func (f *taskFSM) save() error {
 		sn.Events = f.events.snapshot()
 	}
 	return f.persist(sn)
+}
+
+// snapshotInput names the INPUT version of a recovered task. A snapshot without an order names
+// only the task, and the INPUT index then decides.
+func snapshotInput(sn taskSnapshot) payloadstore.Input {
+	if sn.Order.SessionID == "" {
+		return payloadstore.Input{SessionID: sn.SessionID, TaskID: sn.TaskID}
+	}
+	return orderInput(sn.Order)
 }
 
 // restoreFrom refills state machine fields from a snapshot (called after construction, before subscribing; no concurrency).
@@ -554,7 +564,7 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 			// Keep the terminal snapshot until outputdelivery has durably
 			// reconciled a possible PREPARED plaintext record.
 			recipient := c.removeTask(key)
-			c.deletePayload(sn.SessionID, sn.TaskID)
+			c.deletePayload(snapshotInput(sn))
 			c.relay.Release(sn.SessionID, sn.TaskID)
 			if c.outputs != nil {
 				if err := c.outputs.Terminate(sn.SessionID, sn.TaskID, recipient); err != nil {
