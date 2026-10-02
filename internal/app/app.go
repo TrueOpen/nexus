@@ -260,6 +260,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		MaxRangeBytes: cfg.TaskData.MaxRangeBytes, MaxBlobBytes: cfg.TaskData.MaxBlobBytes,
 		SpoolReservationBytes:      cfg.TaskData.SpoolReservationBytes,
 		DiskAcceptWatermarkPercent: cfg.TaskData.DiskAcceptWatermarkPercent,
+		TombstoneRetentionBlocks:   cfg.TaskData.TombstoneRetentionBlocks,
 	})
 	if err != nil {
 		_ = store.Close()

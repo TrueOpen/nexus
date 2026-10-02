@@ -26,6 +26,9 @@ type Config struct {
 	MaxBlobBytes               uint64
 	SpoolReservationBytes      uint64
 	DiskAcceptWatermarkPercent uint32
+	// TombstoneRetentionBlocks is how long a tombstone outlives max(deletion height, retention
+	// height) before Sweep reclaims it, in blocks. 0 keeps tombstones forever.
+	TombstoneRetentionBlocks uint64
 }
 
 func (c Config) validate() error {
@@ -644,7 +647,7 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 		source = Metadata{Key: key}
 	}
 	if !tombstoneFound {
-		if err := s.persistTombstone(source); err != nil {
+		if err := s.persistTombstone(source, 0); err != nil {
 			s.mu.Unlock()
 			return err
 		}

@@ -252,7 +252,10 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
   `service.max_service_material_expiry_blocks`, read at startup and re-read every 10 minutes.
 - One user account may make at most `task_data.user_requests_per_minute` Task data requests per
   minute (default 600); over the cap the request is refused with `NEXUS_DATA_CAPACITY` before its
-  nonce is stored. An object deleted when its retention ran out is `DATA_EXPIRED`.
+  nonce is stored. An object deleted when its retention ran out is `DATA_EXPIRED`. Its tombstone,
+  which also refuses a re-upload of the same key, is kept for `task_data.tombstone_retention_blocks`
+  (default 120960) after the later of its deletion height and its retention height; after that the
+  key answers `NEXUS_DATA_NOT_FOUND`. 0 keeps tombstones forever.
 - INPUT is served only in the version the chain accepted: a fetch or metadata request must name
   the task's `accepted_task_hash` (and its `accepted_input_hash` once the chain reports it);
   another version is refused with `DATA_ACCESS_DENIED`. A Builder whose own order was another
