@@ -283,7 +283,7 @@ func (a *Authorizer) acceptedInputVersion(task chaincli.OnChainTask, request Req
 	}
 	accepted := task.Assignment
 	if accepted.AcceptedTaskHash != "" && request.Key.TaskHash == accepted.AcceptedTaskHash &&
-		(accepted.AcceptedInputHash == "" || request.Key.ContentHash == accepted.AcceptedInputHash) {
+		(accepted.AcceptedInputHash == "" || request.Key.ContentHash == InputContentHash(accepted.AcceptedInputHash)) {
 		return true
 	}
 	a.log.Info("task input request names a version the chain did not accept",

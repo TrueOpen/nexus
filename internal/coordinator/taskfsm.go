@@ -469,15 +469,16 @@ func (f *taskFSM) rememberAcceptedVersion(taskHash, inputHash string) bool {
 	return detected
 }
 
-// acceptedInputHashLocked returns the input_hash of the accepted version: the chain's value once
-// known, else this Builder's order's while the receipt's task_hash is the order's own. Empty means
-// unknown, and then this Builder is not data-ready. Caller must hold the lock.
-func (f *taskFSM) acceptedInputHashLocked() string {
+// acceptedInputContentHashLocked returns the content hash of the accepted version's INPUT object,
+// derived from the chain's accepted input_hash once known, else from this Builder's order's while
+// the receipt's task_hash is the order's own. Empty means unknown, and then this Builder is not
+// data-ready. Caller must hold the lock.
+func (f *taskFSM) acceptedInputContentHashLocked() string {
 	switch {
 	case f.acceptedInputHash != "":
-		return f.acceptedInputHash
+		return taskdata.InputContentHash(f.acceptedInputHash)
 	case !f.versionMismatch && f.order.TaskHash != "" && f.order.TaskHash == f.inferReceipt.TaskHash:
-		return f.order.PayloadHash
+		return taskdata.InputContentHash(f.order.PayloadHash)
 	default:
 		return ""
 	}
@@ -686,7 +687,7 @@ func (f *taskFSM) checkDataReady() {
 			TaskHash: f.inferReceipt.TaskHash, SessionID: f.sessionID, TaskID: f.taskID,
 			OutputHash:       hex.EncodeToString(f.outputHash),
 			InferReceiptHash: hex.EncodeToString(f.inferReceipt.InferReceiptHash),
-			InputHash:        f.acceptedInputHashLocked(),
+			InputContentHash: f.acceptedInputContentHashLocked(),
 		}
 		if f.versionMismatch {
 			// Not a fault to retry: the input this Builder holds is not the accepted one, so it

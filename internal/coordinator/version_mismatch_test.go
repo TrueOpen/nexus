@@ -168,7 +168,7 @@ func TestDataReadyQueryNamesTheAcceptedInput(t *testing.T) {
 	if len(readiness.queries) == 0 {
 		t.Fatal("no data-ready query")
 	}
-	if got := readiness.queries[len(readiness.queries)-1].InputHash; got != fx.fsm.order.PayloadHash || got == "" {
+	if got := readiness.queries[len(readiness.queries)-1].InputContentHash; got != fx.fsm.order.PayloadHash || got == "" {
 		t.Fatalf("data-ready query input_hash = %q, want %q", got, fx.fsm.order.PayloadHash)
 	}
 }

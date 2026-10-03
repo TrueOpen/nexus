@@ -868,12 +868,12 @@ func (c *Coordinator) HasAcceptedOrder(_ context.Context, key taskdata.ObjectKey
 			// Once the chain accepted a version, that is the only one recovery may promote,
 			// even when this Builder's order was another one.
 			return hex.EncodeToString(sn.AcceptedTaskHash) == key.TaskHash &&
-				(sn.AcceptedInputHash == "" || sn.AcceptedInputHash == key.ContentHash), nil
+				(sn.AcceptedInputHash == "" || taskdata.InputContentHash(sn.AcceptedInputHash) == key.ContentHash), nil
 		}
 		if sn.Order.TaskHash == "" {
 			return true, nil
 		}
-		return sn.Order.TaskHash == key.TaskHash && sn.Order.PayloadHash == key.ContentHash, nil
+		return sn.Order.TaskHash == key.TaskHash && taskdata.InputContentHash(sn.Order.PayloadHash) == key.ContentHash, nil
 	}
 	raw, found, err = c.kv.GetWithError(kv.NSTerminalTask, encoded)
 	if err != nil || !found {
@@ -896,10 +896,12 @@ func (c *Coordinator) HasTerminatedOrder(_ context.Context, key taskdata.ObjectK
 	return found, err
 }
 
-// orderInput names the INPUT version an order carries: its task_hash and input hash (ingress
-// checks that the order's payload hash equals the uploaded input_hash).
+// orderInput names the INPUT version an order carries: its task_hash and the INPUT object's
+// content hash derived from the order's input_hash.
 func orderInput(o types.Order) payloadstore.Input {
-	return payloadstore.Input{SessionID: o.SessionID, TaskID: o.TaskID, TaskHash: o.TaskHash, ContentHash: o.PayloadHash}
+	return payloadstore.Input{
+		SessionID: o.SessionID, TaskID: o.TaskID, TaskHash: o.TaskHash, ContentHash: taskdata.InputContentHash(o.PayloadHash),
+	}
 }
 
 // deletePayload removes the task's INPUT version named by input; on failure it queues a durable

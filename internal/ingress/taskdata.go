@@ -262,7 +262,10 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		return types.Order{}, taskdata.UploadHeader{}, malformed("%v", err)
 	}
 	order.User = header.GetUserAddress()
-	if order.PayloadHash != header.GetInputHash() {
+	// The header names the INPUT object being uploaded; its hash must be the content hash the
+	// order's input_hash implies.
+	inputContentHash := taskdata.InputContentHash(order.PayloadHash)
+	if header.GetInputHash() != inputContentHash {
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input hash")
 	}
 	// payload_ref is not in the signed body; it is a transport check against input_hash.
@@ -292,11 +295,11 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
 			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
 	}
-	// Full object ref for INPUT: task_hash is the order identity, content_hash is input_hash itself --
-	// the same bytes can have only one identity.
+	// Full object ref for INPUT: task_hash is the order identity, content_hash the INPUT content
+	// hash checked above -- the same bytes can have only one identity.
 	key := taskdata.ObjectKey{
 		TaskHash: order.TaskHash, SessionID: order.SessionID, TaskID: order.TaskID,
-		Kind: taskdata.ObjectKindInput, ContentHash: header.GetInputHash(),
+		Kind: taskdata.ObjectKindInput, ContentHash: inputContentHash,
 	}
 	uploadHeader := taskdata.UploadHeader{
 		Key: key, SizeBytes: header.GetInputSizeBytes(), SemanticHash: header.GetInputHash(),

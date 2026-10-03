@@ -1053,7 +1053,7 @@ func (f *finalizeFixture) readyQuery(t *testing.T) ResultReadyQuery {
 	return ResultReadyQuery{
 		TaskHash: f.taskHash, SessionID: testSessionID, TaskID: testTaskID,
 		OutputHash: f.receipt.OutputHash, InferReceiptHash: hex.EncodeToString(digest[:]),
-		InputHash: f.readyInput(t).ContentHash,
+		InputContentHash: f.readyInput(t).ContentHash,
 	}
 }
 
@@ -1128,12 +1128,12 @@ func TestResultReadyFollowsFinalize(t *testing.T) {
 	}
 	// Without the accepted INPUT this Builder cannot serve the whole data set.
 	otherInput := q
-	otherInput.InputHash = strings.Repeat("d", 64)
+	otherInput.InputContentHash = strings.Repeat("d", 64)
 	if f.resultReady(t, otherInput) {
 		t.Fatal("ready without the accepted INPUT")
 	}
 	unknownInput := q
-	unknownInput.InputHash = ""
+	unknownInput.InputContentHash = ""
 	if f.resultReady(t, unknownInput) {
 		t.Fatal("ready with an unknown accepted INPUT")
 	}

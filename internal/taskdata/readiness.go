@@ -15,9 +15,10 @@ type ResultReadyQuery struct {
 	TaskID           string
 	OutputHash       string
 	InferReceiptHash string
-	// InputHash is the accepted order's input_hash. The INPUT under TaskHash and InputHash must be
-	// READY here too; empty means the accepted input is unknown, and the result is not ready.
-	InputHash string
+	// InputContentHash is the content hash of the accepted version's INPUT object (see
+	// InputContentHash). That INPUT must be READY here too; empty means the accepted input is
+	// unknown, and the result is not ready.
+	InputContentHash string
 }
 
 // ResultFinalizedObserver is told that a FinalizeTaskResult call completed a task's result (not on
@@ -36,12 +37,12 @@ func (s *Service) SetResultFinalizedObserver(observer ResultFinalizedObserver) {
 // The answer is derived from storage and needs no recovery of its own after a restart. With only
 // one bundle finalized the result stays not ready, so no Verifier is invited to fetch it.
 func (s *Service) ResultReady(ctx context.Context, q ResultReadyQuery) (bool, error) {
-	if q.InputHash == "" {
+	if q.InputContentHash == "" {
 		return false, nil
 	}
 	input, err := s.store.Metadata(ctx, ObjectRef{
 		TaskHash: q.TaskHash, SessionID: q.SessionID, TaskID: q.TaskID,
-		Kind: ObjectKindInput, ContentHash: q.InputHash,
+		Kind: ObjectKindInput, ContentHash: q.InputContentHash,
 	})
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -61,7 +62,7 @@ func (s *Service) ResultReady(ctx context.Context, q ResultReadyQuery) (bool, er
 func (s *Service) resultComplete(ctx context.Context, q ResultReadyQuery) (bool, error) {
 	metadata, err := s.store.Metadata(ctx, ObjectRef{
 		TaskHash: q.TaskHash, SessionID: q.SessionID, TaskID: q.TaskID,
-		Kind: ObjectKindOutput, ContentHash: q.OutputHash,
+		Kind: ObjectKindOutput, ContentHash: OutputContentHash(q.OutputHash),
 	})
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
@@ -85,7 +86,7 @@ func (s *Service) resultComplete(ctx context.Context, q ResultReadyQuery) (bool,
 	for _, commitment := range receipt.EvidenceCommitments {
 		bundle, err := s.store.Metadata(ctx, ObjectRef{
 			TaskHash: q.TaskHash, SessionID: q.SessionID, TaskID: q.TaskID,
-			Kind: ObjectKindEvidenceManifest, ContentHash: commitment.HashOrRoot,
+			Kind: ObjectKindEvidenceManifest, ContentHash: WorkerManifestContentHash(commitment),
 			EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1,
 			ProducerOperator: receipt.WorkerOperatorAddress, EvidenceKind: EvidenceKind(commitment.Kind),
 		})

@@ -170,7 +170,7 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	// when it is sealed, so finding it here is the same as "locally computed root == output_hash".
 	outputRef := ObjectRef{
 		TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
-		Kind: ObjectKindOutput, ContentHash: receipt.OutputHash,
+		Kind: ObjectKindOutput, ContentHash: OutputContentHash(receipt.OutputHash),
 	}
 	output, err := s.storedObject(ctx, outputRef)
 	if err != nil {
@@ -219,10 +219,9 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	if commitment.HashOrRoot == "" {
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: receipt has no %s commitment", ErrMalformed, request.EvidenceKind)
 	}
-	// The manifest's content_hash is exactly the commitment's evidence_hash_or_root.
 	manifestRef := ObjectRef{
 		TaskHash: request.TaskHash, SessionID: scope.SessionID, TaskID: scope.TaskID,
-		Kind: ObjectKindEvidenceManifest, ContentHash: commitment.HashOrRoot,
+		Kind: ObjectKindEvidenceManifest, ContentHash: WorkerManifestContentHash(commitment),
 		// The round of a Worker manifest is always 1.
 		EvidenceProducerKind: EvidenceProducerWorker, VerifyRound: 1, ProducerOperator: worker,
 		EvidenceKind: request.EvidenceKind,
