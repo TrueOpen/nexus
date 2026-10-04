@@ -55,9 +55,13 @@ nexus keeps using the local creds of the TRUEOPEN account's builder user and doe
 (`nats-server --signal reload` or restart); otherwise it keeps deciding by the old `allowed_accounts`, and the log shows
 `Account "<signing key public key>" not permitted as valid account option for auth callout`.
 
-In the nats-server TLS block use `handshake_first: "2s"` rather than `true`: `true` requires the client to start the TLS handshake before it receives INFO,
-whereas nats.go by default reads INFO first and then upgrades; writing `"2s"` makes the server wait two seconds before falling back to the normal flow,
-so both kinds of client can connect.
+Do not set `handshake_first` in the nats-server TLS block. nats.go by default reads INFO first and then upgrades to TLS, and so do nexus,
+natsauth and Cortex. With `handshake_first: true` such clients cannot connect: the server never sends INFO and the connection times
+out. A duration such as `handshake_first: "2s"` makes the server wait
+that long for a TLS handshake on every new connection before it falls back to sending INFO: every connection, including natsauth's own,
+then takes that much longer to connect. After a NATS restart natsauth comes back that much later too, and Cortex logins that reach the
+server before it are lost and fail after the server's auth timeout. Set `handshake_first: true` only once every client starts the TLS
+handshake first (nats.go `nats.TLSHandshakeFirst()`).
 
 ## Distributing the sentinel
 

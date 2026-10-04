@@ -131,16 +131,35 @@ func buildNATSAuthService(cfg config.Config, log *slog.Logger, jetStreamStream s
 	return natsauth.NewService(natsauth.ServiceConfig{Log: log, Verifier: verifier, Issuer: issuer, Connect: connect})
 }
 
-// natsAuthConnector connects to NATS with the AUTH account's creds; reconnects are unlimited, so it recovers on its own after a disconnect.
+// Reconnect pacing of the natsauth connection. While it is disconnected the server finds no subscriber for a login
+// request, drops the request and fails the login after its auth timeout, so every Cortex login waits on this one
+// connection coming back. The nats.go defaults (2s wait, up to 1s extra on TLS) are meant to spread many clients
+// reconnecting to one server; natsauth is a single connection per server, so it retries quickly with a small jitter.
+const (
+	natsAuthReconnectWait   = 250 * time.Millisecond
+	natsAuthReconnectJitter = 100 * time.Millisecond
+)
+
+// natsAuthConnectOptions returns the options of the natsauth connection: the AUTH account's creds, unlimited reconnects
+// (so it recovers on its own after a disconnect) and the reconnect pacing above.
+func natsAuthConnectOptions(cfg config.NATSConfig) ([]nats.Option, error) {
+	opts, err := msgbus.ConnectOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return append(opts, nats.Name("nexus-natsauth"), nats.Timeout(5*time.Second), nats.MaxReconnects(-1),
+		nats.ReconnectWait(natsAuthReconnectWait), nats.ReconnectJitter(natsAuthReconnectJitter, natsAuthReconnectJitter)), nil
+}
+
+// natsAuthConnector connects to NATS with natsAuthConnectOptions.
 // The context in the signature is deliberately unused: nats.Connect has no ctx-taking variant, and the connect timeout can only be
 // controlled through nats.Timeout. The parameter is kept to match natsauth.ServiceConfig.Connect.
 func natsAuthConnector(cfg config.NATSConfig) func(context.Context) (*nats.Conn, error) {
 	return func(context.Context) (*nats.Conn, error) {
-		opts, err := msgbus.ConnectOptions(cfg)
+		opts, err := natsAuthConnectOptions(cfg)
 		if err != nil {
 			return nil, err
 		}
-		opts = append(opts, nats.Name("nexus-natsauth"), nats.Timeout(5*time.Second), nats.MaxReconnects(-1))
 		return nats.Connect(strings.Join(cfg.Servers, ","), opts...)
 	}
 }
