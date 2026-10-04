@@ -224,3 +224,25 @@ func TestBuildNATSAuthServiceFailsOnBadMaterial(t *testing.T) {
 		t.Fatalf("buildNATSAuthService error = %v, want one naming the bad auth key file", err)
 	}
 }
+
+// While natsauth is reconnecting no Cortex login can complete, so its connection must not use the nats.go
+// default reconnect wait (2s, plus up to 1s jitter on TLS).
+func TestNATSAuthConnectOptionsReconnectQuickly(t *testing.T) {
+	opts, err := natsAuthConnectOptions(config.NATSConfig{Servers: []string{"tls://127.0.0.1:1"}})
+	if err != nil {
+		t.Fatalf("natsAuthConnectOptions: %v", err)
+	}
+	o := nats.GetDefaultOptions()
+	for _, opt := range opts {
+		if err := opt(&o); err != nil {
+			t.Fatalf("apply option: %v", err)
+		}
+	}
+	if o.ReconnectWait != natsAuthReconnectWait || o.ReconnectJitter != natsAuthReconnectJitter || o.ReconnectJitterTLS != natsAuthReconnectJitter {
+		t.Fatalf("reconnect wait/jitter/jitter_tls = %s/%s/%s, want %s/%s/%s", o.ReconnectWait, o.ReconnectJitter, o.ReconnectJitterTLS,
+			natsAuthReconnectWait, natsAuthReconnectJitter, natsAuthReconnectJitter)
+	}
+	if o.MaxReconnect != -1 || o.Name != "nexus-natsauth" || !o.Secure {
+		t.Fatalf("max_reconnect/name/secure = %d/%q/%v, want -1/%q/true", o.MaxReconnect, o.Name, o.Secure, "nexus-natsauth")
+	}
+}
