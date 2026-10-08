@@ -384,3 +384,30 @@ func (b *selectiveFailBus) Publish(subject string, _ []byte) error {
 func (b *selectiveFailBus) JSPublish(subject string, data []byte, _ string) error {
 	return b.Publish(subject, data)
 }
+
+// An OrderBroadcastV1 keeps SignedOrderV2.signature_chain_id (field 4) through publish and the
+// strict receive decode: the domain chainId the user signed under reaches every Builder unchanged.
+func TestOrderBroadcastKeepsSignatureChainID(t *testing.T) {
+	fx := newRoundtripFixture(t)
+	payload := &busv1.OrderBroadcastV1{SignedOrder: &taskv1.SignedOrderV2{
+		Order:            &taskv1.TaskOrderV3{SchemaVersion: 3, ChainId: testChainID},
+		SignatureScheme:  "eip712",
+		UserSignature:    append(bytes.Repeat([]byte{0x55}, 64), 27),
+		SignatureChainId: 1,
+	}}
+	if _, err := fx.publisher.Publish(
+		context.Background(), testSubject, wirebus.KindOrderBroadcast, payload, TierCore); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	inbound, err := fx.receiver.Receive(context.Background(), testSubject, fx.bus.published[0].data)
+	if err != nil {
+		t.Fatalf("receive: %v", err)
+	}
+	got, ok := inbound.Payload.(*busv1.OrderBroadcastV1)
+	if !ok {
+		t.Fatalf("payload type = %T, want OrderBroadcastV1", inbound.Payload)
+	}
+	if got.GetSignedOrder().GetSignatureChainId() != 1 || !proto.Equal(got, payload) {
+		t.Fatalf("signed order after the bus = %v, want signature_chain_id 1", got.GetSignedOrder())
+	}
+}

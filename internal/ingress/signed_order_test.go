@@ -58,8 +58,9 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
 			InputKeyCommitment:     make([]byte, 32),
 		},
-		SignatureScheme: "eip712",
-		UserSignature:   testUserSignatureV2(0x55),
+		SignatureScheme:  "eip712",
+		UserSignature:    testUserSignatureV2(0x55),
+		SignatureChainId: 424242,
 	}
 }
 
@@ -222,6 +223,10 @@ func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
 		"no profile":        {Order: &taskv1.TaskOrderV3{ModelId: testOrderModelID}, SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
 		"no model": {Order: &taskv1.TaskOrderV3{ProfileVersion: 1}, SignatureScheme: "eip712",
 			UserSignature: testUserSignatureV2(0x55)},
+		"signature_chain_id zero": {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712",
+			UserSignature: testUserSignatureV2(0x55)},
+		"signature_chain_id above MaxInt64": {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "eip712",
+			UserSignature: testUserSignatureV2(0x55), SignatureChainId: 1 << 63},
 	}
 	for name, signed := range cases {
 		t.Run(name, func(t *testing.T) {

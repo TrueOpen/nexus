@@ -800,7 +800,8 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 		},
 		SignatureScheme: "eip712",
 		// 65 bytes of R||S||V with V=27 and S < N/2: a structurally valid placeholder signature.
-		UserSignature: append(bytes.Repeat([]byte{0x55}, 64), 27),
+		UserSignature:    append(bytes.Repeat([]byte{0x55}, 64), 27),
+		SignatureChainId: 424242,
 	}
 }
 

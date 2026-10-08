@@ -477,9 +477,10 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if err := nodecontract.ValidatePlaintextOrderV3(order); err != nil {
 		return types.Order{}, fmt.Errorf("signed_order: %w", err)
 	}
-	// Signed order envelope: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
-	// The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
-	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
+	// Signed order envelope: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S;
+	// signature_chain_id in 1..MaxInt64. The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
+	if err := nodecontract.ValidateSignedOrderEnvelopeV2(
+		signed.GetSignatureScheme(), signed.GetUserSignature(), signed.GetSignatureChainId()); err != nil {
 		return types.Order{}, err
 	}
 	// Reject unknown fields at any level. Before submitting on-chain Nexus re-encodes this message with its own mirror,

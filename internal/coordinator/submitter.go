@@ -440,7 +440,8 @@ func validateScopeTaskHash(scopeTaskHash []byte, handraises []*taskv1.WorkerHand
 
 func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
 	// Order signatures are "eip712" + 65-byte recoverable signature. Same rule as ingress.
-	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
+	if err := nodecontract.ValidateSignedOrderEnvelopeV2(
+		signed.GetSignatureScheme(), signed.GetUserSignature(), signed.GetSignatureChainId()); err != nil {
 		return err
 	}
 	order := signed.GetOrder()
