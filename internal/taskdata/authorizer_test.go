@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/TrueOpen/nexus/internal/eip712"
@@ -20,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
@@ -512,6 +514,55 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	if err := fx.authorizer.AuthorizeMetadata(context.Background(),
 		fx.fixtureRequest(t, fx.worker, MethodGetMetadata, meta.Key, nil, 1, 110), &meta); err != nil {
 		t.Fatalf("metadata path must not depend on the Builder service key: %v", err)
+	}
+}
+
+// A CORTEX_SERVICE request must carry signature_chain_id 0; any other value is refused at the format
+// step with the code wire's cortex_service_signature_chain_id_nonzero row names. The field is not in
+// the CORTEX_SERVICE digest, so the signature itself would still verify.
+func TestCortexServiceRequestRequiresZeroSignatureChainID(t *testing.T) {
+	var file struct {
+		Cases []struct {
+			Name      string            `json:"name"`
+			Error     string            `json:"error"`
+			Transport map[string]string `json:"transport"`
+		} `json:"request_auth_negative_cases"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/account_signing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	var carried uint64
+	var code string
+	for _, row := range file.Cases {
+		if row.Name == "cortex_service_signature_chain_id_nonzero" {
+			if row.Transport["requester_kind"] != "CORTEX_SERVICE" {
+				t.Fatalf("row requester_kind = %q", row.Transport["requester_kind"])
+			}
+			carried = mustUintT(t, row.Transport["signature_chain_id"])
+			code = row.Error
+		}
+	}
+	if carried == 0 || code != ErrRequestMalformed.Error() {
+		t.Fatalf("wire row: signature_chain_id %d, error %q; want a non-zero value and %s", carried, code, ErrRequestMalformed)
+	}
+	fx := newAuthorizerFixture(t)
+	meta := fx.metadata[ObjectKindOutput]
+	request := fx.fixtureRequest(t, fx.worker, MethodGetMetadata, meta.Key, nil, 1, 110)
+	withChainID := request
+	withChainID.SignatureChainID = carried
+	if digest, err := CortexTaskDataRequestDigest(withChainID); err != nil {
+		t.Fatal(err)
+	} else if want, _ := CortexTaskDataRequestDigest(request); digest != want {
+		t.Fatal("signature_chain_id must not enter the CORTEX_SERVICE digest")
+	}
+	m := meta
+	if err := fx.authorizer.AuthorizeMetadata(context.Background(), withChainID, &m); !errors.Is(err, ErrRequestMalformed) {
+		t.Fatalf("err = %v, want %s", err, code)
+	}
+	// The refused request stored no nonce: the same request with 0 is accepted.
+	m = meta
+	if err := fx.authorizer.AuthorizeMetadata(context.Background(), request, &m); err != nil {
+		t.Fatalf("signature_chain_id 0: %v", err)
 	}
 }
 

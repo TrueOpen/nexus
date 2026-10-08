@@ -426,7 +426,7 @@ func TestEIP712UserWireNegativeCases(t *testing.T) {
 			case "task_data_input_object_with_session_grant":
 				t.Skip("no published bytes; the object kind check is TestEIP712UserSessionRejects/input_object_with_a_grant")
 			case "cortex_service_signature_chain_id_nonzero":
-				t.Skip("decided by the Authorizer on the CORTEX_SERVICE path; see authorizer_test.go")
+				t.Skip("decided by the Authorizer: TestCortexServiceRequestRequiresZeroSignatureChainID")
 			default:
 				if row.Base == "task_data_request" || row.Base == "task_data_request_session" {
 					t.Fatalf("unhandled Task data row %q", row.Name)

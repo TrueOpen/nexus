@@ -403,6 +403,13 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 	var requesterKey []byte
 	switch request.RequesterKind {
 	case RequesterKindCortexService:
+		// Only the USER path signs EIP-712, so a CORTEX_SERVICE request carries signature_chain_id 0;
+		// the field enters neither its digest nor its replay key. The code is NEXUS_INGRESS_MALFORMED,
+		// not the NEXUS_DATA_MALFORMED of the other CORTEX_SERVICE format errors, because the wire
+		// vector cortex_service_signature_chain_id_nonzero says so; follow wire if it revises that.
+		if request.SignatureChainID != 0 {
+			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: CORTEX_SERVICE signature_chain_id must be 0", ErrRequestMalformed)
+		}
 		if request.ChainID != a.cfg.ChainID || request.BuilderOperatorAddress != a.cfg.BuilderAddress ||
 			request.RPCMethod != rpcMethodPath(method) {
 			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
