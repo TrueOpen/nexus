@@ -43,7 +43,7 @@ func TestServerExposesBuilderDescriptor(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID},
+		AuthParams{Chain: testUserChain},
 		&fakeHandler{},
 		WithBuilderDescriptor(body),
 	)
@@ -61,7 +61,7 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	fake := &fakeHandler{}
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, fake,
+		config.IngressConfig{}, AuthParams{Chain: testUserChain}, fake,
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 func TestServerCapsRawHTTPBody(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain}, &fakeHandler{},
 		WithPayloadMaxBytes(32),
 	)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestServerCapsRawHTTPBody(t *testing.T) {
 func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.T) {
 	s, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		config.IngressConfig{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{},
+		config.IngressConfig{}, AuthParams{Chain: testUserChain}, &fakeHandler{},
 		WithReadMaxBytes(256<<10),
 	)
 	if err != nil {
@@ -144,7 +144,7 @@ func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.
 // a valid message: it is refused before the request is parsed.
 func TestRetiredMethodsIgnoreTheBody(t *testing.T) {
 	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID}, &fakeHandler{})
+		AuthParams{Chain: testUserChain}, &fakeHandler{})
 	if err != nil {
 		t.Fatal(err)
 	}

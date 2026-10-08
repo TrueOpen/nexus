@@ -185,7 +185,7 @@ func (u *fakeTaskDataUpload) Idempotent() bool { return u.idempotent }
 
 func newTaskDataClient(t *testing.T, api taskDataAPI) nexusv1connect.IngressAPIClient {
 	t.Helper()
-	return newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID})
+	return newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain})
 }
 
 func newTaskDataClientWithHandler(t *testing.T, handler Handler, api taskDataAPI, auth AuthParams) nexusv1connect.IngressAPIClient {
@@ -548,7 +548,7 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 		}
 		return nil
 	}
-	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-open"), 9, []byte("abcdefgh"))
 	stream := client.OpenTask(context.Background())
 	if err := stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}}); err != nil {
@@ -572,7 +572,7 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen",
 	})
 	header := openTaskHeader(t, user, testSessionID("session-text"), 9, []byte("input"))
@@ -590,7 +590,7 @@ func TestOpenTaskRollsBackPreparedInputOnCoordinatorFailure(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
 	handler := &fakeHandler{orderErr: errors.New("order rejected")}
-	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-reject"), 10, []byte("input"))
 	stream := client.OpenTask(context.Background())
 	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
@@ -604,7 +604,7 @@ func TestOpenTaskRollsBackPreparedInputOnCoordinatorFailure(t *testing.T) {
 func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-expiry"), 11, []byte("input"))
 	header.RequestEnvelope.ExpiryHeightOrTime = time.Now().Add(time.Minute).UnixMilli()
 	resignTaskEnvelope(t, user, header.RequestEnvelope)
@@ -620,7 +620,7 @@ func TestOpenTaskRequiresChainHeightExpiry(t *testing.T) {
 func TestOpenTaskForwardsChainHeightReplayFields(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
-	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	header := openTaskHeader(t, user, testSessionID("session-height"), 12, []byte("input"))
 	stream := client.OpenTask(context.Background())
 	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
@@ -723,13 +723,14 @@ func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 		}, code: connect.CodeInvalidArgument, want: "must be empty"},
 		{name: "session key signs OpenTask", edit: func(h *nexusv1.OpenTaskHeader) {
 			h.RequestEnvelope.SessionGrant = &nexusv1.SessionGrantV1{ChainId: "trueopen-localnet", User: user.Address(),
-				SessionKey: make([]byte, 20), ExpiryHeight: 150, GrantNonce: make([]byte, 32), UserSignature: make([]byte, 65)}
+				SessionKey: make([]byte, 20), ExpiryHeight: 150, GrantNonce: make([]byte, 32), UserSignature: make([]byte, 65),
+				SignatureChainId: testSignatureChainID}
 		}, code: connect.CodePermissionDenied, want: sdkauth.ErrSessionMethodNotAllowed.Error()},
 	}
 	for index, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeTaskDataAPI{chunkSize: 64}
-			client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-deny-%d", index)), 13, []byte("input"))
 			tt.edit(header)
 			stream := client.OpenTask(context.Background())
@@ -781,7 +782,7 @@ func TestOpenTaskMapsStage1AdmissionErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeTaskDataAPI{chunkSize: 64}
 			client := newTaskDataClientWithHandler(t, &fakeHandler{orderErr: tt.err}, api, AuthParams{Chain: testUserChain,
-				EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-admission-%d", index)), 3, []byte("input"))
 			stream := client.OpenTask(context.Background())
 			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
@@ -808,7 +809,7 @@ func TestOpenTaskExpiryAndReplayCodes(t *testing.T) {
 	} {
 		api := &fakeTaskDataAPI{chunkSize: 64, err: tc.err}
 		client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain,
-			EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 		header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-step5-%d", index)), 5, []byte("input"))
 		stream := client.OpenTask(context.Background())
 		_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})

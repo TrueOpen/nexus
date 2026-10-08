@@ -36,9 +36,9 @@ const (
 	// A second Task: the capacity and tombstone cases need two different objects.
 	testOtherTaskID = "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 	testBuilder     = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man"
-	// The numeric chainId of the EIP-712 domain: the USER path requires it and the chain_id string to
-	// match at the same time.
-	testEVMChainID = uint64(424242)
+	// The signature_chain_id USER test requests are signed under: the EIP-712 domain chainId the
+	// signer chooses and carries.
+	testSignatureChainID = uint64(424242)
 )
 
 type fakeAuthority struct {
@@ -177,7 +177,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 	authority.setServiceKey(participantServiceKey(participantTypeCortex, other.Address(), other))
 	backend := kv.NewMemStore()
 	a, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
+		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, backend, authority, service)
 	if err != nil {
@@ -496,7 +496,7 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	meta := fx.metadata[ObjectKindOutput]
 	wrong := testSigner(t, 40)
 	a, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
+		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, wrong)
 	if err != nil {
@@ -956,9 +956,10 @@ func userSignedRequest(
 		ServiceAuthorizationNonce: 0,
 		RequestNonce:              bytes.Repeat([]byte{nonce}, 32),
 		ExpiryHeight:              expiry,
+		SignatureChainID:          testSignatureChainID,
 		Key:                       key,
 	}
-	digest, err := UserTaskDataRequestDigest(request, testEVMChainID, [32]byte{})
+	digest, err := UserTaskDataRequestDigest(request, [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1091,20 +1092,6 @@ func withUploader(header UploadHeader) UploadHeader {
 	return header
 }
 
-// The chainId of the EIP-712 domain comes from the Hub parameter phase0.evm_chain_id; with 0 every
-// USER request fails signature verification, so the Authorizer refuses to be constructed with 0 (if
-// the app cannot read it at startup, the service does not start).
-func TestNewAuthorizerRejectsZeroEVMChainID(t *testing.T) {
-	fx := newAuthorizerFixture(t)
-	_, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
-	}, fx.backend, fx.authority, fx.service)
-	if !errors.Is(err, ErrMalformed) {
-		t.Fatalf("error = %v, want ErrMalformed", err)
-	}
-}
-
 // testAccountChain answers the user-request chain reads for every test key: each key's EVM-style
 // account (the address ethAddressOf gives) holds that key on chain.
 type testAccountChain struct{}
@@ -1151,7 +1138,7 @@ func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
 		r := userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, height+800)
 		if edit != nil {
 			edit(&r)
-			digest, err := UserTaskDataRequestDigest(r, testEVMChainID, [32]byte{})
+			digest, err := UserTaskDataRequestDigest(r, [32]byte{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1181,6 +1168,9 @@ func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
 		{"signed for another chain", request(func(r *RequestAuth) { r.ChainID = "trueopen-other" }), nil, ErrInvalidSignature},
 		{"for another Builder", request(func(r *RequestAuth) { r.BuilderOperatorAddress = fx.other.Address() }), nil, ErrDenied},
 		{"16-byte nonce", func() RequestAuth { r := request(nil); r.RequestNonce = r.RequestNonce[:16]; return r }(), nil, ErrRequestMalformed},
+		{"signature_chain_id zero", request(func(r *RequestAuth) { r.SignatureChainID = 0 }), nil, ErrRequestMalformed},
+		{"signature_chain_id above MaxInt64", request(func(r *RequestAuth) { r.SignatureChainID = 1 << 63 }), nil, ErrRequestMalformed},
+		{"signed under the wallet network", request(func(r *RequestAuth) { r.SignatureChainID = 1 }), nil, nil},
 		{"metadata request sent to fetch", request(nil), func(r RequestAuth) error {
 			_, err := authorizer.AuthorizeFetch(context.Background(), r, nil)
 			return err

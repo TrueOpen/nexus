@@ -353,12 +353,14 @@ message BuilderStorageConfirmationV1 {
 // TaskDataRequest.
 //
 // requester_kind alone determines the verification path:
-//   USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "1",
+//   USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "2",
+//                   chainId = signature_chain_id (chosen by the signer, 1..MaxInt64),
 //                   signature exactly 65 bytes R||S||V, V in {27,28}, low-S;
 //                   service_authorization_nonce must be 0;
 //                   personal_sign, eth_sign and raw64 are rejected.
 //   CORTEX_SERVICE  direct digest H_FIELDS_V1("TRUEOPEN_TASK_DATA_REQUEST_V1", fields 1..10),
 //                   signature exactly 64 bytes compact low-S R||S;
+//                   signature_chain_id must be 0 and enters neither the preimage nor the replay key;
 //                   nonce must equal the non-zero nonce of the operator's current ACTIVE service binding.
 // Neither path carries a caller pubkey, service address, endpoint or session/task copy, and both
 // re-verify the Task/round role assignment at the same pinned committed height -- the signature
@@ -386,16 +388,21 @@ message TaskDataRequestAuthV1 {
   // USER only: a wallet-signed grant that lets a short-lived session key sign this request.
   // Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
   SessionGrantV1 session_grant = 12;
+  // USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
+  uint64 signature_chain_id = 13;
 }
 
 // SessionGrantV1 lets a short-lived, client-generated session key sign a closed set of User
-// requests after one wallet prompt: SubscribeOutput, AckOutput, GetTaskEvents and PrepareChallenge
-// on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT object on
-// TaskDataRequestAuthV1. OpenTask and every other request must be signed by the wallet directly
-// and are rejected when they carry a grant.
+// requests after one wallet prompt: OpenTask, SubscribeOutput, AckOutput, GetTaskEvents and
+// PrepareChallenge on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT
+// object on TaskDataRequestAuthV1. Every other request must be signed by the wallet directly and is
+// rejected when it carries a grant. For OpenTask, user must also equal the SignedOrder user,
+// otherwise SDK_AUTH_SESSION_GRANT_INVALID; the order itself is still signed by the wallet.
 //
 // user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
-// "TrueOpen SDK Request" domain. It must recover to user, an existing account whose stored public
+// "TrueOpen SDK Request" domain whose chainId is the grant's own signature_chain_id, chosen by the
+// wallet when it signed; a grant and the requests under it may use different signature_chain_id
+// values. It must recover to user, an existing account whose stored public
 // key it matches. The grant is valid while
 // current_height <= expiry_height <= current_height + max_session_grant_blocks; there is no
 // revocation, and the grant may be reused until it expires. The request signature is compared
@@ -407,6 +414,8 @@ message SessionGrantV1 {
   uint64 expiry_height = 4;
   bytes grant_nonce = 5;        // 32 bytes from a CSPRNG
   bytes user_signature = 6;     // 65 bytes R||S||V
+  // EIP-712 domain chainId of user_signature, 1..MaxInt64. Not in the typed data.
+  uint64 signature_chain_id = 7;
 }
 
 // SDKRequestEnvelopeV2 is the signed envelope of User-side SDK requests, used by OpenTask /
@@ -414,13 +423,17 @@ message SessionGrantV1 {
 // Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
 //
 // signature is 65 bytes R||S||V (V in {27, 28}, low S) over the EIP-712 SDKRequest digest in the
-// "TrueOpen SDK Request" domain (chainId = the chain's EVM chain ID):
+// "TrueOpen SDK Request" domain (chainId = signature_chain_id):
 //   SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
 //              bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
 // The verifier recovers the signer; signer_address must equal the recovered address (the granting
 // user when session_grant is set). request_domain, signer_address, signature and the deprecated
 // signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
 // TRUEOPEN_SDK_BODY_*_V1 domain.
+// signature_chain_id is chosen by the signer (a browser wallet uses its active network) and must
+// be in 1..MaxInt64. It isolates nothing: cross-chain isolation comes only from the typed chainId
+// string, which the verifier takes from its own chain. The same request signed under another
+// signature_chain_id has the same replay key.
 // Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
 message SDKRequestEnvelopeV2 {
   string request_domain = 1;        // fixed "TRUEOPEN_SDK_REQUEST_V2"
@@ -436,12 +449,15 @@ message SDKRequestEnvelopeV2 {
   bytes signature = 11;             // 65 bytes R||S||V over the SDKRequest digest
   bytes signer_pubkey = 12 [deprecated = true]; // ignored
   SessionGrantV1 session_grant = 13; // optional; absent = signed by the user's wallet
+  // EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data and not in the replay key.
+  uint64 signature_chain_id = 14;
 }
 
 // OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
 // protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
 // verifies. There is no outer order signature: signature and signature_scheme must be empty.
-// The request envelope must be signed by the order user's wallet (no session grant).
+// The request envelope is signed by the order user's wallet, or by a session key under a grant
+// whose user equals the SignedOrder user.
 message OpenTaskHeader {
   bytes order_envelope = 1;
   string payload_ref = 2;           // must equal "nexus://sha256/" || lowercase_hex(input_hash)
@@ -454,8 +470,11 @@ message OpenTaskHeader {
   uint64 input_size_bytes = 9;
   string input_hash = 10;
   string input_media_type = 11;
-  // Required: the User keeps it unchanged across retries; same key + same
-  // input_hash returns the same result, same key + different input_hash is rejected.
+  // Required: the User keeps it unchanged across retries. A retry under the same key returns the
+  // first result only when task_hash, input_hash and input_size_bytes are all equal, and is
+  // rejected otherwise. The SignedOrder signature metadata (signature_scheme, user_signature,
+  // signature_chain_id) is not compared: a retry re-signed under another wallet network is the
+  // same request, its signature is verified on its own and the stored SignedOrder is kept.
   string idempotency_key = 12;
 }
 

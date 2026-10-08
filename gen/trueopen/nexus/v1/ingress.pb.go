@@ -878,12 +878,14 @@ func (x *BuilderStorageConfirmationV1) GetServiceSignature() []byte {
 //
 // requester_kind alone determines the verification path:
 //
-//	USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "1",
+//	USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "2",
+//	                chainId = signature_chain_id (chosen by the signer, 1..MaxInt64),
 //	                signature exactly 65 bytes R||S||V, V in {27,28}, low-S;
 //	                service_authorization_nonce must be 0;
 //	                personal_sign, eth_sign and raw64 are rejected.
 //	CORTEX_SERVICE  direct digest H_FIELDS_V1("TRUEOPEN_TASK_DATA_REQUEST_V1", fields 1..10),
 //	                signature exactly 64 bytes compact low-S R||S;
+//	                signature_chain_id must be 0 and enters neither the preimage nor the replay key;
 //	                nonce must equal the non-zero nonce of the operator's current ACTIVE service binding.
 //
 // Neither path carries a caller pubkey, service address, endpoint or session/task copy, and both
@@ -912,9 +914,11 @@ type TaskDataRequestAuthV1 struct {
 	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
 	// USER only: a wallet-signed grant that lets a short-lived session key sign this request.
 	// Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
-	SessionGrant  *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SessionGrant *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
+	// USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
+	SignatureChainId uint64 `protobuf:"varint,13,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TaskDataRequestAuthV1) Reset() {
@@ -1031,14 +1035,24 @@ func (x *TaskDataRequestAuthV1) GetSessionGrant() *SessionGrantV1 {
 	return nil
 }
 
+func (x *TaskDataRequestAuthV1) GetSignatureChainId() uint64 {
+	if x != nil {
+		return x.SignatureChainId
+	}
+	return 0
+}
+
 // SessionGrantV1 lets a short-lived, client-generated session key sign a closed set of User
-// requests after one wallet prompt: SubscribeOutput, AckOutput, GetTaskEvents and PrepareChallenge
-// on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT object on
-// TaskDataRequestAuthV1. OpenTask and every other request must be signed by the wallet directly
-// and are rejected when they carry a grant.
+// requests after one wallet prompt: OpenTask, SubscribeOutput, AckOutput, GetTaskEvents and
+// PrepareChallenge on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT
+// object on TaskDataRequestAuthV1. Every other request must be signed by the wallet directly and is
+// rejected when it carries a grant. For OpenTask, user must also equal the SignedOrder user,
+// otherwise SDK_AUTH_SESSION_GRANT_INVALID; the order itself is still signed by the wallet.
 //
 // user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
-// "TrueOpen SDK Request" domain. It must recover to user, an existing account whose stored public
+// "TrueOpen SDK Request" domain whose chainId is the grant's own signature_chain_id, chosen by the
+// wallet when it signed; a grant and the requests under it may use different signature_chain_id
+// values. It must recover to user, an existing account whose stored public
 // key it matches. The grant is valid while
 // current_height <= expiry_height <= current_height + max_session_grant_blocks; there is no
 // revocation, and the grant may be reused until it expires. The request signature is compared
@@ -1051,8 +1065,10 @@ type SessionGrantV1 struct {
 	ExpiryHeight  uint64                 `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	GrantNonce    []byte                 `protobuf:"bytes,5,opt,name=grant_nonce,json=grantNonce,proto3" json:"grant_nonce,omitempty"`          // 32 bytes from a CSPRNG
 	UserSignature []byte                 `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"` // 65 bytes R||S||V
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// EIP-712 domain chainId of user_signature, 1..MaxInt64. Not in the typed data.
+	SignatureChainId uint64 `protobuf:"varint,7,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SessionGrantV1) Reset() {
@@ -1127,12 +1143,19 @@ func (x *SessionGrantV1) GetUserSignature() []byte {
 	return nil
 }
 
+func (x *SessionGrantV1) GetSignatureChainId() uint64 {
+	if x != nil {
+		return x.SignatureChainId
+	}
+	return 0
+}
+
 // SDKRequestEnvelopeV2 is the signed envelope of User-side SDK requests, used by OpenTask /
 // ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
 // Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
 //
 // signature is 65 bytes R||S||V (V in {27, 28}, low S) over the EIP-712 SDKRequest digest in the
-// "TrueOpen SDK Request" domain (chainId = the chain's EVM chain ID):
+// "TrueOpen SDK Request" domain (chainId = signature_chain_id):
 //
 //	SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
 //	           bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
@@ -1141,6 +1164,10 @@ func (x *SessionGrantV1) GetUserSignature() []byte {
 // user when session_grant is set). request_domain, signer_address, signature and the deprecated
 // signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
 // TRUEOPEN_SDK_BODY_*_V1 domain.
+// signature_chain_id is chosen by the signer (a browser wallet uses its active network) and must
+// be in 1..MaxInt64. It isolates nothing: cross-chain isolation comes only from the typed chainId
+// string, which the verifier takes from its own chain. The same request signed under another
+// signature_chain_id has the same replay key.
 // Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
 type SDKRequestEnvelopeV2 struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -1156,10 +1183,12 @@ type SDKRequestEnvelopeV2 struct {
 	SignerAddress      string                 `protobuf:"bytes,10,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`                    // on-chain address of the SDK user
 	Signature          []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`                                                 // 65 bytes R||S||V over the SDKRequest digest
 	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	SignerPubkey  []byte          `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"` // ignored
-	SessionGrant  *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = signed by the user's wallet
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SignerPubkey []byte          `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"` // ignored
+	SessionGrant *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = signed by the user's wallet
+	// EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data and not in the replay key.
+	SignatureChainId uint64 `protobuf:"varint,14,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SDKRequestEnvelopeV2) Reset() {
@@ -1284,10 +1313,18 @@ func (x *SDKRequestEnvelopeV2) GetSessionGrant() *SessionGrantV1 {
 	return nil
 }
 
+func (x *SDKRequestEnvelopeV2) GetSignatureChainId() uint64 {
+	if x != nil {
+		return x.SignatureChainId
+	}
+	return 0
+}
+
 // OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
 // protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
 // verifies. There is no outer order signature: signature and signature_scheme must be empty.
-// The request envelope must be signed by the order user's wallet (no session grant).
+// The request envelope is signed by the order user's wallet, or by a session key under a grant
+// whose user equals the SignedOrder user.
 type OpenTaskHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrderEnvelope []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
@@ -1303,8 +1340,11 @@ type OpenTaskHeader struct {
 	InputSizeBytes  uint64 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
 	InputHash       string `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
 	InputMediaType  string `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
-	// Required: the User keeps it unchanged across retries; same key + same
-	// input_hash returns the same result, same key + different input_hash is rejected.
+	// Required: the User keeps it unchanged across retries. A retry under the same key returns the
+	// first result only when task_hash, input_hash and input_size_bytes are all equal, and is
+	// rejected otherwise. The SignedOrder signature metadata (signature_scheme, user_signature,
+	// signature_chain_id) is not compared: a retry re-signed under another wallet network is the
+	// same request, its signature is verified on its own and the stored SignedOrder is kept.
 	IdempotencyKey string `protobuf:"bytes,12,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -5150,7 +5190,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"size_bytes\x18\x06 \x01(\x04R\tsizeBytes\x129\n" +
 	"\x19artifact_total_size_bytes\x18\a \x01(\x04R\x16artifactTotalSizeBytes\x124\n" +
 	"\x16retention_until_height\x18\b \x01(\x04R\x14retentionUntilHeight\x12+\n" +
-	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xb1\x04\n" +
+	"\x11service_signature\x18\t \x01(\fR\x10serviceSignature\"\xdf\x04\n" +
 	"\x15TaskDataRequestAuthV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x128\n" +
@@ -5166,7 +5206,8 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\rexpiry_height\x18\n" +
 	" \x01(\x04R\fexpiryHeight\x12\x1c\n" +
 	"\tsignature\x18\v \x01(\fR\tsignature\x12=\n" +
-	"\rsession_grant\x18\f \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\"\xcd\x01\n" +
+	"\rsession_grant\x18\f \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\x12,\n" +
+	"\x12signature_chain_id\x18\r \x01(\x04R\x10signatureChainId\"\xfb\x01\n" +
 	"\x0eSessionGrantV1\x12\x19\n" +
 	"\bchain_id\x18\x01 \x01(\tR\achainId\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x1f\n" +
@@ -5175,7 +5216,8 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\rexpiry_height\x18\x04 \x01(\x04R\fexpiryHeight\x12\x1f\n" +
 	"\vgrant_nonce\x18\x05 \x01(\fR\n" +
 	"grantNonce\x12%\n" +
-	"\x0euser_signature\x18\x06 \x01(\fR\ruserSignature\"\xea\x03\n" +
+	"\x0euser_signature\x18\x06 \x01(\fR\ruserSignature\x12,\n" +
+	"\x12signature_chain_id\x18\a \x01(\x04R\x10signatureChainId\"\x98\x04\n" +
 	"\x14SDKRequestEnvelopeV2\x12%\n" +
 	"\x0erequest_domain\x18\x01 \x01(\tR\rrequestDomain\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x16\n" +
@@ -5192,7 +5234,8 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	" \x01(\tR\rsignerAddress\x12\x1c\n" +
 	"\tsignature\x18\v \x01(\fR\tsignature\x12'\n" +
 	"\rsigner_pubkey\x18\f \x01(\fB\x02\x18\x01R\fsignerPubkey\x12=\n" +
-	"\rsession_grant\x18\r \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\"\xf9\x03\n" +
+	"\rsession_grant\x18\r \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\x12,\n" +
+	"\x12signature_chain_id\x18\x0e \x01(\x04R\x10signatureChainId\"\xf9\x03\n" +
 	"\x0eOpenTaskHeader\x12%\n" +
 	"\x0eorder_envelope\x18\x01 \x01(\fR\rorderEnvelope\x12\x1f\n" +
 	"\vpayload_ref\x18\x02 \x01(\tR\n" +

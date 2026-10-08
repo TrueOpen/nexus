@@ -20,7 +20,7 @@ func TestOpenTaskRefusesExpiredOrder(t *testing.T) {
 		openTaskErr: fmt.Errorf("%w: height 501 is past order_expire_height 500", taskdata.ErrOrderExpired)}
 	handler := &fakeHandler{}
 	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain,
-		EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	input := []byte(strings.Repeat("abcd", 64))
 	header := openTaskHeader(t, user, testSessionID("session-expired-order"), 6, input)
 	stream := client.OpenTask(context.Background())

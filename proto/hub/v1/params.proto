@@ -242,8 +242,11 @@ message Phase0ParamsV1 {
   uint64 min_fee_per_gas_denominator = 8;
   repeated string fee_bypass_type_urls = 9;
   uint64 max_bypass_gas_per_block = 10;
-  // Numeric EIP-712 chain ID. It is independent from the Cosmos chain-id.
-  uint64 evm_chain_id = 11;
+  // Field 11 was evm_chain_id. EIP-712 domain chainId is chosen by the signer
+  // and carried with each signature (signature_chain_id, typed_data_chain_id),
+  // so no chain parameter remains.
+  reserved 11;
+  reserved "evm_chain_id";
 }
 
 // BridgeParamsV1 bounds the canonical USDC guard and governance lifecycle.

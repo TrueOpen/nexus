@@ -46,7 +46,7 @@ func TestOpenTaskRefusesOrderVersionBeforeStoringInput(t *testing.T) {
 				return nil
 			}
 			client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain,
-				EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			input := []byte(strings.Repeat("abcd", 64))
 			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-version-%d", index)), 4, input)
 			stream := client.OpenTask(context.Background())
@@ -76,7 +76,7 @@ func TestOpenTaskMapsOrderVersionRefusalFromOnOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeTaskDataAPI{chunkSize: 64}
 			client := newTaskDataClientWithHandler(t, &fakeHandler{orderErr: tt.err}, api, AuthParams{Chain: testUserChain,
-				EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-version-race-%d", index)), 5, []byte("input"))
 			stream := client.OpenTask(context.Background())
 			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})

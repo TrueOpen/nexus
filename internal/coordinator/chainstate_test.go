@@ -595,8 +595,6 @@ func (f *blockingSelectionFacts) QueryTaskBuilders(context.Context, chaincli.Tas
 	return f.selection, nil
 }
 
-func (f *blockingSelectionFacts) QueryEVMChainID(context.Context) (uint64, error) { return 31337, nil }
-
 func (f *blockingSelectionFacts) QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error) {
 	return 2, nil
 }
@@ -607,8 +605,6 @@ func (f *selectionFactsFake) QueryTaskBuilders(_ context.Context, _ chaincli.Tas
 	f.calls++
 	return f.selection, f.err
 }
-
-func (f *selectionFactsFake) QueryEVMChainID(context.Context) (uint64, error) { return 31337, nil }
 
 func (f *selectionFactsFake) QuerySettlementBuilderGraceBlocks(context.Context) (uint64, error) {
 	f.mu.Lock()

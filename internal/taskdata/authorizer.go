@@ -43,10 +43,8 @@ type Authority interface {
 }
 
 type AuthorizerConfig struct {
-	// EVMChainID is the numeric chainId of the EIP-712 domain (from the chain's Hub
-	// parameters). It and the ChainID string must both match the current chain: checking only one of
-	// them would let the same USER signature from another chain be replayed here.
-	EVMChainID     uint64
+	// ChainID is this chain's chain_id. A USER request's typed chainId string must name it; the
+	// EIP-712 domain chainId is the request's own signature_chain_id and isolates nothing.
 	ChainID        string
 	BuilderAddress string
 	AddressPrefix  string
@@ -99,12 +97,6 @@ func NewAuthorizer(cfg AuthorizerConfig, backend kv.Store, authority Authority, 
 	if !canonicalText(cfg.ChainID) || !canonicalText(cfg.BuilderAddress) || !canonicalText(cfg.AddressPrefix) ||
 		cfg.RequestTTLBlocks == 0 || cfg.RetentionLeaseBlocks == 0 {
 		return nil, fmt.Errorf("%w: authorizer configuration", ErrMalformed)
-	}
-	// With a chainId of 0 in the EIP-712 domain every USER Task data request fails signature
-	// verification; the value comes from the Hub parameter phase0.evm_chain_id, and the service
-	// should not start if it was not read.
-	if cfg.EVMChainID == 0 {
-		return nil, fmt.Errorf("%w: authorizer configuration: evm_chain_id is zero", ErrMalformed)
 	}
 	if backend == nil || authority == nil || serviceSigner == nil {
 		return nil, fmt.Errorf("%w: authorizer dependencies", ErrMalformed)
@@ -449,7 +441,7 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		env.AddressPrefix = a.cfg.AddressPrefix
 		env.ChainID = a.cfg.ChainID
 		env.BodyDigest = hex.EncodeToString(body[:])
-		if err := VerifyUserTaskDataRequest(ctx, request, a.cfg.EVMChainID, env); err != nil {
+		if err := VerifyUserTaskDataRequest(ctx, request, env); err != nil {
 			return chaincli.OnChainTask{}, 0, nil, formatErr(request, err)
 		}
 		if request.BuilderOperatorAddress != a.cfg.BuilderAddress {

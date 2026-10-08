@@ -495,7 +495,7 @@ func newTestClient(t *testing.T, h Handler, auth AuthParams) nexusv1connect.Ingr
 }
 
 func TestPrepareChallengeReturnsCloseHeight(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain})
 	response, err := client.PrepareChallenge(context.Background(), connect.NewRequest(&nexusv1.PrepareChallengeRequest{
 		SessionId: "session-1", TaskId: "task-1", ChallengeKind: "VERDICT_FRAUD_PROOF",
 	}))
@@ -692,8 +692,9 @@ func mustSignDigest(t *testing.T, hexKey string, digest []byte) []byte {
 	return out
 }
 
-// testEVMChainID is the EVM chain ID the ingress tests sign under.
-const testEVMChainID = uint64(4242)
+// testSignatureChainID is the EIP-712 domain chainId the ingress tests sign under and carry as
+// signature_chain_id.
+const testSignatureChainID = uint64(4242)
 
 // testUserChain answers the chain reads User request verification needs: the account key of every
 // test signer (registered by mustSigner) and a fixed current height.
@@ -744,6 +745,7 @@ func signedTaskEnvelope(
 		Endpoint: endpoint, SessionId: sessionID, TaskId: taskID,
 		RequestNonce: testNonce(nonce), ExpiryHeightOrTime: time.Now().Add(time.Hour).UnixMilli(),
 		BodyDigest: append([]byte(nil), body...), SignerAddress: sg.Address(),
+		SignatureChainId: testSignatureChainID,
 	}
 	resignTaskEnvelope(t, sg, pb)
 	return pb
@@ -755,7 +757,7 @@ func resignTaskEnvelope(t *testing.T, sg signer.Signer, pb *nexusv1.SDKRequestEn
 	e := envelopeFromPB(pb)
 	var body [32]byte
 	copy(body[:], pb.GetBodyDigest())
-	digest, err := sdkauth.RequestDigest(e, body, [32]byte{}, testEVMChainID)
+	digest, err := sdkauth.RequestDigest(e, body, [32]byte{})
 	if err != nil {
 		t.Fatalf("request digest: %v", err)
 	}
@@ -799,7 +801,7 @@ func TestWorkerServiceKeyAuthenticatesRoleRPCs(t *testing.T) {
 	resolver := &fakeServiceKeyResolver{states: map[string]chaincli.ServiceKeyState{
 		servicekey.ParticipantCortex + "|" + operator.Address(): activeServiceKey(servicekey.ParticipantCortex, operator.Address(), serviceKey),
 	}}
-	auth := AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	auth := AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", BuilderAddress: "trueopen1builder", Bech32Prefix: "trueopen",
 		RequireEnvelope: true, ServiceKeys: resolver,
 	}
@@ -851,7 +853,7 @@ func TestWorkerServiceKeyAuthenticationRejectsUnauthorizedKeys(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			resolver := &fakeServiceKeyResolver{states: tc.states}
-			client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+			client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
 				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 			})
 			req := validInferReceiptRequest(t, operator, "rejected-session", canonicalTestTaskID("rejected"), []byte("output"))
@@ -884,7 +886,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 	for name, failure := range authorityFailures {
 		t.Run(name, func(t *testing.T) {
 			resolver := &fakeServiceKeyResolver{err: failure}
-			auth := AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver}
+			auth := AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver}
 
 			receipt := validInferReceiptRequest(t, operator, "authority-session", canonicalTestTaskID("authority"), []byte("output"))
 			signInferReceiptRequest(t, serviceKey, receipt)
@@ -905,7 +907,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 	}}
 	receipt := validInferReceiptRequest(t, operator, "rejected-session", canonicalTestTaskID("rejected"), []byte("output"))
 	signInferReceiptRequest(t, serviceKey, receipt)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 	})
 	if _, err := client.SubmitInferReceipt(
@@ -920,7 +922,7 @@ func TestRoleSignatureAuthorityFailureIsUnavailableNotUnauthenticated(t *testing
 func TestOperatorKeyFallbackIsGoneAndAuthorityFailureFailsClosed(t *testing.T) {
 	operator := mustSigner(t, testKeyHex)
 	resolver := &fakeServiceKeyResolver{err: errors.New("chain unavailable")}
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", ServiceKeys: resolver,
 	})
 	req := validInferReceiptRequest(t, operator, "operator-session", canonicalTestTaskID("operator"), []byte("output"))
@@ -977,7 +979,7 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 			Text: "hello", Hash: []byte("hash"), CreatedAt: 10, ExpiresAt: 20,
 		}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task := testSessionID("session-stream"), testSessionID("task-stream")
 	body := subscribeBody(t, session, task, nil)
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
@@ -1002,7 +1004,7 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 }
 
 func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
 		SessionId: "session", TaskId: "task",
 	})
@@ -1013,7 +1015,7 @@ func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
 
 func TestSubscribeOutputRejectsEnvelopeTaskMismatch(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task := testSessionID("session"), testSessionID("task")
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 	req.RequestEnvelope = signedTaskEnvelope(
@@ -1042,7 +1044,7 @@ func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
 			fake := &fakeHandler{subscribeOutput: func(context.Context, string, string, string) (types.PlaintextOutput, error) {
 				return types.PlaintextOutput{}, tc.err
 			}}
-			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			session, task := testSessionID("session"), testSessionID("task")
 			req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 			req.RequestEnvelope = signedTaskEnvelope(
@@ -1069,7 +1071,7 @@ func TestSubscribeOutputAuthorizationMatrix(t *testing.T) {
 			OutputID: "output-auth", SessionID: sessionID, TaskID: taskID, Text: "authorized",
 		}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false,
 	})
 	body := subscribeBody(t, session, task, nil)
@@ -1116,7 +1118,7 @@ func TestAckOutputSignsBodyAndReturnsIdempotentResult(t *testing.T) {
 		gotSession, gotTask, gotOutputID, gotRequester = sessionID, taskID, outputID, requester
 		return types.OutputAck{Acked: true, AlreadyAcked: true, AckedAt: 42}, nil
 	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task, outputID := testSessionID("session-ack"), testSessionID("task-ack"), "output-ack"
 	req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
 	req.RequestEnvelope = signedTaskEnvelope(
@@ -1162,7 +1164,7 @@ func TestAckOutputMapsStableErrors(t *testing.T) {
 			fake := &fakeHandler{ackOutput: func(context.Context, string, string, string, string) (types.OutputAck, error) {
 				return types.OutputAck{}, tc.err
 			}}
-			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 			session, task, outputID := testSessionID("session"), testSessionID("task"), "output"
 			req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
 			req.RequestEnvelope = signedTaskEnvelope(
@@ -1188,7 +1190,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 		},
 		live: live,
 	}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1250,7 +1252,7 @@ func TestTaskEventsAndChallengeRequireOrderUser(t *testing.T) {
 	live := make(chan types.TaskEvent)
 	close(live)
 	fake := &fakeHandler{taskOwner: owner.Address(), live: live}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTestClient(t, fake, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	nonce := 0
 	events := func(sg signer.Signer, envelopeTask string) error {
@@ -1302,7 +1304,7 @@ func TestTaskEventsAndChallengeRequireOrderUser(t *testing.T) {
 // SubmitOrder, FetchOutputRef and RefreshCredential are retired: each answers Unimplemented with
 // NEXUS_INGRESS_METHOD_RETIRED before the request is parsed, with or without an envelope.
 func TestRetiredMethods(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID,
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	ctx := context.Background()
 	calls := map[string]func() error{

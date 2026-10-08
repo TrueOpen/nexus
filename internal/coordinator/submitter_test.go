@@ -105,7 +105,6 @@ func (c *captureChain) QueryTimeoutBucket(context.Context, string, uint64, uint6
 func (c *captureChain) QueryTaskBuilders(context.Context, chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error) {
 	return chaincli.TaskBuilderSelectionState{}, c.selectionErr
 }
-func (c *captureChain) QueryEVMChainID(context.Context) (uint64, error) { return 31337, nil }
 func (c *captureChain) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {
 	return 604800, nil
 }

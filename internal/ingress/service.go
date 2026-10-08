@@ -76,9 +76,6 @@ type AuthParams struct {
 	Bech32Prefix    string
 	RequireEnvelope bool
 	ServiceKeys     ServiceKeyResolver
-	// EVMChainID is the chain's EVM chain ID, the chainId of the EIP-712 domains User requests are
-	// signed in.
-	EVMChainID uint64
 	// Chain answers the reads request verification needs: the current height (session grant
 	// windows) and the public key an account holds on chain.
 	Chain sdkauth.Chain
@@ -130,6 +127,7 @@ func envelopeFromPB(pb *nexusv1.SDKRequestEnvelopeV2) *sdkauth.Envelope {
 		BodyDigest:         pb.GetBodyDigest(),
 		SignerAddress:      pb.GetSignerAddress(),
 		Signature:          pb.GetSignature(),
+		SignatureChainID:   pb.GetSignatureChainId(),
 	}
 	e.SessionGrant = sessionGrantFromPB(pb.GetSessionGrant())
 	return e
@@ -143,6 +141,7 @@ func sessionGrantFromPB(pb *nexusv1.SessionGrantV1) *sdkauth.SessionGrant {
 	return &sdkauth.SessionGrant{
 		ChainID: pb.GetChainId(), User: pb.GetUser(), SessionKey: pb.GetSessionKey(),
 		ExpiryHeight: pb.GetExpiryHeight(), GrantNonce: pb.GetGrantNonce(), UserSignature: pb.GetUserSignature(),
+		SignatureChainID: pb.GetSignatureChainId(),
 	}
 }
 
@@ -164,7 +163,6 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 	e := envelopeFromPB(pb)
 	err := sdkauth.Verify(ctx, e, sdkauth.VerifyOpts{
 		ChainID:               s.auth.ChainID,
-		EVMChainID:            s.auth.EVMChainID,
 		Method:                c.method,
 		NowMS:                 time.Now().UnixMilli(),
 		Body:                  c.body,

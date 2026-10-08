@@ -232,7 +232,10 @@ Production deployments should restrict data directory permissions, disk backup s
 
 User requests carry an `SDKRequestEnvelopeV2`: a 65-byte `R || S || V` signature (`V` 27 or 28,
 low-S) over the EIP-712 `SDKRequest` typed data in the domain `"TrueOpen SDK Request"` version `"1"`,
-with `chainId` = the chain's EVM chain ID, so browser wallets can sign it. Nexus recovers the signer
+with `chainId` = the envelope's `signature_chain_id`. The signer chooses that value (a browser
+wallet uses its active network, so the user never switches networks) and it must be in
+`1..MaxInt64`; it isolates nothing, since the typed `chainId` string is always this chain's
+`chain_id`, and it enters no replay key. Nexus recovers the signer
 and requires it to match the account's public key stored on chain; an account with no stored key is
 rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` domain.
 
@@ -246,7 +249,7 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
   signatures are rejected.
 - Checks run in wire order and stop at the first failure: format (`NEXUS_INGRESS_MALFORMED`),
   session method set, grant, signature over the digest rebuilt with this chain's `chain_id` and
-  EVM chain ID (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
+  the carried `signature_chain_id` (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
   replay. An OpenTask expiry is a chain height within `task_data.request_ttl_blocks` (default 20);
   a Task data request expiry lies within the Hub parameter
   `service.max_service_material_expiry_blocks`, read at startup and re-read every 10 minutes.

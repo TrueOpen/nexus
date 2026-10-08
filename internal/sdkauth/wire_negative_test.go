@@ -37,16 +37,18 @@ type wireNegativeCase struct {
 	Transport map[string]string `json:"transport"`
 }
 
-// sdkNegativeSkipped are the rows this package does not decide: the Task data path (checked in
-// internal/taskdata) and the OpenTask and ConfirmOpenTask rules the Ingress service applies
-// (checked in internal/ingress).
-var sdkNegativeSkipped = map[string]bool{
-	"task_data_request_other_evm_chain_id":      true,
-	"task_data_request_domain_version_1":        true,
-	"task_data_upload_with_session_grant":       true,
-	"task_data_input_object_with_session_grant": true,
-	"open_task_task_id_not_derived":             true,
-	"confirm_open_task_not_callable":            true,
+// sdkNegativeSkipped are the rows this package does not decide, with the reason.
+var sdkNegativeSkipped = map[string]string{
+	"task_data_request_tampered_signature_chain_id":       "Task data path, checked in internal/taskdata",
+	"task_data_request_wallet_network_signature_chain_id": "Task data path, checked in internal/taskdata",
+	"task_data_request_domain_version_1":                  "Task data path, checked in internal/taskdata",
+	"task_data_upload_with_session_grant":                 "Task data path, checked in internal/taskdata",
+	"task_data_input_object_with_session_grant":           "Task data path, checked in internal/taskdata",
+	"cortex_service_signature_chain_id_nonzero":           "Task data path, checked in internal/taskdata",
+	"task_order_wallet_network_signature_chain_id":        "the order signature is verified by the chain, not by Nexus",
+	"open_task_session_grant_user_not_order_user":         "needs the SignedOrder user; checked in internal/ingress",
+	"open_task_task_id_not_derived":                       "OpenTask task_id derivation, checked in internal/ingress",
+	"confirm_open_task_not_callable":                      "ConfirmOpenTask is refused by the Ingress service before authentication",
 }
 
 var sdkErrors = []error{ErrMalformed, ErrSessionMethodNotAllowed, ErrSessionGrantInvalid, ErrSessionGrantExpired,
@@ -65,24 +67,29 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 	f := loadAccountSigning(t)
 	seen := 0
 	for _, row := range file.Cases {
-		if sdkNegativeSkipped[row.Name] {
+		if reason, ok := sdkNegativeSkipped[row.Name]; ok {
+			t.Logf("%s: skipped: %s", row.Name, reason)
 			continue
 		}
 		seen++
 		t.Run(row.Name, func(t *testing.T) {
-			// The request the row starts from: the wallet OpenTask request, or the session-key
-			// SubscribeOutput request with its grant (also for rows about the grant itself).
+			// The request the row starts from: the wallet OpenTask request, the session-key
+			// SubscribeOutput request with its grant (also for rows about the grant itself), or the
+			// session-key OpenTask request with its grant.
 			var e *Envelope
 			var opts VerifyOpts
-			if row.Base == "sdk_request" {
+			switch row.Base {
+			case "sdk_request":
 				e = envelopeFrom(t, f.SDKRequest)
 				opts = optsFor(t, f, f.SDKRequest, chainFor(t, f))
 				opts.HeightExpiry = true
-			} else {
+			case "sdk_request_session", "session_grant":
 				e = envelopeFrom(t, f.SDKRequestSession)
 				e.SessionGrant = grantFrom(t, f)
 				opts = optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
 				opts.SessionAllowed = true
+			default:
+				t.Fatalf("unhandled base %q", row.Base)
 			}
 			grantRow := row.Base == "session_grant"
 
@@ -131,6 +138,12 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 						t.Fatal(err)
 					}
 					e.ExpiryHeightOrTime = n
+				case "signature_chain_id":
+					if grantRow {
+						e.SessionGrant.SignatureChainID = mustUint(t, v)
+					} else {
+						e.SignatureChainID = mustUint(t, v)
+					}
 				default:
 					t.Fatalf("unhandled transport field %q", k)
 				}
@@ -147,8 +160,13 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 						opts.Body = hash32(t, v)
 					}
 				}
+				// A verified domain chain_id is the carried signature_chain_id the verifier reads.
 				if v, ok := row.Verified.Domain["chain_id"]; ok {
-					opts.EVMChainID = mustUint(t, v)
+					if grantRow {
+						e.SessionGrant.SignatureChainID = mustUint(t, v)
+					} else {
+						e.SignatureChainID = mustUint(t, v)
+					}
 				}
 			}
 			if row.Context != nil {
@@ -162,7 +180,7 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 				var digest [32]byte
 				var sig []byte
 				if grantRow {
-					d, err := SessionGrantDigest(e.SessionGrant, opts.EVMChainID)
+					d, err := SessionGrantDigest(e.SessionGrant)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -178,7 +196,7 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 					}
 					rebuilt := *e
 					rebuilt.ChainID = opts.ChainID
-					d, err := RequestDigest(&rebuilt, opts.Body, grantHash, opts.EVMChainID)
+					d, err := RequestDigest(&rebuilt, opts.Body, grantHash)
 					if err != nil {
 						if errors.Is(err, ErrMalformed) {
 							goto verify // the row is refused before any typed data exists

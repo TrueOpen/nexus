@@ -17,15 +17,16 @@ import (
 // testdata/v1/shared/account_signing_v1.json, domain version 2: "task_data_request" (wallet signed,
 // a ranged FetchTaskData) and "task_data_request_session" (session-key signed GetTaskDataMetadata of
 // an OUTPUT object under "session_grant"). Every link in the chain has a published value, so a wrong
-// step is located directly instead of being reverse-engineered from the final digest.
-const goldenEIP712NumericChainID = 424242
-
+// step is located directly instead of being reverse-engineered from the final digest. The domain
+// chainId is each section's carried signature_chain_id.
 type goldenTypedData struct {
-	HashStruct string `json:"hash_struct"`
-	Digest     string `json:"signing_digest"`
-	Signature  string `json:"signature_65"`
-	Recovered  string `json:"recovered_address"`
-	Domain     struct {
+	HashStruct       string `json:"hash_struct"`
+	Digest           string `json:"signing_digest"`
+	Signature        string `json:"signature_65"`
+	Recovered        string `json:"recovered_address"`
+	SignatureChainID string `json:"signature_chain_id"`
+	Domain           struct {
+		ChainID   string `json:"chain_id"`
 		Separator string `json:"domain_separator"`
 	} `json:"domain"`
 	Message map[string]string `json:"message"`
@@ -41,11 +42,12 @@ type goldenAccountSigning struct {
 	SessionGrant struct {
 		Signature string `json:"signature_65"`
 		Transport struct {
-			ChainID      string `json:"chain_id"`
-			ExpiryHeight string `json:"expiry_height"`
-			GrantNonce   string `json:"grant_nonce_hex"`
-			SessionKey   string `json:"session_key_hex"`
-			User         string `json:"user"`
+			ChainID          string `json:"chain_id"`
+			ExpiryHeight     string `json:"expiry_height"`
+			GrantNonce       string `json:"grant_nonce_hex"`
+			SessionKey       string `json:"session_key_hex"`
+			User             string `json:"user"`
+			SignatureChainID string `json:"signature_chain_id"`
 		} `json:"transport"`
 	} `json:"session_grant"`
 }
@@ -91,6 +93,7 @@ func goldenUserFetchAuth(t *testing.T) RequestAuthV1 {
 		RequestNonce:              mustHexT(t, file.Request.Message["requestNonce"]),
 		ExpiryHeight:              2000,
 		Signature:                 mustHexT(t, file.Request.Signature),
+		SignatureChainID:          mustUintT(t, file.Request.SignatureChainID),
 		Key:                       goldenOutputRef(),
 	}
 }
@@ -137,9 +140,11 @@ func goldenUserSessionAuth(t *testing.T) (RequestAuthV1, SessionGrantEnv) {
 		RequestNonce:              mustHexT(t, file.Session.Message["requestNonce"]),
 		ExpiryHeight:              2000,
 		Signature:                 mustHexT(t, file.Session.Signature),
+		SignatureChainID:          mustUintT(t, file.Session.SignatureChainID),
 		SessionGrant: &sdkauth.SessionGrant{
 			ChainID: g.Transport.ChainID, User: g.Transport.User, SessionKey: mustHexT(t, g.Transport.SessionKey),
 			ExpiryHeight: expiry, GrantNonce: mustHexT(t, g.Transport.GrantNonce), UserSignature: mustHexT(t, g.Signature),
+			SignatureChainID: mustUintT(t, g.Transport.SignatureChainID),
 		},
 		Key: goldenOutputRef(),
 	}
@@ -152,7 +157,10 @@ func goldenUserSessionAuth(t *testing.T) (RequestAuthV1, SessionGrantEnv) {
 
 func TestEIP712DomainSeparatorVersion2(t *testing.T) {
 	file := loadGoldenAccountSigning(t)
-	separator := EIP712DomainSeparator(goldenEIP712NumericChainID)
+	if file.Request.SignatureChainID != file.Request.Domain.ChainID {
+		t.Fatalf("carried signature_chain_id %s is not the domain chainId %s", file.Request.SignatureChainID, file.Request.Domain.ChainID)
+	}
+	separator := EIP712DomainSeparator(mustUintT(t, file.Request.SignatureChainID))
 	if got := hex.EncodeToString(separator[:]); got != file.Request.Domain.Separator {
 		t.Fatalf("domain separator = %s, want %s", got, file.Request.Domain.Separator)
 	}
@@ -168,7 +176,7 @@ func TestEIP712UserFetchVector(t *testing.T) {
 	if got := hex.EncodeToString(hashStruct[:]); got != file.Request.HashStruct {
 		t.Fatalf("hash_struct = %s", got)
 	}
-	digest, err := UserTaskDataRequestDigest(auth, goldenEIP712NumericChainID, [32]byte{})
+	digest, err := UserTaskDataRequestDigest(auth, [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,11 +187,11 @@ func TestEIP712UserFetchVector(t *testing.T) {
 	if err != nil || hex.EncodeToString(recovered.Address[:]) != file.Request.Recovered {
 		t.Fatalf("recovered_address = %x (%v)", recovered.Address, err)
 	}
-	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, goldenAccountEnv(t)); err != nil {
+	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenAccountEnv(t)); err != nil {
 		t.Fatalf("full verification failed: %v", err)
 	}
 	// The same request from an account the chain holds no key for fails as a signature.
-	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID,
+	if err := VerifyUserTaskDataRequest(context.Background(), auth,
 		SessionGrantEnv{Chain: goldenGrantChain{height: 1200}}); !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("account without a stored key: %v, want DATA_ACCESS_INVALID_SIGNATURE", err)
 	}
@@ -200,11 +208,11 @@ func TestEIP712UserSessionVector(t *testing.T) {
 	if err != nil || hex.EncodeToString(hashStruct[:]) != file.Session.HashStruct {
 		t.Fatalf("hash_struct = %x (%v)", hashStruct, err)
 	}
-	digest, err := UserTaskDataRequestDigest(auth, goldenEIP712NumericChainID, grantHash)
+	digest, err := UserTaskDataRequestDigest(auth, grantHash)
 	if err != nil || hex.EncodeToString(digest[:]) != file.Session.Digest {
 		t.Fatalf("signing_digest = %x (%v)", digest, err)
 	}
-	if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, env); err != nil {
+	if err := VerifyUserTaskDataRequest(context.Background(), auth, env); err != nil {
 		t.Fatalf("full verification failed: %v", err)
 	}
 }
@@ -215,35 +223,35 @@ func TestEIP712UserSessionRejects(t *testing.T) {
 	t.Run("upload with a grant", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		auth.RPCMethod = "/nexus.v1.IngressAPI/UploadTaskResultObject"
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrSessionMethodNotAllowed) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, ErrSessionMethodNotAllowed) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("input object with a grant", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		auth.Key.Kind = ObjectKindInput
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrSessionMethodNotAllowed) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, ErrSessionMethodNotAllowed) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("grant expired", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		env.Chain = goldenGrantChain{height: 1501, keys: env.Chain.(goldenGrantChain).keys}
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrSessionGrantExpired) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, ErrSessionGrantExpired) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("grant user without a key", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		env.Chain = goldenGrantChain{height: 1200}
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrSessionGrantInvalid) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, ErrSessionGrantInvalid) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("request signed without the grant hash", func(t *testing.T) {
 		auth, env := goldenUserSessionAuth(t)
 		auth.SessionGrant = nil // the session-key signature no longer recovers to the requester
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, env); !errors.Is(err, ErrInvalidSignature) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, ErrInvalidSignature) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -251,7 +259,7 @@ func TestEIP712UserSessionRejects(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		// wire's obsolete version 1 signature over the same request.
 		auth.Signature = mustHexT(t, loadGoldenV1Signature(t))
-		if err := VerifyUserTaskDataRequest(ctx, auth, goldenEIP712NumericChainID, SessionGrantEnv{}); !errors.Is(err, ErrInvalidSignature) {
+		if err := VerifyUserTaskDataRequest(ctx, auth, SessionGrantEnv{}); !errors.Is(err, ErrInvalidSignature) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -260,17 +268,36 @@ func TestEIP712UserSessionRejects(t *testing.T) {
 // Inputs that must be rejected. Each is a concrete form of "a signature from
 // another chain / another body / another path impersonating this request".
 func TestEIP712UserRejects(t *testing.T) {
-	t.Run("wrong numeric chain id", func(t *testing.T) {
+	t.Run("tampered signature_chain_id", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID+1, SessionGrantEnv{}); err == nil {
-			t.Fatal("domain numeric chain ID must take part in verification")
+		auth.SignatureChainID++
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); !errors.Is(err, ErrInvalidSignature) {
+			t.Fatalf("the carried domain chainId must take part in verification: %v", err)
+		}
+	})
+
+	t.Run("signature_chain_id out of range", func(t *testing.T) {
+		for _, chainID := range []uint64{0, 1 << 63} {
+			auth := goldenUserFetchAuth(t)
+			auth.SignatureChainID = chainID
+			if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); !errors.Is(err, ErrMalformed) {
+				t.Fatalf("signature_chain_id %d: %v, want malformed", chainID, err)
+			}
+		}
+	})
+
+	t.Run("grant signature_chain_id zero", func(t *testing.T) {
+		auth, env := goldenUserSessionAuth(t)
+		auth.SessionGrant.SignatureChainID = 0
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, env); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("err = %v, want malformed", err)
 		}
 	})
 
 	t.Run("wrong string chain id", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.ChainID = "trueopen-golden-2"
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("chain_id string must take part in verification")
 		}
 	})
@@ -278,7 +305,7 @@ func TestEIP712UserRejects(t *testing.T) {
 	t.Run("nonzero service nonce", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.ServiceAuthorizationNonce = 7
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("USER service_authorization_nonce must be 0")
 		}
 	})
@@ -286,7 +313,7 @@ func TestEIP712UserRejects(t *testing.T) {
 	t.Run("raw64 signature", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.Signature = auth.Signature[:64]
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("USER must be exactly 65 bytes; raw64 must not be accepted")
 		}
 	})
@@ -296,7 +323,7 @@ func TestEIP712UserRejects(t *testing.T) {
 		bad := append([]byte(nil), auth.Signature...)
 		bad[64] = 0 // the 0/1 form common with personal_sign
 		auth.Signature = bad
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("V must be 27 or 28")
 		}
 	})
@@ -304,7 +331,7 @@ func TestEIP712UserRejects(t *testing.T) {
 	t.Run("another requester", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.RequesterAddress = goldenProducer
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("recovered address must equal requester_address")
 		}
 	})
@@ -316,7 +343,7 @@ func TestEIP712UserRejects(t *testing.T) {
 			t.Fatal(err)
 		}
 		auth.BodyDigest = hex.EncodeToString(other[:])
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("a different body must fail: whole and ranged reads cannot share one signature")
 		}
 	})
@@ -324,7 +351,7 @@ func TestEIP712UserRejects(t *testing.T) {
 	t.Run("another method", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.RPCMethod = "/nexus.v1.IngressAPI/GetTaskDataMetadata"
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("rpc_method must take part in verification")
 		}
 	})
@@ -332,7 +359,7 @@ func TestEIP712UserRejects(t *testing.T) {
 	t.Run("cortex kind on a user signature", func(t *testing.T) {
 		auth := goldenUserFetchAuth(t)
 		auth.RequesterKind = RequesterKindCortexService
-		if err := VerifyUserTaskDataRequest(context.Background(), auth, goldenEIP712NumericChainID, SessionGrantEnv{}); err == nil {
+		if err := VerifyUserTaskDataRequest(context.Background(), auth, SessionGrantEnv{}); err == nil {
 			t.Fatal("requester_kind selects the path; paths must not be mixed")
 		}
 	})
@@ -344,6 +371,8 @@ func TestEIP712UserWireNegativeCases(t *testing.T) {
 	var file struct {
 		Cases []struct {
 			Name      string `json:"name"`
+			Base      string `json:"base"`
+			Expect    string `json:"expect"`
 			Error     string `json:"error"`
 			Signature string `json:"signature_65"`
 			Digest    string `json:"signing_digest"`
@@ -368,18 +397,22 @@ func TestEIP712UserWireNegativeCases(t *testing.T) {
 	for _, row := range file.Cases {
 		t.Run(row.Name, func(t *testing.T) {
 			var auth RequestAuthV1
-			env := SessionGrantEnv{}
-			separator := EIP712DomainSeparator(goldenEIP712NumericChainID)
-			verifierChainID := uint64(goldenEIP712NumericChainID)
+			env := goldenAccountEnv(t)
+			var separator [32]byte
 			var grantHash [32]byte
 			switch row.Name {
-			case "task_data_request_other_evm_chain_id":
+			case "task_data_request_tampered_signature_chain_id":
+				// The original signature with another carried signature_chain_id.
 				auth = goldenUserFetchAuth(t)
-				verifierChainID = mustUintT(t, row.Verified.Domain["chain_id"])
-				separator = EIP712DomainSeparator(verifierChainID)
+				auth.SignatureChainID = mustUintT(t, row.Verified.Domain["chain_id"])
+			case "task_data_request_wallet_network_signature_chain_id":
+				// Signed and carried under the wallet's network.
+				auth = goldenUserFetchAuth(t)
+				auth.Signature = mustHexT(t, row.Signature)
+				auth.SignatureChainID = mustUintT(t, row.Verified.Domain["chain_id"])
 			case "task_data_request_domain_version_1":
 				auth = goldenUserFetchAuth(t)
-				separator = eip712.DomainSeparator(eip712DomainName, row.Verified.Domain["version"], goldenEIP712NumericChainID)
+				separator = eip712.DomainSeparator(eip712DomainName, row.Verified.Domain["version"], auth.SignatureChainID)
 			case "task_data_upload_with_session_grant":
 				auth, env = goldenUserSessionAuth(t)
 				auth.RPCMethod = row.Signed.Message["rpcMethod"]
@@ -390,10 +423,20 @@ func TestEIP712UserWireNegativeCases(t *testing.T) {
 					t.Fatal(err)
 				}
 				grantHash = h
+			case "task_data_input_object_with_session_grant":
+				t.Skip("no published bytes; the object kind check is TestEIP712UserSessionRejects/input_object_with_a_grant")
+			case "cortex_service_signature_chain_id_nonzero":
+				t.Skip("decided by the Authorizer on the CORTEX_SERVICE path; see authorizer_test.go")
 			default:
-				t.Skip("not a Task data row with published bytes")
+				if row.Base == "task_data_request" || row.Base == "task_data_request_session" {
+					t.Fatalf("unhandled Task data row %q", row.Name)
+				}
+				t.Skip("not a Task data row; checked in internal/sdkauth")
 			}
 			seen++
+			if separator == ([32]byte{}) {
+				separator = EIP712DomainSeparator(auth.SignatureChainID)
+			}
 			hashStruct, err := eip712HashStruct(auth, grantHash)
 			if err != nil {
 				t.Fatal(err)
@@ -410,17 +453,23 @@ func TestEIP712UserWireNegativeCases(t *testing.T) {
 				// Nexus has no version 1 route; the published version 1 signature must not verify.
 				auth.Signature = mustHexT(t, loadGoldenV1Signature(t))
 			}
+			if row.Expect == "accept" {
+				if err := VerifyUserTaskDataRequest(ctx, auth, env); err != nil {
+					t.Fatalf("err = %v, want accept", err)
+				}
+				return
+			}
 			want := codes[row.Error]
 			if want == nil {
 				t.Fatalf("unknown error %q", row.Error)
 			}
-			if err := VerifyUserTaskDataRequest(ctx, auth, verifierChainID, env); !errors.Is(err, want) {
+			if err := VerifyUserTaskDataRequest(ctx, auth, env); !errors.Is(err, want) {
 				t.Fatalf("err = %v, want %s", err, row.Error)
 			}
 		})
 	}
-	if seen != 3 {
-		t.Fatalf("checked %d Task data rows, want 3", seen)
+	if seen != 4 {
+		t.Fatalf("checked %d Task data rows, want 4", seen)
 	}
 }
 

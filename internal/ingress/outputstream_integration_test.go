@@ -213,7 +213,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
-		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
+		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
@@ -230,7 +230,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {

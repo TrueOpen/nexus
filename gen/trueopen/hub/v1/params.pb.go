@@ -1713,10 +1713,8 @@ type Phase0ParamsV1 struct {
 	MinFeePerGasDenominator uint64                 `protobuf:"varint,8,opt,name=min_fee_per_gas_denominator,json=minFeePerGasDenominator,proto3" json:"min_fee_per_gas_denominator,omitempty"`
 	FeeBypassTypeUrls       []string               `protobuf:"bytes,9,rep,name=fee_bypass_type_urls,json=feeBypassTypeUrls,proto3" json:"fee_bypass_type_urls,omitempty"`
 	MaxBypassGasPerBlock    uint64                 `protobuf:"varint,10,opt,name=max_bypass_gas_per_block,json=maxBypassGasPerBlock,proto3" json:"max_bypass_gas_per_block,omitempty"`
-	// Numeric EIP-712 chain ID. It is independent from the Cosmos chain-id.
-	EvmChainId    uint64 `protobuf:"varint,11,opt,name=evm_chain_id,json=evmChainId,proto3" json:"evm_chain_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *Phase0ParamsV1) Reset() {
@@ -1815,13 +1813,6 @@ func (x *Phase0ParamsV1) GetFeeBypassTypeUrls() []string {
 func (x *Phase0ParamsV1) GetMaxBypassGasPerBlock() uint64 {
 	if x != nil {
 		return x.MaxBypassGasPerBlock
-	}
-	return 0
-}
-
-func (x *Phase0ParamsV1) GetEvmChainId() uint64 {
-	if x != nil {
-		return x.EvmChainId
 	}
 	return 0
 }
@@ -2084,7 +2075,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	" max_beacon_prune_items_per_block\x18\x03 \x01(\rR\x1bmaxBeaconPruneItemsPerBlock\x127\n" +
 	"\x18vrf_required_from_height\x18\x04 \x01(\x04R\x15vrfRequiredFromHeight\x127\n" +
 	"\x18max_beacon_carrier_bytes\x18\x05 \x01(\rR\x15maxBeaconCarrierBytes\x12:\n" +
-	"\x1amax_vrf_key_history_epochs\x18\x06 \x01(\rR\x16maxVrfKeyHistoryEpochs\"\xbd\x04\n" +
+	"\x1amax_vrf_key_history_epochs\x18\x06 \x01(\rR\x16maxVrfKeyHistoryEpochs\"\xaf\x04\n" +
 	"\x0ePhase0ParamsV1\x12%\n" +
 	"\x0ebusiness_denom\x18\x01 \x01(\tR\rbusinessDenom\x120\n" +
 	"\x14consensus_bond_denom\x18\x02 \x01(\tR\x12consensusBondDenom\x12.\n" +
@@ -2096,9 +2087,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\x1bmin_fee_per_gas_denominator\x18\b \x01(\x04R\x17minFeePerGasDenominator\x12/\n" +
 	"\x14fee_bypass_type_urls\x18\t \x03(\tR\x11feeBypassTypeUrls\x126\n" +
 	"\x18max_bypass_gas_per_block\x18\n" +
-	" \x01(\x04R\x14maxBypassGasPerBlock\x12 \n" +
-	"\fevm_chain_id\x18\v \x01(\x04R\n" +
-	"evmChainId\"\xa8\x04\n" +
+	" \x01(\x04R\x14maxBypassGasPerBlockJ\x04\b\v\x10\fR\fevm_chain_id\"\xa8\x04\n" +
 	"\x0eBridgeParamsV1\x12D\n" +
 	"\x15bridge_limit_hard_max\x18\x01 \x01(\v2\x11.shared.v1.AmountR\x12bridgeLimitHardMax\x12W\n" +
 	"\x1finitial_inbound_limit_per_epoch\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x1binitialInboundLimitPerEpoch\x12Y\n" +

@@ -630,6 +630,7 @@ func requestAuthFromPB(
 		ExpiryHeight:              pb.GetExpiryHeight(),
 		Signature:                 append([]byte(nil), pb.GetSignature()...),
 		SessionGrant:              sessionGrantFromPB(pb.GetSessionGrant()),
+		SignatureChainID:          pb.GetSignatureChainId(),
 		Key:                       ref,
 	}, nil
 }
