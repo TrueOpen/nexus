@@ -46,7 +46,6 @@ var sdkNegativeSkipped = map[string]string{
 	"task_data_input_object_with_session_grant":           "Task data path, checked in internal/taskdata",
 	"cortex_service_signature_chain_id_nonzero":           "Task data path, checked in internal/taskdata",
 	"task_order_wallet_network_signature_chain_id":        "the order signature is verified by the chain, not by Nexus",
-	"open_task_session_grant_user_not_order_user":         "needs the SignedOrder user; checked in internal/ingress",
 	"open_task_task_id_not_derived":                       "OpenTask task_id derivation, checked in internal/ingress",
 	"confirm_open_task_not_callable":                      "ConfirmOpenTask is refused by the Ingress service before authentication",
 }
@@ -88,6 +87,14 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 				e.SessionGrant = grantFrom(t, f)
 				opts = optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
 				opts.SessionAllowed = true
+			case "sdk_request_open_task_session":
+				// Ingress passes the SignedOrder user as OrderUser; the vector's order is the grant user's.
+				e = envelopeFrom(t, f.SDKOpenTaskSession)
+				e.SessionGrant = grantFrom(t, f)
+				opts = optsFor(t, f, f.SDKOpenTaskSession, chainFor(t, f))
+				opts.HeightExpiry = true
+				opts.SessionAllowed = true
+				opts.OrderUser = e.SessionGrant.User
 			default:
 				t.Fatalf("unhandled base %q", row.Base)
 			}
@@ -138,6 +145,8 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 						t.Fatal(err)
 					}
 					e.ExpiryHeightOrTime = n
+				case "order_user_address":
+					opts.OrderUser = v
 				case "signature_chain_id":
 					if grantRow {
 						e.SessionGrant.SignatureChainID = mustUint(t, v)

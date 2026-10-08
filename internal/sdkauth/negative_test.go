@@ -55,6 +55,15 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 		opts.SessionAllowed = true
 		return e, opts
 	}
+	openTaskSession := func() (*Envelope, VerifyOpts) {
+		e := envelopeFrom(t, f.SDKOpenTaskSession)
+		e.SessionGrant = grantFrom(t, f)
+		opts := optsFor(t, f, f.SDKOpenTaskSession, chainFor(t, f))
+		opts.HeightExpiry = true
+		opts.SessionAllowed = true
+		opts.OrderUser = e.SignerAddress
+		return e, opts
+	}
 	grantHash := func(e *Envelope) [32]byte {
 		h, err := SessionGrantHash(e.SessionGrant)
 		if err != nil {
@@ -145,12 +154,18 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 			e.SessionGrant.UserSignature = sign65(t, accountKeyHex, d)
 			return e, o
 		}, ErrSessionGrantInvalid},
-		{"OpenTask with a session grant", func() (*Envelope, VerifyOpts) {
+		{"session grant on a method outside the session set", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
+			o.SessionAllowed = false
 			e.SessionGrant = grantFrom(t, f)
 			resign(t, e, o.Body, grantHash(e), sessionKeyHex)
 			return e, o
 		}, ErrSessionMethodNotAllowed},
+		{"OpenTask grant user is not the order user", func() (*Envelope, VerifyOpts) {
+			e, o := openTaskSession()
+			o.OrderUser = "trueopen1cj9cz2a5xsqnjtqrwwq6e2f57srfcpgh4eqn90"
+			return e, o
+		}, ErrSessionGrantInvalid},
 		{"expiry zero", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
 			e.ExpiryHeightOrTime = 0

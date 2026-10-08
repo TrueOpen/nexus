@@ -239,9 +239,11 @@ wallet uses its active network, so the user never switches networks) and it must
 and requires it to match the account's public key stored on chain; an account with no stored key is
 rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` domain.
 
-- `OpenTask` must be signed by the order's user wallet; the header's own `signature` /
-  `signature_scheme` must be empty, and `order_envelope` must be a `SignedOrderV2`.
-- A user can sign a `SessionGrantV1` once to let a session key sign `SubscribeOutput`, `AckOutput`,
+- `OpenTask` is signed by the order's user wallet, or by a session key under a grant whose user is
+  the `SignedOrderV2` user (otherwise `SDK_AUTH_SESSION_GRANT_INVALID`); the order itself is always
+  signed by the wallet. The header's own `signature` / `signature_scheme` must be empty, and
+  `order_envelope` must be a `SignedOrderV2`.
+- A user can sign a `SessionGrantV1` once to let a session key sign `OpenTask`, `SubscribeOutput`, `AckOutput`,
   `GetTaskEvents`, `PrepareChallenge`, and `GetTaskDataMetadata` / `FetchTaskData` of an OUTPUT
   object. The grant expires at a chain height no more than `ingress.max_session_grant_blocks` past
   the current height.

@@ -259,6 +259,33 @@ func TestSessionSignedRequestMatchesWire(t *testing.T) {
 	}
 }
 
+// A session-key-signed OpenTask: the digest matches wire, and Verify accepts it when the grant user
+// is the order user (the Ingress passes the SignedOrder user as OrderUser).
+func TestSessionSignedOpenTaskMatchesWire(t *testing.T) {
+	f := loadAccountSigning(t)
+	v := f.SDKOpenTaskSession
+	e := envelopeFrom(t, v)
+	e.SessionGrant = grantFrom(t, f)
+	hash, err := SessionGrantHash(e.SessionGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), hash)
+	if err != nil || hex.EncodeToString(digest[:]) != v.Digest {
+		t.Fatalf("digest %x (%v), want %s", digest, err, v.Digest)
+	}
+	opts := optsFor(t, f, v, chainFor(t, f))
+	opts.HeightExpiry = true
+	opts.SessionAllowed = true
+	opts.OrderUser = e.SessionGrant.User
+	if err := Verify(context.Background(), e, opts); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if e.SignerAddress != opts.OrderUser {
+		t.Fatalf("the request acts for %q, not the order user %q", e.SignerAddress, opts.OrderUser)
+	}
+}
+
 func unescape(s string) string {
 	out, err := strconv.Unquote(`"` + s + `"`)
 	if err != nil {

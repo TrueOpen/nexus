@@ -151,6 +151,8 @@ type envelopeCheck struct {
 	body   [32]byte
 	// sessionAllowed lets a session key sign the request under a grant.
 	sessionAllowed bool
+	// orderUser (OpenTask only) is the SignedOrder user a grant must be for.
+	orderUser string
 	// heightExpiry and replay: see sdkauth.VerifyOpts. OpenTask leaves its height expiry and
 	// nonce to the taskdata Authorizer and so passes no replay cache.
 	heightExpiry bool
@@ -170,6 +172,7 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 		ReplayCache:           c.replay,
 		HeightExpiry:          c.heightExpiry,
 		SessionAllowed:        c.sessionAllowed,
+		OrderUser:             c.orderUser,
 		Chain:                 s.auth.Chain,
 		MaxSessionGrantBlocks: s.auth.MaxSessionGrantBlocks,
 	})

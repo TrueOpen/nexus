@@ -283,10 +283,11 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
 	}
-	// The wallet signs OpenTask directly (no session grant). Its height expiry and nonce are checked
-	// by the taskdata Authorizer against the chain, so no replay cache here.
+	// OpenTask is signed by the order user's wallet, or by a session key under a grant whose user is
+	// the order user (the order itself is still signed by the wallet). Its height expiry and nonce
+	// are checked by the taskdata Authorizer against the chain, so no replay cache here.
 	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), order.SessionID, order.TaskID, envelopeCheck{
-		method: "OpenTask", body: body, heightExpiry: true,
+		method: "OpenTask", body: body, heightExpiry: true, sessionAllowed: true, orderUser: order.User,
 	})
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, err

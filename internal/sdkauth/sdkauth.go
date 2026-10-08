@@ -16,7 +16,8 @@
 // public key is used. Without a session grant the request is signed by the user's wallet: it must
 // recover to signer_address, whose account must hold that public key on chain. With a grant, the
 // wallet has signed a SessionGrant once and a short-lived session key signs the request; the
-// request must recover to the grant's session key, and only a closed set of methods accepts it.
+// request must recover to the grant's session key, and only a closed set of methods accepts it. On
+// OpenTask the grant must also be for the SignedOrder user.
 //
 // Verification runs in a fixed order and stops at the first failure, which fixes the error code:
 //
@@ -167,7 +168,10 @@ type VerifyOpts struct {
 	HeightExpiry bool
 	// SessionAllowed says the method may be signed by a session key under a grant.
 	SessionAllowed bool
-	Chain          Chain
+	// OrderUser is set only by OpenTask: the SignedOrder user. A grant on such a request must be
+	// that user's, otherwise SDK_AUTH_SESSION_GRANT_INVALID.
+	OrderUser string
+	Chain     Chain
 	// MaxSessionGrantBlocks bounds a grant's expiry above the current height. Every Task Builder of a
 	// network must use the same value.
 	MaxSessionGrantBlocks uint64
@@ -258,7 +262,10 @@ type GrantCheck struct {
 	ChainID string
 	// User is the account the grant must be for: signer_address of an SDK request, requester_address
 	// of a Task data request.
-	User      string
+	User string
+	// OrderUser, when set (OpenTask), is the SignedOrder user; the grant must also be for it. A
+	// session key may open a Task only for the wallet that signed the order.
+	OrderUser string
 	Chain     Chain
 	MaxBlocks uint64
 }
@@ -293,6 +300,9 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	}
 	if g.User != c.User {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the request signer %q", g.User, c.User)
+	}
+	if c.OrderUser != "" && g.User != c.OrderUser {
+		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the order user %q", g.User, c.OrderUser)
 	}
 	hash, err := SessionGrantHash(g)
 	if err != nil {
@@ -427,7 +437,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	var sessionKey [20]byte
 	if e.SessionGrant != nil {
 		hash, key, err := VerifyGrant(ctx, e.SessionGrant, GrantCheck{
-			ChainID: opts.ChainID, User: e.SignerAddress,
+			ChainID: opts.ChainID, User: e.SignerAddress, OrderUser: opts.OrderUser,
 			Chain: opts.Chain, MaxBlocks: opts.MaxSessionGrantBlocks,
 		})
 		if err != nil {

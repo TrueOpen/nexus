@@ -704,7 +704,8 @@ func reEnvelopeOpenTask(t *testing.T, sg signer.Signer, header *nexusv1.OpenTask
 	resignTaskEnvelope(t, sg, header.RequestEnvelope)
 }
 
-// An OpenTask must be signed by the order user's wallet, and carries no outer order signature.
+// An OpenTask must be signed by the order user's wallet or by a session key under that user's
+// grant, and carries no outer order signature.
 func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	other := mustSigner(t, strings.Repeat("22", 32))
@@ -721,11 +722,14 @@ func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 			h.SignatureScheme = "secp256k1"           //nolint:staticcheck
 			reEnvelopeOpenTask(t, user, h)
 		}, code: connect.CodeInvalidArgument, want: "must be empty"},
-		{name: "session key signs OpenTask", edit: func(h *nexusv1.OpenTaskHeader) {
-			h.RequestEnvelope.SessionGrant = &nexusv1.SessionGrantV1{ChainId: "trueopen-localnet", User: user.Address(),
-				SessionKey: make([]byte, 20), ExpiryHeight: 150, GrantNonce: make([]byte, 32), UserSignature: make([]byte, 65),
-				SignatureChainId: testSignatureChainID}
-		}, code: connect.CodePermissionDenied, want: sdkauth.ErrSessionMethodNotAllowed.Error()},
+		{name: "session key under another user's grant", edit: func(h *nexusv1.OpenTaskHeader) {
+			sessionEnvelopeOpenTask(t, other, mustSigner(t, strings.Repeat("33", 32)), h)
+		}, code: connect.CodeUnauthenticated, want: sdkauth.ErrSessionGrantInvalid.Error()},
+		{name: "session key not the grant's", edit: func(h *nexusv1.OpenTaskHeader) {
+			sessionEnvelopeOpenTask(t, user, mustSigner(t, strings.Repeat("33", 32)), h)
+			h.RequestEnvelope.SessionGrant.SessionKey = make([]byte, 20)
+			h.RequestEnvelope.SessionGrant.UserSignature = signSessionGrant(t, user, h.RequestEnvelope.SessionGrant)
+		}, code: connect.CodeUnauthenticated, want: sdkauth.ErrInvalidSignature.Error()},
 	}
 	for index, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -741,6 +745,68 @@ func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A session key may sign OpenTask under a grant whose user is the order user: the request acts for
+// that user, and the order is still the one the wallet signed.
+func TestOpenTaskAcceptsSessionKeyUnderOrderUserGrant(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	api := &fakeTaskDataAPI{chunkSize: 64}
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	header := openTaskHeader(t, user, testSessionID("session-open-session-key"), 14, []byte("input"))
+	sessionEnvelopeOpenTask(t, user, mustSigner(t, strings.Repeat("33", 32)), header)
+	stream := client.OpenTask(context.Background())
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})
+	response, err := stream.CloseAndReceive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.Msg.GetAccepted() || api.openTaskRequester != user.Address() {
+		t.Fatalf("accepted=%t requester=%q, want the order user %q", response.Msg.GetAccepted(), api.openTaskRequester, user.Address())
+	}
+}
+
+// sessionEnvelopeOpenTask replaces the header's request envelope with one signed by sessionKey under
+// a grant granter's wallet signed (window [height, height], the test chain's height).
+func sessionEnvelopeOpenTask(t *testing.T, granter, sessionKey signer.Signer, header *nexusv1.OpenTaskHeader) {
+	t.Helper()
+	reEnvelopeOpenTask(t, granter, header)
+	keyAddress, err := nodecontract.CanonicalOperatorAddressBytes("session_key", sessionKey.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := &nexusv1.SessionGrantV1{
+		ChainId: "trueopen-localnet", User: granter.Address(), SessionKey: keyAddress,
+		ExpiryHeight: testUserChain.height, GrantNonce: testNonce([]byte("grant-" + header.GetSessionId())),
+		SignatureChainId: testSignatureChainID,
+	}
+	grant.UserSignature = signSessionGrant(t, granter, grant)
+	envelope := header.RequestEnvelope
+	envelope.SessionGrant = grant
+	// The request is signed under another signature_chain_id than the grant: each carries its own.
+	envelope.SignatureChainId = testSignatureChainID + 1
+	grantHash, err := sdkauth.SessionGrantHash(sessionGrantFromPB(grant))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body [32]byte
+	copy(body[:], envelope.GetBodyDigest())
+	digest, err := sdkauth.RequestDigest(envelopeFromPB(envelope), body, grantHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope.Signature = signEIP712(t, sessionKey, digest)
+}
+
+// signSessionGrant is the grant user's wallet signature over grant.
+func signSessionGrant(t *testing.T, user signer.Signer, grant *nexusv1.SessionGrantV1) []byte {
+	t.Helper()
+	digest, err := sdkauth.SessionGrantDigest(sessionGrantFromPB(grant))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signEIP712(t, user, digest)
 }
 
 // openTaskBodyDigest is the TRUEOPEN_SDK_BODY_OPEN_TASK_V1 digest of header, with task_hash

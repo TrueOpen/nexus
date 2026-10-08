@@ -92,7 +92,7 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
 - the K5 Builder rank/proof comes from the frozen Task Builder selection (`TaskBuilders`), or is computed deterministically from the same BuilderSet and stage input;
 - the Builder application signature uses the service key and the `TRUEOPEN_ASSIGN_BUILDER_V1` signing frame.
 
-The Order signature binds chain ID, owner, session ID, order sequence and the canonical envelope. At the ingress, `OpenTask` must carry an SDK request envelope signed by the order's user wallet, and Nexus checks the recovered key against the account's key stored on chain; the Node verifies the order signature itself in `MsgAssign`. Neither the Worker handraise nor the Assign Builder signature binds the payload keyring any more. Old signatures are not converted or re-signed.
+The Order signature binds chain ID, owner, session ID, order sequence and the canonical envelope. At the ingress, `OpenTask` must carry an SDK request envelope signed by the order's user wallet, whose recovered key Nexus checks against the account's key stored on chain, or by a session key under a grant the same wallet signed for the order's user; the Node verifies the order signature itself in `MsgAssign`. Neither the Worker handraise nor the Assign Builder signature binds the payload keyring any more. Old signatures are not converted or re-signed.
 
 `tx_fee_reserve` may be zero, but must match the order.
 
