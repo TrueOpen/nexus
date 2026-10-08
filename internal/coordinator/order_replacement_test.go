@@ -1,11 +1,14 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/nexus/internal/kv"
 )
@@ -115,5 +118,42 @@ func TestTerminalMarkerWithoutTaskHashTreatsOrderAsRetry(t *testing.T) {
 	}
 	if _, ok := c.getFSM(order.SessionID, order.TaskID); ok {
 		t.Fatal("terminal task was tracked again")
+	}
+}
+
+// The same order re-signed under another signature_chain_id has the same task_hash, so a second
+// OnOrder is an exact retry: it is accepted and the tracked task keeps the first SignedOrderV2.
+func TestOnOrderRetryUnderAnotherSignatureChainIDKeepsFirstOrder(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	ctx := context.Background()
+	first := testPlaceholderOrder("session-1", "task-1")
+	resigned := testSignedOrder(testUserAddress)
+	resigned.SignatureChainId = 1
+	resigned.UserSignature = append(bytes.Repeat([]byte{0x66}, 64), 28)
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(resigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := first
+	retry.SignedOrder = raw
+	if bytes.Equal(retry.SignedOrder, first.SignedOrder) {
+		t.Fatal("the retry should carry a differently signed order")
+	}
+
+	if err := c.OnOrder(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOrder(ctx, retry); err != nil {
+		t.Fatalf("CheckOrder(retry under another signature_chain_id) = %v", err)
+	}
+	if err := c.OnOrder(ctx, retry); err != nil {
+		t.Fatalf("OnOrder(retry under another signature_chain_id) = %v", err)
+	}
+	fsm, ok := c.getFSM(first.SessionID, first.TaskID)
+	if !ok {
+		t.Fatal("tracked task disappeared")
+	}
+	if !bytes.Equal(fsm.order.SignedOrder, first.SignedOrder) {
+		t.Fatal("the retry replaced the first stored SignedOrderV2")
 	}
 }

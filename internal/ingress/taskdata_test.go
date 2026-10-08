@@ -885,3 +885,55 @@ func TestOpenTaskExpiryAndReplayCodes(t *testing.T) {
 		}
 	}
 }
+
+// An OpenTask retry re-signed under another signature_chain_id, naming another input media type, is
+// the same order: Ingress accepts it and hands the coordinator the same task_hash (the coordinator and
+// the store keep the first SignedOrderV2 and metadata).
+func TestOpenTaskRetryUnderAnotherSignatureChainIDIsTheSameOrder(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	var taskHashes []string
+	handler := &fakeHandler{}
+	handler.onOrder = func(_ context.Context, order types.Order) error {
+		taskHashes = append(taskHashes, order.TaskHash)
+		return nil
+	}
+	api := &fakeTaskDataAPI{chunkSize: 64}
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	first := openTaskHeader(t, user, testSessionID("session-resigned"), 15, []byte("input"))
+
+	retry := proto.Clone(first).(*nexusv1.OpenTaskHeader)
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(retry.GetOrderEnvelope(), &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed.SignatureChainId = 1
+	signed.UserSignature = testUserSignatureV2(0x66)
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(&signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry.OrderEnvelope = raw
+	retry.InputMediaType = "text/plain"
+	reEnvelopeOpenTask(t, user, retry)
+
+	for _, header := range []*nexusv1.OpenTaskHeader{first, retry} {
+		stream := client.OpenTask(context.Background())
+		_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+		_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})
+		if _, err := stream.CloseAndReceive(); err != nil {
+			t.Fatalf("OpenTask (signature_chain_id %d): %v", signedChainID(t, header), err)
+		}
+	}
+	if len(taskHashes) != 2 || taskHashes[0] != taskHashes[1] {
+		t.Fatalf("task_hash of the two OpenTask calls = %v, want one order", taskHashes)
+	}
+}
+
+func signedChainID(t *testing.T, header *nexusv1.OpenTaskHeader) uint64 {
+	t.Helper()
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(header.GetOrderEnvelope(), &signed); err != nil {
+		t.Fatal(err)
+	}
+	return signed.GetSignatureChainId()
+}
