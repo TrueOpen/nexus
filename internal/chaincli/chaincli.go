@@ -46,6 +46,15 @@ type TxResult struct {
 	RawLog    string
 }
 
+// OutputStreamLimits are the task params that decide whether an output stream is valid.
+type OutputStreamLimits struct {
+	// MaxOutputMMRLeaves is evidence.max_output_mmr_leaves: the maximum frame count.
+	MaxOutputMMRLeaves uint64
+	// MinFrameBytes is evidence.min_output_stream_frame_bytes: the minimum bytes per frame,
+	// except for the last frame.
+	MinFrameBytes uint64
+}
+
 // AccountInfo is the account information needed for signing (auth Query/Account).
 type AccountInfo struct {
 	AccountNumber uint64
@@ -90,6 +99,9 @@ type Client interface {
 	// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks: how
 	// far behind the executing block a signed order's session anchor may be.
 	QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error)
+	// QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
+	// evidence.min_output_stream_frame_bytes.
+	QueryOutputStreamLimits(ctx context.Context) (OutputStreamLimits, error)
 	// BlockHash returns the hash of the block at height, the value the chain records as that
 	// height's anchor hash.
 	BlockHash(ctx context.Context, height int64) ([]byte, error)
@@ -222,6 +234,11 @@ func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
 // QueryAnchorFreshnessWindowBlocks and BlockHash have no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
 	return 0, ErrNotSupportedOnChain
+}
+
+// QueryOutputStreamLimits has no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) QueryOutputStreamLimits(context.Context) (OutputStreamLimits, error) {
+	return OutputStreamLimits{}, ErrNotSupportedOnChain
 }
 
 func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {

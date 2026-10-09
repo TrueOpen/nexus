@@ -65,16 +65,21 @@ type TaskDataConfig struct {
 // streaming SubscribeOutput / AckOutput return Unimplemented — no OUTPUT can be uploaded at all.
 //
 // The limits that decide whether a stream is valid must be identical across every Nexus in the
-// network (configured from the deployment baseline until the on-chain parameters land): the first
-// three fields of this struct plus task_data.chunk_size_bytes, which is also the per-frame text limit.
-// Differing chunk_size_bytes means the same frame is accepted by one node and rejected by another,
-// and Verifiers can then no longer fetch the complete data.
+// network. The frame count limit and the minimum frame size come from the chain task params
+// evidence.max_output_mmr_leaves and evidence.min_output_stream_frame_bytes, read once at startup
+// (both are genesis-only); see WithChainLimits. The other two are local and must still be set to the
+// same value on every Nexus: max_attachment_bytes and task_data.chunk_size_bytes, which is also the
+// per-frame text limit. Differing values mean the same frame is accepted by one node and rejected by
+// another, and Verifiers can then no longer fetch the complete data.
 // SubscriberBufferFrames only affects local subscribers and may differ per node.
 type OutputStreamConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// MaxOutputMMRLeaves is the maximum frame count (parameter table max_output_mmr_leaves, localnet placeholder 65536).
+	// MaxOutputMMRLeaves is an optional cross-check of the chain parameter max_output_mmr_leaves
+	// (the maximum frame count): 0 takes the chain value, any other value must equal it.
 	MaxOutputMMRLeaves uint64 `yaml:"max_output_mmr_leaves"`
-	// MinFrameBytes is the minimum bytes per frame, except for the last frame; it must match the chain parameter min_output_stream_frame_bytes (256).
+	// MinFrameBytes is an optional cross-check of the chain parameter min_output_stream_frame_bytes
+	// (the minimum bytes per frame, except for the last frame): 0 takes the chain value, any other
+	// value must equal it.
 	MinFrameBytes uint64 `yaml:"min_output_stream_frame_bytes"`
 	// MaxAttachmentBytes is the per-frame attachment limit; 0 means attachments are rejected (must be identical across Nexus instances until the protocol settles it).
 	MaxAttachmentBytes uint64 `yaml:"max_attachment_bytes"`
@@ -87,8 +92,6 @@ func (c OutputStreamConfig) Validate(chunkSize uint64) error {
 		return nil
 	}
 	switch {
-	case c.MaxOutputMMRLeaves == 0:
-		return fmt.Errorf("task_data.output_stream max_output_mmr_leaves must be positive")
 	case c.MinFrameBytes > chunkSize:
 		return fmt.Errorf("task_data.output_stream min_output_stream_frame_bytes must not exceed chunk_size_bytes")
 	case c.SubscriberBufferFrames == 0:
@@ -96,6 +99,28 @@ func (c OutputStreamConfig) Validate(chunkSize uint64) error {
 	default:
 		return nil
 	}
+}
+
+// WithChainLimits returns c with MaxOutputMMRLeaves and MinFrameBytes set to the chain task params.
+// A non-zero configured value is only a cross-check and must equal the chain value. The chain minimum
+// frame size must also fit within chunkSize (task_data.chunk_size_bytes), the per-frame text limit.
+func (c OutputStreamConfig) WithChainLimits(maxOutputMMRLeaves, minFrameBytes, chunkSize uint64) (OutputStreamConfig, error) {
+	switch {
+	case maxOutputMMRLeaves == 0 || minFrameBytes == 0:
+		return c, fmt.Errorf("chain output stream limits must be positive: max_output_mmr_leaves %d, min_output_stream_frame_bytes %d",
+			maxOutputMMRLeaves, minFrameBytes)
+	case c.MaxOutputMMRLeaves != 0 && c.MaxOutputMMRLeaves != maxOutputMMRLeaves:
+		return c, fmt.Errorf("task_data.output_stream max_output_mmr_leaves %d differs from the chain parameter %d; remove it or set it to the chain value",
+			c.MaxOutputMMRLeaves, maxOutputMMRLeaves)
+	case c.MinFrameBytes != 0 && c.MinFrameBytes != minFrameBytes:
+		return c, fmt.Errorf("task_data.output_stream min_output_stream_frame_bytes %d differs from the chain parameter %d; remove it or set it to the chain value",
+			c.MinFrameBytes, minFrameBytes)
+	case minFrameBytes > chunkSize:
+		return c, fmt.Errorf("chain parameter min_output_stream_frame_bytes %d exceeds task_data.chunk_size_bytes %d",
+			minFrameBytes, chunkSize)
+	}
+	c.MaxOutputMMRLeaves, c.MinFrameBytes = maxOutputMMRLeaves, minFrameBytes
+	return c, nil
 }
 
 func (c TaskDataConfig) Validate() error {
@@ -706,7 +731,7 @@ func defaults() Config {
 			SweepInterval:              time.Minute,
 			TombstoneRetentionBlocks:   120960,
 			OutputStream: OutputStreamConfig{
-				Enabled: true, MaxOutputMMRLeaves: 65536, MinFrameBytes: 256, MaxAttachmentBytes: 65536, SubscriberBufferFrames: 256,
+				Enabled: true, MaxAttachmentBytes: 65536, SubscriberBufferFrames: 256,
 			},
 		},
 		Chain: ChainConfig{

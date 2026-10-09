@@ -436,6 +436,29 @@ func (c *client) QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, 
 	return window, nil
 }
 
+// QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
+// evidence.min_output_stream_frame_bytes: the limits every Nexus and Worker apply to an output
+// stream. Both are genesis-only, so one read at startup stays valid for the life of the chain.
+// Zero is refused for either: no stream could satisfy it.
+func (c *client) QueryOutputStreamLimits(ctx context.Context) (OutputStreamLimits, error) {
+	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
+	if err != nil {
+		return OutputStreamLimits{}, applicationQueryError("task params", err)
+	}
+	evidence := resp.Msg.GetParams().GetEvidence()
+	limits := OutputStreamLimits{
+		MaxOutputMMRLeaves: evidence.GetMaxOutputMmrLeaves(),
+		MinFrameBytes:      uint64(evidence.GetMinOutputStreamFrameBytes()),
+	}
+	switch {
+	case limits.MaxOutputMMRLeaves == 0:
+		return OutputStreamLimits{}, fmt.Errorf("query task params: evidence.max_output_mmr_leaves is zero")
+	case limits.MinFrameBytes == 0:
+		return OutputStreamLimits{}, fmt.Errorf("query task params: evidence.min_output_stream_frame_bytes is zero")
+	}
+	return limits, nil
+}
+
 // QueryInferReceipt reads the output_hash and infer_receipt_hash of the task's accepted
 // InferReceipt. A task without an accepted receipt returns ErrNotFound.
 func (c *client) QueryInferReceipt(ctx context.Context, taskID string) (AcceptedInferReceipt, error) {

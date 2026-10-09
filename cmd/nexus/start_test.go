@@ -27,6 +27,8 @@ import (
 	tmtypes "cosmossdk.io/api/tendermint/types"
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/hub/v1/hubv1connect"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/gen/trueopen/task/v1/taskv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 )
 
@@ -350,6 +352,17 @@ func (n *fakeStartNode) broadcastTypeURLs() []string {
 	return append([]string(nil), n.typeURLs...)
 }
 
+// fakeStartTaskQuery answers the task params Nexus reads at startup: the output stream limits.
+type fakeStartTaskQuery struct {
+	taskv1connect.UnimplementedQueryHandler
+}
+
+func (fakeStartTaskQuery) Params(context.Context, *connect.Request[taskv1.QueryTaskParamsRequest]) (*connect.Response[taskv1.QueryTaskParamsResponse], error) {
+	return connect.NewResponse(&taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
+		Evidence: &taskv1.EvidenceLimitParamsV1{MaxOutputMmrLeaves: 65536, MinOutputStreamFrameBytes: 256},
+	}}), nil
+}
+
 func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -364,6 +377,8 @@ func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	))
 	hubPath, hubHandler := hubv1connect.NewQueryHandler(node)
 	mux.Handle(hubPath, hubHandler)
+	taskPath, taskHandler := taskv1connect.NewQueryHandler(fakeStartTaskQuery{})
+	mux.Handle(taskPath, taskHandler)
 	mux.Handle("/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", connect.NewUnaryHandler(
 		"/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", node.GetLatestBlock,
 	))
