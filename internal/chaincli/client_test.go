@@ -1163,6 +1163,25 @@ func TestQueryAnchorFreshnessWindowBlocksReadsTaskParams(t *testing.T) {
 	}
 }
 
+func TestQueryOutputStreamLimitsReadsTaskParams(t *testing.T) {
+	params := func(leaves uint64, frame uint32) *taskv1.QueryTaskParamsResponse {
+		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
+			Evidence: &taskv1.EvidenceLimitParamsV1{MaxOutputMmrLeaves: leaves, MinOutputStreamFrameBytes: frame},
+		}}
+	}
+	c := &client{taskQuery: &recordTaskQuery{params: params(65536, 16)}}
+	got, err := c.QueryOutputStreamLimits(context.Background())
+	if err != nil || got != (OutputStreamLimits{MaxOutputMMRLeaves: 65536, MinFrameBytes: 16}) {
+		t.Fatalf("output stream limits = %+v, %v", got, err)
+	}
+	for _, zero := range []*taskv1.QueryTaskParamsResponse{params(0, 16), params(65536, 0), {}} {
+		c = &client{taskQuery: &recordTaskQuery{params: zero}}
+		if _, err := c.QueryOutputStreamLimits(context.Background()); err == nil {
+			t.Fatalf("zero output stream limit accepted: %v", zero)
+		}
+	}
+}
+
 // The active view carries the finality the coordinator closes settled tasks on.
 func TestQueryTaskMapsCoreFinality(t *testing.T) {
 	finality := uint64(88)

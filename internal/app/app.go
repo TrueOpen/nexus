@@ -450,6 +450,18 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		if stream := cfg.TaskData.OutputStream; stream.Enabled {
 			// Streaming OUTPUT: the limits are uniform across the network and frames are fanned out to subscribers per Task;
 			// enabled by default (cortex only streams); when disabled the three RPCs return Unimplemented.
+			// The frame count limit and the minimum frame size are genesis-only task params, read once at startup.
+			limitsCtx, cancelLimits := context.WithTimeout(context.Background(), 30*time.Second)
+			limits, limitsErr := taskChain.QueryOutputStreamLimits(limitsCtx)
+			cancelLimits()
+			if limitsErr != nil {
+				_ = store.Close()
+				return nil, fmt.Errorf("query task params output stream limits: %w", limitsErr)
+			}
+			if stream, err = stream.WithChainLimits(limits.MaxOutputMMRLeaves, limits.MinFrameBytes, cfg.TaskData.ChunkSizeBytes); err != nil {
+				_ = store.Close()
+				return nil, err
+			}
 			taskService.SetOutputStreamConfig(taskdata.OutputStreamConfig{
 				MaxLeaves: stream.MaxOutputMMRLeaves, MinFrameBytes: stream.MinFrameBytes,
 				MaxFrameBytes: cfg.TaskData.ChunkSizeBytes, MaxAttachmentBytes: stream.MaxAttachmentBytes,
