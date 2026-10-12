@@ -36,7 +36,9 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
 // Dependency direction: this file imports task.v1 on purpose: Nexus derives the locator from
 // the imported Task message and places the very same protobuf message verbatim into the
 // corresponding Msg/Batch or Bus payload. Nested Task messages keep Hash32 as raw bytes; this file's own
-// Hash32 fields remain 64-char lowercase hex strings.
+// Hash32 fields are strings written as 0x followed by 64 lowercase hex characters (66 in all), in
+// requests and responses alike; a bare 64-character string, uppercase hex and 0X are rejected. The
+// one exception is payload_ref, which keeps "nexus://sha256/" followed by bare lowercase hex.
 //
 // Cross-cutting concerns (access log / api-key / IP allowlist) are handled uniformly by a
 // Connect unary interceptor.
@@ -237,8 +239,8 @@ enum TaskDataRequesterKindV1 {
 // TaskDataObjectRefV1 is the only way to address a Task data object.
 //
 // When entering a body digest, use the canonical projection: the eight fields in the order of
-// this table; Hash32 is a lowercase hex
-// string on the transport and must be decoded to raw32 before entering the preimage.
+// this table; Hash32 is 0x followed by 64 lowercase hex characters
+// on the transport and must be decoded to raw32 before entering the preimage.
 // Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
 // producer_operator absent.
 message TaskDataObjectRefV1 {
@@ -440,8 +442,8 @@ message SDKRequestEnvelopeV2 {
   string chain_id = 2;              // prevents cross-chain replay
   string method = 3;                // bare IngressAPI method name
   string endpoint = 4;              // "/nexus.v1.IngressAPI/<Method>", <Method> equal to method
-  string session_id = 5;            // 64 lowercase hex
-  string task_id = 6;               // 64 lowercase hex
+  string session_id = 5;            // 0x followed by 64 lowercase hex
+  string task_id = 6;               // 0x followed by 64 lowercase hex
   bytes request_nonce = 7;          // exactly 32 bytes
   int64 expiry_height_or_time = 8;  // expiry height or Unix milliseconds; must be > 0
   bytes body_digest = 9;            // 32 bytes, see above
@@ -460,7 +462,7 @@ message SDKRequestEnvelopeV2 {
 // whose user equals the SignedOrder user.
 message OpenTaskHeader {
   bytes order_envelope = 1;
-  string payload_ref = 2;           // must equal "nexus://sha256/" || lowercase_hex(input_hash)
+  string payload_ref = 2;           // must equal "nexus://sha256/" || lowercase_hex(input_hash), without 0x
   bytes signature = 3 [deprecated = true];
   SDKRequestEnvelopeV2 request_envelope = 4;
   string session_id = 5;
@@ -815,7 +817,7 @@ message SubmitVerifyResultResponse {
 // CredentialV1 fetch credential: bound to task/recipient/usage/expiry, issued
 // by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
 message CredentialV1 {
-  string credential_id = 1;    // = hex(sha256(sign_bytes))
+  string credential_id = 1;    // = "0x" + hex(sha256(sign_bytes)); no current implementation
   string session_id = 2;
   string task_id = 3;
   string recipient = 4;        // target recipient address

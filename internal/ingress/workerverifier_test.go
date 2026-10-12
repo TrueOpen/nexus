@@ -13,6 +13,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -207,12 +208,13 @@ func TestSubmitInferReceiptAcceptsRelayResponsibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitInferReceipt: %v", err)
 	}
-	// infer_receipt_hash is the digest recomputed locally under TRUEOPEN_INFER_RECEIPT_V3, not a wire field.
+	// infer_receipt_hash is the digest recomputed locally under TRUEOPEN_INFER_RECEIPT_V3, not a wire field;
+	// like every Hash32 string on the IngressAPI it is "0x" + hex.
 	wantDigest, err := nodecontract.InferReceiptSigningDigestFromSubmission(fake.lastInferReceipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Msg.GetRelayAccepted() || resp.Msg.GetInferReceiptHash() != hex.EncodeToString(wantDigest[:]) {
+	if !resp.Msg.GetRelayAccepted() || resp.Msg.GetInferReceiptHash() != hash32text.Encode(wantDigest[:]) {
 		t.Fatalf("response = %+v", resp.Msg)
 	}
 	got := fake.lastInferReceipt
@@ -311,7 +313,7 @@ func TestRelayResolvesSessionFromTaskID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if response.Msg.GetCommitKey() != hex.EncodeToString(wantKey[:]) {
+		if response.Msg.GetCommitKey() != hash32text.Encode(wantKey[:]) {
 			t.Fatalf("commit_key = %q, want %x", response.Msg.GetCommitKey(), wantKey)
 		}
 	})
@@ -345,7 +347,7 @@ func TestSubmitVerifyCommitRelaysAfterValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !resp.Msg.GetRelayAccepted() || !resp.Msg.GetIdempotent() ||
-		resp.Msg.GetVerifyCommitSigningDigest() != hex.EncodeToString(wantDigest[:]) {
+		resp.Msg.GetVerifyCommitSigningDigest() != hash32text.Encode(wantDigest[:]) {
 		t.Fatalf("response = %+v", resp.Msg)
 	}
 	// The body is relayed verbatim: nexus rewrites no field and fills in none.
@@ -400,7 +402,7 @@ func TestSubmitVerifyResultRelaysAfterValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !resp.Msg.GetRelayAccepted() ||
-		resp.Msg.GetResultReceiptSigningDigest() != hex.EncodeToString(wantDigest[:]) {
+		resp.Msg.GetResultReceiptSigningDigest() != hash32text.Encode(wantDigest[:]) {
 		t.Fatalf("response = %+v", resp.Msg)
 	}
 	// The optional fields of metric_summary pass through as-is: absent and set to 0 are two different commitments.

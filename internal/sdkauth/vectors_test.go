@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -112,6 +113,8 @@ func (c *fakeChain) AccountPubKey(_ context.Context, address string) ([]byte, er
 	return key, nil
 }
 
+// envelopeFrom builds the transport envelope of a typed-data vector. The typed data writes the
+// bytes32 ids as bare hex; the envelope carries them as the SDK sends them, with a 0x prefix.
 func envelopeFrom(t *testing.T, v signedTypedData) *Envelope {
 	t.Helper()
 	expiry, err := strconv.ParseInt(v.Message["expiryHeightOrTime"], 10, 64)
@@ -120,7 +123,7 @@ func envelopeFrom(t *testing.T, v signedTypedData) *Envelope {
 	}
 	return &Envelope{
 		RequestDomain: RequestDomain, ChainID: v.Message["chainId"], Method: v.Message["method"],
-		Endpoint: v.Message["endpoint"], SessionID: v.Message["sessionId"], TaskID: v.Message["taskId"],
+		Endpoint: v.Message["endpoint"], SessionID: "0x" + v.Message["sessionId"], TaskID: "0x" + v.Message["taskId"],
 		RequestNonce: mustHex(t, v.Message["requestNonce"]), ExpiryHeightOrTime: expiry,
 		BodyDigest: mustHex(t, v.Message["bodyDigest"]), SignerAddress: v.Envelope.SignerAddress,
 		Signature: mustHex(t, v.Signature), SignatureChainID: mustUint(t, v.Envelope.SignatureChainID),
@@ -170,15 +173,15 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	open := file.Vector(t, "sdk_body_open_task_v1", 0)
 	var taskHash [32]byte
 	copy(taskHash[:], open.Field(t, "task_hash").Bytes(t))
-	got, err := OpenTaskBody(taskHash, hex.EncodeToString(open.Field(t, "session_id").Bytes(t)),
+	got, err := OpenTaskBody(taskHash, hash32text.Encode(open.Field(t, "session_id").Bytes(t)),
 		open.Field(t, "order_sequence").Uint64(t), open.Field(t, "user_address").Bech32,
-		open.Field(t, "input_size_bytes").Uint64(t), hex.EncodeToString(open.Field(t, "input_hash").Bytes(t)),
+		open.Field(t, "input_size_bytes").Uint64(t), hash32text.Encode(open.Field(t, "input_hash").Bytes(t)),
 		open.Field(t, "input_media_type").UTF8, open.Field(t, "idempotency_key").UTF8)
 	check("sdk_body_open_task_v1", got, err)
 
 	sub := file.Vector(t, "sdk_body_subscribe_output_v1", 0)
-	session := hex.EncodeToString(sub.Field(t, "session_id").Bytes(t))
-	task := hex.EncodeToString(sub.Field(t, "task_id").Bytes(t))
+	session := hash32text.Encode(sub.Field(t, "session_id").Bytes(t))
+	task := hash32text.Encode(sub.Field(t, "task_id").Bytes(t))
 	got, err = SubscribeOutputBody(session, task, nil)
 	check("sdk_body_subscribe_output_v1", got, err)
 

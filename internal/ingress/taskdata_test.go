@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"google.golang.org/protobuf/proto"
 	"io"
@@ -218,11 +219,12 @@ func TestTaskDataMetadataOmitsLocatorAndAuthorization(t *testing.T) {
 	}
 	got := response.Msg.GetMetadata()
 	// The current wire has no object_exists bit: when the object does not exist the whole metadata is absent.
-	if got.GetSizeBytes() != 7 || got.GetObjectRef().GetContentHash() != testPBContent ||
+	if got.GetSizeBytes() != 7 || got.GetObjectRef().GetContentHash() != wireID(testPBContent) ||
 		got.GetReadiness() != nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_READY {
 		t.Fatalf("metadata = %#v", got)
 	}
 	// The body digest is recomputed by the server from the object ref; it is no longer an empty value the caller fills in at will.
+	// The claimed body_digest reaches taskdata in the internal spelling.
 	if api.metadataReq.RPCMethod != "/nexus.v1.IngressAPI/GetTaskDataMetadata" ||
 		len(api.metadataReq.BodyDigest) != 64 {
 		t.Fatalf("request conversion = %#v", api.metadataReq)
@@ -307,11 +309,11 @@ func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := response.Msg.GetEvidenceBundle()
-	if got.GetEvidenceManifestHash() != bundleHash || got.GetEvidenceSchemaHash() != strings.Repeat("6", 64) ||
+	if got.GetEvidenceManifestHash() != wireID(bundleHash) || got.GetEvidenceSchemaHash() != wireID(strings.Repeat("6", 64)) ||
 		got.GetArtifactCount() != 2 || got.GetArtifactTotalSizeBytes() != 4096 || got.GetManifestSizeBytes() != 321 {
 		t.Fatalf("evidence bundle summary = %#v", got)
 	}
-	if response.Msg.GetMetadata().GetObjectRef().GetContentHash() != testPBContent {
+	if response.Msg.GetMetadata().GetObjectRef().GetContentHash() != wireID(testPBContent) {
 		t.Fatalf("ref content_hash must stay the locator, got %s", response.Msg.GetMetadata().GetObjectRef().GetContentHash())
 	}
 
@@ -333,8 +335,9 @@ func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
 //
 // It must be FailedPrecondition rather than Unimplemented: an unfrozen interface is a deterministic unmet precondition,
 // whereas callers read Unimplemented as "the server is too old" and blindly retry.
-// Object addressing and request authentication fixtures for the current wire. A Hash32 must be canonical lowercase 64-hex --
-// these cases do not verify real signatures, but the shape check runs in the conversion layer.
+// Object addressing and request authentication fixtures for the current wire. The constants are in nexus's internal
+// spelling (64 lowercase hex); requests carry them as "0x" + hex (wireID) -- these cases do not verify real signatures,
+// but the shape check runs in the conversion layer.
 const (
 	testPBSession = "1111111111111111111111111111111111111111111111111111111111111111"
 	testPBTask    = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -346,8 +349,8 @@ const (
 
 func testRefPB(kind nexusv1.TaskDataObjectKind) *nexusv1.TaskDataObjectRefV1 {
 	ref := &nexusv1.TaskDataObjectRefV1{
-		TaskHash: testPBHash, SessionId: testPBSession, TaskId: testPBTask,
-		ObjectKind: kind, ContentHash: testPBContent,
+		TaskHash: wireID(testPBHash), SessionId: wireID(testPBSession), TaskId: wireID(testPBTask),
+		ObjectKind: kind, ContentHash: wireID(testPBContent),
 	}
 	if kind == nexusv1.TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST ||
 		kind == nexusv1.TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_ARTIFACT {
@@ -362,7 +365,7 @@ func testAuthPB(method string, nonce byte) *nexusv1.TaskDataRequestAuthV1 {
 	return &nexusv1.TaskDataRequestAuthV1{
 		SchemaVersion: 1, ChainId: "chain", BuilderOperatorAddress: testPBBuilder,
 		RpcMethod:        "/nexus.v1.IngressAPI/" + method,
-		BodyDigest:       strings.Repeat("5", 64),
+		BodyDigest:       wireID(strings.Repeat("5", 64)),
 		RequesterKind:    nexusv1.TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE,
 		RequesterAddress: testPBCaller, ServiceAuthorizationNonce: 7,
 		RequestNonce: bytes.Repeat([]byte{nonce}, 32), ExpiryHeight: 10,
@@ -503,6 +506,43 @@ func TestTaskResultUploadRejectsChunkBeforeHeader(t *testing.T) {
 	}
 }
 
+// Every Hash32 of a Task data request -- the four of the object ref and the claimed body_digest -- is
+// "0x" + 64 lowercase hex on the wire. The bare internal spelling, uppercase hex and "0X" are malformed
+// and never reach taskdata.
+func TestTaskDataRequestRejectsNonPrefixedHash32(t *testing.T) {
+	cases := map[string]func(*nexusv1.TaskDataObjectRefV1, *nexusv1.TaskDataRequestAuthV1){
+		"bare task_hash":       func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) { r.TaskHash = testPBHash },
+		"bare session_id":      func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) { r.SessionId = testPBSession },
+		"bare task_id":         func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) { r.TaskId = testPBTask },
+		"bare content_hash":    func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) { r.ContentHash = testPBContent },
+		"uppercase 0X task_id": func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) { r.TaskId = "0X" + testPBTask },
+		"uppercase hex content_hash": func(r *nexusv1.TaskDataObjectRefV1, _ *nexusv1.TaskDataRequestAuthV1) {
+			r.ContentHash = "0x" + strings.ToUpper(strings.Repeat("ab", 32))
+		},
+		"bare body_digest": func(_ *nexusv1.TaskDataObjectRefV1, a *nexusv1.TaskDataRequestAuthV1) {
+			a.BodyDigest = strings.Repeat("5", 64)
+		},
+	}
+	for name, edit := range cases {
+		t.Run(name, func(t *testing.T) {
+			api := &fakeTaskDataAPI{exists: true}
+			client := newTaskDataClient(t, api)
+			ref := testRefPB(nexusv1.TaskDataObjectKind_TASK_DATA_OBJECT_KIND_OUTPUT)
+			auth := testAuthPB("GetTaskDataMetadata", 2)
+			edit(ref, auth)
+			_, err := client.GetTaskDataMetadata(context.Background(), connect.NewRequest(&nexusv1.GetTaskDataMetadataRequest{
+				ObjectRef: ref, RequestAuth: auth,
+			}))
+			if connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Fatalf("code = %v, err = %v; want InvalidArgument", connect.CodeOf(err), err)
+			}
+			if api.metadataReq.RPCMethod != "" {
+				t.Fatalf("malformed request reached taskdata: %#v", api.metadataReq)
+			}
+		})
+	}
+}
+
 // The wire upload header carries no receipt: uploading a single object only commits to object_ref, size
 // and media_type, while the receipt is committed by FinalizeTaskResult's body domain
 // (TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1). The former
@@ -539,9 +579,15 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 4}
 	handler := &fakeHandler{}
+	session := testSessionID("session-open")
+	taskID := mustDeriveTaskID(t, session, 9)
 	handler.onOrder = func(_ context.Context, order types.Order) error {
 		if api.inputState != taskdata.StatePrepared {
 			t.Fatalf("input state during OnOrder = %s", api.inputState)
+		}
+		// Inside nexus the ids keep the internal spelling.
+		if order.SessionID != session || order.TaskID != taskID {
+			t.Fatalf("order ids = %q/%q, want %q/%q", order.SessionID, order.TaskID, session, taskID)
 		}
 		if len(order.Payload) != 0 || order.PayloadCID != payloadstore.RefFor([]byte("abcdefgh")) {
 			t.Fatalf("order payload boundary = %#v", order)
@@ -549,7 +595,7 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 		return nil
 	}
 	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	header := openTaskHeader(t, user, testSessionID("session-open"), 9, []byte("abcdefgh"))
+	header := openTaskHeader(t, user, session, 9, []byte("abcdefgh"))
 	stream := client.OpenTask(context.Background())
 	if err := stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}}); err != nil {
 		t.Fatal(err)
@@ -567,6 +613,12 @@ func TestOpenTaskPreparesBeforeCoordinatorAndMarksReadyAfter(t *testing.T) {
 		!bytes.Equal(bytes.Join(api.inputUpload.chunks, nil), []byte("abcdefgh")) {
 		t.Fatalf("response/input = %#v state=%s chunks=%q", response.Msg, api.inputState, bytes.Join(api.inputUpload.chunks, nil))
 	}
+	// The response carries the ids and the input object ref as "0x" + hex.
+	ref := response.Msg.GetInputMetadata().GetObjectRef()
+	if response.Msg.GetSessionId() != wireID(session) || response.Msg.GetTaskId() != wireID(taskID) ||
+		ref.GetSessionId() != wireID(session) || ref.GetTaskId() != wireID(taskID) || ref.GetContentHash() != wireID(api.uploadHeader.Key.ContentHash) {
+		t.Fatalf("response ids = %q/%q, input ref = %v", response.Msg.GetSessionId(), response.Msg.GetTaskId(), ref)
+	}
 }
 
 func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
@@ -575,14 +627,29 @@ func TestOpenTaskRejectsNonHash32SessionID(t *testing.T) {
 	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, AuthParams{Chain: testUserChain,
 		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen",
 	})
-	header := openTaskHeader(t, user, testSessionID("session-text"), 9, []byte("input"))
-	header.SessionId = "session-text"
-	stream := client.OpenTask(context.Background())
-	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+	bare := testSessionID("session-text")
+	digest := sha256.Sum256([]byte("input"))
+	// session_id and input_hash must be "0x" + 64 lowercase hex: a bare or uppercase Hash32 is malformed.
+	for name, edit := range map[string]func(*nexusv1.OpenTaskHeader) (field string){
+		"text session_id":      func(h *nexusv1.OpenTaskHeader) string { h.SessionId = "session-text"; return "session_id" },
+		"bare session_id":      func(h *nexusv1.OpenTaskHeader) string { h.SessionId = bare; return "session_id" },
+		"uppercase session_id": func(h *nexusv1.OpenTaskHeader) string { h.SessionId = "0X" + bare; return "session_id" },
+		"bare input_hash": func(h *nexusv1.OpenTaskHeader) string {
+			h.InputHash = hex.EncodeToString(digest[:])
+			return "input_hash"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			header := openTaskHeader(t, user, bare, 9, []byte("input"))
+			field := edit(header)
+			stream := client.OpenTask(context.Background())
+			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
 
-	_, err := stream.CloseAndReceive()
-	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "session_id") {
-		t.Fatalf("OpenTask error=%v code=%v, want InvalidArgument for session_id", err, connect.CodeOf(err))
+			_, err := stream.CloseAndReceive()
+			if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), field) {
+				t.Fatalf("OpenTask error=%v code=%v, want InvalidArgument for %s", err, connect.CodeOf(err), field)
+			}
+		})
 	}
 }
 
@@ -636,6 +703,7 @@ func TestOpenTaskForwardsChainHeightReplayFields(t *testing.T) {
 
 // openTaskHeader builds a valid OpenTask header: order_envelope is a SignedOrderV2 for user, and the
 // request envelope is wallet-signed by user with a chain-height expiry. There is no outer signature.
+// sessionID is in the internal spelling; the header carries it as "0x" + hex.
 func openTaskHeader(t *testing.T, user signer.Signer, sessionID string, sequence uint64, payload []byte) *nexusv1.OpenTaskHeader {
 	t.Helper()
 	digest := sha256.Sum256(payload)
@@ -654,14 +722,15 @@ func openTaskHeader(t *testing.T, user signer.Signer, sessionID string, sequence
 		t.Fatal(err)
 	}
 	taskID := mustDeriveTaskID(t, sessionID, sequence)
+	// session_id and input_hash travel as "0x" + hex; payload_ref keeps the bare hex of the input digest.
 	header := &nexusv1.OpenTaskHeader{
-		OrderEnvelope: raw, PayloadRef: payloadstore.RefFor(payload), SessionId: sessionID,
+		OrderEnvelope: raw, PayloadRef: payloadstore.RefFor(payload), SessionId: wireID(sessionID),
 		OrderSequence: sequence, UserAddress: user.Address(),
-		InputSizeBytes: uint64(len(payload)), InputHash: hex.EncodeToString(digest[:]), InputMediaType: "application/octet-stream",
+		InputSizeBytes: uint64(len(payload)), InputHash: hash32text.Encode(digest[:]), InputMediaType: "application/octet-stream",
 		IdempotencyKey: "idem-" + sessionID,
 	}
 	header.RequestEnvelope = signedTaskEnvelope(
-		t, user, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, sessionID, taskID,
+		t, user, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, wireID(sessionID), wireID(taskID),
 		openTaskBodyDigest(header), []byte("nonce-open-task-"+sessionID),
 	)
 	header.RequestEnvelope.ExpiryHeightOrTime = 110
@@ -695,9 +764,9 @@ func toString(value any) string {
 // reEnvelopeOpenTask signs a fresh request envelope over the header as it stands now, with sg.
 func reEnvelopeOpenTask(t *testing.T, sg signer.Signer, header *nexusv1.OpenTaskHeader) {
 	t.Helper()
-	taskID := mustDeriveTaskID(t, header.GetSessionId(), header.GetOrderSequence())
+	taskID := mustDeriveTaskID(t, bareID(t, header.GetSessionId()), header.GetOrderSequence())
 	header.RequestEnvelope = signedTaskEnvelope(
-		t, sg, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, header.GetSessionId(), taskID,
+		t, sg, "OpenTask", nexusv1connect.IngressAPIOpenTaskProcedure, header.GetSessionId(), wireID(taskID),
 		openTaskBodyDigest(header), []byte("nonce-open-task-"+header.GetSessionId()),
 	)
 	header.RequestEnvelope.ExpiryHeightOrTime = 110
@@ -820,7 +889,7 @@ func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
 	if err != nil {
 		return make([]byte, 32)
 	}
-	taskHash, err := sdkauth.Hash32Hex("task_hash", taskHashHex)
+	taskHash, err := sdkauth.Hash32Hex("task_hash", wireID(taskHashHex))
 	if err != nil {
 		return make([]byte, 32)
 	}

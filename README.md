@@ -35,13 +35,14 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 curl localhost:8080/healthz                       # {"status":"ok"}
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
-# client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up:
+# client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.
+# Hash32 strings on the IngressAPI are 0x followed by 64 lowercase hex characters:
 curl -X POST localhost:8080/nexus.v1.IngressAPI/GetTaskStatus \
-  -H 'Content-Type: application/json' -d '{"taskId":"<task_id>"}'
+  -H 'Content-Type: application/json' -d '{"sessionId":"0x<session_id>","taskId":"0x<task_id>"}'
 
 # Option 2: gRPC (reflection is enabled, so grpcurl needs no proto files)
 grpcurl -plaintext localhost:8080 list
-grpcurl -plaintext -d '{"taskId":"<task_id>"}' \
+grpcurl -plaintext -d '{"sessionId":"0x<session_id>","taskId":"0x<task_id>"}' \
   localhost:8080 nexus.v1.IngressAPI/GetTaskStatus
 
 # When api-key is enabled, pass the header (same name for curl and grpcurl):
@@ -384,7 +385,10 @@ E2E_OUT=/tmp/nexus-e2e.json E2E_STOP=/tmp/nexus-e2e.stop \
 ```
 
 The descriptor names the URL, the certificate (pin it by public key hash), session/task ids,
-the Worker service public key and the fixed test user key. `E2E_FIN_MODE=unsigned|badreason`
+the Worker service public key and the fixed test user key. `session_id` and `task_id` are
+IngressAPI strings (0x followed by 64 lowercase hex) to pass to `SubscribeOutput` as is; fields
+ending in `_hex`, such as `task_hash_hex`, are bare hex of raw bytes, like the wire vectors, and
+are not IngressAPI strings. `E2E_FIN_MODE=unsigned|badreason`
 sends a Fin without a signature or with a finish_reason that does not match the signature, for
 checking a subscriber's fail-closed policy. The `TRUEOPEN_OUTPUT_FIN_V1` digest itself is
 `nodecontract.OutputFinSigningDigest`, pinned to the wire vectors by

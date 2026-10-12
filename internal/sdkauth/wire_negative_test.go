@@ -121,7 +121,8 @@ func TestWireRequestAuthNegativeCases(t *testing.T) {
 					case k == "endpoint":
 						e.Endpoint = v
 					case k == "taskId":
-						e.TaskID = v
+						// Typed data writes bytes32 as bare hex; the envelope carries it with 0x.
+						e.TaskID = "0x" + v
 					case k == "sessionGrantHash":
 						// A session key signing with the grant hash carries the grant; the wallet
 						// signing it without a grant carries none; a zero hash keeps the base grant.

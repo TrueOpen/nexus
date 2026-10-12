@@ -370,8 +370,8 @@ func (AccessLevel) EnumDescriptor() ([]byte, []int) {
 // TaskDataObjectRefV1 is the only way to address a Task data object.
 //
 // When entering a body digest, use the canonical projection: the eight fields in the order of
-// this table; Hash32 is a lowercase hex
-// string on the transport and must be decoded to raw32 before entering the preimage.
+// this table; Hash32 is 0x followed by 64 lowercase hex characters
+// on the transport and must be decoded to raw32 before entering the preimage.
 // Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
 // producer_operator absent.
 type TaskDataObjectRefV1 struct {
@@ -1175,8 +1175,8 @@ type SDKRequestEnvelopeV2 struct {
 	ChainId            string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`                                       // prevents cross-chain replay
 	Method             string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`                                                        // bare IngressAPI method name
 	Endpoint           string                 `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`                                                    // "/nexus.v1.IngressAPI/<Method>", <Method> equal to method
-	SessionId          string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                 // 64 lowercase hex
-	TaskId             string                 `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                          // 64 lowercase hex
+	SessionId          string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                 // 0x followed by 64 lowercase hex
+	TaskId             string                 `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                          // 0x followed by 64 lowercase hex
 	RequestNonce       []byte                 `protobuf:"bytes,7,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`                        // exactly 32 bytes
 	ExpiryHeightOrTime int64                  `protobuf:"varint,8,opt,name=expiry_height_or_time,json=expiryHeightOrTime,proto3" json:"expiry_height_or_time,omitempty"` // expiry height or Unix milliseconds; must be > 0
 	BodyDigest         []byte                 `protobuf:"bytes,9,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`                              // 32 bytes, see above
@@ -1328,7 +1328,7 @@ func (x *SDKRequestEnvelopeV2) GetSignatureChainId() uint64 {
 type OpenTaskHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrderEnvelope []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
-	PayloadRef    string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"` // must equal "nexus://sha256/" || lowercase_hex(input_hash)
+	PayloadRef    string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"` // must equal "nexus://sha256/" || lowercase_hex(input_hash), without 0x
 	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 	Signature       []byte                `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	RequestEnvelope *SDKRequestEnvelopeV2 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
@@ -3690,7 +3690,7 @@ func (x *SubmitVerifyResultResponse) GetIdempotent() bool {
 // by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
 type CredentialV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CredentialId  string                 `protobuf:"bytes,1,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"` // = hex(sha256(sign_bytes))
+	CredentialId  string                 `protobuf:"bytes,1,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"` // = "0x" + hex(sha256(sign_bytes)); no current implementation
 	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId        string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Recipient     string                 `protobuf:"bytes,4,opt,name=recipient,proto3" json:"recipient,omitempty"` // target recipient address

@@ -3,6 +3,7 @@ package sdkauth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -183,12 +184,22 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 		}, ErrMalformed},
 		{"uppercase session_id", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			e.SessionID = "77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
+			e.SessionID = "0x77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
 			return e, o
 		}, ErrMalformed},
-		{"0x task_id", func() (*Envelope, VerifyOpts) {
+		{"bare session_id", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			e.TaskID = "0x" + e.TaskID[2:]
+			e.SessionID = strings.TrimPrefix(e.SessionID, "0x")
+			return e, o
+		}, ErrMalformed},
+		{"bare task_id", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.TaskID = strings.TrimPrefix(e.TaskID, "0x")
+			return e, o
+		}, ErrMalformed},
+		{"0X task_id", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.TaskID = "0X" + strings.TrimPrefix(e.TaskID, "0x")
 			return e, o
 		}, ErrMalformed},
 		{"16-byte nonce", func() (*Envelope, VerifyOpts) {

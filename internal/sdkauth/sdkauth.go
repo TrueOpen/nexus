@@ -43,6 +43,7 @@ import (
 	"sync"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
@@ -182,19 +183,14 @@ type VerifyOpts struct {
 // milliseconds; OpenTask accepts only a chain height (VerifyOpts.HeightExpiry).
 const HeightExpiryThreshold = int64(1_000_000_000_000)
 
-// Hash32Hex decodes a session or task ID: exactly 64 lowercase hex characters, no 0x prefix.
+// Hash32Hex decodes a Hash32 as the SDK sends it in an envelope or request body: "0x" followed by
+// exactly 64 lowercase hex characters. A bare 64-character string, uppercase hex and "0X" are
+// rejected.
 func Hash32Hex(field, value string) ([32]byte, error) {
-	var out [32]byte
-	if len(value) != 64 {
-		return out, fmt.Errorf("%w: %s must be 64 lowercase hex characters", ErrMalformed, field)
+	out, ok := hash32text.Decode(value)
+	if !ok {
+		return out, fmt.Errorf("%w: %s must be 0x followed by 64 lowercase hex characters", ErrMalformed, field)
 	}
-	for _, c := range value {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return out, fmt.Errorf("%w: %s must be 64 lowercase hex characters", ErrMalformed, field)
-		}
-	}
-	raw, _ := hex.DecodeString(value)
-	copy(out[:], raw)
 	return out, nil
 }
 
@@ -497,8 +493,9 @@ func ReplayKey(e *Envelope) string {
 }
 
 // Body digests: each User Ingress method's body is an H_FIELDS_V1 digest under its own registered
-// domain. Hash32 fields are raw 32 bytes (decoded from lowercase hex), integers u64 big-endian,
-// text UTF-8, addresses their raw bytes, optional fields OPTIONAL_V1.
+// domain. Hash32 fields are raw 32 bytes (decoded from the 0x-prefixed lowercase hex the SDK
+// sends), integers u64 big-endian, text UTF-8, addresses their raw bytes, optional fields
+// OPTIONAL_V1.
 const (
 	BodyOpenTaskDomain         = "TRUEOPEN_SDK_BODY_OPEN_TASK_V1"
 	BodySubscribeOutputDomain  = "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1"

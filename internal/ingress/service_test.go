@@ -497,7 +497,7 @@ func newTestClient(t *testing.T, h Handler, auth AuthParams) nexusv1connect.Ingr
 func TestPrepareChallengeReturnsCloseHeight(t *testing.T) {
 	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain})
 	response, err := client.PrepareChallenge(context.Background(), connect.NewRequest(&nexusv1.PrepareChallengeRequest{
-		SessionId: "session-1", TaskId: "task-1", ChallengeKind: "VERDICT_FRAUD_PROOF",
+		SessionId: wireID(testSessionID("session-1")), TaskId: wireID(testSessionID("task-1")), ChallengeKind: "VERDICT_FRAUD_PROOF",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -981,11 +981,12 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 	}}
 	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task := testSessionID("session-stream"), testSessionID("task-stream")
-	body := subscribeBody(t, session, task, nil)
-	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
+	wireSession, wireTask := wireID(session), wireID(task)
+	body := subscribeBody(t, wireSession, wireTask, nil)
+	req := &nexusv1.SubscribeOutputRequest{SessionId: wireSession, TaskId: wireTask}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-		session, task, body, []byte("nonce-subscribe-wait"),
+		wireSession, wireTask, body, []byte("nonce-subscribe-wait"),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -997,8 +998,9 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 	}
 	close(release)
 	got := <-result
+	// The handler receives the internal spelling; the deprecated whole-text response writes the ids back as 0x.
 	if got.err != nil || got.response.GetOutputId() != "output-1" || got.response.GetOutputText() != "hello" ||
-		got.response.GetSessionId() != session || got.response.GetTaskId() != task || got.response.GetCreatedAt() != 10 || got.response.GetExpiresAt() != 20 {
+		got.response.GetSessionId() != wireSession || got.response.GetTaskId() != wireTask || got.response.GetCreatedAt() != 10 || got.response.GetExpiresAt() != 20 {
 		t.Fatalf("SubscribeOutput = %+v/%v", got.response, got.err)
 	}
 }
@@ -1006,7 +1008,7 @@ func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
 func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
 	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
-		SessionId: "session", TaskId: "task",
+		SessionId: wireID(testSessionID("session")), TaskId: wireID(testSessionID("task")),
 	})
 	if connect.CodeOf(result.err) != connect.CodeUnauthenticated {
 		t.Fatalf("SubscribeOutput code = %v, err = %v", connect.CodeOf(result.err), result.err)
@@ -1016,11 +1018,11 @@ func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
 func TestSubscribeOutputRejectsEnvelopeTaskMismatch(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
 	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	session, task := testSessionID("session"), testSessionID("task")
+	session, task := wireID(testSessionID("session")), wireID(testSessionID("task"))
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-		session, testSessionID("other-task"), subscribeBody(t, session, task, nil), []byte("nonce-subscribe-mismatch"),
+		session, wireID(testSessionID("other-task")), subscribeBody(t, session, task, nil), []byte("nonce-subscribe-mismatch"),
 	)
 	result := <-receiveSubscribe(context.Background(), client, req)
 	if connect.CodeOf(result.err) != connect.CodeInvalidArgument {
@@ -1045,7 +1047,7 @@ func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
 				return types.PlaintextOutput{}, tc.err
 			}}
 			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			session, task := testSessionID("session"), testSessionID("task")
+			session, task := wireID(testSessionID("session")), wireID(testSessionID("task"))
 			req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 			req.RequestEnvelope = signedTaskEnvelope(
 				t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
@@ -1062,7 +1064,7 @@ func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
 func TestSubscribeOutputAuthorizationMatrix(t *testing.T) {
 	owner := mustSigner(t, testKeyHex)
 	other := mustSigner(t, workerKeyHex)
-	session, task := testSessionID("session-auth-matrix"), testSessionID("task-auth-matrix")
+	session, task := wireID(testSessionID("session-auth-matrix")), wireID(testSessionID("task-auth-matrix"))
 	fake := &fakeHandler{subscribeOutput: func(_ context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
 		if requester != owner.Address() {
 			return types.PlaintextOutput{}, outputdelivery.ErrUnauthorized
@@ -1120,17 +1122,19 @@ func TestAckOutputSignsBodyAndReturnsIdempotentResult(t *testing.T) {
 	}}
 	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task, outputID := testSessionID("session-ack"), testSessionID("task-ack"), "output-ack"
-	req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
+	wireSession, wireTask := wireID(session), wireID(task)
+	req := &nexusv1.AckOutputRequest{SessionId: wireSession, TaskId: wireTask, OutputId: outputID}
 	req.RequestEnvelope = signedTaskEnvelope(
 		t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
-		session, task,
-		ackBody(t, session, task, 0),
+		wireSession, wireTask,
+		ackBody(t, wireSession, wireTask, 0),
 		[]byte("nonce-ack-success"),
 	)
 	resp, err := client.AckOutput(context.Background(), connect.NewRequest(req))
 	if err != nil || !resp.Msg.GetAcked() || !resp.Msg.GetAlreadyAcked() || resp.Msg.GetAckedAt() != 42 {
 		t.Fatalf("AckOutput = %+v/%v", resp, err)
 	}
+	// The handler receives the ids in the internal spelling.
 	if gotSession != session || gotTask != task || gotOutputID != outputID || gotRequester != sg.Address() {
 		t.Fatalf("handler args = %q/%q/%q/%q", gotSession, gotTask, gotOutputID, gotRequester)
 	}
@@ -1165,7 +1169,7 @@ func TestAckOutputMapsStableErrors(t *testing.T) {
 				return types.OutputAck{}, tc.err
 			}}
 			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			session, task, outputID := testSessionID("session"), testSessionID("task"), "output"
+			session, task, outputID := wireID(testSessionID("session")), wireID(testSessionID("task")), "output"
 			req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
 			req.RequestEnvelope = signedTaskEnvelope(
 				t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
@@ -1195,7 +1199,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 	defer cancel()
 
 	stream, err := client.GetTaskEvents(ctx, connect.NewRequest(&nexusv1.GetTaskEventsRequest{
-		SessionId: "s", TaskId: "t", FromCursor: "1", // resume from a cursor: skip seq 1
+		SessionId: wireID(testSessionID("s")), TaskId: wireID(testSessionID("t")), FromCursor: "1", // resume from a cursor: skip seq 1
 	}))
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
@@ -1212,6 +1216,104 @@ func TestGetTaskEventsStream(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].GetCursor() != "2" || got[1].GetEventCode() != "ASSIGNMENT_FINALIZED" || got[1].GetChainHeight() != 101 {
 		t.Fatalf("stream events mismatch: %+v", got)
+	}
+}
+
+// session_id and task_id must be "0x" + 64 lowercase hex even in lenient mode (no envelope,
+// RequireEnvelope off): a bare, uppercase or non-hex id is InvalidArgument, not a NotFound lookup.
+func TestTaskIDsMustBePrefixedWithoutEnvelope(t *testing.T) {
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
+	ctx := context.Background()
+	session, task := testSessionID("session-lenient"), testSessionID("task-lenient")
+	calls := map[string]func(sessionID, taskID string) error{
+		"GetTaskEvents": func(sessionID, taskID string) error {
+			stream, err := client.GetTaskEvents(ctx, connect.NewRequest(&nexusv1.GetTaskEventsRequest{SessionId: sessionID, TaskId: taskID}))
+			if err != nil {
+				return err
+			}
+			for stream.Receive() {
+			}
+			return stream.Err()
+		},
+		"GetTaskStatus": func(sessionID, taskID string) error {
+			_, err := client.GetTaskStatus(ctx, connect.NewRequest(&nexusv1.GetTaskStatusRequest{SessionId: sessionID, TaskId: taskID}))
+			return err
+		},
+		"PrepareChallenge": func(sessionID, taskID string) error {
+			_, err := client.PrepareChallenge(ctx, connect.NewRequest(&nexusv1.PrepareChallengeRequest{
+				SessionId: sessionID, TaskId: taskID, ChallengeKind: "VERDICT_FRAUD_PROOF",
+			}))
+			return err
+		},
+	}
+	ids := map[string][2]string{
+		"bare session_id":       {session, wireID(task)},
+		"bare task_id":          {wireID(session), task},
+		"uppercase 0X task_id":  {wireID(session), "0X" + task},
+		"uppercase hex task_id": {wireID(session), "0x" + strings.ToUpper(task)},
+		"text ids":              {"s", "t"},
+	}
+	for method, call := range calls {
+		for name, id := range ids {
+			t.Run(method+"/"+name, func(t *testing.T) {
+				err := call(id[0], id[1])
+				if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "NEXUS_INGRESS_MALFORMED") {
+					t.Fatalf("code = %v, err = %v; want InvalidArgument NEXUS_INGRESS_MALFORMED", connect.CodeOf(err), err)
+				}
+			})
+		}
+	}
+}
+
+// SubscribeOutput and AckOutput, on the legacy and the streaming data plane alike, refuse a bare
+// session_id or task_id with InvalidArgument: the SDK body digest cannot be computed over it, so the
+// request fails before its envelope is checked.
+func TestSubscribeAndAckRejectBareIDs(t *testing.T) {
+	sg := mustSigner(t, testKeyHex)
+	session, task := testSessionID("session-bare-ids"), testSessionID("task-bare-ids")
+	auth := AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"}
+	clients := map[string]nexusv1connect.IngressAPIClient{
+		"legacy": newTestClient(t, &fakeHandler{}, auth),
+		// The request is refused before the streaming runtime is used, so an empty runtime suffices.
+		"streaming": func() nexusv1connect.IngressAPIClient {
+			mux := http.NewServeMux()
+			path, handler := nexusv1connect.NewIngressAPIHandler(newService(&fakeHandler{}, auth, withOutputStream(&outputStreamRuntime{})))
+			mux.Handle(path, handler)
+			return nexusv1connect.NewIngressAPIClient(&http.Client{Transport: handlerRoundTripper{h: mux}}, "http://ingress.test")
+		}(),
+	}
+	ids := map[string][2]string{
+		"bare session_id": {session, wireID(task)},
+		"bare task_id":    {wireID(session), task},
+	}
+	nonce := 0
+	for plane, client := range clients {
+		for name, id := range ids {
+			t.Run(plane+"/SubscribeOutput/"+name, func(t *testing.T) {
+				nonce++
+				// A well-formed envelope over the 0x ids: only the request's own ids are bare.
+				env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
+					wireID(session), wireID(task), subscribeBody(t, wireID(session), wireID(task), nil), []byte("bare-sub-"+strconv.Itoa(nonce)))
+				result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
+					SessionId: id[0], TaskId: id[1], RequestEnvelope: env,
+				})
+				if connect.CodeOf(result.err) != connect.CodeInvalidArgument || !strings.Contains(result.err.Error(), "must be 0x") {
+					t.Fatalf("code = %v, err = %v; want InvalidArgument naming the 0x spelling", connect.CodeOf(result.err), result.err)
+				}
+			})
+			t.Run(plane+"/AckOutput/"+name, func(t *testing.T) {
+				nonce++
+				env := signedTaskEnvelope(t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
+					wireID(session), wireID(task), ackBody(t, wireID(session), wireID(task), 1), []byte("bare-ack-"+strconv.Itoa(nonce)))
+				_, err := client.AckOutput(context.Background(), connect.NewRequest(&nexusv1.AckOutputRequest{
+					SessionId: id[0], TaskId: id[1], OutputId: "output", LastSeq: 1, RequestEnvelope: env,
+				}))
+				if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "must be 0x") {
+					t.Fatalf("code = %v, err = %v; want InvalidArgument naming the 0x spelling", connect.CodeOf(err), err)
+				}
+			})
+		}
 	}
 }
 
@@ -1247,8 +1349,8 @@ func ackBody(t *testing.T, sessionID, taskID string, lastSeq uint64) []byte {
 func TestTaskEventsAndChallengeRequireOrderUser(t *testing.T) {
 	owner := mustSigner(t, testKeyHex)
 	other := mustSigner(t, workerKeyHex)
-	session, task := testSessionID("session-owner-only"), testSessionID("task-owner-only")
-	otherTask := testSessionID("task-owner-other")
+	session, task := wireID(testSessionID("session-owner-only")), wireID(testSessionID("task-owner-only"))
+	otherTask := wireID(testSessionID("task-owner-other"))
 	live := make(chan types.TaskEvent)
 	close(live)
 	fake := &fakeHandler{taskOwner: owner.Address(), live: live}

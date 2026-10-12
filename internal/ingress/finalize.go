@@ -15,6 +15,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -35,6 +36,10 @@ func (s *service) FinalizeTaskResult(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	taskHash, err := taskDataHash32("task_hash", m.GetTaskHash())
+	if err != nil {
+		return nil, mapTaskDataError(err)
+	}
 	receipt, err := signedInferReceiptFromPB(m.GetReceipt(), s.auth.ChainID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -44,7 +49,7 @@ func (s *service) FinalizeTaskResult(
 		return nil, mapTaskDataError(err)
 	}
 	outcome, err := s.taskData.FinalizeTaskResult(ctx, taskdata.FinalizeResultRequest{
-		Auth: auth, TaskHash: m.GetTaskHash(), Receipt: receipt, EvidenceKind: taskdata.EvidenceKind(m.GetEvidenceKind()),
+		Auth: auth, TaskHash: taskHash, Receipt: receipt, EvidenceKind: taskdata.EvidenceKind(m.GetEvidenceKind()),
 	})
 	if err != nil {
 		return nil, mapTaskDataError(err)
@@ -74,6 +79,10 @@ func (s *service) FinalizeVerifierEvidence(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	taskHash, err := taskDataHash32("task_hash", m.GetTaskHash())
+	if err != nil {
+		return nil, mapTaskDataError(err)
+	}
 	receipt, err := finalizeResultReceiptFromPB(m.GetReceipt(), s.auth.ChainID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -95,7 +104,7 @@ func (s *service) FinalizeVerifierEvidence(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("%w: receipt round/verifier does not match the request", types.ErrInvalidArgument))
 	}
-	if hex.EncodeToString(receipt.GetTaskId()) != m.GetTaskId() {
+	if hex.EncodeToString(receipt.GetTaskId()) != scope.TaskID {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("%w: receipt task_id does not match the request", types.ErrInvalidArgument))
 	}
@@ -106,7 +115,7 @@ func (s *service) FinalizeVerifierEvidence(
 		return nil, mapTaskDataError(err)
 	}
 	outcome, err := s.taskData.FinalizeVerifierEvidence(ctx, taskdata.FinalizeVerifierRequest{
-		Auth: auth, TaskHash: m.GetTaskHash(), VerifyRound: m.GetVerifyRound(),
+		Auth: auth, TaskHash: taskHash, VerifyRound: m.GetVerifyRound(),
 		VerifierOperator:  m.GetVerifierOperator(),
 		SigningDigest:     hex.EncodeToString(signingDigest[:]),
 		SignatureDigest:   hex.EncodeToString(signatureDigest[:]),
@@ -123,20 +132,16 @@ func (s *service) FinalizeVerifierEvidence(
 }
 
 // finalizeScope locates a Finalize: Finalize does not target a single object, so only
-// (session_id, task_id) is present. It never enters the request preimage; it is only used to look up the on-chain task.
+// (session_id, task_id) is present, returned in the internal spelling. It never enters the request
+// preimage; it is only used to look up the on-chain task.
 func finalizeScope(sessionID, taskID string) (taskdata.ObjectKey, error) {
-	if !canonicalHash32Text(sessionID) || !canonicalHash32Text(taskID) {
-		return taskdata.ObjectKey{}, fmt.Errorf("%w: session_id and task_id must be lowercase 64-hex", types.ErrInvalidArgument)
+	session, sessionOK := hash32text.ToInternal(sessionID)
+	task, taskOK := hash32text.ToInternal(taskID)
+	if !sessionOK || !taskOK {
+		return taskdata.ObjectKey{}, fmt.Errorf(
+			"%w: session_id and task_id must be 0x followed by 64 lowercase hex characters", types.ErrInvalidArgument)
 	}
-	return taskdata.ObjectKey{SessionID: sessionID, TaskID: taskID}, nil
-}
-
-func canonicalHash32Text(value string) bool {
-	if len(value) != 2*sha256.Size {
-		return false
-	}
-	raw, err := hex.DecodeString(value)
-	return err == nil && hex.EncodeToString(raw) == value
+	return taskdata.ObjectKey{SessionID: session, TaskID: task}, nil
 }
 
 // signedInferReceiptFromPB converts InferReceiptV3 to taskdata's internal shape. Shape validation
