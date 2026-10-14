@@ -40,6 +40,44 @@ func TestTaskDataDefaults(t *testing.T) {
 	}
 }
 
+// The frame count limit and the minimum frame size come from the chain; a configured value only
+// cross-checks it.
+func TestOutputStreamWithChainLimits(t *testing.T) {
+	stream := defaults().TaskData.OutputStream
+	if stream.MaxOutputMMRLeaves != 0 || stream.MinFrameBytes != 0 {
+		t.Fatalf("output stream defaults carry chain limits: %+v", stream)
+	}
+	got, err := stream.WithChainLimits(65536, 16, 256<<10)
+	if err != nil || got.MaxOutputMMRLeaves != 65536 || got.MinFrameBytes != 16 {
+		t.Fatalf("chain limits = %+v, %v", got, err)
+	}
+	stream.MaxOutputMMRLeaves, stream.MinFrameBytes = 65536, 16
+	if _, err := stream.WithChainLimits(65536, 16, 256<<10); err != nil {
+		t.Fatalf("matching cross-check refused: %v", err)
+	}
+	tests := []struct {
+		name             string
+		leaves, frame    uint64
+		cfgLeaves, chunk uint64
+		cfgFrame         uint64
+		wantErr          string
+	}{
+		{name: "min frame differs", leaves: 65536, frame: 256, cfgFrame: 16, chunk: 256 << 10, wantErr: "min_output_stream_frame_bytes 16 differs from the chain parameter 256"},
+		{name: "leaves differ", leaves: 1024, frame: 16, cfgLeaves: 65536, chunk: 256 << 10, wantErr: "max_output_mmr_leaves 65536 differs from the chain parameter 1024"},
+		{name: "chain frame over chunk", leaves: 65536, frame: 4096, chunk: 2048, wantErr: "exceeds task_data.chunk_size_bytes 2048"},
+		{name: "zero chain frame", leaves: 65536, chunk: 2048, wantErr: "must be positive"},
+		{name: "zero chain leaves", frame: 16, chunk: 2048, wantErr: "must be positive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := OutputStreamConfig{Enabled: true, MaxOutputMMRLeaves: tt.cfgLeaves, MinFrameBytes: tt.cfgFrame}
+			if _, err := cfg.WithChainLimits(tt.leaves, tt.frame, tt.chunk); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("WithChainLimits error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestTaskDataEnvironment(t *testing.T) {
 	t.Setenv("NEXUS_TASK_DATA_INLINE_MAX_BYTES", "1024")
 	t.Setenv("NEXUS_TASK_DATA_CHUNK_SIZE_BYTES", "2048")

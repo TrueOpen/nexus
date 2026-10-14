@@ -74,16 +74,19 @@ task_data:
   # enabled: false to make the three RPCs answer Unimplemented (no OUTPUT can
   # then be uploaded at all).
   #
-  # What decides whether a stream is valid — and therefore must be identical on
-  # every Nexus (deployment baseline until the chain parameters land) — is the
-  # first three settings below PLUS chunk_size_bytes above, which doubles as the
-  # per-frame text limit. Differing chunk_size_bytes means one Builder accepts a
-  # frame another rejects, and the Verifier then cannot fetch a complete object.
+  # What decides whether a stream is valid must be identical on every Nexus.
+  # The maximum frame count and the minimum frame size come from the chain task
+  # params evidence.max_output_mmr_leaves and
+  # evidence.min_output_stream_frame_bytes, read once at startup. Setting
+  # max_output_mmr_leaves or min_output_stream_frame_bytes here is optional and
+  # only cross-checks the chain value: a different value stops startup.
+  # max_attachment_bytes below and chunk_size_bytes above, which doubles as the
+  # per-frame text limit, are local and must match on every Nexus: differing
+  # values mean one Builder accepts a frame another rejects, and the Verifier
+  # then cannot fetch a complete object.
   # subscriber_buffer_frames only affects local subscribers and may differ.
   output_stream:
     enabled: true
-    max_output_mmr_leaves: 65536
-    min_output_stream_frame_bytes: 256
     max_attachment_bytes: 65536
     subscriber_buffer_frames: 256
 
