@@ -987,8 +987,14 @@ func objectKeyString(key ObjectKey) string {
 	return hex.EncodeToString(digest[:])
 }
 
+// sameObject reports whether an upload to an already committed key is a retry of that object.
+// INPUT is uploaded only by OpenTask, whose exact-retry binding is task_hash, input_hash and
+// input_size_bytes (the key and the size); its media type is a transport hint, so a retry that
+// names another one is the same request and the first stored value is kept. OUTPUT and evidence
+// objects still compare their media type.
 func sameObject(metadata Metadata, header UploadHeader) bool {
-	return metadata.Uploader == header.Uploader && metadata.SemanticHash == header.SemanticHash && metadata.SizeBytes == header.SizeBytes && metadata.MediaType == header.MediaType &&
+	sameMediaType := metadata.MediaType == header.MediaType || header.Key.Kind == ObjectKindInput
+	return metadata.Uploader == header.Uploader && metadata.SemanticHash == header.SemanticHash && metadata.SizeBytes == header.SizeBytes && sameMediaType &&
 		metadata.RetainUntilHeight == header.RetainUntilHeight &&
 		sameReceipt(metadata.Receipt, header.Receipt)
 }

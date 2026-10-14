@@ -2,17 +2,22 @@
 // may carry.
 //
 // A User request to the Builder Ingress is signed as EIP-712 typed data in the
-// "TrueOpen SDK Request" domain (chainId = the chain's EVM chain ID), so a browser wallet can sign
-// it:
+// "TrueOpen SDK Request" domain, so a browser wallet can sign it:
 //
 //	SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
 //	           bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
+//
+// The domain chainId is signature_chain_id, chosen by the signer and carried next to the signature
+// (a browser wallet uses its active network). It isolates nothing: cross-chain isolation comes only
+// from the typed chainId string, which the verifier takes from its own chain. It enters no replay
+// key.
 //
 // The signature is 65 bytes R||S||V and the verifier recovers the signer from it; no caller-supplied
 // public key is used. Without a session grant the request is signed by the user's wallet: it must
 // recover to signer_address, whose account must hold that public key on chain. With a grant, the
 // wallet has signed a SessionGrant once and a short-lived session key signs the request; the
-// request must recover to the grant's session key, and only a closed set of methods accepts it.
+// request must recover to the grant's session key, and only a closed set of methods accepts it. On
+// OpenTask the grant must also be for the SignedOrder user.
 //
 // Verification runs in a fixed order and stops at the first failure, which fixes the error code:
 //
@@ -38,6 +43,7 @@ import (
 	"sync"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
@@ -122,6 +128,8 @@ type SessionGrant struct {
 	ExpiryHeight  uint64
 	GrantNonce    []byte // 32 bytes
 	UserSignature []byte // 65 bytes R||S||V over the SessionGrant digest
+	// SignatureChainID is the domain chainId UserSignature was made under; not in the typed data.
+	SignatureChainID uint64
 }
 
 // Envelope is SDKRequestEnvelopeV2 (the deprecated signer_pubkey is not carried: it is ignored).
@@ -138,14 +146,16 @@ type Envelope struct {
 	SignerAddress      string
 	Signature          []byte
 	SessionGrant       *SessionGrant
+	// SignatureChainID is the domain chainId Signature was made under; not in the typed data and
+	// not in the replay key.
+	SignatureChainID uint64
 }
 
 // VerifyOpts is the verification environment.
 type VerifyOpts struct {
-	ChainID    string // the chain's Cosmos chain-id
-	EVMChainID uint64 // the chain's EVM chain ID, the domain chainId
-	Method     string // the method actually called
-	NowMS      int64
+	ChainID string // the chain's Cosmos chain-id
+	Method  string // the method actually called
+	NowMS   int64
 	// Body is the body digest the verifier recomputed from the request with the method's
 	// TRUEOPEN_SDK_BODY_*_V1 domain. It is what enters the signed digest.
 	Body         [32]byte
@@ -159,7 +169,10 @@ type VerifyOpts struct {
 	HeightExpiry bool
 	// SessionAllowed says the method may be signed by a session key under a grant.
 	SessionAllowed bool
-	Chain          Chain
+	// OrderUser is set only by OpenTask: the SignedOrder user. A grant on such a request must be
+	// that user's, otherwise SDK_AUTH_SESSION_GRANT_INVALID.
+	OrderUser string
+	Chain     Chain
 	// MaxSessionGrantBlocks bounds a grant's expiry above the current height. Every Task Builder of a
 	// network must use the same value.
 	MaxSessionGrantBlocks uint64
@@ -170,25 +183,21 @@ type VerifyOpts struct {
 // milliseconds; OpenTask accepts only a chain height (VerifyOpts.HeightExpiry).
 const HeightExpiryThreshold = int64(1_000_000_000_000)
 
-// Hash32Hex decodes a session or task ID: exactly 64 lowercase hex characters, no 0x prefix.
+// Hash32Hex decodes a Hash32 as the SDK sends it in an envelope or request body: "0x" followed by
+// exactly 64 lowercase hex characters. A bare 64-character string, uppercase hex and "0X" are
+// rejected.
 func Hash32Hex(field, value string) ([32]byte, error) {
-	var out [32]byte
-	if len(value) != 64 {
-		return out, fmt.Errorf("%w: %s must be 64 lowercase hex characters", ErrMalformed, field)
+	out, ok := hash32text.Decode(value)
+	if !ok {
+		return out, fmt.Errorf("%w: %s must be 0x followed by 64 lowercase hex characters", ErrMalformed, field)
 	}
-	for _, c := range value {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return out, fmt.Errorf("%w: %s must be 64 lowercase hex characters", ErrMalformed, field)
-		}
-	}
-	raw, _ := hex.DecodeString(value)
-	copy(out[:], raw)
 	return out, nil
 }
 
-// domainSeparator is the "TrueOpen SDK Request" domain separator.
-func domainSeparator(evmChainID uint64) [32]byte {
-	return eip712.DomainSeparator(DomainName, DomainVersion, evmChainID)
+// domainSeparator is the "TrueOpen SDK Request" domain separator under the signer's chosen
+// signature_chain_id.
+func domainSeparator(signatureChainID uint64) [32]byte {
+	return eip712.DomainSeparator(DomainName, DomainVersion, signatureChainID)
 }
 
 // SessionGrantHash is hashStruct(SessionGrant): the value a request carrying the grant signs as
@@ -207,18 +216,20 @@ func SessionGrantHash(g *SessionGrant) ([32]byte, error) {
 		eip712.Uint(g.ExpiryHeight), g.GrantNonce), nil
 }
 
-// SessionGrantDigest is the digest the user's wallet signs for a grant.
-func SessionGrantDigest(g *SessionGrant, evmChainID uint64) ([32]byte, error) {
+// SessionGrantDigest is the digest the user's wallet signs for a grant, under the grant's own
+// signature_chain_id.
+func SessionGrantDigest(g *SessionGrant) ([32]byte, error) {
 	hash, err := SessionGrantHash(g)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	return eip712.Digest(domainSeparator(evmChainID), hash), nil
+	return eip712.Digest(domainSeparator(g.SignatureChainID), hash), nil
 }
 
 // RequestDigest is the digest the request signer signs: the SDKRequest typed data over e, with
-// bodyDigest and sessionGrantHash as given (the verifier passes its own recomputed values).
-func RequestDigest(e *Envelope, body, grantHash [32]byte, evmChainID uint64) ([32]byte, error) {
+// bodyDigest and sessionGrantHash as given (the verifier passes its own recomputed values), under
+// the envelope's signature_chain_id.
+func RequestDigest(e *Envelope, body, grantHash [32]byte) ([32]byte, error) {
 	sessionID, err := Hash32Hex("session_id", e.SessionID)
 	if err != nil {
 		return [32]byte{}, err
@@ -237,18 +248,20 @@ func RequestDigest(e *Envelope, body, grantHash [32]byte, evmChainID uint64) ([3
 		eip712.String(e.ChainID), eip712.String(e.Method), eip712.String(e.Endpoint),
 		sessionID[:], taskID[:], e.RequestNonce, eip712.Uint(uint64(e.ExpiryHeightOrTime)),
 		body[:], grantHash[:])
-	return eip712.Digest(domainSeparator(evmChainID), hash), nil
+	return eip712.Digest(domainSeparator(e.SignatureChainID), hash), nil
 }
 
 // GrantCheck is the environment a session grant is verified in.
 type GrantCheck struct {
 	// ChainID is the verifier's own chain; the grant must name it. Whether the request's own chain_id
 	// field matches is decided at the signature step.
-	ChainID    string
-	EVMChainID uint64
+	ChainID string
 	// User is the account the grant must be for: signer_address of an SDK request, requester_address
 	// of a Task data request.
-	User      string
+	User string
+	// OrderUser, when set (OpenTask), is the SignedOrder user; the grant must also be for it. A
+	// session key may open a Task only for the wallet that signed the order.
+	OrderUser string
 	Chain     Chain
 	MaxBlocks uint64
 }
@@ -284,11 +297,14 @@ func VerifyGrant(ctx context.Context, g *SessionGrant, c GrantCheck) ([32]byte, 
 	if g.User != c.User {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the request signer %q", g.User, c.User)
 	}
+	if c.OrderUser != "" && g.User != c.OrderUser {
+		return none, key, grantErr(ErrSessionGrantInvalid, "session grant is for %q, not the order user %q", g.User, c.OrderUser)
+	}
 	hash, err := SessionGrantHash(g)
 	if err != nil {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant fields are malformed")
 	}
-	recovered, err := eip712.Recover(eip712.Digest(domainSeparator(c.EVMChainID), hash), g.UserSignature)
+	recovered, err := eip712.Recover(eip712.Digest(domainSeparator(g.SignatureChainID), hash), g.UserSignature)
 	if err != nil {
 		return none, key, grantErr(ErrSessionGrantInvalid, "session grant user_signature: %v", err)
 	}
@@ -392,6 +408,12 @@ func checkFormat(e *Envelope, opts VerifyOpts) error {
 	if len(e.BodyDigest) != 32 {
 		return fmt.Errorf("%w: body_digest must be 32 bytes", ErrMalformed)
 	}
+	if !eip712.ValidSignatureChainID(e.SignatureChainID) {
+		return fmt.Errorf("%w: signature_chain_id must be in 1..MaxInt64", ErrMalformed)
+	}
+	if e.SessionGrant != nil && !eip712.ValidSignatureChainID(e.SessionGrant.SignatureChainID) {
+		return fmt.Errorf("%w: session grant signature_chain_id must be in 1..MaxInt64", ErrMalformed)
+	}
 	return nil
 }
 
@@ -411,7 +433,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	var sessionKey [20]byte
 	if e.SessionGrant != nil {
 		hash, key, err := VerifyGrant(ctx, e.SessionGrant, GrantCheck{
-			ChainID: opts.ChainID, EVMChainID: opts.EVMChainID, User: e.SignerAddress,
+			ChainID: opts.ChainID, User: e.SignerAddress, OrderUser: opts.OrderUser,
 			Chain: opts.Chain, MaxBlocks: opts.MaxSessionGrantBlocks,
 		})
 		if err != nil {
@@ -424,7 +446,7 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	// record and is not signed.
 	signed := *e
 	signed.ChainID = opts.ChainID
-	digest, err := RequestDigest(&signed, opts.Body, grantHash, opts.EVMChainID)
+	digest, err := RequestDigest(&signed, opts.Body, grantHash)
 	if err != nil {
 		return err
 	}
@@ -471,8 +493,9 @@ func ReplayKey(e *Envelope) string {
 }
 
 // Body digests: each User Ingress method's body is an H_FIELDS_V1 digest under its own registered
-// domain. Hash32 fields are raw 32 bytes (decoded from lowercase hex), integers u64 big-endian,
-// text UTF-8, addresses their raw bytes, optional fields OPTIONAL_V1.
+// domain. Hash32 fields are raw 32 bytes (decoded from the 0x-prefixed lowercase hex the SDK
+// sends), integers u64 big-endian, text UTF-8, addresses their raw bytes, optional fields
+// OPTIONAL_V1.
 const (
 	BodyOpenTaskDomain         = "TRUEOPEN_SDK_BODY_OPEN_TASK_V1"
 	BodySubscribeOutputDomain  = "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1"

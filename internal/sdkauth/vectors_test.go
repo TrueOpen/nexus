@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/eip712"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -19,16 +20,18 @@ type accountSigning struct {
 		Bech32        string `json:"account_bech32"`
 		PubCompressed string `json:"pub_compressed"`
 	} `json:"account"`
-	SDKRequest        signedTypedData `json:"sdk_request"`
-	SDKRequestSession signedTypedData `json:"sdk_request_session"`
-	SessionGrant      struct {
+	SDKRequest         signedTypedData `json:"sdk_request"`
+	SDKRequestSession  signedTypedData `json:"sdk_request_session"`
+	SDKOpenTaskSession signedTypedData `json:"sdk_request_open_task_session"`
+	SessionGrant       struct {
 		signedTypedData
 		Transport struct {
-			ChainID      string `json:"chain_id"`
-			ExpiryHeight string `json:"expiry_height"`
-			GrantNonce   string `json:"grant_nonce_hex"`
-			SessionKey   string `json:"session_key_hex"`
-			User         string `json:"user"`
+			ChainID          string `json:"chain_id"`
+			ExpiryHeight     string `json:"expiry_height"`
+			GrantNonce       string `json:"grant_nonce_hex"`
+			SessionKey       string `json:"session_key_hex"`
+			User             string `json:"user"`
+			SignatureChainID string `json:"signature_chain_id"`
 		} `json:"transport"`
 		Context struct {
 			CurrentHeight string `json:"current_height"`
@@ -43,14 +46,17 @@ type signedTypedData struct {
 		Separator string `json:"domain_separator"`
 	} `json:"domain"`
 	Envelope struct {
-		SignerAddress string `json:"signer_address"`
-		ReplayKey     string `json:"replay_key"`
+		SignerAddress    string `json:"signer_address"`
+		ReplayKey        string `json:"replay_key"`
+		SignatureChainID string `json:"signature_chain_id"`
 	} `json:"envelope"`
-	HashStruct string            `json:"hash_struct"`
-	Message    map[string]string `json:"message"`
-	Recovered  string            `json:"recovered_address"`
-	Signature  string            `json:"signature_65"`
-	Digest     string            `json:"signing_digest"`
+	// SignatureChainID is the carried domain chainId the section was signed under.
+	SignatureChainID string            `json:"signature_chain_id"`
+	HashStruct       string            `json:"hash_struct"`
+	Message          map[string]string `json:"message"`
+	Recovered        string            `json:"recovered_address"`
+	Signature        string            `json:"signature_65"`
+	Digest           string            `json:"signing_digest"`
 }
 
 func loadAccountSigning(t *testing.T) accountSigning {
@@ -107,6 +113,8 @@ func (c *fakeChain) AccountPubKey(_ context.Context, address string) ([]byte, er
 	return key, nil
 }
 
+// envelopeFrom builds the transport envelope of a typed-data vector. The typed data writes the
+// bytes32 ids as bare hex; the envelope carries them as the SDK sends them, with a 0x prefix.
 func envelopeFrom(t *testing.T, v signedTypedData) *Envelope {
 	t.Helper()
 	expiry, err := strconv.ParseInt(v.Message["expiryHeightOrTime"], 10, 64)
@@ -115,10 +123,10 @@ func envelopeFrom(t *testing.T, v signedTypedData) *Envelope {
 	}
 	return &Envelope{
 		RequestDomain: RequestDomain, ChainID: v.Message["chainId"], Method: v.Message["method"],
-		Endpoint: v.Message["endpoint"], SessionID: v.Message["sessionId"], TaskID: v.Message["taskId"],
+		Endpoint: v.Message["endpoint"], SessionID: "0x" + v.Message["sessionId"], TaskID: "0x" + v.Message["taskId"],
 		RequestNonce: mustHex(t, v.Message["requestNonce"]), ExpiryHeightOrTime: expiry,
 		BodyDigest: mustHex(t, v.Message["bodyDigest"]), SignerAddress: v.Envelope.SignerAddress,
-		Signature: mustHex(t, v.Signature),
+		Signature: mustHex(t, v.Signature), SignatureChainID: mustUint(t, v.Envelope.SignatureChainID),
 	}
 }
 
@@ -128,14 +136,14 @@ func grantFrom(t *testing.T, f accountSigning) *SessionGrant {
 	return &SessionGrant{
 		ChainID: g.Transport.ChainID, User: g.Transport.User, SessionKey: mustHex(t, g.Transport.SessionKey),
 		ExpiryHeight: mustUint(t, g.Transport.ExpiryHeight), GrantNonce: mustHex(t, g.Transport.GrantNonce),
-		UserSignature: mustHex(t, g.Signature),
+		UserSignature: mustHex(t, g.Signature), SignatureChainID: mustUint(t, g.Transport.SignatureChainID),
 	}
 }
 
 func optsFor(t *testing.T, f accountSigning, v signedTypedData, chain *fakeChain) VerifyOpts {
 	t.Helper()
 	return VerifyOpts{
-		ChainID: v.Message["chainId"], EVMChainID: mustUint(t, v.Domain.ChainID), Method: v.Message["method"],
+		ChainID: v.Message["chainId"], Method: v.Message["method"],
 		NowMS: 1_700_000_000_000, Body: hash32(t, v.Message["bodyDigest"]), Bech32Prefix: "trueopen",
 		Chain: chain, MaxSessionGrantBlocks: mustUint(t, f.SessionGrant.Context.MaxBlocks),
 	}
@@ -165,15 +173,15 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	open := file.Vector(t, "sdk_body_open_task_v1", 0)
 	var taskHash [32]byte
 	copy(taskHash[:], open.Field(t, "task_hash").Bytes(t))
-	got, err := OpenTaskBody(taskHash, hex.EncodeToString(open.Field(t, "session_id").Bytes(t)),
+	got, err := OpenTaskBody(taskHash, hash32text.Encode(open.Field(t, "session_id").Bytes(t)),
 		open.Field(t, "order_sequence").Uint64(t), open.Field(t, "user_address").Bech32,
-		open.Field(t, "input_size_bytes").Uint64(t), hex.EncodeToString(open.Field(t, "input_hash").Bytes(t)),
+		open.Field(t, "input_size_bytes").Uint64(t), hash32text.Encode(open.Field(t, "input_hash").Bytes(t)),
 		open.Field(t, "input_media_type").UTF8, open.Field(t, "idempotency_key").UTF8)
 	check("sdk_body_open_task_v1", got, err)
 
 	sub := file.Vector(t, "sdk_body_subscribe_output_v1", 0)
-	session := hex.EncodeToString(sub.Field(t, "session_id").Bytes(t))
-	task := hex.EncodeToString(sub.Field(t, "task_id").Bytes(t))
+	session := hash32text.Encode(sub.Field(t, "session_id").Bytes(t))
+	task := hash32text.Encode(sub.Field(t, "task_id").Bytes(t))
 	got, err = SubscribeOutputBody(session, task, nil)
 	check("sdk_body_subscribe_output_v1", got, err)
 
@@ -195,11 +203,14 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 func TestWalletSignedRequestMatchesWire(t *testing.T) {
 	f := loadAccountSigning(t)
 	v := f.SDKRequest
-	if got := domainSeparator(mustUint(t, v.Domain.ChainID)); hex.EncodeToString(got[:]) != v.Domain.Separator {
+	e := envelopeFrom(t, v)
+	if e.SignatureChainID != mustUint(t, v.Domain.ChainID) || v.SignatureChainID != v.Envelope.SignatureChainID {
+		t.Fatalf("carried signature_chain_id %d is not the domain chainId %s", e.SignatureChainID, v.Domain.ChainID)
+	}
+	if got := domainSeparator(e.SignatureChainID); hex.EncodeToString(got[:]) != v.Domain.Separator {
 		t.Fatalf("domain separator %x, want %s", got, v.Domain.Separator)
 	}
-	e := envelopeFrom(t, v)
-	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), [32]byte{}, mustUint(t, v.Domain.ChainID))
+	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), [32]byte{})
 	if err != nil || hex.EncodeToString(digest[:]) != v.Digest {
 		t.Fatalf("digest %x (%v), want %s", digest, err, v.Digest)
 	}
@@ -226,14 +237,17 @@ func TestSessionSignedRequestMatchesWire(t *testing.T) {
 	if err != nil || hex.EncodeToString(hash[:]) != f.SessionGrant.HashStruct {
 		t.Fatalf("grant hash %x (%v), want %s", hash, err, f.SessionGrant.HashStruct)
 	}
-	grantDigest, err := SessionGrantDigest(grant, mustUint(t, f.SessionGrant.Domain.ChainID))
+	if grant.SignatureChainID != mustUint(t, f.SessionGrant.Domain.ChainID) {
+		t.Fatalf("grant signature_chain_id %d is not the domain chainId %s", grant.SignatureChainID, f.SessionGrant.Domain.ChainID)
+	}
+	grantDigest, err := SessionGrantDigest(grant)
 	if err != nil || hex.EncodeToString(grantDigest[:]) != f.SessionGrant.Digest {
 		t.Fatalf("grant digest %x (%v), want %s", grantDigest, err, f.SessionGrant.Digest)
 	}
 	v := f.SDKRequestSession
 	e := envelopeFrom(t, v)
 	e.SessionGrant = grant
-	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), hash, mustUint(t, v.Domain.ChainID))
+	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), hash)
 	if err != nil || hex.EncodeToString(digest[:]) != v.Digest {
 		t.Fatalf("digest %x (%v), want %s", digest, err, v.Digest)
 	}
@@ -245,6 +259,33 @@ func TestSessionSignedRequestMatchesWire(t *testing.T) {
 	}
 	if err := Verify(context.Background(), e, opts); !errors.Is(err, ErrReplay) {
 		t.Fatalf("second Verify = %v, want replay", err)
+	}
+}
+
+// A session-key-signed OpenTask: the digest matches wire, and Verify accepts it when the grant user
+// is the order user (the Ingress passes the SignedOrder user as OrderUser).
+func TestSessionSignedOpenTaskMatchesWire(t *testing.T) {
+	f := loadAccountSigning(t)
+	v := f.SDKOpenTaskSession
+	e := envelopeFrom(t, v)
+	e.SessionGrant = grantFrom(t, f)
+	hash, err := SessionGrantHash(e.SessionGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := RequestDigest(e, hash32(t, v.Message["bodyDigest"]), hash)
+	if err != nil || hex.EncodeToString(digest[:]) != v.Digest {
+		t.Fatalf("digest %x (%v), want %s", digest, err, v.Digest)
+	}
+	opts := optsFor(t, f, v, chainFor(t, f))
+	opts.HeightExpiry = true
+	opts.SessionAllowed = true
+	opts.OrderUser = e.SessionGrant.User
+	if err := Verify(context.Background(), e, opts); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if e.SignerAddress != opts.OrderUser {
+		t.Fatalf("the request acts for %q, not the order user %q", e.SignerAddress, opts.OrderUser)
 	}
 }
 

@@ -279,6 +279,78 @@ func TestStoreIdempotencyConflictAndRangeValidation(t *testing.T) {
 	}
 }
 
+// An OpenTask retry binds task_hash, input_hash and input_size_bytes only: an INPUT upload to the same
+// key that names another media type is the same request, returns the first result and leaves the
+// stored metadata unchanged. OUTPUT keeps comparing its media type.
+func TestStoreInputRetryIgnoresMediaType(t *testing.T) {
+	store, _, _ := newTestStore(t, testStoreConfig())
+	body := []byte("abcdefgh")
+	first, err := store.Begin(context.Background(), testHeader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeChunks(t, first, body)
+	stored, err := first.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retryHeader := testHeader(body)
+	retryHeader.MediaType = "text/plain"
+	retry, err := store.Begin(context.Background(), retryHeader)
+	if err != nil || !retry.Idempotent() {
+		t.Fatalf("retry with another media type = %v, %v; want an idempotent retry", retry, err)
+	}
+	writeChunks(t, retry, body)
+	result, err := retry.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.MediaType != stored.MediaType || result.MediaType != testHeader(body).MediaType {
+		t.Fatalf("retry result media type = %q, want the first %q", result.MediaType, stored.MediaType)
+	}
+	current, err := store.Metadata(context.Background(), testHeader(body).Key)
+	if err != nil || current.MediaType != stored.MediaType || current.SemanticHash != stored.SemanticHash {
+		t.Fatalf("stored metadata after the retry = %+v, %v", current, err)
+	}
+
+	resized := testHeader(body)
+	resized.SizeBytes++
+	if _, err := store.Begin(context.Background(), resized); !errors.Is(err, ErrConflict) {
+		t.Fatalf("retry with another input_size_bytes = %v, want conflict", err)
+	}
+
+	output := testHeader([]byte("output"))
+	output.Key.Kind = ObjectKindOutput
+	output.Uploader = "trueopen1worker"
+	output.Receipt = &SignedInferReceipt{TaskID: testTaskID, OutputHash: output.SemanticHash, OutputSizeBytes: output.SizeBytes, TaskHash: strings.Repeat("a", 64)}
+	output.AcceptedReceiptHash = "accepted-1"
+	upload, err := store.Begin(context.Background(), output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeChunks(t, upload, []byte("output"))
+	if _, err := upload.Prepare(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	output.MediaType = "text/plain"
+	if _, err := store.Begin(context.Background(), output); !errors.Is(err, ErrConflict) {
+		t.Fatalf("OUTPUT with another media type = %v, want conflict", err)
+	}
+}
+
+// writeChunks writes body in the 4-byte chunks the test store accepts.
+func writeChunks(t *testing.T, upload *Upload, body []byte) {
+	t.Helper()
+	for len(body) > 0 {
+		n := min(4, len(body))
+		if err := upload.WriteChunk(body[:n]); err != nil {
+			t.Fatal(err)
+		}
+		body = body[n:]
+	}
+}
+
 func TestStoreReservesCapacityBeforeAcceptingBytes(t *testing.T) {
 	cfg := testStoreConfig()
 	cfg.MaxBlobBytes = 8

@@ -14,6 +14,8 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/hash32text"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -192,7 +194,7 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		return nil, mapTaskDataError(err)
 	}
 	return connect.NewResponse(&nexusv1.OpenTaskResponse{
-		SessionId: order.SessionID, TaskId: order.TaskID, Accepted: true, InputMetadata: metadataToPB(ready, true),
+		SessionId: hash32text.FromInternal(order.SessionID), TaskId: hash32text.FromInternal(order.TaskID), Accepted: true, InputMetadata: metadataToPB(ready, true),
 	}), nil
 }
 
@@ -233,6 +235,14 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	if err := sdkauth.CheckUserAddress("user_address", header.GetUserAddress(), s.auth.Bech32Prefix); err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
 	}
+	sessionID, ok := hash32text.ToInternal(header.GetSessionId())
+	if !ok {
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask session_id must be 0x followed by 64 lowercase hex characters")
+	}
+	inputHash, ok := hash32text.ToInternal(header.GetInputHash())
+	if !ok {
+		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input_hash must be 0x followed by 64 lowercase hex characters")
+	}
 	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
 	// user signature, which the chain verifies.
 	if len(header.GetSignature()) != 0 || header.GetSignatureScheme() != "" { //nolint:staticcheck // deprecated fields must be empty
@@ -250,12 +260,12 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	signedOrder := signed.GetOrder()
 	if signedOrder.GetUserAddress() != header.GetUserAddress() ||
 		signedOrder.GetInputSizeBytes() != header.GetInputSizeBytes() ||
-		hex.EncodeToString(signedOrder.GetSessionId()) != header.GetSessionId() ||
+		hex.EncodeToString(signedOrder.GetSessionId()) != sessionID ||
 		signedOrder.GetOrderSequence() != header.GetOrderSequence() {
 		return types.Order{}, taskdata.UploadHeader{}, malformed(
 			"OpenTask user_address, input_size_bytes, session_id and order_sequence must equal the signed order's")
 	}
-	order.SessionID = header.GetSessionId()
+	order.SessionID = sessionID
 	order.OrderSequence = header.GetOrderSequence()
 	order.TaskID, err = deriveTaskID(order.SessionID, order.OrderSequence)
 	if err != nil {
@@ -265,28 +275,32 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	// The header names the INPUT object being uploaded; its hash must be the content hash the
 	// order's input_hash implies.
 	inputContentHash := taskdata.InputContentHash(order.PayloadHash)
-	if header.GetInputHash() != inputContentHash {
+	if inputHash != inputContentHash {
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input hash")
 	}
 	// payload_ref is not in the signed body; it is a transport check against input_hash.
-	order.PayloadCID = payloadstore.RefForHash(header.GetInputHash())
+	order.PayloadCID = payloadstore.RefForHash(inputHash)
 	if order.PayloadCID == "" || header.GetPayloadRef() != order.PayloadCID || order.DeadlineHeight == 0 {
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input commitment")
 	}
 	// task_hash enters the body recomputed from the order, never from the caller.
-	taskHash, err := sdkauth.Hash32Hex("task_hash", order.TaskHash)
+	rawTaskHash, err := nodecontract.Hash32Bytes("task_hash", order.TaskHash)
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, malformed("order task_hash: %v", err)
 	}
-	body, err := sdkauth.OpenTaskBody(taskHash, order.SessionID, order.OrderSequence, order.User,
+	var taskHash [32]byte
+	copy(taskHash[:], rawTaskHash)
+	body, err := sdkauth.OpenTaskBody(taskHash, header.GetSessionId(), order.OrderSequence, order.User,
 		header.GetInputSizeBytes(), header.GetInputHash(), header.GetInputMediaType(), header.GetIdempotencyKey())
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
 	}
-	// The wallet signs OpenTask directly (no session grant). Its height expiry and nonce are checked
-	// by the taskdata Authorizer against the chain, so no replay cache here.
-	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), order.SessionID, order.TaskID, envelopeCheck{
-		method: "OpenTask", body: body, heightExpiry: true,
+	// OpenTask is signed by the order user's wallet, or by a session key under a grant whose user is
+	// the order user (the order itself is still signed by the wallet). Its height expiry and nonce
+	// are checked by the taskdata Authorizer against the chain, so no replay cache here.
+	wireTaskID := hash32text.FromInternal(order.TaskID)
+	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), header.GetSessionId(), wireTaskID, envelopeCheck{
+		method: "OpenTask", body: body, heightExpiry: true, sessionAllowed: true, orderUser: order.User,
 	})
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, err
@@ -302,7 +316,7 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		Kind: taskdata.ObjectKindInput, ContentHash: inputContentHash,
 	}
 	uploadHeader := taskdata.UploadHeader{
-		Key: key, SizeBytes: header.GetInputSizeBytes(), SemanticHash: header.GetInputHash(),
+		Key: key, SizeBytes: header.GetInputSizeBytes(), SemanticHash: inputHash,
 		MediaType: header.GetInputMediaType(), RetainUntilHeight: order.DeadlineHeight,
 	}
 	return order, uploadHeader, nil
@@ -503,9 +517,18 @@ func objectRefFromPB(pb *nexusv1.TaskDataObjectRefV1) (taskdata.ObjectRef, error
 	if err != nil {
 		return taskdata.ObjectRef{}, err
 	}
+	var hashes [4]string
+	for i, f := range []struct{ name, value string }{
+		{"task_hash", pb.GetTaskHash()}, {"session_id", pb.GetSessionId()},
+		{"task_id", pb.GetTaskId()}, {"content_hash", pb.GetContentHash()},
+	} {
+		if hashes[i], err = taskDataHash32(f.name, f.value); err != nil {
+			return taskdata.ObjectRef{}, err
+		}
+	}
 	ref := taskdata.ObjectRef{
-		TaskHash: pb.GetTaskHash(), SessionID: pb.GetSessionId(), TaskID: pb.GetTaskId(),
-		Kind: kind, ContentHash: pb.GetContentHash(),
+		TaskHash: hashes[0], SessionID: hashes[1], TaskID: hashes[2],
+		Kind: kind, ContentHash: hashes[3],
 		EvidenceProducerKind: producerKind, VerifyRound: pb.GetVerifyRound(),
 		ProducerOperator: pb.GetProducerOperator(), EvidenceKind: taskdata.EvidenceKind(pb.GetEvidenceKind()),
 	}
@@ -515,10 +538,21 @@ func objectRefFromPB(pb *nexusv1.TaskDataObjectRefV1) (taskdata.ObjectRef, error
 	return ref, nil
 }
 
+// taskDataHash32 converts a Hash32 string of a Task data request to the internal spelling.
+func taskDataHash32(field, value string) (string, error) {
+	internal, ok := hash32text.ToInternal(value)
+	if !ok {
+		return "", fmt.Errorf("%w: %s must be 0x followed by 64 lowercase hex characters", taskdata.ErrMalformed, field)
+	}
+	return internal, nil
+}
+
 func objectRefToPB(ref taskdata.ObjectRef) *nexusv1.TaskDataObjectRefV1 {
 	pb := &nexusv1.TaskDataObjectRefV1{
-		TaskHash: ref.TaskHash, SessionId: ref.SessionID, TaskId: ref.TaskID,
-		ObjectKind: objectKindToPB(ref.Kind), ContentHash: ref.ContentHash,
+		TaskHash:   hash32text.FromInternal(ref.TaskHash),
+		SessionId:  hash32text.FromInternal(ref.SessionID),
+		TaskId:     hash32text.FromInternal(ref.TaskID),
+		ObjectKind: objectKindToPB(ref.Kind), ContentHash: hash32text.FromInternal(ref.ContentHash),
 		EvidenceProducerKind: producerKindToPB(ref.EvidenceProducerKind),
 		VerifyRound:          ref.VerifyRound,
 		EvidenceKind:         sharedv1.EvidenceKind(ref.EvidenceKind),
@@ -605,8 +639,8 @@ func userFormatErr(auth *nexusv1.TaskDataRequestAuthV1, err error) error {
 // requestAuthFromPB converts the wire TaskDataRequestAuthV1 to the internal form. The body digest is computed
 // by the caller for its own body domain -- the body_digest in auth is what the caller claims and must equal
 // ours byte for byte; that comparison happens in the authorizer.
-// requestAuthFromPB only converts encoding. body_digest is carried through as is -- taskdata recomputes it per
-// request and compares; nothing is filled in or altered here.
+// requestAuthFromPB only converts encoding. body_digest is carried through in the internal spelling --
+// taskdata recomputes it per request and compares; nothing is filled in or altered here.
 func requestAuthFromPB(
 	pb *nexusv1.TaskDataRequestAuthV1, ref taskdata.ObjectRef,
 ) (taskdata.RequestAuth, error) {
@@ -617,12 +651,16 @@ func requestAuthFromPB(
 	if err != nil {
 		return taskdata.RequestAuth{}, err
 	}
+	bodyDigest, err := taskDataHash32("body_digest", pb.GetBodyDigest())
+	if err != nil {
+		return taskdata.RequestAuth{}, err
+	}
 	return taskdata.RequestAuth{
 		SchemaVersion:             pb.GetSchemaVersion(),
 		ChainID:                   pb.GetChainId(),
 		BuilderOperatorAddress:    pb.GetBuilderOperatorAddress(),
 		RPCMethod:                 pb.GetRpcMethod(),
-		BodyDigest:                pb.GetBodyDigest(),
+		BodyDigest:                bodyDigest,
 		RequesterKind:             kind,
 		RequesterAddress:          pb.GetRequesterAddress(),
 		ServiceAuthorizationNonce: pb.GetServiceAuthorizationNonce(),
@@ -630,6 +668,7 @@ func requestAuthFromPB(
 		ExpiryHeight:              pb.GetExpiryHeight(),
 		Signature:                 append([]byte(nil), pb.GetSignature()...),
 		SessionGrant:              sessionGrantFromPB(pb.GetSessionGrant()),
+		SignatureChainID:          pb.GetSignatureChainId(),
 		Key:                       ref,
 	}, nil
 }
@@ -725,8 +764,8 @@ func evidenceBundleToPB(metadata taskdata.Metadata, exists bool) *nexusv1.Eviden
 		bundleHash = metadata.Key.ContentHash
 	}
 	return &nexusv1.EvidenceBundleSummaryV1{
-		EvidenceManifestHash:   bundleHash,
-		EvidenceSchemaHash:     metadata.EvidenceSchemaHash,
+		EvidenceManifestHash:   hash32text.FromInternal(bundleHash),
+		EvidenceSchemaHash:     hash32text.FromInternal(metadata.EvidenceSchemaHash),
 		ArtifactCount:          uint32(len(metadata.Artifacts)),
 		ArtifactTotalSizeBytes: metadata.ArtifactTotalSizeBytes,
 		ManifestSizeBytes:      metadata.SizeBytes,

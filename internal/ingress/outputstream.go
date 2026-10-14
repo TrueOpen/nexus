@@ -74,16 +74,21 @@ func (s *service) UploadTaskOutputStream(
 	}
 	// A streaming Header carries no object ref: the content hash is unknown when the stream opens and only computable at Fin.
 	// An in-flight stream is located by (session, task, OUTPUT) with content_hash empty, filled in at Fin.
-	key := taskdata.ObjectRef{
-		TaskHash: headerPB.GetTaskHash(), SessionID: headerPB.GetSessionId(),
-		TaskID: headerPB.GetTaskId(), Kind: taskdata.ObjectKindOutput,
+	var ids [3]string
+	for i, f := range []struct{ name, value string }{
+		{"task_hash", headerPB.GetTaskHash()}, {"session_id", headerPB.GetSessionId()}, {"task_id", headerPB.GetTaskId()},
+	} {
+		if ids[i], err = taskDataHash32(f.name, f.value); err != nil {
+			return mapTaskDataError(err)
+		}
 	}
+	key := taskdata.ObjectRef{TaskHash: ids[0], SessionID: ids[1], TaskID: ids[2], Kind: taskdata.ObjectKindOutput}
 	request, err := requestAuthFromPB(headerPB.GetRequestAuth(), key)
 	if err != nil {
 		return mapTaskDataError(err)
 	}
 	session, progress, err := s.outputStream.service.OpenOutputStream(ctx, request, taskdata.OutputStreamHeader{
-		Key: key, TaskHash: headerPB.GetTaskHash(),
+		Key: key, TaskHash: key.TaskHash,
 		Declaration: taskdata.OutputStreamHeaderRecord{
 			Attempt: headerPB.GetAttempt(), StreamInstance: headerPB.GetStreamInstance(),
 			UserRecipientPubkey: headerPB.GetUserRecipientPubkey(),
@@ -159,10 +164,14 @@ func (s *service) subscribeOutputStream(
 	if err != nil {
 		return err
 	}
-	if err := s.requireTaskOwner(ctx, m.GetSessionId(), m.GetTaskId(), requester); err != nil {
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
 		return err
 	}
-	key := taskdata.ObjectKey{SessionID: m.GetSessionId(), TaskID: m.GetTaskId(), Kind: taskdata.ObjectKindOutput}
+	if err := s.requireTaskOwner(ctx, ids.session, ids.task, requester); err != nil {
+		return err
+	}
+	key := taskdata.ObjectKey{SessionID: ids.session, TaskID: ids.task, Kind: taskdata.ObjectKindOutput}
 	sub := s.outputStream.dispatcher.Subscribe(key)
 	defer sub.Close()
 
@@ -235,10 +244,14 @@ func (s *service) ackOutputStream(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireTaskOwner(ctx, m.GetSessionId(), m.GetTaskId(), requester); err != nil {
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
 		return nil, err
 	}
-	key := m.GetSessionId() + "|" + m.GetTaskId()
+	if err := s.requireTaskOwner(ctx, ids.session, ids.task, requester); err != nil {
+		return nil, err
+	}
+	key := ids.session + "|" + ids.task
 	now := time.Now().UnixMilli()
 	if raw, found := s.outputStream.acks.Get(kv.NSOutputAck, key); found {
 		var existing outputAckRecord

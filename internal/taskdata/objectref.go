@@ -339,6 +339,9 @@ type RequestAuthV1 struct {
 	Signature                 []byte
 	// SessionGrant (USER only) lets a session key sign the request; nil = wallet signed.
 	SessionGrant *sdkauth.SessionGrant
+	// SignatureChainID is the EIP-712 domain chainId of a USER signature; CORTEX_SERVICE carries 0.
+	// It enters no preimage and no replay key.
+	SignatureChainID uint64
 
 	// Key is the object this request addresses; it enters no preimage.
 	Key ObjectRef

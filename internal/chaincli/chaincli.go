@@ -77,11 +77,6 @@ type Client interface {
 	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task: how many Builders the
 	// chain selects for each task.
 	QueryBuildersPerTask(ctx context.Context) (uint32, error)
-	// QueryEVMChainID reads the Hub parameter phase0.evm_chain_id: the numeric chainId of
-	// the EIP-712 domain, unrelated to the Cosmos chain-id string. The Keeper ante uses it
-	// to verify user signatures, and nexus must use the same value when verifying USER Task
-	// data requests, so it is read from chain instead of configured separately.
-	QueryEVMChainID(ctx context.Context) (uint64, error)
 	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
 	// service.max_service_material_expiry_blocks: how far above the current height a Task data
 	// request's expiry_height may lie.
@@ -243,10 +238,6 @@ func (c *stubClient) QueryOutputStreamLimits(context.Context) (OutputStreamLimit
 
 func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
 	return nil, ErrNotSupportedOnChain
-}
-
-func (c *stubClient) QueryEVMChainID(context.Context) (uint64, error) {
-	return 0, ErrNotFound
 }
 
 func (c *stubClient) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {

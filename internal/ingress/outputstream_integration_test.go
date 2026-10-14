@@ -23,6 +23,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
@@ -85,12 +86,12 @@ func signedStreamHeader(t *testing.T, keyHex string, header *nexusv1.OutputStrea
 	t.Helper()
 	header.Attempt, header.StreamInstance = 0, 1
 	header.OutputKeyCommitment, header.KeyPackageHash = make([]byte, 32), make([]byte, 32)
-	taskHash, err := hex.DecodeString(header.GetTaskHash())
-	if err != nil {
-		t.Fatal(err)
+	taskHash, ok := hash32text.Decode(header.GetTaskHash())
+	if !ok {
+		t.Fatalf("header task_hash %q is not an IngressAPI Hash32", header.GetTaskHash())
 	}
 	digest, err := nodecontract.OutputStreamHeader{
-		ChainID: "trueopen-localnet", TaskHash: taskHash, Attempt: 0, StreamInstance: 1,
+		ChainID: "trueopen-localnet", TaskHash: taskHash[:], Attempt: 0, StreamInstance: 1,
 		OutputKeyCommitment: header.OutputKeyCommitment, KeyPackageHash: header.KeyPackageHash,
 	}.SigningDigest()
 	if err != nil {
@@ -130,7 +131,8 @@ func signDigestRaw64(t *testing.T, hexKey string, digest []byte) []byte {
 
 // streamRequestAuth builds the request authentication for the CORTEX_SERVICE path. bodyDigest is computed by each call site
 // under its own body domain and passed in -- body_digest inside the auth is the value the caller claims, and the
-// server compares it byte for byte against the one it computes itself.
+// server compares it byte for byte against the one it computes itself. On the wire body_digest is "0x" + hex;
+// the signature covers its 32 raw bytes, so the spelling does not change the digest.
 func streamRequestAuth(
 	t *testing.T, worker signer.Signer, workerKey string, method taskdata.RequestMethod,
 	key taskdata.ObjectKey, expires uint64, nonce []byte, bodyDigest [32]byte,
@@ -152,7 +154,7 @@ func streamRequestAuth(
 	return &nexusv1.TaskDataRequestAuthV1{
 		SchemaVersion: request.SchemaVersion, ChainId: request.ChainID,
 		BuilderOperatorAddress: request.BuilderOperatorAddress, RpcMethod: request.RPCMethod,
-		BodyDigest:                request.BodyDigest,
+		BodyDigest:                hash32text.Encode(bodyDigest[:]),
 		RequesterKind:             nexusv1.TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE,
 		RequesterAddress:          request.RequesterAddress,
 		ServiceAuthorizationNonce: request.ServiceAuthorizationNonce,
@@ -186,8 +188,8 @@ type streamFixture struct {
 	user      signer.Signer
 	worker    signer.Signer
 	authority *streamTaskAuthority
-	session   string
-	taskID    string
+	session   string // internal spelling; requests carry wireID(session)
+	taskID    string // internal spelling; requests carry wireID(taskID)
 	taskHash  []byte
 	key       taskdata.ObjectKey
 }
@@ -213,7 +215,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
-		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
+		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
@@ -230,7 +232,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {
@@ -264,10 +266,11 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 
 func (f *streamFixture) subscribe(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse] {
 	t.Helper()
-	body := subscribeBody(t, f.session, f.taskID, resumeAfter)
-	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
+	session, taskID := wireID(f.session), wireID(f.taskID)
+	body := subscribeBody(t, session, taskID, resumeAfter)
+	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, session, taskID, body, []byte(nonce))
 	stream, err := f.client.SubscribeOutput(ctx, connect.NewRequest(&nexusv1.SubscribeOutputRequest{
-		SessionId: f.session, TaskId: f.taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
+		SessionId: session, TaskId: taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -284,10 +287,11 @@ type subscribeResult struct {
 // response headers are sent with the first message), so both the call and the frame reads run in a goroutine, with the envelope signed here up front.
 func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg signer.Signer, resumeAfter *uint64, nonce string) <-chan subscribeResult {
 	t.Helper()
-	body := subscribeBody(t, f.session, f.taskID, resumeAfter)
-	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, f.session, f.taskID, body, []byte(nonce))
+	session, taskID := wireID(f.session), wireID(f.taskID)
+	body := subscribeBody(t, session, taskID, resumeAfter)
+	env := signedTaskEnvelope(t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure, session, taskID, body, []byte(nonce))
 	request := connect.NewRequest(&nexusv1.SubscribeOutputRequest{
-		SessionId: f.session, TaskId: f.taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
+		SessionId: session, TaskId: taskID, RequestEnvelope: env, ResumeAfterSeq: resumeAfter,
 	})
 	out := make(chan subscribeResult, 1)
 	go func() {
@@ -336,7 +340,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	// Diagram 1: Header -> progress (empty) -> three chunks -> receipt has arrived -> fin frame with the storage confirmation.
 	up := f.client.UploadTaskOutputStream(ctx)
 	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0001")),
 	})}}); err != nil {
 		t.Fatal(err)
@@ -416,7 +420,7 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	// Diagram 3 alt: opening a stream after it is sealed -> progress is returned first, then it ends with AlreadyExists.
 	again := f.client.UploadTaskOutputStream(ctx)
 	if err := again.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0002")),
 	})}}); err != nil {
 		t.Fatal(err)
@@ -449,14 +453,15 @@ func TestOutputStreamIntegrationUploadSubscribeAck(t *testing.T) {
 	}
 
 	// AckOutput only records local progress; the same last_seq is idempotent.
-	ackBody := ackBody(t, f.session, f.taskID, 2)
-	ackEnv := signedTaskEnvelope(t, f.user, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure, f.session, f.taskID, ackBody, []byte("nonce-ack-0001"))
-	ack, err := f.client.AckOutput(ctx, connect.NewRequest(&nexusv1.AckOutputRequest{SessionId: f.session, TaskId: f.taskID, RequestEnvelope: ackEnv, LastSeq: 2}))
+	session, taskID := wireID(f.session), wireID(f.taskID)
+	ackBody := ackBody(t, session, taskID, 2)
+	ackEnv := signedTaskEnvelope(t, f.user, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure, session, taskID, ackBody, []byte("nonce-ack-0001"))
+	ack, err := f.client.AckOutput(ctx, connect.NewRequest(&nexusv1.AckOutputRequest{SessionId: session, TaskId: taskID, RequestEnvelope: ackEnv, LastSeq: 2}))
 	if err != nil || !ack.Msg.GetAcked() || ack.Msg.GetAlreadyAcked() {
 		t.Fatalf("ack = %v / %v", ack, err)
 	}
-	ackEnv = signedTaskEnvelope(t, f.user, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure, f.session, f.taskID, ackBody, []byte("nonce-ack-0002"))
-	ack, err = f.client.AckOutput(ctx, connect.NewRequest(&nexusv1.AckOutputRequest{SessionId: f.session, TaskId: f.taskID, RequestEnvelope: ackEnv, LastSeq: 2}))
+	ackEnv = signedTaskEnvelope(t, f.user, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure, session, taskID, ackBody, []byte("nonce-ack-0002"))
+	ack, err = f.client.AckOutput(ctx, connect.NewRequest(&nexusv1.AckOutputRequest{SessionId: session, TaskId: taskID, RequestEnvelope: ackEnv, LastSeq: 2}))
 	if err != nil || !ack.Msg.GetAcked() || !ack.Msg.GetAlreadyAcked() {
 		t.Fatalf("repeated ack = %v / %v", ack, err)
 	}
@@ -481,7 +486,7 @@ func TestOutputStreamFinStoresObjectUnderMMRRoot(t *testing.T) {
 
 	up := f.client.UploadTaskOutputStream(ctx)
 	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-stream-header-0003")),
 	})}}); err != nil {
 		t.Fatal(err)
@@ -538,7 +543,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	openStream := func(nonce string) *connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse] {
 		up := f.client.UploadTaskOutputStream(ctx)
 		if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-			SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+			SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 			RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte(nonce)),
 		})}}); err != nil {
 			t.Fatal(err)
@@ -580,7 +585,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 	stranger := mustSigner(t, strangerKeyHex)
 	up = f.client.UploadTaskOutputStream(ctx)
 	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, strangerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, stranger, strangerKeyHex, f.key, 110, []byte("nonce-stranger-000001")),
 	})}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodePermissionDenied {
@@ -592,7 +597,7 @@ func TestOutputStreamDisabledIsUnimplemented(t *testing.T) {
 	f := newStreamFixture(t, false)
 	up := f.client.UploadTaskOutputStream(context.Background())
 	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-disabled-000001")),
 	})}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeUnimplemented {
@@ -611,7 +616,7 @@ func TestOutputStreamRequiresWorkerSignedHeaderAndFin(t *testing.T) {
 	const otherKeyHex = "0000000000000000000000000000000000000000000000000000000000000005"
 	open := func(nonce string, edit func(*nexusv1.OutputStreamHeaderV2)) (*connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse], error) {
 		header := signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-			SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+			SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 			RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte(nonce)),
 		})
 		if edit != nil {
@@ -639,6 +644,13 @@ func TestOutputStreamRequiresWorkerSignedHeaderAndFin(t *testing.T) {
 		"attempt 1":             func(h *nexusv1.OutputStreamHeaderV2) { h.Attempt = 1 },
 		"recipient key present": func(h *nexusv1.OutputStreamHeaderV2) { h.UserRecipientPubkey = bytes.Repeat([]byte{4}, 65) },
 		"empty key commitment":  func(h *nexusv1.OutputStreamHeaderV2) { h.OutputKeyCommitment = nil },
+		// The header's Hash32 strings must be "0x" + 64 lowercase hex: bare or "0X" is malformed.
+		"bare session_id": func(h *nexusv1.OutputStreamHeaderV2) { h.SessionId = f.session },
+		"bare task_id":    func(h *nexusv1.OutputStreamHeaderV2) { h.TaskId = f.taskID },
+		"bare task_hash":  func(h *nexusv1.OutputStreamHeaderV2) { h.TaskHash = hex.EncodeToString(f.taskHash) },
+		"0X session_id":   func(h *nexusv1.OutputStreamHeaderV2) { h.SessionId = "0X" + f.session },
+		"0X task_id":      func(h *nexusv1.OutputStreamHeaderV2) { h.TaskId = "0X" + f.taskID },
+		"0X task_hash":    func(h *nexusv1.OutputStreamHeaderV2) { h.TaskHash = "0X" + hex.EncodeToString(f.taskHash) },
 	} {
 		if _, err := open("nonce-header-"+strings.ReplaceAll(name, " ", "-"), edit); connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Fatalf("%s: %v", name, err)

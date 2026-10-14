@@ -31,12 +31,12 @@ const (
 		"bytes32 sessionGrantHash)"
 )
 
-// EIP712DomainSeparator is the "TrueOpen Task Data Request" version 2 domain separator.
-// numericChainID comes from the chain's Hub parameters; it and the auth.ChainID string must both
-// match the current chain. Checking only one lets the same signature from another chain be
-// replayed here.
-func EIP712DomainSeparator(numericChainID uint64) [32]byte {
-	return eip712.DomainSeparator(eip712DomainName, eip712Version, numericChainID)
+// EIP712DomainSeparator is the "TrueOpen Task Data Request" version 2 domain separator under the
+// request's signature_chain_id, which the signer chooses and carries next to the signature. It
+// isolates nothing: the chainId string in the typed data, which the verifier takes from its own
+// chain, is what keeps a signature from another chain out.
+func EIP712DomainSeparator(signatureChainID uint64) [32]byte {
+	return eip712.DomainSeparator(eip712DomainName, eip712Version, signatureChainID)
 }
 
 // eip712HashStruct projects auth fields 1..10 one by one (the two addresses as canonical bech32
@@ -65,13 +65,14 @@ func eip712HashStruct(auth RequestAuthV1, grantHash [32]byte) ([32]byte, error) 
 	), nil
 }
 
-// UserTaskDataRequestDigest is the 32 bytes signed on the USER path with the given sessionGrantHash.
-func UserTaskDataRequestDigest(auth RequestAuthV1, numericChainID uint64, grantHash [32]byte) ([32]byte, error) {
+// UserTaskDataRequestDigest is the 32 bytes signed on the USER path with the given sessionGrantHash,
+// under auth.SignatureChainID.
+func UserTaskDataRequestDigest(auth RequestAuthV1, grantHash [32]byte) ([32]byte, error) {
 	hashStruct, err := eip712HashStruct(auth, grantHash)
 	if err != nil {
 		return [32]byte{}, err
 	}
-	return eip712.Digest(EIP712DomainSeparator(numericChainID), hashStruct), nil
+	return eip712.Digest(EIP712DomainSeparator(auth.SignatureChainID), hashStruct), nil
 }
 
 // UserAddressBytes returns the 20-byte address codec value of requester_address, for
@@ -117,7 +118,7 @@ func sessionAllowed(auth RequestAuthV1) bool {
 // recover to requester_address, whose account must hold the recovered key on chain; with one, the
 // grant must be the requester's, valid now, and the request must recover to its session key. The
 // caller runs step 5 (Builder, expiry, replay, Task duty).
-func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericChainID uint64, env SessionGrantEnv) error {
+func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, env SessionGrantEnv) error {
 	// Step 1: format.
 	if auth.RequesterKind != RequesterKindUser {
 		return fmt.Errorf("%w: requester_kind", ErrMalformed)
@@ -139,6 +140,13 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	if p := env.AddressPrefix; p != "" && auth.RequesterAddress[:strings.LastIndex(auth.RequesterAddress, "1")] != p {
 		return fmt.Errorf("%w: requester_address is not a %q address", ErrMalformed, p)
 	}
+	// The domain chainId is the signer's carried choice; the grant carries its own.
+	if !eip712.ValidSignatureChainID(auth.SignatureChainID) {
+		return fmt.Errorf("%w: signature_chain_id must be in 1..MaxInt64", ErrMalformed)
+	}
+	if auth.SessionGrant != nil && !eip712.ValidSignatureChainID(auth.SessionGrant.SignatureChainID) {
+		return fmt.Errorf("%w: session grant signature_chain_id must be in 1..MaxInt64", ErrMalformed)
+	}
 	chainID := auth.ChainID
 	if env.ChainID != "" {
 		chainID = env.ChainID
@@ -151,7 +159,7 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 			return fmt.Errorf("%w: only metadata and fetch of an OUTPUT object may be signed by a session key", ErrSessionMethodNotAllowed)
 		}
 		grantHash, sessionKey, err = sdkauth.VerifyGrant(ctx, auth.SessionGrant, sdkauth.GrantCheck{
-			ChainID: chainID, EVMChainID: numericChainID, User: auth.RequesterAddress,
+			ChainID: chainID, User: auth.RequesterAddress,
 			Chain: env.Chain, MaxBlocks: env.MaxBlocks,
 		})
 		// Report the grant failure under this path's own code, without the SDK code in front.
@@ -177,7 +185,7 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, numericC
 	if env.BodyDigest != "" {
 		rebuilt.BodyDigest = env.BodyDigest
 	}
-	digest, err := UserTaskDataRequestDigest(rebuilt, numericChainID, grantHash)
+	digest, err := UserTaskDataRequestDigest(rebuilt, grantHash)
 	if err != nil {
 		return err
 	}

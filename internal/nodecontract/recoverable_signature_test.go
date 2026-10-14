@@ -2,6 +2,7 @@ package nodecontract
 
 import (
 	"bytes"
+	"math"
 	"math/big"
 	"testing"
 
@@ -72,21 +73,26 @@ func TestValidateRecoverableSignatureRejects(t *testing.T) {
 // SignedOrderV2 envelope: the scheme must equal lowercase "eip712" byte for byte, and the
 // signature follows the rules above.
 func TestValidateSignedOrderEnvelopeV2(t *testing.T) {
-	if err := ValidateSignedOrderEnvelopeV2("eip712", testRecoverableSignature()); err != nil {
-		t.Fatalf("canonical envelope rejected: %v", err)
+	for _, chainID := range []uint64{1, 424242, math.MaxInt64} {
+		if err := ValidateSignedOrderEnvelopeV2("eip712", testRecoverableSignature(), chainID); err != nil {
+			t.Fatalf("canonical envelope with signature_chain_id %d rejected: %v", chainID, err)
+		}
 	}
 	cases := map[string]struct {
-		scheme string
-		sig    []byte
+		scheme  string
+		sig     []byte
+		chainID uint64
 	}{
-		"legacy secp256k1":    {"secp256k1", bytes.Repeat([]byte{0x55}, 64)},
-		"uppercase":           {"EIP712", testRecoverableSignature()},
-		"empty scheme":        {"", testRecoverableSignature()},
-		"64-byte with eip712": {"eip712", bytes.Repeat([]byte{0x55}, 64)},
+		"legacy secp256k1":                  {"secp256k1", bytes.Repeat([]byte{0x55}, 64), 1},
+		"uppercase":                         {"EIP712", testRecoverableSignature(), 1},
+		"empty scheme":                      {"", testRecoverableSignature(), 1},
+		"64-byte with eip712":               {"eip712", bytes.Repeat([]byte{0x55}, 64), 1},
+		"signature_chain_id zero":           {"eip712", testRecoverableSignature(), 0},
+		"signature_chain_id above MaxInt64": {"eip712", testRecoverableSignature(), math.MaxInt64 + 1},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidateSignedOrderEnvelopeV2(c.scheme, c.sig); err == nil {
+			if err := ValidateSignedOrderEnvelopeV2(c.scheme, c.sig, c.chainID); err == nil {
 				t.Fatalf("%s must be rejected", name)
 			}
 		})

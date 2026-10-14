@@ -387,20 +387,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 
 	coord := coordinator.New(log, bus, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	var taskAuthorizer *taskdata.Authorizer
-	// The EIP-712 numeric chainId is read from Hub params only: the Keeper ante uses that same value when verifying a
-	// user's order signature, and Nexus must match it when verifying User requests; no local config option can override it.
-	evmCtx, cancelEVM := context.WithTimeout(context.Background(), 30*time.Second)
-	evmChainID, evmErr := registrationChain.QueryEVMChainID(evmCtx)
-	cancelEVM()
-	if evmErr != nil && serviceSG != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("query hub evm_chain_id: %w", evmErr)
-	}
-	if evmErr != nil {
-		log.Warn("hub evm_chain_id unavailable; User request signatures cannot verify", "err", evmErr)
-	} else {
-		log.Info("EIP-712 chain id loaded from hub params", "evm_chain_id", evmChainID, "chain_id", cfg.Chain.ChainID)
-	}
 	// User request verification reads the current height (session grant windows) and the key each
 	// account holds on chain; found keys are cached, since an account's key never changes.
 	userChain := sdkauth.NewCachedChain(taskChain.LatestHeight, taskChain.AccountPubKey,
@@ -420,7 +406,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Info("task data request expiry window", "max_service_material_expiry_blocks", requestExpiryBlocks,
 			"open_task_request_ttl_blocks", cfg.TaskData.RequestTTLBlocks, "user_requests_per_minute", cfg.TaskData.UserRequestsPerMinute)
 		taskAuthorizer, err = taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
-			ChainID: cfg.Chain.ChainID, EVMChainID: evmChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
 			RequestTTLBlocks:       cfg.TaskData.RequestTTLBlocks,
 			MaxRequestExpiryBlocks: requestExpiryBlocks,
 			RefreshMaxRequestExpiryBlocks: func(ctx context.Context) (uint64, error) {
@@ -492,7 +478,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		Bech32Prefix:          cfg.Identity.Bech32Prefix,
 		RequireEnvelope:       cfg.Ingress.RequireSDKEnvelope,
 		ServiceKeys:           registrationChain,
-		EVMChainID:            evmChainID,
 		Chain:                 userChain,
 		MaxSessionGrantBlocks: sessionGrantBlocks,
 	}, coord, ingressOpts...)

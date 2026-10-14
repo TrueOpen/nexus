@@ -34,6 +34,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
@@ -63,7 +64,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
-		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
+		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
@@ -80,7 +81,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(os.Stderr, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		&fakeHandler{taskOwner: user.Address()}, options...,
 	)
 	if err != nil {
@@ -120,7 +121,7 @@ func TestE2EHarness(t *testing.T) {
 
 	up := f.client.UploadTaskOutputStream(ctx)
 	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: signedStreamHeader(t, workerKeyHex, &nexusv1.OutputStreamHeaderV2{
-		SessionId: f.session, TaskId: f.taskID, TaskHash: hex.EncodeToString(f.taskHash),
+		SessionId: wireID(f.session), TaskId: wireID(f.taskID), TaskHash: hash32text.Encode(f.taskHash),
 		RequestAuth: streamHeaderAuth(t, f.worker, workerKeyHex, f.key, 110, []byte("nonce-e2e-header-0001")),
 	})}}); err != nil {
 		t.Fatal(err)
@@ -163,8 +164,8 @@ func TestE2EHarness(t *testing.T) {
 		"url":               httpServer.URL,
 		"cert_der_b64":      base64.StdEncoding.EncodeToString(httpServer.Certificate().Raw),
 		"chain_id":          "trueopen-localnet",
-		"session_id":        f.session,
-		"task_id":           f.taskID,
+		"session_id":        wireID(f.session), // as the SDK sends it on the IngressAPI
+		"task_id":           wireID(f.taskID),
 		"task_hash_hex":     hex.EncodeToString(f.taskHash),
 		"worker_pubkey_hex": hex.EncodeToString(f.worker.PubKeyCompressed()),
 		"user_privkey_hex":  testKeyHex, // the fixed test-only key of this test package, never a real identity

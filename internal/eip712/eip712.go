@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -69,6 +70,13 @@ func HashStruct(encodeType string, members ...[]byte) [32]byte {
 // DomainSeparator is hashStruct(EIP712Domain{name, version, chainId}).
 func DomainSeparator(name, version string, chainID uint64) [32]byte {
 	return HashStruct(DomainType, String(name), String(version), Uint(chainID))
+}
+
+// ValidSignatureChainID reports whether a carried signature_chain_id, the domain chainId the signer
+// chose, is in 1..MaxInt64. The verifier rebuilds the domain from it; it isolates nothing, since
+// the chainId string in the typed data is what binds a signature to one chain.
+func ValidSignatureChainID(chainID uint64) bool {
+	return chainID != 0 && chainID <= math.MaxInt64
 }
 
 // Digest is the signed value: keccak256(0x19 0x01 || domainSeparator || hashStruct).

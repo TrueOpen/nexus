@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -62,7 +63,7 @@ func (s *service) SubmitInferReceipt(
 		return nil, mapInferReceiptErr(err)
 	}
 	response := &nexusv1.SubmitInferReceiptResponse{
-		RelayAccepted: true, InferReceiptHash: hex.EncodeToString(receipt.InferReceiptHash),
+		RelayAccepted: true, InferReceiptHash: hash32text.Encode(receipt.InferReceiptHash),
 	}
 	// wire marks output_storage_confirmation here as reserved: the storage confirmation is now issued once by
 	// FinalizeTaskResult after checking the receipt, the STORED output and all required evidence;
@@ -110,8 +111,8 @@ func (s *service) SubmitVerifyCommit(
 	}
 	return connect.NewResponse(&nexusv1.SubmitVerifyCommitResponse{
 		RelayAccepted: true, Idempotent: ack.Idempotent,
-		CommitKey:                 hex.EncodeToString(commitKey[:]),
-		VerifyCommitSigningDigest: hex.EncodeToString(digest[:]),
+		CommitKey:                 hash32text.Encode(commitKey[:]),
+		VerifyCommitSigningDigest: hash32text.Encode(digest[:]),
 	}), nil
 }
 
@@ -148,7 +149,7 @@ func (s *service) SubmitVerifyResult(
 	// so the Verifier can confirm the Builder received the same thing it signed.
 	return connect.NewResponse(&nexusv1.SubmitVerifyResultResponse{
 		RelayAccepted: true, Idempotent: ack.Idempotent,
-		ResultReceiptSigningDigest: hex.EncodeToString(digest[:]),
+		ResultReceiptSigningDigest: hash32text.Encode(digest[:]),
 	}), nil
 }
 

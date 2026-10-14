@@ -13,7 +13,7 @@ func TestOpenTaskHeaderAcceptsSequenceZero(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
 	s := &service{}
 	header := &nexusv1.OpenTaskHeader{
-		SessionId: testSessionID("sess-header-zero"), OrderSequence: 0,
+		SessionId: wireID(testSessionID("sess-header-zero")), OrderSequence: 0,
 		UserAddress: sg.Address(),
 	}
 	// Only assert "not rejected as malformed because of order_sequence=0": the other required fields are

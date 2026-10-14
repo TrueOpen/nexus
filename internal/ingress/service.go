@@ -19,6 +19,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
@@ -76,9 +77,6 @@ type AuthParams struct {
 	Bech32Prefix    string
 	RequireEnvelope bool
 	ServiceKeys     ServiceKeyResolver
-	// EVMChainID is the chain's EVM chain ID, the chainId of the EIP-712 domains User requests are
-	// signed in.
-	EVMChainID uint64
 	// Chain answers the reads request verification needs: the current height (session grant
 	// windows) and the public key an account holds on chain.
 	Chain sdkauth.Chain
@@ -130,6 +128,7 @@ func envelopeFromPB(pb *nexusv1.SDKRequestEnvelopeV2) *sdkauth.Envelope {
 		BodyDigest:         pb.GetBodyDigest(),
 		SignerAddress:      pb.GetSignerAddress(),
 		Signature:          pb.GetSignature(),
+		SignatureChainID:   pb.GetSignatureChainId(),
 	}
 	e.SessionGrant = sessionGrantFromPB(pb.GetSessionGrant())
 	return e
@@ -143,6 +142,7 @@ func sessionGrantFromPB(pb *nexusv1.SessionGrantV1) *sdkauth.SessionGrant {
 	return &sdkauth.SessionGrant{
 		ChainID: pb.GetChainId(), User: pb.GetUser(), SessionKey: pb.GetSessionKey(),
 		ExpiryHeight: pb.GetExpiryHeight(), GrantNonce: pb.GetGrantNonce(), UserSignature: pb.GetUserSignature(),
+		SignatureChainID: pb.GetSignatureChainId(),
 	}
 }
 
@@ -152,6 +152,8 @@ type envelopeCheck struct {
 	body   [32]byte
 	// sessionAllowed lets a session key sign the request under a grant.
 	sessionAllowed bool
+	// orderUser (OpenTask only) is the SignedOrder user a grant must be for.
+	orderUser string
 	// heightExpiry and replay: see sdkauth.VerifyOpts. OpenTask leaves its height expiry and
 	// nonce to the taskdata Authorizer and so passes no replay cache.
 	heightExpiry bool
@@ -164,7 +166,6 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 	e := envelopeFromPB(pb)
 	err := sdkauth.Verify(ctx, e, sdkauth.VerifyOpts{
 		ChainID:               s.auth.ChainID,
-		EVMChainID:            s.auth.EVMChainID,
 		Method:                c.method,
 		NowMS:                 time.Now().UnixMilli(),
 		Body:                  c.body,
@@ -172,6 +173,7 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 		ReplayCache:           c.replay,
 		HeightExpiry:          c.heightExpiry,
 		SessionAllowed:        c.sessionAllowed,
+		OrderUser:             c.orderUser,
 		Chain:                 s.auth.Chain,
 		MaxSessionGrantBlocks: s.auth.MaxSessionGrantBlocks,
 	})
@@ -203,10 +205,29 @@ func bodyErr(err error) error {
 	return connect.NewError(connect.CodeInvalidArgument, err)
 }
 
+// taskIDs is a request's session_id and task_id: as the client sent them, for the envelope binding,
+// and in the internal spelling, for lookups.
+type taskIDs struct {
+	wireSession, wireTask string
+	session, task         string
+}
+
+// parseTaskIDs reads a request's session_id and task_id; each must be 0x followed by 64 lowercase
+// hex characters.
+func parseTaskIDs(sessionID, taskID string) (taskIDs, error) {
+	session, sessionOK := hash32text.ToInternal(sessionID)
+	task, taskOK := hash32text.ToInternal(taskID)
+	if !sessionOK || !taskOK {
+		return taskIDs{}, connect.NewError(connect.CodeInvalidArgument, errors.New(
+			"NEXUS_INGRESS_MALFORMED: session_id and task_id must be 0x followed by 64 lowercase hex characters"))
+	}
+	return taskIDs{wireSession: sessionID, wireTask: taskID, session: session, task: task}, nil
+}
+
 // checkOptionalOwnerEnvelope verifies a task-bound envelope where lenient mode lets it be absent. A
 // present envelope must be bound to this session and task and act for the user who ordered it.
 func (s *service) checkOptionalOwnerEnvelope(
-	ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, sessionID, taskID string, c envelopeCheck,
+	ctx context.Context, pb *nexusv1.SDKRequestEnvelopeV2, ids taskIDs, c envelopeCheck,
 ) error {
 	if pb == nil {
 		if s.auth.RequireEnvelope {
@@ -215,11 +236,11 @@ func (s *service) checkOptionalOwnerEnvelope(
 		}
 		return nil
 	}
-	requester, err := s.checkTaskEnvelope(ctx, pb, sessionID, taskID, c)
+	requester, err := s.checkTaskEnvelope(ctx, pb, ids.wireSession, ids.wireTask, c)
 	if err != nil {
 		return err
 	}
-	return s.requireTaskOwner(ctx, sessionID, taskID, requester)
+	return s.requireTaskOwner(ctx, ids.session, ids.task, requester)
 }
 
 // checkTaskEnvelope verifies a required envelope bound to one session and task.
@@ -254,7 +275,11 @@ func (s *service) FetchOutputRef(context.Context, *connect.Request[nexusv1.Fetch
 }
 
 func (s *service) GetTaskStatus(ctx context.Context, req *connect.Request[nexusv1.GetTaskStatusRequest]) (*connect.Response[nexusv1.GetTaskStatusResponse], error) {
-	st, err := s.h.TaskStatus(ctx, req.Msg.GetSessionId(), req.Msg.GetTaskId())
+	ids, err := parseTaskIDs(req.Msg.GetSessionId(), req.Msg.GetTaskId())
+	if err != nil {
+		return nil, err
+	}
+	st, err := s.h.TaskStatus(ctx, ids.session, ids.task)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -284,7 +309,11 @@ func (s *service) SubscribeOutput(
 	if err != nil {
 		return err
 	}
-	output, err := s.h.SubscribeOutput(ctx, m.GetSessionId(), m.GetTaskId(), requester)
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
+		return err
+	}
+	output, err := s.h.SubscribeOutput(ctx, ids.session, ids.task, requester)
 	if err != nil {
 		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 			return nil
@@ -292,7 +321,7 @@ func (s *service) SubscribeOutput(
 		return mapOutputDeliveryErr(err)
 	}
 	return stream.Send(&nexusv1.SubscribeOutputResponse{
-		OutputId: output.OutputID, SessionId: output.SessionID, TaskId: output.TaskID,
+		OutputId: output.OutputID, SessionId: hash32text.FromInternal(output.SessionID), TaskId: hash32text.FromInternal(output.TaskID),
 		OutputText: output.Text, OutputHash: output.Hash,
 		CreatedAt: output.CreatedAt, ExpiresAt: output.ExpiresAt,
 	})
@@ -314,7 +343,11 @@ func (s *service) AckOutput(
 	if err != nil {
 		return nil, err
 	}
-	ack, err := s.h.AckOutput(ctx, m.GetSessionId(), m.GetTaskId(), m.GetOutputId(), requester)
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
+		return nil, err
+	}
+	ack, err := s.h.AckOutput(ctx, ids.session, ids.task, m.GetOutputId(), requester)
 	if err != nil {
 		return nil, mapOutputDeliveryErr(err)
 	}
@@ -327,13 +360,17 @@ func (s *service) AckOutput(
 // until the client disconnects. The event stream is only for UX hints; on-chain state is authoritative via chain query.
 func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv1.GetTaskEventsRequest], stream *connect.ServerStream[nexusv1.GetTaskEventsResponse]) error {
 	m := req.Msg
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
+		return err
+	}
 	body, err := sdkauth.GetTaskEventsBody(m.GetSessionId(), m.GetTaskId(), m.GetFromCursor())
 	if err != nil {
 		if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
 			return bodyErr(err)
 		}
 	}
-	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
+	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), ids, envelopeCheck{
 		method: "GetTaskEvents", body: body, sessionAllowed: true, replay: s.replay,
 	}); err != nil {
 		return err
@@ -346,7 +383,7 @@ func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv
 		}
 		fromCursor = v
 	}
-	replay, live, cancel, err := s.h.TaskEvents(ctx, m.GetSessionId(), m.GetTaskId(), fromCursor)
+	replay, live, cancel, err := s.h.TaskEvents(ctx, ids.session, ids.task, fromCursor)
 	if err != nil {
 		return connect.NewError(connect.CodeNotFound, err)
 	}
@@ -378,18 +415,22 @@ func (s *service) RefreshCredential(context.Context, *connect.Request[nexusv1.Re
 
 func (s *service) PrepareChallenge(ctx context.Context, req *connect.Request[nexusv1.PrepareChallengeRequest]) (*connect.Response[nexusv1.PrepareChallengeResponse], error) {
 	m := req.Msg
+	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
+	if err != nil {
+		return nil, err
+	}
 	body, err := sdkauth.PrepareChallengeBody(m.GetSessionId(), m.GetTaskId(), m.GetChallengeKind(), m.GetLocalEvidenceDigest())
 	if err != nil {
 		if m.GetRequestEnvelope() != nil || s.auth.RequireEnvelope {
 			return nil, bodyErr(err)
 		}
 	}
-	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), m.GetSessionId(), m.GetTaskId(), envelopeCheck{
+	if err := s.checkOptionalOwnerEnvelope(ctx, m.GetRequestEnvelope(), ids, envelopeCheck{
 		method: "PrepareChallenge", body: body, sessionAllowed: true, replay: s.replay,
 	}); err != nil {
 		return nil, err
 	}
-	plan, err := s.h.PrepareChallenge(ctx, m.GetSessionId(), m.GetTaskId(), m.GetChallengeKind())
+	plan, err := s.h.PrepareChallenge(ctx, ids.session, ids.task, m.GetChallengeKind())
 	if err != nil {
 		return nil, mapPrepareChallengeErr(err)
 	}
@@ -476,9 +517,10 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	if err := nodecontract.ValidatePlaintextOrderV3(order); err != nil {
 		return types.Order{}, fmt.Errorf("signed_order: %w", err)
 	}
-	// Signed order envelope: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S.
-	// The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
-	if err := nodecontract.ValidateSignedOrderEnvelopeV2(signed.GetSignatureScheme(), signed.GetUserSignature()); err != nil {
+	// Signed order envelope: scheme is byte-for-byte "eip712"; signature is 65 bytes R||S||V, V in {27,28}, low-S;
+	// signature_chain_id in 1..MaxInt64. The legacy "secp256k1" + 64 bytes is the V1 envelope and is not accepted for V2.
+	if err := nodecontract.ValidateSignedOrderEnvelopeV2(
+		signed.GetSignatureScheme(), signed.GetUserSignature(), signed.GetSignatureChainId()); err != nil {
 		return types.Order{}, err
 	}
 	// Reject unknown fields at any level. Before submitting on-chain Nexus re-encodes this message with its own mirror,

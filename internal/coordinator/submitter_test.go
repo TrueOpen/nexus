@@ -105,7 +105,6 @@ func (c *captureChain) QueryTimeoutBucket(context.Context, string, uint64, uint6
 func (c *captureChain) QueryTaskBuilders(context.Context, chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error) {
 	return chaincli.TaskBuilderSelectionState{}, c.selectionErr
 }
-func (c *captureChain) QueryEVMChainID(context.Context) (uint64, error) { return 31337, nil }
 func (c *captureChain) QueryServiceMaterialExpiryBlocks(context.Context) (uint64, error) {
 	return 604800, nil
 }
@@ -801,7 +800,8 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 		},
 		SignatureScheme: "eip712",
 		// 65 bytes of R||S||V with V=27 and S < N/2: a structurally valid placeholder signature.
-		UserSignature: append(bytes.Repeat([]byte{0x55}, 64), 27),
+		UserSignature:    append(bytes.Repeat([]byte{0x55}, 64), 27),
+		SignatureChainId: 424242,
 	}
 }
 

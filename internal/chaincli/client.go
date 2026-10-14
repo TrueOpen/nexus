@@ -351,21 +351,6 @@ func (c *client) QueryEpochLengthBlocks(ctx context.Context) (uint64, error) {
 	return defaultEpochLengthBlocks, nil
 }
 
-// QueryEVMChainID reads the Hub parameter phase0.evm_chain_id. 0 is treated as
-// unconfigured: chainId 0 in the EIP-712 domain would make every user signature fail
-// verification, so it is better to error here.
-func (c *client) QueryEVMChainID(ctx context.Context) (uint64, error) {
-	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
-	if err != nil {
-		return 0, applicationQueryError("hub params", err)
-	}
-	evmChainID := resp.Msg.GetParams().GetPhase0().GetEvmChainId()
-	if evmChainID == 0 {
-		return 0, fmt.Errorf("query hub params: phase0.evm_chain_id is zero")
-	}
-	return evmChainID, nil
-}
-
 // QueryServiceMaterialExpiryBlocks reads the Hub parameter service.max_service_material_expiry_blocks.
 // 0 is treated as unconfigured.
 func (c *client) QueryServiceMaterialExpiryBlocks(ctx context.Context) (uint64, error) {

@@ -35,13 +35,14 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 curl localhost:8080/healthz                       # {"status":"ok"}
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
-# client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up:
+# client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.
+# Hash32 strings on the IngressAPI are 0x followed by 64 lowercase hex characters:
 curl -X POST localhost:8080/nexus.v1.IngressAPI/GetTaskStatus \
-  -H 'Content-Type: application/json' -d '{"taskId":"<task_id>"}'
+  -H 'Content-Type: application/json' -d '{"sessionId":"0x<session_id>","taskId":"0x<task_id>"}'
 
 # Option 2: gRPC (reflection is enabled, so grpcurl needs no proto files)
 grpcurl -plaintext localhost:8080 list
-grpcurl -plaintext -d '{"taskId":"<task_id>"}' \
+grpcurl -plaintext -d '{"sessionId":"0x<session_id>","taskId":"0x<task_id>"}' \
   localhost:8080 nexus.v1.IngressAPI/GetTaskStatus
 
 # When api-key is enabled, pass the header (same name for curl and grpcurl):
@@ -232,13 +233,18 @@ Production deployments should restrict data directory permissions, disk backup s
 
 User requests carry an `SDKRequestEnvelopeV2`: a 65-byte `R || S || V` signature (`V` 27 or 28,
 low-S) over the EIP-712 `SDKRequest` typed data in the domain `"TrueOpen SDK Request"` version `"1"`,
-with `chainId` = the chain's EVM chain ID, so browser wallets can sign it. Nexus recovers the signer
+with `chainId` = the envelope's `signature_chain_id`. The signer chooses that value (a browser
+wallet uses its active network, so the user never switches networks) and it must be in
+`1..MaxInt64`; it isolates nothing, since the typed `chainId` string is always this chain's
+`chain_id`, and it enters no replay key. Nexus recovers the signer
 and requires it to match the account's public key stored on chain; an account with no stored key is
 rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` domain.
 
-- `OpenTask` must be signed by the order's user wallet; the header's own `signature` /
-  `signature_scheme` must be empty, and `order_envelope` must be a `SignedOrderV2`.
-- A user can sign a `SessionGrantV1` once to let a session key sign `SubscribeOutput`, `AckOutput`,
+- `OpenTask` is signed by the order's user wallet, or by a session key under a grant whose user is
+  the `SignedOrderV2` user (otherwise `SDK_AUTH_SESSION_GRANT_INVALID`); the order itself is always
+  signed by the wallet. The header's own `signature` / `signature_scheme` must be empty, and
+  `order_envelope` must be a `SignedOrderV2`.
+- A user can sign a `SessionGrantV1` once to let a session key sign `OpenTask`, `SubscribeOutput`, `AckOutput`,
   `GetTaskEvents`, `PrepareChallenge`, and `GetTaskDataMetadata` / `FetchTaskData` of an OUTPUT
   object. The grant expires at a chain height no more than `ingress.max_session_grant_blocks` past
   the current height.
@@ -246,7 +252,7 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
   signatures are rejected.
 - Checks run in wire order and stop at the first failure: format (`NEXUS_INGRESS_MALFORMED`),
   session method set, grant, signature over the digest rebuilt with this chain's `chain_id` and
-  EVM chain ID (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
+  the carried `signature_chain_id` (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
   replay. An OpenTask expiry is a chain height within `task_data.request_ttl_blocks` (default 20);
   a Task data request expiry lies within the Hub parameter
   `service.max_service_material_expiry_blocks`, read at startup and re-read every 10 minutes.
@@ -379,7 +385,10 @@ E2E_OUT=/tmp/nexus-e2e.json E2E_STOP=/tmp/nexus-e2e.stop \
 ```
 
 The descriptor names the URL, the certificate (pin it by public key hash), session/task ids,
-the Worker service public key and the fixed test user key. `E2E_FIN_MODE=unsigned|badreason`
+the Worker service public key and the fixed test user key. `session_id` and `task_id` are
+IngressAPI strings (0x followed by 64 lowercase hex) to pass to `SubscribeOutput` as is; fields
+ending in `_hex`, such as `task_hash_hex`, are bare hex of raw bytes, like the wire vectors, and
+are not IngressAPI strings. `E2E_FIN_MODE=unsigned|badreason`
 sends a Fin without a signature or with a finish_reason that does not match the signature, for
 checking a subscriber's fail-closed policy. The `TRUEOPEN_OUTPUT_FIN_V1` digest itself is
 `nodecontract.OutputFinSigningDigest`, pinned to the wire vectors by

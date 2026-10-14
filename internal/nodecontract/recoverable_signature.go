@@ -10,6 +10,7 @@ package nodecontract
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -53,14 +54,19 @@ func ValidateRecoverableSignature(signature []byte) error {
 }
 
 // ValidateSignedOrderEnvelopeV2 is the shape check of the SignedOrderV2 transport envelope:
-// the scheme literal plus the signature canonical form.
-func ValidateSignedOrderEnvelopeV2(signatureScheme string, userSignature []byte) error {
+// the scheme literal, the signature canonical form, and signature_chain_id in 1..MaxInt64. The
+// signer chooses signature_chain_id (the EIP-712 domain chainId of user_signature); 0, which a
+// signer that does not carry it leaves behind, is malformed.
+func ValidateSignedOrderEnvelopeV2(signatureScheme string, userSignature []byte, signatureChainID uint64) error {
 	if signatureScheme != SignedOrderSchemeV2 {
 		return fmt.Errorf("signed_order signature_scheme must be exactly %q, got %q",
 			SignedOrderSchemeV2, signatureScheme)
 	}
 	if err := ValidateRecoverableSignature(userSignature); err != nil {
 		return fmt.Errorf("signed_order user_signature: %w", err)
+	}
+	if signatureChainID == 0 || signatureChainID > math.MaxInt64 {
+		return fmt.Errorf("signed_order signature_chain_id must be in 1..MaxInt64, got %d", signatureChainID)
 	}
 	return nil
 }

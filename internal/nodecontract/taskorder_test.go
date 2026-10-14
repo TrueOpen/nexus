@@ -295,11 +295,13 @@ func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 }
 
 // TestTaskOrderHashIgnoresUserSignature: swapping only the user signature (SignedOrderV2 envelope
-// fields) leaves task_hash unchanged: scheme and signature are transport metadata.
+// fields) leaves task_hash unchanged: scheme, signature and signature_chain_id are signature metadata,
+// so the same order signed under another signature_chain_id is the same order.
 func TestTaskOrderHashIgnoresUserSignature(t *testing.T) {
 	order := contractTaskOrderFixture(t)
 	signed := &taskv1.SignedOrderV2{
 		Order: order, SignatureScheme: SignedOrderSchemeV2, UserSignature: append(repeatByte(0x55, 64), 27),
+		SignatureChainId: 424242,
 	}
 	before, err := TaskOrderHashV3(signed.GetOrder())
 	if err != nil {
@@ -307,6 +309,7 @@ func TestTaskOrderHashIgnoresUserSignature(t *testing.T) {
 	}
 	resigned := proto.Clone(signed).(*taskv1.SignedOrderV2)
 	resigned.UserSignature = append(repeatByte(0x66, 64), 28)
+	resigned.SignatureChainId = 1
 	after, err := TaskOrderHashV3(resigned.GetOrder())
 	if err != nil {
 		t.Fatalf("hash after re-signing: %v", err)

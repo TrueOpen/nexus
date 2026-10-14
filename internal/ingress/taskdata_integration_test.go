@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -60,7 +61,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 		},
 	}
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
-		ChainID: "trueopen-localnet", EVMChainID: 31337, BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
+		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
 	}, backend, authority, builderService)
 	if err != nil {
@@ -73,7 +74,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	handler := &fakeHandler{}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain, EVMChainID: testEVMChainID, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
+		AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, Bech32Prefix: "trueopen"},
 		handler, WithPayloadMaxBytes(16), WithReadMaxBytes(4), WithTaskDataService(dataService),
 	)
 	if err != nil {
@@ -102,18 +103,19 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskID := mustDeriveTaskID(t, header.GetSessionId(), header.GetOrderSequence())
-	if !opened.Msg.GetAccepted() || opened.Msg.GetTaskId() != taskID || opened.Msg.GetInputMetadata() == nil {
+	session := bareID(t, header.GetSessionId())
+	taskID := mustDeriveTaskID(t, session, header.GetOrderSequence())
+	if !opened.Msg.GetAccepted() || opened.Msg.GetTaskId() != wireID(taskID) || opened.Msg.GetInputMetadata() == nil {
 		t.Fatalf("OpenTask response = %#v", opened.Msg)
 	}
 
 	authority.setTask(chaincli.OnChainTask{
-		SessionID: header.GetSessionId(), TaskID: taskID,
+		SessionID: session, TaskID: taskID,
 		Assignment: chaincli.TaskAssignmentState{
 			UserAddress: user.Address(), SelectedWorkerOperatorAddress: worker.Address(),
 		},
 	})
-	key := taskdata.ObjectKey{SessionID: header.GetSessionId(), TaskID: taskID, Kind: taskdata.ObjectKindInput}
+	key := taskdata.ObjectKey{SessionID: session, TaskID: taskID, Kind: taskdata.ObjectKindInput}
 	metadataBody, err := taskdata.TaskDataMetadataBodyDigest(key)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +131,7 @@ func TestTaskDataIntegrationCortexAcceptancePath(t *testing.T) {
 	metadata := metadataResponse.Msg.GetMetadata()
 	wantHash := sha256.Sum256(payload)
 	if metadata.GetSizeBytes() != uint64(len(payload)) ||
-		metadata.GetObjectRef().GetContentHash() != hex.EncodeToString(wantHash[:]) {
+		metadata.GetObjectRef().GetContentHash() != hash32text.Encode(wantHash[:]) {
 		t.Fatalf("metadata response = %#v", metadataResponse.Msg)
 	}
 
@@ -239,7 +241,7 @@ func signedTaskDataRequest(
 	return &nexusv1.TaskDataRequestAuthV1{
 		SchemaVersion: request.SchemaVersion, ChainId: request.ChainID,
 		BuilderOperatorAddress: request.BuilderOperatorAddress, RpcMethod: request.RPCMethod,
-		BodyDigest:                request.BodyDigest,
+		BodyDigest:                hash32text.Encode(bodyDigest[:]), // signed over the raw 32 bytes, so the spelling is free
 		RequesterKind:             nexusv1.TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE,
 		RequesterAddress:          request.RequesterAddress,
 		ServiceAuthorizationNonce: request.ServiceAuthorizationNonce,
@@ -249,7 +251,8 @@ func signedTaskDataRequest(
 	}
 }
 
-// objectRefPB converts an internal ref into the wire shape for integration cases to build requests with.
+// objectRefPB converts an internal ref into the wire shape (Hash32 fields as "0x" + hex) for integration cases
+// to build requests with.
 func objectRefPB(key taskdata.ObjectKey) *nexusv1.TaskDataObjectRefV1 {
 	return objectRefToPB(key)
 }

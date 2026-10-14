@@ -3,6 +3,7 @@ package sdkauth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -28,10 +29,10 @@ func wrongKeyHex(t *testing.T) string {
 	return "0202020202020202020202020202020202020202020202020202020202020202"
 }
 
-// resign signs e (with this grant hash and body) by keyHex under the vector's EVM chain ID.
-func resign(t *testing.T, e *Envelope, body, grantHash [32]byte, evm uint64, keyHex string) {
+// resign signs e (with this grant hash and body) by keyHex under e's carried signature_chain_id.
+func resign(t *testing.T, e *Envelope, body, grantHash [32]byte, keyHex string) {
 	t.Helper()
-	digest, err := RequestDigest(e, body, grantHash, evm)
+	digest, err := RequestDigest(e, body, grantHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,6 @@ func resign(t *testing.T, e *Envelope, body, grantHash [32]byte, evm uint64, key
 // wire verification order.
 func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 	f := loadAccountSigning(t)
-	evm := mustUint(t, f.SDKRequest.Domain.ChainID)
 	wallet := func() (*Envelope, VerifyOpts) {
 		e := envelopeFrom(t, f.SDKRequest)
 		opts := optsFor(t, f, f.SDKRequest, chainFor(t, f))
@@ -54,6 +54,15 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 		e.SessionGrant = grantFrom(t, f)
 		opts := optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
 		opts.SessionAllowed = true
+		return e, opts
+	}
+	openTaskSession := func() (*Envelope, VerifyOpts) {
+		e := envelopeFrom(t, f.SDKOpenTaskSession)
+		e.SessionGrant = grantFrom(t, f)
+		opts := optsFor(t, f, f.SDKOpenTaskSession, chainFor(t, f))
+		opts.HeightExpiry = true
+		opts.SessionAllowed = true
+		opts.OrderUser = e.SignerAddress
 		return e, opts
 	}
 	grantHash := func(e *Envelope) [32]byte {
@@ -73,35 +82,55 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 			o.ChainID = "trueopen-golden-2"
 			return e, o
 		}, ErrInvalidSignature},
-		{"verifier with another EVM chain ID", func() (*Envelope, VerifyOpts) {
+		{"tampered signature_chain_id", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
-			o.EVMChainID = 424243
+			e.SignatureChainID = 424243
 			return e, o
 		}, ErrInvalidSignature},
+		{"tampered grant signature_chain_id", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.SessionGrant.SignatureChainID = 424243
+			return e, o
+		}, ErrSessionGrantInvalid},
+		{"signature_chain_id zero", func() (*Envelope, VerifyOpts) {
+			e, o := wallet()
+			e.SignatureChainID = 0
+			return e, o
+		}, ErrMalformed},
+		{"signature_chain_id above MaxInt64", func() (*Envelope, VerifyOpts) {
+			e, o := wallet()
+			e.SignatureChainID = 1 << 63
+			return e, o
+		}, ErrMalformed},
+		{"grant signature_chain_id zero", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.SessionGrant.SignatureChainID = 0
+			return e, o
+		}, ErrMalformed},
 		{"signed by wrong key", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
-			resign(t, e, o.Body, [32]byte{}, evm, wrongKeyHex(t))
+			resign(t, e, o.Body, [32]byte{}, wrongKeyHex(t))
 			return e, o
 		}, ErrInvalidSignature},
 		{"session request signed by wrong key", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			resign(t, e, o.Body, grantHash(e), evm, wrongKeyHex(t))
+			resign(t, e, o.Body, grantHash(e), wrongKeyHex(t))
 			return e, o
 		}, ErrInvalidSignature},
 		{"grant signed by wrong key", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			d, _ := SessionGrantDigest(e.SessionGrant, evm)
+			d, _ := SessionGrantDigest(e.SessionGrant)
 			e.SessionGrant.UserSignature = sign65(t, wrongKeyHex(t), d)
 			return e, o
 		}, ErrSessionGrantInvalid},
 		{"session key signs a zero grant hash", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			resign(t, e, o.Body, [32]byte{}, evm, sessionKeyHex)
+			resign(t, e, o.Body, [32]byte{}, sessionKeyHex)
 			return e, o
 		}, ErrInvalidSignature},
 		{"wallet signs a grant hash without a grant", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
-			resign(t, e, o.Body, grantHash(&Envelope{SessionGrant: grantFrom(t, f)}), evm, accountKeyHex)
+			resign(t, e, o.Body, grantHash(&Envelope{SessionGrant: grantFrom(t, f)}), accountKeyHex)
 			return e, o
 		}, ErrInvalidSignature},
 		{"body changed in transit", func() (*Envelope, VerifyOpts) {
@@ -122,16 +151,22 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 		{"grant for another chain", func() (*Envelope, VerifyOpts) {
 			e, o := session()
 			e.SessionGrant.ChainID = "trueopen-golden-2"
-			d, _ := SessionGrantDigest(e.SessionGrant, evm)
+			d, _ := SessionGrantDigest(e.SessionGrant)
 			e.SessionGrant.UserSignature = sign65(t, accountKeyHex, d)
 			return e, o
 		}, ErrSessionGrantInvalid},
-		{"OpenTask with a session grant", func() (*Envelope, VerifyOpts) {
+		{"session grant on a method outside the session set", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
+			o.SessionAllowed = false
 			e.SessionGrant = grantFrom(t, f)
-			resign(t, e, o.Body, grantHash(e), evm, sessionKeyHex)
+			resign(t, e, o.Body, grantHash(e), sessionKeyHex)
 			return e, o
 		}, ErrSessionMethodNotAllowed},
+		{"OpenTask grant user is not the order user", func() (*Envelope, VerifyOpts) {
+			e, o := openTaskSession()
+			o.OrderUser = "trueopen1cj9cz2a5xsqnjtqrwwq6e2f57srfcpgh4eqn90"
+			return e, o
+		}, ErrSessionGrantInvalid},
 		{"expiry zero", func() (*Envelope, VerifyOpts) {
 			e, o := wallet()
 			e.ExpiryHeightOrTime = 0
@@ -149,12 +184,22 @@ func TestVerifyRejectsWithWireErrorCodes(t *testing.T) {
 		}, ErrMalformed},
 		{"uppercase session_id", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			e.SessionID = "77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
+			e.SessionID = "0x77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
 			return e, o
 		}, ErrMalformed},
-		{"0x task_id", func() (*Envelope, VerifyOpts) {
+		{"bare session_id", func() (*Envelope, VerifyOpts) {
 			e, o := session()
-			e.TaskID = "0x" + e.TaskID[2:]
+			e.SessionID = strings.TrimPrefix(e.SessionID, "0x")
+			return e, o
+		}, ErrMalformed},
+		{"bare task_id", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.TaskID = strings.TrimPrefix(e.TaskID, "0x")
+			return e, o
+		}, ErrMalformed},
+		{"0X task_id", func() (*Envelope, VerifyOpts) {
+			e, o := session()
+			e.TaskID = "0X" + strings.TrimPrefix(e.TaskID, "0x")
 			return e, o
 		}, ErrMalformed},
 		{"16-byte nonce", func() (*Envelope, VerifyOpts) {
@@ -240,5 +285,38 @@ func TestVerifyFormatAndBodyDigest(t *testing.T) {
 	e.BodyDigest[0] ^= 1
 	if err := Verify(context.Background(), e, opts); !errors.Is(err, ErrInvalidSignature) {
 		t.Fatalf("body_digest mismatch: %v, want invalid signature", err)
+	}
+}
+
+// The domain chainId is the signer's carried choice: a session request re-signed under another
+// signature_chain_id than its grant verifies, and it is the same request, so its replay key is
+// unchanged and a second copy is a replay.
+func TestSignatureChainIDIsCarriedAndNotInReplayKey(t *testing.T) {
+	f := loadAccountSigning(t)
+	e := envelopeFrom(t, f.SDKRequestSession)
+	e.SessionGrant = grantFrom(t, f)
+	opts := optsFor(t, f, f.SDKRequestSession, chainFor(t, f))
+	opts.SessionAllowed = true
+	opts.ReplayCache = NewMemoryReplayCache()
+	before := ReplayKey(e)
+	e.SignatureChainID = 1
+	hash, err := SessionGrantHash(e.SessionGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resign(t, e, opts.Body, hash, sessionKeyHex)
+	if e.SignatureChainID == e.SessionGrant.SignatureChainID {
+		t.Fatal("the request and its grant should carry different signature_chain_id values")
+	}
+	if ReplayKey(e) != before {
+		t.Fatalf("replay key changed with signature_chain_id: %q, want %q", ReplayKey(e), before)
+	}
+	if err := Verify(context.Background(), e, opts); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	original := envelopeFrom(t, f.SDKRequestSession)
+	original.SessionGrant = grantFrom(t, f)
+	if err := Verify(context.Background(), original, opts); !errors.Is(err, ErrReplay) {
+		t.Fatalf("the same request under the vector's signature_chain_id = %v, want replay", err)
 	}
 }

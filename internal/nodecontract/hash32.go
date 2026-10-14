@@ -5,10 +5,11 @@ import (
 	"fmt"
 )
 
-// Hash32Bytes decodes a canonical Hash32 into the 32 raw consensus bytes that
-// the Keeper wire uses. The JSON/REST representation is
-// 64 lowercase hex characters; uppercase, a "0x" prefix, whitespace and any
-// length other than 32 bytes are rejected.
+// Hash32Bytes decodes a Hash32 in nexus's internal spelling into the 32 raw
+// consensus bytes that the Keeper wire uses. The internal spelling is 64
+// lowercase hex characters; uppercase, a "0x" prefix, whitespace and any
+// length other than 32 bytes are rejected. IngressAPI strings carry a "0x"
+// prefix and are converted by package hash32text first.
 func Hash32Bytes(field, value string) ([]byte, error) {
 	raw, err := hex.DecodeString(value)
 	if err != nil || len(raw) != 32 || hex.EncodeToString(raw) != value {

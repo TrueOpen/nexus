@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/TrueOpen/nexus/internal/eip712"
@@ -20,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
@@ -36,9 +38,9 @@ const (
 	// A second Task: the capacity and tombstone cases need two different objects.
 	testOtherTaskID = "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 	testBuilder     = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man"
-	// The numeric chainId of the EIP-712 domain: the USER path requires it and the chain_id string to
-	// match at the same time.
-	testEVMChainID = uint64(424242)
+	// The signature_chain_id USER test requests are signed under: the EIP-712 domain chainId the
+	// signer chooses and carries.
+	testSignatureChainID = uint64(424242)
 )
 
 type fakeAuthority struct {
@@ -177,7 +179,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 	authority.setServiceKey(participantServiceKey(participantTypeCortex, other.Address(), other))
 	backend := kv.NewMemStore()
 	a, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
+		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, backend, authority, service)
 	if err != nil {
@@ -496,7 +498,7 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	meta := fx.metadata[ObjectKindOutput]
 	wrong := testSigner(t, 40)
 	a, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, EVMChainID: testEVMChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
+		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
 	}, fx.backend, fx.authority, wrong)
 	if err != nil {
@@ -512,6 +514,55 @@ func TestAuthorizerRejectsServiceSignerMismatch(t *testing.T) {
 	if err := fx.authorizer.AuthorizeMetadata(context.Background(),
 		fx.fixtureRequest(t, fx.worker, MethodGetMetadata, meta.Key, nil, 1, 110), &meta); err != nil {
 		t.Fatalf("metadata path must not depend on the Builder service key: %v", err)
+	}
+}
+
+// A CORTEX_SERVICE request must carry signature_chain_id 0; any other value is refused at the format
+// step with the code wire's cortex_service_signature_chain_id_nonzero row names. The field is not in
+// the CORTEX_SERVICE digest, so the signature itself would still verify.
+func TestCortexServiceRequestRequiresZeroSignatureChainID(t *testing.T) {
+	var file struct {
+		Cases []struct {
+			Name      string            `json:"name"`
+			Error     string            `json:"error"`
+			Transport map[string]string `json:"transport"`
+		} `json:"request_auth_negative_cases"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/account_signing_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	var carried uint64
+	var code string
+	for _, row := range file.Cases {
+		if row.Name == "cortex_service_signature_chain_id_nonzero" {
+			if row.Transport["requester_kind"] != "CORTEX_SERVICE" {
+				t.Fatalf("row requester_kind = %q", row.Transport["requester_kind"])
+			}
+			carried = mustUintT(t, row.Transport["signature_chain_id"])
+			code = row.Error
+		}
+	}
+	if carried == 0 || code != ErrRequestMalformed.Error() {
+		t.Fatalf("wire row: signature_chain_id %d, error %q; want a non-zero value and %s", carried, code, ErrRequestMalformed)
+	}
+	fx := newAuthorizerFixture(t)
+	meta := fx.metadata[ObjectKindOutput]
+	request := fx.fixtureRequest(t, fx.worker, MethodGetMetadata, meta.Key, nil, 1, 110)
+	withChainID := request
+	withChainID.SignatureChainID = carried
+	if digest, err := CortexTaskDataRequestDigest(withChainID); err != nil {
+		t.Fatal(err)
+	} else if want, _ := CortexTaskDataRequestDigest(request); digest != want {
+		t.Fatal("signature_chain_id must not enter the CORTEX_SERVICE digest")
+	}
+	m := meta
+	if err := fx.authorizer.AuthorizeMetadata(context.Background(), withChainID, &m); !errors.Is(err, ErrRequestMalformed) {
+		t.Fatalf("err = %v, want %s", err, code)
+	}
+	// The refused request stored no nonce: the same request with 0 is accepted.
+	m = meta
+	if err := fx.authorizer.AuthorizeMetadata(context.Background(), request, &m); err != nil {
+		t.Fatalf("signature_chain_id 0: %v", err)
 	}
 }
 
@@ -956,9 +1007,10 @@ func userSignedRequest(
 		ServiceAuthorizationNonce: 0,
 		RequestNonce:              bytes.Repeat([]byte{nonce}, 32),
 		ExpiryHeight:              expiry,
+		SignatureChainID:          testSignatureChainID,
 		Key:                       key,
 	}
-	digest, err := UserTaskDataRequestDigest(request, testEVMChainID, [32]byte{})
+	digest, err := UserTaskDataRequestDigest(request, [32]byte{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1091,20 +1143,6 @@ func withUploader(header UploadHeader) UploadHeader {
 	return header
 }
 
-// The chainId of the EIP-712 domain comes from the Hub parameter phase0.evm_chain_id; with 0 every
-// USER request fails signature verification, so the Authorizer refuses to be constructed with 0 (if
-// the app cannot read it at startup, the service does not start).
-func TestNewAuthorizerRejectsZeroEVMChainID(t *testing.T) {
-	fx := newAuthorizerFixture(t)
-	_, err := NewAuthorizer(AuthorizerConfig{
-		ChainID: testChainID, BuilderAddress: testBuilder, AddressPrefix: "trueopen",
-		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: SessionGrantEnv{Chain: testAccountChain{}, MaxBlocks: 400},
-	}, fx.backend, fx.authority, fx.service)
-	if !errors.Is(err, ErrMalformed) {
-		t.Fatalf("error = %v, want ErrMalformed", err)
-	}
-}
-
 // testAccountChain answers the user-request chain reads for every test key: each key's EVM-style
 // account (the address ethAddressOf gives) holds that key on chain.
 type testAccountChain struct{}
@@ -1151,7 +1189,7 @@ func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
 		r := userSignedRequest(t, fx.user, MethodGetMetadata, meta.Key, metadataBody(t, meta.Key), nonce, height+800)
 		if edit != nil {
 			edit(&r)
-			digest, err := UserTaskDataRequestDigest(r, testEVMChainID, [32]byte{})
+			digest, err := UserTaskDataRequestDigest(r, [32]byte{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1181,6 +1219,9 @@ func TestUserTaskDataRequestFollowsWireSteps(t *testing.T) {
 		{"signed for another chain", request(func(r *RequestAuth) { r.ChainID = "trueopen-other" }), nil, ErrInvalidSignature},
 		{"for another Builder", request(func(r *RequestAuth) { r.BuilderOperatorAddress = fx.other.Address() }), nil, ErrDenied},
 		{"16-byte nonce", func() RequestAuth { r := request(nil); r.RequestNonce = r.RequestNonce[:16]; return r }(), nil, ErrRequestMalformed},
+		{"signature_chain_id zero", request(func(r *RequestAuth) { r.SignatureChainID = 0 }), nil, ErrRequestMalformed},
+		{"signature_chain_id above MaxInt64", request(func(r *RequestAuth) { r.SignatureChainID = 1 << 63 }), nil, ErrRequestMalformed},
+		{"signed under the wallet network", request(func(r *RequestAuth) { r.SignatureChainID = 1 }), nil, nil},
 		{"metadata request sent to fetch", request(nil), func(r RequestAuth) error {
 			_, err := authorizer.AuthorizeFetch(context.Background(), r, nil)
 			return err
