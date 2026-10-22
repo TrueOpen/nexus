@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -20,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 )
 
 // Submitter is the submission seam for the task-lifecycle on-chain Txs: it encodes, signs and
@@ -101,6 +103,9 @@ type defaultSubmitter struct {
 	accNum   uint64
 	sequence uint64
 	seqValid bool // false = refresh from chain before the next submit
+	// lastSign / lastBroadcast time the latest signAndBroadcast, for the CheckTx log line (guarded by seqMu).
+	lastSign      time.Duration
+	lastBroadcast time.Duration
 
 	simulate simulateCounters
 }
@@ -816,6 +821,8 @@ func (s *defaultSubmitter) logBroadcastAccepted(kind, typeURL string, res chainc
 		"height", res.Height,
 		"signer", s.signer.Address(),
 		"sequence", s.sequence-1, // already incremented above; report the one actually used
+		"sign_ms", stagetiming.Millis(s.lastSign),
+		"broadcast_ms", stagetiming.Millis(s.lastBroadcast),
 	)
 }
 
@@ -846,13 +853,17 @@ func (s *defaultSubmitter) txParams() chaincli.TxParams {
 
 // signAndBroadcast signs with the currently cached sequence and broadcasts. Caller must hold seqMu.
 func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
+	signStart := time.Now()
 	raw, err := chaincli.BuildSignedTx(s.signer, s.txParams(), msgAny)
+	s.lastSign = time.Since(signStart)
 	if err != nil {
 		return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Definitive: true, Err: fmt.Errorf("submit %s: %w", kind, err)}
 	}
 	s.log.Debug("submit tx signed", "kind", kind, "type_url", typeURL,
 		"signer", s.signer.Address(), "sequence", s.sequence, "bytes", len(raw))
+	broadcastStart := time.Now()
 	res, err := s.chain.BroadcastTx(ctx, raw)
+	s.lastBroadcast = time.Since(broadcastStart)
 	if err != nil {
 		return res, &SubmissionError{Phase: SubmissionBroadcast, Result: res, Err: fmt.Errorf("submit %s: broadcast: %w", kind, err)}
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/TrueOpen/nexus/internal/busadapter"
 	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 )
 
 const (
@@ -131,8 +132,10 @@ func (c *Coordinator) buildBusAdapters() (*busadapter.Publisher, *busadapter.Rec
 // and asserts along the way that the on-chain public key is this local private key's -- otherwise frames we sign
 // can never verify at the peer; failing early beats letting the peer find out for us.
 func (c *Coordinator) selfAuthorizationNonce(ctx context.Context) (uint64, error) {
+	readAt := time.Now()
 	publicKey, state, err := servicekey.Current(
 		ctx, c.serviceKeys, c.addressPrefix, servicekey.ParticipantBuilder, c.active.self)
+	stagetiming.From(ctx).Since("chain_service_key", readAt)
 	if err != nil {
 		if errors.Is(err, servicekey.ErrAuthority) {
 			return 0, fmt.Errorf("%w: %v", busadapter.ErrAuthorityUnavailable, err)

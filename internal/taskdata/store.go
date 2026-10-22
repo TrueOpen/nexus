@@ -546,16 +546,25 @@ func (s *Store) advanceState(key ObjectKey, target State, mutate func(*Metadata)
 		mutate(&record.Metadata)
 	}
 	raw, err := json.Marshal(record)
-	if err == nil {
-		err = s.backend.Set(kv.NSTaskDataMetadata, encoded, raw)
-	}
 	if err != nil {
 		return Metadata{}, fmt.Errorf("%w: persist %s metadata: %v", ErrStorage, target, err)
 	}
+	ops := []kv.WriteOp{{NS: kv.NSTaskDataMetadata, Key: encoded, Val: raw}}
+	// An INPUT turning READY is indexed in the same batch as its metadata (one fsync, and no crash
+	// window between the two). If deciding the index fails, the metadata is still written alone and
+	// the error returned, as before: a repeated MarkReady repairs the index.
+	var indexErr error
 	if target == StateReady && key.Kind == ObjectKindInput {
-		if err := s.indexInput(key); err != nil {
-			return Metadata{}, err
+		var indexOp *kv.WriteOp
+		if indexOp, indexErr = s.inputIndexOp(key); indexErr == nil && indexOp != nil {
+			ops = append(ops, *indexOp)
 		}
+	}
+	if err := s.backend.WriteBatch(ops...); err != nil {
+		return Metadata{}, fmt.Errorf("%w: persist %s metadata: %v", ErrStorage, target, err)
+	}
+	if indexErr != nil {
+		return Metadata{}, indexErr
 	}
 	return cloneMetadata(record.Metadata), nil
 }
@@ -909,34 +918,43 @@ func objectIndexKey(sessionID, taskID string, kind ObjectKind) string {
 // repointed. An index naming a missing or not-READY object is replaced. Callers hold s.mu or the
 // exclusive maintenance lock.
 func (s *Store) indexInput(key ObjectKey) error {
+	op, err := s.inputIndexOp(key)
+	if err != nil || op == nil {
+		return err
+	}
+	if err := s.backend.Set(op.NS, op.Key, op.Val); err != nil {
+		return fmt.Errorf("%w: persist object index: %v", ErrStorage, err)
+	}
+	return nil
+}
+
+// inputIndexOp is the index write indexInput would make, or nil when the index must stay as it is.
+func (s *Store) inputIndexOp(key ObjectKey) (*kv.WriteOp, error) {
 	indexKey := objectIndexKey(key.SessionID, key.TaskID, ObjectKindInput)
 	current, found, err := s.indexedRef(indexKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if found && current == key {
-		return nil
+		return nil, nil
 	}
 	if found {
 		record, ok, err := s.metadataRecord(objectKeyString(current))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if ok && record.Metadata.State == StateReady {
 			s.log.Error("task input index names another READY version; keeping it",
 				"session_id", key.SessionID, "task_id", key.TaskID,
 				"indexed_task_hash", current.TaskHash, "ready_task_hash", key.TaskHash)
-			return nil
+			return nil, nil
 		}
 	}
 	raw, err := json.Marshal(key)
-	if err == nil {
-		err = s.backend.Set(kv.NSTaskDataObjectIndex, indexKey, raw)
-	}
 	if err != nil {
-		return fmt.Errorf("%w: persist object index: %v", ErrStorage, err)
+		return nil, fmt.Errorf("%w: persist object index: %v", ErrStorage, err)
 	}
-	return nil
+	return &kv.WriteOp{NS: kv.NSTaskDataObjectIndex, Key: indexKey, Val: raw}, nil
 }
 
 // unindex removes the (session, task, kind) index only when it names key, so removing one version

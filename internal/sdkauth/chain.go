@@ -3,6 +3,9 @@ package sdkauth
 import (
 	"context"
 	"sync"
+	"time"
+
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 )
 
 // DefaultAccountKeyCacheSize bounds how many account keys CachedChain keeps.
@@ -50,7 +53,9 @@ func (c *CachedChain) AccountPubKey(ctx context.Context, address string) ([]byte
 		return key, nil
 	}
 	c.mu.Unlock()
+	start := time.Now()
 	key, err := c.lookup(ctx, address)
+	stagetiming.From(ctx).Since("chain_account_key", start)
 	if err != nil {
 		if c.notFound(err) {
 			return nil, ErrNoAccountKey

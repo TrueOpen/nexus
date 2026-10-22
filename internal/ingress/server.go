@@ -216,7 +216,7 @@ func (s *Server) handler() http.Handler {
 	if s.readMaxBytes > 0 {
 		legacyHandlerOptions = append(legacyHandlerOptions, connect.WithReadMaxBytes(s.readMaxBytes))
 	}
-	serviceOptions := make([]serviceOption, 0, 1)
+	serviceOptions := []serviceOption{withServiceLogger(s.log)}
 	if s.taskData != nil {
 		serviceOptions = append(serviceOptions, withTaskDataAPI(s.taskData))
 	}

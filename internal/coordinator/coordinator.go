@@ -31,6 +31,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -709,8 +710,12 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
 		return err
 	}
+	var admissionTime time.Duration
 	if c.admission != nil {
+		admissionStart := time.Now()
 		result, err := c.admission.AdmitOrder(ctx, o)
+		admissionTime = time.Since(admissionStart)
+		stagetiming.From(ctx).Add("admission", admissionTime)
 		if err != nil {
 			code := "NEXUS_INGRESS_STAGE1_VALIDATION_FAILED"
 			switch {
@@ -763,8 +768,11 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 		"task_hash", o.TaskHash,
 		"model_id", o.ModelID,
 		"tasks_inflight", n,
+		"admission_ms", stagetiming.Millis(admissionTime),
 	)
 	if !exists {
+		initStart := time.Now()
+		defer stagetiming.From(ctx).Since("order_init", initStart)
 		if err := c.trackTaskEvents(key, fsm); err != nil {
 			c.log.Error("order initialization failed",
 				"phase", "track_task_events", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
@@ -772,7 +780,7 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 			c.abandonTask(key, fsm)
 			return fmt.Errorf("track task events: %w", err)
 		}
-		if err := fsm.onOrder(); err != nil {
+		if err := fsm.onOrder(ctx); err != nil {
 			c.log.Error("order initialization failed",
 				"phase", "initialize_task", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
 			c.deletePayload(orderInput(o))
