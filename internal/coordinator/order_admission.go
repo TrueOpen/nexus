@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/types"
 	"github.com/cosmos/btcutil/bech32"
@@ -110,11 +112,16 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 	if anchorHeight == 0 {
 		return OrderAdmissionResult{}, authorityUnavailable("signed order has no session_anchor_height", nil)
 	}
-	if err := a.checkSessionAnchor(ctx, anchorHeight, signed.GetSessionAnchorBlockHash()); err != nil {
+
+	// The chain reads below do not depend on each other, so they run in parallel; their results are
+	// then judged in the order the checks always ran, so the first failing check is reported as
+	// before.
+	reads := a.readAdmissionState(ctx, anchorHeight)
+	if err := a.checkSessionAnchor(anchorHeight, signed.GetSessionAnchorBlockHash(), reads.anchor); err != nil {
 		return OrderAdmissionResult{}, err
 	}
 
-	builder, err := a.registry.QueryBuilder(ctx, a.localAddress)
+	builder, err := reads.builder, reads.builderErr
 	if err != nil {
 		return OrderAdmissionResult{}, authorityUnavailable("query Builder", err)
 	}
@@ -127,7 +134,7 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 	// Up to here the only assertable fact is "this Builder's service key is ACTIVE". Admission is
 	// answered by the BuilderSet query below (selfFound).
 
-	set, err := a.registry.QueryBuilderSetAtHeight(ctx, anchorHeight)
+	set, err := reads.set, reads.setErr
 	if err != nil {
 		return OrderAdmissionResult{}, authorityUnavailable(fmt.Sprintf("query BuilderSet at session anchor height %d", anchorHeight), err)
 	}
@@ -165,18 +172,12 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 	if !selfFound {
 		return OrderAdmissionResult{}, authorityUnavailable(fmt.Sprintf("BuilderSet version %d does not contain local Builder", set.Epoch), nil)
 	}
-	// Read consistency: only compare identity facts that actually exist on the current wire before and after the
-	// read. Descriptor version is the monotonic value on the same row that MsgUpdateServiceDescriptor can
-	// actually advance during the read.
-	confirmedBuilder, err := a.registry.QueryBuilder(ctx, a.localAddress)
-	if err != nil {
-		return OrderAdmissionResult{}, authorityUnavailable("re-query Builder", err)
-	}
-	if confirmedBuilder.Address != builder.Address || confirmedBuilder.ServiceKeyStatus != builder.ServiceKeyStatus ||
-		confirmedBuilder.CurrentDescriptorVersion != builder.CurrentDescriptorVersion {
-		return OrderAdmissionResult{}, authorityUnavailable("Builder state changed while reading the active BuilderSet", nil)
-	}
-	count, err := a.registry.QueryBuildersPerTask(ctx)
+	// The Builder row is read once. The BuilderSet is read at the signed anchor height, which the
+	// anchor check above requires to be committed, and the set in effect at a committed height no
+	// longer changes; the Builder row is current state at the latest height. A second read of the row
+	// around the set read cannot make the two agree at one height, so it brackets nothing (and with
+	// the reads in parallel it would not even surround the set read).
+	count, err := reads.perTask, reads.perTaskErr
 	if err != nil {
 		return OrderAdmissionResult{}, authorityUnavailable("query builders_per_task", err)
 	}
@@ -202,6 +203,64 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 	return OrderAdmissionResult{}, fmt.Errorf("%w: builder %q builder_set_version %d", ErrNotSelectedBuilder, a.localAddress, set.Epoch)
 }
 
+// anchorReads is what the session anchor check needs.
+type anchorReads struct {
+	latest       uint64
+	latestErr    error
+	window       uint64
+	windowErr    error
+	blockHash    []byte
+	blockHashErr error
+}
+
+// admissionReads is every chain fact one admission uses.
+type admissionReads struct {
+	anchor     anchorReads
+	builder    chaincli.BuilderState
+	builderErr error
+	set        chaincli.BuilderSet
+	setErr     error
+	perTask    uint32
+	perTaskErr error
+}
+
+// readAdmissionState makes the admission reads in parallel and returns once every read has ended;
+// a cancelled ctx ends them all, and each then reports its error. The block hash and BuilderSet
+// reads are sent before the anchor check has judged the user-signed height, so an order with a bad
+// anchor costs up to two hub reads that the check then discards; heights the check refuses as out
+// of range are not sent at all.
+//
+// The latest height is read alongside the BuilderSet rather than before it, so it cannot vouch that
+// the anchor height was committed when the set was read. The anchor block hash the user signed was read from a
+// committed block, so a node answering below that height is behind the chain; the anchor check then
+// refuses the order unless the node commits the anchor block between the two reads, and admission
+// only ranks this Builder for the log and the proposal.
+func (a *hubStage1Admission) readAdmissionState(ctx context.Context, anchorHeight uint64) admissionReads {
+	var reads admissionReads
+	var wg sync.WaitGroup
+	run := func(read func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			read()
+		}()
+	}
+	run(func() { reads.anchor.latest, reads.anchor.latestErr = a.registry.LatestHeight(ctx) })
+	run(func() {
+		reads.anchor.window, reads.anchor.windowErr = a.registry.QueryAnchorFreshnessWindowBlocks(ctx)
+	})
+	run(func() { reads.builder, reads.builderErr = a.registry.QueryBuilder(ctx, a.localAddress) })
+	run(func() { reads.perTask, reads.perTaskErr = a.registry.QueryBuildersPerTask(ctx) })
+	if anchorHeight <= math.MaxInt64 {
+		run(func() {
+			reads.anchor.blockHash, reads.anchor.blockHashErr = a.registry.BlockHash(ctx, int64(anchorHeight))
+		})
+		run(func() { reads.set, reads.setErr = a.registry.QueryBuilderSetAtHeight(ctx, anchorHeight) })
+	}
+	wg.Wait()
+	return reads
+}
+
 // checkSessionAnchor applies the chain's anchor rules to a signed order, so an order the chain will
 // refuse is refused here instead of being answered with a rank and a doomed assignment: the anchor
 // must lie below the executing height and at most anchor_freshness_window_blocks behind it, and its
@@ -209,18 +268,18 @@ func (a *hubStage1Admission) AdmitOrder(ctx context.Context, order types.Order) 
 // block after the latest one, the earliest an assignment can execute, so this only refuses orders
 // the chain is certain to refuse. Passing it does not mean the chain will accept the assignment:
 // the chain applies the window again at the height the assignment actually executes.
-func (a *hubStage1Admission) checkSessionAnchor(ctx context.Context, anchorHeight uint64, anchorHash []byte) error {
-	latest, err := a.registry.LatestHeight(ctx)
-	if err != nil {
-		return authorityUnavailable("query latest height", err)
+func (a *hubStage1Admission) checkSessionAnchor(anchorHeight uint64, anchorHash []byte, reads anchorReads) error {
+	if reads.latestErr != nil {
+		return authorityUnavailable("query latest height", reads.latestErr)
 	}
+	latest := reads.latest
 	if latest == 0 || latest == math.MaxUint64 {
 		return authorityUnavailable(fmt.Sprintf("latest height %d is not usable", latest), nil)
 	}
-	window, err := a.registry.QueryAnchorFreshnessWindowBlocks(ctx)
-	if err != nil {
-		return authorityUnavailable("query anchor_freshness_window_blocks", err)
+	if reads.windowErr != nil {
+		return authorityUnavailable("query anchor_freshness_window_blocks", reads.windowErr)
 	}
+	window := reads.window
 	executing := latest + 1
 	if anchorHeight >= executing || executing-anchorHeight > window {
 		return authorityUnavailable(fmt.Sprintf("session anchor height %d is outside the freshness window of %d blocks before height %d", anchorHeight, window, executing), nil)
@@ -228,11 +287,10 @@ func (a *hubStage1Admission) checkSessionAnchor(ctx context.Context, anchorHeigh
 	if anchorHeight > math.MaxInt64 {
 		return authorityUnavailable(fmt.Sprintf("session anchor height %d is out of range", anchorHeight), nil)
 	}
-	hash, err := a.registry.BlockHash(ctx, int64(anchorHeight))
-	if err != nil {
-		return authorityUnavailable(fmt.Sprintf("query block hash at session anchor height %d", anchorHeight), err)
+	if reads.blockHashErr != nil {
+		return authorityUnavailable(fmt.Sprintf("query block hash at session anchor height %d", anchorHeight), reads.blockHashErr)
 	}
-	if len(hash) != 32 || !bytes.Equal(hash, anchorHash) {
+	if len(reads.blockHash) != 32 || !bytes.Equal(reads.blockHash, anchorHash) {
 		return authorityUnavailable(fmt.Sprintf("session anchor block hash does not match the block at height %d", anchorHeight), nil)
 	}
 	return nil

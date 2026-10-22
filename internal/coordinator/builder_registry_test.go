@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -111,56 +112,65 @@ func coordinatorTestSigner(t *testing.T) signer.Signer {
 }
 
 type fakeBuilderRegistry struct {
-	address          string
-	queriedHeight    uint64
-	builder          chaincli.BuilderState
-	builderResponses []chaincli.BuilderState
-	builderCalls     int
-	builderErr       error
-	height           uint64
-	heightErr        error
-	set              chaincli.BuilderSet
-	setErr           error
-	buildersPerTask  uint32
-	perTaskErr       error
-	anchorWindow     uint64
-	windowErr        error
-	blockHashes      map[uint64][]byte
-	blockErr         error
+	// mu guards every field: admission reads in parallel.
+	mu              sync.Mutex
+	setCalls        int
+	blockCalls      int
+	address         string
+	queriedHeight   uint64
+	builder         chaincli.BuilderState
+	builderCalls    int
+	builderErr      error
+	height          uint64
+	heightErr       error
+	set             chaincli.BuilderSet
+	setErr          error
+	buildersPerTask uint32
+	perTaskErr      error
+	anchorWindow    uint64
+	windowErr       error
+	blockHashes     map[uint64][]byte
+	blockErr        error
 }
 
 func (r *fakeBuilderRegistry) QueryBuilder(_ context.Context, address string) (chaincli.BuilderState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.address = address
-	if len(r.builderResponses) > 0 {
-		index := r.builderCalls
-		if index >= len(r.builderResponses) {
-			index = len(r.builderResponses) - 1
-		}
-		r.builderCalls++
-		return r.builderResponses[index], r.builderErr
-	}
 	r.builderCalls++
 	return r.builder, r.builderErr
 }
 
 func (r *fakeBuilderRegistry) LatestHeight(context.Context) (uint64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.height, r.heightErr
 }
 
 func (r *fakeBuilderRegistry) QueryBuilderSetAtHeight(_ context.Context, height uint64) (chaincli.BuilderSet, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.setCalls++
 	r.queriedHeight = height
 	return r.set, r.setErr
 }
 
 func (r *fakeBuilderRegistry) QueryBuildersPerTask(context.Context) (uint32, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.buildersPerTask, r.perTaskErr
 }
 
 func (r *fakeBuilderRegistry) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.anchorWindow, r.windowErr
 }
 
 func (r *fakeBuilderRegistry) BlockHash(_ context.Context, height int64) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.blockCalls++
 	if r.blockErr != nil {
 		return nil, r.blockErr
 	}

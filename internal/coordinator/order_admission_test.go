@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cosmos/btcutil/bech32"
 	"google.golang.org/protobuf/proto"
@@ -200,39 +203,20 @@ func TestHubStage1AdmissionFailsClosedWithoutAuthoritativeState(t *testing.T) {
 	}
 }
 
-// The read-time consistency check compares descriptor version: it is the monotonic value on the
-// Builder row that MsgUpdateServiceDescriptor actually advances during a read.
-func TestHubStage1AdmissionRejectsBuilderIdentityChangeBetweenQueries(t *testing.T) {
-	addresses := admissionTestAddresses(t, 3)
-	set := admissionSet(addresses...)
-	taskID := admissionTaskFor(t, bytes.Repeat([]byte{0x7a}, 32))
-	tests := []struct {
-		name      string
-		responses []chaincli.BuilderState
-	}{
-		{name: "descriptor version bumped", responses: []chaincli.BuilderState{
-			{Address: addresses[0], ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
-			{Address: addresses[0], ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 2},
-		}},
-		{name: "service key status changed", responses: []chaincli.BuilderState{
-			{Address: addresses[0], ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
-			{Address: addresses[0], ServiceKeyStatus: "REVOKED", CurrentDescriptorVersion: 1},
-		}},
+// The Builder row is read once per admission: the BuilderSet is read at a committed anchor height,
+// so there is no read for a second Builder read to bracket.
+func TestHubStage1AdmissionReadsTheBuilderRowOnce(t *testing.T) {
+	builders := admissionTestAddresses(t, 3)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	registry := admissionRegistry(activeBuilder(builders[0]), admissionSet(builders...))
+	if _, err := NewHubStage1Admission(registry, builders[0], admissionChainID).AdmitOrder(context.Background(), admissionOrder(t, taskID)); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			registry := admissionRegistry(chaincli.BuilderState{}, set)
-			registry.builderResponses = tt.responses
-			_, err := NewHubStage1Admission(registry, addresses[0], admissionChainID).AdmitOrder(context.Background(), admissionOrder(t, taskID))
-			if !errors.Is(err, ErrAdmissionUnavailable) {
-				t.Fatalf("Admit error=%v want ErrAdmissionUnavailable", err)
-			}
-		})
+	if registry.builderCalls != 1 {
+		t.Fatalf("Builder row read %d times, want 1", registry.builderCalls)
 	}
 }
 
-// admissionRegistry is chain state that admits admissionOrder: the latest block sits right above the
-// session anchor, inside the freshness window, and the anchor's block hash is the one the order signed.
 func admissionRegistry(builder chaincli.BuilderState, set chaincli.BuilderSet) *fakeBuilderRegistry {
 	return &fakeBuilderRegistry{
 		builder: builder, set: set, buildersPerTask: admissionPerTask,
@@ -402,5 +386,152 @@ func TestHubStage1AdmissionAnchorFreshnessBoundary(t *testing.T) {
 		if (err == nil) != tt.admit {
 			t.Fatalf("latest=%d admit=%v err=%v", tt.latest, tt.admit, err)
 		}
+	}
+}
+
+// The reads run in parallel, but their failures are judged in the order the checks always ran: the
+// first failing check is the one reported, whichever read failed first.
+func TestHubStage1AdmissionReportsTheFirstFailingCheck(t *testing.T) {
+	builders := admissionTestAddresses(t, 3)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	fail := errors.New("hub unavailable")
+	tests := []struct {
+		name  string
+		setup func(*fakeBuilderRegistry)
+		want  string
+	}{
+		{name: "latest height before everything", setup: func(r *fakeBuilderRegistry) {
+			r.heightErr, r.windowErr, r.blockErr, r.builderErr, r.setErr, r.perTaskErr = fail, fail, fail, fail, fail, fail
+		}, want: "query latest height"},
+		{name: "freshness window before the block hash", setup: func(r *fakeBuilderRegistry) {
+			r.windowErr, r.blockErr, r.builderErr, r.setErr, r.perTaskErr = fail, fail, fail, fail, fail
+		}, want: "query anchor_freshness_window_blocks"},
+		{name: "block hash before the Builder row", setup: func(r *fakeBuilderRegistry) {
+			r.blockErr, r.builderErr, r.setErr, r.perTaskErr = fail, fail, fail, fail
+		}, want: "query block hash at session anchor height"},
+		{name: "Builder row before the BuilderSet", setup: func(r *fakeBuilderRegistry) {
+			r.builderErr, r.setErr, r.perTaskErr = fail, fail, fail
+		}, want: "query Builder: hub unavailable"},
+		{name: "BuilderSet before builders_per_task", setup: func(r *fakeBuilderRegistry) {
+			r.setErr, r.perTaskErr = fail, fail
+		}, want: "query BuilderSet at session anchor height"},
+		{name: "builders_per_task", setup: func(r *fakeBuilderRegistry) { r.perTaskErr = fail }, want: "query builders_per_task"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := admissionRegistry(activeBuilder(builders[0]), admissionSet(builders...))
+			tt.setup(registry)
+			_, err := NewHubStage1Admission(registry, builders[0], admissionChainID).AdmitOrder(context.Background(), admissionOrder(t, taskID))
+			if !errors.Is(err, ErrAdmissionUnavailable) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err=%v, want ErrAdmissionUnavailable mentioning %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// A failed latest-height read fails admission closed although every other read succeeded, and the
+// next admission reads the height again and recovers.
+func TestHubStage1AdmissionLatestHeightFailureFailsClosed(t *testing.T) {
+	builders := admissionTestAddresses(t, 4)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	registry := admissionRegistry(activeBuilder(builders[0]), admissionSet(builders...))
+	registry.heightErr = errors.New("node unavailable")
+	admission := NewHubStage1Admission(registry, builders[0], admissionChainID)
+	if _, err := admission.AdmitOrder(context.Background(), admissionOrder(t, taskID)); !errors.Is(err, ErrAdmissionUnavailable) ||
+		!strings.Contains(err.Error(), "query latest height") {
+		t.Fatalf("err=%v, want ErrAdmissionUnavailable for the latest height", err)
+	}
+	registry.mu.Lock()
+	registry.heightErr = nil
+	registry.mu.Unlock()
+	if result, err := admission.AdmitOrder(context.Background(), admissionOrder(t, taskID)); err != nil || result.Rank != 1 {
+		t.Fatalf("after recovery: result=%+v err=%v", result, err)
+	}
+}
+
+// An anchor height the check refuses as out of range is never sent to the hub.
+func TestHubStage1AdmissionDoesNotQueryAnOutOfRangeAnchor(t *testing.T) {
+	builders := admissionTestAddresses(t, 3)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	order := admissionOrder(t, taskID)
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(order.SignedOrder, &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed.Order.SessionAnchorHeight = math.MaxInt64 + 1
+	raw, err := proto.Marshal(&signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	order.SignedOrder = raw
+	registry := admissionRegistry(activeBuilder(builders[0]), admissionSet(builders...))
+	if _, err := NewHubStage1Admission(registry, builders[0], admissionChainID).AdmitOrder(context.Background(), order); !errors.Is(err, ErrAdmissionUnavailable) {
+		t.Fatalf("err=%v, want ErrAdmissionUnavailable", err)
+	}
+	if registry.setCalls != 0 || registry.blockCalls != 0 {
+		t.Fatalf("set calls=%d block calls=%d for an out-of-range anchor, want none", registry.setCalls, registry.blockCalls)
+	}
+}
+
+// blockingRegistry answers every read only when the context ends, counting reads in flight.
+type blockingRegistry struct {
+	inflight atomic.Int32
+	started  chan struct{}
+}
+
+func (r *blockingRegistry) wait(ctx context.Context) error {
+	r.inflight.Add(1)
+	defer r.inflight.Add(-1)
+	r.started <- struct{}{}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (r *blockingRegistry) QueryBuilder(ctx context.Context, _ string) (chaincli.BuilderState, error) {
+	return chaincli.BuilderState{}, r.wait(ctx)
+}
+func (r *blockingRegistry) LatestHeight(ctx context.Context) (uint64, error) { return 0, r.wait(ctx) }
+func (r *blockingRegistry) QueryBuilderSetAtHeight(ctx context.Context, _ uint64) (chaincli.BuilderSet, error) {
+	return chaincli.BuilderSet{}, r.wait(ctx)
+}
+func (r *blockingRegistry) QueryBuildersPerTask(ctx context.Context) (uint32, error) {
+	return 0, r.wait(ctx)
+}
+func (r *blockingRegistry) QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error) {
+	return 0, r.wait(ctx)
+}
+func (r *blockingRegistry) BlockHash(ctx context.Context, _ int64) ([]byte, error) {
+	return nil, r.wait(ctx)
+}
+
+// Cancelling the context ends every parallel read; admission returns only after all of them did.
+func TestHubStage1AdmissionCancelEndsEveryRead(t *testing.T) {
+	builders := admissionTestAddresses(t, 3)
+	taskID, _ := admissionTaskWhere(t, builders, func(order []string) bool { return order[0] == builders[0] })
+	registry := &blockingRegistry{started: make(chan struct{}, 16)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewHubStage1Admission(registry, builders[0], admissionChainID).AdmitOrder(ctx, admissionOrder(t, taskID))
+		done <- err
+	}()
+	for i := 0; i < 6; i++ { // latest, window, block hash, Builder, BuilderSet, builders_per_task
+		select {
+		case <-registry.started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d of 6 reads started in parallel", i)
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrAdmissionUnavailable) {
+			t.Fatalf("err=%v, want ErrAdmissionUnavailable", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("admission did not return after cancel")
+	}
+	if n := registry.inflight.Load(); n != 0 {
+		t.Fatalf("%d reads still in flight after admission returned", n)
 	}
 }
