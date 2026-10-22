@@ -26,6 +26,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -64,6 +65,11 @@ type taskFSM struct {
 	priceHint      string
 	builderSet     []types.BuilderRef // candidate Builder group coordinating this order (with endpoints)
 	order          types.Order
+
+	// orderAt and firstHandraiseAt are in-memory latency marks for the logs (zero after a restart,
+	// when the fields that use them are left out).
+	orderAt          time.Time
+	firstHandraiseAt time.Time
 
 	state types.TaskState
 	phase types.TaskPhase // fine-grained phase, drives the external task_phase
@@ -256,9 +262,10 @@ func (f *taskFSM) emit(code string, height int64) {
 // ---- Entry points (called via coordinator routing) ----
 
 // onOrder is the first action after construction: broadcast the order to solicit hand-raises and subscribe to Worker hand-raises (Pending).
-func (f *taskFSM) onOrder() error {
+func (f *taskFSM) onOrder(ctx context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.orderAt = time.Now()
 
 	// ORDER_BROADCAST must carry the candidate task_hash: the whole
 	// ORDER_BROADCAST → WORKER_HANDRAISE → MsgSubmitWorkerHandraises chain relies on it
@@ -280,10 +287,15 @@ func (f *taskFSM) onOrder() error {
 	if err := proto.Unmarshal(f.order.SignedOrder, &signedOrder); err != nil {
 		return fmt.Errorf("decode SignedOrderV2: %w", err)
 	}
-	if err := f.publish(msgbus.SubjectTaskOpen(f.modelID), bus.KindOrderBroadcast,
+	broadcastStart := time.Now()
+	// WithoutCancel: the request context only carries the timing recorder here; a client hanging up
+	// must not fail the broadcast, which ran on a background context before.
+	if err := f.publishCtx(context.WithoutCancel(ctx), msgbus.SubjectTaskOpen(f.modelID), bus.KindOrderBroadcast,
 		&busv1.OrderBroadcastV1{SignedOrder: &signedOrder}, busadapter.TierCore); err != nil {
 		return err
 	}
+	broadcastTime := time.Since(broadcastStart)
+	stagetiming.From(ctx).Add("order_broadcast", broadcastTime)
 
 	f.subscribeWorkerHandraise()
 	f.subscribeBuilderPrepare()
@@ -291,7 +303,8 @@ func (f *taskFSM) onOrder() error {
 	if err := f.save(); err != nil {
 		return err
 	}
-	f.log.Info("task pending: order broadcast, collecting worker handraise", "session_id", f.sessionID, "task_id", f.taskID)
+	f.log.Info("task pending: order broadcast, collecting worker handraise", "session_id", f.sessionID, "task_id", f.taskID,
+		"order_broadcast_ms", stagetiming.Millis(broadcastTime))
 	return nil
 }
 
@@ -310,12 +323,15 @@ func (f *taskFSM) onWorkerHandraise(hr *taskv1.WorkerHandraiseV1) {
 	}
 	worker := hr.GetMember().GetOperatorAddress()
 	f.workerHR[worker] = hr
+	if f.firstHandraiseAt.IsZero() {
+		f.firstHandraiseAt = time.Now()
+	}
 	f.save()
 	// Log accepted hand-raises at Info rather than Debug: after OPEN_TASK this is the only
 	// signal proving "Cortex actually responded", and deployments running at Info can only
 	// guess without it. Volume is bounded by the candidate pool cap, so it will not flood.
-	f.log.Info("worker handraise accepted", "task_id", f.taskID, "candidate", worker,
-		"count", len(f.workerHR), "need", proposalHandraiseMin)
+	f.log.Info("worker handraise accepted", append([]any{"task_id", f.taskID, "candidate", worker,
+		"count", len(f.workerHR), "need", proposalHandraiseMin}, sinceAttr("since_order_ms", f.orderAt)...)...)
 
 	// The three gates are checked separately and each leaves a trace. Folded into one
 	// condition with a silent return, "not enough collected", "not in the group" and
@@ -389,17 +405,25 @@ func (f *taskFSM) submitAssignLocked() bool {
 		ReservedFee:         f.order.MaxFee,
 		InferDeadlineHeight: f.order.InferTimeoutBlocks, Submitter: f.self,
 	}
+	submitStart := time.Now()
 	result, err := f.submit.SubmitAssign(context.Background(), tx)
+	submitTime := time.Since(submitStart)
 	if err != nil {
-		f.log.Warn("submit AssignTx failed", "task_id", f.taskID, "err", err)
+		f.log.Warn("submit AssignTx failed", "task_id", f.taskID, "err", err, "submit_ms", stagetiming.Millis(submitTime))
 		f.assignSubmitted = false // let the next hand-raise retry
 		return false
 	}
 	f.assignTxHash = append(f.assignTxHash[:0], result.TxHash...)
 	f.save()
-	f.log.Info("AssignTx accepted by CheckTx", "task_id", f.taskID,
-		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR)-len(result.Excluded),
-		"excluded", len(result.Excluded))
+	// submit_ms covers the whole SubmitAssign: waiting for the account sequence lock, simulation
+	// (simulate_ms over simulations runs), signing and the CheckTx broadcast.
+	attrs := []any{"task_id", f.taskID,
+		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR) - len(result.Excluded),
+		"excluded", len(result.Excluded), "submit_ms", stagetiming.Millis(submitTime),
+		"simulate_ms", stagetiming.Millis(result.SimulateTime), "simulations", result.Simulations}
+	attrs = append(attrs, sinceAttr("since_order_ms", f.orderAt)...)
+	attrs = append(attrs, sinceAttr("since_first_handraise_ms", f.firstHandraiseAt)...)
+	f.log.Info("AssignTx accepted by CheckTx", attrs...)
 	return true
 }
 
@@ -2642,12 +2666,26 @@ func (f *taskFSM) receive(
 	return inbound, nil
 }
 
+// sinceAttr is a "<name>, ms since mark" log pair, or nothing when mark is unset.
+func sinceAttr(name string, mark time.Time) []any {
+	if mark.IsZero() {
+		return nil
+	}
+	return []any{name, stagetiming.Millis(time.Since(mark))}
+}
+
 // publish assembles, signs and publishes one BusEnvelopeV1 (proto). The publisher also
 // writes the complete envelope's raw bytes to the outbox, and after restart the
 // coordinator's Republish resends them verbatim. If it cannot be signed, do not send: the
 // envelope has no optional parts, and a dev fallback of "send one unsigned frame" would
 // defeat envelope verification entirely.
 func (f *taskFSM) publish(subject string, kind int32, payload proto.Message, tier busadapter.Tier) error {
+	return f.publishCtx(context.Background(), subject, kind, payload, tier)
+}
+
+// publishCtx is publish with the caller's context, so the binding read it may make is timed into
+// the caller's stagetiming.Recorder.
+func (f *taskFSM) publishCtx(ctx context.Context, subject string, kind int32, payload proto.Message, tier busadapter.Tier) error {
 	// Check the subject↔kind table before publishing (the publisher-side equivalent of step 2
 	// of the old encode): a call site with a mistyped subject would sign a frame that
 	// contradicts the vocabulary; better not to send.
@@ -2673,7 +2711,7 @@ func (f *taskFSM) publish(subject string, kind int32, payload proto.Message, tie
 	if tier == busadapter.TierJetStream {
 		tierName = "jetstream"
 	}
-	messageID, err := f.publisher.Publish(context.Background(), subject, kind, payload, tier)
+	messageID, err := f.publisher.Publish(ctx, subject, kind, payload, tier)
 	if err != nil {
 		f.log.Error("bus publish failed",
 			"phase", phase, "tier", tierName, "confirmed", false,

@@ -643,6 +643,11 @@ func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry
 	if err != nil {
 		return fmt.Errorf("%w: read replay record", ErrStorage)
 	}
+	// Every write below -- dropping this nonce's expired record, pruning other expired records and
+	// storing the new record with its expiry index -- goes into one batch: one fsync instead of up
+	// to four, and a crash can no longer leave a record without its index or the reverse. Reads all
+	// happen first, under replayMu, so no other consumeNonce interleaves.
+	var ops []kv.WriteOp
 	if found {
 		if len(raw) != 8 {
 			return fmt.Errorf("%w: decode replay record", ErrStorage)
@@ -651,29 +656,32 @@ func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry
 		if previousExpiry >= height {
 			return fmt.Errorf("%w: request nonce already used", ErrReplay)
 		}
-		if err := a.backend.Delete(kv.NSTaskDataReplay, key); err != nil {
-			return fmt.Errorf("%w: delete expired replay record", ErrStorage)
-		}
-		if err := a.backend.Delete(kv.NSTaskDataReplayExpiry, replayExpiryKey(previousExpiry, key)); err != nil {
-			return fmt.Errorf("%w: delete expired replay index", ErrStorage)
-		}
+		ops = append(ops,
+			kv.WriteOp{NS: kv.NSTaskDataReplay, Key: key, Delete: true},
+			kv.WriteOp{NS: kv.NSTaskDataReplayExpiry, Key: replayExpiryKey(previousExpiry, key), Delete: true})
 	}
-	if err := a.pruneExpiredReplayRecords(height); err != nil {
+	pruned, err := a.expiredReplayRecordOps(height)
+	if err != nil {
 		return err
 	}
+	ops = append(ops, pruned...)
+	// The new record goes last: a batch applies in order, so a prune of the same key above is
+	// overwritten. Its index entry cannot be among the pruned ones: expiry >= height here, and only
+	// entries below height are pruned.
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], expiry)
-	if err := a.backend.Set(kv.NSTaskDataReplay, key, encoded[:]); err != nil {
+	ops = append(ops,
+		kv.WriteOp{NS: kv.NSTaskDataReplay, Key: key, Val: encoded[:]},
+		kv.WriteOp{NS: kv.NSTaskDataReplayExpiry, Key: replayExpiryKey(expiry, key)})
+	if err := a.backend.WriteBatch(ops...); err != nil {
 		return fmt.Errorf("%w: persist replay record", ErrStorage)
-	}
-	if err := a.backend.Set(kv.NSTaskDataReplayExpiry, replayExpiryKey(expiry, key), nil); err != nil {
-		_ = a.backend.Delete(kv.NSTaskDataReplay, key)
-		return fmt.Errorf("%w: persist replay expiry index", ErrStorage)
 	}
 	return nil
 }
 
-func (a *Authorizer) pruneExpiredReplayRecords(height uint64) error {
+// expiredReplayRecordOps returns the deletes that prune up to replayPruneLimit replay records whose
+// expiry is below height, with their index entries; stale and orphan index entries are dropped too.
+func (a *Authorizer) expiredReplayRecordOps(height uint64) ([]kv.WriteOp, error) {
 	type expiredReplayRecord struct {
 		indexKey  string
 		replayKey string
@@ -692,40 +700,31 @@ func (a *Authorizer) pruneExpiredReplayRecords(height uint64) error {
 		expired = append(expired, expiredReplayRecord{indexKey: indexKey, replayKey: replayKey})
 		return len(expired) < replayPruneLimit
 	}); err != nil {
-		return fmt.Errorf("%w: scan replay expiry index", ErrStorage)
+		return nil, fmt.Errorf("%w: scan replay expiry index", ErrStorage)
 	}
 	if scanErr != nil {
-		return scanErr
+		return nil, scanErr
 	}
+	var ops []kv.WriteOp
 	for _, record := range expired {
 		raw, found, err := a.backend.GetWithError(kv.NSTaskDataReplay, record.replayKey)
 		if err != nil {
-			return fmt.Errorf("%w: read indexed replay record", ErrStorage)
+			return nil, fmt.Errorf("%w: read indexed replay record", ErrStorage)
 		}
 		if found {
 			if len(raw) != 8 {
-				return fmt.Errorf("%w: decode indexed replay record", ErrStorage)
+				return nil, fmt.Errorf("%w: decode indexed replay record", ErrStorage)
 			}
-			expiry := binary.BigEndian.Uint64(raw)
-			if expiry >= height {
-				if err := a.backend.Delete(kv.NSTaskDataReplayExpiry, record.indexKey); err != nil {
-					return fmt.Errorf("%w: prune stale replay expiry index", ErrStorage)
-				}
+			if binary.BigEndian.Uint64(raw) >= height {
+				// The record was re-stored with a later expiry: only this index entry is stale.
+				ops = append(ops, kv.WriteOp{NS: kv.NSTaskDataReplayExpiry, Key: record.indexKey, Delete: true})
 				continue
 			}
-			if err := a.backend.Delete(kv.NSTaskDataReplay, record.replayKey); err != nil {
-				return fmt.Errorf("%w: prune replay record", ErrStorage)
-			}
-			if err := a.backend.Delete(kv.NSTaskDataReplayExpiry, record.indexKey); err != nil {
-				return fmt.Errorf("%w: prune replay expiry index", ErrStorage)
-			}
-			continue
+			ops = append(ops, kv.WriteOp{NS: kv.NSTaskDataReplay, Key: record.replayKey, Delete: true})
 		}
-		if err := a.backend.Delete(kv.NSTaskDataReplayExpiry, record.indexKey); err != nil {
-			return fmt.Errorf("%w: prune orphan replay expiry index", ErrStorage)
-		}
+		ops = append(ops, kv.WriteOp{NS: kv.NSTaskDataReplayExpiry, Key: record.indexKey, Delete: true})
 	}
-	return nil
+	return ops, nil
 }
 
 func replayExpiryKey(expiry uint64, replayKey string) string {

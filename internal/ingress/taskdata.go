@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"io"
 	"math"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -110,21 +112,54 @@ func (r taskDataRuntime) FinalizeVerifierEvidence(
 	return r.service.FinalizeVerifierEvidence(ctx, request)
 }
 
+// OpenTask logs one "open task intake timing" line per request whose header parsed, with the time
+// of each stage as *_ms fields (see openTask) and the stages the layers below add to the request's
+// stagetiming.Recorder. Client-paced time is kept apart: header_frame_wait_ms is the wait for the
+// first frame, input_stream_ms the whole chunk loop including the client's sending, of which
+// input_write_ms is the local writing. Server time is total_ms minus header_frame_wait_ms minus
+// (input_stream_ms - input_write_ms). Some stages nest: header_validate contains envelope;
+// on_order contains admission and order_init, which contains order_broadcast. chain_*_ms are
+// chain reads made inside those stages (chain_account_key_ms in envelope, chain_service_key_ms in
+// order_broadcast).
 func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nexusv1.OpenTaskRequest]) (*connect.Response[nexusv1.OpenTaskResponse], error) {
+	ctx, timing := stagetiming.With(ctx)
+	var order types.Order
+	response, err := s.openTask(ctx, stream, &order)
+	if order.TaskID != "" {
+		outcome := "accepted"
+		if err != nil {
+			outcome = connect.CodeOf(err).String()
+		}
+		attrs := append([]any{"session_id", order.SessionID, "task_id", order.TaskID, "outcome", outcome}, timing.Attrs()...)
+		s.log.Info("open task intake timing", attrs...)
+	}
+	return response, err
+}
+
+// openTask handles OpenTask, timing its stages into ctx's Recorder; it sets *timedOrder once the
+// header has parsed so the caller can name the order in the timing line.
+func (s *service) openTask(
+	ctx context.Context, stream *connect.ClientStream[nexusv1.OpenTaskRequest], timedOrder *types.Order,
+) (*connect.Response[nexusv1.OpenTaskResponse], error) {
+	timing := stagetiming.From(ctx)
 	if s.taskData == nil {
 		return nil, mapTaskDataError(taskdata.ErrServiceKeyUnavailable)
 	}
+	stageStart := time.Now()
 	if !stream.Receive() {
 		if err := stream.Err(); err != nil {
 			return nil, err
 		}
 		return nil, mapTaskDataError(fmt.Errorf("%w: OpenTask header required", taskdata.ErrMalformed))
 	}
+	timing.Since("header_frame_wait", stageStart)
 	headerPB := stream.Msg().GetHeader()
 	if headerPB == nil {
 		return nil, mapTaskDataError(fmt.Errorf("%w: first OpenTask frame must be header", taskdata.ErrMalformed))
 	}
+	stageStart = time.Now()
 	order, uploadHeader, err := s.validateOpenTaskHeader(ctx, headerPB)
+	timing.Since("header_validate", stageStart)
 	if err != nil {
 		// Even with an invalid header, drain the remaining client frames before returning: leaving without
 		// reading may block the peer's Send forever on a stream nobody receives.
@@ -135,23 +170,32 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 	// Step 5 (expiry window, the order's own expiry, then the nonce) comes before any storage, so a
 	// replayed OpenTask is SDK_AUTH_REPLAY rather than a conflict with the stored input, and an
 	// expired order is never stored.
+	*timedOrder = order
 	envelope := headerPB.GetRequestEnvelope()
-	if err := s.taskData.AuthorizeOpenTaskRequest(
+	stageStart = time.Now()
+	err = s.taskData.AuthorizeOpenTaskRequest(
 		ctx, envelope.GetSignerAddress(), envelope.GetRequestNonce(), uint64(envelope.GetExpiryHeightOrTime()),
 		order.DeadlineHeight,
-	); err != nil {
+	)
+	timing.Since("authorize", stageStart)
+	if err != nil {
 		for stream.Receive() {
 		}
 		return nil, mapOpenTaskRequestErr(err)
 	}
 	// Refuse another version of a known task before storing anything, so the refused input never
 	// replaces the stored version's index. OnOrder repeats the check after the upload.
-	if err := s.h.CheckOrder(ctx, order); err != nil {
+	stageStart = time.Now()
+	err = s.h.CheckOrder(ctx, order)
+	timing.Since("check_order", stageStart)
+	if err != nil {
 		for stream.Receive() {
 		}
 		return nil, mapOrderErr(err)
 	}
+	stageStart = time.Now()
 	upload, err := s.taskData.BeginInput(ctx, uploadHeader)
+	timing.Since("input_begin", stageStart)
 	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
@@ -165,31 +209,44 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 	}()
 	chunks := 0
+	streamStart := time.Now()
 	for stream.Receive() {
 		chunkFrame, ok := stream.Msg().GetFrame().(*nexusv1.OpenTaskRequest_Chunk)
 		if !ok || len(chunkFrame.Chunk) == 0 || uint64(len(chunkFrame.Chunk)) > s.taskData.ChunkSize() {
 			return nil, mapTaskDataError(fmt.Errorf("%w: OpenTask chunk frame", taskdata.ErrMalformed))
 		}
-		if err := upload.WriteChunk(chunkFrame.Chunk); err != nil {
+		writeStart := time.Now()
+		err := upload.WriteChunk(chunkFrame.Chunk)
+		timing.Since("input_write", writeStart)
+		if err != nil {
 			return nil, mapTaskDataError(err)
 		}
 		chunks++
 	}
+	timing.Since("input_stream", streamStart)
 	if err := stream.Err(); err != nil {
 		return nil, err
 	}
 	if chunks == 0 {
 		return nil, mapTaskDataError(fmt.Errorf("%w: OpenTask chunks required", taskdata.ErrMalformed))
 	}
-	if _, err := s.taskData.PrepareInput(ctx, upload); err != nil {
+	stageStart = time.Now()
+	_, err = s.taskData.PrepareInput(ctx, upload)
+	timing.Since("input_prepare", stageStart)
+	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
 	prepared = true
-	if err := s.h.OnOrder(ctx, order); err != nil {
+	stageStart = time.Now()
+	err = s.h.OnOrder(ctx, order)
+	timing.Since("on_order", stageStart)
+	if err != nil {
 		return nil, mapOrderErr(err)
 	}
 	coordinatorAccepted = true
+	stageStart = time.Now()
 	ready, err := s.taskData.MarkInputReady(ctx, uploadHeader.Key)
+	timing.Since("input_ready", stageStart)
 	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
@@ -299,9 +356,11 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	// the order user (the order itself is still signed by the wallet). Its height expiry and nonce
 	// are checked by the taskdata Authorizer against the chain, so no replay cache here.
 	wireTaskID := hash32text.FromInternal(order.TaskID)
+	envelopeStart := time.Now()
 	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), header.GetSessionId(), wireTaskID, envelopeCheck{
 		method: "OpenTask", body: body, heightExpiry: true, sessionAllowed: true, orderUser: order.User,
 	})
+	stagetiming.From(ctx).Since("envelope", envelopeStart)
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, err
 	}

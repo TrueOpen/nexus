@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -17,6 +18,9 @@ import (
 type ProposalResult struct {
 	chaincli.TxResult
 	Excluded []ExcludedHandraise
+	// SimulateTime is the time spent in the Simulations simulate calls made before the broadcast.
+	SimulateTime time.Duration
+	Simulations  int
 }
 
 // ExcludedHandraise is one handraise the chain refused when simulated alone.
@@ -60,7 +64,15 @@ type handraiseProposal struct {
 //
 // A node that cannot simulate at all leaves the proposal to be broadcast unfiltered, as
 // before, and each such proposal is counted in the log.
-func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handraiseProposal) (ProposalResult, error) {
+func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handraiseProposal) (result ProposalResult, err error) {
+	var simulateTime time.Duration
+	simulations := 0
+	defer func() { result.SimulateTime, result.Simulations = simulateTime, simulations }()
+	simulate := func(keep []int) (chaincli.SimResult, error) {
+		start := time.Now()
+		defer func() { simulateTime += time.Since(start); simulations++ }()
+		return s.simulateLocked(ctx, p, keep)
+	}
 	if s.signer == nil {
 		return ProposalResult{}, prepareSubmissionError("submit %s: account signer is required", p.kind)
 	}
@@ -76,7 +88,7 @@ func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handra
 		}
 	}
 
-	whole, err := s.simulateLocked(ctx, p, all)
+	whole, err := simulate(all)
 	if err != nil {
 		count := s.simulate.unavailable.Add(1)
 		s.log.Warn("handraise proposal broadcast without simulation: the node cannot simulate",
@@ -90,7 +102,7 @@ func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handra
 	var kept []int
 	var excluded []ExcludedHandraise
 	for _, i := range all {
-		alone, err := s.simulateLocked(ctx, p, []int{i})
+		alone, err := simulate([]int{i})
 		if err != nil {
 			return ProposalResult{}, &SubmissionError{Phase: SubmissionPrepare,
 				Err: fmt.Errorf("submit %s: simulate handraise of %s: %w", p.kind, p.operators[i], err)}
@@ -117,7 +129,7 @@ func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handra
 		return ProposalResult{}, &SubmissionError{Phase: SubmissionPrepare, Definitive: true,
 			Err: fmt.Errorf("submit %s: the chain refuses the proposal although each handraise passes alone: %s", p.kind, whole.Error)}
 	}
-	remaining, err := s.simulateLocked(ctx, p, kept)
+	remaining, err := simulate(kept)
 	if err != nil {
 		return ProposalResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: simulate remaining handraises: %w", p.kind, err)}
 	}

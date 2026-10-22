@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -88,6 +89,7 @@ type AuthParams struct {
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.
 type service struct {
 	nexusv1connect.UnimplementedIngressAPIHandler
+	log      *slog.Logger
 	h        Handler
 	auth     AuthParams
 	replay   sdkauth.ReplayCache
@@ -102,8 +104,17 @@ func withTaskDataAPI(api taskDataAPI) serviceOption {
 	return func(s *service) { s.taskData = api }
 }
 
+func withServiceLogger(log *slog.Logger) serviceOption {
+	return func(s *service) {
+		if log != nil {
+			s.log = log
+		}
+	}
+}
+
 func newService(h Handler, auth AuthParams, options ...serviceOption) *service {
 	s := &service{
+		log:    slog.New(slog.DiscardHandler),
 		h:      h,
 		auth:   auth,
 		replay: sdkauth.NewMemoryReplayCache(),
