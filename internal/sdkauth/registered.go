@@ -20,12 +20,27 @@ type SessionKeys interface {
 	Lookup(ctx context.Context, sessionID string, height uint64) (registeredkey.State, error)
 }
 
+// registeredStateUnavailable explains a registered-key rejection made because the chain could not
+// be read.
+const registeredStateUnavailable = "the session's registered key could not be read from the chain"
+
+// lookupErr maps a failed session state lookup: a lookup the cache did not make (read budget spent,
+// caller gone) is retryable, a chain read that failed is an invalid signature.
+func lookupErr(err error) error {
+	if errors.Is(err, registeredkey.ErrUnavailable) {
+		return fmt.Errorf("%w: session state lookups are over budget; retry", ErrUnavailable)
+	}
+	return fmt.Errorf("%w: %s", ErrInvalidSignature, registeredStateUnavailable)
+}
+
 // verifyRegisteredKey is the registered-key branch of step 4: a request without a grant whose
 // signature recovers to an address other than signer_address. In order: the envelope's session
 // exists, is not CLOSED, is owned by signer_address and has recovered as its current key, else
 // SDK_AUTH_INVALID_SIGNATURE (not saying which); current_height <= the key's expiry, else
 // SDK_AUTH_SESSION_GRANT_EXPIRED; the method is in the session set, else
-// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED.
+// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED. When the current height or the session state cannot be
+// read from the chain, nothing vouches for the key and the request is SDK_AUTH_INVALID_SIGNATURE
+// too; a lookup refused by the read budget is retryable.
 func verifyRegisteredKey(ctx context.Context, e *Envelope, opts VerifyOpts, recovered [20]byte) error {
 	if opts.SessionKeys == nil {
 		return fmt.Errorf("%w: the request does not recover to signer_address", ErrInvalidSignature)
@@ -37,15 +52,15 @@ func verifyRegisteredKey(ctx context.Context, e *Envelope, opts VerifyOpts, reco
 	height := opts.Height
 	if height == 0 {
 		if opts.Chain == nil {
-			return fmt.Errorf("%w: no chain to read the current height from", ErrUnavailable)
+			return fmt.Errorf("%w: %s", ErrInvalidSignature, registeredStateUnavailable)
 		}
 		if height, err = opts.Chain.CurrentHeight(ctx); err != nil || height == 0 {
-			return fmt.Errorf("%w: current height unavailable", ErrUnavailable)
+			return fmt.Errorf("%w: %s", ErrInvalidSignature, registeredStateUnavailable)
 		}
 	}
 	state, err := opts.SessionKeys.Lookup(ctx, hex.EncodeToString(session[:]), height)
 	if err != nil {
-		return fmt.Errorf("%w: session state", ErrUnavailable)
+		return lookupErr(err)
 	}
 	switch err := registeredkey.CheckRequest(state, e.SignerAddress, recovered, height); {
 	case errors.Is(err, registeredkey.ErrKeyExpired):
@@ -72,8 +87,8 @@ type OrderPrecheck struct {
 }
 
 // BeginOrderPrecheck recovers the order's signer (feeDenom is the chain's business_denom) and, for
-// a registered-key order, reads the current height. A signature that does not recover is
-// SDK_AUTH_INVALID_SIGNATURE.
+// a registered-key order, reads the current height. A signature that does not recover, or a height
+// that cannot be read for a registered-key order, is SDK_AUTH_INVALID_SIGNATURE.
 func BeginOrderPrecheck(ctx context.Context, signed *taskv1.SignedOrderV2, feeDenom string, chain Chain) (OrderPrecheck, error) {
 	recovered, wallet, err := registeredkey.OrderSigner(signed, feeDenom)
 	if err != nil {
@@ -84,10 +99,10 @@ func BeginOrderPrecheck(ctx context.Context, signed *taskv1.SignedOrderV2, feeDe
 		return p, nil
 	}
 	if chain == nil {
-		return OrderPrecheck{}, fmt.Errorf("%w: no chain to read the current height from", ErrUnavailable)
+		return OrderPrecheck{}, fmt.Errorf("%w: %s", ErrInvalidSignature, registeredStateUnavailable)
 	}
 	if p.Height, err = chain.CurrentHeight(ctx); err != nil || p.Height == 0 {
-		return OrderPrecheck{}, fmt.Errorf("%w: current height unavailable", ErrUnavailable)
+		return OrderPrecheck{}, fmt.Errorf("%w: %s", ErrInvalidSignature, registeredStateUnavailable)
 	}
 	return p, nil
 }
@@ -96,7 +111,8 @@ func BeginOrderPrecheck(ctx context.Context, signed *taskv1.SignedOrderV2, feeDe
 // 0x) at p.Height: the current key, owned by the order user, registered at or before the signed
 // anchor height, else SDK_AUTH_INVALID_SIGNATURE; not expired, else SDK_AUTH_SESSION_GRANT_EXPIRED;
 // a nonzero cap holding the committed spent amount plus max_fee, else
-// SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED. The Keeper remains the final authority.
+// SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED. Session state that cannot be read is
+// SDK_AUTH_INVALID_SIGNATURE and a lookup over budget retryable, as for requests. The Keeper remains the final authority.
 func (p OrderPrecheck) Check(ctx context.Context, keys SessionKeys, sessionID string, order *taskv1.TaskOrderV3) error {
 	if p.Wallet {
 		return nil
@@ -106,7 +122,7 @@ func (p OrderPrecheck) Check(ctx context.Context, keys SessionKeys, sessionID st
 	}
 	state, err := keys.Lookup(ctx, sessionID, p.Height)
 	if err != nil {
-		return fmt.Errorf("%w: session state", ErrUnavailable)
+		return lookupErr(err)
 	}
 	err = registeredkey.CheckOrder(state, order.GetUserAddress(), p.Recovered, order.GetSessionAnchorHeight(),
 		order.GetMaxFee().GetAtomicUnits(), p.Height)
@@ -117,8 +133,6 @@ func (p OrderPrecheck) Check(ctx context.Context, keys SessionKeys, sessionID st
 		return fmt.Errorf("%w: the session's registered key has expired", ErrSessionGrantExpired)
 	case errors.Is(err, registeredkey.ErrSpendCapExceeded):
 		return fmt.Errorf("%w: the order's max_fee does not fit the registered key's spend cap", ErrSessionKeySpendCapExceeded)
-	case errors.Is(err, registeredkey.ErrUnavailable):
-		return fmt.Errorf("%w: session state", ErrUnavailable)
 	default:
 		return fmt.Errorf("%w: the order recovers to neither its user nor the session's registered key", ErrInvalidSignature)
 	}

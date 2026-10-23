@@ -21,7 +21,26 @@ type registeredVectors struct {
 	SessionKey struct {
 		AddressBytes string `json:"address_bytes"`
 	} `json:"session_key"`
-	RegisteredSDKRequest signedTypedData `json:"registered_sdk_request"`
+	RegisteredSDKRequest signedTypedData         `json:"registered_sdk_request"`
+	RequestCases         []registeredRequestCase `json:"registered_request_cases"`
+}
+
+// registeredRequestCase is one row of registered_request_cases: the session state a request
+// signed by the registered key is judged against, and the expected outcome.
+type registeredRequestCase struct {
+	Name     string `json:"name"`
+	Base     string `json:"base"`
+	Expected string `json:"expected"`
+	State    struct {
+		ChainAvailable bool   `json:"chain_available"`
+		SessionExists  bool   `json:"session_exists"`
+		Status         string `json:"status"`
+		OwnerMatches   bool   `json:"owner_matches"`
+		KeyMatches     bool   `json:"key_matches"`
+		CurrentHeight  uint64 `json:"current_height"`
+		ExpiryHeight   uint64 `json:"expiry_height"`
+		MethodAllowed  bool   `json:"method_allowed"`
+	} `json:"state"`
 }
 
 type fakeSessionKeys struct {
@@ -112,8 +131,10 @@ func TestRegisteredKeyRequestErrors(t *testing.T) {
 		{"method outside the session set", func(o *VerifyOpts, _ *fakeSessionKeys) { o.SessionAllowed = false }, ErrSessionMethodNotAllowed},
 		{"state before expiry", func(o *VerifyOpts, k *fakeSessionKeys) { o.Height = 1101; k.state.Closed = true }, ErrInvalidSignature},
 		{"expiry before method", func(o *VerifyOpts, _ *fakeSessionKeys) { o.Height = 1101; o.SessionAllowed = false }, ErrSessionGrantExpired},
-		{"state unavailable", func(_ *VerifyOpts, k *fakeSessionKeys) { k.err = registeredkey.ErrUnavailable }, ErrUnavailable},
-		{"height unavailable", func(o *VerifyOpts, _ *fakeSessionKeys) { o.Chain.(*fakeChain).heightE = errors.New("down") }, ErrUnavailable},
+		{"state unreadable", func(_ *VerifyOpts, k *fakeSessionKeys) { k.err = registeredkey.ErrChainUnreadable }, ErrInvalidSignature},
+		// The read budget is Nexus's own limit, not a verdict on the key: retryable.
+		{"lookups over budget", func(_ *VerifyOpts, k *fakeSessionKeys) { k.err = registeredkey.ErrUnavailable }, ErrUnavailable},
+		{"height unavailable", func(o *VerifyOpts, _ *fakeSessionKeys) { o.Chain.(*fakeChain).heightE = errors.New("down") }, ErrInvalidSignature},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -139,5 +160,54 @@ func TestWalletRequestDoesNotReadSessionKeys(t *testing.T) {
 	}
 	if keys.calls != 0 {
 		t.Fatalf("wallet request read the registered key %d times", keys.calls)
+	}
+}
+
+// The wire registered_request_cases for SDK requests: state and key before expiry before the
+// method set, an absent session and an unreadable chain both as invalid signatures.
+func TestRegisteredKeyRequestCasesMatchWire(t *testing.T) {
+	f := loadRegistered(t)
+	want := map[string]error{
+		"ACCEPT": nil, "SDK_AUTH_INVALID_SIGNATURE": ErrInvalidSignature,
+		"SDK_AUTH_SESSION_GRANT_EXPIRED": ErrSessionGrantExpired, "SDK_AUTH_SESSION_METHOD_NOT_ALLOWED": ErrSessionMethodNotAllowed,
+	}
+	rows := 0
+	for _, c := range f.RequestCases {
+		if c.Base != "registered_sdk_request" {
+			continue
+		}
+		rows++
+		t.Run(c.Name, func(t *testing.T) {
+			expected, ok := want[c.Expected]
+			if !ok {
+				t.Fatalf("unknown expected outcome %s", c.Expected)
+			}
+			_, e, opts, keys := registeredSetup(t)
+			recovered := *keys.state.Key
+			st := c.State
+			opts.Height = st.CurrentHeight
+			opts.SessionAllowed = st.MethodAllowed
+			keys.state.ExpiryHeight = st.ExpiryHeight
+			keys.state.Closed = st.Status == "CLOSED"
+			if !st.OwnerMatches {
+				keys.state.Owner = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man"
+			}
+			if !st.KeyMatches {
+				recovered = [20]byte{9}
+			}
+			if !st.SessionExists {
+				keys.state = registeredkey.State{}
+			}
+			if !st.ChainAvailable {
+				keys.err = registeredkey.ErrChainUnreadable
+			}
+			err := verifyRegisteredKey(context.Background(), e, opts, recovered)
+			if (expected == nil) != (err == nil) || expected != nil && !errors.Is(err, expected) {
+				t.Fatalf("verifyRegisteredKey = %v, want %s", err, c.Expected)
+			}
+		})
+	}
+	if rows != 8 {
+		t.Fatalf("%d SDK request cases, want 8", rows)
 	}
 }

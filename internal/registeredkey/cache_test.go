@@ -178,13 +178,13 @@ func TestCacheSharesOneRead(t *testing.T) {
 	}
 }
 
-func TestCacheReadFailureIsUnavailableAndNotKept(t *testing.T) {
+func TestCacheReadFailureIsUnreadableAndNotKept(t *testing.T) {
 	chain := &fakeChain{readErr: errors.New("node down")}
 	chain.set(100, State{})
 	chain.readErr = errors.New("node down")
 	c := newTestCache(t, chain, CacheConfig{})
-	if _, err := c.Lookup(context.Background(), "s", 100); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("Lookup = %v, want unavailable", err)
+	if _, err := c.Lookup(context.Background(), "s", 100); !errors.Is(err, ErrChainUnreadable) || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Lookup = %v, want unreadable", err)
 	}
 	chain.mu.Lock()
 	chain.readErr = nil
@@ -207,7 +207,7 @@ func TestCacheReadBudget(t *testing.T) {
 		}
 	}
 	c.Invalidate("s")
-	if _, err := c.Lookup(context.Background(), "s", 100); !errors.Is(err, ErrUnavailable) {
+	if _, err := c.Lookup(context.Background(), "s", 100); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrChainUnreadable) {
 		t.Fatalf("over budget = %v, want unavailable", err)
 	}
 	now = now.Add(500 * time.Millisecond)
@@ -314,7 +314,7 @@ func TestCacheRefusesHeightZero(t *testing.T) {
 	chain := &fakeChain{}
 	chain.set(100, State{Found: true})
 	c := newTestCache(t, chain, CacheConfig{})
-	if _, err := c.Lookup(context.Background(), "s", 0); !errors.Is(err, ErrUnavailable) || chain.reads.Load() != 0 {
+	if _, err := c.Lookup(context.Background(), "s", 0); !errors.Is(err, ErrChainUnreadable) || chain.reads.Load() != 0 {
 		t.Fatalf("height 0 = %v after %d reads, want unavailable and no read", err, chain.reads.Load())
 	}
 }

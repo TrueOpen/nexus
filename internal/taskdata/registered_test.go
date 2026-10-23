@@ -30,7 +30,27 @@ type registeredFixture struct {
 	SessionKey struct {
 		AddressBytes string `json:"address_bytes"`
 	} `json:"session_key"`
-	Request goldenTypedData `json:"registered_data_request"`
+	Request goldenTypedData      `json:"registered_data_request"`
+	Cases   []registeredDataCase `json:"registered_request_cases"`
+}
+
+// registeredDataCase is one row of registered_request_cases.
+type registeredDataCase struct {
+	Name     string `json:"name"`
+	Base     string `json:"base"`
+	Expected string `json:"expected"`
+	State    struct {
+		ChainAvailable bool   `json:"chain_available"`
+		SessionExists  bool   `json:"session_exists"`
+		Status         string `json:"status"`
+		OwnerMatches   bool   `json:"owner_matches"`
+		KeyMatches     bool   `json:"key_matches"`
+		CurrentHeight  uint64 `json:"current_height"`
+		ExpiryHeight   uint64 `json:"expiry_height"`
+		MethodAllowed  bool   `json:"method_allowed"`
+		LocalTaskFound bool   `json:"local_task_found"`
+		OutputObject   bool   `json:"output_object"`
+	} `json:"state"`
 }
 
 type fakeRegisteredKeys struct {
@@ -120,7 +140,11 @@ func TestRegisteredKeyTaskDataRequestErrors(t *testing.T) {
 		{"closed", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) { k.state.Closed = true }, ErrInvalidSignature},
 		{"another key", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) { k.state.Key = &other }, ErrInvalidSignature},
 		{"expired", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) { k.state.ExpiryHeight = 999 }, ErrSessionGrantExpired},
-		{"state unavailable", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) {
+		{"state unreadable", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) {
+			k.err = registeredkey.ErrChainUnreadable
+		}, ErrInvalidSignature},
+		// The read budget is Nexus's own limit, not a verdict on the key: retryable.
+		{"lookups over budget", func(_ *RequestAuthV1, _ *SessionGrantEnv, k *fakeRegisteredKeys, _ *bool) {
 			k.err = registeredkey.ErrUnavailable
 		}, ErrAuthorityUnavailable},
 		// A request field for another chain fails as a signature before any session read.
@@ -158,4 +182,62 @@ func TestRegisteredKeyTaskDataMethodSet(t *testing.T) {
 func sessionKeyOf(t *testing.T, env SessionGrantEnv) [20]byte {
 	t.Helper()
 	return *env.SessionKeys.(*fakeRegisteredKeys).state.Key
+}
+
+// The wire registered_request_cases for Task data requests: the local Task record first, then
+// state and key, expiry, and the OUTPUT metadata/fetch set.
+func TestRegisteredKeyTaskDataCasesMatchWire(t *testing.T) {
+	var file registeredFixture
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/session_key_authorization_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]error{
+		"ACCEPT": nil, "DATA_ACCESS_INVALID_SIGNATURE": ErrInvalidSignature,
+		"DATA_ACCESS_SESSION_GRANT_EXPIRED": ErrSessionGrantExpired, "DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED": ErrSessionMethodNotAllowed,
+	}
+	rows := 0
+	for _, c := range file.Cases {
+		if c.Base != "registered_data_request" {
+			continue
+		}
+		rows++
+		t.Run(c.Name, func(t *testing.T) {
+			expected, ok := want[c.Expected]
+			if !ok {
+				t.Fatalf("unknown expected outcome %s", c.Expected)
+			}
+			auth, env, keys, local := registeredDataRequest(t)
+			recovered := sessionKeyOf(t, env)
+			st := c.State
+			env.Chain = goldenGrantChain{height: st.CurrentHeight}
+			keys.state.ExpiryHeight = st.ExpiryHeight
+			keys.state.Closed = st.Status == "CLOSED"
+			*local = st.LocalTaskFound
+			if !st.OwnerMatches {
+				keys.state.Owner = "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man"
+			}
+			if !st.KeyMatches {
+				recovered = [20]byte{9}
+			}
+			if !st.SessionExists {
+				keys.state = registeredkey.State{}
+			}
+			if !st.ChainAvailable {
+				keys.err = registeredkey.ErrChainUnreadable
+			}
+			if !st.MethodAllowed {
+				auth.RPCMethod = rpcMethodPath(MethodUpload)
+			}
+			if !st.OutputObject {
+				auth.Key.Kind = ObjectKindInput
+			}
+			err := verifyRegisteredTaskDataKey(context.Background(), auth, env, recovered)
+			if (expected == nil) != (err == nil) || expected != nil && !errors.Is(err, expected) {
+				t.Fatalf("verifyRegisteredTaskDataKey = %v, want %s", err, c.Expected)
+			}
+		})
+	}
+	if rows != 10 {
+		t.Fatalf("%d Task data request cases, want 10", rows)
+	}
 }

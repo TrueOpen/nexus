@@ -303,7 +303,10 @@ without a `SessionGrantV1`:
 Session state is cached by session for `ingress.session_key_cache_ttl_blocks` blocks (1..10,
 default 5) past the height it was read at; "no such session" and "no key" are cached too. At most
 `ingress.session_key_lookups_per_second` (default 20) cache misses read the chain; more are answered
-`Unavailable` and retried by the client. The checks use the current height the request path reads
+`Unavailable` and retried by the client. A registered-key request or order whose current height or
+session state cannot be read from the chain is refused with `SDK_AUTH_INVALID_SIGNATURE`
+(`DATA_ACCESS_INVALID_SIGNATURE` for Task data requests): without chain state nothing vouches for
+the key. The checks use the current height the request path reads
 for session grant windows; an OpenTask with a registered-key order reads it once for both the
 envelope and the order.
 

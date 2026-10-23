@@ -31,7 +31,8 @@ type CacheConfig struct {
 	// DefaultTTLBlocks.
 	TTLBlocks uint64
 	// LookupsPerSecond bounds chain reads on cache misses (a burst of two seconds' worth); 0 is
-	// DefaultLookupsPerSecond. A miss over the budget is ErrUnavailable.
+	// DefaultLookupsPerSecond. A miss over the budget is ErrUnavailable; a read that fails is
+	// ErrChainUnreadable.
 	LookupsPerSecond uint32
 	// Size and NegativeSize bound the entries with and without a registered key, least recently
 	// used evicted first; 0 is the default.
@@ -109,7 +110,7 @@ func NewCache(cfg CacheConfig) (*Cache, error) {
 // the caller read.
 func (c *Cache) Lookup(ctx context.Context, sessionID string, height uint64) (State, error) {
 	if height == 0 {
-		return State{}, fmt.Errorf("%w: current height", ErrUnavailable)
+		return State{}, fmt.Errorf("%w: current height", ErrChainUnreadable)
 	}
 	c.mu.Lock()
 	_, isDown := c.down[sessionID]
@@ -142,7 +143,7 @@ func (c *Cache) Lookup(ctx context.Context, sessionID string, height uint64) (St
 	// height was read before the state, so the state is at least as new as height.
 	state, err := c.cfg.Read(ctx, sessionID)
 	if err != nil {
-		err = fmt.Errorf("%w: %v", ErrUnavailable, err)
+		err = fmt.Errorf("%w: %v", ErrChainUnreadable, err)
 	}
 	c.mu.Lock()
 	if c.inflight[sessionID] == pending {

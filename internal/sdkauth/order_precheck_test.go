@@ -94,7 +94,8 @@ func TestOrderPrecheckRegisteredKeyOrder(t *testing.T) {
 		{name: "one unit short", edit: func(s *registeredkey.State) { s.SpendCap = "1149999" }, want: ErrSessionKeySpendCapExceeded},
 		{name: "unlimited", edit: func(s *registeredkey.State) { s.SpendCap = "0"; s.Spent = "999999999999" }},
 		{name: "unlimited overflow", edit: func(s *registeredkey.State) { s.SpendCap = "0"; s.Spent = "18446744073709551615" }, want: ErrSessionKeySpendCapExceeded},
-		{name: "state unavailable", err: registeredkey.ErrUnavailable, want: ErrUnavailable},
+		{name: "state unreadable", err: registeredkey.ErrChainUnreadable, want: ErrInvalidSignature},
+		{name: "lookups over budget", err: registeredkey.ErrUnavailable, want: ErrUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -127,8 +128,8 @@ func TestOrderPrecheckFailures(t *testing.T) {
 		t.Fatalf("short signature = %v, want invalid", err)
 	}
 	if _, err := BeginOrderPrecheck(context.Background(), signedWith(t, order, f.Delegated), f.Delegated.Message.FeeDenom,
-		&fakeChain{heightE: errors.New("down")}); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("height read failure = %v, want unavailable", err)
+		&fakeChain{heightE: errors.New("down")}); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("height read failure = %v, want invalid", err)
 	}
 	p, err := BeginOrderPrecheck(context.Background(), signedWith(t, order, f.Delegated), f.Delegated.Message.FeeDenom, &fakeChain{height: 1})
 	if err != nil {

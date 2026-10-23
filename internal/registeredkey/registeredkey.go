@@ -42,9 +42,13 @@ var (
 	ErrKeyExpired = errors.New("registered key: expired")
 	// ErrSpendCapExceeded: the order's max_fee would take the key past its nonzero spend cap.
 	ErrSpendCapExceeded = errors.New("registered key: spend cap exceeded")
-	// ErrUnavailable: chain state could not be read (or the read budget is spent); retryable,
-	// never a verdict on the request.
-	ErrUnavailable = errors.New("registered key: chain state unavailable")
+	// ErrChainUnreadable: the session state could not be read from the chain, or is malformed.
+	// Callers refuse the request as an invalid signature: without chain state nothing vouches for
+	// the key.
+	ErrChainUnreadable = errors.New("registered key: chain state unreadable")
+	// ErrUnavailable: the lookup was not made, because the chain read budget is spent or the
+	// caller gave up waiting; retryable, never a verdict on the request.
+	ErrUnavailable = errors.New("registered key: lookup unavailable")
 )
 
 // State is the part of one session's StreamState that governs its registered key.
@@ -138,7 +142,7 @@ func amount(field, value string) (*big.Int, error) {
 	}
 	n, ok := new(big.Int).SetString(value, 10)
 	if !ok || n.Sign() < 0 {
-		return nil, fmt.Errorf("%w: session %s %q is not a decimal amount", ErrUnavailable, field, value)
+		return nil, fmt.Errorf("%w: session %s %q is not a decimal amount", ErrChainUnreadable, field, value)
 	}
 	return n, nil
 }

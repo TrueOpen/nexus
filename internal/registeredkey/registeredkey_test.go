@@ -118,13 +118,12 @@ func TestCheckOrderMatchesWireAdmissionCases(t *testing.T) {
 		"ERR_SESSION_KEY_EXPIRED":            ErrKeyExpired,
 		"ERR_SESSION_KEY_INVALID":            ErrKeyInvalid,
 		"ERR_SESSION_KEY_SPEND_CAP_EXCEEDED": ErrSpendCapExceeded,
-		// Outcome labels the Keeper reports under existing codes. The precheck maps a cleared key
-		// and a CLOSED session to an invalid key (SDK_AUTH_INVALID_SIGNATURE), and a counter
+		// Outcome labels the Keeper reports under existing codes. The precheck maps a CLOSED
+		// session and another owner to an invalid key (SDK_AUTH_INVALID_SIGNATURE), and a counter
 		// overflow under an unlimited cap to over the cap (SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED).
-		"SIGNATURE_MISMATCH": ErrKeyInvalid,
-		"SESSION_CLOSED":     ErrKeyInvalid,
-		"OWNER_MISMATCH":     ErrKeyInvalid,
-		"AMOUNT_OVERFLOW":    ErrSpendCapExceeded,
+		"SESSION_CLOSED":  ErrKeyInvalid,
+		"OWNER_MISMATCH":  ErrKeyInvalid,
+		"AMOUNT_OVERFLOW": ErrSpendCapExceeded,
 	}
 	// Keeper-only rows: sequence use, rollback and admitted tasks are not session key checks.
 	keeperOnly := map[string]bool{
@@ -217,7 +216,7 @@ func TestCheckRequest(t *testing.T) {
 func TestCheckOrderRefusesMalformedAmounts(t *testing.T) {
 	key := [20]byte{1}
 	state := State{Found: true, Owner: "u", Key: &key, ExpiryHeight: 10, SpendCap: "100", Spent: "x"}
-	if err := CheckOrder(state, "u", key, 0, "1", 5); !errors.Is(err, ErrUnavailable) {
+	if err := CheckOrder(state, "u", key, 0, "1", 5); !errors.Is(err, ErrChainUnreadable) {
 		t.Fatalf("malformed spent = %v, want unavailable", err)
 	}
 	state.Spent = "1"
