@@ -204,6 +204,8 @@ enum ProtocolEventCodeV1 {
   // Hub-domain payload: a Builder primary row first committed.
   // PROTOCOL_EVENT_CODE_V1_BUILDER_REGISTERED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_BUILDER_REGISTERED = 105;
+  // Task-domain payload: delegated session authorization changed.
+  PROTOCOL_EVENT_CODE_V1_SESSION_KEY_UPDATED = 106;
   // Hub-domain payload: typed Builder evidence was first accepted.
   // PROTOCOL_EVENT_CODE_V1_BUILDER_EVIDENCE_ACCEPTED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_BUILDER_EVIDENCE_ACCEPTED = 109;

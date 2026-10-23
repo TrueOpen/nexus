@@ -388,7 +388,10 @@ message TaskDataRequestAuthV1 {
   // USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
   bytes signature = 11;
   // USER only: a wallet-signed grant that lets a short-lived session key sign this request.
-  // Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
+  // Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object. Absent permits
+  // the wallet, or the key registered on the session of this Builder's local Task record (same
+  // closed set; no local record, a CLOSED session or another key -> DATA_ACCESS_INVALID_SIGNATURE,
+  // past its expiry -> DATA_ACCESS_SESSION_GRANT_EXPIRED).
   SessionGrantV1 session_grant = 12;
   // USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
   uint64 signature_chain_id = 13;
@@ -399,7 +402,8 @@ message TaskDataRequestAuthV1 {
 // PrepareChallenge on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT
 // object on TaskDataRequestAuthV1. Every other request must be signed by the wallet directly and is
 // rejected when it carries a grant. For OpenTask, user must also equal the SignedOrder user,
-// otherwise SDK_AUTH_SESSION_GRANT_INVALID; the order itself is still signed by the wallet.
+// otherwise SDK_AUTH_SESSION_GRANT_INVALID. The grant does not authorize the order: that is
+// signed by the wallet or by a key registered on the session's StreamState.
 //
 // user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
 // "TrueOpen SDK Request" domain whose chainId is the grant's own signature_chain_id, chosen by the
@@ -429,7 +433,8 @@ message SessionGrantV1 {
 //   SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
 //              bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
 // The verifier recovers the signer; signer_address must equal the recovered address (the granting
-// user when session_grant is set). request_domain, signer_address, signature and the deprecated
+// user when session_grant is set), or, without a grant, the recovered address must be the key
+// registered on the StreamState of session_id (registered-key branch below). request_domain, signer_address, signature and the deprecated
 // signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
 // TRUEOPEN_SDK_BODY_*_V1 domain.
 // signature_chain_id is chosen by the signer (a browser wallet uses its active network) and must
@@ -437,6 +442,13 @@ message SessionGrantV1 {
 // string, which the verifier takes from its own chain. The same request signed under another
 // signature_chain_id has the same replay key.
 // Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
+//
+// Registered-key branch (no grant, recovered address is not signer_address), checked in order:
+// the session exists, is not CLOSED, its owner is signer_address and its current key is the
+// recovered address, else SDK_AUTH_INVALID_SIGNATURE; current_height <= session_key_expiry_height,
+// else SDK_AUTH_SESSION_GRANT_EXPIRED; the method is in the session set, else
+// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED. sessionGrantHash is 32 zero bytes, and requests never
+// consume spend_cap. Chain state may be cached for a few blocks, invalidated by session_key_updated.
 message SDKRequestEnvelopeV2 {
   string request_domain = 1;        // fixed "TRUEOPEN_SDK_REQUEST_V2"
   string chain_id = 2;              // prevents cross-chain replay
@@ -450,16 +462,22 @@ message SDKRequestEnvelopeV2 {
   string signer_address = 10;       // on-chain address of the SDK user
   bytes signature = 11;             // 65 bytes R||S||V over the SDKRequest digest
   bytes signer_pubkey = 12 [deprecated = true]; // ignored
-  SessionGrantV1 session_grant = 13; // optional; absent = signed by the user's wallet
+  SessionGrantV1 session_grant = 13; // optional; absent = the user's wallet or the session's registered key
   // EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data and not in the replay key.
   uint64 signature_chain_id = 14;
 }
 
 // OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
-// protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
-// verifies. There is no outer order signature: signature and signature_scheme must be empty.
-// The request envelope is signed by the order user's wallet, or by a session key under a grant
-// whose user equals the SignedOrder user.
+// protobuf bytes; the order is authorized only by its EIP-712 signature, made by the user's
+// wallet or by the key registered on the session, which the chain verifies. There is no outer
+// order signature: signature and signature_scheme must be empty.
+// The request envelope is signed by the order user's wallet, by a session key under a grant
+// whose user equals the SignedOrder user, or by the session's registered key.
+// An order signed by the registered key is prechecked against the latest chain state before the
+// input is stored: the current key and signed session_anchor_height >= session_key_set_height
+// (else SDK_AUTH_INVALID_SIGNATURE), its expiry (else SDK_AUTH_SESSION_GRANT_EXPIRED), and a
+// nonzero spend_cap against the committed spent plus max_fee (else
+// SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED). The Keeper remains the final authority.
 message OpenTaskHeader {
   bytes order_envelope = 1;
   string payload_ref = 2;           // must equal "nexus://sha256/" || lowercase_hex(input_hash), without 0x

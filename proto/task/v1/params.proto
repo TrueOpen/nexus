@@ -40,6 +40,10 @@ message SessionParamsV1 {
   uint32 max_session_sweep_per_block = 8;
   uint64 cancel_order_min_gas = 9;
   uint64 anchor_freshness_window_blocks = 10;
+  // Positive deployment-configured limit. Registration and renewal read the
+  // current effective value, not ParamsForSession; later governance changes do
+  // not rewrite an existing grant's expiry. Legacy history may omit this field.
+  uint64 max_session_key_blocks = 11;
 }
 
 // TaskDeadlineParamsV1 defines verification clocks and deadline sweep work.

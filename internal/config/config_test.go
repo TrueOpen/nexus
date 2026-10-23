@@ -598,3 +598,35 @@ func TestSessionGrantBlocksDefaultAndLimit(t *testing.T) {
 		t.Fatal("window above the limit was accepted")
 	}
 }
+
+func TestSessionKeyCacheTTLLimit(t *testing.T) {
+	cfg := defaults()
+	cfg.Ingress.SessionKeyCacheTTLBlocks = MaxSessionKeyCacheTTLBlocks
+	if err := cfg.ValidateTransport(); err != nil {
+		t.Fatalf("ttl at the limit: %v", err)
+	}
+	cfg.Ingress.SessionKeyCacheTTLBlocks = MaxSessionKeyCacheTTLBlocks + 1
+	if err := cfg.ValidateTransport(); err == nil {
+		t.Fatal("ttl above the limit was accepted")
+	}
+}
+
+func TestSessionKeyEnvironment(t *testing.T) {
+	t.Setenv("NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS", "3")
+	t.Setenv("NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND", "50")
+	cfg := Load()
+	if cfg.Ingress.SessionKeyCacheTTLBlocks != 3 || cfg.Ingress.SessionKeyLookupsPerSecond != 50 {
+		t.Fatalf("env not applied: ttl %d lookups %d", cfg.Ingress.SessionKeyCacheTTLBlocks, cfg.Ingress.SessionKeyLookupsPerSecond)
+	}
+}
+
+// nexus.example.yaml carries both session key settings and they load as written.
+func TestExampleSessionKeySettings(t *testing.T) {
+	cfg, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ingress.SessionKeyCacheTTLBlocks != 5 || cfg.Ingress.SessionKeyLookupsPerSecond != 20 {
+		t.Fatalf("example: ttl %d lookups %d", cfg.Ingress.SessionKeyCacheTTLBlocks, cfg.Ingress.SessionKeyLookupsPerSecond)
+	}
+}

@@ -67,6 +67,7 @@ type client struct {
 	heightCancel         context.CancelFunc
 	protocolEvents       bool
 	protocolCancel       context.CancelFunc
+	sessionObserver      SessionStreamObserver
 
 	stopOnce sync.Once
 	stopCh   chan struct{}

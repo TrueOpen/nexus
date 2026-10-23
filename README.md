@@ -167,6 +167,8 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_LOG_COMPRESS` | `true` | gzip rotated files |
 | `NEXUS_DATA_DIR` | `./data` | Local data directory (used once pebble is wired in) |
 | `NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS` | `17280` | Longest session grant a user may sign, in blocks past the current height; must be the same on every Builder |
+| `NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS` | `5` | Blocks the chain state of a session's registered key is reused for (1..10) |
+| `NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND` | `20` | Chain reads of session state allowed per second on cache misses |
 | `NEXUS_API_KEYS` | (empty) | Comma-separated list of valid api-keys; empty = no check |
 | `NEXUS_IP_WHITELIST` | (empty) | Comma-separated allowed IPs/CIDRs; empty = unrestricted |
 | `NEXUS_PAYLOAD_MAX_BYTES` | `16777216` | Max bytes of a single encrypted task input; also derives the Ingress message/body limit; inputs are retained until the on-chain deadline or task terminal state |
@@ -240,10 +242,11 @@ wallet uses its active network, so the user never switches networks) and it must
 and requires it to match the account's public key stored on chain; an account with no stored key is
 rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` domain.
 
-- `OpenTask` is signed by the order's user wallet, or by a session key under a grant whose user is
-  the `SignedOrderV2` user (otherwise `SDK_AUTH_SESSION_GRANT_INVALID`); the order itself is always
-  signed by the wallet. The header's own `signature` / `signature_scheme` must be empty, and
-  `order_envelope` must be a `SignedOrderV2`.
+- `OpenTask` is signed by the order's user wallet, by a session key under a grant whose user is
+  the `SignedOrderV2` user (otherwise `SDK_AUTH_SESSION_GRANT_INVALID`), or by the session's
+  registered key (below). The order itself is signed by the wallet or by the registered key; a
+  grant never authorizes an order. The header's own `signature` / `signature_scheme` must be empty,
+  and `order_envelope` must be a `SignedOrderV2`.
 - A user can sign a `SessionGrantV1` once to let a session key sign `OpenTask`, `SubscribeOutput`, `AckOutput`,
   `GetTaskEvents`, `PrepareChallenge`, and `GetTaskDataMetadata` / `FetchTaskData` of an OUTPUT
   object. The grant expires at a chain height no more than `ingress.max_session_grant_blocks` past
@@ -269,6 +272,65 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
 
 This is not compatible with SDK releases built for wire v0.3.x; nexus and the SDK must be upgraded
 together.
+
+### Registered session keys
+
+A session owner may register one signing key on the session's on-chain `StreamState`
+(`MsgCreateSession` or `MsgUpdateSessionKey`, both signed by the wallet). That key may then sign,
+without a `SessionGrantV1`:
+
+- the session's closed set of requests above. A request without a grant that recovers to an address
+  other than `signer_address` / `requester_address` is checked in order: the session (the
+  envelope's `session_id`; for Task data requests the session of this Builder's local record of the
+  Task, and no local record is a rejection) exists, is not CLOSED, is owned by the signer and has the
+  recovered address as its current key, else `SDK_AUTH_INVALID_SIGNATURE` /
+  `DATA_ACCESS_INVALID_SIGNATURE`; the key has not expired, else `SDK_AUTH_SESSION_GRANT_EXPIRED` /
+  `DATA_ACCESS_SESSION_GRANT_EXPIRED`; the method is in the session set, else
+  `SDK_AUTH_SESSION_METHOD_NOT_ALLOWED` / `DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED`.
+- `SignedOrderV2` orders of the session. Before the request nonce is used or the input stored,
+  OpenTask recovers the order signer (the order domain's `feeDenom` is the Hub `phase0.business_denom`,
+  read at startup from the Hub endpoint, which must equal the business_denom the Task chain's Keeper
+  verifies with; changing it needs a restart). A wallet order goes on as before. Any other signer
+  must be the current key, registered at or before the order's signed `session_anchor_height`
+  (else `SDK_AUTH_INVALID_SIGNATURE`), not expired (else `SDK_AUTH_SESSION_GRANT_EXPIRED`), and the
+  committed `session_key_spent` plus the order's `max_fee` must stay within a nonzero
+  `session_key_spend_cap` and within the chain's uint64 counter (else
+  `SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED`). In-flight orders are not counted. A wallet order whose
+  signature does not recover to its user now fails here with `SDK_AUTH_INVALID_SIGNATURE` instead of
+  on chain. The Keeper remains the final authority: if it rejects the order at admission the task
+  ends with `ASSIGN_REJECTED` and the client re-signs the same sequence.
+
+Session state is cached by session for `ingress.session_key_cache_ttl_blocks` blocks (1..10,
+default 5) past the height it was read at; "no such session" and "no key" are cached too. At most
+`ingress.session_key_lookups_per_second` (default 20) cache misses read the chain; more are answered
+`Unavailable` and retried by the client. A registered-key request or order whose current height or
+session state cannot be read from the chain is refused with `SDK_AUTH_INVALID_SIGNATURE`
+(`DATA_ACCESS_INVALID_SIGNATURE` for Task data requests): without chain state nothing vouches for
+the key. The checks use the current height the request path reads
+for session grant windows; an OpenTask with a registered-key order reads it once for both the
+envelope and the order.
+
+Known limits:
+
+- The chain delivers `session_key_updated` (event 106) only on the per-session task event stream,
+  and Nexus subscribes only to sessions it tracks tasks for. For those sessions an update or a
+  stream reconnect drops the cached state, and nothing is cached while the stream is down. For other
+  sessions the block expiry is the only bound: there it covers the OpenTask precheck and the cached
+  "no key" answers; other requests for untracked sessions already fail for lack of a local task.
+  After a key is cleared or rotated, this Builder may accept requests signed by the old key for up
+  to the cache expiry; orders are still decided by the Keeper.
+- Session state queries and the task event streams must come from the same node. A query answered
+  by a node behind the block of a key update may cache the old state after the update event was
+  seen, and then only the block expiry bounds it.
+- Every OpenTask whose order signature recovers to an address other than its user costs a height
+  read and a session lookup before the request envelope is checked. Misses are bounded by
+  `ingress.session_key_lookups_per_second`; when garbage orders spend that budget, genuine
+  registered-key requests get `Unavailable` until it refills.
+- A Keeper rejection of the order seen while simulating the assignment (rather than in DeliverTx)
+  does not emit `ASSIGN_REJECTED` yet; the task waits for its assignment timeout.
+- Upgrade order: Nexus must run this mirror before the Node emits event 106. An older Nexus treats
+  an unknown event without `task_id` as malformed and its stream for that session stalls on the
+  event; this version skips such events with a warning.
 
 ## Builder registration
 

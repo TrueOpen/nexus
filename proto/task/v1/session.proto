@@ -92,7 +92,8 @@ message SessionNonceState {
   uint64 next_session_nonce = 2;
 }
 
-// StreamState is one session: sequence counter, owner and in-flight count only
+// StreamState is one session: sequence counter, owner, in-flight count and
+// optional delegated signing authorization
 // (key = session_id). Model A: a session never holds a balance; the
 // abandoned SessionEscrowState double ledger is deleted, and funds live in the
 // user account and the escrow module account with TaskBudgetState as the only
@@ -105,6 +106,21 @@ message StreamState {
   uint64 last_active_height = 4;
   uint32 open_pending_count = 5;
   SessionStatus status = 6;
+  // Absent means wallet-only. A present value is a nonzero raw20 address,
+  // different from owner; it is not an account or a transaction authorization.
+  optional bytes session_key = 7;
+  // Inclusive last admission/request height. Zero when no key is registered.
+  uint64 session_key_expiry_height = 8;
+  // Cumulative admitted max_fee limit; zero means unlimited, not disabled.
+  shared.v1.Amount session_key_spend_cap = 9;
+  // Checked cumulative max_fee, even without a cap. Never reset by rotation,
+  // renewal, clearing or refunds. Wallet orders do not increment it.
+  shared.v1.Amount session_key_spent = 10;
+  // First registration, different-key replacement or SET after CLEAR records
+  // the execution height; same-key renewal/cap changes preserve it. Zero when
+  // no key is registered. A delegated order's signed anchor height must be at
+  // least this height, preventing signatures from a revoked grant reviving.
+  uint64 session_key_set_height = 11;
 }
 
 // OrderSequenceState records how one order sequence was used (this contract, key =

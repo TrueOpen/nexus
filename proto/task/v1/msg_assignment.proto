@@ -146,6 +146,20 @@ message TaskOrderV3 {
 // and low-S. It signs the "TrueOpen Task Order" version "3" EIP-712 digest,
 // whose feeDenom is hub.v1 Params phase0.business_denom (see TaskOrderV3), and
 // whose domain chainId is signature_chain_id.
+// Recover once: the owner address selects wallet verification against the
+// stored account public key; otherwise require the current session key. The
+// owner must match StreamState.owner_user_address and have a stored public key
+// on both paths. Delegated first admission additionally requires an ACTIVE/IDLE
+// session, current_height <= session_key_expiry_height, a canonical signed
+// session_anchor_height >= session_key_set_height, and checked spent + max_fee
+// <= spend_cap when the cap is nonzero (zero means unlimited). All other
+// admission rules remain in force. Increment spent with checked addition only
+// on first delegated admission, atomically with sequence consumption and escrow.
+// Later proposals, settlement, refunds and genesis validation of admitted tasks
+// do not reauthorize against the current grant or count max_fee again.
+// Session key failures propagate as ERR_SESSION_KEY_INVALID,
+// ERR_SESSION_KEY_EXPIRED or ERR_SESSION_KEY_SPEND_CAP_EXCEEDED, not a generic
+// assignment error. No signer-kind field or new signing domain is introduced.
 //
 // signature_chain_id is chosen by the signer: a browser wallet uses its active
 // network, so the user never switches networks. It must be in 1..MaxInt64;

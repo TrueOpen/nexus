@@ -89,6 +89,10 @@ func (c *client) startTaskSessionLocked(sessionID string, session *sessionSubscr
 
 func (c *client) taskEventLoop(ctx context.Context, sessionID string) {
 	defer c.wg.Done()
+	if c.sessionObserver != nil {
+		// However the loop ends (untracked, stopped, or during a retry wait), the stream is gone on purpose.
+		defer c.sessionObserver.SessionStreamClosed(sessionID)
+	}
 
 	backoff := eventLoopMinBackoff
 	for {
@@ -96,6 +100,9 @@ func (c *client) taskEventLoop(ctx context.Context, sessionID string) {
 		delivered, err := c.subscribeTaskEventsOnce(ctx, sessionID)
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			return
+		}
+		if c.sessionObserver != nil {
+			c.sessionObserver.SessionStreamDown(sessionID)
 		}
 		if connect.CodeOf(err) == connect.CodeOutOfRange {
 			if deleteErr := c.cursorStore.Delete(c.cfg.ChainID, eventCursorKindTask, sessionID); deleteErr != nil {
@@ -180,6 +187,9 @@ func (c *client) subscribeTaskEventsOnce(ctx context.Context, sessionID string) 
 	if err := c.sendEvent(ctx, ChainEvent{Type: EventResyncRequired, SessionID: sessionID}); err != nil {
 		return false, err
 	}
+	if c.sessionObserver != nil {
+		c.sessionObserver.SessionStreamUp(sessionID)
+	}
 
 	delivered := false
 	for stream.Receive() {
@@ -202,7 +212,14 @@ func (c *client) subscribeTaskEventsOnce(ctx context.Context, sessionID string) 
 			return delivered, fmt.Errorf("receive task events: session %q does not match subscription %q", eventSession, sessionID)
 		}
 		mapped, err := taskEventToChainEvent(event)
-		if errors.Is(err, errSessionScopedTaskEvent) {
+		if errors.Is(err, errUnknownSessionEvent) {
+			c.log.Warn("chaincli: skipping a session event this mirror does not know",
+				"session_id", sessionID, "code", protocolEventCodeName(event.GetCode()), "chain_height", event.GetChainHeight())
+		}
+		if errors.Is(err, errSessionScopedTaskEvent) || errors.Is(err, errUnknownSessionEvent) {
+			if isSessionKeyUpdated(event) && c.sessionObserver != nil {
+				c.sessionObserver.SessionKeyUpdated(sessionID)
+			}
 			// Session-level events produce no application event, but the cursor must advance past them or a reconnect gets stuck here.
 			if err := c.cursorStore.Save(c.cfg.ChainID, eventCursorKindTask, sessionID, event.GetCursor()); err != nil {
 				return delivered, err

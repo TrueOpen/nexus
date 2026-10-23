@@ -303,3 +303,35 @@ func TestTaskEventToChainEventStillRejectsMissingTaskIDOnTaskScopedEvent(t *test
 		t.Fatalf("err = %v, want a hard compound-key error", err)
 	}
 }
+
+// A task-less event whose code the mirror does not know is skipped, not a broken envelope: a newer
+// chain's session-level event must not stall the session's stream.
+func TestTaskEventToChainEventSkipsUnknownSessionEvent(t *testing.T) {
+	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
+		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes,
+		Code: sharedv1.ProtocolEventCodeV1(9999),
+	})
+	if !errors.Is(err, errUnknownSessionEvent) {
+		t.Fatalf("err = %v, want errUnknownSessionEvent", err)
+	}
+}
+
+// session_key_updated has no task_id: it is a session-level event the loop reports to the
+// session stream observer.
+func TestTaskEventToChainEventSessionKeyUpdatedIsSessionScoped(t *testing.T) {
+	event := &taskv1.TaskEvent{
+		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SESSION_KEY_UPDATED,
+		Payload: &taskv1.TaskProtocolEventPayloadV1{
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_SessionKeyUpdated{
+				SessionKeyUpdated: &taskv1.EventSessionKeyUpdated{SessionId: testSessionIDBytes, Owner: "trueopen1owner"},
+			},
+		},
+	}
+	if _, err := taskEventToChainEvent(event); !errors.Is(err, errSessionScopedTaskEvent) {
+		t.Fatalf("err = %v, want errSessionScopedTaskEvent", err)
+	}
+	if !isSessionKeyUpdated(event) {
+		t.Fatal("isSessionKeyUpdated = false")
+	}
+}

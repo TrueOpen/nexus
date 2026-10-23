@@ -336,7 +336,8 @@ func (x *SessionNonceState) GetNextSessionNonce() uint64 {
 	return 0
 }
 
-// StreamState is one session: sequence counter, owner and in-flight count only
+// StreamState is one session: sequence counter, owner, in-flight count and
+// optional delegated signing authorization
 // (key = session_id). Model A: a session never holds a balance; the
 // abandoned SessionEscrowState double ledger is deleted, and funds live in the
 // user account and the escrow module account with TaskBudgetState as the only
@@ -350,8 +351,23 @@ type StreamState struct {
 	LastActiveHeight     uint64                 `protobuf:"varint,4,opt,name=last_active_height,json=lastActiveHeight,proto3" json:"last_active_height,omitempty"`
 	OpenPendingCount     uint32                 `protobuf:"varint,5,opt,name=open_pending_count,json=openPendingCount,proto3" json:"open_pending_count,omitempty"`
 	Status               SessionStatus          `protobuf:"varint,6,opt,name=status,proto3,enum=task.v1.SessionStatus" json:"status,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Absent means wallet-only. A present value is a nonzero raw20 address,
+	// different from owner; it is not an account or a transaction authorization.
+	SessionKey []byte `protobuf:"bytes,7,opt,name=session_key,json=sessionKey,proto3,oneof" json:"session_key,omitempty"`
+	// Inclusive last admission/request height. Zero when no key is registered.
+	SessionKeyExpiryHeight uint64 `protobuf:"varint,8,opt,name=session_key_expiry_height,json=sessionKeyExpiryHeight,proto3" json:"session_key_expiry_height,omitempty"`
+	// Cumulative admitted max_fee limit; zero means unlimited, not disabled.
+	SessionKeySpendCap *v1.Amount `protobuf:"bytes,9,opt,name=session_key_spend_cap,json=sessionKeySpendCap,proto3" json:"session_key_spend_cap,omitempty"`
+	// Checked cumulative max_fee, even without a cap. Never reset by rotation,
+	// renewal, clearing or refunds. Wallet orders do not increment it.
+	SessionKeySpent *v1.Amount `protobuf:"bytes,10,opt,name=session_key_spent,json=sessionKeySpent,proto3" json:"session_key_spent,omitempty"`
+	// First registration, different-key replacement or SET after CLEAR records
+	// the execution height; same-key renewal/cap changes preserve it. Zero when
+	// no key is registered. A delegated order's signed anchor height must be at
+	// least this height, preventing signatures from a revoked grant reviving.
+	SessionKeySetHeight uint64 `protobuf:"varint,11,opt,name=session_key_set_height,json=sessionKeySetHeight,proto3" json:"session_key_set_height,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *StreamState) Reset() {
@@ -424,6 +440,41 @@ func (x *StreamState) GetStatus() SessionStatus {
 		return x.Status
 	}
 	return SessionStatus_SESSION_STATUS_UNSPECIFIED
+}
+
+func (x *StreamState) GetSessionKey() []byte {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (x *StreamState) GetSessionKeyExpiryHeight() uint64 {
+	if x != nil {
+		return x.SessionKeyExpiryHeight
+	}
+	return 0
+}
+
+func (x *StreamState) GetSessionKeySpendCap() *v1.Amount {
+	if x != nil {
+		return x.SessionKeySpendCap
+	}
+	return nil
+}
+
+func (x *StreamState) GetSessionKeySpent() *v1.Amount {
+	if x != nil {
+		return x.SessionKeySpent
+	}
+	return nil
+}
+
+func (x *StreamState) GetSessionKeySetHeight() uint64 {
+	if x != nil {
+		return x.SessionKeySetHeight
+	}
+	return 0
 }
 
 // OrderSequenceState records how one order sequence was used (this contract, key =
@@ -996,7 +1047,7 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x15task/v1/session.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\"d\n" +
 	"\x11SessionNonceState\x12!\n" +
 	"\fuser_address\x18\x01 \x01(\tR\vuserAddress\x12,\n" +
-	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\x9c\x02\n" +
+	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\xc7\x04\n" +
 	"\vStreamState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12,\n" +
@@ -1004,7 +1055,15 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x16next_expected_sequence\x18\x03 \x01(\x04R\x14nextExpectedSequence\x12,\n" +
 	"\x12last_active_height\x18\x04 \x01(\x04R\x10lastActiveHeight\x12,\n" +
 	"\x12open_pending_count\x18\x05 \x01(\rR\x10openPendingCount\x12.\n" +
-	"\x06status\x18\x06 \x01(\x0e2\x16.task.v1.SessionStatusR\x06status\"\xfd\x01\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x16.task.v1.SessionStatusR\x06status\x12$\n" +
+	"\vsession_key\x18\a \x01(\fH\x00R\n" +
+	"sessionKey\x88\x01\x01\x129\n" +
+	"\x19session_key_expiry_height\x18\b \x01(\x04R\x16sessionKeyExpiryHeight\x12D\n" +
+	"\x15session_key_spend_cap\x18\t \x01(\v2\x11.shared.v1.AmountR\x12sessionKeySpendCap\x12=\n" +
+	"\x11session_key_spent\x18\n" +
+	" \x01(\v2\x11.shared.v1.AmountR\x0fsessionKeySpent\x123\n" +
+	"\x16session_key_set_height\x18\v \x01(\x04R\x13sessionKeySetHeightB\x0e\n" +
+	"\f_session_key\"\xfd\x01\n" +
 	"\x12OrderSequenceState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
@@ -1113,23 +1172,25 @@ var file_task_v1_session_proto_goTypes = []any{
 }
 var file_task_v1_session_proto_depIdxs = []int32{
 	0,  // 0: task.v1.StreamState.status:type_name -> task.v1.SessionStatus
-	2,  // 1: task.v1.OrderSequenceState.status:type_name -> task.v1.OrderSequenceStatus
-	11, // 2: task.v1.TaskBudgetState.original_reserved_amount:type_name -> shared.v1.Amount
-	11, // 3: task.v1.TaskBudgetState.reserved_amount:type_name -> shared.v1.Amount
-	11, // 4: task.v1.TaskBudgetState.tx_fee_reserve_remaining:type_name -> shared.v1.Amount
-	11, // 5: task.v1.TaskBudgetState.price_bid:type_name -> shared.v1.Amount
-	11, // 6: task.v1.TaskBudgetState.worker_max:type_name -> shared.v1.Amount
-	11, // 7: task.v1.TaskBudgetState.verify_max:type_name -> shared.v1.Amount
-	9,  // 8: task.v1.TaskBudgetState.max_reimbursable_fee_per_gas_snapshot:type_name -> task.v1.FeePerGasRateV1
-	11, // 9: task.v1.TaskBudgetState.max_reimbursement_per_tx_snapshot:type_name -> shared.v1.Amount
-	11, // 10: task.v1.TaskBudgetState.max_reimbursement_per_task_snapshot:type_name -> shared.v1.Amount
-	11, // 11: task.v1.TaskBudgetState.gas_reimbursed_total:type_name -> shared.v1.Amount
-	3,  // 12: task.v1.TaskBudgetState.budget_status:type_name -> task.v1.TaskBudgetStatus
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	11, // 1: task.v1.StreamState.session_key_spend_cap:type_name -> shared.v1.Amount
+	11, // 2: task.v1.StreamState.session_key_spent:type_name -> shared.v1.Amount
+	2,  // 3: task.v1.OrderSequenceState.status:type_name -> task.v1.OrderSequenceStatus
+	11, // 4: task.v1.TaskBudgetState.original_reserved_amount:type_name -> shared.v1.Amount
+	11, // 5: task.v1.TaskBudgetState.reserved_amount:type_name -> shared.v1.Amount
+	11, // 6: task.v1.TaskBudgetState.tx_fee_reserve_remaining:type_name -> shared.v1.Amount
+	11, // 7: task.v1.TaskBudgetState.price_bid:type_name -> shared.v1.Amount
+	11, // 8: task.v1.TaskBudgetState.worker_max:type_name -> shared.v1.Amount
+	11, // 9: task.v1.TaskBudgetState.verify_max:type_name -> shared.v1.Amount
+	9,  // 10: task.v1.TaskBudgetState.max_reimbursable_fee_per_gas_snapshot:type_name -> task.v1.FeePerGasRateV1
+	11, // 11: task.v1.TaskBudgetState.max_reimbursement_per_tx_snapshot:type_name -> shared.v1.Amount
+	11, // 12: task.v1.TaskBudgetState.max_reimbursement_per_task_snapshot:type_name -> shared.v1.Amount
+	11, // 13: task.v1.TaskBudgetState.gas_reimbursed_total:type_name -> shared.v1.Amount
+	3,  // 14: task.v1.TaskBudgetState.budget_status:type_name -> task.v1.TaskBudgetStatus
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_session_proto_init() }
@@ -1137,6 +1198,7 @@ func file_task_v1_session_proto_init() {
 	if File_task_v1_session_proto != nil {
 		return
 	}
+	file_task_v1_session_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -225,12 +225,13 @@ func (n *fakeStartNode) GetLatestBlock(context.Context, *connect.Request[cmtv1be
 	}), nil
 }
 
-// Params lets app.New read service.max_service_material_expiry_blocks: the service material expiry
-// bound comes from Hub params only, and nexus does not start if it is missing or zero.
+// Params lets app.New read service.max_service_material_expiry_blocks and phase0.business_denom:
+// both come from Hub params only, and nexus does not start if either is missing.
 func (n *fakeStartNode) Params(context.Context, *connect.Request[hubv1.QueryHubParamsRequest]) (*connect.Response[hubv1.QueryHubParamsResponse], error) {
 	return connect.NewResponse(&hubv1.QueryHubParamsResponse{
 		Params: &hubv1.HubParamsV2{
 			Service: &hubv1.ServiceParamsV1{MaxServiceMaterialExpiryBlocks: 604800},
+			Phase0:  &hubv1.Phase0ParamsV1{BusinessDenom: "uusdc"},
 		},
 	}), nil
 }

@@ -229,8 +229,12 @@ type SessionParamsV1 struct {
 	MaxSessionSweepPerBlock                     uint32                 `protobuf:"varint,8,opt,name=max_session_sweep_per_block,json=maxSessionSweepPerBlock,proto3" json:"max_session_sweep_per_block,omitempty"`
 	CancelOrderMinGas                           uint64                 `protobuf:"varint,9,opt,name=cancel_order_min_gas,json=cancelOrderMinGas,proto3" json:"cancel_order_min_gas,omitempty"`
 	AnchorFreshnessWindowBlocks                 uint64                 `protobuf:"varint,10,opt,name=anchor_freshness_window_blocks,json=anchorFreshnessWindowBlocks,proto3" json:"anchor_freshness_window_blocks,omitempty"`
-	unknownFields                               protoimpl.UnknownFields
-	sizeCache                                   protoimpl.SizeCache
+	// Positive deployment-configured limit. Registration and renewal read the
+	// current effective value, not ParamsForSession; later governance changes do
+	// not rewrite an existing grant's expiry. Legacy history may omit this field.
+	MaxSessionKeyBlocks uint64 `protobuf:"varint,11,opt,name=max_session_key_blocks,json=maxSessionKeyBlocks,proto3" json:"max_session_key_blocks,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SessionParamsV1) Reset() {
@@ -329,6 +333,13 @@ func (x *SessionParamsV1) GetCancelOrderMinGas() uint64 {
 func (x *SessionParamsV1) GetAnchorFreshnessWindowBlocks() uint64 {
 	if x != nil {
 		return x.AnchorFreshnessWindowBlocks
+	}
+	return 0
+}
+
+func (x *SessionParamsV1) GetMaxSessionKeyBlocks() uint64 {
+	if x != nil {
+		return x.MaxSessionKeyBlocks
 	}
 	return 0
 }
@@ -1348,7 +1359,7 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12\x1f\n" +
 	"\vparams_hash\x18\x02 \x01(\fR\n" +
 	"paramsHash\x12%\n" +
-	"\x0eupdated_height\x18\x03 \x01(\x04R\rupdatedHeight\"\xe8\x05\n" +
+	"\x0eupdated_height\x18\x03 \x01(\x04R\rupdatedHeight\"\x9d\x06\n" +
 	"\x0fSessionParamsV1\x12Q\n" +
 	"&max_order_sequences_per_active_session\x18\x01 \x01(\rR!maxOrderSequencesPerActiveSession\x125\n" +
 	"\x17session_idle_ttl_blocks\x18\x02 \x01(\x04R\x14sessionIdleTtlBlocks\x127\n" +
@@ -1360,7 +1371,8 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x1bmax_session_sweep_per_block\x18\b \x01(\rR\x17maxSessionSweepPerBlock\x12/\n" +
 	"\x14cancel_order_min_gas\x18\t \x01(\x04R\x11cancelOrderMinGas\x12C\n" +
 	"\x1eanchor_freshness_window_blocks\x18\n" +
-	" \x01(\x04R\x1banchorFreshnessWindowBlocks\"\xa0\x03\n" +
+	" \x01(\x04R\x1banchorFreshnessWindowBlocks\x123\n" +
+	"\x16max_session_key_blocks\x18\v \x01(\x04R\x13maxSessionKeyBlocks\"\xa0\x03\n" +
 	"\x14TaskDeadlineParamsV1\x12=\n" +
 	"\x1bverify_open_deadline_blocks\x18\x01 \x01(\x04R\x18verifyOpenDeadlineBlocks\x120\n" +
 	"\x14commit_window_blocks\x18\x02 \x01(\x04R\x12commitWindowBlocks\x120\n" +

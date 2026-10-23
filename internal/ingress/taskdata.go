@@ -117,10 +117,11 @@ func (r taskDataRuntime) FinalizeVerifierEvidence(
 // stagetiming.Recorder. Client-paced time is kept apart: header_frame_wait_ms is the wait for the
 // first frame, input_stream_ms the whole chunk loop including the client's sending, of which
 // input_write_ms is the local writing. Server time is total_ms minus header_frame_wait_ms minus
-// (input_stream_ms - input_write_ms). Some stages nest: header_validate contains envelope;
-// on_order contains admission and order_init, which contains order_broadcast. chain_*_ms are
-// chain reads made inside those stages (chain_account_key_ms in envelope, chain_service_key_ms in
-// order_broadcast).
+// (input_stream_ms - input_write_ms). Some stages nest: header_validate contains envelope and,
+// with registered session keys enabled, order_precheck; on_order contains admission and
+// order_init, which contains order_broadcast. chain_*_ms are chain reads made inside those stages
+// (chain_account_key_ms in envelope, chain_session_state_ms in envelope or order_precheck,
+// chain_service_key_ms in order_broadcast).
 func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nexusv1.OpenTaskRequest]) (*connect.Response[nexusv1.OpenTaskResponse], error) {
 	ctx, timing := stagetiming.With(ctx)
 	var order types.Order
@@ -301,7 +302,7 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask input_hash must be 0x followed by 64 lowercase hex characters")
 	}
 	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
-	// user signature, which the chain verifies.
+	// signature, made by the user's wallet or the session's registered key, which the chain verifies.
 	if len(header.GetSignature()) != 0 || header.GetSignatureScheme() != "" { //nolint:staticcheck // deprecated fields must be empty
 		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask signature and signature_scheme must be empty")
 	}
@@ -352,13 +353,27 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	if err != nil {
 		return types.Order{}, taskdata.UploadHeader{}, bodyErr(err)
 	}
-	// OpenTask is signed by the order user's wallet, or by a session key under a grant whose user is
-	// the order user (the order itself is still signed by the wallet). Its height expiry and nonce
-	// are checked by the taskdata Authorizer against the chain, so no replay cache here.
+	// The order is signed by its user's wallet, which the Keeper verifies, or by the key the user
+	// registered on the session, which is prechecked here against the session's latest state, before
+	// the nonce is used or the input stored. A registered-key order reads the current height once;
+	// the envelope is judged at the same height.
+	precheck := sdkauth.OrderPrecheck{Wallet: true}
+	if s.auth.SessionKeys != nil {
+		precheckStart := time.Now()
+		precheck, err = sdkauth.BeginOrderPrecheck(ctx, &signed, s.auth.FeeDenom, s.auth.Chain)
+		stagetiming.From(ctx).Since("order_precheck", precheckStart)
+		if err != nil {
+			return types.Order{}, taskdata.UploadHeader{}, mapEnvelopeErr(err)
+		}
+	}
+	// OpenTask is signed by the order user's wallet, by a session key under a grant whose user is
+	// the order user, or by the session's registered key. Its height expiry and nonce are checked
+	// by the taskdata Authorizer against the chain, so no replay cache here.
 	wireTaskID := hash32text.FromInternal(order.TaskID)
 	envelopeStart := time.Now()
 	requester, err := s.checkTaskEnvelope(ctx, header.GetRequestEnvelope(), header.GetSessionId(), wireTaskID, envelopeCheck{
 		method: "OpenTask", body: body, heightExpiry: true, sessionAllowed: true, orderUser: order.User,
+		height: precheck.Height,
 	})
 	stagetiming.From(ctx).Since("envelope", envelopeStart)
 	if err != nil {
@@ -367,6 +382,14 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	if requester != order.User {
 		return types.Order{}, taskdata.UploadHeader{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
 			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
+	}
+	precheckStart := time.Now()
+	err = precheck.Check(ctx, s.auth.SessionKeys, order.SessionID, signedOrder)
+	if !precheck.Wallet {
+		stagetiming.From(ctx).Since("order_precheck", precheckStart)
+	}
+	if err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, mapEnvelopeErr(err)
 	}
 	// Full object ref for INPUT: task_hash is the order identity, content_hash the INPUT content
 	// hash checked above -- the same bytes can have only one identity.

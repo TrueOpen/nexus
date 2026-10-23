@@ -913,7 +913,10 @@ type TaskDataRequestAuthV1 struct {
 	// USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
 	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
 	// USER only: a wallet-signed grant that lets a short-lived session key sign this request.
-	// Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object.
+	// Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object. Absent permits
+	// the wallet, or the key registered on the session of this Builder's local Task record (same
+	// closed set; no local record, a CLOSED session or another key -> DATA_ACCESS_INVALID_SIGNATURE,
+	// past its expiry -> DATA_ACCESS_SESSION_GRANT_EXPIRED).
 	SessionGrant *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
 	// USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
 	SignatureChainId uint64 `protobuf:"varint,13,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
@@ -1047,7 +1050,8 @@ func (x *TaskDataRequestAuthV1) GetSignatureChainId() uint64 {
 // PrepareChallenge on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT
 // object on TaskDataRequestAuthV1. Every other request must be signed by the wallet directly and is
 // rejected when it carries a grant. For OpenTask, user must also equal the SignedOrder user,
-// otherwise SDK_AUTH_SESSION_GRANT_INVALID; the order itself is still signed by the wallet.
+// otherwise SDK_AUTH_SESSION_GRANT_INVALID. The grant does not authorize the order: that is
+// signed by the wallet or by a key registered on the session's StreamState.
 //
 // user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
 // "TrueOpen SDK Request" domain whose chainId is the grant's own signature_chain_id, chosen by the
@@ -1161,7 +1165,8 @@ func (x *SessionGrantV1) GetSignatureChainId() uint64 {
 //	           bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
 //
 // The verifier recovers the signer; signer_address must equal the recovered address (the granting
-// user when session_grant is set). request_domain, signer_address, signature and the deprecated
+// user when session_grant is set), or, without a grant, the recovered address must be the key
+// registered on the StreamState of session_id (registered-key branch below). request_domain, signer_address, signature and the deprecated
 // signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
 // TRUEOPEN_SDK_BODY_*_V1 domain.
 // signature_chain_id is chosen by the signer (a browser wallet uses its active network) and must
@@ -1169,6 +1174,13 @@ func (x *SessionGrantV1) GetSignatureChainId() uint64 {
 // string, which the verifier takes from its own chain. The same request signed under another
 // signature_chain_id has the same replay key.
 // Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
+//
+// Registered-key branch (no grant, recovered address is not signer_address), checked in order:
+// the session exists, is not CLOSED, its owner is signer_address and its current key is the
+// recovered address, else SDK_AUTH_INVALID_SIGNATURE; current_height <= session_key_expiry_height,
+// else SDK_AUTH_SESSION_GRANT_EXPIRED; the method is in the session set, else
+// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED. sessionGrantHash is 32 zero bytes, and requests never
+// consume spend_cap. Chain state may be cached for a few blocks, invalidated by session_key_updated.
 type SDKRequestEnvelopeV2 struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	RequestDomain      string                 `protobuf:"bytes,1,opt,name=request_domain,json=requestDomain,proto3" json:"request_domain,omitempty"`                     // fixed "TRUEOPEN_SDK_REQUEST_V2"
@@ -1184,7 +1196,7 @@ type SDKRequestEnvelopeV2 struct {
 	Signature          []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`                                                 // 65 bytes R||S||V over the SDKRequest digest
 	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 	SignerPubkey []byte          `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"` // ignored
-	SessionGrant *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = signed by the user's wallet
+	SessionGrant *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = the user's wallet or the session's registered key
 	// EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data and not in the replay key.
 	SignatureChainId uint64 `protobuf:"varint,14,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -1321,10 +1333,16 @@ func (x *SDKRequestEnvelopeV2) GetSignatureChainId() uint64 {
 }
 
 // OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
-// protobuf bytes; the order is authorized only by its EIP-712 user signature, which the chain
-// verifies. There is no outer order signature: signature and signature_scheme must be empty.
-// The request envelope is signed by the order user's wallet, or by a session key under a grant
-// whose user equals the SignedOrder user.
+// protobuf bytes; the order is authorized only by its EIP-712 signature, made by the user's
+// wallet or by the key registered on the session, which the chain verifies. There is no outer
+// order signature: signature and signature_scheme must be empty.
+// The request envelope is signed by the order user's wallet, by a session key under a grant
+// whose user equals the SignedOrder user, or by the session's registered key.
+// An order signed by the registered key is prechecked against the latest chain state before the
+// input is stored: the current key and signed session_anchor_height >= session_key_set_height
+// (else SDK_AUTH_INVALID_SIGNATURE), its expiry (else SDK_AUTH_SESSION_GRANT_EXPIRED), and a
+// nonzero spend_cap against the committed spent plus max_fee (else
+// SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED). The Keeper remains the final authority.
 type OpenTaskHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrderEnvelope []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
