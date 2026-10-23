@@ -150,14 +150,15 @@ func (x *MsgUpdateTaskParamsResponse) GetStatus() v1.MutationStatusV1 {
 }
 
 // MsgCreateSession opens one session namespace and locks its owner
-// (the wire API). Besides the required Cosmos signer there is no business
-// input: the nonce comes from SessionNonceState and session_id is derived on
+// (the wire API). The optional grant registers a session signing key. The
+// nonce comes from SessionNonceState and session_id is derived on
 // chain by TRUEOPEN_SESSION_V1. Model A: creating a session never moves funds, and
 // no unbounded metadata is accepted.
 // MsgCreateSession defines the MsgCreateSession wire type.
 type MsgCreateSession struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SignerAddress string                 `protobuf:"bytes,1,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
+	SessionKey    *SessionKeyGrantV1     `protobuf:"bytes,2,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -199,6 +200,311 @@ func (x *MsgCreateSession) GetSignerAddress() string {
 	return ""
 }
 
+func (x *MsgCreateSession) GetSessionKey() *SessionKeyGrantV1 {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+// SessionKeyGrantV1 registers a delegated order/request signer for one session.
+// The raw20 address must be nonzero and different from the owner's address.
+// At registration/renewal, current_height < expiry_height <= current_height +
+// the current effective max_session_key_blocks (checked addition). The limit
+// is not resolved through the session's pinned historical parameter version.
+// A canonical zero spend_cap (atomic_units = "0") is unlimited; otherwise it
+// bounds cumulative admitted max_fee, not actual spend or a prepaid balance.
+type SessionKeyGrantV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionKey    []byte                 `protobuf:"bytes,1,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
+	ExpiryHeight  uint64                 `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	SpendCap      *v1.Amount             `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionKeyGrantV1) Reset() {
+	*x = SessionKeyGrantV1{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionKeyGrantV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionKeyGrantV1) ProtoMessage() {}
+
+func (x *SessionKeyGrantV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionKeyGrantV1.ProtoReflect.Descriptor instead.
+func (*SessionKeyGrantV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SessionKeyGrantV1) GetSessionKey() []byte {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (x *SessionKeyGrantV1) GetExpiryHeight() uint64 {
+	if x != nil {
+		return x.ExpiryHeight
+	}
+	return 0
+}
+
+func (x *SessionKeyGrantV1) GetSpendCap() *v1.Amount {
+	if x != nil {
+		return x.SpendCap
+	}
+	return nil
+}
+
+// ClearSessionKeyV1 explicitly revokes the current session key.
+type ClearSessionKeyV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearSessionKeyV1) Reset() {
+	*x = ClearSessionKeyV1{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearSessionKeyV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearSessionKeyV1) ProtoMessage() {}
+
+func (x *ClearSessionKeyV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearSessionKeyV1.ProtoReflect.Descriptor instead.
+func (*ClearSessionKeyV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{4}
+}
+
+// MsgUpdateSessionKey changes authorization for an ACTIVE or IDLE session.
+// Only its owner signs this transaction. Exactly one action is required.
+// SET preserves spent; a different key or SET after CLEAR records the execution
+// height as set_height. Same-key renewal/cap changes preserve set_height.
+// CLEAR zeroes key, expiry, cap and set_height, but never spent. An unchanged
+// result is NOOP without an event. Lifecycle status and activity are unchanged.
+// Later transactions, including in the same block, see the new authorization.
+// Already admitted tasks retain their authorization and escrow.
+type MsgUpdateSessionKey struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SignerAddress string                 `protobuf:"bytes,1,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
+	SessionId     []byte                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// action selects registration/renewal or explicit revocation.
+	//
+	// Types that are valid to be assigned to Action:
+	//
+	//	*MsgUpdateSessionKey_Set
+	//	*MsgUpdateSessionKey_Clear
+	Action        isMsgUpdateSessionKey_Action `protobuf_oneof:"action"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgUpdateSessionKey) Reset() {
+	*x = MsgUpdateSessionKey{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgUpdateSessionKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgUpdateSessionKey) ProtoMessage() {}
+
+func (x *MsgUpdateSessionKey) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgUpdateSessionKey.ProtoReflect.Descriptor instead.
+func (*MsgUpdateSessionKey) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *MsgUpdateSessionKey) GetSignerAddress() string {
+	if x != nil {
+		return x.SignerAddress
+	}
+	return ""
+}
+
+func (x *MsgUpdateSessionKey) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKey) GetAction() isMsgUpdateSessionKey_Action {
+	if x != nil {
+		return x.Action
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKey) GetSet() *SessionKeyGrantV1 {
+	if x != nil {
+		if x, ok := x.Action.(*MsgUpdateSessionKey_Set); ok {
+			return x.Set
+		}
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKey) GetClear() *ClearSessionKeyV1 {
+	if x != nil {
+		if x, ok := x.Action.(*MsgUpdateSessionKey_Clear); ok {
+			return x.Clear
+		}
+	}
+	return nil
+}
+
+type isMsgUpdateSessionKey_Action interface {
+	isMsgUpdateSessionKey_Action()
+}
+
+type MsgUpdateSessionKey_Set struct {
+	Set *SessionKeyGrantV1 `protobuf:"bytes,3,opt,name=set,proto3,oneof"`
+}
+
+type MsgUpdateSessionKey_Clear struct {
+	Clear *ClearSessionKeyV1 `protobuf:"bytes,4,opt,name=clear,proto3,oneof"`
+}
+
+func (*MsgUpdateSessionKey_Set) isMsgUpdateSessionKey_Action() {}
+
+func (*MsgUpdateSessionKey_Clear) isMsgUpdateSessionKey_Action() {}
+
+// MsgUpdateSessionKeyResponse returns the committed authorization and result.
+// An absent session_key_or_empty means no key; spent survives revocation.
+type MsgUpdateSessionKeyResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SessionKeyOrEmpty []byte                 `protobuf:"bytes,1,opt,name=session_key_or_empty,json=sessionKeyOrEmpty,proto3,oneof" json:"session_key_or_empty,omitempty"`
+	ExpiryHeight      uint64                 `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	SpendCap          *v1.Amount             `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
+	Spent             *v1.Amount             `protobuf:"bytes,4,opt,name=spent,proto3" json:"spent,omitempty"`
+	SetHeight         uint64                 `protobuf:"varint,5,opt,name=set_height,json=setHeight,proto3" json:"set_height,omitempty"`
+	Status            v1.MutationStatusV1    `protobuf:"varint,6,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MsgUpdateSessionKeyResponse) Reset() {
+	*x = MsgUpdateSessionKeyResponse{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgUpdateSessionKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgUpdateSessionKeyResponse) ProtoMessage() {}
+
+func (x *MsgUpdateSessionKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgUpdateSessionKeyResponse.ProtoReflect.Descriptor instead.
+func (*MsgUpdateSessionKeyResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetSessionKeyOrEmpty() []byte {
+	if x != nil {
+		return x.SessionKeyOrEmpty
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetExpiryHeight() uint64 {
+	if x != nil {
+		return x.ExpiryHeight
+	}
+	return 0
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetSpendCap() *v1.Amount {
+	if x != nil {
+		return x.SpendCap
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetSpent() *v1.Amount {
+	if x != nil {
+		return x.Spent
+	}
+	return nil
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetSetHeight() uint64 {
+	if x != nil {
+		return x.SetHeight
+	}
+	return 0
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
 // MsgCreateSessionResponse returns the chain-derived session identity
 // . Clients may also recompute session_id off chain from the same
 // formula; the owner is not derivable from session_id, hence StreamState still
@@ -215,7 +521,7 @@ type MsgCreateSessionResponse struct {
 
 func (x *MsgCreateSessionResponse) Reset() {
 	*x = MsgCreateSessionResponse{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[3]
+	mi := &file_task_v1_msg_session_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +533,7 @@ func (x *MsgCreateSessionResponse) String() string {
 func (*MsgCreateSessionResponse) ProtoMessage() {}
 
 func (x *MsgCreateSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[3]
+	mi := &file_task_v1_msg_session_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +546,7 @@ func (x *MsgCreateSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCreateSessionResponse.ProtoReflect.Descriptor instead.
 func (*MsgCreateSessionResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{3}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MsgCreateSessionResponse) GetSessionId() []byte {
@@ -281,7 +587,7 @@ type MsgCancelOrder struct {
 
 func (x *MsgCancelOrder) Reset() {
 	*x = MsgCancelOrder{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[4]
+	mi := &file_task_v1_msg_session_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -293,7 +599,7 @@ func (x *MsgCancelOrder) String() string {
 func (*MsgCancelOrder) ProtoMessage() {}
 
 func (x *MsgCancelOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[4]
+	mi := &file_task_v1_msg_session_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -306,7 +612,7 @@ func (x *MsgCancelOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCancelOrder.ProtoReflect.Descriptor instead.
 func (*MsgCancelOrder) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{4}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MsgCancelOrder) GetSessionId() []byte {
@@ -345,7 +651,7 @@ type MsgCancelOrderResponse struct {
 
 func (x *MsgCancelOrderResponse) Reset() {
 	*x = MsgCancelOrderResponse{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	mi := &file_task_v1_msg_session_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -357,7 +663,7 @@ func (x *MsgCancelOrderResponse) String() string {
 func (*MsgCancelOrderResponse) ProtoMessage() {}
 
 func (x *MsgCancelOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	mi := &file_task_v1_msg_session_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -370,7 +676,7 @@ func (x *MsgCancelOrderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCancelOrderResponse.ProtoReflect.Descriptor instead.
 func (*MsgCancelOrderResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MsgCancelOrderResponse) GetTaskId() []byte {
@@ -405,7 +711,7 @@ var File_task_v1_msg_session_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_session_proto_rawDesc = "" +
 	"\n" +
-	"\x19task/v1/msg_session.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x14task/v1/params.proto\"\x8d\x01\n" +
+	"\x19task/v1/msg_session.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x16shared/v1/amount.proto\x1a\x14task/v1/params.proto\"\x8d\x01\n" +
 	"\x13MsgUpdateTaskParams\x12)\n" +
 	"\x10expected_version\x18\x01 \x01(\x04R\x0fexpectedVersion\x12-\n" +
 	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12\x1c\n" +
@@ -415,9 +721,33 @@ const file_task_v1_msg_session_proto_rawDesc = "" +
 	"newVersion\x12\x1f\n" +
 	"\vparams_hash\x18\x02 \x01(\fR\n" +
 	"paramsHash\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"9\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"v\n" +
 	"\x10MsgCreateSession\x12%\n" +
-	"\x0esigner_address\x18\x01 \x01(\tR\rsignerAddress\"\x93\x01\n" +
+	"\x0esigner_address\x18\x01 \x01(\tR\rsignerAddress\x12;\n" +
+	"\vsession_key\x18\x02 \x01(\v2\x1a.task.v1.SessionKeyGrantV1R\n" +
+	"sessionKey\"\x89\x01\n" +
+	"\x11SessionKeyGrantV1\x12\x1f\n" +
+	"\vsession_key\x18\x01 \x01(\fR\n" +
+	"sessionKey\x12#\n" +
+	"\rexpiry_height\x18\x02 \x01(\x04R\fexpiryHeight\x12.\n" +
+	"\tspend_cap\x18\x03 \x01(\v2\x11.shared.v1.AmountR\bspendCap\"\x13\n" +
+	"\x11ClearSessionKeyV1\"\xc9\x01\n" +
+	"\x13MsgUpdateSessionKey\x12%\n" +
+	"\x0esigner_address\x18\x01 \x01(\tR\rsignerAddress\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\fR\tsessionId\x12.\n" +
+	"\x03set\x18\x03 \x01(\v2\x1a.task.v1.SessionKeyGrantV1H\x00R\x03set\x122\n" +
+	"\x05clear\x18\x04 \x01(\v2\x1a.task.v1.ClearSessionKeyV1H\x00R\x05clearB\b\n" +
+	"\x06action\"\xbe\x02\n" +
+	"\x1bMsgUpdateSessionKeyResponse\x124\n" +
+	"\x14session_key_or_empty\x18\x01 \x01(\fH\x00R\x11sessionKeyOrEmpty\x88\x01\x01\x12#\n" +
+	"\rexpiry_height\x18\x02 \x01(\x04R\fexpiryHeight\x12.\n" +
+	"\tspend_cap\x18\x03 \x01(\v2\x11.shared.v1.AmountR\bspendCap\x12'\n" +
+	"\x05spent\x18\x04 \x01(\v2\x11.shared.v1.AmountR\x05spent\x12\x1d\n" +
+	"\n" +
+	"set_height\x18\x05 \x01(\x04R\tsetHeight\x123\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB\x17\n" +
+	"\x15_session_key_or_empty\"\x93\x01\n" +
 	"\x18MsgCreateSessionResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12#\n" +
@@ -446,27 +776,39 @@ func file_task_v1_msg_session_proto_rawDescGZIP() []byte {
 	return file_task_v1_msg_session_proto_rawDescData
 }
 
-var file_task_v1_msg_session_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_task_v1_msg_session_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_task_v1_msg_session_proto_goTypes = []any{
 	(*MsgUpdateTaskParams)(nil),         // 0: task.v1.MsgUpdateTaskParams
 	(*MsgUpdateTaskParamsResponse)(nil), // 1: task.v1.MsgUpdateTaskParamsResponse
 	(*MsgCreateSession)(nil),            // 2: task.v1.MsgCreateSession
-	(*MsgCreateSessionResponse)(nil),    // 3: task.v1.MsgCreateSessionResponse
-	(*MsgCancelOrder)(nil),              // 4: task.v1.MsgCancelOrder
-	(*MsgCancelOrderResponse)(nil),      // 5: task.v1.MsgCancelOrderResponse
-	(*TaskParamsV1)(nil),                // 6: task.v1.TaskParamsV1
-	(v1.MutationStatusV1)(0),            // 7: shared.v1.MutationStatusV1
+	(*SessionKeyGrantV1)(nil),           // 3: task.v1.SessionKeyGrantV1
+	(*ClearSessionKeyV1)(nil),           // 4: task.v1.ClearSessionKeyV1
+	(*MsgUpdateSessionKey)(nil),         // 5: task.v1.MsgUpdateSessionKey
+	(*MsgUpdateSessionKeyResponse)(nil), // 6: task.v1.MsgUpdateSessionKeyResponse
+	(*MsgCreateSessionResponse)(nil),    // 7: task.v1.MsgCreateSessionResponse
+	(*MsgCancelOrder)(nil),              // 8: task.v1.MsgCancelOrder
+	(*MsgCancelOrderResponse)(nil),      // 9: task.v1.MsgCancelOrderResponse
+	(*TaskParamsV1)(nil),                // 10: task.v1.TaskParamsV1
+	(v1.MutationStatusV1)(0),            // 11: shared.v1.MutationStatusV1
+	(*v1.Amount)(nil),                   // 12: shared.v1.Amount
 }
 var file_task_v1_msg_session_proto_depIdxs = []int32{
-	6, // 0: task.v1.MsgUpdateTaskParams.params:type_name -> task.v1.TaskParamsV1
-	7, // 1: task.v1.MsgUpdateTaskParamsResponse.status:type_name -> shared.v1.MutationStatusV1
-	7, // 2: task.v1.MsgCreateSessionResponse.status:type_name -> shared.v1.MutationStatusV1
-	7, // 3: task.v1.MsgCancelOrderResponse.status:type_name -> shared.v1.MutationStatusV1
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	10, // 0: task.v1.MsgUpdateTaskParams.params:type_name -> task.v1.TaskParamsV1
+	11, // 1: task.v1.MsgUpdateTaskParamsResponse.status:type_name -> shared.v1.MutationStatusV1
+	3,  // 2: task.v1.MsgCreateSession.session_key:type_name -> task.v1.SessionKeyGrantV1
+	12, // 3: task.v1.SessionKeyGrantV1.spend_cap:type_name -> shared.v1.Amount
+	3,  // 4: task.v1.MsgUpdateSessionKey.set:type_name -> task.v1.SessionKeyGrantV1
+	4,  // 5: task.v1.MsgUpdateSessionKey.clear:type_name -> task.v1.ClearSessionKeyV1
+	12, // 6: task.v1.MsgUpdateSessionKeyResponse.spend_cap:type_name -> shared.v1.Amount
+	12, // 7: task.v1.MsgUpdateSessionKeyResponse.spent:type_name -> shared.v1.Amount
+	11, // 8: task.v1.MsgUpdateSessionKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	11, // 9: task.v1.MsgCreateSessionResponse.status:type_name -> shared.v1.MutationStatusV1
+	11, // 10: task.v1.MsgCancelOrderResponse.status:type_name -> shared.v1.MutationStatusV1
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_session_proto_init() }
@@ -475,13 +817,18 @@ func file_task_v1_msg_session_proto_init() {
 		return
 	}
 	file_task_v1_params_proto_init()
+	file_task_v1_msg_session_proto_msgTypes[5].OneofWrappers = []any{
+		(*MsgUpdateSessionKey_Set)(nil),
+		(*MsgUpdateSessionKey_Clear)(nil),
+	}
+	file_task_v1_msg_session_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_msg_session_proto_rawDesc), len(file_task_v1_msg_session_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

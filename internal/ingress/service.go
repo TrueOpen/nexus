@@ -84,6 +84,12 @@ type AuthParams struct {
 	// MaxSessionGrantBlocks bounds a session grant's expiry above the current height. Every Task
 	// Builder of a network must use the same value.
 	MaxSessionGrantBlocks uint64
+	// SessionKeys, when set, admits requests and OpenTask orders signed by the key an owner
+	// registered on the session's StreamState; FeeDenom (hub business_denom) is then the feeDenom
+	// of the order signing domain. Unset, such requests are invalid signatures and orders are not
+	// prechecked.
+	SessionKeys sdkauth.SessionKeys
+	FeeDenom    string
 }
 
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.
@@ -169,6 +175,8 @@ type envelopeCheck struct {
 	// nonce to the taskdata Authorizer and so passes no replay cache.
 	heightExpiry bool
 	replay       sdkauth.ReplayCache
+	// height, when non-zero, is the current height the caller already read (sdkauth.VerifyOpts.Height).
+	height uint64
 }
 
 // verifyEnvelope runs sdkauth.Verify and maps its result to a connect error. It returns the user the
@@ -187,6 +195,8 @@ func (s *service) verifyEnvelope(ctx context.Context, pb *nexusv1.SDKRequestEnve
 		OrderUser:             c.orderUser,
 		Chain:                 s.auth.Chain,
 		MaxSessionGrantBlocks: s.auth.MaxSessionGrantBlocks,
+		SessionKeys:           s.auth.SessionKeys,
+		Height:                c.height,
 	})
 	if err != nil {
 		return "", mapEnvelopeErr(err)
@@ -202,6 +212,8 @@ func mapEnvelopeErr(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, sdkauth.ErrSessionGrantExpired), errors.Is(err, sdkauth.ErrExpired):
 		return connect.NewError(connect.CodeDeadlineExceeded, err)
+	case errors.Is(err, sdkauth.ErrSessionKeySpendCapExceeded):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, sdkauth.ErrUnavailable):
 		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, sdkauth.ErrMisconfigured):

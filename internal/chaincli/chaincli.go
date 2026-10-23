@@ -118,6 +118,10 @@ type Client interface {
 	// AccountPubKey returns the 33-byte compressed eth_secp256k1 public key the account holds on
 	// chain; ErrNotFound when the account does not exist or holds no such key.
 	AccountPubKey(ctx context.Context, address string) ([]byte, error)
+	// QuerySession reads one session's StreamState; ErrNotFound when the chain has no such session.
+	QuerySession(ctx context.Context, sessionID string) (SessionState, error)
+	// QueryBusinessDenom reads hub params phase0.business_denom.
+	QueryBusinessDenom(ctx context.Context) (string, error)
 
 	// --- Broadcast signed Tx (Assign / OpenVerify / WorkerReveal / Settle / Register / Unbond) ---
 	BroadcastTx(ctx context.Context, tx []byte) (TxResult, error)

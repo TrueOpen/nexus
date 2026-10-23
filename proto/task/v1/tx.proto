@@ -23,6 +23,8 @@ service Msg {
   rpc UpdateTaskParams(MsgUpdateTaskParams) returns (MsgUpdateTaskParamsResponse);
   // CreateSession derives one new session from the signer's SessionNonce.
   rpc CreateSession(MsgCreateSession) returns (MsgCreateSessionResponse);
+  // UpdateSessionKey sets or clears authorization using the owner's wallet.
+  rpc UpdateSessionKey(MsgUpdateSessionKey) returns (MsgUpdateSessionKeyResponse);
   // CancelOrder skips one unused order sequence.
   rpc CancelOrder(MsgCancelOrder) returns (MsgCancelOrderResponse);
   // SubmitWorkerHandraises is the single Task admission and Worker candidate

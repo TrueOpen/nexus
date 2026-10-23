@@ -103,6 +103,12 @@ type SessionGrantEnv struct {
 	// BodyDigest, when set, is the body digest the verifier recomputed from the request body (hex);
 	// the digest is rebuilt with it, so a request body that does not match fails as a signature.
 	BodyDigest string
+	// SessionKeys and LocalTask, when both set, let a request without a grant be signed by the key
+	// registered on the session of this Builder's local Task record (verifyRegisteredTaskDataKey).
+	SessionKeys sdkauth.SessionKeys
+	// LocalTask reports whether this Builder holds a local record of the Task; an error is a
+	// failed read, not an absent record.
+	LocalTask func(ctx context.Context, sessionID, taskID string) (bool, error)
 }
 
 // sessionAllowed reports whether a session key may sign this request: only metadata and fetch of an
@@ -115,9 +121,10 @@ func sessionAllowed(auth RequestAuthV1) bool {
 // VerifyUserTaskDataRequest runs steps 1-4 of a USER request: format, the session method set, the
 // grant, then the signature over the digest rebuilt with the verifier's own chain_id and body. It
 // answers only "is this request signed for requester_address": without a grant the signature must
-// recover to requester_address, whose account must hold the recovered key on chain; with one, the
-// grant must be the requester's, valid now, and the request must recover to its session key. The
-// caller runs step 5 (Builder, expiry, replay, Task duty).
+// recover to requester_address, whose account must hold the recovered key on chain, or to the key
+// registered on the session of the local Task record; with one, the grant must be the requester's,
+// valid now, and the request must recover to its session key. The caller runs step 5 (Builder,
+// expiry, replay, Task duty).
 func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, env SessionGrantEnv) error {
 	// Step 1: format.
 	if auth.RequesterKind != RequesterKindUser {
@@ -196,6 +203,13 @@ func VerifyUserTaskDataRequest(ctx context.Context, auth RequestAuthV1, env Sess
 	want := declared
 	if auth.SessionGrant != nil {
 		want = sessionKey
+	}
+	if auth.SessionGrant == nil && recovered.Address != want && env.SessionKeys != nil {
+		// Not the wallet: only the key registered on the Task's session may have signed it.
+		if auth.ChainID != chainID {
+			return fmt.Errorf("%w: chain_id %q is not this chain", ErrInvalidSignature, auth.ChainID)
+		}
+		return verifyRegisteredTaskDataKey(ctx, auth, env, recovered.Address)
 	}
 	if recovered.Address != want {
 		return fmt.Errorf("%w: USER signature recovers %s, not %s",

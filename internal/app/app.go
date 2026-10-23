@@ -244,7 +244,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("builder authority: %w", err)
 	}
 	eventOptions := newChainEventOptions(store, authority.Mode)
+	// Keys owners register on their sessions: the cache follows the task event streams of the
+	// sessions this Builder tracks.
+	sessionKeys, err := newRegisteredKeys(cfg.Ingress)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("registered session keys: %w", err)
+	}
+	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(sessionKeys.cache))
 	taskChain := chaincli.New(log, cfg.Chain, eventOptions.task...) // Task Chain: source of truth for task queries, txs and events.
+	sessionKeys.chain = taskChain
 	registrationChain := taskChain
 	var hubChain chaincli.Client
 	if authority.Mode == config.AuthorityHub {
@@ -393,6 +402,22 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		func(err error) bool { return errors.Is(err, chaincli.ErrNotFound) }, sdkauth.DefaultAccountKeyCacheSize)
 	sessionGrantBlocks := cfg.Ingress.SessionGrantBlocks()
 	log.Info("session grant window", "max_session_grant_blocks", sessionGrantBlocks)
+	// feeDenom is the feeDenom of the order signing domain, needed to precheck orders signed by a
+	// registered key. It is read once: a business_denom change needs a restart.
+	var feeDenom string
+	if serviceSG != nil {
+		denomCtx, cancelDenom := context.WithTimeout(context.Background(), 30*time.Second)
+		denom, denomErr := registrationChain.QueryBusinessDenom(denomCtx)
+		cancelDenom()
+		if denomErr != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("query hub phase0.business_denom: %w", denomErr)
+		}
+		feeDenom = denom
+		log.Info("registered session keys", "business_denom", feeDenom,
+			"session_key_cache_ttl_blocks", cfg.Ingress.SessionKeyCacheTTLBlocks,
+			"session_key_lookups_per_second", cfg.Ingress.SessionKeyLookupsPerSecond)
+	}
 	if serviceSG != nil {
 		// A Task data request may expire up to service.max_service_material_expiry_blocks above the
 		// current height; the value is read once at startup.
@@ -416,8 +441,11 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			},
 			UserRequestsPerMinute: cfg.TaskData.UserRequestsPerMinute,
 			RetentionLeaseBlocks:  cfg.TaskData.RetentionLeaseBlocks,
-			SessionGrants:         taskdata.SessionGrantEnv{Chain: userChain, MaxBlocks: sessionGrantBlocks},
-			Log:                   log,
+			SessionGrants: taskdata.SessionGrantEnv{
+				Chain: userChain, MaxBlocks: sessionGrantBlocks,
+				SessionKeys: sessionKeys.cache, LocalTask: localTaskRecord(coord.TaskOwner),
+			},
+			Log: log,
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()
@@ -480,6 +508,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ServiceKeys:           registrationChain,
 		Chain:                 userChain,
 		MaxSessionGrantBlocks: sessionGrantBlocks,
+		SessionKeys:           sessionKeys.cache,
+		FeeDenom:              feeDenom,
 	}, coord, ingressOpts...)
 	if err != nil {
 		_ = store.Close()

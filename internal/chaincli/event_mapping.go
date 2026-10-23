@@ -42,6 +42,9 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 		if taskEventIsSessionScoped(event) || isSessionLifecycleSweep(event) {
 			return ChainEvent{}, errSessionScopedTaskEvent
 		}
+		if !taskEventCodeKnown(event) {
+			return ChainEvent{}, errUnknownSessionEvent
+		}
 		return ChainEvent{}, fmt.Errorf("task event compound key is required")
 	}
 	if event.GetChainHeight() == 0 || event.GetChainHeight() > math.MaxInt64 {
@@ -73,6 +76,18 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 // bad envelope and drop the stream; otherwise a reconnect receives the same event from the
 // same position and backs off forever.
 var errSessionScopedTaskEvent = errors.New("task event is session-scoped")
+
+// errUnknownSessionEvent marks an event without task_id whose code this mirror does not know: a
+// newer chain may emit session-level events an older Nexus has no payload for. Like a known
+// session-level event it is skipped and the cursor advances past it; stopping on it would drop the
+// stream and resume at the same cursor forever.
+var errUnknownSessionEvent = errors.New("task event without task_id has a code this mirror does not know")
+
+// taskEventCodeKnown reports whether the mirror's Task payload oneof has the envelope's code.
+func taskEventCodeKnown(event *taskv1.TaskEvent) bool {
+	code := protoreflect.FieldNumber(int32(event.GetCode()))
+	return (&taskv1.TaskProtocolEventPayloadV1{}).ProtoReflect().Descriptor().Fields().ByNumber(code) != nil
+}
 
 // taskEventIsSessionScoped reports whether the typed payload for the envelope's code has
 // no task_id field at all. Only codes known to this mirror count: unknown codes must not

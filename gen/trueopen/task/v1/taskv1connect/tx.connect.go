@@ -38,6 +38,8 @@ const (
 	MsgUpdateTaskParamsProcedure = "/task.v1.Msg/UpdateTaskParams"
 	// MsgCreateSessionProcedure is the fully-qualified name of the Msg's CreateSession RPC.
 	MsgCreateSessionProcedure = "/task.v1.Msg/CreateSession"
+	// MsgUpdateSessionKeyProcedure is the fully-qualified name of the Msg's UpdateSessionKey RPC.
+	MsgUpdateSessionKeyProcedure = "/task.v1.Msg/UpdateSessionKey"
 	// MsgCancelOrderProcedure is the fully-qualified name of the Msg's CancelOrder RPC.
 	MsgCancelOrderProcedure = "/task.v1.Msg/CancelOrder"
 	// MsgSubmitWorkerHandraisesProcedure is the fully-qualified name of the Msg's
@@ -84,6 +86,8 @@ type MsgClient interface {
 	UpdateTaskParams(context.Context, *connect.Request[v1.MsgUpdateTaskParams]) (*connect.Response[v1.MsgUpdateTaskParamsResponse], error)
 	// CreateSession derives one new session from the signer's SessionNonce.
 	CreateSession(context.Context, *connect.Request[v1.MsgCreateSession]) (*connect.Response[v1.MsgCreateSessionResponse], error)
+	// UpdateSessionKey sets or clears authorization using the owner's wallet.
+	UpdateSessionKey(context.Context, *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error)
 	// CancelOrder skips one unused order sequence.
 	CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error)
 	// SubmitWorkerHandraises is the single Task admission and Worker candidate
@@ -149,6 +153,12 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgCreateSessionProcedure,
 			connect.WithSchema(msgMethods.ByName("CreateSession")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSessionKey: connect.NewClient[v1.MsgUpdateSessionKey, v1.MsgUpdateSessionKeyResponse](
+			httpClient,
+			baseURL+MsgUpdateSessionKeyProcedure,
+			connect.WithSchema(msgMethods.ByName("UpdateSessionKey")),
 			connect.WithClientOptions(opts...),
 		),
 		cancelOrder: connect.NewClient[v1.MsgCancelOrder, v1.MsgCancelOrderResponse](
@@ -248,6 +258,7 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 type msgClient struct {
 	updateTaskParams            *connect.Client[v1.MsgUpdateTaskParams, v1.MsgUpdateTaskParamsResponse]
 	createSession               *connect.Client[v1.MsgCreateSession, v1.MsgCreateSessionResponse]
+	updateSessionKey            *connect.Client[v1.MsgUpdateSessionKey, v1.MsgUpdateSessionKeyResponse]
 	cancelOrder                 *connect.Client[v1.MsgCancelOrder, v1.MsgCancelOrderResponse]
 	submitWorkerHandraises      *connect.Client[v1.MsgSubmitWorkerHandraises, v1.MsgSubmitWorkerHandraisesResponse]
 	submitInferReceipt          *connect.Client[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse]
@@ -273,6 +284,11 @@ func (c *msgClient) UpdateTaskParams(ctx context.Context, req *connect.Request[v
 // CreateSession calls task.v1.Msg.CreateSession.
 func (c *msgClient) CreateSession(ctx context.Context, req *connect.Request[v1.MsgCreateSession]) (*connect.Response[v1.MsgCreateSessionResponse], error) {
 	return c.createSession.CallUnary(ctx, req)
+}
+
+// UpdateSessionKey calls task.v1.Msg.UpdateSessionKey.
+func (c *msgClient) UpdateSessionKey(ctx context.Context, req *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error) {
+	return c.updateSessionKey.CallUnary(ctx, req)
 }
 
 // CancelOrder calls task.v1.Msg.CancelOrder.
@@ -356,6 +372,8 @@ type MsgHandler interface {
 	UpdateTaskParams(context.Context, *connect.Request[v1.MsgUpdateTaskParams]) (*connect.Response[v1.MsgUpdateTaskParamsResponse], error)
 	// CreateSession derives one new session from the signer's SessionNonce.
 	CreateSession(context.Context, *connect.Request[v1.MsgCreateSession]) (*connect.Response[v1.MsgCreateSessionResponse], error)
+	// UpdateSessionKey sets or clears authorization using the owner's wallet.
+	UpdateSessionKey(context.Context, *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error)
 	// CancelOrder skips one unused order sequence.
 	CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error)
 	// SubmitWorkerHandraises is the single Task admission and Worker candidate
@@ -417,6 +435,12 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgCreateSessionProcedure,
 		svc.CreateSession,
 		connect.WithSchema(msgMethods.ByName("CreateSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgUpdateSessionKeyHandler := connect.NewUnaryHandler(
+		MsgUpdateSessionKeyProcedure,
+		svc.UpdateSessionKey,
+		connect.WithSchema(msgMethods.ByName("UpdateSessionKey")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgCancelOrderHandler := connect.NewUnaryHandler(
@@ -515,6 +539,8 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgUpdateTaskParamsHandler.ServeHTTP(w, r)
 		case MsgCreateSessionProcedure:
 			msgCreateSessionHandler.ServeHTTP(w, r)
+		case MsgUpdateSessionKeyProcedure:
+			msgUpdateSessionKeyHandler.ServeHTTP(w, r)
 		case MsgCancelOrderProcedure:
 			msgCancelOrderHandler.ServeHTTP(w, r)
 		case MsgSubmitWorkerHandraisesProcedure:
@@ -560,6 +586,10 @@ func (UnimplementedMsgHandler) UpdateTaskParams(context.Context, *connect.Reques
 
 func (UnimplementedMsgHandler) CreateSession(context.Context, *connect.Request[v1.MsgCreateSession]) (*connect.Response[v1.MsgCreateSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.CreateSession is not implemented"))
+}
+
+func (UnimplementedMsgHandler) UpdateSessionKey(context.Context, *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.UpdateSessionKey is not implemented"))
 }
 
 func (UnimplementedMsgHandler) CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error) {

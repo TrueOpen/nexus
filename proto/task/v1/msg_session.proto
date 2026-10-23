@@ -2,6 +2,7 @@ syntax = "proto3";
 package task.v1;
 
 import "shared/v1/common.proto";
+import "shared/v1/amount.proto";
 import "task/v1/params.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
@@ -26,13 +27,59 @@ message MsgUpdateTaskParamsResponse {
 }
 
 // MsgCreateSession opens one session namespace and locks its owner
-// (the wire API). Besides the required Cosmos signer there is no business
-// input: the nonce comes from SessionNonceState and session_id is derived on
+// (the wire API). The optional grant registers a session signing key. The
+// nonce comes from SessionNonceState and session_id is derived on
 // chain by TRUEOPEN_SESSION_V1. Model A: creating a session never moves funds, and
 // no unbounded metadata is accepted.
 // MsgCreateSession defines the MsgCreateSession wire type.
 message MsgCreateSession {
   string signer_address = 1;
+  SessionKeyGrantV1 session_key = 2;
+}
+
+// SessionKeyGrantV1 registers a delegated order/request signer for one session.
+// The raw20 address must be nonzero and different from the owner's address.
+// At registration/renewal, current_height < expiry_height <= current_height +
+// the current effective max_session_key_blocks (checked addition). The limit
+// is not resolved through the session's pinned historical parameter version.
+// A canonical zero spend_cap (atomic_units = "0") is unlimited; otherwise it
+// bounds cumulative admitted max_fee, not actual spend or a prepaid balance.
+message SessionKeyGrantV1 {
+  bytes session_key = 1;
+  uint64 expiry_height = 2;
+  shared.v1.Amount spend_cap = 3;
+}
+
+// ClearSessionKeyV1 explicitly revokes the current session key.
+message ClearSessionKeyV1 {}
+
+// MsgUpdateSessionKey changes authorization for an ACTIVE or IDLE session.
+// Only its owner signs this transaction. Exactly one action is required.
+// SET preserves spent; a different key or SET after CLEAR records the execution
+// height as set_height. Same-key renewal/cap changes preserve set_height.
+// CLEAR zeroes key, expiry, cap and set_height, but never spent. An unchanged
+// result is NOOP without an event. Lifecycle status and activity are unchanged.
+// Later transactions, including in the same block, see the new authorization.
+// Already admitted tasks retain their authorization and escrow.
+message MsgUpdateSessionKey {
+  string signer_address = 1;
+  bytes session_id = 2;
+  // action selects registration/renewal or explicit revocation.
+  oneof action {
+    SessionKeyGrantV1 set = 3;
+    ClearSessionKeyV1 clear = 4;
+  }
+}
+
+// MsgUpdateSessionKeyResponse returns the committed authorization and result.
+// An absent session_key_or_empty means no key; spent survives revocation.
+message MsgUpdateSessionKeyResponse {
+  optional bytes session_key_or_empty = 1;
+  uint64 expiry_height = 2;
+  shared.v1.Amount spend_cap = 3;
+  shared.v1.Amount spent = 4;
+  uint64 set_height = 5;
+  shared.v1.MutationStatusV1 status = 6;
 }
 
 // MsgCreateSessionResponse returns the chain-derived session identity

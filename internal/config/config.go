@@ -211,6 +211,13 @@ type IngressConfig struct {
 	// configuration that every Task Builder of a network must set to the same value, and the SDK must
 	// issue grants inside it. 0 = DefaultMaxSessionGrantBlocks.
 	MaxSessionGrantBlocks uint64 `yaml:"max_session_grant_blocks"`
+	// SessionKeyCacheTTLBlocks is how many blocks the session state behind a key registered on chain
+	// is reused after it was read (1..10; 0 = 5). A key change seen on a session's event stream drops
+	// it sooner; sessions this Builder has no task in rely on the block count alone.
+	SessionKeyCacheTTLBlocks uint64 `yaml:"session_key_cache_ttl_blocks"`
+	// SessionKeyLookupsPerSecond bounds the chain reads of session state on cache misses (0 = 20); a
+	// miss over the budget is answered as unavailable, so the client retries.
+	SessionKeyLookupsPerSecond uint32 `yaml:"session_key_lookups_per_second"`
 	// TLS lets ingress terminate TLS itself (HTTP/2 over TLS) instead of depending on a front proxy.
 	TLS IngressTLSConfig `yaml:"tls"`
 }
@@ -224,6 +231,10 @@ const DefaultMaxSessionGrantBlocks = uint64(17280)
 // 5-second blocks: a session key lives in client memory and cannot be revoked, so a grant must not
 // be allowed to last almost forever.
 const MaxSessionGrantBlocksLimit = uint64(518400)
+
+// MaxSessionKeyCacheTTLBlocks caps ingress.session_key_cache_ttl_blocks: a revoked key may still pass
+// request checks on this Builder for up to that many blocks.
+const MaxSessionKeyCacheTTLBlocks = uint64(10)
 
 // SessionGrantBlocks returns MaxSessionGrantBlocks, or the default when unset.
 func (c IngressConfig) SessionGrantBlocks() uint64 {
@@ -272,6 +283,9 @@ func (c Config) ValidateTransport() error {
 	}
 	if n := c.Ingress.SessionGrantBlocks(); n > MaxSessionGrantBlocksLimit {
 		return fmt.Errorf("ingress.max_session_grant_blocks %d is above the limit %d", n, MaxSessionGrantBlocksLimit)
+	}
+	if n := c.Ingress.SessionKeyCacheTTLBlocks; n > MaxSessionKeyCacheTTLBlocks {
+		return fmt.Errorf("ingress.session_key_cache_ttl_blocks %d is above the limit %d", n, MaxSessionKeyCacheTTLBlocks)
 	}
 	endpoint := strings.TrimSpace(c.Identity.PublicEndpoint)
 	if !c.Ingress.TLS.Enabled || endpoint == "" {
@@ -809,6 +823,8 @@ func applyEnv(cfg *Config) {
 	}
 	cfg.NATS.StreamReplicas = int(envUint32("NEXUS_NATS_STREAM_REPLICAS", uint32(cfg.NATS.StreamReplicas)))
 	cfg.Ingress.MaxSessionGrantBlocks = envUint64("NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS", cfg.Ingress.MaxSessionGrantBlocks)
+	cfg.Ingress.SessionKeyCacheTTLBlocks = envUint64("NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS", cfg.Ingress.SessionKeyCacheTTLBlocks)
+	cfg.Ingress.SessionKeyLookupsPerSecond = envUint32("NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND", cfg.Ingress.SessionKeyLookupsPerSecond)
 	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
 		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
 	}

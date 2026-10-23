@@ -17,7 +17,9 @@
 // recover to signer_address, whose account must hold that public key on chain. With a grant, the
 // wallet has signed a SessionGrant once and a short-lived session key signs the request; the
 // request must recover to the grant's session key, and only a closed set of methods accepts it. On
-// OpenTask the grant must also be for the SignedOrder user.
+// OpenTask the grant must also be for the SignedOrder user. Without a grant, a request that
+// recovers to another address must be signed by the key the owner registered on the envelope's
+// session (verifyRegisteredKey); the same closed set of methods applies.
 //
 // Verification runs in a fixed order and stops at the first failure, which fixes the error code:
 //
@@ -176,6 +178,12 @@ type VerifyOpts struct {
 	// MaxSessionGrantBlocks bounds a grant's expiry above the current height. Every Task Builder of a
 	// network must use the same value.
 	MaxSessionGrantBlocks uint64
+	// SessionKeys, when set, lets a request without a grant be signed by the key registered on its
+	// session's StreamState (verifyRegisteredKey); unset, such a request is an invalid signature.
+	SessionKeys SessionKeys
+	// Height, when non-zero, is the current height the caller already read; the registered-key
+	// branch uses it instead of reading one.
+	Height uint64
 }
 
 // An expiry below HeightExpiryThreshold is a chain height, at or above it Unix milliseconds.
@@ -468,9 +476,11 @@ func Verify(ctx context.Context, e *Envelope, opts VerifyOpts) error {
 	} else {
 		signer, _ := nodecontract.CanonicalOperatorAddressBytes("signer_address", e.SignerAddress) // checked in checkFormat
 		if !bytes.Equal(recovered.Address[:], signer) {
-			return fmt.Errorf("%w: the request does not recover to signer_address", ErrInvalidSignature)
-		}
-		if err := MatchAccountKey(ctx, opts.Chain, e.SignerAddress, recovered.Compressed); err != nil {
+			// Not the wallet: only the session's registered key may have signed it.
+			if err := verifyRegisteredKey(ctx, e, opts, recovered.Address); err != nil {
+				return err
+			}
+		} else if err := MatchAccountKey(ctx, opts.Chain, e.SignerAddress, recovered.Compressed); err != nil {
 			if errors.Is(err, ErrUnavailable) {
 				return err
 			}
