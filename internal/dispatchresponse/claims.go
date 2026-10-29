@@ -180,57 +180,6 @@ func recordOutcome(record *taskv1.DispatchRecordV1, hash []byte) taskv1.Dispatch
 	return taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_UNSPECIFIED
 }
 
-// recheckClaims looks up, after a role stream gap, the claim on every ticket the evidence could
-// rebut whose claim window is open: claims on a ticket open record_deadline_blocks after
-// max(earliest_submit_height, the ticket's bound_change_height) and last the claim window plus
-// the rebuttal blocks. Pending claims on the Builder whose ticket it is (this Builder, or the
-// dispatching Builder of a member's copy) are opened. Tickets whose compensation is owed are not
-// asked about.
-func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
-	p := r.cfg.Evidence.Params()
-	var hashes [][]byte
-	builders := map[string]string{} // ticket hash -> the Builder whose ticket it is
-	err := r.cfg.Evidence.Scan(func(ev *dispatchevidence.Order) bool {
-		if head > ev.DeadlineBase+p.RecordDeadlineBlocks+p.ClaimWindowBlocks+p.RebuttalBlocks {
-			return true
-		}
-		var order taskv1.SignedOrderV2
-		_ = proto.Unmarshal(ev.SignedOrder, &order)
-		esh := order.GetOrder().GetEarliestSubmitHeight()
-		for _, round := range ev.Rounds {
-			for _, a := range round.Attempts {
-				var ticket taskv1.DispatchTicketV1
-				_ = proto.Unmarshal(a.Ticket, &ticket)
-				if open := max(esh, ticket.GetBoundChangeHeight()) + p.RecordDeadlineBlocks; a.Rebuttable() && head > open {
-					hashes = append(hashes, a.Hash)
-					builders[string(a.Hash)] = dispatcherOf(ev, r.cfg.Builder)
-				}
-			}
-		}
-		return true
-	})
-	if err != nil {
-		r.log.Warn("dispatch evidence not scanned after a role stream gap", "err", err)
-	}
-	opened := 0
-	for _, hash := range hashes {
-		claim, err := r.cfg.Chain.QueryDispatchCompensationClaim(ctx, hash)
-		switch {
-		case isNotFound(err):
-			continue
-		case err != nil:
-			r.log.Warn("compensation claim not read after a role stream gap", "ticket", hex.EncodeToString(hash), "err", err)
-			continue
-		}
-		if claim.GetStatus() != claimPending || claim.GetBuilderAddress() != builders[string(hash)] {
-			continue
-		}
-		r.open(claimPrefix, r.claims, &item{ID: hash, Deadline: claim.GetRebuttalDeadlineHeight()})
-		opened++
-	}
-	r.log.Info("claims looked up again after a role stream gap", "tickets", len(hashes), "pending", opened)
-}
-
 // dispatcherOf is the Builder that dispatched the order of ev: the one named in a member's copy,
 // otherwise this Builder.
 func dispatcherOf(ev *dispatchevidence.Order, self string) string {

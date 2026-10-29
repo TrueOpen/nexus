@@ -13,9 +13,9 @@
 // have no answer; they are logged and counted.
 //
 // Claims and challenges come from the Builder role event stream. Open ones are stored, so a
-// restart goes on with them. After a gap in the stream every ticket the evidence could rebut is
-// looked up on chain again; challenges opened during a gap cannot be found, since the chain has no
-// query listing the challenges against a Builder.
+// restart goes on with them. After a gap in the stream, of any length, the chain's open claims and
+// challenges against this Builder (and against each Builder whose copies it holds) are read page
+// by page and followed like their events.
 package dispatchresponse
 
 import (
@@ -45,10 +45,11 @@ const (
 	// maxSends bounds how often one rebuttal or response is sent: one the chain keeps refusing
 	// when executing only spends gas.
 	maxSends = 3
-	// recheckMinBlocks spaces the claim lookups after role stream gaps: a stream that reconnects
-	// often does not have every ticket looked up on every reconnect. The spacing never exceeds
-	// half the rebuttal window (recheckSpacing), so a lookup held back still comes in time to
-	// rebut a claim filed during a gap the stream could not replay (an expired cursor).
+	// recheckMinBlocks spaces the recoveries of open claims and challenges after role stream
+	// gaps: a stream that reconnects often does not walk the open indexes on every reconnect. The
+	// spacing never exceeds half the rebuttal window (recheckSpacing), so a recovery held back
+	// still comes in time to rebut a claim filed during a gap the stream could not replay (an
+	// expired cursor).
 	recheckMinBlocks = 20
 	// maxGasFactor bounds how far out-of-gas results raise the gas of one answer.
 	maxGasFactor = 8
@@ -61,6 +62,8 @@ const (
 
 // Chain is what the responder reads from the task chain.
 type Chain interface {
+	// OpenDispatchItemPager pages a Builder's open claims and challenges after a stream gap.
+	chaincli.OpenDispatchItemPager
 	QueryDispatchCompensationClaim(ctx context.Context, ticketHash []byte) (*taskv1.DispatchCompensationClaimState, error)
 	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
 	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
@@ -260,8 +263,7 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 		}
 		return
 	case chaincli.EventBuilderRoleResync:
-		r.log.Warn("builder role stream (re)connected: claims of the gap are looked up again from the evidence; " +
-			"challenges opened during the gap cannot be found (the chain lists no challenges by Builder) and go unanswered")
+		r.log.Info("builder role stream (re)connected: open claims and challenges are read again from the chain")
 		r.mu.Lock()
 		r.resync = true
 		r.mu.Unlock()
@@ -317,8 +319,8 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 	}
 }
 
-// onBlock answers the open claims and challenges at head, looks the claims of a role stream gap
-// up again, and prunes expired evidence.
+// onBlock answers the open claims and challenges at head, reads those of a role stream gap from
+// the chain, and prunes expired evidence.
 func (r *Responder) onBlock(ctx context.Context, head uint64) {
 	r.mu.Lock()
 	resync := r.resync && (r.lastRecheck == 0 || head >= r.lastRecheck+r.recheckSpacing())
@@ -326,8 +328,10 @@ func (r *Responder) onBlock(ctx context.Context, head uint64) {
 		r.resync, r.lastRecheck = false, head
 	}
 	r.mu.Unlock()
-	if resync {
-		r.recheckClaims(ctx, head)
+	if resync && !r.recoverOpen(ctx) {
+		r.mu.Lock()
+		r.resync = true
+		r.mu.Unlock()
 	}
 	for _, it := range r.snapshot(r.claims) {
 		r.handleClaim(ctx, head, it)
@@ -338,7 +342,7 @@ func (r *Responder) onBlock(ctx context.Context, head uint64) {
 	r.prune(head)
 }
 
-// recheckSpacing is the least distance between two claim lookups after role stream gaps:
+// recheckSpacing is the least distance between two recoveries after role stream gaps:
 // recheckMinBlocks, at most half of dispatch_compensation_rebuttal_blocks.
 func (r *Responder) recheckSpacing() uint64 {
 	return min(recheckMinBlocks, max(r.cfg.Evidence.Params().RebuttalBlocks/2, 1))
@@ -373,15 +377,17 @@ func (r *Responder) prune(head uint64) {
 	}
 }
 
-// open stores an open item; one already open keeps what it has.
-func (r *Responder) open(prefix string, into map[string]*item, it *item) {
+// open stores an open item and reports whether it was not open yet; one already open keeps what
+// it has.
+func (r *Responder) open(prefix string, into map[string]*item, it *item) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := into[string(it.ID)]; ok {
-		return
+		return false
 	}
 	into[string(it.ID)] = it
 	r.writeLocked(prefix, it)
+	return true
 }
 
 // close drops an open item.

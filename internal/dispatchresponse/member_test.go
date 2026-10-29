@@ -85,19 +85,36 @@ func TestClaimsOfOtherBuildersNeedTheirCopy(t *testing.T) {
 	}
 }
 
-// After a role stream gap the member's copies are looked up too.
-func TestResyncRechecksMemberClaims(t *testing.T) {
+// After a role stream gap the open claims and challenges of every Builder whose copies this member
+// holds are read too, and those on its copies are followed.
+func TestResyncRecoversMemberClaimsAndChallenges(t *testing.T) {
 	e := newEnv(t)
-	e.put(memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}})))
+	o := memberCopy(recordedOrder(t))
+	e.put(o)
+	e.chainRecord(o)
 	e.chain.claims[string(ticketHash(0, 0))] = &taskv1.DispatchCompensationClaimState{
 		DispatchTicketHash: ticketHash(0, 0), TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: other,
 		WorkerOperatorAddress: op7, Status: statusPending, RebuttalDeadlineHeight: 160,
 	}
+	// A claim on another ticket of that Builder that this member holds no copy of.
+	e.chain.claims[string(fill(0x77))] = &taskv1.DispatchCompensationClaimState{
+		DispatchTicketHash: fill(0x77), TaskId: fill(0x78), BuilderAddress: other, Status: statusPending, RebuttalDeadlineHeight: 160,
+	}
+	e.chain.challenges[string(fill(0xc2))] = &taskv1.DispatchChallengeState{
+		ChallengeId: fill(0xc2), TaskId: testTask, Kind: kindRoster, BuilderAddress: other, DispatchRound: u32(1),
+		ProofDeadlineHeight: u64(158), Status: awaitingRoster,
+	}
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
 	e.block(151)
+	if got := e.r.openClaims(); len(got) != 1 || !bytes.Equal(got[0].ID, ticketHash(0, 0)) {
+		t.Fatalf("open claims = %v", got)
+	}
+	if got := e.r.openChallenges(); len(got) != 1 {
+		t.Fatalf("open challenges = %v", got)
+	}
 	e.block(156)
-	if len(e.rebuts()) != 1 {
-		t.Fatal("member claim of the gap not rebutted")
+	if len(e.rebuts()) != 1 || len(e.responds()) != 1 {
+		t.Fatalf("member answers of the gap: rebuts %d, responds %d", len(e.rebuts()), len(e.responds()))
 	}
 }
 

@@ -38,6 +38,15 @@ func (c *answerChain) QueryDispatchChallenge(_ context.Context, id []byte) (*tas
 	return ch, nil
 }
 
+// The open-item pages are only read after a role stream gap, which these tests do not have.
+func (c *answerChain) QueryDispatchChallengesByBuilder(context.Context, string, []byte) ([]*taskv1.DispatchChallengeState, []byte, error) {
+	return nil, nil, nil
+}
+
+func (c *answerChain) QueryDispatchCompensationClaimsByBuilder(context.Context, string, []byte) ([]*taskv1.DispatchCompensationClaimState, []byte, error) {
+	return nil, nil, nil
+}
+
 func (c *answerChain) QueryTx(context.Context, []byte) (chaincli.TxResult, error) {
 	return chaincli.TxResult{}, chaincli.ErrNotFound
 }

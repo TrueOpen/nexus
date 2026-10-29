@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"sort"
 	"sync"
 	"testing"
 
@@ -190,6 +191,94 @@ type fakeChain struct {
 	chalReads  int
 	// txResults are the executed results QueryTx returns by tx hash.
 	txResults map[string]chaincli.TxResult
+	// pageReads lists every open-item page read as "claims|builder" or "challenges|builder", with
+	// "|next" for a page after the first; pageErr fails them.
+	pageReads []string
+	pageErr   error
+}
+
+// QueryDispatchCompensationClaimsByBuilder serves the pending claims on builder's tickets, one per
+// page, so a walk spans pages.
+func (c *fakeChain) QueryDispatchCompensationClaimsByBuilder(_ context.Context, builder string, token []byte) ([]*taskv1.DispatchCompensationClaimState, []byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pageReads = append(c.pageReads, pageRead("claims", builder, token))
+	if c.pageErr != nil {
+		return nil, nil, c.pageErr
+	}
+	var open []*taskv1.DispatchCompensationClaimState
+	for _, claim := range c.claims {
+		if claim.GetBuilderAddress() == builder && claim.GetStatus() == statusPending {
+			open = append(open, proto.Clone(claim).(*taskv1.DispatchCompensationClaimState))
+		}
+	}
+	sort.Slice(open, func(i, j int) bool {
+		return bytes.Compare(open[i].GetDispatchTicketHash(), open[j].GetDispatchTicketHash()) < 0
+	})
+	page, next := onePage(len(open), token)
+	if page < 0 {
+		return nil, nil, nil
+	}
+	return open[page : page+1], next, nil
+}
+
+// QueryDispatchChallengesByBuilder serves the open challenges against builder, one per page.
+func (c *fakeChain) QueryDispatchChallengesByBuilder(_ context.Context, builder string, token []byte) ([]*taskv1.DispatchChallengeState, []byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pageReads = append(c.pageReads, pageRead("challenges", builder, token))
+	if c.pageErr != nil {
+		return nil, nil, c.pageErr
+	}
+	var open []*taskv1.DispatchChallengeState
+	for _, ch := range c.challenges {
+		if ch.GetBuilderAddress() == builder && (ch.GetStatus() == awaitingProof || ch.GetStatus() == awaitingRoster) {
+			open = append(open, proto.Clone(ch).(*taskv1.DispatchChallengeState))
+		}
+	}
+	sort.Slice(open, func(i, j int) bool { return bytes.Compare(open[i].GetChallengeId(), open[j].GetChallengeId()) < 0 })
+	page, next := onePage(len(open), token)
+	if page < 0 {
+		return nil, nil, nil
+	}
+	return open[page : page+1], next, nil
+}
+
+func pageRead(kind, builder string, token []byte) string {
+	if len(token) > 0 {
+		return kind + "|" + builder + "|next"
+	}
+	return kind + "|" + builder
+}
+
+// onePage returns the index of the one row the page at token holds (-1 for none) and the next
+// token.
+func onePage(rows int, token []byte) (int, []byte) {
+	index := 0
+	if len(token) > 0 {
+		index = int(token[0])
+	}
+	if index >= rows {
+		return -1, nil
+	}
+	if index+1 < rows {
+		return index, []byte{byte(index + 1)}
+	}
+	return index, nil
+}
+
+// pageWalks counts the open-item recoveries: each starts with the first page of this Builder's
+// claims.
+func (c *fakeChain) pageWalks() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	walks := 0
+	for _, read := range c.pageReads {
+		if read == "claims|"+self {
+			walks++
+		}
+	}
+	return walks
 }
 
 func (c *fakeChain) QueryTx(_ context.Context, hash []byte) (chaincli.TxResult, error) {

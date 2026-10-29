@@ -282,3 +282,27 @@ func TestOutOfGasResponseGoesAgainWithMoreGas(t *testing.T) {
 		t.Fatalf("open challenges = %+v", it)
 	}
 }
+
+// After a role stream gap the open challenges against this Builder are read from the chain and
+// followed as their events would have been: an answerable one on a task with evidence here is
+// answered; one without an answer, or a SKIP on a task without evidence, is not opened.
+func TestResyncRecoversTheChallengesOfTheGap(t *testing.T) {
+	e := newEnv(t)
+	e.put(recordedOrder(t))
+	for id, state := range map[byte]*taskv1.DispatchChallengeState{
+		0xc1: {Kind: kindSkip, TaskId: testTask, ChallengedTicketHash: ticketHash(0, 0), AttemptRank: u32(0)},
+		0xc2: {Kind: kindOmission, TaskId: testTask},
+		0xc3: {Kind: kindSkip, TaskId: fill(0xab), ChallengedTicketHash: fill(0x99)},
+	} {
+		state.ChallengeId, state.BuilderAddress, state.ProofDeadlineHeight, state.Status = fill(id), self, u64(125), awaitingProof
+		e.chain.challenges[string(fill(id))] = state
+	}
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(121)
+	if got := e.r.openChallenges(); len(got) != 1 || !bytes.Equal(got[0].ID, fill(0xc1)) {
+		t.Fatalf("open challenges = %v", got)
+	}
+	if got := e.responds(); len(got) != 1 || !bytes.Equal(got[0].GetChallengeId(), fill(0xc1)) {
+		t.Fatalf("responses = %v", got)
+	}
+}

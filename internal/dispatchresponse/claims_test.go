@@ -296,78 +296,57 @@ func TestOpenClaimsSurviveARestart(t *testing.T) {
 	}
 }
 
-// After a gap in the role stream every claimable ticket the evidence could rebut is looked up on
-// chain; tickets whose compensation is owed are not even asked about.
-func TestResyncRechecksClaims(t *testing.T) {
+// pendingClaim files a claim on one of this Builder's tickets on chain without its event, as during
+// a role stream gap.
+func (e *env) pendingClaim(hash []byte, worker string, deadline uint64) {
+	e.chain.mu.Lock()
+	defer e.chain.mu.Unlock()
+	e.chain.claims[string(hash)] = &taskv1.DispatchCompensationClaimState{
+		DispatchTicketHash: hash, TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: self,
+		WorkerOperatorAddress: worker, Status: statusPending, ClaimedHeight: deadline - testParams.RebuttalBlocks, RebuttalDeadlineHeight: deadline,
+	}
+}
+
+// After a gap in the role stream every claim pending this Builder's rebuttal is read from the
+// chain's open claims, page by page, and answered as if its event had arrived; a claim already
+// paid is not listed. No ticket is looked up one by one.
+func TestResyncRecoversTheClaimsOfTheGap(t *testing.T) {
 	e := newEnv(t)
 	e.put(evidenceOrder(t, false, []attemptSpec{
 		{op: op7, sent: true, outcome: outcomeTimeout},
-		{op: op1, sent: false, outcome: outcomeTimeout},
+		{op: op1, sent: true, outcome: outcomeRejected},
 		{op: op3, sent: true, outcome: outcomeVoided},
 	}))
-	// A claim filed during the gap: its event never arrived.
-	e.chain.claims[string(ticketHash(0, 0))] = &taskv1.DispatchCompensationClaimState{
-		DispatchTicketHash: ticketHash(0, 0), TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: self,
-		WorkerOperatorAddress: op7, Status: statusPending, RebuttalDeadlineHeight: 170,
-	}
+	e.pendingClaim(ticketHash(0, 0), op7, 170)
+	e.pendingClaim(ticketHash(0, 1), op1, 170)
+	e.pendingClaim(ticketHash(0, 2), op3, 170)
+	e.setClaim(ticketHash(0, 2), func(c *taskv1.DispatchCompensationClaimState) { c.Status = statusPaid })
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
-	e.block(151)
-	if got := e.chain.claimReads; len(got) == 0 || got[0] != hexOf(ticketHash(0, 0)) {
-		t.Fatalf("claim reads %v", got)
+	e.block(161)
+	if got := e.r.openClaims(); len(got) != 2 {
+		t.Fatalf("open claims after the resync = %d, want 2", len(got))
 	}
-	for _, read := range e.chain.claimReads {
-		if read == hexOf(ticketHash(0, 1)) || read == hexOf(ticketHash(0, 2)) {
-			t.Fatalf("owed ticket %s asked about", read[:8])
-		}
+	if got := e.rebuts(); len(got) != 2 {
+		t.Fatalf("rebuttals = %d, want both claims of the gap", len(got))
 	}
-	if len(e.rebuts()) != 1 {
-		t.Fatal("claim of the gap not rebutted")
+	if reads := e.chain.pageReads; len(reads) < 3 || reads[0] != "claims|"+self || reads[1] != "claims|"+self+"|next" {
+		t.Fatalf("page reads %v", reads)
 	}
 }
 
-// Evidence past every claim window is not asked about on a resync.
-func TestResyncSkipsClosedClaimWindows(t *testing.T) {
-	e := newEnv(t)
-	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
-	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
-	e.block(100 + 20 + 30 + 10 + 1)
-	if len(e.chain.claimReads) != 0 {
-		t.Fatalf("closed claim windows asked about: %v", e.chain.claimReads)
-	}
-}
-
-// A claim cannot be filed before its ticket's record deadline passed: such tickets are not asked
-// about on a resync.
-func TestResyncSkipsClaimWindowsNotOpenYet(t *testing.T) {
-	e := newEnv(t)
-	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
-	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
-	e.block(100 + 20)
-	if len(e.chain.claimReads) != 0 {
-		t.Fatalf("claims asked about before their window: %v", e.chain.claimReads)
-	}
-	// Once the record deadline passed, the next resync asks.
-	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
-	e.block(100 + 20 + e.r.recheckSpacing())
-	if len(e.chain.claimReads) != 1 {
-		t.Fatalf("claim reads %v", e.chain.claimReads)
-	}
-}
-
-// Resyncs closer together than recheckSpacing are folded into one.
+// Resyncs closer together than recheckSpacing are folded into one recovery.
 func TestResyncIsRateLimited(t *testing.T) {
 	e := newEnv(t)
-	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
 	e.block(130)
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
 	e.block(131)
-	if len(e.chain.claimReads) != 1 {
-		t.Fatalf("claim reads %v after two close resyncs", e.chain.claimReads)
+	if got := e.chain.pageWalks(); got != 1 {
+		t.Fatalf("%d recoveries after two close resyncs", got)
 	}
 	e.block(130 + e.r.recheckSpacing())
-	if len(e.chain.claimReads) != 2 {
-		t.Fatalf("deferred resync not done: %v", e.chain.claimReads)
+	if got := e.chain.pageWalks(); got != 2 {
+		t.Fatalf("deferred resync not done: %d recoveries", got)
 	}
 }
 
@@ -379,16 +358,33 @@ func TestDeferredResyncDoesNotMissAClaim(t *testing.T) {
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
 	e.block(130)
 	// A claim filed at 131 while the stream was down; its event is lost.
-	e.chain.claims[string(ticketHash(0, 0))] = &taskv1.DispatchCompensationClaimState{
-		DispatchTicketHash: ticketHash(0, 0), TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: self,
-		WorkerOperatorAddress: op7, Status: statusPending, ClaimedHeight: 131, RebuttalDeadlineHeight: 141,
-	}
+	e.pendingClaim(ticketHash(0, 0), op7, 141)
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
 	for h := uint64(132); h <= 140; h++ {
 		e.block(h)
 	}
 	if len(e.rebuts()) != 1 {
 		t.Fatal("claim of the gap missed by a deferred resync")
+	}
+}
+
+// A recovery whose walk failed is tried again from the first page after the spacing.
+func TestFailedRecoveryIsRetried(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.pendingClaim(ticketHash(0, 0), op7, 170)
+	e.chain.pageErr = errors.New("pinned height pruned")
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(161)
+	if len(e.r.openClaims()) != 0 {
+		t.Fatal("a failed walk opened claims")
+	}
+	e.chain.mu.Lock()
+	e.chain.pageErr = nil
+	e.chain.mu.Unlock()
+	e.block(161 + e.r.recheckSpacing())
+	if len(e.rebuts()) != 1 {
+		t.Fatal("failed recovery not retried")
 	}
 }
 
