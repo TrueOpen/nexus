@@ -24,7 +24,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -432,30 +431,6 @@ func mapPrepareChallengeErr(err error) error {
 }
 
 // ---- error mapping (aligned with the SDK error code semantics) ----
-
-func mapOutputDeliveryErr(err error) error {
-	switch {
-	case errors.Is(err, outputdelivery.ErrUnauthorized):
-		return connect.NewError(connect.CodePermissionDenied, err)
-	case errors.Is(err, outputdelivery.ErrInvalidUTF8),
-		errors.Is(err, outputdelivery.ErrHashMismatch),
-		errors.Is(err, outputdelivery.ErrPlaintextRequired):
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	case errors.Is(err, outputdelivery.ErrTooLarge):
-		return connect.NewError(connect.CodeResourceExhausted, err)
-	case errors.Is(err, outputdelivery.ErrConflict),
-		errors.Is(err, outputdelivery.ErrExpired),
-		errors.Is(err, outputdelivery.ErrAlreadyAcked),
-		errors.Is(err, outputdelivery.ErrUnavailable):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, outputdelivery.ErrDeliveryFailure):
-		return connect.NewError(connect.CodeUnavailable, err)
-	case errors.Is(err, types.ErrTaskNotFound):
-		return connect.NewError(connect.CodeNotFound, err)
-	default:
-		return connect.NewError(connect.CodeInternal, err)
-	}
-}
 
 // ---- pb <-> types conversion ----
 
