@@ -322,6 +322,34 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 	r.withdrawn[string(ticketHash[:])] = r.latest.Load()
 }
 
+// OutboxState counts the record outbox.
+type OutboxState struct {
+	// Entries are the entries the chain has not resolved, takeover entries included; Waiting
+	// those not carried by a transaction yet (they go out with the next block's record).
+	Entries int `json:"entries"`
+	Waiting int `json:"waiting"`
+	// Takeovers are the takeover entries among Entries; Transactions the record transactions
+	// followed on chain.
+	Takeovers    int `json:"takeovers"`
+	Transactions int `json:"transactions"`
+}
+
+// Outbox counts the record outbox.
+func (r *Recorder) Outbox() OutboxState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := OutboxState{Entries: len(r.entries), Transactions: len(r.txs)}
+	for _, e := range r.entries {
+		if e.Tx == "" {
+			s.Waiting++
+		}
+		if e.Takeover {
+			s.Takeovers++
+		}
+	}
+	return s
+}
+
 // HandleChainEvent follows the head, the dispatch_recorded events of the sessions this Builder
 // dispatches for and the events that move its compensation account. The caller feeds it every
 // task chain event.

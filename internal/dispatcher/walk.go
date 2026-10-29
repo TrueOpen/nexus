@@ -189,7 +189,7 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 }
 
 // step issues the order's next ticket, if it may: no ticket is out, the order still dispatches,
-// its record deadline is ahead and this Builder's key may issue tickets. It walks past members
+// its record deadline is ahead, this Builder does not drain and its key may issue tickets. It walks past members
 // that cannot be reached until one is offered or the order fails. Caller holds o.mu.
 func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	st := o.st
@@ -200,6 +200,9 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		}
 		if deadline, ok := d.liveRecordDeadline(ctx, o); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
+		}
+		if d.draining() {
+			return d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 			switch {

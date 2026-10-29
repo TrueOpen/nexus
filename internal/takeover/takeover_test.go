@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,7 +168,6 @@ func (f *fakeTasks) calls() []string {
 }
 
 type env struct {
-	metrics  *opsmetrics.Registry
 	t        *testing.T
 	store    kv.Store
 	chain    *fakeChain
@@ -177,6 +177,8 @@ type env struct {
 	keys     *fakeKeys
 	tracked  []string
 	m        *Manager
+	metrics  *opsmetrics.Registry
+	draining atomic.Bool
 }
 
 // newEnv: the session is bound to "bound" at 40, next sequence 5, balance 1000 of which 100 is
@@ -201,7 +203,7 @@ func (e *env) open() {
 	m, err := New(Config{
 		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks, Keys: e.keys,
 		Track:      func(s string) error { e.tracked = append(e.tracked, s); return nil },
-		Background: func(f func()) { f() }, Metrics: e.metrics,
+		Background: func(f func()) { f() }, Metrics: e.metrics, Draining: e.draining.Load,
 	})
 	if err != nil {
 		e.t.Fatal(err)

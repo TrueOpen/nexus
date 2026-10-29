@@ -1,11 +1,15 @@
 package takeover
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
@@ -35,4 +39,43 @@ func TestMetricsOfTakeoverOutcomes(t *testing.T) {
 	if got := metrics.Snapshot().Counters[opsmetrics.CounterTakeoverOutcomes]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("takeover outcomes = %v", got)
 	}
+}
+
+// Pending counts the takeovers held, until they end.
+func TestPendingCountsHeldTakeovers(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	if e.m.Pending() != 1 {
+		t.Fatalf("pending = %d", e.m.Pending())
+	}
+	e.registerAt(70)
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.bindHere(70)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 70})
+	if e.m.Pending() != 0 {
+		t.Fatalf("pending after the activation = %d", e.m.Pending())
+	}
+}
+
+// While the Builder drains no new takeover is admitted; a takeover held already goes on to take
+// effect, and the same order sent again is still answered with it.
+func TestDrainAdmitsNoNewTakeover(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.draining.Store(true)
+	o, pre := takeoverOrder(5, 1)
+	if adm, err := e.m.Admit(context.Background(), o, pre); err != nil || !adm.Existing {
+		t.Fatalf("Admit of the held order = %+v, %v", adm, err)
+	}
+	other := newEnv(t)
+	other.draining.Store(true)
+	_, err := other.m.Admit(context.Background(), o, pre)
+	if !errors.Is(err, dispatchdraw.ErrNoCapacity) || !errors.Is(err, dispatcher.ErrDraining) || other.m.Pending() != 0 {
+		t.Fatalf("Admit while draining = %v (pending %d)", err, other.m.Pending())
+	}
+	e.registerAt(70)
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.bindHere(70)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 70})
+	e.wantCalls("held task5", "registered task5 70", "activated task5 70", "dispatch task5")
 }

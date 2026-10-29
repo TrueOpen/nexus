@@ -9,6 +9,7 @@ import (
 	"io"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -397,6 +398,7 @@ type env struct {
 	clock      *fakeClock
 	syncer     *fakeSync
 	metrics    *opsmetrics.Registry
+	draining   atomic.Bool
 	signer     signer.Signer
 	builder    string
 	d          *Dispatcher
@@ -481,7 +483,7 @@ func (e *env) open(store kv.Store) {
 		InputChunkBytes: 4, Signer: e.signer, Store: store, Ledger: e.ledger, Sessions: e.sessions,
 		Streams: e.streams, Handraises: e.handraises, Drawer: e.drawer, Keys: e.keys, Inputs: e.inputs,
 		Recorder: e.recorder, Observer: e.observer, Attempts: e.attempts, Evidence: e.evidence, Clock: e.clock,
-		Background: func(f func()) { f() }, Metrics: e.metrics,
+		Background: func(f func()) { f() }, Metrics: e.metrics, Draining: e.draining.Load,
 	}
 	if e.syncer != nil {
 		cfg.Sync = e.syncer

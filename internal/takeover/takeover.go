@@ -98,7 +98,10 @@ type Config struct {
 	Background func(func())
 	// Metrics counts how takeovers ended; nil counts nothing.
 	Metrics *opsmetrics.Registry
-	Log     *slog.Logger
+	// Draining reports a service key rotation drain: no new takeover is admitted, while the held
+	// ones go on. nil never drains.
+	Draining func() bool
+	Log      *slog.Logger
 }
 
 // outcomeActivated labels a takeover that took effect with its order dispatched.
@@ -223,6 +226,13 @@ func (m *Manager) Held(sessionID string, sequence uint64, taskHash string) (Admi
 	return Admission{Existing: true, ActivationHeight: r.ActivationHeight}, true
 }
 
+// Pending counts the takeovers held as candidate, reserved ones included.
+func (m *Manager) Pending() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.records)
+}
+
 // Admit decides an order the precheck found bound to another Builder (pre is the order as the
 // precheck judged it) and, when it may register a takeover, reserves the session's takeover for
 // it until Submit or Release. In this order:
@@ -230,6 +240,7 @@ func (m *Manager) Held(sessionID string, sequence uint64, taskHash string) (Admi
 //   - a takeover this Builder holds for the session: the same order is Admission.Existing (or
 //     inflight.ErrOrderUploading while its input uploads), another one a TakeoverPendingError
 //     naming this Builder: one takeover per session;
+//   - a service key rotation drain: dispatchdraw.ErrNoCapacity (no new takeover);
 //   - the dispatch record of the sequence: recorded, a SessionBoundElsewhereError naming the
 //     recording Builder and task;
 //   - this Builder's own key and compensation account: a pending key rotation or an account below
@@ -251,6 +262,10 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 			return Admission{}, fmt.Errorf("%w: the takeover order of session %s is still uploading; retry", inflight.ErrOrderUploading, o.SessionID)
 		}
 		return Admission{Existing: true, ActivationHeight: r.ActivationHeight}, nil
+	}
+	if m.cfg.Draining != nil && m.cfg.Draining() {
+		m.mu.Unlock()
+		return Admission{}, fmt.Errorf("%w: no takeover: %w", dispatchdraw.ErrNoCapacity, dispatcher.ErrDraining)
 	}
 	reserved := &record{
 		SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
