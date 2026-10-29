@@ -88,10 +88,10 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 	}
 	if ev.Builder != "" && len(ev.Record) == 0 {
 		// The dispatching Builder's record has not been synced to this member yet.
-		if !it.Missing {
+		if !it.RecordMissing {
 			r.log.Warn("compensation claim on a synced copy without its record yet; looked at again next block", "ticket", ticket,
 				"builder", ev.Builder, "rebuttal_deadline", it.Deadline)
-			it.Missing = true
+			it.RecordMissing = true
 		}
 		r.update(claimPrefix, r.claims, &it)
 		return

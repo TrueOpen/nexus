@@ -146,8 +146,10 @@ type item struct {
 	Kind    sharedv1.DispatchChallengeKindV1 `json:"kind,omitempty"`
 	TaskID  []byte                           `json:"task_id,omitempty"`
 	RetryAt uint64                           `json:"retry_at,omitempty"`
-	// Missing is set once the evidence was looked for and not found (logged once).
-	Missing bool `json:"missing,omitempty"`
+	// Missing is set once the evidence was looked for and not found (logged once); RecordMissing
+	// once a synced copy was found without its record yet (logged once).
+	Missing       bool `json:"missing,omitempty"`
+	RecordMissing bool `json:"record_missing,omitempty"`
 }
 
 // Keys of the open items in kv.NSDispatchEvidence.

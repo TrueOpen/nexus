@@ -1,7 +1,10 @@
 package dispatchresponse
 
 import (
+	"bytes"
 	"encoding/hex"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -156,5 +159,27 @@ func TestMemberWaitsForTheSyncedRecord(t *testing.T) {
 	e.block(156)
 	if len(e.rebuts()) != 1 {
 		t.Fatal("claim not rebutted once the record arrived")
+	}
+}
+
+// The wait for a synced copy's record is logged once on its own: a claim item already marked as
+// having missed its evidence still logs it.
+func TestMemberLogsTheMissingRecordOnItsOwn(t *testing.T) {
+	e := newEnv(t)
+	var logs bytes.Buffer
+	e.r.log = slog.New(slog.NewTextHandler(&logs, nil))
+	o := memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	o.Record = nil
+	e.put(o)
+	e.memberClaim(ticketHash(0, 0), op7, 160)
+	e.r.mu.Lock()
+	for _, it := range e.r.claims {
+		it.Missing = true // the evidence was looked for earlier and not found
+	}
+	e.r.mu.Unlock()
+	e.block(155)
+	e.block(156)
+	if n := strings.Count(logs.String(), "without its record yet"); n != 1 {
+		t.Fatalf("missing record logged %d times: %s", n, logs.String())
 	}
 }
