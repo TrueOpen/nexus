@@ -52,7 +52,8 @@ func NewChainPool(chain PoolQuerier) *ChainPool {
 // IsEligibleMember implements CandidatePool: member names the current snapshot, the snapshot
 // holds the operator at that slot and slot version with its frozen weight inputs, and those do not
 // exclude it from dispatch (unbonding, tombstoned, jail factor zero). A member without weight
-// inputs is an invalid snapshot row and not eligible. Inference capability is a per-profile fact
+// inputs is an invalid snapshot row: not eligible, with ErrInvalidSnapshot so the refusal says
+// why. Inference capability is a per-profile fact
 // the dispatch pool decides; the member-wide inference_capable summary is not read. No current
 // pool is not eligible.
 func (p *ChainPool) IsEligibleMember(ctx context.Context, member *taskv1.CandidateMemberRefV1) (bool, error) {
@@ -74,7 +75,10 @@ func (p *ChainPool) IsEligibleMember(ctx context.Context, member *taskv1.Candida
 		return false, nil
 	}
 	in := view.GetWeightInputs()
-	if in == nil || in.GetUnbonding() || in.GetTombstoned() || in.GetCandidateJailFactorPpm() == 0 {
+	if in == nil {
+		return false, fmt.Errorf("%w: in-pool member %s without weight inputs", ErrInvalidSnapshot, member.GetOperatorAddress())
+	}
+	if in.GetUnbonding() || in.GetTombstoned() || in.GetCandidateJailFactorPpm() == 0 {
 		return false, nil
 	}
 	return true, nil

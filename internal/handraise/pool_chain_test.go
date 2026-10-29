@@ -69,8 +69,6 @@ func TestChainPoolChecksTheCurrentSnapshot(t *testing.T) {
 		"old version":    {member("op1", 4, 0, testSnapshot), false},
 		"not a member":   {member("op2", 4, 1, testSnapshot), false},
 		"jailed":         {member("jailed", 5, 1, testSnapshot), false},
-		// An in-pool member without weight inputs is an invalid snapshot row, never eligible.
-		"no weight inputs": {member("noinputs", 6, 1, testSnapshot), false},
 		// The member-wide inference_capable is a summary; capability is decided per profile.
 		"member-wide summary false": {member("summary", 7, 1, testSnapshot), true},
 	} {
@@ -78,6 +76,10 @@ func TestChainPoolChecksTheCurrentSnapshot(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Fatalf("%s: eligible = %v, %v", name, got, err)
 		}
+	}
+	// An in-pool member without weight inputs is an invalid snapshot row: never eligible, and said.
+	if got, err := pool.IsEligibleMember(context.Background(), member("noinputs", 6, 1, testSnapshot)); got || !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("member without weight inputs: eligible = %v, %v; want ErrInvalidSnapshot", got, err)
 	}
 	if fresh, err := pool.HasFreshSupport(context.Background(), "op1", testProfile()); err != nil || !fresh {
 		t.Fatalf("support = %v, %v", fresh, err)

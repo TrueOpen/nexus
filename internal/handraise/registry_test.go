@@ -2,6 +2,7 @@ package handraise
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -224,6 +225,21 @@ func TestAcceptChainFailureIsNotAVerdict(t *testing.T) {
 	}
 	if root := e.issue(); root != nil {
 		t.Fatalf("lookup failures left leaves: %v", root.Leaves)
+	}
+}
+
+// A member row of an invalid snapshot is a verdict, not a chain failure: the handraise is refused
+// as not eligible, with the reason, and traced in the next root.
+func TestAcceptInvalidSnapshotRowIsNotEligible(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	e.pool.err = fmt.Errorf("%w: member without weight inputs", ErrInvalidSnapshot)
+	err := e.accept(c, e.handraise(c, 100, 1))
+	if !errors.Is(err, ErrNotEligible) || !errors.Is(err, ErrInvalidSnapshot) || errors.Is(err, ErrChainUnavailable) {
+		t.Fatalf("err = %v, want ErrNotEligible with ErrInvalidSnapshot", err)
+	}
+	if root := e.issue(); root == nil || len(root.Leaves) != 1 || root.Leaves[0].GetAdmitted() {
+		t.Fatalf("root = %v, want one not admitted trace", root)
 	}
 }
 

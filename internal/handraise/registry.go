@@ -57,6 +57,10 @@ var (
 	ErrChainUnavailable = errors.New("handraise chain read failed")
 	// ErrStorage means an accepted handraise could not be written to the local store.
 	ErrStorage = errors.New("handraise store write failed")
+	// ErrInvalidSnapshot means the current candidate pool snapshot holds a member row that breaks
+	// its own rules (an in-pool member without weight inputs). It is a verdict on that member, not
+	// a chain failure: Accept refuses the handraise as not eligible, with this reason.
+	ErrInvalidSnapshot = errors.New("invalid candidate pool snapshot")
 	// ErrBuilderRotationPending means this Builder registered a service key replacement that has
 	// not activated yet. Its current key stays valid for material already signed, but it issues no
 	// new roots (nor tickets) until the replacement is current.
@@ -338,6 +342,9 @@ func (r *Registry) verify(ctx context.Context, operator string, got *held) error
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	member, err := r.opts.Pool.IsEligibleMember(ctx, got.msg.GetMember())
+	if errors.Is(err, ErrInvalidSnapshot) {
+		return fmt.Errorf("%w: %w", ErrNotEligible, err)
+	}
 	if err != nil {
 		return fmt.Errorf("%w: read candidate pool: %w", ErrChainUnavailable, err)
 	}
