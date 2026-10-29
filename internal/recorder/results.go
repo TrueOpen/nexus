@@ -166,12 +166,17 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		if e == nil {
 			continue
 		}
-		switch {
+		switch rejected := item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED; {
+		case e.Takeover && rejected:
+			r.takeoverRefusedLocked(e, item.GetRejectCode(), &ops, &fx)
+		case e.Takeover:
+			// Applied, or the exact replay of the registration: either way it is registered.
+			r.takeoverRegisteredLocked(e, uint64(res.Height), &ops, &fx)
 		case item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_NOOP:
 			replays = append(replays, e.ObjectID)
 		case item.GetRejectCode() == codeConflict:
 			conflicts = append(conflicts, e.ObjectID)
-		case item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED:
+		case rejected:
 			r.rejectLocked(e, item.GetRejectCode(), false, &ops, &fx)
 		default:
 			r.recordLocked(e, uint64(res.Height), &ops, &fx)
@@ -271,18 +276,20 @@ func (r *Recorder) lookup(id string) *entry {
 }
 
 // verifyByQuery resolves the entries of a transaction whose results could not be attributed: an
-// entry the chain recorded with its winner ticket is recorded; any other goes out again.
+// entry the chain recorded with its winner ticket is recorded; any other goes out again. A
+// takeover entry goes out again unread: its exact replay is answered with its first result.
 func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 	for _, id := range tx.Objects {
 		r.mu.Lock()
 		e := r.entries[id]
 		var session string
 		var seq uint64
+		takeover := false
 		if e != nil {
-			session, seq = e.SessionID, e.Sequence
+			session, seq, takeover = e.SessionID, e.Sequence, e.Takeover
 		}
 		r.mu.Unlock()
-		if e == nil {
+		if e == nil || takeover {
 			continue
 		}
 		rec, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, session, seq)
@@ -321,16 +328,25 @@ func (r *Recorder) dropTxLocked(hash string, ops *[]kv.WriteOp) {
 
 // expire resolves the entries past their record deadline with the dispatch record query: recorded
 // with their winner ticket, they are recorded; otherwise the chain can no longer admit them and
-// they are RECORD_LATE. An unreadable chain decides nothing.
+// they are RECORD_LATE. An unreadable chain decides nothing. A takeover entry past its deadline
+// lapses: the Takeovers read the session.
 func (r *Recorder) expire(ctx context.Context, height uint64) {
 	r.mu.Lock()
 	var due []*entry
+	var lapsed effects
+	var lapsedOps []kv.WriteOp
 	for _, e := range r.entries {
-		if height > r.deadlineLocked(e) {
+		switch {
+		case height <= r.deadlineLocked(e):
+		case e.Takeover:
+			r.takeoverLapsedLocked(e, &lapsedOps, &lapsed)
+		default:
 			due = append(due, e)
 		}
 	}
+	r.writeLocked(lapsedOps)
 	r.mu.Unlock()
+	lapsed.run(ctx)
 	sortEntries(due)
 	for _, d := range due {
 		rec, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, d.SessionID, d.Sequence)
@@ -405,7 +421,7 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 	}
 	var failed []*entry
 	for _, x := range r.entries {
-		if x.SessionID == e.SessionID && x.Sequence >= e.Sequence && !x.Withdrawn {
+		if x.SessionID == e.SessionID && x.Sequence >= e.Sequence && !x.Withdrawn && !x.Takeover {
 			failed = append(failed, x)
 		}
 	}
@@ -437,7 +453,7 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 // earlierUnresolvedLocked reports whether an earlier entry of e's session is unresolved.
 func (r *Recorder) earlierUnresolvedLocked(e *entry) bool {
 	for _, x := range r.entries {
-		if x.SessionID == e.SessionID && x.Sequence < e.Sequence && !x.Withdrawn {
+		if x.SessionID == e.SessionID && x.Sequence < e.Sequence && !x.Withdrawn && !x.Takeover {
 			return true
 		}
 	}

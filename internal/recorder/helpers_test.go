@@ -98,15 +98,29 @@ func executed(t *testing.T, msg *taskv1.MsgRecordDispatch, height int64, results
 	t.Helper()
 	resp := &taskv1.MsgRecordDispatchResponse{}
 	for i, e := range msg.GetEntries() {
-		id, err := chaincli.DispatchEntryObjectID(testChainID, e.GetDispatch())
-		if err != nil {
-			t.Fatal(err)
-		}
+		id := entryID(t, e)
 		resp.Results = append(resp.Results, &taskv1.BatchItemResultV1{ItemIndex: uint32(i), ObjectId: id[:], Status: results[i].status, RejectCode: results[i].code})
 	}
 	digest := chaincli.RecordDispatchBatchDigest(testChainID, resp.GetResults())
 	resp.BatchDigest = digest[:]
 	return txWith(t, height, resp)
+}
+
+// entryID is the result key of a sent entry; takeover entries are registered under
+// testBoundChange.
+func entryID(t *testing.T, e *taskv1.DispatchRecordEntryV1) [32]byte {
+	t.Helper()
+	var id [32]byte
+	var err error
+	if takeover := e.GetTakeover(); takeover != nil {
+		id, err = chaincli.TakeoverEntryObjectID(testChainID, builder, takeover, testBoundChange)
+	} else {
+		id, err = chaincli.DispatchEntryObjectID(testChainID, e.GetDispatch())
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func txWith(t *testing.T, height int64, resp *taskv1.MsgRecordDispatchResponse) chaincli.TxResult {
@@ -411,8 +425,11 @@ func (e *env) lastSent() (*taskv1.MsgRecordDispatch, []byte) {
 func entriesOf(msg *taskv1.MsgRecordDispatch) []string {
 	var out []string
 	for _, e := range msg.GetEntries() {
-		order := e.GetDispatch().GetSignedOrder().GetOrder()
-		out = append(out, fmt.Sprintf("%02x/%d", order.GetSessionId()[0], order.GetOrderSequence()))
+		order, kind := e.GetDispatch().GetSignedOrder().GetOrder(), ""
+		if takeover := e.GetTakeover(); takeover != nil {
+			order, kind = takeover.GetSignedOrder().GetOrder(), "T"
+		}
+		out = append(out, fmt.Sprintf("%02x/%d%s", order.GetSessionId()[0], order.GetOrderSequence(), kind))
 	}
 	return out
 }

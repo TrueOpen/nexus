@@ -14,9 +14,10 @@ const (
 	txPrefix    = "tx/"
 )
 
-// entry is one accepted order's dispatch entry waiting for its record.
+// entry is one accepted order's dispatch entry, or a takeover entry, waiting for its record.
 type entry struct {
-	// ObjectID is the entry's dispatch_record_entry_digest, the object_id of its result.
+	// ObjectID is the entry's dispatch_record_entry_digest (takeover_entry_digest of a takeover
+	// entry), the object_id of its result.
 	ObjectID   string `json:"object_id"`
 	SessionID  string `json:"session_id"`
 	Sequence   uint64 `json:"sequence"`
@@ -41,6 +42,9 @@ type entry struct {
 	// Held is set when the entry was refused SEQUENCE_CONSUMED while an earlier entry of its
 	// session was unresolved: it goes out again once none is.
 	Held bool `json:"held,omitempty"`
+	// Takeover marks a takeover entry: it has no ticket or Worker, Deadline alone bounds it and
+	// its result goes to the Takeovers.
+	Takeover bool `json:"takeover,omitempty"`
 }
 
 // txRecord is one signed record transaction, stored before it is broadcast.

@@ -151,6 +151,8 @@ type Recorder struct {
 	withdrawn map[string]uint64
 	// sizing is what deterministic transaction failures did to the batch size and gas.
 	sizing sizing
+	// takeovers hears the results of takeover entries.
+	takeovers Takeovers
 
 	latest atomic.Uint64
 	wake   chan struct{}
@@ -282,7 +284,7 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
-		if string(e.TicketHash) != string(ticketHash[:]) {
+		if e.Takeover || string(e.TicketHash) != string(ticketHash[:]) {
 			continue
 		}
 		var ops []kv.WriteOp
@@ -325,7 +327,7 @@ func (r *Recorder) HandleChainEvent(ev chaincli.ChainEvent) {
 	r.mu.Lock()
 	var ops []kv.WriteOp
 	for _, e := range r.entries {
-		if e.SessionID == t.SessionID && e.Sequence == t.OrderSequence && string(e.TicketHash) == string(t.TicketHash) {
+		if !e.Takeover && e.SessionID == t.SessionID && e.Sequence == t.OrderSequence && string(e.TicketHash) == string(t.TicketHash) {
 			r.recordLocked(e, uint64(ev.Height), &ops, &fx)
 		}
 	}
@@ -360,8 +362,11 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 
 // deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
 // bound_change_height) + record_deadline_blocks with the current params, never earlier than the
-// deadline handed over.
+// deadline handed over. A takeover entry has only the deadline handed over.
 func (r *Recorder) deadlineLocked(e *entry) uint64 {
+	if e.Takeover {
+		return e.Deadline
+	}
 	return max(e.Deadline, max(e.EarliestSubmit, e.BoundChange)+r.params.Load().RecordDeadlineBlocks)
 }
 
