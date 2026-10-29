@@ -374,10 +374,12 @@ type env struct {
 	tasks    *fakeTasks
 	streams  *fakeStreams
 	attempts *fakeAttempts
-	gate     *Gate
-	account  *accountReader
-	r        *Recorder
-	params   Params
+	// book, when set, is the attempt book the recorder tells instead of attempts.
+	book    Attempts
+	gate    *Gate
+	account *accountReader
+	r       *Recorder
+	params  Params
 }
 
 func newEnv(t *testing.T) *env {
@@ -402,10 +404,14 @@ func (e *env) open() {
 	e.calls = &calls{}
 	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{calls: e.calls}, &fakeOrders{calls: e.calls}, &fakeTasks{calls: e.calls}, &fakeStreams{}
 	e.attempts = &fakeAttempts{calls: e.calls}
+	var book Attempts = e.attempts
+	if e.book != nil {
+		book = e.book
+	}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {

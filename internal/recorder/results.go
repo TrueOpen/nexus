@@ -259,9 +259,13 @@ func (r *Recorder) recordedByAnotherTicketLocked(e *entry, rec *taskv1.DispatchR
 		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
+		// The attempt book takes the recorded ticket (one a binding change voided comes back) and
+		// then e's ticket is rejected: a no-op once the recorded ticket replaced it, and otherwise
+		// it does not stay PENDING with subscribers waiting on it.
 		var recorded [32]byte
 		copy(recorded[:], rec.GetDispatchTicketHash())
 		r.cfg.Attempts.Recorded(e.TaskID, recorded)
+		r.cfg.Attempts.Rejected(e.TaskID, [32]byte(e.TicketHash))
 		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)
 		r.notify(ctx, e, statusRejected, codeConflict, 0)
 	})
@@ -367,12 +371,15 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 	r.removeLocked(e, ops)
 	if e.Withdrawn {
 		// The sequence is consumed, but the dispatcher already opened a new round for the order:
-		// that round's own outcome tells the dispatcher and the task.
+		// that round's own outcome tells the dispatcher and the task. The attempt book takes the
+		// voided ticket back as the task's recorded attempt (never the new round's ticket): it is
+		// the winner the chain holds.
 		r.log.Warn("withdrawn dispatch entry recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "height", height)
 		fx.add(func(context.Context) {
 			if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 				r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 			}
+			r.cfg.Attempts.Recorded(e.TaskID, [32]byte(e.TicketHash))
 		})
 		return
 	}

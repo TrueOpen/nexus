@@ -3,6 +3,7 @@ package attempt
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -179,5 +180,116 @@ func TestAcceptedChecksTheAccept(t *testing.T) {
 	w.Accept.DispatchTicketHash = bytes.Repeat([]byte{9}, 32)
 	if err := b.Accepted(w); err == nil {
 		t.Fatal("accept of another ticket taken")
+	}
+}
+
+// A winner voided by a binding change whose entry the chain admitted anyway (the withdrawal came
+// too late) becomes the task's RECORDED attempt in place of the new round's PENDING one: its
+// stream is the live one, the new round's ticket is stale, and a later rejection of the new
+// round's ticket changes nothing. Held aside, it survives a restart.
+func TestChainRecordedVoidedWinnerReplacesThePendingOne(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		store := kv.NewMemStore()
+		b := newBook(t, store)
+		first, firstHash := winnerOf(t, 0)
+		taskID := hex.EncodeToString(first.Ticket.GetTaskId())
+		if err := b.Accepted(first); err != nil {
+			t.Fatal(err)
+		}
+		b.Voided(taskID, firstHash)
+		second, secondHash := winnerOf(t, 1)
+		if err := b.Accepted(second); err != nil {
+			t.Fatal(err)
+		}
+		if restart {
+			b = newBook(t, store)
+		}
+		changed, stop := b.Watch(taskID)
+		b.Recorded(taskID, firstHash)
+		b.Rejected(taskID, secondHash)
+		select {
+		case <-changed:
+		default:
+			t.Fatal("watcher not told")
+		}
+		stop()
+		a := current(t, b, taskID)
+		if a.TicketHash != firstHash || a.Status != Recorded || a.Worker != first.Ticket.GetTarget().GetOperatorAddress() {
+			t.Fatalf("restart %t: attempt = %+v", restart, a)
+		}
+		checkHeader(t, b, a, Recorded)
+		if again := current(t, newBook(t, store), taskID); again.TicketHash != firstHash || again.Status != Recorded {
+			t.Fatalf("restart %t: restored attempt = %+v", restart, again)
+		}
+	}
+}
+
+// With the new round's ticket rejected first, the chain's record of the voided winner still
+// makes it the task's attempt.
+func TestChainRecordedVoidedWinnerReplacesARejectedOne(t *testing.T) {
+	b := newBook(t, kv.NewMemStore())
+	first, firstHash := winnerOf(t, 0)
+	taskID := hex.EncodeToString(first.Ticket.GetTaskId())
+	_ = b.Accepted(first)
+	b.Voided(taskID, firstHash)
+	second, secondHash := winnerOf(t, 1)
+	_ = b.Accepted(second)
+	b.Rejected(taskID, secondHash)
+	b.Recorded(taskID, firstHash)
+	if a := current(t, b, taskID); a.TicketHash != firstHash || a.Status != Recorded {
+		t.Fatalf("attempt = %+v", a)
+	}
+}
+
+// An accept for a task recorded with another ticket is refused with ErrRecordedWithAnotherTicket;
+// an accept over another PENDING ticket replaces it.
+func TestAcceptedOverAnotherTicket(t *testing.T) {
+	b := newBook(t, kv.NewMemStore())
+	first, _ := winnerOf(t, 0)
+	taskID := hex.EncodeToString(first.Ticket.GetTaskId())
+	_ = b.Accepted(first)
+	second, secondHash := winnerOf(t, 1)
+	if err := b.Accepted(second); err != nil {
+		t.Fatal(err)
+	}
+	if a := current(t, b, taskID); a.TicketHash != secondHash || a.Status != Pending {
+		t.Fatalf("attempt = %+v", a)
+	}
+	b.Recorded(taskID, secondHash)
+	third, _ := winnerOf(t, 2)
+	if err := b.Accepted(third); !errors.Is(err, ErrRecordedWithAnotherTicket) {
+		t.Fatalf("accept over a recorded attempt = %v", err)
+	}
+}
+
+// Forget drops the task's attempt and its voided ones, from memory and the store.
+func TestForget(t *testing.T) {
+	store := kv.NewMemStore()
+	b := newBook(t, store)
+	first, firstHash := winnerOf(t, 0)
+	taskID := hex.EncodeToString(first.Ticket.GetTaskId())
+	_ = b.Accepted(first)
+	b.Voided(taskID, firstHash)
+	second, _ := winnerOf(t, 1)
+	_ = b.Accepted(second)
+	changed, stop := b.Watch(taskID)
+	defer stop()
+	b.Forget(taskID)
+	select {
+	case <-changed:
+	default:
+		t.Fatal("watcher not told")
+	}
+	b.Recorded(taskID, firstHash)
+	if _, ok := b.Current(taskID); ok {
+		t.Fatal("forgotten task still has an attempt")
+	}
+	if _, ok := newBook(t, store).Current(taskID); ok {
+		t.Fatal("forgotten task restored")
+	}
+	n := 0
+	_ = store.Scan(kv.NSDispatchAttemptVoided, func(string, []byte) bool { n++; return true })
+	if n != 0 {
+		t.Fatalf("%d voided attempts left in the store", n)
 	}
 }

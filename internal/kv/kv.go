@@ -85,6 +85,10 @@ const (
 	// the winner ticket, the accept, the record status and the signed result header at that
 	// status; key = task_id (package attempt).
 	NSDispatchAttempt Namespace = "dispatch_attempt"
+	// NSDispatchAttemptVoided holds the PENDING attempts a binding change voided: the chain may
+	// still admit one whose withdrawal came too late, and it is then the task's attempt again;
+	// key = task_id|ticket_hash hex (package attempt).
+	NSDispatchAttemptVoided Namespace = "dispatch_attempt_voided"
 	// NSReceiptStaging holds the InferReceipt a winner submitted before its dispatch entry was
 	// recorded; it is relayed once the record is admitted and dropped if it is refused; key =
 	// session_id|task_id (package coordinator).

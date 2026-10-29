@@ -7,7 +7,9 @@
 // max_prerecord_output_tokens waits for the record. A task has one current attempt. It is PENDING
 // from the accept, RECORDED once the chain admitted the entry and REJECTED once it refused it; a
 // retry of the sequence replaces a REJECTED attempt, a binding change that voids the winner
-// removes it, and a RECORDED attempt is final.
+// removes it, and a RECORDED attempt is final. A voided winner is kept aside: if the chain admits
+// its entry after all (the withdrawal came too late), it becomes the task's RECORDED attempt and
+// replaces a later round's PENDING one.
 //
 // Every attempt is stored with its Builder-signed header at its status, so a restart serves the
 // same bytes; the header is signed again only when the status changes.
@@ -17,6 +19,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -38,6 +41,10 @@ const (
 	Recorded = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED
 	Rejected = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_REJECTED
 )
+
+// ErrRecordedWithAnotherTicket refuses an accept for a task the chain recorded with another
+// ticket: it never becomes the task's attempt, and trying again does not change that.
+var ErrRecordedWithAnotherTicket = errors.New("task is recorded with another ticket")
 
 // Winner is an accepted ticket as the dispatcher hands it over: the signed winner ticket and the
 // Worker's signed accept of it.
@@ -88,9 +95,11 @@ type Book struct {
 
 	maxPrerecord atomic.Uint64
 
-	mu       sync.Mutex
-	byTask   map[string]*Attempt
-	voided   map[[32]byte]bool
+	mu     sync.Mutex
+	byTask map[string]*Attempt
+	voided map[[32]byte]bool
+	// aside holds the PENDING attempts a binding change voided, by task and ticket.
+	aside    map[string]map[[32]byte]*Attempt
 	watchers map[string]map[uint64]chan struct{}
 	nextID   uint64
 }
@@ -105,7 +114,8 @@ func New(store kv.Store, s signer.Signer, log *slog.Logger) (*Book, error) {
 	}
 	b := &Book{
 		store: store, signer: s, log: log,
-		byTask: map[string]*Attempt{}, voided: map[[32]byte]bool{}, watchers: map[string]map[uint64]chan struct{}{},
+		byTask: map[string]*Attempt{}, voided: map[[32]byte]bool{}, aside: map[string]map[[32]byte]*Attempt{},
+		watchers: map[string]map[uint64]chan struct{}{},
 	}
 	var loadErr error
 	err := store.Scan(kv.NSDispatchAttempt, func(key string, val []byte) bool {
@@ -120,7 +130,43 @@ func New(store kv.Store, s signer.Signer, log *slog.Logger) (*Book, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan dispatch attempts: %w", err)
 	}
+	if loadErr != nil {
+		return nil, loadErr
+	}
+	err = store.Scan(kv.NSDispatchAttemptVoided, func(key string, val []byte) bool {
+		var a Attempt
+		if err := json.Unmarshal(val, &a); err != nil || asideKey(a.TaskID, a.TicketHash) != key {
+			loadErr = fmt.Errorf("voided dispatch attempt %q is malformed", key)
+			return false
+		}
+		b.putAsideMemLocked(&a)
+		return true
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan voided dispatch attempts: %w", err)
+	}
 	return b, loadErr
+}
+
+func asideKey(taskID string, ticketHash [32]byte) string {
+	return taskID + "|" + hex.EncodeToString(ticketHash[:])
+}
+
+func (b *Book) putAsideMemLocked(a *Attempt) {
+	if b.aside[a.TaskID] == nil {
+		b.aside[a.TaskID] = map[[32]byte]*Attempt{}
+	}
+	b.aside[a.TaskID][a.TicketHash] = a
+}
+
+// dropAsideLocked forgets the task's voided attempts. Caller holds b.mu.
+func (b *Book) dropAsideLocked(taskID string) {
+	for ticketHash := range b.aside[taskID] {
+		if err := b.store.Delete(kv.NSDispatchAttemptVoided, asideKey(taskID, ticketHash)); err != nil {
+			b.log.Error("voided dispatch attempt not deleted", "task_id", taskID, "err", err)
+		}
+	}
+	delete(b.aside, taskID)
 }
 
 // SetMaxPrerecordTokens sets max_prerecord_output_tokens: before an attempt is recorded, output is
@@ -132,7 +178,8 @@ func (b *Book) MaxPrerecordTokens() uint64 { return b.maxPrerecord.Load() }
 
 // Accepted makes an accepted ticket its task's PENDING attempt. The same ticket again changes
 // nothing; a ticket voided before its accept arrived is dropped; a RECORDED attempt is never
-// replaced.
+// replaced (ErrRecordedWithAnotherTicket). A PENDING attempt of another ticket should have been
+// voided first: it is replaced, and that is logged as an error.
 func (b *Book) Accepted(w Winner) error {
 	ticketHash, err := digestOf(ticketName, w.Ticket)
 	if err != nil {
@@ -170,14 +217,18 @@ func (b *Book) Accepted(w Winner) error {
 		case cur.TicketHash == ticketHash:
 			return nil
 		case cur.Status == Recorded:
-			return fmt.Errorf("task %s is recorded with ticket %x", a.TaskID, cur.TicketHash)
+			return fmt.Errorf("%w: task %s, ticket %x", ErrRecordedWithAnotherTicket, a.TaskID, cur.TicketHash)
+		case cur.Status == Pending:
+			b.log.Error("pending dispatch attempt replaced by another accepted ticket without a void",
+				"task_id", a.TaskID, "replaced_ticket", hex.EncodeToString(cur.TicketHash[:]), "ticket", hex.EncodeToString(ticketHash[:]))
 		}
 	}
 	return b.setLocked(a, Pending)
 }
 
-// Voided removes a PENDING attempt whose winner ticket a binding change voided. A void that comes
-// before its accept keeps that accept out.
+// Voided removes a PENDING attempt whose winner ticket a binding change voided and keeps it aside
+// in case the chain admitted its entry anyway. A void that comes before its accept keeps that
+// accept out.
 func (b *Book) Voided(taskID string, ticketHash [32]byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -189,15 +240,50 @@ func (b *Book) Voided(taskID string, ticketHash [32]byte) {
 	if cur.Status != Pending {
 		return
 	}
-	if err := b.store.Delete(kv.NSDispatchAttempt, taskID); err != nil {
-		b.log.Error("voided dispatch attempt not deleted", "task_id", taskID, "err", err)
+	raw, err := json.Marshal(cur)
+	if err == nil {
+		err = b.store.WriteBatch(
+			kv.WriteOp{NS: kv.NSDispatchAttemptVoided, Key: asideKey(taskID, ticketHash), Val: raw},
+			kv.WriteOp{NS: kv.NSDispatchAttempt, Key: taskID, Delete: true},
+		)
 	}
+	if err != nil {
+		b.log.Error("voided dispatch attempt not stored", "task_id", taskID, "err", err)
+	}
+	b.putAsideMemLocked(cur)
 	delete(b.byTask, taskID)
 	b.notifyLocked(taskID)
 }
 
-// Recorded marks the attempt of ticketHash RECORDED: the chain admitted its dispatch entry.
-func (b *Book) Recorded(taskID string, ticketHash [32]byte) { b.settle(taskID, ticketHash, Recorded) }
+// Recorded marks the attempt of ticketHash RECORDED: the chain admitted its dispatch entry. A
+// voided attempt of that ticket becomes the task's attempt again, RECORDED, in place of a later
+// round's PENDING or REJECTED one.
+func (b *Book) Recorded(taskID string, ticketHash [32]byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur := b.byTask[taskID]
+	if cur != nil && cur.TicketHash == ticketHash {
+		b.settleLocked(cur, Recorded)
+		return
+	}
+	if cur != nil && cur.Status == Recorded {
+		b.log.Error("dispatch record of another ticket for a recorded task ignored", "task_id", taskID,
+			"recorded_ticket", hex.EncodeToString(cur.TicketHash[:]), "ticket", hex.EncodeToString(ticketHash[:]))
+		return
+	}
+	aside := b.aside[taskID][ticketHash]
+	if aside == nil {
+		return
+	}
+	if cur != nil {
+		b.log.Warn("the chain recorded a voided winner: it replaces the task's attempt", "task_id", taskID,
+			"replaced_ticket", hex.EncodeToString(cur.TicketHash[:]), "ticket", hex.EncodeToString(ticketHash[:]))
+	}
+	next := *aside
+	if err := b.setLocked(&next, Recorded); err != nil {
+		b.log.Error("recorded voided dispatch attempt not stored", "task_id", taskID, "err", err)
+	}
+}
 
 // Rejected marks the attempt of ticketHash REJECTED: the chain refused its dispatch entry or did
 // not record it in time.
@@ -206,14 +292,36 @@ func (b *Book) Rejected(taskID string, ticketHash [32]byte) { b.settle(taskID, t
 func (b *Book) settle(taskID string, ticketHash [32]byte, status Status) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	cur := b.byTask[taskID]
-	if cur == nil || cur.TicketHash != ticketHash || cur.Status != Pending {
+	if cur := b.byTask[taskID]; cur != nil && cur.TicketHash == ticketHash {
+		b.settleLocked(cur, status)
+	}
+}
+
+// settleLocked moves the PENDING attempt cur to status. Caller holds b.mu.
+func (b *Book) settleLocked(cur *Attempt, status Status) {
+	if cur.Status != Pending {
 		return
 	}
 	next := *cur
 	if err := b.setLocked(&next, status); err != nil {
-		b.log.Error("dispatch attempt status not stored", "task_id", taskID, "status", status, "err", err)
+		b.log.Error("dispatch attempt status not stored", "task_id", cur.TaskID, "status", status, "err", err)
 	}
+}
+
+// Forget drops everything held for the task: its attempt and its voided ones. It is called once
+// the task is terminal, and the task's watchers hear of it.
+func (b *Book) Forget(taskID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dropAsideLocked(taskID)
+	if _, ok := b.byTask[taskID]; !ok {
+		return
+	}
+	if err := b.store.Delete(kv.NSDispatchAttempt, taskID); err != nil {
+		b.log.Error("dispatch attempt not deleted", "task_id", taskID, "err", err)
+	}
+	delete(b.byTask, taskID)
+	b.notifyLocked(taskID)
 }
 
 // setLocked signs a's header at status, stores a as its task's attempt and tells the watchers.
@@ -242,6 +350,10 @@ func (b *Book) setLocked(a *Attempt, status Status) error {
 		return fmt.Errorf("write dispatch attempt: %w", err)
 	}
 	b.byTask[a.TaskID] = a
+	if status == Recorded {
+		// The record is final: no voided attempt of the task can be admitted any more.
+		b.dropAsideLocked(a.TaskID)
+	}
 	b.notifyLocked(a.TaskID)
 	return nil
 }
