@@ -81,6 +81,10 @@ const (
 	// NSRecordOutbox holds the dispatch entries waiting for their record on chain, as the exact
 	// entry bytes, and every signed record transaction before it is broadcast (package recorder).
 	NSRecordOutbox Namespace = "record_outbox"
+	// NSDispatchAttempt holds the winning dispatch attempt of each task this Builder dispatched:
+	// the winner ticket, the accept, the record status and the signed result header at that
+	// status; key = task_id (package attempt).
+	NSDispatchAttempt Namespace = "dispatch_attempt"
 )
 
 type Store interface {
