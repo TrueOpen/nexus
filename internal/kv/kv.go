@@ -74,6 +74,10 @@ const (
 	// whose dispatch entry the chain has not admitted yet, the suspension mark and the pending order
 	// cancellations (package inflight).
 	NSInflight Namespace = "inflight"
+	// NSDispatch holds the dispatch state of every order this Builder dispatches: the round, cursor
+	// and skip count, every ticket as the exact signed bytes offered, the rejects and the accept
+	// received (package dispatcher).
+	NSDispatch Namespace = "dispatch"
 )
 
 type Store interface {
