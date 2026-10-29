@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -18,7 +20,7 @@ import (
 // claims the responder reads; the rest is the wiring chain.
 type orderChain struct {
 	*wiringChain
-	claimReads int
+	claimReads atomic.Int32
 }
 
 func (c *orderChain) QueryDispatchParams(context.Context) (*taskv1.DispatchParamsV1, error) {
@@ -38,7 +40,7 @@ func (c *orderChain) QueryTx(context.Context, []byte) (chaincli.TxResult, error)
 }
 
 func (c *orderChain) QueryDispatchCompensationClaim(context.Context, []byte) (*taskv1.DispatchCompensationClaimState, error) {
-	c.claimReads++
+	c.claimReads.Add(1)
 	return nil, chaincli.ErrNotFound
 }
 
@@ -75,5 +77,18 @@ func TestRoleEventsReachTheResponder(t *testing.T) {
 	}})
 	if c := od.Responder.Counts(); c.ClaimsSeen != 1 || c.UnanswerableChallenges != 1 {
 		t.Fatalf("responder counts = %+v", c)
+	}
+	// The next block reaches the running responder, which reads the claim on chain.
+	if err := od.Responder.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = od.Responder.Stop(context.Background()) }()
+	events.observe(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 141})
+	deadline := time.Now().Add(5 * time.Second)
+	for chain.claimReads.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the claim was not read after a block")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
