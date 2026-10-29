@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,50 @@ const dispatchVectors = "task/dispatch_v1.json"
 // singleLeafRoot is the handraise root over the one leaf of the wire handraise_root_leaf_admitted
 // vector (leaf digest 9866bd91...).
 const singleLeafRoot = "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010"
+
+// merkleCase is one independently computed handraise tree of the wire handraise_merkle vectors.
+type merkleCase struct {
+	Name            string   `json:"name"`
+	StandingDigests []string `json:"standing_digests_hex"`
+	LeafDigests     []string `json:"leaf_digests_hex"`
+	Root            string   `json:"root_hex"`
+	Proofs          []struct {
+		LeafIndex uint32   `json:"leaf_index"`
+		Siblings  []string `json:"siblings_hex"`
+	} `json:"proofs"`
+}
+
+func loadMerkleCases(t *testing.T) (map[string]merkleCase, string) {
+	t.Helper()
+	var doc struct {
+		Merkle struct {
+			SignedRootVector string       `json:"signed_root_vector"`
+			Cases            []merkleCase `json:"cases"`
+		} `json:"handraise_merkle"`
+	}
+	if err := json.Unmarshal(wirefixture.Load(t, dispatchVectors).Raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]merkleCase{}
+	for _, c := range doc.Merkle.Cases {
+		cases[c.Name] = c
+	}
+	for _, name := range []string{"empty", "single", "odd_three"} {
+		if _, ok := cases[name]; !ok {
+			t.Fatalf("wire handraise_merkle case %q missing", name)
+		}
+	}
+	return cases, doc.Merkle.SignedRootVector
+}
+
+func hex32(t *testing.T, s string) [32]byte {
+	t.Helper()
+	b := mustHex(t, s)
+	if len(b) != 32 {
+		t.Fatalf("%q is not 32 bytes", s)
+	}
+	return [32]byte(b)
+}
 
 type signedVector struct {
 	ProtobufHex  string `json:"protobuf_hex"`
@@ -94,14 +139,19 @@ func TestStandingHandraiseVectorAcceptedAndRooted(t *testing.T) {
 		t.Fatalf("leaf digest = %x, %v; want %s", leafDigest, err, leafVector.DigestHex)
 	}
 
-	// The root field of the wire SignedHandraiseRootV1 vector is a filler value, not the root of
-	// the leaf vector, so the single-leaf root is checked against the wire tree function and
-	// pinned until wire publishes a root vector.
-	if want := dispatch.HandraiseRoot([][32]byte{leafDigest}); !bytes.Equal(issued.Root.GetRoot(), want[:]) {
-		t.Fatalf("root = %x, want %x", issued.Root.GetRoot(), want)
+	// The root over that one leaf is the wire "single" tree and the root the signed root vector
+	// carries.
+	cases, signedRootName := loadMerkleCases(t)
+	single := cases["single"]
+	if got := hex.EncodeToString(issued.Root.GetRoot()); got != singleLeafRoot || got != single.Root {
+		t.Fatalf("single-leaf root = %s, want %s", got, single.Root)
 	}
-	if got := hex.EncodeToString(issued.Root.GetRoot()); got != singleLeafRoot {
-		t.Fatalf("single-leaf root = %s, want %s", got, singleLeafRoot)
+	if len(single.StandingDigests) != 1 || single.StandingDigests[0] != vector.DigestHex ||
+		len(single.LeafDigests) != 1 || single.LeafDigests[0] != leafVector.DigestHex {
+		t.Fatalf("wire single tree is not over the standing and leaf vectors: %+v", single)
+	}
+	if got := file.Vector(t, signedRootName, 0).Field(t, "root").Hex; got != single.Root {
+		t.Fatalf("signed root vector root = %s, want %s", got, single.Root)
 	}
 	notice, ok := issued.Notice(operator)
 	if !ok || notice.GetProof().GetLeafIndex() != 0 || len(notice.GetProof().GetSiblings()) != 0 ||
@@ -140,5 +190,60 @@ func TestSignedHandraiseRootVector(t *testing.T) {
 	}
 	if !bytes.Equal(gotRaw, raw) {
 		t.Fatalf("root bytes = %x, want %x", gotRaw, raw)
+	}
+}
+
+// The wire handraise_merkle trees: an issued root over their leaf digests has their root and hands
+// out their inclusion paths, and leaves are in ascending standing digest order.
+func TestHandraiseMerkleVectors(t *testing.T) {
+	cases, _ := loadMerkleCases(t)
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if len(c.StandingDigests) != len(c.LeafDigests) || len(c.Proofs) != len(c.LeafDigests) {
+				t.Fatalf("malformed case: %+v", c)
+			}
+			issued := &IssuedRoot{Root: &taskv1.SignedHandraiseRootV1{LeafCount: uint32(len(c.LeafDigests))}}
+			for i, digest := range c.LeafDigests {
+				if i > 0 && c.StandingDigests[i-1] >= c.StandingDigests[i] {
+					t.Fatal("wire leaves are not in ascending standing digest order")
+				}
+				issued.Leaves = append(issued.Leaves, &taskv1.HandraiseRootLeafV1{})
+				issued.leafDigests = append(issued.leafDigests, hex32(t, digest))
+			}
+			root := dispatch.HandraiseRoot(issued.leafDigests)
+			if hex.EncodeToString(root[:]) != c.Root {
+				t.Fatalf("root = %x, want %s", root, c.Root)
+			}
+			for _, want := range c.Proofs {
+				proof, err := issued.Proof(want.LeafIndex)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := make([]string, len(proof.GetSiblings()))
+				for i, s := range proof.GetSiblings() {
+					got[i] = hex.EncodeToString(s)
+				}
+				if strings.Join(got, ",") != strings.Join(want.Siblings, ",") {
+					t.Fatalf("leaf %d siblings = %v, want %v", want.LeafIndex, got, want.Siblings)
+				}
+				if !dispatch.VerifyHandraiseProof(root, issued.leafDigests[want.LeafIndex], want.LeafIndex, issued.Root.GetLeafCount(), toHashes(proof.GetSiblings())) {
+					t.Fatalf("leaf %d proof does not verify", want.LeafIndex)
+				}
+			}
+		})
+	}
+}
+
+// A root issued after every handraise expired is the wire empty tree.
+func TestEmptyRootMatchesWireVector(t *testing.T) {
+	cases, _ := loadMerkleCases(t)
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	e.mustIssue()
+	e.clock.advance(6*time.Second + time.Millisecond)
+	empty := e.mustIssue()
+	if empty.Root.GetLeafCount() != 0 || hex.EncodeToString(empty.Root.GetRoot()) != cases["empty"].Root {
+		t.Fatalf("empty root = %d leaves, %x; want %s", empty.Root.GetLeafCount(), empty.Root.GetRoot(), cases["empty"].Root)
 	}
 }
