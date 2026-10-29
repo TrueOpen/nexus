@@ -12,6 +12,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/handraise"
+	"github.com/TrueOpen/nexus/internal/inflight"
 )
 
 // The record deadline is the Recorder's: max(the deadline handed over, max(earliest_submit_height,
@@ -197,6 +198,7 @@ type flakyAttempts struct {
 	Attempts
 	mu    sync.Mutex
 	fails int
+	err   error // the failure; a store error when nil
 }
 
 func (f *flakyAttempts) Accepted(w attempt.Winner) error {
@@ -207,6 +209,9 @@ func (f *flakyAttempts) Accepted(w attempt.Winner) error {
 	}
 	f.mu.Unlock()
 	if failing {
+		if f.err != nil {
+			return f.err
+		}
 		return errors.New("attempt store unavailable")
 	}
 	return f.Attempts.Accepted(w)
@@ -263,5 +268,41 @@ func TestRecordOfAVoidedWinnerEndsTheNewRound(t *testing.T) {
 	}
 	if got := e.observer.snapshot(); len(got.failed) != 0 || len(got.accepted) != 1 {
 		t.Fatalf("observed %+v", got)
+	}
+}
+
+// A binding event of this Builder at a height below the order's current bound_change_height (a
+// replay or one out of order) is stale: the tickets out and the accepted winner stay.
+func TestStaleRebindingIsIgnored(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.accept()
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: testBound - 1}})
+	if len(e.recorder.withdrawn) != 0 {
+		t.Fatalf("withdrawn = %x", e.recorder.withdrawn)
+	}
+	if e.ledgerState(o) != inflight.StateAccepted {
+		t.Fatal("the accepted order was reopened")
+	}
+}
+
+// An accept for a task the attempt book holds recorded with another ticket still goes to the
+// Recorder: the chain answers its entry (CONFLICT), and the book is not asked again.
+func TestEntryGoesOutWhenTheBookHasAnotherRecordedTicket(t *testing.T) {
+	e := newEnv(t)
+	recorded := &flakyAttempts{Attempts: e.attempts, err: fmt.Errorf("%w: test", attempt.ErrRecordedWithAnotherTicket), fails: 1}
+	e.d.cfg.Attempts = recorded
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.accept()
+	if n := len(e.recorder.recorded()); n != 1 {
+		t.Fatalf("%d entries handed to the recorder", n)
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	if _, ok := e.attempts.Current(o.TaskID); ok {
+		t.Fatal("the book was asked again")
 	}
 }

@@ -503,7 +503,9 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 	for _, o := range d.sessionOrders(sessionID) {
 		o.mu.Lock()
 		st := o.st
-		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight == boundChangeHeight {
+		// bound_change_height only grows: an event of this Builder at or below the order's height is
+		// a replay or out of order, and voids nothing.
+		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight >= boundChangeHeight {
 			o.mu.Unlock()
 			continue
 		}
