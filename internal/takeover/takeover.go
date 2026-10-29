@@ -136,11 +136,14 @@ type record struct {
 	checking bool  // Admit's chain checks are under way
 	jobs     []job // what is to be handled, in order; one at a time
 	running  bool  // a job is being handled
-	// retry is the job to run again at the next block, after a chain read gave no verdict.
-	retry *job
-	// misses counts session reads showing a registered takeover neither pending nor taken effect:
-	// the node read may trail the registration, so it is voided only on the second.
-	misses int
+	// retries are the jobs to run again at the next block, after a chain read gave none of them a
+	// verdict; each cause once.
+	retries []job
+	// misses counts session reads showing a registered takeover neither pending nor taken effect,
+	// at a higher head each (missHead is the head of the last counted): the node read may trail
+	// the registration, so it is voided only on the second.
+	misses   int
+	missHead uint64
 }
 
 // Manager runs the takeovers this Builder registers as candidate.
@@ -221,11 +224,11 @@ func (m *Manager) Held(sessionID string, sequence uint64, taskHash string) (Admi
 //   - a takeover this Builder holds for the session: the same order is Admission.Existing (or
 //     inflight.ErrOrderUploading while its input uploads), another one a TakeoverPendingError
 //     naming this Builder: one takeover per session;
+//   - the dispatch record of the sequence: recorded, a SessionBoundElsewhereError naming the
+//     recording Builder and task;
 //   - this Builder's own key and compensation account: a pending key rotation or an account below
 //     its minimum is dispatchdraw.ErrNoCapacity (no new takeover), an unconfirmed key
 //     inflight.ErrUnavailable;
-//   - the dispatch record of the sequence: recorded, a SessionBoundElsewhereError naming the
-//     recording Builder and task;
 //   - the session state read from the chain: a registered takeover is a TakeoverPendingError
 //     naming its candidate; a sequence other than the chain's next is ErrOrderSequenceConflict;
 //     funds are inflight.CheckTakeoverFunds.
@@ -251,10 +254,7 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	m.records[o.SessionID] = reserved
 	m.mu.Unlock()
 
-	bound, err := m.checkKey(ctx)
-	if err == nil {
-		bound, err = m.check(ctx, o.SessionID, o.OrderSequence, pre.MaxFee)
-	}
+	bound, err := m.check(ctx, o.SessionID, o.OrderSequence, pre.MaxFee)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {
@@ -268,15 +268,15 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 }
 
 // checkKey is Admit's check of this Builder's own key and compensation account.
-func (m *Manager) checkKey(ctx context.Context) (uint64, error) {
+func (m *Manager) checkKey(ctx context.Context) error {
 	err := m.cfg.Keys.CheckBuilderKey(ctx)
 	switch {
 	case err == nil:
-		return 0, nil
+		return nil
 	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, dispatcher.ErrCompensationBelowMin):
-		return 0, fmt.Errorf("%w: no takeover: %v", dispatchdraw.ErrNoCapacity, err)
+		return fmt.Errorf("%w: no takeover: %v", dispatchdraw.ErrNoCapacity, err)
 	default:
-		return 0, fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
+		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
 	}
 }
 
@@ -288,6 +288,9 @@ func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint6
 		return 0, &inflight.SessionBoundElsewhereError{Builder: rec.GetBuilderAddress(), TaskID: hex.EncodeToString(rec.GetTaskId())}
 	case !errors.Is(err, chaincli.ErrNotFound):
 		return 0, fmt.Errorf("%w: dispatch record of sequence %d: %v", inflight.ErrUnavailable, seq, err)
+	}
+	if err := m.checkKey(ctx); err != nil {
+		return 0, err
 	}
 	state, err := m.cfg.Chain.QuerySession(ctx, sessionID)
 	switch {
@@ -366,16 +369,12 @@ func (m *Manager) submitEntry(ctx context.Context, r *record) error {
 	})
 }
 
-// backgroundTimeout bounds one background job: its chain reads and the hand-over of the order.
-const backgroundTimeout = 30 * time.Second
+// jobTimeout bounds one job: its chain reads and the hand-over of the order.
+const jobTimeout = 30 * time.Second
 
 // later runs f in the background.
-func (m *Manager) later(f func(context.Context)) {
-	run := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), backgroundTimeout)
-		defer cancel()
-		f(ctx)
-	}
+func (m *Manager) later(f func()) {
+	run := f
 	if m.cfg.Background != nil {
 		m.cfg.Background(run)
 		return

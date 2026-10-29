@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -493,12 +494,16 @@ func TestBindingToAnotherBuilderVoidsTheTakeover(t *testing.T) {
 }
 
 // A registration result read while the session shows the takeover neither pending nor taken
-// effect: the node read may trail the registration, so it is read again at the next block, and
-// only a second such read voids it.
+// effect: the node read may trail the registration, so it is read again, and only a second such
+// read at a higher head voids it.
 func TestRegisteredButGoneIsVoided(t *testing.T) {
 	e := newEnv(t)
 	e.submit(5)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 60})
 	e.m.TakeoverRegistered(session, 5, 60)
+	e.wantCalls("held task5")
+	// Another block event at the same head does not count.
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 60})
 	e.wantCalls("held task5")
 	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
 	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
@@ -779,5 +784,99 @@ func TestStartEndsBrokenRecords(t *testing.T) {
 	e.wantCalls("ended task5 TASK_FAILED drop=false")
 	if e.stored() != 0 {
 		t.Fatal("broken records kept")
+	}
+}
+
+// A read without a verdict keeps every job it interrupted: a check failing after a settle failed
+// in the same block does not replace the settle, which a submitted entry dropped as unsettled
+// needs to be sent again.
+func TestRetriesKeepEveryJob(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.chain.stateErr = errors.New("down")
+	e.m.TakeoverUnsettled(session, 5)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 60, Typed: chaincli.SessionBuilderBound{SessionID: session, NewBuilder: other, BoundChangeHeight: 60}})
+	e.chain.stateErr = nil
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	if len(e.rec.bundles) != 2 {
+		t.Fatalf("the unsettled entry was not sent again: %d bundles", len(e.rec.bundles))
+	}
+}
+
+// The bound Builder already recorded the order: that is the answer even while this Builder's key
+// rotation is pending.
+func TestAdmitReadsTheRecordBeforeTheKey(t *testing.T) {
+	e := newEnv(t)
+	e.keys.err = handraise.ErrBuilderRotationPending
+	e.chain.records[5] = &taskv1.DispatchRecordState{BuilderAddress: bound, TaskId: bytes.Repeat([]byte{0x05}, 32)}
+	o, pre := takeoverOrder(5, 1)
+	if _, err := e.m.Admit(context.Background(), o, pre); !errors.Is(err, inflight.ErrSessionBoundElsewhere) {
+		t.Fatalf("Admit = %v", err)
+	}
+}
+
+// A void that arrives before the entry's result ends the takeover.
+func TestVoidedWhileSubmitted(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 61, Typed: chaincli.SessionTakeoverVoided{SessionID: session, CandidateBuilder: self, OrderSequence: 5}})
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+	if e.rec.withdrawn != 1 || e.stored() != 0 {
+		t.Fatalf("withdrawn %d, stored %d", e.rec.withdrawn, e.stored())
+	}
+}
+
+// With jobs on their own goroutines, results and events of one takeover still run one at a
+// time: registered, bound here, dispatched once.
+func TestJobsRunOneAtATimeInTheBackground(t *testing.T) {
+	e := newEnv(t)
+	m, err := New(Config{
+		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks, Keys: e.keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.m = m
+	e.submit(5)
+	e.bindHere(70)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.TakeoverRegistered(session, 5, 60)
+			m.HandleChainEvent(chaincli.ChainEvent{Height: 70, Typed: chaincli.SessionBuilderBound{SessionID: session, NewBuilder: self, BoundChangeHeight: 70}})
+			m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 71})
+		}()
+	}
+	wg.Wait()
+	deadline := time.Now().Add(5 * time.Second)
+	for e.stored() != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	dispatched := 0
+	for _, c := range e.tasks.calls() {
+		if c == "dispatch task5" {
+			dispatched++
+		}
+	}
+	if dispatched != 1 || e.stored() != 0 {
+		t.Fatalf("calls %q, stored %d", e.tasks.calls(), e.stored())
+	}
+}
+
+// A stored record under another session's key is dropped and its task ends.
+func TestStartEndsARecordUnderTheWrongKey(t *testing.T) {
+	e := newEnv(t)
+	moved, _ := json.Marshal(map[string]any{"session_id": session, "task_id": "task5", "phase": int(phaseSubmitted)})
+	_ = e.store.Set(kv.NSTakeover, "other-key", moved)
+	e.open()
+	if err := e.m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.wantCalls("ended task5 TASK_FAILED drop=false")
+	if e.stored() != 0 {
+		t.Fatal("kept")
 	}
 }

@@ -9,20 +9,23 @@ import (
 
 // Keys of kv.NSTakeover are session ids, one takeover each.
 
-// load reads the stored takeovers. A record that does not decode is dropped with an error log;
-// one that decodes but is not a takeover in progress is kept in broken for Start to end as
-// TASK_FAILED. Neither stops the start.
+// load reads the stored takeovers. A record that does not decode is dropped with an error log.
+// One that decodes but is stored under another session's key, or is not a takeover in progress,
+// is dropped and kept in broken for Start to end its task as TASK_FAILED. None stops the start.
 func (m *Manager) load() error {
 	var drop []string
 	err := m.cfg.Store.Scan(kv.NSTakeover, func(key string, val []byte) bool {
 		var r record
 		switch err := json.Unmarshal(val, &r); {
-		case err != nil || r.SessionID != key:
+		case err != nil:
 			m.log.Error("takeover record does not decode; dropped", "key", key, "err", err)
 			drop = append(drop, key)
-		case r.Phase != phaseSubmitted && r.Phase != phaseRegistered:
-			m.log.Error("takeover record in an unknown phase; its task fails", "session_id", key, "phase", r.Phase)
-			m.broken = append(m.broken, &r)
+		case r.SessionID != key || r.Phase != phaseSubmitted && r.Phase != phaseRegistered:
+			m.log.Error("takeover record cannot be resumed; its task fails", "key", key, "session_id", r.SessionID, "phase", r.Phase)
+			drop = append(drop, key)
+			if r.SessionID != "" && r.TaskID != "" {
+				m.broken = append(m.broken, &r)
+			}
 		default:
 			m.records[key] = &r
 		}
@@ -31,20 +34,12 @@ func (m *Manager) load() error {
 	if err != nil {
 		return fmt.Errorf("scan takeovers: %w", err)
 	}
-	for _, key := range append(drop, brokenKeys(m.broken)...) {
+	for _, key := range drop {
 		if err := m.cfg.Store.Delete(kv.NSTakeover, key); err != nil {
 			m.log.Error("takeover record not deleted", "key", key, "err", err)
 		}
 	}
 	return nil
-}
-
-func brokenKeys(rs []*record) []string {
-	keys := make([]string, len(rs))
-	for i, r := range rs {
-		keys[i] = r.SessionID
-	}
-	return keys
 }
 
 func (m *Manager) saveLocked(r *record) error {

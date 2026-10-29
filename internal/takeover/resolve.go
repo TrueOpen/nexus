@@ -123,9 +123,11 @@ func (m *Manager) onBlock() {
 	for _, r := range m.records {
 		switch {
 		case r.Phase == phaseReserved:
-		case r.retry != nil:
-			dues = append(dues, due{r.SessionID, r.Sequence, *r.retry})
-			r.retry = nil
+		case len(r.retries) > 0:
+			for _, j := range r.retries {
+				dues = append(dues, due{r.SessionID, r.Sequence, j})
+			}
+			r.retries = nil
 		case r.Phase == phaseRegistered && r.ActivationHeight != 0 && r.ActivationHeight <= head:
 			dues = append(dues, due{r.SessionID, r.Sequence, job{why: causeCheck}})
 		}
@@ -156,12 +158,12 @@ func (m *Manager) schedule(sessionID string, seq uint64, j job) {
 	r.running = true
 	m.mu.Unlock()
 	if start {
-		m.later(func(ctx context.Context) { m.run(ctx, r) })
+		m.later(func() { m.run(r) })
 	}
 }
 
-// run handles r's jobs one at a time until none is left or r is dropped.
-func (m *Manager) run(ctx context.Context, r *record) {
+// run handles r's jobs one at a time, each within jobTimeout, until none is left or r is dropped.
+func (m *Manager) run(r *record) {
 	for {
 		m.mu.Lock()
 		if m.records[r.SessionID] != r || len(r.jobs) == 0 {
@@ -172,7 +174,9 @@ func (m *Manager) run(ctx context.Context, r *record) {
 		j := r.jobs[0]
 		r.jobs = r.jobs[1:]
 		m.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
 		m.handle(ctx, r, j)
+		cancel()
 	}
 }
 
@@ -405,18 +409,26 @@ func (m *Manager) lookup(sessionID string) *record {
 	return nil
 }
 
-// retryNextBlock runs j again at the next block.
+// retryNextBlock runs j again at the next block, besides any other job retried then.
 func (m *Manager) retryNextBlock(r *record, j job) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r.retry = &j
+	for _, queued := range r.retries {
+		if queued == j {
+			return
+		}
+	}
+	r.retries = append(r.retries, j)
 }
 
-// miss counts a read that shows a registered takeover neither pending nor taken effect.
+// miss counts a read that shows a registered takeover neither pending nor taken effect; a read
+// at the head of the last counted one does not count again.
 func (m *Manager) miss(r *record) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r.misses++
+	if head := m.head.Load(); r.misses == 0 || head > r.missHead {
+		r.misses, r.missHead = r.misses+1, head
+	}
 	return r.misses
 }
 
