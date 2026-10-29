@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
@@ -662,14 +663,17 @@ func (f *finalizeFixture) streamOutput(t *testing.T, texts []string) Metadata {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ticket := mustDecodeHex(t, f.receipt.DispatchTicketHash)
 	acc, _ := mmr.New(nodecontract.DomainOutputMMRV1)
 	for i, text := range texts {
-		if _, err := stream.Append(context.Background(), chunkFor(acc, uint64(i), text)); err != nil {
+		chunk := chunkFor(acc, uint64(i), text)
+		chunk.DispatchTicketHash = ticket
+		if _, err := stream.Append(context.Background(), chunk); err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
 	root := acc.Root()
-	meta, err := stream.Finish(context.Background(), OutputFin{FinalSeq: uint64(len(texts) - 1), OutputMMRRoot: root[:], FinishReason: 1})
+	meta, err := stream.Finish(context.Background(), OutputFin{FinalSeq: uint64(len(texts) - 1), OutputMMRRoot: root[:], FinishReason: 1, DispatchTicketHash: ticket})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,6 +731,30 @@ func TestFinalizeTaskResultAcceptsStreamedOutputByMMRRoot(t *testing.T) {
 	fin, found, err := f.service.OutputFin(context.Background(), meta.Key)
 	if err != nil || !found || fin.FinishReason != 1 || fin.FinalSeq != 2 || hex.EncodeToString(fin.OutputMMRRoot) != f.receipt.OutputHash {
 		t.Fatalf("stored fin = %+v found=%t err=%v", fin, found, err)
+	}
+}
+
+// The receipt's dispatch_ticket_hash must be the ticket the sealed stream was signed for, and the
+// task's winner ticket when this Builder holds the attempt.
+func TestFinalizeTaskResultChecksTheReceiptTicket(t *testing.T) {
+	f := newFinalizeFixture(t)
+	wanted := f.receipt.DispatchTicketHash
+	f.receipt.DispatchTicketHash = strings.Repeat("e", 64)
+	f.resignReceipt(t)
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("ticket other than the stream's: %v, want ErrHashMismatch", err)
+	}
+	f.receipt.DispatchTicketHash = wanted
+	f.resignReceipt(t)
+	attempts := &fakeAttempts{}
+	attempts.set(attempt.Attempt{SessionID: testSessionID, TaskID: testTaskID, TicketHash: ticketOf(0xee), Status: attempt.Recorded})
+	f.authorizer.cfg.Attempts = attempts
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 10, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("ticket other than the winner's: %v, want ErrUnauthorized", err)
+	}
+	attempts.set(attempt.Attempt{SessionID: testSessionID, TaskID: testTaskID, TicketHash: [32]byte(mustDecodeHex(t, wanted)), Status: attempt.Recorded})
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 11, EvidenceKindWorkerTokenOpening)); err != nil {
+		t.Fatalf("winner ticket: %v", err)
 	}
 }
 

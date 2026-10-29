@@ -85,6 +85,10 @@ const (
 	// the winner ticket, the accept, the record status and the signed result header at that
 	// status; key = task_id (package attempt).
 	NSDispatchAttempt Namespace = "dispatch_attempt"
+	// NSReceiptStaging holds the InferReceipt a winner submitted before its dispatch entry was
+	// recorded; it is relayed once the record is admitted and dropped if it is refused; key =
+	// session_id|task_id (package coordinator).
+	NSReceiptStaging Namespace = "receipt_staging"
 )
 
 type Store interface {

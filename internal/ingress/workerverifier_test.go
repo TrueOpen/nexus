@@ -16,6 +16,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -491,5 +492,39 @@ func TestSubmitInferReceiptRejectsUnknownTask(t *testing.T) {
 	}
 	if fake.lastInferReceipt.TaskID != "" {
 		t.Fatal("receipt must not reach the coordinator when the task is unknown")
+	}
+}
+
+// A receipt for an output stream this Builder sealed must name the ticket that stream was signed
+// for; the receipt then goes to the handler, which checks the winner ticket.
+func TestInferReceiptTicketMustBeItsSealedStreams(t *testing.T) {
+	operator := mustSigner(t, testKeyHex)
+	serviceKey := mustSigner(t, workerKeyHex)
+	auth := AuthParams{Chain: testUserChain,
+		ChainID: "trueopen-localnet", BuilderAddress: "trueopen1builder", Bech32Prefix: "trueopen", RequireEnvelope: true,
+		ServiceKeys: &fakeServiceKeyResolver{states: map[string]chaincli.ServiceKeyState{
+			servicekey.ParticipantCortex + "|" + operator.Address(): activeServiceKey(servicekey.ParticipantCortex, operator.Address(), serviceKey),
+		}},
+	}
+	req := validInferReceiptRequest(t, operator, "", canonicalTestTaskID("sealed"), []byte("output"))
+	signInferReceiptRequest(t, serviceKey, req)
+	for _, tc := range []struct {
+		name   string
+		ticket []byte
+		code   connect.Code
+	}{
+		{"another ticket", bytes.Repeat([]byte{0x7e}, 32), connect.CodeInvalidArgument},
+		{"the stream's ticket", req.GetReceipt().GetDispatchTicketHash(), 0},
+	} {
+		handler := &fakeHandler{sessionForTask: strings.Repeat("2b", 32)}
+		api := &fakeTaskDataAPI{fin: &taskdata.OutputFin{DispatchTicketHash: tc.ticket}}
+		client := newTaskDataClientWithHandler(t, handler, api, auth)
+		_, err := client.SubmitInferReceipt(context.Background(), connect.NewRequest(req))
+		if connect.CodeOf(err) != tc.code && (tc.code != 0 || err != nil) {
+			t.Fatalf("%s: %v, want %v", tc.name, err, tc.code)
+		}
+		if relayed := handler.lastInferReceipt.TaskID != ""; relayed != (tc.code == 0) {
+			t.Fatalf("%s: handed to the handler = %t", tc.name, relayed)
+		}
 	}
 }

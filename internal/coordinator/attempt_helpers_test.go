@@ -60,4 +60,3 @@ func newTestBook(t *testing.T, store kv.Store) *attempt.Book {
 	}
 	return b
 }
-

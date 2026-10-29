@@ -814,6 +814,14 @@ func (c *Coordinator) OnInferReceipt(_ context.Context, receipt types.InferRecei
 	if !ok {
 		return ErrTaskNotFound
 	}
+	if c.attempts != nil {
+		if err := c.checkReceiptAttempt(receipt); err != nil {
+			return err
+		}
+		if staged, err := fsm.stageInferReceipt(c.kv, receipt); staged || err != nil {
+			return err
+		}
+	}
 	if err := fsm.validateInferReceipt(receipt); err != nil {
 		return err
 	}
@@ -1349,9 +1357,11 @@ func (c *Coordinator) removeTask(key string) string {
 	return recipient
 }
 
-// abandonTask drops a task that never reached the chain. Its journal is kept so the user can see
-// why it was rejected; with no output tombstone nothing releases it (a known, low-volume leak).
+// abandonTask drops a task that never reached the chain, with any receipt staged for it. Its
+// journal is kept so the user can see why it was rejected; with no output tombstone nothing
+// releases it (a known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
+	c.dropStagedReceipt(key)
 	removed := false
 	var trackedKey chaincli.TaskKey
 	c.mu.Lock()
@@ -1974,6 +1984,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 			authoritativeEventHeight(snapshot.Assignment.WinnerConfirmHeight, height),
 			snapshot.Assignment.InferDeadlineHeight)
 		state = types.Assigned
+		c.releaseStagedReceipt(fsm)
 	}
 	// Once the chain accepts the receipt (from RECEIPT_COMMITTED on) OPEN_VERIFY should be sent; it and
 	// "verifiers decided" are two different facts, the former only opens the verify window.
