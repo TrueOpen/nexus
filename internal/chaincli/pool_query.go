@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 )
 
 // CandidatePoolMemberKey selects one operator in one candidate pool snapshot. ModelID and
@@ -83,6 +84,67 @@ func (c *client) QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []by
 		return nil, fmt.Errorf("query candidate pool snapshot: response snapshot does not match request")
 	}
 	return snapshot, nil
+}
+
+// maxCandidatePoolMemberPages bounds one walk of a snapshot's members; a snapshot never holds more
+// slots than its slot_capacity, so a walk that needs more pages is a broken cursor.
+const maxCandidatePoolMemberPages = 4096
+
+// QueryCandidatePoolMembers reads one page of a snapshot's members in ascending slot order
+// (hub.v1.Query/CandidatePoolMembers); pageToken is empty for the first page and the returned
+// token is empty after the last. The views carry membership only: weights and eligibility come
+// per member from QueryCandidatePoolSnapshotMember.
+func (c *client) QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error) {
+	if err := checkHash32("snapshot_id", snapshotID); err != nil {
+		return nil, nil, fmt.Errorf("query candidate pool members: %w", err)
+	}
+	resp, err := c.hubQuery.CandidatePoolMembers(ctx, connect.NewRequest(&hubv1.QueryCandidatePoolMembersRequest{
+		SnapshotId: snapshotID, Page: &sharedv1.QueryPageRequestV1{PageToken: pageToken},
+	}))
+	if err != nil {
+		return nil, nil, applicationQueryError("candidate pool members", err)
+	}
+	members := resp.Msg.GetMembers()
+	for i, m := range members {
+		if m == nil || m.GetOperatorAddress() == "" {
+			return nil, nil, fmt.Errorf("query candidate pool members: member %d has no operator", i)
+		}
+		if i > 0 && members[i-1].GetCandidateSlot() >= m.GetCandidateSlot() {
+			return nil, nil, fmt.Errorf("query candidate pool members: slots are not strictly ascending")
+		}
+	}
+	return members, bytes.Clone(resp.Msg.GetPage().GetNextPageToken()), nil
+}
+
+// CandidatePoolMemberPager is the paged member read ListCandidatePoolMembers walks.
+type CandidatePoolMemberPager interface {
+	QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error)
+}
+
+// ListCandidatePoolMembers walks every page of a snapshot's members and returns them in strictly
+// ascending slot order. A page that does not continue after the previous one, or a cursor that
+// never ends, fails the walk: a partial list is never returned as the pool.
+func ListCandidatePoolMembers(ctx context.Context, q CandidatePoolMemberPager, snapshotID []byte) ([]*hubv1.CandidatePoolMemberViewV1, error) {
+	var out []*hubv1.CandidatePoolMemberViewV1
+	var token []byte
+	for page := 0; page < maxCandidatePoolMemberPages; page++ {
+		members, next, err := q.QueryCandidatePoolMembers(ctx, snapshotID, token)
+		if err != nil {
+			return nil, err
+		}
+		if len(out) > 0 && len(members) > 0 && members[0].GetCandidateSlot() <= out[len(out)-1].GetCandidateSlot() {
+			return nil, fmt.Errorf("list candidate pool members: page %d does not continue after slot %d", page, out[len(out)-1].GetCandidateSlot())
+		}
+		out = append(out, members...)
+		if len(next) == 0 {
+			return out, nil
+		}
+		if bytes.Equal(next, token) {
+			return nil, fmt.Errorf("list candidate pool members: page token did not advance")
+		}
+		token = next
+	}
+	return nil, fmt.Errorf("list candidate pool members: more than %d pages", maxCandidatePoolMemberPages)
 }
 
 // QueryCurrentCandidatePool reads the one ACTIVE snapshot the chain's current-pool pointer
@@ -187,6 +249,10 @@ func (c *client) QueryBeacon(ctx context.Context, height uint64) (*hubv1.BeaconS
 
 func (c *stubClient) QueryCandidatePoolSnapshotMember(context.Context, CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error) {
 	return nil, ErrNotFound
+}
+
+func (c *stubClient) QueryCandidatePoolMembers(context.Context, []byte, []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error) {
+	return nil, nil, ErrNotFound
 }
 
 func (c *stubClient) QueryCandidatePoolSnapshot(context.Context, []byte) (*hubv1.CandidatePoolSnapshotViewV1, error) {

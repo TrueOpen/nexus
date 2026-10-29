@@ -191,6 +191,27 @@ type BuilderCompensationFunded struct {
 	Balance string
 }
 
+// CandidatePoolPublished: the candidate pool snapshot of an epoch became ACTIVE.
+type CandidatePoolPublished struct {
+	Epoch           uint64
+	SnapshotID      []byte
+	PoolHash        []byte
+	ActiveCount     uint32
+	EffectiveHeight uint64
+	ExpiresHeight   uint64
+}
+
+// CandidatePoolExpired: an epoch's ACTIVE snapshot expired and the current pool pointer was
+// cleared.
+type CandidatePoolExpired struct {
+	Epoch         uint64
+	SnapshotID    []byte
+	PoolHash      []byte
+	ExpiresHeight uint64
+}
+
+func (CandidatePoolPublished) typedEvent()       {}
+func (CandidatePoolExpired) typedEvent()         {}
 func (DispatchRecorded) typedEvent()             {}
 func (SessionBuilderBound) typedEvent()          {}
 func (SessionTakeoverRegistered) typedEvent()    {}
@@ -353,6 +374,24 @@ func typedHubEvent(payload *hubv1.ProtocolEventPayloadV1) (TypedEvent, error) {
 			ParticipantType: e.GetParticipantType(), Operator: e.GetOperator(),
 			OldServiceAddress: e.GetOldServiceAddress(), NewServiceAddress: e.GetNewServiceAddress(),
 			AuthorizationNonce: e.GetAuthorizationNonce(),
+		}, nil
+	case *hubv1.ProtocolEventPayloadV1_CandidatePoolPublished:
+		e := p.CandidatePoolPublished
+		if err := hash32Fields("candidate_pool_published", e.GetSnapshotId()); err != nil {
+			return nil, err
+		}
+		return CandidatePoolPublished{
+			Epoch: e.GetEpoch(), SnapshotID: bytes.Clone(e.GetSnapshotId()), PoolHash: bytes.Clone(e.GetPoolHash()),
+			ActiveCount: e.GetActiveCount(), EffectiveHeight: e.GetEffectiveHeight(), ExpiresHeight: e.GetExpiresHeight(),
+		}, nil
+	case *hubv1.ProtocolEventPayloadV1_CandidatePoolExpired:
+		e := p.CandidatePoolExpired
+		if err := hash32Fields("candidate_pool_expired", e.GetSnapshotId()); err != nil {
+			return nil, err
+		}
+		return CandidatePoolExpired{
+			Epoch: e.GetEpoch(), SnapshotID: bytes.Clone(e.GetSnapshotId()), PoolHash: bytes.Clone(e.GetPoolHash()),
+			ExpiresHeight: e.GetExpiresHeight(),
 		}, nil
 	case *hubv1.ProtocolEventPayloadV1_BuilderCompensationFunded:
 		e := p.BuilderCompensationFunded

@@ -66,6 +66,8 @@ type fakePool struct {
 	members map[string]bool            // operator -> eligible
 	support map[string]map[string]bool // operator -> profile key -> fresh
 	err     error
+
+	supportErr error
 }
 
 func profileKey(p *taskv1.DispatchProfileV1) string {
@@ -84,18 +86,35 @@ func (p *fakePool) IsEligibleMember(_ context.Context, member *taskv1.CandidateM
 func (p *fakePool) HasFreshSupport(_ context.Context, operator string, profile *taskv1.DispatchProfileV1) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.supportErr != nil {
+		return false, p.supportErr
+	}
 	return p.support[operator][profileKey(profile)], nil
 }
 
 type fakeHeight struct {
-	mu sync.Mutex
-	h  uint64
+	mu  sync.Mutex
+	h   uint64
+	err error
 }
 
 func (f *fakeHeight) LatestHeight(context.Context) (uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.h, nil
+	return f.h, f.err
+}
+
+// failingStore fails every batch write while err is set.
+type failingStore struct {
+	kv.Store
+	err error
+}
+
+func (s *failingStore) WriteBatch(ops ...kv.WriteOp) error {
+	if s.err != nil {
+		return s.err
+	}
+	return s.Store.WriteBatch(ops...)
 }
 
 func (f *fakeHeight) set(h uint64) {
@@ -142,6 +161,9 @@ type env struct {
 	reg     *Registry
 }
 
+// minRejectRateSamples is gpu_reject_rate_min_samples of testDispatchConfig.
+const minRejectRateSamples = 10
+
 func testDispatchConfig() config.DispatchConfig {
 	return config.DispatchConfig{
 		HandraiseHeartbeatMs:          2000,
@@ -152,7 +174,10 @@ func testDispatchConfig() config.DispatchConfig {
 		BuilderRTTAdmitMs:             150,
 		GPURejectRateThreshold:        0.5,
 		GPURejectRateSuspensionBlocks: 100,
+		GPURejectRateMinSamples:       minRejectRateSamples,
 		BuilderTimeoutRateThreshold:   0.2,
+
+		HandraiseIssuedHeightToleranceBlocks: 3,
 	}
 }
 

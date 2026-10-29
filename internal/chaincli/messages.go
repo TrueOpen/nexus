@@ -222,11 +222,14 @@ const (
 
 // OpenVerifyAccepted: open-verify included in a block (no sample_seed; the seed arrives with the later SampleReady).
 type OpenVerifyAccepted struct {
-	SessionID string          `json:"session_id"`
-	TaskID    string          `json:"task_id"`
-	Verifiers []string        `json:"verifiers"` // formal Verifier set addresses
-	Deadlines types.Deadlines `json:"deadlines"` // commit/worker_reveal/reveal/verify
-	Height    int64           `json:"height"`
+	SessionID string   `json:"session_id"`
+	TaskID    string   `json:"task_id"`
+	Verifiers []string `json:"verifiers"` // formal Verifier set addresses
+	// Selected is the formal set with each Verifier's candidate slot, in the order of Verifiers,
+	// when the source carries it (QueryTask does, the event does not).
+	Selected  []SelectedVerifier `json:"selected,omitempty"`
+	Deadlines types.Deadlines    `json:"deadlines"` // commit/worker_reveal/reveal/verify
+	Height    int64              `json:"height"`
 }
 
 // SampleReady: the future proposer-VRF beacon aggregated the sample seed (SampleReadyIndex).
@@ -634,6 +637,7 @@ type OnChainTask struct {
 	Winner             string                  `json:"winner,omitempty"`
 	AssignedSet        []types.BuilderRef      `json:"assigned_set,omitempty"`
 	Verifiers          []string                `json:"verifiers,omitempty"`
+	SelectedVerifiers  []SelectedVerifier      `json:"selected_verifiers,omitempty"`
 	SampleSeed         []byte                  `json:"sample_seed,omitempty"`
 	InferDeadline      int64                   `json:"infer_deadline,omitempty"`
 	Deadlines          types.Deadlines         `json:"deadlines"`
@@ -662,9 +666,18 @@ type OnChainTask struct {
 
 // VerifierRound is the part of one round's VerifierAssignmentState that task data authorization
 // needs: who was selected, and the two heights that tell whether the round's commit set is locked.
+// SelectedVerifier is one formal Verifier with the candidate slot it was selected in.
+type SelectedVerifier struct {
+	Operator    string `json:"operator"`
+	Slot        uint32 `json:"slot"`
+	SlotVersion uint64 `json:"slot_version"`
+}
+
 type VerifierRound struct {
 	VerifyRound uint32   `json:"verify_round"`
 	Verifiers   []string `json:"verifiers"`
+	// Selected carries the same Verifiers with their candidate slots.
+	Selected []SelectedVerifier `json:"selected,omitempty"`
 	// CommitDeadlineHeight is the last height at which a commit of this round can be accepted.
 	CommitDeadlineHeight uint64 `json:"commit_deadline_height"`
 	// RevealDeadlineHeight is written only when the round enters reveal, which on the fast path

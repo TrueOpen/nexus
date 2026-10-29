@@ -6,10 +6,6 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-// minRejectRateSamples is the fewest tickets inside the measuring window before a reject rate
-// can suspend a Worker, so one early reject is not a 100% rate. Placeholder until calibrated.
-const minRejectRateSamples = 10
-
 // outcome is one answered ticket of a Worker.
 type outcome struct {
 	height   uint64
@@ -24,11 +20,19 @@ type RTTThresholdChange struct {
 
 // RecordRTT records the latest RTT this Builder measured to operator's dispatch stream. Roots
 // issued afterwards admit or refuse the operator's handraise against builder_rtt_admit_ms; an
-// operator without a measurement is admitted.
+// operator without a measurement is admitted. The latest value is kept in the store so a restart
+// does not admit a far operator until its stream is measured again; a failed write is logged and
+// the value still applies in memory.
 func (r *Registry) RecordRTT(operator string, rttMs uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if prev, ok := r.rtt[operator]; ok && prev == rttMs {
+		return
+	}
 	r.rtt[operator] = rttMs
+	if err := r.persistRTT(operator, rttMs); err != nil {
+		r.log.Warn("store measured RTT", "operator", operator, "error", err)
+	}
 }
 
 // RecordOutcome records how a Worker answered a ticket at height: rejected is a signed reject
@@ -58,7 +62,7 @@ func (r *Registry) RecordOutcome(operator string, height uint64, rejected bool) 
 			rejects++
 		}
 	}
-	if len(kept) < minRejectRateSamples || float64(rejects)/float64(len(kept)) <= cfg.GPURejectRateThreshold {
+	if uint64(len(kept)) < cfg.GPURejectRateMinSamples || float64(rejects)/float64(len(kept)) <= cfg.GPURejectRateThreshold {
 		r.outcomes[operator] = kept
 		return nil
 	}

@@ -161,3 +161,65 @@ func TestRejectRateBeforeRTT(t *testing.T) {
 		t.Fatalf("leaf = %v", leaf)
 	}
 }
+
+// The latest measured RTT survives a restart.
+func TestMeasuredRTTIsKeptAcrossRestart(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	e.reg.RecordRTT(c.operator(), 400)
+	e.reg = e.open()
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	leaf := leafOf(t, e.mustIssue(), c.operator())
+	if leaf.GetAdmitted() || leaf.GetAdmitRejectReason() != taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD ||
+		leaf.GetBuilderMeasuredRttMs() != 400 {
+		t.Fatalf("leaf after restart = %v", leaf)
+	}
+}
+
+// gpu_reject_rate_min_samples sets how many tickets the window needs before a rate counts.
+func TestRejectRateMinSamplesIsConfigured(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.GPURejectRateMinSamples = 2
+	e.reg = e.open()
+	c := e.addCortex(0x11, 4)
+	for i := 0; i < 2; i++ {
+		if err := e.reg.RecordOutcome(c.operator(), 100, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	if leaf := leafOf(t, e.mustIssue(), c.operator()); leaf.GetAdmitRejectReason() != taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE {
+		t.Fatalf("leaf = %v, want a reject-rate suspension after two samples", leaf)
+	}
+}
+
+type rttTable map[string]time.Duration
+
+func (t rttTable) RTT(operator string) (time.Duration, bool) {
+	rtt, ok := t[operator]
+	return rtt, ok
+}
+
+// With an RTT source the registry measures every held handraise before it issues a root.
+func TestRootSamplesStreamRTT(t *testing.T) {
+	e := newEnv(t)
+	far, near := e.addCortex(0x11, 4), e.addCortex(0x22, 5)
+	rtts := rttTable{far.operator(): 150*time.Millisecond + 300*time.Microsecond, near.operator(): 20 * time.Millisecond}
+	reg, err := New(Options{
+		ChainID: testChainID, BuilderAddress: e.builder.Address(), Config: e.cfg, Store: e.store, Keys: e.keys,
+		Pool: e.pool, Height: e.height, Signer: e.builder, Now: e.clock.Now, RTT: rtts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.reg = reg
+	e.mustAccept(far, e.handraise(far, 100, 1))
+	e.mustAccept(near, e.handraise(near, 100, 1))
+	root := e.mustIssue()
+	if leaf := leafOf(t, root, far.operator()); leaf.GetAdmitted() || leaf.GetBuilderMeasuredRttMs() != 151 {
+		t.Fatalf("far leaf = %v, want refused at 151 ms (rounded up)", leaf)
+	}
+	if leaf := leafOf(t, root, near.operator()); !leaf.GetAdmitted() {
+		t.Fatalf("near leaf = %v", leaf)
+	}
+}

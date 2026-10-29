@@ -99,13 +99,17 @@ type Coordinator struct {
 	selection       BuilderSelectionQuerier
 	epochLength     atomic.Uint64
 	// epochTriedAt is when the epoch length was last read (UnixNano), for the retry pause.
-	epochTriedAt    atomic.Int64
-	relay           relay.Custodian
-	kv              kv.Store
-	submit          Submitter
-	outputs         outputdelivery.Manager
-	payloads        payloadstore.Store
-	resultReadiness ResultReadiness
+	epochTriedAt atomic.Int64
+	// epochUnsupported records that the epoch length cannot be read at all (the selection
+	// querier lacks the read, or the chain client does not support it), so it is warned about once
+	// and not read again.
+	epochUnsupported atomic.Bool
+	relay            relay.Custodian
+	kv               kv.Store
+	submit           Submitter
+	outputs          outputdelivery.Manager
+	payloads         payloadstore.Store
+	resultReadiness  ResultReadiness
 
 	mu           sync.RWMutex
 	tasks        map[string]*taskFSM // key = session_id|task_id
@@ -260,13 +264,15 @@ type epochLengthQuerier interface {
 const epochLengthRetry = time.Minute
 
 // refreshEpochLength reads the Hub epoch length once, from the reconcile loop, never under a
-// task lock. A failed read is retried after epochLengthRetry.
+// task lock. A failed read is retried after epochLengthRetry; a read the chain client does not
+// support is warned about once and not retried.
 func (c *Coordinator) refreshEpochLength(ctx context.Context) {
-	if c.epochLength.Load() != 0 {
+	if c.epochLength.Load() != 0 || c.epochUnsupported.Load() {
 		return
 	}
 	query, ok := c.selection.(epochLengthQuerier)
 	if !ok {
+		c.epochLengthUnsupported()
 		return
 	}
 	now := time.Now().UnixNano()
@@ -277,11 +283,21 @@ func (c *Coordinator) refreshEpochLength(ctx context.Context) {
 	queryCtx, cancel := context.WithTimeout(ctx, reconcileQueryTimeout)
 	length, err := query.QueryEpochLengthBlocks(queryCtx)
 	cancel()
+	if errors.Is(err, chaincli.ErrNotSupportedOnChain) {
+		c.epochLengthUnsupported()
+		return
+	}
 	if err != nil || length == 0 {
 		c.log.Warn("hub epoch length read failed; refused verifier handraises wait for it", "err", err)
 		return
 	}
 	c.epochLength.Store(length)
+}
+
+func (c *Coordinator) epochLengthUnsupported() {
+	if c.epochUnsupported.CompareAndSwap(false, true) {
+		c.log.Warn("builder selection querier cannot read the hub epoch length; refused verifier handraises are never retried by epoch")
+	}
 }
 
 // currentEpoch returns the epoch of the last observed chain height, from the cached epoch
@@ -2058,8 +2074,8 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.
 	if state == types.Assigned && taskStateAtLeastVerifying(snapshot.State) && len(snapshot.Verifiers) > 0 {
 		fsm.onOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
-			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, Verifiers: snapshot.Verifiers, Deadlines: snapshot.Deadlines,
-			Height: authoritativeEventHeight(snapshot.VerifierAssignment.OpenVerifyHeight, height),
+			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, Verifiers: snapshot.Verifiers, Selected: snapshot.SelectedVerifiers,
+			Deadlines: snapshot.Deadlines, Height: authoritativeEventHeight(snapshot.VerifierAssignment.OpenVerifyHeight, height),
 		})
 		state = types.Verifying
 	}

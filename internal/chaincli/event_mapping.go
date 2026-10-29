@@ -35,6 +35,10 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	}
 	sessionID := hex.EncodeToString(event.GetSessionId())
 	taskID := hex.EncodeToString(event.GetTaskId())
+	if taskID == "" {
+		// Phase 1 events may leave task_id to the payload, as on the role stream.
+		taskID = payloadTaskID(event)
+	}
 	if sessionID == "" {
 		return ChainEvent{}, fmt.Errorf("task event session_id is required")
 	}
@@ -57,30 +61,64 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	if err := validateTaskEventPayload(event, sessionID, taskID); err != nil {
 		return ChainEvent{}, err
 	}
-	if typedErr != nil {
-		return ChainEvent{}, fmt.Errorf("task event %s payload: %w", protocolEventCodeName(event.GetCode()), typedErr)
-	}
 	code := protocolEventCodeName(event.GetCode())
+	var mapped ChainEvent
 	if taskID == "" {
 		// A Phase 1 session-level event: it concerns the session, not a task to reconcile.
-		return ChainEvent{
+		mapped = ChainEvent{
 			Type:      EventSessionScoped,
 			EventCode: code,
 			SessionID: sessionID,
 			Height:    int64(event.GetChainHeight()),
 			Typed:     typed,
-		}, nil
+		}
+	} else {
+		mapped = ChainEvent{
+			Type:             taskEventType(code),
+			EventCode:        code,
+			SessionID:        sessionID,
+			TaskID:           taskID,
+			Height:           int64(event.GetChainHeight()),
+			Attrs:            taskEventAttributes(event),
+			TaskNotification: true,
+			Typed:            typed,
+		}
 	}
-	return ChainEvent{
-		Type:             taskEventType(code),
-		EventCode:        code,
-		SessionID:        sessionID,
-		TaskID:           taskID,
-		Height:           int64(event.GetChainHeight()),
-		Attrs:            taskEventAttributes(event),
-		TaskNotification: true,
-		Typed:            typed,
-	}, nil
+	if typedErr != nil {
+		return mapped, businessFieldError(fmt.Sprintf("task event %s", code), typedErr)
+	}
+	return mapped, nil
+}
+
+// errEventBusinessField marks an event whose envelope is sound but whose typed payload has a bad
+// business field (an empty operator, a hash of the wrong length). The event is still delivered,
+// with Typed nil, and the cursor moves past it: consumers reconcile conservatively from Query.
+// Stopping the stream on it would resume at the same cursor forever and blind the Builder. Only
+// envelope problems (no cursor, a bad height, a payload that does not match the code, no payload)
+// stop a stream.
+var errEventBusinessField = errors.New("event payload has an invalid business field")
+
+func businessFieldError(event string, err error) error {
+	return fmt.Errorf("%s: %w: %v", event, errEventBusinessField, err)
+}
+
+// payloadTaskID is the task_id of the payload member numbered by the envelope's code, or "".
+func payloadTaskID(event *taskv1.TaskEvent) string {
+	payload := event.GetPayload()
+	if payload == nil {
+		return ""
+	}
+	message := payload.ProtoReflect()
+	field := message.WhichOneof(message.Descriptor().Oneofs().ByName("typed_event"))
+	if field == nil || int32(field.Number()) != int32(event.GetCode()) || field.Message() == nil {
+		return ""
+	}
+	inner := message.Get(field).Message()
+	taskField := inner.Descriptor().Fields().ByName("task_id")
+	if taskField == nil || taskField.Kind() != protoreflect.BytesKind || !inner.Has(taskField) {
+		return ""
+	}
+	return hex.EncodeToString(inner.Get(taskField).Bytes())
 }
 
 // errSessionScopedTaskEvent marks a valid session-level event without a typed Phase 1 mapping

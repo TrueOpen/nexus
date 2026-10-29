@@ -1,6 +1,7 @@
 package chaincli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
@@ -125,19 +126,27 @@ func DecodeMsgResponse(result TxResult, msgIndex int, out proto.Message) error {
 }
 
 // DecodeRecordDispatchResponse reads the per-entry results of the MsgRecordDispatch at msgIndex
-// of an executed transaction. There is one result per entry, in entry order; a REJECTED entry
-// carries its DispatchRejectCodeV1 and only a REJECTED entry does.
-func DecodeRecordDispatchResponse(result TxResult, msgIndex, entryCount int) (*taskv1.MsgRecordDispatchResponse, error) {
+// of an executed transaction. objectIDs are the keys of the entries sent, in entry order
+// (DispatchEntryObjectID, TakeoverEntryObjectID). There is one result per entry, in entry order,
+// echoing that entry's key as object_id; batch_digest commits to every (object_id, status); a
+// REJECTED entry carries its DispatchRejectCodeV1 and only a REJECTED entry does.
+func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string, objectIDs [][32]byte) (*taskv1.MsgRecordDispatchResponse, error) {
 	response := &taskv1.MsgRecordDispatchResponse{}
 	if err := DecodeMsgResponse(result, msgIndex, response); err != nil {
 		return nil, fmt.Errorf("record dispatch: %w", err)
 	}
-	if len(response.GetResults()) != entryCount {
-		return nil, fmt.Errorf("record dispatch: %d results for %d entries", len(response.GetResults()), entryCount)
+	if len(response.GetResults()) != len(objectIDs) {
+		return nil, fmt.Errorf("record dispatch: %d results for %d entries", len(response.GetResults()), len(objectIDs))
+	}
+	if digest := RecordDispatchBatchDigest(chainID, response.GetResults()); !bytes.Equal(response.GetBatchDigest(), digest[:]) {
+		return nil, fmt.Errorf("record dispatch: batch_digest does not match the results")
 	}
 	for i, item := range response.GetResults() {
 		if item.GetItemIndex() != uint32(i) {
 			return nil, fmt.Errorf("record dispatch: result %d has item_index %d", i, item.GetItemIndex())
+		}
+		if !bytes.Equal(item.GetObjectId(), objectIDs[i][:]) {
+			return nil, fmt.Errorf("record dispatch: result %d object_id is not the key of entry %d", i, i)
 		}
 		rejected := item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED
 		switch {

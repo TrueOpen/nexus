@@ -49,3 +49,24 @@ func TestVerifierAssignmentNotifySkippedWithoutOutputHash(t *testing.T) {
 	assertState(t, c, session, task, types.Verifying)
 	assertPhase(t, c, session, task, types.PhaseOpenVerify)
 }
+
+// The notification carries each Verifier's candidate slot when the chain read gave it, and only
+// the address when it did not.
+func TestNotifyVerifiersKeepSlots(t *testing.T) {
+	ev := chaincli.OpenVerifyAccepted{
+		Verifiers: []string{"v1", "v2"},
+		Selected:  []chaincli.SelectedVerifier{{Operator: "v1", Slot: 4, SlotVersion: 2}, {Operator: "v2", Slot: 9, SlotVersion: 1}},
+	}
+	got := notifyVerifiers(ev)
+	if len(got) != 2 || got[0].GetSlot() != 4 || got[0].GetSlotVersion() != 2 || got[1].GetSlot() != 9 || got[1].GetOperatorAddress() != "v2" {
+		t.Fatalf("verifiers = %v", got)
+	}
+	ev.Selected = nil
+	if got := notifyVerifiers(ev); len(got) != 2 || got[0].GetSlot() != 0 || got[0].GetOperatorAddress() != "v1" {
+		t.Fatalf("address-only verifiers = %v", got)
+	}
+	ev.Selected = []chaincli.SelectedVerifier{{Operator: "other", Slot: 4}, {Operator: "v2", Slot: 9}}
+	if got := notifyVerifiers(ev); got[0].GetSlot() != 0 || got[1].GetSlot() != 9 {
+		t.Fatalf("a slot of another operator was used: %v", got)
+	}
+}

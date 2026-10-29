@@ -12,7 +12,7 @@ func TestDispatchDefaultsAreValid(t *testing.T) {
 	if got.HandraiseHeartbeatMs != 2000 || got.HandraiseTTLMs != 6000 || got.HandraiseMinChangeIntervalMs != 200 ||
 		got.HandraiseRootIntervalMs != 500 || got.BuilderRTTAdmitMs != 300 || got.GPURejectRateThreshold != 0.5 ||
 		got.GPURejectRateSuspensionBlocks != 720 || got.BuilderTimeoutRateThreshold != 0.2 ||
-		len(got.AcceptTimeoutMsByRTTTier) != 3 {
+		len(got.AcceptTimeoutMsByRTTTier) != 3 || got.GPURejectRateMinSamples != 10 || got.HandraiseIssuedHeightToleranceBlocks != 3 {
 		t.Fatalf("dispatch defaults = %+v", got)
 	}
 	if err := got.Validate(); err != nil {
@@ -30,7 +30,17 @@ func TestDispatchValidateRejectsInvalidCombinations(t *testing.T) {
 		"negative reject rate":       func(c *DispatchConfig) { c.GPURejectRateThreshold = -0.1 },
 		"timeout rate above one":     func(c *DispatchConfig) { c.BuilderTimeoutRateThreshold = 2 },
 		"no tiers":                   func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier = nil },
-		"zero accept timeout":        func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
+		"suspension window too long": func(c *DispatchConfig) { c.GPURejectRateSuspensionBlocks = maxDispatchWindowBlocks + 1 },
+		"zero min samples":           func(c *DispatchConfig) { c.GPURejectRateMinSamples = 0 },
+		"too many min samples":       func(c *DispatchConfig) { c.GPURejectRateMinSamples = maxRejectRateMinSamples + 1 },
+		"tolerance too large":        func(c *DispatchConfig) { c.HandraiseIssuedHeightToleranceBlocks = maxIssuedHeightTolerance + 1 },
+		"ttl in microseconds":        func(c *DispatchConfig) { c.HandraiseTTLMs = maxDispatchIntervalMs + 1 },
+		"root interval too long":     func(c *DispatchConfig) { c.HandraiseRootIntervalMs = maxDispatchIntervalMs + 1 },
+		"rtt threshold too large":    func(c *DispatchConfig) { c.BuilderRTTAdmitMs = maxBuilderRTTAdmitMs + 1 },
+		"accept timeout too long": func(c *DispatchConfig) {
+			c.AcceptTimeoutMsByRTTTier[2].AcceptTimeoutMs = maxAcceptTimeoutMsByRTTTier + 1
+		},
+		"zero accept timeout": func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
 		"tier rtt not increasing": func(c *DispatchConfig) {
 			c.AcceptTimeoutMsByRTTTier[1].MaxRTTMs = c.AcceptTimeoutMsByRTTTier[0].MaxRTTMs
 		},
@@ -70,10 +80,13 @@ func TestDispatchEnvironment(t *testing.T) {
 	t.Setenv("NEXUS_DISPATCH_GPU_REJECT_RATE_THRESHOLD", "0.25")
 	t.Setenv("NEXUS_DISPATCH_GPU_REJECT_RATE_SUSPENSION_BLOCKS", "60")
 	t.Setenv("NEXUS_DISPATCH_BUILDER_TIMEOUT_RATE_THRESHOLD", "0.1")
+	t.Setenv("NEXUS_DISPATCH_GPU_REJECT_RATE_MIN_SAMPLES", "20")
+	t.Setenv("NEXUS_DISPATCH_HANDRAISE_ISSUED_HEIGHT_TOLERANCE_BLOCKS", "5")
 	got := Load().Dispatch
 	if got.HandraiseHeartbeatMs != 1000 || got.HandraiseTTLMs != 4000 || got.HandraiseMinChangeIntervalMs != 100 ||
 		got.HandraiseRootIntervalMs != 250 || got.BuilderRTTAdmitMs != 120 || got.GPURejectRateThreshold != 0.25 ||
-		got.GPURejectRateSuspensionBlocks != 60 || got.BuilderTimeoutRateThreshold != 0.1 {
+		got.GPURejectRateSuspensionBlocks != 60 || got.BuilderTimeoutRateThreshold != 0.1 ||
+		got.GPURejectRateMinSamples != 20 || got.HandraiseIssuedHeightToleranceBlocks != 5 {
 		t.Fatalf("dispatch environment = %+v", got)
 	}
 }
@@ -119,6 +132,8 @@ func TestExampleDispatchSettings(t *testing.T) {
 		got.HandraiseMinChangeIntervalMs != want.HandraiseMinChangeIntervalMs || got.HandraiseRootIntervalMs != want.HandraiseRootIntervalMs ||
 		got.BuilderRTTAdmitMs != want.BuilderRTTAdmitMs || got.GPURejectRateThreshold != want.GPURejectRateThreshold ||
 		got.GPURejectRateSuspensionBlocks != want.GPURejectRateSuspensionBlocks || got.BuilderTimeoutRateThreshold != want.BuilderTimeoutRateThreshold ||
+		got.GPURejectRateMinSamples != want.GPURejectRateMinSamples ||
+		got.HandraiseIssuedHeightToleranceBlocks != want.HandraiseIssuedHeightToleranceBlocks ||
 		len(got.AcceptTimeoutMsByRTTTier) != len(want.AcceptTimeoutMsByRTTTier) {
 		t.Fatalf("example dispatch = %+v, want the defaults %+v", got, want)
 	}

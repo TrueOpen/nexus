@@ -136,7 +136,11 @@ func TestBuilderRoleRequestNamesTheBuilderAndItsCodes(t *testing.T) {
 	}
 	want := []sharedv1.ProtocolEventCodeV1{
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_CLAIMED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_PAID,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_REBUTTED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_OPENED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_RESOLVED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_DISPATCH_FAULT_RECORDED,
 	}
 	if !reflect.DeepEqual(request.GetCodes(), want) {
 		t.Fatalf("codes = %v", request.GetCodes())
@@ -274,6 +278,8 @@ func TestProtocolEventToChainEventMapsHubOperationalEvents(t *testing.T) {
 
 func TestProtocolEventCodesIncludeHubOperationalEvents(t *testing.T) {
 	want := []sharedv1.ProtocolEventCodeV1{
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
@@ -290,5 +296,47 @@ func TestBuilderRoleCursorKeyIsScopedToTheOperator(t *testing.T) {
 	}
 	if _, err := eventCursorKey("chain-a", eventCursorKindBuilderRole, ""); err == nil {
 		t.Fatal("an empty operator scope was accepted")
+	}
+}
+
+// The outcomes of claims and challenges reach the Builder as typed role events.
+func TestRoleEventToChainEventDecodesOutcomes(t *testing.T) {
+	envelope := func(code sharedv1.ProtocolEventCodeV1, payload *taskv1.TaskProtocolEventPayloadV1) *taskv1.TaskEvent {
+		return &taskv1.TaskEvent{Cursor: "o1", ChainHeight: 400, Code: code, Payload: payload}
+	}
+	cases := []struct {
+		event *taskv1.TaskEvent
+		want  TypedEvent
+	}{
+		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_PAID,
+			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DispatchCompensationPaid{
+				DispatchCompensationPaid: &taskv1.EventDispatchCompensationPaid{DispatchTicketHash: mustHash32("a2"), TaskId: testTaskIDBytes,
+					Builder: testBuilder, Worker: "trueopen1worker", Amount: amount("70"), PaidAmount: amount("60"), UnfilledAmount: amount("10")},
+			}}),
+			DispatchCompensationPaid{TicketHash: mustHash32("a2"), TaskID: testTaskIDHex, Builder: testBuilder, Worker: "trueopen1worker",
+				Amount: "70", PaidAmount: "60", UnfilledAmount: "10"}},
+		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_REBUTTED,
+			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DispatchCompensationRebutted{
+				DispatchCompensationRebutted: &taskv1.EventDispatchCompensationRebutted{DispatchTicketHash: mustHash32("a2"), TaskId: testTaskIDBytes,
+					Builder: testBuilder, Worker: "trueopen1worker", Responder: testBuilder},
+			}}),
+			DispatchCompensationRebutted{TicketHash: mustHash32("a2"), TaskID: testTaskIDHex, Builder: testBuilder, Worker: "trueopen1worker", Responder: testBuilder}},
+		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_RESOLVED,
+			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DispatchChallengeResolved{
+				DispatchChallengeResolved: &taskv1.EventDispatchChallengeResolved{ChallengeId: mustHash32("c1"), TaskId: testTaskIDBytes},
+			}}),
+			DispatchChallengeResolved{ChallengeID: mustHash32("c1"), TaskID: testTaskIDHex}},
+		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_DISPATCH_FAULT_RECORDED,
+			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded{
+				BuilderDispatchFaultRecorded: &taskv1.EventBuilderDispatchFaultRecorded{Builder: testBuilder, FaultId: mustHash32("f1"), TaskId: testTaskIDBytes,
+					PenaltyAmount: amount("5"), UnfilledAmount: amount("0")},
+			}}),
+			BuilderDispatchFaultRecorded{Builder: testBuilder, FaultID: mustHash32("f1"), TaskID: testTaskIDHex, PenaltyAmount: "5", UnfilledAmount: "0"}},
+	}
+	for _, tc := range cases {
+		event, err := roleEventToChainEvent(tc.event)
+		if err != nil || event.TaskID != testTaskIDHex || !reflect.DeepEqual(event.Typed, tc.want) {
+			t.Fatalf("%s = %+v, %v", tc.event.GetCode(), event, err)
+		}
 	}
 }

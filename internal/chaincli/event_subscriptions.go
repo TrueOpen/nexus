@@ -233,7 +233,20 @@ func (c *client) subscribeTaskEventsOnce(ctx context.Context, sessionID string) 
 	if c.sessionObserver != nil {
 		c.sessionObserver.SessionStreamUp(sessionID)
 	}
+	return c.consumeTaskEvents(ctx, sessionID, stream)
+}
 
+// taskEventStream is the receiving half of a SubscribeTaskEvents stream.
+type taskEventStream interface {
+	Receive() bool
+	Msg() *taskv1.SubscribeTaskEventsResponse
+	Err() error
+}
+
+// consumeTaskEvents delivers each event of a session stream, then saves its cursor. A broken
+// envelope stops the stream before its cursor; a bad business field in a typed payload does not
+// (errEventBusinessField).
+func (c *client) consumeTaskEvents(ctx context.Context, sessionID string, stream taskEventStream) (bool, error) {
 	delivered := false
 	for stream.Receive() {
 		response := stream.Msg()
@@ -270,7 +283,10 @@ func (c *client) subscribeTaskEventsOnce(ctx context.Context, sessionID string) 
 			delivered = true
 			continue
 		}
-		if err != nil {
+		if errors.Is(err, errEventBusinessField) {
+			c.log.Warn("chaincli: delivering a task event without its typed payload",
+				"session_id", sessionID, "cursor", event.GetCursor(), "err", redactSensitiveText(err.Error()))
+		} else if err != nil {
 			return delivered, fmt.Errorf("receive task events: %w", err)
 		}
 		if err := c.sendEvent(ctx, mapped); err != nil {
@@ -379,7 +395,19 @@ func (c *client) subscribeProtocolEventsOnce(ctx context.Context) (bool, error) 
 	if err := c.sendEvent(ctx, ChainEvent{Type: EventBuilderSetUpdated}); err != nil {
 		return false, err
 	}
+	return c.consumeProtocolEvents(ctx, stream)
+}
 
+// protocolEventStream is the receiving half of a SubscribeProtocolEvents stream.
+type protocolEventStream interface {
+	Receive() bool
+	Msg() *hubv1.SubscribeProtocolEventsResponse
+	Err() error
+}
+
+// consumeProtocolEvents delivers each Hub event, then saves its cursor, with the same stop rule as
+// the session streams.
+func (c *client) consumeProtocolEvents(ctx context.Context, stream protocolEventStream) (bool, error) {
 	delivered := false
 	for stream.Receive() {
 		response := stream.Msg()
@@ -398,10 +426,16 @@ func (c *client) subscribeProtocolEventsOnce(ctx context.Context) (bool, error) 
 			return delivered, fmt.Errorf("receive protocol events: response item is required")
 		}
 		mapped, ok, err := protocolEventToChainEvent(event)
-		if err != nil {
+		if errors.Is(err, errEventBusinessField) {
+			c.log.Warn("chaincli: delivering a protocol event without its typed payload",
+				"cursor", event.GetCursor(), "err", redactSensitiveText(err.Error()))
+		} else if err != nil {
 			return delivered, fmt.Errorf("receive protocol events: %w", err)
 		}
 		if ok {
+			if err := c.recordPoolEpoch(mapped.Typed); err != nil {
+				return delivered, fmt.Errorf("receive protocol events: %w", err)
+			}
 			if err := c.sendEvent(ctx, mapped); err != nil {
 				return delivered, err
 			}

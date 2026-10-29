@@ -106,6 +106,9 @@ dispatch:
   handraise_min_change_interval_ms: 200
   # This Builder signs a new handraise root this often.
   handraise_root_interval_ms: 500
+  # How far above this Builder's chain height a handraise's issued_height may be (this Builder
+  # may lag the Cortex by a few blocks).
+  handraise_issued_height_tolerance_blocks: 3
   # Accept/reject wait of a dispatched ticket by the candidate's measured RTT; tiers increase in
   # both values, an RTT above the last tier takes the last tier.
   accept_timeout_ms_by_rtt_tier:
@@ -122,6 +125,8 @@ dispatch:
   # gpu_reject_rate_suspension_blocks blocks (also the measuring window). 0 disables the rule.
   gpu_reject_rate_threshold: 0.5
   gpu_reject_rate_suspension_blocks: 720
+  # Fewest tickets inside the window before a reject rate can suspend a Worker.
+  gpu_reject_rate_min_samples: 10
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
 

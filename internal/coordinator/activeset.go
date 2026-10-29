@@ -49,11 +49,15 @@ func (a *activeSet) Update(epoch uint64, members []types.BuilderRef, ref builder
 	a.mu.Unlock()
 }
 
-// Ref returns the current BuilderSet reference. A false second return value means nothing has been read from the chain yet.
-func (a *activeSet) Ref() (builderSetRef, bool) {
+// Snapshot returns the current BuilderSet reference and a copy of its members under one lock, so
+// both come from the same Update. A false third return value means nothing has been read from the
+// chain yet.
+func (a *activeSet) Snapshot() (builderSetRef, []types.BuilderRef, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.ref, a.ref.ID != "" && a.ref.Hash != ""
+	cp := make([]types.BuilderRef, len(a.members))
+	copy(cp, a.members)
+	return a.ref, cp, a.ref.ID != "" && a.ref.Hash != ""
 }
 
 // Epoch returns the current roster's epoch.

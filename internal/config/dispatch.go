@@ -36,6 +36,13 @@ type DispatchConfig struct {
 	// GPURejectRateSuspensionBlocks is how many blocks such a Worker stays not admitted; it is also
 	// the window the reject rate is measured over. 0 disables the rule.
 	GPURejectRateSuspensionBlocks uint64 `yaml:"gpu_reject_rate_suspension_blocks"`
+	// GPURejectRateMinSamples is the fewest tickets inside the measuring window before a reject
+	// rate can suspend a Worker, so one early reject is not a 100% rate.
+	GPURejectRateMinSamples uint64 `yaml:"gpu_reject_rate_min_samples"`
+	// HandraiseIssuedHeightToleranceBlocks is how far above this Builder's chain height a standing
+	// handraise's issued_height may be: a Cortex that follows the chain more closely is not
+	// refused for this Builder's lag.
+	HandraiseIssuedHeightToleranceBlocks uint64 `yaml:"handraise_issued_height_tolerance_blocks"`
 	// BuilderTimeoutRateThreshold is the share (0..1) of TIMEOUT skips among tickets above which the
 	// public statistics flag this Builder; it is statistics only.
 	BuilderTimeoutRateThreshold float64 `yaml:"builder_timeout_rate_threshold"`
@@ -62,9 +69,23 @@ func defaultDispatch() DispatchConfig {
 		BuilderRTTAdmitMs:             300,
 		GPURejectRateThreshold:        0.5,
 		GPURejectRateSuspensionBlocks: 720,
+		GPURejectRateMinSamples:       10,
 		BuilderTimeoutRateThreshold:   0.2,
+
+		HandraiseIssuedHeightToleranceBlocks: 3,
 	}
 }
+
+// Upper bounds of the dispatch windows: a value beyond them is a unit mistake (seconds for
+// milliseconds, a height for a block count), not a deliberate choice.
+const (
+	maxDispatchIntervalMs       = 3_600_000 // one hour
+	maxDispatchWindowBlocks     = 1_000_000
+	maxIssuedHeightTolerance    = 100
+	maxRejectRateMinSamples     = 100_000
+	maxBuilderRTTAdmitMs        = 60_000
+	maxAcceptTimeoutMsByRTTTier = 60_000
+)
 
 func (c DispatchConfig) Validate() error {
 	switch {
@@ -78,10 +99,21 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch gpu_reject_rate_threshold and builder_timeout_rate_threshold must be between 0 and 1")
 	case len(c.AcceptTimeoutMsByRTTTier) == 0:
 		return fmt.Errorf("dispatch accept_timeout_ms_by_rtt_tier must have at least one tier")
+	case c.HandraiseHeartbeatMs > maxDispatchIntervalMs || c.HandraiseTTLMs > maxDispatchIntervalMs ||
+		c.HandraiseRootIntervalMs > maxDispatchIntervalMs:
+		return fmt.Errorf("dispatch handraise heartbeat, ttl and root interval must not exceed %d ms", maxDispatchIntervalMs)
+	case c.BuilderRTTAdmitMs > maxBuilderRTTAdmitMs:
+		return fmt.Errorf("dispatch builder_rtt_admit_ms must not exceed %d", maxBuilderRTTAdmitMs)
+	case c.GPURejectRateSuspensionBlocks > maxDispatchWindowBlocks:
+		return fmt.Errorf("dispatch gpu_reject_rate_suspension_blocks must not exceed %d", maxDispatchWindowBlocks)
+	case c.GPURejectRateMinSamples == 0 || c.GPURejectRateMinSamples > maxRejectRateMinSamples:
+		return fmt.Errorf("dispatch gpu_reject_rate_min_samples must be between 1 and %d", maxRejectRateMinSamples)
+	case c.HandraiseIssuedHeightToleranceBlocks > maxIssuedHeightTolerance:
+		return fmt.Errorf("dispatch handraise_issued_height_tolerance_blocks must not exceed %d", maxIssuedHeightTolerance)
 	}
 	for i, tier := range c.AcceptTimeoutMsByRTTTier {
-		if tier.AcceptTimeoutMs == 0 {
-			return fmt.Errorf("dispatch accept_timeout_ms_by_rtt_tier[%d] accept_timeout_ms must be positive", i)
+		if tier.AcceptTimeoutMs == 0 || tier.AcceptTimeoutMs > maxAcceptTimeoutMsByRTTTier {
+			return fmt.Errorf("dispatch accept_timeout_ms_by_rtt_tier[%d] accept_timeout_ms must be between 1 and %d", i, maxAcceptTimeoutMsByRTTTier)
 		}
 		if i == 0 {
 			continue
@@ -118,7 +150,9 @@ func applyDispatchEnv(c *DispatchConfig) {
 	c.BuilderRTTAdmitMs = envUint64("NEXUS_DISPATCH_BUILDER_RTT_ADMIT_MS", c.BuilderRTTAdmitMs)
 	c.GPURejectRateThreshold = envFloat64("NEXUS_DISPATCH_GPU_REJECT_RATE_THRESHOLD", c.GPURejectRateThreshold)
 	c.GPURejectRateSuspensionBlocks = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_SUSPENSION_BLOCKS", c.GPURejectRateSuspensionBlocks)
+	c.GPURejectRateMinSamples = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_MIN_SAMPLES", c.GPURejectRateMinSamples)
 	c.BuilderTimeoutRateThreshold = envFloat64("NEXUS_DISPATCH_BUILDER_TIMEOUT_RATE_THRESHOLD", c.BuilderTimeoutRateThreshold)
+	c.HandraiseIssuedHeightToleranceBlocks = envUint64("NEXUS_DISPATCH_HANDRAISE_ISSUED_HEIGHT_TOLERANCE_BLOCKS", c.HandraiseIssuedHeightToleranceBlocks)
 }
 
 func envFloat64(key string, def float64) float64 {

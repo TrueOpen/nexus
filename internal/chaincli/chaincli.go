@@ -81,6 +81,8 @@ type Client interface {
 	QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error)
 	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks.
 	QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error)
+	// QueryEpochLengthBlocks reads the Hub epoch length (epoch.epoch_length_blocks).
+	QueryEpochLengthBlocks(ctx context.Context) (uint64, error)
 	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
 	// service.max_service_material_expiry_blocks: how far above the current height a Task data
 	// request's expiry_height may lie.
@@ -138,6 +140,11 @@ type Client interface {
 	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
 	// QueryCandidatePoolSnapshotMember reads one operator's membership and weight in a pool snapshot.
 	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
+	// QueryCandidatePoolMembers reads one page of a pool snapshot's members in slot order.
+	QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error)
+	// CandidatePoolSnapshotOfEpoch returns the snapshot the protocol event stream announced as the
+	// candidate pool of epoch; ErrNotFound when none was seen.
+	CandidatePoolSnapshotOfEpoch(ctx context.Context, epoch uint64) ([]byte, error)
 	// QueryCandidatePoolSnapshot reads the header of one pool snapshot.
 	QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []byte) (*hubv1.CandidatePoolSnapshotViewV1, error)
 	// QueryCurrentCandidatePool reads the ACTIVE pool snapshot the chain currently points to.
@@ -196,6 +203,11 @@ func (c *stubClient) Stop(_ context.Context) error {
 		close(c.events)
 	})
 	return nil
+}
+
+// QueryEpochLengthBlocks has no chain to read in stub mode.
+func (c *stubClient) QueryEpochLengthBlocks(context.Context) (uint64, error) {
+	return 0, ErrNotSupportedOnChain
 }
 
 // QueryBuilderSetAtHeight has no source of truth to query in stub mode: it returns ErrNotFound

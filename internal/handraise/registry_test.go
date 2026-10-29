@@ -84,7 +84,6 @@ func TestAcceptRejectsMalformedWithoutTrace(t *testing.T) {
 		"unsorted profiles":     func(h *taskv1.StandingHandraiseV1) { h.Profiles = append(h.Profiles, testProfile()) },
 		"bad model id":          func(h *taskv1.StandingHandraiseV1) { h.Profiles[0].ModelId = []byte{1} },
 		"expired":               func(h *taskv1.StandingHandraiseV1) { h.IssuedHeight, h.ExpiryHeight = 90, 99 },
-		"issued in the future":  func(h *taskv1.StandingHandraiseV1) { h.IssuedHeight, h.ExpiryHeight = 102, 150 },
 		"expiry before issue":   func(h *taskv1.StandingHandraiseV1) { h.IssuedHeight, h.ExpiryHeight = 101, 100 },
 		"no authorization":      func(h *taskv1.StandingHandraiseV1) { h.ServiceAuthorizationNonce = 0 },
 		"no member":             func(h *taskv1.StandingHandraiseV1) { h.Member = nil },
@@ -201,23 +200,47 @@ func TestInvalidHandraiseKeepsTheCurrentOne(t *testing.T) {
 	}
 }
 
-// A chain lookup failure is neither a verdict nor a trace: the caller may retry.
+// A chain lookup failure is neither a verdict nor a trace: it wraps ErrChainUnavailable and the
+// caller may retry.
 func TestAcceptChainFailureIsNotAVerdict(t *testing.T) {
 	e := newEnv(t)
 	c := e.addCortex(0x11, 4)
-	e.keys.err = errors.New("node down")
-	err := e.accept(c, e.handraise(c, 100, 1))
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
-		t.Fatalf("err = %v, want a lookup failure", err)
-	}
-	e.keys.err = nil
-	e.pool.err = errors.New("node down")
-	err = e.accept(c, e.handraise(c, 100, 1))
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
-		t.Fatalf("err = %v, want a lookup failure", err)
+	down := errors.New("node down")
+	for _, tc := range []struct {
+		name        string
+		fail, clear func()
+	}{
+		{"height", func() { e.height.err = down }, func() { e.height.err = nil }},
+		{"cortex key", func() { e.keys.err = down }, func() { e.keys.err = nil }},
+		{"candidate pool", func() { e.pool.err = down }, func() { e.pool.err = nil }},
+		{"profile support", func() { e.pool.supportErr = down }, func() { e.pool.supportErr = nil }},
+	} {
+		tc.fail()
+		err := e.accept(c, e.handraise(c, 100, 1))
+		tc.clear()
+		if !errors.Is(err, ErrChainUnavailable) || errors.Is(err, ErrStorage) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
+			t.Fatalf("%s: err = %v, want ErrChainUnavailable only", tc.name, err)
+		}
 	}
 	if root := e.issue(); root != nil {
 		t.Fatalf("lookup failures left leaves: %v", root.Leaves)
+	}
+}
+
+// A failed write of the accepted handraise wraps ErrStorage and does not make it current.
+func TestAcceptStoreFailureIsStorageError(t *testing.T) {
+	e := newEnv(t)
+	store := &failingStore{Store: e.store}
+	e.store = store
+	e.reg = e.open()
+	c := e.addCortex(0x11, 4)
+	store.err = errors.New("disk full")
+	err := e.accept(c, e.handraise(c, 100, 1))
+	if !errors.Is(err, ErrStorage) || errors.Is(err, ErrChainUnavailable) {
+		t.Fatalf("err = %v, want ErrStorage", err)
+	}
+	if _, ok := e.reg.Current(c.operator()); ok {
+		t.Fatal("handraise became current although it was not stored")
 	}
 }
 
@@ -254,4 +277,35 @@ func TestHandraiseExpiresAtExpiryHeight(t *testing.T) {
 	if root := e.mustIssue(); len(root.Leaves) != 0 {
 		t.Fatal("handraise kept after its expiry height")
 	}
+}
+
+// issued_height may run handraise_issued_height_tolerance_blocks ahead of this Builder's chain
+// height; further ahead is ErrAhead, which leaves no trace.
+func TestIssuedHeightTolerance(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	wantCode(t, e.accept(c, e.handraise(c, 104, 1)), ErrAhead)
+	if root := e.issue(); root != nil {
+		t.Fatalf("a handraise ahead of the chain left leaves: %v", root.Leaves)
+	}
+	e.mustAccept(c, e.handraise(c, 103, 1))
+}
+
+// The anti-replay watermark outlives the current handraise: once it expired, an older handraise
+// is still refused, also after a restart.
+func TestReplayRefusedAfterCurrentExpired(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	e.mustAccept(c, e.handraise(c, 100, 5))
+	e.clock.advance(7 * time.Second) // past handraise_ttl_ms
+	e.issue()                        // drops the expired handraise
+	if _, ok := e.reg.Current(c.operator()); ok {
+		t.Fatal("expired handraise is still current")
+	}
+	wantCode(t, e.accept(c, e.handraise(c, 100, 4)), ErrInvalid)
+	wantCode(t, e.accept(c, e.handraise(c, 100, 5)), ErrInvalid)
+
+	e.reg = e.open()
+	wantCode(t, e.accept(c, e.handraise(c, 99, 9)), ErrInvalid)
+	e.mustAccept(c, e.handraise(c, 100, 6))
 }
