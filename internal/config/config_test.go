@@ -574,6 +574,24 @@ func TestExampleSessionKeySettings(t *testing.T) {
 	}
 }
 
+// The BuilderSyncService rate limit loads from the environment and the example, where it is the
+// default.
+func TestBuilderSyncRateLimitSettings(t *testing.T) {
+	cfg, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ingress.BuilderSyncRequestsPerSecond != 1000 || cfg.Ingress.BuilderSyncBurst != 2000 {
+		t.Fatalf("example: %d/s burst %d", cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst)
+	}
+	t.Setenv("NEXUS_INGRESS_BUILDER_SYNC_REQUESTS_PER_SECOND", "300")
+	t.Setenv("NEXUS_INGRESS_BUILDER_SYNC_BURST", "600")
+	cfg = Load()
+	if cfg.Ingress.BuilderSyncRequestsPerSecond != 300 || cfg.Ingress.BuilderSyncBurst != 600 {
+		t.Fatalf("env not applied: %d/s burst %d", cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst)
+	}
+}
+
 func TestLoadVRFKeyConfig(t *testing.T) {
 	t.Setenv("NEXUS_VRF_KEY_FILES", "/etc/nexus/vrf-2.key, /etc/nexus/vrf-1.key")
 	t.Setenv("NEXUS_VRF_KEY_PASSWORD_FILE", "/etc/nexus/vrf.pass")

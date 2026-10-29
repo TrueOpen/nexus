@@ -224,6 +224,10 @@ type IngressConfig struct {
 	// SessionKeyLookupsPerSecond bounds the chain reads of session state on cache misses (0 = 20); a
 	// miss over the budget is answered as unavailable, so the client retries.
 	SessionKeyLookupsPerSecond uint32 `yaml:"session_key_lookups_per_second"`
+	// BuilderSyncRequestsPerSecond and BuilderSyncBurst limit the BuilderSyncService requests of one
+	// source address (0 = 1000 and 2000). The other Builders of this Builder's groups send them.
+	BuilderSyncRequestsPerSecond uint32 `yaml:"builder_sync_requests_per_second"`
+	BuilderSyncBurst             uint32 `yaml:"builder_sync_burst"`
 	// TLS lets ingress terminate TLS itself (HTTP/2 over TLS) instead of depending on a front proxy.
 	TLS IngressTLSConfig `yaml:"tls"`
 }
@@ -613,6 +617,8 @@ func applyEnv(cfg *Config) {
 	cfg.Ingress.MaxSessionGrantBlocks = envUint64("NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS", cfg.Ingress.MaxSessionGrantBlocks)
 	cfg.Ingress.SessionKeyCacheTTLBlocks = envUint64("NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS", cfg.Ingress.SessionKeyCacheTTLBlocks)
 	cfg.Ingress.SessionKeyLookupsPerSecond = envUint32("NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND", cfg.Ingress.SessionKeyLookupsPerSecond)
+	cfg.Ingress.BuilderSyncRequestsPerSecond = envUint32("NEXUS_INGRESS_BUILDER_SYNC_REQUESTS_PER_SECOND", cfg.Ingress.BuilderSyncRequestsPerSecond)
+	cfg.Ingress.BuilderSyncBurst = envUint32("NEXUS_INGRESS_BUILDER_SYNC_BURST", cfg.Ingress.BuilderSyncBurst)
 	cfg.Security.Mode = SecurityMode(strings.ToLower(strings.TrimSpace(env("NEXUS_SECURITY_MODE", string(cfg.Security.Mode)))))
 	cfg.Chain.GRPCAddr = env("NEXUS_CHAIN_GRPC", cfg.Chain.GRPCAddr)
 	cfg.Chain.ChainID = env("NEXUS_CHAIN_ID", cfg.Chain.ChainID)

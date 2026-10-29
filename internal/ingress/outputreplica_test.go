@@ -142,7 +142,7 @@ func TestBuilderSyncErrors(t *testing.T) {
 // The ingress server serves the sync service on its own handler, next to IngressAPI.
 func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
 	srv, err := New(slog.New(slog.DiscardHandler), config.IngressConfig{APIKeys: []string{"sdk-key"}}, AuthParams{}, &fakeHandler{},
-		WithBuilderSync(fakeBuilderSync{resp: &buildersyncv1.SyncResponse{AppliedThrough: 7}}))
+		WithBuilderSync(fakeBuilderSync{resp: &buildersyncv1.SyncResponse{AppliedThrough: 7}}, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,5 +177,20 @@ func TestBuilderSyncIsRateLimitedPerAddress(t *testing.T) {
 		connect.NewRequest(&buildersyncv1.SyncRequest{}))
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("over the limit: %v", err)
+	}
+}
+
+// The sync rate limit comes from the configuration; zero takes the defaults.
+func TestBuilderSyncRateLimitIsConfigured(t *testing.T) {
+	limit := func(perSecond, burst uint32) *addressLimiter {
+		srv := &Server{}
+		WithBuilderSync(fakeBuilderSync{}, perSecond, burst)(srv)
+		return srv.builderSync.limit
+	}
+	if l := limit(0, 0); l.perSecond != 1000 || l.burst != 2000 {
+		t.Fatalf("defaults %v/s burst %v", l.perSecond, l.burst)
+	}
+	if l := limit(50, 70); l.perSecond != 50 || l.burst != 70 {
+		t.Fatalf("configured %v/s burst %v", l.perSecond, l.burst)
 	}
 }
