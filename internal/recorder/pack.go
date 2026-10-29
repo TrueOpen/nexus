@@ -53,7 +53,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	r.mu.Lock()
 	var waiting []*entry
 	for _, e := range r.entries {
-		if e.Tx == "" && !e.Withdrawn && e.Deadline > height && !(e.Held && r.earlierUnresolvedLocked(e)) {
+		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !(e.Held && r.earlierUnresolvedLocked(e)) {
 			waiting = append(waiting, e)
 		}
 	}

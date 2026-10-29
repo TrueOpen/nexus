@@ -9,6 +9,10 @@
 // longer land) is sent with the same entry bytes in a new transaction; the chain answers an entry
 // it already admitted with its first result.
 //
+// Records keep going while this Builder's own key rotation is pending (the dispatcher issues no
+// new ticket then); only a compensation account known to be below its minimum, or a refusal of
+// the submitter itself, stops them.
+//
 // An entry is resolved only by its result in an executed transaction, a dispatch_recorded event of
 // its winner ticket, or its record deadline passing (then the dispatch record query decides).
 // Admitted, the order leaves the in-flight ledger and the dispatcher, its task is reconciled and
@@ -50,11 +54,16 @@ type Params struct {
 	MaxBytes uint64
 	// MinCompensation is builder_compensation_account_min_balance.
 	MinCompensation *big.Int
+	// RecordDeadlineBlocks is record_deadline_blocks.
+	RecordDeadlineBlocks uint64
 }
 
 // ParamsFromChain takes the Recorder's params from task params dispatch.
 func ParamsFromChain(d *taskv1.DispatchParamsV1) (Params, error) {
-	p := Params{MaxEntries: d.GetMaxDispatchEntriesPerRecord(), MaxBytes: d.GetMaxDispatchRecordBytes(), MinCompensation: new(big.Int)}
+	p := Params{
+		MaxEntries: d.GetMaxDispatchEntriesPerRecord(), MaxBytes: d.GetMaxDispatchRecordBytes(), MinCompensation: new(big.Int),
+		RecordDeadlineBlocks: d.GetRecordDeadlineBlocks(),
+	}
 	if p.MaxEntries == 0 || p.MaxBytes == 0 {
 		return Params{}, fmt.Errorf("dispatch params: max_dispatch_entries_per_record %d and max_dispatch_record_bytes %d must be set", p.MaxEntries, p.MaxBytes)
 	}
@@ -242,6 +251,8 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		ObjectID: hex.EncodeToString(id[:]), SessionID: b.SessionID, Sequence: b.Sequence, TaskID: b.TaskID,
 		TicketHash: append([]byte(nil), b.Entry.GetRecord().GetDispatchTicketHash()...),
 		Worker:     b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
+		EarliestSubmit: b.Entry.GetSignedOrder().GetOrder().GetEarliestSubmitHeight(),
+		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -345,6 +356,13 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 			delete(r.withdrawn, ticket)
 		}
 	}
+}
+
+// deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
+// bound_change_height) + record_deadline_blocks with the current params, never earlier than the
+// deadline handed over.
+func (r *Recorder) deadlineLocked(e *entry) uint64 {
+	return max(e.Deadline, max(e.EarliestSubmit, e.BoundChange)+r.params.Load().RecordDeadlineBlocks)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

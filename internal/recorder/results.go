@@ -29,6 +29,7 @@ const (
 	// code of every later entry a refusal fails.
 	codeLaterSequence = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED
 	codeRecordLate    = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
+	codeConflict      = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT
 )
 
 // pendingTxs lists the transactions still carrying an unresolved entry and drops the others.
@@ -112,7 +113,7 @@ func (r *Recorder) recordable(hash string, height uint64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
-		if e.Tx == hash && e.Deadline > height {
+		if e.Tx == hash && r.deadlineLocked(e) > height {
 			return true
 		}
 	}
@@ -157,6 +158,7 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 	}
 	r.succeeded()
 	var fx effects
+	var replays, conflicts []string
 	r.mu.Lock()
 	var ops []kv.WriteOp
 	for i, item := range resp.GetResults() {
@@ -164,9 +166,14 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		if e == nil {
 			continue
 		}
-		if item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED {
+		switch {
+		case item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_NOOP:
+			replays = append(replays, e.ObjectID)
+		case item.GetRejectCode() == codeConflict:
+			conflicts = append(conflicts, e.ObjectID)
+		case item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED:
 			r.rejectLocked(e, item.GetRejectCode(), false, &ops, &fx)
-		} else {
+		default:
 			r.recordLocked(e, uint64(res.Height), &ops, &fx)
 		}
 	}
@@ -174,6 +181,93 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 	r.writeLocked(ops)
 	r.mu.Unlock()
 	fx.run(ctx)
+	for _, id := range replays {
+		r.resolveReplay(ctx, id, uint64(res.Height))
+	}
+	for _, id := range conflicts {
+		r.resolveConflict(ctx, id)
+	}
+}
+
+// resolveReplay records an entry the chain answered as an exact replay of its first admission, at
+// the height of that admission when the record query has it, else at the replay's.
+func (r *Recorder) resolveReplay(ctx context.Context, id string, replayHeight uint64) {
+	e := r.lookup(id)
+	if e == nil {
+		return
+	}
+	height := replayHeight
+	if rec, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, e.SessionID, e.Sequence); err == nil && bytes.Equal(rec.GetDispatchTicketHash(), e.TicketHash) {
+		height = rec.GetRecordedHeight()
+	}
+	var fx effects
+	r.mu.Lock()
+	var ops []kv.WriteOp
+	if e = r.entries[id]; e != nil {
+		r.recordLocked(e, height, &ops, &fx)
+	}
+	r.writeLocked(ops)
+	r.mu.Unlock()
+	fx.run(ctx)
+}
+
+// resolveConflict takes a CONFLICT refusal: the order is recorded with another entry. A record of
+// this Builder means the order is recorded: with e's own ticket e is recorded; with another of
+// this Builder's tickets for it the order is, and e's Worker is told its ticket lost. A record of
+// another Builder, or none readable, fails e as refused. An unreadable chain keeps e for the next
+// attempt.
+func (r *Recorder) resolveConflict(ctx context.Context, id string) {
+	e := r.lookup(id)
+	if e == nil {
+		return
+	}
+	rec, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, e.SessionID, e.Sequence)
+	if err != nil && !isNotFound(err) {
+		r.log.Warn("dispatch record of a conflicting entry not read; it goes out again", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+		return
+	}
+	var fx effects
+	r.mu.Lock()
+	var ops []kv.WriteOp
+	if e = r.entries[id]; e != nil {
+		switch {
+		case err == nil && bytes.Equal(rec.GetDispatchTicketHash(), e.TicketHash):
+			r.recordLocked(e, rec.GetRecordedHeight(), &ops, &fx)
+		case err == nil && rec.GetBuilderAddress() == r.cfg.Builder:
+			r.recordedByAnotherTicketLocked(e, rec, &ops, &fx)
+		default:
+			r.rejectLocked(e, codeConflict, true, &ops, &fx)
+		}
+	}
+	r.writeLocked(ops)
+	r.mu.Unlock()
+	fx.run(ctx)
+}
+
+// recordedByAnotherTicketLocked resolves e whose order the chain recorded with another ticket of
+// this Builder: the order leaves the ledger and the dispatcher and its task is reconciled; e's
+// Worker hears its ticket was not recorded. Caller holds r.mu.
+func (r *Recorder) recordedByAnotherTicketLocked(e *entry, rec *taskv1.DispatchRecordState, ops *[]kv.WriteOp, fx *effects) {
+	r.removeLocked(e, ops)
+	height := rec.GetRecordedHeight()
+	r.log.Warn("order recorded with another ticket of this Builder", "session_id", e.SessionID, "order_sequence", e.Sequence,
+		"recorded_ticket", hex.EncodeToString(rec.GetDispatchTicketHash()))
+	fx.add(func(ctx context.Context) {
+		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
+			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+		}
+		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
+			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+		}
+		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)
+		r.notify(ctx, e, statusRejected, codeConflict, 0)
+	})
+}
+
+func (r *Recorder) lookup(id string) *entry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.entries[id]
 }
 
 // verifyByQuery resolves the entries of a transaction whose results could not be attributed: an
@@ -232,7 +326,7 @@ func (r *Recorder) expire(ctx context.Context, height uint64) {
 	r.mu.Lock()
 	var due []*entry
 	for _, e := range r.entries {
-		if height > e.Deadline {
+		if height > r.deadlineLocked(e) {
 			due = append(due, e)
 		}
 	}
@@ -269,7 +363,15 @@ func (r *Recorder) expire(ctx context.Context, height uint64) {
 func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *effects) {
 	r.removeLocked(e, ops)
 	if e.Withdrawn {
-		r.log.Warn("withdrawn dispatch entry recorded", "session_id", e.SessionID, "order_sequence", e.Sequence)
+		// The sequence is consumed, but the dispatcher already opened a new round for the order:
+		// that round's own outcome tells the dispatcher and the task.
+		r.log.Warn("withdrawn dispatch entry recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "height", height)
+		fx.add(func(context.Context) {
+			if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
+				r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+			}
+		})
+		return
 	}
 	r.log.Info("dispatch recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "task_id", e.TaskID, "height", height)
 	fx.add(func(ctx context.Context) {
@@ -315,6 +417,12 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 		"task_id", e.TaskID, "reject_code", code, "later_entries", len(failed)-1)
 	reason := fmt.Errorf("%w: sequence %d: %s", dispatcher.ErrRecordRejected, e.Sequence, code)
 	fx.add(func(ctx context.Context) {
+		// Suspended first: a resend the task's RECORD_REJECTED prompts must find the suspension
+		// it lifts.
+		if err := r.cfg.Ledger.Suspend(e.SessionID, e.Sequence); err != nil {
+			r.log.Error("session suspension not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+		}
+		r.orders.Suspend(ctx, e.SessionID, e.Sequence, reason)
 		for _, x := range failed {
 			c := codeLaterSequence
 			if x == e {
@@ -323,10 +431,6 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, c)
 			r.notify(ctx, x, statusRejected, c, 0)
 		}
-		if err := r.cfg.Ledger.Suspend(e.SessionID, e.Sequence); err != nil {
-			r.log.Error("session suspension not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
-		}
-		r.orders.Suspend(ctx, e.SessionID, e.Sequence, reason)
 	})
 }
 

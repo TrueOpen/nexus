@@ -87,7 +87,7 @@ func (g *Gate) compensationErr() error {
 	case g.min.Sign() == 0:
 		return nil
 	case g.balance == nil:
-		return errors.New("builder compensation account not read yet")
+		return dispatcher.ErrCompensationUnread
 	case g.balance.Cmp(g.min) < 0:
 		return fmt.Errorf("%w: balance %s, minimum %s", dispatcher.ErrCompensationBelowMin, g.balance, g.min)
 	}

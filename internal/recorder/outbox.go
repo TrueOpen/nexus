@@ -24,8 +24,13 @@ type entry struct {
 	TicketHash []byte `json:"ticket_hash"`
 	// Worker is the winner's operator address, who gets the record notice.
 	Worker string `json:"worker"`
-	// Deadline is the last height the entry can be recorded at.
+	// Deadline is the last height the entry can be recorded at, as handed over; see
+	// Recorder.deadlineLocked.
 	Deadline uint64 `json:"deadline"`
+	// EarliestSubmit and BoundChange are the order's earliest_submit_height and the winner
+	// ticket's bound_change_height, the base of the record deadline.
+	EarliestSubmit uint64 `json:"earliest_submit_height"`
+	BoundChange    uint64 `json:"bound_change_height"`
 	// Entry is the DispatchRecordEntryV1 as handed over; it is never built again.
 	Entry []byte `json:"entry"`
 	// Tx is the hash of the transaction carrying the entry; empty while it waits for a block.

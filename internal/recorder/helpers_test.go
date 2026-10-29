@@ -233,7 +233,23 @@ type suspension struct {
 	reason  error
 }
 
+// calls is the order of the suspension and rejection effects across the fakes.
+type calls struct {
+	mu  sync.Mutex
+	log []string
+}
+
+func (c *calls) add(name string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.log = append(c.log, name)
+}
+
 type fakeLedger struct {
+	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
 	suspended []orderKey
@@ -250,10 +266,12 @@ func (l *fakeLedger) Suspend(sessionID string, from uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.suspended = append(l.suspended, orderKey{sessionID, from})
+	l.calls.add("ledger.suspend")
 	return nil
 }
 
 type fakeOrders struct {
+	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
 	suspended []suspension
@@ -270,6 +288,7 @@ func (o *fakeOrders) Suspend(_ context.Context, sessionID string, from uint64, r
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.suspended = append(o.suspended, suspension{sessionID, from, reason})
+	o.calls.add("orders.suspend")
 }
 
 type taskReport struct {
@@ -279,6 +298,7 @@ type taskReport struct {
 }
 
 type fakeTasks struct {
+	calls    *calls
 	mu       sync.Mutex
 	recorded []taskReport
 	rejected []taskReport
@@ -294,6 +314,7 @@ func (f *fakeTasks) RecordRejected(_, taskID string, code taskv1.DispatchRejectC
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rejected = append(f.rejected, taskReport{taskID: taskID, code: code})
+	f.calls.add("tasks.rejected")
 }
 
 type notice struct {
@@ -315,6 +336,7 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 
 type env struct {
 	t       *testing.T
+	calls   *calls
 	store   kv.Store
 	signer  signer.Signer
 	chain   *fakeChain
@@ -339,7 +361,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(), signer: s,
 		chain: &fakeChain{txs: map[[32]byte]chaincli.TxResult{}, records: map[orderKey]*taskv1.DispatchRecordState{}},
 		tx:    &fakeSubmitter{}, account: &accountReader{balance: "1000"},
-		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100)},
+		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100), RecordDeadlineBlocks: 10},
 	}
 	e.open()
 	return e
@@ -348,7 +370,8 @@ func newEnv(t *testing.T) *env {
 // open builds the recorder over the env's store, as after a start.
 func (e *env) open() {
 	e.t.Helper()
-	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{}, &fakeOrders{}, &fakeTasks{}, &fakeStreams{}
+	e.calls = &calls{}
+	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{calls: e.calls}, &fakeOrders{calls: e.calls}, &fakeTasks{calls: e.calls}, &fakeStreams{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
@@ -468,3 +491,5 @@ func (a *accountReader) set(balance string, err error) {
 var errUnreadable = errors.New("node unreachable")
 
 func sha(raw []byte) [32]byte { return sha256.Sum256(raw) }
+
+func errorsIs(err, target error) bool { return errors.Is(err, target) }
