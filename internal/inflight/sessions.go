@@ -16,6 +16,17 @@ import (
 // refreshTimeout bounds a background refresh of one session's state.
 const refreshTimeout = 10 * time.Second
 
+// DefaultStateTTLBlocks is how many blocks a session state is served before it is read again
+// without any event asking for it.
+const DefaultStateTTLBlocks = uint64(20)
+
+// fundsReleasingTaskEvents are the task-level events after which the session's frozen_total may
+// be lower: settlement, timeouts and deadline sweeps that refund. None of them has a session-level
+// counterpart.
+var fundsReleasingTaskEvents = map[string]bool{
+	"TASK_SETTLED": true, "DEADLINE_SWEPT": true, "WORKER_TIMEOUT": true, "VERIFY_OPEN_TIMEOUT": true,
+}
+
 // Session is a session's chain state as the precheck reads it. Found is false when the chain has
 // no such session. Pointer and slice fields are shared between copies and never modified.
 type Session struct {
@@ -38,6 +49,10 @@ type SessionCacheConfig struct {
 	Ledger *Ledger
 	// Background runs a state refresh; nil runs it on a new goroutine.
 	Background func(func())
+	// StateTTLBlocks: a state read this many blocks ago is read again in the background on the
+	// next lookup; 0 is DefaultStateTTLBlocks. It bounds how long a change no event reports (funds
+	// a settlement released) stays unseen.
+	StateTTLBlocks uint64
 }
 
 // SessionCache keeps the chain state of the sessions this Builder receives orders for, and the
@@ -49,8 +64,11 @@ type SessionCacheConfig struct {
 // registered key clear) and dropped where it does not (a registered key set or update, a resync);
 // the next lookup reads the chain once. A record of an order the ledger holds keeps the state:
 // the ledger counts the order until the state includes it, so the old state and the ledger agree
-// with the new state; a refresh is started in the background. Events at or below the height a
-// state was read at are already in it and are skipped.
+// with the new state; a refresh is started in the background. Settlement and refunds lower
+// frozen_total with task-level events only: those of the session's tasks start a refresh too, a
+// state older than StateTTLBlocks is refreshed regardless, and the precheck reads the state again
+// before refusing an order for its funds (reload). Events at or below the height a state was read
+// at are already in it and are skipped.
 type SessionCache struct {
 	cfg  SessionCacheConfig
 	head atomic.Uint64
@@ -69,6 +87,8 @@ type cachedSession struct {
 	gen        uint64
 	refreshDue bool
 	refreshing bool
+	// reloadHeight is the head at the last reload; one reload per block at most.
+	reloadHeight uint64
 }
 
 // NewSessionCache builds a SessionCache.
@@ -78,6 +98,9 @@ func NewSessionCache(cfg SessionCacheConfig) (*SessionCache, error) {
 	}
 	if cfg.Background == nil {
 		cfg.Background = func(f func()) { go f() }
+	}
+	if cfg.StateTTLBlocks == 0 {
+		cfg.StateTTLBlocks = DefaultStateTTLBlocks
 	}
 	return &SessionCache{cfg: cfg, sessions: make(map[string]*cachedSession)}, nil
 }
@@ -136,6 +159,9 @@ func (c *SessionCache) lookup(ctx context.Context, sessionID string) (Session, u
 	e := c.sessions[sessionID]
 	if e != nil && e.up && e.have {
 		state, gen := e.state, e.gen
+		if head >= e.readHeight+c.cfg.StateTTLBlocks {
+			e.refreshDue = true
+		}
 		refresh := c.takeRefreshLocked(sessionID, e)
 		c.mu.Unlock()
 		if refresh != nil {
@@ -265,6 +291,48 @@ func (c *SessionCache) refresh(sessionID string, gen, head uint64) {
 	}
 }
 
+// reload reads a kept session state again now, before the precheck refuses an order for its
+// funds, and reports whether it did. A session is reloaded at most once per block.
+func (c *SessionCache) reload(ctx context.Context, sessionID string) bool {
+	head := c.Head()
+	c.mu.Lock()
+	e := c.sessions[sessionID]
+	if e == nil || !e.up || !e.have || e.reloadHeight >= head {
+		c.mu.Unlock()
+		return false
+	}
+	e.reloadHeight = head
+	gen := e.gen
+	c.mu.Unlock()
+	state, err := c.read(ctx, sessionID)
+	if err != nil || !state.Found {
+		return false
+	}
+	c.mu.Lock()
+	e = c.sessions[sessionID]
+	stored := e != nil && e.up && e.gen == gen
+	if stored {
+		e.state, e.have, e.readHeight, e.refreshDue = state, true, head, false
+		e.gen = c.bumpLocked()
+		gen = e.gen
+	}
+	c.mu.Unlock()
+	if stored {
+		c.prune(sessionID, state.NextExpectedSequence, head, gen)
+	}
+	// Not stored: an event changed the session meanwhile, which a new attempt sees as well.
+	return true
+}
+
+// taskEnded asks for a refresh of the session after a task-level event that may release funds.
+func (c *SessionCache) taskEnded(sessionID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e := c.sessions[sessionID]; e != nil && e.have {
+		e.refreshDue = true
+	}
+}
+
 // invalidate drops the session's state; the next lookup reads the chain.
 func (c *SessionCache) invalidate(sessionID string) {
 	c.mu.Lock()
@@ -336,6 +404,9 @@ func (c *SessionCache) HandleChainEvent(ev chaincli.ChainEvent) error {
 	if ev.Type == chaincli.EventResyncRequired && ev.SessionID != "" {
 		c.invalidate(ev.SessionID)
 		return nil
+	}
+	if ev.TaskID != "" && ev.SessionID != "" && fundsReleasingTaskEvents[ev.EventCode] {
+		c.taskEnded(ev.SessionID)
 	}
 	switch t := ev.Typed.(type) {
 	case chaincli.SessionDeposited:

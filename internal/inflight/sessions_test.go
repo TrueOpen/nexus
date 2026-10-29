@@ -308,3 +308,56 @@ func TestSessionCachePruneSkipsAChangedSession(t *testing.T) {
 		t.Fatal("not pruned against the current state")
 	}
 }
+
+func taskEvent(height int64, code string) chaincli.ChainEvent {
+	return chaincli.ChainEvent{
+		Type: chaincli.EventTaskStateChanged, EventCode: code, SessionID: testSession,
+		TaskID: "2222222222222222222222222222222222222222222222222222222222222222", Height: height, TaskNotification: true,
+	}
+}
+
+// Settlement, refund and expiry release frozen funds with task-level events only: the session
+// state is read again after any of them.
+func TestSessionCacheRefreshesAfterATaskEnds(t *testing.T) {
+	for _, code := range []string{"TASK_SETTLED", "DEADLINE_SWEPT", "WORKER_TIMEOUT", "VERIFY_OPEN_TIMEOUT"} {
+		t.Run(code, func(t *testing.T) {
+			chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+			cache, _ := newTestCache(t, chain)
+			warm(t, cache)
+			chain.set(func(s *chaincli.SessionState) { s.FrozenTotal = "0" })
+			if err := cache.HandleChainEvent(taskEvent(101, code)); err != nil {
+				t.Fatal(err)
+			}
+			_, _, _ = cache.Lookup(context.Background(), testSession) // starts the refresh
+			if s, _, _ := cache.Lookup(context.Background(), testSession); s.FrozenTotal != "0" || chain.readCount() != 3 {
+				t.Fatalf("after %s: frozen %s, %d reads", code, s.FrozenTotal, chain.readCount())
+			}
+		})
+	}
+	// Other task events do not cost a read.
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+	cache, _ := newTestCache(t, chain)
+	warm(t, cache)
+	_ = cache.HandleChainEvent(taskEvent(101, "COMMIT_ACCEPTED"))
+	_, _, _ = cache.Lookup(context.Background(), testSession)
+	if chain.readCount() != 2 {
+		t.Fatalf("reads after a non-terminal task event = %d, want 2", chain.readCount())
+	}
+}
+
+// Without any event, a state older than StateTTLBlocks is read again.
+func TestSessionCacheRefreshesAfterTheTTL(t *testing.T) {
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+	cache, _ := newTestCache(t, chain)
+	warm(t, cache) // read at 100
+	_ = cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100 + int64(DefaultStateTTLBlocks) - 1})
+	_, _, _ = cache.Lookup(context.Background(), testSession)
+	if chain.readCount() != 2 {
+		t.Fatalf("reads before the TTL = %d, want 2", chain.readCount())
+	}
+	_ = cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100 + int64(DefaultStateTTLBlocks)})
+	_, _, _ = cache.Lookup(context.Background(), testSession)
+	if chain.readCount() != 3 {
+		t.Fatalf("reads at the TTL = %d, want 3", chain.readCount())
+	}
+}

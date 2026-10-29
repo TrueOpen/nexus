@@ -148,6 +148,9 @@ type PrecheckConfig struct {
 //  8. funds: no CLOSE withdrawal registered (ErrSessionClosing), and balance - frozen_total -
 //     pending withdrawal - in-flight max_fee >= max_fee (ErrSessionBalanceInsufficient).
 //
+// A balance or spend cap refusal is returned only after the session state was read again (once
+// per block): the chain releases frozen funds at settlement without a session-level event.
+//
 // A non-empty dispatch roster is checked by the dispatcher.
 type Prechecker struct {
 	cfg PrecheckConfig
@@ -214,6 +217,13 @@ func (p *Prechecker) run(ctx context.Context, o Order, reserve bool) (Result, er
 	// the future; the head is read again once before saying so. Stale and expired verdicts only
 	// get stricter with a newer head.
 	if errors.Is(err, ErrOrderFuture) && p.cfg.Sessions.readHead(ctx) {
+		res, err = p.attempt(ctx, o, reserve)
+	}
+	// Settlement and refunds release frozen funds without a session-level event, so the cached
+	// state can hold funds the chain already released; it is read again once before the order is
+	// refused for them.
+	if (errors.Is(err, ErrSessionBalanceInsufficient) || errors.Is(err, registeredkey.ErrSpendCapExceeded)) &&
+		p.cfg.Sessions.reload(ctx, o.SessionID) {
 		res, err = p.attempt(ctx, o, reserve)
 	}
 	return res, err

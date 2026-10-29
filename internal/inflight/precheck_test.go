@@ -620,6 +620,55 @@ func TestPrecheckAcrossARecord(t *testing.T) {
 	check("after the refresh")
 }
 
+// A session prefunded for exactly two orders: once the first settles, its frozen max_fee is
+// released without any session-level event, and a third order fits again.
+func TestPrecheckSeesFundsReleasedBySettlement(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) { s.FrozenTotal = "0"; s.Balance = "900" })
+	for seq := uint64(5); seq <= 6; seq++ {
+		o := order(seq)
+		o.MaxFee = 450
+		f.reserve(t, o)
+		_ = f.cache.HandleChainEvent(sessionEvent(101, chaincli.DispatchRecorded{SessionID: testSession, OrderSequence: seq, ReservedAmount: "450"}))
+	}
+	f.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 7; s.FrozenTotal = "900" })
+	o := order(7)
+	o.MaxFee = 450
+	o.EarliestSubmitHeight = 101
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrSessionBalanceInsufficient) {
+		t.Fatalf("third order with both in flight = %v", err)
+	}
+	// Task 5 settles at 102 and is refunded in full: frozen drops by its max_fee.
+	f.chain.set(func(s *chaincli.SessionState) { s.FrozenTotal = "450" })
+	_ = f.cache.HandleChainEvent(taskEvent(102, "TASK_SETTLED"))
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("third order after the first settled = %v", err)
+	}
+}
+
+// A balance or spend cap rejection reads the session once more first: funds can be released, and
+// a cap raised, by changes no event reported yet.
+func TestPrecheckRereadsTheSessionBeforeRejectingFunds(t *testing.T) {
+	f := newFixture(t, nil) // balance 1000, frozen 100
+	_ = f.cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 101})
+	f.chain.set(func(s *chaincli.SessionState) { s.FrozenTotal = "0"; s.SpendCap = "2000" })
+	o := keyOrder(5)
+	o.MaxFee = 1000
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("order fitting the chain's balance and cap = %v", err)
+	}
+	reads := f.chain.readCount()
+	// A rejection that stays one reads the chain at most once per block.
+	o.MaxFee = 5000
+	for i := 0; i < 3; i++ {
+		if _, err := f.p.Check(context.Background(), o); err == nil {
+			t.Fatal("order above the balance admitted")
+		}
+	}
+	if f.chain.readCount() > reads+1 {
+		t.Fatalf("rejections in one block read the chain %d times", f.chain.readCount()-reads)
+	}
+}
+
 // BenchmarkOpenTaskPrecheck measures Check on a warm session with two orders in flight.
 func BenchmarkOpenTaskPrecheck(b *testing.B) {
 	f := newFixture(b, nil)
