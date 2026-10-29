@@ -242,3 +242,53 @@ func TestOnDrainingRunsWhileDraining(t *testing.T) {
 		t.Fatalf("ran %d times after a restart", calls)
 	}
 }
+
+// A drain begun after the rotation was registered still ends: the registered replacement is the
+// rotation it waits for, through the restart with the new key.
+func TestDrainBegunAfterTheRotationRegistered(t *testing.T) {
+	e := newEnv(t)
+	e.key.state.PendingRotation = &chaincli.PendingServiceKeyRotation{NextServicePubKey: newKey, NextAuthorizationNonce: 5, EffectiveHeight: 900}
+	e.begin()
+	e.check(PhaseRotationPending)
+	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
+	e.check(PhaseRestartRequired)
+	e.local = newKey
+	e.open()
+	e.check(PhaseServing)
+}
+
+// A drain begun while the chain could not be read, whose first read already shows another key
+// than the one this process signs with, asks for the restart instead of waiting forever.
+func TestDrainBegunUnreadThenRotatedAsksForTheRestart(t *testing.T) {
+	e := newEnv(t)
+	e.key.err = errors.New("chain down")
+	e.begin()
+	e.key.err = nil
+	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
+	e.check(PhaseRestartRequired)
+	e.local = newKey
+	e.open()
+	e.check(PhaseServing)
+}
+
+// A stored drain state that cannot be read (malformed, or of an unknown version) does not stop the
+// start: the Builder serves and the operator can begin a drain again.
+func TestUnreadableDrainStateServes(t *testing.T) {
+	for name, raw := range map[string]string{
+		"malformed":       `{"draining":`,
+		"unknown version": `{"version":99,"draining":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			if err := e.store.Set(kv.NSOps, stateKey, []byte(raw)); err != nil {
+				t.Fatal(err)
+			}
+			e.open()
+			if e.c.Draining() {
+				t.Fatal("draining from an unreadable state")
+			}
+			e.begin()
+			e.check(PhaseDrained)
+		})
+	}
+}

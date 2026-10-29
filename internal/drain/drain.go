@@ -31,8 +31,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
-// stateKey is the key of the drain state in kv.NSOps.
-const stateKey = "drain"
+// stateKey is the key of the drain state in kv.NSOps; stateVersion the layout of its value.
+const (
+	stateKey     = "drain"
+	stateVersion = 1
+)
 
 // Phase is where the Builder stands in a rotation.
 type Phase string
@@ -130,13 +133,22 @@ type Config struct {
 
 // state is the stored drain.
 type state struct {
+	Version     int   `json:"version"`
 	Draining    bool  `json:"draining"`
 	SinceUnixMs int64 `json:"since_unix_ms,omitempty"`
-	// KeyNonce and KeyPubKey are the binding current when the drain began; a current binding with
-	// another nonce is the rotation. A zero nonce is taken at the first read showing this
-	// process's key current.
-	KeyNonce  uint64 `json:"key_nonce,omitempty"`
-	KeyPubKey string `json:"key_pubkey,omitempty"`
+	// KeyPubKey is the key this process signed with when the drain began, KeyNonce the chain's
+	// binding nonce of it then (0 when it could not be read) and TargetNonce the nonce of a
+	// replacement already registered then (0 without one). A current key other than KeyPubKey,
+	// or a nonce other than KeyNonce or reaching TargetNonce, is the rotation.
+	KeyPubKey   string `json:"key_pubkey"`
+	KeyNonce    uint64 `json:"key_nonce,omitempty"`
+	TargetNonce uint64 `json:"target_nonce,omitempty"`
+}
+
+// rotated reports whether the chain's current binding k is the rotation the drain waits for.
+func (st state) rotated(k chaincli.ServiceKeyState) bool {
+	return k.ServicePubKey != st.KeyPubKey || st.KeyNonce != 0 && k.AuthorizationNonce != st.KeyNonce ||
+		st.TargetNonce != 0 && k.AuthorizationNonce >= st.TargetNonce
 }
 
 // Controller holds the drain state.
@@ -149,7 +161,9 @@ type Controller struct {
 	st state
 }
 
-// New loads the stored drain state.
+// New loads the stored drain state. A state that cannot be read (malformed or of an unknown
+// version) is logged and taken as no drain: it must not stop the start, and the operator can
+// begin a drain again.
 func New(cfg Config) (*Controller, error) {
 	if cfg.Store == nil || cfg.Key == nil || cfg.Sources.InFlight == nil || cfg.Sources.Records == nil ||
 		cfg.Sources.Takeovers == nil || cfg.Sources.Sync == nil {
@@ -167,8 +181,14 @@ func New(cfg Config) (*Controller, error) {
 		return nil, fmt.Errorf("read drain state: %w", err)
 	}
 	if found {
-		if err := json.Unmarshal(raw, &c.st); err != nil {
-			return nil, fmt.Errorf("drain state is malformed: %w", err)
+		var st state
+		switch err := json.Unmarshal(raw, &st); {
+		case err != nil:
+			c.log.Error("stored drain state is malformed; serving without a drain", "err", err)
+		case st.Version != stateVersion:
+			c.log.Error("stored drain state has an unknown version; serving without a drain", "version", st.Version)
+		default:
+			c.st = st
 		}
 	}
 	c.draining.Store(c.st.Draining)
@@ -186,9 +206,14 @@ func (c *Controller) Begin(ctx context.Context) error {
 	if draining {
 		return nil
 	}
-	next := state{Draining: true, SinceUnixMs: c.cfg.Now().UnixMilli()}
-	if key, err := c.cfg.Key(ctx); err == nil && key.PendingRotation == nil {
-		next.KeyNonce, next.KeyPubKey = key.AuthorizationNonce, key.ServicePubKey
+	next := state{Version: stateVersion, Draining: true, SinceUnixMs: c.cfg.Now().UnixMilli(), KeyPubKey: c.cfg.LocalPubKey}
+	if key, err := c.cfg.Key(ctx); err == nil {
+		if key.ServicePubKey == c.cfg.LocalPubKey {
+			next.KeyNonce = key.AuthorizationNonce
+		}
+		if p := key.PendingRotation; p != nil {
+			next.TargetNonce = p.NextAuthorizationNonce
+		}
 	}
 	c.mu.Lock()
 	if c.st.Draining {
@@ -218,7 +243,7 @@ func (c *Controller) End() error {
 	if !c.st.Draining {
 		return nil
 	}
-	if err := c.storeLocked(state{}); err != nil {
+	if err := c.storeLocked(state{Version: stateVersion}); err != nil {
 		return err
 	}
 	c.log.Info("drain ended: new work is taken again")
@@ -271,20 +296,13 @@ func (c *Controller) Check(ctx context.Context) Status {
 			s.Warning = "the key rotation was registered before the drain completed: the remaining items will fail under the new key"
 		}
 		return s
-	case c.st.KeyNonce == 0:
-		if local {
-			if err := c.storeLocked(state{Draining: true, SinceUnixMs: c.st.SinceUnixMs, KeyNonce: chainKey.AuthorizationNonce, KeyPubKey: chainKey.ServicePubKey}); err != nil {
-				c.log.Warn("key binding of the drain not stored", "err", err)
-			}
-		}
-		return c.workPhase(s)
-	case chainKey.AuthorizationNonce == c.st.KeyNonce:
+	case !c.st.rotated(chainKey):
 		return c.workPhase(s)
 	case !local:
 		s.Phase = PhaseRestartRequired
 		return s
 	}
-	if err := c.storeLocked(state{}); err != nil {
+	if err := c.storeLocked(state{Version: stateVersion}); err != nil {
 		c.log.Warn("drain end not stored", "err", err)
 		return c.workPhase(s)
 	}
