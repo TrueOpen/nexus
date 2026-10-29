@@ -18,7 +18,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -226,10 +225,10 @@ func newConfirmCoordinator(t *testing.T, self string) (*Coordinator, *confirmSub
 	sink := &logSink{}
 	log := slog.New(slog.NewJSONHandler(sink, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	chain := newTxChainFake()
-	c := New(log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		self, testChainID, WithTxQuerier(chain), WithTxConfirmPolicy(TxConfirmPolicy{BlockInterval: 2 * time.Millisecond, WaitBlocks: 10}))
 	c.verifyState = chain
-	enableTestBusEnvelopes(c)
+	enableTestBuilderMessages(c)
 	sub := newConfirmSubmitter()
 	c.submit = sub
 	return c, sub, chain, sink
@@ -351,125 +350,6 @@ func TestVerifyRelayRecordsOnlyWhatTheBlockExecuted(t *testing.T) {
 	}
 }
 
-// The bus handler does not wait for the block: it broadcasts, acknowledges at once and leaves the
-// block result to reconciliation. The result is recorded -- and counted towards settlement -- only
-// once reconciliation confirms it; it survives a restart in the snapshot meanwhile.
-func TestBusResultIsAcknowledgedAtOnceAndRecordedAfterConfirmation(t *testing.T) {
-	c, sub, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
-	const session = "sess-bus-result"
-	task := testTaskID("bus-result")
-	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
-	verifyingTask(t, c, session, task, verifiers)
-	fsm, _ := c.getFSM(session, task)
-	chain.mu.Lock()
-	chain.gate = make(chan struct{}) // any block result read in the handler would hang it
-	chain.mu.Unlock()
-
-	vals := [][]byte{[]byte("v0"), []byte("v1")}
-	done := make(chan error, 1)
-	go func() { done <- fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals)) }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("bus handler: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the bus handler waited for the block result")
-	}
-	if chain.queryCount("result-1") != 0 || verifyResultRecorded(c, session, task, verifiers[0]) {
-		t.Fatal("the handler read the block result or recorded an unconfirmed result")
-	}
-	// Redelivery of the same result while it is pending: acknowledged, not broadcast again.
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals)); err != nil || sub.broadcasts("result") != 1 {
-		t.Fatalf("redelivery while pending: err = %v, broadcasts = %d", err, sub.broadcasts("result"))
-	}
-	raw, ok := c.kv.Get(kv.NSTask, taskKey(session, task))
-	var snapshot taskSnapshot
-	if !ok || json.Unmarshal(raw, &snapshot) != nil || len(snapshot.PendingVerifyResults) != 1 ||
-		string(snapshot.PendingVerifyResults[0].TxHash) != "result-1" {
-		t.Fatalf("pending result not persisted: %+v", snapshot.PendingVerifyResults)
-	}
-	close(chain.gate)
-	chain.mu.Lock()
-	chain.gate = nil
-	chain.mu.Unlock()
-
-	c.confirmSubmittedTxs(fsm) // result-1 not in a block yet
-	if verifyResultRecorded(c, session, task, verifiers[0]) {
-		t.Fatal("recorded before the block executed it")
-	}
-	chain.setResult("result-1", chaincli.TxResult{Height: 70})
-	c.confirmSubmittedTxs(fsm)
-	if !verifyResultRecorded(c, session, task, verifiers[0]) {
-		t.Fatal("not recorded once the block executed it")
-	}
-
-	// A result the block refuses for good is dropped with an ERROR and never recorded.
-	chain.setResult("result-2", chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals)); err != nil {
-		t.Fatalf("bus handler: %v", err)
-	}
-	c.confirmSubmittedTxs(fsm)
-	for height := int64(300); height < 320; height++ {
-		c.onNewBlock(height)
-	}
-	if verifyResultRecorded(c, session, task, verifiers[1]) || sub.broadcasts("result") != 2 {
-		t.Fatalf("refused result: recorded = %v, broadcasts = %d", verifyResultRecorded(c, session, task, verifiers[1]),
-			sub.broadcasts("result"))
-	}
-
-	// A temporary refusal is rebroadcast once its backoff has passed, then confirmed.
-	fsm.mu.Lock()
-	fsm.deadlines.Reveal = 1000
-	fsm.mu.Unlock()
-	chain.setResult("result-3", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[2], vals)); err != nil {
-		t.Fatalf("bus handler: %v", err)
-	}
-	c.confirmSubmittedTxs(fsm) // refused temporarily: rebroadcast from 320
-	c.onNewBlock(320)
-	if sub.broadcasts("result") != 4 {
-		t.Fatalf("broadcasts = %d, want the temporary refusal rebroadcast", sub.broadcasts("result"))
-	}
-	chain.setResult("result-4", chaincli.TxResult{Height: 321})
-	c.confirmSubmittedTxs(fsm)
-	if !verifyResultRecorded(c, session, task, verifiers[2]) {
-		t.Fatal("rebroadcast result not recorded after confirmation")
-	}
-}
-
-// When the bus path must redeliver -- a broadcast that did not reach the mempool for a reason
-// that may clear -- it asks for a delayed redelivery that doubles per Verifier, never an
-// immediate one. A final refusal is acknowledged instead.
-func TestBusResultTemporaryBroadcastFailureDelaysRedelivery(t *testing.T) {
-	c, sub, _, _ := newConfirmCoordinator(t, testBuilderSelf)
-	const session = "sess-bus-delay"
-	task := testTaskID("bus-delay")
-	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
-	verifyingTask(t, c, session, task, verifiers)
-	fsm, _ := c.getFSM(session, task)
-	vals := [][]byte{[]byte("v0"), []byte("v1")}
-	interval := fsm.blockInterval()
-
-	sub.refuse("result", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
-	for i, want := range []time.Duration{interval, 2 * interval, 4 * interval} {
-		err := fsm.onVerifyResult(testVerifyResult(task, verifiers[0], vals))
-		if delay, ok := msgbus.RetryDelay(err); err == nil || !ok || delay != want {
-			t.Fatalf("attempt %d: err = %v, delay = %v, want a delayed redelivery after %v", i+1, err, delay, want)
-		}
-	}
-	sub.fail("result", errors.New("connection refused"))
-	if delay, ok := msgbus.RetryDelay(fsm.onVerifyResult(testVerifyResult(task, verifiers[1], vals))); !ok || delay != interval {
-		t.Fatalf("unreachable node: delay = %v, %v", delay, ok)
-	}
-
-	// A final CheckTx refusal is kept for a chain lookup and acknowledged, not redelivered.
-	sub.refuse("result", chaincli.TxResult{Code: 13, Codespace: "sdk", RawLog: "insufficient fee"})
-	if err := fsm.onVerifyResult(testVerifyResult(task, verifiers[2], vals)); err != nil {
-		t.Fatalf("final refusal must be acknowledged, got %v", err)
-	}
-}
-
 // While a relay waits for its block result the task lock is free: other operations run, other
 // Verifiers relay, an identical resubmission shares the outcome without a second broadcast, and
 // different content from the same Verifier is refused at once.
@@ -588,11 +468,9 @@ func TestVerifyRelayDecidesAlreadyOnChainFromTheChainRecord(t *testing.T) {
 	}
 	chain.receipts[verifiers[0]] = chaincli.AcceptedResultReceipt{SigningDigest: digest[:]}
 	sub.refuse("result", chaincli.TxResult{Code: 1161, Codespace: "task", RawLog: "result receipt already exists"})
-	fsm, _ := c.getFSM(session, task)
-	if err := fsm.onVerifyResult(vr); err != nil {
-		t.Fatalf("bus handler: %v", err)
+	if ack, err := c.OnVerifyResult(ctx, session, task, vr); err != nil || !ack.Idempotent {
+		t.Fatalf("same receipt on chain: ack = %+v, err = %v", ack, err)
 	}
-	c.confirmSubmittedTxs(fsm) // reconciliation reads the chain's record
 	if !verifyResultRecorded(c, session, task, verifiers[0]) {
 		t.Fatal("same receipt on chain was not recorded")
 	}
@@ -629,16 +507,14 @@ func TestVerifyRelayDecidesAlreadyOnChainFromTheChainRecord(t *testing.T) {
 func receiptTask(t *testing.T, c *Coordinator, session, task string, inferDeadline uint64) *taskFSM {
 	t.Helper()
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 1})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "worker-1",
-		Height: 2, InferDeadlineHeight: inferDeadline})
+	fsm, _ := c.getFSM(session, task)
+	fsm.onWinnerRecorded("worker-1", nil, 2, inferDeadline)
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-1", []byte("h"))); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
-	fsm, _ := c.getFSM(session, task)
 	return fsm
 }
 
@@ -755,7 +631,7 @@ func settleTask(t *testing.T, c *Coordinator, session, task string, settlementDe
 	selection := settleSelection(session, task, testBuilderSelf)
 	driveToSettleReady(t, c, session, task, &selection)
 	fsm, _ := c.getFSM(session, task)
-	c.confirmSubmittedTxs(fsm) // the two results arrived on the bus: confirm them
+	c.confirmSubmittedTxs(fsm) // confirm the two relayed results
 	markSettleReady(fsm, settlementDeadline)
 	return fsm
 }
@@ -905,8 +781,8 @@ func TestPendingResultRebroadcastRefusedButOnChainIsConfirmed(t *testing.T) {
 
 	vr := signedShapeVerifyResult(task, verifiers[0], [][]byte{[]byte("v0")})
 	chain.setResult("result-1", chaincli.TxResult{Code: 20, Codespace: "sdk", RawLog: "mempool is full"})
-	if err := fsm.onVerifyResult(vr); err != nil {
-		t.Fatalf("bus handler: %v", err)
+	if _, err := c.OnVerifyResult(context.Background(), session, task, vr); err == nil || errors.Is(err, types.ErrInvalidArgument) {
+		t.Fatalf("temporarily refused relay: err = %v, want temporary", err)
 	}
 	c.confirmSubmittedTxs(fsm) // refused temporarily, not on chain: rebroadcast from 11
 
@@ -931,8 +807,8 @@ func TestPendingResultRebroadcastRefusedButOnChainIsConfirmed(t *testing.T) {
 	}
 }
 
-// A unary relay that fails temporarily leaves its result to reconciliation, like a bus result:
-// a bus redelivery acknowledged on the strength of that relay is not lost.
+// A unary relay that fails temporarily leaves its result to reconciliation: the result is recorded
+// once the chain holds it, without the Verifier resending it.
 func TestFailedUnaryResultRelayIsFollowedByReconciliation(t *testing.T) {
 	c, sub, chain, _ := newConfirmCoordinator(t, testBuilderSelf)
 	const session = "sess-unary-follow"
@@ -947,8 +823,8 @@ func TestFailedUnaryResultRelayIsFollowedByReconciliation(t *testing.T) {
 	if _, err := c.OnVerifyResult(ctx, session, task, vr); !errors.Is(err, errRelayUnconfirmed) {
 		t.Fatalf("unary relay: err = %v, want no block result yet", err)
 	}
-	if err := fsm.onVerifyResult(proto.Clone(vr).(*taskv1.ResultReceiptV3)); err != nil || sub.broadcasts("result") != 1 {
-		t.Fatalf("bus redelivery: err = %v, broadcasts = %d", err, sub.broadcasts("result"))
+	if sub.broadcasts("result") != 1 {
+		t.Fatalf("broadcasts = %d, want 1", sub.broadcasts("result"))
 	}
 	chain.setResult("result-1", chaincli.TxResult{Height: 30})
 	c.confirmSubmittedTxs(fsm)

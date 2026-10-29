@@ -7,16 +7,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/TrueOpen/nexus/internal/coordinator"
-	"github.com/TrueOpen/nexus/internal/hash32text"
-	"github.com/TrueOpen/nexus/internal/sdkauth"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/hash32text"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"google.golang.org/protobuf/proto"
 
 	"connectrpc.com/connect"
 
@@ -330,11 +331,6 @@ func TestTaskDataMetadataReturnsEvidenceBundleSummary(t *testing.T) {
 	}
 }
 
-// ConfirmOpenTask is a skeleton: it accepts no calls until its field table and the storage
-// confirmation encoding are frozen, so that no wire structure that will later be overturned gets committed.
-//
-// It must be FailedPrecondition rather than Unimplemented: an unfrozen interface is a deterministic unmet precondition,
-// whereas callers read Unimplemented as "the server is too old" and blindly retry.
 // Object addressing and request authentication fixtures for the current wire. The constants are in nexus's internal
 // spelling (64 lowercase hex); requests carry them as "0x" + hex (wireID) -- these cases do not verify real signatures,
 // but the shape check runs in the conversion layer.
@@ -384,19 +380,6 @@ func testObjectKey(kind taskdata.ObjectKind) taskdata.ObjectKey {
 		key.VerifyRound = 1
 	}
 	return key
-}
-
-func TestConfirmOpenTaskFailsPreconditionUntilContractFreeze(t *testing.T) {
-	client := newTaskDataClient(t, &fakeTaskDataAPI{})
-	_, err := client.ConfirmOpenTask(context.Background(), connect.NewRequest(&nexusv1.ConfirmOpenTaskRequest{
-		SessionId: "session-1", TaskId: "task-1",
-	}))
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("ConfirmOpenTask error = %v, want failed_precondition", err)
-	}
-	if !strings.Contains(err.Error(), "NEXUS_INGRESS_CONTRACT_NOT_FROZEN") {
-		t.Fatalf("ConfirmOpenTask error = %v, want NEXUS_INGRESS_CONTRACT_NOT_FROZEN", err)
-	}
 }
 
 func TestTaskDataFetchStreamsExactChunks(t *testing.T) {
@@ -786,11 +769,6 @@ func TestOpenTaskRejectsOtherSignerAndOuterSignature(t *testing.T) {
 	}{
 		{name: "envelope signed by someone else", edit: func(h *nexusv1.OpenTaskHeader) { reEnvelopeOpenTask(t, other, h) },
 			code: connect.CodeUnauthenticated, want: sdkauth.ErrInvalidSignature.Error()},
-		{name: "outer signature present", edit: func(h *nexusv1.OpenTaskHeader) {
-			h.Signature = bytes.Repeat([]byte{1}, 64) //nolint:staticcheck // the deprecated field must be empty
-			h.SignatureScheme = "secp256k1"           //nolint:staticcheck
-			reEnvelopeOpenTask(t, user, h)
-		}, code: connect.CodeInvalidArgument, want: "must be empty"},
 		{name: "session key under another user's grant", edit: func(h *nexusv1.OpenTaskHeader) {
 			sessionEnvelopeOpenTask(t, other, mustSigner(t, strings.Repeat("33", 32)), h)
 		}, code: connect.CodeUnauthenticated, want: sdkauth.ErrSessionGrantInvalid.Error()},
@@ -901,24 +879,26 @@ func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
 	return body[:]
 }
 
-// Stage-1 admission failures reach the OpenTask caller under their stable codes.
-func TestOpenTaskMapsStage1AdmissionErrors(t *testing.T) {
+// An order this Builder cannot dispatch reaches the OpenTask caller as Unimplemented with a stable
+// code, whether the coordinator refuses it before or after the input is stored.
+func TestOpenTaskReportsDispatchNotImplemented(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
+	refuse := func(context.Context, types.Order) error { return coordinator.ErrDispatchNotImplemented }
 	tests := []struct {
 		name    string
-		err     error
+		handler *fakeHandler
 		code    connect.Code
 		message string
 	}{
-		{name: "not selected", err: coordinator.ErrNotSelectedBuilder, code: connect.CodePermissionDenied, message: "NEXUS_INGRESS_NOT_SELECTED_BUILDER"},
-		{name: "authority unavailable", err: coordinator.ErrAdmissionUnavailable, code: connect.CodeUnavailable, message: "NEXUS_INGRESS_STAGE1_UNAVAILABLE"},
+		{name: "before upload", handler: &fakeHandler{checkOrder: refuse}, code: connect.CodeUnimplemented, message: "NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED"},
+		{name: "after upload", handler: &fakeHandler{orderErr: coordinator.ErrDispatchNotImplemented}, code: connect.CodeUnimplemented, message: "NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED"},
 	}
 	for index, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			api := &fakeTaskDataAPI{chunkSize: 64}
-			client := newTaskDataClientWithHandler(t, &fakeHandler{orderErr: tt.err}, api, AuthParams{Chain: testUserChain,
+			client := newTaskDataClientWithHandler(t, tt.handler, api, AuthParams{Chain: testUserChain,
 				ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-admission-%d", index)), 3, []byte("input"))
+			header := openTaskHeader(t, user, testSessionID(fmt.Sprintf("session-dispatch-%d", index)), 3, []byte("input"))
 			stream := client.OpenTask(context.Background())
 			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
 			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})

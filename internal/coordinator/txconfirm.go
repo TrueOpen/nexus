@@ -13,7 +13,6 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -34,7 +33,7 @@ type TxConfirmPolicy struct {
 
 // relayLookupTimeout bounds the read of a Verifier's commit or receipt already on chain. The
 // whole wait is capped at config.MaxTxConfirmWait, which with a broadcast and this lookup stays
-// under the 30 s JetStream AckWait and the 60 s Cortex relay call timeout.
+// under the 60 s Cortex relay call timeout.
 const relayLookupTimeout = 3 * time.Second
 
 // WithTxConfirmPolicy sets the block result wait of the Verifier relays. Zero fields keep the
@@ -543,7 +542,7 @@ func (f *taskFSM) stopAsyncTxLocked(kind asyncTx, tx *submittedTx, result chainc
 	f.log.Error("MsgSubmitInferReceipt failed on chain; stopped resubmitting", attrs...)
 }
 
-// followSubmittedTxsLocked runs on each new block: it resubmits a receipt or a bus result whose
+// followSubmittedTxsLocked runs on each new block: it resubmits a receipt or a pending result whose
 // backoff has passed, and reports whether something awaits its block result or a chain lookup
 // (the caller then asks reconciliation to read it, off the lock). Caller must hold the lock.
 func (f *taskFSM) followSubmittedTxsLocked() bool {
@@ -560,7 +559,7 @@ func (f *taskFSM) followSubmittedTxsLocked() bool {
 }
 
 // confirmSubmittedTxs reads the block results of the task's outstanding receipt, settlement and
-// bus-relayed result transactions. Runs in reconciliation after the chain snapshot was applied,
+// pending result transactions. Runs in reconciliation after the chain snapshot was applied,
 // so a receipt the chain accepted or a task it settled is already visible and nothing is
 // resubmitted for it.
 func (c *Coordinator) confirmSubmittedTxs(fsm *taskFSM) {
@@ -581,13 +580,11 @@ func (c *Coordinator) confirmSubmittedTxs(fsm *taskFSM) {
 	c.confirmPendingResults(fsm)
 }
 
-// ---- Verifier results taken off the bus ----
+// ---- Verifier results followed by reconciliation ----
 
-// pendingResult is a Verifier result that arrived on the bus and was broadcast. The bus message
-// is acknowledged at once -- waiting for the block in the handler would hold every later result
-// of the same consumer behind it -- and reconciliation confirms it: only then is it recorded and
-// counted towards settlement. Persisted with the snapshot, since the bus will not deliver it
-// again.
+// pendingResult is a Verifier result whose unary relay failed temporarily. Reconciliation follows
+// it until the chain holds it: only then is it recorded and counted towards settlement. Persisted
+// with the snapshot, since the Verifier may not send it again.
 type pendingResult struct {
 	receipt *taskv1.ResultReceiptV3
 	tx      submittedTx
@@ -595,72 +592,6 @@ type pendingResult struct {
 	// the chain's record is read next. refused is that CheckTx refusal, if any.
 	lookup  bool
 	refused chaincli.TxResult
-}
-
-// busRetryLocked asks the bus to redeliver a result after a temporary failure, after a doubling
-// number of block intervals per Verifier. Caller must hold the lock.
-func (f *taskFSM) busRetryLocked(verifier string, err error) error {
-	if f.busRetries == nil {
-		f.busRetries = make(map[string]int)
-	}
-	f.busRetries[verifier]++
-	delay := f.blockInterval() * time.Duration(backoffBlocks(f.busRetries[verifier]))
-	f.log.Warn("verify result relay failed; the bus redelivers it later", "task_id", f.taskID,
-		"verifier", verifier, "delay", delay, "err", err)
-	return msgbus.RetryAfter(err, delay)
-}
-
-func (f *taskFSM) blockInterval() time.Duration {
-	if f.confirm != nil {
-		return f.confirm.interval
-	}
-	return config.DefaultTxConfirmBlockInterval
-}
-
-// relayBusResultLocked broadcasts a result that arrived on the bus and registers it for
-// reconciliation to confirm, returning at once. The returned error asks the bus for a delayed
-// redelivery (a temporary failure before the transaction reached the mempool); nil acknowledges
-// the message. Caller must hold the lock.
-func (f *taskFSM) relayBusResultLocked(vr *taskv1.ResultReceiptV3) error {
-	verifier := vr.GetVerifierOperatorAddress()
-	if existing, ok := f.verifyResults[verifier]; ok && proto.Equal(existing, vr) {
-		return nil
-	}
-	var inFlight proto.Message
-	if flight := f.resultFlights[verifier]; flight != nil {
-		inFlight = flight.msg // a unary relay is waiting for it and records it
-	} else if pending := f.pendingResults[verifier]; pending != nil {
-		inFlight = pending.receipt
-	}
-	if inFlight != nil {
-		if !proto.Equal(inFlight, vr) {
-			f.log.Warn("drop verify result: a different one from this verifier is being relayed",
-				"task_id", f.taskID, "verifier", verifier)
-		}
-		return nil
-	}
-	if f.submit == nil {
-		return f.busRetryLocked(verifier, fmt.Errorf("verify result relay: submitter is not configured"))
-	}
-	pending := &pendingResult{receipt: vr}
-	if keep, temporary := f.broadcastPendingResultLocked(pending); !keep {
-		if temporary != nil {
-			return f.busRetryLocked(verifier, temporary)
-		}
-		return nil
-	}
-	if f.pendingResults == nil {
-		f.pendingResults = make(map[string]*pendingResult)
-	}
-	f.pendingResults[verifier] = pending
-	if err := f.save(); err != nil {
-		delete(f.pendingResults, verifier)
-		return f.busRetryLocked(verifier, fmt.Errorf("persist pending verify result: %w", err))
-	}
-	delete(f.busRetries, verifier)
-	f.log.Info("verify result broadcast; reconciliation confirms it", "task_id", f.taskID,
-		"verifier", verifier, "tx_hash", hex.EncodeToString(pending.tx.hash), "chain_lookup", pending.lookup)
-	return nil
 }
 
 // broadcastPendingResultLocked broadcasts a pending result. keep is false when it is not in the
@@ -694,8 +625,7 @@ func (f *taskFSM) broadcastPendingResultLocked(pending *pendingResult) (keep boo
 }
 
 // followFailedRelayLocked hands a result whose unary relay failed temporarily to reconciliation,
-// which follows it like a result taken off the bus: a bus redelivery of it may already have been
-// acknowledged on the strength of that relay. The caller still gets its temporary error. Caller
+// which follows it until the chain holds it. The caller still gets its temporary error. Caller
 // must hold the lock.
 func (f *taskFSM) followFailedRelayLocked(vr *taskv1.ResultReceiptV3, res chaincli.TxResult, submitErr, relayErr error) {
 	verifier := vr.GetVerifierOperatorAddress()
@@ -804,7 +734,7 @@ func (f *taskFSM) pendingResultChecks() []pendingResultCheck {
 	return checks
 }
 
-// confirmPendingResults reads, for each pending bus result, its block result and -- unless the
+// confirmPendingResults reads, for each pending result, its block result and -- unless the
 // block executed it -- the chain's record for the Verifier.
 func (c *Coordinator) confirmPendingResults(fsm *taskFSM) {
 	for _, check := range fsm.pendingResultChecks() {

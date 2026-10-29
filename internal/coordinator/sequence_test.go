@@ -69,16 +69,9 @@ func newSeqSubmitter(t *testing.T, chain chaincli.Client) (Submitter, string) {
 	return NewSignedSubmitter(log, chain, chain, sg, sg, config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000}), sg.Address()
 }
 
-// sequenceAssign builds a MsgSubmitWorkerHandraises proposal whose only
-// chain-visible data is the scope oneof, the signed handraises and the
-// submitter.
-func sequenceAssign(address, taskID string) chaincli.AssignTx {
-	return chaincli.AssignTx{
-		SessionID: "sess-1", TaskID: taskID,
-		SignedOrder:      testSignedOrder(address),
-		WorkerHandraises: testWorkerHandraises(address),
-		Submitter:        address,
-	}
+// sequenceSettle builds a MsgSettleTask, the smallest Task transaction: task_id and submitter.
+func sequenceSettle(address, name string) chaincli.SettleTx {
+	return chaincli.SettleTx{TaskID: testTaskID(name), Submitter: address}
 }
 
 // TestSequenceCachedAcrossSubmits consecutive submits query the account only once; the sequence increments locally.
@@ -88,7 +81,7 @@ func TestSequenceCachedAcrossSubmits(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
-		if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t")); err != nil {
+		if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t")); err != nil {
 			t.Fatalf("submit %d: %v", i, err)
 		}
 	}
@@ -107,14 +100,14 @@ func TestSequenceMismatchRefreshesAndRetries(t *testing.T) {
 	ctx := context.Background()
 
 	// First tx is normal (seq 42 consumed, local cache 43).
-	if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t1")); err != nil {
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t1")); err != nil {
 		t.Fatalf("submit 1: %v", err)
 	}
 	// On-chain sequence taken to 50 by an external tool; next tx uses local 43 -> conflict -> refresh -> replay with 50 succeeds.
 	chain.accSeq = 50
 	chain.push(chaincli.TxResult{Code: 32, RawLog: "account sequence mismatch, expected 50, got 43"}, nil)
 
-	res, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t2"))
+	res, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t2"))
 	if err != nil || res.Code != 0 {
 		t.Fatalf("submit 2: res=%+v err=%v", res, err)
 	}
@@ -127,7 +120,7 @@ func TestSequenceMismatchRefreshesAndRetries(t *testing.T) {
 	}
 
 	// After the successful replay the cache continues at 51, no further account query.
-	if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t3")); err != nil {
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t3")); err != nil {
 		t.Fatalf("submit 3: %v", err)
 	}
 	if chain.accQueries != 2 || chain.broadcasts[len(chain.broadcasts)-1] != 51 {
@@ -142,13 +135,13 @@ func TestSequenceNetworkErrorInvalidatesCache(t *testing.T) {
 	ctx := context.Background()
 
 	chain.push(chaincli.TxResult{}, errors.New("connection refused"))
-	if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t1")); err == nil {
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t1")); err == nil {
 		t.Fatal("want broadcast error")
 	}
 
 	// Assume that tx actually made it into a block (on-chain sequence is now 43).
 	chain.accSeq = 43
-	if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t2")); err != nil {
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t2")); err != nil {
 		t.Fatalf("submit after error: %v", err)
 	}
 	if chain.accQueries != 2 {
@@ -168,12 +161,12 @@ func TestSequenceOtherRejectionKeepsCache(t *testing.T) {
 	ctx := context.Background()
 
 	chain.push(chaincli.TxResult{Code: 5, RawLog: "stage already submitted"}, nil)
-	res, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t1"))
+	res, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t1"))
 	if err == nil || res.Code != 5 {
 		t.Fatalf("res=%+v err=%v, want code 5 surfaced as error", res, err)
 	}
 	// Next tx still uses 42 (not consumed) and does not re-query the account.
-	if _, err := sub.SubmitAssign(ctx, sequenceAssign(address, "t2")); err != nil {
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(address, "t2")); err != nil {
 		t.Fatalf("submit 2: %v", err)
 	}
 	if chain.accQueries != 1 {

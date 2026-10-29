@@ -16,7 +16,6 @@ type Config struct {
 	DataDir        string               `yaml:"data_dir"`
 	Log            LogConfig            `yaml:"log"`
 	Ingress        IngressConfig        `yaml:"ingress"`
-	NATS           NATSConfig           `yaml:"nats"`
 	Security       SecurityConfig       `yaml:"security"`
 	Chain          ChainConfig          `yaml:"chain"`
 	Hub            HubConfig            `yaml:"hub"`
@@ -24,7 +23,6 @@ type Config struct {
 	PayloadStorage PayloadStorageConfig `yaml:"payload_storage"`
 	OutputDelivery OutputDeliveryConfig `yaml:"output_delivery"`
 	TaskData       TaskDataConfig       `yaml:"task_data"`
-	NATSAuth       NATSAuthConfig       `yaml:"natsauth"`
 }
 
 type PayloadStorageConfig struct {
@@ -275,9 +273,6 @@ func (c IngressTLSConfig) Validate() error {
 // ValidateTransport checks that the listener mode and the public address agree: when ingress terminates
 // TLS itself, the on-chain descriptor must not point clients at plaintext http.
 func (c Config) ValidateTransport() error {
-	if err := c.NATS.ValidateStream(); err != nil {
-		return err
-	}
 	if err := c.Ingress.TLS.Validate(); err != nil {
 		return err
 	}
@@ -303,68 +298,13 @@ func (c Config) ValidateTransport() error {
 	}
 }
 
-type NATSConfig struct {
-	Servers  []string `yaml:"servers"`  // NATS servers to connect to (local/nearby + fallbacks); empty = stub mode; use tls:// in production
-	User     string   `yaml:"user"`     // NATS username (dev only; rejected in production mode)
-	Password string   `yaml:"password"` // NATS password (dev only; rejected in production mode)
-	// Transitional TLS setup: PEM file of the server certificate (or of the CA that issued it); with
-	// tls:// the server is verified against it, and without it the system root certificates are used.
-	// CredsFile is the NATS creds (user JWT + nkey seed) that replaces username and password.
-	CAFile    string `yaml:"ca_file"`
-	CredsFile string `yaml:"creds_file"`
-	// SentinelFile is the bearer user JWT file of the AUTH account. It is **public, non-secret data**, not a
-	// credential: bearer, without any permission, used only to satisfy the operator-mode precondition
-	// that "CONNECT must carry a user JWT for the auth callout to run". ingress hands it to Cortex over
-	// GET /v1/nats/sentinel, which removes the need for manual distribution.
-	// Empty = the route is not served.
-	SentinelFile string `yaml:"sentinel_file"`
-	// AdvertiseServers are the NATS addresses handed to Cortex with the sentinel, together with the
-	// certificates of CAFile. They are not Servers: nexus itself may
-	// reach NATS on a private or loopback address. Requires SentinelFile; empty = neither is served.
-	AdvertiseServers []string `yaml:"advertise_servers"`
-	// StreamReplicas is how many servers keep a copy of the JetStream stream nexus creates
-	// (1..MaxStreamReplicas; 0 = 1). More than 1 needs a clustered NATS, and it must not exceed the
-	// number of servers in the cluster or the stream cannot be created. Nexus never lowers the
-	// replica count of a stream that already has more.
-	StreamReplicas int `yaml:"stream_replicas"`
-}
-
-// MaxStreamReplicas is the most copies NATS JetStream keeps of one stream.
-const MaxStreamReplicas = 5
-
-// Replicas returns the stream replica count to request (StreamReplicas, 1 when unset).
-func (n NATSConfig) Replicas() int {
-	if n.StreamReplicas == 0 {
-		return 1
-	}
-	return n.StreamReplicas
-}
-
-// ValidateStream checks nats.stream_replicas.
-func (n NATSConfig) ValidateStream() error {
-	if n.StreamReplicas < 0 || n.StreamReplicas > MaxStreamReplicas {
-		return fmt.Errorf("nats.stream_replicas must be between 1 and %d (0 = 1), got %d", MaxStreamReplicas, n.StreamReplicas)
-	}
-	return nil
-}
-
-// TLS reports whether any server is connected over tls://.
-func (n NATSConfig) TLS() bool {
-	for _, server := range n.Servers {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(server)), "tls://") {
-			return true
-		}
-	}
-	return false
-}
-
 // SecurityMode switches the production security checks on or off.
 type SecurityMode string
 
 const (
 	// SecurityDev performs no hardening checks; behaviour is the same as before the switch existed, for local integration.
 	SecurityDev SecurityMode = "dev"
-	// SecurityProduction rejects plaintext bus and chain connections, inline private keys and passphrases in the config, and ingress without TLS.
+	// SecurityProduction rejects plaintext chain connections, inline private keys and passphrases in the config, and ingress without TLS.
 	SecurityProduction SecurityMode = "production"
 )
 
@@ -374,9 +314,6 @@ type SecurityConfig struct {
 
 // ValidateSecurity checks the configuration according to security.mode. dev only validates the value;
 // production rejects item by item:
-//   - nats.servers must all be tls://, must not carry user/password, and must provide creds_file and ca_file
-//     (in the transitional TLS setup the server is verified against the distributed certificate file,
-//     with no fallback to the system root certificates);
 //   - chain.grpc_addr / hub.grpc_addr must be https:// or grpcs:// unless they are loopback addresses;
 //   - identity must not carry private_key_hex / private_key / keystore_password / service_keystore_password,
 //     private keys and passphrases always go through files;
@@ -390,37 +327,6 @@ func (c Config) ValidateSecurity() error {
 		return fmt.Errorf("security.mode %q is not one of dev, production", c.Security.Mode)
 	}
 	var problems []string
-	if len(c.NATS.Servers) > 0 {
-		for _, server := range c.NATS.Servers {
-			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(server)), "tls://") {
-				problems = append(problems, fmt.Sprintf("nats.servers %q must use tls:// in production", server))
-			}
-		}
-		if c.NATS.User != "" || c.NATS.Password != "" {
-			problems = append(problems, "nats.user / nats.password are not allowed in production; use nats.creds_file")
-		}
-		if strings.TrimSpace(c.NATS.CredsFile) == "" {
-			problems = append(problems, "nats.creds_file is required in production")
-		}
-		if strings.TrimSpace(c.NATS.CAFile) == "" {
-			problems = append(problems, "nats.ca_file is required in production: verify the server against the distributed certificate, not the system roots")
-		}
-	}
-	for _, server := range c.NATS.AdvertiseServers {
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(server)), "tls://") {
-			problems = append(problems, fmt.Sprintf("nats.advertise_servers %q must use tls:// in production", server))
-		}
-	}
-	if len(c.NATS.AdvertiseServers) > 0 && strings.TrimSpace(c.NATS.CAFile) == "" {
-		problems = append(problems, "nats.advertise_servers needs nats.ca_file in production: Cortex verifies NATS against the certificate served with it")
-	}
-	// sentinel is optional, but once configured the file must really exist: ingress fails closed and
-	// refuses to start, so saying so during config validation beats failing halfway through startup.
-	if path := strings.TrimSpace(c.NATS.SentinelFile); path != "" {
-		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-			problems = append(problems, fmt.Sprintf("nats.sentinel_file %q must be an existing regular file", path))
-		}
-	}
 	if err := requireTLSUnlessLoopback("chain.grpc_addr", c.Chain.GRPCAddr); err != nil {
 		problems = append(problems, err.Error())
 	}
@@ -472,117 +378,6 @@ func requireTLSUnlessLoopback(field, addr string) error {
 	return fmt.Errorf("%s %q must use https:// (or grpcs://) in production unless it is a loopback address", field, addr)
 }
 
-// NATSAuthConfig is the configuration of the `nexus natsauth` subcommand.
-// The callout service runs on the same host as NATS and is operated by whoever runs NATS; it connects to
-// NATS with the AUTH account creds, signs user JWTs with the signing key of the application account (TRUEOPEN,
-// where Cortex users share the account with nexus), and signs responses with the AUTH account signing key.
-// None of the three keys ever leaves the host.
-type NATSAuthConfig struct {
-	// NATS is the callout service's own connection to NATS (AUTH account): servers must be tls://, and creds_file and ca_file are required.
-	NATS NATSConfig `yaml:"nats"`
-	// CortexAccountPublicKey is the public key of the application account (TRUEOPEN) that Cortex users land in
-	// (nkey text starting with A), written into the aud of the user JWT.
-	// Validate only does a coarse length/prefix screen (to catch typos); real nkey validity is checked when the natsauth subcommand loads it.
-	CortexAccountPublicKey string `yaml:"cortex_account_public_key"`
-	// CortexAccountSigningKeyFile is the seed file of that application account's (TRUEOPEN) signing key (nsc generate nkey --account).
-	CortexAccountSigningKeyFile string `yaml:"cortex_account_signing_key_file"`
-	// AuthAccountSigningKeyFile is the seed file of the AUTH account signing key, used to sign response JWTs.
-	AuthAccountSigningKeyFile string `yaml:"auth_account_signing_key_file"`
-	// UserJWTTTLMS is the validity of issued user JWTs, ≤ 3,600,000.
-	UserJWTTTLMS uint64 `yaml:"user_jwt_ttl_ms"`
-	// ChainQueryCacheTTLMS is how long successful chain query results are cached, ≤ 60,000.
-	ChainQueryCacheTTLMS uint64 `yaml:"chain_query_cache_ttl_ms"`
-	// MaxClockSkewMS is the tolerance for accepting an issued_at_unix_ms later than the local clock.
-	MaxClockSkewMS uint64 `yaml:"max_clock_skew_ms"`
-	// XKeyFile is optional: the AUTH account curve key seed file, which enables response encryption; empty = no encryption.
-	XKeyFile string `yaml:"xkey_file"`
-}
-
-const (
-	MaxNATSAuthUserJWTTTLMS         uint64 = 3_600_000
-	MaxNATSAuthChainQueryCacheTTLMS uint64 = 60_000
-	// MaxNATSAuthClockSkewMS: the auth-callout protocol gives no upper bound; this is a local backstop that keeps a
-	// mistyped astronomical value from disabling the expiry check. 0 is valid (no skew tolerated at all);
-	// only values above the bound are rejected.
-	MaxNATSAuthClockSkewMS uint64 = 3_600_000
-)
-
-// Validate checks the auth-callout requirements; anything missing is rejected, nothing is defaulted through.
-func (c NATSAuthConfig) Validate() error {
-	var problems []string
-	if len(c.NATS.Servers) == 0 {
-		problems = append(problems, "natsauth.nats.servers is required")
-	}
-	for _, server := range c.NATS.Servers {
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(server)), "tls://") {
-			problems = append(problems, fmt.Sprintf("natsauth.nats.servers %q must use tls://", server))
-		}
-	}
-	if c.NATS.User != "" || c.NATS.Password != "" {
-		problems = append(problems, "natsauth.nats.user / natsauth.nats.password are not allowed; use natsauth.nats.creds_file")
-	}
-	if !isAccountPublicKey(c.CortexAccountPublicKey) {
-		problems = append(problems, "natsauth.cortex_account_public_key must be an account nkey public key (56 characters starting with A)")
-	}
-	// All file-valued fields go through one stat check: required ones are first checked for emptiness, then
-	// all of them are required to exist and be regular files; xkey_file is optional and only checked when non-empty.
-	requiredFiles := []struct {
-		name string
-		path string
-	}{
-		{"natsauth.nats.creds_file", c.NATS.CredsFile},
-		{"natsauth.nats.ca_file", c.NATS.CAFile},
-		{"natsauth.cortex_account_signing_key_file", c.CortexAccountSigningKeyFile},
-		{"natsauth.auth_account_signing_key_file", c.AuthAccountSigningKeyFile},
-	}
-	for _, f := range requiredFiles {
-		if strings.TrimSpace(f.path) == "" {
-			problems = append(problems, f.name+" is required")
-			continue
-		}
-		if problem := statRegularFile(f.name, f.path); problem != "" {
-			problems = append(problems, problem)
-		}
-	}
-	if strings.TrimSpace(c.XKeyFile) != "" {
-		if problem := statRegularFile("natsauth.xkey_file", c.XKeyFile); problem != "" {
-			problems = append(problems, problem)
-		}
-	}
-	if c.UserJWTTTLMS == 0 || c.UserJWTTTLMS > MaxNATSAuthUserJWTTTLMS {
-		problems = append(problems, fmt.Sprintf("natsauth.user_jwt_ttl_ms must be 1..%d", MaxNATSAuthUserJWTTTLMS))
-	}
-	if c.ChainQueryCacheTTLMS > MaxNATSAuthChainQueryCacheTTLMS {
-		problems = append(problems, fmt.Sprintf("natsauth.chain_query_cache_ttl_ms must be 0..%d", MaxNATSAuthChainQueryCacheTTLMS))
-	}
-	if c.MaxClockSkewMS > MaxNATSAuthClockSkewMS {
-		problems = append(problems, fmt.Sprintf("natsauth.max_clock_skew_ms must be 0..%d", MaxNATSAuthClockSkewMS))
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("natsauth config: %s", strings.Join(problems, "; "))
-	}
-	return nil
-}
-
-// statRegularFile validates that path exists and is a regular file (directories/devices are rejected); field is the error prefix.
-func statRegularFile(field, path string) string {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Sprintf("%s: %v", field, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Sprintf("%s: %s is not a regular file", field, path)
-	}
-	return ""
-}
-
-// isAccountPublicKey only does a coarse length/prefix screen (typo guard), not a full nkey validation:
-// real validity is checked when the natsauth subcommand loads the nkey.
-func isAccountPublicKey(text string) bool {
-	text = strings.TrimSpace(text)
-	return len(text) == 56 && strings.HasPrefix(text, "A")
-}
-
 type ChainConfig struct {
 	GRPCAddr string `yaml:"grpc_addr"` // local node gRPC :9090
 	ChainID  string `yaml:"chain_id"`
@@ -599,9 +394,7 @@ type ChainConfig struct {
 }
 
 // MaxTxConfirmWait caps block_interval × wait_blocks. The wait sits inside a Cortex relay call,
-// whose HTTP client gives up after 60 s, and inside a VERIFY_RESULT JetStream delivery, which
-// the server redelivers after the consumer's AckWait; nexus sets none, so the 30 s server
-// default applies. 20 s leaves room under 30 s for the broadcast and one chain lookup.
+// whose HTTP client gives up after 60 s; 20 s leaves room for the broadcast and one chain lookup.
 const MaxTxConfirmWait = 20 * time.Second
 
 // Defaults of TxConfirmConfig: 3 blocks of about 5 s.
@@ -764,7 +557,6 @@ func defaults() Config {
 		},
 		// UserJWTTTLMS / ChainQueryCacheTTLMS default to the upper bounds of the auth-callout protocol,
 		// because the protocol sets each default equal to its bound (3,600,000 and 60,000).
-		NATSAuth: NATSAuthConfig{UserJWTTTLMS: MaxNATSAuthUserJWTTTLMS, ChainQueryCacheTTLMS: MaxNATSAuthChainQueryCacheTTLMS, MaxClockSkewMS: 300_000},
 	}
 }
 
@@ -810,33 +602,9 @@ func applyEnv(cfg *Config) {
 	if value, ok := nonEmptyEnv("NEXUS_IP_WHITELIST"); ok {
 		cfg.Ingress.IPWhitelist = splitNonEmpty(value)
 	}
-	if value, ok := nonEmptyEnv("NEXUS_NATS_SERVERS"); ok {
-		cfg.NATS.Servers = splitNonEmpty(value)
-	}
-	cfg.NATS.User = env("NEXUS_NATS_USER", cfg.NATS.User)
-	cfg.NATS.Password = env("NEXUS_NATS_PASSWORD", cfg.NATS.Password)
-	cfg.NATS.CAFile = env("NEXUS_NATS_CA_FILE", cfg.NATS.CAFile)
-	cfg.NATS.CredsFile = env("NEXUS_NATS_CREDS_FILE", cfg.NATS.CredsFile)
-	cfg.NATS.SentinelFile = env("NEXUS_NATS_SENTINEL_FILE", cfg.NATS.SentinelFile)
-	if value, ok := nonEmptyEnv("NEXUS_NATS_ADVERTISE_SERVERS"); ok {
-		cfg.NATS.AdvertiseServers = splitNonEmpty(value)
-	}
-	cfg.NATS.StreamReplicas = int(envUint32("NEXUS_NATS_STREAM_REPLICAS", uint32(cfg.NATS.StreamReplicas)))
 	cfg.Ingress.MaxSessionGrantBlocks = envUint64("NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS", cfg.Ingress.MaxSessionGrantBlocks)
 	cfg.Ingress.SessionKeyCacheTTLBlocks = envUint64("NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS", cfg.Ingress.SessionKeyCacheTTLBlocks)
 	cfg.Ingress.SessionKeyLookupsPerSecond = envUint32("NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND", cfg.Ingress.SessionKeyLookupsPerSecond)
-	if value, ok := nonEmptyEnv("NEXUS_NATSAUTH_NATS_SERVERS"); ok {
-		cfg.NATSAuth.NATS.Servers = splitNonEmpty(value)
-	}
-	cfg.NATSAuth.NATS.CAFile = env("NEXUS_NATSAUTH_NATS_CA_FILE", cfg.NATSAuth.NATS.CAFile)
-	cfg.NATSAuth.NATS.CredsFile = env("NEXUS_NATSAUTH_NATS_CREDS_FILE", cfg.NATSAuth.NATS.CredsFile)
-	cfg.NATSAuth.CortexAccountPublicKey = env("NEXUS_NATSAUTH_CORTEX_ACCOUNT_PUBLIC_KEY", cfg.NATSAuth.CortexAccountPublicKey)
-	cfg.NATSAuth.CortexAccountSigningKeyFile = env("NEXUS_NATSAUTH_CORTEX_ACCOUNT_SIGNING_KEY_FILE", cfg.NATSAuth.CortexAccountSigningKeyFile)
-	cfg.NATSAuth.AuthAccountSigningKeyFile = env("NEXUS_NATSAUTH_AUTH_ACCOUNT_SIGNING_KEY_FILE", cfg.NATSAuth.AuthAccountSigningKeyFile)
-	cfg.NATSAuth.UserJWTTTLMS = envUint64("NEXUS_NATSAUTH_USER_JWT_TTL_MS", cfg.NATSAuth.UserJWTTTLMS)
-	cfg.NATSAuth.ChainQueryCacheTTLMS = envUint64("NEXUS_NATSAUTH_CHAIN_QUERY_CACHE_TTL_MS", cfg.NATSAuth.ChainQueryCacheTTLMS)
-	cfg.NATSAuth.MaxClockSkewMS = envUint64("NEXUS_NATSAUTH_MAX_CLOCK_SKEW_MS", cfg.NATSAuth.MaxClockSkewMS)
-	cfg.NATSAuth.XKeyFile = env("NEXUS_NATSAUTH_XKEY_FILE", cfg.NATSAuth.XKeyFile)
 	cfg.Security.Mode = SecurityMode(strings.ToLower(strings.TrimSpace(env("NEXUS_SECURITY_MODE", string(cfg.Security.Mode)))))
 	cfg.Chain.GRPCAddr = env("NEXUS_CHAIN_GRPC", cfg.Chain.GRPCAddr)
 	cfg.Chain.ChainID = env("NEXUS_CHAIN_ID", cfg.Chain.ChainID)

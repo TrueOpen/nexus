@@ -118,10 +118,9 @@ func (r taskDataRuntime) FinalizeVerifierEvidence(
 // first frame, input_stream_ms the whole chunk loop including the client's sending, of which
 // input_write_ms is the local writing. Server time is total_ms minus header_frame_wait_ms minus
 // (input_stream_ms - input_write_ms). Some stages nest: header_validate contains envelope and,
-// with registered session keys enabled, order_precheck; on_order contains admission and
-// order_init, which contains order_broadcast. chain_*_ms are chain reads made inside those stages
-// (chain_account_key_ms in envelope, chain_session_state_ms in envelope or order_precheck,
-// chain_service_key_ms in order_broadcast).
+// with registered session keys enabled, order_precheck. chain_*_ms are chain reads made inside
+// those stages (chain_account_key_ms in envelope, chain_session_state_ms in envelope or
+// order_precheck).
 func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nexusv1.OpenTaskRequest]) (*connect.Response[nexusv1.OpenTaskResponse], error) {
 	ctx, timing := stagetiming.With(ctx)
 	var order types.Order
@@ -256,28 +255,6 @@ func (s *service) openTask(
 	}), nil
 }
 
-// errConfirmOpenTaskContractNotFrozen is the deterministic rejection of ConfirmOpenTask.
-//
-// This method's request/response field table is not frozen yet, and neither are the proto
-// name, field numbers and encoding order of the storage confirmation itself, so the confirmation list cannot be defined
-// and the server has nothing to validate against; shipping a wire structure that will be overturned is worse than rejecting.
-//
-// But "interface not frozen" is an unmet deterministic precondition, not a transient fault: Unimplemented would make
-// callers assume the server is too old and retry repeatedly, so FailedPrecondition is used here.
-// No freeze date has been set yet; once decided, update the open items in README.md.
-var errConfirmOpenTaskContractNotFrozen = errors.New(
-	"NEXUS_INGRESS_CONTRACT_NOT_FROZEN: ConfirmOpenTask stays closed until its field table " +
-		"and the storage-confirmation proto are frozen; do not retry")
-
-// ConfirmOpenTask records the cross-Builder input storage confirmations collected by the SDK.
-// Not a precondition for Open Task progress; the V1 baseline does not require the SDK to call it.
-func (s *service) ConfirmOpenTask(
-	_ context.Context,
-	_ *connect.Request[nexusv1.ConfirmOpenTaskRequest],
-) (*connect.Response[nexusv1.ConfirmOpenTaskResponse], error) {
-	return nil, connect.NewError(connect.CodeFailedPrecondition, errConfirmOpenTaskContractNotFrozen)
-}
-
 func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.OpenTaskHeader) (types.Order, taskdata.UploadHeader, error) {
 	// OpenTask is a user request: a header that fails the format step is NEXUS_INGRESS_MALFORMED.
 	malformed := func(format string, args ...any) error {
@@ -303,9 +280,6 @@ func (s *service) validateOpenTaskHeader(ctx context.Context, header *nexusv1.Op
 	}
 	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
 	// signature, made by the user's wallet or the session's registered key, which the chain verifies.
-	if len(header.GetSignature()) != 0 || header.GetSignatureScheme() != "" { //nolint:staticcheck // deprecated fields must be empty
-		return types.Order{}, taskdata.UploadHeader{}, malformed("OpenTask signature and signature_scheme must be empty")
-	}
 	// order_envelope carries the SignedOrderV2 protobuf bytes; the legacy JSON envelope is not accepted.
 	order, err := parseSignedOrderEnvelope(header.GetOrderEnvelope())
 	if err != nil {

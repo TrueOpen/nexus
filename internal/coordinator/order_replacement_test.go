@@ -20,13 +20,13 @@ func TestOnOrderRefusesReplacementVersion(t *testing.T) {
 	replacement := first
 	replacement.TaskHash = strings.Repeat("b", 64)
 
-	if err := c.OnOrder(ctx, first); err != nil {
+	if err := trackTestOrder(c, first); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.CheckOrder(ctx, replacement); !errors.Is(err, ErrOrderReplacementUnsupported) {
 		t.Fatalf("CheckOrder(replacement) = %v, want ErrOrderReplacementUnsupported", err)
 	}
-	if err := c.OnOrder(ctx, replacement); !errors.Is(err, ErrOrderReplacementUnsupported) {
+	if err := trackTestOrder(c, replacement); !errors.Is(err, ErrOrderReplacementUnsupported) {
 		t.Fatalf("OnOrder(replacement) = %v, want ErrOrderReplacementUnsupported", err)
 	}
 	fsm, ok := c.getFSM(first.SessionID, first.TaskID)
@@ -40,12 +40,22 @@ func TestOnOrderRefusesReplacementVersion(t *testing.T) {
 	if err := c.CheckOrder(ctx, first); err != nil {
 		t.Fatalf("CheckOrder(retry) = %v", err)
 	}
+	if err := trackTestOrder(c, first); err != nil {
+		t.Fatalf("OnOrder(retry) = %v", err)
+	}
 	if err := c.OnOrder(ctx, first); err != nil {
 		t.Fatalf("OnOrder(retry) = %v", err)
 	}
-	// An unknown task is not refused.
-	if err := c.CheckOrder(ctx, testPlaceholderOrder("session-1", "task-2")); err != nil {
-		t.Fatalf("CheckOrder(new task) = %v", err)
+	// A new task cannot be dispatched yet: it is refused and nothing is tracked for it.
+	fresh := testPlaceholderOrder("session-1", "task-2")
+	if err := c.CheckOrder(ctx, fresh); !errors.Is(err, ErrDispatchNotImplemented) {
+		t.Fatalf("CheckOrder(new task) = %v, want ErrDispatchNotImplemented", err)
+	}
+	if err := c.OnOrder(ctx, fresh); !errors.Is(err, ErrDispatchNotImplemented) {
+		t.Fatalf("OnOrder(new task) = %v, want ErrDispatchNotImplemented", err)
+	}
+	if _, ok := c.getFSM(fresh.SessionID, fresh.TaskID); ok {
+		t.Fatal("a refused order created a task")
 	}
 }
 
@@ -58,7 +68,7 @@ func TestOnOrderTerminalTaskRefusesOtherVersion(t *testing.T) {
 	replacement.TaskHash = strings.Repeat("b", 64)
 	key := taskKey(first.SessionID, first.TaskID)
 
-	if err := c.OnOrder(ctx, first); err != nil {
+	if err := trackTestOrder(c, first); err != nil {
 		t.Fatal(err)
 	}
 	c.removeTask(key)
@@ -79,13 +89,13 @@ func TestOnOrderTerminalTaskRefusesOtherVersion(t *testing.T) {
 		if err := c.CheckOrder(ctx, replacement); !errors.Is(err, ErrTaskTerminal) {
 			t.Fatalf("%s: CheckOrder(other version) = %v, want ErrTaskTerminal", stage, err)
 		}
-		if err := c.OnOrder(ctx, replacement); !errors.Is(err, ErrTaskTerminal) {
+		if err := trackTestOrder(c, replacement); !errors.Is(err, ErrTaskTerminal) {
 			t.Fatalf("%s: OnOrder(other version) = %v, want ErrTaskTerminal", stage, err)
 		}
 		if err := c.CheckOrder(ctx, first); err != nil {
 			t.Fatalf("%s: CheckOrder(retry) = %v", stage, err)
 		}
-		if err := c.OnOrder(ctx, first); err != nil {
+		if err := trackTestOrder(c, first); err != nil {
 			t.Fatalf("%s: OnOrder(retry) = %v", stage, err)
 		}
 		if _, ok := c.getFSM(first.SessionID, first.TaskID); ok {
@@ -113,7 +123,7 @@ func TestTerminalMarkerWithoutTaskHashTreatsOrderAsRetry(t *testing.T) {
 	if err := c.CheckOrder(ctx, order); err != nil {
 		t.Fatalf("CheckOrder = %v", err)
 	}
-	if err := c.OnOrder(ctx, order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatalf("OnOrder = %v", err)
 	}
 	if _, ok := c.getFSM(order.SessionID, order.TaskID); ok {
@@ -140,13 +150,13 @@ func TestOnOrderRetryUnderAnotherSignatureChainIDKeepsFirstOrder(t *testing.T) {
 		t.Fatal("the retry should carry a differently signed order")
 	}
 
-	if err := c.OnOrder(ctx, first); err != nil {
+	if err := trackTestOrder(c, first); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.CheckOrder(ctx, retry); err != nil {
 		t.Fatalf("CheckOrder(retry under another signature_chain_id) = %v", err)
 	}
-	if err := c.OnOrder(ctx, retry); err != nil {
+	if err := trackTestOrder(c, retry); err != nil {
 		t.Fatalf("OnOrder(retry under another signature_chain_id) = %v", err)
 	}
 	fsm, ok := c.getFSM(first.SessionID, first.TaskID)

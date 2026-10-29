@@ -168,10 +168,6 @@ func validateTaskEventPayloadIdentity(payload protoreflect.Message, sessionID, t
 // wrong fact as a consensus fact.
 func taskEventType(code string) string {
 	switch code {
-	case "WORKER_HANDRAISES_ACCEPTED":
-		return EventAssignAccepted
-	case "WORKER_ASSIGNMENT_FINALIZED":
-		return EventAssignmentFinalized
 	case "VERIFIER_ASSIGNMENT_FINALIZED":
 		return EventOpenVerifyAccepted
 	case "COMMIT_ACCEPTED":
@@ -201,11 +197,6 @@ func protocolEventCodeName(code sharedv1.ProtocolEventCodeV1) string {
 func taskEventAttributes(event *taskv1.TaskEvent) map[string]string {
 	attrs := make(map[string]string)
 	switch payload := event.GetPayload().GetTypedEvent().(type) {
-	case *taskv1.TaskProtocolEventPayloadV1_WorkerAssignmentFinalized:
-		finalized := payload.WorkerAssignmentFinalized
-		attrs["winner_worker"] = finalized.GetWinnerWorker()
-		attrs["worker_operator_address"] = finalized.GetWinnerWorker()
-		attrs["infer_deadline_height"] = strconv.FormatUint(finalized.GetInferDeadline(), 10)
 	case *taskv1.TaskProtocolEventPayloadV1_VerifierAssignmentFinalized:
 		finalized := payload.VerifierAssignmentFinalized
 		attrs["selected_verifiers_hash"] = hex.EncodeToString(finalized.GetSelectedVerifiersHash())

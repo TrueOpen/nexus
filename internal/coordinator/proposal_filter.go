@@ -36,9 +36,8 @@ type simulateCounters struct {
 	excluded    atomic.Uint64
 }
 
-// handraiseProposal is one MsgSubmitWorkerHandraises or MsgSubmitVerifierHandraises in
-// the making: build returns the message carrying the handraises at the given indexes, in
-// the order given.
+// handraiseProposal is one MsgSubmitVerifierHandraises in the making: build returns the
+// message carrying the handraises at the given indexes, in the order given.
 type handraiseProposal struct {
 	kind      string
 	typeURL   string
@@ -49,11 +48,10 @@ type handraiseProposal struct {
 // submitHandraiseProposal simulates a handraise proposal before broadcasting it and leaves
 // out the handraises the chain refuses.
 //
-// The Keeper rejects the whole proposal when any one handraise fails its candidate checks
-// (x/task/keeper msg_server_worker_handraises.go and msg_server_open_verify.go), and CheckTx
-// does not run those checks, so a single ineligible handraise -- a Cortex that raised its hand
-// too early, or one doing it on purpose -- would otherwise fail the assignment of the task on
-// every Builder. The chain's own rules decide which handraise is at fault; nexus does not
+// The Keeper rejects the whole proposal when any one handraise fails its candidate checks, and
+// CheckTx does not run those checks, so a single ineligible handraise -- a Cortex that raised its
+// hand too early, or one doing it on purpose -- would otherwise fail the Verifier proposal of the
+// task on every Builder. The chain's own rules decide which handraise is at fault; nexus does not
 // restate them.
 //
 //  1. The whole proposal is simulated. If the chain takes it, it is broadcast as is.

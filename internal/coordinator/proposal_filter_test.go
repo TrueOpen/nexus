@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -15,10 +16,9 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/types"
 )
 
-const refusedSupport = "failed to execute message; message index: 0: active worker profile requires active support unless the operator is jailed: invalid assignment"
+const refusedSupport = "failed to execute message; message index: 0: verifier bond cannot cover stake and liability: invalid verifier handraise"
 
 func newFilterSubmitter(t *testing.T, chain *captureChain) (Submitter, *bytes.Buffer, string) {
 	t.Helper()
@@ -48,11 +48,20 @@ func refuse(operators ...string) func([]string) chaincli.SimResult {
 	}
 }
 
-func threeWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
-	hrs := testWorkerHandraises(user)
-	third := proto.Clone(hrs[1]).(*taskv1.WorkerHandraiseV1)
-	third.Member.Slot, third.Member.OperatorAddress = 12, "trueopen1worker12"
-	return append(hrs, third)
+// filterTaskID is the task the proposal filter cases propose Verifier handraises for.
+var filterTaskID = strings.Repeat("1a", 32)
+
+// filterHandraises returns Verifier handraises in the given slots, operator trueopen1verifier<slot>.
+func filterHandraises(t *testing.T, slots ...uint32) []*taskv1.VerifierHandraiseV1 {
+	t.Helper()
+	base := testVerifierHandraises(filterTaskID, t)[0]
+	hrs := make([]*taskv1.VerifierHandraiseV1, 0, len(slots))
+	for _, slot := range slots {
+		hr := proto.Clone(base).(*taskv1.VerifierHandraiseV1)
+		hr.Member.Slot, hr.Member.OperatorAddress = slot, fmt.Sprintf("trueopen1verifier%d", slot)
+		hrs = append(hrs, hr)
+	}
+	return hrs
 }
 
 func broadcastOperators(t *testing.T, chain *captureChain) [][]string {
@@ -64,10 +73,10 @@ func broadcastOperators(t *testing.T, chain *captureChain) [][]string {
 	return out
 }
 
-func submitAssign(t *testing.T, sub Submitter, user string, hrs []*taskv1.WorkerHandraiseV1) (ProposalResult, error) {
+func submitProposal(t *testing.T, sub Submitter, user string, hrs []*taskv1.VerifierHandraiseV1) (ProposalResult, error) {
 	t.Helper()
-	return sub.SubmitAssign(context.Background(), chaincli.AssignTx{
-		SignedOrder: testSignedOrder(user), WorkerHandraises: hrs, Submitter: user,
+	return sub.SubmitVerifierHandraises(context.Background(), chaincli.OpenVerifyTx{
+		TaskID: filterTaskID, VerifierHandraises: hrs, Submitter: user,
 	})
 }
 
@@ -75,37 +84,37 @@ func submitAssign(t *testing.T, sub Submitter, user string, hrs []*taskv1.Worker
 func TestHandraiseProposalTakenIsBroadcastUnchanged(t *testing.T) {
 	chain := &captureChain{}
 	sub, _, user := newFilterSubmitter(t, chain)
-	res, err := submitAssign(t, sub, user, testWorkerHandraises(user))
+	res, err := submitProposal(t, sub, user, filterHandraises(t, 3, 9))
 	if err != nil || len(res.Excluded) != 0 {
-		t.Fatalf("SubmitAssign = %+v, %v", res, err)
+		t.Fatalf("SubmitVerifierHandraises = %+v, %v", res, err)
 	}
 	if len(chain.simulated) != 1 {
 		t.Fatalf("simulations = %v, want one", chain.simulated)
 	}
-	if got := broadcastOperators(t, chain); len(got) != 1 || !slices.Equal(got[0], []string{"trueopen1worker3", "trueopen1worker9"}) {
+	if got := broadcastOperators(t, chain); len(got) != 1 || !slices.Equal(got[0], []string{"trueopen1verifier3", "trueopen1verifier9"}) {
 		t.Fatalf("broadcast = %v", got)
 	}
 }
 
 // One ineligible handraise no longer fails the task: it is left out, the rest go on chain in order.
 func TestHandraiseProposalLeavesOutWhatTheChainRefuses(t *testing.T) {
-	chain := &captureChain{judge: refuse("trueopen1worker9")}
+	chain := &captureChain{judge: refuse("trueopen1verifier9")}
 	sub, logs, user := newFilterSubmitter(t, chain)
-	res, err := submitAssign(t, sub, user, threeWorkerHandraises(user))
+	res, err := submitProposal(t, sub, user, filterHandraises(t, 3, 9, 12))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Excluded) != 1 || res.Excluded[0].Operator != "trueopen1worker9" || res.Excluded[0].Reason != refusedSupport {
+	if len(res.Excluded) != 1 || res.Excluded[0].Operator != "trueopen1verifier9" || res.Excluded[0].Reason != refusedSupport {
 		t.Fatalf("excluded = %+v", res.Excluded)
 	}
-	if got := broadcastOperators(t, chain); len(got) != 1 || !slices.Equal(got[0], []string{"trueopen1worker3", "trueopen1worker12"}) {
+	if got := broadcastOperators(t, chain); len(got) != 1 || !slices.Equal(got[0], []string{"trueopen1verifier3", "trueopen1verifier12"}) {
 		t.Fatalf("broadcast = %v, want the two eligible handraises in slot order", got)
 	}
 	// whole, each alone, then the remaining proposal once more
-	if len(chain.simulated) != 5 || !slices.Equal(chain.simulated[4], []string{"trueopen1worker3", "trueopen1worker12"}) {
+	if len(chain.simulated) != 5 || !slices.Equal(chain.simulated[4], []string{"trueopen1verifier3", "trueopen1verifier12"}) {
 		t.Fatalf("simulations = %v", chain.simulated)
 	}
-	if !strings.Contains(logs.String(), "handraise left out of the proposal") || !strings.Contains(logs.String(), "trueopen1worker9") {
+	if !strings.Contains(logs.String(), "handraise left out of the proposal") || !strings.Contains(logs.String(), "trueopen1verifier9") {
 		t.Fatalf("no WARN for the excluded handraise:\n%s", logs.String())
 	}
 }
@@ -118,7 +127,7 @@ func TestHandraiseProposalRefusedAsAWholeIsNotBroadcast(t *testing.T) {
 			return chaincli.SimResult{OK: len(carried) == 1, Error: "too many"}
 		},
 		"remaining still refused": func(carried []string) chaincli.SimResult {
-			if slices.Contains(carried, "trueopen1worker9") {
+			if slices.Contains(carried, "trueopen1verifier9") {
 				return chaincli.SimResult{Error: refusedSupport}
 			}
 			return chaincli.SimResult{OK: len(carried) == 1, Error: "slot relation"}
@@ -128,7 +137,7 @@ func TestHandraiseProposalRefusedAsAWholeIsNotBroadcast(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			chain := &captureChain{judge: judge}
 			sub, _, user := newFilterSubmitter(t, chain)
-			_, err := submitAssign(t, sub, user, threeWorkerHandraises(user))
+			_, err := submitProposal(t, sub, user, filterHandraises(t, 3, 9, 12))
 			var subErr *SubmissionError
 			if !errors.As(err, &subErr) || !subErr.Definitive {
 				t.Fatalf("err = %v, want a definitive submission error", err)
@@ -145,7 +154,7 @@ func TestHandraiseProposalWithoutSimulationIsBroadcast(t *testing.T) {
 	chain := &captureChain{simulateErr: chaincli.ErrNotSupportedOnChain}
 	sub, logs, user := newFilterSubmitter(t, chain)
 	for i := 1; i <= 2; i++ {
-		if _, err := submitAssign(t, sub, user, testWorkerHandraises(user)); err != nil {
+		if _, err := submitProposal(t, sub, user, filterHandraises(t, 3, 9)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -170,7 +179,7 @@ func TestHandraiseProposalRefreshesAStaleSequence(t *testing.T) {
 		return chaincli.SimResult{OK: true}
 	}
 	sub, _, user := newFilterSubmitter(t, chain)
-	if _, err := submitAssign(t, sub, user, testWorkerHandraises(user)); err != nil {
+	if _, err := submitProposal(t, sub, user, filterHandraises(t, 3, 9)); err != nil {
 		t.Fatal(err)
 	}
 	if chain.accountCalls != 2 || len(chain.broadcast) != 1 || len(signedProposalOperators(chain.broadcast[0])) != 2 {
@@ -196,53 +205,6 @@ func TestVerifierHandraiseProposalLeavesOutWhatTheChainRefuses(t *testing.T) {
 	}
 	if got := broadcastOperators(t, chain); len(got) != 1 || !slices.Equal(got[0], []string{"trueopen1verifier8"}) {
 		t.Fatalf("broadcast = %v", got)
-	}
-}
-
-// An assignment refused over its candidates (task/1109) between simulation and the block is
-// filtered and submitted again, a bounded number of times; any other rejection ends the task.
-func TestAssignRejectedOverCandidatesIsSubmittedAgain(t *testing.T) {
-	invalid := chaincli.TxResult{Code: 1109, Codespace: "task", Height: 99, RawLog: refusedSupport}
-	tests := []struct {
-		name       string
-		rejections []chaincli.TxResult
-		retryErr   error
-		submits    int
-		failed     bool
-	}{
-		{name: "invalid assignment once", rejections: []chaincli.TxResult{invalid}, submits: 2},
-		{name: "invalid assignment past the bound", rejections: []chaincli.TxResult{invalid, invalid, invalid}, submits: 3, failed: true},
-		{name: "same code, other module", rejections: []chaincli.TxResult{{Code: 1109, Codespace: "hub"}}, submits: 1, failed: true},
-		{name: "other task error", rejections: []chaincli.TxResult{{Code: 1103, Codespace: "task"}}, submits: 1, failed: true},
-		{name: "resubmission fails", rejections: []chaincli.TxResult{invalid}, retryErr: errors.New("the chain refuses the proposal"), submits: 2, failed: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sessionID, taskID := "session-assign-retry", testTaskID("task-assign-retry")
-			submit := &fakeSubmitter{assignResult: chaincli.TxResult{TxHash: []byte{0x0a}}}
-			c, _ := newTestCoordinator(t)
-			c.submit = submit
-			if err := c.OnOrder(context.Background(), testCurrentOrder(sessionID, taskID, testUserAddress)); err != nil {
-				t.Fatal(err)
-			}
-			fsm, _ := c.getFSM(sessionID, taskID)
-			fsm.onWorkerHandraise(testWorkerHandraise(sessionID, taskID, "worker-1"))
-			submit.mu.Lock()
-			submit.assignErr = tt.retryErr
-			submit.mu.Unlock()
-			for _, rejection := range tt.rejections {
-				fsm.onAssignRejected(rejection)
-			}
-			submit.mu.Lock()
-			submits := len(submit.assign)
-			submit.mu.Unlock()
-			fsm.mu.Lock()
-			state := fsm.state
-			fsm.mu.Unlock()
-			if submits != tt.submits || (state == types.Failed) != tt.failed {
-				t.Fatalf("submits = %d, state = %s; want %d, failed %v", submits, state, tt.submits, tt.failed)
-			}
-		})
 	}
 }
 

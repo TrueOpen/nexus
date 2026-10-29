@@ -130,13 +130,13 @@ func completeTaskEvent(cursor string, height uint64) *taskv1.TaskEvent {
 	return &taskv1.TaskEvent{
 		Cursor: cursor, ChainHeight: height, BlockHash: []byte("BLOCK"), TxHash: []byte("TX"), TxIndex: 1, EventIndex: 2,
 		Source: sharedv1.TaskEventSource_TASK_EVENT_SOURCE_TX, SessionId: testSessionIDBytes, TaskId: testTaskIDBytes,
-		Code:    sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED,
-		Targets: []*sharedv1.EventTarget{{Role: sharedv1.EventRole_EVENT_ROLE_WORKER, Address: "trueopen1worker"}},
+		Code:    sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED,
+		Targets: []*sharedv1.EventTarget{{Role: sharedv1.EventRole_EVENT_ROLE_VERIFIER, Address: "trueopen1verifier"}},
 		Payload: &taskv1.TaskProtocolEventPayloadV1{
-			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_WorkerAssignmentFinalized{
-				WorkerAssignmentFinalized: &taskv1.EventWorkerAssignmentFinalized{
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_VerifierAssignmentFinalized{
+				VerifierAssignmentFinalized: &taskv1.EventVerifierAssignmentFinalized{
 					SessionId: testSessionIDBytes, TaskId: testTaskIDBytes,
-					WinnerWorker: "trueopen1worker", InferDeadline: height,
+					VerifyRound: 1, CommitDeadline: height,
 				},
 			},
 		},
@@ -168,7 +168,7 @@ func TestTaskEventStreamUsesHeightAndPersistsCursor(t *testing.T) {
 		t.Fatalf("resync = %+v", resync)
 	}
 	notification := receiveChainEvent(t, c.Events())
-	if notification.Type != EventAssignmentFinalized || !notification.TaskNotification {
+	if notification.Type != EventOpenVerifyAccepted || !notification.TaskNotification {
 		t.Fatalf("notification = %+v", notification)
 	}
 	eventuallyChainCLI(t, func() bool {
@@ -610,7 +610,7 @@ func TestTaskEventSessionCreatedIsSkippedAndAdvancesCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	event := receiveChainEvent(t, c.Events())
-	if event.Type != EventAssignmentFinalized || event.TaskID != testTaskIDHex {
+	if event.Type != EventOpenVerifyAccepted || event.TaskID != testTaskIDHex {
 		t.Fatalf("event = %+v", event)
 	}
 	eventuallyChainCLI(t, func() bool {

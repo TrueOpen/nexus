@@ -28,7 +28,7 @@ var (
 //
 // The OutputRef object and sealed-key delivery were removed from the protocol: the
 // held object is now just the selected Worker's signed InferReceipt (commitment + signature, no locator, no key),
-// so access_level tiers no longer affect the returned content; they are kept only for the pending FetchOutputRef.
+// so access_level tiers no longer affect the returned content.
 type Custodian interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error

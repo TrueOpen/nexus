@@ -94,19 +94,8 @@ task_data:
     max_attachment_bytes: 65536
     subscriber_buffer_frames: 256
 
-nats:
-  servers:
-    - nats://127.0.0.1:4222         # production uses tls://host:4222
-  user: ""                          # dev only; production mode rejects username/password
-  password: ""
-  ca_file: ""                       # NATS server certificate / CA PEM; verified against it for tls://; dev empty = system root CAs, required in production
-  creds_file: ""                    # NATS creds (user JWT + nkey seed), replaces username/password; relative paths are relative to this file
-  sentinel_file: ""                 # AUTH account bearer user JWT (e.g. ./nats-sentinel.jwt), public, non-secret data, served to Cortex via GET /v1/nats/sentinel; relative paths are relative to this file; empty = route not served
-  advertise_servers: []             # NATS addresses served to Cortex with the sentinel, e.g. [tls://203.0.113.10:4222], together with the certificates of ca_file; needs sentinel_file; production needs tls:// and ca_file; empty = not served
-  stream_replicas: 1                # copies of the TRUEOPEN_TASK JetStream stream (1..5); more than 1 needs a clustered NATS and must not exceed its number of servers; an existing stream's higher count is never lowered
-
 # Production security switch: dev (default, behavior unchanged) | production.
-# production rejects: nats:// and user/password; non-loopback plaintext chain/hub grpc_addr;
+# production rejects: non-loopback plaintext chain/hub grpc_addr;
 # private_key_hex / private_key / keystore_password / service_keystore_password in identity;
 # ingress.tls.enabled=false. Private keys and passphrases always come from files.
 security:
@@ -200,22 +189,3 @@ identity:
   # are still accepted so existing nexus.yaml files keep passing strict parsing.
   descriptor_validity_blocks: 100000
   descriptor_renew_before_blocks: 10000
-
-# NATS auth-callout service. Read only by `nexus natsauth`.
-# Runs on the same machine as NATS, started by whoever runs NATS. None of the three keys leaves the machine.
-# natsauth has no separate chain config: it reuses the top-level chain.chain_id / chain.grpc_addr to look up the Cortex on-chain identity;
-# both are required; a non-loopback chain.grpc_addr must be https://.
-natsauth:
-  nats:
-    servers: [tls://127.0.0.1:4222]
-    ca_file: ./nats-cert.pem            # NATS server certificate, taken from the handshake (openssl s_client)
-    creds_file: ./nats-auth.creds       # AUTH account user creds (nsc generate creds --account AUTH)
-  # Public key of the application account Cortex users land in (TRUEOPEN, the same account as nexus). The A... below is only a length/prefix placeholder,
-  # not a real public key; the real value comes from `nsc describe account TRUEOPEN`.
-  cortex_account_public_key: ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-  cortex_account_signing_key_file: ./trueopen-account.nk    # TRUEOPEN account signing key seed (nsc generate nkey --account; its public key must be registered as a TRUEOPEN signing key)
-  auth_account_signing_key_file: ./auth-account.nk       # AUTH account signing key seed
-  user_jwt_ttl_ms: 3600000              # ≤ 3,600,000
-  chain_query_cache_ttl_ms: 60000       # ≤ 60,000; only successful results are cached
-  max_clock_skew_ms: 300000
-  # xkey_file: ./auth-account.xk        # response encryption, not implemented in this version; a non-empty value is rejected by natsauth

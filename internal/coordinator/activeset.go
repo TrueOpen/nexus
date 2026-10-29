@@ -27,8 +27,8 @@ type activeSet struct {
 	self    string             // this builder's address (from config); empty = identity not configured
 	epoch   uint64             // current roster epoch
 	members []types.BuilderRef // current active roster
-	// ref is the (builder_set_id, builder_set_hash) pair from one read. BusEnvelopeV1 fields 11/12 must come
-	// from the same read; two separate queries can assemble a nonexistent set at a term boundary.
+	// ref is the (builder_set_id, builder_set_hash) pair from one read; two separate queries can
+	// assemble a nonexistent set at a term boundary.
 	ref builderSetRef
 }
 

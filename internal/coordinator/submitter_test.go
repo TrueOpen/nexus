@@ -69,12 +69,6 @@ func signedProposalOperators(tx []byte) []string {
 	}
 	var operators []string
 	switch body.Messages[0].TypeUrl {
-	case chaincli.TypeURLMsgSubmitWorkerHandraises:
-		var msg taskv1.MsgSubmitWorkerHandraises
-		_ = proto.Unmarshal(body.Messages[0].Value, &msg)
-		for _, hr := range msg.GetHandraises() {
-			operators = append(operators, hr.GetMember().GetOperatorAddress())
-		}
 	case chaincli.TypeURLMsgSubmitVerifierHandraises:
 		var msg taskv1.MsgSubmitVerifierHandraises
 		_ = proto.Unmarshal(body.Messages[0].Value, &msg)
@@ -125,93 +119,6 @@ func (c *captureChain) BroadcastTx(_ context.Context, tx []byte) (chaincli.TxRes
 		return chaincli.TxResult{}, c.broadcastErr
 	}
 	return chaincli.TxResult{Code: 0}, nil
-}
-
-func TestSignedSubmitterBuildsWorkerHandraiseProposalTx(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sg, err := signer.NewFromHex(testKeyHex, "trueopen")
-	if err != nil {
-		t.Fatalf("signer: %v", err)
-	}
-	chain := &captureChain{acc: chaincli.AccountInfo{AccountNumber: 7, Sequence: 42}}
-	sub := NewSignedSubmitter(log, chain, chain, sg, sg, config.ChainConfig{
-		ChainID: "trueopen-localnet", GasLimit: 200000, FeeDenom: "utrueopen", FeeAmount: "5000",
-	})
-
-	res, err := sub.SubmitAssign(context.Background(), chaincli.AssignTx{
-		SignedOrder:      testSignedOrder(sg.Address()),
-		WorkerHandraises: testWorkerHandraises(sg.Address()),
-		Submitter:        sg.Address(),
-	})
-	if err != nil {
-		t.Fatalf("SubmitAssign: %v", err)
-	}
-	if res.Code != 0 || len(chain.broadcast) != 1 {
-		t.Fatalf("broadcast: code=%d n=%d", res.Code, len(chain.broadcast))
-	}
-
-	body, auth := decodeBuilderTx(t, chain.broadcast[0])
-	if len(body.Messages) != 1 || body.Messages[0].TypeUrl != chaincli.TypeURLMsgSubmitWorkerHandraises {
-		t.Fatalf("messages: %+v", body.Messages)
-	}
-	var msg taskv1.MsgSubmitWorkerHandraises
-	if err := proto.Unmarshal(body.Messages[0].Value, &msg); err != nil {
-		t.Fatalf("unmarshal msg: %v", err)
-	}
-	// The request carries only the scope oneof, the signed handraises and
-	// the Cosmos signer. Builder rank, selection proof, candidate set hash,
-	// min-handraise threshold, reserved fee and infer deadline are Keeper-derived
-	// and have no wire field left to carry them.
-	if msg.GetScope().GetSignedOrder() == nil || msg.GetScope().GetExistingTask() != nil ||
-		len(msg.GetHandraises()) != 2 || msg.GetSubmitterAddress() != sg.Address() {
-		t.Fatalf("msg: %+v", &msg)
-	}
-	if got := msg.GetHandraises()[0].GetMember().GetSlot(); got != 3 {
-		t.Fatalf("first handraise slot = %d, want 3", got)
-	}
-	if msg.GetScope().GetSignedOrder().GetSignatureScheme() != "eip712" {
-		t.Fatalf("signature scheme = %q", msg.GetScope().GetSignedOrder().GetSignatureScheme())
-	}
-	if got := auth.SignerInfos[0].Sequence; got != 42 {
-		t.Fatalf("sequence = %d, want 42", got)
-	}
-}
-
-func TestSignedSubmitterRejectsNonCanonicalWorkerProposal(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sg, err := signer.NewFromHex(testKeyHex, "trueopen")
-	if err != nil {
-		t.Fatal(err)
-	}
-	chain := &captureChain{acc: chaincli.AccountInfo{AccountNumber: 7, Sequence: 42}}
-	sub := NewSignedSubmitter(log, chain, chain, sg, sg, config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000})
-
-	descending := testWorkerHandraises(sg.Address())
-	descending[0].Member.Slot, descending[1].Member.Slot = descending[1].GetMember().GetSlot(), descending[0].GetMember().GetSlot()
-
-	cases := map[string]chaincli.AssignTx{
-		"no scope": {WorkerHandraises: testWorkerHandraises(sg.Address()), Submitter: sg.Address()},
-		"both scopes": {
-			SignedOrder:      testSignedOrder(sg.Address()),
-			ExistingTask:     &taskv1.ExistingTaskRefV1{TaskId: make([]byte, 32), TaskHash: make([]byte, 32)},
-			WorkerHandraises: testWorkerHandraises(sg.Address()),
-			Submitter:        sg.Address(),
-		},
-		"empty handraises": {SignedOrder: testSignedOrder(sg.Address()), Submitter: sg.Address()},
-		"slots not ascending": {
-			SignedOrder: testSignedOrder(sg.Address()), WorkerHandraises: descending, Submitter: sg.Address(),
-		},
-	}
-	for name, tx := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := sub.SubmitAssign(context.Background(), tx); err == nil {
-				t.Fatal("want prepare error")
-			}
-			if len(chain.broadcast) != 0 || chain.accountCalls != 0 {
-				t.Fatalf("broadcast=%d account_calls=%d", len(chain.broadcast), chain.accountCalls)
-			}
-		})
-	}
 }
 
 // MsgRegisterBuilder is now really sent: the descriptor is the on-chain endpoints list, and
@@ -642,7 +549,7 @@ func TestUnsignedFallbackFailsClosedWithoutBroadcast(t *testing.T) {
 	chain := &captureChain{}
 	sub := newDefaultSubmitter(log, chain) // no signer -> JSON skeleton mode
 
-	if _, err := sub.SubmitAssign(context.Background(), chaincli.AssignTx{SessionID: "s", TaskID: "t"}); err == nil {
+	if _, err := sub.SubmitSettle(context.Background(), chaincli.SettleTx{TaskID: testTaskID("t"), Submitter: "trueopen1builder"}); err == nil {
 		t.Fatal("unsigned submit must fail")
 	}
 	if len(chain.broadcast) != 0 || chain.accountCalls != 0 {
@@ -659,7 +566,7 @@ func TestTaskPrepareFailureDoesNotConsumeAccountSequence(t *testing.T) {
 	chain := &captureChain{acc: chaincli.AccountInfo{AccountNumber: 7, Sequence: 42}}
 	sub := NewSignedSubmitter(log, chain, chain, sg, sg, config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000})
 
-	_, err = sub.SubmitAssign(context.Background(), chaincli.AssignTx{BuilderOperatorAddress: sg.Address(), SessionID: "sess-1", TaskID: "task-1"})
+	_, err = sub.SubmitSettle(context.Background(), chaincli.SettleTx{TaskID: "task-1", Submitter: sg.Address()})
 	var submissionErr *SubmissionError
 	if !errors.As(err, &submissionErr) || submissionErr.Phase != SubmissionPrepare || !submissionErr.Definitive {
 		t.Fatalf("err=%#v", err)
@@ -790,43 +697,18 @@ func testSignedOrder(user string) *taskv1.SignedOrderV2 {
 			DeadlinePolicy: &taskv1.DeadlinePolicyV1{
 				LatencyClass: taskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD,
 			},
-			TimeoutBucketVersion:   4,
-			SessionAnchorHeight:    90,
-			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
-			BuilderSetId:           "term-1",
-			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
-			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
-			InputKeyCommitment:     make([]byte, 32),
+			TimeoutBucketVersion: 4,
+			SessionAnchorHeight:  90,
+			BuilderSetId:         "term-1",
+			BuilderSetHash:       bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:          taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:   make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		// 65 bytes of R||S||V with V=27 and S < N/2: a structurally valid placeholder signature.
 		UserSignature:    append(bytes.Repeat([]byte{0x55}, 64), 27),
 		SignatureChainId: 424242,
 	}
-}
-
-// testWorkerHandraises returns two slot-ascending WorkerHandraiseV1 facts.
-func testWorkerHandraises(user string) []*taskv1.WorkerHandraiseV1 {
-	// task_hash is the canonical digest of the testSignedOrder(user) order: the proposal scope and
-	// every hand-raise must be bound to the same value, or validateScopeTaskHash rejects outright.
-	taskHash, err := nodecontract.TaskOrderHashV3(testSignedOrder(user).GetOrder())
-	if err != nil {
-		panic(err)
-	}
-	handraise := func(slot uint32, operator string) *taskv1.WorkerHandraiseV1 {
-		return &taskv1.WorkerHandraiseV1{
-			SchemaVersion: 1, ChainId: "trueopen-localnet",
-			TaskId: bytes.Repeat([]byte{0x66}, 32), TaskHash: append([]byte(nil), taskHash[:]...),
-			ModelId: testModelIDBytes, ProfileVersion: 2,
-			Member: &taskv1.CandidateMemberRefV1{
-				CandidatePoolSnapshotId: bytes.Repeat([]byte{0x88}, 32),
-				Slot:                    slot, SlotVersion: 1, OperatorAddress: operator,
-			},
-			Duty: sharedv1.Duty_DUTY_WORKER, ServiceAuthorizationNonce: 1, ExpiryHeight: 500,
-			ServiceSignature: bytes.Repeat([]byte{0x99}, 64),
-		}
-	}
-	return []*taskv1.WorkerHandraiseV1{handraise(3, "trueopen1worker3"), handraise(9, "trueopen1worker9")}
 }
 
 func testVerifierHandraises(taskIDHex string, t *testing.T) []*taskv1.VerifierHandraiseV1 {

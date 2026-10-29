@@ -17,7 +17,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/taskdata"
@@ -42,7 +41,6 @@ func newOutputTestCoordinatorWithLogger(t *testing.T, log *slog.Logger) (*Coordi
 	}
 	c := New(
 		log,
-		msgbus.NewStub(log, nil),
 		chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log),
 		store,
@@ -65,13 +63,10 @@ func newOutputTestCoordinatorWithLogger(t *testing.T, log *slog.Logger) (*Coordi
 
 func driveOutputTestToAssigned(t *testing.T, c *Coordinator, session, task, user string) {
 	t.Helper()
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, user)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, user)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: "worker-1", Height: 101,
-	})
+	recordTestWinner(c, session, task, "worker-1", 101)
 }
 
 // deliverPlaintext drives the internal "plaintext delivery + accept receipt" flow.
@@ -418,7 +413,7 @@ func TestCoordinatorTerminalTaskRemainsKnownAfterTombstoneGC(t *testing.T) {
 		t.Fatalf("outputdelivery.New: %v", err)
 	}
 	c2 := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(replacement),
 	)
 	c2.query = nil
@@ -455,7 +450,7 @@ func TestCoordinatorTerminalTaskCannotBeRecreatedByOrderReplay(t *testing.T) {
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
 		SessionID: session, TaskID: task, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT, Height: 200,
 	})
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, user)); err != nil {
+	if err := trackTestOrder(c, testCurrentOrder(session, task, user)); err != nil {
 		t.Fatalf("replayed OnOrder: %v", err)
 	}
 	if _, err := c.TaskStatus(context.Background(), session, task); !errors.Is(err, ErrTaskNotFound) {
@@ -528,7 +523,7 @@ func TestCoordinatorTerminalMarkerDominatesStaleSnapshot(t *testing.T) {
 		t.Fatalf("persist marker: %v", err)
 	}
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID,
 	)
 	c.query = nil
@@ -556,7 +551,7 @@ func TestCoordinatorTerminalSnapshotDominatesCoarseState(t *testing.T) {
 		t.Fatalf("persist snapshot: %v", err)
 	}
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID,
 	)
 	c.query = nil
@@ -637,7 +632,7 @@ func TestCoordinatorRecoveryPromotesTerminalAcceptedPreparedOutputAcrossCrashBou
 	}
 
 	c1 := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs),
 	)
 	c1.query = nil
@@ -657,7 +652,7 @@ func TestCoordinatorRecoveryPromotesTerminalAcceptedPreparedOutputAcrossCrashBou
 		t.Fatalf("second outputdelivery.New: %v", err)
 	}
 	c2 := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs2),
 	)
 	c2.query = nil
@@ -714,7 +709,7 @@ func TestCoordinatorRecoveryFailsClosedForCorruptTerminalSnapshot(t *testing.T) 
 	}
 
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs),
 	)
 	if err := c.recoverTasks(context.Background()); err == nil {
@@ -766,7 +761,7 @@ func TestCoordinatorRecoveryFailsClosedForMismatchedTerminalSnapshotKey(t *testi
 	}
 
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs),
 	)
 	if err := c.recoverTasks(context.Background()); err == nil {
@@ -796,7 +791,7 @@ func TestCoordinatorRetainsSnapshotWhenTerminalPromotionFails(t *testing.T) {
 	}
 	outputs1 := newOutputs()
 	c1 := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, testBuilderSelf, testChainID, WithOutputDelivery(outputs1),
 	)
 	c1.submit = &fakeSubmitter{}
@@ -825,7 +820,7 @@ func TestCoordinatorRetainsSnapshotWhenTerminalPromotionFails(t *testing.T) {
 	store.failReady = false
 	outputs2 := newOutputs()
 	c2 := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs2),
 	)
 	c2.query = nil
@@ -870,7 +865,7 @@ func TestCoordinatorRecoveryMarksTerminalTaskWithoutOutputUnavailable(t *testing
 		t.Fatalf("persist snapshot: %v", err)
 	}
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, "", testChainID, WithOutputDelivery(outputs),
 	)
 	c.query = nil
@@ -937,7 +932,7 @@ func TestCoordinatorReleasesTerminalTaskMemoryWithTombstone(t *testing.T) {
 		t.Fatalf("outputdelivery.New: %v", err)
 	}
 	c := New(
-		log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}),
+		log, chaincli.NewStub(log, config.ChainConfig{}),
 		relay.NewMem(log), store, testBuilderSelf, testChainID, WithOutputDelivery(outputs),
 	)
 	c.submit = &fakeSubmitter{}
@@ -1001,7 +996,7 @@ func TestCoordinatorReleasesTerminalTaskMemoryWithTombstone(t *testing.T) {
 	if owner, err := c.TaskOwner(context.Background(), session, task); err != nil || owner != user {
 		t.Fatalf("TaskOwner after release = %q, %v", owner, err)
 	}
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, user)); err != nil {
+	if err := trackTestOrder(c, testCurrentOrder(session, task, user)); err != nil {
 		t.Fatalf("replayed OnOrder: %v", err)
 	}
 	if _, err := c.TaskStatus(context.Background(), session, task); !errors.Is(err, ErrTaskNotFound) {

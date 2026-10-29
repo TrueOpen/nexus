@@ -137,11 +137,11 @@ func TestE2EHarness(t *testing.T) {
 	final := acc.Root()
 	finalSeq := uint64(len(texts) - 1)
 	reason := taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN
-	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", f.taskHash, finalSeq, final[:], uint32(reason))
+	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", f.taskHash, testDispatchTicket, finalSeq, final[:], uint32(reason))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fin := &nexusv1.OutputFinV1{FinalSeq: finalSeq, OutputMmrRoot: final[:], FinishReason: reason, WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:])}
+	fin := &nexusv1.OutputFinV1{FinalSeq: finalSeq, OutputMmrRoot: final[:], FinishReason: reason, WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]), DispatchTicketHash: testDispatchTicket}
 	switch os.Getenv("E2E_FIN_MODE") {
 	case "unsigned": // pre-wire-v0.1.1 Worker: no reason, no signature
 		fin.FinishReason, fin.WorkerSignature = 0, nil

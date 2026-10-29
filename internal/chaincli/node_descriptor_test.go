@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "a30e5e8c1efbee0e2f2aba51ff99dbe156652605616442b4b9cf3ceffc53b541"
+	const want = "6ef1c94af68b50c65558befd208dd74045c7ddd5633f05739e901ae06483c045"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -28,31 +28,14 @@ func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 // defines typed sub-messages
 // for the assignment and open-verify requests.
 func TestNodeDescriptorTaskMsgWire(t *testing.T) {
-	t.Run("worker handraise proposal wire", func(t *testing.T) {
-		// Scope is the WorkerHandraiseScopeV1 carrier (the oneof lives in the sub-message),
-		// handraises=2, submitter_address=3.
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 1, "scope", protoreflect.MessageKind, false)
-		assertContractOneof(t, "task.v1.WorkerHandraiseScopeV1", "scope", 1, 2)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 2, "handraises", protoreflect.MessageKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 3, "submitter_address", protoreflect.StringKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 2, "proposal_digest", protoreflect.BytesKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 5, "stage_status", protoreflect.EnumKind, false)
-		// Handraise field order is part of the signing digest preimage.
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 7, "member", protoreflect.MessageKind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 8, "duty", protoreflect.EnumKind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 9, "service_authorization_nonce", protoreflect.Uint64Kind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 11, "service_signature", protoreflect.BytesKind, false)
-		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
-		// The sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
-		assertContractFieldEnumType(t, "task.v1.WorkerHandraiseV1", 8, "shared.v1.Duty")
-		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
-	})
-
 	t.Run("verifier handraise proposal wire", func(t *testing.T) {
 		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 1, "task_id", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 3, "submitter_address", protoreflect.StringKind, false)
 		assertContractField(t, "task.v1.VerifierHandraiseV1", 5, "infer_receipt_hash", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.VerifierHandraiseV1", 13, "service_signature", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
+		// The sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
+		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
 	})
 
 	t.Run("typed stage receipts", func(t *testing.T) {
@@ -111,6 +94,9 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 			"task.v1.MsgSweepExpiredTask",
 			"task.v1.MsgFailSettle",
 			"task.v1.MsgAssign",
+			// Per-task Worker handraises and their proposal Msg were replaced by direct dispatch.
+			"task.v1.MsgSubmitWorkerHandraises",
+			"task.v1.WorkerHandraiseV1",
 			"task.v1.MsgOpenVerify",
 			"task.v1.MsgSettle",
 			// Local event enums and old States removed by the current wire.
@@ -165,8 +151,8 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractFieldMessageType(t, "task.v1.SubscribeTaskEventsResponse", 2, "shared.v1.StreamCheckpoint")
 		assertContractField(t, "shared.v1.StreamCheckpoint", 2, "chain_height", protoreflect.Uint64Kind, false)
 		// payload oneof field number == ProtocolEventCodeV1 value.
-		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED", 11)
-		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 11, "worker_assignment_finalized", protoreflect.MessageKind, false)
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED", 13)
+		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 13, "verifier_assignment_finalized", protoreflect.MessageKind, false)
 		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED", 17)
 		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 17, "result_accepted", protoreflect.MessageKind, false)
 		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_TASK_SETTLED", 19)
@@ -349,13 +335,12 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 
 		// Every ACTIVE Task Msg names its stable operator/submitter address
 		// field explicitly; Builder identity copies are forbidden.
-		{message: "task.v1.MsgSubmitWorkerHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitInferReceipt", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitVerifierHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgReportDataUnavailable", number: 4, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSettleTask", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSweepDeadline", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
-		{message: "task.v1.WorkerHandraiseV1", number: 2, name: "chain_id", kind: protoreflect.StringKind},
+		{message: "task.v1.VerifierHandraiseV1", number: 2, name: "chain_id", kind: protoreflect.StringKind},
 		{message: "task.v1.InferReceiptV3", number: 5, name: "worker_operator_address", kind: protoreflect.StringKind},
 		{message: "task.v1.VerifyCommitV1", number: 5, name: "verifier_operator_address", kind: protoreflect.StringKind},
 		{message: "task.v1.SettlementFactsV1", number: 5, name: "settlement_duty_builder_operator", kind: protoreflect.StringKind},
@@ -372,7 +357,10 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "task.v1.TaskAssignmentViewV1", number: 19, name: "worker_infer_timeout_slash_bps", kind: protoreflect.Uint32Kind},
 		{message: "task.v1.TaskAssignmentViewV1", number: 20, name: "result_reveal_missing_slash_bps", kind: protoreflect.Uint32Kind},
 		{message: "task.v1.TaskAssignmentViewV1", number: 21, name: "min_stake_snapshot", kind: protoreflect.MessageKind},
-		{message: "task.v1.TaskAssignmentViewV1", number: 22, absent: true},
+		// 22..24 identify the recorded dispatch; nothing after it.
+		{message: "task.v1.TaskAssignmentViewV1", number: 22, name: "record_height", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 24, name: "dispatch_ticket_hash", kind: protoreflect.BytesKind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 25, absent: true},
 		{message: "task.v1.InferReceiptState", number: 2, name: "winner_worker", kind: protoreflect.StringKind},
 		// generated_token_count is inserted at 7 and later fields shift back by one; 15 is the new output_leaf_count.
 		{message: "task.v1.InferReceiptState", number: 7, name: "generated_token_count", kind: protoreflect.Uint64Kind},

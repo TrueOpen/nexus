@@ -33,9 +33,9 @@ import (
 // Handler is the application-level implementation behind IngressAPI, satisfied by the Coordinator.
 // Every task-level entry point carries the composite key session_id + task_id.
 type Handler interface {
-	// CheckOrder refuses, without changing state, an order that OnOrder would refuse for its
-	// version (a different task_hash for a tracked or terminal task). OpenTask calls it before
-	// storing the input.
+	// CheckOrder refuses, without changing state, an order that OnOrder would refuse (a different
+	// task_hash for a tracked or terminal task, or an order this Builder cannot dispatch). OpenTask
+	// calls it before storing the input.
 	CheckOrder(ctx context.Context, o types.Order) error
 	OnOrder(ctx context.Context, o types.Order) error
 	// OnInferReceipt accepts the selected Worker's signed InferReceipt.
@@ -48,19 +48,12 @@ type Handler interface {
 	// (the initial relay implementation trusts the Builder). Return only means broadcast, not on-chain accepted.
 	OnVerifyCommit(ctx context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error)
 	OnVerifyResult(ctx context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error)
-	SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error)
-	AckOutput(ctx context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error)
 	// TaskOwner returns the ordering user's address (authorization for streaming subscribe / ACK);
 	// returns types.ErrTaskNotFound for an unknown task.
 	TaskOwner(ctx context.Context, sessionID, taskID string) (string, error)
-	// FetchOutputRef issues bound credentials tiered by access_level only (deprecated):
-	// the OutputRef object was removed from the protocol, so there is no reference left to return.
-	FetchOutputRef(ctx context.Context, sessionID, taskID, requester string, level types.AccessLevel, usage string) (types.Credential, error)
 	TaskStatus(ctx context.Context, sessionID, taskID string) (types.TaskStatus, error)
 	// TaskEvents subscribes to the event stream: replay after cursor + live channel + unsubscribe.
 	TaskEvents(ctx context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error)
-	// RefreshCredential exchanges an old credential for a new one (deprecated).
-	RefreshCredential(ctx context.Context, old types.Credential, recipient, usage string, requestedValidUntil int64) (types.Credential, error)
 	// PrepareChallenge assembles challenge inputs without submitting a verdict.
 	PrepareChallenge(ctx context.Context, sessionID, taskID, kind string) (types.ChallengePlan, error)
 }
@@ -281,22 +274,6 @@ func (s *service) checkTaskEnvelope(
 	return s.verifyEnvelope(ctx, pb, c)
 }
 
-// errMethodRetired answers SubmitOrder, FetchOutputRef and RefreshCredential. They have no body
-// domain under SDKRequestEnvelopeV2, so they are refused before the request is parsed or any
-// signature is looked at; OpenTask and the Task data interface replace them.
-func errMethodRetired(method string) error {
-	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf(
-		"NEXUS_INGRESS_METHOD_RETIRED: %s is retired; use OpenTask and the Task data interface", method))
-}
-
-func (s *service) SubmitOrder(context.Context, *connect.Request[nexusv1.SubmitOrderRequest]) (*connect.Response[nexusv1.SubmitOrderResponse], error) {
-	return nil, errMethodRetired("SubmitOrder")
-}
-
-func (s *service) FetchOutputRef(context.Context, *connect.Request[nexusv1.FetchOutputRefRequest]) (*connect.Response[nexusv1.FetchOutputRefResponse], error) {
-	return nil, errMethodRetired("FetchOutputRef")
-}
-
 func (s *service) GetTaskStatus(ctx context.Context, req *connect.Request[nexusv1.GetTaskStatusRequest]) (*connect.Response[nexusv1.GetTaskStatusResponse], error) {
 	ids, err := parseTaskIDs(req.Msg.GetSessionId(), req.Msg.GetTaskId())
 	if err != nil {
@@ -315,68 +292,27 @@ func (s *service) GetTaskStatus(ctx context.Context, req *connect.Request[nexusv
 	}), nil
 }
 
+// SubscribeOutput and AckOutput serve only the streaming OUTPUT data plane: output is delivered as
+// Worker-signed stream frames, so with task_data.output_stream off both answer Unimplemented.
 func (s *service) SubscribeOutput(
 	ctx context.Context,
 	req *connect.Request[nexusv1.SubscribeOutputRequest],
 	stream *connect.ServerStream[nexusv1.SubscribeOutputResponse],
 ) error {
-	if s.outputStream != nil {
-		return s.subscribeOutputStream(ctx, req, stream)
+	if s.outputStream == nil {
+		return errOutputStreamDisabled
 	}
-	m := req.Msg
-	if m.GetSessionId() == "" || m.GetTaskId() == "" {
-		return connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_MALFORMED: session_id and task_id are required"))
-	}
-	requester, err := s.checkSubscribeEnvelope(ctx, m)
-	if err != nil {
-		return err
-	}
-	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
-	if err != nil {
-		return err
-	}
-	output, err := s.h.SubscribeOutput(ctx, ids.session, ids.task, requester)
-	if err != nil {
-		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-			return nil
-		}
-		return mapOutputDeliveryErr(err)
-	}
-	return stream.Send(&nexusv1.SubscribeOutputResponse{
-		OutputId: output.OutputID, SessionId: hash32text.FromInternal(output.SessionID), TaskId: hash32text.FromInternal(output.TaskID),
-		OutputText: output.Text, OutputHash: output.Hash,
-		CreatedAt: output.CreatedAt, ExpiresAt: output.ExpiresAt,
-	})
+	return s.subscribeOutputStream(ctx, req, stream)
 }
 
 func (s *service) AckOutput(
 	ctx context.Context,
 	req *connect.Request[nexusv1.AckOutputRequest],
 ) (*connect.Response[nexusv1.AckOutputResponse], error) {
-	if s.outputStream != nil {
-		return s.ackOutputStream(ctx, req)
+	if s.outputStream == nil {
+		return nil, errOutputStreamDisabled
 	}
-	m := req.Msg
-	if m.GetSessionId() == "" || m.GetTaskId() == "" || m.GetOutputId() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_MALFORMED: session_id, task_id, and output_id are required"))
-	}
-	requester, err := s.checkAckEnvelope(ctx, m)
-	if err != nil {
-		return nil, err
-	}
-	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
-	if err != nil {
-		return nil, err
-	}
-	ack, err := s.h.AckOutput(ctx, ids.session, ids.task, m.GetOutputId(), requester)
-	if err != nil {
-		return nil, mapOutputDeliveryErr(err)
-	}
-	return connect.NewResponse(&nexusv1.AckOutputResponse{
-		Acked: ack.Acked, AlreadyAcked: ack.AlreadyAcked, AckedAt: ack.AckedAt,
-	}), nil
+	return s.ackOutputStream(ctx, req)
 }
 
 // GetTaskEvents is the SDK event stream (server streaming): replays history after cursor, then pushes live events
@@ -430,10 +366,6 @@ func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv
 			}
 		}
 	}
-}
-
-func (s *service) RefreshCredential(context.Context, *connect.Request[nexusv1.RefreshCredentialRequest]) (*connect.Response[nexusv1.RefreshCredentialResponse], error) {
-	return nil, errMethodRetired("RefreshCredential")
 }
 
 func (s *service) PrepareChallenge(ctx context.Context, req *connect.Request[nexusv1.PrepareChallengeRequest]) (*connect.Response[nexusv1.PrepareChallengeResponse], error) {
@@ -515,17 +447,8 @@ func eventToPB(ev types.TaskEvent) *nexusv1.GetTaskEventsResponse {
 	}
 }
 
-// isLegacyOrderEnvelope distinguishes the two order_envelope encodings: the legacy canonical JSON always
-// starts with '{', while proto-encoded task.v1.SignedOrderV2 starts with the tag of field 1,
-// 0x0a; they cannot be confused. SubmitOrderRequest.order_envelope is already bytes, so the
-// new carrier needs no new proto field and the SDK request envelope's body digest is unchanged.
-func isLegacyOrderEnvelope(raw []byte) bool {
-	return len(raw) > 0 && raw[0] == '{'
-}
-
 // parseSignedOrderEnvelope parses the SignedOrderV2 carrier of a TaskOrderV3.
-// It is the only valid input for the first-proposal scope branch of MsgSubmitWorkerHandraises: the user signature
-// covers the order-domain EIP-712 digest of TaskOrderV3; Nexus only validates structure and shape and forwards as is,
+// The user signature covers the order-domain EIP-712 digest of TaskOrderV3; Nexus only validates structure and shape and forwards as is,
 // never reconstructs the order and never verifies the signature (the Keeper verifies with the on-chain account public key).
 func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	var signed taskv1.SignedOrderV2
@@ -583,44 +506,6 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 
 func enumTaskType(t sharedv1.TaskType) string {
 	return strings.ToLower(strings.TrimPrefix(t.String(), "TASK_TYPE_"))
-}
-
-func parseOrderEnvelope(raw []byte, signatureScheme, userSignature string) (types.Order, error) {
-	if signatureScheme != "secp256k1" {
-		return types.Order{}, fmt.Errorf("unsupported signature_scheme %q", signatureScheme)
-	}
-	signature, err := hex.DecodeString(userSignature)
-	if err != nil || len(signature) != 64 || hex.EncodeToString(signature) != userSignature {
-		return types.Order{}, errors.New("user_signature must be 64-byte lowercase hex")
-	}
-	if !isLegacyOrderEnvelope(raw) {
-		return parseSignedOrderEnvelope(raw)
-	}
-	env, err := nodecontract.ParseAssignmentOrderEnvelope(string(raw))
-	if err != nil {
-		return types.Order{}, err
-	}
-	// The legacy JSON envelope has no TaskHash: it lacks chain_id / session_anchor_* / builder_set_* /
-	// generation_params, so the TRUEOPEN_TASK_ORDER_V3 preimage cannot be built and **no**
-	// canonical task_hash exists to fill in. The sha256(order_envelope) formerly filled in here was not a
-	// substitute but an alias, and has been removed.
-	//
-	// The consequence is explicit: an order with an empty task_hash is not broadcast (taskfsm.onOrder rejects it outright),
-	// which matches its original situation -- the first-proposal scope branch accepts only a SignedOrderV2, and
-	// legacy-envelope orders could never be submitted on-chain anyway. The only difference is that it now fails before broadcast
-	// instead of in workerHandraiseScope after enough hand-raises were collected.
-	return types.Order{
-		ModelID: env.ModelID, ProfileVersion: env.ProfileVersion, TaskType: env.TaskType,
-		Deadline: int64(env.DeadlineHeight), OrderEnvelope: string(raw),
-		SignatureScheme: signatureScheme, UserSignature: userSignature,
-		RewardBucket: env.RewardBucket, ProfileResourceTier: env.ProfileResourceTier,
-		InferInputUnitPriceBid: env.InferInputUnitPriceBid, InferOutputUnitPriceBid: env.InferOutputUnitPriceBid,
-		VerifyUnitPriceBid: env.VerifyUnitPriceBid, MaxFee: env.MaxFee, TxFeeReserve: env.TxFeeReserve,
-		InferFeeCap: env.InferFeeCap, VerifyFeeCap: env.VerifyFeeCap, OrderValue: env.OrderValue,
-		ValidAfterHeight: env.ValidAfterHeight, DeadlineHeight: env.DeadlineHeight,
-		PayloadHash: env.PayloadHash, InferTimeoutBlocks: env.InferTimeoutBlocks,
-		ReferenceBucketKey: env.ReferenceBucketKey, TimeoutBucketKey: env.TimeoutBucketKey,
-	}, nil
 }
 
 // verifyParticipantRoleSignature verifies Cortex's role signature. The presented key may be the
@@ -702,10 +587,9 @@ func mapPayloadErr(err error) error {
 
 func mapOrderErr(err error) error {
 	switch {
-	case errors.Is(err, coordinator.ErrNotSelectedBuilder):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_INGRESS_NOT_SELECTED_BUILDER"))
-	case errors.Is(err, coordinator.ErrAdmissionUnavailable):
-		return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_INGRESS_STAGE1_UNAVAILABLE"))
+	case errors.Is(err, coordinator.ErrDispatchNotImplemented):
+		return connect.NewError(connect.CodeUnimplemented, errors.New(
+			"NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED: this Builder does not dispatch orders yet"))
 	case errors.Is(err, coordinator.ErrOrderReplacementUnsupported):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
 			"NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED: this Builder already tracks another version of the task; do not retry"))

@@ -129,8 +129,7 @@ func (a AccessLevel) String() string {
 
 // types.Stage / types.ParseStage have been removed. Their only consumer was the swept_stage attr of the
 // deadline sweep event, and the chain replaced that attr with DeadlineKindV1 +
-// DeadlineTransitionCode (see chaincli.SweepDeadlineAccepted). The three-stage coordination vocabulary
-// between off-chain Builders still lives in msgbus.BusStage and is unrelated to this type.
+// DeadlineTransitionCode (see chaincli.SweepDeadlineAccepted).
 
 // TaskVerdict is computed by the chain (not self-reported by Verifiers).
 type TaskVerdict int
@@ -158,7 +157,7 @@ type Order struct {
 	ProfileVersion uint32
 	TaskType       string
 	PayloadCID     string // content-addressed reference to the encrypted input, not the blob itself
-	Payload        []byte `json:"-"` // encrypted input body; exists only during the Ingress -> Coordinator hand-off, never enters task snapshots/NATS
+	Payload        []byte `json:"-"` // encrypted input body; exists only during the Ingress -> Coordinator hand-off, never enters task snapshots
 	User           string // on-chain address of the ordering user (SDK envelope signer_address; empty = envelope not enabled)
 	Deadline       int64
 	PriceHint      string
@@ -172,14 +171,12 @@ type Order struct {
 	// an order with an empty task_hash is never broadcast (taskfsm.onOrder).
 	//
 	// It replaces the old OrderDigest (= sha256(order_envelope)). Never write any "envelope
-	// byte digest" into this field: that is a transport-layer concern; if needed it is called payload_digest
-	// and lives in BusEnvelopeV1 field 20.
+	// byte digest" into this field: that is a transport-layer concern.
 	TaskHash        string
 	SignatureScheme string
 	UserSignature   string
 	// SignedOrder is the proto-encoded task.v1.SignedOrderV2 submitted directly by the SDK
-	// It is the only legitimate carrier for the first-proposal scope branch of
-	// MsgSubmitWorkerHandraises: the user signed the TaskOrderV3 inside it, so Nexus may only forward it
+	// The user signed the TaskOrderV3 inside it, so Nexus may only forward it
 	// verbatim and cannot derive it from the legacy JSON order_envelope (the legacy envelope lacks chain_id /
 	// session_anchor_* / builder_set_* / generation_params, and its signature coverage differs).
 	// Empty = the SDK is still sending the legacy JSON envelope, in which case only the ExistingTaskRefV1
@@ -201,8 +198,6 @@ type Order struct {
 	InferTimeoutBlocks      uint64
 	ReferenceBucketKey      string
 	TimeoutBucketKey        string
-	Stage1BuilderRank       uint64
-	Stage1SelectionProof    string
 }
 
 // TaskPayload is the encrypted input that Nexus holds temporarily and returns under per-task authorization.
@@ -347,20 +342,6 @@ type TaskEvent struct {
 	TaskPhase   string // fine-grained TaskPhase after the event
 	ChainHeight int64  // set when the event comes from chain, otherwise 0
 	TS          int64  // record time (Unix milliseconds)
-}
-
-// Credential is the fetch credential CredentialV1: bound to task/recipient/usage/
-// validity period and issued by the Builder; refresh exchanges the old credential + held credential record for a new one.
-type Credential struct {
-	ID          string // = hex(sha256(SignBytes)), generated at issue time
-	SessionID   string
-	TaskID      string
-	Recipient   string // target recipient address
-	Usage       string // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-	AccessLevel AccessLevel
-	ValidUntil  int64  // Unix milliseconds (switches to chain-height binding once the chain supports it)
-	Issuer      string // issuing Builder address
-	IssuerSig   []byte // Builder signature (empty when no signer is configured = dev mode)
 }
 
 // ChallengePlan is returned by PrepareChallenge: it only helps the SDK organize its challenge inputs and submits no verdict.

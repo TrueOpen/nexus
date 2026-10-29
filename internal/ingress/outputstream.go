@@ -90,7 +90,7 @@ func (s *service) UploadTaskOutputStream(
 	session, progress, err := s.outputStream.service.OpenOutputStream(ctx, request, taskdata.OutputStreamHeader{
 		Key: key, TaskHash: key.TaskHash,
 		Declaration: taskdata.OutputStreamHeaderRecord{
-			Attempt: headerPB.GetAttempt(), StreamInstance: headerPB.GetStreamInstance(),
+			DispatchTicketHash: headerPB.GetDispatchTicketHash(), StreamInstance: headerPB.GetStreamInstance(),
 			UserRecipientPubkey: headerPB.GetUserRecipientPubkey(),
 			OutputKeyCommitment: headerPB.GetOutputKeyCommitment(),
 			KeyPackageHash:      headerPB.GetKeyPackageHash(),
@@ -129,6 +129,7 @@ func (s *service) UploadTaskOutputStream(
 			fin := taskdata.OutputFin{
 				FinalSeq: frame.Fin.GetFinalSeq(), OutputMMRRoot: append([]byte(nil), frame.Fin.GetOutputMmrRoot()...),
 				FinishReason: uint32(frame.Fin.GetFinishReason()), WorkerSignature: append([]byte(nil), frame.Fin.GetWorkerSignature()...),
+				DispatchTicketHash: append([]byte(nil), frame.Fin.GetDispatchTicketHash()...),
 			}
 			metadata, err := session.Finish(ctx, fin)
 			if err != nil {
@@ -290,6 +291,7 @@ func chunkFromPB(pb *nexusv1.OutputChunkV1) taskdata.OutputChunk {
 		Seq: pb.GetSeq(), Text: append([]byte(nil), pb.GetText()...), MMRRoot: append([]byte(nil), pb.GetMmrRoot()...),
 		WorkerSignature: append([]byte(nil), pb.GetWorkerSignature()...),
 		Attachment:      append([]byte(nil), pb.GetAttachment()...), AttachmentSignature: append([]byte(nil), pb.GetAttachmentSignature()...),
+		DispatchTicketHash: append([]byte(nil), pb.GetDispatchTicketHash()...),
 	}
 }
 
@@ -297,6 +299,7 @@ func chunkToPB(chunk *taskdata.OutputChunk) *nexusv1.OutputChunkV1 {
 	return &nexusv1.OutputChunkV1{
 		Seq: chunk.Seq, Text: chunk.Text, MmrRoot: chunk.MMRRoot, WorkerSignature: chunk.WorkerSignature,
 		Attachment: chunk.Attachment, AttachmentSignature: chunk.AttachmentSignature,
+		DispatchTicketHash: chunk.DispatchTicketHash,
 	}
 }
 
@@ -312,6 +315,7 @@ func outputFinToPB(fin taskdata.OutputFin) *nexusv1.OutputFinV1 {
 	return &nexusv1.OutputFinV1{
 		FinalSeq: fin.FinalSeq, OutputMmrRoot: fin.OutputMMRRoot,
 		FinishReason: taskv1.FinishReasonV1(fin.FinishReason), WorkerSignature: fin.WorkerSignature,
+		DispatchTicketHash: fin.DispatchTicketHash,
 	}
 }
 
@@ -330,7 +334,7 @@ func (s *service) checkSubscribeEnvelope(ctx context.Context, m *nexusv1.Subscri
 	if m.GetRequestEnvelope() == nil {
 		return "", errEnvelopeRequired
 	}
-	body, err := sdkauth.SubscribeOutputBody(m.GetSessionId(), m.GetTaskId(), m.ResumeAfterSeq)
+	body, err := sdkauth.SubscribeOutputBody(m.GetSessionId(), m.GetTaskId(), m.ResumeAfterSeq, m.GetDispatchTicketHash())
 	if err != nil {
 		return "", bodyErr(err)
 	}

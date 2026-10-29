@@ -1,13 +1,11 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// security.mode=production switches on the production security checks: it rejects a plaintext bus, plaintext
+// security.mode=production switches on the production security checks: it rejects plaintext
 // chain connections, inline private keys and passphrases in the config, and ingress without TLS. The dev
 // default performs none of these checks and leaves behaviour unchanged.
 
@@ -19,9 +17,6 @@ func productionConfig() Config {
 	cfg.Identity.KeystoreFile = "/etc/nexus/builder.keystore"
 	cfg.Identity.KeystorePasswordFile = "/etc/nexus/builder.pass"
 	cfg.Identity.PrivateKeyHex = ""
-	cfg.NATS.Servers = []string{"tls://nats.example:4222"}
-	cfg.NATS.CredsFile = "/etc/nexus/nats.creds"
-	cfg.NATS.CAFile = "/etc/nexus/nats-ca.pem"
 	cfg.Chain.GRPCAddr = "https://node.example:9090"
 	return cfg
 }
@@ -29,37 +24,6 @@ func productionConfig() Config {
 func TestSecurityProductionAcceptsAHardenedConfig(t *testing.T) {
 	if err := productionConfig().ValidateSecurity(); err != nil {
 		t.Fatalf("hardened production config rejected: %v", err)
-	}
-}
-
-// sentinel is optional: when it is configured and points at a real regular file, production validation must pass.
-func TestSecurityProductionAcceptsRegularSentinelFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nats-sentinel.jwt")
-	if err := os.WriteFile(path, []byte("eyJ.sentinel.sig"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := productionConfig()
-	cfg.NATS.SentinelFile = path
-	if err := cfg.ValidateSecurity(); err != nil {
-		t.Fatalf("regular sentinel file rejected: %v", err)
-	}
-}
-
-// The NATS address handed to Cortex may differ from the one nexus itself dials.
-func TestSecurityProductionAcceptsAdvertisedNATS(t *testing.T) {
-	cfg := productionConfig()
-	cfg.NATS.Servers = []string{"tls://127.0.0.1:4222"}
-	cfg.NATS.AdvertiseServers = []string{"tls://nats.example:4222"}
-	if err := cfg.ValidateSecurity(); err != nil {
-		t.Fatalf("advertised tls:// with ca_file rejected: %v", err)
-	}
-}
-
-func TestNATSAdvertiseServersFromEnv(t *testing.T) {
-	t.Setenv("NEXUS_NATS_ADVERTISE_SERVERS", "tls://a:4222, tls://b:4222")
-	cfg := Load()
-	if strings.Join(cfg.NATS.AdvertiseServers, "|") != "tls://a:4222|tls://b:4222" {
-		t.Fatalf("advertise_servers = %q", cfg.NATS.AdvertiseServers)
 	}
 }
 
@@ -77,16 +41,6 @@ func TestSecurityProductionRefusesWeakSettings(t *testing.T) {
 		mutate func(*Config)
 		want   string
 	}{
-		{"plaintext nats", func(c *Config) { c.NATS.Servers = []string{"nats://nats.example:4222"} }, "nats.servers"},
-		{"nats user/password", func(c *Config) { c.NATS.User, c.NATS.Password = "app", "secret" }, "nats.user"},
-		{"nats without creds", func(c *Config) { c.NATS.CredsFile = "" }, "nats.creds_file"},
-		{"nats without ca file", func(c *Config) { c.NATS.CAFile = "" }, "nats.ca_file"},
-		{"nats sentinel file missing", func(c *Config) { c.NATS.SentinelFile = filepath.Join(t.TempDir(), "absent.jwt") }, "nats.sentinel_file"},
-		{"nats sentinel file is a directory", func(c *Config) { c.NATS.SentinelFile = t.TempDir() }, "nats.sentinel_file"},
-		{"plaintext advertised nats", func(c *Config) { c.NATS.AdvertiseServers = []string{"nats://nats.example:4222"} }, "nats.advertise_servers"},
-		{"advertised nats without ca file", func(c *Config) {
-			c.NATS.AdvertiseServers, c.NATS.CAFile = []string{"tls://nats.example:4222"}, ""
-		}, "nats.advertise_servers needs nats.ca_file"},
 		{"plaintext remote chain", func(c *Config) { c.Chain.GRPCAddr = "node.example:9090" }, "chain.grpc_addr"},
 		{"plaintext remote hub", func(c *Config) { c.Hub.Enabled, c.Hub.GRPCAddr = true, "hub.example:9090" }, "hub.grpc_addr"},
 		{"inline private_key_hex", func(c *Config) {
@@ -111,8 +65,6 @@ func TestSecurityProductionRefusesWeakSettings(t *testing.T) {
 
 func TestSecurityDevModeKeepsCurrentBehaviour(t *testing.T) {
 	cfg := Load()
-	cfg.NATS.Servers = []string{"nats://127.0.0.1:4222"}
-	cfg.NATS.User, cfg.NATS.Password = "app", "secret"
 	cfg.Identity.PrivateKeyHex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
 	if cfg.Security.Mode != SecurityDev {
 		t.Fatalf("default security.mode = %q, want dev", cfg.Security.Mode)
@@ -122,17 +74,10 @@ func TestSecurityDevModeKeepsCurrentBehaviour(t *testing.T) {
 	}
 }
 
-func TestSecurityAndNATSEnvironment(t *testing.T) {
+func TestSecurityModeEnvironment(t *testing.T) {
 	t.Setenv("NEXUS_SECURITY_MODE", "production")
-	t.Setenv("NEXUS_NATS_SERVERS", "tls://a:4222,tls://b:4222")
-	t.Setenv("NEXUS_NATS_CA_FILE", "/etc/nexus/nats-ca.pem")
-	t.Setenv("NEXUS_NATS_CREDS_FILE", "/etc/nexus/nats.creds")
-	t.Setenv("NEXUS_NATS_SENTINEL_FILE", "/etc/nexus/nats-sentinel.jwt")
-	got := Load()
-	if got.Security.Mode != SecurityProduction || got.NATS.CAFile != "/etc/nexus/nats-ca.pem" ||
-		got.NATS.CredsFile != "/etc/nexus/nats.creds" || got.NATS.SentinelFile != "/etc/nexus/nats-sentinel.jwt" ||
-		len(got.NATS.Servers) != 2 {
-		t.Fatalf("environment = security %+v nats %+v", got.Security, got.NATS)
+	if got := Load(); got.Security.Mode != SecurityProduction {
+		t.Fatalf("environment security = %+v", got.Security)
 	}
 	t.Setenv("NEXUS_SECURITY_MODE", "loose")
 	if err := Load().ValidateSecurity(); err == nil || !strings.Contains(err.Error(), "security.mode") {

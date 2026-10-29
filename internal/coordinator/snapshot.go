@@ -21,13 +21,10 @@ import (
 )
 
 // snapshotVersionProtoPayloadV4 is the current snapshot version. v4 change: hand-raise/verification-result data is stored
-// as proto-serialized bytes of the frozen wire (new JSON keys *_pb, []byte auto-base64 via encoding/json); the
-// old msgbus JSON payload structs were removed with the bus format migration (TRUEOPEN_BUS_ENVELOPE_V2).
+// as proto-serialized bytes of the frozen wire (new JSON keys *_pb, []byte auto-base64 via encoding/json).
 //
 // A format migration must be expressed explicitly through the version number. Old keys of pre-v4 snapshots are ignored
-// on decode and the new keys are empty -- hand-raises are re-sent on re-broadcast; already-Acked V_i are not redelivered
-// by JetStream, so a task still in Verifying across the version boundary cannot reach 2/3 locally and falls back to
-// on-chain sweep settlement. Under the four-component lockstep upgrade, in-flight tasks migrate format together anyway; correctness beats a dubious cache.
+// on decode and the new keys are empty; correctness beats a dubious cache.
 const snapshotVersionProtoPayloadV4 = 4
 
 // taskSnapshot is the persisted encoding of the state machine (NSTask, key = session_id|task_id).
@@ -62,7 +59,6 @@ type taskSnapshot struct {
 	Winner      string             `json:"winner,omitempty"`
 	AssignedSet []types.BuilderRef `json:"assigned_set,omitempty"`
 	Verifiers   []string           `json:"verifiers,omitempty"`
-	AssignSeed  []byte             `json:"assign_seed,omitempty"`
 	SampleSeed  []byte             `json:"sample_seed,omitempty"`
 	Deadlines   types.Deadlines    `json:"deadlines"`
 
@@ -77,11 +73,7 @@ type taskSnapshot struct {
 
 	Verdict types.TaskVerdict `json:"verdict,omitempty"`
 
-	// AssignTxHash persists an in-flight CheckTx acceptance so recovery can query
-	// the authoritative DeliverTx result without rebroadcasting the same order.
-	AssignTxHash []byte `json:"assign_tx_hash,omitempty"`
-	// AcceptedTaskHash is the authoritative task_hash after on-chain acceptance. Must survive recovery, otherwise
-	// later proposals are mistaken for the "first" one, carry signed_order again and get rejected by the Keeper.
+	// AcceptedTaskHash is the authoritative task_hash after on-chain acceptance.
 	AcceptedTaskHash []byte `json:"accepted_task_hash,omitempty"`
 	// AcceptedInputHash is the accepted order's input_hash (lowercase hex), from the same chain
 	// query as AcceptedTaskHash.
@@ -92,15 +84,14 @@ type taskSnapshot struct {
 	WorkerRevealed bool     `json:"worker_revealed,omitempty"`
 	FullReveals    []string `json:"full_reveals,omitempty"`
 
-	// Hand-raise/verification-result data is stored as proto-serialized bytes of the frozen wire (acked V_i travel over
-	// JetStream and are not redelivered, so they must be persisted). Entries failing proto.Unmarshal on recovery are dropped whole.
+	// Hand-raise/verification-result data is stored as proto-serialized bytes of the frozen wire.
+	// Entries failing proto.Unmarshal on recovery are dropped whole.
 	VerifyResults [][]byte `json:"verify_results_pb,omitempty"`
-	// PendingVerifyResults are results taken off the bus and broadcast but not yet confirmed on
-	// chain. Their bus messages are acknowledged and will not come again, so they are kept here
-	// with the transaction awaiting its block result (none: the chain's record is read first).
+	// PendingVerifyResults are results whose relay failed temporarily and are not yet confirmed on
+	// chain, kept with the transaction awaiting its block result (none: the chain's record is read
+	// first).
 	PendingVerifyResults []pendingResultRecord `json:"pending_verify_results,omitempty"`
 	VerifyCommits        [][]byte              `json:"verify_commits_pb,omitempty"`
-	WorkerHandraises     [][]byte              `json:"worker_handraises_pb,omitempty"`
 	VerifierHandraises   [][]byte              `json:"verifier_handraises_pb,omitempty"`
 	// VerifierHandraisesProposed records which hand-raisers were already broadcast with MsgSubmitVerifierHandraises.
 	// Including them again after restart makes the Keeper reject as "no new members" and drags the new hand-raises down with them.
@@ -143,7 +134,6 @@ func (f *taskFSM) save() error {
 		Winner:      f.winner,
 		AssignedSet: f.assignedSet,
 		Verifiers:   f.verifiers,
-		AssignSeed:  f.assignSeed,
 		SampleSeed:  f.sampleSeed,
 		Deadlines:   f.deadlines,
 
@@ -156,7 +146,6 @@ func (f *taskFSM) save() error {
 
 		Verdict: f.verdict,
 
-		AssignTxHash:      append([]byte(nil), f.assignTxHash...),
 		AcceptedTaskHash:  append([]byte(nil), f.acceptedTaskHash...),
 		AcceptedInputHash: f.acceptedInputHash,
 		VersionMismatch:   f.versionMismatch,
@@ -208,15 +197,6 @@ func (f *taskFSM) save() error {
 	}); err != nil {
 		return fmt.Errorf("snapshot verify commits: %w", err)
 	}
-	workerKeys := make([]string, 0, len(f.workerHR))
-	for key := range f.workerHR {
-		workerKeys = append(workerKeys, key)
-	}
-	if err := appendSorted(&sn.WorkerHandraises, workerKeys, func(key string) ([]byte, error) {
-		return proto.Marshal(f.workerHR[key])
-	}); err != nil {
-		return fmt.Errorf("snapshot worker handraises: %w", err)
-	}
 	verifierKeys := make([]string, 0, len(f.verifierHR))
 	for key := range f.verifierHR {
 		verifierKeys = append(verifierKeys, key)
@@ -262,7 +242,6 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	f.winner = sn.Winner
 	f.assignedSet = sn.AssignedSet
 	f.verifiers = sn.Verifiers
-	f.assignSeed = sn.AssignSeed
 	f.sampleSeed = sn.SampleSeed
 	f.deadlines = sn.Deadlines
 	f.outputHash = sn.OutputHash
@@ -276,11 +255,9 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	f.settleSelection = sn.SettleSelection
 	f.settleGraceBlocks = sn.SettleGraceBlocks
 	f.verdict = sn.Verdict
-	f.assignTxHash = append([]byte(nil), sn.AssignTxHash...)
 	f.acceptedTaskHash = append([]byte(nil), sn.AcceptedTaskHash...)
 	f.acceptedInputHash = sn.AcceptedInputHash
 	f.versionMismatch = sn.VersionMismatch
-	f.assignSubmitted = len(f.assignTxHash) > 0
 	f.workerRevealed = sn.WorkerRevealed
 	for _, v := range sn.FullReveals {
 		f.fullReveals[v] = true
@@ -288,11 +265,10 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	// From v4 hand-raise/verification-result data is proto bytes of the frozen wire. Old JSON keys of pre-v4 snapshots are
 	// ignored on decode (new keys empty); here the version gate additionally drops the anomaly "old version yet carrying
 	// new keys" as a whole: the data can be re-received, correctness beats the cache.
-	if sn.Version < snapshotVersionProtoPayloadV4 &&
-		(len(sn.VerifyResults) > 0 || len(sn.WorkerHandraises) > 0 || len(sn.VerifierHandraises) > 0) {
-		f.log.Warn("dropping pre-v4 snapshot payloads: they predate the proto bus migration",
+	if sn.Version < snapshotVersionProtoPayloadV4 && (len(sn.VerifyResults) > 0 || len(sn.VerifierHandraises) > 0) {
+		f.log.Warn("dropping pre-v4 snapshot payloads: they predate the proto payload format",
 			"task_id", f.taskID, "snapshot_version", sn.Version)
-		sn.VerifyResults, sn.WorkerHandraises, sn.VerifierHandraises = nil, nil, nil
+		sn.VerifyResults, sn.VerifierHandraises = nil, nil
 	}
 	for _, raw := range sn.VerifyResults {
 		var vr taskv1.ResultReceiptV3
@@ -322,14 +298,6 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 			continue
 		}
 		f.verifyCommits[commit.GetVerifierOperatorAddress()] = &commit
-	}
-	for _, raw := range sn.WorkerHandraises {
-		var hr taskv1.WorkerHandraiseV1
-		if err := proto.Unmarshal(raw, &hr); err != nil || hr.GetMember().GetOperatorAddress() == "" {
-			f.log.Warn("drop undecodable snapshotted worker handraise", "task_id", f.taskID)
-			continue
-		}
-		f.workerHR[hr.GetMember().GetOperatorAddress()] = &hr
 	}
 	for _, raw := range sn.VerifierHandraises {
 		var hr taskv1.VerifierHandraiseV1
@@ -364,10 +332,6 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 		switch chainState {
 		case types.Assigned:
 			f.phase = types.PhaseAssignmentFinalized
-			// Assignment finalized while offline: the Worker never received the winner notification.
-			// Record it so resume re-sends it once (the event path is handled by applyAuthoritativeTask;
-			// the startup recovery path had no equivalent before).
-			f.pendingAssignmentNotify = true
 		case types.Verifying:
 			f.phase = types.PhaseOpenVerify
 		case types.Settled:
@@ -381,9 +345,6 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	}
 	if t.Assignment.InferDeadlineHeight != 0 {
 		f.inferDeadlineHeight = t.Assignment.InferDeadlineHeight
-	}
-	if t.Assignment.WinnerConfirmHeight != 0 {
-		f.assignFinalizedHeight = t.Assignment.WinnerConfirmHeight
 	}
 	if len(t.AssignedSet) > 0 {
 		f.assignedSet = t.AssignedSet
@@ -414,7 +375,7 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	}
 }
 
-// resume restores subscriptions/timers and continues driving (called after restoreFrom + reconcile).
+// resume continues driving a recovered task (called after restoreFrom + reconcile).
 // Terminal states (Closed/Failed) return false = should not stay in the task table; the caller releases and cleans up.
 func (f *taskFSM) resume() bool {
 	f.mu.Lock()
@@ -429,21 +390,8 @@ func (f *taskFSM) resume() bool {
 	case types.Settled:
 		// Settled tasks stay passive until a fresh chain query proves finality.
 	default:
-		// Pending/Assigned/Verifying: rebuild task-level subscriptions (subscribing before messages is harmless).
-		// Subscription definitions share the same subscribeXxx functions as onOrder/onAssignAccepted -- a subject
-		// missed on the recovery path is the easiest thing to miss in a format migration; sharing prevents it.
-		f.subscribeWorkerHandraise()
-		f.subscribeBuilderPrepare()
-		f.subscribeVerifierHandraise()
-		// Durable consumer restored under the same name -> JetStream resumes from the last ack position and catches up V_i missed while disconnected.
-		f.subscribeVerifyResult()
-		// Assignment missed while offline: re-send the start-of-work notification once, otherwise the winner never
-		// learns its winner identity and infer deadline and the task never starts on the Worker side.
-		// The notification creates no consensus fact; duplicates are deduplicated by the receiver against the on-chain assignment.
-		if f.pendingAssignmentNotify {
-			f.pendingAssignmentNotify = false
-			f.publishWorkerAssignmentNotify()
-		}
+		// Pending/Assigned/Verifying: messages from Cortex streams reach the task through the
+		// coordinator's Handle* entry points once it is back in the task table.
 		// Settlement inputs may already have been complete before the crash (SettleTx broadcast but not seen included): re-evaluate immediately.
 		// The submitted flag is not persisted, so we resubmit by rank timing -- the chain is idempotent as fallback; at worst one extra gas fee.
 		if f.state == types.Verifying {

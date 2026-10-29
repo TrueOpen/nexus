@@ -117,8 +117,7 @@ func (s *service) SubmitVerifyCommit(
 }
 
 // SubmitVerifyResult: same rules as SubmitVerifyCommit, relayed as
-// MsgBatchSubmitVerifyResult. It carries the same ResultReceiptV2 as the VERIFY_RESULT JetStream path,
-// and material_digest is identical on both paths.
+// MsgBatchSubmitVerifyResult.
 func (s *service) SubmitVerifyResult(
 	ctx context.Context,
 	req *connect.Request[nexusv1.SubmitVerifyResultRequest],
@@ -154,7 +153,7 @@ func (s *service) SubmitVerifyResult(
 }
 
 // verifyResultMaterialDigest is the material digest: sha256 of the deterministic proto encoding of
-// ResultReceiptV2; the API and JetStream paths compute the same value for the same receipt.
+// ResultReceiptV2.
 func verifyResultMaterialDigest(receipt *taskv1.ResultReceiptV3) (string, error) {
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(receipt)
 	if err != nil {

@@ -857,8 +857,8 @@ func verifyAcceptedOutputMetadata(metadata Metadata, accepted chaincli.InferRece
 // rolePermissions is the requester's on-chain standing for one Task, evaluated at one height.
 // A requester may hold several roles at once, and each role grants its own access.
 //
-// Candidates hold no role here: the metadata a candidate Worker/Verifier needs is broadcast in
-// ORDER_BROADCAST / OPEN_VERIFY, and a candidate reads nothing through the data interface —
+// Candidates hold no role here: the metadata a candidate Worker/Verifier needs comes with the
+// dispatch offer or OPEN_VERIFY, and a candidate reads nothing through the data interface —
 // not content, not metadata.
 type rolePermissions struct {
 	worker bool

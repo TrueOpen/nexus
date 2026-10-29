@@ -12,7 +12,7 @@
 //
 // On-chain transactions use SIGN_MODE_DIRECT, keccak256(SignDoc), raw64 R||S, with the digest
 // derived by chaincli and signed directly through SignDigest; the SHA-256 semantics of Sign(msg) serve only
-// the off-chain protocols (bus envelopes, SDK request envelopes, credentials).
+// the off-chain protocols (SDK request envelopes).
 //
 // In production, startup loads the account only from an encrypted keystore file:
 // NEXUS_KEYSTORE_FILE + NEXUS_KEYSTORE_PASSWORD or NEXUS_KEYSTORE_PASSWORD_FILE.

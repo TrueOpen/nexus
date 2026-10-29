@@ -90,8 +90,8 @@ func (j *journal) restoreEntries(entries []types.TaskEvent) {
 const (
 	EvOrderReceived       = "ORDER_RECEIVED"
 	EvAssignTimeout       = "ASSIGN_TIMEOUT"       // no on-chain task before order deadline
-	EvAssignRejected      = "ASSIGN_REJECTED"      // DeliverTx rejected before task creation
-	EvAssignAccepted      = "ASSIGN_ACCEPTED"      // randomness pending
+	EvAssignRejected      = "ASSIGN_REJECTED"      // retired: no longer emitted, kept so the code is never reused
+	EvAssignAccepted      = "ASSIGN_ACCEPTED"      // retired: no longer emitted, kept so the code is never reused
 	EvAssignmentFinalized = "ASSIGNMENT_FINALIZED" // winner settled
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
 	// SDK's frozen event_code set, while the word OutputRef is

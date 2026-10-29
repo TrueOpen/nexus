@@ -1,7 +1,6 @@
 package coordinator
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -23,31 +21,21 @@ import (
 // snapshot, so simply not sending is fine here; local state must still follow the chain into Verifying.
 func TestVerifierAssignmentNotifySkippedWithoutOutputHash(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	enableTestBusEnvelopes(c)
+	_, link := enableTestBuilderMessages(c)
 	c.submit = &fakeSubmitter{}
 
 	const (
 		session = "sess-notify-without-output-hash"
 		task    = "6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f"
 	)
-	verifySelect := &captured{}
-	mustSub(t, bus, msgbus.SubjectVerifierAssignment(task), verifySelect)
+	verifySelect := assignmentCounter{link: link}
 
-	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}},
-		Height:      100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: testOperator("worker"), AssignSeed: []byte("assign-seed"), Height: 101,
-	})
+	recordTestWinner(c, session, task, testOperator("worker"), 101)
 	// The receipt went to another Builder: no OnInferReceipt locally, output_hash is empty.
 
 	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}

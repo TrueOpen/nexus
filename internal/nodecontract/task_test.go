@@ -62,24 +62,8 @@ func TestParseAssignmentOrderEnvelopeRejectsLegacyAndNonCanonicalJSON(t *testing
 }
 
 func TestCanonicalHandraiseSetsSortAndRejectDuplicates(t *testing.T) {
-	workers := []WorkerHandraiseV1{
-		validWorkerHandraise("worker-2"),
-		validWorkerHandraise("worker-1"),
-	}
-	raw, err := CanonicalWorkerHandraiseSet(workers)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(raw, `[{"schema_version":"trueopen-worker-handraise-v1","worker_operator_address":"worker-1"`) {
-		t.Fatalf("worker set=%s", raw)
-	}
-	workers[1].WorkerOperatorAddress = "worker-2"
-	if _, err := CanonicalWorkerHandraiseSet(workers); err == nil {
-		t.Fatal("duplicate worker must fail")
-	}
-
 	verifiers := []VerifierHandraiseV1{validVerifierHandraise("verifier-2"), validVerifierHandraise("verifier-1")}
-	raw, err = CanonicalVerifierHandraiseList(verifiers)
+	raw, err := CanonicalVerifierHandraiseList(verifiers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,14 +102,6 @@ func TestVerifierCandidateWindowProofUsesNodeDomain(t *testing.T) {
 
 func canonicalOrderFixture() string {
 	return `{"schema_version":"trueopen-order-envelope-v1","model_id":"model-1","profile_version":1,"task_type":"inference","reward_bucket":1,"profile_resource_tier":2,"infer_input_unit_price_bid":2,"infer_output_unit_price_bid":3,"verify_unit_price_bid":4,"max_fee":1000,"tx_fee_reserve":100,"infer_fee_cap":600,"verify_fee_cap":300,"order_value":900,"valid_after_height":10,"deadline_height":100,"payload_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","infer_timeout_blocks":20,"reference_bucket_key":"reference-v1","timeout_bucket_key":"timeout-v1"}`
-}
-
-func validWorkerHandraise(address string) WorkerHandraiseV1 {
-	return WorkerHandraiseV1{
-		SchemaVersion: WorkerHandraiseSchemaV1, WorkerOperatorAddress: address, TaskID: "task-1", TaskHash: "task-hash",
-		CandidateSnapshotID: "snapshot",
-		ExpiryHeight:        100, ServiceSignature: "signature-" + address,
-	}
 }
 
 func validVerifierHandraise(address string) VerifierHandraiseV1 {

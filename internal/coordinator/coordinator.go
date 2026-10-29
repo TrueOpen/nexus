@@ -1,6 +1,7 @@
 // Package coordinator is the orchestration core of nexus.
-// One state machine per order (taskFSM) drives the three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal.
-// Covers: happy path, SETTLE rank timing and failover, snapshot persistence and restart recovery reconciliation.
+// One state machine per task (taskFSM) drives the verification and settlement stages of a dispatched
+// task (receipt / Verifier proposal / commit-reveal relay / Settle).
+// Covers: SETTLE rank timing and failover, snapshot persistence and restart recovery reconciliation.
 package coordinator
 
 import (
@@ -21,17 +22,13 @@ import (
 	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/busadapter"
 	"github.com/TrueOpen/nexus/internal/chaincli"
-	"github.com/TrueOpen/nexus/internal/credential"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -50,7 +47,13 @@ var (
 	// ErrTaskTerminal refuses an order whose task_hash differs from the version of a task that has
 	// already reached a terminal state. An exact retry of the terminal version is still accepted.
 	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
+	// ErrDispatchNotImplemented refuses every new order: this Builder does not dispatch orders to
+	// Cortex nodes yet, so it accepts none rather than one it cannot run.
+	ErrDispatchNotImplemented = errors.New("NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED")
 )
+
+// serviceKeyStatusActive is the Hub service key status of a Builder allowed to act.
+const serviceKeyStatusActive = "ACTIVE"
 
 const terminalTaskVersion = 1
 
@@ -80,7 +83,6 @@ func taskKey(sessionID, taskID string) string { return sessionID + "|" + taskID 
 
 type Coordinator struct {
 	log             *slog.Logger
-	bus             msgbus.Bus
 	chain           chaincli.Client
 	protocolEvents  <-chan chaincli.ChainEvent
 	chainID         string
@@ -125,20 +127,17 @@ type Coordinator struct {
 	jmu      sync.Mutex
 	journals map[string]*journal // per-task event journal; kept after task close until its tombstone expires
 
-	identity  signer.Signer // for credential issuance (nil = dev mode, unsigned credentials)
-	registry  BuilderRegistry
-	admission OrderAdmission
+	identity signer.Signer // Builder account signer (nil = dev mode, no chain transactions)
+	registry BuilderRegistry
 
 	// serviceSigner is the current service key private key; serviceKeys is its on-chain query port.
-	// Without either, BusEnvelopeV1 cannot be signed and the coordinator sends no task-control frame at all
-	// (none of the 20 BusEnvelopeV1 fields is optional; there is no "send unsigned for now" degradation).
+	// Without either, no Builder message can be signed and the coordinator sends none to Cortex:
+	// there is no "send unsigned for now" degradation.
 	serviceSigner signer.Signer
 	serviceKeys   servicekey.Resolver
 	addressPrefix string
-	busPublisher  *busadapter.Publisher
-	busReceiver   *busadapter.Receiver
-	busReplay     *busadapter.KVReplayStore
-	prepares      *prepareCodec
+	// cortex delivers Builder-signed messages to connected Cortex streams (nil = none sent).
+	cortex CortexLink
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
 
@@ -304,8 +303,7 @@ func WithSubmitter(s Submitter) Option {
 	return func(c *Coordinator) { c.submit = s }
 }
 
-// WithIdentitySigner injects the Builder identity signer: issues/verifies retrieval credentials (CredentialV1).
-// Not injected = dev mode (unsigned credentials).
+// WithIdentitySigner injects the Builder account signer. Not injected = dev mode.
 func WithIdentitySigner(sg signer.Signer) Option {
 	return func(c *Coordinator) { c.identity = sg }
 }
@@ -315,17 +313,13 @@ func WithBuilderRegistry(registry BuilderRegistry) Option {
 }
 
 // WithServiceKey injects the current service key private key and its on-chain query port.
-// Not injected = this node can neither send nor accept BusEnvelopeV1.
+// Not injected = this node signs no Builder message.
 func WithServiceKey(serviceSigner signer.Signer, resolver servicekey.Resolver, addressPrefix string) Option {
 	return func(c *Coordinator) {
 		c.serviceSigner = serviceSigner
 		c.serviceKeys = resolver
 		c.addressPrefix = addressPrefix
 	}
-}
-
-func WithOrderAdmission(admission OrderAdmission) Option {
-	return func(c *Coordinator) { c.admission = admission }
 }
 
 func WithTaskQuerier(query TaskQuerier) Option {
@@ -392,10 +386,9 @@ func WithChainResetWatch(watch ChainResetWatch) Option {
 
 // New assembles the Coordinator. selfAddr is this node's on-chain builder address (from config.Identity.BuilderAddress);
 // empty means no identity configured, so self-check / MyRank always report "not in set". chainID is the Task Chain ID.
-func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custodian, store kv.Store, selfAddr, chainID string, opts ...Option) *Coordinator {
+func New(log *slog.Logger, chain chaincli.Client, rl relay.Custodian, store kv.Store, selfAddr, chainID string, opts ...Option) *Coordinator {
 	c := &Coordinator{
 		log:                log,
-		bus:                bus,
 		chain:              chain,
 		chainID:            chainID,
 		query:              chain,
@@ -434,11 +427,6 @@ func New(log *slog.Logger, bus msgbus.Bus, chain chaincli.Client, rl relay.Custo
 	for _, o := range opts {
 		o(c)
 	}
-	c.busPublisher, c.busReceiver = c.buildBusAdapters()
-	c.prepares = &prepareCodec{
-		log: log, chainID: chainID, addressPrefix: c.addressPrefix,
-		self: selfAddr, signer: c.serviceSigner, authority: c.serviceKeys,
-	}
 	c.outputRecoveryPending = c.outputs != nil
 	if c.outputs != nil {
 		c.outputs.SetTerminationObserver(c.onOutputFinalized)
@@ -470,11 +458,6 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	if err := c.recoverTasks(ctx); err != nil {
 		return err
 	}
-	// outbox republish: envelopes signed and persisted before the last process exit but possibly never sent are
-	// resent verbatim (bytes and message_id unchanged; receivers admit them as legitimate retries); then the periodic
-	// maintenance loop starts: it retries runtime publish failures within TTL and prunes the replay store at low frequency.
-	c.republishOutbox(ctx)
-	c.startBusMaintenance()
 	c.startReconcileWorker()
 	c.requestReconcile("coordinator startup")
 
@@ -551,8 +534,8 @@ func (c *Coordinator) seedBuilderSet(ctx context.Context) error {
 	c.log.Info("active-set seeded from Hub BuilderSet",
 		"height", height, "builder_set_version", set.Epoch, "builder_set_id", set.BuilderSetID,
 		"members", len(set.Members), "set_hash", set.SetHash)
-	// id and hash must come from this same read: fetching BusEnvelopeV1 fields 11/12 in two queries
-	// can assemble a set that never existed on-chain at a term boundary.
+	// id and hash must come from this same read: fetching them in two queries can assemble a set
+	// that never existed on-chain at a term boundary.
 	c.active.Update(set.Epoch, set.Members, builderSetRef{
 		ID: set.BuilderSetID, Hash: "0x" + hex.EncodeToString(setHash),
 	})
@@ -598,10 +581,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 	key := taskKey(o.SessionID, o.TaskID)
 	fsm := &taskFSM{
 		log:                   c.log,
-		bus:                   c.bus,
-		publisher:             c.busPublisher,
-		receiver:              c.busReceiver,
-		prepares:              c.prepares,
+		messages:              builderMessages{coord: c},
 		submit:                c.submit,
 		relay:                 c.relay,
 		self:                  c.active.self,
@@ -618,7 +598,6 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		events:                c.journalFor(key),
 		builderSet:            c.active.Members(),
 		state:                 types.Pending,
-		workerHR:              make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:            make(map[string]*taskv1.VerifierHandraiseV1),
 		verifierHRProposed:    make(map[string]bool),
 		verifierHRExcluded:    make(map[string]uint64),
@@ -628,7 +607,6 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		verifyResults:         make(map[string]*taskv1.ResultReceiptV3),
 		verifyCommits:         make(map[string]*taskv1.VerifyCommitV1),
 		fullReveals:           make(map[string]bool),
-		prepareSeen:           make(map[string]int64),
 		requestReconcile:      c.requestReconcile,
 		confirm:               c.newTxConfirm(),
 		beginExternalHandler:  c.beginCallback,
@@ -689,129 +667,54 @@ func (c *Coordinator) beginCallback() bool {
 	return true
 }
 
-// OnOrder implements the ingress order entry (called by IngressAPI after signature verification): build FSM -> Pending.
+// OnOrder implements the ingress order entry (called by IngressAPI after signature verification).
+// Dispatching an order to Cortex nodes is not implemented yet: an exact retry of a task this Builder
+// already tracks or finished is accepted without change, and every other order is refused with
+// ErrDispatchNotImplemented, so no task is created for it.
 func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
-	key := taskKey(o.SessionID, o.TaskID)
-	_, alreadyTerminal, err := c.terminalRecipient(o.SessionID, o.TaskID)
-	if err != nil {
-		return fmt.Errorf("read terminal task marker: %w", err)
-	}
-	if alreadyTerminal {
-		if err := c.terminalVersionErr(key, o.TaskHash); err != nil {
-			c.log.Info("order for terminal task refused",
-				"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
-			return err
-		}
-		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
-		return nil
-	}
-	if err := c.trackedVersionErr(key, o.TaskHash); err != nil {
-		c.log.Info("order replacement refused",
-			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
-		return err
-	}
-	var admissionTime time.Duration
-	if c.admission != nil {
-		admissionStart := time.Now()
-		result, err := c.admission.AdmitOrder(ctx, o)
-		admissionTime = time.Since(admissionStart)
-		stagetiming.From(ctx).Add("admission", admissionTime)
-		if err != nil {
-			code := "NEXUS_INGRESS_STAGE1_VALIDATION_FAILED"
-			switch {
-			case errors.Is(err, ErrNotSelectedBuilder):
-				code = ErrNotSelectedBuilder.Error()
-			case errors.Is(err, ErrAdmissionUnavailable):
-				code = ErrAdmissionUnavailable.Error()
-			}
-			c.log.Warn("stage1 order admission failed; continuing in observe-only mode",
-				"session_id", o.SessionID, "task_id", o.TaskID, "code", code, "err", err)
-		} else {
-			o.Stage1BuilderRank = result.Rank
-			o.Stage1SelectionProof = result.Proof
-			c.log.Debug("stage1 order admission accepted", "task_id", o.TaskID, "term", result.TermID, "rank", result.Rank)
-		}
-	}
-	// Input bytes arrive through OpenTask and live in taskdata; they are never part of the order.
-	o.Payload = nil
-	c.mu.Lock()
-	if _, terminal := c.terminalTasks[key]; terminal {
-		c.mu.Unlock()
-		if err := c.terminalVersionErr(key, o.TaskHash); err != nil {
-			c.log.Info("order for terminal task refused",
-				"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
-			return err
-		}
-		c.deletePayload(orderInput(o))
-		c.log.Info("terminal order replay ignored", "session_id", o.SessionID, "task_id", o.TaskID)
-		return nil
-	}
-	fsm, exists := c.tasks[key]
-	if !exists {
-		fsm = c.newFSM(o)
-		c.tasks[key] = fsm
-	} else if tracked := fsm.order.TaskHash; tracked != o.TaskHash {
-		// Checked again under c.mu: a concurrent OnOrder may have created the FSM after the
-		// trackedVersionErr check above.
-		c.mu.Unlock()
-		err := fmt.Errorf("%w: tracked task_hash %s", ErrOrderReplacementUnsupported, tracked)
-		c.log.Info("order replacement refused",
-			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
-		return err
-	}
-	n := len(c.tasks)
-	c.mu.Unlock()
-
-	c.log.Info("order received",
-		"session_id", o.SessionID,
-		"task_id", o.TaskID,
-		"task_hash", o.TaskHash,
-		"model_id", o.ModelID,
-		"tasks_inflight", n,
-		"admission_ms", stagetiming.Millis(admissionTime),
-	)
-	if !exists {
-		initStart := time.Now()
-		defer stagetiming.From(ctx).Since("order_init", initStart)
-		if err := c.trackTaskEvents(key, fsm); err != nil {
-			c.log.Error("order initialization failed",
-				"phase", "track_task_events", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-			c.deletePayload(orderInput(o))
-			c.abandonTask(key, fsm)
-			return fmt.Errorf("track task events: %w", err)
-		}
-		if err := fsm.onOrder(ctx); err != nil {
-			c.log.Error("order initialization failed",
-				"phase", "initialize_task", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-			c.deletePayload(orderInput(o))
-			c.abandonTask(key, fsm)
-			return fmt.Errorf("initialize task FSM: %w", err)
-		}
-	}
-	c.log.Info("order accepted locally",
-		"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "tasks_inflight", n)
-	return nil
+	return c.CheckOrder(ctx, o)
 }
 
-// CheckOrder reports whether OnOrder would refuse o because of its version, without changing any
-// state. Ingress calls it before storing the input, so a refused version is never written. OnOrder
-// repeats the same checks and stays authoritative.
+// CheckOrder reports whether OnOrder would refuse o, without changing any state. Ingress calls it
+// before storing the input, so a refused order is never written. An order for a task this Builder
+// already knows is answered by the version checks (an exact retry passes); any other order is
+// refused because dispatch is not implemented.
 func (c *Coordinator) CheckOrder(_ context.Context, o types.Order) error {
 	key := taskKey(o.SessionID, o.TaskID)
 	_, terminal, err := c.terminalMarker(key)
 	if err != nil {
 		return fmt.Errorf("read terminal task marker: %w", err)
 	}
+	known := terminal
 	if terminal {
 		err = c.terminalVersionErr(key, o.TaskHash)
 	} else {
-		err = c.trackedVersionErr(key, o.TaskHash)
+		known, err = c.trackedVersion(key, o.TaskHash)
 	}
-	if errors.Is(err, ErrOrderReplacementUnsupported) || errors.Is(err, ErrTaskTerminal) {
+	if err != nil {
 		c.log.Info("order refused before input upload",
 			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
+		return err
 	}
-	return err
+	if known {
+		c.log.Info("order retry for a known task ignored", "session_id", o.SessionID, "task_id", o.TaskID)
+		return nil
+	}
+	c.log.Info("order refused: dispatch is not implemented",
+		"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash)
+	return ErrDispatchNotImplemented
+}
+
+// trackedVersion reports whether an FSM tracks the task, refusing taskHash when it tracks a
+// different version.
+func (c *Coordinator) trackedVersion(key, taskHash string) (bool, error) {
+	c.mu.RLock()
+	_, exists := c.tasks[key]
+	c.mu.RUnlock()
+	if !exists {
+		return false, nil
+	}
+	return true, c.trackedVersionErr(key, taskHash)
 }
 
 // trackedVersionErr refuses taskHash when an FSM already tracks a different version of the task.
@@ -1019,8 +922,7 @@ func (c *Coordinator) OnVerifyCommit(_ context.Context, sessionID, taskID string
 	return fsm.relayVerifyCommit(commit)
 }
 
-// OnVerifyResult relays a result receipt signed by a selected Verifier:
-// carries the same ResultReceiptV2 as the VERIFY_RESULT JetStream path and shares the same relay logic.
+// OnVerifyResult relays a result receipt signed by a selected Verifier.
 func (c *Coordinator) OnVerifyResult(_ context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	if receipt == nil {
 		return types.VerifyRelayAck{}, fmt.Errorf("%w: receipt is required", types.ErrInvalidArgument)
@@ -1269,78 +1171,6 @@ func (c *Coordinator) CompleteOutputRecovery() error {
 	return firstErr
 }
 
-// FetchOutputRef only issues a bound credential (called by IngressAPI, deprecated).
-// The OutputRef object no longer exists, so there is no ref to return;
-// it is kept only because the fate of this RPC is still undecided. access_level still decides the authorization surface:
-//   - SEALED_KEY: only the order user or a selected Verifier (within the verify-select set).
-//   - PACKAGE: task existence suffices.
-func (c *Coordinator) FetchOutputRef(_ context.Context, sessionID, taskID, requester string, level types.AccessLevel, usage string) (types.Credential, error) {
-	fsm, ok := c.getFSM(sessionID, taskID)
-	if !ok {
-		return types.Credential{}, ErrTaskNotFound
-	}
-	if level == types.AccessSealedKey && !fsm.authorizedForSealedKey(requester) {
-		c.log.Warn("sealed-key fetch denied", "session_id", sessionID, "task_id", taskID, "requester", requester)
-		return types.Credential{}, ErrUnauthorized
-	}
-	if _, err := c.relay.Serve(sessionID, taskID, level); err != nil {
-		return types.Credential{}, err
-	}
-	cred, err := c.issueCredential(sessionID, taskID, requester, usage, level, nowMS()+credentialTTL.Milliseconds())
-	if err != nil {
-		return types.Credential{}, err
-	}
-	c.log.Debug("fetch output ref served", "session_id", sessionID, "task_id", taskID,
-		"requester", requester, "access_level", level.String(), "usage", usage)
-	return cred, nil
-}
-
-// issueCredential issues a retrieval credential bound to task/recipient/usage/expiry.
-func (c *Coordinator) issueCredential(sessionID, taskID, recipient, usage string, level types.AccessLevel, validUntil int64) (types.Credential, error) {
-	return credential.Issue(c.identity, types.Credential{
-		SessionID:   sessionID,
-		TaskID:      taskID,
-		Recipient:   recipient,
-		Usage:       usage,
-		AccessLevel: level,
-		ValidUntil:  validUntil,
-	})
-}
-
-// RefreshCredential exchanges an old credential for a new one (deprecated): stateless check of the old one
-// (signature/ID/not expired) + matching recipient/usage + credential still held, then renew.
-// V1 does not refresh standalone download credentials; this method's fate is pending;
-// the OutputRef object was removed, so only the new credential is returned.
-func (c *Coordinator) RefreshCredential(_ context.Context, old types.Credential, recipient, usage string, requestedValidUntil int64) (types.Credential, error) {
-	if recipient != old.Recipient {
-		return types.Credential{}, credential.ErrWrongRecipient
-	}
-	if usage != old.Usage {
-		return types.Credential{}, credential.ErrWrongUsage
-	}
-	var issuerPub []byte
-	if c.identity != nil {
-		issuerPub = c.identity.PubKeyCompressed()
-	}
-	if err := credential.Verify(old, issuerPub, nowMS()); err != nil {
-		return types.Credential{}, err
-	}
-	if _, err := c.relay.Serve(old.SessionID, old.TaskID, old.AccessLevel); err != nil {
-		return types.Credential{}, err // held credential released/expired -> no renewal
-	}
-	validUntil := nowMS() + credentialTTL.Milliseconds()
-	if requestedValidUntil > 0 && requestedValidUntil < validUntil {
-		validUntil = requestedValidUntil // may only shorten; capped by credentialTTL
-	}
-	cred, err := c.issueCredential(old.SessionID, old.TaskID, old.Recipient, old.Usage, old.AccessLevel, validUntil)
-	if err != nil {
-		return types.Credential{}, err
-	}
-	c.log.Debug("credential refreshed", "session_id", old.SessionID, "task_id", old.TaskID,
-		"recipient", old.Recipient, "valid_until", validUntil)
-	return cred, nil
-}
-
 // TaskEvents subscribes to the task event stream: history replay after cursor + live channel.
 // The journal is kept after task close, so history remains queryable.
 func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error) {
@@ -1440,20 +1270,6 @@ func (c *Coordinator) TaskStatus(_ context.Context, sessionID, taskID string) (t
 }
 
 // ---- Typed chain-event entry points (callable directly; in production eventLoop adapts chain.Events() and forwards) ----
-
-// OnAssignAccepted: AssignTx included in a block (step 1 of two): winner undecided, randomness pending.
-func (c *Coordinator) OnAssignAccepted(ev chaincli.AssignAccepted) {
-	if fsm, ok := c.getFSM(ev.SessionID, ev.TaskID); ok {
-		fsm.onAssignAccepted(ev)
-	}
-}
-
-// OnAssignmentFinalized: randomness settled (step 2 of two): PENDING -> ASSIGNED, notify start of work.
-func (c *Coordinator) OnAssignmentFinalized(ev chaincli.AssignmentFinalized) {
-	if fsm, ok := c.getFSM(ev.SessionID, ev.TaskID); ok {
-		fsm.onAssignmentFinalized(ev)
-	}
-}
 
 // OnOpenVerifyAccepted: open-verify included in a block (no seed): ASSIGNED -> VERIFYING.
 func (c *Coordinator) OnOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
@@ -1734,17 +1550,6 @@ func (c *Coordinator) OnChainEvent(ev chaincli.ChainEvent) {
 	switch ev.Type {
 	case chaincli.EventBuilderSetUpdated:
 		c.requestBuilderSetReconcile(ev.Height, "Hub BuilderSet event")
-	case chaincli.EventAssignAccepted:
-		c.OnAssignAccepted(chaincli.AssignAccepted{
-			SessionID: ev.SessionID, TaskID: ev.TaskID, Height: ev.Height,
-		})
-	case chaincli.EventAssignmentFinalized:
-		c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-			SessionID: ev.SessionID, TaskID: ev.TaskID,
-			Winner:              ev.Attrs["winner_worker"],
-			Height:              ev.Height,
-			InferDeadlineHeight: parseUint64Attr(ev.Attrs["infer_deadline_height"]),
-		})
 	case chaincli.EventOpenVerifyAccepted:
 		c.OnOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
 			SessionID: ev.SessionID, TaskID: ev.TaskID,
@@ -1796,8 +1601,7 @@ func (c *Coordinator) OnChainEvent(ev chaincli.ChainEvent) {
 
 func isTaskStateEvent(eventType string) bool {
 	switch eventType {
-	case chaincli.EventAssignAccepted, chaincli.EventAssignmentFinalized, chaincli.EventOpenVerifyAccepted,
-		chaincli.EventSampleReady, chaincli.EventWorkerRevealAccepted, chaincli.EventFullResultRevealAccepted,
+	case chaincli.EventOpenVerifyAccepted, chaincli.EventSampleReady, chaincli.EventWorkerRevealAccepted, chaincli.EventFullResultRevealAccepted,
 		chaincli.EventSettleAccepted, chaincli.EventSweepDeadlineAccepted:
 		return true
 	default:
@@ -1810,7 +1614,7 @@ func taskEventNeedsQuery(ev chaincli.ChainEvent) bool {
 		return false
 	}
 	switch ev.Type {
-	case chaincli.EventAssignAccepted, chaincli.EventAssignmentFinalized, chaincli.EventOpenVerifyAccepted, chaincli.EventSettleAccepted:
+	case chaincli.EventOpenVerifyAccepted, chaincli.EventSettleAccepted:
 		return true
 	case chaincli.EventSampleReady:
 		return ev.Attrs["verification_sample_seed_hash"] == "" || ev.Attrs["sample_seed_ready_height"] == ""
@@ -2086,14 +1890,6 @@ func taskNotificationsObserved(snapshot chaincli.OnChainTask, settlementFacts *c
 			continue
 		}
 		switch event.Type {
-		case chaincli.EventAssignAccepted:
-			if snapshot.Assignment.AssignAcceptHeight == 0 && len(snapshot.AssignedSet) == 0 && !taskStateAtLeastAssigned(snapshot.State) {
-				return false
-			}
-		case chaincli.EventAssignmentFinalized:
-			if !taskStateAtLeastAssigned(snapshot.State) {
-				return false
-			}
 		case chaincli.EventOpenVerifyAccepted:
 			if !taskStateAtLeastVerifying(snapshot.State) {
 				return false
@@ -2125,8 +1921,12 @@ func taskNotificationsObserved(snapshot chaincli.OnChainTask, settlementFacts *c
 			}
 		case chaincli.EventTaskStateChanged:
 			switch event.EventCode {
-			case "ASSIGNMENT_FAILED", "WORKER_TIMEOUT":
+			case "WORKER_TIMEOUT":
 				return false
+			case "DISPATCH_RECORDED":
+				if !taskStateAtLeastAssigned(snapshot.State) {
+					return false
+				}
 			case "INFER_RECEIPT_ACCEPTED", "REVEAL_PHASE_STARTED":
 				if !taskStateAtLeastVerifying(snapshot.State) {
 					return false
@@ -2153,6 +1953,8 @@ func settlementFactsHasFullReveal(facts chaincli.SettlementBuildFacts, verifier 
 	return false
 }
 
+// reconcileMissingPendingTask handles a task the chain does not hold yet while it waits for its
+// dispatch to be recorded: past the order's deadline it is abandoned, otherwise it keeps waiting.
 func (c *Coordinator) reconcileMissingPendingTask(fsm *taskFSM, eventHeight int64, reason string) bool {
 	fsm.mu.Lock()
 	if fsm.state != types.Pending {
@@ -2160,56 +1962,17 @@ func (c *Coordinator) reconcileMissingPendingTask(fsm *taskFSM, eventHeight int6
 		return false
 	}
 	taskID := fsm.taskID
-	txHash := append([]byte(nil), fsm.assignTxHash...)
 	deadline := fsm.order.DeadlineHeight
 	fsm.mu.Unlock()
 	height, authoritative := c.currentChainHeight()
 	if eventHeight > 0 && uint64(eventHeight) > height {
 		height, authoritative = uint64(eventHeight), true
 	}
-	expired := authoritative && deadline != 0 && height > deadline
-
-	if len(txHash) == 0 {
-		if expired {
-			fsm.onAssignTimeout(height)
-			return true
-		}
-		c.log.Debug("pending task not on chain yet", "task_id", taskID, "reason", reason)
+	if authoritative && deadline != 0 && height > deadline {
+		fsm.onAssignTimeout(height)
 		return true
 	}
-	if c.txQuery == nil {
-		if expired {
-			fsm.onAssignTimeout(height)
-			return true
-		}
-		c.log.Warn("AssignTx confirmation skipped: Tx Query is not configured", "task_id", taskID)
-		return true
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileQueryTimeout)
-	result, err := c.txQuery.QueryTx(ctx, txHash)
-	cancel()
-	if err != nil {
-		if errors.Is(err, chaincli.ErrNotFound) {
-			if expired {
-				fsm.onAssignTimeout(height)
-				return true
-			}
-			c.log.Debug("AssignTx awaiting DeliverTx", "task_id", taskID, "tx_hash", hex.EncodeToString(txHash))
-			return true
-		}
-		c.log.Warn("AssignTx confirmation query failed", "task_id", taskID,
-			"tx_hash", hex.EncodeToString(txHash), "err", err)
-		if expired {
-			fsm.onAssignTimeout(height)
-		}
-		return true
-	}
-	if result.Code != 0 {
-		fsm.onAssignRejected(result)
-		return true
-	}
-	c.log.Warn("AssignTx DeliverTx succeeded but task query is not available yet",
-		"task_id", taskID, "tx_hash", hex.EncodeToString(txHash), "height", result.Height)
+	c.log.Debug("pending task not on chain yet", "task_id", taskID, "reason", reason)
 	return true
 }
 
@@ -2250,8 +2013,7 @@ func (c *Coordinator) fillVerifierWindow(fsm *taskFSM) {
 }
 
 func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
-	// task_hash is a consensus fact and may only come from on-chain query/event. Once recorded, subsequent
-	// Worker proposals for the same task can take the ExistingTaskRefV1 branch.
+	// task_hash is a consensus fact and may only come from on-chain query/event.
 	if fsm.rememberAcceptedVersion(snapshot.Assignment.AcceptedTaskHash, snapshot.Assignment.AcceptedInputHash) {
 		// The local input is another version than the accepted one: it must not be served, and
 		// Workers and Verifiers fetch the accepted input from the Builders that hold it. The
@@ -2274,27 +2036,13 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 		return
 	}
 	fsm.mu.Lock()
-	state, phase := fsm.state, fsm.phase
+	state := fsm.state
 	fsm.mu.Unlock()
 
-	if state == types.Pending && phase == types.PhaseUnspecified &&
-		(snapshot.Assignment.AssignAcceptHeight != 0 || len(snapshot.AssignedSet) > 0 || taskStateAtLeastAssigned(snapshot.State)) {
-		fsm.onAssignAccepted(chaincli.AssignAccepted{
-			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, AssignedSet: snapshot.AssignedSet,
-			Height: authoritativeEventHeight(snapshot.Assignment.AssignAcceptHeight, height),
-		})
-		phase = types.PhaseAssignRandomnessPending
-	}
 	if state == types.Pending && taskStateAtLeastAssigned(snapshot.State) {
-		finalizedHeight := snapshot.Assignment.WinnerConfirmHeight
-		if finalizedHeight == 0 {
-			finalizedHeight = snapshot.Assignment.AssignmentRandomnessHeight
-		}
-		fsm.onAssignmentFinalized(chaincli.AssignmentFinalized{
-			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, Winner: snapshot.Winner,
-			Height:              authoritativeEventHeight(finalizedHeight, height),
-			InferDeadlineHeight: snapshot.Assignment.InferDeadlineHeight,
-		})
+		fsm.onWinnerRecorded(snapshot.Winner, snapshot.AssignedSet,
+			authoritativeEventHeight(snapshot.Assignment.WinnerConfirmHeight, height),
+			snapshot.Assignment.InferDeadlineHeight)
 		state = types.Assigned
 	}
 	// Once the chain accepts the receipt (from RECEIPT_COMMITTED on) OPEN_VERIFY should be sent; it and

@@ -14,46 +14,36 @@ import (
 	"sync"
 	"time"
 
-	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
-
-	"github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/TrueOpen/nexus/gen/bus/v1"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/busadapter"
 	"github.com/TrueOpen/nexus/internal/chaincli"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
-	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
 var errTaskFSMStopping = errors.New("coordinator: task FSM stopping")
 
-// taskFSM is the per-order state machine instance. One per order;
+// taskFSM is the per-task state machine instance. One per task;
 // events are routed by the coordinator into the matching instance, which serializes
-// them with its own mutex, so orders never interfere with one another.
-// Happy path: Pending(RANDOMNESS_PENDING)→Assigned(FINALIZED)→
+// them with its own mutex, so tasks never interfere with one another.
+// Happy path: Pending→Assigned(winner recorded on chain)→
 // Verifying(OPEN_VERIFY→SAMPLE_READY→…)→Settled→Closed; sweep events can converge from any phase.
 type taskFSM struct {
 	mu sync.Mutex
 
 	log *slog.Logger
-	bus msgbus.Bus
-	// publisher/receiver are the send/receive ports for TRUEOPEN_BUS_ENVELOPE_V2 envelopes
-	// (shared by the coordinator, see buswiring.go). nil = service key not configured: when
-	// a compliant frame cannot be signed, the only correct behaviour is not to send, and
-	// inbound frames are treated as chain-lookup-unavailable.
-	publisher *busadapter.Publisher
-	receiver  *busadapter.Receiver
-	prepares  *prepareCodec // issue/verify Builder↔Builder prepare announcements (prepare.go)
-	submit    Submitter
-	relay     relay.Custodian
-	self      string // this node's builder address (envelope sender / AssignTx submitter)
-	chainID   string // Task Chain ID (envelope field 2, prevents cross-chain replay)
+	// messages signs Builder messages and sends them to connected Cortex streams (cortexlink.go).
+	// Without a service key nothing is signed, and the only correct behaviour is not to send.
+	messages builderMessages
+	submit   Submitter
+	relay    relay.Custodian
+	self     string // this node's builder address (Builder message signer / transaction submitter)
+	chainID  string // Task Chain ID (binds every signed message and transaction to this chain)
 
 	sessionID      string
 	taskID         string
@@ -66,11 +56,6 @@ type taskFSM struct {
 	builderSet     []types.BuilderRef // candidate Builder group coordinating this order (with endpoints)
 	order          types.Order
 
-	// orderAt and firstHandraiseAt are in-memory latency marks for the logs (zero after a restart,
-	// when the fields that use them are left out).
-	orderAt          time.Time
-	firstHandraiseAt time.Time
-
 	state types.TaskState
 	phase types.TaskPhase // fine-grained phase, drives the external task_phase
 	// terminal records that this FSM already crossed its irreversible local
@@ -81,8 +66,7 @@ type taskFSM struct {
 
 	// Hand-raise / verification-result collection buffers (deduplicated by sender). They hold the
 	// proto message bodies of the frozen wire: whatever bytes Cortex signed are the bytes
-	// the Builder submits, with no second declaration (gen/bus/v1).
-	workerHR   map[string]*taskv1.WorkerHandraiseV1
+	// the Builder submits, with no second declaration.
 	verifierHR map[string]*taskv1.VerifierHandraiseV1
 	// verifierHRProposed: hand-raisers already broadcast via MsgSubmitVerifierHandraises
 	// (passed CheckTx). Later proposals carry only hand-raises not in here; persisted with
@@ -101,20 +85,16 @@ type taskFSM struct {
 	// Verifier address (txconfirm.go).
 	commitFlights map[string]*relayFlight
 	resultFlights map[string]*relayFlight
-	// pendingResults: results taken off the bus and broadcast, awaiting confirmation by
-	// reconciliation before they are recorded in verifyResults; busRetries paces the delayed
-	// redelivery of a result whose broadcast failed temporarily, by Verifier address (txconfirm.go).
+	// pendingResults: results whose relay failed temporarily, followed by reconciliation until
+	// the chain holds them, by Verifier address (txconfirm.go).
 	pendingResults map[string]*pendingResult
-	busRetries     map[string]int
 	// workerRevealed: on-chain Worker reveal. The chain has no such Msg / Event,
 	// so it is always false in Phase 0; kept only as "record if present", no longer a
 	// settlement precondition.
 	workerRevealed bool
 
 	// acceptedTaskHash is the authoritative on-chain task_hash (only from query/event;
-	// Nexus never creates it). Non-empty means the task has been accepted, and later Worker
-	// proposals must take the ExistingTaskRefV1 branch instead of carrying signed_order
-	// again.
+	// Nexus never creates it). Non-empty means the task has been accepted.
 	acceptedTaskHash []byte
 	// acceptedInputHash is the accepted order's input_hash (lowercase hex), from the same chain
 	// query; empty until it is known.
@@ -124,12 +104,7 @@ type taskFSM struct {
 	versionMismatch bool
 	// mismatchNotReadyLogged keeps the "not data-ready" notice to one line per process.
 	mismatchNotReadyLogged bool
-	// assignRetries counts filtered resubmissions after an invalid-assignment rejection.
-	assignRetries int
-
 	// Per-phase dedup: once a phase's Tx is submitted it is not reassembled (the chain has its own idempotency fallback).
-	assignSubmitted     bool
-	assignTxHash        []byte
 	openVerifySubmitted bool
 	// receiptOnChain: the chain has accepted this InferReceipt. OPEN_VERIFY may only be sent
 	// after it is true: a Verifier queries the chain as soon as it receives the
@@ -172,7 +147,6 @@ type taskFSM struct {
 	sweepSubmitted map[taskv1.DeadlineKindV1]bool
 
 	// SETTLE rank timing.
-	prepareSeen map[string]int64 // when other Builders in the group announced prepare (per phase; advisory de-duplication signal, not a blocking requirement)
 	// settleGraceBlocks is the grace block count per rank (Hub parameter, read and persisted
 	// together with the settlement ordering); observedHeight is the chain height of the
 	// latest NewBlock. Rank ≥2 submits only after its own grace window has started.
@@ -208,22 +182,14 @@ type taskFSM struct {
 	winner      string
 	assignedSet []types.BuilderRef
 	verifiers   []string
-	assignSeed  []byte // from the chain's AssignmentFinalized (forwarded to the Worker for cross-checking)
-	// The two height fields of the start-work notification. The event path fills them
-	// directly from the event; the startup recovery path fills them from the on-chain task
-	// snapshot (reconcile), after which resume re-sends the notification.
-	assignFinalizedHeight uint64
-	inferDeadlineHeight   uint64
-	// pendingAssignmentNotify marks "this on-chain reconcile advanced the task to Assigned",
-	// meaning it was finalized while offline and the Worker never got the notification;
-	// resume re-sends it once.
-	pendingAssignmentNotify bool
-	sampleSeed              []byte // from the chain's SampleReady (sole authoritative source; nexus never derives it)
-	deadlines               types.Deadlines
-	outputHash              []byte
-	inferReceipt            types.InferReceiptSubmission
+	// inferDeadlineHeight is the chain-height deadline for the winner's receipt, from the on-chain
+	// task (reconcile).
+	inferDeadlineHeight uint64
+	sampleSeed          []byte // from the chain's SampleReady (sole authoritative source; nexus never derives it)
+	deadlines           types.Deadlines
+	outputHash          []byte
+	inferReceipt        types.InferReceiptSubmission
 
-	unsubs    []msgbus.Unsubscribe
 	timer     *time.Timer
 	onClose   func() // used by the coordinator to remove this instance from the task table
 	onAbandon func() // pre-chain failure/expiry: remove without a terminal marker
@@ -261,191 +227,14 @@ func (f *taskFSM) emit(code string, height int64) {
 
 // ---- Entry points (called via coordinator routing) ----
 
-// onOrder is the first action after construction: broadcast the order to solicit hand-raises and subscribe to Worker hand-raises (Pending).
-func (f *taskFSM) onOrder(ctx context.Context) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.orderAt = time.Now()
-
-	// ORDER_BROADCAST must carry the candidate task_hash: the whole
-	// ORDER_BROADCAST → WORKER_HANDRAISE → MsgSubmitWorkerHandraises chain relies on it
-	// to confirm everyone is hand-raising for the same order version. Without it there is
-	// no candidate identity to bind to; broadcasting would only collect a batch of
-	// hand-raises that each say something different, so fail closed here instead.
-	if f.order.TaskHash == "" {
-		return fmt.Errorf("order has no canonical task_hash: task %s cannot be broadcast", f.taskID)
-	}
-	// The broadcast carries only the complete user-signed order (OrderBroadcastV1):
-	// task_id/task_hash are recomputed by the receiver from signed_order.order together with
-	// the user signature check. A legacy JSON-envelope order has no frozen SignedOrderV2 and
-	// cannot be broadcast legitimately, so fail closed (it would not pass the first
-	// proposal's scope branch anyway).
-	if len(f.order.SignedOrder) == 0 {
-		return fmt.Errorf("order has no frozen SignedOrderV2: task %s cannot be broadcast", f.taskID)
-	}
-	var signedOrder taskv1.SignedOrderV2
-	if err := proto.Unmarshal(f.order.SignedOrder, &signedOrder); err != nil {
-		return fmt.Errorf("decode SignedOrderV2: %w", err)
-	}
-	broadcastStart := time.Now()
-	// WithoutCancel: the request context only carries the timing recorder here; a client hanging up
-	// must not fail the broadcast, which ran on a background context before.
-	if err := f.publishCtx(context.WithoutCancel(ctx), msgbus.SubjectTaskOpen(f.modelID), bus.KindOrderBroadcast,
-		&busv1.OrderBroadcastV1{SignedOrder: &signedOrder}, busadapter.TierCore); err != nil {
-		return err
-	}
-	broadcastTime := time.Since(broadcastStart)
-	stagetiming.From(ctx).Add("order_broadcast", broadcastTime)
-
-	f.subscribeWorkerHandraise()
-	f.subscribeBuilderPrepare()
-	f.emit(EvOrderReceived, 0)
-	if err := f.save(); err != nil {
-		return err
-	}
-	f.log.Info("task pending: order broadcast, collecting worker handraise", "session_id", f.sessionID, "task_id", f.taskID,
-		"order_broadcast_ms", stagetiming.Millis(broadcastTime))
-	return nil
-}
-
-// onWorkerHandraise receives a Worker hand-raise: signature-check placeholder + dedup count; once the minimum is reached and it is our turn → submit AssignTx.
-func (f *taskFSM) onWorkerHandraise(hr *taskv1.WorkerHandraiseV1) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	// V2 envelopes carry no session_id/task_id: task binding is carried by the payload's
-	// task_id, and the session segment is uniquely determined by the derivation
-	// task_id = H(session_id, seq).
-	if f.state != types.Pending || !bytes.Equal(hr.GetTaskId(), f.taskIDBytes()) {
-		return
-	}
-	if !f.validWorkerHandraise(hr) {
-		return
-	}
-	worker := hr.GetMember().GetOperatorAddress()
-	f.workerHR[worker] = hr
-	if f.firstHandraiseAt.IsZero() {
-		f.firstHandraiseAt = time.Now()
-	}
-	f.save()
-	// Log accepted hand-raises at Info rather than Debug: after OPEN_TASK this is the only
-	// signal proving "Cortex actually responded", and deployments running at Info can only
-	// guess without it. Volume is bounded by the candidate pool cap, so it will not flood.
-	f.log.Info("worker handraise accepted", append([]any{"task_id", f.taskID, "candidate", worker,
-		"count", len(f.workerHR), "need", proposalHandraiseMin}, sinceAttr("since_order_ms", f.orderAt)...)...)
-
-	// The three gates are checked separately and each leaves a trace. Folded into one
-	// condition with a silent return, "not enough collected", "not in the group" and
-	// "already submitted" look identical in the logs -- nothing is printed -- and can only be
-	// guessed one by one.
-	if f.assignSubmitted {
-		f.log.Debug("AssignTx already submitted for this task", "task_id", f.taskID)
-		return
-	}
-	if !f.inProposalGroup(f.builderSet) {
-		// Not an anomaly: this Builder is not in the Task's Builder group, so the proposal is
-		// submitted by a group member. But it leaves the task "stuck collecting hand-raises
-		// forever" on this node, so it must be visible.
-		f.log.Info("not submitting AssignTx: this Builder is not in the task's proposal group",
-			"task_id", f.taskID, "self", f.self, "builder_set", builderAddresses(f.builderSet),
-			"handraises", len(f.workerHR))
-		return
-	}
-	if len(f.workerHR) < proposalHandraiseMin {
-		f.log.Info("waiting for more worker handraises before submitting AssignTx",
-			"task_id", f.taskID, "count", len(f.workerHR), "need", proposalHandraiseMin)
-		return
-	}
-	f.submitAssignLocked()
-}
-
-// submitAssignLocked builds the Worker handraise proposal from the handraises collected so
-// far and submits it, reporting whether it passed CheckTx. Caller must hold the lock.
-func (f *taskFSM) submitAssignLocked() bool {
-	facts, err := workerAssignmentFactsFrom(f.workerHR)
-	if err != nil {
-		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return false
-	}
-	// The fee/timeout cross-check of the legacy JSON envelope only holds on the legacy
-	// path. Once an order carries the frozen SignedOrderV2, all of these facts are derived
-	// by the Keeper from the signed order and the OrderEnvelope no longer contains any JSON
-	// to compare; running this section would only lock legitimate orders out.
-	if len(f.order.SignedOrder) == 0 {
-		if err := validateOrderForAssign(f.order, facts); err != nil {
-			f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-			return false
-		}
-	}
-	// What goes on-chain is only the scope oneof + the
-	// WorkerHandraiseV1 list + submitter_address; everything else is a Keeper-derived fact.
-	// Neither step may set assignSubmitted on failure, or later hand-raises would never
-	// trigger a retry.
-	signedOrder, existingTask, err := workerHandraiseScope(f.order, f.acceptedTaskHash)
-	if err != nil {
-		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return false
-	}
-	handraisesV1, err := workerHandraisesV1(f.chainID, f.workerHR)
-	if err != nil {
-		f.log.Warn("prepare AssignTx failed", "task_id", f.taskID, "err", err)
-		return false
-	}
-
-	f.assignSubmitted = true
-	tx := chaincli.AssignTx{
-		SignedOrder: signedOrder, ExistingTask: existingTask, WorkerHandraises: handraisesV1,
-
-		BuilderOperatorAddress: f.self, SessionID: f.sessionID, TaskID: f.taskID, UserAddress: f.order.User,
-		OrderSequence: f.order.OrderSequence, OrderEnvelope: f.order.OrderEnvelope, TaskHash: f.order.TaskHash,
-		SignatureScheme: f.order.SignatureScheme, UserSignature: f.order.UserSignature,
-		MaxFee: f.order.MaxFee, TxFeeReserve: f.order.TxFeeReserve, AssignmentPriorityFee: 0,
-		BuilderRank: f.order.Stage1BuilderRank, BuilderSelectionProof: f.order.Stage1SelectionProof,
-		CandidateSnapshotID: facts.CandidateSnapshotID,
-		MinWorkerHandraise:  proposalHandraiseMin,
-		ReservedFee:         f.order.MaxFee,
-		InferDeadlineHeight: f.order.InferTimeoutBlocks, Submitter: f.self,
-	}
-	submitStart := time.Now()
-	result, err := f.submit.SubmitAssign(context.Background(), tx)
-	submitTime := time.Since(submitStart)
-	if err != nil {
-		f.log.Warn("submit AssignTx failed", "task_id", f.taskID, "err", err, "submit_ms", stagetiming.Millis(submitTime))
-		f.assignSubmitted = false // let the next hand-raise retry
-		return false
-	}
-	f.assignTxHash = append(f.assignTxHash[:0], result.TxHash...)
-	f.save()
-	// submit_ms covers the whole SubmitAssign: waiting for the account sequence lock, simulation
-	// (simulate_ms over simulations runs), signing and the CheckTx broadcast.
-	attrs := []any{"task_id", f.taskID,
-		"tx_hash", hex.EncodeToString(f.assignTxHash), "handraise", len(f.workerHR) - len(result.Excluded),
-		"excluded", len(result.Excluded), "submit_ms", stagetiming.Millis(submitTime),
-		"simulate_ms", stagetiming.Millis(result.SimulateTime), "simulations", result.Simulations}
-	attrs = append(attrs, sinceAttr("since_order_ms", f.orderAt)...)
-	attrs = append(attrs, sinceAttr("since_first_handraise_ms", f.firstHandraiseAt)...)
-	f.log.Info("AssignTx accepted by CheckTx", attrs...)
-	return true
-}
-
-// assignRejectionRetries bounds how often a Worker handraise proposal the Keeper refused as an
-// invalid assignment is filtered and submitted again.
-const assignRejectionRetries = 2
-
-// isInvalidAssignment reports the Keeper's ErrInvalidAssignment (x/task/types/errors.go): a
-// proposal refused over its candidates, which a filtered resubmission can fix.
-func isInvalidAssignment(result chaincli.TxResult) bool {
-	return result.Codespace == "task" && result.Code == 1109
-}
-
 // rememberAcceptedVersion records the authoritative task_hash and input_hash (lowercase hex) after
 // on-chain acceptance. Only canonical 32-byte values are accepted; invalid or empty values are
 // ignored -- better to fall back to the first-proposal branch and fail there than to build
 // ExistingTaskRefV1 from half a hash.
 //
 // It reports true the first time the accepted version is found to differ from this Builder's
-// order. From then on the task is identified by the accepted task_hash, hand-raises collected for
-// the local version are dropped, and this Builder is never data-ready; the caller removes the local
-// input.
+// order. From then on the task is identified by the accepted task_hash and this Builder is never
+// data-ready; the caller removes the local input.
 func (f *taskFSM) rememberAcceptedVersion(taskHash, inputHash string) bool {
 	if taskHash == "" {
 		return false
@@ -476,11 +265,6 @@ func (f *taskFSM) rememberAcceptedVersion(taskHash, inputHash string) bool {
 	if !f.versionMismatch && f.order.TaskHash != "" && (f.order.TaskHash != taskHash ||
 		(f.acceptedInputHash != "" && f.order.PayloadHash != "" && f.order.PayloadHash != f.acceptedInputHash)) {
 		f.versionMismatch = true
-		for worker, hr := range f.workerHR {
-			if !bytes.Equal(hr.GetTaskHash(), f.acceptedTaskHash) {
-				delete(f.workerHR, worker)
-			}
-		}
 		f.log.Error("chain accepted another version of this task",
 			"task_id", f.taskID, "local_task_hash", f.order.TaskHash, "accepted_task_hash", taskHash)
 		f.log.Error("chain accepted another version of this task: input differs",
@@ -508,47 +292,6 @@ func (f *taskFSM) acceptedInputContentHashLocked() string {
 	}
 }
 
-func (f *taskFSM) onAssignRejected(result chaincli.TxResult) {
-	f.mu.Lock()
-	if f.state != types.Pending || !f.assignSubmitted {
-		f.mu.Unlock()
-		return
-	}
-	// The proposal was simulated before it was broadcast, but the Keeper judges candidates
-	// against the state of the block that includes it; one that stopped qualifying in between
-	// fails the whole proposal. Filter against the current state and submit again, a bounded
-	// number of times; any other rejection ends the task as before.
-	if isInvalidAssignment(result) && f.assignRetries < assignRejectionRetries && !f.versionMismatch {
-		f.assignRetries++
-		f.assignSubmitted = false
-		f.assignTxHash = nil
-		f.save()
-		f.log.Warn("AssignTx rejected by DeliverTx over its candidates; filtering and submitting again",
-			"task_id", f.taskID, "attempt", f.assignRetries, "height", result.Height, "raw_log", result.RawLog)
-		if f.submitAssignLocked() {
-			f.mu.Unlock()
-			return
-		}
-		// Nothing could be submitted again: end the task now, as any rejection did before,
-		// rather than leave it pending on handraises that may never come.
-	}
-	f.state = types.Failed
-	f.terminal = true
-	f.emit(EvAssignRejected, result.Height)
-	f.save()
-	f.teardown()
-	f.relay.Release(f.sessionID, f.taskID)
-	txHash := append([]byte(nil), f.assignTxHash...)
-	f.mu.Unlock()
-
-	f.log.Warn("AssignTx rejected by DeliverTx", "task_id", f.taskID,
-		"tx_hash", hex.EncodeToString(txHash), "height", result.Height,
-		"code", result.Code, "raw_log", result.RawLog)
-	if f.onAbandon != nil {
-		f.onAbandon()
-	}
-}
-
 func (f *taskFSM) onAssignTimeout(height uint64) {
 	f.mu.Lock()
 	if f.state != types.Pending {
@@ -563,11 +306,10 @@ func (f *taskFSM) onAssignTimeout(height uint64) {
 	f.teardown()
 	f.relay.Release(f.sessionID, f.taskID)
 	deadline := f.order.DeadlineHeight
-	handraiseCount := len(f.workerHR)
 	f.mu.Unlock()
 
 	f.log.Info("task assign timed out before on-chain acceptance", "task_id", f.taskID,
-		"height", height, "deadline_height", deadline, "handraise", handraiseCount)
+		"height", height, "deadline_height", deadline)
 	if f.onAbandon != nil {
 		f.onAbandon()
 	}
@@ -607,18 +349,12 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 	return false, nil
 }
 
-// publishOpenVerify opens hand-raising to Verifier candidates
-// (subject=trueopen.verify.open.<task_id>, kind=OPEN_VERIFY). Caller must hold the lock.
+// publishOpenVerify opens hand-raising to Verifier candidates: one Builder-signed OpenVerifyV1 to
+// every connected Cortex stream. Caller must hold the lock.
 //
-// The publish point is "after the InferReceipt is accepted locally", not "after on-chain
-// acceptance": on-chain acceptance goes through MsgSubmitInferReceipt, and that message
-// itself must carry the VerifierHandraise list -- waiting for on-chain acceptance before
-// opening verification would be a deadlock. The "Task whose InferReceipt has been accepted"
-// can, on the Builder side, only mean the winner's signed InferReceipt
-// has been received locally.
-//
-// The message carries no input/output/evidence bodies and does not mean any Verifier has
-// been selected.
+// It waits for the chain to accept the receipt: a Verifier queries the chain as soon as it receives
+// the message and cannot hand-raise without an on-chain receipt. The message carries no
+// input/output/evidence bodies and does not mean any Verifier has been selected.
 //
 // It also waits for this Builder's local data-ready: input, output and all required
 // evidence stored and checked here, i.e. the Worker's FinalizeTaskResult succeeded on this
@@ -637,9 +373,18 @@ func (f *taskFSM) publishOpenVerify() {
 		f.log.Debug("OPEN_VERIFY deferred: the Worker result is not finalized on this Builder", "task_id", f.taskID)
 		return
 	}
-	if err := f.publish(msgbus.SubjectVerifyOpen(f.taskID), bus.KindOpenVerify, payload, busadapter.TierCore); err == nil {
-		f.openVerifyPublished = true
+	ctx := context.Background()
+	if err := f.messages.signOpenVerify(ctx, payload); err != nil {
+		f.log.Warn("OPEN_VERIFY not sent: it cannot be signed", "task_id", f.taskID, "err", err)
+		return
 	}
+	frame := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_OpenVerify{OpenVerify: payload}}
+	if err := f.messages.broadcast(ctx, frame); err != nil {
+		f.log.Warn("OPEN_VERIFY broadcast failed", "task_id", f.taskID, "err", err)
+		return
+	}
+	f.openVerifyPublished = true
+	f.log.Info("OPEN_VERIFY sent", "task_id", f.taskID)
 }
 
 // onInferReceiptAccepted: the chain accepted the InferReceipt; this is the moment to send
@@ -752,7 +497,7 @@ func (f *taskFSM) checkDataReady() {
 // Only a Builder that holds the Worker's signed receipt sends it: the receipt reaches this
 // Builder together with the finalized output, and Verifiers fetch task data from the sender.
 // Hashes taken from the chain do not make this Builder data-ready.
-func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
+func (f *taskFSM) openVerifyPayload() *nexusv1.OpenVerifyV1 {
 	if len(f.outputHash) == 0 || f.winner == "" {
 		return nil
 	}
@@ -762,7 +507,7 @@ func (f *taskFSM) openVerifyPayload() *busv1.OpenVerifyV1 {
 		f.log.Warn("skip OPEN_VERIFY publish: task identity is not canonical", "task_id", f.taskID)
 		return nil
 	}
-	return &busv1.OpenVerifyV1{
+	return &nexusv1.OpenVerifyV1{
 		TaskId:                taskID,
 		TaskHash:              taskHash,
 		ModelId:               modelID,
@@ -832,90 +577,26 @@ func (f *taskFSM) setAcceptedReceipt(receipt chaincli.AcceptedInferReceipt) {
 	f.save()
 }
 
-// onAssignAccepted: AssignTx included (first step of two): winner undecided, enter
-// randomness pending. **No start-work notification** -- work starts after
-// AssignmentFinalized. Subscribe early to Verifier hand-raises + recompute
-// returns (subscribing before messages is harmless; subscribing after loses core messages).
-func (f *taskFSM) onAssignAccepted(ev chaincli.AssignAccepted) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.state != types.Pending || f.phase != types.PhaseUnspecified {
-		return // idempotent: duplicate events are harmless
-	}
-	f.assignedSet = ev.AssignedSet
-	f.phase = types.PhaseAssignRandomnessPending
-
-	f.subscribeVerifierHandraise()
-	f.subscribeVerifyResult()
-	f.emit(EvAssignAccepted, ev.Height)
-	f.save()
-	f.log.Info("assign accepted: randomness pending, winner not final yet", "task_id", f.taskID, "height", ev.Height)
-}
-
-// onAssignmentFinalized: randomness settled, winner determined (second step of two):
-// record the winner, move to Assigned, and only now notify the winner via trueopen.assign.
-func (f *taskFSM) onAssignmentFinalized(ev chaincli.AssignmentFinalized) {
+// onWinnerRecorded: the chain recorded the task's dispatch and its winning Worker: record the winner
+// and move to Assigned. The Worker learned of its win from the dispatch itself; nothing is sent.
+func (f *taskFSM) onWinnerRecorded(winner string, assignedSet []types.BuilderRef, height int64, inferDeadline uint64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.state != types.Pending {
 		return // idempotent
 	}
-	f.winner = ev.Winner
-	f.assignSeed = ev.AssignSeed
+	f.winner = winner
+	if len(assignedSet) > 0 {
+		f.assignedSet = assignedSet
+	}
+	if inferDeadline != 0 {
+		f.inferDeadlineHeight = inferDeadline
+	}
 	f.state = types.Assigned
 	f.phase = types.PhaseAssignmentFinalized
-
-	f.assignSeed = append([]byte(nil), ev.AssignSeed...)
-	f.assignFinalizedHeight = uint64(max(ev.Height, 0))
-	f.inferDeadlineHeight = ev.InferDeadlineHeight
-	f.publishWorkerAssignmentNotify()
-	f.emit(EvAssignmentFinalized, ev.Height)
+	f.emit(EvAssignmentFinalized, height)
 	f.save()
-	f.log.Info("assignment finalized: winner notified to start", "task_id", f.taskID, "winner", ev.Winner)
-}
-
-// publishWorkerAssignmentNotify sends one start-work notification. The event path
-// (onAssignmentFinalized) and the startup recovery path (resume re-send) share the same
-// assembly logic: two separate copies were exactly what caused the gap "tasks finalized
-// while offline get no notification after restart". Caller must hold the lock.
-//
-// The notification creates no consensus fact: the authoritative winner and deadline are
-// on-chain, and duplicates are deduplicated by the receiver against the on-chain
-// assignment.
-func (f *taskFSM) publishWorkerAssignmentNotify() {
-	taskID, taskHash := f.taskIDBytes(), f.taskHashBytes()
-	if taskID == nil || taskHash == nil {
-		f.log.Warn("skip WORKER_ASSIGNMENT_NOTIFY publish: task identity is not canonical", "task_id", f.taskID)
-		return
-	}
-	if f.winner == "" {
-		f.log.Warn("skip WORKER_ASSIGNMENT_NOTIFY publish: winner is unknown", "task_id", f.taskID)
-		return
-	}
-	// input_hash is the chain's accepted input_hash once known, else the user-signed order's
-	// (TaskOrderV2 field 9). It is left empty when neither applies -- the order lacks a frozen
-	// SignedOrderV2, or the chain accepted another version than this Builder's order -- and the
-	// receiver then relies on the on-chain accepted input.
-	var inputHash []byte
-	var signedOrder taskv1.SignedOrderV2
-	switch {
-	case f.acceptedInputHash != "":
-		inputHash, _ = hex.DecodeString(f.acceptedInputHash)
-	case !f.versionMismatch && len(f.order.SignedOrder) > 0 && proto.Unmarshal(f.order.SignedOrder, &signedOrder) == nil:
-		inputHash = signedOrder.GetOrder().GetInputHash()
-	}
-	f.publish(msgbus.SubjectWorkerAssignment(f.taskID), bus.KindWorkerAssignmentNotify,
-		&busv1.WorkerAssignmentNotifyV1{
-			TaskId:                taskID,
-			TaskHash:              taskHash,
-			WinnerOperatorAddress: f.winner,
-			FinalizedHeight:       f.assignFinalizedHeight,
-			AssignSeed:            append([]byte(nil), f.assignSeed...),
-			InputHash:             inputHash,
-			// The event path takes infer_deadline from WorkerAssignmentFinalized,
-			// the recovery path from the task snapshot; the authoritative value is the on-chain Task state.
-			InferDeadlineHeight: f.inferDeadlineHeight,
-		}, busadapter.TierJetStream)
+	f.log.Info("dispatch recorded on chain: winner known", "task_id", f.taskID, "winner", winner)
 }
 
 // onVerifierHandraise receives a Verifier hand-raise: dedup count; once the minimum is reached and a result commitment exists → submit OpenVerifyTx.
@@ -1317,18 +998,17 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 		for _, verifier := range ev.Verifiers {
 			verifiers = append(verifiers, &taskv1.SelectedVerifierV1{OperatorAddress: verifier})
 		}
-		f.publish(msgbus.SubjectVerifierAssignment(f.taskID), bus.KindVerifierAssignmentNotify,
-			&busv1.VerifierAssignmentNotifyV1{
-				TaskId:               taskID,
-				TaskHash:             taskHash,
-				VerifyRound:          uint32(nodecontract.SupportedVerifyRoundV1),
-				Verifiers:            verifiers,
-				OutputHash:           append([]byte(nil), outputHash...),
-				OpenVerifyHeight:     uint64(max(ev.Height, 0)),
-				CommitDeadlineHeight: uint64(max(ev.Deadlines.Commit, 0)),
-				RevealDeadlineHeight: uint64(max(ev.Deadlines.Reveal, 0)),
-				VerifyDeadlineHeight: uint64(max(ev.Deadlines.Verify, 0)),
-			}, busadapter.TierJetStream)
+		f.publishVerifierAssignment(&nexusv1.VerifierAssignmentNotifyV1{
+			TaskId:               taskID,
+			TaskHash:             taskHash,
+			VerifyRound:          uint32(nodecontract.SupportedVerifyRoundV1),
+			Verifiers:            verifiers,
+			OutputHash:           append([]byte(nil), outputHash...),
+			OpenVerifyHeight:     uint64(max(ev.Height, 0)),
+			CommitDeadlineHeight: uint64(max(ev.Deadlines.Commit, 0)),
+			RevealDeadlineHeight: uint64(max(ev.Deadlines.Reveal, 0)),
+			VerifyDeadlineHeight: uint64(max(ev.Deadlines.Verify, 0)),
+		})
 	} else {
 		f.log.Warn("skip VERIFIER_ASSIGNMENT_NOTIFY publish: task identity is not canonical", "task_id", f.taskID)
 	}
@@ -1336,6 +1016,23 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	f.save()
 	f.log.Info("task verifying: verifier set + deadlines dispatched (seed pending beacon)",
 		"task_id", f.taskID, "verifiers", len(ev.Verifiers))
+}
+
+// publishVerifierAssignment sends one Builder-signed VerifierAssignmentNotifyV1 to every connected
+// Cortex stream. It is a wake-up; the authoritative set is the on-chain VerifierAssignmentState.
+// Caller must hold the lock.
+func (f *taskFSM) publishVerifierAssignment(msg *nexusv1.VerifierAssignmentNotifyV1) {
+	ctx := context.Background()
+	if err := f.messages.signVerifierAssignment(ctx, msg); err != nil {
+		f.log.Warn("VERIFIER_ASSIGNMENT_NOTIFY not sent: it cannot be signed", "task_id", f.taskID, "err", err)
+		return
+	}
+	frame := &nexusv1.DispatchStreamFrameV1{
+		Message: &nexusv1.DispatchStreamFrameV1_VerifierAssignment{VerifierAssignment: msg},
+	}
+	if err := f.messages.broadcast(ctx, frame); err != nil {
+		f.log.Warn("VERIFIER_ASSIGNMENT_NOTIFY broadcast failed", "task_id", f.taskID, "err", err)
+	}
 }
 
 // onSampleReady: the on-chain sample seed is ready (aggregated future proposer-VRF beacon):
@@ -1357,53 +1054,12 @@ func (f *taskFSM) onSampleReady(ev chaincli.SampleReady) {
 
 	f.emit(EvSampleReady, ev.Height)
 	f.save()
-	f.log.Info("sample seed recorded from chain (not published: no v1 NATS subject)",
+	f.log.Info("sample seed recorded from chain (not published)",
 		"task_id", f.taskID, "ready_height", ev.ReadyHeight)
 }
 
-// onVerifyResult receives a Verifier verification result receipt from the bus: relay it on-chain
-// verbatim first, and only once the chain holds it store it locally; then try to settle.
-//
-// The order is mandatory: MsgSettleTask submits only task_id, and the Keeper derives the
-// settlement inputs from the on-chain accepted ResultReceiptState -- without the receipt
-// on-chain there are no settlement inputs.
-//
-// The handler does not wait for the block: one consumer's messages are handled one after
-// another, so waiting would hold every later result behind this one, past the redelivery wait.
-// It validates and broadcasts under the lock, registers the result for reconciliation to confirm
-// (relayBusResultLocked) and acknowledges. An invalid receipt is acknowledged and dropped; a
-// temporary failure before the transaction reached the mempool asks for a delayed redelivery.
-// Without block results (no Tx Query) the broadcast is the outcome, as before.
-func (f *taskFSM) onVerifyResult(vr *taskv1.ResultReceiptV3) error {
-	f.mu.Lock()
-	if f.state != types.Verifying || !bytes.Equal(vr.GetTaskId(), f.taskIDBytes()) {
-		f.mu.Unlock()
-		return nil
-	}
-	if !f.validVerifyResult(vr) {
-		f.mu.Unlock()
-		return nil
-	}
-	if f.confirm != nil {
-		defer f.mu.Unlock()
-		return f.relayBusResultLocked(vr)
-	}
-	verifier := vr.GetVerifierOperatorAddress()
-	_, err := f.relayVerifyResultLocked(vr)
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err == nil || errors.Is(err, types.ErrInvalidArgument) {
-		// An invalid receipt stays invalid on redelivery; Ack and drop it as a bad message.
-		delete(f.busRetries, verifier)
-		return nil
-	}
-	return f.busRetryLocked(verifier, err)
-}
-
-// relayVerifyResult is the Ingress unary path: it carries the same
-// ResultReceiptV2 as the JetStream path and goes through the same relay logic, except that
-// validation failures are reported to the caller with types sentinels instead of being
-// silently dropped as on the bus path.
+// relayVerifyResult is the Ingress unary path: validation failures are reported to the caller with
+// types sentinels.
 func (f *taskFSM) relayVerifyResult(vr *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error) {
 	f.mu.Lock()
 	if err := f.verifyRelayPreconditionsLocked(vr.GetTaskId(), vr.GetVerifierOperatorAddress()); err != nil {
@@ -1519,7 +1175,7 @@ func (f *taskFSM) relayVerifyResultLocked(vr *taskv1.ResultReceiptV3) (types.Ver
 	}
 	if pending, ok := f.pendingResults[verifier]; ok {
 		f.mu.Unlock()
-		// Taken off the bus and broadcast; reconciliation confirms it. Ask the caller to come back.
+		// Followed by reconciliation until the chain holds it. Ask the caller to come back.
 		if !proto.Equal(pending.receipt, vr) {
 			return types.VerifyRelayAck{}, fmt.Errorf("%w: a different verify result from this verifier is being relayed", types.ErrInvalidArgument)
 		}
@@ -1583,52 +1239,6 @@ func (f *taskFSM) validVerifyCommit(commit *taskv1.VerifyCommitV1) bool {
 	case commit.GetServiceAuthorizationNonce() == 0 || commit.GetExpiryHeight() == 0 ||
 		len(commit.GetServiceSignature()) != 64:
 		f.log.Warn("drop verify commit without required frozen fields", "task_id", f.taskID, "verifier", verifier)
-	default:
-		return true
-	}
-	return false
-}
-
-// validWorkerHandraise checks each field of the frozen WorkerHandraiseV1 field table. It
-// only does two things: "are the fields complete" and "is it bound to this broadcast".
-// Membership is not decided here -- the Keeper looks up the member quadruple directly in
-// the on-chain snapshot bitmap and slot binding, and Nexus holds no authoritative state to
-// decide it from.
-func (f *taskFSM) validWorkerHandraise(hr *taskv1.WorkerHandraiseV1) bool {
-	worker := hr.GetMember().GetOperatorAddress()
-	switch {
-	case worker == "":
-		f.log.Warn("drop worker handraise with empty member.operator_address", "task_id", f.taskID)
-	case hr.GetSchemaVersion() != 1:
-		f.log.Warn("drop worker handraise with wrong schema_version", "task_id", f.taskID,
-			"candidate", worker, "schema_version", hr.GetSchemaVersion())
-	// chain_id is the target chain declared by the sender. Anything other than the local chain is misdelivery or cross-chain replay; drop it.
-	case hr.GetChainId() != f.chainID:
-		f.log.Warn("drop worker handraise bound to a different chain", "task_id", f.taskID,
-			"candidate", worker, "want", f.chainID, "got", hr.GetChainId())
-	// A hand-raise must bind to the candidate task_hash of this broadcast.
-	// Any other value from the hand-raiser -- a stale RBF version, a different order --
-	// fails closed here and never enters f.workerHR to make up the count.
-	case !bytes.Equal(hr.GetTaskHash(), f.taskHashBytes()):
-		f.log.Warn("drop worker handraise bound to a different task_hash", "task_id", f.taskID,
-			"candidate", worker, "want", hex.EncodeToString(f.taskHashBytes()), "got", hex.EncodeToString(hr.GetTaskHash()))
-	case hr.GetDuty() != sharedv1.Duty_DUTY_WORKER:
-		f.log.Warn("drop worker handraise whose duty is not DUTY_WORKER", "task_id", f.taskID,
-			"candidate", worker, "duty", hr.GetDuty())
-	// Frozen fields: missing any one of them makes a legitimate proposal impossible; rather
-	// than submit with holes and be rejected by the chain, drop at the entrance and leave a
-	// diagnosable log.
-	case len(hr.GetModelId()) != hash32Len || hr.GetProfileVersion() == 0 ||
-		hr.GetServiceAuthorizationNonce() == 0 || hr.GetExpiryHeight() == 0 ||
-		len(hr.GetServiceSignature()) != 64:
-		f.log.Warn("drop worker handraise without required frozen fields", "task_id", f.taskID, "candidate", worker)
-	// Encryption is not active: a handraise carrying a recipient key is refused by the chain, and
-	// with it the whole proposal it would join.
-	case len(hr.GetRecipientPubkey()) != 0:
-		f.log.Warn("drop worker handraise with a recipient_pubkey while encryption is inactive", "task_id", f.taskID, "candidate", worker)
-	case len(hr.GetMember().GetCandidatePoolSnapshotId()) != 32 || hr.GetMember().GetSlotVersion() == 0:
-		f.log.Warn("drop worker handraise with incomplete candidate member ref", "task_id", f.taskID,
-			"candidate", worker, "slot", hr.GetMember().GetSlot())
 	default:
 		return true
 	}
@@ -2160,14 +1770,10 @@ func (f *taskFSM) onHeight(height uint64) {
 	}
 }
 
-// submitSettle submits MsgSettleTask; before submitting it broadcasts a prepare announcement so
-// other Builders can skip a duplicate submission. The request is just task_id + submitter: the
-// verdict, receipt references and evidence roots are derived by the chain from its own state.
-// Caller must hold the lock.
+// submitSettle submits MsgSettleTask. The request is just task_id + submitter: the verdict, receipt
+// references and evidence roots are derived by the chain from its own state. Caller must hold the
+// lock.
 func (f *taskFSM) submitSettle() {
-	// prepare de-duplication: tell higher ranks in the group that this node is about to submit, reducing races within the same slot.
-	f.publishPrepare()
-
 	// Local result copies are logged only; they play no part in the settlement.
 	missing := make([]string, 0, len(f.verifiers))
 	for _, verifier := range f.verifiers {
@@ -2190,27 +1796,6 @@ func (f *taskFSM) submitSettle() {
 	f.save()
 	f.log.Info("SettleTx submitted", "task_id", f.taskID, "tx_hash", hex.EncodeToString(res.TxHash),
 		"local_results", len(f.verifyResults), "local_results_missing", strings.Join(missing, ","))
-}
-
-// publishPrepare broadcasts the SETTLE prepare announcement (nexus-internal signed
-// message, prepare.go). If it cannot be signed, do not send: an unsigned announcement hands
-// anyone a lever to suppress a fallback submission.
-func (f *taskFSM) publishPrepare() {
-	if f.prepares == nil || !f.prepares.ready() {
-		f.log.Debug("skip prepare publish: service key is not configured", "task_id", f.taskID)
-		return
-	}
-	data, err := f.prepares.encode(f.sessionID, f.taskID, uint64(nowMS()))
-	if err != nil {
-		f.log.Warn("encode prepare failed", "task_id", f.taskID, "err", err)
-		return
-	}
-	subject := msgbus.SubjectBuilderPrepare(f.taskID)
-	if err := f.bus.Publish(subject, data); err != nil {
-		f.log.Warn("publish prepare failed", "task_id", f.taskID, "subject", subject, "err", err)
-		return
-	}
-	f.log.Debug("prepare notice published", "task_id", f.taskID, "subject", subject)
 }
 
 // onSettleAccepted: on-chain settlement included: escrow remains held until on-chain finality allows release.
@@ -2339,50 +1924,6 @@ func (f *taskFSM) closeLocked(height uint64) bool {
 
 // ---- Helpers ----
 
-// onPrepare receives a prepare announcement from another Builder in the group: only the
-// observation time is recorded (advisory de-duplication signal).
-// Prepare must not be a blocking requirement for abandoning an ASSIGN/OPEN_VERIFY proposal;
-// SETTLE rank_k gives up this round and defers one step on seeing a fresh prepare
-// (on-chain idempotency fallback).
-func (f *taskFSM) onPrepare(p builderPrepare) {
-	// self/sessionID/taskID never change after construction, so they can be pre-filtered
-	// without the lock. Our own prepare must be filtered before taking the lock: the stub
-	// bus loops back synchronously, so publishing under the lock delivers the message right
-	// back into this handler, and filtering afterwards would self-deadlock.
-	if p.SessionID != f.sessionID || p.TaskID != f.taskID || p.Submitter == f.self || p.Submitter == "" {
-		return
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if p.Stage == prepareStageSettle && !f.settlePrepareTrusted(p.Submitter) {
-		f.log.Debug("prepare notice ignored (submitter not a lower-rank group member)",
-			"task_id", f.taskID, "submitter", p.Submitter)
-		return
-	}
-	if f.prepareSeen == nil {
-		f.prepareSeen = make(map[string]int64)
-	}
-	f.prepareSeen[p.Stage] = nowMS()
-	f.log.Debug("prepare notice observed", "task_id", f.taskID, "stage", p.Stage, "submitter", p.Submitter)
-}
-
-// settlePrepareTrusted: SETTLE prepare trusts only announcements "in the group and of lower
-// rank than this node" -- prepares from nodes outside the group or of higher rank must not
-// block a fallback submission (guards against griefing by a spoofed prepare). Trust is refused when the
-// frozen selection is unknown or this node is not selected. Caller must hold the lock.
-func (f *taskFSM) settlePrepareTrusted(submitter string) bool {
-	selfRank, known, selected := f.settleRank()
-	if !known || !selected {
-		return false
-	}
-	for i, builder := range f.settleSelection.SelectedBuilders {
-		if builder == submitter {
-			return i+1 < selfRank
-		}
-	}
-	return false
-}
-
 // builderAddresses takes only the addresses for logging: BuilderRef also carries the
 // endpoint, and logging it whole is both verbose and prone to writing internal addresses
 // into log files.
@@ -2394,10 +1935,9 @@ func builderAddresses(set []types.BuilderRef) []string {
 	return addresses
 }
 
-// inProposalGroup is the submission gate for ASSIGN / OPEN_VERIFY (proposal window):
-// if this node belongs to the phase's Builder group it submits its own proposal, **without
-// waiting for others or looking at prepare** -- the Keeper takes the legitimate union after
-// the window ends. If the group or our own identity is unknown (legacy / devnet), allow
+// inProposalGroup is the submission gate for the receipt and Verifier proposals:
+// if this node belongs to the task's Builder group it submits its own proposal without
+// waiting for others -- the Keeper takes the legitimate union after the window ends. If the group or our own identity is unknown (legacy / devnet), allow
 // leniently.
 func (f *taskFSM) inProposalGroup(set []types.BuilderRef) bool {
 	if f.self == "" || len(set) == 0 {
@@ -2431,70 +1971,8 @@ func (f *taskFSM) needsSettleSelection() bool {
 	return f.state == types.Verifying && f.settleSelection.SessionID == "" && f.settleStage.ready
 }
 
-// authorizedForSealedKey is the SEALED_KEY retrieval authorization:
-// the order's user, or a member of the selected Verifier set after verify-select.
-// When the order's user is unknown (SDK envelope not enabled), only selected Verifiers are allowed.
-func (f *taskFSM) authorizedForSealedKey(requester string) bool {
-	if requester == "" {
-		return false
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.user != "" && requester == f.user {
-		return true
-	}
-	for _, v := range f.verifiers {
-		if v == requester {
-			return true
-		}
-	}
-	return false
-}
-
-// subscribe subscribes to one core task-level subject and registers the unsubscribe function. Caller must hold the lock.
-func (f *taskFSM) subscribe(subject string, h func(data []byte)) {
-	unsub, err := f.bus.Subscribe(subject, func(_ string, data []byte) error {
-		if !f.beginHandler() {
-			return nil
-		}
-		defer f.endHandler()
-		h(data)
-		return nil
-	})
-	if err != nil {
-		f.log.Warn("subscribe failed",
-			"tier", "core", "session_id", f.sessionID, "task_id", f.taskID,
-			"subject", subject, "err", err)
-		return
-	}
-	f.unsubs = append(f.unsubs, unsub)
-}
-
-// jsSubscribe subscribes to one JetStream task-level subject (durable consumer) and
-// registers the unsubscribe function. Caller must hold the lock.
-func (f *taskFSM) jsSubscribe(subject, durable string, h func(data []byte) error) {
-	unsub, err := f.bus.JSSubscribe(subject, durable, func(_ string, data []byte) error {
-		if !f.beginHandler() {
-			return errTaskFSMStopping
-		}
-		defer f.endHandler()
-		return h(data)
-	})
-	if err != nil {
-		f.log.Warn("JS subscribe failed",
-			"tier", "jetstream", "session_id", f.sessionID, "task_id", f.taskID,
-			"subject", subject, "durable", durable, "err", err)
-		return
-	}
-	f.unsubs = append(f.unsubs, unsub)
-}
-
-// teardown unsubscribes from all task-level subjects and stops the timer. Caller must hold the lock.
+// teardown stops the task's timers. Caller must hold the lock.
 func (f *taskFSM) teardown() {
-	for _, u := range f.unsubs {
-		u()
-	}
-	f.unsubs = nil
 	if f.timer != nil {
 		f.timer.Stop()
 	}
@@ -2541,191 +2019,6 @@ func (f *taskFSM) shutdown() {
 	f.handlerWG.Wait()
 }
 
-// ---- Task-level subscriptions (onOrder / onAssignAccepted / resume share the same definitions) ----
-//
-// The restart recovery path must reuse these functions: with subscription points scattered
-// across taskfsm.go and snapshot.go, changing a subject in only one place would leave the
-// post-restart subscription on the old subject, with no compile error whatsoever.
-
-func (f *taskFSM) subscribeWorkerHandraise() {
-	subject := msgbus.SubjectWorkerHandraiseV1(f.taskID)
-	f.subscribe(subject, func(data []byte) {
-		inbound, err := f.receive(subject, bus.KindWorkerHandraise,
-			sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, data)
-		if err != nil {
-			f.log.Warn("drop bus envelope", "task_id", f.taskID, "subject", subject, "err", err)
-			return
-		}
-		hr, ok := inbound.Payload.(*taskv1.WorkerHandraiseV1)
-		if !ok {
-			f.log.Warn("drop bus envelope with unexpected payload type",
-				"task_id", f.taskID, "subject", subject)
-			return
-		}
-		f.onWorkerHandraise(hr)
-	})
-}
-
-func (f *taskFSM) subscribeVerifierHandraise() {
-	subject := msgbus.SubjectVerifierHandraiseV1(f.taskID)
-	f.subscribe(subject, func(data []byte) {
-		inbound, err := f.receive(subject, bus.KindVerifierHandraise,
-			sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, data)
-		if err != nil {
-			f.log.Warn("drop bus envelope", "task_id", f.taskID, "subject", subject, "err", err)
-			return
-		}
-		hr, ok := inbound.Payload.(*taskv1.VerifierHandraiseV1)
-		if !ok {
-			f.log.Warn("drop bus envelope with unexpected payload type",
-				"task_id", f.taskID, "subject", subject)
-			return
-		}
-		f.onVerifierHandraise(hr)
-	})
-}
-
-// subscribeBuilderPrepare: prepare de-duplication announcements:
-// the submission intent of Builders in the group, advisory only, never a
-// blocking requirement. Uses the nexus.* internal subject and the internal signature format
-// (prepare.go); Cortex is not involved.
-func (f *taskFSM) subscribeBuilderPrepare() {
-	subject := msgbus.SubjectBuilderPrepare(f.taskID)
-	f.subscribe(subject, func(data []byte) {
-		if f.prepares == nil {
-			return
-		}
-		p, err := f.prepares.decode(context.Background(), data, uint64(nowMS()))
-		if err != nil {
-			f.log.Debug("drop prepare notice", "task_id", f.taskID, "err", err)
-			return
-		}
-		f.onPrepare(p)
-	})
-}
-
-func (f *taskFSM) subscribeVerifyResult() {
-	subject := msgbus.SubjectVerifyResultV1(f.taskID)
-	f.jsSubscribe(subject, msgbus.DurableConsumer(f.self, "vr-"+f.taskID), func(data []byte) error {
-		inbound, err := f.receive(subject, bus.KindVerifyResult,
-			sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, data)
-		if err != nil {
-			f.log.Warn("drop bus envelope", "task_id", f.taskID, "subject", subject, "err", err)
-			// Infrastructure failures (chain unqueryable, replay-store read/write failure) are
-			// Nak'ed for redelivery; "message invalid" is acked, or a bad frame would be
-			// redelivered forever.
-			if retryableBusError(err) {
-				return msgbus.RetryAfter(err, f.blockInterval())
-			}
-			return nil
-		}
-		vr, ok := inbound.Payload.(*taskv1.ResultReceiptV3)
-		if !ok {
-			f.log.Warn("drop bus envelope with unexpected payload type",
-				"task_id", f.taskID, "subject", subject)
-			return nil
-		}
-		return f.onVerifyResult(vr)
-	})
-}
-
-// retryableBusError decides whether a failed inbound frame should be redelivered: only
-// infrastructure failures (on-chain query unavailable, replay-store read/write failure)
-// qualify; an invalid message does not -- a transient disk/KV failure of the replay store
-// says nothing about the message, and acking would permanently drop a legitimate durable
-// message.
-func retryableBusError(err error) bool {
-	return errors.Is(err, busadapter.ErrAuthorityUnavailable) ||
-		errors.Is(err, bus.ErrStoreFailure)
-}
-
-// receive decodes and verifies one inbound frame in the 7-step frozen order of
-// TRUEOPEN_BUS_ENVELOPE_V2 (wire bus.Verify), then checks the kind and the sender's
-// participant type. If the returned error satisfies errors.Is(err,
-// busadapter.ErrAuthorityUnavailable), it means "could not query" rather than "invalid":
-// JetStream callers should Nak for redelivery, not ack and drop.
-func (f *taskFSM) receive(
-	subject string, wantKind int32, wantParticipant sharedv1.ParticipantType, data []byte,
-) (*busadapter.Inbound, error) {
-	if f.receiver == nil {
-		return nil, fmt.Errorf("bus envelope: %w: envelope verification is not configured",
-			busadapter.ErrAuthorityUnavailable)
-	}
-	inbound, err := f.receiver.Receive(context.Background(), subject, data)
-	if err != nil {
-		return nil, err
-	}
-	if int32(inbound.Envelope.GetKind()) != wantKind {
-		return nil, fmt.Errorf("bus envelope: kind %s does not match subject expectation",
-			inbound.Envelope.GetKind())
-	}
-	if inbound.Envelope.GetSenderParticipantType() != wantParticipant {
-		return nil, fmt.Errorf("bus envelope: sender participant %s may not send %s",
-			inbound.Envelope.GetSenderParticipantType(), inbound.Envelope.GetKind())
-	}
-	return inbound, nil
-}
-
-// sinceAttr is a "<name>, ms since mark" log pair, or nothing when mark is unset.
-func sinceAttr(name string, mark time.Time) []any {
-	if mark.IsZero() {
-		return nil
-	}
-	return []any{name, stagetiming.Millis(time.Since(mark))}
-}
-
-// publish assembles, signs and publishes one BusEnvelopeV1 (proto). The publisher also
-// writes the complete envelope's raw bytes to the outbox, and after restart the
-// coordinator's Republish resends them verbatim. If it cannot be signed, do not send: the
-// envelope has no optional parts, and a dev fallback of "send one unsigned frame" would
-// defeat envelope verification entirely.
-func (f *taskFSM) publish(subject string, kind int32, payload proto.Message, tier busadapter.Tier) error {
-	return f.publishCtx(context.Background(), subject, kind, payload, tier)
-}
-
-// publishCtx is publish with the caller's context, so the binding read it may make is timed into
-// the caller's stagetiming.Recorder.
-func (f *taskFSM) publishCtx(ctx context.Context, subject string, kind int32, payload proto.Message, tier busadapter.Tier) error {
-	// Check the subject↔kind table before publishing (the publisher-side equivalent of step 2
-	// of the old encode): a call site with a mistyped subject would sign a frame that
-	// contradicts the vocabulary; better not to send.
-	if spec, _, ok := msgbus.LookupSubjectV1(subject); !ok || spec.WireKind != kind {
-		f.log.Warn("refuse to publish: subject does not carry this kind",
-			"subject", subject, "kind", kind, "task_id", f.taskID)
-		return fmt.Errorf("bus publish: subject %q does not carry kind %d", subject, kind)
-	}
-	kindName := busv1.BusMessageKind(kind).String()
-	phase := "publish_" + strings.ToLower(strings.TrimPrefix(kindName, "BUS_MESSAGE_KIND_"))
-	if f.publisher == nil {
-		// When a compliant frame cannot be signed, the only correct behaviour is not to send
-		// anything, but this is not a task-level failure: same semantics as the old
-		// implementation, the local FSM advances as usual and on-chain facts are unaffected.
-		f.log.Warn("encode envelope failed",
-			"phase", phase,
-			"session_id", f.sessionID, "task_id", f.taskID,
-			"subject", subject, "kind", kindName,
-			"err", "bus envelope signing is not configured")
-		return nil
-	}
-	tierName := "core"
-	if tier == busadapter.TierJetStream {
-		tierName = "jetstream"
-	}
-	messageID, err := f.publisher.Publish(ctx, subject, kind, payload, tier)
-	if err != nil {
-		f.log.Error("bus publish failed",
-			"phase", phase, "tier", tierName, "confirmed", false,
-			"session_id", f.sessionID, "task_id", f.taskID,
-			"subject", subject, "kind", kindName, "err", err)
-		return fmt.Errorf("%s: %w", strings.ReplaceAll(phase, "_", " "), err)
-	}
-	f.log.Info("bus publish confirmed",
-		"phase", phase, "tier", tierName, "confirmed", true,
-		"session_id", f.sessionID, "task_id", f.taskID,
-		"subject", subject, "kind", kindName, "message_id", messageID)
-	return nil
-}
-
 // ---- Pure helper functions ----
 
 func nowMS() int64 { return time.Now().UnixMilli() }
@@ -2770,84 +2063,6 @@ func containsString(xs []string, want string) bool {
 		}
 	}
 	return false
-}
-
-type workerAssignmentFacts struct {
-	// TaskHash is the candidate order identity jointly bound by this batch of hand-raises
-	// (lowercase 64-hex). Mixing different task_hash values within one proposal fails
-	// outright.
-	TaskHash string
-	// CandidateSnapshotID comes from member.candidate_pool_snapshot_id: hand-raises in
-	// the same proposal must reference the same candidate pool snapshot, otherwise the
-	// Keeper's slot lookups land on different snapshots and the union bitmap is meaningless.
-	// candidate_set_hash used to be cross-checked too; that field was removed from the wire.
-	CandidateSnapshotID string
-}
-
-// workerAssignmentFactsFrom extracts and cross-checks the proposal facts jointly bound by a
-// set of hand-raises. The old canonical set (AssignTx's historical string fields) is no
-// longer derived: SubmitAssign puts only scope / handraises / submitter_address on-chain and
-// the string copies have no reader; only the cross-hand-raise fact consistency check it
-// used to perform is kept here.
-func workerAssignmentFactsFrom(input map[string]*taskv1.WorkerHandraiseV1) (workerAssignmentFacts, error) {
-	if len(input) == 0 {
-		return workerAssignmentFacts{}, fmt.Errorf("worker handraise set must not be empty")
-	}
-	addresses := make([]string, 0, len(input))
-	for address := range input {
-		addresses = append(addresses, address)
-	}
-	sort.Strings(addresses)
-	var facts workerAssignmentFacts
-	for i, address := range addresses {
-		handraise := input[address]
-		if address != handraise.GetMember().GetOperatorAddress() {
-			return workerAssignmentFacts{}, fmt.Errorf("worker handraise map identity mismatch")
-		}
-		current := workerAssignmentFacts{
-			TaskHash:            hex.EncodeToString(handraise.GetTaskHash()),
-			CandidateSnapshotID: hex.EncodeToString(handraise.GetMember().GetCandidatePoolSnapshotId()),
-		}
-		if i == 0 {
-			facts = current
-		} else if current != facts {
-			return workerAssignmentFacts{}, fmt.Errorf("worker handraises do not bind the same assignment facts")
-		}
-	}
-	return facts, nil
-}
-
-// validateOrderForAssign cross-checks a legacy JSON-envelope order against the hand-raise facts.
-//
-// The `order.OrderDigest == hex(sha256(order.OrderEnvelope))` self-check was removed from
-// here. It was the concrete symptom of "the same commitment has different semantics on the
-// two ingress paths": the SignedOrder path stores OrderEnvelope as hex text and OrderDigest
-// as sha256(raw), which never match; the legacy JSON path stores raw JSON, which happens to
-// match. It is currently unreachable (the call site is kept on the legacy path by
-// `len(f.order.SignedOrder) == 0`, see onWorkerHandraise), so not a production bug, but it
-// would become a guaranteed failure as soon as someone removed that guard.
-//
-// There is no reason for that self-check to exist any more: the order identity is
-// task_hash, derived from TaskOrderV2 and independent of the envelope byte encoding, and
-// consistency is enforced by two gates: validWorkerHandraise (hand-raise vs broadcast) and
-// submitter.validateScopeTaskHash (on-chain scope vs each hand-raise). Only what the legacy
-// envelope can genuinely cross-check is kept here: fee and timeout.
-func validateOrderForAssign(order types.Order, facts workerAssignmentFacts) error {
-	if order.SessionID == "" || order.TaskID == "" || order.User == "" || order.OrderEnvelope == "" ||
-		order.SignatureScheme != "secp256k1" || order.UserSignature == "" ||
-		order.MaxFee == 0 || order.InferTimeoutBlocks == 0 {
-		return fmt.Errorf("order is missing current Node assignment fields")
-	}
-	envelope, err := nodecontract.ParseAssignmentOrderEnvelope(order.OrderEnvelope)
-	if err != nil {
-		return err
-	}
-	if order.TaskHash != facts.TaskHash ||
-		order.MaxFee != envelope.MaxFee || order.TxFeeReserve != envelope.TxFeeReserve ||
-		order.InferTimeoutBlocks != envelope.InferTimeoutBlocks {
-		return fmt.Errorf("order and worker handraise assignment facts do not match")
-	}
-	return nil
 }
 
 // validateReceiptForOpenVerify checks the frozen wire fields needed to assemble

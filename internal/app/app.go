@@ -20,7 +20,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/ingress"
 	"github.com/TrueOpen/nexus/internal/ingresstls"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
@@ -195,7 +194,7 @@ func newChainEventOptions(store kv.Store, mode config.AuthorityMode) chainEventO
 	return options
 }
 
-// New wires up every module (dependency order: bus -> chain -> builder-registration -> relay -> coordinator -> ingress).
+// New wires up every module (dependency order: chain -> builder-registration -> relay -> coordinator -> ingress).
 func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		return nil, err
@@ -231,13 +230,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	// With NATS servers configured, use the real bus; otherwise fall back to the stub (offline / unit tests).
-	var bus msgbus.Bus
-	if len(cfg.NATS.Servers) > 0 {
-		bus = msgbus.NewNATS(log, cfg.NATS)
-	} else {
-		bus = msgbus.NewStub(log, cfg.NATS.Servers)
-	}
 	authority, err := cfg.BuilderAuthority()
 	if err != nil {
 		_ = store.Close()
@@ -330,14 +322,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ingress.WithPayloadMaxBytes(inlinePayloadMax(cfg.PayloadStorage.MaxBytes, cfg.TaskData.InlineMaxBytes)),
 		ingress.WithReadMaxBytes(cfg.TaskData.ChunkSizeBytes),
 	}
-	if strings.TrimSpace(cfg.NATS.SentinelFile) != "" {
-		// The AUTH account sentinel JWT (public, non-secret data) is distributed to Cortex by the ingress; see GET /v1/nats/sentinel.
-		ingressOpts = append(ingressOpts, ingress.WithNATSSentinelFile(cfg.NATS.SentinelFile))
-	}
-	if len(cfg.NATS.AdvertiseServers) > 0 {
-		// The NATS address and certificate go to Cortex with the sentinel.
-		ingressOpts = append(ingressOpts, ingress.WithNATSAdvertise(cfg.NATS.AdvertiseServers, cfg.NATS.CAFile))
-	}
 	if tlsMaterial.Enabled() {
 		ingressOpts = append(ingressOpts, ingress.WithTLS(tlsMaterial.Certificate))
 	}
@@ -372,29 +356,28 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			coordinator.WithSubmitter(coordinator.NewSignedSubmitter(log, taskChain, registrationChain, sg, serviceSG, cfg.Chain)),
 			coordinator.WithIdentitySigner(sg),
 			coordinator.WithBuilderRegistry(registrationChain),
-			coordinator.WithBuilderSelectionQuerier(taskChain),              // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
-			stage1AdmissionOption(sg, registrationChain, cfg.Chain.ChainID)) // Hub is authoritative for the active BuilderSet.
+			coordinator.WithBuilderSelectionQuerier(taskChain)) // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
 		registrationModule = newBuilderRegistrationModule(log, store, registrationChain, sg, serviceSG, cfg.Identity, authority, tlsMaterial.PubKeyHash)
 	} else {
-		log.Warn("tx signing NOT configured (NEXUS_KEYSTORE_FILE or NEXUS_PRIVATE_KEY_FILE/PRIVATE_KEY/HEX); task transactions are disabled and credentials are unsigned (dev only)")
+		log.Warn("tx signing NOT configured (NEXUS_KEYSTORE_FILE or NEXUS_PRIVATE_KEY_FILE/PRIVATE_KEY/HEX); task transactions are disabled (dev only)")
 	}
 
 	// A Profile is model registration data on the Hub side (QueryProfile goes through hubQuery), so this takes
 	// registrationChain rather than taskChain.
 	taskAuthority := newTaskDataAuthority(taskChain, registrationChain, registrationChain)
 	if serviceSG != nil {
-		// The signing/verification port of BusEnvelopeV1: outbound frames are signed with the current
-		// service key's private key, inbound frames are verified against the on-chain current binding looked up by (participant_type, operator).
-		// No service key configured means not a single task-control frame can be sent or received -- this is fail-closed,
-		// not a degradation: the bus protocol does not allow "fall back to unsigned after verification fails".
+		// Builder messages to Cortex (OpenVerify, VerifierAssignmentNotify) are signed with the current
+		// service key, bound to the on-chain binding looked up by (participant_type, operator).
+		// Without a service key no Builder message is signed or sent: there is no unsigned fallback.
 		coordOpts = append(coordOpts,
 			coordinator.WithServiceKey(serviceSG, taskAuthority, cfg.Identity.Bech32Prefix))
 	} else {
-		log.Warn("service key NOT configured; NATS task-control frames cannot be signed or verified " +
-			"(the bus protocol does not allow unsigned envelopes, so the coordinator emits no trueopen.* frames)")
+		log.Warn("service key NOT configured; Builder messages to Cortex cannot be signed, so none are sent")
 	}
 
-	coord := coordinator.New(log, bus, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
+	// The Cortex dispatch stream is not served yet: Builder messages are signed and then dropped.
+	coordOpts = append(coordOpts, coordinator.WithCortexLink(noCortexLink{log: log}))
+	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	var taskAuthorizer *taskdata.Authorizer
 	// User request verification reads the current height (session grant windows) and the key each
 	// account holds on chain; found keys are cached, since an account's key never changes.
@@ -517,7 +500,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 
 	modules := []module{
-		{"msgbus", bus.Start, bus.Stop},
 		{"task-chaincli", taskChain.Start, taskChain.Stop},
 	}
 	if hubChain != nil {
@@ -547,13 +529,6 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 		return int(inlineMax)
 	}
 	return legacyMax
-}
-
-func stage1AdmissionOption(accountSigner signer.Signer, registry coordinator.AdmissionRegistry, taskChainID string) coordinator.Option {
-	if accountSigner == nil {
-		return coordinator.WithOrderAdmission(nil)
-	}
-	return coordinator.WithOrderAdmission(coordinator.NewHubStage1Admission(registry, accountSigner.Address(), taskChainID))
 }
 
 func newBuilderRegistrationModule(

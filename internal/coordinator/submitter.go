@@ -31,7 +31,6 @@ import (
 //
 // A successful submit only means "broadcast", not state progress -- truth still comes from chain events.
 // The method set mirrors the Task Msg surface of the chain:
-//   - SubmitAssign          -> MsgSubmitWorkerHandraises
 //   - SubmitOpenVerify      -> MsgSubmitInferReceipt
 //   - SubmitVerifierHandraises -> MsgSubmitVerifierHandraises
 //   - SubmitVerifyCommit    -> MsgBatchSubmitVerifyCommit (one per batch)
@@ -42,14 +41,10 @@ import (
 // There is no Worker reveal method: the chain registers no such Msg and keeps
 // Worker metric evidence off chain.
 //
-// MsgSubmitVerifyResult relay is enabled: NATS VERIFY_RESULT now carries the complete frozen
-// ResultReceiptV2 signed by the Verifier (including service_authorization_nonce / expiry_height /
-// MetricSummaryV1), so it is forwarded verbatim -- the old reason for "intentionally not enabled this round"
-// (Nexus could not obtain those fields) went away with the bus migration. MsgSubmitVerifyCommit / MsgSubmitFullResultReveal
-// are still not enabled: the Cortex bus defines no NATS payload for them yet.
+// Verifier commits and results arrive complete and Verifier-signed through the ingress relay RPCs
+// and are forwarded verbatim. MsgSubmitFullResultReveal is not relayed.
 // MsgReportDataUnavailable must not be relayed (see the chaincli/txbuild.go comment).
 type Submitter interface {
-	SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (ProposalResult, error)
 	SubmitOpenVerify(ctx context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error)
 	SubmitVerifierHandraises(ctx context.Context, tx chaincli.OpenVerifyTx) (ProposalResult, error)
 	SubmitVerifyCommit(ctx context.Context, tx chaincli.VerifyCommitTx) (chaincli.TxResult, error)
@@ -123,71 +118,6 @@ func NewSignedSubmitter(log *slog.Logger, taskChain, hubChain chaincli.Client, a
 // NewBuilderSubmitter constructs the Builder register/unbond submitter.
 func NewBuilderSubmitter(log *slog.Logger, chain chaincli.Client, s chaincli.TxSigner, chainCfg config.ChainConfig) BuilderSubmitter {
 	return &defaultSubmitter{log: log, chain: chain, hub: chain, signer: s, chainCfg: chainCfg}
-}
-
-// SubmitAssign relays a Worker-duty handraise proposal as
-// MsgSubmitWorkerHandraises.
-//
-// Only the scope oneof, the Cortex-signed handraises and submitter_address reach
-// the chain. Builder rank, selection proof, candidate set hash, min-handraise
-// threshold, reserved fee and infer deadline are Keeper-derived and are refused
-// as request copies; the proposal also carries no detached Builder signature,
-// because the Cosmos Tx signer already authorises it.
-func (s *defaultSubmitter) SubmitAssign(ctx context.Context, tx chaincli.AssignTx) (ProposalResult, error) {
-	if s.signer == nil {
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: account signer is required")
-	}
-	if tx.Submitter == "" || tx.Submitter != s.signer.Address() {
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: submitter_address must be the Cosmos signer")
-	}
-	msg := &taskv1.MsgSubmitWorkerHandraises{SubmitterAddress: tx.Submitter}
-	// scopeTaskHash is the authoritative candidate identity this proposal binds to; the two scope branches source it
-	// differently: the signed_order branch computes it from the user-signed TaskOrderV3, the existing_task branch
-	// uses the on-chain accepted_task_hash. It must then be byte-for-byte equal to every hand-raise.
-	var scopeTaskHash []byte
-	switch {
-	case tx.SignedOrder != nil && tx.ExistingTask != nil:
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
-	case tx.SignedOrder != nil:
-		if err := validateSignedOrder(tx.SignedOrder); err != nil {
-			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
-		}
-		digest, err := nodecontract.TaskOrderHashV3(tx.SignedOrder.GetOrder())
-		if err != nil {
-			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
-		}
-		scopeTaskHash = digest[:]
-		msg.Scope = &taskv1.WorkerHandraiseScopeV1{Scope: &taskv1.WorkerHandraiseScopeV1_SignedOrder{SignedOrder: tx.SignedOrder}}
-	case tx.ExistingTask != nil:
-		if len(tx.ExistingTask.GetTaskId()) != hash32Len || len(tx.ExistingTask.GetTaskHash()) != hash32Len {
-			return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: existing_task requires canonical task_id and task_hash")
-		}
-		scopeTaskHash = tx.ExistingTask.GetTaskHash()
-		msg.Scope = &taskv1.WorkerHandraiseScopeV1{Scope: &taskv1.WorkerHandraiseScopeV1_ExistingTask{ExistingTask: tx.ExistingTask}}
-	default:
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: scope must be exactly one of signed_order or existing_task")
-	}
-	if err := validateWorkerHandraises(tx.WorkerHandraises); err != nil {
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
-	}
-	if err := validateScopeTaskHash(scopeTaskHash, tx.WorkerHandraises); err != nil {
-		return ProposalResult{}, prepareSubmissionError("MsgSubmitWorkerHandraises: %v", err)
-	}
-	operators := make([]string, len(tx.WorkerHandraises))
-	for i, hr := range tx.WorkerHandraises {
-		operators[i] = hr.GetMember().GetOperatorAddress()
-	}
-	return s.submitHandraiseProposal(ctx, handraiseProposal{
-		kind: "MsgSubmitWorkerHandraises", typeURL: chaincli.TypeURLMsgSubmitWorkerHandraises, operators: operators,
-		build: func(keep []int) proto.Message {
-			subset := proto.Clone(msg).(*taskv1.MsgSubmitWorkerHandraises)
-			subset.Handraises = make([]*taskv1.WorkerHandraiseV1, 0, len(keep))
-			for _, i := range keep {
-				subset.Handraises = append(subset.Handraises, tx.WorkerHandraises[i])
-			}
-			return subset
-		},
-	})
 }
 
 // SubmitOpenVerify relays the Worker-signed receipt as MsgSubmitInferReceipt.
@@ -393,7 +323,6 @@ func validateTaskDeadlineKind(kind taskv1.DeadlineKindV1) error {
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_COMMIT,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_OPEN,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_WORKER_INFER,
-		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_WORKER_ASSIGNMENT,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_FINAL:
 		return nil
 	case taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE,
@@ -416,104 +345,6 @@ const hash32Len = 32
 // User order signatures are recoverable 65-byte R||S||V instead; see
 // nodecontract.ValidateSignedOrderEnvelopeV2.
 const signature64Len = 64
-
-// validateScopeTaskHash is the last gate on Task identity before submitting on-chain.
-//
-// The chain requires the scope (SignedOrderV2 or ExistingTaskRefV1) and every
-// WorkerHandraiseV1.task_hash in this proposal to point at the same order version. The Keeper repeats this
-// check (node x/task/keeper/msg_server_worker_handraises.go:62); doing it locally first avoids
-// sending a Tx that is doomed to rejection and, more importantly, fails closed in one place for these four cases:
-//
-//   - a hand-raise carries the wrong candidate hash;
-//   - one proposal mixes different hashes;
-//   - a hand-raise is bound to a stale RBF version -- an older quote version of the same task_id has a
-//     different task_hash and is ruled out by comparison with the current scope;
-//   - the envelope's payload digest (or any other 32-byte commitment) is passed off as task_hash --
-//     it can never equal the value computed by H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", ...).
-func validateScopeTaskHash(scopeTaskHash []byte, handraises []*taskv1.WorkerHandraiseV1) error {
-	if len(scopeTaskHash) != hash32Len {
-		return fmt.Errorf("scope task_hash must be 32 raw bytes")
-	}
-	for i, handraise := range handraises {
-		if !bytes.Equal(handraise.GetTaskHash(), scopeTaskHash) {
-			return fmt.Errorf("handraise %d task_hash %x does not match the proposal scope task_hash %x",
-				i, handraise.GetTaskHash(), scopeTaskHash)
-		}
-	}
-	return nil
-}
-
-func validateSignedOrder(signed *taskv1.SignedOrderV2) error {
-	// Order signatures are "eip712" + 65-byte recoverable signature. Same rule as ingress.
-	if err := nodecontract.ValidateSignedOrderEnvelopeV2(
-		signed.GetSignatureScheme(), signed.GetUserSignature(), signed.GetSignatureChainId()); err != nil {
-		return err
-	}
-	order := signed.GetOrder()
-	if order == nil {
-		return fmt.Errorf("signed_order order is required")
-	}
-	if order.GetSchemaVersion() == 0 || order.GetChainId() == "" || order.GetUserAddress() == "" ||
-		len(order.GetModelId()) != hash32Len || order.GetProfileVersion() == 0 || order.GetBuilderSetId() == "" {
-		return fmt.Errorf("signed_order order identity fields are incomplete")
-	}
-	for field, value := range map[string][]byte{
-		"session_id":                order.GetSessionId(),
-		"input_hash":                order.GetInputHash(),
-		"session_anchor_block_hash": order.GetSessionAnchorBlockHash(),
-		"builder_set_hash":          order.GetBuilderSetHash(),
-	} {
-		if len(value) != hash32Len {
-			return fmt.Errorf("signed_order %s must be 32 raw bytes", field)
-		}
-	}
-	if order.GetGenerationParams() == nil || order.GetDeadlinePolicy() == nil {
-		return fmt.Errorf("signed_order requires typed generation_params and deadline_policy")
-	}
-	if order.GetEarliestSubmitHeight() == 0 || order.GetOrderExpireHeight() <= order.GetEarliestSubmitHeight() {
-		return fmt.Errorf("signed_order submit window is not a strictly increasing height range")
-	}
-	return nil
-}
-
-// validateWorkerHandraises enforces the caller-side half of the handraise ordering rule: a proposal
-// carries at least one handraise, handraises ascend by slot and each slot is
-// unique. Membership, eligibility, liability and signature validity stay with
-// the Keeper, which reloads the authoritative snapshot.
-func validateWorkerHandraises(handraises []*taskv1.WorkerHandraiseV1) error {
-	if len(handraises) == 0 {
-		return fmt.Errorf("handraises must not be empty")
-	}
-	previousSlot := -1
-	for i, handraise := range handraises {
-		if handraise == nil {
-			return fmt.Errorf("handraise %d is nil", i)
-		}
-		if handraise.GetDuty() != sharedv1.Duty_DUTY_WORKER {
-			return fmt.Errorf("handraise %d duty must be WORKER", i)
-		}
-		if handraise.GetSchemaVersion() == 0 || handraise.GetChainId() == "" || len(handraise.GetModelId()) != hash32Len ||
-			handraise.GetProfileVersion() == 0 || handraise.GetServiceAuthorizationNonce() == 0 ||
-			handraise.GetExpiryHeight() == 0 {
-			return fmt.Errorf("handraise %d is incomplete", i)
-		}
-		if len(handraise.GetTaskId()) != hash32Len || len(handraise.GetTaskHash()) != hash32Len {
-			return fmt.Errorf("handraise %d task_id and task_hash must be 32 raw bytes", i)
-		}
-		if len(handraise.GetServiceSignature()) != signature64Len {
-			return fmt.Errorf("handraise %d service_signature must be 64 raw bytes", i)
-		}
-		if len(handraise.GetRecipientPubkey()) != 0 {
-			return fmt.Errorf("handraise %d carries a recipient_pubkey while encryption is inactive", i)
-		}
-		slot, err := validateCandidateMember(handraise.GetMember(), i, previousSlot)
-		if err != nil {
-			return err
-		}
-		previousSlot = slot
-	}
-	return nil
-}
 
 func validateVerifierHandraises(handraises []*taskv1.VerifierHandraiseV1, taskID []byte) error {
 	if len(handraises) == 0 {

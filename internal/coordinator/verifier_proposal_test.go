@@ -12,19 +12,16 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/types"
-	wirebus "github.com/TrueOpen/wire/bus"
 )
 
 // verifierProposalFixture advances a Task to "the receipt has been accepted locally": from there the
 // test decides when to declare on-chain acceptance and when to deliver Verifier hand-raises.
 type verifierProposalFixture struct {
 	c        *Coordinator
-	bus      msgbus.Bus
+	link     *fakeCortexLink
 	keys     *testServiceKeys
 	fake     *fakeSubmitter
 	fsm      *taskFSM
@@ -39,7 +36,6 @@ type verifierProposalFixture struct {
 func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixture {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	fake := &fakeSubmitter{}
 
 	workerService, err := signer.NewFromHex(testKeyHex, "trueopen")
@@ -48,9 +44,9 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 	}
 	winner := workerService.Address()
 
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
+	keys, link := enableTestBuilderMessages(c)
 	c.submit = fake
 	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
@@ -60,17 +56,10 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 	outputHash := outputHashSum[:]
 
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}},
-		Height:      100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: winner, AssignSeed: []byte("assign-seed"), Height: 101,
-	})
+	recordTestWinner(c, session, task, winner, 101)
 
 	receipt := testInferReceipt(session, task, winner, outputHash)
 	digest, err := nodecontract.InferReceiptSigningDigestFromSubmission(receipt)
@@ -100,13 +89,14 @@ func newVerifierProposalFixture(t *testing.T, name string) *verifierProposalFixt
 	fsm.mu.Unlock()
 
 	fx := &verifierProposalFixture{
-		c: c, bus: bus, keys: keys, fake: fake, fsm: fsm, session: session, task: task,
+		c: c, link: link, keys: keys, fake: fake, fsm: fsm, session: session, task: task,
 		output: outputHash, receipt: receipt.InferReceiptHash,
 	}
 	fx.deliver = func(candidate string) {
 		hr := testVerifierHandraise(session, task, candidate, outputHash, receipt.InferReceiptHash)
-		publishEnvelope(t, bus, keys, candidate, msgbus.SubjectVerifierHandraiseV1(task),
-			wirebus.KindVerifierHandraise, hr)
+		if err := c.HandleVerifierHandraise(context.Background(), candidate, hr); err != nil {
+			t.Fatalf("HandleVerifierHandraise(%s): %v", candidate, err)
+		}
 	}
 	fx.proposed = func() []chaincli.OpenVerifyTx {
 		fake.mu.Lock()

@@ -51,7 +51,7 @@ func TaskOrderHashV3(order *taskv1.TaskOrderV3) ([32]byte, error) {
 }
 
 // TaskOrderHashHexV3 is the canonical lowercase 64-hex form of TaskOrderHashV3.
-// Inside Nexus (types.Order, NATS payload, logs) hex text is used throughout; it is decoded back to 32 bytes
+// Inside Nexus (types.Order, snapshots, logs) hex text is used throughout; it is decoded back to 32 bytes
 // only before entering an H_FIELDS_V1 preimage or an on-chain bytes field.
 func TaskOrderHashHexV3(order *taskv1.TaskOrderV3) (string, error) {
 	digest, err := TaskOrderHashV3(order)

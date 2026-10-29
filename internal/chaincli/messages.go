@@ -28,53 +28,6 @@ func (k TaskKey) Validate() error {
 // ---- 1. Txs that nexus assembles, signs and broadcasts ----
 // These structs are encoded and signed, then submitted via BroadcastTx([]byte); field-level definitions live here.
 
-// AssignTx carries the Worker-duty handraise proposal that nexus relays as
-// MsgSubmitWorkerHandraises.
-//
-// SignedOrder / ExistingTask / WorkerHandraises are the only fields that reach
-// the chain: the chain requires every other assignment fact (Builder
-// operator, BuilderSet, Task Builders, pool hash, candidate weights, legal-set
-// hash, deadlines, thresholds) to be Keeper-derived, so they must not be sent as
-// request copies. The remaining legacy fields below stay as local coordination
-// state for builder-selection preparation, order admission and self-checks; they
-// are no longer part of the Msg wire.
-type AssignTx struct {
-	// SignedOrder is the user-signed SignedOrderV2 required for the first
-	// proposal of a Task.
-	SignedOrder *taskv1.SignedOrderV2 `json:"-"`
-	// ExistingTask addresses an already accepted Task for follow-up proposals.
-	ExistingTask *taskv1.ExistingTaskRefV1 `json:"-"`
-	// WorkerHandraises are Cortex-authored signed WorkerHandraiseV1 facts,
-	// ascending by slot and unique.
-	WorkerHandraises []*taskv1.WorkerHandraiseV1 `json:"-"`
-
-	BuilderOperatorAddress string `json:"builder_operator_address"`
-	SessionID              string `json:"session_id"`
-	TaskID                 string `json:"task_id"`
-	UserAddress            string `json:"user_address"`
-	OrderSequence          uint64 `json:"order_sequence"`
-	OrderEnvelope          string `json:"order_envelope"`
-	// TaskHash is the canonical identity of the candidate order (see types.Order.TaskHash).
-	// It only feeds local logs and snapshots; the on-chain copy lives in SignedOrder / ExistingTask,
-	// and the submitter checks the two agree before submitting.
-	TaskHash              string `json:"task_hash"`
-	SignatureScheme       string `json:"signature_scheme"`
-	UserSignature         string `json:"user_signature"`
-	MaxFee                uint64 `json:"max_fee"`
-	TxFeeReserve          uint64 `json:"tx_fee_reserve"`
-	AssignmentPriorityFee uint64 `json:"assignment_priority_fee"`
-	BuilderRank           uint64 `json:"builder_rank"`
-	BuilderSelectionProof string `json:"builder_selection_proof"`
-	CandidateSnapshotID   string `json:"candidate_snapshot_id"`
-	CandidateSetHash      string `json:"candidate_set_hash"`
-	WorkerHandraiseSet    string `json:"worker_handraise_set"`
-	MinWorkerHandraise    uint64 `json:"min_worker_handraise_required"`
-	ReservedFee           uint64 `json:"reserved_fee"`
-	InferDeadlineHeight   uint64 `json:"infer_deadline_height"`
-	ServiceSignature      string `json:"service_signature"`
-	Submitter             string `json:"submitter"`
-}
-
 // OpenVerifyTx carries the two contract messages that replace the old single
 // MsgOpenVerify: MsgSubmitInferReceipt and, once the Verifier window is
 // READY, MsgSubmitVerifierHandraises. The Verifier window, legal
@@ -256,8 +209,6 @@ type UpdateServiceDescriptorTx struct {
 const (
 	EventResyncRequired           = "ResyncRequired"              // local signal: re-check authoritative chain state after a new subscription is established
 	EventTaskStateChanged         = "TaskStateChanged"            // new-style Node task notification: must QueryTask before advancing
-	EventAssignAccepted           = "AssignAccepted"              // AssignTx included in a block, winner undecided → RANDOMNESS_PENDING
-	EventAssignmentFinalized      = "AssignmentFinalized"         // randomness settled, winner decided → triggers trueopen.assign to start work
 	EventOpenVerifyAccepted       = "OpenVerifyAccepted"          // formal Verifier set decided (no seed) → VERIFYING
 	EventSampleReady              = "SampleReady"                 // future beacon aggregates sample_seed → triggers trueopen.sample-ready
 	EventVerifyCommitAccepted     = "VerifyCommitAccepted"        // commit collection progress
@@ -268,28 +219,6 @@ const (
 	EventBuilderSetUpdated        = "BuilderSetUpdated"           // set rotation: update the local active set
 	EventNewBlock                 = "NewBlock"                    // independent height polling signal, used for gap detection
 )
-
-// AssignAccepted: AssignTx included in a block (two-phase step one): enters randomness pending,
-// winner not yet decided, so no start-work notification is sent.
-type AssignAccepted struct {
-	SessionID   string             `json:"session_id"`
-	TaskID      string             `json:"task_id"`
-	AssignedSet []types.BuilderRef `json:"assigned_set"`
-	Height      int64              `json:"height"`
-}
-
-// AssignmentFinalized: randomness settled and winner decided (two-phase step two):
-// only after receiving it is the winner told to start work via trueopen.assign.
-type AssignmentFinalized struct {
-	SessionID  string `json:"session_id"`
-	TaskID     string `json:"task_id"`
-	Winner     string `json:"winner"`      // selected Worker address
-	AssignSeed []byte `json:"assign_seed"` // assignment randomness (lets the winner derivation be checked locally)
-	Height     int64  `json:"height"`
-	// InferDeadlineHeight is the chain-height deadline for the winner to deliver output (infer_deadline of
-	// the WorkerAssignmentFinalized event; the recovery path reads the same-named task snapshot field).
-	InferDeadlineHeight uint64 `json:"infer_deadline_height"`
-}
 
 // OpenVerifyAccepted: open-verify included in a block (no sample_seed; the seed arrives with the later SampleReady).
 type OpenVerifyAccepted struct {
@@ -543,14 +472,9 @@ type TaskAssignmentState struct {
 	BuilderRank                   uint64 `json:"builder_rank"`
 	BuilderSelectionProof         string `json:"builder_selection_proof"`
 	CandidateSnapshotID           string `json:"candidate_snapshot_id"`
-	CandidateSetHash              string `json:"candidate_set_hash"`
-	WorkerHandraiseSet            string `json:"worker_handraise_set"`
-	MinWorkerHandraiseRequired    uint64 `json:"min_worker_handraise_required"`
 	SelectedWorkerOperatorAddress string `json:"selected_worker_operator_address"`
 	ReservedFee                   uint64 `json:"reserved_fee"`
 	InferDeadlineHeight           uint64 `json:"infer_deadline_height"`
-	AssignAcceptHeight            uint64 `json:"assign_accept_height"`
-	AssignmentRandomnessHeight    uint64 `json:"assignment_randomness_height"`
 	WinnerConfirmHeight           uint64 `json:"winner_confirm_height"`
 	OrderValue                    uint64 `json:"order_value"`
 	InferFeeCap                   uint64 `json:"infer_fee_cap"`

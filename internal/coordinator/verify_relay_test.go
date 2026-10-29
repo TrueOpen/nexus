@@ -14,7 +14,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -40,16 +39,10 @@ func verifyingTask(t *testing.T, c *Coordinator, session, task string, verifiers
 	}
 	winner := workerService.Address()
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}}, Height: 100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: winner, AssignSeed: []byte("assign-seed"), Height: 101,
-	})
+	recordTestWinner(c, session, task, winner, 101)
 	outputHashSum := sha256.Sum256([]byte("canonical output"))
 	receipt := testInferReceipt(session, task, winner, outputHashSum[:])
 	digest, err := nodecontract.InferReceiptSigningDigestFromSubmission(receipt)
@@ -78,9 +71,9 @@ func verifyingTask(t *testing.T, c *Coordinator, session, task string, verifiers
 func TestVerifyCommitRelay(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sub := &fakeSubmitter{}
-	c := New(log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	enableTestBusEnvelopes(c)
+	enableTestBuilderMessages(c)
 	c.submit = sub
 
 	const (
@@ -135,8 +128,8 @@ func TestVerifyCommitRelay(t *testing.T) {
 
 	// Task not in the verification phase: FailedPrecondition.
 	const pending = "7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b"
-	if err := c.OnOrder(ctx, testCurrentOrder("sess-pending", pending, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder("sess-pending", pending, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 	if _, err := c.OnVerifyCommit(ctx, "sess-pending", pending, testVerifyCommit(pending, verifiers[0])); !errors.Is(err, types.ErrFailedPrecondition) {
 		t.Fatalf("pending task: %v", err)
@@ -147,9 +140,9 @@ func TestVerifyCommitRelay(t *testing.T) {
 func TestVerifyResultRelayViaIngress(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sub := &fakeSubmitter{}
-	c := New(log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	enableTestBusEnvelopes(c)
+	enableTestBuilderMessages(c)
 	c.submit = sub
 
 	const (

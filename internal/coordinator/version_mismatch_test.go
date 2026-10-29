@@ -20,18 +20,17 @@ var (
 )
 
 // The chain accepted another version than this Builder's order: the FSM switches to the accepted
-// task_hash, keeps only hand-raises for it, removes its own input and remembers all of it.
+// task_hash, removes its own input and remembers all of it.
 func TestAcceptedOtherVersionSwitchesToTheAcceptedVersion(t *testing.T) {
 	c, _ := newTestCoordinator(t)
 	taskStore, payloads := newCoordinatorTaskData(t, c.kv)
 	c.payloads = payloads
 	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("local input"), 100)
 	local := stageOrderInput(t, taskStore, order, []byte("local input"), true)
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM(order.SessionID, order.TaskID)
-	fsm.onWorkerHandraise(testWorkerHandraise(order.SessionID, order.TaskID, testOperator("before")))
 
 	c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{
 		SessionID: order.SessionID, TaskID: order.TaskID, State: types.Pending,
@@ -39,34 +38,17 @@ func TestAcceptedOtherVersionSwitchesToTheAcceptedVersion(t *testing.T) {
 	}, 120)
 
 	fsm.mu.Lock()
-	mismatch, collected := fsm.versionMismatch, len(fsm.workerHR)
+	mismatch := fsm.versionMismatch
 	taskHash := hex.EncodeToString(fsm.taskHashBytes())
 	fsm.mu.Unlock()
 	if !mismatch {
 		t.Fatal("version mismatch was not recorded")
-	}
-	if collected != 0 {
-		t.Fatalf("hand-raises for the local version were kept: %d", collected)
 	}
 	if taskHash != testAcceptedTaskHash {
 		t.Fatalf("task identified by %s, want the accepted task_hash", taskHash)
 	}
 	if !inputDeleted(t, taskStore, local) {
 		t.Fatal("local input of the other version was not removed")
-	}
-
-	// Later hand-raises are checked against the accepted version.
-	stale := testWorkerHandraise(order.SessionID, order.TaskID, testOperator("stale"))
-	fresh := testWorkerHandraise(order.SessionID, order.TaskID, testOperator("fresh"))
-	fresh.TaskHash = mustHex32(testAcceptedTaskHash)
-	fsm.onWorkerHandraise(stale)
-	fsm.onWorkerHandraise(fresh)
-	fsm.mu.Lock()
-	_, staleKept := fsm.workerHR[testOperator("stale")]
-	_, freshKept := fsm.workerHR[testOperator("fresh")]
-	fsm.mu.Unlock()
-	if staleKept || !freshKept {
-		t.Fatalf("hand-raise filter after mismatch: stale kept=%t fresh kept=%t", staleKept, freshKept)
 	}
 
 	// Detected once; the snapshot keeps it for a restart.
@@ -98,7 +80,7 @@ func TestAcceptedOwnVersionKeepsLocalInput(t *testing.T) {
 	c.payloads = payloads
 	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("local input"), 100)
 	local := stageOrderInput(t, taskStore, order, []byte("local input"), true)
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM(order.SessionID, order.TaskID)
@@ -178,7 +160,7 @@ func TestDataReadyQueryNamesTheAcceptedInput(t *testing.T) {
 func TestTerminalMarkerRecordsTheAcceptedVersion(t *testing.T) {
 	c, _ := newTestCoordinator(t)
 	local := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("local input"), 100)
-	if err := c.OnOrder(context.Background(), local); err != nil {
+	if err := trackTestOrder(c, local); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM(local.SessionID, local.TaskID)

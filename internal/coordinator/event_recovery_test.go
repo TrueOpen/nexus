@@ -13,7 +13,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -49,7 +48,7 @@ func newTaskTrackingCoordinator(t *testing.T, store kv.Store) (*Coordinator, *re
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	tracker := &recordTaskEventTracker{Client: chaincli.NewStub(log, config.ChainConfig{})}
-	c := New(log, msgbus.NewStub(log, nil), tracker, relay.NewMem(log), store, "", testChainID)
+	c := New(log, tracker, relay.NewMem(log), store, "", testChainID)
 	c.submit = &fakeSubmitter{}
 	return c, tracker
 }
@@ -57,10 +56,10 @@ func newTaskTrackingCoordinator(t *testing.T, store kv.Store) (*Coordinator, *re
 func TestTaskEventTrackingLifecycle(t *testing.T) {
 	c, tracker := newTaskTrackingCoordinator(t, kv.NewMemStore())
 	first := testPlaceholderOrder("session-1", "task-1")
-	if err := c.OnOrder(context.Background(), first); err != nil {
+	if err := trackTestOrder(c, first); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.OnOrder(context.Background(), first); err != nil {
+	if err := trackTestOrder(c, first); err != nil {
 		t.Fatal(err)
 	}
 	if tracked, untracked := tracker.counts(); tracked != 1 || untracked != 0 {
@@ -72,7 +71,7 @@ func TestTaskEventTrackingLifecycle(t *testing.T) {
 	}
 
 	second := testPlaceholderOrder("session-1", "task-2")
-	if err := c.OnOrder(context.Background(), second); err != nil {
+	if err := trackTestOrder(c, second); err != nil {
 		t.Fatal(err)
 	}
 	fsm, ok := c.getFSM(second.SessionID, second.TaskID)
@@ -92,7 +91,7 @@ func TestIncompleteChainEventReconcilesFromQueryTask(t *testing.T) {
 		Deadlines: types.Deadlines{Commit: 60, WorkerReveal: 70, Reveal: 80, Verify: 90},
 	}}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -117,7 +116,7 @@ func TestNewBlockHeightGapReconcilesActiveTasks(t *testing.T) {
 		SessionID: "session-1", TaskID: "task-1", State: types.Assigned, Winner: "worker-1",
 	}}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -146,7 +145,7 @@ func TestApplicationEventWithoutTaskKeyReconcilesAllActiveTasks(t *testing.T) {
 		TaskVerdict: types.VerdictPass, Settlement: settlement,
 	}}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -251,7 +250,7 @@ func TestTaskNotificationQueriesAuthoritativeState(t *testing.T) {
 	}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
 	for _, taskID := range []string{"task-1", "task-2"} {
-		if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", taskID)); err != nil {
+		if err := trackTestOrder(c, testPlaceholderOrder("session-1", taskID)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -307,7 +306,7 @@ func TestTaskNotificationAppliesFullResultRevealAfterQuery(t *testing.T) {
 		},
 	}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -343,7 +342,7 @@ func TestSessionResyncRestoresRevealFactsWithoutOriginalEvent(t *testing.T) {
 		},
 	}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -364,7 +363,7 @@ func TestSessionResyncRestoresRevealFactsWithoutOriginalEvent(t *testing.T) {
 
 func TestSettlementFactsApplyInAcceptedHeightOrder(t *testing.T) {
 	c, _ := newTestCoordinator(t)
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -395,7 +394,7 @@ func TestSettlementFactsApplyInAcceptedHeightOrder(t *testing.T) {
 
 func TestSettlementFactsValidationIsAtomic(t *testing.T) {
 	c, _ := newTestCoordinator(t)
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -429,14 +428,14 @@ func TestTaskReconciliationUsesAuthoritativeStageHeights(t *testing.T) {
 			SessionID: "session-1", TaskID: "task-1", State: types.Verifying, Winner: "worker-1",
 			SampleSeed: []byte("sample-seed"), Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"},
 			Assignment: chaincli.TaskAssignmentState{
-				AssignAcceptHeight: 10, AssignmentRandomnessHeight: 11, WinnerConfirmHeight: 11,
+				WinnerConfirmHeight: 11,
 			},
 			VerifierAssignment: chaincli.VerifierAssignmentState{OpenVerifyHeight: 12, SampleSeedReadyHeight: 13},
 		},
 		settlementFacts: chaincli.SettlementBuildFacts{SnapshotHeight: 99},
 	}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -457,7 +456,7 @@ func TestTaskReconciliationUsesAuthoritativeStageHeights(t *testing.T) {
 		return ready
 	})
 	wantHeights := map[string]int64{
-		EvAssignAccepted: 10, EvAssignmentFinalized: 11, EvOpenVerifyAccepted: 12, EvSampleReady: 13,
+		EvAssignmentFinalized: 11, EvOpenVerifyAccepted: 12, EvSampleReady: 13,
 	}
 	for _, event := range c.journalFor(taskKey("session-1", "task-1")).snapshot() {
 		if want, ok := wantHeights[event.EventCode]; ok {
@@ -482,7 +481,7 @@ func TestTaskNotificationRetriesTransientQueryFailure(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -514,7 +513,7 @@ func TestTaskNotificationRetriesSettlementFactsFailure(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, _ := c.getFSM("session-1", "task-1")
@@ -549,14 +548,14 @@ func TestTaskNotificationRetriesTemporaryNotFound(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
 	t.Cleanup(c.stopReconcileWorker)
 
 	c.OnChainEvent(chaincli.ChainEvent{
-		Type: chaincli.EventAssignAccepted, SessionID: "session-1", TaskID: "task-1",
+		Type: chaincli.EventTaskStateChanged, SessionID: "session-1", TaskID: "task-1",
 		Height: 88, TaskNotification: true,
 	})
 	eventually(t, func() bool {
@@ -582,14 +581,14 @@ func TestTaskNotificationRetriesStaleSnapshot(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
 	t.Cleanup(c.stopReconcileWorker)
 
 	c.OnChainEvent(chaincli.ChainEvent{
-		Type: chaincli.EventAssignmentFinalized, EventCode: "ASSIGNMENT_FINALIZED",
+		Type: chaincli.EventTaskStateChanged, EventCode: "DISPATCH_RECORDED",
 		SessionID: "session-1", TaskID: "task-1", Height: 88, TaskNotification: true,
 	})
 	eventually(t, func() bool {
@@ -616,7 +615,7 @@ func TestAuthoritativeFailedTaskIsClosedAndUntracked(t *testing.T) {
 	}
 	c.query = querier
 	c.height = querier
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -685,7 +684,7 @@ func TestTaskNotificationQueriesWhenHeightUnavailable(t *testing.T) {
 		started:   make(chan chaincli.TaskKey, 1),
 	}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(querier), WithTaskQuerier(querier))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -713,7 +712,7 @@ func TestSessionResyncIsScoped(t *testing.T) {
 		testPlaceholderOrder("session-2", "task-3"),
 	}
 	for _, order := range orders {
-		if err := c.OnOrder(context.Background(), order); err != nil {
+		if err := trackTestOrder(c, order); err != nil {
 			t.Fatal(err)
 		}
 	}

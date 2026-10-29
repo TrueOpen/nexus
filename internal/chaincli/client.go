@@ -322,20 +322,6 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 	return grace, nil
 }
 
-// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task, the number of Builders the
-// task Keeper selects for each task. Zero is refused: the Keeper cannot admit an order under it.
-func (c *client) QueryBuildersPerTask(ctx context.Context) (uint32, error) {
-	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
-	if err != nil {
-		return 0, applicationQueryError("hub params", err)
-	}
-	count := resp.Msg.GetParams().GetBuilder().GetBuildersPerTask()
-	if count == 0 {
-		return 0, fmt.Errorf("query hub params: builders_per_task is zero")
-	}
-	return count, nil
-}
-
 // defaultEpochLengthBlocks is the Hub's epoch length when epoch.epoch_length_blocks is zero
 // (node x/hub/keeper/epoch_runtime.go normalizedEpochLengthBlocks, types.DefaultEpochLengthBlocks).
 const defaultEpochLengthBlocks uint64 = 60_480
@@ -405,21 +391,6 @@ func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 		return 0, fmt.Errorf("query task params: challenge.max_verify_round is zero")
 	}
 	return limit, nil
-}
-
-// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks. The
-// chain admits a signed order only while its session anchor is below the executing height and at
-// most this many blocks behind it. Zero is refused: no anchor could satisfy it.
-func (c *client) QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error) {
-	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
-	if err != nil {
-		return 0, applicationQueryError("task params", err)
-	}
-	window := resp.Msg.GetParams().GetSession().GetAnchorFreshnessWindowBlocks()
-	if window == 0 {
-		return 0, fmt.Errorf("query task params: session.anchor_freshness_window_blocks is zero")
-	}
-	return window, nil
 }
 
 // QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
@@ -1028,11 +999,8 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		// envelope fields were removed from the assignment wire (Keeper-derived or carried
 		// by other Queries); only facts that actually exist on the new wire are filled here.
 		result.Assignment.CandidateSnapshotID = hex.EncodeToString(assignment.GetCandidatePoolSnapshotId())
-		result.Assignment.CandidateSetHash = hex.EncodeToString(assignment.GetAssignmentCandidateSetHash())
 		result.Assignment.SelectedWorkerOperatorAddress = assignment.GetWinnerWorker()
 		result.Assignment.InferDeadlineHeight = assignment.GetInferDeadlineHeight()
-		result.Assignment.AssignAcceptHeight = assignment.GetAssignAcceptHeight()
-		result.Assignment.AssignmentRandomnessHeight = assignment.GetAssignmentRandomnessHeight()
 		result.Assignment.WinnerConfirmHeight = assignment.GetWinnerConfirmHeight()
 	}
 
@@ -1216,9 +1184,7 @@ func mapTaskVerdict(verdict taskv1.TaskVerdict) types.TaskVerdict {
 // VERIFY_FAILED string states were replaced by this enum.
 func mapTaskPhase(phase taskv1.TaskPhase) (types.TaskState, error) {
 	switch phase {
-	case taskv1.TaskPhase_TASK_PHASE_WORKER_ASSIGNMENT_PENDING:
-		return types.Pending, nil
-	case taskv1.TaskPhase_TASK_PHASE_WORKER_ASSIGNED:
+	case taskv1.TaskPhase_TASK_PHASE_INFER_PENDING:
 		return types.Assigned, nil
 	case taskv1.TaskPhase_TASK_PHASE_RECEIPT_COMMITTED,
 		taskv1.TaskPhase_TASK_PHASE_VERIFIER_ASSIGNED,

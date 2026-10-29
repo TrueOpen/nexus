@@ -42,7 +42,6 @@ func keccak256(data []byte) [32]byte {
 // The Task Msg names come from wire task.v1; V1 registers no MsgFailSettle,
 // no Worker reveal Msg and no public Challenge Msg.
 const (
-	TypeURLMsgSubmitWorkerHandraises   = "/task.v1.MsgSubmitWorkerHandraises"
 	TypeURLMsgSubmitInferReceipt       = "/task.v1.MsgSubmitInferReceipt"
 	TypeURLMsgSubmitVerifierHandraises = "/task.v1.MsgSubmitVerifierHandraises"
 	TypeURLMsgSubmitVerifyCommit       = "/task.v1.MsgSubmitVerifyCommit"

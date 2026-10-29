@@ -50,13 +50,12 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 			DeadlinePolicy: &taskv1.DeadlinePolicyV1{
 				LatencyClass: taskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD,
 			},
-			TimeoutBucketVersion:   4,
-			SessionAnchorHeight:    90,
-			SessionAnchorBlockHash: bytes.Repeat([]byte{0x33}, 32),
-			BuilderSetId:           "term-1",
-			BuilderSetHash:         bytes.Repeat([]byte{0x44}, 32),
-			PayloadMode:            taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
-			InputKeyCommitment:     make([]byte, 32),
+			TimeoutBucketVersion: 4,
+			SessionAnchorHeight:  90,
+			BuilderSetId:         "term-1",
+			BuilderSetHash:       bytes.Repeat([]byte{0x44}, 32),
+			PayloadMode:          taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment:   make([]byte, 32),
 		},
 		SignatureScheme:  "eip712",
 		UserSignature:    testUserSignatureV2(0x55),
@@ -64,25 +63,17 @@ func testFrozenSignedOrder() *taskv1.SignedOrderV2 {
 	}
 }
 
-// TestParseOrderEnvelopeAcceptsFrozenSignedOrder pins the two carriers of order_envelope:
-// a leading '{' means the old canonical JSON, otherwise it is decoded as a proto-encoded task.v1.SignedOrderV2.
-// The chain's first-proposal scope accepts only the latter, and order_envelope is bytes anyway, so this
-// path needs no change to the fields of SubmitOrderRequest and the body digest of the SDK request envelope stays the same.
+// TestParseOrderEnvelopeAcceptsFrozenSignedOrder pins the carrier of order_envelope: a proto-encoded
+// task.v1.SignedOrderV2, kept verbatim.
 func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 	signed := testFrozenSignedOrder()
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(signed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if isLegacyOrderEnvelope(raw) {
-		t.Fatal("proto SignedOrderV2 misdetected as the legacy json envelope")
-	}
-
-	// The third argument is the top-level secp256k1 request-layer signature of SubmitOrderRequest, which is a different thing
-	// from the eip712 user signature embedded in SignedOrderV2; a separate 64-byte placeholder is used here.
-	order, err := parseOrderEnvelope(raw, "secp256k1", hex.EncodeToString(bytes.Repeat([]byte{0x99}, 64)))
+	order, err := parseSignedOrderEnvelope(raw)
 	if err != nil {
-		t.Fatalf("parseOrderEnvelope: %v", err)
+		t.Fatalf("parseSignedOrderEnvelope: %v", err)
 	}
 	if !bytes.Equal(order.SignedOrder, raw) {
 		t.Fatal("SignedOrder must be preserved verbatim: the user signature covers the signed TaskOrderV3 and nexus must not rebuild it")
@@ -115,8 +106,6 @@ func TestParseOrderEnvelopeAcceptsFrozenSignedOrder(t *testing.T) {
 // layer: the same TaskOrder with a different user signature keeps the same task_hash. The old
 // order_digest = sha256(order_envelope) could not do this -- the signature is inside the envelope, so changing it changed the identity.
 func TestParseOrderEnvelopeTaskHashIgnoresUserSignature(t *testing.T) {
-	// The request-layer secp256k1 signature is unrelated to the embedded eip712 user signature; a fixed 64-byte placeholder is used.
-	requestSignature := hex.EncodeToString(bytes.Repeat([]byte{0x99}, 64))
 	parse := func(t *testing.T, signature []byte) string {
 		t.Helper()
 		signed := testFrozenSignedOrder()
@@ -125,9 +114,9 @@ func TestParseOrderEnvelopeTaskHashIgnoresUserSignature(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		order, err := parseOrderEnvelope(raw, "secp256k1", requestSignature)
+		order, err := parseSignedOrderEnvelope(raw)
 		if err != nil {
-			t.Fatalf("parseOrderEnvelope: %v", err)
+			t.Fatalf("parseSignedOrderEnvelope: %v", err)
 		}
 		return order.TaskHash
 	}
@@ -150,8 +139,6 @@ func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
 		"no timeout bucket":       func(o *taskv1.TaskOrderV3) { o.TimeoutBucketVersion = 0 },
 		"short session_id":        func(o *taskv1.TaskOrderV3) { o.SessionId = bytes.Repeat([]byte{0x11}, 16) },
 	}
-	// Request-layer secp256k1 signature placeholder: 64 bytes, unrelated to the embedded eip712 user signature.
-	signature := bytes.Repeat([]byte{0x55}, 64)
 	for name, corrupt := range cases {
 		t.Run(name, func(t *testing.T) {
 			signed := testFrozenSignedOrder()
@@ -160,34 +147,10 @@ func TestParseOrderEnvelopeRejectsOrdersWithoutCanonicalTaskHash(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := parseOrderEnvelope(raw, "secp256k1", hex.EncodeToString(signature)); err == nil {
+			if _, err := parseSignedOrderEnvelope(raw); err == nil {
 				t.Fatalf("%s: order was accepted although no canonical task_hash can be computed", name)
 			}
 		})
-	}
-}
-
-// TestParseLegacyOrderEnvelopeCarriesNoTaskHash records the position of the old JSON envelope: it lacks
-// chain_id / session_anchor_* / builder_set_* / generation_params, so the TRUEOPEN_TASK_ORDER_V3 preimage cannot be
-// built and there is **no** task_hash to fill in. This used to be filled with
-// sha256(envelope) posing as the identity, which has been removed; the consequence is that such orders cannot be broadcast
-// (taskfsm.onOrder rejects them), and they never passed the first-proposal scope branch anyway.
-func TestParseLegacyOrderEnvelopeCarriesNoTaskHash(t *testing.T) {
-	legacy := []byte(`{"schema_version":"trueopen-order-envelope-v1","model_id":"model-1","profile_version":1,` +
-		`"task_type":"inference","reward_bucket":1,"profile_resource_tier":2,"infer_input_unit_price_bid":2,` +
-		`"infer_output_unit_price_bid":3,"verify_unit_price_bid":4,"max_fee":1000,"tx_fee_reserve":100,` +
-		`"infer_fee_cap":600,"verify_fee_cap":300,"order_value":900,"valid_after_height":10,` +
-		`"deadline_height":100,"payload_hash":"` + strings.Repeat("a", 64) + `","infer_timeout_blocks":20,` +
-		`"reference_bucket_key":"reference-v1","timeout_bucket_key":"timeout-v1"}`)
-	if !isLegacyOrderEnvelope(legacy) {
-		t.Fatal("legacy json envelope was not detected")
-	}
-	order, err := parseOrderEnvelope(legacy, "secp256k1", hex.EncodeToString(bytes.Repeat([]byte{0x55}, 64)))
-	if err != nil {
-		t.Fatalf("parseOrderEnvelope: %v", err)
-	}
-	if order.TaskHash != "" {
-		t.Fatalf("legacy envelope produced a task_hash %q; the old envelope has no canonical identity to derive", order.TaskHash)
 	}
 }
 
@@ -203,7 +166,7 @@ func TestParseOrderEnvelopeRejectsUnknownFieldsInSignedOrder(t *testing.T) {
 	// Append an unknown field (field 99, varint).
 	tampered := append(append([]byte(nil), raw...), 0xd8, 0x06, 0x01)
 
-	if _, err := parseOrderEnvelope(tampered, "secp256k1", hex.EncodeToString(bytes.Repeat([]byte{0x99}, 64))); err == nil {
+	if _, err := parseSignedOrderEnvelope(tampered); err == nil {
 		t.Fatal("a SignedOrderV2 with unknown fields was accepted")
 	}
 }
@@ -211,7 +174,6 @@ func TestParseOrderEnvelopeRejectsUnknownFieldsInSignedOrder(t *testing.T) {
 // TestParseOrderEnvelopeRejectsIncompleteSignedOrder covers structural validation: a missing order,
 // the wrong signature scheme and the wrong signature length must all be blocked at ingress.
 func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
-	signature := hex.EncodeToString(bytes.Repeat([]byte{0x55}, 64))
 	cases := map[string]*taskv1.SignedOrderV2{
 		"no order":          {SignatureScheme: "eip712", UserSignature: testUserSignatureV2(0x55)},
 		"wrong scheme":      {Order: testFrozenSignedOrder().GetOrder(), SignatureScheme: "ed25519", UserSignature: testUserSignatureV2(0x55)},
@@ -237,28 +199,10 @@ func TestParseOrderEnvelopeRejectsIncompleteSignedOrder(t *testing.T) {
 			if len(raw) == 0 {
 				t.Skip("empty encoding cannot reach the signed-order branch")
 			}
-			if _, err := parseOrderEnvelope(raw, "secp256k1", signature); err == nil {
+			if _, err := parseSignedOrderEnvelope(raw); err == nil {
 				t.Fatalf("%s: incomplete SignedOrderV2 was accepted", name)
 			}
 		})
-	}
-}
-
-// TestParseOrderEnvelopeStillAcceptsLegacyJSON confirms old SDKs are not broken by this change:
-// the old canonical JSON envelope still parses, only without a SignedOrder, so the first proposal errors at the
-// coordinator layer instead of being forged.
-func TestParseOrderEnvelopeStillAcceptsLegacyJSON(t *testing.T) {
-	sg := mustSigner(t, testKeyHex)
-	req := canonicalOrderRequest(t, sg, "session-legacy", 1, "model-1")
-	order, err := parseOrderEnvelope(req.GetOrderEnvelope(), "secp256k1", hex.EncodeToString(req.GetSignature()))
-	if err != nil {
-		t.Fatalf("legacy json envelope: %v", err)
-	}
-	if len(order.SignedOrder) != 0 {
-		t.Fatal("legacy json envelope must not synthesise a SignedOrderV2")
-	}
-	if order.ModelID != "model-1" {
-		t.Fatalf("order=%+v", order)
 	}
 }
 

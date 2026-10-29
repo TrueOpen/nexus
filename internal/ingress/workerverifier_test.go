@@ -93,6 +93,7 @@ func validRelayReceipt(t *testing.T, taskID []byte, worker, keyHex string) *task
 		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainId: "trueopen-localnet",
 		TaskId: taskID, TaskHash: bytes.Repeat([]byte{0x2a}, 32),
 		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 7,
+		DispatchTicketHash:     bytes.Repeat([]byte{0x7d}, 32),
 		GenerationParamsDigest: bytes.Repeat([]byte{0x3b}, 32),
 		OutputHash:             bytes.Repeat([]byte{0x4c}, 32),
 		OutputSizeBytes:        16,

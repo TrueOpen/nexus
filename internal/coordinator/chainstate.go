@@ -38,18 +38,21 @@ type reconcileRequest struct {
 	retryAttempt uint
 }
 
+// settleSelectionStage names the settlement stage of a stored Builder selection.
+const settleSelectionStage = "SETTLE"
+
 // settleSelectionFromTaskBuilders converts the frozen Task Builder selection into the locally stored settlement order:
 // order is rank.
 func settleSelectionFromTaskBuilders(key chaincli.TaskKey, selection chaincli.TaskBuilderSelectionState) chaincli.StageBuilderSelectionState {
 	return chaincli.StageBuilderSelectionState{
-		SessionID: key.SessionID, TaskID: key.TaskID, Stage: prepareStageSettle,
+		SessionID: key.SessionID, TaskID: key.TaskID, Stage: settleSelectionStage,
 		SelectedBuilders: append([]string(nil), selection.SelectedBuilders...),
 		SelectedHeight:   selection.CreatedHeight,
 	}
 }
 
 func validateSettleSelection(key chaincli.TaskKey, selection chaincli.StageBuilderSelectionState) error {
-	if selection.SessionID != key.SessionID || selection.TaskID != key.TaskID || selection.Stage != prepareStageSettle {
+	if selection.SessionID != key.SessionID || selection.TaskID != key.TaskID || selection.Stage != settleSelectionStage {
 		return fmt.Errorf("settle selection scope mismatch")
 	}
 	if len(selection.SelectedBuilders) == 0 {

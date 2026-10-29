@@ -12,17 +12,13 @@ import (
 	"sync"
 	"testing"
 
-	wirebus "github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/TrueOpen/nexus/gen/bus/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/busadapter"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -30,15 +26,12 @@ import (
 
 // fakeSubmitter records the three phases of submitted Tx for assertions.
 type fakeSubmitter struct {
-	mu           sync.Mutex
-	settleErr    error
-	assign       []chaincli.AssignTx
-	assignResult chaincli.TxResult
-	assignErr    error
-	openVerify   []chaincli.OpenVerifyTx
-	settle       []chaincli.SettleTx
-	sweep        []chaincli.SweepDeadlineTx
-	sweepErr     error
+	mu         sync.Mutex
+	settleErr  error
+	openVerify []chaincli.OpenVerifyTx
+	settle     []chaincli.SettleTx
+	sweep      []chaincli.SweepDeadlineTx
+	sweepErr   error
 
 	verifierHandraises    []chaincli.OpenVerifyTx
 	verifierHandraisesErr error
@@ -51,74 +44,6 @@ type fakeSubmitter struct {
 
 	// verifierExcluded is reported as left out of every verifier handraise proposal.
 	verifierExcluded []ExcludedHandraise
-}
-
-type jsHandlerCaptureBus struct {
-	msgbus.Bus
-	handler msgbus.MsgHandler
-}
-
-func (b *jsHandlerCaptureBus) JSSubscribe(_ string, _ string, h msgbus.MsgHandler) (msgbus.Unsubscribe, error) {
-	b.handler = h
-	return func() {}, nil
-}
-
-func TestJSSubscribeRejectsDeliveryAfterFSMShutdown(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := &jsHandlerCaptureBus{Bus: msgbus.NewStub(log, nil)}
-	fsm := &taskFSM{bus: bus}
-	fsm.jsSubscribe("subject", "durable", func([]byte) error { return nil })
-	fsm.shutdown()
-	if err := bus.handler("subject", []byte("message")); err == nil {
-		t.Fatal("JetStream handler acknowledged a message rejected during shutdown")
-	}
-}
-
-// TestPublishRefusesFramesItCannotSign locks in the core constraint: when a
-// compliant frame cannot be signed, the only correct behaviour is not to send; there is no
-// dev fallback of "send one without a signature first".
-func TestPublishRefusesFramesItCannotSign(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	task := testTaskID("encode-refusal")
-
-	t.Run("no service key", func(t *testing.T) {
-		bus := msgbus.NewStub(log, nil)
-		sent := &captured{}
-		mustSub(t, bus, msgbus.SubjectVerifyOpen(task), sent)
-		fsm := &taskFSM{
-			log: log, bus: bus, chainID: testChainID, self: testBuilderSelf,
-			sessionID: "session-1", taskID: task,
-		}
-		if err := fsm.publish(msgbus.SubjectVerifyOpen(task), wirebus.KindOpenVerify,
-			&busv1.OpenVerifyV1{}, busadapter.TierCore); err != nil {
-			t.Fatalf("missing service key must not fail the task, got %v", err)
-		}
-		if sent.count() != 0 {
-			t.Fatal("an unsigned frame reached the bus")
-		}
-	})
-
-	t.Run("prepare without service key", func(t *testing.T) {
-		bus := msgbus.NewStub(log, nil)
-		sent := &captured{}
-		mustSub(t, bus, msgbus.SubjectBuilderPrepare(task), sent)
-		fsm := &taskFSM{
-			log: log, bus: bus, chainID: testChainID, self: testBuilderSelf,
-			sessionID: "session-1", taskID: task,
-			prepares: &prepareCodec{log: log, chainID: testChainID},
-		}
-		fsm.publishPrepare()
-		if sent.count() != 0 {
-			t.Fatal("an unsigned prepare notice reached the bus")
-		}
-	})
-}
-
-func (s *fakeSubmitter) SubmitAssign(_ context.Context, tx chaincli.AssignTx) (ProposalResult, error) {
-	s.mu.Lock()
-	s.assign = append(s.assign, tx)
-	s.mu.Unlock()
-	return ProposalResult{TxResult: s.assignResult}, s.assignErr
 }
 
 func (s *fakeSubmitter) SubmitOpenVerify(_ context.Context, tx chaincli.OpenVerifyTx) (chaincli.TxResult, error) {
@@ -186,33 +111,6 @@ func (s *fakeSubmitter) sweepTxs() []chaincli.SweepDeadlineTx {
 	return append([]chaincli.SweepDeadlineTx(nil), s.sweep...)
 }
 
-// captured collects the messages a test subscribed to on some subject (payload decoded).
-type captured struct {
-	mu   sync.Mutex
-	msgs [][]byte
-}
-
-func (c *captured) add(data []byte) {
-	c.mu.Lock()
-	c.msgs = append(c.msgs, append([]byte(nil), data...))
-	c.mu.Unlock()
-}
-
-func (c *captured) count() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.msgs)
-}
-
-func (c *captured) last() []byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.msgs) == 0 {
-		return nil
-	}
-	return c.msgs[len(c.msgs)-1]
-}
-
 // testInferReceipt builds a signed InferReceipt in the wire InferReceipt shape. The field set is
 // exactly that one:
 // token_count / work_unit were removed from the wire and are now carried by typed evidence commitments.
@@ -223,6 +121,7 @@ func testInferReceipt(session, task, worker string, outputHash []byte) types.Inf
 	taskHash := sha256.Sum256([]byte("task-hash-" + task))
 	paramsDigest := sha256.Sum256([]byte("generation-params-" + task))
 	evidenceHash := sha256.Sum256([]byte("worker-value-opening-" + task))
+	ticketHash := sha256.Sum256([]byte("dispatch-ticket-" + task))
 	return types.InferReceiptSubmission{
 		SessionID:                 session,
 		SchemaVersion:             nodecontract.InferReceiptSchemaVersionV3,
@@ -240,6 +139,7 @@ func testInferReceipt(session, task, worker string, outputHash []byte) types.Inf
 			EncodedSizeBytes: 4096,
 		}},
 		ExpiryHeight:           1200,
+		DispatchTicketHash:     ticketHash[:],
 		WorkerServiceSignature: []byte("worker-service-signature"),
 		InferReceiptHash:       []byte("infer-receipt"),
 	}
@@ -382,32 +282,6 @@ func testSignatureBytes64(parts ...string) []byte {
 	return append(lo[:], hi[:]...)
 }
 
-// testWorkerHandraise builds a Worker hand-raise in the frozen wire shape (proto body).
-func testWorkerHandraise(session, task, candidate string) *taskv1.WorkerHandraiseV1 {
-	order := testCurrentOrder(session, task, testUserAddress)
-	snapshotID := sha256.Sum256([]byte("candidate-pool-snapshot|" + session + "|" + task))
-	return &taskv1.WorkerHandraiseV1{
-		SchemaVersion: 1,
-		ChainId:       testChainID,
-		TaskId:        mustHex32(task),
-		// The hand-raise echoes the candidate task_hash from the broadcast verbatim: building a
-		// different value gets it dropped on the spot by validWorkerHandraise.
-		TaskHash:       mustHex32(order.TaskHash),
-		ModelId:        mustHex32(order.ModelID),
-		ProfileVersion: order.ProfileVersion,
-		Member: &taskv1.CandidateMemberRefV1{
-			CandidatePoolSnapshotId: snapshotID[:],
-			Slot:                    testWorkerSlot(candidate),
-			SlotVersion:             1,
-			OperatorAddress:         candidate,
-		},
-		Duty:                      sharedv1.Duty_DUTY_WORKER,
-		ServiceAuthorizationNonce: 7,
-		ExpiryHeight:              1000,
-		ServiceSignature:          testSignatureBytes64("service-signature", task, candidate),
-	}
-}
-
 // testVerifierHandraise builds a Verifier hand-raise in the frozen wire shape (proto body).
 // The output/infer receipt commitments must match the local authoritative values, or
 // validVerifierHandraise drops it.
@@ -471,130 +345,58 @@ func testVerifyResult(task, verifier string, vals [][]byte) *taskv1.ResultReceip
 	}
 }
 
-// TestHappyPath walks one order's complete happy path (two-phase + seed afterwards):
-// order → 3×worker handraise → AssignTx → AssignAccepted(randomness pending, no start-work) →
-// AssignmentFinalized(winner determined → start-work notification) → result reference →
-// 3×verifier handraise → OpenVerifyTx → OpenVerifyAccepted(no seed) →
-// on-chain SampleReady (seed recorded only; v1 has no matching subject) → 2×consistent V_i →
-// WorkerRevealReceiptAccepted → SettleTx → SettleAccepted → challenge window → Closed.
+// TestHappyPath walks the verify and settle half of one task's happy path:
+// dispatch recorded on chain (winner known → Assigned) → InferReceipt → InferReceipt accepted on
+// chain → Worker result finalized here → signed OPEN_VERIFY → 3×verifier handraise → verifier
+// handraise proposal → OpenVerifyAccepted (signed VERIFIER_ASSIGNMENT_NOTIFY) → SampleReady →
+// relayed verify results → SettleTx → SettleAccepted → Closed.
 func TestHappyPath(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	rl := relay.NewMem(log)
 	sub := &fakeSubmitter{}
 
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
+	_, link := enableTestBuilderMessages(c)
 	c.submit = sub // inject the fake submitter
+	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
-	const (
-		session = "sess-1"
-		model   = testModelIDHex
-		winner  = "worker-1"
-	)
-	// task_id must have its real shape, or WorkerHandraiseV1 cannot be assembled.
+	const session = "sess-1"
+	// Signed Builder messages project addresses and hashes strictly: the winner is a bech32
+	// operator and the hashes are 32 bytes.
+	winner := testOperator("worker-1")
 	task := testTaskID("task-1")
 	ctx := context.Background()
 
-	// Observe the four wire subjects nexus will publish on.
-	orders := &captured{}
-	assign := &captured{}
-	verifySelect := &captured{}
-	openVerify := &captured{}
-	mustSub(t, bus, msgbus.SubjectTaskOpen(model), orders)
-	mustSub(t, bus, msgbus.SubjectWorkerAssignment(task), assign)
-	mustSub(t, bus, msgbus.SubjectVerifierAssignment(task), verifySelect)
-	mustSub(t, bus, msgbus.SubjectVerifyOpen(task), openVerify)
-
-	// 1) Place the order → Pending + broadcast the order.
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	if orders.count() != 1 {
-		t.Fatalf("expected 1 OrderBroadcast, got %d", orders.count())
-	}
-	orderEnvelope := decodeTestEnvelope(t, orders.last())
-	assertContractEnvelope(t, orderEnvelope, msgbus.SubjectTaskOpen(model), wirebus.KindOrderBroadcast)
-	ob := decodeTestPayload[busv1.OrderBroadcastV1](t, orders.last())
-	// The broadcast carries only the complete user-signed order; task_hash is recomputed by the receiver from signed_order.order.
-	rebroadcastHash, err := nodecontract.TaskOrderHashHexV3(ob.GetSignedOrder().GetOrder())
-	if err != nil {
-		t.Fatalf("recompute task_hash from broadcast: %v", err)
-	}
-	if rebroadcastHash != testCanonicalTaskHash(testUserAddress) {
-		t.Fatalf("OrderBroadcast signed order does not derive the canonical task_hash")
-	}
-	if hex.EncodeToString(ob.GetSignedOrder().GetOrder().GetModelId()) != model {
-		t.Fatalf("OrderBroadcast model mismatch: %+v", ob)
+	// 1) The task is tracked as Pending until the chain records its dispatch.
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 	assertState(t, c, session, task, types.Pending)
 
-	// 2) 3 Workers hand-raise → trigger AssignTx.
-	for _, cand := range []string{testOperator("worker-1"), testOperator("worker-2"), testOperator("worker-3")} {
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task),
-			wirebus.KindWorkerHandraise, testWorkerHandraise(session, task, cand))
-	}
-	if len(sub.assign) != 1 {
-		t.Fatalf("expected 1 AssignTx, got %d", len(sub.assign))
-	}
-	// What goes on-chain is the Cortex-signed proto hand-raise body; there are no string copies any more.
-	// One proposal needs only 1 hand-raise: the first arrival proposes.
-	if sub.assign[0].SessionID != session || sub.assign[0].TaskID != task ||
-		len(sub.assign[0].WorkerHandraises) != proposalHandraiseMin {
-		t.Fatalf("AssignTx mismatch: %+v", sub.assign[0])
-	}
-
-	// 3a) AssignTx included (first of two phases): winner undecided → still Pending, no start-work notification.
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}},
-		Height:      100,
-	})
-	assertState(t, c, session, task, types.Pending)
-	assertPhase(t, c, session, task, types.PhaseAssignRandomnessPending)
-	if assign.count() != 0 {
-		t.Fatalf("AssignNotify must NOT fire before AssignmentFinalized, got %d", assign.count())
-	}
-
-	// 3b) randomness settled (second of two phases) → Assigned + start-work notification (with winner/finalized_height).
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: winner, AssignSeed: []byte("assign-seed"), Height: 101,
-		InferDeadlineHeight: 260,
-	})
+	// 2) The chain records the dispatch and its winner → Assigned. Nothing is sent: the Worker
+	// learned of its win from the dispatch itself.
+	recordTestWinner(c, session, task, winner, 101)
 	assertState(t, c, session, task, types.Assigned)
-	if assign.count() != 1 {
-		t.Fatalf("expected 1 AssignNotify, got %d", assign.count())
-	}
-	assignEnvelope := decodeTestEnvelope(t, assign.last())
-	assertContractEnvelope(t, assignEnvelope, msgbus.SubjectWorkerAssignment(task),
-		wirebus.KindWorkerAssignmentNotify)
-	if assignEnvelope.GetMessageId() == orderEnvelope.GetMessageId() {
-		t.Fatalf("reused message_id %q", assignEnvelope.GetMessageId())
-	}
-	if bytes.Equal(assignEnvelope.GetNonce(), orderEnvelope.GetNonce()) {
-		t.Fatal("reused envelope nonce")
-	}
-	an := decodeTestPayload[busv1.WorkerAssignmentNotifyV1](t, assign.last())
-	if an.GetWinnerOperatorAddress() != winner || an.GetFinalizedHeight() != 101 ||
-		!bytes.Equal(an.GetAssignSeed(), []byte("assign-seed")) ||
-		an.GetInferDeadlineHeight() != 260 {
-		t.Fatalf("AssignNotify mismatch: %+v", an)
-	}
-	if !bytes.Equal(an.GetTaskId(), mustHex32(task)) {
-		t.Fatalf("AssignNotify task binding mismatch: %+v", an)
+	if len(link.frames) != 0 {
+		t.Fatalf("recording the winner must send nothing, got %d frames", len(link.frames))
 	}
 
 	// 4) The Worker returns the result reference (→ escrow + record the three hash/cid values).
-	outputHash := []byte("output-root-hash")
-	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, winner, outputHash)); err != nil {
+	outputSum := sha256.Sum256([]byte("output-root"))
+	receiptSum := sha256.Sum256([]byte("infer-receipt"))
+	outputHash, receiptHash := outputSum[:], receiptSum[:]
+	receipt := testInferReceipt(session, task, winner, outputHash)
+	receipt.InferReceiptHash = receiptHash
+	if err := c.OnInferReceipt(ctx, receipt); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
 
-	// 5) 3 Verifiers hand-raise → trigger OpenVerifyTx (output_hash = outputHash).
+	// 5) 3 Verifiers hand-raise on their Cortex streams → trigger OpenVerifyTx (output_hash = outputHash).
 	for _, cand := range []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")} {
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectVerifierHandraiseV1(task),
-			wirebus.KindVerifierHandraise,
-			testVerifierHandraise(session, task, cand, outputHash, []byte("infer-receipt")))
+		if err := c.HandleVerifierHandraise(ctx, cand,
+			testVerifierHandraise(session, task, cand, outputHash, receiptHash)); err != nil {
+			t.Fatalf("HandleVerifierHandraise(%s): %v", cand, err)
+		}
 	}
 	if len(sub.openVerify) != 1 {
 		t.Fatalf("expected 1 OpenVerifyTx, got %d", len(sub.openVerify))
@@ -616,7 +418,22 @@ func TestHappyPath(t *testing.T) {
 		t.Fatalf("InferReceipt is not the frozen InferReceiptV2 shape: %+v", submitted)
 	}
 
-	// 6a) On-chain open-verify included → Verifying + open-verify notification (no seed, with package hash).
+	// 5b) The chain accepts the receipt and the Worker result is finalized here → signed OPEN_VERIFY.
+	acceptedFSM, ok := c.getFSM(session, task)
+	if !ok {
+		t.Fatal("fsm missing after receipt")
+	}
+	acceptedFSM.onInferReceiptAccepted()
+	c.OnResultFinalized(session, task)
+	eventually(t, func() bool { return len(link.openVerifies()) == 1 })
+	openVerify := link.openVerifies()[0]
+	if !bytes.Equal(openVerify.GetTaskId(), mustHex32(task)) || !bytes.Equal(openVerify.GetOutputHash(), outputHash) ||
+		openVerify.GetWorkerOperatorAddress() != winner {
+		t.Fatalf("OPEN_VERIFY mismatch: %+v", openVerify)
+	}
+	assertBuilderSigned(t, c, "nexus.v1.OpenVerifyV1", openVerify, openVerify.GetBinding(), openVerify.GetBuilderServiceSignature())
+
+	// 6a) On-chain open-verify included → Verifying + signed verifier assignment notification.
 	verifiers := []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")}
 	c.OnOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
 		SessionID: session, TaskID: task, Verifiers: verifiers,
@@ -624,16 +441,15 @@ func TestHappyPath(t *testing.T) {
 	})
 	assertState(t, c, session, task, types.Verifying)
 	assertPhase(t, c, session, task, types.PhaseOpenVerify)
-	if verifySelect.count() != 1 {
-		t.Fatalf("expected 1 VerifySelectNotify, got %d", verifySelect.count())
+	if len(link.verifierAssignments()) != 1 {
+		t.Fatalf("expected 1 VERIFIER_ASSIGNMENT_NOTIFY, got %d", len(link.verifierAssignments()))
 	}
-	vs := decodeTestPayload[busv1.VerifierAssignmentNotifyV1](t, verifySelect.last())
+	vs := link.verifierAssignments()[0]
 	if len(vs.GetVerifiers()) != 3 || !bytes.Equal(vs.GetOutputHash(), outputHash) || vs.GetOpenVerifyHeight() != 200 {
-		t.Fatalf("VerifySelectNotify mismatch: %+v", vs)
+		t.Fatalf("VERIFIER_ASSIGNMENT_NOTIFY mismatch: %+v", vs)
 	}
-	// 6b) On-chain SampleReady: record only the seed and phase. There is no
-	// trueopen.sample-ready.* subject, and the notification carries no verification position
-	// selection data, so this notification no longer goes on NATS.
+	assertBuilderSigned(t, c, "nexus.v1.VerifierAssignmentNotifyV1", vs, vs.GetBinding(), vs.GetBuilderServiceSignature())
+	// 6b) On-chain SampleReady: record only the seed and phase; nothing is sent to Cortex.
 	seed := []byte("chain-sample-seed")
 	c.OnSampleReady(chaincli.SampleReady{
 		SessionID: session, TaskID: task, SampleSeed: seed, ReadyHeight: 210, Height: 211,
@@ -651,10 +467,8 @@ func TestHappyPath(t *testing.T) {
 	// 7) Verifier results are relayed to the chain verbatim. Normal verification has no Worker
 	// reveal step; the Worker's commitment is already locked by the accepted InferReceipt.
 	vi := [][]byte{[]byte("v0"), []byte("v1")}
-	publishEnvelope(t, bus, keys, verifiers[0], msgbus.SubjectVerifyResultV1(task),
-		wirebus.KindVerifyResult, testVerifyResult(task, verifiers[0], vi))
-	publishEnvelope(t, bus, keys, verifiers[1], msgbus.SubjectVerifyResultV1(task),
-		wirebus.KindVerifyResult, testVerifyResult(task, verifiers[1], vi))
+	relayTestVerifyResult(t, c, session, task, testVerifyResult(task, verifiers[0], vi))
+	relayTestVerifyResult(t, c, session, task, testVerifyResult(task, verifiers[1], vi))
 	if len(sub.verifyResults) != 2 {
 		t.Fatalf("expected 2 relayed MsgSubmitVerifyResult, got %d", len(sub.verifyResults))
 	}
@@ -692,7 +506,7 @@ func TestHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("custody should be held after settle: %v", err)
 	}
-	if string(held.InferReceiptHash) != "infer-receipt" || held.WorkerAddress == "" {
+	if !bytes.Equal(held.InferReceiptHash, receiptHash) || held.WorkerAddress == "" {
 		t.Fatalf("custody must hold the signed InferReceipt: %+v", held)
 	}
 	// Sealed key delivery was removed: tiers no longer change the returned content.
@@ -723,16 +537,15 @@ func TestHappyPath(t *testing.T) {
 // TestSweepDeadlineConverges: timeout sweep: a non-SETTLE phase swept → Failed terminal state + escrow released + removed from the task table.
 func TestSweepDeadlineConverges(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	rl := relay.NewMem(log)
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
-	_ = enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
+	_, _ = enableTestBuilderMessages(c)
 	c.submit = &fakeSubmitter{}
 
 	const session, task = "sess-sw", "task-sw"
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testPlaceholderOrder(session, task)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-1", []byte("h"))); err == nil {
 		t.Fatal("OnInferReceipt must reject output before assignment finalized")
@@ -754,15 +567,14 @@ func TestSweepDeadlineConverges(t *testing.T) {
 // released, and state is left to Query reconcile.
 func TestSweepDeadlineWindowAdvanceKeepsTaskLive(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	rl := relay.NewMem(log)
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
-	_ = enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
+	_, _ = enableTestBuilderMessages(c)
 	c.submit = &fakeSubmitter{}
 
 	const session, task = "sess-sw-live", "task-sw-live"
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testPlaceholderOrder(session, task)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
@@ -857,19 +669,17 @@ func newSweepTestFSM(sub Submitter) *taskFSM {
 
 func TestOnInferReceiptRequiresFinalizedWinner(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	rl := relay.NewMem(log)
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
-	_ = enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), rl, kv.NewMemStore(), testBuilderSelf, testChainID)
+	_, _ = enableTestBuilderMessages(c)
 	c.submit = &fakeSubmitter{}
 
 	const session, task, winner = "sess-out", "task-out", "worker-1"
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testPlaceholderOrder(session, task)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: winner, Height: 101})
+	recordTestWinner(c, session, task, winner, 101)
 
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-2", []byte("h"))); err != ErrUnauthorized {
 		t.Fatalf("wrong winner: want ErrUnauthorized, got %v", err)
@@ -890,58 +700,29 @@ func TestOnInferReceiptRequiresFinalizedWinner(t *testing.T) {
 	}
 }
 
-func TestWorkerHandraiseRequiresSignedMaterial(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
-	sub := &fakeSubmitter{}
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
-	c.submit = sub
-
-	const session = "sess-bad-worker"
-	task := testTaskID("bad-worker")
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	for _, cand := range []string{testOperator("worker-1"), testOperator("worker-2"), testOperator("worker-3")} {
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task),
-			wirebus.KindWorkerHandraise,
-			// Carries only task_id and member.operator_address: every other frozen required field is
-			// missing, so validWorkerHandraise must drop it at the entrance.
-			&taskv1.WorkerHandraiseV1{
-				TaskId: mustHex32(task),
-				Member: &taskv1.CandidateMemberRefV1{OperatorAddress: cand},
-			})
-	}
-	if len(sub.assign) != 0 {
-		t.Fatalf("malformed worker handraises must not submit AssignTx, got %d", len(sub.assign))
-	}
-}
-
 func TestVerifierHandraiseMustMatchOutputMaterial(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	sub := &fakeSubmitter{}
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	enableTestBuilderMessages(c)
 	c.submit = sub
 
 	const session, winner = "sess-bad-verifier", "worker-1"
 	task := testTaskID("bad-verifier")
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testPlaceholderOrder(session, task)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: winner, Height: 101})
+	recordTestWinner(c, session, task, winner, 101)
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, winner, []byte("h"))); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
 	for _, cand := range []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")} {
 		// The output commitment binds the wrong value: validVerifierHandraise must drop it at the entrance.
 		hr := testVerifierHandraise(session, task, cand, []byte("wrong"), []byte("infer-receipt"))
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectVerifierHandraiseV1(task),
-			wirebus.KindVerifierHandraise, hr)
+		if err := c.HandleVerifierHandraise(ctx, cand, hr); err != nil {
+			t.Fatalf("HandleVerifierHandraise: %v", err)
+		}
 	}
 	// Putting the receipt on-chain is no longer triggered by hand-raises (it carries only receipt +
 	// submitter, and waiting for hand-raises would deadlock), so what is guarded here is the
@@ -965,17 +746,16 @@ func TestVerifierHandraiseMustMatchOutputMaterial(t *testing.T) {
 func TestVerifyResultRequiresSelectedVerifierAndMaterial(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sub := &fakeSubmitter{}
-	c := New(log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
-	_ = enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	_, _ = enableTestBuilderMessages(c)
 	c.submit = sub
 
 	const session = "sess-bad-result"
 	task := testTaskID("bad-result")
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder(session, task)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testPlaceholderOrder(session, task)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "worker-1", Height: 101})
+	recordTestWinner(c, session, task, "worker-1", 101)
 	c.OnOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
 		SessionID: session, TaskID: task, Verifiers: []string{"verifier-1", "verifier-2"},
 		Deadlines: types.Deadlines{Commit: 1, WorkerReveal: 2, Reveal: rankRevealDeadline, Verify: rankVerifyDeadline}, Height: 200,
@@ -986,21 +766,24 @@ func TestVerifyResultRequiresSelectedVerifierAndMaterial(t *testing.T) {
 		t.Fatal("fsm missing")
 	}
 	vals := [][]byte{[]byte("v0"), []byte("v1")}
-	// Not a selected Verifier: drop and do not redeliver.
-	if err := fsm.onVerifyResult(testVerifyResult(task, "stranger", vals)); err != nil {
-		t.Fatalf("stranger verify result should be dropped without retry: %v", err)
+	// Not a selected Verifier: refused as unauthorized.
+	if _, err := fsm.relayVerifyResult(testVerifyResult(task, "stranger", vals)); !errors.Is(err, types.ErrUnauthorized) {
+		t.Fatalf("stranger verify result: want ErrUnauthorized, got %v", err)
 	}
-	// Missing metric fields: drop and do not redeliver.
+	// Missing metric fields: refused as invalid.
 	incomplete := testVerifyResult(task, "verifier-1", vals)
 	incomplete.MetricRoot = nil
-	if err := fsm.onVerifyResult(incomplete); err != nil {
-		t.Fatalf("verify result without metric material should be dropped without retry: %v", err)
+	if _, err := fsm.relayVerifyResult(incomplete); !errors.Is(err, types.ErrInvalidArgument) {
+		t.Fatalf("verify result without metric material: want ErrInvalidArgument, got %v", err)
 	}
-	// Unsupported verify round: drop and do not redeliver.
+	// Unsupported verify round: refused as invalid.
 	wrongRound := testVerifyResult(task, "verifier-1", vals)
 	wrongRound.VerifyRound = 2
-	if err := fsm.onVerifyResult(wrongRound); err != nil {
-		t.Fatalf("verify result for an unsupported round should be dropped without retry: %v", err)
+	if _, err := fsm.relayVerifyResult(wrongRound); !errors.Is(err, types.ErrInvalidArgument) {
+		t.Fatalf("verify result for an unsupported round: want ErrInvalidArgument, got %v", err)
+	}
+	if len(sub.verifyResults) != 0 {
+		t.Fatalf("no invalid verify result may reach the chain, got %d", len(sub.verifyResults))
 	}
 	if len(fsm.verifyResults) != 0 {
 		t.Fatalf("no invalid verify result may be recorded, got %d", len(fsm.verifyResults))
@@ -1015,20 +798,18 @@ func TestVerifyResultRequiresSelectedVerifierAndMaterial(t *testing.T) {
 // task_id + submitter_address, and no Worker reveal is needed.
 func TestSettleWaitsForChainNotResults(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	sub := &fakeSubmitter{}
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	enableTestBuilderMessages(c)
 	c.submit = sub
 
 	const session, task = "sess-fr", "4444444444444444444444444444444444444444444444444444444444444444"
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 	// Advance to Verifying.
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "worker-1", Height: 101})
+	recordTestWinner(c, session, task, "worker-1", 101)
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-1", []byte("h"))); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
@@ -1049,12 +830,9 @@ func TestSettleWaitsForChainNotResults(t *testing.T) {
 
 	vi := [][]byte{[]byte("v0")}
 	other := [][]byte{[]byte("v0-other")}
-	publishEnvelope(t, bus, keys, settleVerifiers[0], msgbus.SubjectVerifyResultV1(task),
-		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[0], vi))
-	publishEnvelope(t, bus, keys, settleVerifiers[1], msgbus.SubjectVerifyResultV1(task),
-		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[1], other))
-	publishEnvelope(t, bus, keys, settleVerifiers[2], msgbus.SubjectVerifyResultV1(task),
-		wirebus.KindVerifyResult, testVerifyResult(task, settleVerifiers[2], vi))
+	relayTestVerifyResult(t, c, session, task, testVerifyResult(task, settleVerifiers[0], vi))
+	relayTestVerifyResult(t, c, session, task, testVerifyResult(task, settleVerifiers[1], other))
+	relayTestVerifyResult(t, c, session, task, testVerifyResult(task, settleVerifiers[2], vi))
 	if len(sub.verifyResults) != 3 {
 		t.Fatalf("expected 3 relayed MsgSubmitVerifyResult, got %d", len(sub.verifyResults))
 	}
@@ -1077,16 +855,6 @@ func TestSettleWaitsForChainNotResults(t *testing.T) {
 	}
 }
 
-func mustSub(t *testing.T, bus msgbus.Bus, subject string, cap *captured) {
-	t.Helper()
-	if _, err := bus.Subscribe(subject, func(_ string, data []byte) error {
-		cap.add(data)
-		return nil
-	}); err != nil {
-		t.Fatalf("subscribe %s: %v", subject, err)
-	}
-}
-
 func assertState(t *testing.T, c *Coordinator, session, task string, want types.TaskState) {
 	t.Helper()
 	st, err := c.TaskStatus(context.Background(), session, task)
@@ -1106,97 +874,5 @@ func assertPhase(t *testing.T, c *Coordinator, session, task string, want types.
 	}
 	if st.TaskPhase != want.String() {
 		t.Fatalf("task_phase = %s, want %s", st.TaskPhase, want.String())
-	}
-}
-
-// The relay semantics of onVerifyResult: transient failure Nak for redelivery, definitive
-// rejection Ack and drop, redelivery of the same receipt passes idempotently without a second
-// on-chain submission.
-func TestVerifyResultRelaySemantics(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	task := testTaskID("vr-relay")
-	verifier := testOperator("vr-relay-verifier")
-	sub := &fakeSubmitter{}
-	fsm := &taskFSM{
-		log: log, chainID: testChainID, self: testBuilderSelf,
-		sessionID: "session-1", taskID: task,
-		state: types.Verifying, verifiers: []string{verifier},
-		verifyResults: map[string]*taskv1.ResultReceiptV3{},
-		submit:        sub,
-	}
-	receipt := testVerifyResult(task, verifier, [][]byte{[]byte("v0")})
-
-	// Transient failure: not stored locally, error propagated (JetStream Naks for redelivery).
-	sub.verifyResultErr = errors.New("broadcast timeout")
-	if err := fsm.onVerifyResult(receipt); err == nil {
-		t.Fatal("transient relay failure must surface for redelivery")
-	}
-	if len(fsm.verifyResults) != 0 {
-		t.Fatal("receipt stored before chain accepted it")
-	}
-
-	// Redelivery after recovery: submitted on-chain once and stored locally.
-	sub.verifyResultErr = nil
-	if err := fsm.onVerifyResult(receipt); err != nil {
-		t.Fatalf("relay after recovery: %v", err)
-	}
-	if len(sub.verifyResults) != 1 || len(fsm.verifyResults) != 1 {
-		t.Fatalf("submitted=%d stored=%d, want 1/1", len(sub.verifyResults), len(fsm.verifyResults))
-	}
-
-	// The same receipt again (redelivery after a lost Ack): passes idempotently without a second on-chain submission.
-	if err := fsm.onVerifyResult(receipt); err != nil {
-		t.Fatalf("idempotent redelivery: %v", err)
-	}
-	if len(sub.verifyResults) != 1 {
-		t.Fatalf("duplicate receipt was resubmitted, %d submissions", len(sub.verifyResults))
-	}
-
-	// Definitive rejection: Ack and drop, not stored locally.
-	other := testOperator("vr-relay-verifier-2")
-	fsm.verifiers = append(fsm.verifiers, other)
-	sub.verifyResultErr = &SubmissionError{Definitive: true, Err: errors.New("signature digest mismatch")}
-	if err := fsm.onVerifyResult(testVerifyResult(task, other, [][]byte{[]byte("v1")})); err != nil {
-		t.Fatalf("definitive rejection must be acked, got %v", err)
-	}
-	if len(fsm.verifyResults) != 1 {
-		t.Fatal("definitively rejected receipt was stored")
-	}
-}
-
-// Encryption is not active: a Worker handraise carrying a recipient_pubkey would make the chain refuse
-// the whole proposal, so it is dropped at the entrance and the others still assign the task.
-func TestWorkerHandraiseWithRecipientKeyIsDropped(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
-	sub := &fakeSubmitter{}
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
-	c.submit = sub
-
-	const session = "sess-recipient-key"
-	task := testTaskID("recipient-key")
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	for _, cand := range []string{testOperator("worker-1"), testOperator("worker-2"), testOperator("worker-3")} {
-		hr := testWorkerHandraise(session, task, cand)
-		hr.RecipientPubkey = bytes.Repeat([]byte{4}, 65)
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task), wirebus.KindWorkerHandraise, hr)
-	}
-	if len(sub.assign) != 0 {
-		t.Fatalf("handraises with a recipient key must not be proposed, got %d proposals", len(sub.assign))
-	}
-	for _, cand := range []string{testOperator("worker-4"), testOperator("worker-5"), testOperator("worker-6")} {
-		publishEnvelope(t, bus, keys, cand, msgbus.SubjectWorkerHandraiseV1(task),
-			wirebus.KindWorkerHandraise, testWorkerHandraise(session, task, cand))
-	}
-	if len(sub.assign) != 1 {
-		t.Fatalf("plaintext handraises must still assign the task, got %d proposals", len(sub.assign))
-	}
-	for _, hr := range sub.assign[0].WorkerHandraises {
-		if len(hr.GetRecipientPubkey()) != 0 {
-			t.Fatal("a handraise with a recipient key reached the proposal")
-		}
 	}
 }

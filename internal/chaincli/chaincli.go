@@ -74,9 +74,6 @@ type Client interface {
 	QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error)
 	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks.
 	QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error)
-	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task: how many Builders the
-	// chain selects for each task.
-	QueryBuildersPerTask(ctx context.Context) (uint32, error)
 	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
 	// service.max_service_material_expiry_blocks: how far above the current height a Task data
 	// request's expiry_height may lie.
@@ -91,14 +88,10 @@ type Client interface {
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
 	// QueryMaxVerifyRound reads task params challenge.max_verify_round.
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
-	// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks: how
-	// far behind the executing block a signed order's session anchor may be.
-	QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error)
 	// QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
 	// evidence.min_output_stream_frame_bytes.
 	QueryOutputStreamLimits(ctx context.Context) (OutputStreamLimits, error)
-	// BlockHash returns the hash of the block at height, the value the chain records as that
-	// height's anchor hash.
+	// BlockHash returns the hash of the block at height.
 	BlockHash(ctx context.Context, height int64) ([]byte, error)
 	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
@@ -226,20 +219,12 @@ func (c *stubClient) AccountPubKey(context.Context, string) ([]byte, error) {
 	return nil, ErrNotSupportedOnChain
 }
 
-func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
-	return 0, ErrNotFound
-}
-
-// QueryAnchorFreshnessWindowBlocks and BlockHash have no chain to ask in stub mode; callers fail closed.
-func (c *stubClient) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
-	return 0, ErrNotSupportedOnChain
-}
-
 // QueryOutputStreamLimits has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) QueryOutputStreamLimits(context.Context) (OutputStreamLimits, error) {
 	return OutputStreamLimits{}, ErrNotSupportedOnChain
 }
 
+// BlockHash has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
 	return nil, ErrNotSupportedOnChain
 }
