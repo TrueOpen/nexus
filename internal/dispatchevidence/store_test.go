@@ -3,6 +3,7 @@ package dispatchevidence
 import (
 	"bytes"
 	"encoding/hex"
+	"sync"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -287,5 +288,63 @@ func TestMarkRecorded(t *testing.T) {
 	}
 	if err := s.MarkRecorded(fill(0x99), 200); err != nil {
 		t.Fatalf("unknown ticket: %v", err)
+	}
+}
+
+// A later Put of a rebuilt order (the dispatcher's own state never knew of the record) keeps the
+// recorded mark and height: they only move forward.
+func TestPutKeepsTheRecordedMark(t *testing.T) {
+	s := New(kv.NewMemStore(), testParams)
+	if err := s.Put(testOrder(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRecorded(fill(0x12), 200); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := testOrder(t)
+	if err := s.Put(rebuilt); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _, _ := s.ByTicket(fill(0x12))
+	if !got.Recorded || got.RecordedHeight != 200 || got.RetainUntil != 200+50+5+100 {
+		t.Fatalf("rebuilt = recorded %v at %d, kept until %d", got.Recorded, got.RecordedHeight, got.RetainUntil)
+	}
+	earlier := testOrder(t)
+	earlier.Recorded, earlier.RecordedHeight = true, 150
+	if err := s.Put(earlier); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _, _ := s.ByTicket(fill(0x12)); got.RecordedHeight != 200 {
+		t.Fatalf("recorded height moved back to %d", got.RecordedHeight)
+	}
+}
+
+// MarkRecorded racing with Puts of the same order never loses the mark.
+func TestMarkRecordedRacingPuts(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		s := New(kv.NewMemStore(), testParams)
+		if err := s.Put(testOrder(t)); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				if err := s.Put(testOrder(t)); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if err := s.MarkRecorded(fill(0x12), 200); err != nil {
+				t.Error(err)
+			}
+		}()
+		wg.Wait()
+		if got, _, _, _ := s.ByTicket(fill(0x12)); !got.Recorded || got.RecordedHeight != 200 {
+			t.Fatalf("round %d: recorded %v at %d", i, got.Recorded, got.RecordedHeight)
+		}
 	}
 }

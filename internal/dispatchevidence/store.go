@@ -55,17 +55,28 @@ func (s *Store) SetParams(p Params) { s.params.Store(&p) }
 func (s *Store) Params() Params { return *s.params.Load() }
 
 // Put stores o, replacing the evidence of the same key, with extra written in the same batch.
-// RetainUntil never moves earlier than what was stored or extended before.
+// The recorded mark, the recorded height and RetainUntil only move forward: a rebuilt order whose
+// writer did not know of the record keeps them.
 func (s *Store) Put(o *Order, extra ...kv.WriteOp) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	o.RetainUntil = s.params.Load().RetainUntil(o)
 	old, found, err := s.load(o.Key())
 	if err != nil {
 		return err
 	}
+	return s.putLocked(old, found, o, extra...)
+}
+
+// putLocked writes o over old (found reports whether there is one). Caller holds s.mu.
+func (s *Store) putLocked(old *Order, found bool, o *Order, extra ...kv.WriteOp) error {
+	if found && old.Recorded {
+		o.Recorded, o.RecordedHeight = true, max(o.RecordedHeight, old.RecordedHeight)
+	}
+	o.RetainUntil = s.params.Load().RetainUntil(o)
 	if found {
 		o.RetainUntil = max(o.RetainUntil, old.RetainUntil)
+	} else {
+		old = nil
 	}
 	ops, err := s.indexOps(old, o)
 	if err != nil {
@@ -95,12 +106,15 @@ func (s *Store) Extend(key string, height uint64) error {
 // recorded after the dispatcher let it go; its retention only grows. An unknown ticket is no
 // error: there is nothing to mark.
 func (s *Store) MarkRecorded(ticketHash []byte, height uint64) error {
-	o, _, found, err := s.ByTicket(ticketHash)
-	if err != nil || !found || o.Recorded && o.RecordedHeight >= height {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, _, found, err := s.ByTicket(ticketHash)
+	if err != nil || !found || old.Recorded && old.RecordedHeight >= height {
 		return err
 	}
-	o.Recorded, o.RecordedHeight = true, height
-	return s.Put(o)
+	next := *old
+	next.Recorded, next.RecordedHeight = true, height
+	return s.putLocked(old, true, &next)
 }
 
 // Prune deletes the evidence whose RetainUntil is below height and returns how many it deleted.
