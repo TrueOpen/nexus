@@ -64,7 +64,7 @@ func (s *service) GetDispatchRoster(ctx context.Context, req *connect.Request[ne
 		if err != nil {
 			return nil, err
 		}
-		if err := s.requireTaskOwner(ctx, ids.session, ids.task, requester); err != nil {
+		if err := s.requireTaskOrReplicaOwner(ctx, ids.session, ids.task, requester); err != nil {
 			return nil, err
 		}
 	default:

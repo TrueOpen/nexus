@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/TrueOpen/nexus/gen/buildersync/v1/buildersyncv1connect"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/middleware"
@@ -107,6 +108,8 @@ type Server struct {
 	outputStream         *outputStreamRuntime
 	dispatchStream       dispatchStreamServer
 	dispatchRosters      DispatchRosters
+	memberReplicas       MemberReplicas
+	builderSync          BuilderSync
 
 	tlsCertificate *tls.Certificate
 
@@ -222,6 +225,9 @@ func (s *Server) handler() http.Handler {
 	if s.dispatchStream != nil {
 		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))
 	}
+	if s.memberReplicas != nil {
+		serviceOptions = append(serviceOptions, withMemberReplicas(s.memberReplicas))
+	}
 	service := newService(s.h, s.auth, serviceOptions...)
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)
 	// The request body of a dispatch stream is the whole uplink of a long-lived connection, so it
@@ -246,6 +252,13 @@ func (s *Server) handler() http.Handler {
 		}
 	})
 	mux.Handle(path, handler)
+	if s.builderSync != nil {
+		// Builder-to-Builder sync is authenticated by each batch's signature, not by the SDK API key
+		// or the IP allowlist.
+		syncPath, syncHandler := buildersyncv1connect.NewBuilderSyncServiceHandler(builderSyncService{s.builderSync},
+			connect.WithInterceptors(loggingInterceptor(s.log)), connect.WithReadMaxBytes(builderSyncReadMaxBytes))
+		mux.Handle(syncPath, http.MaxBytesHandler(syncHandler, 2*builderSyncReadMaxBytes))
+	}
 
 	// gRPC reflection (grpcurl debugging)
 	reflector := grpcreflect.NewStaticReflector(nexusv1connect.IngressAPIName)

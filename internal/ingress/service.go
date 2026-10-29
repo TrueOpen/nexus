@@ -137,6 +137,9 @@ type service struct {
 	dispatchStream dispatchStreamServer
 	// dispatchRosters serves GetDispatchRoster (nil = Unimplemented).
 	dispatchRosters DispatchRosters
+	// memberReplicas holds the tasks this Builder keeps as a Task Builders group member (nil =
+	// none).
+	memberReplicas MemberReplicas
 }
 
 type serviceOption func(*service)

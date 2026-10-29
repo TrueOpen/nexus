@@ -84,6 +84,9 @@ func (s *service) serveOutput(ctx context.Context, wireSession, wireTask, reques
 	if rt.attempts == nil {
 		return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_OUTPUT_STREAM_STOPPED: no dispatch attempts are held"))
 	}
+	if handled, err := s.serveReplica(ctx, ids, requester, resumeAfter, ticket, send); handled {
+		return err
+	}
 	if err := s.requireOutputOwner(ctx, ids.session, ids.task, requester); err != nil {
 		return err
 	}
