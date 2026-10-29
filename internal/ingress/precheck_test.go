@@ -1,14 +1,19 @@
 package ingress
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -300,5 +305,33 @@ func TestOpenTaskReleasesTheReservationItGot(t *testing.T) {
 	}
 	if len(fake.released) != 1 || fake.released[0] != reservation {
 		t.Fatalf("released = %v", fake.released)
+	}
+}
+
+// A release that fails leaves a ghost DISPATCHING entry until the next start drops it; it is
+// logged, not dropped silently.
+func TestOpenTaskLogsAFailedRelease(t *testing.T) {
+	h := newRegisteredKeyHeader(t)
+	h.signEnvelopeWithWallet(t)
+	fake := &fakePrechecker{
+		result:     inflight.Result{Reservation: &inflight.Reservation{SessionID: h.header.GetSessionId()[2:], Sequence: 7}},
+		releaseErr: errors.New("disk full"),
+	}
+	auth := h.svc.auth
+	auth.Precheck = fake
+	var logs bytes.Buffer
+	api := &fakeTaskDataAPI{chunkSize: 4096, openTaskErr: errors.New("replayed")}
+	mux := http.NewServeMux()
+	path, connectHandler := nexusv1connect.NewIngressAPIHandler(newService(&fakeHandler{}, auth, withTaskDataAPI(api),
+		withServiceLogger(slog.New(slog.NewTextHandler(&logs, nil)))))
+	mux.Handle(path, connectHandler)
+	client := nexusv1connect.NewIngressAPIClient(&http.Client{Transport: handlerRoundTripper{h: mux}}, "http://task-data.test")
+	stream := client.OpenTask(context.Background())
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: h.header}})
+	if _, err := stream.CloseAndReceive(); err == nil {
+		t.Fatal("OpenTask with a refused nonce succeeded")
+	}
+	if len(fake.released) != 1 || !strings.Contains(logs.String(), "disk full") {
+		t.Fatalf("released %d, logs %q", len(fake.released), logs.String())
 	}
 }

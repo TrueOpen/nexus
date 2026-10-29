@@ -169,12 +169,16 @@ func (s *service) openTask(
 		return nil, err
 	}
 	// The precheck reserved the order's sequence and funds; every failure before the coordinator
-	// takes the order releases them.
+	// takes the order releases them. A failed release leaves the uncommitted entry until the next
+	// start drops it, refusing resends of the order as still uploading meanwhile.
 	dispatched := false
 	if r := precheck.Reservation; r != nil {
 		defer func() {
-			if !dispatched {
-				_ = s.auth.Precheck.Release(r)
+			if dispatched {
+				return
+			}
+			if err := s.auth.Precheck.Release(r); err != nil {
+				s.log.Error("release in-flight reservation", "session_id", r.SessionID, "order_sequence", r.Sequence, "err", err)
 			}
 		}()
 	}
