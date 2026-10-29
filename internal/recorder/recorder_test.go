@@ -82,6 +82,9 @@ func TestPartialRejection(t *testing.T) {
 	if !reflect.DeepEqual(e.ledger.recorded, wantRecorded) || !reflect.DeepEqual(e.orders.recorded, wantRecorded) {
 		t.Fatalf("recorded: ledger %v, orders %v", e.ledger.recorded, e.orders.recorded)
 	}
+	if !reflect.DeepEqual(e.orders.heights, []uint64{11, 11}) {
+		t.Fatalf("dispatcher told recorded heights %v", e.orders.heights)
+	}
 	if want := []taskReport{{taskID: a0.TaskID, height: 11}, {taskID: b0.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
 		t.Fatalf("tasks recorded = %v", e.tasks.recorded)
 	}

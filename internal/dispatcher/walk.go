@@ -503,7 +503,7 @@ func (d *Dispatcher) fail(o *order, reason error) done {
 	}
 	st.Phase, st.FailReason = phaseFailed, reason.Error()
 	o.parked = false
-	if err := saveState(d.cfg.Store, st); err != nil {
+	if err := d.saveWithEvidence(st); err != nil {
 		d.log.Error("failed dispatch not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 	}
 	if err := d.cfg.Ledger.MarkFailed(st.SessionID, st.Sequence); err != nil && !errors.Is(err, inflight.ErrUnknownOrder) {

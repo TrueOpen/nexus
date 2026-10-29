@@ -362,6 +362,17 @@ func (fakeStartTaskQuery) Params(context.Context, *connect.Request[taskv1.QueryT
 	}}), nil
 }
 
+// fakeStartTaskEvents serves the Builder role event stream with no events: it stays open until the
+// client leaves.
+type fakeStartTaskEvents struct {
+	taskv1connect.UnimplementedTaskEventServiceHandler
+}
+
+func (fakeStartTaskEvents) SubscribeRoleEvents(ctx context.Context, _ *connect.Request[taskv1.SubscribeRoleEventsRequest], _ *connect.ServerStream[taskv1.SubscribeRoleEventsResponse]) error {
+	<-ctx.Done()
+	return nil
+}
+
 func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -378,6 +389,8 @@ func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	mux.Handle(hubPath, hubHandler)
 	taskPath, taskHandler := taskv1connect.NewQueryHandler(fakeStartTaskQuery{})
 	mux.Handle(taskPath, taskHandler)
+	eventsPath, eventsHandler := taskv1connect.NewTaskEventServiceHandler(fakeStartTaskEvents{})
+	mux.Handle(eventsPath, eventsHandler)
 	mux.Handle("/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", connect.NewUnaryHandler(
 		"/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", node.GetLatestBlock,
 	))

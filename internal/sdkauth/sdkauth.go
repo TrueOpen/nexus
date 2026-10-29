@@ -507,12 +507,13 @@ func ReplayKey(e *Envelope) string {
 // sends), integers u64 big-endian, text UTF-8, addresses their raw bytes, optional fields
 // OPTIONAL_V1.
 const (
-	BodyOpenTaskDomain         = "TRUEOPEN_SDK_BODY_OPEN_TASK_V1"
-	BodySubscribeOutputDomain  = "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1"
-	BodyResumeOutputDomain     = "TRUEOPEN_SDK_BODY_RESUME_OUTPUT_V1"
-	BodyAckOutputDomain        = "TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1"
-	BodyGetTaskEventsDomain    = "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1"
-	BodyPrepareChallengeDomain = "TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1"
+	BodyOpenTaskDomain          = "TRUEOPEN_SDK_BODY_OPEN_TASK_V1"
+	BodySubscribeOutputDomain   = "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1"
+	BodyResumeOutputDomain      = "TRUEOPEN_SDK_BODY_RESUME_OUTPUT_V1"
+	BodyAckOutputDomain         = "TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1"
+	BodyGetTaskEventsDomain     = "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1"
+	BodyPrepareChallengeDomain  = "TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1"
+	BodyGetDispatchRosterDomain = "TRUEOPEN_SDK_BODY_GET_DISPATCH_ROSTER_V1"
 )
 
 func u64(v uint64) []byte {
@@ -655,4 +656,13 @@ func PrepareChallengeBody(sessionID, taskID, challengeKind string, localEvidence
 	return nodecontract.CanonicalHashBytes(BodyPrepareChallengeDomain,
 		session[:], task[:], []byte(challengeKind),
 		optional(localEvidenceDigest, len(localEvidenceDigest) != 0)), nil
+}
+
+// GetDispatchRosterBody is TRUEOPEN_SDK_BODY_GET_DISPATCH_ROSTER_V1.
+func GetDispatchRosterBody(sessionID, taskID string) ([32]byte, error) {
+	session, task, err := sessionTask(sessionID, taskID)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return nodecontract.CanonicalHashBytes(BodyGetDispatchRosterDomain, session[:], task[:]), nil
 }

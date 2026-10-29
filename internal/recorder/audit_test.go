@@ -45,6 +45,10 @@ func TestWithdrawnEntryAdmitted(t *testing.T) {
 	if i, j := indexOf(e.calls.log, "attempts.recorded"), indexOf(e.calls.log, "tasks.recorded"); i < 0 || j < 0 || i > j {
 		t.Fatalf("calls = %v", e.calls.log)
 	}
+	// The evidence of the recorded ticket is marked recorded: challenges on the order may come.
+	if want := []evidenceMark{{string(fill(1)), 11}}; !reflect.DeepEqual(e.evidence.marks, want) {
+		t.Fatalf("evidence marks = %v", e.evidence.marks)
+	}
 }
 
 // CONFLICT means the order is recorded with another entry: when the record is this Builder's the
@@ -78,6 +82,9 @@ func TestConflictIsCheckedAgainstTheRecord(t *testing.T) {
 			if tc.recorded {
 				if want := []taskReport{{taskID: b.TaskID, height: 9}}; !reflect.DeepEqual(e.tasks.recorded, want) || len(e.orders.recorded) != 1 || len(e.ledger.recorded) != 1 {
 					t.Fatalf("recorded: tasks %v, orders %v, ledger %v", e.tasks.recorded, e.orders.recorded, e.ledger.recorded)
+				}
+				if !reflect.DeepEqual(e.orders.heights, []uint64{9}) {
+					t.Fatalf("dispatcher told recorded heights %v", e.orders.heights)
 				}
 				if len(e.ledger.suspended) != 0 || len(e.tasks.rejected) != 0 {
 					t.Fatalf("suspended %v, rejected %v", e.ledger.suspended, e.tasks.rejected)

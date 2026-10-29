@@ -162,3 +162,50 @@ func TestRecordSubmitterSharesTheAccountSequence(t *testing.T) {
 		t.Fatalf("a separate service account did not read its own sequence (%d queries)", chain.accQueries)
 	}
 }
+
+// Rebuttals and challenge responses go from the service account on the record transactions'
+// sequence: the responder_address must be that account.
+func TestRecordSubmitterSendsRebuttalsAndChallengeResponses(t *testing.T) {
+	chain := &seqChain{accSeq: 42}
+	sub, sg := newRecordSubmitter(t, chain, testKeyHex, nil)
+	rebut := &taskv1.MsgRebutDispatchCompensation{
+		DispatchTicketHash: bytes.Repeat([]byte{1}, 32), ResponderAddress: sg.Address(), Record: &taskv1.DispatchRecordV1{OrderSequence: 3},
+	}
+	if res, err := sub.SubmitRebutDispatchCompensation(context.Background(), rebut, 777_000); err != nil || res.Code != 0 {
+		t.Fatalf("rebut = %+v, %v", res, err)
+	}
+	respond := &taskv1.MsgRespondDispatchChallenge{
+		ChallengeId: bytes.Repeat([]byte{2}, 32), ResponderAddress: sg.Address(),
+		Response: &taskv1.MsgRespondDispatchChallenge_Roster{Roster: &taskv1.DispatchRosterV1{ReferenceHeight: 9}},
+	}
+	if res, err := sub.SubmitRespondDispatchChallenge(context.Background(), respond, 888_000); err != nil || res.Code != 0 {
+		t.Fatalf("respond = %+v, %v", res, err)
+	}
+	if len(chain.raws) != 2 || chain.broadcasts[0] != 42 || chain.broadcasts[1] != 43 {
+		t.Fatalf("broadcast sequences %v", chain.broadcasts)
+	}
+	for i, want := range []struct {
+		typeURL string
+		msg     proto.Message
+		out     proto.Message
+	}{
+		{chaincli.TypeURLMsgRebutDispatchCompensation, rebut, &taskv1.MsgRebutDispatchCompensation{}},
+		{chaincli.TypeURLMsgRespondDispatchChallenge, respond, &taskv1.MsgRespondDispatchChallenge{}},
+	} {
+		body, auth := decodeBuilderTx(t, chain.raws[i])
+		if gas := auth.Fee.GasLimit; gas != []uint64{777_000, 888_000}[i] {
+			t.Fatalf("tx %d gas limit %d, want its own", i, gas)
+		}
+		if body.Messages[0].TypeUrl != want.typeURL || proto.Unmarshal(body.Messages[0].Value, want.out) != nil || !proto.Equal(want.out, want.msg) {
+			t.Fatalf("tx %d = %s %v", i, body.Messages[0].TypeUrl, want.out)
+		}
+	}
+	rebut.ResponderAddress = "trueopen1other"
+	if _, err := sub.SubmitRebutDispatchCompensation(context.Background(), rebut, 777_000); err == nil || len(chain.broadcasts) != 2 {
+		t.Fatalf("foreign responder = %v", err)
+	}
+	respond.ResponderAddress = "trueopen1other"
+	if _, err := sub.SubmitRespondDispatchChallenge(context.Background(), respond, 888_000); err == nil || len(chain.broadcasts) != 2 {
+		t.Fatalf("foreign responder = %v", err)
+	}
+}

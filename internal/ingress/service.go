@@ -135,6 +135,8 @@ type service struct {
 	outputStream *outputStreamRuntime
 	// dispatchStream serves the Cortex dispatch streams (nil = Unimplemented).
 	dispatchStream dispatchStreamServer
+	// dispatchRosters serves GetDispatchRoster (nil = Unimplemented).
+	dispatchRosters DispatchRosters
 }
 
 type serviceOption func(*service)

@@ -132,6 +132,10 @@ dispatch:
   # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry.
   record_gas_base: 200000
   record_gas_per_entry: 300000
+  # Gas limit of a compensation rebuttal or challenge response: answer_gas_base plus
+  # answer_gas_per_byte per encoded byte of the message. Doubled (up to 8x) after an out-of-gas.
+  answer_gas_base: 300000
+  answer_gas_per_byte: 30
 
 # Production security switch: dev (default, behavior unchanged) | production.
 # production rejects: non-loopback plaintext chain/hub grpc_addr;

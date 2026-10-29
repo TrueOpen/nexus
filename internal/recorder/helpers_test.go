@@ -266,6 +266,7 @@ type fakeLedger struct {
 	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
+	heights   []uint64
 	suspended []orderKey
 }
 
@@ -288,13 +289,15 @@ type fakeOrders struct {
 	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
+	heights   []uint64
 	suspended []suspension
 }
 
-func (o *fakeOrders) Recorded(sessionID string, seq uint64) error {
+func (o *fakeOrders) Recorded(sessionID string, seq, height uint64) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.recorded = append(o.recorded, orderKey{sessionID, seq})
+	o.heights = append(o.heights, height)
 	return nil
 }
 
@@ -389,11 +392,12 @@ type env struct {
 	streams  *fakeStreams
 	attempts *fakeAttempts
 	// book, when set, is the attempt book the recorder tells instead of attempts.
-	book    Attempts
-	gate    *Gate
-	account *accountReader
-	r       *Recorder
-	params  Params
+	book     Attempts
+	gate     *Gate
+	evidence *fakeEvidence
+	account  *accountReader
+	r        *Recorder
+	params   Params
 }
 
 func newEnv(t *testing.T) *env {
@@ -412,6 +416,18 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
+type evidenceMark struct {
+	ticket string
+	height uint64
+}
+
+type fakeEvidence struct{ marks []evidenceMark }
+
+func (f *fakeEvidence) MarkRecorded(ticketHash []byte, height uint64) error {
+	f.marks = append(f.marks, evidenceMark{string(ticketHash), height})
+	return nil
+}
+
 // open builds the recorder over the env's store, as after a start.
 func (e *env) open() {
 	e.t.Helper()
@@ -422,10 +438,11 @@ func (e *env) open() {
 	if e.book != nil {
 		book = e.book
 	}
+	e.evidence = &fakeEvidence{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {

@@ -203,10 +203,11 @@ func (r *Registry) loadRoot(key string) (*IssuedRoot, error) {
 	return issued, nil
 }
 
-// PruneRootsBelow deletes issued roots with root_height below height, except the latest root,
-// and returns how many it deleted. Roots bound by recorded dispatches must be kept until their
-// challenge windows close; choosing height is the caller's job.
-func (r *Registry) PruneRootsBelow(height uint64) (int, error) {
+// PruneRootsBelow deletes issued roots with root_height below height, except the latest root and
+// every root keep holds, and returns how many it deleted. keep holds the roots bound by retained
+// dispatch evidence (dispatchevidence.Store.ReferencesRoot): a challenge or GetDispatchRoster
+// still needs them. height must stay below every root an order still dispatching may bind.
+func (r *Registry) PruneRootsBelow(height uint64, keep func(digest [32]byte) bool) (int, error) {
 	r.issueMu.Lock()
 	defer r.issueMu.Unlock()
 	var latestKey string
@@ -231,6 +232,14 @@ func (r *Registry) PruneRootsBelow(height uint64) (int, error) {
 		if err := json.Unmarshal(value, &record); err != nil {
 			scanErr = fmt.Errorf("decode handraise root %s: %w", key, err)
 			return false
+		}
+		digest, err := hex.DecodeString(record.Digest)
+		if err != nil || len(digest) != 32 {
+			scanErr = fmt.Errorf("handraise root %s has a malformed digest", key)
+			return false
+		}
+		if keep([32]byte(digest)) {
+			return true
 		}
 		ops = append(ops,
 			kv.WriteOp{NS: kv.NSHandraiseRoot, Key: key, Delete: true},

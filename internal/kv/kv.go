@@ -96,6 +96,14 @@ const (
 	// recorded; it is relayed once the record is admitted and dropped if it is refused; key =
 	// session_id|task_id (package coordinator).
 	NSReceiptStaging Namespace = "receipt_staging"
+	// NSDispatchEvidence holds the evidence of every dispatched order until its claim and challenge
+	// windows close: rosters, tickets, answers and the signed record as exact bytes, with indexes
+	// by ticket, task and handraise root, and the open claims and challenges being answered
+	// (packages dispatchevidence and dispatchresponse).
+	NSDispatchEvidence Namespace = "dispatch_evidence"
+	// NSDispatchEvidencePrune orders NSDispatchEvidence by the height its evidence may be pruned
+	// at; key = zero-padded height/evidence key.
+	NSDispatchEvidencePrune Namespace = "dispatch_evidence_prune"
 )
 
 type Store interface {

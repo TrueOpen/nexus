@@ -226,6 +226,9 @@ type Config struct {
 	Recorder   Recorder
 	Observer   Observer
 	Attempts   Attempts
+	// Evidence keeps every order's evidence once it is accepted, failed or recorded; nil keeps
+	// none (claims on its tickets then cannot be rebutted).
+	Evidence Evidence
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.
@@ -506,8 +509,9 @@ func servesOrder(h *taskv1.StandingHandraiseV1, o *taskv1.TaskOrderV3) bool {
 	return false
 }
 
-// Recorded forgets an order whose dispatch entry the chain admitted.
-func (d *Dispatcher) Recorded(sessionID string, sequence uint64) error {
+// Recorded forgets an order whose dispatch entry the chain admitted at height. Its evidence is
+// marked recorded in the same write that deletes its dispatch state.
+func (d *Dispatcher) Recorded(sessionID string, sequence, height uint64) error {
 	o := d.get(stateKey(sessionID, sequence))
 	if o == nil {
 		return nil
@@ -516,7 +520,9 @@ func (d *Dispatcher) Recorded(sessionID string, sequence uint64) error {
 	if o.timer != nil {
 		o.timer.Stop()
 	}
-	err := deleteState(d.cfg.Store, sessionID, sequence)
+	err := d.putEvidence(o.st, height, deleteStateOp(sessionID, sequence), func() error {
+		return deleteState(d.cfg.Store, sessionID, sequence)
+	})
 	o.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("delete dispatch state: %w", err)
@@ -549,7 +555,7 @@ func (d *Dispatcher) rejectAcceptedLocked(o *order, reason error) error {
 	}
 	o.st.Phase, o.st.FailReason = phaseFailed, reason.Error()
 	o.st.Accept, o.st.AcceptDigest, o.st.Record = nil, nil, nil
-	return saveState(d.cfg.Store, o.st)
+	return d.saveWithEvidence(o.st)
 }
 
 // Suspend fails every order of the session from sequence from on, after the record of from was

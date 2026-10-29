@@ -252,7 +252,7 @@ func TestRecordOfAVoidedWinnerEndsTheNewRound(t *testing.T) {
 	}
 	_, ticket, hash := e.lastOffer()
 	offers := len(e.streams.offers())
-	if err := e.d.Recorded(s, 0); err != nil {
+	if err := e.d.Recorded(s, 0, bound); err != nil {
 		t.Fatal(err)
 	}
 	e.clock.advance(10 * time.Second)

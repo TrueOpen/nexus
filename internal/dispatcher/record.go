@@ -14,6 +14,9 @@ import (
 // the order's first-round decision, true even when the promoted Worker did not win. The rounds
 // list every attempt in rank order with its outcome, the reject digest of a REJECTED attempt and
 // the RTT tier of a TIMEOUT.
+//
+// For an order without a winner (the evidence of a failed order) winner is its last ticket and
+// winnerHash zero32: the record then only shows how each attempt ended.
 func buildRecord(chainID, builder string, st *orderState, winner *taskv1.DispatchTicketV1, winnerHash []byte) (*taskv1.DispatchRecordV1, error) {
 	r := &taskv1.DispatchRecordV1{
 		SchemaVersion:           schemaVersion,

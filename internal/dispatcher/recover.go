@@ -39,7 +39,7 @@ func (d *Dispatcher) recover(ctx context.Context) error {
 			(entry.State == inflight.StateDispatching || entry.State == inflight.StateAccepted)
 		keepFailed := ok && st.Phase == phaseFailed && entry.State == inflight.StateFailed
 		if !live && !keepFailed {
-			if err := deleteState(d.cfg.Store, st.SessionID, st.Sequence); err != nil {
+			if err := d.dropStale(st, entry, ok); err != nil {
 				return fmt.Errorf("drop stale dispatch state: %w", err)
 			}
 			continue
@@ -107,6 +107,24 @@ func (d *Dispatcher) recover(ctx context.Context) error {
 		o.mu.Unlock()
 	}
 	return nil
+}
+
+// dropStale deletes a state that is no longer live. An accepted order the ledger shows recorded,
+// or no longer holds, was recorded after its last write (the evidence write of Recorded failed,
+// or the process stopped in between): its evidence is marked recorded in the same write, at the
+// order's record deadline, which is not below the recorded height.
+func (d *Dispatcher) dropStale(st *orderState, entry inflight.Entry, inLedger bool) error {
+	recorded := st.Phase == phaseAccepted && (!inLedger || entry.State == inflight.StateRecorded)
+	if !recorded {
+		return deleteState(d.cfg.Store, st.SessionID, st.Sequence)
+	}
+	height := entry.Deadline
+	if !inLedger {
+		height = d.cfg.Sessions.Head()
+	}
+	return d.putEvidence(st, max(height, 1), deleteStateOp(st.SessionID, st.Sequence), func() error {
+		return deleteState(d.cfg.Store, st.SessionID, st.Sequence)
+	})
 }
 
 // restoreOrder rebuilds an order's in-memory parts from its stored state. The round's roster is

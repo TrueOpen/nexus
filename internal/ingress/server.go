@@ -106,6 +106,7 @@ type Server struct {
 	taskData             taskDataAPI
 	outputStream         *outputStreamRuntime
 	dispatchStream       dispatchStreamServer
+	dispatchRosters      DispatchRosters
 
 	tlsCertificate *tls.Certificate
 
@@ -214,6 +215,9 @@ func (s *Server) handler() http.Handler {
 	}
 	if s.outputStream != nil {
 		serviceOptions = append(serviceOptions, withOutputStream(s.outputStream))
+	}
+	if s.dispatchRosters != nil {
+		serviceOptions = append(serviceOptions, withDispatchRosters(s.dispatchRosters))
 	}
 	if s.dispatchStream != nil {
 		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))

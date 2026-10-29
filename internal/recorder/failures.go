@@ -33,12 +33,13 @@ const (
 // classify reads a refusal's cosmos-sdk code. Module codes are not told apart: their numbers are
 // the node's, so they repeat into a halving or a stop instead.
 func classify(res chaincli.TxResult) refusalClass {
+	if chaincli.IsOutOfGas(res) {
+		return refusalOutOfGas
+	}
 	if res.Codespace != "sdk" {
 		return refusalOther
 	}
 	switch res.Code {
-	case 11: // out of gas
-		return refusalOutOfGas
 	case 4, 5, 8, 13: // unauthorized, insufficient funds, invalid pubkey, insufficient fee
 		return refusalFatal
 	}

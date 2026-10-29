@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
@@ -52,20 +53,10 @@ type attemptState struct {
 	LateAcceptDigest []byte `json:"late_accept_digest,omitempty"`
 }
 
-// rebuttable reports whether the attempt may rebut a compensation claimed on its ticket: only a
-// ticket that reached the Worker and ended REJECTED, TIMEOUT or REVOKED. A ticket that timed out
-// unsent, a VOIDED one (the Builder's own doing) and the winner are owed the compensation.
-// Automatic rebuttal must go through this check.
-func (a *attemptState) rebuttable() bool {
-	if !a.Sent {
-		return false
-	}
-	switch a.Outcome {
-	case outcomeRejected, outcomeTimeout, taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_REVOKED:
-		return true
-	}
-	return false
-}
+// rebuttable reports whether the attempt may rebut a compensation claimed on its ticket
+// (dispatchevidence.Rebuttable): only a ticket that reached the Worker and ended REJECTED,
+// TIMEOUT or REVOKED.
+func (a *attemptState) rebuttable() bool { return dispatchevidence.Rebuttable(a.Sent, a.Outcome) }
 
 // roundState is one dispatch round: the handraise root its tickets bind, its frozen roster and
 // its attempts. A round is stored once its first ticket is issued.
@@ -172,18 +163,30 @@ func stateKey(sessionID string, seq uint64) string {
 }
 
 func saveState(store kv.Store, s *orderState) error {
-	raw, err := json.Marshal(s)
+	op, err := saveStateOp(s)
 	if err != nil {
-		return fmt.Errorf("encode dispatch state: %w", err)
+		return err
 	}
-	if err := store.Set(kv.NSDispatch, stateKey(s.SessionID, s.Sequence), raw); err != nil {
+	if err := store.Set(op.NS, op.Key, op.Val); err != nil {
 		return fmt.Errorf("write dispatch state: %w", err)
 	}
 	return nil
 }
 
+func saveStateOp(s *orderState) (kv.WriteOp, error) {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return kv.WriteOp{}, fmt.Errorf("encode dispatch state: %w", err)
+	}
+	return kv.WriteOp{NS: kv.NSDispatch, Key: stateKey(s.SessionID, s.Sequence), Val: raw}, nil
+}
+
 func deleteState(store kv.Store, sessionID string, seq uint64) error {
 	return store.Delete(kv.NSDispatch, stateKey(sessionID, seq))
+}
+
+func deleteStateOp(sessionID string, seq uint64) kv.WriteOp {
+	return kv.WriteOp{NS: kv.NSDispatch, Key: stateKey(sessionID, seq), Delete: true}
 }
 
 // loadStates reads every stored dispatch state. A state that does not parse fails the load: its

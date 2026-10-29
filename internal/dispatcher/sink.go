@@ -85,7 +85,7 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		st.Record, _, err = signRecord(d.cfg.Signer, record)
 	}
 	if err == nil {
-		err = saveState(d.cfg.Store, st)
+		err = d.saveWithEvidence(st)
 	}
 	if err != nil {
 		o.st = prev

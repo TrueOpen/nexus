@@ -19,11 +19,8 @@
 // the winner gets a RECORDED notice. Refused or late, the order and every later entry of its
 // session fail as RECORD_REJECTED with REJECTED notices, the session is suspended from its
 // sequence and the dispatcher fails its later orders: none of them can be recorded before it. The
-// Workers of those orders claim compensation themselves.
-//
-// Rebutting those claims is not done here yet. When it is, it may only use an attempt that
-// reached its Worker and ended REJECTED, TIMEOUT or REVOKED (the dispatcher's
-// attemptState.rebuttable): an unsent ticket, a VOIDED one and the winner are owed the claim.
+// Workers of those orders claim compensation themselves; package dispatchresponse rebuts the
+// claims the dispatch evidence shows are not owed.
 package recorder
 
 import (
@@ -96,8 +93,8 @@ type Ledger interface {
 
 // Orders is the dispatcher.
 type Orders interface {
-	// Recorded forgets an order whose dispatch entry the chain admitted.
-	Recorded(sessionID string, sequence uint64) error
+	// Recorded forgets an order whose dispatch entry the chain admitted at height.
+	Recorded(sessionID string, sequence, height uint64) error
 	// Suspend fails the session's orders from sequence from on.
 	Suspend(ctx context.Context, sessionID string, from uint64, reason error)
 }
@@ -119,6 +116,11 @@ type Streams interface {
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
 }
 
+// RecordedEvidence marks dispatch evidence recorded (dispatchevidence.Store).
+type RecordedEvidence interface {
+	MarkRecorded(ticketHash []byte, height uint64) error
+}
+
 // Config wires a Recorder.
 type Config struct {
 	ChainID string
@@ -137,6 +139,9 @@ type Config struct {
 	Streams  Streams
 	// Gate holds the compensation account: no record is sent while it is below the minimum.
 	Gate *Gate
+	// Evidence, when set, is told about an entry the chain admitted after its ticket was withdrawn:
+	// the dispatcher no longer holds it, but challenges on the recorded order may come.
+	Evidence RecordedEvidence
 	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
 	// for each entry.
 	GasBase, GasPerEntry uint64

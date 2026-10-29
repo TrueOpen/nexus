@@ -266,6 +266,22 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	})
 	eventOptions.task = append(eventOptions.task, keyEvents)
 	eventOptions.hub = append(eventOptions.hub, keyEvents)
+	sg, err := identity.LoadSigner(cfg.Identity)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	selfAddr, err := identity.ResolveBuilderAddress(cfg.Identity, sg)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if sg != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
+		// A dispatching Builder follows the events addressed to it as Builder: compensation claims
+		// on its tickets, dispatch challenges on its records and how they ended. The stream resumes
+		// from its stored cursor.
+		eventOptions.task = append(eventOptions.task, chaincli.WithBuilderRoleEvents(selfAddr))
+	}
 	taskChain := chaincli.New(log, cfg.Chain, eventOptions.task...) // Task Chain: source of truth for task queries, txs and events.
 	sessionKeys.chain = taskChain
 	registrationChain := taskChain
@@ -328,16 +344,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	if chainResetMonitor != nil {
 		coordOpts = append(coordOpts, coordinator.WithChainResetWatch(chainResetMonitor))
-	}
-	sg, err := identity.LoadSigner(cfg.Identity)
-	if err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("identity: %w", err)
-	}
-	selfAddr, err := identity.ResolveBuilderAddress(cfg.Identity, sg)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
 	}
 	var registrationModule *module
 	var serviceSG signer.Signer
@@ -583,6 +589,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		FeeDenom:              feeDenom,
 	}
 	if orderPath != nil {
+		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters))
 		authParams.Precheck = orderPath.Precheck
 		authParams.Takeovers = orderPath.Takeovers
 	}

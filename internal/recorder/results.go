@@ -279,7 +279,7 @@ func (r *Recorder) recordedByAnotherTicketLocked(e *entry, rec *taskv1.DispatchR
 		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
-		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
+		if err := r.orders.Recorded(e.SessionID, e.Sequence, height); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
 		// The attempt book takes the recorded ticket (one a binding change voided comes back) and
@@ -427,8 +427,14 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
-		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
+		if err := r.orders.Recorded(e.SessionID, e.Sequence, height); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+		}
+		if e.Withdrawn && r.cfg.Evidence != nil {
+			// The dispatcher already let the order go: its evidence is marked here.
+			if err := r.cfg.Evidence.MarkRecorded(e.TicketHash, height); err != nil {
+				r.log.Error("evidence of a recorded entry not marked recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+			}
 		}
 		r.cfg.Attempts.Recorded(e.TaskID, [32]byte(e.TicketHash))
 		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)
