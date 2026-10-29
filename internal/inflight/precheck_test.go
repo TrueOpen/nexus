@@ -318,6 +318,30 @@ func TestPrecheckExpiryCoversTheRecordDeadline(t *testing.T) {
 	}
 }
 
+// The cached head trails the chain (height polls are slower than blocks): an order the SDK built
+// on a newer head looks like it is from the future. The head is read again once before
+// ORDER_FUTURE is returned.
+func TestPrecheckRereadsTheHeadBeforeOrderFuture(t *testing.T) {
+	f := newFixture(t, nil) // cached head 100
+	o := order(5)
+	o.EarliestSubmitHeight = 104
+	f.chain.mu.Lock()
+	f.chain.height = 103
+	f.chain.mu.Unlock()
+	res, err := f.p.Check(context.Background(), o)
+	if err != nil || res.Head != 103 {
+		t.Fatalf("order built on head 103 = %+v, %v", res, err)
+	}
+	if f.cache.Head() != 103 {
+		t.Fatalf("cached head = %d, want 103", f.cache.Head())
+	}
+	// Still ahead of the chain after the re-read: ORDER_FUTURE.
+	o.EarliestSubmitHeight = 105
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderFuture) {
+		t.Fatalf("order ahead of the chain = %v, want future", err)
+	}
+}
+
 func TestPrecheckIdempotency(t *testing.T) {
 	f := newFixture(t, nil)
 	f.reserve(t, order(5))

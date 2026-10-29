@@ -2,6 +2,7 @@ package inflight
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -133,7 +134,7 @@ type PrecheckConfig struct {
 //     order_expire_height (and head + 1 < order_expire_height), else ErrOrderExpired;
 //  3. binding: a session bound to another Builder ends the precheck with BoundElsewhere;
 //  4. freshness: earliest_submit_height >= head - order_freshness_margin_blocks (ErrOrderStale)
-//     and <= head + 1 (ErrOrderFuture);
+//     and <= head + 1 (ErrOrderFuture, returned only after the head was read from the chain again);
 //  5. a registered takeover of the session: *TakeoverPendingError;
 //  6. local idempotency by (session_id, order_sequence): the same order dispatching, accepted or
 //     recorded is Result.Existing, also below the chain's next expected sequence (recorded before
@@ -208,6 +209,17 @@ func (p *Prechecker) Reserve(ctx context.Context, o Order) (Result, error) {
 // the ledger after the second would be wrong, so the lookup is repeated when the session changed
 // before the ledger lock was taken.
 func (p *Prechecker) run(ctx context.Context, o Order, reserve bool) (Result, error) {
+	res, err := p.attempt(ctx, o, reserve)
+	// The cached head trails the chain, so an order built on a newer head looks like it is from
+	// the future; the head is read again once before saying so. Stale and expired verdicts only
+	// get stricter with a newer head.
+	if errors.Is(err, ErrOrderFuture) && p.cfg.Sessions.readHead(ctx) {
+		res, err = p.attempt(ctx, o, reserve)
+	}
+	return res, err
+}
+
+func (p *Prechecker) attempt(ctx context.Context, o Order, reserve bool) (Result, error) {
 	for attempt := 1; ; attempt++ {
 		session, head, gen, err := p.cfg.Sessions.lookup(ctx, o.SessionID)
 		if err != nil {

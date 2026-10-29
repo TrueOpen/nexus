@@ -28,7 +28,8 @@ type SessionCacheConfig struct {
 	// Read returns the session's StreamState; chaincli.ErrNotFound when the chain has no such
 	// session.
 	Read func(ctx context.Context, sessionID string) (chaincli.SessionState, error)
-	// LatestHeight reads the head; it is asked only until a height arrives with a chain event.
+	// LatestHeight reads the head; it is asked until a height arrives with a chain event, and
+	// again before an order is refused as from the future.
 	LatestHeight func(ctx context.Context) (uint64, error)
 	// Tracker, when set, is asked to follow the session-level events of every session the chain
 	// knows on its first lookup. Without it no state is kept and every lookup reads the chain.
@@ -106,6 +107,16 @@ func (c *SessionCache) CurrentHeight(ctx context.Context) (uint64, error) {
 	}
 	c.ObserveHeight(height)
 	return c.Head(), nil
+}
+
+// readHead reads the head from the chain and reports whether it is above the cached one.
+func (c *SessionCache) readHead(ctx context.Context) bool {
+	height, err := c.cfg.LatestHeight(ctx)
+	if err != nil || height <= c.Head() {
+		return false
+	}
+	c.ObserveHeight(height)
+	return true
 }
 
 // Lookup returns the session's state and the head it is judged at.
