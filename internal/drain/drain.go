@@ -6,10 +6,12 @@
 // members also verify what this Builder syncs to them under its current key, so sync items signed
 // before a rotation are refused after it. The drain therefore stops new work first: while it lasts
 // no new order is taken, no ticket issued and no takeover admitted (the dispatcher and the
-// takeover manager ask Draining), while the orders in flight are accepted, recorded or fail as
-// usual and the takeovers and the group sync finish. Once nothing remains (no in-flight order, no
-// record outbox entry, no takeover, no sync item a member has not acknowledged) the operator
-// submits the rotation; the drain ends by itself once the chain shows the new key current and
+// takeover manager ask Draining). The orders in flight are accepted, recorded or fail as usual and
+// the group sync finishes. A held takeover whose entry has not gone out yet cannot be on chain: it
+// is ended as NO_CAPACITY when the drain begins (OnDraining), so its user goes elsewhere at once.
+// A takeover that went out is work from before the drain: it takes effect and its order is walked
+// with tickets as usual. Once nothing remains (no in-flight order, no record outbox entry, no
+// takeover, no sync item a member has not acknowledged) the operator submits the rotation; the drain ends by itself once the chain shows the new key current and
 // this process signs with it (after a restart with the new key), or when the operator ends it.
 //
 // The drain state is stored, so it survives a restart.
@@ -118,6 +120,9 @@ type Config struct {
 	// LocalPubKey is the compressed public key, lowercase hex, of the service key this process
 	// signs with.
 	LocalPubKey string
+	// OnDraining, when set, runs when the drain begins and on every Check while it lasts: it ends
+	// the held takeovers whose entry has not gone out.
+	OnDraining func()
 	// Now is nil for the system clock.
 	Now func() time.Time
 	Log *slog.Logger
@@ -186,15 +191,24 @@ func (c *Controller) Begin(ctx context.Context) error {
 		next.KeyNonce, next.KeyPubKey = key.AuthorizationNonce, key.ServicePubKey
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.st.Draining {
+		c.mu.Unlock()
 		return nil
 	}
 	if err := c.storeLocked(next); err != nil {
+		c.mu.Unlock()
 		return err
 	}
+	c.mu.Unlock()
 	c.log.Info("drain begun: no new order, ticket or takeover until it ends", "key_nonce", next.KeyNonce)
+	c.onDraining()
 	return nil
+}
+
+func (c *Controller) onDraining() {
+	if c.cfg.OnDraining != nil {
+		c.cfg.OnDraining()
+	}
 }
 
 // End ends the drain; without one it does nothing.
@@ -227,6 +241,9 @@ func (c *Controller) storeLocked(next state) error {
 // Check reads the remaining work and the key binding and returns the status. A drain whose key
 // rotated to the key this process signs with ends here.
 func (c *Controller) Check(ctx context.Context) Status {
+	if c.Draining() {
+		c.onDraining()
+	}
 	s := Status{Phase: PhaseServing, Remaining: c.remaining()}
 	s.Complete = s.Remaining.Empty()
 	chainKey, keyErr := c.cfg.Key(ctx)

@@ -74,6 +74,18 @@ type fakeRecorder struct {
 	bundles   []*recorder.TakeoverBundle
 	err       error
 	withdrawn int
+	// sent marks the sessions whose takeover entry went out in a transaction.
+	sent map[string]bool
+}
+
+func (r *fakeRecorder) WithdrawUnsentTakeover(sessionID string, _ uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.bundles) == 0 || r.sent[sessionID] {
+		return false
+	}
+	r.withdrawn++
+	return true
 }
 
 func (r *fakeRecorder) WithdrawTakeover(context.Context, string, uint64) {

@@ -55,6 +55,8 @@ type Chain interface {
 type Recorder interface {
 	RecordTakeover(ctx context.Context, b *recorder.TakeoverBundle) error
 	WithdrawTakeover(ctx context.Context, sessionID string, sequence uint64)
+	// WithdrawUnsentTakeover withdraws the entry only while no transaction carries it.
+	WithdrawUnsentTakeover(sessionID string, sequence uint64) bool
 }
 
 // Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate).
@@ -98,8 +100,9 @@ type Config struct {
 	Background func(func())
 	// Metrics counts how takeovers ended; nil counts nothing.
 	Metrics *opsmetrics.Registry
-	// Draining reports a service key rotation drain: no new takeover is admitted, while the held
-	// ones go on. nil never drains.
+	// Draining reports a service key rotation drain: no new takeover is admitted or submitted, a
+	// held one whose entry has not gone out is ended (EndUnsent), and one on chain goes on. nil
+	// never drains.
 	Draining func() bool
 	Log      *slog.Logger
 }
@@ -226,6 +229,25 @@ func (m *Manager) Held(sessionID string, sequence uint64, taskHash string) (Admi
 	return Admission{Existing: true, ActivationHeight: r.ActivationHeight}, true
 }
 
+func (m *Manager) draining() bool { return m.cfg.Draining != nil && m.cfg.Draining() }
+
+// EndUnsent ends, as NO_CAPACITY with their input dropped, the submitted takeovers whose entry no
+// transaction carries yet: they cannot be on chain, and during a drain the user is better sent to
+// another Builder at once. Each is judged in its own job, after the jobs queued before it.
+func (m *Manager) EndUnsent() {
+	m.mu.Lock()
+	var due []*record
+	for _, r := range m.records {
+		if r.Phase == phaseSubmitted {
+			due = append(due, r)
+		}
+	}
+	m.mu.Unlock()
+	for _, r := range due {
+		m.schedule(r.SessionID, r.Sequence, job{why: causeDrain})
+	}
+}
+
 // Pending counts the takeovers held as candidate, reserved ones included.
 func (m *Manager) Pending() int {
 	m.mu.Lock()
@@ -263,7 +285,7 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 		}
 		return Admission{Existing: true, ActivationHeight: r.ActivationHeight}, nil
 	}
-	if m.cfg.Draining != nil && m.cfg.Draining() {
+	if m.draining() {
 		m.mu.Unlock()
 		return Admission{}, fmt.Errorf("%w: no takeover: %w", dispatchdraw.ErrNoCapacity, dispatcher.ErrDraining)
 	}
@@ -339,6 +361,9 @@ func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint6
 // task started and the takeover entry handed to the recorder. On an error nothing stays held and
 // the caller drops the input.
 func (m *Manager) Submit(ctx context.Context, o types.Order) error {
+	if m.draining() {
+		return fmt.Errorf("%w: no takeover: %w", dispatchdraw.ErrNoCapacity, dispatcher.ErrDraining)
+	}
 	m.mu.Lock()
 	r := m.records[o.SessionID]
 	if r == nil || r.Phase != phaseReserved || r.TaskHash != o.TaskHash || r.checking {

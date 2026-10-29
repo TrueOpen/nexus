@@ -79,3 +79,48 @@ func TestDrainAdmitsNoNewTakeover(t *testing.T) {
 	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 70})
 	e.wantCalls("held task5", "registered task5 70", "activated task5 70", "dispatch task5")
 }
+
+// A drain ends the candidate takeovers whose entry has not gone out yet as NO_CAPACITY, dropping
+// their input, so the user goes elsewhere at once; one whose entry went out stays and takes effect.
+func TestDrainEndsUnsentTakeovers(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.draining.Store(true)
+	e.m.EndUnsent()
+	e.wantCalls("held task5", "ended task5 NO_CAPACITY drop=true")
+	if e.m.Pending() != 0 || e.stored() != 0 {
+		t.Fatalf("an ended takeover is still held (pending %d)", e.m.Pending())
+	}
+
+	sent := newEnv(t)
+	sent.rec.sent = map[string]bool{session: true}
+	sent.submit(5)
+	sent.draining.Store(true)
+	sent.m.EndUnsent()
+	if sent.m.Pending() != 1 {
+		t.Fatal("a takeover whose entry went out was ended")
+	}
+	sent.registerAt(70)
+	sent.m.TakeoverRegistered(session, 5, 60)
+	sent.bindHere(70)
+	sent.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 70})
+	sent.wantCalls("held task5", "registered task5 70", "activated task5 70", "dispatch task5")
+}
+
+// An order admitted before the drain but submitted after it began is refused: nothing is held.
+func TestDrainRefusesASubmitAfterItBegan(t *testing.T) {
+	e := newEnv(t)
+	o, pre := takeoverOrder(5, 1)
+	if _, err := e.m.Admit(context.Background(), o, pre); err != nil {
+		t.Fatal(err)
+	}
+	e.draining.Store(true)
+	err := e.m.Submit(context.Background(), o)
+	if !errors.Is(err, dispatchdraw.ErrNoCapacity) || !errors.Is(err, dispatcher.ErrDraining) {
+		t.Fatalf("Submit while draining = %v", err)
+	}
+	e.m.Release(session, o.TaskHash)
+	if e.m.Pending() != 0 || len(e.rec.bundles) != 0 {
+		t.Fatal("a takeover submitted while draining is held")
+	}
+}

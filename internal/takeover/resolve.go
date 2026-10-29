@@ -21,6 +21,7 @@ const (
 	codeExpired    = coordinator.EvOrderExpired
 	codeRejected   = coordinator.EvRecordRejected
 	codeTaskFailed = coordinator.EvTaskFailed
+	codeNoCapacity = coordinator.EvNoCapacity
 )
 
 // cause is what a job on a takeover handles.
@@ -42,6 +43,8 @@ const (
 	// session's current bound_change_height (after a restart, or a result that could not be
 	// attributed to it).
 	causeSettle
+	// causeDrain: a drain ends the takeover unless its entry went out.
+	causeDrain
 )
 
 // job is one thing to handle on a takeover. The jobs of a takeover run one at a time, in order,
@@ -149,7 +152,7 @@ func (m *Manager) schedule(sessionID string, seq uint64, j job) {
 		return
 	}
 	for _, queued := range r.jobs {
-		if j.why == causeCheck && queued.why == causeCheck {
+		if (j.why == causeCheck || j.why == causeDrain) && queued.why == j.why {
 			m.mu.Unlock()
 			return
 		}
@@ -196,6 +199,11 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
 	case causeSettle:
 		m.settle(ctx, r, j)
+	case causeDrain:
+		if m.phase(r) == phaseSubmitted && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
+			m.log.Info("takeover ended by the drain before its entry went out", "session_id", r.SessionID, "order_sequence", r.Sequence)
+			m.end(ctx, r, codeNoCapacity, true, nil)
+		}
 	default:
 		m.resolve(ctx, r, j)
 	}

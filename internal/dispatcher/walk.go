@@ -189,7 +189,8 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 }
 
 // step issues the order's next ticket, if it may: no ticket is out, the order still dispatches,
-// its record deadline is ahead, this Builder does not drain and its key may issue tickets. It walks past members
+// its record deadline is ahead, this Builder does not drain (unless the order is a takeover's)
+// and its key may issue tickets. It walks past members
 // that cannot be reached until one is offered or the order fails. Caller holds o.mu.
 func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	st := o.st
@@ -201,7 +202,7 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if deadline, ok := d.liveRecordDeadline(ctx, o); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
 		}
-		if d.draining() {
+		if d.draining() && !d.takeoverOrder(o) {
 			return d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
@@ -244,6 +245,14 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			return done{}
 		}
 	}
+}
+
+// takeoverOrder reports whether o is the order of a takeover that took effect: the takeover was
+// on chain before a drain could stop it, so its order is walked through a drain. Caller holds
+// o.mu.
+func (d *Dispatcher) takeoverOrder(o *order) bool {
+	entry, ok := d.cfg.Ledger.Get(o.st.SessionID, o.st.Sequence)
+	return ok && entry.Takeover && entry.TaskHash == o.st.TaskHash
 }
 
 // roundStored reports whether the round in use already holds a ticket. Until it does, its roster

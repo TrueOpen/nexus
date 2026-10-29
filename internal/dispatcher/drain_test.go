@@ -61,3 +61,23 @@ func TestDrainIssuesNoNewTicket(t *testing.T) {
 		t.Fatalf("unfinished orders = %+v", left)
 	}
 }
+
+// The order of a takeover registered before the drain is work the drain waits for: once the
+// takeover took effect it is walked as usual, tickets included, and can be recorded.
+func TestDrainWalksTheOrderOfATakeover(t *testing.T) {
+	e := newEnv(t)
+	e.takeoverOrders = true
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.draining.Store(true)
+	e.dispatch(o)
+	e.reject()
+	if n := len(e.streams.offers()); n != 2 {
+		t.Fatalf("%d offers: the takeover's order got no next ticket while draining", n)
+	}
+	e.accept()
+	e.onlyBundle()
+	if got := e.observer.snapshot().failed; len(got) != 0 {
+		t.Fatalf("failed = %v", got)
+	}
+}

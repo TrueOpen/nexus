@@ -103,6 +103,27 @@ func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequenc
 	r.writeLocked(ops)
 }
 
+// WithdrawUnsentTakeover removes the session's takeover entry of sequence only while no
+// transaction carries it, and reports whether it did: such an entry cannot be on chain. An entry
+// that went out (its result may still come) is left alone.
+func (r *Recorder) WithdrawUnsentTakeover(sessionID string, sequence uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range r.entries {
+		if !e.Takeover || e.SessionID != sessionID || e.Sequence != sequence || e.Withdrawn {
+			continue
+		}
+		if e.Tx != "" {
+			return false
+		}
+		var ops []kv.WriteOp
+		r.removeLocked(e, &ops)
+		r.writeLocked(ops)
+		return true
+	}
+	return false
+}
+
 // takeoverLocked resolves the takeover entry e and tells the Takeovers with report. Caller holds
 // r.mu.
 func (r *Recorder) takeoverLocked(e *entry, ops *[]kv.WriteOp, fx *effects, what string, report func(Takeovers)) {

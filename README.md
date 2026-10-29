@@ -30,7 +30,9 @@ synced items under the current key. Rotate only after a drain:
 
 1. `nexus drain begin`: the running daemon takes no new order, issues no ticket and admits no
    takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight orders are accepted,
-   recorded or fail as usual, and takeovers and the group sync finish. `/readyz` turns 503.
+   recorded or fail as usual, and the group sync finishes. A held takeover whose entry has not
+   gone out is ended as `NO_CAPACITY` at once (its user goes to another Builder); one whose entry
+   went out takes effect and its order is dispatched with tickets as usual. `/readyz` turns 503.
 2. `nexus drain status` until `phase` is `DRAINED` (no in-flight order, record outbox entry,
    takeover or unacknowledged sync item; `remaining` lists what is left, `sync_pending` names the
    order/member pairs that would be refused after the rotation).

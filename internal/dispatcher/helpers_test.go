@@ -399,10 +399,12 @@ type env struct {
 	syncer     *fakeSync
 	metrics    *opsmetrics.Registry
 	draining   atomic.Bool
-	signer     signer.Signer
-	builder    string
-	d          *Dispatcher
-	params     Params
+	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
+	takeoverOrders bool
+	signer         signer.Signer
+	builder        string
+	d              *Dispatcher
+	params         Params
 }
 
 // fakeChain holds the session states the session cache reads.
@@ -537,7 +539,7 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 	e.inputs.data[o.TaskHash] = []byte("hello world")
 	res, err := e.precheck.Reserve(context.Background(), inflight.Order{
 		SessionID: sessionID, Sequence: seq, TaskID: taskID, TaskHash: o.TaskHash, User: testUser, MaxFee: 10,
-		EarliestSubmitHeight: esh, ExpireHeight: 10_000,
+		EarliestSubmitHeight: esh, ExpireHeight: 10_000, Takeover: e.takeoverOrders,
 	})
 	if err != nil {
 		e.t.Fatalf("reserve %s/%d: %v", sessionID, seq, err)

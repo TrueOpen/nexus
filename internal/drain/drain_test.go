@@ -40,6 +40,8 @@ type env struct {
 	local string
 	now   time.Time
 	c     *Controller
+	// onDraining, when set, is the controller's OnDraining.
+	onDraining func()
 }
 
 func newEnv(t *testing.T) *env {
@@ -53,7 +55,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) open() {
 	e.t.Helper()
 	c, err := New(Config{
-		Store: e.store, LocalPubKey: e.local, Key: e.key.read, Now: func() time.Time { return e.now },
+		Store: e.store, LocalPubKey: e.local, Key: e.key.read, Now: func() time.Time { return e.now }, OnDraining: e.onDraining,
 		Sources: Sources{
 			InFlight:  func() (int, *big.Int) { return e.work.orders, big.NewInt(e.work.maxFee) },
 			Records:   func() int { return e.work.records },
@@ -216,4 +218,27 @@ func TestBeginAndEndAreIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.check(PhaseServing)
+}
+
+// OnDraining runs when the drain begins and on every check while it lasts (after a restart too),
+// never while serving.
+func TestOnDrainingRunsWhileDraining(t *testing.T) {
+	e := newEnv(t)
+	calls := 0
+	e.onDraining = func() { calls++ }
+	e.open()
+	e.check(PhaseServing)
+	if calls != 0 {
+		t.Fatalf("ran %d times while serving", calls)
+	}
+	e.begin()
+	e.check(PhaseDrained)
+	if calls != 2 {
+		t.Fatalf("ran %d times, want on Begin and on the check", calls)
+	}
+	e.open()
+	e.check(PhaseDrained)
+	if calls != 3 {
+		t.Fatalf("ran %d times after a restart", calls)
+	}
 }

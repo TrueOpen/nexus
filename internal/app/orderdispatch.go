@@ -292,6 +292,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	od.Recorder.SetTakeovers(od.Takeovers)
 	od.Drain, err = drain.New(drain.Config{
 		Store: deps.Store, LocalPubKey: hex.EncodeToString(deps.Signer.PubKeyCompressed()), Log: deps.Log,
+		OnDraining: od.Takeovers.EndUnsent,
 		Key: func(ctx context.Context) (chaincli.ServiceKeyState, error) {
 			_, state, err := servicekey.Current(ctx, deps.Keys.Resolver, deps.Keys.AddressPrefix, servicekey.ParticipantBuilder, deps.BuilderAddress)
 			return state, err

@@ -239,8 +239,9 @@ type Config struct {
 	// Metrics takes the stage timings, skips and Worker outcomes of the walk; nil keeps none.
 	Metrics *opsmetrics.Registry
 	// Draining reports a service key rotation drain: no new order is taken and no ticket issued,
-	// so an order that needs its next ticket fails as NO_CAPACITY; tickets out still win. nil
-	// never drains.
+	// so an order that needs its next ticket fails as NO_CAPACITY; tickets out still win, and the
+	// order of a takeover (registered on chain before the drain) is walked as usual. nil never
+	// drains.
 	Draining func() bool
 	// Clock is nil for the system clock.
 	Clock Clock

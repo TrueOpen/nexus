@@ -1,6 +1,9 @@
 package recorder
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // Outbox counts the unresolved entries, those waiting for the next block and the transactions.
 func TestOutboxCounts(t *testing.T) {
@@ -19,5 +22,27 @@ func TestOutboxCounts(t *testing.T) {
 	e.block(11)
 	if got := e.r.Outbox(); got != (OutboxState{}) {
 		t.Fatalf("after the records = %+v", got)
+	}
+}
+
+// A takeover entry not sent yet is withdrawn and gone; one carried by a transaction stays.
+func TestWithdrawUnsentTakeover(t *testing.T) {
+	e := newEnv(t)
+	tb := takeover(t, 0xaa, 5, 50)
+	if err := e.r.RecordTakeover(context.Background(), tb); err != nil {
+		t.Fatal(err)
+	}
+	if e.r.WithdrawUnsentTakeover(tb.SessionID, 6) {
+		t.Fatal("withdrew another sequence")
+	}
+	if !e.r.WithdrawUnsentTakeover(tb.SessionID, 5) || e.r.Outbox().Entries != 0 || len(e.outboxKeys()) != 0 {
+		t.Fatalf("unsent entry not withdrawn: %+v", e.r.Outbox())
+	}
+	if err := e.r.RecordTakeover(context.Background(), tb); err != nil {
+		t.Fatal(err)
+	}
+	e.block(10)
+	if e.r.WithdrawUnsentTakeover(tb.SessionID, 5) || e.r.Outbox().Entries != 1 {
+		t.Fatalf("sent entry withdrawn: %+v", e.r.Outbox())
 	}
 }
