@@ -35,8 +35,9 @@ func (r *Registry) RecordRTT(operator string, rttMs uint64) {
 	}
 }
 
-// RecordOutcome records how a Worker answered a ticket at height: rejected is a signed reject
-// (every ticket goes to a member that declared free slots). Timeouts are not outcomes. When the
+// RecordOutcome records one ticket the Worker received at height: rejected is a signed reject
+// while it advertised a free slot; an accept, a timeout or a reject at no free slot is not a
+// reject. The reject rate is rejects over tickets received. When the
 // share of rejects among the Worker's outcomes within the last gpu_reject_rate_suspension_blocks
 // exceeds gpu_reject_rate_threshold, its handraise is not admitted (REJECT_RATE) until
 // gpu_reject_rate_suspension_blocks after height. The error is a failed write of the suspension.
