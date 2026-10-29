@@ -11,10 +11,13 @@ import (
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
+	"github.com/TrueOpen/nexus/internal/dispatchresponse"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -30,8 +33,9 @@ const paramsRefreshInterval = time.Minute
 // orderDispatch is the order path of a dispatching Builder: the in-flight ledger, the session
 // cache, the OpenTask precheck that reserves orders in the ledger, the dispatcher that walks them
 // and the recorder that records the accepted ones, with the gate on this Builder's key and
-// compensation account. Its chain events arrive through orderEvents, which exists before the chain
-// client.
+// compensation account; the evidence every order leaves and the responder that rebuts claims and
+// answers challenges with it. Its chain events arrive through orderEvents, which exists before
+// the chain client.
 type orderDispatch struct {
 	log        *slog.Logger
 	Ledger     *inflight.Ledger
@@ -40,7 +44,11 @@ type orderDispatch struct {
 	Dispatcher *dispatcher.Dispatcher
 	Recorder   *recorder.Recorder
 	Gate       *recorder.Gate
-	params     func(context.Context) (orderParams, error)
+	Evidence   *dispatchevidence.Store
+	Responder  *dispatchresponse.Responder
+	// Rosters serves GetDispatchRoster from the evidence.
+	Rosters dispatchevidence.Rosters
+	params  func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -60,6 +68,7 @@ func (e *orderEvents) observe(ev chaincli.ChainEvent) {
 		}
 		od.Dispatcher.HandleChainEvent(ev)
 		od.Recorder.HandleChainEvent(ev)
+		od.Responder.HandleChainEvent(ev)
 	}
 }
 
@@ -113,7 +122,8 @@ type orderDispatchDeps struct {
 	TaskChain chaincli.Client
 	// HubChain answers the compensation account.
 	HubChain chaincli.Client
-	// Records sends the record transactions from the service account.
+	// Records sends the record transactions, rebuttals and challenge responses from the service
+	// account.
 	Records  coordinator.RecordSubmitter
 	Direct   *directDispatch
 	Keys     handraise.ChainServiceKeys
@@ -128,6 +138,7 @@ type orderParams struct {
 	precheck inflight.Params
 	walk     dispatcher.Params
 	record   recorder.Params
+	evidence dispatchevidence.Params
 }
 
 // recordChain is what the recorder reads from the task chain.
@@ -162,6 +173,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		if p.record, err = recorder.ParamsFromChain(dispatch); err != nil {
 			return orderParams{}, err
 		}
+		p.evidence = dispatchevidence.ParamsFromChain(dispatch)
 		return p, nil
 	}
 	params, err := od.params(ctx)
@@ -200,17 +212,26 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if err != nil {
 		return nil, err
 	}
+	od.Evidence = dispatchevidence.New(deps.Store, params.evidence)
 	od.Dispatcher, err = dispatcher.New(dispatcher.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Dispatch: deps.Config, InputChunkBytes: deps.InputChunkBytes,
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
 		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
-		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer,
+		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer, Evidence: od.Evidence,
 		Log: deps.Log,
 	}, params.walk)
 	if err != nil {
 		return nil, err
 	}
 	od.Recorder.SetOrders(od.Dispatcher)
+	od.Responder, err = dispatchresponse.New(dispatchresponse.Config{
+		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Responder: deps.Signer.Address(), Store: deps.Store,
+		Evidence: od.Evidence, Chain: deps.TaskChain, Tx: deps.Records, Roots: deps.Direct.Registry, Log: deps.Log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	od.Rosters = dispatchevidence.Rosters{Evidence: od.Evidence, Root: issuedRoot(deps.Direct.Registry)}
 	return od, nil
 }
 
@@ -225,6 +246,9 @@ func (od *orderDispatch) Start(ctx context.Context) error {
 		return err
 	}
 	if err := od.Dispatcher.Start(ctx); err != nil {
+		return err
+	}
+	if err := od.Responder.Start(ctx); err != nil {
 		return err
 	}
 	refreshCtx, cancel := context.WithCancel(context.Background())
@@ -259,6 +283,7 @@ func (od *orderDispatch) refreshParams(ctx context.Context) {
 	}
 	od.Dispatcher.SetParams(params.walk)
 	od.Recorder.SetParams(params.record)
+	od.Evidence.SetParams(params.evidence)
 }
 
 // Stop ends the params refresh, the dispatcher's work and the recording.
@@ -271,7 +296,21 @@ func (od *orderDispatch) Stop(ctx context.Context) error {
 	if stopErr := od.Recorder.Stop(ctx); err == nil {
 		err = stopErr
 	}
+	if stopErr := od.Responder.Stop(ctx); err == nil {
+		err = stopErr
+	}
 	return err
+}
+
+// issuedRoot finds an issued handraise root by its digest for GetDispatchRoster.
+func issuedRoot(registry *handraise.Registry) func([32]byte) (*taskv1.SignedHandraiseRootV1, bool, error) {
+	return func(digest [32]byte) (*taskv1.SignedHandraiseRootV1, bool, error) {
+		issued, found, err := registry.RootByDigest(digest)
+		if err != nil || !found {
+			return nil, found, err
+		}
+		return issued.Root, true, nil
+	}
 }
 
 // keepOnReplayAt drops, when a Cortex reconnects, stored handraise root notices (the latest root
