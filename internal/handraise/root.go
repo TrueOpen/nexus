@@ -13,6 +13,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -153,12 +154,17 @@ func (r *Registry) sampleRTT() {
 	}
 }
 
+// issueFailureLogEvery spaces out the log line of a root issuance failure that repeats every
+// interval, such as a local signer that does not hold the on-chain Builder key.
+const issueFailureLogEvery = time.Minute
+
 // Run issues a root every handraise_root_interval_ms until ctx ends, handing each new root to
 // onRoot (which pushes the notices to the dispatch streams).
 func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 	ticker := time.NewTicker(time.Duration(r.opts.Config.HandraiseRootIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 	pending := false
+	failures := lograte.Limiter{Every: issueFailureLogEvery}
 	for {
 		select {
 		case <-ctx.Done():
@@ -176,7 +182,9 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 		}
 		pending = false
 		if err != nil {
-			r.log.Warn("issue handraise root", "error", err)
+			if suppressed, ok := failures.Allow(r.now()); ok {
+				r.log.Warn("issue handraise root", "error", err, "suppressed", suppressed)
+			}
 			continue
 		}
 		if issued != nil && onRoot != nil {
