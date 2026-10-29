@@ -67,6 +67,8 @@ type client struct {
 	heightCancel         context.CancelFunc
 	protocolEvents       bool
 	protocolCancel       context.CancelFunc
+	roleOperator         string
+	roleCancel           context.CancelFunc
 	sessionObserver      SessionStreamObserver
 
 	stopOnce sync.Once
@@ -134,6 +136,7 @@ func (c *client) Start(_ context.Context) error {
 		}
 		c.startHeightEventsLocked()
 		c.startProtocolEventsLocked()
+		c.startRoleEventsLocked()
 	}
 	c.sessionMu.Unlock()
 	return nil
@@ -158,6 +161,10 @@ func (c *client) Stop(_ context.Context) error {
 		if c.protocolCancel != nil {
 			c.protocolCancel()
 			c.protocolCancel = nil
+		}
+		if c.roleCancel != nil {
+			c.roleCancel()
+			c.roleCancel = nil
 		}
 		c.sessionMu.Unlock()
 		stopped = true

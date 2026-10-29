@@ -38,7 +38,8 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	if sessionID == "" {
 		return ChainEvent{}, fmt.Errorf("task event session_id is required")
 	}
-	if taskID == "" {
+	typed, typedErr := typedTaskEvent(event.GetPayload())
+	if taskID == "" && typed == nil && typedErr == nil {
 		if taskEventIsSessionScoped(event) || isSessionLifecycleSweep(event) {
 			return ChainEvent{}, errSessionScopedTaskEvent
 		}
@@ -56,7 +57,20 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	if err := validateTaskEventPayload(event, sessionID, taskID); err != nil {
 		return ChainEvent{}, err
 	}
+	if typedErr != nil {
+		return ChainEvent{}, fmt.Errorf("task event %s payload: %w", protocolEventCodeName(event.GetCode()), typedErr)
+	}
 	code := protocolEventCodeName(event.GetCode())
+	if taskID == "" {
+		// A Phase 1 session-level event: it concerns the session, not a task to reconcile.
+		return ChainEvent{
+			Type:      EventSessionScoped,
+			EventCode: code,
+			SessionID: sessionID,
+			Height:    int64(event.GetChainHeight()),
+			Typed:     typed,
+		}, nil
+	}
 	return ChainEvent{
 		Type:             taskEventType(code),
 		EventCode:        code,
@@ -65,13 +79,14 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 		Height:           int64(event.GetChainHeight()),
 		Attrs:            taskEventAttributes(event),
 		TaskNotification: true,
+		Typed:            typed,
 	}, nil
 }
 
-// errSessionScopedTaskEvent marks a valid session-level event the coordinator has no use
-// for (code 1 SESSION_CREATED, and code 20 DEADLINE_SWEPT for the session lifecycle
-// deadline): the wire payload has no task_id by design, and node still pushes it on the
-// task stream for session subscriptions. The
+// errSessionScopedTaskEvent marks a valid session-level event without a typed Phase 1 mapping
+// (code 1 SESSION_CREATED; code 106 SESSION_KEY_UPDATED, which reaches the SessionStreamObserver
+// instead; code 20 DEADLINE_SWEPT for the session lifecycle deadline): the wire payload has no
+// task_id by design, and node still pushes it on the task stream for session subscriptions. The
 // subscription loop must advance the cursor past it and keep receiving, not treat it as a
 // bad envelope and drop the stream; otherwise a reconnect receives the same event from the
 // same position and backs off forever.
