@@ -69,6 +69,10 @@ type Order struct {
 	// SessionKey is the address the order signature recovers to when it is not the user's wallet,
 	// that is the session's registered key; nil for a wallet order.
 	SessionKey *[20]byte
+	// Takeover marks the order this Builder took the session over with: it keeps its
+	// earliest_submit_height and its record deadline runs from the activation height, so the
+	// freshness check does not apply to it.
+	Takeover bool
 }
 
 // Binding says which Builder the session is bound to.
@@ -77,8 +81,9 @@ type Binding uint8
 const (
 	// BoundHere: the session is bound to this Builder; the precheck ran to the end.
 	BoundHere Binding = iota + 1
-	// BoundElsewhere: the session is bound to another Builder (Session.BoundBuilder). Only the
-	// session key, expiry and binding checks ran: the takeover path decides the rest.
+	// BoundElsewhere: the session is bound to another Builder (Session.BoundBuilder). Only what a
+	// takeover registration in the next block needs was checked (session, session key, expiry,
+	// earliest_submit_height): the takeover path decides the rest.
 	BoundElsewhere
 )
 
@@ -137,12 +142,16 @@ type PrecheckConfig struct {
 //  1. session: known, owned by the order user (else the registered key error ErrKeyInvalid), not
 //     closed (ErrSessionClosing); an order signed by the session key passes
 //     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key;
-//  2. expiry: the order must stay recordable until its record deadline D = max(
+//  2. binding: a session bound to another Builder ends the precheck with BoundElsewhere once the
+//     order could register a takeover in the next block: head + 1 < order_expire_height (else
+//     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a
+//     registered key valid at head + 1;
+//  3. expiry: the order must stay recordable until its record deadline D = max(
 //     earliest_submit_height, bound_change_height) + record_deadline_blocks, so D <
 //     order_expire_height (and head + 1 < order_expire_height), else ErrOrderExpired;
-//  3. binding: a session bound to another Builder ends the precheck with BoundElsewhere;
-//  4. freshness: earliest_submit_height >= head - order_freshness_margin_blocks (ErrOrderStale)
-//     and <= head + 1 (ErrOrderFuture, returned only after the head was read from the chain again);
+//  4. freshness, except for a takeover order: earliest_submit_height >= head -
+//     order_freshness_margin_blocks (ErrOrderStale) and <= head + 1 (ErrOrderFuture, returned only
+//     after the head was read from the chain again);
 //  5. a registered takeover of the session: *TakeoverPendingError;
 //  6. local idempotency by (session_id, order_sequence): the same order dispatching, accepted or
 //     recorded is Result.Existing, also below the chain's next expected sequence (recorded before
@@ -337,16 +346,33 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	}
 	res := Result{Binding: BoundHere, Session: s, Head: head,
 		Deadline: saturatingAdd(max(o.EarliestSubmitHeight, s.BoundChangeHeight), params.RecordDeadlineBlocks)}
+	bound := s.BoundBuilder == p.cfg.Builder
+	// A takeover entry is judged when it registers, in the next block; the order is judged again
+	// in full before it is dispatched once the takeover took effect.
+	keyDeadline := res.Deadline
+	if !bound {
+		keyDeadline = head + 1
+	}
 	inFlight := ls.inFlight(s.NextExpectedSequence)
 	if o.SessionKey != nil {
 		err := registeredkey.CheckDispatchOrder(keyState(s), registeredkey.DispatchOrder{
 			User: o.User, Recovered: *o.SessionKey, AnchorHeight: o.SessionAnchorHeight,
-			MaxFee: fmt.Sprint(o.MaxFee), Height: head, Deadline: res.Deadline,
+			MaxFee: fmt.Sprint(o.MaxFee), Height: head, Deadline: keyDeadline,
 			InFlight: inFlight.sessionKeyMaxFee.String(),
 		})
 		if err != nil {
 			return Result{}, err
 		}
+	}
+	if !bound {
+		if head+1 >= o.ExpireHeight {
+			return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the next height (head %d)", ErrOrderExpired, o.ExpireHeight, head)
+		}
+		if o.EarliestSubmitHeight > head+1 {
+			return Result{}, fmt.Errorf("%w: earliest_submit_height %d is above the head %d plus one", ErrOrderFuture, o.EarliestSubmitHeight, head)
+		}
+		res.Binding = BoundElsewhere
+		return res, nil
 	}
 	// The Keeper refuses a record at or after order_expire_height, and this Builder guarantees the
 	// record only by the deadline: an order expiring earlier could fail at record time through
@@ -355,11 +381,7 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the record deadline %d (head %d)",
 			ErrOrderExpired, o.ExpireHeight, res.Deadline, head)
 	}
-	if s.BoundBuilder != p.cfg.Builder {
-		res.Binding = BoundElsewhere
-		return res, nil
-	}
-	if head > params.OrderFreshnessMarginBlocks && o.EarliestSubmitHeight < head-params.OrderFreshnessMarginBlocks {
+	if !o.Takeover && head > params.OrderFreshnessMarginBlocks && o.EarliestSubmitHeight < head-params.OrderFreshnessMarginBlocks {
 		return Result{}, fmt.Errorf("%w: earliest_submit_height %d is more than %d blocks below the head %d",
 			ErrOrderStale, o.EarliestSubmitHeight, params.OrderFreshnessMarginBlocks, head)
 	}
@@ -421,6 +443,24 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 			ErrSessionBalanceInsufficient, available, inFlight.count, o.MaxFee)
 	}
 	return res, nil
+}
+
+// CheckTakeoverFunds is the funds check of a takeover order against the session state s: no close
+// registered or effective (ErrSessionClosing), and balance - frozen_total - pending withdrawal >=
+// max_fee (ErrSessionBalanceInsufficient). A Builder taking a session over has no in-flight
+// order of it.
+func CheckTakeoverFunds(s Session, maxFee uint64) error {
+	if s.Closed || s.PendingWithdrawKind == taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_CLOSE {
+		return fmt.Errorf("%w: the session is closed or closing", ErrSessionClosing)
+	}
+	available, err := availableFunds(s, new(big.Int))
+	if err != nil {
+		return err
+	}
+	if available.Cmp(new(big.Int).SetUint64(maxFee)) < 0 {
+		return fmt.Errorf("%w: %s available after frozen and pending withdrawal, max_fee %d", ErrSessionBalanceInsufficient, available, maxFee)
+	}
+	return nil
 }
 
 // sequenceOpen reports whether a new order may take seq, given next, the chain's next expected

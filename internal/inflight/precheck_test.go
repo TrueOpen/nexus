@@ -292,6 +292,75 @@ func TestPrecheckBoundElsewhere(t *testing.T) {
 	}
 }
 
+// For a session bound elsewhere only what the takeover registration needs is checked: the order
+// must still be valid in the next block (not the bound Builder's record deadline), must not be
+// from the future, and a registered key must be valid then. The precheck runs again in full
+// before the order is dispatched after the takeover.
+func TestPrecheckBoundElsewhereChecksTheRegistration(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) {
+		s.BoundBuilder, s.BoundChangeHeight, s.ExpiryHeight = "other", 110, 101
+	})
+	o := keyOrder(5)
+	o.ExpireHeight = 102 // before the bound Builder's deadline 130, valid at 101
+	if res, err := f.p.Check(context.Background(), o); err != nil || res.Binding != BoundElsewhere {
+		t.Fatalf("Check = %+v, %v", res, err)
+	}
+	o.ExpireHeight = 101
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+		t.Fatalf("order expiring at the registration height = %v", err)
+	}
+	o.ExpireHeight, o.EarliestSubmitHeight = 200, 102
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderFuture) {
+		t.Fatalf("order from the future = %v", err)
+	}
+	f = newFixture(t, func(s *chaincli.SessionState) { s.BoundBuilder, s.ExpiryHeight = "other", 100 })
+	if _, err := f.p.Check(context.Background(), keyOrder(5)); !errors.Is(err, registeredkey.ErrKeyExpired) {
+		t.Fatalf("key expiring before the registration = %v", err)
+	}
+}
+
+// The order a takeover moved the session here for is dispatched with its old
+// earliest_submit_height: its record deadline runs from the activation height, so freshness does
+// not apply to it.
+func TestPrecheckTakeoverOrderSkipsFreshness(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) { s.BoundChangeHeight = 98 })
+	o := order(5)
+	o.EarliestSubmitHeight = 60
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderStale) {
+		t.Fatalf("stale order = %v", err)
+	}
+	o.Takeover = true
+	res, err := f.p.Reserve(context.Background(), o)
+	if err != nil || res.Binding != BoundHere || res.Deadline != 118 || res.Reservation == nil {
+		t.Fatalf("takeover order = %+v, %v", res, err)
+	}
+}
+
+// CheckTakeoverFunds is the funds check of a takeover: the session's balance less what is frozen
+// and a registered withdrawal covers max_fee, and no close is registered.
+func TestCheckTakeoverFunds(t *testing.T) {
+	s := Session{SessionState: baseSessionState(), Found: true} // balance 1000, frozen 100
+	if err := CheckTakeoverFunds(s, 900); err != nil {
+		t.Fatalf("funds of 900: %v", err)
+	}
+	if err := CheckTakeoverFunds(s, 901); !errors.Is(err, ErrSessionBalanceInsufficient) {
+		t.Fatalf("funds of 901: %v", err)
+	}
+	s.PendingWithdrawAmount = "1"
+	if err := CheckTakeoverFunds(s, 900); !errors.Is(err, ErrSessionBalanceInsufficient) {
+		t.Fatalf("funds less a withdrawal: %v", err)
+	}
+	s.PendingWithdrawKind = taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_CLOSE
+	if err := CheckTakeoverFunds(s, 1); !errors.Is(err, ErrSessionClosing) {
+		t.Fatalf("closing session: %v", err)
+	}
+	s = Session{SessionState: baseSessionState(), Found: true}
+	s.Closed = true
+	if err := CheckTakeoverFunds(s, 1); !errors.Is(err, ErrSessionClosing) {
+		t.Fatalf("closed session: %v", err)
+	}
+}
+
 func TestPrecheckFreshnessBoundaries(t *testing.T) {
 	f := newFixture(t, nil)
 	for _, esh := range []uint64{95, 101} {
