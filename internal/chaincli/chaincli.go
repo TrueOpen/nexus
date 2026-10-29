@@ -136,6 +136,12 @@ type Client interface {
 	QueryDispatchWinnerIneligible(ctx context.Context, ticketHash []byte) (*taskv1.DispatchWinnerIneligibleState, error)
 	// QueryDispatchChallenge reads one dispatch challenge by challenge_id.
 	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
+	// QueryDispatchChallengesByBuilder reads one page of the open challenges against a Builder
+	// (dispatch_open.go).
+	QueryDispatchChallengesByBuilder(ctx context.Context, builder string, pageToken []byte) ([]*taskv1.DispatchChallengeState, []byte, error)
+	// QueryDispatchCompensationClaimsByBuilder reads one page of the claims awaiting a Builder's
+	// rebuttal.
+	QueryDispatchCompensationClaimsByBuilder(ctx context.Context, builder string, pageToken []byte) ([]*taskv1.DispatchCompensationClaimState, []byte, error)
 	// QueryDispatchParams reads task params dispatch.
 	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
 	// QueryCandidateWeightParams reads task params weights.
