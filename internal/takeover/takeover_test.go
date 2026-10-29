@@ -446,13 +446,54 @@ func TestVoidedTakeoverDropsTheOrder(t *testing.T) {
 	}
 }
 
-// The session went to another Builder: the takeover will not take effect.
+// The session went to another Builder: a registered takeover will not take effect. A submitted
+// entry waits for its result, which decides.
 func TestBindingToAnotherBuilderVoidsTheTakeover(t *testing.T) {
+	bindOther := func(e *env) {
+		e.chain.set(func(s *chaincli.SessionState) {
+			s.BoundBuilder, s.BoundChangeHeight, s.PendingTakeover = other, 70, nil
+		})
+		e.m.HandleChainEvent(chaincli.ChainEvent{Height: 70, Typed: chaincli.SessionBuilderBound{SessionID: session, OldBuilder: bound, NewBuilder: other, BoundChangeHeight: 70}})
+	}
 	e := newEnv(t)
 	e.submit(5)
-	e.chain.set(func(s *chaincli.SessionState) { s.BoundBuilder, s.BoundChangeHeight = other, 70 })
-	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 70, Typed: chaincli.SessionBuilderBound{SessionID: session, OldBuilder: bound, NewBuilder: other, BoundChangeHeight: 70}})
+	e.registerAt(70)
+	e.m.TakeoverRegistered(session, 5, 60)
+	bindOther(e)
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true")
+
+	e = newEnv(t)
+	e.submit(5)
+	bindOther(e)
+	e.wantCalls("held task5")
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING)
 	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true")
+}
+
+// A registration result read while the session shows the takeover neither pending nor taken
+// effect: it was voided meanwhile.
+func TestRegisteredButGoneIsVoided(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true")
+}
+
+// An unreadable session is resolved again at the next block, once.
+func TestUnreadableSessionIsResolvedAtTheNextBlock(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.chain.stateErr = errors.New("down")
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.chain.stateErr = nil
+	e.registerAt(70)
+	reads := e.chain.reads
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 62})
+	e.wantCalls("held task5", "registered task5 70")
+	if e.chain.reads != reads+1 {
+		t.Fatalf("%d session reads after the failure", e.chain.reads-reads)
+	}
 }
 
 // A refused takeover entry: the sequence consumed or another takeover registered voids it (the

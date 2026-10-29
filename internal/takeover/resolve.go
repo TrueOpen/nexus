@@ -18,10 +18,22 @@ const (
 	codeTaskFailed = coordinator.EvTaskFailed
 )
 
+// cause is why a takeover is resolved with the chain.
+type cause uint8
+
+const (
+	// resolveCheck: an event, a block or a restart; a submitted entry waits for its result.
+	resolveCheck cause = iota + 1
+	// resolveRegistered: the entry's result says the chain registered it.
+	resolveRegistered
+	// resolveLapsed: the entry got no result before the order expired.
+	resolveLapsed
+)
+
 // TakeoverRegistered implements recorder.Takeovers: the chain registered the takeover (or
 // answered its replay); the session state gives the activation height.
 func (m *Manager) TakeoverRegistered(sessionID string, sequence, _ uint64) {
-	m.later(func(ctx context.Context) { m.resolve(ctx, sessionID, sequence, false) })
+	m.schedule(sessionID, sequence, resolveRegistered)
 }
 
 // TakeoverRefused implements recorder.Takeovers. Refused because the sequence is consumed (the
@@ -29,7 +41,9 @@ func (m *Manager) TakeoverRegistered(sessionID string, sequence, _ uint64) {
 // takeover is voided: the order and its input are dropped and the SDK goes where the chain says.
 // Any other refusal ends the task as RECORD_REJECTED.
 func (m *Manager) TakeoverRefused(sessionID string, sequence uint64, code taskv1.DispatchRejectCodeV1) {
-	r := m.take(sessionID, sequence)
+	m.work.Lock()
+	defer m.work.Unlock()
+	r := m.current(sessionID, sequence)
 	if r == nil {
 		return
 	}
@@ -46,7 +60,7 @@ func (m *Manager) TakeoverRefused(sessionID string, sequence uint64, code taskv1
 // TakeoverLapsed implements recorder.Takeovers: the entry got no result before the order
 // expired; the session state tells whether it registered.
 func (m *Manager) TakeoverLapsed(sessionID string, sequence uint64) {
-	m.later(func(ctx context.Context) { m.resolve(ctx, sessionID, sequence, true) })
+	m.schedule(sessionID, sequence, resolveLapsed)
 }
 
 // HandleChainEvent follows the head and the takeover events of the held sessions. The caller
@@ -72,14 +86,15 @@ func (m *Manager) HandleChainEvent(ev chaincli.ChainEvent) {
 	case chaincli.SessionBuilderBound:
 		// Bound here, the takeover took effect; bound to another Builder, it never will.
 		if r := m.lookup(t.SessionID); r != nil {
-			seq := r.Sequence
-			m.later(func(ctx context.Context) { m.resolve(ctx, t.SessionID, seq, false) })
+			m.schedule(t.SessionID, r.Sequence, resolveCheck)
 		}
 	case chaincli.SessionTakeoverVoided:
 		if t.CandidateBuilder != m.cfg.Builder {
 			return
 		}
-		if r := m.take(t.SessionID, t.OrderSequence); r != nil {
+		m.work.Lock()
+		defer m.work.Unlock()
+		if r := m.current(t.SessionID, t.OrderSequence); r != nil {
 			m.log.Info("takeover voided", "session_id", t.SessionID, "order_sequence", t.OrderSequence, "reason", t.Reason)
 			m.end(r, codeVoided, true)
 		}
@@ -90,46 +105,71 @@ func (m *Manager) HandleChainEvent(ev chaincli.ChainEvent) {
 // reached (their binding event may have been missed) and those a chain read left unresolved.
 func (m *Manager) onBlock() {
 	head := m.head.Load()
-	type due struct {
-		session string
-		seq     uint64
-	}
-	var dues []due
 	m.mu.Lock()
+	var due []*record
 	for _, r := range m.records {
-		if !r.busy && (r.retry || r.Phase == phaseRegistered && r.ActivationHeight != 0 && r.ActivationHeight <= head) {
-			dues = append(dues, due{r.SessionID, r.Sequence})
+		if r.Phase != phaseReserved && (r.retry || r.Phase == phaseRegistered && r.ActivationHeight != 0 && r.ActivationHeight <= head) {
+			due = append(due, r)
 		}
 	}
 	m.mu.Unlock()
-	for _, d := range dues {
-		m.later(func(ctx context.Context) { m.resolve(ctx, d.session, d.seq, false) })
+	for _, r := range due {
+		m.schedule(r.SessionID, r.Sequence, resolveCheck)
 	}
+}
+
+// schedule resolves the session's takeover of seq in the background, unless a check of it is
+// queued already. A result or a lapse is always scheduled: it decides a submitted entry.
+func (m *Manager) schedule(sessionID string, seq uint64, why cause) {
+	m.mu.Lock()
+	r := m.records[sessionID]
+	if r == nil || r.Phase == phaseReserved || r.Sequence != seq || why == resolveCheck && r.queued {
+		m.mu.Unlock()
+		return
+	}
+	if why == resolveCheck {
+		r.queued = true
+	}
+	m.mu.Unlock()
+	m.later(func(ctx context.Context) { m.resolve(ctx, sessionID, seq, why) })
 }
 
 // resolve reads the session and acts on it: bound here, the takeover took effect and the order
 // is dispatched; a takeover of this Builder for the sequence registered, it waits for the
-// activation height; neither, the registration was voided (or, lapsed, the order expired before
-// it registered). An unreadable chain is tried again at the next block.
-func (m *Manager) resolve(ctx context.Context, sessionID string, seq uint64, lapsed bool) {
-	r := m.take(sessionID, seq)
+// activation height. Neither: a registered takeover was voided; an entry that lapsed never
+// registered before the order expired; a submitted entry waits for its result. An unreadable
+// chain is tried again at the next block.
+func (m *Manager) resolve(ctx context.Context, sessionID string, seq uint64, why cause) {
+	m.work.Lock()
+	defer m.work.Unlock()
+	r := m.current(sessionID, seq)
 	if r == nil {
 		return
+	}
+	m.mu.Lock()
+	if why == resolveCheck {
+		r.queued = false
+	}
+	r.retry = false
+	m.mu.Unlock()
+	if why == resolveRegistered && r.Phase == phaseSubmitted {
+		m.setPhase(r, phaseRegistered)
 	}
 	state, err := m.cfg.Chain.QuerySession(ctx, sessionID)
 	if err != nil {
 		m.log.Warn("held session not read; tried again at the next block", "session_id", sessionID, "err", err)
-		m.untake(r, true)
+		m.setRetry(r)
 		return
 	}
 	switch t := state.PendingTakeover; {
 	case state.BoundBuilder == m.cfg.Builder:
 		m.activate(ctx, r, state.BoundChangeHeight)
 	case t != nil && t.CandidateBuilder == m.cfg.Builder && t.OrderSequence == r.Sequence:
-		m.untake(r, false)
 		m.registered(sessionID, seq, t.ActivationHeight)
-	case lapsed && r.Phase == phaseSubmitted:
+	case r.Phase == phaseSubmitted && why == resolveLapsed:
 		m.end(r, codeExpired, false)
+	case r.Phase == phaseSubmitted:
+		// Not registered yet: the entry's result decides.
 	default:
 		m.log.Info("takeover will not take effect", "session_id", sessionID, "order_sequence", seq, "bound_builder", state.BoundBuilder)
 		m.end(r, codeVoided, true)
@@ -160,7 +200,7 @@ func (m *Manager) registered(sessionID string, seq, activation uint64) {
 // the dispatcher on its task. An order that can no longer be recorded before it expires ends as
 // ORDER_EXPIRED; one the precheck refuses otherwise as TASK_FAILED. A precheck without a verdict
 // (state unreadable, or the cached state not bound here yet) is tried again at the next block.
-// The caller took r.
+// The caller holds m.work.
 func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 	pre := r.Precheck
 	pre.Takeover = true
@@ -169,7 +209,7 @@ func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 	case errors.Is(err, inflight.ErrUnavailable), errors.Is(err, inflight.ErrOrderUploading),
 		err == nil && res.Binding != inflight.BoundHere:
 		m.log.Info("taken over order not prechecked yet; tried again at the next block", "session_id", r.SessionID, "err", err)
-		m.untake(r, true)
+		m.setRetry(r)
 		return
 	case err != nil:
 		m.cfg.Tasks.TakeoverActivated(r.SessionID, r.TaskID, boundChange)
@@ -204,24 +244,15 @@ func (m *Manager) end(r *record, code string, dropInput bool) {
 	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput)
 }
 
-// take marks the session's takeover of seq busy and returns it; nil when there is none past its
-// upload, or it is busy.
-func (m *Manager) take(sessionID string, seq uint64) *record {
+// current returns the session's stored takeover of seq; nil when there is none past its upload.
+func (m *Manager) current(sessionID string, seq uint64) *record {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.records[sessionID]
-	if r == nil || r.Phase == phaseReserved || r.Sequence != seq || r.busy {
+	if r == nil || r.Phase == phaseReserved || r.Sequence != seq {
 		return nil
 	}
-	r.busy, r.retry = true, false
 	return r
-}
-
-// untake ends what take started; retry asks for another try at the next block.
-func (m *Manager) untake(r *record, retry bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	r.busy, r.retry = false, retry
 }
 
 func (m *Manager) lookup(sessionID string) *record {
@@ -231,4 +262,19 @@ func (m *Manager) lookup(sessionID string) *record {
 		return r
 	}
 	return nil
+}
+
+func (m *Manager) setRetry(r *record) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.retry = true
+}
+
+func (m *Manager) setPhase(r *record, p phase) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.Phase = p
+	if err := m.saveLocked(r); err != nil {
+		m.log.Error("takeover phase not written", "session_id", r.SessionID, "err", err)
+	}
 }

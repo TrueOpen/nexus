@@ -119,8 +119,9 @@ type record struct {
 	Order    types.Order    `json:"order"`
 	Precheck inflight.Order `json:"precheck"`
 
-	busy  bool // a chain read or the activation is under way
-	retry bool // to be resolved again at the next block
+	checking bool // Admit's chain checks are under way
+	queued   bool // a resolution is scheduled
+	retry    bool // to be resolved again at the next block
 }
 
 // Manager runs the takeovers this Builder registers as candidate.
@@ -128,6 +129,9 @@ type Manager struct {
 	cfg  Config
 	log  *slog.Logger
 	head atomic.Uint64
+	// work serialises what acts on a stored takeover (results, events, resolutions): each looks
+	// the takeover up again under it.
+	work sync.Mutex
 
 	mu      sync.Mutex
 	records map[string]*record // session id -> takeover
@@ -170,8 +174,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			}
 			continue
 		}
-		sessionID, seq := r.SessionID, r.Sequence
-		m.later(func(ctx context.Context) { m.resolve(ctx, sessionID, seq, false) })
+		m.schedule(r.SessionID, r.Sequence, resolveCheck)
 	}
 	return nil
 }
@@ -216,7 +219,7 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	}
 	reserved := &record{
 		SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
-		Phase: phaseReserved, Order: o, Precheck: pre, busy: true,
+		Phase: phaseReserved, Order: o, Precheck: pre, checking: true,
 	}
 	reserved.Order.Payload = nil
 	m.records[o.SessionID] = reserved
@@ -231,7 +234,7 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 		}
 		return Admission{}, err
 	}
-	reserved.BoundChangeHeight, reserved.busy = bound, false
+	reserved.BoundChangeHeight, reserved.checking = bound, false
 	return Admission{}, nil
 }
 
@@ -269,7 +272,7 @@ func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint6
 func (m *Manager) Submit(ctx context.Context, o types.Order) error {
 	m.mu.Lock()
 	r := m.records[o.SessionID]
-	if r == nil || r.Phase != phaseReserved || r.TaskHash != o.TaskHash || r.busy {
+	if r == nil || r.Phase != phaseReserved || r.TaskHash != o.TaskHash || r.checking {
 		m.mu.Unlock()
 		return fmt.Errorf("no takeover of session %s is reserved for task_hash %s", o.SessionID, o.TaskHash)
 	}
