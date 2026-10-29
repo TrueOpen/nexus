@@ -81,6 +81,8 @@ type Client interface {
 	QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error)
 	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks.
 	QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error)
+	// QueryEpochLengthBlocks reads the Hub epoch length (epoch.epoch_length_blocks).
+	QueryEpochLengthBlocks(ctx context.Context) (uint64, error)
 	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
 	// service.max_service_material_expiry_blocks: how far above the current height a Task data
 	// request's expiry_height may lie.
