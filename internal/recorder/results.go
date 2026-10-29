@@ -163,8 +163,13 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 	r.mu.Unlock()
 	if err != nil {
 		r.log.Error("record results do not match the entries sent; checking each entry on chain", "tx_hash", tx.Hash, "err", err)
-		r.unattributable(len(tx.Objects), uint64(res.Height), err.Error())
-		r.verifyByQuery(ctx, tx)
+		if r.verifyByQuery(ctx, tx) {
+			// Every entry is recorded with its own ticket: the chain executed the batch and only
+			// the result encoding failed, which no smaller batch or pause would change.
+			r.succeeded()
+		} else {
+			r.unattributable(len(tx.Objects), uint64(res.Height), err.Error())
+		}
 		return
 	}
 	r.succeeded()
@@ -298,14 +303,17 @@ func (r *Recorder) lookup(id string) *entry {
 // verifyByQuery resolves the entries of a transaction whose results could not be attributed: an
 // entry the chain recorded with its winner ticket is recorded; one whose order the chain recorded
 // with another ticket of this Builder is resolved as with a CONFLICT; any other goes out again. A
-// takeover entry is dropped and the takeovers settle it with the chain.
-func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
+// takeover entry is dropped and the takeovers settle it with the chain. It reports whether every
+// entry still held was recorded with its own ticket.
+func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) bool {
+	allRecorded, checked := true, 0
 	for _, id := range tx.Objects {
 		r.mu.Lock()
 		e := r.entries[id]
 		var session string
 		var seq uint64
 		if e != nil && e.Takeover {
+			allRecorded = false
 			var fx effects
 			var ops []kv.WriteOp
 			r.takeoverUnsettledLocked(e, &ops, &fx)
@@ -326,7 +334,10 @@ func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 		r.mu.Lock()
 		var ops []kv.WriteOp
 		if e = r.entries[id]; e != nil {
-			if err == nil && bytes.Equal(rec.GetDispatchTicketHash(), e.TicketHash) {
+			checked++
+			own := err == nil && bytes.Equal(rec.GetDispatchTicketHash(), e.TicketHash)
+			allRecorded = allRecorded && own
+			if own {
 				r.recordLocked(e, rec.GetRecordedHeight(), &ops, &fx)
 			} else if err == nil && rec.GetBuilderAddress() == r.cfg.Builder {
 				r.recordedByAnotherTicketLocked(e, rec, &ops, &fx)
@@ -344,6 +355,7 @@ func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 	r.dropTxLocked(tx.Hash, &ops)
 	r.writeLocked(ops)
 	r.mu.Unlock()
+	return allRecorded && checked > 0
 }
 
 func (r *Recorder) dropTxLocked(hash string, ops *[]kv.WriteOp) {

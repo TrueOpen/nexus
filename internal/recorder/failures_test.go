@@ -9,6 +9,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
 )
 
 func four() []string { return []string{"aa/0", "bb/0", "cc/0", "dd/0"} }
@@ -196,5 +197,32 @@ func TestUnattributableResultOfAnOrderRecordedWithAnotherOwnTicket(t *testing.T)
 	}
 	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
 		t.Fatalf("entry sent again: %d messages", len(msgs))
+	}
+}
+
+// Results that cannot be attributed while the chain check finds every entry recorded with its own
+// ticket (the chain executed the batch; only the result encoding drifted) are not a refusal: they
+// never halve the batch or stop the records.
+func TestUnattributableResultsOfRecordedEntriesAreNoRefusal(t *testing.T) {
+	e := newEnv(t)
+	height := uint64(10)
+	for i := 0; i < 2*sameRefusalLimit; i++ {
+		a, b := bundle(byte(0x10+2*i), 0, 1, 500), bundle(byte(0x11+2*i), 0, 1, 500)
+		e.record(a, b)
+		e.block(height)
+		msgs, raws := e.tx.sent()
+		msg := msgs[len(msgs)-1]
+		if len(msg.GetEntries()) != 2 {
+			t.Fatalf("round %d: batch of %d entries, want 2 (no halving)", i, len(msg.GetEntries()))
+		}
+		for _, bd := range []*dispatcher.Bundle{a, b} {
+			e.chain.records[orderKey{bd.SessionID, 0}] = &taskv1.DispatchRecordState{BuilderAddress: builder, DispatchTicketHash: fill(1), RecordedHeight: height + 1}
+		}
+		e.chain.execute(raws[len(raws)-1], badDigest(t, msg, int64(height+1)))
+		height++
+		e.block(height)
+	}
+	if len(e.tasks.recorded) != 4*sameRefusalLimit {
+		t.Fatalf("recorded %d entries, want %d", len(e.tasks.recorded), 4*sameRefusalLimit)
 	}
 }
