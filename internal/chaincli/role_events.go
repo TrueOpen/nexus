@@ -156,6 +156,12 @@ func (c *client) consumeRoleEvents(ctx context.Context, stream roleEventStream) 
 		case errors.Is(err, errUnmappedRoleEvent):
 			c.log.Debug("chaincli: builder role event has no local mapping",
 				"code", protocolEventCodeName(event.GetCode()), "chain_height", event.GetChainHeight())
+		case errors.Is(err, errEventBusinessField):
+			c.log.Warn("chaincli: delivering a builder role event without its typed payload",
+				"cursor", event.GetCursor(), "err", redactSensitiveText(err.Error()))
+			if err := c.sendEvent(ctx, mapped); err != nil {
+				return delivered, err
+			}
 		case err != nil:
 			return delivered, fmt.Errorf("receive builder role events: %w", err)
 		default:
@@ -194,49 +200,28 @@ func roleEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	if err := payloadMatchesCode(event.GetPayload(), int32(event.GetCode())); err != nil {
 		return ChainEvent{}, fmt.Errorf("role event %s: %w", code, err)
 	}
-	typed, err := typedTaskEvent(event.GetPayload())
-	if err != nil {
-		return ChainEvent{}, fmt.Errorf("role event %s payload: %w", code, err)
-	}
-	if typed == nil {
-		return ChainEvent{}, errUnmappedRoleEvent
-	}
 	taskID := hex.EncodeToString(event.GetTaskId())
-	if payloadTask := typedEventTaskID(typed); taskID == "" {
+	if payloadTask := payloadTaskID(event); taskID == "" {
 		taskID = payloadTask
 	} else if payloadTask != "" && payloadTask != taskID {
 		return ChainEvent{}, fmt.Errorf("role event %s: payload task_id does not match envelope", code)
 	}
-	return ChainEvent{
+	mapped := ChainEvent{
 		Type:      EventBuilderRole,
 		EventCode: code,
 		SessionID: hex.EncodeToString(event.GetSessionId()),
 		TaskID:    taskID,
 		Height:    int64(event.GetChainHeight()),
-		Typed:     typed,
-	}, nil
-}
-
-func typedEventTaskID(typed TypedEvent) string {
-	switch e := typed.(type) {
-	case DispatchCompensationClaimed:
-		return e.TaskID
-	case DispatchChallengeOpened:
-		return e.TaskID
-	case DispatchCompensationPaid:
-		return e.TaskID
-	case DispatchCompensationRebutted:
-		return e.TaskID
-	case DispatchChallengeResolved:
-		return e.TaskID
-	case BuilderDispatchFaultRecorded:
-		return e.TaskID
-	case DispatchRecorded:
-		return e.TaskID
-	case OrderCancelled:
-		return e.TaskID
 	}
-	return ""
+	typed, err := typedTaskEvent(event.GetPayload())
+	if err != nil {
+		return mapped, businessFieldError(fmt.Sprintf("role event %s", code), err)
+	}
+	if typed == nil {
+		return ChainEvent{}, errUnmappedRoleEvent
+	}
+	mapped.Typed = typed
+	return mapped, nil
 }
 
 // payloadMatchesCode checks that exactly the payload oneof member numbered code is set: every
@@ -267,7 +252,15 @@ func protocolEventCodes() []sharedv1.ProtocolEventCodeV1 {
 }
 
 // protocolEventToChainEvent maps one Hub protocol event; false for a code without a local mapping.
+// A business-field problem in the typed payload returns the event with Typed nil and an error
+// wrapping errEventBusinessField; it is still delivered.
 func protocolEventToChainEvent(event *hubv1.ProtocolEvent) (ChainEvent, bool, error) {
+	if event.GetCursor() == "" {
+		return ChainEvent{}, false, fmt.Errorf("protocol event cursor is required")
+	}
+	if event.GetChainHeight() == 0 {
+		return ChainEvent{}, false, fmt.Errorf("protocol event chain height is required")
+	}
 	height, err := uint64ToInt64("protocol event chain height", event.GetChainHeight())
 	if err != nil {
 		return ChainEvent{}, false, err
@@ -281,11 +274,13 @@ func protocolEventToChainEvent(event *hubv1.ProtocolEvent) (ChainEvent, bool, er
 		if err := payloadMatchesCode(event.GetPayload(), int32(event.GetCode())); err != nil {
 			return ChainEvent{}, false, fmt.Errorf("protocol event %s: %w", code, err)
 		}
+		mapped := ChainEvent{Type: EventHubOperational, EventCode: code, Height: height}
 		typed, err := typedHubEvent(event.GetPayload())
 		if err != nil {
-			return ChainEvent{}, false, fmt.Errorf("protocol event %s payload: %w", code, err)
+			return mapped, true, businessFieldError(fmt.Sprintf("protocol event %s", code), err)
 		}
-		return ChainEvent{Type: EventHubOperational, EventCode: code, Height: height, Typed: typed}, true, nil
+		mapped.Typed = typed
+		return mapped, true, nil
 	}
 	return ChainEvent{}, false, nil
 }

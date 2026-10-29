@@ -168,8 +168,9 @@ func TestDispatchRecordedStaysATaskNotificationWithTypedFacts(t *testing.T) {
 
 	bad := proto.Clone(envelope).(*taskv1.TaskEvent)
 	bad.GetPayload().GetDispatchRecorded().DispatchTicketHash = []byte{1}
-	if _, err := taskEventToChainEvent(bad); err == nil {
-		t.Fatal("a short ticket hash was accepted")
+	if event, err := taskEventToChainEvent(bad); !errors.Is(err, errEventBusinessField) || event.Typed != nil ||
+		event.TaskID != testTaskIDHex || !event.TaskNotification {
+		t.Fatalf("short ticket hash = %+v, %v; want the event without its typed payload", event, err)
 	}
 }
 
