@@ -157,7 +157,7 @@ func chainFor(t *testing.T, f accountSigning) *fakeChain {
 	}
 }
 
-// The five User Ingress body digests match wire's sdk_request_body_v1.json byte for byte.
+// The six User Ingress body digests match wire's sdk_request_body_v1.json byte for byte.
 func TestBodyDigestsMatchWire(t *testing.T) {
 	file := wirefixture.Load(t, filepath.Join("task", "sdk_request_body_v1.json"))
 	check := func(name string, got [32]byte, err error) {
@@ -196,6 +196,10 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	evidence := challenge.Field(t, "local_evidence_digest").Fields[0].Bytes(t)
 	got, err = PrepareChallengeBody(session, task, challenge.Field(t, "challenge_kind").UTF8, evidence)
 	check("sdk_body_prepare_challenge_v1", got, err)
+
+	roster := file.Vector(t, "sdk_body_get_dispatch_roster_v1", 0)
+	got, err = GetDispatchRosterBody(hash32text.Encode(roster.Field(t, "session_id").Bytes(t)), hash32text.Encode(roster.Field(t, "task_id").Bytes(t)))
+	check("sdk_body_get_dispatch_roster_v1", got, err)
 }
 
 // The wallet-signed OpenTask request: domain, hash_struct, digest and recovered signer match wire, and
