@@ -18,9 +18,19 @@ type Params struct {
 	RecordDeadlineBlocks       uint64
 	OrderFreshnessMarginBlocks uint64
 	// BuilderMaxInflightPerSession and MaxPendingPerSession bound a session's in-flight orders;
-	// zero sets no bound.
+	// zero admits none (a missing param never lifts the bound).
 	BuilderMaxInflightPerSession uint32
 	MaxPendingPerSession         uint32
+}
+
+// validate checks that the freshness margin is below record_deadline_blocks, otherwise an order
+// could be admitted after its record deadline.
+func (p Params) validate() error {
+	if p.RecordDeadlineBlocks == 0 || p.OrderFreshnessMarginBlocks >= p.RecordDeadlineBlocks {
+		return fmt.Errorf("dispatch params: order_freshness_margin_blocks %d must be below record_deadline_blocks %d",
+			p.OrderFreshnessMarginBlocks, p.RecordDeadlineBlocks)
+	}
+	return nil
 }
 
 // ParamsFromChain takes the precheck params from task params dispatch. The freshness margin must
@@ -32,9 +42,8 @@ func ParamsFromChain(p *taskv1.DispatchParamsV1) (Params, error) {
 		BuilderMaxInflightPerSession: p.GetBuilderMaxInflightPerSession(),
 		MaxPendingPerSession:         p.GetMaxPendingPerSession(),
 	}
-	if out.RecordDeadlineBlocks == 0 || out.OrderFreshnessMarginBlocks >= out.RecordDeadlineBlocks {
-		return Params{}, fmt.Errorf("dispatch params: order_freshness_margin_blocks %d must be below record_deadline_blocks %d",
-			out.OrderFreshnessMarginBlocks, out.RecordDeadlineBlocks)
+	if err := out.validate(); err != nil {
+		return Params{}, err
 	}
 	return out, nil
 }
@@ -151,17 +160,22 @@ func NewPrechecker(cfg PrecheckConfig) (*Prechecker, error) {
 	if cfg.Builder == "" || cfg.Sessions == nil || cfg.Ledger == nil {
 		return nil, fmt.Errorf("precheck needs the Builder address, a session cache and a ledger")
 	}
-	if cfg.Params.RecordDeadlineBlocks == 0 {
-		return nil, fmt.Errorf("precheck needs record_deadline_blocks")
+	if err := cfg.Params.validate(); err != nil {
+		return nil, err
 	}
 	return &Prechecker{cfg: cfg, params: cfg.Params}, nil
 }
 
-// SetParams replaces the params, after a params change on chain.
-func (p *Prechecker) SetParams(params Params) {
+// SetParams replaces the params, after a params change on chain. Params whose freshness margin is
+// not below record_deadline_blocks are refused and the current ones kept.
+func (p *Prechecker) SetParams(params Params) error {
+	if err := params.validate(); err != nil {
+		return err
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.params = params
+	return nil
 }
 
 func (p *Prechecker) currentParams() Params {
@@ -298,10 +312,10 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		return Result{}, fmt.Errorf("%w: sequence %d is not the first free sequence after next %d and %d in-flight orders",
 			ErrOrderSequenceConflict, o.Sequence, s.NextExpectedSequence, inFlight.count)
 	}
-	if limit := params.BuilderMaxInflightPerSession; limit != 0 && inFlight.count >= uint64(limit) {
+	if limit := params.BuilderMaxInflightPerSession; inFlight.count >= uint64(limit) {
 		return Result{}, fmt.Errorf("%w: %d orders in flight, builder_max_inflight_per_session %d", ErrInflightLimit, inFlight.count, limit)
 	}
-	if limit := params.MaxPendingPerSession; limit != 0 && inFlight.count >= uint64(limit) {
+	if limit := params.MaxPendingPerSession; inFlight.count >= uint64(limit) {
 		return Result{}, fmt.Errorf("%w: %d orders in flight, max_pending_per_session %d", ErrInflightLimit, inFlight.count, limit)
 	}
 	if s.PendingWithdrawKind == taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_CLOSE {

@@ -170,7 +170,7 @@ func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 	}
 	p, err := inflight.NewPrechecker(inflight.PrecheckConfig{
 		Builder: "trueopen1builder", Sessions: cache, Ledger: ledger,
-		Params: inflight.Params{RecordDeadlineBlocks: 50, OrderFreshnessMarginBlocks: 10, BuilderMaxInflightPerSession: 4},
+		Params: inflight.Params{RecordDeadlineBlocks: 50, OrderFreshnessMarginBlocks: 10, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4},
 	})
 	if err != nil {
 		t.Fatal(err)

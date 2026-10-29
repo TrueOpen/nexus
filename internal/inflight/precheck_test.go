@@ -161,7 +161,7 @@ func TestPrecheckErrorCodes(t *testing.T) {
 			}
 		}, order: func(o *Order) { o.Sequence = 8 }, want: ErrInflightLimit},
 		{name: "max pending limit", setup: func(t *testing.T, f *precheckFixture) {
-			f.p.SetParams(Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 1})
+			setParams(t, f, Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 1})
 			f.reserve(t, order(5))
 		}, order: func(o *Order) { o.Sequence = 6 }, want: ErrInflightLimit},
 		{name: "close registered", state: func(s *chaincli.SessionState) {
@@ -200,6 +200,49 @@ func TestPrecheckErrorCodes(t *testing.T) {
 				t.Fatalf("Reserve = %v, want %v", err, c.want)
 			}
 		})
+	}
+}
+
+func setParams(t testing.TB, f *precheckFixture, params Params) {
+	t.Helper()
+	if err := f.p.SetParams(params); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An in-flight limit of zero refuses every order: a missing param must not lift the bound.
+func TestPrecheckZeroInflightLimitRefuses(t *testing.T) {
+	for _, params := range []Params{
+		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 4},
+		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3},
+	} {
+		f := newFixture(t, nil)
+		setParams(t, f, params)
+		if _, err := f.p.Check(context.Background(), order(5)); !errors.Is(err, ErrInflightLimit) {
+			t.Fatalf("params %+v: Check = %v, want in-flight limit", params, err)
+		}
+	}
+}
+
+// The freshness margin must stay below record_deadline_blocks: an order admitted at the margin
+// would otherwise already be past its record deadline.
+func TestPrecheckSetParamsChecksTheFreshnessMargin(t *testing.T) {
+	f := newFixture(t, nil)
+	for _, params := range []Params{
+		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 20, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4},
+		{OrderFreshnessMarginBlocks: 0, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4},
+	} {
+		if err := f.p.SetParams(params); err == nil {
+			t.Fatalf("SetParams(%+v) accepted", params)
+		}
+	}
+	if res, err := f.p.Check(context.Background(), order(5)); err != nil || res.Deadline != 120 {
+		t.Fatalf("Check after refused params = %+v, %v", res, err)
+	}
+	bad := testParams
+	bad.OrderFreshnessMarginBlocks = bad.RecordDeadlineBlocks
+	if _, err := NewPrechecker(PrecheckConfig{Builder: "builder", Params: bad, Sessions: f.cache, Ledger: f.ledger}); err == nil {
+		t.Fatal("NewPrechecker accepted a freshness margin at record_deadline_blocks")
 	}
 }
 
@@ -350,7 +393,7 @@ func TestPrecheckRetriesAHoleInTheMiddle(t *testing.T) {
 	if err := f.ledger.MarkFailed(testSession, 6); err != nil {
 		t.Fatal(err)
 	}
-	f.p.SetParams(Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4})
+	setParams(t, f, Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4})
 	if _, err := f.p.Check(context.Background(), order(8)); !errors.Is(err, ErrOrderSequenceConflict) {
 		t.Fatalf("8 while 6 is a hole = %v, want sequence conflict", err)
 	}
