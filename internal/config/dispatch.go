@@ -129,15 +129,23 @@ func (c DispatchConfig) Validate() error {
 // AcceptTimeoutMs returns the accept timeout of the first tier covering rttMs, or of the last tier
 // when rttMs is above all of them. It returns 0 when no tier is configured.
 func (c DispatchConfig) AcceptTimeoutMs(rttMs uint64) uint64 {
-	for _, tier := range c.AcceptTimeoutMsByRTTTier {
+	_, ms := c.AcceptTimeoutTier(rttMs)
+	return ms
+}
+
+// AcceptTimeoutTier returns the tier AcceptTimeoutMs takes for rttMs, numbered from 1 in
+// configuration order (a dispatch record's timeout_tier_or_zero), and its accept timeout. Both are
+// 0 when no tier is configured.
+func (c DispatchConfig) AcceptTimeoutTier(rttMs uint64) (uint32, uint64) {
+	for i, tier := range c.AcceptTimeoutMsByRTTTier {
 		if rttMs <= tier.MaxRTTMs {
-			return tier.AcceptTimeoutMs
+			return uint32(i + 1), tier.AcceptTimeoutMs
 		}
 	}
 	if n := len(c.AcceptTimeoutMsByRTTTier); n > 0 {
-		return c.AcceptTimeoutMsByRTTTier[n-1].AcceptTimeoutMs
+		return uint32(n), c.AcceptTimeoutMsByRTTTier[n-1].AcceptTimeoutMs
 	}
-	return 0
+	return 0, 0
 }
 
 func isShare(v float64) bool { return !math.IsNaN(v) && v >= 0 && v <= 1 }

@@ -69,6 +69,15 @@ func TestDispatchAcceptTimeoutByTier(t *testing.T) {
 			t.Fatalf("AcceptTimeoutMs(%d) = %d, want %d", rtt, got, want)
 		}
 	}
+	// Tiers are numbered from 1 in configuration order: 0 is the record's "no timeout".
+	for rtt, want := range map[uint64]uint32{0: 1, 50: 1, 51: 2, 9000: 2} {
+		if tier, ms := cfg.AcceptTimeoutTier(rtt); tier != want || ms != cfg.AcceptTimeoutMs(rtt) {
+			t.Fatalf("AcceptTimeoutTier(%d) = %d, %d; want tier %d", rtt, tier, ms, want)
+		}
+	}
+	if tier, ms := (DispatchConfig{}).AcceptTimeoutTier(10); tier != 0 || ms != 0 {
+		t.Fatalf("no tiers: AcceptTimeoutTier = %d, %d", tier, ms)
+	}
 }
 
 func TestDispatchEnvironment(t *testing.T) {
