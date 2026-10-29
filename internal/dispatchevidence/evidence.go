@@ -60,8 +60,11 @@ func (a *Attempt) Rebuttable() bool { return Rebuttable(a.Sent, a.Outcome) }
 // Round is one dispatch round: its roster as sent (DispatchRosterV1), the roster_hash its tickets
 // commit, the handraise root they bind and its attempts in rank order.
 type Round struct {
-	Number     uint32    `json:"number"`
-	RootDigest []byte    `json:"root_digest"`
+	Number     uint32 `json:"number"`
+	RootDigest []byte `json:"root_digest"`
+	// SignedRoot is the SignedHandraiseRootV1 of RootDigest as synced, in a group member's copy;
+	// the dispatching Builder finds its own roots in its handraise registry instead.
+	SignedRoot []byte    `json:"signed_root,omitempty"`
 	Roster     []byte    `json:"roster"`
 	RosterHash []byte    `json:"roster_hash"`
 	Attempts   []Attempt `json:"attempts"`
@@ -70,6 +73,9 @@ type Round struct {
 // Order is the evidence of one version of an order in one epoch: the tickets of one task_id under
 // one VRF output.
 type Order struct {
+	// Builder is the order's dispatching Builder when this Builder holds the evidence as another
+	// member of the order's Task Builders group, synced from it; empty for this Builder's own orders.
+	Builder   string `json:"builder,omitempty"`
 	SessionID string `json:"session_id"`
 	Sequence  uint64 `json:"sequence"`
 	TaskID    string `json:"task_id"`

@@ -53,7 +53,7 @@ type Rosters struct {
 	// answer never depends on whether the evidence was marked recorded.
 	Chain RecordReader
 	// Root finds an issued handraise root by its handraise_root_digest (handraise.Registry); the
-	// roots retained evidence binds are never pruned.
+	// roots retained evidence binds are never pruned. A group member's copy carries its roots.
 	Root func(digest [32]byte) (*taskv1.SignedHandraiseRootV1, bool, error)
 }
 
@@ -100,7 +100,7 @@ func (r Rosters) answer(o *Order, record *taskv1.DispatchRecordState) (*nexusv1.
 		if !ok || !bytes.Equal(stored.RootDigest, recorded.GetHandraiseRootDigest()) || len(stored.RootDigest) != 32 {
 			return nil, false, nil
 		}
-		root, found, err := r.Root([32]byte(stored.RootDigest))
+		root, found, err := r.root(stored)
 		if err != nil {
 			return nil, false, fmt.Errorf("handraise root of round %d: %w", stored.Number, err)
 		}
@@ -110,4 +110,17 @@ func (r Rosters) answer(o *Order, record *taskv1.DispatchRecordState) (*nexusv1.
 		resp.Rounds = append(resp.Rounds, &nexusv1.DispatchRosterRoundV1{DispatchRound: stored.Number, Roster: roster, HandraiseRoot: root})
 	}
 	return resp, len(resp.Rounds) > 0, nil
+}
+
+// root is the signed root a round binds: the synced one in a member's copy, otherwise the one
+// this Builder issued.
+func (r Rosters) root(round *Round) (*taskv1.SignedHandraiseRootV1, bool, error) {
+	if len(round.SignedRoot) == 0 {
+		return r.Root([32]byte(round.RootDigest))
+	}
+	var root taskv1.SignedHandraiseRootV1
+	if err := proto.Unmarshal(round.SignedRoot, &root); err != nil {
+		return nil, false, fmt.Errorf("synced handraise root: %w", err)
+	}
+	return &root, true, nil
 }

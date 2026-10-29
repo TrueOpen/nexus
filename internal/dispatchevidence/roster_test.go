@@ -132,3 +132,32 @@ func TestRostersNotServed(t *testing.T) {
 		t.Fatalf("missing bound root: %v", err)
 	}
 }
+
+// A group member's evidence carries the roots the dispatching Builder signed, as synced: they are
+// not in this Builder's own registry, and a member serves the roster with them.
+func TestRostersOfAMemberCopy(t *testing.T) {
+	s, o, records := rosterFixture(t)
+	o.Builder = "trueopen1dispatchingbuilder"
+	for i := range o.Rounds {
+		root := &taskv1.SignedHandraiseRootV1{ChainId: rosterChain, BuilderAddress: o.Builder, RootHeight: uint64(0x40 + i)}
+		raw, err := proto.Marshal(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.Rounds[i].SignedRoot = raw
+	}
+	if err := s.Put(o); err != nil {
+		t.Fatal(err)
+	}
+	noRoots := func([32]byte) (*taskv1.SignedHandraiseRootV1, bool, error) { return nil, false, nil }
+	r := Rosters{ChainID: rosterChain, Evidence: s, Chain: records, Root: noRoots}
+	resp, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, round := range resp.GetRounds() {
+		if round.GetHandraiseRoot().GetRootHeight() != uint64(0x40+i) || round.GetHandraiseRoot().GetBuilderAddress() != o.Builder {
+			t.Fatalf("round %d root = %v", i, round.GetHandraiseRoot())
+		}
+	}
+}
