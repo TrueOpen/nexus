@@ -184,6 +184,17 @@ type ServiceKeyRotated struct {
 	AuthorizationNonce uint64
 }
 
+// ServiceKeyRotationRegistered: an operator registered a replacement key. The current key stays
+// in force until activation (ServiceKeyRotated), but a cached binding no longer shows the pending
+// state.
+type ServiceKeyRotationRegistered struct {
+	ParticipantType           sharedv1.ParticipantType
+	Operator                  string
+	CurrentAuthorizationNonce uint64
+	NextAuthorizationNonce    uint64
+	EffectiveHeight           uint64
+}
+
 // BuilderCompensationFunded: a Builder's compensation account was funded.
 type BuilderCompensationFunded struct {
 	Builder string
@@ -229,6 +240,7 @@ func (SessionKeyChangeRequested) typedEvent()    {}
 func (OrderCancelRequested) typedEvent()         {}
 func (OrderCancelled) typedEvent()               {}
 func (ServiceKeyRotated) typedEvent()            {}
+func (ServiceKeyRotationRegistered) typedEvent() {}
 func (BuilderCompensationFunded) typedEvent()    {}
 
 // typedTaskEvent decodes the Phase 1 Task payloads. It returns nil, nil for every other payload,
@@ -374,6 +386,16 @@ func typedHubEvent(payload *hubv1.ProtocolEventPayloadV1) (TypedEvent, error) {
 			ParticipantType: e.GetParticipantType(), Operator: e.GetOperator(),
 			OldServiceAddress: e.GetOldServiceAddress(), NewServiceAddress: e.GetNewServiceAddress(),
 			AuthorizationNonce: e.GetAuthorizationNonce(),
+		}, nil
+	case *hubv1.ProtocolEventPayloadV1_ServiceKeyRotationRegistered:
+		e := p.ServiceKeyRotationRegistered.GetPendingRotation()
+		if e.GetOperatorAddress() == "" {
+			return nil, fmt.Errorf("service_key_rotation_registered: operator is required")
+		}
+		return ServiceKeyRotationRegistered{
+			ParticipantType: e.GetParticipantType(), Operator: e.GetOperatorAddress(),
+			CurrentAuthorizationNonce: e.GetCurrentServiceAuthorizationNonce(),
+			NextAuthorizationNonce:    e.GetNextServiceAuthorizationNonce(), EffectiveHeight: e.GetEffectiveHeight(),
 		}, nil
 	case *hubv1.ProtocolEventPayloadV1_CandidatePoolPublished:
 		e := p.CandidatePoolPublished

@@ -247,14 +247,15 @@ func payloadMatchesCode(payload proto.Message, code int32) error {
 }
 
 // protocolEventCodes are the Hub events the protocol stream asks for: candidate pool publication
-// and expiry (the epoch -> snapshot table), BuilderSet rotation, current service key rotation
-// (keys cached for the operator are stale) and compensation account funding.
+// and expiry (the epoch -> snapshot table), BuilderSet rotation, service key rotation registration
+// and activation (keys cached for the operator are stale) and compensation account funding.
 func protocolEventCodes() []sharedv1.ProtocolEventCodeV1 {
 	return []sharedv1.ProtocolEventCodeV1{
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 	}
 }
@@ -278,6 +279,7 @@ func protocolEventToChainEvent(event *hubv1.ProtocolEvent) (ChainEvent, bool, er
 	case sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED:
 		return ChainEvent{Type: EventBuilderSetUpdated, EventCode: code, Height: height}, true, nil
 	case sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED:

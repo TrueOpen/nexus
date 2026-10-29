@@ -241,6 +241,30 @@ func TestProtocolEventToChainEventMapsHubOperationalEvents(t *testing.T) {
 		t.Fatalf("typed = %#v", event.Typed)
 	}
 
+	registered := &hubv1.ProtocolEvent{
+		Cursor: "p1r", ChainHeight: 300, Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED,
+		Payload: &hubv1.ProtocolEventPayloadV1{TypedEvent: &hubv1.ProtocolEventPayloadV1_ServiceKeyRotationRegistered{
+			ServiceKeyRotationRegistered: &hubv1.EventServiceKeyRotationRegistered{PendingRotation: &hubv1.PendingServiceKeyRotationState{
+				ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, OperatorAddress: "trueopen1worker",
+				CurrentServiceAuthorizationNonce: 4, NextServiceAuthorizationNonce: 5, EffectiveHeight: 600,
+			}},
+		}},
+	}
+	event, ok, err = protocolEventToChainEvent(registered)
+	if err != nil || !ok || event.Type != EventHubOperational || event.EventCode != "SERVICE_KEY_ROTATION_REGISTERED" {
+		t.Fatalf("registered: %+v, %v, %v", event, ok, err)
+	}
+	if want := (ServiceKeyRotationRegistered{
+		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, Operator: "trueopen1worker",
+		CurrentAuthorizationNonce: 4, NextAuthorizationNonce: 5, EffectiveHeight: 600,
+	}); !reflect.DeepEqual(event.Typed, want) {
+		t.Fatalf("typed = %#v", event.Typed)
+	}
+	registered.Payload.GetServiceKeyRotationRegistered().PendingRotation.OperatorAddress = ""
+	if event, ok, err := protocolEventToChainEvent(registered); !ok || err == nil || event.Typed != nil {
+		t.Fatalf("registered without operator: %+v, %v, %v", event, ok, err)
+	}
+
 	funded := &hubv1.ProtocolEvent{
 		Cursor: "p2", ChainHeight: 301, Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 		Payload: &hubv1.ProtocolEventPayloadV1{TypedEvent: &hubv1.ProtocolEventPayloadV1_BuilderCompensationFunded{
@@ -282,6 +306,7 @@ func TestProtocolEventCodesIncludeHubOperationalEvents(t *testing.T) {
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 	}
 	if !reflect.DeepEqual(protocolEventCodes(), want) {

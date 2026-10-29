@@ -14,7 +14,7 @@ const DefaultCacheTTL = 3 * time.Second
 
 // Cache is a Resolver that keeps successful current service key reads for a short TTL. Uplink
 // messages, handraises and roots each check a signer's current key and authorization nonce; without
-// it every one of them is a chain query. A SERVICE_KEY_ROTATED event drops the operator's entries
+// it every one of them is a chain query. A rotation event drops the operator's entries
 // at once (ObserveEvent); the TTL only bounds staleness when such an event is lost. Failed reads
 // are never cached, so a new registration is seen on the next read.
 type Cache struct {
@@ -85,15 +85,29 @@ func (c *Cache) InvalidateAll() {
 	c.entries = map[cacheKey]cacheEntry{}
 }
 
-// ObserveEvent drops the keys a chain event made stale: a SERVICE_KEY_ROTATED event drops its
-// operator's keys, or every key when the event arrived without a readable operator.
+// ObserveEvent drops the keys a chain event made stale: a SERVICE_KEY_ROTATED event (the new key
+// became current) or a SERVICE_KEY_ROTATION_REGISTERED event (a replacement is now pending) drops
+// its operator's keys, or every key when the event arrived without a readable operator.
 func (c *Cache) ObserveEvent(ev chaincli.ChainEvent) {
-	if ev.Type != chaincli.EventHubOperational || ev.EventCode != "SERVICE_KEY_ROTATED" {
+	if ev.Type != chaincli.EventHubOperational {
 		return
 	}
-	if rotated, ok := ev.Typed.(chaincli.ServiceKeyRotated); ok && rotated.Operator != "" {
-		c.Invalidate(rotated.Operator)
+	var operator string
+	switch ev.EventCode {
+	case "SERVICE_KEY_ROTATED":
+		if rotated, ok := ev.Typed.(chaincli.ServiceKeyRotated); ok {
+			operator = rotated.Operator
+		}
+	case "SERVICE_KEY_ROTATION_REGISTERED":
+		if registered, ok := ev.Typed.(chaincli.ServiceKeyRotationRegistered); ok {
+			operator = registered.Operator
+		}
+	default:
 		return
 	}
-	c.InvalidateAll()
+	if operator == "" {
+		c.InvalidateAll()
+		return
+	}
+	c.Invalidate(operator)
 }

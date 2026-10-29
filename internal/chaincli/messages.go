@@ -409,6 +409,23 @@ type ServiceKeyState struct {
 	AuthorizationNonce uint64 `json:"authorization_nonce"`
 	UpdatedHeight      uint64 `json:"updated_height"`
 	Status             string `json:"status"`
+	// PendingRotation is a registered replacement key waiting for its activation epoch; nil when
+	// there is none. The fields above stay the current binding until it activates.
+	PendingRotation *PendingServiceKeyRotation `json:"pending_rotation,omitempty"`
+}
+
+// PendingServiceKeyRotation is a registered, not yet active replacement of a service key. The
+// next key has no live or proof permission before EffectiveHeight; while it waits, a pending
+// Builder issues no new tickets or roots and a pending Cortex takes no new duties.
+type PendingServiceKeyRotation struct {
+	NextServicePubKey      string `json:"next_service_pubkey"` // 33-byte compressed secp256k1, lowercase hex
+	NextAuthorizationNonce uint64 `json:"next_authorization_nonce"`
+	RegisteredHeight       uint64 `json:"registered_height"`
+	// EffectiveHeight is the first epoch height the next key is current; old material may still
+	// postpone it by whole epochs.
+	EffectiveHeight uint64 `json:"effective_height"`
+	// OldMaterialCloseHeight is the inclusive deadline of dispatch material signed by the current key.
+	OldMaterialCloseHeight uint64 `json:"old_material_close_height"`
 }
 
 // CortexNodeState is the stable Cortex identity row returned by QueryCortexNode (CortexNodeState).

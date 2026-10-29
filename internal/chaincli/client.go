@@ -641,6 +641,20 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 		AuthorizationNonce: b.GetServiceAuthorizationNonce(),
 		Status:             currentServiceKeyStatus(b),
 	}
+	if pending := b.GetPendingRotation(); pending != nil {
+		if pending.GetParticipantType() != b.GetParticipantType() || pending.GetOperatorAddress() != b.GetOperatorAddress() ||
+			pending.GetCurrentServiceAuthorizationNonce() != b.GetServiceAuthorizationNonce() ||
+			pending.GetNextServiceAuthorizationNonce() <= b.GetServiceAuthorizationNonce() {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation does not match the current binding")
+		}
+		state.PendingRotation = &PendingServiceKeyRotation{
+			NextServicePubKey:      hex.EncodeToString(pending.GetNewServicePubkey()),
+			NextAuthorizationNonce: pending.GetNextServiceAuthorizationNonce(),
+			RegisteredHeight:       pending.GetRegisteredHeight(),
+			EffectiveHeight:        pending.GetEffectiveHeight(),
+			OldMaterialCloseHeight: pending.GetOldMaterialCloseHeight(),
+		}
+	}
 	return state, nil
 }
 
