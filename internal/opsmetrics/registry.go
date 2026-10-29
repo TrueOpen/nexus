@@ -10,6 +10,7 @@ package opsmetrics
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/nexus/internal/stagetiming"
@@ -38,10 +39,12 @@ const (
 const (
 	// CounterSkips counts skipped roster members by reason (the Skip* labels).
 	CounterSkips = "skips"
-	// CounterTicketsPerOrder counts orders that left dispatching by the tickets they took, label
-	// the count ("10+" above nine).
+	// CounterTicketsPerOrder counts the dispatch attempts that ended (accepted or failed) by the
+	// tickets the order held then, label the count ("10+" above nine). A retry of a failed
+	// sequence (an SDK resend) is a new attempt counted again, with the earlier tickets.
 	CounterTicketsPerOrder = "tickets_per_order"
-	// CounterOrders counts orders that left dispatching: "accepted" or "failed".
+	// CounterOrders counts the dispatch attempts that ended: "accepted" or "failed"; a resend of a
+	// failed sequence counts again.
 	CounterOrders = "orders"
 	// CounterRecordOutcomes counts resolved dispatch entries: "ADMITTED" or the reject code
 	// without its DISPATCH_REJECT_CODE_V1_ prefix (RECORD_LATE for an entry past its deadline).
@@ -93,8 +96,10 @@ type Timing struct {
 	MeanMs  float64 `json:"mean_ms"`
 }
 
-// WorkerStats are the ticket outcomes of one Worker. Received, the tickets that reached it, is
-// the denominator of both rates, as for the reject-rate suspension.
+// WorkerStats are the ticket outcomes of one Worker. Received, the tickets that reached it and fed
+// its reject rate, is the denominator of both rates, as for the reject-rate suspension. A ticket
+// accepted in time after its order could no longer be recorded (VOIDED) feeds neither and is not
+// counted.
 type WorkerStats struct {
 	Received                uint64            `json:"received"`
 	Accepted                uint64            `json:"accepted"`
@@ -132,18 +137,22 @@ type Registry struct {
 	now   func() time.Time
 	since time.Time
 
-	mu         sync.Mutex
-	stages     map[string]*Timing
-	counters   map[string]map[string]uint64
-	workers    map[string]*WorkerStats
-	acceptedAt map[string]time.Time // task id -> accept, until its first output frame
+	mu       sync.Mutex
+	stages   map[string]*Timing
+	counters map[string]map[string]uint64
+	workers  map[string]*WorkerStats
+
+	// acceptedAt maps a task id to its accept time until its first output frame, awaiting counts
+	// its entries. Every output frame looks it up, so it takes no lock shared with the rest.
+	acceptedAt sync.Map
+	awaiting   atomic.Int64
 }
 
 // New starts a Registry.
 func New() *Registry {
 	return &Registry{
 		now: time.Now, since: time.Now(), stages: map[string]*Timing{}, counters: map[string]map[string]uint64{},
-		workers: map[string]*WorkerStats{}, acceptedAt: map[string]time.Time{},
+		workers: map[string]*WorkerStats{},
 	}
 }
 
@@ -221,19 +230,22 @@ func (r *Registry) Accepted(taskID string) {
 		return
 	}
 	now := r.now()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.acceptedAt) >= maxAwaitingOutput {
-		for id, at := range r.acceptedAt {
-			if now.Sub(at) > awaitingOutputMaxAge {
-				delete(r.acceptedAt, id)
+	if r.awaiting.Load() >= maxAwaitingOutput {
+		r.acceptedAt.Range(func(id, at any) bool {
+			if now.Sub(at.(time.Time)) > awaitingOutputMaxAge {
+				if _, ok := r.acceptedAt.LoadAndDelete(id); ok {
+					r.awaiting.Add(-1)
+				}
 			}
-		}
-		if len(r.acceptedAt) >= maxAwaitingOutput {
+			return true
+		})
+		if r.awaiting.Load() >= maxAwaitingOutput {
 			return
 		}
 	}
-	r.acceptedAt[taskID] = now
+	if _, loaded := r.acceptedAt.Swap(taskID, now); !loaded {
+		r.awaiting.Add(1)
+	}
 }
 
 // OutputFrame notes an output frame of taskID; the first after its accept is timed.
@@ -241,13 +253,15 @@ func (r *Registry) OutputFrame(taskID string) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	at, ok := r.acceptedAt[taskID]
-	delete(r.acceptedAt, taskID)
-	r.mu.Unlock()
-	if ok {
-		r.ObserveStage(StageAcceptToFirstOutput, r.now().Sub(at))
+	if r.awaiting.Load() == 0 {
+		return
 	}
+	at, ok := r.acceptedAt.LoadAndDelete(taskID)
+	if !ok {
+		return
+	}
+	r.awaiting.Add(-1)
+	r.ObserveStage(StageAcceptToFirstOutput, r.now().Sub(at.(time.Time)))
 }
 
 // Snapshot copies the statistics.

@@ -12,6 +12,9 @@ import (
 // PublicStatsPath is the public statistics route on the ingress port.
 const PublicStatsPath = "/v1/dispatch/stats"
 
+// PublicStatsNote heads the public statistics.
+const PublicStatsNote = "observed locally by this Builder since its start; not chain facts"
+
 // Handraises is what the public statistics read from the standing handraise registry.
 type Handraises interface {
 	RTTThreshold() (uint64, time.Time)
@@ -35,12 +38,14 @@ type PublicSources struct {
 // ended, the reject-rate suspension and the latest root's admission. They hold operator addresses,
 // which are public chain identities, and counts; no session, task, user, payload or secret.
 type PublicStats struct {
+	// Note says what the statistics are: this Builder's local observations, not chain facts.
+	Note        string    `json:"note"`
 	Builder     string    `json:"builder_address"`
 	GeneratedAt time.Time `json:"generated_at"`
 	// Since is when the counts started (the process start).
 	Since time.Time `json:"since"`
 	// RTTAdmit is builder_rtt_admit_ms in effect, since when, and every value used before.
-	RTTAdmit RTTAdmit `json:"builder_rtt_admit_ms"`
+	RTTAdmit RTTAdmit `json:"builder_rtt_admit"`
 	// TimeoutRate is TIMEOUT over tickets the Workers received, against
 	// builder_timeout_rate_threshold.
 	TimeoutRate          float64 `json:"timeout_rate"`
@@ -104,6 +109,7 @@ type PublicRoot struct {
 func BuildPublicStats(src PublicSources, now time.Time) PublicStats {
 	snap := src.Metrics.Snapshot()
 	s := PublicStats{
+		Note:    PublicStatsNote,
 		Builder: src.Builder, GeneratedAt: now, Since: snap.Since,
 		TimeoutRateThreshold: src.Dispatch.BuilderTimeoutRateThreshold,
 		RejectRate: RejectRateRule{

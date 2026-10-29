@@ -69,6 +69,9 @@ func TestPublicStatsContent(t *testing.T) {
 		Dispatch: config.DispatchConfig{BuilderTimeoutRateThreshold: 0.2, GPURejectRateThreshold: 0.5, GPURejectRateSuspensionBlocks: 720, GPURejectRateMinSamples: 10},
 	}
 	s := BuildPublicStats(src, since.Add(time.Minute))
+	if s.Note != PublicStatsNote {
+		t.Fatalf("note = %q", s.Note)
+	}
 	if s.RTTAdmit.ThresholdMs != 300 || !s.RTTAdmit.Since.Equal(since) || len(s.RTTAdmit.History) != 2 {
 		t.Fatalf("rtt admit = %+v", s.RTTAdmit)
 	}

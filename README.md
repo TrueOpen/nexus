@@ -35,11 +35,18 @@ synced items under the current key. Rotate only after a drain:
    went out takes effect and its order is dispatched with tickets as usual. `/readyz` turns 503.
 2. `nexus drain status` until `phase` is `DRAINED` (no in-flight order, record outbox entry,
    takeover or unacknowledged sync item; `remaining` lists what is left, `sync_pending` names the
-   order/member pairs that would be refused after the rotation).
+   order/member pairs that would be refused after the rotation). `DRAINED` does not cover the
+   Builder-signed dispatch stream messages Cortex nodes have not acknowledged yet, nor the
+   handraise roots already broadcast: they are signed by the old key and are resent as stored
+   (`nexus status` shows the stream resend backlog).
 3. Submit the rotation with the operator key. The phase is `ROTATION_PENDING` until it activates,
    then `RESTART_REQUIRED`: restart nexus with the new service keystore. The drain ends by itself
    once the chain shows the new key current and the daemon signs with it (`nexus drain end` ends
    it at any time).
+
+Not done yet: once this Builder's own rotation activated, group sync streams that only retry
+items signed by the old key should be marked complete instead of retrying until their retention
+ends (follows the Builder-to-Builder sync once merged).
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state
@@ -64,6 +71,8 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 curl localhost:8080/healthz                       # {"status":"ok"}
 curl localhost:8080/readyz                        # 200 {"ready":true} or 503 naming the failed checks
 curl localhost:8080/v1/dispatch/stats             # public dispatch statistics (RTT admission threshold, timeout/reject rates, skips)
+# The statistics are this Builder's local observations since its start, per Cortex operator; they
+# are not chain facts.
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
 # client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.

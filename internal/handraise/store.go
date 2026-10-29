@@ -262,24 +262,11 @@ func (r *Registry) PruneRootsBelow(height uint64, keep func(digest [32]byte) boo
 }
 
 // RTTThresholdHistory returns every RTT admission threshold this Builder has used, oldest first.
+// It is kept in memory from the start on; the error is always nil.
 func (r *Registry) RTTThresholdHistory() ([]RTTThresholdChange, error) {
-	var out []RTTThresholdChange
-	var decodeErr error
-	err := r.opts.Store.Scan(kv.NSHandraise, func(key string, value []byte) bool {
-		if !strings.HasPrefix(key, thresholdPrefix) {
-			return true
-		}
-		var record thresholdRecord
-		if decodeErr = json.Unmarshal(value, &record); decodeErr != nil {
-			return false
-		}
-		out = append(out, RTTThresholdChange{ThresholdMs: record.ThresholdMs, Since: time.UnixMilli(record.SinceUnixMs)})
-		return true
-	})
-	if err == nil {
-		err = decodeErr
-	}
-	return out, err
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]RTTThresholdChange(nil), r.history...), nil
 }
 
 // recover loads current handraises, watermarks, measured RTTs, suspensions, the threshold history
@@ -336,7 +323,7 @@ func (r *Registry) recover() error {
 	}
 	configured := r.opts.Config.BuilderRTTAdmitMs
 	if n := len(thresholds); n > 0 && thresholds[n-1].ThresholdMs == configured {
-		r.threshold = thresholds[n-1]
+		r.threshold, r.history = thresholds[n-1], thresholds
 		return nil
 	}
 	r.threshold = RTTThresholdChange{ThresholdMs: configured, Since: time.UnixMilli(r.now().UnixMilli())}
@@ -344,7 +331,11 @@ func (r *Registry) recover() error {
 	if err != nil {
 		return err
 	}
-	return r.opts.Store.Set(kv.NSHandraise, fmt.Sprintf("%s%020d", thresholdPrefix, r.threshold.Since.UnixMilli()), value)
+	if err := r.opts.Store.Set(kv.NSHandraise, fmt.Sprintf("%s%020d", thresholdPrefix, r.threshold.Since.UnixMilli()), value); err != nil {
+		return err
+	}
+	r.history = append(thresholds, r.threshold)
+	return nil
 }
 
 func (r *Registry) recoverCurrent(operator string, value []byte) error {

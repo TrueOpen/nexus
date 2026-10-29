@@ -76,13 +76,17 @@ func TestAcceptedTasksAreBounded(t *testing.T) {
 		r.Accepted(string(rune(i)))
 	}
 	r.Accepted("late")
-	if _, ok := r.acceptedAt["late"]; ok || len(r.acceptedAt) != maxAwaitingOutput {
-		t.Fatalf("awaiting %d tasks", len(r.acceptedAt))
+	if _, ok := r.acceptedAt.Load("late"); ok || r.awaiting.Load() != maxAwaitingOutput {
+		t.Fatalf("awaiting %d tasks", r.awaiting.Load())
 	}
 	now = now.Add(awaitingOutputMaxAge + time.Second)
 	r.Accepted("later")
-	if _, ok := r.acceptedAt["later"]; !ok || len(r.acceptedAt) != 1 {
-		t.Fatalf("old tasks not dropped: %d", len(r.acceptedAt))
+	if _, ok := r.acceptedAt.Load("later"); !ok || r.awaiting.Load() != 1 {
+		t.Fatalf("old tasks not dropped: %d", r.awaiting.Load())
+	}
+	r.OutputFrame("later")
+	if r.awaiting.Load() != 0 {
+		t.Fatalf("awaiting %d after the frame", r.awaiting.Load())
 	}
 }
 

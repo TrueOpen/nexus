@@ -130,6 +130,7 @@ type Registry struct {
 	outcomes  map[string][]outcome
 	suspended map[string]uint64 // operator -> first height admitted again
 	threshold RTTThresholdChange
+	history   []RTTThresholdChange // every threshold used, oldest first
 	latest    *IssuedRoot
 }
 

@@ -304,9 +304,9 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	}
 	params := d.params.Load()
 	profile := dispatchdraw.Profile{ModelID: [32]byte(signedOrder.GetModelId()), Version: signedOrder.GetProfileVersion()}
-	drawStart := time.Now()
+	drawStart := d.clock.Now()
 	draw, err := d.cfg.Drawer.Draw(ctx, [32]byte(signedOrder.GetSessionId()), st.Sequence, esh, profile, params.MaxDrawAttempts)
-	d.cfg.Metrics.ObserveStage(opsmetrics.StageDraw, time.Since(drawStart))
+	d.cfg.Metrics.ObserveStage(opsmetrics.StageDraw, d.clock.Now().Sub(drawStart))
 	if errors.Is(err, dispatchdraw.ErrNoCapacity) {
 		return false, d.fail(o, err)
 	}
@@ -532,7 +532,9 @@ func (d *Dispatcher) recordOutcome(a *attemptState, outcome opsmetrics.Outcome) 
 	}
 }
 
-// orderLeft counts an order that left dispatching, accepted or failed, with the tickets it took.
+// orderLeft counts a dispatch attempt of an order that ended, accepted or failed, with the tickets
+// it took so far: a retry of a failed sequence (an SDK resend) is counted again, with its earlier
+// tickets.
 func (d *Dispatcher) orderLeft(st *orderState, outcome string) {
 	if d.cfg.Metrics == nil {
 		return
