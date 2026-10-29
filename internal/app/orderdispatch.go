@@ -224,7 +224,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	}
 	od.Takeovers, err = takeover.New(takeover.Config{
 		Builder: deps.BuilderAddress, Store: deps.Store, Chain: deps.TaskChain, Recorder: od.Recorder, Precheck: od.Precheck,
-		Tasks: deps.Held, Track: track, Log: deps.Log,
+		Tasks: deps.Held, Keys: od.Gate, Track: track, Log: deps.Log,
 	})
 	if err != nil {
 		return nil, err

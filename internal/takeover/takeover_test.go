@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -14,6 +15,9 @@ import (
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/recorder"
@@ -63,10 +67,21 @@ func (c *fakeChain) set(edit func(*chaincli.SessionState)) {
 }
 
 type fakeRecorder struct {
-	mu      sync.Mutex
-	bundles []*recorder.TakeoverBundle
-	err     error
+	mu        sync.Mutex
+	bundles   []*recorder.TakeoverBundle
+	err       error
+	withdrawn int
 }
+
+func (r *fakeRecorder) WithdrawTakeover(context.Context, string, uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.withdrawn++
+}
+
+type fakeKeys struct{ err error }
+
+func (k *fakeKeys) CheckBuilderKey(context.Context) error { return k.err }
 
 func (r *fakeRecorder) RecordTakeover(_ context.Context, b *recorder.TakeoverBundle) error {
 	r.mu.Lock()
@@ -131,7 +146,11 @@ func (f *fakeTasks) TakeoverRegistered(_, taskID string, activation uint64) {
 func (f *fakeTasks) TakeoverActivated(_, taskID string, height uint64) {
 	f.add("activated %s %d", taskID, height)
 }
-func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool, _ *types.SessionElsewhere) {
+func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool, where *types.SessionElsewhere) {
+	if where != nil {
+		f.add("ended %s %s drop=%t where=%s/%s/%d", taskID, code, dropInput, where.Builder, where.TaskID, where.ActivationHeight)
+		return
+	}
 	f.add("ended %s %s drop=%t", taskID, code, dropInput)
 }
 func (f *fakeTasks) OnOrder(_ context.Context, o types.Order) error {
@@ -152,6 +171,7 @@ type env struct {
 	rec      *fakeRecorder
 	precheck *fakePrecheck
 	tasks    *fakeTasks
+	keys     *fakeKeys
 	tracked  []string
 	m        *Manager
 }
@@ -166,7 +186,7 @@ func newEnv(t *testing.T) *env {
 			Owner: "owner", NextExpectedSequence: 5, Balance: "1000", FrozenTotal: "100", PendingWithdrawAmount: "0",
 			BoundBuilder: bound, BoundChangeHeight: 40,
 		}, records: map[uint64]*taskv1.DispatchRecordState{}},
-		rec: &fakeRecorder{}, precheck: &fakePrecheck{}, tasks: &fakeTasks{},
+		rec: &fakeRecorder{}, precheck: &fakePrecheck{}, tasks: &fakeTasks{}, keys: &fakeKeys{},
 	}
 	e.open()
 	return e
@@ -176,7 +196,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) open() {
 	e.t.Helper()
 	m, err := New(Config{
-		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks,
+		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks, Keys: e.keys,
 		Track:      func(s string) error { e.tracked = append(e.tracked, s); return nil },
 		Background: func(f func()) { f() },
 	})
@@ -440,9 +460,9 @@ func TestVoidedTakeoverDropsTheOrder(t *testing.T) {
 	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 65, Typed: chaincli.SessionTakeoverVoided{
 		SessionID: session, CandidateBuilder: self, OrderSequence: 5, Reason: taskv1.SessionTakeoverVoidReasonV1_SESSION_TAKEOVER_VOID_REASON_V1_ORDER_RECORDED,
 	}})
-	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true")
-	if _, held := e.m.Held(session, 5, o.TaskHash); held || e.stored() != 0 {
-		t.Fatal("a voided order is still held")
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+	if _, held := e.m.Held(session, 5, o.TaskHash); held || e.stored() != 0 || e.rec.withdrawn != 1 {
+		t.Fatalf("a voided order is still held (withdrawn %d)", e.rec.withdrawn)
 	}
 }
 
@@ -460,23 +480,36 @@ func TestBindingToAnotherBuilderVoidsTheTakeover(t *testing.T) {
 	e.registerAt(70)
 	e.m.TakeoverRegistered(session, 5, 60)
 	bindOther(e)
-	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true")
+	e.wantCalls("held task5", "registered task5 70")
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 71})
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//0")
 
 	e = newEnv(t)
 	e.submit(5)
 	bindOther(e)
 	e.wantCalls("held task5")
 	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING)
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//0")
 }
 
 // A registration result read while the session shows the takeover neither pending nor taken
-// effect: it was voided meanwhile.
+// effect: the node read may trail the registration, so it is read again at the next block, and
+// only a second such read voids it.
 func TestRegisteredButGoneIsVoided(t *testing.T) {
 	e := newEnv(t)
 	e.submit(5)
 	e.m.TakeoverRegistered(session, 5, 60)
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true")
+	e.wantCalls("held task5")
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+
+	// A read that catches up in between keeps it.
+	e = newEnv(t)
+	e.submit(5)
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.registerAt(70)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	e.wantCalls("held task5", "registered task5 70")
 }
 
 // An unreadable session is resolved again at the next block, once.
@@ -503,8 +536,8 @@ func TestTakeoverEntryRefusals(t *testing.T) {
 		code taskv1.DispatchRejectCodeV1
 		want string
 	}{
-		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED, "ended task5 TAKEOVER_VOIDED drop=true"},
-		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING, "ended task5 TAKEOVER_VOIDED drop=true"},
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0"},
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0"},
 		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED, "ended task5 RECORD_REJECTED drop=false"},
 	} {
 		e := newEnv(t)
@@ -613,5 +646,138 @@ func TestRestartAfterTheHandOver(t *testing.T) {
 	e.wantCalls("held task5", "registered task5 70")
 	if e.stored() != 0 {
 		t.Fatal("still stored")
+	}
+}
+
+// A refusal that voids the takeover records where the session went: the Builder that recorded
+// the order with its task, or the other candidate with its activation height.
+func TestRefusalRecordsWhereTheSessionWent(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.chain.records[5] = &taskv1.DispatchRecordState{BuilderAddress: bound, TaskId: bytes.Repeat([]byte{0x05}, 32)}
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED)
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound/"+hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32))+"/0")
+
+	e = newEnv(t)
+	e.submit(5)
+	e.chain.set(func(s *chaincli.SessionState) {
+		s.PendingTakeover = &chaincli.PendingTakeover{CandidateBuilder: other, OrderSequence: 5, ActivationHeight: 80}
+	})
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING)
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//80")
+}
+
+// A session that closed while the takeover waited is gone from the chain: the takeover is voided
+// rather than read again forever.
+func TestClosedSessionVoidsTheTakeover(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.registerAt(70)
+	e.m.TakeoverRegistered(session, 5, 60)
+	e.chain.stateErr = fmt.Errorf("query session: %w", chaincli.ErrNotFound)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 70})
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true")
+	if e.stored() != 0 {
+		t.Fatal("still stored")
+	}
+}
+
+// No takeover while this Builder's own key rotation is pending or its compensation account is
+// below the minimum; a key that cannot be confirmed is retryable.
+func TestAdmitNeedsThisBuildersKey(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want error
+	}{
+		{handraise.ErrBuilderRotationPending, dispatchdraw.ErrNoCapacity},
+		{dispatcher.ErrCompensationBelowMin, dispatchdraw.ErrNoCapacity},
+		{errors.New("key unreadable"), inflight.ErrUnavailable},
+	} {
+		e := newEnv(t)
+		e.keys.err = tc.err
+		o, pre := takeoverOrder(5, 1)
+		if _, err := e.m.Admit(context.Background(), o, pre); !errors.Is(err, tc.want) {
+			t.Fatalf("%v: Admit = %v, want %v", tc.err, err, tc.want)
+		}
+		if len(e.m.records) != 0 {
+			t.Fatal("held")
+		}
+	}
+}
+
+// A restart judges a submitted entry again by Admit's rules before sending it again: under a
+// moved bound_change_height it is withdrawn and sent under the new one; with this Builder's key
+// rotation pending it ends TASK_FAILED; recorded meanwhile by the bound Builder it is voided; a
+// recorder that cannot take it ends it TASK_FAILED. None of them stops the start.
+func TestRestartJudgesSubmittedEntriesAgain(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.chain.set(func(s *chaincli.SessionState) { s.BoundChangeHeight = 55 })
+	e.open()
+	if err := e.m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.rec.bundles) != 2 || e.rec.bundles[1].BoundChangeHeight != 55 || e.rec.withdrawn != 1 {
+		t.Fatalf("bundles %+v, withdrawn %d", e.rec.bundles, e.rec.withdrawn)
+	}
+	// The record keeps the new generation.
+	e.open()
+	_ = e.m.Start(context.Background())
+	if len(e.rec.bundles) != 3 || e.rec.bundles[2].BoundChangeHeight != 55 || e.rec.withdrawn != 1 {
+		t.Fatalf("bundles %+v, withdrawn %d", e.rec.bundles, e.rec.withdrawn)
+	}
+
+	for _, tc := range []struct {
+		name string
+		edit func(*env)
+		want string
+	}{
+		{"rotation pending", func(e *env) { e.keys.err = handraise.ErrBuilderRotationPending }, "ended task5 TASK_FAILED drop=false"},
+		{"recorded", func(e *env) {
+			e.chain.records[5] = &taskv1.DispatchRecordState{BuilderAddress: bound, TaskId: bytes.Repeat([]byte{0x05}, 32)}
+		}, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound/" + hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32)) + "/0"},
+		{"recorder fails", func(e *env) { e.rec.err = errors.New("disk full") }, "ended task5 TASK_FAILED drop=false"},
+	} {
+		e := newEnv(t)
+		e.submit(5)
+		tc.edit(e)
+		e.open()
+		if err := e.m.Start(context.Background()); err != nil {
+			t.Fatalf("%s: Start = %v", tc.name, err)
+		}
+		e.wantCalls("held task5", tc.want)
+		if e.stored() != 0 {
+			t.Fatalf("%s: still stored", tc.name)
+		}
+	}
+}
+
+// An unattributable result drops the entry: the takeover is judged again with the chain, here
+// registered after all.
+func TestUnsettledResultIsSettledWithTheChain(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.registerAt(70)
+	e.m.TakeoverUnsettled(session, 5)
+	e.wantCalls("held task5", "registered task5 70")
+	if len(e.rec.bundles) != 1 {
+		t.Fatalf("sent again: %d", len(e.rec.bundles))
+	}
+}
+
+// A stored takeover that cannot be resumed ends its task; a record that does not decode is
+// dropped; the start goes on.
+func TestStartEndsBrokenRecords(t *testing.T) {
+	e := newEnv(t)
+	broken, _ := json.Marshal(map[string]any{"session_id": session, "task_id": "task5", "phase": 9})
+	_ = e.store.Set(kv.NSTakeover, session, broken)
+	_ = e.store.Set(kv.NSTakeover, "garbage", []byte("{"))
+	e.open()
+	if err := e.m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.wantCalls("ended task5 TASK_FAILED drop=false")
+	if e.stored() != 0 {
+		t.Fatal("broken records kept")
 	}
 }

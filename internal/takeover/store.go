@@ -9,23 +9,42 @@ import (
 
 // Keys of kv.NSTakeover are session ids, one takeover each.
 
-// load reads the stored takeovers. A record that does not parse fails the load: its takeover may
-// be registered and must be followed.
+// load reads the stored takeovers. A record that does not decode is dropped with an error log;
+// one that decodes but is not a takeover in progress is kept in broken for Start to end as
+// TASK_FAILED. Neither stops the start.
 func (m *Manager) load() error {
-	var loadErr error
+	var drop []string
 	err := m.cfg.Store.Scan(kv.NSTakeover, func(key string, val []byte) bool {
 		var r record
-		if err := json.Unmarshal(val, &r); err != nil || r.SessionID != key || (r.Phase != phaseSubmitted && r.Phase != phaseRegistered) {
-			loadErr = fmt.Errorf("takeover record %q is malformed", key)
-			return false
+		switch err := json.Unmarshal(val, &r); {
+		case err != nil || r.SessionID != key:
+			m.log.Error("takeover record does not decode; dropped", "key", key, "err", err)
+			drop = append(drop, key)
+		case r.Phase != phaseSubmitted && r.Phase != phaseRegistered:
+			m.log.Error("takeover record in an unknown phase; its task fails", "session_id", key, "phase", r.Phase)
+			m.broken = append(m.broken, &r)
+		default:
+			m.records[key] = &r
 		}
-		m.records[key] = &r
 		return true
 	})
 	if err != nil {
 		return fmt.Errorf("scan takeovers: %w", err)
 	}
-	return loadErr
+	for _, key := range append(drop, brokenKeys(m.broken)...) {
+		if err := m.cfg.Store.Delete(kv.NSTakeover, key); err != nil {
+			m.log.Error("takeover record not deleted", "key", key, "err", err)
+		}
+	}
+	return nil
+}
+
+func brokenKeys(rs []*record) []string {
+	keys := make([]string, len(rs))
+	for i, r := range rs {
+		keys[i] = r.SessionID
+	}
+	return keys
 }
 
 func (m *Manager) saveLocked(r *record) error {

@@ -29,11 +29,15 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/recorder"
@@ -49,6 +53,15 @@ type Chain interface {
 // Recorder records takeover entries (recorder.Recorder).
 type Recorder interface {
 	RecordTakeover(ctx context.Context, b *recorder.TakeoverBundle) error
+	WithdrawTakeover(ctx context.Context, sessionID string, sequence uint64)
+}
+
+// Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate).
+type Keys interface {
+	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
+	// replacement key is pending, with dispatcher.ErrCompensationBelowMin while its compensation
+	// account is below the minimum, and otherwise when its key cannot be confirmed.
+	CheckBuilderKey(ctx context.Context) error
 }
 
 // Prechecker runs the dispatching Builder's precheck once the takeover took effect
@@ -76,6 +89,7 @@ type Config struct {
 	Recorder Recorder
 	Precheck Prechecker
 	Tasks    Tasks
+	Keys     Keys
 	// Track, when set, follows a session's events; a restart asks it for every held session.
 	Track func(sessionID string) error
 	// Background runs chain reads and dispatch off the caller's goroutine; nil runs them on a new
@@ -119,9 +133,14 @@ type record struct {
 	Order    types.Order    `json:"order"`
 	Precheck inflight.Order `json:"precheck"`
 
-	checking bool // Admit's chain checks are under way
-	queued   bool // a resolution is scheduled
-	retry    bool // to be resolved again at the next block
+	checking bool  // Admit's chain checks are under way
+	jobs     []job // what is to be handled, in order; one at a time
+	running  bool  // a job is being handled
+	// retry is the job to run again at the next block, after a chain read gave no verdict.
+	retry *job
+	// misses counts session reads showing a registered takeover neither pending nor taken effect:
+	// the node read may trail the registration, so it is voided only on the second.
+	misses int
 }
 
 // Manager runs the takeovers this Builder registers as candidate.
@@ -129,18 +148,17 @@ type Manager struct {
 	cfg  Config
 	log  *slog.Logger
 	head atomic.Uint64
-	// work serialises what acts on a stored takeover (results, events, resolutions): each looks
-	// the takeover up again under it.
-	work sync.Mutex
 
 	mu      sync.Mutex
 	records map[string]*record // session id -> takeover
+	// broken are stored takeovers that could not be resumed; Start ends their tasks.
+	broken []*record
 }
 
 // New builds a Manager over its stored takeovers; Start resumes them.
 func New(cfg Config) (*Manager, error) {
-	if cfg.Builder == "" || cfg.Store == nil || cfg.Chain == nil || cfg.Recorder == nil || cfg.Precheck == nil || cfg.Tasks == nil {
-		return nil, fmt.Errorf("takeover needs the Builder address, store, chain, recorder, precheck and tasks")
+	if cfg.Builder == "" || cfg.Store == nil || cfg.Chain == nil || cfg.Recorder == nil || cfg.Precheck == nil || cfg.Tasks == nil || cfg.Keys == nil {
+		return nil, fmt.Errorf("takeover needs the Builder address, store, chain, recorder, precheck, tasks and keys")
 	}
 	m := &Manager{cfg: cfg, log: cfg.Log, records: map[string]*record{}}
 	if m.log == nil {
@@ -152,29 +170,34 @@ func New(cfg Config) (*Manager, error) {
 	return m, nil
 }
 
-// Start follows the held sessions again, hands the submitted takeover entries to the recorder
-// again (the same entry is the same entry; one already resolved is answered as a replay) and
-// resolves the registered takeovers with the chain.
-func (m *Manager) Start(ctx context.Context) error {
+// Start follows the held sessions again and resolves every stored takeover with the chain: a
+// submitted entry is judged again by Admit's rules and handed to the recorder again, under the
+// session's current bound_change_height (the same entry is the same entry; one already resolved
+// is answered as a replay); a registered takeover is checked. A stored takeover that cannot be
+// read ends as TASK_FAILED; nothing here stops the start.
+func (m *Manager) Start(context.Context) error {
 	m.mu.Lock()
 	records := make([]*record, 0, len(m.records))
 	for _, r := range m.records {
 		records = append(records, r)
 	}
+	broken := m.broken
+	m.broken = nil
 	m.mu.Unlock()
+	for _, r := range broken {
+		m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, codeTaskFailed, m.head.Load(), false, nil)
+	}
 	for _, r := range records {
 		if m.cfg.Track != nil {
 			if err := m.cfg.Track(r.SessionID); err != nil {
 				m.log.Warn("held session not followed", "session_id", r.SessionID, "err", err)
 			}
 		}
+		why := causeCheck
 		if r.Phase == phaseSubmitted {
-			if err := m.submitEntry(ctx, r); err != nil {
-				return fmt.Errorf("takeover entry of session %s: %w", r.SessionID, err)
-			}
-			continue
+			why = causeSettle
 		}
-		m.schedule(r.SessionID, r.Sequence, resolveCheck)
+		m.schedule(r.SessionID, r.Sequence, job{why: why})
 	}
 	return nil
 }
@@ -198,6 +221,9 @@ func (m *Manager) Held(sessionID string, sequence uint64, taskHash string) (Admi
 //   - a takeover this Builder holds for the session: the same order is Admission.Existing (or
 //     inflight.ErrOrderUploading while its input uploads), another one a TakeoverPendingError
 //     naming this Builder: one takeover per session;
+//   - this Builder's own key and compensation account: a pending key rotation or an account below
+//     its minimum is dispatchdraw.ErrNoCapacity (no new takeover), an unconfirmed key
+//     inflight.ErrUnavailable;
 //   - the dispatch record of the sequence: recorded, a SessionBoundElsewhereError naming the
 //     recording Builder and task;
 //   - the session state read from the chain: a registered takeover is a TakeoverPendingError
@@ -225,7 +251,10 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	m.records[o.SessionID] = reserved
 	m.mu.Unlock()
 
-	bound, err := m.check(ctx, o.SessionID, o.OrderSequence, pre.MaxFee)
+	bound, err := m.checkKey(ctx)
+	if err == nil {
+		bound, err = m.check(ctx, o.SessionID, o.OrderSequence, pre.MaxFee)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {
@@ -238,6 +267,19 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	return Admission{}, nil
 }
 
+// checkKey is Admit's check of this Builder's own key and compensation account.
+func (m *Manager) checkKey(ctx context.Context) (uint64, error) {
+	err := m.cfg.Keys.CheckBuilderKey(ctx)
+	switch {
+	case err == nil:
+		return 0, nil
+	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, dispatcher.ErrCompensationBelowMin):
+		return 0, fmt.Errorf("%w: no takeover: %v", dispatchdraw.ErrNoCapacity, err)
+	default:
+		return 0, fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
+	}
+}
+
 // check runs Admit's chain checks and returns the session's bound_change_height.
 func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint64) (uint64, error) {
 	rec, err := m.cfg.Chain.QueryDispatchRecordByOrder(ctx, sessionID, seq)
@@ -248,7 +290,10 @@ func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint6
 		return 0, fmt.Errorf("%w: dispatch record of sequence %d: %v", inflight.ErrUnavailable, seq, err)
 	}
 	state, err := m.cfg.Chain.QuerySession(ctx, sessionID)
-	if err != nil {
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		return 0, fmt.Errorf("%w: session %s is closed", inflight.ErrSessionClosing, sessionID)
+	case err != nil:
 		return 0, fmt.Errorf("%w: session state: %v", inflight.ErrUnavailable, err)
 	}
 	if t := state.PendingTakeover; t != nil {
@@ -288,8 +333,7 @@ func (m *Manager) Submit(ctx context.Context, o types.Order) error {
 		return err
 	}
 	if err := m.submitEntry(ctx, r); err != nil {
-		m.forget(r)
-		m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, codeTaskFailed, m.head.Load(), false, nil)
+		m.end(ctx, r, codeTaskFailed, false, nil)
 		return err
 	}
 	m.log.Info("takeover entry submitted", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_change_height", r.BoundChangeHeight)
@@ -322,9 +366,16 @@ func (m *Manager) submitEntry(ctx context.Context, r *record) error {
 	})
 }
 
+// backgroundTimeout bounds one background job: its chain reads and the hand-over of the order.
+const backgroundTimeout = 30 * time.Second
+
 // later runs f in the background.
 func (m *Manager) later(f func(context.Context)) {
-	run := func() { f(context.Background()) }
+	run := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), backgroundTimeout)
+		defer cancel()
+		f(ctx)
+	}
 	if m.cfg.Background != nil {
 		m.cfg.Background(run)
 		return
