@@ -35,8 +35,9 @@ const recordLeadBlocks = 2
 func TooLateToRecord(head, deadline uint64) bool { return head+recordLeadBlocks > deadline }
 
 // recordDeadline is the last height the order can be recorded at: its deadline in the ledger
-// and, while another Builder's takeover of its session is registered, the block before that
-// takeover takes effect, since a record after it is refused and its Worker claims compensation.
+// and, while another Builder's takeover of its session is registered, the takeover's activation
+// height (records of that block are admitted before EndBlock moves the binding; a later record
+// is refused and its Worker claims compensation).
 // A session state that cannot be read leaves the ledger deadline.
 func (d *Dispatcher) recordDeadline(ctx context.Context, st *orderState) (uint64, bool) {
 	entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence)
@@ -46,7 +47,7 @@ func (d *Dispatcher) recordDeadline(ctx context.Context, st *orderState) (uint64
 	deadline := entry.Deadline
 	if s, _, err := d.cfg.Sessions.Lookup(ctx, st.SessionID); err == nil && s.Found {
 		if t := s.PendingTakeover; t != nil && t.CandidateBuilder != d.cfg.Builder && t.ActivationHeight > 0 {
-			deadline = min(deadline, t.ActivationHeight-1)
+			deadline = min(deadline, t.ActivationHeight)
 		}
 	}
 	return deadline, true

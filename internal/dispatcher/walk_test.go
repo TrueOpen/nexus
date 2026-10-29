@@ -801,14 +801,15 @@ func TestAcceptAfterTheRecordDeadlineFailsTheOrder(t *testing.T) {
 }
 
 // While another Builder's takeover of the session is registered, an order is recorded only if its
-// record lands before the takeover takes effect: a record after it is refused and its Worker
-// claims compensation. An accept too close to the activation height is refused and the order
-// fails; one in time is recorded, which voids the takeover.
+// record lands by the activation block (the Keeper admits records of that block before EndBlock
+// moves the binding): a later record is refused and its Worker claims compensation. An accept
+// too close to the activation height is refused and the order fails; one in time is recorded,
+// which voids the takeover.
 func TestRegisteredTakeoverBoundsTheRecordDeadline(t *testing.T) {
 	for _, tc := range []struct {
 		activation uint64
 		accepted   bool
-	}{{testESH + 2, false}, {testESH + 3, true}} {
+	}{{testESH + 1, false}, {testESH + 2, true}} {
 		e := newEnv(t)
 		s := e.session(0xaa, 0)
 		o := e.order(s, 0, 1)
