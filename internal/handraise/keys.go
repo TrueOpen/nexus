@@ -29,6 +29,17 @@ func (k ChainServiceKeys) CurrentCortexKey(ctx context.Context, operator string)
 	return pub, state.AuthorizationNonce, nil
 }
 
+// CortexRotationPending reports whether operator registered a CORTEX service key replacement that
+// has not activated yet. Its current key still verifies the messages it owes, but it may take no
+// new Worker duty: the chain refuses a dispatch entry whose winner is pending.
+func (k ChainServiceKeys) CortexRotationPending(ctx context.Context, operator string) (bool, error) {
+	_, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantCortex, operator)
+	if err != nil {
+		return false, err
+	}
+	return state.PendingRotation != nil, nil
+}
+
 func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
 	pub, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
 	if err != nil {

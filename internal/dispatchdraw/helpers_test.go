@@ -267,7 +267,7 @@ func vectorRoster(t *testing.T, pool *Pool) *Roster {
 		leaf(vectorOp1, 1, true, 2, 200, vectorProfile),
 		leaf(vectorOp3, 3, true, 1, 200, vectorProfile),
 	)
-	roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20)
+	roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

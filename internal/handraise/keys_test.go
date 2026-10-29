@@ -70,6 +70,18 @@ func TestChainServiceKeys(t *testing.T) {
 	if _, nonce, err := keys.CurrentCortexKey(context.Background(), cortexOperator); err != nil || nonce != 9 {
 		t.Fatalf("cortex key with a pending rotation = %d, %v", nonce, err)
 	}
+	// ...but takes no new Worker duty: dispatch leaves it out of rosters.
+	if pending, err := keys.CortexRotationPending(context.Background(), cortexOperator); err != nil || !pending {
+		t.Fatalf("CortexRotationPending = %v, %v; want true", pending, err)
+	}
+	cortexPending.PendingRotation = nil
+	resolver[servicekey.ParticipantCortex+"/"+cortexOperator] = cortexPending
+	if pending, err := keys.CortexRotationPending(context.Background(), cortexOperator); err != nil || pending {
+		t.Fatalf("CortexRotationPending without a rotation = %v, %v", pending, err)
+	}
+	if _, err := keys.CortexRotationPending(context.Background(), builderOperator); !errors.Is(err, servicekey.ErrUnavailable) {
+		t.Fatalf("CortexRotationPending without a key = %v", err)
+	}
 }
 
 func TestRunIssuesRootsOnInterval(t *testing.T) {
