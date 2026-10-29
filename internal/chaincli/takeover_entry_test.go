@@ -1,11 +1,15 @@
 package chaincli
 
 import (
+	"encoding/hex"
+	"reflect"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
+	"google.golang.org/protobuf/proto"
 
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
@@ -44,5 +48,32 @@ func TestTakeoverEntryObjectIDUsesTheWireTakeoverDigest(t *testing.T) {
 	}
 	if again, _ := TakeoverEntryObjectID(chainID, candidate, entry, 101); again == got {
 		t.Fatal("a new binding generation kept the takeover entry key")
+	}
+}
+
+// DecodeRecordDispatchResults lists the results whose object_id is not the key of their entry
+// instead of refusing the whole response, so the other entries keep their results; structural
+// faults still refuse it.
+func TestRecordDispatchResultsListKeyMismatches(t *testing.T) {
+	const chainID = "trueopen-localnet-1"
+	objectIDs := [][32]byte{[32]byte(mustHash32("01")), [32]byte(mustHash32("02")), [32]byte(mustHash32("03"))}
+	response := &taskv1.MsgRecordDispatchResponse{Results: []*taskv1.BatchItemResultV1{
+		{ItemIndex: 0, ObjectId: mustHash32("01"), Status: sharedv1.MutationStatusV1_MUTATION_STATUS_V1_APPLIED},
+		{ItemIndex: 1, ObjectId: mustHash32("09"), Status: sharedv1.MutationStatusV1_MUTATION_STATUS_V1_APPLIED},
+		{ItemIndex: 2, ObjectId: mustHash32("03"), Status: sharedv1.MutationStatusV1_MUTATION_STATUS_V1_NOOP},
+	}}
+	digest := RecordDispatchBatchDigest(chainID, response.GetResults())
+	response.BatchDigest = digest[:]
+	data, _ := hex.DecodeString(txMsgDataHex(t, response))
+	result := TxResult{Data: data}
+	got, mismatched, err := DecodeRecordDispatchResults(result, 0, chainID, objectIDs)
+	if err != nil || !proto.Equal(got, response) || !reflect.DeepEqual(mismatched, []int{1}) {
+		t.Fatalf("results = %v, mismatched %v, %v", got, mismatched, err)
+	}
+	if _, err := DecodeRecordDispatchResponse(result, 0, chainID, objectIDs); err == nil {
+		t.Fatal("DecodeRecordDispatchResponse kept a result that does not echo its entry's key")
+	}
+	if _, _, err := DecodeRecordDispatchResults(result, 0, chainID, objectIDs[:2]); err == nil {
+		t.Fatal("a result count that differs from the entry count was accepted")
 	}
 }

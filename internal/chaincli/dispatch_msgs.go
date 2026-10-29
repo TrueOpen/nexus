@@ -139,32 +139,45 @@ var ErrBatchDigestMismatch = errors.New("record dispatch: batch_digest does not 
 // only a REJECTED entry does. batch_digest commits to every (object_id, status): when only it
 // does not match, the response is returned with ErrBatchDigestMismatch.
 func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string, objectIDs [][32]byte) (*taskv1.MsgRecordDispatchResponse, error) {
+	response, mismatched, err := DecodeRecordDispatchResults(result, msgIndex, chainID, objectIDs)
+	if len(mismatched) > 0 {
+		return nil, fmt.Errorf("record dispatch: result %d object_id is not the key of entry %d", mismatched[0], mismatched[0])
+	}
+	return response, err
+}
+
+// DecodeRecordDispatchResults is DecodeRecordDispatchResponse that does not refuse results whose
+// object_id is not the key of their entry: it lists their indexes, so the other entries keep
+// their results. A takeover entry's key commits to the session's bound_change_height when it was
+// sent, which the chain may have moved since.
+func DecodeRecordDispatchResults(result TxResult, msgIndex int, chainID string, objectIDs [][32]byte) (*taskv1.MsgRecordDispatchResponse, []int, error) {
 	response := &taskv1.MsgRecordDispatchResponse{}
 	if err := DecodeMsgResponse(result, msgIndex, response); err != nil {
-		return nil, fmt.Errorf("record dispatch: %w", err)
+		return nil, nil, fmt.Errorf("record dispatch: %w", err)
 	}
 	if len(response.GetResults()) != len(objectIDs) {
-		return nil, fmt.Errorf("record dispatch: %d results for %d entries", len(response.GetResults()), len(objectIDs))
+		return nil, nil, fmt.Errorf("record dispatch: %d results for %d entries", len(response.GetResults()), len(objectIDs))
 	}
+	var mismatched []int
 	for i, item := range response.GetResults() {
 		if item.GetItemIndex() != uint32(i) {
-			return nil, fmt.Errorf("record dispatch: result %d has item_index %d", i, item.GetItemIndex())
-		}
-		if !bytes.Equal(item.GetObjectId(), objectIDs[i][:]) {
-			return nil, fmt.Errorf("record dispatch: result %d object_id is not the key of entry %d", i, i)
+			return nil, nil, fmt.Errorf("record dispatch: result %d has item_index %d", i, item.GetItemIndex())
 		}
 		rejected := item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED
 		switch {
 		case item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_UNSPECIFIED:
-			return nil, fmt.Errorf("record dispatch: result %d has no status", i)
+			return nil, nil, fmt.Errorf("record dispatch: result %d has no status", i)
 		case rejected != (item.GetRejectCode() != taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED):
-			return nil, fmt.Errorf("record dispatch: result %d status %s with reject_code %s", i, item.GetStatus(), item.GetRejectCode())
+			return nil, nil, fmt.Errorf("record dispatch: result %d status %s with reject_code %s", i, item.GetStatus(), item.GetRejectCode())
+		}
+		if !bytes.Equal(item.GetObjectId(), objectIDs[i][:]) {
+			mismatched = append(mismatched, i)
 		}
 	}
 	if digest := RecordDispatchBatchDigest(chainID, response.GetResults()); !bytes.Equal(response.GetBatchDigest(), digest[:]) {
-		return response, ErrBatchDigestMismatch
+		return response, mismatched, ErrBatchDigestMismatch
 	}
-	return response, nil
+	return response, mismatched, nil
 }
 
 // TxBroadcaster sends signed transaction bytes to the chain.
