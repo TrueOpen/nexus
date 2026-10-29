@@ -60,7 +60,7 @@ func TestRecordSubmitterPersistsBeforeBroadcast(t *testing.T) {
 	chain := &seqChain{accSeq: 42}
 	sub, sg := newRecordSubmitter(t, chain, testKeyHex, nil)
 	p := &persisted{chain: chain}
-	res, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), p.persist)
+	res, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 650_000, p.persist)
 	if err != nil || res.Code != 0 {
 		t.Fatalf("submit = %+v, %v", res, err)
 	}
@@ -70,6 +70,9 @@ func TestRecordSubmitterPersistsBeforeBroadcast(t *testing.T) {
 	body, auth := decodeBuilderTx(t, p.raws[0])
 	if body.Messages[0].TypeUrl != chaincli.TypeURLMsgRecordDispatch || !bytes.Equal(auth.SignerInfos[0].PublicKey.Value[2:], sg.PubKeyCompressed()) {
 		t.Fatalf("tx = %s signed by %x", body.Messages[0].TypeUrl, auth.SignerInfos[0].PublicKey.Value)
+	}
+	if auth.Fee.GasLimit != 650_000 {
+		t.Fatalf("gas limit = %d, want the record's own", auth.Fee.GasLimit)
 	}
 	var msg taskv1.MsgRecordDispatch
 	if err := proto.Unmarshal(body.Messages[0].Value, &msg); err != nil || !proto.Equal(&msg, recordMsg(sg.Address())) {
@@ -103,7 +106,7 @@ func TestRecordSubmitterPersistsTheResignedTx(t *testing.T) {
 	chain.push(chaincli.TxResult{Code: 32, RawLog: "account sequence mismatch, expected 50, got 42"}, nil)
 	sub, sg := newRecordSubmitter(t, &accountsChain{seqChain: chain, seqs: []uint64{42, 50}}, testKeyHex, nil)
 	p := &persisted{chain: chain}
-	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), p.persist); err != nil {
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 650_000, p.persist); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.raws) != 2 || p.broadcastsAt[0] != 0 || p.broadcastsAt[1] != 1 {
@@ -119,18 +122,18 @@ func TestRecordSubmitterPersistFailureBroadcastsNothing(t *testing.T) {
 	chain := &seqChain{accSeq: 42}
 	sub, sg := newRecordSubmitter(t, chain, testKeyHex, nil)
 	p := &persisted{chain: chain, fail: errors.New("disk full")}
-	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), p.persist); err == nil {
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 650_000, p.persist); err == nil {
 		t.Fatal("submitted without persisting")
 	}
 	if len(chain.broadcasts) != 0 {
 		t.Fatalf("broadcast %v", chain.broadcasts)
 	}
 	p.fail = nil
-	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), p.persist); err != nil || chain.broadcasts[0] != 42 {
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 650_000, p.persist); err != nil || chain.broadcasts[0] != 42 {
 		t.Fatalf("retry = %v, sequences %v", err, chain.broadcasts)
 	}
 	// A submitter_address other than the service account is refused before anything is signed.
-	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg("trueopen1other"), p.persist); err == nil || len(p.raws) != 1 {
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg("trueopen1other"), 0, p.persist); err == nil || len(p.raws) != 1 {
 		t.Fatalf("foreign submitter = %v, persisted %d", err, len(p.raws))
 	}
 }
@@ -145,14 +148,14 @@ func TestRecordSubmitterSharesTheAccountSequence(t *testing.T) {
 	if _, err := tasks.SubmitSettle(context.Background(), sequenceSettle(address, "t")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := records.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), p.persist); err != nil {
+	if _, err := records.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 0, p.persist); err != nil {
 		t.Fatal(err)
 	}
 	if chain.accQueries != 1 || chain.broadcasts[1] != 43 {
 		t.Fatalf("queries %d, sequences %v", chain.accQueries, chain.broadcasts)
 	}
 	separate, other := newRecordSubmitter(t, chain, otherKeyHex, tasks)
-	if _, err := separate.SubmitRecordDispatch(context.Background(), recordMsg(other.Address()), p.persist); err != nil {
+	if _, err := separate.SubmitRecordDispatch(context.Background(), recordMsg(other.Address()), 0, p.persist); err != nil {
 		t.Fatal(err)
 	}
 	if chain.accQueries != 2 {

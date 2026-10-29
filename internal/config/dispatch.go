@@ -46,6 +46,10 @@ type DispatchConfig struct {
 	// BuilderTimeoutRateThreshold is the share (0..1) of TIMEOUT skips among tickets above which the
 	// public statistics flag this Builder; it is statistics only.
 	BuilderTimeoutRateThreshold float64 `yaml:"builder_timeout_rate_threshold"`
+	// RecordGasBase and RecordGasPerEntry give a MsgRecordDispatch transaction its gas limit:
+	// RecordGasBase + RecordGasPerEntry for each entry it carries.
+	RecordGasBase     uint64 `yaml:"record_gas_base"`
+	RecordGasPerEntry uint64 `yaml:"record_gas_per_entry"`
 }
 
 // RTTTierConfig is one accept timeout tier: candidates whose RTT is at most MaxRTTMs wait
@@ -73,6 +77,8 @@ func defaultDispatch() DispatchConfig {
 		BuilderTimeoutRateThreshold:   0.2,
 
 		HandraiseIssuedHeightToleranceBlocks: 3,
+		RecordGasBase:                        200_000,
+		RecordGasPerEntry:                    300_000,
 	}
 }
 
@@ -85,6 +91,7 @@ const (
 	maxRejectRateMinSamples     = 100_000
 	maxBuilderRTTAdmitMs        = 60_000
 	maxAcceptTimeoutMsByRTTTier = 60_000
+	maxRecordGas                = 100_000_000
 )
 
 func (c DispatchConfig) Validate() error {
@@ -110,6 +117,8 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch gpu_reject_rate_min_samples must be between 1 and %d", maxRejectRateMinSamples)
 	case c.HandraiseIssuedHeightToleranceBlocks > maxIssuedHeightTolerance:
 		return fmt.Errorf("dispatch handraise_issued_height_tolerance_blocks must not exceed %d", maxIssuedHeightTolerance)
+	case c.RecordGasBase == 0 || c.RecordGasBase > maxRecordGas || c.RecordGasPerEntry == 0 || c.RecordGasPerEntry > maxRecordGas:
+		return fmt.Errorf("dispatch record_gas_base and record_gas_per_entry must be between 1 and %d", maxRecordGas)
 	}
 	for i, tier := range c.AcceptTimeoutMsByRTTTier {
 		if tier.AcceptTimeoutMs == 0 || tier.AcceptTimeoutMs > maxAcceptTimeoutMsByRTTTier {

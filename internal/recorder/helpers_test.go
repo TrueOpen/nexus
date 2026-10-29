@@ -33,9 +33,11 @@ import (
 )
 
 const (
-	testChainID = "trueopen-recorder-test"
-	worker      = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
-	builder     = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
+	testChainID     = "trueopen-recorder-test"
+	testGasBase     = 1000
+	testGasPerEntry = 100
+	worker          = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
+	builder         = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
 )
 
 var (
@@ -174,13 +176,14 @@ type fakeSubmitter struct {
 	sequence uint64
 	msgs     []*taskv1.MsgRecordDispatch
 	raws     [][]byte
+	gas      []uint64
 	// next scripts the outcome of the next submissions (default: CheckTx passes).
 	next        []error
 	rebroadcast []chaincli.TxResult
 	resent      [][]byte
 }
 
-func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, persist func([]byte) error) (chaincli.TxResult, error) {
+func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func([]byte) error) (chaincli.TxResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
@@ -193,6 +196,7 @@ func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgR
 	}
 	s.msgs = append(s.msgs, proto.Clone(msg).(*taskv1.MsgRecordDispatch))
 	s.raws = append(s.raws, raw)
+	s.gas = append(s.gas, gasLimit)
 	if len(s.next) > 0 {
 		err := s.next[0]
 		s.next = s.next[1:]
@@ -347,8 +351,9 @@ func (e *env) open() {
 	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{}, &fakeOrders{}, &fakeTasks{}, &fakeStreams{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
-		ChainID: testChainID, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
+		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {
 		e.t.Fatal(err)
@@ -461,3 +466,5 @@ func (a *accountReader) set(balance string, err error) {
 }
 
 var errUnreadable = errors.New("node unreachable")
+
+func sha(raw []byte) [32]byte { return sha256.Sum256(raw) }

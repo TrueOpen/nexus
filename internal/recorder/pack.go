@@ -45,6 +45,11 @@ func split(base int, sizes []int, maxEntries uint32, maxBytes uint64) (batches [
 // known to be below its minimum: the chain would refuse the whole transaction.
 func (r *Recorder) pack(ctx context.Context, height uint64) {
 	params := r.params.Load()
+	if until, why := r.stopped(height); until != 0 {
+		r.log.Warn("dispatch records stopped after a refusal sending again cannot fix", "until_height", until, "reason", why)
+		return
+	}
+	maxEntries, gasFactor := r.limits(params.MaxEntries)
 	r.mu.Lock()
 	var waiting []*entry
 	for _, e := range r.entries {
@@ -75,7 +80,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 		sizes = append(sizes, proto.Size(&taskv1.MsgRecordDispatch{Entries: []*taskv1.DispatchRecordEntryV1{&m}}))
 	}
 	base := proto.Size(&taskv1.MsgRecordDispatch{SubmitterAddress: r.cfg.Signer.Address()})
-	batches, tooLarge := split(base, sizes, params.MaxEntries, params.MaxBytes)
+	batches, tooLarge := split(base, sizes, maxEntries, params.MaxBytes)
 	for _, i := range tooLarge {
 		if e := kept[i]; !r.tooLarge[e.ObjectID] {
 			r.tooLarge[e.ObjectID] = true
@@ -90,7 +95,8 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 			entries[j] = kept[i]
 			msg.Entries = append(msg.Entries, msgs[i])
 		}
-		r.submit(ctx, height, msg, entries)
+		gas := gasFactor * (r.cfg.GasBase + r.cfg.GasPerEntry*uint64(len(entries)))
+		r.submit(ctx, height, msg, entries, gas)
 	}
 }
 
@@ -98,7 +104,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 // entries point at it, before it is broadcast. A transaction refused before it reached the
 // mempool is dropped and its entries wait for the next block; one whose broadcast outcome is
 // unknown is followed on chain.
-func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRecordDispatch, entries []*entry) {
+func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRecordDispatch, entries []*entry, gasLimit uint64) {
 	objects := make([]string, len(entries))
 	for i, e := range entries {
 		objects[i] = e.ObjectID
@@ -141,7 +147,7 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 		current = tx.Hash
 		return nil
 	}
-	_, err := r.cfg.Tx.SubmitRecordDispatch(ctx, msg, persist)
+	_, err := r.cfg.Tx.SubmitRecordDispatch(ctx, msg, gasLimit, persist)
 	if err == nil {
 		r.log.Info("record transaction broadcast", "tx_hash", current, "entries", len(entries), "height", height)
 		return
@@ -152,6 +158,9 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 		return
 	}
 	r.log.Warn("record transaction not sent; its entries go out at the next block", "entries", len(entries), "err", err)
+	if errors.As(err, &se) && se.Definitive && se.Result.Code != 0 {
+		r.refused(se.Result, len(entries), height)
+	}
 	if current != "" {
 		r.requeue(current)
 	}

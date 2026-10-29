@@ -12,7 +12,8 @@ func TestDispatchDefaultsAreValid(t *testing.T) {
 	if got.HandraiseHeartbeatMs != 2000 || got.HandraiseTTLMs != 6000 || got.HandraiseMinChangeIntervalMs != 200 ||
 		got.HandraiseRootIntervalMs != 500 || got.BuilderRTTAdmitMs != 300 || got.GPURejectRateThreshold != 0.5 ||
 		got.GPURejectRateSuspensionBlocks != 720 || got.BuilderTimeoutRateThreshold != 0.2 ||
-		len(got.AcceptTimeoutMsByRTTTier) != 3 || got.GPURejectRateMinSamples != 10 || got.HandraiseIssuedHeightToleranceBlocks != 3 {
+		len(got.AcceptTimeoutMsByRTTTier) != 3 || got.GPURejectRateMinSamples != 10 || got.HandraiseIssuedHeightToleranceBlocks != 3 ||
+		got.RecordGasBase != 200_000 || got.RecordGasPerEntry != 300_000 {
 		t.Fatalf("dispatch defaults = %+v", got)
 	}
 	if err := got.Validate(); err != nil {
@@ -40,7 +41,10 @@ func TestDispatchValidateRejectsInvalidCombinations(t *testing.T) {
 		"accept timeout too long": func(c *DispatchConfig) {
 			c.AcceptTimeoutMsByRTTTier[2].AcceptTimeoutMs = maxAcceptTimeoutMsByRTTTier + 1
 		},
-		"zero accept timeout": func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
+		"zero accept timeout":       func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
+		"zero record gas base":      func(c *DispatchConfig) { c.RecordGasBase = 0 },
+		"zero record gas per entry": func(c *DispatchConfig) { c.RecordGasPerEntry = 0 },
+		"record gas too large":      func(c *DispatchConfig) { c.RecordGasPerEntry = maxRecordGas + 1 },
 		"tier rtt not increasing": func(c *DispatchConfig) {
 			c.AcceptTimeoutMsByRTTTier[1].MaxRTTMs = c.AcceptTimeoutMsByRTTTier[0].MaxRTTMs
 		},

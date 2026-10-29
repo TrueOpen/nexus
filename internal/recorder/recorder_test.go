@@ -379,8 +379,8 @@ func TestFailedTransactionIsRetried(t *testing.T) {
 func TestBlocksDriveTheRecorder(t *testing.T) {
 	e := newEnv(t)
 	idle, err := New(Config{
-		ChainID: testChainID, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate,
+		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
+		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 	}, e.params)
 	if err != nil {
 		t.Fatal(err)

@@ -65,11 +65,12 @@ func (r *Recorder) checkTxs(ctx context.Context, height uint64) {
 		case err != nil:
 			r.log.Warn("record transaction result not read", "tx_hash", tx.Hash, "err", err)
 		case res.Code != 0:
-			// Refused as a whole (the compensation account below its minimum, out of gas...): no
-			// entry has a result, so all of them go out again.
-			r.log.Warn("record transaction refused by the chain; its entries go out again", "tx_hash", tx.Hash,
+			// Refused as a whole: no entry has a result, so all of them go out again, sized or
+			// held back by what the refusal says.
+			r.log.Warn("record transaction refused by the chain", "tx_hash", tx.Hash,
 				"code", res.Code, "codespace", res.Codespace, "raw_log", res.RawLog)
 			r.cfg.Gate.markStale()
+			r.refused(res, len(tx.Objects), height)
 			r.requeue(tx.Hash)
 		default:
 			r.applyResult(ctx, tx, res)
@@ -154,6 +155,7 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		r.verifyByQuery(ctx, tx)
 		return
 	}
+	r.succeeded()
 	var fx effects
 	r.mu.Lock()
 	var ops []kv.WriteOp
