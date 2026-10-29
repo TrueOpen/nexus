@@ -81,12 +81,24 @@ func (s *service) GetDispatchRoster(ctx context.Context, req *connect.Request[ne
 }
 
 // checkRosterRequest verifies a Cortex's DispatchRosterRequestV1: it names this chain, this
-// Builder and the task asked for, its expiry_height is not below the current height, and it is
-// signed by the requester's current CORTEX service key over its wire signing projection. The
+// Builder and the task asked for, it is signed by the requester's current CORTEX service key over
+// its wire signing projection, and its expiry_height is not below the current height. The
 // request reads nothing secret, so its nonce is not tracked.
 func (s *service) checkRosterRequest(ctx context.Context, r *nexusv1.DispatchRosterRequestV1, ids taskIDs) error {
 	if r.GetChainId() != s.auth.ChainID || r.GetBuilderOperator() != s.auth.BuilderAddress || hex.EncodeToString(r.GetTaskId()) != ids.task {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("NEXUS_INGRESS_MALFORMED: roster request is for another chain, Builder or task"))
+	}
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(r)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	digest, err := dispatch.SigningDigest(rosterRequestName, raw)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("NEXUS_INGRESS_MALFORMED: roster request: %w", err))
+	}
+	// The signature is checked before the height is read: an unsigned request costs no chain read.
+	if err := s.verifyParticipantRoleDigest(ctx, servicekey.ParticipantCortex, r.GetRequester(), digest[:], r.GetServiceSignature()); err != nil {
+		return mapRoleSignatureErr(err)
 	}
 	if s.auth.Chain == nil {
 		return connect.NewError(connect.CodeInternal, errors.New("roster request expiry cannot be checked: no chain height"))
@@ -97,17 +109,6 @@ func (s *service) checkRosterRequest(ctx context.Context, r *nexusv1.DispatchRos
 	}
 	if r.GetExpiryHeight() < height {
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("roster request expired at height %d (current %d)", r.GetExpiryHeight(), height))
-	}
-	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(r)
-	if err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	digest, err := dispatch.SigningDigest(rosterRequestName, raw)
-	if err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("NEXUS_INGRESS_MALFORMED: roster request: %w", err))
-	}
-	if err := s.verifyParticipantRoleDigest(ctx, servicekey.ParticipantCortex, r.GetRequester(), digest[:], r.GetServiceSignature()); err != nil {
-		return mapRoleSignatureErr(err)
 	}
 	return nil
 }

@@ -229,3 +229,32 @@ func TestDispatchRosterUnimplementedWithoutSource(t *testing.T) {
 		t.Fatalf("code %v", connect.CodeOf(err))
 	}
 }
+
+type countingHeightChain struct {
+	fakeUserChain
+	reads int
+}
+
+func (c *countingHeightChain) CurrentHeight(ctx context.Context) (uint64, error) {
+	c.reads++
+	return c.fakeUserChain.CurrentHeight(ctx)
+}
+
+// A request whose signature does not verify costs no chain height read.
+func TestDispatchRosterVerifiesTheSignatureFirst(t *testing.T) {
+	worker := mustSigner(t, workerKeyHex)
+	chain := &countingHeightChain{fakeUserChain: fakeUserChain{height: 10}}
+	s := newService(&fakeHandler{}, AuthParams{
+		ChainID: rosterVectorChain, BuilderAddress: rosterVectorOperator, Bech32Prefix: "trueopen",
+		ServiceKeys: &fakeServiceKeyResolver{states: map[string]chaincli.ServiceKeyState{
+			servicekey.ParticipantCortex + "|" + rosterVectorOperator: cortexKeyState(t, rosterVectorOperator, hex.EncodeToString(worker.PubKeyCompressed())),
+		}}, Chain: chain,
+	}, withDispatchRosters(&fakeRosters{session: rosterVectorTestSessn, task: rosterVectorTask}))
+	taskID, _ := hex.DecodeString(rosterVectorTask)
+	req := signRosterRequest(t, &nexusv1.DispatchRosterRequestV1{
+		TaskId: taskID, Requester: rosterVectorOperator, Nonce: 1, ExpiryHeight: 10, ChainId: rosterVectorChain, BuilderOperator: rosterVectorOperator,
+	}, alternateKeyHex)
+	if _, err := getRoster(s, rosterVectorTestSessn, rosterVectorTask, req); connect.CodeOf(err) != connect.CodeUnauthenticated || chain.reads != 0 {
+		t.Fatalf("code %v, %d height reads", connect.CodeOf(err), chain.reads)
+	}
+}
