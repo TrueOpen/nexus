@@ -215,7 +215,7 @@ func TestPruneRootsBelowKeepsLatest(t *testing.T) {
 	e.mustAccept(a, e.handraise(a, 120, 1))
 	latest := e.mustIssue()
 
-	n, err := e.reg.PruneRootsBelow(200)
+	n, err := e.reg.PruneRootsBelow(200, func([32]byte) bool { return false })
 	if err != nil || n != 2 {
 		t.Fatalf("pruned %d: %v", n, err)
 	}
@@ -226,6 +226,33 @@ func TestPruneRootsBelowKeepsLatest(t *testing.T) {
 	}
 	if _, found, _ := e.reg.RootByDigest(latest.Digest); !found {
 		t.Fatal("latest root was pruned")
+	}
+}
+
+// A root the keep predicate holds (bound by retained dispatch evidence) is never pruned.
+func TestPruneRootsBelowKeepsReferencedRoots(t *testing.T) {
+	e := newEnv(t)
+	a := e.addCortex(0x11, 1)
+	e.mustAccept(a, e.handraise(a, 100, 1))
+	bound := e.mustIssue()
+	e.height.set(110)
+	e.clock.advance(time.Second)
+	e.mustAccept(a, e.handraise(a, 110, 1))
+	free := e.mustIssue()
+	e.height.set(120)
+	e.clock.advance(time.Second)
+	e.mustAccept(a, e.handraise(a, 120, 1))
+	e.mustIssue()
+
+	n, err := e.reg.PruneRootsBelow(200, func(d [32]byte) bool { return d == bound.Digest })
+	if err != nil || n != 1 {
+		t.Fatalf("pruned %d: %v", n, err)
+	}
+	if _, found, _ := e.reg.RootByDigest(bound.Digest); !found {
+		t.Fatal("referenced root was pruned")
+	}
+	if _, found, _ := e.reg.RootByDigest(free.Digest); found {
+		t.Fatal("unreferenced root kept")
 	}
 }
 
