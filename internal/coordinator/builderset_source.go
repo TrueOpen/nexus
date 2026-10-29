@@ -11,7 +11,7 @@ import (
 // chain: id, hash and members from one read, members in snapshot order. False before the first
 // read, or when the read gave no usable hash.
 func (c *Coordinator) CurrentBuilderSet() (taskgroup.Snapshot, bool) {
-	ref, ok := c.active.Ref()
+	ref, members, ok := c.active.Snapshot()
 	if !ok {
 		return taskgroup.Snapshot{}, false
 	}
@@ -19,7 +19,6 @@ func (c *Coordinator) CurrentBuilderSet() (taskgroup.Snapshot, bool) {
 	if err != nil || len(hash) != 32 {
 		return taskgroup.Snapshot{}, false
 	}
-	members := c.active.Members()
 	if len(members) == 0 {
 		return taskgroup.Snapshot{}, false
 	}
