@@ -187,6 +187,14 @@ identity:
   service_keystore_file: ""
   service_keystore_password: ""
   service_keystore_password_file: ""
+  # Builder VRF keys for direct dispatch: Ed25519 in the Cosmos keystore armor
+  # (key type ed25519), mode 0600, kept apart from the service key. List the
+  # key registered on chain now and any earlier key still needed for orders of
+  # an epoch it was active in; the chain's registered key picks the one used.
+  # The passphrase file (mode 0600) serves every listed key.
+  # Env: NEXUS_VRF_KEY_FILES (comma separated), NEXUS_VRF_KEY_PASSWORD_FILE.
+  vrf_key_files: []
+  vrf_key_password_file: ""
   # Production endpoint must be absolute HTTPS: turn on ingress.tls so Nexus
   # terminates TLS itself and clients can check tls_pubkey_hash.
   public_endpoint: ""

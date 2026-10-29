@@ -573,3 +573,38 @@ func TestExampleSessionKeySettings(t *testing.T) {
 		t.Fatalf("example: ttl %d lookups %d", cfg.Ingress.SessionKeyCacheTTLBlocks, cfg.Ingress.SessionKeyLookupsPerSecond)
 	}
 }
+
+func TestLoadVRFKeyConfig(t *testing.T) {
+	t.Setenv("NEXUS_VRF_KEY_FILES", "/etc/nexus/vrf-2.key, /etc/nexus/vrf-1.key")
+	t.Setenv("NEXUS_VRF_KEY_PASSWORD_FILE", "/etc/nexus/vrf.pass")
+
+	cfg := Load()
+	if len(cfg.Identity.VRFKeyFiles) != 2 || cfg.Identity.VRFKeyFiles[0] != "/etc/nexus/vrf-2.key" || cfg.Identity.VRFKeyFiles[1] != "/etc/nexus/vrf-1.key" {
+		t.Fatalf("vrf key files = %q", cfg.Identity.VRFKeyFiles)
+	}
+	if cfg.Identity.VRFKeyPasswordFile != "/etc/nexus/vrf.pass" {
+		t.Fatalf("vrf key password file = %q", cfg.Identity.VRFKeyPasswordFile)
+	}
+}
+
+func TestLoadFileResolvesVRFKeyPathsAgainstTheConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nexus.yaml")
+	body := "identity:\n  vrf_key_files: [./vrf-2.key, /abs/vrf-1.key]\n  vrf_key_password_file: ./vrf.pass\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NEXUS_VRF_KEY_FILES", "")
+	t.Setenv("NEXUS_VRF_KEY_PASSWORD_FILE", "")
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(dir, "vrf-2.key"), "/abs/vrf-1.key"}
+	if len(cfg.Identity.VRFKeyFiles) != 2 || cfg.Identity.VRFKeyFiles[0] != want[0] || cfg.Identity.VRFKeyFiles[1] != want[1] {
+		t.Fatalf("vrf key files = %q, want %q", cfg.Identity.VRFKeyFiles, want)
+	}
+	if cfg.Identity.VRFKeyPasswordFile != filepath.Join(dir, "vrf.pass") {
+		t.Fatalf("vrf key password file = %q", cfg.Identity.VRFKeyPasswordFile)
+	}
+}

@@ -162,6 +162,13 @@ type IdentityConfig struct {
 	ServiceKeystorePassword     string `yaml:"service_keystore_password"`
 	ServiceKeystorePasswordFile string `yaml:"service_keystore_password_file"`
 
+	// VRFKeyFiles are the Builder VRF keys (Ed25519 in the Cosmos keystore armor, mode 0600, kept
+	// apart from the service key): the key registered on chain now, plus every earlier key still
+	// needed to prove orders of an epoch it was active in. The chain's registered key selects one.
+	VRFKeyFiles []string `yaml:"vrf_key_files"`
+	// VRFKeyPasswordFile holds the passphrase of every VRF key file (mode 0600).
+	VRFKeyPasswordFile string `yaml:"vrf_key_password_file"`
+
 	PublicEndpoint string `yaml:"public_endpoint"` // the public nexus endpoint registered on chain, e.g. https://builder.example:8080
 	Moniker        string `yaml:"moniker"`
 	P2PHint        string `yaml:"p2p_hint"`
@@ -633,6 +640,10 @@ func applyEnv(cfg *Config) {
 	cfg.Identity.ServiceKeystoreFile = env("NEXUS_SERVICE_KEYSTORE_FILE", cfg.Identity.ServiceKeystoreFile)
 	cfg.Identity.ServiceKeystorePassword = env("NEXUS_SERVICE_KEYSTORE_PASSWORD", cfg.Identity.ServiceKeystorePassword)
 	cfg.Identity.ServiceKeystorePasswordFile = env("NEXUS_SERVICE_KEYSTORE_PASSWORD_FILE", cfg.Identity.ServiceKeystorePasswordFile)
+	if v, ok := nonEmptyEnv("NEXUS_VRF_KEY_FILES"); ok {
+		cfg.Identity.VRFKeyFiles = splitNonEmpty(v)
+	}
+	cfg.Identity.VRFKeyPasswordFile = env("NEXUS_VRF_KEY_PASSWORD_FILE", cfg.Identity.VRFKeyPasswordFile)
 	cfg.Identity.PublicEndpoint = env("NEXUS_PUBLIC_ENDPOINT", cfg.Identity.PublicEndpoint)
 	cfg.Identity.Moniker = env("NEXUS_BUILDER_MONIKER", cfg.Identity.Moniker)
 	cfg.Identity.P2PHint = env("NEXUS_BUILDER_P2P_HINT", cfg.Identity.P2PHint)
