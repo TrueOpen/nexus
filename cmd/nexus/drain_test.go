@@ -91,3 +91,40 @@ func TestDrainCommandsDriveTheRunningDaemon(t *testing.T) {
 		t.Fatalf("drain end = %v (draining %t)\n%s", err, d.Draining(), out)
 	}
 }
+
+// A daemon that took the request but has not written its status since is told apart from one that
+// did not take it.
+func TestDrainBeginTakenButStatusNotWritten(t *testing.T) {
+	dataDir := configureOpsCommand(t)
+	go func() {
+		for {
+			if err := os.Remove(ops.DrainRequestPath(dataDir)); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	out, err := executeBuilderCommand("drain", "begin", "--wait", "1s")
+	if err != nil || !strings.Contains(out, "took the request") {
+		t.Fatalf("drain begin = %v\n%s", err, out)
+	}
+}
+
+// A status file not rewritten for several ticks is flagged: the daemon may not be running.
+func TestStaleStatusIsFlagged(t *testing.T) {
+	dataDir := configureOpsCommand(t)
+	old := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+	body := `{"written_at":"` + old + `","drain":{"phase":"DRAINED"},"readiness":{"ready":false}}`
+	if err := os.MkdirAll(ops.Dir(dataDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ops.StatusPath(dataDir), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"drain", "status"}, {"status"}} {
+		out, err := executeBuilderCommand(args...)
+		if err != nil || !strings.Contains(out, "may not be running") {
+			t.Fatalf("%v = %v\n%s", args, err, out)
+		}
+	}
+}

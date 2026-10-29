@@ -30,6 +30,9 @@ const ReadinessPath = "/readyz"
 const (
 	defaultInterval = 2 * time.Second
 	checkTimeout    = 5 * time.Second
+	// StatusStaleAfter is how old a status file may be before readers warn that the daemon may not
+	// be running: a few ticks of the default interval.
+	StatusStaleAfter = 3 * defaultInterval
 )
 
 // Check is one readiness condition; Run fails while new orders must not be taken.
@@ -70,8 +73,11 @@ type Config struct {
 	Metrics *opsmetrics.Registry
 	// Interval is the tick; 0 is two seconds.
 	Interval time.Duration
-	Now      func() time.Time
-	Log      *slog.Logger
+	// CheckTimeout bounds each chain-reading step of a tick (a readiness check, the drain check,
+	// a drain begin); 0 is five seconds.
+	CheckTimeout time.Duration
+	Now          func() time.Time
+	Log          *slog.Logger
 }
 
 // Monitor runs the ticks and serves their results.
@@ -92,6 +98,9 @@ func New(cfg Config) *Monitor {
 	if cfg.Interval <= 0 {
 		cfg.Interval = defaultInterval
 	}
+	if cfg.CheckTimeout <= 0 {
+		cfg.CheckTimeout = checkTimeout
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -102,14 +111,18 @@ func New(cfg Config) *Monitor {
 	return m
 }
 
-// Start runs one tick, then one per interval until Stop.
+// Start takes a drain request left on disk before it returns (a restart drains before the order
+// path resumes), then ticks in the background: at once, then once per interval until Stop.
 func (m *Monitor) Start(context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.Tick(ctx)
+	m.tickMu.Lock()
+	m.takeRequest(ctx)
+	m.tickMu.Unlock()
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
+		m.Tick(ctx)
 		ticker := time.NewTicker(m.cfg.Interval)
 		defer ticker.Stop()
 		for {
@@ -141,7 +154,9 @@ func (m *Monitor) Tick(ctx context.Context) Status {
 	m.takeRequest(ctx)
 	status := Status{Metrics: m.cfg.Metrics.Snapshot()}
 	if m.cfg.Drain != nil {
-		d := m.cfg.Drain.Check(ctx)
+		checkCtx, cancel := context.WithTimeout(ctx, m.cfg.CheckTimeout)
+		d := m.cfg.Drain.Check(checkCtx)
+		cancel()
 		status.Drain = &d
 	}
 	status.Readiness = m.check(ctx)
@@ -177,7 +192,9 @@ func (m *Monitor) takeRequest(ctx context.Context) {
 		m.log.Warn("drain request ignored: this Builder does not dispatch", "request", request)
 		return
 	case request == DrainBegin:
-		err = m.cfg.Drain.Begin(ctx)
+		beginCtx, cancel := context.WithTimeout(ctx, m.cfg.CheckTimeout)
+		err = m.cfg.Drain.Begin(beginCtx)
+		cancel()
 	default:
 		err = m.cfg.Drain.End()
 	}
@@ -198,7 +215,7 @@ func (m *Monitor) check(ctx context.Context) Readiness {
 		}})
 	}
 	for _, c := range checks {
-		checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
+		checkCtx, cancel := context.WithTimeout(ctx, m.cfg.CheckTimeout)
 		err := c.Run(checkCtx)
 		cancel()
 		if err == nil {

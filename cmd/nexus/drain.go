@@ -48,10 +48,14 @@ func newDrainRequestCmd(request, short string) *cobra.Command {
 			if err := ops.WriteDrainRequest(dataDir, request); err != nil {
 				return err
 			}
-			status, taken := waitForStatusAfter(dataDir, requested, wait)
-			if !taken {
+			status, outcome := waitForStatusAfter(dataDir, requested, wait)
+			switch outcome {
+			case requestNotTaken:
 				fmt.Fprintf(cmd.OutOrStdout(), "drain %s requested in %s; the daemon has not taken it yet (is it running?); it is applied at its next start\n",
 					request, ops.DrainRequestPath(dataDir))
+				return nil
+			case requestTaken:
+				fmt.Fprintf(cmd.OutOrStdout(), "drain %s: the daemon took the request but has not written its status since; check `nexus drain status`\n", request)
 				return nil
 			}
 			return printDrain(cmd, status)
@@ -90,6 +94,10 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return statusErr(err)
 			}
+			var s statusView
+			if json.Unmarshal(raw, &s) == nil {
+				warnStale(cmd, s)
+			}
 			_, err = cmd.OutOrStdout().Write(raw)
 			return err
 		},
@@ -121,19 +129,35 @@ func statusErr(err error) error {
 	return err
 }
 
+// How far the daemon got with a request when the wait ended.
+const (
+	requestNotTaken = iota
+	requestTaken
+	statusWritten
+)
+
 // waitForStatusAfter waits until the daemon took the request and wrote its status after since.
-func waitForStatusAfter(dataDir string, since time.Time, wait time.Duration) (statusView, bool) {
+func waitForStatusAfter(dataDir string, since time.Time, wait time.Duration) (statusView, int) {
 	deadline := time.Now().Add(wait)
 	for {
+		outcome := requestNotTaken
 		if _, err := os.Stat(ops.DrainRequestPath(dataDir)); errors.Is(err, os.ErrNotExist) {
+			outcome = requestTaken
 			if s, err := readStatus(dataDir); err == nil && s.WrittenAt.After(since) {
-				return s, true
+				return s, statusWritten
 			}
 		}
 		if !time.Now().Before(deadline) {
-			return statusView{}, false
+			return statusView{}, outcome
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// warnStale warns when the status file was not rewritten for several ticks.
+func warnStale(cmd *cobra.Command, s statusView) {
+	if age := time.Since(s.WrittenAt); age > ops.StatusStaleAfter {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: the status was written %s ago; the daemon may not be running\n", age.Round(time.Second))
 	}
 }
 
@@ -141,6 +165,7 @@ func printDrain(cmd *cobra.Command, s statusView) error {
 	if len(s.Drain) == 0 || string(s.Drain) == "null" {
 		return errors.New("this Builder does not dispatch: there is nothing to drain")
 	}
+	warnStale(cmd, s)
 	fmt.Fprintf(cmd.OutOrStdout(), "written_at: %s\n", s.WrittenAt.UTC().Format(time.RFC3339))
 	var pretty map[string]any
 	if err := json.Unmarshal(s.Drain, &pretty); err != nil {

@@ -14,6 +14,9 @@ import (
 const (
 	drainRequestFile = "drain-request"
 	statusFile       = "status.json"
+	// takenSuffix marks a request the daemon took: renamed before it is read, so a request
+	// written meanwhile is a new file and is never deleted unread.
+	takenSuffix = ".taken"
 )
 
 // Drain requests.
@@ -40,17 +43,25 @@ func WriteDrainRequest(dataDir, request string) error {
 	return writeFile(DrainRequestPath(dataDir), []byte(request+"\n"))
 }
 
-// takeDrainRequest reads and removes the drain request; false when there is none.
+// takeDrainRequest takes the drain request: renamed aside first, then read and removed; false
+// when there is none. A request left renamed by a crash is taken first.
 func takeDrainRequest(dataDir string) (string, bool, error) {
 	path := DrainRequestPath(dataDir)
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", false, nil
+	taken := path + takenSuffix
+	if _, err := os.Stat(taken); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(path, taken); errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		} else if err != nil {
+			return "", false, err
+		}
+	} else if err != nil {
+		return "", false, err
 	}
+	raw, err := os.ReadFile(taken)
 	if err != nil {
 		return "", false, err
 	}
-	if err := os.Remove(path); err != nil {
+	if err := os.Remove(taken); err != nil {
 		return "", false, err
 	}
 	request := strings.TrimSpace(string(raw))

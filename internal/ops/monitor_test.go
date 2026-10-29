@@ -180,3 +180,66 @@ func TestStatusFileHoldsTheDiagnosticsAndMetrics(t *testing.T) {
 		t.Fatal("written_at not set")
 	}
 }
+
+// Start takes a drain request left on disk before it returns, so a restart drains before the order
+// path resumes; the rest of the first tick runs in the background.
+func TestStartTakesTheDrainRequestFirst(t *testing.T) {
+	f := newFixture(t)
+	if err := WriteDrainRequest(f.dir, DrainBegin); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.m.Stop(context.Background()) }()
+	if !f.drain.Draining() {
+		t.Fatal("Start returned before taking the drain request")
+	}
+}
+
+// A chain read that hangs bounds the tick by the check timeout.
+func TestTickIsBoundedByTheCheckTimeout(t *testing.T) {
+	f := newFixture(t)
+	d, err := drain.New(drain.Config{
+		Store: f.store, LocalPubKey: localKey,
+		Key: func(ctx context.Context) (chaincli.ServiceKeyState, error) {
+			<-ctx.Done()
+			return chaincli.ServiceKeyState{}, ctx.Err()
+		},
+		Sources: drain.Sources{
+			InFlight: func() (int, *big.Int) { return 0, nil }, Records: func() int { return 0 },
+			Takeovers: func() int { return 0 }, Sync: func() []drain.SyncPending { return nil },
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(Config{DataDir: f.dir, Drain: d, CheckTimeout: 50 * time.Millisecond,
+		Checks: []Check{{Name: "chain", Run: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }}}})
+	if err := WriteDrainRequest(f.dir, DrainBegin); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	s := m.Tick(context.Background())
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("tick took %v", took)
+	}
+	if !d.Draining() || s.Readiness.Ready {
+		t.Fatalf("draining %t, readiness %+v", d.Draining(), s.Readiness)
+	}
+}
+
+// A request taken but not finished by a crash (left renamed) is applied on the next take.
+func TestTakenRequestLeftByACrashIsApplied(t *testing.T) {
+	f := newFixture(t)
+	if err := writeFile(DrainRequestPath(f.dir)+takenSuffix, []byte(DrainBegin+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	f.m.Tick(context.Background())
+	if !f.drain.Draining() {
+		t.Fatal("left request not applied")
+	}
+	if _, err := os.Stat(DrainRequestPath(f.dir) + takenSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("taken request left in place: %v", err)
+	}
+}

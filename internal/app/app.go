@@ -661,8 +661,13 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// Orders resume before streams are served, so the answers replayed to them find their tickets.
 		modules = insertBefore(modules, "dispatch-stream", module{"order-dispatch", orderPath.Start, orderPath.Stop})
 	}
-	// A drain request left while the daemon was down is applied before ingress takes orders.
-	modules = insertBefore(modules, "ingress", module{"ops", monitor.Start, monitor.Stop})
+	// A drain request left while the daemon was down is taken before the order path resumes its
+	// orders (which would otherwise issue tickets) and before ingress takes new ones.
+	opsBefore := "ingress"
+	if orderPath != nil {
+		opsBefore = "order-dispatch"
+	}
+	modules = insertBefore(modules, opsBefore, module{"ops", monitor.Start, monitor.Stop})
 
 	app := &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
