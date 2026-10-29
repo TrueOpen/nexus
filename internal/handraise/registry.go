@@ -40,8 +40,8 @@ const (
 )
 
 // Stream error codes of a refused handraise. The text of each is the code the stream layer
-// logs; none of them ends the stream. Any other error from Accept means the chain could not be
-// read (or local state could not be written) and the handraise may be sent again.
+// logs; none of them ends the stream. A handraise Accept could not judge fails with
+// ErrChainUnavailable or ErrStorage instead and may be sent again.
 var (
 	ErrInvalid     = errors.New("HANDRAISE_INVALID")
 	ErrNotEligible = errors.New("HANDRAISE_NOT_ELIGIBLE")
@@ -49,6 +49,13 @@ var (
 	// handraise_issued_height_tolerance_blocks. It is not the Cortex's fault, leaves no trace and
 	// does not end the stream; the next heartbeat is judged again.
 	ErrAhead = errors.New("HANDRAISE_AHEAD_OF_CHAIN")
+
+	// ErrChainUnavailable means a chain read Accept needs failed (height, CORTEX service key,
+	// candidate pool membership or profile support). The handraise is neither a verdict nor a trace;
+	// the Cortex re-signs it at its next heartbeat.
+	ErrChainUnavailable = errors.New("handraise chain read failed")
+	// ErrStorage means an accepted handraise could not be written to the local store.
+	ErrStorage = errors.New("handraise store write failed")
 )
 
 // ServiceKeys reads current service keys from the chain.
@@ -193,7 +200,7 @@ func (r *Registry) Accept(ctx context.Context, operator string, h *taskv1.Standi
 	}
 	height, err := r.opts.Height.LatestHeight(ctx)
 	if err != nil {
-		return fmt.Errorf("read chain height: %w", err)
+		return fmt.Errorf("%w: read chain height: %w", ErrChainUnavailable, err)
 	}
 	if h.GetExpiryHeight() < height {
 		return fmt.Errorf("%w: handraise expiring at %d is behind chain height %d", ErrInvalid, h.GetExpiryHeight(), height)
@@ -295,7 +302,7 @@ func (r *Registry) verify(ctx context.Context, operator string, got *held) error
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if err != nil {
-		return fmt.Errorf("read current CORTEX service key: %w", err)
+		return fmt.Errorf("%w: read current CORTEX service key: %w", ErrChainUnavailable, err)
 	}
 	if got.msg.GetServiceAuthorizationNonce() != nonce {
 		return fmt.Errorf("%w: service_authorization_nonce %d is not the current %d", ErrInvalid,
@@ -306,7 +313,7 @@ func (r *Registry) verify(ctx context.Context, operator string, got *held) error
 	}
 	member, err := r.opts.Pool.IsEligibleMember(ctx, got.msg.GetMember())
 	if err != nil {
-		return fmt.Errorf("read candidate pool: %w", err)
+		return fmt.Errorf("%w: read candidate pool: %w", ErrChainUnavailable, err)
 	}
 	if !member {
 		return fmt.Errorf("%w: operator is not an eligible candidate pool member", ErrNotEligible)
@@ -314,7 +321,7 @@ func (r *Registry) verify(ctx context.Context, operator string, got *held) error
 	for _, profile := range got.msg.GetProfiles() {
 		fresh, err := r.opts.Pool.HasFreshSupport(ctx, operator, profile)
 		if err != nil {
-			return fmt.Errorf("read profile support: %w", err)
+			return fmt.Errorf("%w: read profile support: %w", ErrChainUnavailable, err)
 		}
 		if !fresh {
 			return fmt.Errorf("%w: no fresh support for model %x profile %d", ErrNotEligible,

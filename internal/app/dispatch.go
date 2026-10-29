@@ -45,6 +45,8 @@ type directDispatch struct {
 	Groups   taskgroup.Source
 	Height   handraise.ChainHeight
 
+	chainWarn warnLimiter
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -125,17 +127,45 @@ func keepOnReplay(_ string, frame *nexusv1.DispatchStreamFrameV1) bool {
 
 // HandleStandingHandraise implements dispatchstream.HandraiseSink. A refused handraise
 // (HANDRAISE_INVALID, HANDRAISE_NOT_ELIGIBLE, HANDRAISE_AHEAD_OF_CHAIN) is dropped and the stream
-// goes on; a chain or store failure ends the stream so the Cortex sends the handraise again.
+// goes on. So is one whose chain reads failed: handraises are soft state the Cortex re-signs every
+// heartbeat, and ending every stream on a chain hiccup would only start a reconnect storm. Only a
+// failed store write ends the stream, leaving the frame unacknowledged so the Cortex resends it.
 func (d *directDispatch) HandleStandingHandraise(ctx context.Context, from dispatchstream.Origin, m *taskv1.StandingHandraiseV1) error {
 	err := d.Registry.Accept(ctx, from.Operator, m)
 	switch {
-	case err == nil:
+	case errors.Is(err, handraise.ErrChainUnavailable):
+		if suppressed, ok := d.chainWarn.allow(time.Now()); ok {
+			d.log.Warn("handraise dropped: chain read failed", "operator", from.Operator, "suppressed", suppressed, "err", err)
+		}
 		return nil
-	case errors.Is(err, handraise.ErrInvalid), errors.Is(err, handraise.ErrNotEligible), errors.Is(err, handraise.ErrAhead):
-		return err
-	default:
+	case errors.Is(err, handraise.ErrStorage):
 		return fmt.Errorf("%w: %v", dispatchstream.ErrTransient, err)
+	default:
+		return err
 	}
+}
+
+// handraiseChainWarnInterval spaces the warnings about handraises dropped on chain read failures:
+// during an outage every Cortex heartbeat fails the same way.
+const handraiseChainWarnInterval = time.Minute
+
+// warnLimiter lets one warning through per handraiseChainWarnInterval and counts the rest.
+type warnLimiter struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+// allow reports whether a warning may be logged now and how many were suppressed since the last.
+func (l *warnLimiter) allow(now time.Time) (suppressed int, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.last.IsZero() && now.Sub(l.last) < handraiseChainWarnInterval {
+		l.suppressed++
+		return 0, false
+	}
+	suppressed, l.suppressed, l.last = l.suppressed, 0, now
+	return suppressed, true
 }
 
 // directDispatchDeps are what newDirectDispatch wires together.

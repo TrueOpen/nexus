@@ -200,23 +200,47 @@ func TestInvalidHandraiseKeepsTheCurrentOne(t *testing.T) {
 	}
 }
 
-// A chain lookup failure is neither a verdict nor a trace: the caller may retry.
+// A chain lookup failure is neither a verdict nor a trace: it wraps ErrChainUnavailable and the
+// caller may retry.
 func TestAcceptChainFailureIsNotAVerdict(t *testing.T) {
 	e := newEnv(t)
 	c := e.addCortex(0x11, 4)
-	e.keys.err = errors.New("node down")
-	err := e.accept(c, e.handraise(c, 100, 1))
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
-		t.Fatalf("err = %v, want a lookup failure", err)
-	}
-	e.keys.err = nil
-	e.pool.err = errors.New("node down")
-	err = e.accept(c, e.handraise(c, 100, 1))
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
-		t.Fatalf("err = %v, want a lookup failure", err)
+	down := errors.New("node down")
+	for _, tc := range []struct {
+		name        string
+		fail, clear func()
+	}{
+		{"height", func() { e.height.err = down }, func() { e.height.err = nil }},
+		{"cortex key", func() { e.keys.err = down }, func() { e.keys.err = nil }},
+		{"candidate pool", func() { e.pool.err = down }, func() { e.pool.err = nil }},
+		{"profile support", func() { e.pool.supportErr = down }, func() { e.pool.supportErr = nil }},
+	} {
+		tc.fail()
+		err := e.accept(c, e.handraise(c, 100, 1))
+		tc.clear()
+		if !errors.Is(err, ErrChainUnavailable) || errors.Is(err, ErrStorage) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
+			t.Fatalf("%s: err = %v, want ErrChainUnavailable only", tc.name, err)
+		}
 	}
 	if root := e.issue(); root != nil {
 		t.Fatalf("lookup failures left leaves: %v", root.Leaves)
+	}
+}
+
+// A failed write of the accepted handraise wraps ErrStorage and does not make it current.
+func TestAcceptStoreFailureIsStorageError(t *testing.T) {
+	e := newEnv(t)
+	store := &failingStore{Store: e.store}
+	e.store = store
+	e.reg = e.open()
+	c := e.addCortex(0x11, 4)
+	store.err = errors.New("disk full")
+	err := e.accept(c, e.handraise(c, 100, 1))
+	if !errors.Is(err, ErrStorage) || errors.Is(err, ErrChainUnavailable) {
+		t.Fatalf("err = %v, want ErrStorage", err)
+	}
+	if _, ok := e.reg.Current(c.operator()); ok {
+		t.Fatal("handraise became current although it was not stored")
 	}
 }
 

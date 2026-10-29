@@ -85,14 +85,14 @@ type thresholdRecord struct {
 func (r *Registry) persistCurrent(operator string, h *held) error {
 	raw, err := json.Marshal(currentRecord{Handraise: h.raw, ReceivedUnixMs: h.receivedAt.UnixMilli()})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: encode handraise record: %w", ErrStorage, err)
 	}
 	// The watermark has its own key: expiry deletes the current handraise, never the watermark.
 	if err := r.opts.Store.WriteBatch(
 		kv.WriteOp{NS: kv.NSHandraise, Key: currentKey(operator), Val: raw},
 		kv.WriteOp{NS: kv.NSHandraise, Key: watermarkKey(operator), Val: encodeOrder(orderOf(h.msg))},
 	); err != nil {
-		return fmt.Errorf("store handraise: %w", err)
+		return fmt.Errorf("%w: %w", ErrStorage, err)
 	}
 	return nil
 }

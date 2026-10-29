@@ -140,7 +140,57 @@ func writePrivate(t *testing.T, path string, data []byte) string {
 	return path
 }
 
+// countingHandler counts log records by level.
+type countingHandler struct {
+	mu     sync.Mutex
+	counts map[slog.Level]int
+}
+
+func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.counts == nil {
+		h.counts = map[slog.Level]int{}
+	}
+	h.counts[r.Level]++
+	return nil
+}
+func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *countingHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *countingHandler) count(level slog.Level) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.counts[level]
+}
+
+// failingStore fails every batch write while err is set.
+type failingStore struct {
+	kv.Store
+	mu  sync.Mutex
+	err error
+}
+
+func (s *failingStore) setErr(err error) {
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
+}
+
+func (s *failingStore) WriteBatch(ops ...kv.WriteOp) error {
+	s.mu.Lock()
+	err := s.err
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.Store.WriteBatch(ops...)
+}
+
 type wiringFixture struct {
+	store   *failingStore
+	logs    *countingHandler
 	chain   *wiringChain
 	builder signer.Signer
 	cortex  signer.Signer
@@ -174,14 +224,15 @@ func newWiringFixture(t *testing.T) *wiringFixture {
 			cortex.Address() + "/" + string(model): {InPool: true, Slot: 4, SlotVersion: 1, ProfileSupportFresh: &fresh},
 		},
 	}
-	store := kv.NewMemStore()
+	store := &failingStore{Store: kv.NewMemStore()}
+	logs := &countingHandler{}
 	hub, err := dispatchstream.New(nil, dispatchstream.Config{ChainID: wiringChainID, BuilderOperator: builder.Address()}, noCortexKeys{}, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Load().Dispatch
-	f := &wiringFixture{chain: chain, builder: builder, cortex: cortex, groups: &groupSource{}, streams: &recordingStreams{},
-		d: &directDispatch{log: slog.New(slog.DiscardHandler)}}
+	f := &wiringFixture{store: store, logs: logs, chain: chain, builder: builder, cortex: cortex, groups: &groupSource{},
+		streams: &recordingStreams{}, d: &directDispatch{log: slog.New(logs)}}
 	if err := newDirectDispatch(f.d, directDispatchDeps{
 		ChainID: wiringChainID, BuilderAddress: builder.Address(), AddressPrefix: wiringPrefix, Config: cfg,
 		VRFKeyFiles: []string{keyFile}, VRFKeyPassword: passFile, Store: store, Chain: chain, Keys: chain,
@@ -273,7 +324,8 @@ func TestDirectDispatchWiring(t *testing.T) {
 	}
 }
 
-// Refused handraises keep the stream; a chain failure ends it so the Cortex resends.
+// Refused handraises keep the stream, and so does a chain read failure: the handraise is dropped
+// and re-signed at the next heartbeat. Only a failed store write ends the stream.
 func TestHandraiseSinkErrorMapping(t *testing.T) {
 	f := newWiringFixture(t)
 	ctx := context.Background()
@@ -293,8 +345,23 @@ func TestHandraiseSinkErrorMapping(t *testing.T) {
 	f.chain.mu.Lock()
 	f.chain.keyErr = errors.New("endpoint unavailable")
 	f.chain.mu.Unlock()
+	for range 2 {
+		if err := f.d.HandleStandingHandraise(ctx, from, f.handraise(t)); err != nil {
+			t.Fatalf("chain failure: err = %v, want the handraise dropped", err)
+		}
+	}
+	if got := f.logs.count(slog.LevelWarn); got != 1 {
+		t.Fatalf("chain failures logged %d warnings, want 1", got)
+	}
+	if _, ok := f.d.Registry.Current(f.cortex.Address()); ok {
+		t.Fatal("a handraise was accepted without its chain reads")
+	}
+	f.chain.mu.Lock()
+	f.chain.keyErr = nil
+	f.chain.mu.Unlock()
+	f.store.setErr(errors.New("disk full"))
 	if err := f.d.HandleStandingHandraise(ctx, from, f.handraise(t)); !errors.Is(err, dispatchstream.ErrTransient) {
-		t.Fatalf("chain failure: err = %v", err)
+		t.Fatalf("store failure: err = %v, want ErrTransient", err)
 	}
 }
 
