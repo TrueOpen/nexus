@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package buildersync.v1;
+
+import "nexus/v1/ingress.proto";
+import "task/v1/dispatch.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/buildersync/v1;buildersyncv1";
+
+// BuilderSyncService keeps the members of a Task Builders group in step with the order's
+// dispatching Builder. It is a nexus-to-nexus interface: the dispatching Builder calls it on every
+// other member of the order's BuilderSet snapshot.
+//
+// Each order (session_id, order_sequence) is one ordered sync stream on the sender. Its items are
+// numbered from 1 without gaps; a receiver applies item n only after n-1, skips items it already
+// holds and answers with the last item it holds, so a batch can be resent at any time. The output
+// frames of the recorded winner follow their own frame sequence.
+service BuilderSyncService {
+  // Sync delivers the next items and output frames of one order's sync stream.
+  rpc Sync(SyncRequest) returns (SyncResponse);
+}
+
+// SyncRequest carries one signed batch.
+message SyncRequest {
+  // batch is the exact bytes of a BuilderSyncBatchV1.
+  bytes batch = 1;
+  // sender_signature is the sender's current BUILDER service key signature (64-byte compact
+  // secp256k1) over H_FIELDS_V1("TRUEOPEN_NEXUS_BUILDER_SYNC_V1", chain_id,
+  // sender_operator_address, batch) with chain_id and sender_operator_address as in the batch.
+  bytes sender_signature = 2;
+}
+
+// SyncResponse is the receiver's progress on the order after the batch.
+message SyncResponse {
+  // applied_through is the last item sequence the receiver holds; 0 when none.
+  uint64 applied_through = 1;
+  // output_received is set once the receiver holds an output frame of the winner;
+  // output_last_seq is then the last frame seq it holds.
+  bool output_received = 2;
+  uint64 output_last_seq = 3;
+  // output_sealed is set once the receiver holds the winner's Fin.
+  bool output_sealed = 4;
+  // refused names why the receiver stopped before the end of the batch; empty when it applied
+  // everything.
+  string refused = 5;
+}
+
+// BuilderSyncBatchV1 is a run of consecutive items of one order's sync stream, addressed to one
+// group member, with output frames of the recorded winner.
+message BuilderSyncBatchV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  // sender_operator_address is the order's dispatching Builder.
+  string sender_operator_address = 3;
+  // receiver_operator_address is the group member the batch is for.
+  string receiver_operator_address = 4;
+  bytes session_id = 5;
+  uint64 order_sequence = 6;
+  // builder_set_id and builder_set_hash name the BuilderSet snapshot whose members form the
+  // order's Task Builders group; the order, once synced, must name the same snapshot.
+  string builder_set_id = 7;
+  bytes builder_set_hash = 8;
+  repeated BuilderSyncItemV1 items = 9;
+  // output carries frames of the recorded winner; it is only sent after the order item.
+  optional BuilderSyncOutputV1 output = 10;
+}
+
+// BuilderSyncItemV1 is one change of the order's dispatch.
+message BuilderSyncItemV1 {
+  // sequence numbers the order's items from 1 without gaps.
+  uint64 sequence = 1;
+  oneof item {
+    BuilderSyncRoundV1 round = 2;
+    BuilderSyncInputChunkV1 input_chunk = 3;
+    BuilderSyncAttemptV1 attempt = 4;
+    BuilderSyncRecordV1 record = 5;
+    BuilderSyncOrderV1 order = 6;
+  }
+}
+
+// BuilderSyncRoundV1 is a dispatch round, sent once its first ticket was signed.
+message BuilderSyncRoundV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  uint64 vrf_epoch = 3;
+  uint32 dispatch_round = 4;
+  // roster is the exact bytes of the round's DispatchRosterV1 and roster_hash its digest.
+  bytes roster = 5;
+  bytes roster_hash = 6;
+  // handraise_root is the exact bytes of the SignedHandraiseRootV1 the round's tickets bind.
+  bytes handraise_root = 7;
+  // earliest_submit_height is the order's; claims on the order's tickets open from it.
+  uint64 earliest_submit_height = 8;
+}
+
+// BuilderSyncInputChunkV1 is a piece of the order version's input, sent with its first round.
+message BuilderSyncInputChunkV1 {
+  bytes task_hash = 1;
+  // input_hash is sha256 of the whole input, the ticket's input_hash.
+  bytes input_hash = 2;
+  uint64 input_size_bytes = 3;
+  string media_type = 4;
+  uint64 offset = 5;
+  bytes data = 6;
+}
+
+// BuilderSyncAttemptV1 is a ticket and what came of it, sent when the ticket is issued and every
+// time its outcome changes.
+message BuilderSyncAttemptV1 {
+  // ticket is the exact bytes of the signed DispatchTicketV1.
+  bytes ticket = 1;
+  // sent is false for a ticket that never reached its target.
+  bool sent = 2;
+  // outcome is UNSPECIFIED while the ticket is out.
+  task.v1.DispatchAttemptOutcomeV1 outcome = 3;
+  // reject is the exact bytes of the target's DispatchRejectV1 of a REJECTED attempt.
+  bytes reject = 4;
+  // late_accept is the exact bytes of the DispatchAcceptV1 of an attempt VOIDED because its
+  // accept came too late to be recorded.
+  bytes late_accept = 5;
+  // accept is the exact bytes of the winner's DispatchAcceptV1 of an ACCEPTED attempt.
+  bytes accept = 6;
+}
+
+// BuilderSyncRecordV1 is the signed record of the order: the record of its dispatch entry once a
+// Worker accepted, or one without a winner.
+message BuilderSyncRecordV1 {
+  // record is the exact bytes of the signed DispatchRecordV1.
+  bytes record = 1;
+}
+
+// BuilderSyncOrderV1 is sent only after the chain admitted the order's dispatch entry: a member
+// holding the user's order earlier could take the session over.
+message BuilderSyncOrderV1 {
+  // signed_order is the exact bytes of the SignedOrderV2.
+  bytes signed_order = 1;
+  // result_header is the exact bytes of the dispatching Builder's DispatchResultHeaderV1 at
+  // RECORDED: a member resuming the output sends it first.
+  bytes result_header = 2;
+}
+
+// BuilderSyncOutputV1 is a run of output frames of the recorded winner.
+message BuilderSyncOutputV1 {
+  bytes dispatch_ticket_hash = 1;
+  // winner_ticket is the exact bytes of the winner's signed DispatchTicketV1.
+  bytes winner_ticket = 2;
+  // dispatch_accept_digest is the winner's DispatchAcceptV1 signing digest.
+  bytes dispatch_accept_digest = 3;
+  // chunks follow each other by seq, as the Worker signed them.
+  repeated nexus.v1.OutputChunkV1 chunks = 4;
+  // fin is the Worker's Fin, after the last chunk.
+  optional nexus.v1.OutputFinV1 fin = 5;
+}
