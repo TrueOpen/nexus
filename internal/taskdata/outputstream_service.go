@@ -46,18 +46,12 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 	if err := s.outputStream.validate(); err != nil {
 		return nil, OutputStreamProgress{}, err
 	}
-	_, height, workerPub, err := s.authorizer.AuthorizeOutputStream(ctx, request, header.Key, header.TaskHash, header.Declaration.DispatchTicketHash)
-	if err != nil {
-		return nil, OutputStreamProgress{}, err
-	}
+	// The declared shape comes first: a malformed header (a dispatch_ticket_hash that is not 32
+	// bytes, say) is refused as malformed before the attempt book is asked about its ticket.
 	taskHash, err := hex.DecodeString(header.TaskHash)
 	if err != nil || len(taskHash) != sha256.Size {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: task_hash", ErrMalformed)
 	}
-	// The declaration binds the stream to the selected Worker's service key on its own, apart from
-	// the request authorization, which only says who is calling. It is checked before the nonce is
-	// consumed and before the stream is opened, so a forged header can neither burn a nonce nor take
-	// over a live stream.
 	declaration := nodecontract.OutputStreamHeader{
 		ChainID: s.authorizer.cfg.ChainID, TaskHash: taskHash,
 		DispatchTicketHash: header.Declaration.DispatchTicketHash, StreamInstance: header.Declaration.StreamInstance,
@@ -68,6 +62,14 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 	if err := declaration.ValidatePlaintext(); err != nil {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream header: %v", ErrMalformed, err)
 	}
+	_, height, workerPub, err := s.authorizer.AuthorizeOutputStream(ctx, request, header.Key, header.TaskHash, header.Declaration.DispatchTicketHash)
+	if err != nil {
+		return nil, OutputStreamProgress{}, err
+	}
+	// The declaration binds the stream to the selected Worker's service key on its own, apart from
+	// the request authorization, which only says who is calling. It is checked before the nonce is
+	// consumed and before the stream is opened, so a forged header can neither burn a nonce nor take
+	// over a live stream.
 	headerDigest, err := declaration.SigningDigest()
 	if err != nil {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream header: %v", ErrMalformed, err)

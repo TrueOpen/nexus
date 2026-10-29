@@ -83,6 +83,12 @@ func outputStreamKey() ObjectKey {
 // open sends a stream header for ticket signed by caller's service key.
 func (p *phase1Fixture) open(t *testing.T, caller, callerService signer.Signer, ticket [32]byte, nonce byte) (*OutputStreamSession, OutputStreamProgress, error) {
 	t.Helper()
+	return p.openTicket(t, caller, callerService, ticket[:], nonce)
+}
+
+// openTicket is open with the header's dispatch_ticket_hash given as bytes, of any length.
+func (p *phase1Fixture) openTicket(t *testing.T, caller, callerService signer.Signer, ticket []byte, nonce byte) (*OutputStreamSession, OutputStreamProgress, error) {
+	t.Helper()
 	key := outputStreamKey()
 	body, err := OutputStreamBodyDigest(key)
 	if err != nil {
@@ -90,17 +96,18 @@ func (p *phase1Fixture) open(t *testing.T, caller, callerService signer.Signer, 
 	}
 	request := signedRequestAs(t, caller.Address(), callerService, MethodUploadStream, key, body[:], nonce, 110)
 	declaration := OutputStreamHeaderRecord{
-		DispatchTicketHash: ticket[:], StreamInstance: 1,
+		DispatchTicketHash: ticket, StreamInstance: 1,
 		OutputKeyCommitment: make([]byte, 32), KeyPackageHash: make([]byte, 32),
 	}
 	digest, err := nodecontract.OutputStreamHeader{
-		ChainID: testChainID, TaskHash: mustDecodeHex(t, testTaskHash), DispatchTicketHash: ticket[:], StreamInstance: 1,
+		ChainID: testChainID, TaskHash: mustDecodeHex(t, testTaskHash), DispatchTicketHash: ticket, StreamInstance: 1,
 		OutputKeyCommitment: declaration.OutputKeyCommitment, KeyPackageHash: declaration.KeyPackageHash,
 	}.SigningDigest()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		declaration.WorkerSignature = signDigestForTest(t, callerService, digest[:])
+	} else {
+		declaration.WorkerSignature = make([]byte, 64) // a malformed header has no digest to sign
 	}
-	declaration.WorkerSignature = signDigestForTest(t, callerService, digest[:])
 	return p.service.OpenOutputStream(context.Background(), request,
 		OutputStreamHeader{Key: key, TaskHash: testTaskHash, Declaration: declaration})
 }
@@ -188,6 +195,23 @@ func TestStreamOpenNeedsTheLiveWinnerTicket(t *testing.T) {
 	p.accept(p.worker.Address(), ticket, attempt.Recorded)
 	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 6); err != nil {
 		t.Fatalf("recorded attempt: %v", err)
+	}
+}
+
+// The header's declared shape is checked before the attempt book: a dispatch_ticket_hash that is
+// not 32 bytes is malformed, not a stale attempt, and no nonce is burnt on it.
+func TestMalformedHeaderTicketIsMalformedNotStale(t *testing.T) {
+	p := newPhase1Fixture(t)
+	ticket := ticketOf(0x71)
+	p.accept(p.worker.Address(), ticket, attempt.Pending)
+	for i, raw := range [][]byte{ticket[:31], append(ticket[:], 0x00), nil} {
+		_, _, err := p.openTicket(t, p.worker, p.workerService, raw, 1)
+		if !errors.Is(err, ErrMalformed) || errors.Is(err, ErrAttemptStale) {
+			t.Fatalf("ticket of %d bytes (case %d): %v", len(raw), i, err)
+		}
+	}
+	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 1); err != nil {
+		t.Fatalf("well-formed header after the malformed ones: %v", err)
 	}
 }
 
