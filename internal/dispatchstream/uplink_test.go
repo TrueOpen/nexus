@@ -364,17 +364,24 @@ func TestUplinkReceiverRefusalIsAcknowledged(t *testing.T) {
 	}
 }
 
-// A cursor already applied on this stream is dropped without reaching the receiver again.
-func TestUplinkDuplicateCursorIsDropped(t *testing.T) {
+// An acknowledgement of zero acknowledges nothing: the message stays retained and the stream goes on.
+func TestAckZeroAcknowledgesNothing(t *testing.T) {
 	h := newHarness(t)
 	s := h.connect(cortexA, "1")
-	frame := acceptFrame(h.keys.accept(t, cortexA, "a"))
-	cursor := s.send(frame)
-	s.stream.nextAck(t)
-	s.stream.in <- &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce, Cursor: cursor, Message: frame.GetMessage()}
+	if err := h.hub.Send(context.Background(), cortexA, offer("a")); err != nil {
+		t.Fatal(err)
+	}
+	s.stream.nextBusiness(t)
+	s.ack(0)
 	s.stream.quiet(t)
-	if got := h.sinks.kinds(); len(got) != 1 {
-		t.Fatalf("routed %v, want one accept", got)
+	if !h.hub.Connected(cortexA) {
+		t.Fatal("ack 0 ended the stream")
+	}
+	h.hub.mu.Lock()
+	pending := len(h.hub.pending[cortexA])
+	h.hub.mu.Unlock()
+	if pending != 1 {
+		t.Fatalf("%d messages retained after ack 0, want 1", pending)
 	}
 }
 
@@ -406,6 +413,40 @@ func TestUplinkProtocolViolationsEndTheStream(t *testing.T) {
 		}},
 		{"empty frame", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
 			return &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce, Cursor: 1}
+		}},
+		{"first business cursor is not 1", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			f := acceptFrame(h.keys.accept(t, cortexA, "a"))
+			f.StreamNonce, f.Cursor = s.nonce, 2
+			return f
+		}},
+		{"business cursor skips one", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			s.send(acceptFrame(h.keys.accept(t, cortexA, "a")))
+			s.stream.nextAck(t)
+			f := acceptFrame(h.keys.accept(t, cortexA, "b"))
+			f.StreamNonce, f.Cursor = s.nonce, 3
+			return f
+		}},
+		{"business cursor repeated", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			frame := acceptFrame(h.keys.accept(t, cortexA, "a"))
+			cursor := s.send(frame)
+			s.stream.nextAck(t)
+			return &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce, Cursor: cursor, Message: frame.GetMessage()}
+		}},
+		{"ack with a cursor", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			return &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce, Cursor: 1,
+				Message: &nexusv1.DispatchStreamFrameV1_Ack{Ack: &nexusv1.StreamAckV1{}}}
+		}},
+		{"keepalive with a cursor", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			return &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce, Cursor: 1,
+				Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: 1}}}
+		}},
+		{"ack beyond the last cursor sent", func(h *harness, s *served) *nexusv1.DispatchStreamFrameV1 {
+			if err := h.hub.Send(context.Background(), cortexA, offer("a")); err != nil {
+				t.Fatal(err)
+			}
+			s.stream.nextBusiness(t)
+			return &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce,
+				Message: &nexusv1.DispatchStreamFrameV1_Ack{Ack: &nexusv1.StreamAckV1{AckedCursor: 2}}}
 		}},
 	}
 	for _, c := range cases {

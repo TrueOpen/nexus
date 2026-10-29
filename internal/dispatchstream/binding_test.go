@@ -111,6 +111,21 @@ func TestBindingRefusals(t *testing.T) {
 			f.StreamNonce = hash32("other")
 			return f
 		}, ErrBindingInvalid},
+		// Wire computes no signing digest for these, so they carry an arbitrary signature.
+		{"stream_nonce shorter than 32 bytes", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			return bindingFrame(unsignedBinding(cortexA, 1, hash32("n")[:31]))
+		}, ErrBindingInvalid},
+		{"stream_nonce longer than 32 bytes", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			return bindingFrame(unsignedBinding(cortexA, 1, append(hash32("n"), 0)))
+		}, ErrBindingInvalid},
+		{"schema_version 2", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			return bindingFrame(unsignedBinding(cortexA, 2, hash32("n")))
+		}, ErrBindingInvalid},
+		{"binding frame with a cursor", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			f := bindingFrame(h.keys.binding(h.t, cortexA, hash32("n")))
+			f.Cursor = 1
+			return f
+		}, ErrBindingInvalid},
 		{"chain unreadable", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
 			h.keys.setTransient(true)
 			return bindingFrame(h.keys.binding(h.t, cortexA, hash32("n")))
@@ -127,6 +142,14 @@ func TestBindingRefusals(t *testing.T) {
 				t.Fatal("a refused stream is connected")
 			}
 		})
+	}
+}
+
+// unsignedBinding is a binding with an arbitrary 64-byte signature.
+func unsignedBinding(operator string, schemaVersion uint32, streamNonce []byte) *nexusv1.DispatchStreamBindingV1 {
+	return &nexusv1.DispatchStreamBindingV1{
+		SchemaVersion: schemaVersion, ChainId: testChainID, BuilderOperator: testBuilder, CortexOperator: operator,
+		ServiceAuthorizationNonce: testNonce, StreamNonce: streamNonce, ServiceSignature: make([]byte, 64),
 	}
 }
 

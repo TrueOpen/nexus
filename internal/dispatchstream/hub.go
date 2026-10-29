@@ -1,12 +1,14 @@
 // Package dispatchstream serves the Cortex dispatch streams of one Builder.
 //
 // Every Cortex Node keeps one outbound duplex stream to each Builder it chose. The first frame binds
-// the stream to the Cortex's current service key; every later business message carries its own
-// service signature and is verified one by one before it reaches the rest of the Builder. Each
-// direction numbers its business frames with a cursor scoped to the stream_nonce of the binding and
-// the peer acknowledges them with StreamAckV1. Builder-signed downlink messages that are not
+// the stream to the Cortex's current service key and a fresh 32-byte stream_nonce; every later
+// business message carries its own service signature and is verified one by one before it reaches
+// the rest of the Builder. Each direction numbers its business frames 1, 2, ... without gaps, scoped
+// to the stream_nonce of the binding, and the peer acknowledges them cumulatively with StreamAckV1;
+// binding, ack and keepalive frames carry cursor 0. Builder-signed downlink messages that are not
 // acknowledged yet are kept in the stream_session namespace as the exact bytes first sent and are
-// sent again, renumbered but byte for byte unchanged, when the Cortex reconnects.
+// sent again when the Cortex reconnects: renumbered from 1 on the new stream, byte for byte
+// unchanged.
 //
 // The transport is the FrameStream interface: the IngressAPI DispatchStream handler adapts a Connect
 // bidirectional stream to it, and tests use an in-memory one.

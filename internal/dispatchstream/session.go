@@ -31,7 +31,7 @@ type session struct {
 	srtt       time.Duration
 
 	// owned by the Serve goroutine
-	lastUplink uint64
+	lastUplink uint64 // cursor of the last business frame received; the next must be lastUplink+1
 	probes     map[uint64]time.Time
 }
 
@@ -236,31 +236,40 @@ func (h *Hub) sendLoop(s *session) error {
 	}
 }
 
-// handleFrame applies one frame received after the binding.
+// handleFrame applies one frame received after the binding. Acks and keepalives carry cursor 0;
+// business frames carry the cursors 1, 2, ... of this stream without a gap or a repeat (a resent
+// message comes on a new stream, under its new binding). An ack may not exceed the last cursor
+// this side numbered; zero acknowledges nothing.
 func (h *Hub) handleFrame(ctx context.Context, s *session, frame *nexusv1.DispatchStreamFrameV1) error {
 	if !bytes.Equal(frame.GetStreamNonce(), s.streamNonce) {
 		return fmt.Errorf("%w: frame stream_nonce is not the bound one", ErrProtocol)
 	}
+	cursor := frame.GetCursor()
 	switch m := frame.GetMessage().(type) {
 	case *nexusv1.DispatchStreamFrameV1_Ack:
+		if cursor != 0 {
+			return fmt.Errorf("%w: ack with cursor %d", ErrProtocol, cursor)
+		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		if h.sessions[s.operator] != s {
 			return nil
 		}
+		if acked := m.Ack.GetAckedCursor(); acked >= s.nextCursor {
+			return fmt.Errorf("%w: ack of cursor %d, last sent %d", ErrProtocol, acked, s.nextCursor-1)
+		}
 		return h.ackLocked(s, m.Ack.GetAckedCursor())
 	case *nexusv1.DispatchStreamFrameV1_Keepalive:
+		if cursor != 0 {
+			return fmt.Errorf("%w: keepalive with cursor %d", ErrProtocol, cursor)
+		}
 		h.keepaliveReceived(s, m.Keepalive.GetSentAtMs())
 		return nil
 	case nil:
 		return fmt.Errorf("%w: frame carries no message", ErrProtocol)
 	}
-	cursor := frame.GetCursor()
-	if cursor == 0 {
-		return fmt.Errorf("%w: business frame without a cursor", ErrProtocol)
-	}
-	if cursor <= s.lastUplink {
-		return nil // already applied on this stream
+	if cursor != s.lastUplink+1 {
+		return fmt.Errorf("%w: business frame cursor %d, want %d", ErrProtocol, cursor, s.lastUplink+1)
 	}
 	if err := h.handleUplink(ctx, s.operator, frame); err != nil {
 		if errors.Is(err, ErrTransient) || errors.Is(err, ErrProtocol) {

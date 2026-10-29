@@ -17,28 +17,29 @@ import (
 )
 
 const (
-	bindingMessage       = "nexus.v1.DispatchStreamBindingV1"
-	bindingSchemaVersion = 1
-	maxStreamNonceBytes  = 64
-	bindKeyPrefix        = "bind|"
+	bindingMessage = "nexus.v1.DispatchStreamBindingV1"
+	bindKeyPrefix  = "bind|"
 )
 
-// verifyBinding checks the first frame of a stream: a DispatchStreamBindingV1 for this chain and
-// this Builder, signed over its wire signing digest by the cortex operator's current CORTEX key
-// with that key's authorization nonce. It does not record the binding (see claimBindingLocked).
+// verifyBinding checks the first frame of a stream: a DispatchStreamBindingV1 of schema version 1
+// with a 32-byte stream_nonce, carried with cursor 0, for this chain and this Builder, signed over
+// its wire signing digest by the cortex operator's current CORTEX key with that key's
+// authorization nonce. It does not record the binding (see claimBindingLocked).
 func (h *Hub) verifyBinding(ctx context.Context, frame *nexusv1.DispatchStreamFrameV1) (*nexusv1.DispatchStreamBindingV1, error) {
 	binding := frame.GetBinding()
 	switch {
 	case binding == nil:
 		return nil, fmt.Errorf("%w: the first frame must be a binding", ErrBindingInvalid)
-	case binding.GetSchemaVersion() != bindingSchemaVersion:
+	case frame.GetCursor() != 0:
+		return nil, fmt.Errorf("%w: the binding frame must carry cursor 0", ErrBindingInvalid)
+	case binding.GetSchemaVersion() != dispatch.StreamSchemaVersion:
 		return nil, fmt.Errorf("%w: schema_version %d", ErrBindingInvalid, binding.GetSchemaVersion())
 	case binding.GetChainId() != h.cfg.ChainID:
 		return nil, fmt.Errorf("%w: chain_id %q is not this chain", ErrBindingInvalid, binding.GetChainId())
 	case h.cfg.BuilderOperator == "" || binding.GetBuilderOperator() != h.cfg.BuilderOperator:
 		return nil, fmt.Errorf("%w: builder_operator is not this Builder", ErrBindingInvalid)
-	case len(binding.GetStreamNonce()) == 0 || len(binding.GetStreamNonce()) > maxStreamNonceBytes:
-		return nil, fmt.Errorf("%w: stream_nonce must be 1..%d bytes", ErrBindingInvalid, maxStreamNonceBytes)
+	case len(binding.GetStreamNonce()) != dispatch.StreamNonceSize:
+		return nil, fmt.Errorf("%w: stream_nonce must be %d bytes", ErrBindingInvalid, dispatch.StreamNonceSize)
 	case !bytes.Equal(frame.GetStreamNonce(), binding.GetStreamNonce()):
 		return nil, fmt.Errorf("%w: frame stream_nonce differs from the binding", ErrBindingInvalid)
 	}
