@@ -185,7 +185,7 @@ func (h *registeredKeyHeader) signEnvelopeWithWallet(t *testing.T) {
 }
 
 func (h *registeredKeyHeader) validate() error {
-	_, _, err := h.svc.validateOpenTaskHeader(context.Background(), h.header)
+	_, _, _, err := h.svc.validateOpenTaskHeader(context.Background(), h.header)
 	return err
 }
 

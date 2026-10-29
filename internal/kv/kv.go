@@ -70,6 +70,10 @@ const (
 	// binding and the Builder-signed downlink messages a Cortex has not acknowledged yet, as the
 	// exact bytes first sent (package dispatchstream).
 	NSStreamSession Namespace = "stream_session"
+	// NSInflight holds the in-flight order ledger: per session, the orders this Builder dispatched
+	// whose dispatch entry the chain has not admitted yet, the suspension mark and the pending order
+	// cancellations (package inflight).
+	NSInflight Namespace = "inflight"
 )
 
 type Store interface {
