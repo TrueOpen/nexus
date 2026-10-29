@@ -68,9 +68,9 @@ func withinStickyLimits(s *taskv1.DispatchStickySnapshotV1, params StickyParams,
 	if s.GetRunCount() >= params.MaxOrders {
 		return false
 	}
-	// An order may carry an earliest_submit_height below the anchor's record height (it was
-	// signed before the anchor order was recorded); that is inside the window.
-	return esh <= s.GetAnchorHeight() || esh-s.GetAnchorHeight() <= params.WindowBlocks
+	// Heights subtract checked: an earliest_submit_height below the anchor height (an order signed
+	// before its anchor was recorded) does not satisfy the window, so the order starts a new run.
+	return esh >= s.GetAnchorHeight() && esh-s.GetAnchorHeight() <= params.WindowBlocks
 }
 
 // Sticky returns the ticket sticky commitments (sticky_anchor_sequence, sticky_run_count) of rank:
