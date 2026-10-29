@@ -179,6 +179,8 @@ type ProtocolEventPayloadV1 struct {
 	//	*ProtocolEventPayloadV1_BridgeLimitsScheduled
 	//	*ProtocolEventPayloadV1_BridgeLimitsActivated
 	//	*ProtocolEventPayloadV1_BridgeSignerRotated
+	//	*ProtocolEventPayloadV1_BuilderCompensationFunded
+	//	*ProtocolEventPayloadV1_BuilderVrfKeyRegistered
 	TypedEvent    isProtocolEventPayloadV1_TypedEvent `protobuf_oneof:"typed_event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -608,6 +610,24 @@ func (x *ProtocolEventPayloadV1) GetBridgeSignerRotated() *EventBridgeSignerRota
 	return nil
 }
 
+func (x *ProtocolEventPayloadV1) GetBuilderCompensationFunded() *EventBuilderCompensationFunded {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*ProtocolEventPayloadV1_BuilderCompensationFunded); ok {
+			return x.BuilderCompensationFunded
+		}
+	}
+	return nil
+}
+
+func (x *ProtocolEventPayloadV1) GetBuilderVrfKeyRegistered() *EventBuilderVrfKeyRegistered {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*ProtocolEventPayloadV1_BuilderVrfKeyRegistered); ok {
+			return x.BuilderVrfKeyRegistered
+		}
+	}
+	return nil
+}
+
 type isProtocolEventPayloadV1_TypedEvent interface {
 	isProtocolEventPayloadV1_TypedEvent()
 }
@@ -784,6 +804,14 @@ type ProtocolEventPayloadV1_BridgeSignerRotated struct {
 	BridgeSignerRotated *EventBridgeSignerRotated `protobuf:"bytes,127,opt,name=bridge_signer_rotated,json=bridgeSignerRotated,proto3,oneof"`
 }
 
+type ProtocolEventPayloadV1_BuilderCompensationFunded struct {
+	BuilderCompensationFunded *EventBuilderCompensationFunded `protobuf:"bytes,143,opt,name=builder_compensation_funded,json=builderCompensationFunded,proto3,oneof"`
+}
+
+type ProtocolEventPayloadV1_BuilderVrfKeyRegistered struct {
+	BuilderVrfKeyRegistered *EventBuilderVrfKeyRegistered `protobuf:"bytes,144,opt,name=builder_vrf_key_registered,json=builderVrfKeyRegistered,proto3,oneof"`
+}
+
 func (*ProtocolEventPayloadV1_ModelProfileRegistered) isProtocolEventPayloadV1_TypedEvent() {}
 
 func (*ProtocolEventPayloadV1_ModelProfileStateChanged) isProtocolEventPayloadV1_TypedEvent() {}
@@ -869,6 +897,10 @@ func (*ProtocolEventPayloadV1_BridgeLimitsScheduled) isProtocolEventPayloadV1_Ty
 func (*ProtocolEventPayloadV1_BridgeLimitsActivated) isProtocolEventPayloadV1_TypedEvent() {}
 
 func (*ProtocolEventPayloadV1_BridgeSignerRotated) isProtocolEventPayloadV1_TypedEvent() {}
+
+func (*ProtocolEventPayloadV1_BuilderCompensationFunded) isProtocolEventPayloadV1_TypedEvent() {}
+
+func (*ProtocolEventPayloadV1_BuilderVrfKeyRegistered) isProtocolEventPayloadV1_TypedEvent() {}
 
 // ProtocolEventPrimaryLocatorV1 anchors one event to the Query that returns its
 // authoritative state.
@@ -2232,7 +2264,7 @@ type EventFaultRecorded struct {
 	Duty             v1.Duty                `protobuf:"varint,1,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
 	Operator         string                 `protobuf:"bytes,2,opt,name=operator,proto3" json:"operator,omitempty"`
 	FaultId          []byte                 `protobuf:"bytes,3,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
-	FaultKind        FaultKind              `protobuf:"varint,4,opt,name=fault_kind,json=faultKind,proto3,enum=hub.v1.FaultKind" json:"fault_kind,omitempty"`
+	FaultKind        v1.FaultKind           `protobuf:"varint,4,opt,name=fault_kind,json=faultKind,proto3,enum=shared.v1.FaultKind" json:"fault_kind,omitempty"`
 	SessionIdOrEmpty []byte                 `protobuf:"bytes,5,opt,name=session_id_or_empty,json=sessionIdOrEmpty,proto3,oneof" json:"session_id_or_empty,omitempty"`
 	TaskIdOrEmpty    []byte                 `protobuf:"bytes,6,opt,name=task_id_or_empty,json=taskIdOrEmpty,proto3,oneof" json:"task_id_or_empty,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -2290,11 +2322,11 @@ func (x *EventFaultRecorded) GetFaultId() []byte {
 	return nil
 }
 
-func (x *EventFaultRecorded) GetFaultKind() FaultKind {
+func (x *EventFaultRecorded) GetFaultKind() v1.FaultKind {
 	if x != nil {
 		return x.FaultKind
 	}
-	return FaultKind_FAULT_KIND_UNSPECIFIED
+	return v1.FaultKind(0)
 }
 
 func (x *EventFaultRecorded) GetSessionIdOrEmpty() []byte {
@@ -5347,7 +5379,7 @@ var File_hub_v1_event_proto protoreflect.FileDescriptor
 
 const file_hub_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x12hub/v1/event.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x13hub/v1/common.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/reward.proto\x1a\x15hub/v1/treasury.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x15shared/v1/event.proto\"\x94\x03\n" +
+	"\x12hub/v1/event.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x13hub/v1/common.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/reward.proto\x1a\x15hub/v1/treasury.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x15shared/v1/event.proto\"\x94\x03\n" +
 	"\x17ProtocolEventEnvelopeV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12=\n" +
 	"\n" +
@@ -5360,7 +5392,7 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x0fprimary_locator\x18\a \x01(\v2%.hub.v1.ProtocolEventPrimaryLocatorV1R\x0eprimaryLocator\x128\n" +
 	"\apayload\x18\b \x01(\v2\x1e.hub.v1.ProtocolEventPayloadV1R\apayloadB\n" +
 	"\n" +
-	"\b_tx_hash\"\xb4\x1e\n" +
+	"\b_tx_hash\"\x85 \n" +
 	"\x16ProtocolEventPayloadV1\x12_\n" +
 	"\x18model_profile_registered\x18\x03 \x01(\v2#.hub.v1.EventModelProfileRegisteredH\x00R\x16modelProfileRegistered\x12f\n" +
 	"\x1bmodel_profile_state_changed\x18\x04 \x01(\v2%.hub.v1.EventModelProfileStateChangedH\x00R\x18modelProfileStateChanged\x12_\n" +
@@ -5405,7 +5437,9 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x18bridge_cutover_confirmed\x18| \x01(\v2#.hub.v1.EventBridgeCutoverConfirmedH\x00R\x16bridgeCutoverConfirmed\x12\\\n" +
 	"\x17bridge_limits_scheduled\x18} \x01(\v2\".hub.v1.EventBridgeLimitsScheduledH\x00R\x15bridgeLimitsScheduled\x12\\\n" +
 	"\x17bridge_limits_activated\x18~ \x01(\v2\".hub.v1.EventBridgeLimitsActivatedH\x00R\x15bridgeLimitsActivated\x12V\n" +
-	"\x15bridge_signer_rotated\x18\x7f \x01(\v2 .hub.v1.EventBridgeSignerRotatedH\x00R\x13bridgeSignerRotatedB\r\n" +
+	"\x15bridge_signer_rotated\x18\x7f \x01(\v2 .hub.v1.EventBridgeSignerRotatedH\x00R\x13bridgeSignerRotated\x12i\n" +
+	"\x1bbuilder_compensation_funded\x18\x8f\x01 \x01(\v2&.hub.v1.EventBuilderCompensationFundedH\x00R\x19builderCompensationFunded\x12d\n" +
+	"\x1abuilder_vrf_key_registered\x18\x90\x01 \x01(\v2$.hub.v1.EventBuilderVrfKeyRegisteredH\x00R\x17builderVrfKeyRegisteredB\r\n" +
 	"\vtyped_event\"\xbc\x06\n" +
 	"\x1dProtocolEventPrimaryLocatorV1\x124\n" +
 	"\asession\x18\x01 \x01(\v2\x18.hub.v1.SessionLocatorV1H\x00R\asession\x12+\n" +
@@ -5497,13 +5531,13 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\n" +
 	"mark_count\x18\x03 \x01(\x04R\tmarkCount\x128\n" +
 	"\x18performance_update_count\x18\x04 \x01(\x04R\x16performanceUpdateCount\x12:\n" +
-	"\x0femission_amount\x18\x05 \x01(\v2\x11.shared.v1.AmountR\x0eemissionAmount\"\xb1\x02\n" +
+	"\x0femission_amount\x18\x05 \x01(\v2\x11.shared.v1.AmountR\x0eemissionAmount\"\xb4\x02\n" +
 	"\x12EventFaultRecorded\x12#\n" +
 	"\x04duty\x18\x01 \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x12\x1a\n" +
 	"\boperator\x18\x02 \x01(\tR\boperator\x12\x19\n" +
-	"\bfault_id\x18\x03 \x01(\fR\afaultId\x120\n" +
+	"\bfault_id\x18\x03 \x01(\fR\afaultId\x123\n" +
 	"\n" +
-	"fault_kind\x18\x04 \x01(\x0e2\x11.hub.v1.FaultKindR\tfaultKind\x122\n" +
+	"fault_kind\x18\x04 \x01(\x0e2\x14.shared.v1.FaultKindR\tfaultKind\x122\n" +
 	"\x13session_id_or_empty\x18\x05 \x01(\fH\x00R\x10sessionIdOrEmpty\x88\x01\x01\x12,\n" +
 	"\x10task_id_or_empty\x18\x06 \x01(\fH\x01R\rtaskIdOrEmpty\x88\x01\x01B\x16\n" +
 	"\x14_session_id_or_emptyB\x13\n" +
@@ -5864,28 +5898,30 @@ var file_hub_v1_event_proto_goTypes = []any{
 	(*EventBridgeLimitsActivated)(nil),        // 58: hub.v1.EventBridgeLimitsActivated
 	(*EventBridgeSignerRotated)(nil),          // 59: hub.v1.EventBridgeSignerRotated
 	(v1.ProtocolEventCodeV1)(0),               // 60: shared.v1.ProtocolEventCodeV1
-	(v1.ParticipantType)(0),                   // 61: shared.v1.ParticipantType
-	(RewardClass)(0),                          // 62: hub.v1.RewardClass
-	(v1.BucketKind)(0),                        // 63: shared.v1.BucketKind
-	(RewardBucket)(0),                         // 64: hub.v1.RewardBucket
-	(ParamsModuleV1)(0),                       // 65: hub.v1.ParamsModuleV1
-	(*v1.Amount)(nil),                         // 66: shared.v1.Amount
-	(ModelProfileStatus)(0),                   // 67: hub.v1.ModelProfileStatus
-	(ProfileStatusSource)(0),                  // 68: hub.v1.ProfileStatusSource
-	(v1.Duty)(0),                              // 69: shared.v1.Duty
-	(FaultKind)(0),                            // 70: hub.v1.FaultKind
-	(EventLifecycleReason)(0),                 // 71: hub.v1.EventLifecycleReason
-	(ServiceBondStatus)(0),                    // 72: hub.v1.ServiceBondStatus
-	(ModelSupportStatus)(0),                   // 73: hub.v1.ModelSupportStatus
-	(ModelSupportSuspendReason)(0),            // 74: hub.v1.ModelSupportSuspendReason
-	(ModelStatusSource)(0),                    // 75: hub.v1.ModelStatusSource
-	(GovernanceReason)(0),                     // 76: hub.v1.GovernanceReason
-	(ServiceKeyRevocationReason)(0),           // 77: hub.v1.ServiceKeyRevocationReason
-	(v1.BuilderEvidenceKind)(0),               // 78: shared.v1.BuilderEvidenceKind
-	(TreasurySourceKind)(0),                   // 79: hub.v1.TreasurySourceKind
-	(TreasuryPurposeCode)(0),                  // 80: hub.v1.TreasuryPurposeCode
-	(EmergencyFreezeVote)(0),                  // 81: hub.v1.EmergencyFreezeVote
-	(BridgeLifecycleV1)(0),                    // 82: hub.v1.BridgeLifecycleV1
+	(*EventBuilderCompensationFunded)(nil),    // 61: hub.v1.EventBuilderCompensationFunded
+	(*EventBuilderVrfKeyRegistered)(nil),      // 62: hub.v1.EventBuilderVrfKeyRegistered
+	(v1.ParticipantType)(0),                   // 63: shared.v1.ParticipantType
+	(RewardClass)(0),                          // 64: hub.v1.RewardClass
+	(v1.BucketKind)(0),                        // 65: shared.v1.BucketKind
+	(RewardBucket)(0),                         // 66: hub.v1.RewardBucket
+	(ParamsModuleV1)(0),                       // 67: hub.v1.ParamsModuleV1
+	(*v1.Amount)(nil),                         // 68: shared.v1.Amount
+	(ModelProfileStatus)(0),                   // 69: hub.v1.ModelProfileStatus
+	(ProfileStatusSource)(0),                  // 70: hub.v1.ProfileStatusSource
+	(v1.Duty)(0),                              // 71: shared.v1.Duty
+	(v1.FaultKind)(0),                         // 72: shared.v1.FaultKind
+	(EventLifecycleReason)(0),                 // 73: hub.v1.EventLifecycleReason
+	(ServiceBondStatus)(0),                    // 74: hub.v1.ServiceBondStatus
+	(ModelSupportStatus)(0),                   // 75: hub.v1.ModelSupportStatus
+	(ModelSupportSuspendReason)(0),            // 76: hub.v1.ModelSupportSuspendReason
+	(ModelStatusSource)(0),                    // 77: hub.v1.ModelStatusSource
+	(GovernanceReason)(0),                     // 78: hub.v1.GovernanceReason
+	(ServiceKeyRevocationReason)(0),           // 79: hub.v1.ServiceKeyRevocationReason
+	(v1.BuilderEvidenceKind)(0),               // 80: shared.v1.BuilderEvidenceKind
+	(TreasurySourceKind)(0),                   // 81: hub.v1.TreasurySourceKind
+	(TreasuryPurposeCode)(0),                  // 82: hub.v1.TreasuryPurposeCode
+	(EmergencyFreezeVote)(0),                  // 83: hub.v1.EmergencyFreezeVote
+	(BridgeLifecycleV1)(0),                    // 84: hub.v1.BridgeLifecycleV1
 }
 var file_hub_v1_event_proto_depIdxs = []int32{
 	60,  // 0: hub.v1.ProtocolEventEnvelopeV1.event_code:type_name -> shared.v1.ProtocolEventCodeV1
@@ -5934,82 +5970,84 @@ var file_hub_v1_event_proto_depIdxs = []int32{
 	57,  // 43: hub.v1.ProtocolEventPayloadV1.bridge_limits_scheduled:type_name -> hub.v1.EventBridgeLimitsScheduled
 	58,  // 44: hub.v1.ProtocolEventPayloadV1.bridge_limits_activated:type_name -> hub.v1.EventBridgeLimitsActivated
 	59,  // 45: hub.v1.ProtocolEventPayloadV1.bridge_signer_rotated:type_name -> hub.v1.EventBridgeSignerRotated
-	3,   // 46: hub.v1.ProtocolEventPrimaryLocatorV1.session:type_name -> hub.v1.SessionLocatorV1
-	4,   // 47: hub.v1.ProtocolEventPrimaryLocatorV1.task:type_name -> hub.v1.TaskLocatorV1
-	5,   // 48: hub.v1.ProtocolEventPrimaryLocatorV1.task_round:type_name -> hub.v1.TaskRoundLocatorV1
-	6,   // 49: hub.v1.ProtocolEventPrimaryLocatorV1.profile:type_name -> hub.v1.ProfileLocatorV1
-	7,   // 50: hub.v1.ProtocolEventPrimaryLocatorV1.operator:type_name -> hub.v1.OperatorLocatorV1
-	8,   // 51: hub.v1.ProtocolEventPrimaryLocatorV1.earning:type_name -> hub.v1.EarningLocatorV1
-	9,   // 52: hub.v1.ProtocolEventPrimaryLocatorV1.builder_set:type_name -> hub.v1.BuilderSetLocatorV1
-	10,  // 53: hub.v1.ProtocolEventPrimaryLocatorV1.bucket:type_name -> hub.v1.BucketLocatorV1
-	11,  // 54: hub.v1.ProtocolEventPrimaryLocatorV1.candidate_pool:type_name -> hub.v1.CandidatePoolLocatorV1
-	12,  // 55: hub.v1.ProtocolEventPrimaryLocatorV1.freeze_signal:type_name -> hub.v1.FreezeSignalLocatorV1
-	13,  // 56: hub.v1.ProtocolEventPrimaryLocatorV1.treasury:type_name -> hub.v1.TreasuryLocatorV1
-	14,  // 57: hub.v1.ProtocolEventPrimaryLocatorV1.bridge:type_name -> hub.v1.BridgeLocatorV1
-	15,  // 58: hub.v1.ProtocolEventPrimaryLocatorV1.epoch:type_name -> hub.v1.EpochLocatorV1
-	16,  // 59: hub.v1.ProtocolEventPrimaryLocatorV1.params:type_name -> hub.v1.ParamsLocatorV1
-	61,  // 60: hub.v1.OperatorLocatorV1.participant_type:type_name -> shared.v1.ParticipantType
-	62,  // 61: hub.v1.EarningLocatorV1.reward_class:type_name -> hub.v1.RewardClass
-	63,  // 62: hub.v1.BucketLocatorV1.bucket_kind:type_name -> shared.v1.BucketKind
-	64,  // 63: hub.v1.EpochLocatorV1.reward_bucket:type_name -> hub.v1.RewardBucket
-	65,  // 64: hub.v1.ParamsLocatorV1.module:type_name -> hub.v1.ParamsModuleV1
-	66,  // 65: hub.v1.EventModelProfileRegistered.registration_fee_amount:type_name -> shared.v1.Amount
-	67,  // 66: hub.v1.EventModelProfileStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
-	67,  // 67: hub.v1.EventModelProfileStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
-	68,  // 68: hub.v1.EventModelProfileStateChanged.source:type_name -> hub.v1.ProfileStatusSource
-	66,  // 69: hub.v1.EventServiceStakeChanged.amount:type_name -> shared.v1.Amount
-	66,  // 70: hub.v1.EventServiceStakeChanged.active_bond_amount:type_name -> shared.v1.Amount
-	66,  // 71: hub.v1.EventServiceUnbondingStarted.amount:type_name -> shared.v1.Amount
-	66,  // 72: hub.v1.EventRewardEpochClosed.emission_amount:type_name -> shared.v1.Amount
-	69,  // 73: hub.v1.EventFaultRecorded.duty:type_name -> shared.v1.Duty
-	70,  // 74: hub.v1.EventFaultRecorded.fault_kind:type_name -> hub.v1.FaultKind
-	69,  // 75: hub.v1.EventRoleJailed.duty:type_name -> shared.v1.Duty
-	71,  // 76: hub.v1.EventRoleJailed.reason:type_name -> hub.v1.EventLifecycleReason
-	69,  // 77: hub.v1.EventRoleSlashed.duty:type_name -> shared.v1.Duty
-	66,  // 78: hub.v1.EventRoleSlashed.applied_amount:type_name -> shared.v1.Amount
-	66,  // 79: hub.v1.EventRoleSlashed.unfilled_amount:type_name -> shared.v1.Amount
-	71,  // 80: hub.v1.EventRoleSlashed.reason:type_name -> hub.v1.EventLifecycleReason
-	69,  // 81: hub.v1.EventServiceJailRecovered.trigger_duty:type_name -> shared.v1.Duty
-	72,  // 82: hub.v1.EventServiceJailRecovered.bond_status:type_name -> hub.v1.ServiceBondStatus
-	73,  // 83: hub.v1.EventModelSupportUpdated.old_status:type_name -> hub.v1.ModelSupportStatus
-	73,  // 84: hub.v1.EventModelSupportUpdated.new_status:type_name -> hub.v1.ModelSupportStatus
-	74,  // 85: hub.v1.EventModelSupportUpdated.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
-	69,  // 86: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
-	67,  // 87: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
-	67,  // 88: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
-	75,  // 89: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
-	76,  // 90: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
-	61,  // 91: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
-	61,  // 92: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
-	77,  // 93: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
-	66,  // 94: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
-	61,  // 95: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
-	78,  // 96: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
-	66,  // 97: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
-	63,  // 98: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
-	66,  // 99: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
-	62,  // 100: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
-	66,  // 101: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
-	62,  // 102: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
-	66,  // 103: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
-	79,  // 104: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
-	66,  // 105: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
-	80,  // 106: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
-	81,  // 107: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
-	66,  // 108: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
-	66,  // 109: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
-	66,  // 110: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
-	66,  // 111: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
-	82,  // 112: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
-	66,  // 113: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
-	66,  // 114: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
-	66,  // 115: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
-	66,  // 116: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
-	117, // [117:117] is the sub-list for method output_type
-	117, // [117:117] is the sub-list for method input_type
-	117, // [117:117] is the sub-list for extension type_name
-	117, // [117:117] is the sub-list for extension extendee
-	0,   // [0:117] is the sub-list for field type_name
+	61,  // 46: hub.v1.ProtocolEventPayloadV1.builder_compensation_funded:type_name -> hub.v1.EventBuilderCompensationFunded
+	62,  // 47: hub.v1.ProtocolEventPayloadV1.builder_vrf_key_registered:type_name -> hub.v1.EventBuilderVrfKeyRegistered
+	3,   // 48: hub.v1.ProtocolEventPrimaryLocatorV1.session:type_name -> hub.v1.SessionLocatorV1
+	4,   // 49: hub.v1.ProtocolEventPrimaryLocatorV1.task:type_name -> hub.v1.TaskLocatorV1
+	5,   // 50: hub.v1.ProtocolEventPrimaryLocatorV1.task_round:type_name -> hub.v1.TaskRoundLocatorV1
+	6,   // 51: hub.v1.ProtocolEventPrimaryLocatorV1.profile:type_name -> hub.v1.ProfileLocatorV1
+	7,   // 52: hub.v1.ProtocolEventPrimaryLocatorV1.operator:type_name -> hub.v1.OperatorLocatorV1
+	8,   // 53: hub.v1.ProtocolEventPrimaryLocatorV1.earning:type_name -> hub.v1.EarningLocatorV1
+	9,   // 54: hub.v1.ProtocolEventPrimaryLocatorV1.builder_set:type_name -> hub.v1.BuilderSetLocatorV1
+	10,  // 55: hub.v1.ProtocolEventPrimaryLocatorV1.bucket:type_name -> hub.v1.BucketLocatorV1
+	11,  // 56: hub.v1.ProtocolEventPrimaryLocatorV1.candidate_pool:type_name -> hub.v1.CandidatePoolLocatorV1
+	12,  // 57: hub.v1.ProtocolEventPrimaryLocatorV1.freeze_signal:type_name -> hub.v1.FreezeSignalLocatorV1
+	13,  // 58: hub.v1.ProtocolEventPrimaryLocatorV1.treasury:type_name -> hub.v1.TreasuryLocatorV1
+	14,  // 59: hub.v1.ProtocolEventPrimaryLocatorV1.bridge:type_name -> hub.v1.BridgeLocatorV1
+	15,  // 60: hub.v1.ProtocolEventPrimaryLocatorV1.epoch:type_name -> hub.v1.EpochLocatorV1
+	16,  // 61: hub.v1.ProtocolEventPrimaryLocatorV1.params:type_name -> hub.v1.ParamsLocatorV1
+	63,  // 62: hub.v1.OperatorLocatorV1.participant_type:type_name -> shared.v1.ParticipantType
+	64,  // 63: hub.v1.EarningLocatorV1.reward_class:type_name -> hub.v1.RewardClass
+	65,  // 64: hub.v1.BucketLocatorV1.bucket_kind:type_name -> shared.v1.BucketKind
+	66,  // 65: hub.v1.EpochLocatorV1.reward_bucket:type_name -> hub.v1.RewardBucket
+	67,  // 66: hub.v1.ParamsLocatorV1.module:type_name -> hub.v1.ParamsModuleV1
+	68,  // 67: hub.v1.EventModelProfileRegistered.registration_fee_amount:type_name -> shared.v1.Amount
+	69,  // 68: hub.v1.EventModelProfileStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
+	69,  // 69: hub.v1.EventModelProfileStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
+	70,  // 70: hub.v1.EventModelProfileStateChanged.source:type_name -> hub.v1.ProfileStatusSource
+	68,  // 71: hub.v1.EventServiceStakeChanged.amount:type_name -> shared.v1.Amount
+	68,  // 72: hub.v1.EventServiceStakeChanged.active_bond_amount:type_name -> shared.v1.Amount
+	68,  // 73: hub.v1.EventServiceUnbondingStarted.amount:type_name -> shared.v1.Amount
+	68,  // 74: hub.v1.EventRewardEpochClosed.emission_amount:type_name -> shared.v1.Amount
+	71,  // 75: hub.v1.EventFaultRecorded.duty:type_name -> shared.v1.Duty
+	72,  // 76: hub.v1.EventFaultRecorded.fault_kind:type_name -> shared.v1.FaultKind
+	71,  // 77: hub.v1.EventRoleJailed.duty:type_name -> shared.v1.Duty
+	73,  // 78: hub.v1.EventRoleJailed.reason:type_name -> hub.v1.EventLifecycleReason
+	71,  // 79: hub.v1.EventRoleSlashed.duty:type_name -> shared.v1.Duty
+	68,  // 80: hub.v1.EventRoleSlashed.applied_amount:type_name -> shared.v1.Amount
+	68,  // 81: hub.v1.EventRoleSlashed.unfilled_amount:type_name -> shared.v1.Amount
+	73,  // 82: hub.v1.EventRoleSlashed.reason:type_name -> hub.v1.EventLifecycleReason
+	71,  // 83: hub.v1.EventServiceJailRecovered.trigger_duty:type_name -> shared.v1.Duty
+	74,  // 84: hub.v1.EventServiceJailRecovered.bond_status:type_name -> hub.v1.ServiceBondStatus
+	75,  // 85: hub.v1.EventModelSupportUpdated.old_status:type_name -> hub.v1.ModelSupportStatus
+	75,  // 86: hub.v1.EventModelSupportUpdated.new_status:type_name -> hub.v1.ModelSupportStatus
+	76,  // 87: hub.v1.EventModelSupportUpdated.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
+	71,  // 88: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
+	69,  // 89: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
+	69,  // 90: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
+	77,  // 91: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
+	78,  // 92: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
+	63,  // 93: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
+	63,  // 94: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
+	79,  // 95: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
+	68,  // 96: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
+	63,  // 97: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
+	80,  // 98: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
+	68,  // 99: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
+	65,  // 100: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
+	68,  // 101: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
+	64,  // 102: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
+	68,  // 103: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
+	64,  // 104: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
+	68,  // 105: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
+	81,  // 106: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
+	68,  // 107: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
+	82,  // 108: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
+	83,  // 109: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
+	68,  // 110: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
+	68,  // 111: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
+	68,  // 112: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
+	68,  // 113: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
+	84,  // 114: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
+	68,  // 115: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
+	68,  // 116: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
+	68,  // 117: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
+	68,  // 118: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
+	119, // [119:119] is the sub-list for method output_type
+	119, // [119:119] is the sub-list for method input_type
+	119, // [119:119] is the sub-list for extension type_name
+	119, // [119:119] is the sub-list for extension extendee
+	0,   // [0:119] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_event_proto_init() }
@@ -6019,6 +6057,7 @@ func file_hub_v1_event_proto_init() {
 	}
 	file_hub_v1_bridge_proto_init()
 	file_hub_v1_common_proto_init()
+	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_emergency_freeze_proto_init()
 	file_hub_v1_model_profile_state_proto_init()
 	file_hub_v1_reward_proto_init()
@@ -6068,6 +6107,8 @@ func file_hub_v1_event_proto_init() {
 		(*ProtocolEventPayloadV1_BridgeLimitsScheduled)(nil),
 		(*ProtocolEventPayloadV1_BridgeLimitsActivated)(nil),
 		(*ProtocolEventPayloadV1_BridgeSignerRotated)(nil),
+		(*ProtocolEventPayloadV1_BuilderCompensationFunded)(nil),
+		(*ProtocolEventPayloadV1_BuilderVrfKeyRegistered)(nil),
 	}
 	file_hub_v1_event_proto_msgTypes[2].OneofWrappers = []any{
 		(*ProtocolEventPrimaryLocatorV1_Session)(nil),

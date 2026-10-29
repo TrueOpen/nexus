@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package task.v1;
 
+import "task/v1/query_dispatch.proto";
 import "task/v1/query_session.proto";
 import "task/v1/query_settlement_build.proto";
 import "task/v1/query_task.proto";
@@ -21,8 +22,6 @@ service Query {
   rpc TaskStage(QueryTaskStageRequest) returns (QueryTaskStageResponse);
   // TaskAssignment returns the Worker assignment projection of one task.
   rpc TaskAssignment(QueryTaskAssignmentRequest) returns (QueryTaskAssignmentResponse);
-  // AssignmentRandomness returns the frozen assignment randomness of one task.
-  rpc AssignmentRandomness(QueryAssignmentRandomnessRequest) returns (QueryAssignmentRandomnessResponse);
   // TaskBudget returns the authoritative per-task accounting row.
   rpc TaskBudget(QueryTaskBudgetRequest) returns (QueryTaskBudgetResponse);
   // TaskBuilders returns the frozen Task Builder selection of one task. It is the
@@ -36,7 +35,7 @@ service Query {
   rpc InferReceipt(QueryInferReceiptRequest) returns (QueryInferReceiptResponse);
   // WorkerEvidence returns one compact objective-evidence receipt.
   rpc WorkerEvidence(QueryWorkerEvidenceRequest) returns (QueryWorkerEvidenceResponse);
-  // VerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+  // VerifierValueEvidence pages accepted compact receipts, ordered by position.
   rpc VerifierValueEvidence(QueryVerifierValueEvidenceRequest) returns (QueryVerifierValueEvidenceResponse);
   // VerifierCandidateWindow returns one round's frozen verifier window.
   rpc VerifierCandidateWindow(QueryVerifierCandidateWindowRequest) returns (QueryVerifierCandidateWindowResponse);
@@ -78,6 +77,18 @@ service Query {
   rpc OrderSequence(QueryOrderSequenceRequest) returns (QueryOrderSequenceResponse);
   // RoleActiveTasks lists active tasks for one worker or verifier.
   rpc RoleActiveTasks(QueryRoleActiveTasksRequest) returns (QueryRoleActiveTasksResponse);
+
+  // DispatchRecord executes the DispatchRecord operation.
+  rpc DispatchRecord(QueryDispatchRecordRequest) returns (QueryDispatchRecordResponse);
+
+  // DispatchCompensationClaim executes the DispatchCompensationClaim operation.
+  rpc DispatchCompensationClaim(QueryDispatchCompensationClaimRequest) returns (QueryDispatchCompensationClaimResponse);
+
+  // DispatchWinnerIneligible executes the DispatchWinnerIneligible operation.
+  rpc DispatchWinnerIneligible(QueryDispatchWinnerIneligibleRequest) returns (QueryDispatchWinnerIneligibleResponse);
+
+  // DispatchChallenge executes the DispatchChallenge operation.
+  rpc DispatchChallenge(QueryDispatchChallengeRequest) returns (QueryDispatchChallengeResponse);
 }
 
 // Fresh Phase 0 has no settlement preview, challenge-id, proof, opening, or

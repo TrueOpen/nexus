@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package hub.v1;
 
+import "hub/v1/dispatch.proto";
 import "hub/v1/query_bridge.proto";
 import "hub/v1/query_registry.proto";
 import "hub/v1/query_rewards.proto";
@@ -93,6 +94,12 @@ service Query {
   // here from task.v1.Query with the governance writer.
   // TimeoutBucket executes the TimeoutBucket operation.
   rpc TimeoutBucket(QueryTimeoutBucketRequest) returns (QueryTimeoutBucketResponse);
+
+  // CandidatePoolSnapshotMember executes the CandidatePoolSnapshotMember operation.
+  rpc CandidatePoolSnapshotMember(QueryCandidatePoolSnapshotMemberRequest) returns (QueryCandidatePoolSnapshotMemberResponse);
+
+  // BuilderCompensationAccount executes the BuilderCompensationAccount operation.
+  rpc BuilderCompensationAccount(QueryBuilderCompensationAccountRequest) returns (QueryBuilderCompensationAccountResponse);
 }
 
 // De-registered on purpose (no alias, no compatibility projection):

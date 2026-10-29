@@ -8,19 +8,21 @@ import "shared/v1/model_profile.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
 // TaskPhase is the aggregate task phase. Numeric values are frozen by
-// the wire API; ascending order is the mandatory forward order, so
-// transition checks are monotonic with no rollback and no skipping.
+// the wire API. Consumers validate explicit allowed transitions; numeric order
+// does not express the lifecycle after retired values have been reserved.
 // TaskPhase defines the TaskPhase wire type.
 enum TaskPhase {
   // Never written; rejects zero-value rows.
   // TASK_PHASE_UNSPECIFIED identifies the corresponding protocol value.
   TASK_PHASE_UNSPECIFIED = 0;
-  // First Worker proposal accepted; candidate union still open.
-  // TASK_PHASE_WORKER_ASSIGNMENT_PENDING identifies the corresponding protocol value.
-  TASK_PHASE_WORKER_ASSIGNMENT_PENDING = 1;
-  // Winner Worker finalized from the frozen legal set.
-  // TASK_PHASE_WORKER_ASSIGNED identifies the corresponding protocol value.
-  TASK_PHASE_WORKER_ASSIGNED = 2;
+  // Retired Worker proposal collection value.
+  reserved 1;
+  reserved "TASK_PHASE_WORKER_ASSIGNMENT_PENDING";
+  // Dispatch accepted, inference in progress.
+  // TASK_PHASE_INFER_PENDING identifies the corresponding protocol value.
+  TASK_PHASE_INFER_PENDING = 10;
+  reserved 2;
+  reserved "TASK_PHASE_WORKER_ASSIGNED";
   // Infer receipt accepted.
   // TASK_PHASE_RECEIPT_COMMITTED identifies the corresponding protocol value.
   TASK_PHASE_RECEIPT_COMMITTED = 3;
@@ -56,14 +58,16 @@ enum AssignmentStatus {
   // ASSIGNMENT_STATUS_NONE identifies the corresponding protocol value.
   ASSIGNMENT_STATUS_NONE = 1;
   // Legal set frozen, waiting for the future beacon.
-  // ASSIGNMENT_STATUS_RANDOMNESS_PENDING identifies the corresponding protocol value.
-  ASSIGNMENT_STATUS_RANDOMNESS_PENDING = 2;
-  // Winner finalized and liability reserved.
-  // ASSIGNMENT_STATUS_WORKER_ASSIGNED identifies the corresponding protocol value.
-  ASSIGNMENT_STATUS_WORKER_ASSIGNED = 3;
+  reserved 2;
+  reserved "ASSIGNMENT_STATUS_RANDOMNESS_PENDING";
+  // Dispatch accepted and liability reserved.
+  // ASSIGNMENT_STATUS_WORKER_RECORDED identifies the corresponding protocol value.
+  ASSIGNMENT_STATUS_WORKER_RECORDED = 6;
+  reserved 3;
+  reserved "ASSIGNMENT_STATUS_WORKER_ASSIGNED";
   // Assignment could not be completed.
-  // ASSIGNMENT_STATUS_ASSIGN_TIMEOUT identifies the corresponding protocol value.
-  ASSIGNMENT_STATUS_ASSIGN_TIMEOUT = 4;
+  reserved 4;
+  reserved "ASSIGNMENT_STATUS_ASSIGN_TIMEOUT";
   // Winner missed the inference deadline.
   // ASSIGNMENT_STATUS_WORKER_TIMEOUT identifies the corresponding protocol value.
   ASSIGNMENT_STATUS_WORKER_TIMEOUT = 5;
@@ -141,23 +145,6 @@ enum SettlementStatus {
 // AssignmentFailureReason is the single closed reason for a failed Worker
 // assignment, frozen by this contract.
 // AssignmentFailureReason defines the AssignmentFailureReason wire type.
-enum AssignmentFailureReason {
-  // No failure recorded.
-  // ASSIGNMENT_FAILURE_REASON_UNSPECIFIED identifies the corresponding protocol value.
-  ASSIGNMENT_FAILURE_REASON_UNSPECIFIED = 0;
-  // Frozen union bitmap held no usable candidate.
-  // ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET identifies the corresponding protocol value.
-  ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET = 1;
-  // Required future beacon never became available.
-  // ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE identifies the corresponding protocol value.
-  ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE = 2;
-  // Drawn winner could no longer reserve task liability.
-  // ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE identifies the corresponding protocol value.
-  ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE = 3;
-  // Order expired before assignment completed.
-  // ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED identifies the corresponding protocol value.
-  ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED = 4;
-}
 
 // TaskCandidateStage selects the handraise stage of one task.
 //
@@ -169,8 +156,8 @@ enum TaskCandidateStage {
   // TASK_CANDIDATE_STAGE_UNSPECIFIED identifies the corresponding protocol value.
   TASK_CANDIDATE_STAGE_UNSPECIFIED = 0;
   // Worker handraise stage.
-  // TASK_CANDIDATE_STAGE_OPEN_TASK identifies the corresponding protocol value.
-  TASK_CANDIDATE_STAGE_OPEN_TASK = 1;
+  reserved 1;
+  reserved "TASK_CANDIDATE_STAGE_OPEN_TASK";
   // Verifier handraise stage.
   // TASK_CANDIDATE_STAGE_OPEN_VERIFY identifies the corresponding protocol value.
   TASK_CANDIDATE_STAGE_OPEN_VERIFY = 2;
@@ -225,7 +212,7 @@ enum FinalizeCursorStatusV1 {
 }
 
 // CandidateMemberRefV1 (the wire API) is the member reference shared by
-// WorkerHandraiseV1 and VerifierHandraiseV1. It must exist exactly once in this
+// StandingHandraiseV1 and VerifierHandraiseV1. It must exist exactly once in this
 // module and is currently declared in task/v1/open_verify.proto by the
 // verifier slice, so msg_assignment.proto imports it from there instead of
 // re-declaring it here.
@@ -270,23 +257,32 @@ message TaskCoreState {
 }
 
 // TaskAssignmentState holds Worker assignment facts only (key = task_id).
-// assignment_status is NOT duplicated here. winner_draw_digest is derived at
-// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (the wire API).
+// assignment_status is joined from TaskCoreState, never duplicated here.
 // candidate_pool_ref_released makes the CandidatePoolTaskRefState release
 // idempotent (the public storage contract).
 // TaskAssignmentState defines the TaskAssignmentState wire type.
 message TaskAssignmentState {
   bytes task_id = 1;
-  uint64 assign_accept_height = 2;
-  uint64 assignment_randomness_height = 3;
+
+  reserved 2;
+  reserved "assign_accept_height";
+
+  reserved 3;
+  reserved "assignment_randomness_height";
   uint64 winner_confirm_height = 4;
   uint64 infer_deadline_height = 5;
-  AssignmentFailureReason assignment_fail_reason = 6;
+
+  reserved 6;
+  reserved "assignment_fail_reason";
   bytes candidate_pool_snapshot_id = 7;
   bytes candidate_pool_hash = 8;
-  bytes assignment_candidate_set_hash = 9;
+
+  reserved 9;
+  reserved "assignment_candidate_set_hash";
   string winner_worker = 10;
-  bytes winner_draw_digest = 11;
+
+  reserved 11;
+  reserved "winner_draw_digest";
   bytes profile_execution_snapshot_hash = 12;
   string judgment_function_version = 13;
   bytes evidence_schema_hash = 14;
@@ -304,24 +300,10 @@ message TaskAssignmentState {
   uint32 result_reveal_missing_slash_bps = 22;
   // Profile minimum stake frozen at admission for later Verifier eligibility.
   shared.v1.Amount min_stake_snapshot = 23;
-}
 
-// AssignmentCandidateSetState is the task-local dual commitment header
-// (the public storage contract, key = task_id). The pool commitment and the task legal-set
-// commitment are separate: candidate_pool_snapshot_id/pool_hash commit to the
-// public candidate source, union_bitmap_hash plus
-// assignment_candidate_set_hash commit to the accepted handraise subset. No
-// second candidate vector is materialized; rows stay in TaskCandidateFactState.
-// AssignmentCandidateSetState defines the AssignmentCandidateSetState wire type.
-message AssignmentCandidateSetState {
-  uint32 schema_version = 1;
-  bytes task_id = 2;
-  bytes task_hash = 3;
-  bytes candidate_pool_snapshot_id = 4;
-  bytes candidate_pool_hash = 5;
-  bytes union_bitmap_hash = 6;
-  uint32 candidate_count = 7;
-  bytes assignment_candidate_set_hash = 8;
+  uint64 record_height = 24;
+  bytes dispatch_record_hash = 25;
+  bytes dispatch_ticket_hash = 26;
 }
 
 // TaskCandidateFactState is the immutable accepted-time frozen fact for one
@@ -470,10 +452,12 @@ message TaskStageHandraiseUnionSegmentState {
 // TaskBuilderSelectionState defines the TaskBuilderSelectionState wire type.
 message TaskBuilderSelectionState {
   bytes task_id = 1;
-  bytes session_anchor_block_hash = 2;
+
+  reserved 2;
+  reserved "session_anchor_block_hash";
   string builder_set_id = 3;
   bytes builder_set_hash = 4;
-  // Frozen order; length equals builders_per_task while body_status is ACTIVE
+  // Frozen order; length equals the locked BuilderSet snapshot size while body_status is ACTIVE
   // and is empty once the body is pruned.
   repeated string selected_task_builders = 5;
   // Unchanged by pruning.

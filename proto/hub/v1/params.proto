@@ -139,9 +139,13 @@ message ServiceParamsV1 {
 // BuilderParamsV1 groups governed fixed-set and duty parameters.
 message BuilderParamsV1 {
   uint32 builder_set_cap = 1;
-  uint32 builders_per_task = 2;
+
+  reserved 2;
+  reserved "builders_per_task";
   uint64 builder_set_update_lead_blocks = 3;
-  uint64 assignment_builder_proposal_window_blocks = 4;
+
+  reserved 4;
+  reserved "assignment_builder_proposal_window_blocks";
   uint64 open_verify_builder_proposal_window_blocks = 5;
   uint64 settlement_builder_grace_blocks = 6;
   uint32 builder_set_retention_epochs = 7;

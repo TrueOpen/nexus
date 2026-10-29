@@ -63,7 +63,7 @@ enum ServiceKeyResponsibilityKind {
   // The selected Worker key remains provable through the output-evidence window.
   // SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE identifies the corresponding protocol value.
   SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE = 4;
-  // Locked Task Builder is still exposed to objective BusEnvelope evidence for
+  // Locked Task Builder is still exposed to objective signed-stream evidence for
   // one task, so its service key must stay verifiable.
   //
   // Lifecycle, all inside one cache transaction
@@ -244,32 +244,6 @@ enum RoleFaultStatus {
   // Replaced by a later attribution.
   // ROLE_FAULT_STATUS_SUPERSEDED identifies the corresponding protocol value.
   ROLE_FAULT_STATUS_SUPERSEDED = 2;
-}
-
-// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
-enum FaultKind {
-  reserved 4;
-  reserved "FAULT_KIND_EVIDENCE_DEFAULT";
-
-  // Never written; rejects zero-value receipts.
-  // FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
-  FAULT_KIND_UNSPECIFIED = 0;
-  // Assigned duty missed its deadline.
-  // FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
-  FAULT_KIND_TIMEOUT = 1;
-  // Submitted material was objectively invalid.
-  // FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
-  FAULT_KIND_INVALID_RESULT = 2;
-  // Two conflicting accepted submissions for one scope.
-  // FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
-  FAULT_KIND_EQUIVOCATION = 3;
-  // Builder objective evidence was accepted against the operator.
-  // FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
-  FAULT_KIND_BUILDER_OBJECTIVE_FAULT = 5;
-  // Reserved for the later verifier value-evidence admission upgrade.
-  FAULT_KIND_VERIFIER_VALUE_MISMATCH = 6;
-  // Reserved for objectively invalid Worker value evidence after activation.
-  FAULT_KIND_WORKER_VALUES_INVALID = 7;
 }
 
 // ParamsModuleV1 selects the owner of a parameter-update event.

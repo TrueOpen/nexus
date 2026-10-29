@@ -1,0 +1,350 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "task/v1/msg_assignment.proto";
+import "task/v1/open_verify.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// DispatchRandomnessSchemeV1 is the closed DispatchRandomnessSchemeV1 registry.
+enum DispatchRandomnessSchemeV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_RANDOMNESS_SCHEME_V1_UNSPECIFIED = 0;
+  // BUILDER_VRF is the builder vrf value.
+  DISPATCH_RANDOMNESS_SCHEME_V1_BUILDER_VRF = 1;
+}
+// DispatchAttemptOutcomeV1 is the closed DispatchAttemptOutcomeV1 registry.
+enum DispatchAttemptOutcomeV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_UNSPECIFIED = 0;
+  // ACCEPTED is the accepted value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_ACCEPTED = 1;
+  // REJECTED is the rejected value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_REJECTED = 2;
+  // TIMEOUT is the timeout value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_TIMEOUT = 3;
+  // VOIDED is the voided value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED = 4;
+  // REVOKED is the revoked value.
+  DISPATCH_ATTEMPT_OUTCOME_V1_REVOKED = 5;
+}
+// DispatchRejectReasonV1 is the closed DispatchRejectReasonV1 registry.
+enum DispatchRejectReasonV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_REJECT_REASON_V1_UNSPECIFIED = 0;
+  // NO_CAPACITY is the no capacity value.
+  DISPATCH_REJECT_REASON_V1_NO_CAPACITY = 1;
+  // PROFILE_UNAVAILABLE is the profile unavailable value.
+  DISPATCH_REJECT_REASON_V1_PROFILE_UNAVAILABLE = 2;
+  // EXPIRED is the expired value.
+  DISPATCH_REJECT_REASON_V1_EXPIRED = 3;
+  // INVALID_TICKET is the invalid ticket value.
+  DISPATCH_REJECT_REASON_V1_INVALID_TICKET = 4;
+}
+// AdmitRejectReasonV1 is the closed AdmitRejectReasonV1 registry.
+enum AdmitRejectReasonV1 {
+  // UNSPECIFIED is the unspecified value.
+  ADMIT_REJECT_REASON_V1_UNSPECIFIED = 0;
+  // NONE is the none value.
+  ADMIT_REJECT_REASON_V1_NONE = 1;
+  // RTT_OVER_THRESHOLD is the rtt over threshold value.
+  ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD = 2;
+  // REJECT_RATE is the reject rate value.
+  ADMIT_REJECT_REASON_V1_REJECT_RATE = 3;
+  // INVALID_HANDRAISE is the invalid handraise value.
+  ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE = 4;
+}
+// DispatchRecordStatusV1 is the closed DispatchRecordStatusV1 registry.
+enum DispatchRecordStatusV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_RECORD_STATUS_V1_UNSPECIFIED = 0;
+  // PENDING is the pending value.
+  DISPATCH_RECORD_STATUS_V1_PENDING = 1;
+  // RECORDED is the recorded value.
+  DISPATCH_RECORD_STATUS_V1_RECORDED = 2;
+  // REJECTED is the rejected value.
+  DISPATCH_RECORD_STATUS_V1_REJECTED = 3;
+}
+// DispatchChallengeStatusV1 is the closed DispatchChallengeStatusV1 registry.
+enum DispatchChallengeStatusV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_CHALLENGE_STATUS_V1_UNSPECIFIED = 0;
+  // AWAITING_PROOF is the awaiting proof value.
+  DISPATCH_CHALLENGE_STATUS_V1_AWAITING_PROOF = 1;
+  // AWAITING_ROSTER is the awaiting roster value.
+  DISPATCH_CHALLENGE_STATUS_V1_AWAITING_ROSTER = 2;
+  // UPHELD is the upheld value.
+  DISPATCH_CHALLENGE_STATUS_V1_UPHELD = 3;
+  // DISMISSED is the dismissed value.
+  DISPATCH_CHALLENGE_STATUS_V1_DISMISSED = 4;
+  // EXPIRED is the expired value.
+  DISPATCH_CHALLENGE_STATUS_V1_EXPIRED = 5;
+}
+// DispatchCompensationClaimStatusV1 is the closed DispatchCompensationClaimStatusV1 registry.
+enum DispatchCompensationClaimStatusV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_COMPENSATION_CLAIM_STATUS_V1_UNSPECIFIED = 0;
+  // PENDING_REBUTTAL is the pending rebuttal value.
+  DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PENDING_REBUTTAL = 1;
+  // PAID is the paid value.
+  DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PAID = 2;
+  // DISMISSED is the dismissed value.
+  DISPATCH_COMPENSATION_CLAIM_STATUS_V1_DISMISSED = 3;
+}
+// DispatchWinnerIneligibleReasonV1 is the closed DispatchWinnerIneligibleReasonV1 registry.
+enum DispatchWinnerIneligibleReasonV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_WINNER_INELIGIBLE_REASON_V1_UNSPECIFIED = 0;
+  // BOND_INSUFFICIENT is the bond insufficient value.
+  DISPATCH_WINNER_INELIGIBLE_REASON_V1_BOND_INSUFFICIENT = 1;
+  // LIABILITY_INSUFFICIENT is the liability insufficient value.
+  DISPATCH_WINNER_INELIGIBLE_REASON_V1_LIABILITY_INSUFFICIENT = 2;
+  // UNBONDING is the unbonding value.
+  DISPATCH_WINNER_INELIGIBLE_REASON_V1_UNBONDING = 3;
+  // TOMBSTONED is the tombstoned value.
+  DISPATCH_WINNER_INELIGIBLE_REASON_V1_TOMBSTONED = 4;
+}
+// DispatchRejectCodeV1 is the closed DispatchRejectCodeV1 registry.
+enum DispatchRejectCodeV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_REJECT_CODE_V1_UNSPECIFIED = 0;
+  // BUILDER_NOT_BOUND is the builder not bound value.
+  DISPATCH_REJECT_CODE_V1_BUILDER_NOT_BOUND = 1;
+  // BUILDER_VRF_KEY_MISSING is the builder vrf key missing value.
+  DISPATCH_REJECT_CODE_V1_BUILDER_VRF_KEY_MISSING = 2;
+  // BUILDER_COMPENSATION_BELOW_MIN is the builder compensation below min value.
+  DISPATCH_REJECT_CODE_V1_BUILDER_COMPENSATION_BELOW_MIN = 3;
+  // VRF_EPOCH_STALE is the vrf epoch stale value.
+  DISPATCH_REJECT_CODE_V1_VRF_EPOCH_STALE = 4;
+  // REFERENCE_HEIGHT_MISMATCH is the reference height mismatch value.
+  DISPATCH_REJECT_CODE_V1_REFERENCE_HEIGHT_MISMATCH = 5;
+  // VRF_INVALID is the vrf invalid value.
+  DISPATCH_REJECT_CODE_V1_VRF_INVALID = 6;
+  // SKIP_LIMIT_EXCEEDED is the skip limit exceeded value.
+  DISPATCH_REJECT_CODE_V1_SKIP_LIMIT_EXCEEDED = 7;
+  // TICKET_INVALID is the ticket invalid value.
+  DISPATCH_REJECT_CODE_V1_TICKET_INVALID = 8;
+  // ACCEPT_SIGNATURE_INVALID is the accept signature invalid value.
+  DISPATCH_REJECT_CODE_V1_ACCEPT_SIGNATURE_INVALID = 9;
+  // WINNER_NOT_ELIGIBLE is the winner not eligible value.
+  DISPATCH_REJECT_CODE_V1_WINNER_NOT_ELIGIBLE = 10;
+  // RECORD_LATE is the record late value.
+  DISPATCH_REJECT_CODE_V1_RECORD_LATE = 11;
+  // TAKEOVER_SEQUENCE_CONSUMED is the takeover sequence consumed value.
+  DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED = 12;
+  // TAKEOVER_PENDING is the takeover pending value.
+  DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING = 13;
+  // COMPENSATION_NOT_CLAIMABLE is the compensation not claimable value.
+  DISPATCH_REJECT_CODE_V1_COMPENSATION_NOT_CLAIMABLE = 14;
+  // COMPENSATION_RECORD_PRUNED is the compensation record pruned value.
+  DISPATCH_REJECT_CODE_V1_COMPENSATION_RECORD_PRUNED = 15;
+  // COMPENSATION_REBUTTAL_WINDOW_CLOSED is the compensation rebuttal window closed value.
+  DISPATCH_REJECT_CODE_V1_COMPENSATION_REBUTTAL_WINDOW_CLOSED = 16;
+  // COMPENSATION_REBUTTAL_INVALID is the compensation rebuttal invalid value.
+  DISPATCH_REJECT_CODE_V1_COMPENSATION_REBUTTAL_INVALID = 17;
+  // CHALLENGE_WINDOW_CLOSED is the challenge window closed value.
+  DISPATCH_REJECT_CODE_V1_CHALLENGE_WINDOW_CLOSED = 18;
+  // CHALLENGE_PROOF_INVALID is the challenge proof invalid value.
+  DISPATCH_REJECT_CODE_V1_CHALLENGE_PROOF_INVALID = 19;
+  // STICKY_MISMATCH is the sticky mismatch value.
+  DISPATCH_REJECT_CODE_V1_STICKY_MISMATCH = 20;
+  // BOUND_CHANGE_HEIGHT_MISMATCH is the bound change height mismatch value.
+  DISPATCH_REJECT_CODE_V1_BOUND_CHANGE_HEIGHT_MISMATCH = 21;
+  // SEQUENCE_CONSUMED is the sequence consumed value.
+  DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED = 22;
+  // SESSION_BALANCE_INSUFFICIENT is the session balance insufficient value.
+  DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT = 23;
+  // SESSION_KEY_INVALID is the session key invalid value.
+  DISPATCH_REJECT_CODE_V1_SESSION_KEY_INVALID = 24;
+  // SESSION_KEY_EXPIRED is the session key expired value.
+  DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED = 25;
+  // SESSION_KEY_SPEND_CAP_EXCEEDED is the session key spend cap exceeded value.
+  DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED = 26;
+  // CONFLICT is the conflict value.
+  DISPATCH_REJECT_CODE_V1_CONFLICT = 27;
+}
+// DispatchProfileV1 defines the canonical DispatchProfileV1 fields.
+message DispatchProfileV1 {
+  bytes model_id = 1;
+  uint32 profile_version = 2;
+}
+// StandingHandraiseV1 defines the canonical StandingHandraiseV1 fields.
+message StandingHandraiseV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  string builder_address = 3;
+  CandidateMemberRefV1 member = 4;
+  repeated DispatchProfileV1 profiles = 5;
+  uint32 free_slot_count = 6;
+  uint64 issued_height = 7;
+  uint64 expiry_height = 8;
+  uint64 handraise_nonce = 9;
+  uint64 service_authorization_nonce = 10;
+  bytes service_signature = 11;
+}
+// HandraiseRootLeafV1 defines the canonical HandraiseRootLeafV1 fields.
+message HandraiseRootLeafV1 {
+  StandingHandraiseV1 handraise = 1;
+  bool admitted = 2;
+  AdmitRejectReasonV1 admit_reject_reason = 3;
+  uint64 builder_measured_rtt_ms = 4;
+}
+// SignedHandraiseRootV1 defines the canonical SignedHandraiseRootV1 fields.
+message SignedHandraiseRootV1 {
+  string chain_id = 1;
+  string builder_address = 2;
+  uint64 root_height = 3;
+  uint64 root_version = 4;
+  uint32 leaf_count = 5;
+  bytes root = 6;
+  bytes builder_service_signature = 7;
+  // Selects the Builder proof key even after rotation; part of the signed root.
+  uint64 service_authorization_nonce = 8;
+}
+// HandraiseInclusionProofV1 defines the canonical HandraiseInclusionProofV1 fields.
+message HandraiseInclusionProofV1 {
+  HandraiseRootLeafV1 leaf = 1;
+  uint32 leaf_index = 2;
+  repeated bytes siblings = 3;
+}
+// DispatchRosterMemberV1 defines the canonical DispatchRosterMemberV1 fields.
+message DispatchRosterMemberV1 {
+  uint32 slot = 1;
+  uint64 slot_version = 2;
+  string operator_address = 3;
+  uint64 candidate_weight = 4;
+}
+// DispatchRosterV1 defines the canonical DispatchRosterV1 fields.
+message DispatchRosterV1 {
+  bytes task_id = 1;
+  uint64 reference_height = 2;
+  bytes candidate_pool_snapshot_id = 3;
+  repeated DispatchRosterMemberV1 members = 4;
+}
+// DispatchRosterNonInclusionProofV1 defines the canonical DispatchRosterNonInclusionProofV1 fields.
+message DispatchRosterNonInclusionProofV1 {
+  optional DispatchRosterMemberV1 predecessor = 1;
+  optional DispatchRosterMemberV1 successor = 2;
+}
+// DispatchVrfInputV1 defines the canonical DispatchVrfInputV1 fields.
+message DispatchVrfInputV1 {
+  string chain_id = 1;
+  uint64 epoch = 2;
+  bytes epoch_seed = 3;
+  bytes session_id = 4;
+  uint64 order_sequence = 5;
+}
+// DispatchTicketV1 defines the canonical DispatchTicketV1 fields.
+message DispatchTicketV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  bytes session_id = 5;
+  uint64 order_sequence = 6;
+  string builder_address = 7;
+  uint64 reference_height = 8;
+  bytes candidate_pool_snapshot_id = 9;
+  uint64 vrf_epoch = 10;
+  bytes vrf_output = 11;
+  bytes vrf_proof = 12;
+  DispatchRandomnessSchemeV1 randomness_scheme = 13;
+  bytes roster_hash = 14;
+  bytes handraise_root_digest = 15;
+  uint32 dispatch_round = 16;
+  uint32 rank = 17;
+  CandidateMemberRefV1 target = 18;
+  uint64 accept_deadline_ms = 19;
+  bytes input_hash = 20;
+  uint64 bound_change_height = 21;
+  uint64 sticky_anchor_sequence = 22;
+  uint32 sticky_run_count = 23;
+  bool sticky_applied = 24;
+  bytes builder_service_signature = 25;
+  // Part of the ticket hash; retained keys authorize evidence only, never dispatch.
+  uint64 service_authorization_nonce = 26;
+}
+// DispatchAttemptV1 defines the canonical DispatchAttemptV1 fields.
+message DispatchAttemptV1 {
+  bytes dispatch_ticket_hash = 1;
+  uint32 rank = 2;
+  CandidateMemberRefV1 member = 3;
+  DispatchAttemptOutcomeV1 outcome = 4;
+  bytes reject_digest_or_zero32 = 5;
+  uint32 timeout_tier_or_zero = 6;
+}
+// DispatchRoundV1 defines the canonical DispatchRoundV1 fields.
+message DispatchRoundV1 {
+  uint32 dispatch_round = 1;
+  bytes handraise_root_digest = 2;
+  bytes roster_hash = 3;
+  repeated DispatchAttemptV1 attempts = 4;
+}
+// DispatchRecordV1 defines the canonical DispatchRecordV1 fields.
+message DispatchRecordV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  bytes session_id = 5;
+  uint64 order_sequence = 6;
+  string builder_address = 7;
+  uint64 reference_height = 8;
+  bytes candidate_pool_snapshot_id = 9;
+  uint64 vrf_epoch = 10;
+  bytes vrf_output = 11;
+  bytes vrf_proof = 12;
+  DispatchRandomnessSchemeV1 randomness_scheme = 13;
+  uint64 bound_change_height = 14;
+  uint64 sticky_anchor_sequence = 15;
+  uint32 sticky_run_count = 16;
+  bool sticky_applied = 17;
+  repeated DispatchRoundV1 rounds = 18;
+  bytes dispatch_ticket_hash = 19;
+  bytes builder_service_signature = 20;
+  // Part of the record hash and equal to the winner ticket's signing generation.
+  uint64 service_authorization_nonce = 21;
+}
+// DispatchAcceptV1 defines the canonical DispatchAcceptV1 fields.
+message DispatchAcceptV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  bytes dispatch_ticket_hash = 5;
+  CandidateMemberRefV1 member = 6;
+  uint64 service_authorization_nonce = 7;
+  bytes service_signature = 8;
+}
+// DispatchRejectV1 defines the canonical DispatchRejectV1 fields.
+message DispatchRejectV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  bytes task_id = 3;
+  bytes task_hash = 4;
+  bytes dispatch_ticket_hash = 5;
+  CandidateMemberRefV1 member = 6;
+  uint64 service_authorization_nonce = 7;
+  DispatchRejectReasonV1 reject_reason = 8;
+  bytes service_signature = 9;
+}
+// DispatchEntryV1 defines the canonical DispatchEntryV1 fields.
+message DispatchEntryV1 {
+  SignedOrderV2 signed_order = 1;
+  DispatchRecordV1 record = 2;
+  DispatchTicketV1 winner_ticket = 3;
+  DispatchAcceptV1 accept = 4;
+}
+// TakeoverEntryV1 defines the canonical TakeoverEntryV1 fields.
+message TakeoverEntryV1 {
+  SignedOrderV2 signed_order = 1;
+}
+// DispatchRecordEntryV1 selects exactly one admission operation.
+message DispatchRecordEntryV1 {
+  // entry selects exactly one supported variant.
+  oneof entry {
+    DispatchEntryV1 dispatch = 1;
+    TakeoverEntryV1 takeover = 2;
+  }
+}

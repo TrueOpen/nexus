@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/dispatch.proto";
+import "task/v1/dispatch_state.proto";
+import "task/v1/msg_assignment.proto";
+import "task/v1/msg_verification.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// MsgRecordDispatch defines the canonical MsgRecordDispatch fields.
+message MsgRecordDispatch {
+  repeated DispatchRecordEntryV1 entries = 1;
+  string submitter_address = 2;
+}
+// MsgRecordDispatchResponse defines the canonical MsgRecordDispatchResponse fields.
+message MsgRecordDispatchResponse {
+  repeated BatchItemResultV1 results = 1;
+  bytes batch_digest = 2;
+}
+// MsgClaimDispatchCompensation defines the canonical MsgClaimDispatchCompensation fields.
+message MsgClaimDispatchCompensation {
+  SignedOrderV2 order = 1;
+  DispatchTicketV1 ticket = 2;
+  DispatchAcceptV1 accept = 3;
+  string submitter_address = 4;
+}
+// MsgClaimDispatchCompensationResponse defines the canonical MsgClaimDispatchCompensationResponse fields.
+message MsgClaimDispatchCompensationResponse {
+  bytes dispatch_ticket_hash = 1;
+  shared.v1.Amount amount = 2;
+  uint64 rebuttal_deadline_height = 3;
+  shared.v1.MutationStatusV1 status = 4;
+}
+// MsgRebutDispatchCompensation defines the canonical MsgRebutDispatchCompensation fields.
+message MsgRebutDispatchCompensation {
+  bytes dispatch_ticket_hash = 1;
+  string responder_address = 2;
+  DispatchRecordV1 record = 3;
+  optional DispatchRejectV1 reject = 4;
+}
+// MsgRebutDispatchCompensationResponse defines the canonical MsgRebutDispatchCompensationResponse fields.
+message MsgRebutDispatchCompensationResponse {
+  bytes dispatch_ticket_hash = 1;
+  DispatchCompensationClaimStatusV1 claim_status = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+// MsgChallengeDispatchOmission defines the canonical MsgChallengeDispatchOmission fields.
+message MsgChallengeDispatchOmission {
+  bytes task_id = 1;
+  uint32 dispatch_round = 2;
+  string challenger_address = 3;
+  DispatchRosterV1 roster = 4;
+  optional DispatchRosterV1 first_round_roster = 5;
+  SignedHandraiseRootV1 handraise_root = 6;
+  HandraiseInclusionProofV1 inclusion_proof = 7;
+  DispatchRosterNonInclusionProofV1 non_inclusion_proof = 8;
+}
+// MsgChallengeDispatchOmissionResponse defines the canonical MsgChallengeDispatchOmissionResponse fields.
+message MsgChallengeDispatchOmissionResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// MsgChallengeDispatchDraw defines the canonical MsgChallengeDispatchDraw fields.
+message MsgChallengeDispatchDraw {
+  bytes task_id = 1;
+  uint32 dispatch_round = 2;
+  string challenger_address = 3;
+  DispatchRosterV1 roster = 4;
+  optional DispatchRosterV1 first_round_roster = 5;
+}
+// MsgChallengeDispatchDrawResponse defines the canonical MsgChallengeDispatchDrawResponse fields.
+message MsgChallengeDispatchDrawResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// MsgChallengeDispatchSkip defines the canonical MsgChallengeDispatchSkip fields.
+message MsgChallengeDispatchSkip {
+  bytes task_id = 1;
+  string challenger_address = 2;
+  uint32 attempt_rank = 3;
+}
+// MsgChallengeDispatchSkipResponse defines the canonical MsgChallengeDispatchSkipResponse fields.
+message MsgChallengeDispatchSkipResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// MsgReportDispatchRosterUnavailable defines the canonical MsgReportDispatchRosterUnavailable fields.
+message MsgReportDispatchRosterUnavailable {
+  bytes task_id = 1;
+  uint32 dispatch_round = 2;
+  string reporter_address = 3;
+}
+// MsgReportDispatchRosterUnavailableResponse defines the canonical MsgReportDispatchRosterUnavailableResponse fields.
+message MsgReportDispatchRosterUnavailableResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// MsgChallengeDispatchDoubleDispatch defines the canonical MsgChallengeDispatchDoubleDispatch fields.
+message MsgChallengeDispatchDoubleDispatch {
+  string challenger_address = 1;
+  DispatchRecordV1 record = 2;
+  SignedOrderV2 order = 3;
+}
+// MsgChallengeDispatchDoubleDispatchResponse defines the canonical MsgChallengeDispatchDoubleDispatchResponse fields.
+message MsgChallengeDispatchDoubleDispatchResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// MsgRespondDispatchChallenge supplies one bounded challenge response.
+message MsgRespondDispatchChallenge {
+  bytes challenge_id = 1;
+  string responder_address = 2;
+  // response selects exactly one supported variant.
+  oneof response {
+    DispatchRejectV1 reject = 3;
+    DispatchRosterV1 roster = 4;
+  }
+}
+// MsgRespondDispatchChallengeResponse defines the canonical MsgRespondDispatchChallengeResponse fields.
+message MsgRespondDispatchChallengeResponse {
+  DispatchChallengeState challenge = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}

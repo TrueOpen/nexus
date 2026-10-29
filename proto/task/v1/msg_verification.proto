@@ -4,6 +4,7 @@ package task.v1;
 import "shared/v1/common.proto";
 import "shared/v1/evidence.proto";
 import "task/v1/commit.proto";
+import "task/v1/dispatch.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
 import "task/v1/open_verify.proto";
@@ -16,7 +17,8 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 // authoritative business primary key, which is commit_key for both the commit and
 // the result batch; it introduces no new ID or hash semantics. Batches are
 // all-or-nothing: structural and business failures reject the whole batch, so
-// MUTATION_STATUS_V1_REJECTED does not exist. Exact replay items return NOOP.
+// Verification batches never return REJECTED. Dispatch batches admit items
+// independently and return REJECTED with reject_code. Exact replay returns NOOP.
 //
 //   batch_digest = H_FIELDS_V1("TRUEOPEN_BATCH_RESULT_V1",
 //     chain_id, batch_kind, item_count, repeated(object_id, status))
@@ -25,6 +27,8 @@ message BatchItemResultV1 {
   uint32 item_index = 1;
   bytes object_id = 2;
   shared.v1.MutationStatusV1 status = 3;
+
+  DispatchRejectCodeV1 reject_code = 4;
 }
 
 // MsgSubmitInferReceipt accepts the selected worker's signed InferReceipt.
@@ -71,19 +75,22 @@ message MsgSubmitWorkerEvidenceResponse {
   shared.v1.MutationStatusV1 status = 5;
 }
 
-// MsgSubmitVerifierValueEvidence is registered but NOT_SUPPORTED before the
-// separately defined value-evidence activation. The handler returns
-// ERR_NOT_ACTIVATED without decoding evidence or writing state.
+// MsgSubmitVerifierValueEvidence admits bounded value-contradiction proofs from
+// fresh Phase 1 genesis. Task authority and evidence windows remain mandatory.
 message MsgSubmitVerifierValueEvidence {
   bytes evidence_bytes = 1;
   string submitter_address = 2;
 }
 
-// MsgSubmitVerifierValueEvidenceResponse is reserved for an activated receipt.
+// MsgSubmitVerifierValueEvidenceResponse returns the accepted proof identity.
 message MsgSubmitVerifierValueEvidenceResponse {
   bytes evidence_digest = 1;
   bytes fault_id = 2;
   shared.v1.MutationStatusV1 status = 3;
+  bytes task_id = 4;
+  uint32 verify_round = 5;
+  string target_operator_address = 6;
+  shared.v1.Duty faulted_duty = 7;
 }
 
 // MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
@@ -139,13 +146,13 @@ message MsgSubmitVerifierHandraisesResponse {
 // are not accepted as fields. One canonical report per (task, round, verifier); an
 // identical repeat is a noop and the bitmap can never be rewritten.
 // MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
-// DataUnavailableReasonV1 reserves the report reason for the later evidence window.
+// DataUnavailableReasonV1 distinguishes Builder unavailability and invalid Worker evidence.
 enum DataUnavailableReasonV1 {
-  // No reason is selected by the pre-upgrade report contract.
+  // Unspecified legacy A-level report reason; not valid for B-level reports.
   DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED = 0;
   // The required Builder data set was unavailable before commit deadline.
   DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE = 1;
-  // Reserved for the later Worker evidence-invalid report flow.
+  // Active from Phase 1 genesis for the bounded Worker evidence-invalid flow.
   DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID = 2;
 }
 

@@ -1,0 +1,154 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/dispatch.proto";
+import "task/v1/session.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// SessionTakeoverVoidReasonV1 is the closed SessionTakeoverVoidReasonV1 registry.
+enum SessionTakeoverVoidReasonV1 {
+  // UNSPECIFIED is the unspecified value.
+  SESSION_TAKEOVER_VOID_REASON_V1_UNSPECIFIED = 0;
+  // ORDER_RECORDED is the order recorded value.
+  SESSION_TAKEOVER_VOID_REASON_V1_ORDER_RECORDED = 1;
+  // ORDER_CANCELLED is the order cancelled value.
+  SESSION_TAKEOVER_VOID_REASON_V1_ORDER_CANCELLED = 2;
+  // SESSION_CLOSED is the session closed value.
+  SESSION_TAKEOVER_VOID_REASON_V1_SESSION_CLOSED = 3;
+}
+// SessionBuilderBoundTriggerV1 is the closed SessionBuilderBoundTriggerV1 registry.
+enum SessionBuilderBoundTriggerV1 {
+  // UNSPECIFIED is the unspecified value.
+  SESSION_BUILDER_BOUND_TRIGGER_V1_UNSPECIFIED = 0;
+  // CREATE is the create value.
+  SESSION_BUILDER_BOUND_TRIGGER_V1_CREATE = 1;
+  // TAKEOVER is the takeover value.
+  SESSION_BUILDER_BOUND_TRIGGER_V1_TAKEOVER = 2;
+}
+// EventDispatchRecorded records the committed transition; exact replay emits nothing.
+message EventDispatchRecorded {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint64 order_sequence = 3;
+  string builder = 4;
+  string winner_worker = 5;
+  bytes dispatch_record_hash = 6;
+  bytes dispatch_ticket_hash = 7;
+  uint64 reference_height = 8;
+  shared.v1.Amount reserved_amount = 9;
+  uint64 infer_deadline = 10;
+}
+// EventSessionBuilderBound records the committed transition; exact replay emits nothing.
+message EventSessionBuilderBound {
+  bytes session_id = 1;
+  optional string old_builder_or_empty = 2;
+  string new_builder = 3;
+  SessionBuilderBoundTriggerV1 trigger = 4;
+  uint64 bound_change_height = 5;
+}
+// EventSessionTakeoverRegistered records the committed transition; exact replay emits nothing.
+message EventSessionTakeoverRegistered {
+  bytes session_id = 1;
+  string bound_builder = 2;
+  string candidate_builder = 3;
+  uint64 order_sequence = 4;
+  uint64 registered_height = 5;
+  uint64 activation_height = 6;
+}
+// EventSessionTakeoverVoided records the committed transition; exact replay emits nothing.
+message EventSessionTakeoverVoided {
+  bytes session_id = 1;
+  string candidate_builder = 2;
+  uint64 order_sequence = 3;
+  SessionTakeoverVoidReasonV1 reason = 4;
+}
+// EventDispatchCompensationClaimed records the committed transition; exact replay emits nothing.
+message EventDispatchCompensationClaimed {
+  bytes dispatch_ticket_hash = 1;
+  bytes task_id = 2;
+  string builder = 3;
+  string worker = 4;
+  shared.v1.Amount amount = 5;
+  uint64 rebuttal_deadline_height = 6;
+}
+// EventDispatchCompensationPaid records the committed transition; exact replay emits nothing.
+message EventDispatchCompensationPaid {
+  bytes dispatch_ticket_hash = 1;
+  bytes task_id = 2;
+  string builder = 3;
+  string worker = 4;
+  shared.v1.Amount amount = 5;
+  shared.v1.Amount paid_amount = 6;
+  shared.v1.Amount unfilled_amount = 7;
+}
+// EventDispatchCompensationRebutted records the committed transition; exact replay emits nothing.
+message EventDispatchCompensationRebutted {
+  bytes dispatch_ticket_hash = 1;
+  bytes task_id = 2;
+  string builder = 3;
+  string worker = 4;
+  string responder = 5;
+  DispatchAttemptOutcomeV1 attempt_outcome = 6;
+  bool worker_fault_recorded = 7;
+}
+// EventDispatchChallengeOpened records the committed transition; exact replay emits nothing.
+message EventDispatchChallengeOpened {
+  bytes challenge_id = 1;
+  bytes task_id = 2;
+  shared.v1.DispatchChallengeKindV1 kind = 3;
+  string challenger = 4;
+  uint64 proof_deadline_height_or_zero = 5;
+}
+// EventDispatchChallengeResolved records the committed transition; exact replay emits nothing.
+message EventDispatchChallengeResolved {
+  bytes challenge_id = 1;
+  bytes task_id = 2;
+  shared.v1.DispatchChallengeKindV1 kind = 3;
+  DispatchChallengeStatusV1 outcome = 4;
+}
+// EventBuilderDispatchFaultRecorded records the committed transition; exact replay emits nothing.
+message EventBuilderDispatchFaultRecorded {
+  string builder = 1;
+  bytes fault_id = 2;
+  shared.v1.DispatchChallengeKindV1 kind = 3;
+  bytes task_id = 4;
+  shared.v1.Amount penalty_amount = 5;
+  shared.v1.Amount unfilled_amount = 6;
+  optional string compensated_worker_or_empty = 7;
+}
+// EventSessionDeposited records the committed transition; exact replay emits nothing.
+message EventSessionDeposited {
+  bytes session_id = 1;
+  string owner = 2;
+  shared.v1.Amount amount = 3;
+  shared.v1.Amount balance = 4;
+}
+// EventSessionWithdrawRequested records the committed transition; exact replay emits nothing.
+message EventSessionWithdrawRequested {
+  bytes session_id = 1;
+  SessionWithdrawKindV1 kind = 2;
+  shared.v1.Amount amount = 3;
+  uint64 effective_height = 4;
+}
+// EventSessionWithdrawEffective records the committed transition; exact replay emits nothing.
+message EventSessionWithdrawEffective {
+  bytes session_id = 1;
+  SessionWithdrawKindV1 kind = 2;
+  shared.v1.Amount paid_amount = 3;
+  shared.v1.Amount remaining_balance = 4;
+}
+// EventSessionKeyChangeRequested records the committed transition; exact replay emits nothing.
+message EventSessionKeyChangeRequested {
+  bytes session_id = 1;
+  SessionKeyChangeKindV1 kind = 2;
+  uint64 effective_height = 3;
+}
+// EventOrderCancelRequested records the committed transition; exact replay emits nothing.
+message EventOrderCancelRequested {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  uint64 cancel_effective_height = 3;
+}

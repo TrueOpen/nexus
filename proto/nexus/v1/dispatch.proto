@@ -1,0 +1,212 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/sdk_auth.proto";
+import "task/v1/dispatch.proto";
+import "task/v1/msg_assignment.proto";
+import "task/v1/open_verify.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
+
+// OpenTaskStatusV1 is the closed OpenTaskStatusV1 registry.
+enum OpenTaskStatusV1 {
+  // UNSPECIFIED is the unspecified value.
+  OPEN_TASK_STATUS_V1_UNSPECIFIED = 0;
+  // DISPATCHING is the dispatching value.
+  OPEN_TASK_STATUS_V1_DISPATCHING = 1;
+  // TAKEOVER_PENDING is the takeover pending value.
+  OPEN_TASK_STATUS_V1_TAKEOVER_PENDING = 2;
+  // DISPATCHED is the dispatched value.
+  OPEN_TASK_STATUS_V1_DISPATCHED = 3;
+  // RECORDED is the recorded value.
+  OPEN_TASK_STATUS_V1_RECORDED = 4;
+  // REPLACEMENT_ACCEPTED is the replacement accepted value.
+  OPEN_TASK_STATUS_V1_REPLACEMENT_ACCEPTED = 5;
+}
+// DispatchStreamBindingV1 defines the canonical DispatchStreamBindingV1 fields.
+message DispatchStreamBindingV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  string builder_operator = 3;
+  string cortex_operator = 4;
+  uint64 service_authorization_nonce = 5;
+  bytes stream_nonce = 6;
+  bytes service_signature = 7;
+}
+// StreamAckV1 defines the canonical StreamAckV1 fields.
+message StreamAckV1 {
+  uint64 acked_cursor = 1;
+}
+// StreamKeepaliveV1 defines the canonical StreamKeepaliveV1 fields.
+message StreamKeepaliveV1 {
+  uint64 sent_at_ms = 1;
+}
+// DispatchInputRequestV1 defines the canonical DispatchInputRequestV1 fields.
+message DispatchInputRequestV1 {
+  bytes task_id = 1;
+  bytes dispatch_ticket_hash = 2;
+  task.v1.CandidateMemberRefV1 member = 3;
+  uint64 service_authorization_nonce = 4;
+  bytes service_signature = 5;
+}
+// DispatchInputResponseV1 defines the canonical DispatchInputResponseV1 fields.
+message DispatchInputResponseV1 {
+  bytes task_id = 1;
+  bytes dispatch_ticket_hash = 2;
+  bytes input_hash = 3;
+  uint64 input_size_bytes = 4;
+  bytes input = 5;
+  uint32 chunk_index = 6;
+  uint32 chunk_count = 7;
+  bytes builder_service_signature = 8;
+}
+// DispatchRevokeV1 defines the canonical DispatchRevokeV1 fields.
+message DispatchRevokeV1 {
+  bytes task_id = 1;
+  bytes dispatch_ticket_hash = 2;
+  uint64 revoked_height = 3;
+  bytes builder_service_signature = 4;
+}
+// RecordResultNoticeV1 defines the canonical RecordResultNoticeV1 fields.
+message RecordResultNoticeV1 {
+  bytes dispatch_ticket_hash = 1;
+  task.v1.DispatchRecordStatusV1 status = 2;
+  task.v1.DispatchRejectCodeV1 reject_code = 3;
+  uint64 recorded_height = 4;
+  bytes builder_service_signature = 5;
+}
+// VerifyResultSubmittedNoticeV1 defines the canonical VerifyResultSubmittedNoticeV1 fields.
+message VerifyResultSubmittedNoticeV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  uint32 verify_round = 3;
+  bytes commit_key = 4;
+  string operator_address = 5;
+  uint64 service_authorization_nonce = 6;
+  bytes service_signature = 7;
+}
+// OpenVerifyV1 defines the canonical OpenVerifyV1 fields.
+message OpenVerifyV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  bytes model_id = 3;
+  uint32 profile_version = 4;
+  bytes infer_receipt_hash = 5;
+  bytes output_hash = 6;
+  string worker_operator_address = 7;
+  uint32 verify_round = 8;
+  bytes builder_service_signature = 9;
+  BuilderMessageBindingV1 binding = 10;
+}
+// VerifierAssignmentNotifyV1 defines the canonical VerifierAssignmentNotifyV1 fields.
+message VerifierAssignmentNotifyV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  uint32 verify_round = 3;
+  repeated task.v1.SelectedVerifierV1 verifiers = 4;
+  bytes output_hash = 5;
+  uint64 open_verify_height = 6;
+  uint64 commit_deadline_height = 7;
+  uint64 reveal_deadline_height = 8;
+  uint64 verify_deadline_height = 9;
+  bytes builder_service_signature = 10;
+  BuilderMessageBindingV1 binding = 11;
+}
+// HandraiseRootNoticeV1 defines the canonical HandraiseRootNoticeV1 fields.
+message HandraiseRootNoticeV1 {
+  task.v1.SignedHandraiseRootV1 root = 1;
+  task.v1.HandraiseInclusionProofV1 proof = 2;
+}
+// DispatchOfferV1 defines the canonical DispatchOfferV1 fields.
+message DispatchOfferV1 {
+  task.v1.DispatchTicketV1 ticket = 1;
+  task.v1.SignedOrderV2 signed_order = 2;
+}
+// DispatchResultHeaderV1 defines the canonical DispatchResultHeaderV1 fields.
+message DispatchResultHeaderV1 {
+  bytes task_id = 1;
+  task.v1.DispatchTicketV1 winner_ticket = 2;
+  task.v1.DispatchAcceptV1 accept = 3;
+  task.v1.DispatchRecordStatusV1 record_status = 4;
+  bytes builder_service_signature = 5;
+}
+// ResumeOutputRequest defines the canonical ResumeOutputRequest fields.
+message ResumeOutputRequest {
+  string session_id = 1;
+  string task_id = 2;
+  optional uint64 resume_after_seq = 3;
+  optional bytes dispatch_ticket_hash = 4;
+  SDKRequestEnvelopeV2 request_envelope = 5;
+}
+// DispatchStreamFrameV1 carries typed messages on one authenticated stream.
+// Cursor is scoped to stream_nonce; reconnect never changes signed business bytes.
+message DispatchStreamFrameV1 {
+  bytes stream_nonce = 1;
+  uint64 cursor = 2;
+  // message selects exactly one supported variant.
+  oneof message {
+    DispatchStreamBindingV1 binding = 3;
+    task.v1.StandingHandraiseV1 handraise = 4;
+    HandraiseRootNoticeV1 handraise_root = 5;
+    DispatchOfferV1 offer = 6;
+    task.v1.DispatchAcceptV1 accept = 7;
+    task.v1.DispatchRejectV1 reject = 8;
+    DispatchInputRequestV1 input_request = 9;
+    DispatchInputResponseV1 input_response = 10;
+    DispatchRevokeV1 revoke = 11;
+    RecordResultNoticeV1 record_result = 12;
+    OpenVerifyV1 open_verify = 13;
+    task.v1.VerifierHandraiseV1 verifier_handraise = 14;
+    VerifierAssignmentNotifyV1 verifier_assignment = 15;
+    VerifyResultSubmittedNoticeV1 verify_result_submitted = 16;
+    StreamAckV1 ack = 17;
+    StreamKeepaliveV1 keepalive = 18;
+  }
+}
+
+// DispatchStreamRequest reuses the common signed frame on the uplink.
+message DispatchStreamRequest {
+  DispatchStreamFrameV1 frame = 1;
+}
+// DispatchStreamResponse reuses the common signed frame on the downlink.
+message DispatchStreamResponse {
+  DispatchStreamFrameV1 frame = 1;
+}
+// DispatchRosterRoundV1 defines the canonical DispatchRosterRoundV1 fields.
+message DispatchRosterRoundV1 {
+  uint32 dispatch_round = 1;
+  task.v1.DispatchRosterV1 roster = 2;
+  task.v1.SignedHandraiseRootV1 handraise_root = 3;
+}
+// DispatchRosterRequestV1 defines the canonical DispatchRosterRequestV1 fields.
+message DispatchRosterRequestV1 {
+  bytes task_id = 1;
+  string requester = 2;
+  uint64 nonce = 3;
+  uint64 expiry_height = 4;
+  bytes service_signature = 5;
+}
+// GetDispatchRosterRequest authenticates an account or delegated SDK request.
+message GetDispatchRosterRequest {
+  string session_id = 1;
+  string task_id = 2;
+  // authentication selects one supported request signature.
+  oneof authentication {
+    SDKRequestEnvelopeV2 request_envelope = 3;
+    DispatchRosterRequestV1 roster_request = 4;
+  }
+}
+// GetDispatchRosterResponse defines the canonical GetDispatchRosterResponse fields.
+message GetDispatchRosterResponse {
+  repeated DispatchRosterRoundV1 rounds = 1;
+  bytes dispatch_record_hash = 2;
+}
+
+// BuilderMessageBindingV1 is signed identity metadata shared by proof-bearing actions.
+// It remains part of the business message, never a transport envelope.
+message BuilderMessageBindingV1 {
+  string chain_id = 1;
+  string builder_address = 2;
+  uint64 service_authorization_nonce = 3;
+}

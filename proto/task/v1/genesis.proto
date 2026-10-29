@@ -5,6 +5,7 @@ import "task/v1/assignment.proto";
 import "task/v1/challenge.proto";
 import "task/v1/cleanup.proto";
 import "task/v1/commit.proto";
+import "task/v1/dispatch_state.proto";
 import "task/v1/epoch_summary.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
@@ -14,6 +15,7 @@ import "task/v1/result.proto";
 import "task/v1/session.proto";
 import "task/v1/settlement.proto";
 import "task/v1/timeout_bucket.proto";
+import "task/v1/value_evidence.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
@@ -34,7 +36,9 @@ message GenesisState {
   // TaskCoreState is the only primary of the six Task sub-states.
   repeated TaskCoreState task_cores = 19;
   repeated TaskAssignmentState task_assignments = 21;
-  repeated AssignmentCandidateSetState assignment_candidate_sets = 22;
+
+  reserved 22;
+  reserved "assignment_candidate_sets";
   repeated InferReceiptState infer_receipts = 24;
   repeated VerifierAssignmentState verifier_assignments = 26;
   repeated CommitState commits = 27;
@@ -74,4 +78,11 @@ message GenesisState {
   repeated TaskSettlementState task_settlements = 71;
   repeated SettlementFactsRetainedState settlement_facts_retained = 72;
   repeated WorkerEvidenceReceiptState worker_evidence_receipts = 73;
+
+  repeated DispatchRecordState dispatch_records = 74;
+  repeated DispatchCompensationClaimState dispatch_compensation_claims = 75;
+  repeated DispatchChallengeState dispatch_challenges = 76;
+  repeated DispatchWinnerIneligibleState dispatch_winner_ineligible = 78;
+  repeated TakeoverEntryReceiptState takeover_entry_receipts = 79;
+  repeated VerifierValueEvidenceReceiptState verifier_value_evidence_receipts = 80;
 }

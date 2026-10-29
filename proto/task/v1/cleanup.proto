@@ -59,7 +59,8 @@ message TaskTerminalSummaryState {
   shared.v1.TaskType task_type = 13;
   bytes candidate_pool_snapshot_id = 14;
   bytes candidate_pool_hash = 15;
-  bytes assignment_candidate_set_hash = 16;
+  reserved 16;
+  reserved "assignment_candidate_set_hash";
   bool candidate_pool_ref_released = 17;
   optional string winner_worker = 18;
   bytes round1_selected_verifiers_hash_or_zero32 = 19;
@@ -89,6 +90,8 @@ message TaskTerminalSummaryState {
   uint64 created_height = 43;
   uint64 compacted_height = 44;
   bytes summary_hash = 45;
+  // Retained admission commitment distinguishes a pruned record from no admission.
+  bytes dispatch_record_hash = 46;
 }
 
 // TaskCleanupCursorState is the single restart-safe cursor for one Task.

@@ -37,6 +37,7 @@ type TaskParamsV1 struct {
 	Generation    *GenerationLimitParamsV1 `protobuf:"bytes,10,opt,name=generation,proto3" json:"generation,omitempty"`
 	Fee           *TaskFeeParamsV1         `protobuf:"bytes,11,opt,name=fee,proto3" json:"fee,omitempty"`
 	Challenge     *ChallengeParamsV1       `protobuf:"bytes,12,opt,name=challenge,proto3" json:"challenge,omitempty"`
+	Dispatch      *DispatchParamsV1        `protobuf:"bytes,13,opt,name=dispatch,proto3" json:"dispatch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -155,6 +156,13 @@ func (x *TaskParamsV1) GetChallenge() *ChallengeParamsV1 {
 	return nil
 }
 
+func (x *TaskParamsV1) GetDispatch() *DispatchParamsV1 {
+	if x != nil {
+		return x.Dispatch
+	}
+	return nil
+}
+
 // TaskParamsMetaState is written atomically with TaskParamsV1.
 type TaskParamsMetaState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -228,13 +236,16 @@ type SessionParamsV1 struct {
 	MaxSessionTerminalSummaryPruneItemsPerBlock uint32                 `protobuf:"varint,7,opt,name=max_session_terminal_summary_prune_items_per_block,json=maxSessionTerminalSummaryPruneItemsPerBlock,proto3" json:"max_session_terminal_summary_prune_items_per_block,omitempty"`
 	MaxSessionSweepPerBlock                     uint32                 `protobuf:"varint,8,opt,name=max_session_sweep_per_block,json=maxSessionSweepPerBlock,proto3" json:"max_session_sweep_per_block,omitempty"`
 	CancelOrderMinGas                           uint64                 `protobuf:"varint,9,opt,name=cancel_order_min_gas,json=cancelOrderMinGas,proto3" json:"cancel_order_min_gas,omitempty"`
-	AnchorFreshnessWindowBlocks                 uint64                 `protobuf:"varint,10,opt,name=anchor_freshness_window_blocks,json=anchorFreshnessWindowBlocks,proto3" json:"anchor_freshness_window_blocks,omitempty"`
 	// Positive deployment-configured limit. Registration and renewal read the
 	// current effective value, not ParamsForSession; later governance changes do
-	// not rewrite an existing grant's expiry. Legacy history may omit this field.
-	MaxSessionKeyBlocks uint64 `protobuf:"varint,11,opt,name=max_session_key_blocks,json=maxSessionKeyBlocks,proto3" json:"max_session_key_blocks,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// not rewrite an existing grant's expiry. Fresh genesis requires a positive value.
+	MaxSessionKeyBlocks         uint64     `protobuf:"varint,11,opt,name=max_session_key_blocks,json=maxSessionKeyBlocks,proto3" json:"max_session_key_blocks,omitempty"`
+	SessionWithdrawDelayBlocks  uint64     `protobuf:"varint,12,opt,name=session_withdraw_delay_blocks,json=sessionWithdrawDelayBlocks,proto3" json:"session_withdraw_delay_blocks,omitempty"`
+	SessionChangeDelayBlocks    uint64     `protobuf:"varint,13,opt,name=session_change_delay_blocks,json=sessionChangeDelayBlocks,proto3" json:"session_change_delay_blocks,omitempty"`
+	SessionMinPrefund           *v1.Amount `protobuf:"bytes,14,opt,name=session_min_prefund,json=sessionMinPrefund,proto3" json:"session_min_prefund,omitempty"`
+	MaxActiveSessionsPerAccount uint32     `protobuf:"varint,15,opt,name=max_active_sessions_per_account,json=maxActiveSessionsPerAccount,proto3" json:"max_active_sessions_per_account,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *SessionParamsV1) Reset() {
@@ -330,16 +341,37 @@ func (x *SessionParamsV1) GetCancelOrderMinGas() uint64 {
 	return 0
 }
 
-func (x *SessionParamsV1) GetAnchorFreshnessWindowBlocks() uint64 {
+func (x *SessionParamsV1) GetMaxSessionKeyBlocks() uint64 {
 	if x != nil {
-		return x.AnchorFreshnessWindowBlocks
+		return x.MaxSessionKeyBlocks
 	}
 	return 0
 }
 
-func (x *SessionParamsV1) GetMaxSessionKeyBlocks() uint64 {
+func (x *SessionParamsV1) GetSessionWithdrawDelayBlocks() uint64 {
 	if x != nil {
-		return x.MaxSessionKeyBlocks
+		return x.SessionWithdrawDelayBlocks
+	}
+	return 0
+}
+
+func (x *SessionParamsV1) GetSessionChangeDelayBlocks() uint64 {
+	if x != nil {
+		return x.SessionChangeDelayBlocks
+	}
+	return 0
+}
+
+func (x *SessionParamsV1) GetSessionMinPrefund() *v1.Amount {
+	if x != nil {
+		return x.SessionMinPrefund
+	}
+	return nil
+}
+
+func (x *SessionParamsV1) GetMaxActiveSessionsPerAccount() uint32 {
+	if x != nil {
+		return x.MaxActiveSessionsPerAccount
 	}
 	return 0
 }
@@ -723,7 +755,7 @@ type EvidenceLimitParamsV1 struct {
 	MaxWorkerEvidenceBytesV1              uint64                 `protobuf:"varint,11,opt,name=max_worker_evidence_bytes_v1,json=maxWorkerEvidenceBytesV1,proto3" json:"max_worker_evidence_bytes_v1,omitempty"`
 	// Zero keeps encryption inactive in fresh Phase 0.
 	EncryptionActivationHeight uint64 `protobuf:"varint,12,opt,name=encryption_activation_height,json=encryptionActivationHeight,proto3" json:"encryption_activation_height,omitempty"`
-	// Reserved for the later verifier value-evidence admission upgrade.
+	// Active from fresh Phase 1 genesis; bounds contradiction-evidence admission.
 	VerifierValueEvidenceWindowBlocks uint64 `protobuf:"varint,13,opt,name=verifier_value_evidence_window_blocks,json=verifierValueEvidenceWindowBlocks,proto3" json:"verifier_value_evidence_window_blocks,omitempty"`
 	MaxVerifierValueEvidencePositions uint32 `protobuf:"varint,14,opt,name=max_verifier_value_evidence_positions,json=maxVerifierValueEvidencePositions,proto3" json:"max_verifier_value_evidence_positions,omitempty"`
 	MaxVerifierValueEvidenceBytes     uint64 `protobuf:"varint,15,opt,name=max_verifier_value_evidence_bytes,json=maxVerifierValueEvidenceBytes,proto3" json:"max_verifier_value_evidence_bytes,omitempty"`
@@ -1334,11 +1366,375 @@ func (x *ChallengeParamsV1) GetMaxRoundEffectItemsPerBlock() uint32 {
 	return 0
 }
 
+// DispatchParamsV1 defines the canonical DispatchParamsV1 fields.
+type DispatchParamsV1 struct {
+	state                                 protoimpl.MessageState       `protogen:"open.v1"`
+	RecordDeadlineBlocks                  uint64                       `protobuf:"varint,1,opt,name=record_deadline_blocks,json=recordDeadlineBlocks,proto3" json:"record_deadline_blocks,omitempty"`
+	MaxDispatchEntriesPerRecord           uint32                       `protobuf:"varint,2,opt,name=max_dispatch_entries_per_record,json=maxDispatchEntriesPerRecord,proto3" json:"max_dispatch_entries_per_record,omitempty"`
+	MaxDispatchRecordBytes                uint64                       `protobuf:"varint,3,opt,name=max_dispatch_record_bytes,json=maxDispatchRecordBytes,proto3" json:"max_dispatch_record_bytes,omitempty"`
+	MaxSkips                              uint32                       `protobuf:"varint,4,opt,name=max_skips,json=maxSkips,proto3" json:"max_skips,omitempty"`
+	StickyWindowBlocks                    uint64                       `protobuf:"varint,5,opt,name=sticky_window_blocks,json=stickyWindowBlocks,proto3" json:"sticky_window_blocks,omitempty"`
+	StickyMaxOrders                       uint32                       `protobuf:"varint,6,opt,name=sticky_max_orders,json=stickyMaxOrders,proto3" json:"sticky_max_orders,omitempty"`
+	DispatchCompensationClaimWindowBlocks uint64                       `protobuf:"varint,7,opt,name=dispatch_compensation_claim_window_blocks,json=dispatchCompensationClaimWindowBlocks,proto3" json:"dispatch_compensation_claim_window_blocks,omitempty"`
+	DispatchCompensationRebuttalBlocks    uint64                       `protobuf:"varint,8,opt,name=dispatch_compensation_rebuttal_blocks,json=dispatchCompensationRebuttalBlocks,proto3" json:"dispatch_compensation_rebuttal_blocks,omitempty"`
+	DispatchChallengeWindowBlocks         uint64                       `protobuf:"varint,9,opt,name=dispatch_challenge_window_blocks,json=dispatchChallengeWindowBlocks,proto3" json:"dispatch_challenge_window_blocks,omitempty"`
+	DispatchChallengeResponseBlocks       uint64                       `protobuf:"varint,10,opt,name=dispatch_challenge_response_blocks,json=dispatchChallengeResponseBlocks,proto3" json:"dispatch_challenge_response_blocks,omitempty"`
+	DispatchRecordRetentionBlocks         uint64                       `protobuf:"varint,11,opt,name=dispatch_record_retention_blocks,json=dispatchRecordRetentionBlocks,proto3" json:"dispatch_record_retention_blocks,omitempty"`
+	MaxDispatchRosterBytes                uint64                       `protobuf:"varint,12,opt,name=max_dispatch_roster_bytes,json=maxDispatchRosterBytes,proto3" json:"max_dispatch_roster_bytes,omitempty"`
+	MaxPendingPerSession                  uint32                       `protobuf:"varint,13,opt,name=max_pending_per_session,json=maxPendingPerSession,proto3" json:"max_pending_per_session,omitempty"`
+	BuilderMaxInflightPerSession          uint32                       `protobuf:"varint,14,opt,name=builder_max_inflight_per_session,json=builderMaxInflightPerSession,proto3" json:"builder_max_inflight_per_session,omitempty"`
+	OrderFreshnessMarginBlocks            uint64                       `protobuf:"varint,15,opt,name=order_freshness_margin_blocks,json=orderFreshnessMarginBlocks,proto3" json:"order_freshness_margin_blocks,omitempty"`
+	MaxPrerecordOutputTokens              uint64                       `protobuf:"varint,16,opt,name=max_prerecord_output_tokens,json=maxPrerecordOutputTokens,proto3" json:"max_prerecord_output_tokens,omitempty"`
+	PrefillCompensationByModelTier        []*PrefillCompensationV1     `protobuf:"bytes,17,rep,name=prefill_compensation_by_model_tier,json=prefillCompensationByModelTier,proto3" json:"prefill_compensation_by_model_tier,omitempty"`
+	DispatchFaultPenaltyByKind            []*DispatchFaultPenaltyV1    `protobuf:"bytes,18,rep,name=dispatch_fault_penalty_by_kind,json=dispatchFaultPenaltyByKind,proto3" json:"dispatch_fault_penalty_by_kind,omitempty"`
+	DispatchChallengeGasCapByKind         []*DispatchChallengeGasCapV1 `protobuf:"bytes,19,rep,name=dispatch_challenge_gas_cap_by_kind,json=dispatchChallengeGasCapByKind,proto3" json:"dispatch_challenge_gas_cap_by_kind,omitempty"`
+	BuilderCompensationAccountMinBalance  *v1.Amount                   `protobuf:"bytes,20,opt,name=builder_compensation_account_min_balance,json=builderCompensationAccountMinBalance,proto3" json:"builder_compensation_account_min_balance,omitempty"`
+	DispatchEvidenceRetentionBlocks       uint64                       `protobuf:"varint,21,opt,name=dispatch_evidence_retention_blocks,json=dispatchEvidenceRetentionBlocks,proto3" json:"dispatch_evidence_retention_blocks,omitempty"`
+	unknownFields                         protoimpl.UnknownFields
+	sizeCache                             protoimpl.SizeCache
+}
+
+func (x *DispatchParamsV1) Reset() {
+	*x = DispatchParamsV1{}
+	mi := &file_task_v1_params_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchParamsV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchParamsV1) ProtoMessage() {}
+
+func (x *DispatchParamsV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_params_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchParamsV1.ProtoReflect.Descriptor instead.
+func (*DispatchParamsV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_params_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *DispatchParamsV1) GetRecordDeadlineBlocks() uint64 {
+	if x != nil {
+		return x.RecordDeadlineBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxDispatchEntriesPerRecord() uint32 {
+	if x != nil {
+		return x.MaxDispatchEntriesPerRecord
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxDispatchRecordBytes() uint64 {
+	if x != nil {
+		return x.MaxDispatchRecordBytes
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxSkips() uint32 {
+	if x != nil {
+		return x.MaxSkips
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetStickyWindowBlocks() uint64 {
+	if x != nil {
+		return x.StickyWindowBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetStickyMaxOrders() uint32 {
+	if x != nil {
+		return x.StickyMaxOrders
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetDispatchCompensationClaimWindowBlocks() uint64 {
+	if x != nil {
+		return x.DispatchCompensationClaimWindowBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetDispatchCompensationRebuttalBlocks() uint64 {
+	if x != nil {
+		return x.DispatchCompensationRebuttalBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetDispatchChallengeWindowBlocks() uint64 {
+	if x != nil {
+		return x.DispatchChallengeWindowBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetDispatchChallengeResponseBlocks() uint64 {
+	if x != nil {
+		return x.DispatchChallengeResponseBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetDispatchRecordRetentionBlocks() uint64 {
+	if x != nil {
+		return x.DispatchRecordRetentionBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxDispatchRosterBytes() uint64 {
+	if x != nil {
+		return x.MaxDispatchRosterBytes
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxPendingPerSession() uint32 {
+	if x != nil {
+		return x.MaxPendingPerSession
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetBuilderMaxInflightPerSession() uint32 {
+	if x != nil {
+		return x.BuilderMaxInflightPerSession
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetOrderFreshnessMarginBlocks() uint64 {
+	if x != nil {
+		return x.OrderFreshnessMarginBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxPrerecordOutputTokens() uint64 {
+	if x != nil {
+		return x.MaxPrerecordOutputTokens
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetPrefillCompensationByModelTier() []*PrefillCompensationV1 {
+	if x != nil {
+		return x.PrefillCompensationByModelTier
+	}
+	return nil
+}
+
+func (x *DispatchParamsV1) GetDispatchFaultPenaltyByKind() []*DispatchFaultPenaltyV1 {
+	if x != nil {
+		return x.DispatchFaultPenaltyByKind
+	}
+	return nil
+}
+
+func (x *DispatchParamsV1) GetDispatchChallengeGasCapByKind() []*DispatchChallengeGasCapV1 {
+	if x != nil {
+		return x.DispatchChallengeGasCapByKind
+	}
+	return nil
+}
+
+func (x *DispatchParamsV1) GetBuilderCompensationAccountMinBalance() *v1.Amount {
+	if x != nil {
+		return x.BuilderCompensationAccountMinBalance
+	}
+	return nil
+}
+
+func (x *DispatchParamsV1) GetDispatchEvidenceRetentionBlocks() uint64 {
+	if x != nil {
+		return x.DispatchEvidenceRetentionBlocks
+	}
+	return 0
+}
+
+// PrefillCompensationV1 defines the canonical PrefillCompensationV1 fields.
+type PrefillCompensationV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceTier  uint32                 `protobuf:"varint,1,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
+	Amount        *v1.Amount             `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PrefillCompensationV1) Reset() {
+	*x = PrefillCompensationV1{}
+	mi := &file_task_v1_params_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrefillCompensationV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrefillCompensationV1) ProtoMessage() {}
+
+func (x *PrefillCompensationV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_params_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrefillCompensationV1.ProtoReflect.Descriptor instead.
+func (*PrefillCompensationV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_params_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PrefillCompensationV1) GetResourceTier() uint32 {
+	if x != nil {
+		return x.ResourceTier
+	}
+	return 0
+}
+
+func (x *PrefillCompensationV1) GetAmount() *v1.Amount {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+// DispatchFaultPenaltyV1 defines the canonical DispatchFaultPenaltyV1 fields.
+type DispatchFaultPenaltyV1 struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Kind          v1.DispatchChallengeKindV1 `protobuf:"varint,1,opt,name=kind,proto3,enum=shared.v1.DispatchChallengeKindV1" json:"kind,omitempty"`
+	Amount        *v1.Amount                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DispatchFaultPenaltyV1) Reset() {
+	*x = DispatchFaultPenaltyV1{}
+	mi := &file_task_v1_params_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchFaultPenaltyV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchFaultPenaltyV1) ProtoMessage() {}
+
+func (x *DispatchFaultPenaltyV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_params_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchFaultPenaltyV1.ProtoReflect.Descriptor instead.
+func (*DispatchFaultPenaltyV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_params_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DispatchFaultPenaltyV1) GetKind() v1.DispatchChallengeKindV1 {
+	if x != nil {
+		return x.Kind
+	}
+	return v1.DispatchChallengeKindV1(0)
+}
+
+func (x *DispatchFaultPenaltyV1) GetAmount() *v1.Amount {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+// DispatchChallengeGasCapV1 defines the canonical DispatchChallengeGasCapV1 fields.
+type DispatchChallengeGasCapV1 struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Kind          v1.DispatchChallengeKindV1 `protobuf:"varint,1,opt,name=kind,proto3,enum=shared.v1.DispatchChallengeKindV1" json:"kind,omitempty"`
+	GasCap        uint64                     `protobuf:"varint,2,opt,name=gas_cap,json=gasCap,proto3" json:"gas_cap,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DispatchChallengeGasCapV1) Reset() {
+	*x = DispatchChallengeGasCapV1{}
+	mi := &file_task_v1_params_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchChallengeGasCapV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchChallengeGasCapV1) ProtoMessage() {}
+
+func (x *DispatchChallengeGasCapV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_params_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchChallengeGasCapV1.ProtoReflect.Descriptor instead.
+func (*DispatchChallengeGasCapV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_params_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DispatchChallengeGasCapV1) GetKind() v1.DispatchChallengeKindV1 {
+	if x != nil {
+		return x.Kind
+	}
+	return v1.DispatchChallengeKindV1(0)
+}
+
+func (x *DispatchChallengeGasCapV1) GetGasCap() uint64 {
+	if x != nil {
+		return x.GasCap
+	}
+	return 0
+}
+
 var File_task_v1_params_proto protoreflect.FileDescriptor
 
 const file_task_v1_params_proto_rawDesc = "" +
 	"\n" +
-	"\x14task/v1/params.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\"\xac\x05\n" +
+	"\x14task/v1/params.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x16task/v1/dispatch.proto\"\xe3\x05\n" +
 	"\fTaskParamsV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x122\n" +
 	"\asession\x18\x02 \x01(\v2\x18.task.v1.SessionParamsV1R\asession\x12;\n" +
@@ -1354,12 +1750,13 @@ const file_task_v1_params_proto_rawDesc = "" +
 	" \x01(\v2 .task.v1.GenerationLimitParamsV1R\n" +
 	"generation\x12*\n" +
 	"\x03fee\x18\v \x01(\v2\x18.task.v1.TaskFeeParamsV1R\x03fee\x128\n" +
-	"\tchallenge\x18\f \x01(\v2\x1a.task.v1.ChallengeParamsV1R\tchallenge\"\x84\x01\n" +
+	"\tchallenge\x18\f \x01(\v2\x1a.task.v1.ChallengeParamsV1R\tchallenge\x125\n" +
+	"\bdispatch\x18\r \x01(\v2\x19.task.v1.DispatchParamsV1R\bdispatch\"\x84\x01\n" +
 	"\x13TaskParamsMetaState\x12%\n" +
 	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12\x1f\n" +
 	"\vparams_hash\x18\x02 \x01(\fR\n" +
 	"paramsHash\x12%\n" +
-	"\x0eupdated_height\x18\x03 \x01(\x04R\rupdatedHeight\"\x9d\x06\n" +
+	"\x0eupdated_height\x18\x03 \x01(\x04R\rupdatedHeight\"\x89\b\n" +
 	"\x0fSessionParamsV1\x12Q\n" +
 	"&max_order_sequences_per_active_session\x18\x01 \x01(\rR!maxOrderSequencesPerActiveSession\x125\n" +
 	"\x17session_idle_ttl_blocks\x18\x02 \x01(\x04R\x14sessionIdleTtlBlocks\x127\n" +
@@ -1369,10 +1766,13 @@ const file_task_v1_params_proto_rawDesc = "" +
 	")session_terminal_summary_retention_blocks\x18\x06 \x01(\x04R%sessionTerminalSummaryRetentionBlocks\x12g\n" +
 	"2max_session_terminal_summary_prune_items_per_block\x18\a \x01(\rR+maxSessionTerminalSummaryPruneItemsPerBlock\x12<\n" +
 	"\x1bmax_session_sweep_per_block\x18\b \x01(\rR\x17maxSessionSweepPerBlock\x12/\n" +
-	"\x14cancel_order_min_gas\x18\t \x01(\x04R\x11cancelOrderMinGas\x12C\n" +
-	"\x1eanchor_freshness_window_blocks\x18\n" +
-	" \x01(\x04R\x1banchorFreshnessWindowBlocks\x123\n" +
-	"\x16max_session_key_blocks\x18\v \x01(\x04R\x13maxSessionKeyBlocks\"\xa0\x03\n" +
+	"\x14cancel_order_min_gas\x18\t \x01(\x04R\x11cancelOrderMinGas\x123\n" +
+	"\x16max_session_key_blocks\x18\v \x01(\x04R\x13maxSessionKeyBlocks\x12A\n" +
+	"\x1dsession_withdraw_delay_blocks\x18\f \x01(\x04R\x1asessionWithdrawDelayBlocks\x12=\n" +
+	"\x1bsession_change_delay_blocks\x18\r \x01(\x04R\x18sessionChangeDelayBlocks\x12A\n" +
+	"\x13session_min_prefund\x18\x0e \x01(\v2\x11.shared.v1.AmountR\x11sessionMinPrefund\x12D\n" +
+	"\x1fmax_active_sessions_per_account\x18\x0f \x01(\rR\x1bmaxActiveSessionsPerAccountJ\x04\b\n" +
+	"\x10\vR\x1eanchor_freshness_window_blocks\"\xa0\x03\n" +
 	"\x14TaskDeadlineParamsV1\x12=\n" +
 	"\x1bverify_open_deadline_blocks\x18\x01 \x01(\x04R\x18verifyOpenDeadlineBlocks\x120\n" +
 	"\x14commit_window_blocks\x18\x02 \x01(\x04R\x12commitWindowBlocks\x120\n" +
@@ -1462,7 +1862,39 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x14commit_window_blocks\x18\n" +
 	" \x01(\x04R\x12commitWindowBlocks\x120\n" +
 	"\x14reveal_window_blocks\x18\v \x01(\x04R\x12revealWindowBlocks\x12E\n" +
-	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlockB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlock\"\x84\f\n" +
+	"\x10DispatchParamsV1\x124\n" +
+	"\x16record_deadline_blocks\x18\x01 \x01(\x04R\x14recordDeadlineBlocks\x12D\n" +
+	"\x1fmax_dispatch_entries_per_record\x18\x02 \x01(\rR\x1bmaxDispatchEntriesPerRecord\x129\n" +
+	"\x19max_dispatch_record_bytes\x18\x03 \x01(\x04R\x16maxDispatchRecordBytes\x12\x1b\n" +
+	"\tmax_skips\x18\x04 \x01(\rR\bmaxSkips\x120\n" +
+	"\x14sticky_window_blocks\x18\x05 \x01(\x04R\x12stickyWindowBlocks\x12*\n" +
+	"\x11sticky_max_orders\x18\x06 \x01(\rR\x0fstickyMaxOrders\x12X\n" +
+	")dispatch_compensation_claim_window_blocks\x18\a \x01(\x04R%dispatchCompensationClaimWindowBlocks\x12Q\n" +
+	"%dispatch_compensation_rebuttal_blocks\x18\b \x01(\x04R\"dispatchCompensationRebuttalBlocks\x12G\n" +
+	" dispatch_challenge_window_blocks\x18\t \x01(\x04R\x1ddispatchChallengeWindowBlocks\x12K\n" +
+	"\"dispatch_challenge_response_blocks\x18\n" +
+	" \x01(\x04R\x1fdispatchChallengeResponseBlocks\x12G\n" +
+	" dispatch_record_retention_blocks\x18\v \x01(\x04R\x1ddispatchRecordRetentionBlocks\x129\n" +
+	"\x19max_dispatch_roster_bytes\x18\f \x01(\x04R\x16maxDispatchRosterBytes\x125\n" +
+	"\x17max_pending_per_session\x18\r \x01(\rR\x14maxPendingPerSession\x12F\n" +
+	" builder_max_inflight_per_session\x18\x0e \x01(\rR\x1cbuilderMaxInflightPerSession\x12A\n" +
+	"\x1dorder_freshness_margin_blocks\x18\x0f \x01(\x04R\x1aorderFreshnessMarginBlocks\x12=\n" +
+	"\x1bmax_prerecord_output_tokens\x18\x10 \x01(\x04R\x18maxPrerecordOutputTokens\x12j\n" +
+	"\"prefill_compensation_by_model_tier\x18\x11 \x03(\v2\x1e.task.v1.PrefillCompensationV1R\x1eprefillCompensationByModelTier\x12c\n" +
+	"\x1edispatch_fault_penalty_by_kind\x18\x12 \x03(\v2\x1f.task.v1.DispatchFaultPenaltyV1R\x1adispatchFaultPenaltyByKind\x12m\n" +
+	"\"dispatch_challenge_gas_cap_by_kind\x18\x13 \x03(\v2\".task.v1.DispatchChallengeGasCapV1R\x1ddispatchChallengeGasCapByKind\x12i\n" +
+	"(builder_compensation_account_min_balance\x18\x14 \x01(\v2\x11.shared.v1.AmountR$builderCompensationAccountMinBalance\x12K\n" +
+	"\"dispatch_evidence_retention_blocks\x18\x15 \x01(\x04R\x1fdispatchEvidenceRetentionBlocks\"g\n" +
+	"\x15PrefillCompensationV1\x12#\n" +
+	"\rresource_tier\x18\x01 \x01(\rR\fresourceTier\x12)\n" +
+	"\x06amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x06amount\"{\n" +
+	"\x16DispatchFaultPenaltyV1\x126\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\".shared.v1.DispatchChallengeKindV1R\x04kind\x12)\n" +
+	"\x06amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x06amount\"l\n" +
+	"\x19DispatchChallengeGasCapV1\x126\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\".shared.v1.DispatchChallengeKindV1R\x04kind\x12\x17\n" +
+	"\agas_cap\x18\x02 \x01(\x04R\x06gasCapB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_params_proto_rawDescOnce sync.Once
@@ -1476,22 +1908,27 @@ func file_task_v1_params_proto_rawDescGZIP() []byte {
 	return file_task_v1_params_proto_rawDescData
 }
 
-var file_task_v1_params_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_task_v1_params_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_task_v1_params_proto_goTypes = []any{
-	(*TaskParamsV1)(nil),            // 0: task.v1.TaskParamsV1
-	(*TaskParamsMetaState)(nil),     // 1: task.v1.TaskParamsMetaState
-	(*SessionParamsV1)(nil),         // 2: task.v1.SessionParamsV1
-	(*TaskDeadlineParamsV1)(nil),    // 3: task.v1.TaskDeadlineParamsV1
-	(*TaskProposalParamsV1)(nil),    // 4: task.v1.TaskProposalParamsV1
-	(*CandidateWeightParamsV1)(nil), // 5: task.v1.CandidateWeightParamsV1
-	(*VerificationParamsV1)(nil),    // 6: task.v1.VerificationParamsV1
-	(*EvidenceLimitParamsV1)(nil),   // 7: task.v1.EvidenceLimitParamsV1
-	(*TaskCleanupParamsV1)(nil),     // 8: task.v1.TaskCleanupParamsV1
-	(*BatchParamsV1)(nil),           // 9: task.v1.BatchParamsV1
-	(*GenerationLimitParamsV1)(nil), // 10: task.v1.GenerationLimitParamsV1
-	(*TaskFeeParamsV1)(nil),         // 11: task.v1.TaskFeeParamsV1
-	(*ChallengeParamsV1)(nil),       // 12: task.v1.ChallengeParamsV1
-	(*v1.Amount)(nil),               // 13: shared.v1.Amount
+	(*TaskParamsV1)(nil),              // 0: task.v1.TaskParamsV1
+	(*TaskParamsMetaState)(nil),       // 1: task.v1.TaskParamsMetaState
+	(*SessionParamsV1)(nil),           // 2: task.v1.SessionParamsV1
+	(*TaskDeadlineParamsV1)(nil),      // 3: task.v1.TaskDeadlineParamsV1
+	(*TaskProposalParamsV1)(nil),      // 4: task.v1.TaskProposalParamsV1
+	(*CandidateWeightParamsV1)(nil),   // 5: task.v1.CandidateWeightParamsV1
+	(*VerificationParamsV1)(nil),      // 6: task.v1.VerificationParamsV1
+	(*EvidenceLimitParamsV1)(nil),     // 7: task.v1.EvidenceLimitParamsV1
+	(*TaskCleanupParamsV1)(nil),       // 8: task.v1.TaskCleanupParamsV1
+	(*BatchParamsV1)(nil),             // 9: task.v1.BatchParamsV1
+	(*GenerationLimitParamsV1)(nil),   // 10: task.v1.GenerationLimitParamsV1
+	(*TaskFeeParamsV1)(nil),           // 11: task.v1.TaskFeeParamsV1
+	(*ChallengeParamsV1)(nil),         // 12: task.v1.ChallengeParamsV1
+	(*DispatchParamsV1)(nil),          // 13: task.v1.DispatchParamsV1
+	(*PrefillCompensationV1)(nil),     // 14: task.v1.PrefillCompensationV1
+	(*DispatchFaultPenaltyV1)(nil),    // 15: task.v1.DispatchFaultPenaltyV1
+	(*DispatchChallengeGasCapV1)(nil), // 16: task.v1.DispatchChallengeGasCapV1
+	(*v1.Amount)(nil),                 // 17: shared.v1.Amount
+	(v1.DispatchChallengeKindV1)(0),   // 18: shared.v1.DispatchChallengeKindV1
 }
 var file_task_v1_params_proto_depIdxs = []int32{
 	2,  // 0: task.v1.TaskParamsV1.session:type_name -> task.v1.SessionParamsV1
@@ -1505,14 +1942,24 @@ var file_task_v1_params_proto_depIdxs = []int32{
 	10, // 8: task.v1.TaskParamsV1.generation:type_name -> task.v1.GenerationLimitParamsV1
 	11, // 9: task.v1.TaskParamsV1.fee:type_name -> task.v1.TaskFeeParamsV1
 	12, // 10: task.v1.TaskParamsV1.challenge:type_name -> task.v1.ChallengeParamsV1
-	13, // 11: task.v1.TaskFeeParamsV1.max_reimbursement_per_tx:type_name -> shared.v1.Amount
-	13, // 12: task.v1.TaskFeeParamsV1.max_reimbursement_per_task:type_name -> shared.v1.Amount
-	13, // 13: task.v1.ChallengeParamsV1.challenge_open_bond:type_name -> shared.v1.Amount
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	13, // 11: task.v1.TaskParamsV1.dispatch:type_name -> task.v1.DispatchParamsV1
+	17, // 12: task.v1.SessionParamsV1.session_min_prefund:type_name -> shared.v1.Amount
+	17, // 13: task.v1.TaskFeeParamsV1.max_reimbursement_per_tx:type_name -> shared.v1.Amount
+	17, // 14: task.v1.TaskFeeParamsV1.max_reimbursement_per_task:type_name -> shared.v1.Amount
+	17, // 15: task.v1.ChallengeParamsV1.challenge_open_bond:type_name -> shared.v1.Amount
+	14, // 16: task.v1.DispatchParamsV1.prefill_compensation_by_model_tier:type_name -> task.v1.PrefillCompensationV1
+	15, // 17: task.v1.DispatchParamsV1.dispatch_fault_penalty_by_kind:type_name -> task.v1.DispatchFaultPenaltyV1
+	16, // 18: task.v1.DispatchParamsV1.dispatch_challenge_gas_cap_by_kind:type_name -> task.v1.DispatchChallengeGasCapV1
+	17, // 19: task.v1.DispatchParamsV1.builder_compensation_account_min_balance:type_name -> shared.v1.Amount
+	17, // 20: task.v1.PrefillCompensationV1.amount:type_name -> shared.v1.Amount
+	18, // 21: task.v1.DispatchFaultPenaltyV1.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	17, // 22: task.v1.DispatchFaultPenaltyV1.amount:type_name -> shared.v1.Amount
+	18, // 23: task.v1.DispatchChallengeGasCapV1.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_params_proto_init() }
@@ -1520,13 +1967,14 @@ func file_task_v1_params_proto_init() {
 	if File_task_v1_params_proto != nil {
 		return
 	}
+	file_task_v1_dispatch_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_params_proto_rawDesc), len(file_task_v1_params_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

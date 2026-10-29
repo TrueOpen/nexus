@@ -596,6 +596,98 @@ func (x *ServiceKeyResponsibilityState) GetServiceAuthorizationNonce() uint64 {
 	return 0
 }
 
+// ServiceKeyProofState retains a rotated key solely for objective proof checks.
+// Primary key: (participant_type, operator_address, service_authorization_nonce).
+// Rotation copies the old binding atomically; it never restores live authority.
+// The frozen expiry covers dispatch admission, claim/rebuttal and challenge/
+// response windows, including the order freshness margin. Expiry may be extended
+// before a longer window activates, but never shortened or reopened after prune.
+// A derived (proof_expiry_height + 1, primary key) index is rebuilt on import;
+// bounded pruning uses the global visited budget. Current keys stay on identity.
+type ServiceKeyProofState struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	ParticipantType           v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
+	OperatorAddress           string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	ServiceAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	ServicePubkey             []byte                 `protobuf:"bytes,4,opt,name=service_pubkey,json=servicePubkey,proto3" json:"service_pubkey,omitempty"`
+	RetiredHeight             uint64                 `protobuf:"varint,5,opt,name=retired_height,json=retiredHeight,proto3" json:"retired_height,omitempty"`
+	ProofExpiryHeight         uint64                 `protobuf:"varint,6,opt,name=proof_expiry_height,json=proofExpiryHeight,proto3" json:"proof_expiry_height,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *ServiceKeyProofState) Reset() {
+	*x = ServiceKeyProofState{}
+	mi := &file_hub_v1_participant_identity_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceKeyProofState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceKeyProofState) ProtoMessage() {}
+
+func (x *ServiceKeyProofState) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_participant_identity_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceKeyProofState.ProtoReflect.Descriptor instead.
+func (*ServiceKeyProofState) Descriptor() ([]byte, []int) {
+	return file_hub_v1_participant_identity_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ServiceKeyProofState) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
+func (x *ServiceKeyProofState) GetOperatorAddress() string {
+	if x != nil {
+		return x.OperatorAddress
+	}
+	return ""
+}
+
+func (x *ServiceKeyProofState) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
+}
+
+func (x *ServiceKeyProofState) GetServicePubkey() []byte {
+	if x != nil {
+		return x.ServicePubkey
+	}
+	return nil
+}
+
+func (x *ServiceKeyProofState) GetRetiredHeight() uint64 {
+	if x != nil {
+		return x.RetiredHeight
+	}
+	return 0
+}
+
+func (x *ServiceKeyProofState) GetProofExpiryHeight() uint64 {
+	if x != nil {
+		return x.ProofExpiryHeight
+	}
+	return 0
+}
+
 var File_hub_v1_participant_identity_proto protoreflect.FileDescriptor
 
 const file_hub_v1_participant_identity_proto_rawDesc = "" +
@@ -643,7 +735,14 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"session_id\x18\x05 \x01(\fR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x06 \x01(\fR\x06taskId\x12%\n" +
 	"\x0ecreated_height\x18\a \x01(\x04R\rcreatedHeight\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce*\xba\x01\n" +
+	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\xc6\x02\n" +
+	"\x14ServiceKeyProofState\x12E\n" +
+	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12)\n" +
+	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x03 \x01(\x04R\x19serviceAuthorizationNonce\x12%\n" +
+	"\x0eservice_pubkey\x18\x04 \x01(\fR\rservicePubkey\x12%\n" +
+	"\x0eretired_height\x18\x05 \x01(\x04R\rretiredHeight\x12.\n" +
+	"\x13proof_expiry_height\x18\x06 \x01(\x04R\x11proofExpiryHeight*\xba\x01\n" +
 	"\x13ServiceEndpointKind\x12%\n" +
 	"!SERVICE_ENDPOINT_KIND_UNSPECIFIED\x10\x00\x12$\n" +
 	" SERVICE_ENDPOINT_KIND_NEXUS_GRPC\x10\x01\x12.\n" +
@@ -663,7 +762,7 @@ func file_hub_v1_participant_identity_proto_rawDescGZIP() []byte {
 }
 
 var file_hub_v1_participant_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_hub_v1_participant_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_hub_v1_participant_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_hub_v1_participant_identity_proto_goTypes = []any{
 	(ServiceEndpointKind)(0),                // 0: hub.v1.ServiceEndpointKind
 	(*ServiceEndpointV1)(nil),               // 1: hub.v1.ServiceEndpointV1
@@ -672,23 +771,25 @@ var file_hub_v1_participant_identity_proto_goTypes = []any{
 	(*CurrentServiceAddressIndexState)(nil), // 4: hub.v1.CurrentServiceAddressIndexState
 	(*ServiceDescriptorState)(nil),          // 5: hub.v1.ServiceDescriptorState
 	(*ServiceKeyResponsibilityState)(nil),   // 6: hub.v1.ServiceKeyResponsibilityState
-	(ServiceKeyStatus)(0),                   // 7: hub.v1.ServiceKeyStatus
-	(v1.ParticipantType)(0),                 // 8: shared.v1.ParticipantType
-	(ServiceKeyResponsibilityKind)(0),       // 9: hub.v1.ServiceKeyResponsibilityKind
+	(*ServiceKeyProofState)(nil),            // 7: hub.v1.ServiceKeyProofState
+	(ServiceKeyStatus)(0),                   // 8: hub.v1.ServiceKeyStatus
+	(v1.ParticipantType)(0),                 // 9: shared.v1.ParticipantType
+	(ServiceKeyResponsibilityKind)(0),       // 10: hub.v1.ServiceKeyResponsibilityKind
 }
 var file_hub_v1_participant_identity_proto_depIdxs = []int32{
-	0, // 0: hub.v1.ServiceEndpointV1.endpoint_kind:type_name -> hub.v1.ServiceEndpointKind
-	1, // 1: hub.v1.ServiceDescriptorV1.endpoints:type_name -> hub.v1.ServiceEndpointV1
-	7, // 2: hub.v1.CortexNodeState.service_key_status:type_name -> hub.v1.ServiceKeyStatus
-	8, // 3: hub.v1.ServiceDescriptorState.participant_type:type_name -> shared.v1.ParticipantType
-	1, // 4: hub.v1.ServiceDescriptorState.endpoints:type_name -> hub.v1.ServiceEndpointV1
-	8, // 5: hub.v1.ServiceKeyResponsibilityState.participant_type:type_name -> shared.v1.ParticipantType
-	9, // 6: hub.v1.ServiceKeyResponsibilityState.responsibility_kind:type_name -> hub.v1.ServiceKeyResponsibilityKind
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	0,  // 0: hub.v1.ServiceEndpointV1.endpoint_kind:type_name -> hub.v1.ServiceEndpointKind
+	1,  // 1: hub.v1.ServiceDescriptorV1.endpoints:type_name -> hub.v1.ServiceEndpointV1
+	8,  // 2: hub.v1.CortexNodeState.service_key_status:type_name -> hub.v1.ServiceKeyStatus
+	9,  // 3: hub.v1.ServiceDescriptorState.participant_type:type_name -> shared.v1.ParticipantType
+	1,  // 4: hub.v1.ServiceDescriptorState.endpoints:type_name -> hub.v1.ServiceEndpointV1
+	9,  // 5: hub.v1.ServiceKeyResponsibilityState.participant_type:type_name -> shared.v1.ParticipantType
+	10, // 6: hub.v1.ServiceKeyResponsibilityState.responsibility_kind:type_name -> hub.v1.ServiceKeyResponsibilityKind
+	9,  // 7: hub.v1.ServiceKeyProofState.participant_type:type_name -> shared.v1.ParticipantType
+	8,  // [8:8] is the sub-list for method output_type
+	8,  // [8:8] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_participant_identity_proto_init() }
@@ -704,7 +805,7 @@ func file_hub_v1_participant_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_participant_identity_proto_rawDesc), len(file_hub_v1_participant_identity_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -153,3 +153,17 @@ message BuilderObjectiveEvidenceReceiptV2 {
   // APPLIED on first acceptance, NOOP on exact replay of the same ID and digest.
   MutationStatusV1 status = 3;
 }
+
+// VerifierValueEvidenceFactV1 carries only Task-validated attribution to Hub.
+// Raw leaves, signatures and paths never enter the Hub Store. Fault class must
+// match duty: VERIFIER_VALUE_MISMATCH/VERIFIER or WORKER_VALUES_INVALID/WORKER.
+message VerifierValueEvidenceFactV1 {
+  bytes session_id = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string target_operator_address = 4;
+  Duty faulted_duty = 5;
+  FaultKind fault_class = 6;
+  bytes evidence_digest = 7;
+  uint32 frozen_slash_bps = 8;
+}

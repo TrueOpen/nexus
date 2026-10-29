@@ -970,12 +970,13 @@ func (x *CandidatePoolActiveSegmentState) GetSegmentHash() []byte {
 // operator_address.
 // CandidatePoolMemberState defines the CandidatePoolMemberState wire type.
 type CandidatePoolMemberState struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Epoch           uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	Slot            uint32                 `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
-	SlotVersion     uint64                 `protobuf:"varint,3,opt,name=slot_version,json=slotVersion,proto3" json:"slot_version,omitempty"`
-	OperatorAddress string                 `protobuf:"bytes,4,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	BindingHash     []byte                 `protobuf:"bytes,5,opt,name=binding_hash,json=bindingHash,proto3" json:"binding_hash,omitempty"`
+	state           protoimpl.MessageState   `protogen:"open.v1"`
+	Epoch           uint64                   `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Slot            uint32                   `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
+	SlotVersion     uint64                   `protobuf:"varint,3,opt,name=slot_version,json=slotVersion,proto3" json:"slot_version,omitempty"`
+	OperatorAddress string                   `protobuf:"bytes,4,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	BindingHash     []byte                   `protobuf:"bytes,5,opt,name=binding_hash,json=bindingHash,proto3" json:"binding_hash,omitempty"`
+	WeightInputs    *CandidateWeightInputsV1 `protobuf:"bytes,6,opt,name=weight_inputs,json=weightInputs,proto3" json:"weight_inputs,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1041,6 +1042,13 @@ func (x *CandidatePoolMemberState) GetOperatorAddress() string {
 func (x *CandidatePoolMemberState) GetBindingHash() []byte {
 	if x != nil {
 		return x.BindingHash
+	}
+	return nil
+}
+
+func (x *CandidatePoolMemberState) GetWeightInputs() *CandidateWeightInputsV1 {
+	if x != nil {
+		return x.WeightInputs
 	}
 	return nil
 }
@@ -1593,7 +1601,7 @@ var File_hub_v1_candidate_pool_proto protoreflect.FileDescriptor
 
 const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\n" +
-	"\x1bhub/v1/candidate_pool.proto\x12\x06hub.v1\"\xd3\x02\n" +
+	"\x1bhub/v1/candidate_pool.proto\x12\x06hub.v1\x1a\x15hub/v1/dispatch.proto\"\xd3\x02\n" +
 	"\x19CandidateSlotCurrentState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
@@ -1638,13 +1646,14 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12#\n" +
 	"\rsegment_index\x18\x02 \x01(\rR\fsegmentIndex\x12\x16\n" +
 	"\x06bitmap\x18\x03 \x01(\fR\x06bitmap\x12!\n" +
-	"\fsegment_hash\x18\x04 \x01(\fR\vsegmentHash\"\xb5\x01\n" +
+	"\fsegment_hash\x18\x04 \x01(\fR\vsegmentHash\"\xfb\x01\n" +
 	"\x18CandidatePoolMemberState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
 	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\x12)\n" +
 	"\x10operator_address\x18\x04 \x01(\tR\x0foperatorAddress\x12!\n" +
-	"\fbinding_hash\x18\x05 \x01(\fR\vbindingHash\"\xc1\x03\n" +
+	"\fbinding_hash\x18\x05 \x01(\fR\vbindingHash\x12D\n" +
+	"\rweight_inputs\x18\x06 \x01(\v2\x1f.hub.v1.CandidateWeightInputsV1R\fweightInputs\"\xc1\x03\n" +
 	"\x1dCandidatePoolBuildCursorState\x12!\n" +
 	"\ftarget_epoch\x18\x01 \x01(\x04R\vtargetEpoch\x12'\n" +
 	"\x0fsource_revision\x18\x02 \x01(\x04R\x0esourceRevision\x12!\n" +
@@ -1762,21 +1771,23 @@ var file_hub_v1_candidate_pool_proto_goTypes = []any{
 	(*CandidatePoolTaskRefState)(nil),       // 16: hub.v1.CandidatePoolTaskRefState
 	(*CandidatePoolSnapshotViewV1)(nil),     // 17: hub.v1.CandidatePoolSnapshotViewV1
 	(*CandidatePoolMemberViewV1)(nil),       // 18: hub.v1.CandidatePoolMemberViewV1
+	(*CandidateWeightInputsV1)(nil),         // 19: hub.v1.CandidateWeightInputsV1
 }
 var file_hub_v1_candidate_pool_proto_depIdxs = []int32{
-	1, // 0: hub.v1.CandidateSlotCurrentState.status:type_name -> hub.v1.CandidateSlotStatus
-	0, // 1: hub.v1.CandidatePoolSnapshotState.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
-	2, // 2: hub.v1.CandidatePoolBuildCursorState.status:type_name -> hub.v1.CandidatePoolBuildCursorStatus
-	4, // 3: hub.v1.CandidatePoolBuildCursorState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
-	3, // 4: hub.v1.CandidatePoolBuildStatusState.status:type_name -> hub.v1.CandidatePoolBuildStatus
-	4, // 5: hub.v1.CandidatePoolBuildStatusState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
-	6, // 6: hub.v1.CandidatePoolTaskRefState.status:type_name -> hub.v1.CandidatePoolTaskRefStatus
-	0, // 7: hub.v1.CandidatePoolSnapshotViewV1.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	1,  // 0: hub.v1.CandidateSlotCurrentState.status:type_name -> hub.v1.CandidateSlotStatus
+	0,  // 1: hub.v1.CandidatePoolSnapshotState.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
+	19, // 2: hub.v1.CandidatePoolMemberState.weight_inputs:type_name -> hub.v1.CandidateWeightInputsV1
+	2,  // 3: hub.v1.CandidatePoolBuildCursorState.status:type_name -> hub.v1.CandidatePoolBuildCursorStatus
+	4,  // 4: hub.v1.CandidatePoolBuildCursorState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
+	3,  // 5: hub.v1.CandidatePoolBuildStatusState.status:type_name -> hub.v1.CandidatePoolBuildStatus
+	4,  // 6: hub.v1.CandidatePoolBuildStatusState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
+	6,  // 7: hub.v1.CandidatePoolTaskRefState.status:type_name -> hub.v1.CandidatePoolTaskRefStatus
+	0,  // 8: hub.v1.CandidatePoolSnapshotViewV1.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_candidate_pool_proto_init() }
@@ -1784,6 +1795,7 @@ func file_hub_v1_candidate_pool_proto_init() {
 	if File_hub_v1_candidate_pool_proto != nil {
 		return
 	}
+	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_candidate_pool_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

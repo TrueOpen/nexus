@@ -163,22 +163,29 @@ func (WorkerEvidenceKindV1) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_evidence_proto_rawDescGZIP(), []int{1}
 }
 
-// VerifierValueEvidenceKindV1 is reserved for the later bounded value-evidence
-// activation. No nonzero kind is assigned or accepted in this release.
+// VerifierValueEvidenceKindV1 identifies an active bounded contradiction proof.
 type VerifierValueEvidenceKindV1 int32
 
 const (
-	// The only registered pre-activation value; evidence is not accepted.
+	// Unset; rejected.
 	VerifierValueEvidenceKindV1_VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED VerifierValueEvidenceKindV1 = 0
+	// A selected Verifier's committed local values contradict bound evidence.
+	VerifierValueEvidenceKindV1_VERIFIER_VALUE_EVIDENCE_KIND_V1_VERIFIER_VALUE_MISMATCH VerifierValueEvidenceKindV1 = 1
+	// The committed Worker value leaf violates the bounded leaf predicates.
+	VerifierValueEvidenceKindV1_VERIFIER_VALUE_EVIDENCE_KIND_V1_WORKER_VALUES_INVALID VerifierValueEvidenceKindV1 = 2
 )
 
 // Enum value maps for VerifierValueEvidenceKindV1.
 var (
 	VerifierValueEvidenceKindV1_name = map[int32]string{
 		0: "VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED",
+		1: "VERIFIER_VALUE_EVIDENCE_KIND_V1_VERIFIER_VALUE_MISMATCH",
+		2: "VERIFIER_VALUE_EVIDENCE_KIND_V1_WORKER_VALUES_INVALID",
 	}
 	VerifierValueEvidenceKindV1_value = map[string]int32{
-		"VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED": 0,
+		"VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED":             0,
+		"VERIFIER_VALUE_EVIDENCE_KIND_V1_VERIFIER_VALUE_MISMATCH": 1,
+		"VERIFIER_VALUE_EVIDENCE_KIND_V1_WORKER_VALUES_INVALID":   2,
 	}
 )
 
@@ -605,6 +612,8 @@ func (x *OutputMMRPeakProofV1) GetFinalInclusionPath() [][]byte {
 
 // OutputChunkEquivocationV1 proves that a valid Worker-signed streamed prefix
 // conflicts with the final MMR root bound by an accepted InferReceiptV3.
+// Rebuild the chunk digest with that receipt's dispatch_ticket_hash, never a
+// caller-selected attempt. A genuine frame from another attempt proves no fault.
 // OutputChunkEquivocationV1 defines the OutputChunkEquivocationV1 wire type.
 type OutputChunkEquivocationV1 struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
@@ -952,9 +961,11 @@ const file_task_v1_evidence_proto_rawDesc = "" +
 	"\x1bFINISH_REASON_V1_STOP_TOKEN\x10\x06*v\n" +
 	"\x14WorkerEvidenceKindV1\x12'\n" +
 	"#WORKER_EVIDENCE_KIND_V1_UNSPECIFIED\x10\x00\x125\n" +
-	"1WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION\x10\x01*N\n" +
+	"1WORKER_EVIDENCE_KIND_V1_OUTPUT_CHUNK_EQUIVOCATION\x10\x01*\xc6\x01\n" +
 	"\x1bVerifierValueEvidenceKindV1\x12/\n" +
-	"+VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED\x10\x00B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"+VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED\x10\x00\x12;\n" +
+	"7VERIFIER_VALUE_EVIDENCE_KIND_V1_VERIFIER_VALUE_MISMATCH\x10\x01\x129\n" +
+	"5VERIFIER_VALUE_EVIDENCE_KIND_V1_WORKER_VALUES_INVALID\x10\x02B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_evidence_proto_rawDescOnce sync.Once

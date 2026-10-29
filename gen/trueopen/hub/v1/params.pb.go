@@ -947,9 +947,7 @@ func (x *ServiceParamsV1) GetMinStakeGracePeriodBlocks() uint64 {
 type BuilderParamsV1 struct {
 	state                                 protoimpl.MessageState `protogen:"open.v1"`
 	BuilderSetCap                         uint32                 `protobuf:"varint,1,opt,name=builder_set_cap,json=builderSetCap,proto3" json:"builder_set_cap,omitempty"`
-	BuildersPerTask                       uint32                 `protobuf:"varint,2,opt,name=builders_per_task,json=buildersPerTask,proto3" json:"builders_per_task,omitempty"`
 	BuilderSetUpdateLeadBlocks            uint64                 `protobuf:"varint,3,opt,name=builder_set_update_lead_blocks,json=builderSetUpdateLeadBlocks,proto3" json:"builder_set_update_lead_blocks,omitempty"`
-	AssignmentBuilderProposalWindowBlocks uint64                 `protobuf:"varint,4,opt,name=assignment_builder_proposal_window_blocks,json=assignmentBuilderProposalWindowBlocks,proto3" json:"assignment_builder_proposal_window_blocks,omitempty"`
 	OpenVerifyBuilderProposalWindowBlocks uint64                 `protobuf:"varint,5,opt,name=open_verify_builder_proposal_window_blocks,json=openVerifyBuilderProposalWindowBlocks,proto3" json:"open_verify_builder_proposal_window_blocks,omitempty"`
 	SettlementBuilderGraceBlocks          uint64                 `protobuf:"varint,6,opt,name=settlement_builder_grace_blocks,json=settlementBuilderGraceBlocks,proto3" json:"settlement_builder_grace_blocks,omitempty"`
 	BuilderSetRetentionEpochs             uint32                 `protobuf:"varint,7,opt,name=builder_set_retention_epochs,json=builderSetRetentionEpochs,proto3" json:"builder_set_retention_epochs,omitempty"`
@@ -999,23 +997,9 @@ func (x *BuilderParamsV1) GetBuilderSetCap() uint32 {
 	return 0
 }
 
-func (x *BuilderParamsV1) GetBuildersPerTask() uint32 {
-	if x != nil {
-		return x.BuildersPerTask
-	}
-	return 0
-}
-
 func (x *BuilderParamsV1) GetBuilderSetUpdateLeadBlocks() uint64 {
 	if x != nil {
 		return x.BuilderSetUpdateLeadBlocks
-	}
-	return 0
-}
-
-func (x *BuilderParamsV1) GetAssignmentBuilderProposalWindowBlocks() uint64 {
-	if x != nil {
-		return x.AssignmentBuilderProposalWindowBlocks
 	}
 	return 0
 }
@@ -2008,12 +1992,10 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\x12min_task_liability\x18\x13 \x01(\v2\x11.shared.v1.AmountR\x10minTaskLiability\x12X\n" +
 	"*max_service_bond_effective_items_per_block\x18\x14 \x01(\rR$maxServiceBondEffectiveItemsPerBlock\x12H\n" +
 	"!task_liability_order_coverage_bps\x18\x15 \x01(\rR\x1dtaskLiabilityOrderCoverageBps\x12@\n" +
-	"\x1dmin_stake_grace_period_blocks\x18\x16 \x01(\x04R\x19minStakeGracePeriodBlocks\"\xd5\x06\n" +
+	"\x1dmin_stake_grace_period_blocks\x18\x16 \x01(\x04R\x19minStakeGracePeriodBlocks\"\x99\x06\n" +
 	"\x0fBuilderParamsV1\x12&\n" +
-	"\x0fbuilder_set_cap\x18\x01 \x01(\rR\rbuilderSetCap\x12*\n" +
-	"\x11builders_per_task\x18\x02 \x01(\rR\x0fbuildersPerTask\x12B\n" +
-	"\x1ebuilder_set_update_lead_blocks\x18\x03 \x01(\x04R\x1abuilderSetUpdateLeadBlocks\x12X\n" +
-	")assignment_builder_proposal_window_blocks\x18\x04 \x01(\x04R%assignmentBuilderProposalWindowBlocks\x12Y\n" +
+	"\x0fbuilder_set_cap\x18\x01 \x01(\rR\rbuilderSetCap\x12B\n" +
+	"\x1ebuilder_set_update_lead_blocks\x18\x03 \x01(\x04R\x1abuilderSetUpdateLeadBlocks\x12Y\n" +
 	"*open_verify_builder_proposal_window_blocks\x18\x05 \x01(\x04R%openVerifyBuilderProposalWindowBlocks\x12E\n" +
 	"\x1fsettlement_builder_grace_blocks\x18\x06 \x01(\x04R\x1csettlementBuilderGraceBlocks\x12?\n" +
 	"\x1cbuilder_set_retention_epochs\x18\a \x01(\rR\x19builderSetRetentionEpochs\x12L\n" +
@@ -2022,7 +2004,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\x1ebuilder_fault_retention_blocks\x18\n" +
 	" \x01(\x04R\x1bbuilderFaultRetentionBlocks\x12R\n" +
 	"'max_builder_fault_prune_items_per_block\x18\v \x01(\rR!maxBuilderFaultPruneItemsPerBlock\x126\n" +
-	"\x18max_builder_set_id_bytes\x18\f \x01(\rR\x14maxBuilderSetIdBytes\"\xfa\x03\n" +
+	"\x18max_builder_set_id_bytes\x18\f \x01(\rR\x14maxBuilderSetIdBytesJ\x04\b\x02\x10\x03J\x04\b\x04\x10\x05R\x11builders_per_taskR)assignment_builder_proposal_window_blocks\"\xfa\x03\n" +
 	"\x0eRewardParamsV1\x12H\n" +
 	"!max_order_value_histogram_buckets\x18\x01 \x01(\rR\x1dmaxOrderValueHistogramBuckets\x12T\n" +
 	"\x1dorder_value_bucket_boundaries\x18\x02 \x03(\v2\x11.shared.v1.AmountR\x1aorderValueBucketBoundaries\x12W\n" +

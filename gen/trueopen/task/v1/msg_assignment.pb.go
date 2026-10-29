@@ -374,32 +374,31 @@ func (x *GenerationParamsV1) GetDecodingParams() *DecodingParamsV1 {
 type TaskOrderV3 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Always 3; earlier order domains are not accepted by fresh Genesis.
-	SchemaVersion          uint32              `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId                string              `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	UserAddress            string              `protobuf:"bytes,3,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
-	SessionId              []byte              `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence          uint64              `protobuf:"varint,5,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	ModelId                []byte              `protobuf:"bytes,6,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion         uint32              `protobuf:"varint,7,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	TaskType               v1.TaskType         `protobuf:"varint,8,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
-	InputHash              []byte              `protobuf:"bytes,9,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
-	InputSizeBytes         uint64              `protobuf:"varint,10,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
-	InputBucket            uint32              `protobuf:"varint,11,opt,name=input_bucket,json=inputBucket,proto3" json:"input_bucket,omitempty"`
-	OutputBudgetBucket     uint32              `protobuf:"varint,12,opt,name=output_budget_bucket,json=outputBudgetBucket,proto3" json:"output_budget_bucket,omitempty"`
-	GenerationParams       *GenerationParamsV1 `protobuf:"bytes,13,opt,name=generation_params,json=generationParams,proto3" json:"generation_params,omitempty"`
-	PriceBid               *v1.Amount          `protobuf:"bytes,14,opt,name=price_bid,json=priceBid,proto3" json:"price_bid,omitempty"`
-	MaxFee                 *v1.Amount          `protobuf:"bytes,15,opt,name=max_fee,json=maxFee,proto3" json:"max_fee,omitempty"`
-	AssignmentPriorityFee  *v1.Amount          `protobuf:"bytes,16,opt,name=assignment_priority_fee,json=assignmentPriorityFee,proto3" json:"assignment_priority_fee,omitempty"`
-	TxFeeReserve           *v1.Amount          `protobuf:"bytes,17,opt,name=tx_fee_reserve,json=txFeeReserve,proto3" json:"tx_fee_reserve,omitempty"`
-	EarliestSubmitHeight   uint64              `protobuf:"varint,18,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
-	OrderExpireHeight      uint64              `protobuf:"varint,19,opt,name=order_expire_height,json=orderExpireHeight,proto3" json:"order_expire_height,omitempty"`
-	DeadlinePolicy         *DeadlinePolicyV1   `protobuf:"bytes,20,opt,name=deadline_policy,json=deadlinePolicy,proto3" json:"deadline_policy,omitempty"`
-	TimeoutBucketVersion   uint64              `protobuf:"varint,21,opt,name=timeout_bucket_version,json=timeoutBucketVersion,proto3" json:"timeout_bucket_version,omitempty"`
-	SessionAnchorHeight    uint64              `protobuf:"varint,22,opt,name=session_anchor_height,json=sessionAnchorHeight,proto3" json:"session_anchor_height,omitempty"`
-	SessionAnchorBlockHash []byte              `protobuf:"bytes,23,opt,name=session_anchor_block_hash,json=sessionAnchorBlockHash,proto3" json:"session_anchor_block_hash,omitempty"`
-	BuilderSetId           string              `protobuf:"bytes,24,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
-	BuilderSetHash         []byte              `protobuf:"bytes,25,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
-	PayloadMode            PayloadModeV1       `protobuf:"varint,26,opt,name=payload_mode,json=payloadMode,proto3,enum=task.v1.PayloadModeV1" json:"payload_mode,omitempty"`
+	SchemaVersion         uint32              `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId               string              `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	UserAddress           string              `protobuf:"bytes,3,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
+	SessionId             []byte              `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence         uint64              `protobuf:"varint,5,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	ModelId               []byte              `protobuf:"bytes,6,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
+	ProfileVersion        uint32              `protobuf:"varint,7,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
+	TaskType              v1.TaskType         `protobuf:"varint,8,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
+	InputHash             []byte              `protobuf:"bytes,9,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
+	InputSizeBytes        uint64              `protobuf:"varint,10,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
+	InputBucket           uint32              `protobuf:"varint,11,opt,name=input_bucket,json=inputBucket,proto3" json:"input_bucket,omitempty"`
+	OutputBudgetBucket    uint32              `protobuf:"varint,12,opt,name=output_budget_bucket,json=outputBudgetBucket,proto3" json:"output_budget_bucket,omitempty"`
+	GenerationParams      *GenerationParamsV1 `protobuf:"bytes,13,opt,name=generation_params,json=generationParams,proto3" json:"generation_params,omitempty"`
+	PriceBid              *v1.Amount          `protobuf:"bytes,14,opt,name=price_bid,json=priceBid,proto3" json:"price_bid,omitempty"`
+	MaxFee                *v1.Amount          `protobuf:"bytes,15,opt,name=max_fee,json=maxFee,proto3" json:"max_fee,omitempty"`
+	AssignmentPriorityFee *v1.Amount          `protobuf:"bytes,16,opt,name=assignment_priority_fee,json=assignmentPriorityFee,proto3" json:"assignment_priority_fee,omitempty"`
+	TxFeeReserve          *v1.Amount          `protobuf:"bytes,17,opt,name=tx_fee_reserve,json=txFeeReserve,proto3" json:"tx_fee_reserve,omitempty"`
+	EarliestSubmitHeight  uint64              `protobuf:"varint,18,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
+	OrderExpireHeight     uint64              `protobuf:"varint,19,opt,name=order_expire_height,json=orderExpireHeight,proto3" json:"order_expire_height,omitempty"`
+	DeadlinePolicy        *DeadlinePolicyV1   `protobuf:"bytes,20,opt,name=deadline_policy,json=deadlinePolicy,proto3" json:"deadline_policy,omitempty"`
+	TimeoutBucketVersion  uint64              `protobuf:"varint,21,opt,name=timeout_bucket_version,json=timeoutBucketVersion,proto3" json:"timeout_bucket_version,omitempty"`
+	SessionAnchorHeight   uint64              `protobuf:"varint,22,opt,name=session_anchor_height,json=sessionAnchorHeight,proto3" json:"session_anchor_height,omitempty"`
+	BuilderSetId          string              `protobuf:"bytes,24,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
+	BuilderSetHash        []byte              `protobuf:"bytes,25,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
+	PayloadMode           PayloadModeV1       `protobuf:"varint,26,opt,name=payload_mode,json=payloadMode,proto3,enum=task.v1.PayloadModeV1" json:"payload_mode,omitempty"`
 	// Reserved encryption fields: zero/empty in plaintext Phase 0.
 	InputKeyCommitment  []byte `protobuf:"bytes,27,opt,name=input_key_commitment,json=inputKeyCommitment,proto3" json:"input_key_commitment,omitempty"`
 	UserRecipientPubkey []byte `protobuf:"bytes,28,opt,name=user_recipient_pubkey,json=userRecipientPubkey,proto3" json:"user_recipient_pubkey,omitempty"`
@@ -589,13 +588,6 @@ func (x *TaskOrderV3) GetSessionAnchorHeight() uint64 {
 		return x.SessionAnchorHeight
 	}
 	return 0
-}
-
-func (x *TaskOrderV3) GetSessionAnchorBlockHash() []byte {
-	if x != nil {
-		return x.SessionAnchorBlockHash
-	}
-	return nil
 }
 
 func (x *TaskOrderV3) GetBuilderSetId() string {
@@ -789,387 +781,6 @@ func (x *ExistingTaskRefV1) GetTaskHash() []byte {
 	return nil
 }
 
-// WorkerHandraiseScopeV1 is the exactly-one proposal scope of this contract. The first
-// proposal must carry signed_order; any later proposal must carry existing_task.
-// Both filled or both empty is rejected.
-// WorkerHandraiseScopeV1 defines the WorkerHandraiseScopeV1 wire type.
-type WorkerHandraiseScopeV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exactly one branch must be present.
-	// scope selects one supported variant.
-	//
-	// Types that are valid to be assigned to Scope:
-	//
-	//	*WorkerHandraiseScopeV1_SignedOrder
-	//	*WorkerHandraiseScopeV1_ExistingTask
-	Scope         isWorkerHandraiseScopeV1_Scope `protobuf_oneof:"scope"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WorkerHandraiseScopeV1) Reset() {
-	*x = WorkerHandraiseScopeV1{}
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WorkerHandraiseScopeV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WorkerHandraiseScopeV1) ProtoMessage() {}
-
-func (x *WorkerHandraiseScopeV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WorkerHandraiseScopeV1.ProtoReflect.Descriptor instead.
-func (*WorkerHandraiseScopeV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *WorkerHandraiseScopeV1) GetScope() isWorkerHandraiseScopeV1_Scope {
-	if x != nil {
-		return x.Scope
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseScopeV1) GetSignedOrder() *SignedOrderV2 {
-	if x != nil {
-		if x, ok := x.Scope.(*WorkerHandraiseScopeV1_SignedOrder); ok {
-			return x.SignedOrder
-		}
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseScopeV1) GetExistingTask() *ExistingTaskRefV1 {
-	if x != nil {
-		if x, ok := x.Scope.(*WorkerHandraiseScopeV1_ExistingTask); ok {
-			return x.ExistingTask
-		}
-	}
-	return nil
-}
-
-type isWorkerHandraiseScopeV1_Scope interface {
-	isWorkerHandraiseScopeV1_Scope()
-}
-
-type WorkerHandraiseScopeV1_SignedOrder struct {
-	SignedOrder *SignedOrderV2 `protobuf:"bytes,1,opt,name=signed_order,json=signedOrder,proto3,oneof"`
-}
-
-type WorkerHandraiseScopeV1_ExistingTask struct {
-	ExistingTask *ExistingTaskRefV1 `protobuf:"bytes,2,opt,name=existing_task,json=existingTask,proto3,oneof"`
-}
-
-func (*WorkerHandraiseScopeV1_SignedOrder) isWorkerHandraiseScopeV1_Scope() {}
-
-func (*WorkerHandraiseScopeV1_ExistingTask) isWorkerHandraiseScopeV1_Scope() {}
-
-// WorkerHandraiseV1 is one Cortex-signed Worker handraise (the wire API). Its
-// `member` field uses the single module-wide CandidateMemberRefV1, declared in
-// task/v1/open_verify.proto. The
-// signing digest is H_FIELDS_V1("TRUEOPEN_WORKER_HANDRAISE_V1", all fields except
-// service_signature) in exactly this field order. service_authorization_nonce
-// must equal the operator's current service binding nonce; it is not a
-// per-message counter. Raw handraises are never persisted.
-//
-// schema_version is 1: this contract writes `schema_version: uint32 = 1` literally for this
-// wire. Handraise schema versions are independent of receipt versions.
-// WorkerHandraiseV1 defines the WorkerHandraiseV1 wire type.
-type WorkerHandraiseV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 1; this contract pins it literally.
-	SchemaVersion             uint32                `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId                   string                `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	TaskId                    []byte                `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskHash                  []byte                `protobuf:"bytes,4,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	ModelId                   []byte                `protobuf:"bytes,5,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
-	ProfileVersion            uint32                `protobuf:"varint,6,opt,name=profile_version,json=profileVersion,proto3" json:"profile_version,omitempty"`
-	Member                    *CandidateMemberRefV1 `protobuf:"bytes,7,opt,name=member,proto3" json:"member,omitempty"`
-	Duty                      v1.Duty               `protobuf:"varint,8,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
-	ServiceAuthorizationNonce uint64                `protobuf:"varint,9,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	ExpiryHeight              uint64                `protobuf:"varint,10,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	ServiceSignature          []byte                `protobuf:"bytes,11,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	// Reserved recipient key: empty in plaintext Phase 0.
-	RecipientPubkey []byte `protobuf:"bytes,12,opt,name=recipient_pubkey,json=recipientPubkey,proto3" json:"recipient_pubkey,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *WorkerHandraiseV1) Reset() {
-	*x = WorkerHandraiseV1{}
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WorkerHandraiseV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WorkerHandraiseV1) ProtoMessage() {}
-
-func (x *WorkerHandraiseV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WorkerHandraiseV1.ProtoReflect.Descriptor instead.
-func (*WorkerHandraiseV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *WorkerHandraiseV1) GetSchemaVersion() uint32 {
-	if x != nil {
-		return x.SchemaVersion
-	}
-	return 0
-}
-
-func (x *WorkerHandraiseV1) GetChainId() string {
-	if x != nil {
-		return x.ChainId
-	}
-	return ""
-}
-
-func (x *WorkerHandraiseV1) GetTaskId() []byte {
-	if x != nil {
-		return x.TaskId
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseV1) GetTaskHash() []byte {
-	if x != nil {
-		return x.TaskHash
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseV1) GetModelId() []byte {
-	if x != nil {
-		return x.ModelId
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseV1) GetProfileVersion() uint32 {
-	if x != nil {
-		return x.ProfileVersion
-	}
-	return 0
-}
-
-func (x *WorkerHandraiseV1) GetMember() *CandidateMemberRefV1 {
-	if x != nil {
-		return x.Member
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseV1) GetDuty() v1.Duty {
-	if x != nil {
-		return x.Duty
-	}
-	return v1.Duty(0)
-}
-
-func (x *WorkerHandraiseV1) GetServiceAuthorizationNonce() uint64 {
-	if x != nil {
-		return x.ServiceAuthorizationNonce
-	}
-	return 0
-}
-
-func (x *WorkerHandraiseV1) GetExpiryHeight() uint64 {
-	if x != nil {
-		return x.ExpiryHeight
-	}
-	return 0
-}
-
-func (x *WorkerHandraiseV1) GetServiceSignature() []byte {
-	if x != nil {
-		return x.ServiceSignature
-	}
-	return nil
-}
-
-func (x *WorkerHandraiseV1) GetRecipientPubkey() []byte {
-	if x != nil {
-		return x.RecipientPubkey
-	}
-	return nil
-}
-
-// MsgSubmitWorkerHandraises accepts the order plus Worker handraises and ORs the
-// legal bits into the authoritative stage union (the wire API).
-// submitter_address is the Cosmos signer only: it pays gas, never enters the
-// proposal digest or any frozen candidate fact. Builder operator, BuilderSet,
-// Task Builders, pool hash, candidate weights, legal-set hash and deadlines are
-// all Keeper-derived and must not appear as request copies.
-// MsgSubmitWorkerHandraises defines the MsgSubmitWorkerHandraises wire type.
-type MsgSubmitWorkerHandraises struct {
-	state            protoimpl.MessageState  `protogen:"open.v1"`
-	Scope            *WorkerHandraiseScopeV1 `protobuf:"bytes,1,opt,name=scope,proto3" json:"scope,omitempty"`
-	Handraises       []*WorkerHandraiseV1    `protobuf:"bytes,2,rep,name=handraises,proto3" json:"handraises,omitempty"`
-	SubmitterAddress string                  `protobuf:"bytes,3,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *MsgSubmitWorkerHandraises) Reset() {
-	*x = MsgSubmitWorkerHandraises{}
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MsgSubmitWorkerHandraises) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MsgSubmitWorkerHandraises) ProtoMessage() {}
-
-func (x *MsgSubmitWorkerHandraises) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MsgSubmitWorkerHandraises.ProtoReflect.Descriptor instead.
-func (*MsgSubmitWorkerHandraises) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *MsgSubmitWorkerHandraises) GetScope() *WorkerHandraiseScopeV1 {
-	if x != nil {
-		return x.Scope
-	}
-	return nil
-}
-
-func (x *MsgSubmitWorkerHandraises) GetHandraises() []*WorkerHandraiseV1 {
-	if x != nil {
-		return x.Handraises
-	}
-	return nil
-}
-
-func (x *MsgSubmitWorkerHandraises) GetSubmitterAddress() string {
-	if x != nil {
-		return x.SubmitterAddress
-	}
-	return ""
-}
-
-// MsgSubmitWorkerHandraisesResponse reports the Keeper-derived proposal receipt
-// . added_member_count is the number of 0->1 bits in this proposal and is
-// 0 for an exact replay noop; union_count is the committed authoritative count.
-// MsgSubmitWorkerHandraisesResponse defines the MsgSubmitWorkerHandraisesResponse wire type.
-type MsgSubmitWorkerHandraisesResponse struct {
-	state            protoimpl.MessageState     `protogen:"open.v1"`
-	TaskId           []byte                     `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ProposalDigest   []byte                     `protobuf:"bytes,2,opt,name=proposal_digest,json=proposalDigest,proto3" json:"proposal_digest,omitempty"`
-	AddedMemberCount uint32                     `protobuf:"varint,3,opt,name=added_member_count,json=addedMemberCount,proto3" json:"added_member_count,omitempty"`
-	UnionCount       uint32                     `protobuf:"varint,4,opt,name=union_count,json=unionCount,proto3" json:"union_count,omitempty"`
-	StageStatus      TaskCandidateStageStatusV1 `protobuf:"varint,5,opt,name=stage_status,json=stageStatus,proto3,enum=task.v1.TaskCandidateStageStatusV1" json:"stage_status,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) Reset() {
-	*x = MsgSubmitWorkerHandraisesResponse{}
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MsgSubmitWorkerHandraisesResponse) ProtoMessage() {}
-
-func (x *MsgSubmitWorkerHandraisesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MsgSubmitWorkerHandraisesResponse.ProtoReflect.Descriptor instead.
-func (*MsgSubmitWorkerHandraisesResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) GetTaskId() []byte {
-	if x != nil {
-		return x.TaskId
-	}
-	return nil
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) GetProposalDigest() []byte {
-	if x != nil {
-		return x.ProposalDigest
-	}
-	return nil
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) GetAddedMemberCount() uint32 {
-	if x != nil {
-		return x.AddedMemberCount
-	}
-	return 0
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) GetUnionCount() uint32 {
-	if x != nil {
-		return x.UnionCount
-	}
-	return 0
-}
-
-func (x *MsgSubmitWorkerHandraisesResponse) GetStageStatus() TaskCandidateStageStatusV1 {
-	if x != nil {
-		return x.StageStatus
-	}
-	return TaskCandidateStageStatusV1_TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED
-}
-
 var File_task_v1_msg_assignment_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_assignment_proto_rawDesc = "" +
@@ -1193,7 +804,7 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	" generation_params_schema_version\x18\x01 \x01(\rR\x1dgenerationParamsSchemaVersion\x12*\n" +
 	"\x11max_output_tokens\x18\x02 \x01(\x04R\x0fmaxOutputTokens\x12.\n" +
 	"\x13max_output_duration\x18\x03 \x01(\x04R\x11maxOutputDuration\x12B\n" +
-	"\x0fdecoding_params\x18\x04 \x01(\v2\x19.task.v1.DecodingParamsV1R\x0edecodingParams\"\xb6\n" +
+	"\x0fdecoding_params\x18\x04 \x01(\v2\x19.task.v1.DecodingParamsV1R\x0edecodingParams\"\x9c\n" +
 	"\n" +
 	"\vTaskOrderV3\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
@@ -1220,13 +831,12 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x13order_expire_height\x18\x13 \x01(\x04R\x11orderExpireHeight\x12B\n" +
 	"\x0fdeadline_policy\x18\x14 \x01(\v2\x19.task.v1.DeadlinePolicyV1R\x0edeadlinePolicy\x124\n" +
 	"\x16timeout_bucket_version\x18\x15 \x01(\x04R\x14timeoutBucketVersion\x122\n" +
-	"\x15session_anchor_height\x18\x16 \x01(\x04R\x13sessionAnchorHeight\x129\n" +
-	"\x19session_anchor_block_hash\x18\x17 \x01(\fR\x16sessionAnchorBlockHash\x12$\n" +
+	"\x15session_anchor_height\x18\x16 \x01(\x04R\x13sessionAnchorHeight\x12$\n" +
 	"\x0ebuilder_set_id\x18\x18 \x01(\tR\fbuilderSetId\x12(\n" +
 	"\x10builder_set_hash\x18\x19 \x01(\fR\x0ebuilderSetHash\x129\n" +
 	"\fpayload_mode\x18\x1a \x01(\x0e2\x16.task.v1.PayloadModeV1R\vpayloadMode\x120\n" +
 	"\x14input_key_commitment\x18\x1b \x01(\fR\x12inputKeyCommitment\x122\n" +
-	"\x15user_recipient_pubkey\x18\x1c \x01(\fR\x13userRecipientPubkey\"\xbb\x01\n" +
+	"\x15user_recipient_pubkey\x18\x1c \x01(\fR\x13userRecipientPubkeyJ\x04\b\x17\x10\x18R\x19session_anchor_block_hash\"\xbb\x01\n" +
 	"\rSignedOrderV2\x12*\n" +
 	"\x05order\x18\x01 \x01(\v2\x14.task.v1.TaskOrderV3R\x05order\x12)\n" +
 	"\x10signature_scheme\x18\x02 \x01(\tR\x0fsignatureScheme\x12%\n" +
@@ -1234,38 +844,7 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x12signature_chain_id\x18\x04 \x01(\x04R\x10signatureChainId\"I\n" +
 	"\x11ExistingTaskRefV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
-	"\ttask_hash\x18\x02 \x01(\fR\btaskHash\"\xa1\x01\n" +
-	"\x16WorkerHandraiseScopeV1\x12;\n" +
-	"\fsigned_order\x18\x01 \x01(\v2\x16.task.v1.SignedOrderV2H\x00R\vsignedOrder\x12A\n" +
-	"\rexisting_task\x18\x02 \x01(\v2\x1a.task.v1.ExistingTaskRefV1H\x00R\fexistingTaskB\a\n" +
-	"\x05scope\"\xe8\x03\n" +
-	"\x11WorkerHandraiseV1\x12%\n" +
-	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
-	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
-	"\atask_id\x18\x03 \x01(\fR\x06taskId\x12\x1b\n" +
-	"\ttask_hash\x18\x04 \x01(\fR\btaskHash\x12\x19\n" +
-	"\bmodel_id\x18\x05 \x01(\fR\amodelId\x12'\n" +
-	"\x0fprofile_version\x18\x06 \x01(\rR\x0eprofileVersion\x125\n" +
-	"\x06member\x18\a \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06member\x12#\n" +
-	"\x04duty\x18\b \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\t \x01(\x04R\x19serviceAuthorizationNonce\x12#\n" +
-	"\rexpiry_height\x18\n" +
-	" \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\v \x01(\fR\x10serviceSignature\x12)\n" +
-	"\x10recipient_pubkey\x18\f \x01(\fR\x0frecipientPubkey\"\xbb\x01\n" +
-	"\x19MsgSubmitWorkerHandraises\x125\n" +
-	"\x05scope\x18\x01 \x01(\v2\x1f.task.v1.WorkerHandraiseScopeV1R\x05scope\x12:\n" +
-	"\n" +
-	"handraises\x18\x02 \x03(\v2\x1a.task.v1.WorkerHandraiseV1R\n" +
-	"handraises\x12+\n" +
-	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"\xfc\x01\n" +
-	"!MsgSubmitWorkerHandraisesResponse\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12'\n" +
-	"\x0fproposal_digest\x18\x02 \x01(\fR\x0eproposalDigest\x12,\n" +
-	"\x12added_member_count\x18\x03 \x01(\rR\x10addedMemberCount\x12\x1f\n" +
-	"\vunion_count\x18\x04 \x01(\rR\n" +
-	"unionCount\x12F\n" +
-	"\fstage_status\x18\x05 \x01(\x0e2#.task.v1.TaskCandidateStageStatusV1R\vstageStatus*\xcc\x01\n" +
+	"\ttask_hash\x18\x02 \x01(\fR\btaskHash*\xcc\x01\n" +
 	"\x14DeadlineLatencyClass\x12&\n" +
 	"\"DEADLINE_LATENCY_CLASS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEADLINE_LATENCY_CLASS_ECONOMY\x10\x01\x12#\n" +
@@ -1286,50 +865,36 @@ func file_task_v1_msg_assignment_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_msg_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_msg_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_task_v1_msg_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_task_v1_msg_assignment_proto_goTypes = []any{
-	(DeadlineLatencyClass)(0),                 // 0: task.v1.DeadlineLatencyClass
-	(*DeadlinePolicyV1)(nil),                  // 1: task.v1.DeadlinePolicyV1
-	(*DecodingParamsV1)(nil),                  // 2: task.v1.DecodingParamsV1
-	(*GenerationParamsV1)(nil),                // 3: task.v1.GenerationParamsV1
-	(*TaskOrderV3)(nil),                       // 4: task.v1.TaskOrderV3
-	(*SignedOrderV2)(nil),                     // 5: task.v1.SignedOrderV2
-	(*ExistingTaskRefV1)(nil),                 // 6: task.v1.ExistingTaskRefV1
-	(*WorkerHandraiseScopeV1)(nil),            // 7: task.v1.WorkerHandraiseScopeV1
-	(*WorkerHandraiseV1)(nil),                 // 8: task.v1.WorkerHandraiseV1
-	(*MsgSubmitWorkerHandraises)(nil),         // 9: task.v1.MsgSubmitWorkerHandraises
-	(*MsgSubmitWorkerHandraisesResponse)(nil), // 10: task.v1.MsgSubmitWorkerHandraisesResponse
-	(v1.TaskType)(0),                          // 11: shared.v1.TaskType
-	(*v1.Amount)(nil),                         // 12: shared.v1.Amount
-	(PayloadModeV1)(0),                        // 13: task.v1.PayloadModeV1
-	(*CandidateMemberRefV1)(nil),              // 14: task.v1.CandidateMemberRefV1
-	(v1.Duty)(0),                              // 15: shared.v1.Duty
-	(TaskCandidateStageStatusV1)(0),           // 16: task.v1.TaskCandidateStageStatusV1
+	(DeadlineLatencyClass)(0),  // 0: task.v1.DeadlineLatencyClass
+	(*DeadlinePolicyV1)(nil),   // 1: task.v1.DeadlinePolicyV1
+	(*DecodingParamsV1)(nil),   // 2: task.v1.DecodingParamsV1
+	(*GenerationParamsV1)(nil), // 3: task.v1.GenerationParamsV1
+	(*TaskOrderV3)(nil),        // 4: task.v1.TaskOrderV3
+	(*SignedOrderV2)(nil),      // 5: task.v1.SignedOrderV2
+	(*ExistingTaskRefV1)(nil),  // 6: task.v1.ExistingTaskRefV1
+	(v1.TaskType)(0),           // 7: shared.v1.TaskType
+	(*v1.Amount)(nil),          // 8: shared.v1.Amount
+	(PayloadModeV1)(0),         // 9: task.v1.PayloadModeV1
 }
 var file_task_v1_msg_assignment_proto_depIdxs = []int32{
 	0,  // 0: task.v1.DeadlinePolicyV1.latency_class:type_name -> task.v1.DeadlineLatencyClass
 	2,  // 1: task.v1.GenerationParamsV1.decoding_params:type_name -> task.v1.DecodingParamsV1
-	11, // 2: task.v1.TaskOrderV3.task_type:type_name -> shared.v1.TaskType
+	7,  // 2: task.v1.TaskOrderV3.task_type:type_name -> shared.v1.TaskType
 	3,  // 3: task.v1.TaskOrderV3.generation_params:type_name -> task.v1.GenerationParamsV1
-	12, // 4: task.v1.TaskOrderV3.price_bid:type_name -> shared.v1.Amount
-	12, // 5: task.v1.TaskOrderV3.max_fee:type_name -> shared.v1.Amount
-	12, // 6: task.v1.TaskOrderV3.assignment_priority_fee:type_name -> shared.v1.Amount
-	12, // 7: task.v1.TaskOrderV3.tx_fee_reserve:type_name -> shared.v1.Amount
+	8,  // 4: task.v1.TaskOrderV3.price_bid:type_name -> shared.v1.Amount
+	8,  // 5: task.v1.TaskOrderV3.max_fee:type_name -> shared.v1.Amount
+	8,  // 6: task.v1.TaskOrderV3.assignment_priority_fee:type_name -> shared.v1.Amount
+	8,  // 7: task.v1.TaskOrderV3.tx_fee_reserve:type_name -> shared.v1.Amount
 	1,  // 8: task.v1.TaskOrderV3.deadline_policy:type_name -> task.v1.DeadlinePolicyV1
-	13, // 9: task.v1.TaskOrderV3.payload_mode:type_name -> task.v1.PayloadModeV1
+	9,  // 9: task.v1.TaskOrderV3.payload_mode:type_name -> task.v1.PayloadModeV1
 	4,  // 10: task.v1.SignedOrderV2.order:type_name -> task.v1.TaskOrderV3
-	5,  // 11: task.v1.WorkerHandraiseScopeV1.signed_order:type_name -> task.v1.SignedOrderV2
-	6,  // 12: task.v1.WorkerHandraiseScopeV1.existing_task:type_name -> task.v1.ExistingTaskRefV1
-	14, // 13: task.v1.WorkerHandraiseV1.member:type_name -> task.v1.CandidateMemberRefV1
-	15, // 14: task.v1.WorkerHandraiseV1.duty:type_name -> shared.v1.Duty
-	7,  // 15: task.v1.MsgSubmitWorkerHandraises.scope:type_name -> task.v1.WorkerHandraiseScopeV1
-	8,  // 16: task.v1.MsgSubmitWorkerHandraises.handraises:type_name -> task.v1.WorkerHandraiseV1
-	16, // 17: task.v1.MsgSubmitWorkerHandraisesResponse.stage_status:type_name -> task.v1.TaskCandidateStageStatusV1
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_assignment_proto_init() }
@@ -1339,17 +904,13 @@ func file_task_v1_msg_assignment_proto_init() {
 	}
 	file_task_v1_assignment_proto_init()
 	file_task_v1_open_verify_proto_init()
-	file_task_v1_msg_assignment_proto_msgTypes[6].OneofWrappers = []any{
-		(*WorkerHandraiseScopeV1_SignedOrder)(nil),
-		(*WorkerHandraiseScopeV1_ExistingTask)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_msg_assignment_proto_rawDesc), len(file_task_v1_msg_assignment_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -152,15 +152,17 @@ func (x *MsgUpdateTaskParamsResponse) GetStatus() v1.MutationStatusV1 {
 // MsgCreateSession opens one session namespace and locks its owner
 // (the wire API). The optional grant registers a session signing key. The
 // nonce comes from SessionNonceState and session_id is derived on
-// chain by TRUEOPEN_SESSION_V1. Model A: creating a session never moves funds, and
-// no unbounded metadata is accepted.
+// chain by TRUEOPEN_SESSION_V1. initial_deposit funds the session escrow and
+// initial_builder fixes the first dispatch binding. No unbounded metadata is accepted.
 // MsgCreateSession defines the MsgCreateSession wire type.
 type MsgCreateSession struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SignerAddress string                 `protobuf:"bytes,1,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
-	SessionKey    *SessionKeyGrantV1     `protobuf:"bytes,2,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SignerAddress  string                 `protobuf:"bytes,1,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
+	SessionKey     *SessionKeyGrantV1     `protobuf:"bytes,2,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
+	InitialDeposit *v1.Amount             `protobuf:"bytes,3,opt,name=initial_deposit,json=initialDeposit,proto3" json:"initial_deposit,omitempty"`
+	InitialBuilder string                 `protobuf:"bytes,4,opt,name=initial_builder,json=initialBuilder,proto3" json:"initial_builder,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MsgCreateSession) Reset() {
@@ -207,108 +209,18 @@ func (x *MsgCreateSession) GetSessionKey() *SessionKeyGrantV1 {
 	return nil
 }
 
-// SessionKeyGrantV1 registers a delegated order/request signer for one session.
-// The raw20 address must be nonzero and different from the owner's address.
-// At registration/renewal, current_height < expiry_height <= current_height +
-// the current effective max_session_key_blocks (checked addition). The limit
-// is not resolved through the session's pinned historical parameter version.
-// A canonical zero spend_cap (atomic_units = "0") is unlimited; otherwise it
-// bounds cumulative admitted max_fee, not actual spend or a prepaid balance.
-type SessionKeyGrantV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionKey    []byte                 `protobuf:"bytes,1,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
-	ExpiryHeight  uint64                 `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	SpendCap      *v1.Amount             `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SessionKeyGrantV1) Reset() {
-	*x = SessionKeyGrantV1{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SessionKeyGrantV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SessionKeyGrantV1) ProtoMessage() {}
-
-func (x *SessionKeyGrantV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[3]
+func (x *MsgCreateSession) GetInitialDeposit() *v1.Amount {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SessionKeyGrantV1.ProtoReflect.Descriptor instead.
-func (*SessionKeyGrantV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *SessionKeyGrantV1) GetSessionKey() []byte {
-	if x != nil {
-		return x.SessionKey
+		return x.InitialDeposit
 	}
 	return nil
 }
 
-func (x *SessionKeyGrantV1) GetExpiryHeight() uint64 {
+func (x *MsgCreateSession) GetInitialBuilder() string {
 	if x != nil {
-		return x.ExpiryHeight
+		return x.InitialBuilder
 	}
-	return 0
-}
-
-func (x *SessionKeyGrantV1) GetSpendCap() *v1.Amount {
-	if x != nil {
-		return x.SpendCap
-	}
-	return nil
-}
-
-// ClearSessionKeyV1 explicitly revokes the current session key.
-type ClearSessionKeyV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ClearSessionKeyV1) Reset() {
-	*x = ClearSessionKeyV1{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ClearSessionKeyV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ClearSessionKeyV1) ProtoMessage() {}
-
-func (x *ClearSessionKeyV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ClearSessionKeyV1.ProtoReflect.Descriptor instead.
-func (*ClearSessionKeyV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{4}
+	return ""
 }
 
 // MsgUpdateSessionKey changes authorization for an ACTIVE or IDLE session.
@@ -317,7 +229,8 @@ func (*ClearSessionKeyV1) Descriptor() ([]byte, []int) {
 // height as set_height. Same-key renewal/cap changes preserve set_height.
 // CLEAR zeroes key, expiry, cap and set_height, but never spent. An unchanged
 // result is NOOP without an event. Lifecycle status and activity are unchanged.
-// Later transactions, including in the same block, see the new authorization.
+// Restrictive updates register pending changes. Existing authorization remains
+// effective until effective_height; only nonrestrictive same-key renewal is immediate.
 // Already admitted tasks retain their authorization and escrow.
 type MsgUpdateSessionKey struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -336,7 +249,7 @@ type MsgUpdateSessionKey struct {
 
 func (x *MsgUpdateSessionKey) Reset() {
 	*x = MsgUpdateSessionKey{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	mi := &file_task_v1_msg_session_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -348,7 +261,7 @@ func (x *MsgUpdateSessionKey) String() string {
 func (*MsgUpdateSessionKey) ProtoMessage() {}
 
 func (x *MsgUpdateSessionKey) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[5]
+	mi := &file_task_v1_msg_session_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -361,7 +274,7 @@ func (x *MsgUpdateSessionKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgUpdateSessionKey.ProtoReflect.Descriptor instead.
 func (*MsgUpdateSessionKey) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *MsgUpdateSessionKey) GetSignerAddress() string {
@@ -422,20 +335,22 @@ func (*MsgUpdateSessionKey_Clear) isMsgUpdateSessionKey_Action() {}
 // MsgUpdateSessionKeyResponse returns the committed authorization and result.
 // An absent session_key_or_empty means no key; spent survives revocation.
 type MsgUpdateSessionKeyResponse struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	SessionKeyOrEmpty []byte                 `protobuf:"bytes,1,opt,name=session_key_or_empty,json=sessionKeyOrEmpty,proto3,oneof" json:"session_key_or_empty,omitempty"`
-	ExpiryHeight      uint64                 `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	SpendCap          *v1.Amount             `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
-	Spent             *v1.Amount             `protobuf:"bytes,4,opt,name=spent,proto3" json:"spent,omitempty"`
-	SetHeight         uint64                 `protobuf:"varint,5,opt,name=set_height,json=setHeight,proto3" json:"set_height,omitempty"`
-	Status            v1.MutationStatusV1    `protobuf:"varint,6,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	state             protoimpl.MessageState     `protogen:"open.v1"`
+	SessionKeyOrEmpty []byte                     `protobuf:"bytes,1,opt,name=session_key_or_empty,json=sessionKeyOrEmpty,proto3,oneof" json:"session_key_or_empty,omitempty"`
+	ExpiryHeight      uint64                     `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	SpendCap          *v1.Amount                 `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
+	Spent             *v1.Amount                 `protobuf:"bytes,4,opt,name=spent,proto3" json:"spent,omitempty"`
+	SetHeight         uint64                     `protobuf:"varint,5,opt,name=set_height,json=setHeight,proto3" json:"set_height,omitempty"`
+	Status            v1.MutationStatusV1        `protobuf:"varint,6,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	EffectiveHeight   *uint64                    `protobuf:"varint,7,opt,name=effective_height,json=effectiveHeight,proto3,oneof" json:"effective_height,omitempty"`
+	PendingChange     *PendingSessionKeyChangeV1 `protobuf:"bytes,8,opt,name=pending_change,json=pendingChange,proto3,oneof" json:"pending_change,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *MsgUpdateSessionKeyResponse) Reset() {
 	*x = MsgUpdateSessionKeyResponse{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[6]
+	mi := &file_task_v1_msg_session_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -447,7 +362,7 @@ func (x *MsgUpdateSessionKeyResponse) String() string {
 func (*MsgUpdateSessionKeyResponse) ProtoMessage() {}
 
 func (x *MsgUpdateSessionKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[6]
+	mi := &file_task_v1_msg_session_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -460,7 +375,7 @@ func (x *MsgUpdateSessionKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgUpdateSessionKeyResponse.ProtoReflect.Descriptor instead.
 func (*MsgUpdateSessionKeyResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *MsgUpdateSessionKeyResponse) GetSessionKeyOrEmpty() []byte {
@@ -505,6 +420,20 @@ func (x *MsgUpdateSessionKeyResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
+func (x *MsgUpdateSessionKeyResponse) GetEffectiveHeight() uint64 {
+	if x != nil && x.EffectiveHeight != nil {
+		return *x.EffectiveHeight
+	}
+	return 0
+}
+
+func (x *MsgUpdateSessionKeyResponse) GetPendingChange() *PendingSessionKeyChangeV1 {
+	if x != nil {
+		return x.PendingChange
+	}
+	return nil
+}
+
 // MsgCreateSessionResponse returns the chain-derived session identity
 // . Clients may also recompute session_id off chain from the same
 // formula; the owner is not derivable from session_id, hence StreamState still
@@ -521,7 +450,7 @@ type MsgCreateSessionResponse struct {
 
 func (x *MsgCreateSessionResponse) Reset() {
 	*x = MsgCreateSessionResponse{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[7]
+	mi := &file_task_v1_msg_session_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -533,7 +462,7 @@ func (x *MsgCreateSessionResponse) String() string {
 func (*MsgCreateSessionResponse) ProtoMessage() {}
 
 func (x *MsgCreateSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[7]
+	mi := &file_task_v1_msg_session_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -546,7 +475,7 @@ func (x *MsgCreateSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCreateSessionResponse.ProtoReflect.Descriptor instead.
 func (*MsgCreateSessionResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *MsgCreateSessionResponse) GetSessionId() []byte {
@@ -574,7 +503,7 @@ func (x *MsgCreateSessionResponse) GetStatus() v1.MutationStatusV1 {
 // stops occupying it. signer_address is the Cosmos signer and
 // must equal the stream owner; no duplicate detached owner signature is required.
 // It may only cancel next_expected_sequence, never a sequence already accepted by
-// MsgSubmitWorkerHandraises, and it moves no funds.
+// MsgRecordDispatch, and it moves no funds.
 // MsgCancelOrder defines the MsgCancelOrder wire type.
 type MsgCancelOrder struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -587,7 +516,7 @@ type MsgCancelOrder struct {
 
 func (x *MsgCancelOrder) Reset() {
 	*x = MsgCancelOrder{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[8]
+	mi := &file_task_v1_msg_session_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +528,7 @@ func (x *MsgCancelOrder) String() string {
 func (*MsgCancelOrder) ProtoMessage() {}
 
 func (x *MsgCancelOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[8]
+	mi := &file_task_v1_msg_session_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -612,7 +541,7 @@ func (x *MsgCancelOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCancelOrder.ProtoReflect.Descriptor instead.
 func (*MsgCancelOrder) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *MsgCancelOrder) GetSessionId() []byte {
@@ -640,18 +569,19 @@ func (x *MsgCancelOrder) GetSignerAddress() string {
 // . task_id stays empty because a cancelled sequence never created a task.
 // MsgCancelOrderResponse defines the MsgCancelOrderResponse wire type.
 type MsgCancelOrderResponse struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	TaskId               []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	CancelledSequence    uint64                 `protobuf:"varint,2,opt,name=cancelled_sequence,json=cancelledSequence,proto3" json:"cancelled_sequence,omitempty"`
-	NextExpectedSequence uint64                 `protobuf:"varint,3,opt,name=next_expected_sequence,json=nextExpectedSequence,proto3" json:"next_expected_sequence,omitempty"`
-	Status               v1.MutationStatusV1    `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	TaskId                []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	CancelledSequence     uint64                 `protobuf:"varint,2,opt,name=cancelled_sequence,json=cancelledSequence,proto3" json:"cancelled_sequence,omitempty"`
+	NextExpectedSequence  uint64                 `protobuf:"varint,3,opt,name=next_expected_sequence,json=nextExpectedSequence,proto3" json:"next_expected_sequence,omitempty"`
+	Status                v1.MutationStatusV1    `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	CancelEffectiveHeight uint64                 `protobuf:"varint,5,opt,name=cancel_effective_height,json=cancelEffectiveHeight,proto3" json:"cancel_effective_height,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *MsgCancelOrderResponse) Reset() {
 	*x = MsgCancelOrderResponse{}
-	mi := &file_task_v1_msg_session_proto_msgTypes[9]
+	mi := &file_task_v1_msg_session_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -663,7 +593,7 @@ func (x *MsgCancelOrderResponse) String() string {
 func (*MsgCancelOrderResponse) ProtoMessage() {}
 
 func (x *MsgCancelOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_session_proto_msgTypes[9]
+	mi := &file_task_v1_msg_session_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -676,7 +606,7 @@ func (x *MsgCancelOrderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgCancelOrderResponse.ProtoReflect.Descriptor instead.
 func (*MsgCancelOrderResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MsgCancelOrderResponse) GetTaskId() []byte {
@@ -707,11 +637,376 @@ func (x *MsgCancelOrderResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
+func (x *MsgCancelOrderResponse) GetCancelEffectiveHeight() uint64 {
+	if x != nil {
+		return x.CancelEffectiveHeight
+	}
+	return 0
+}
+
+// MsgDepositSession defines the canonical MsgDepositSession fields.
+type MsgDepositSession struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Amount        *v1.Amount             `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	SignerAddress string                 `protobuf:"bytes,3,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgDepositSession) Reset() {
+	*x = MsgDepositSession{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgDepositSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgDepositSession) ProtoMessage() {}
+
+func (x *MsgDepositSession) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgDepositSession.ProtoReflect.Descriptor instead.
+func (*MsgDepositSession) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *MsgDepositSession) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *MsgDepositSession) GetAmount() *v1.Amount {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+func (x *MsgDepositSession) GetSignerAddress() string {
+	if x != nil {
+		return x.SignerAddress
+	}
+	return ""
+}
+
+// MsgDepositSessionResponse defines the canonical MsgDepositSessionResponse fields.
+type MsgDepositSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Balance       *v1.Amount             `protobuf:"bytes,1,opt,name=balance,proto3" json:"balance,omitempty"`
+	Status        v1.MutationStatusV1    `protobuf:"varint,2,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgDepositSessionResponse) Reset() {
+	*x = MsgDepositSessionResponse{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgDepositSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgDepositSessionResponse) ProtoMessage() {}
+
+func (x *MsgDepositSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgDepositSessionResponse.ProtoReflect.Descriptor instead.
+func (*MsgDepositSessionResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *MsgDepositSessionResponse) GetBalance() *v1.Amount {
+	if x != nil {
+		return x.Balance
+	}
+	return nil
+}
+
+func (x *MsgDepositSessionResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
+// WithdrawAmountV1 defines the canonical WithdrawAmountV1 fields.
+type WithdrawAmountV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Amount        *v1.Amount             `protobuf:"bytes,1,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WithdrawAmountV1) Reset() {
+	*x = WithdrawAmountV1{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WithdrawAmountV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WithdrawAmountV1) ProtoMessage() {}
+
+func (x *WithdrawAmountV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WithdrawAmountV1.ProtoReflect.Descriptor instead.
+func (*WithdrawAmountV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *WithdrawAmountV1) GetAmount() *v1.Amount {
+	if x != nil {
+		return x.Amount
+	}
+	return nil
+}
+
+// CloseSessionV1 defines the canonical CloseSessionV1 fields.
+type CloseSessionV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CloseSessionV1) Reset() {
+	*x = CloseSessionV1{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CloseSessionV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CloseSessionV1) ProtoMessage() {}
+
+func (x *CloseSessionV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CloseSessionV1.ProtoReflect.Descriptor instead.
+func (*CloseSessionV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{11}
+}
+
+// MsgWithdrawSession registers one delayed withdrawal or close.
+type MsgWithdrawSession struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	SignerAddress string                 `protobuf:"bytes,2,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
+	// action selects either a fixed amount or full close.
+	//
+	// Types that are valid to be assigned to Action:
+	//
+	//	*MsgWithdrawSession_Amount
+	//	*MsgWithdrawSession_Close
+	Action        isMsgWithdrawSession_Action `protobuf_oneof:"action"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgWithdrawSession) Reset() {
+	*x = MsgWithdrawSession{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgWithdrawSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgWithdrawSession) ProtoMessage() {}
+
+func (x *MsgWithdrawSession) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgWithdrawSession.ProtoReflect.Descriptor instead.
+func (*MsgWithdrawSession) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *MsgWithdrawSession) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *MsgWithdrawSession) GetSignerAddress() string {
+	if x != nil {
+		return x.SignerAddress
+	}
+	return ""
+}
+
+func (x *MsgWithdrawSession) GetAction() isMsgWithdrawSession_Action {
+	if x != nil {
+		return x.Action
+	}
+	return nil
+}
+
+func (x *MsgWithdrawSession) GetAmount() *WithdrawAmountV1 {
+	if x != nil {
+		if x, ok := x.Action.(*MsgWithdrawSession_Amount); ok {
+			return x.Amount
+		}
+	}
+	return nil
+}
+
+func (x *MsgWithdrawSession) GetClose() *CloseSessionV1 {
+	if x != nil {
+		if x, ok := x.Action.(*MsgWithdrawSession_Close); ok {
+			return x.Close
+		}
+	}
+	return nil
+}
+
+type isMsgWithdrawSession_Action interface {
+	isMsgWithdrawSession_Action()
+}
+
+type MsgWithdrawSession_Amount struct {
+	Amount *WithdrawAmountV1 `protobuf:"bytes,3,opt,name=amount,proto3,oneof"`
+}
+
+type MsgWithdrawSession_Close struct {
+	Close *CloseSessionV1 `protobuf:"bytes,4,opt,name=close,proto3,oneof"`
+}
+
+func (*MsgWithdrawSession_Amount) isMsgWithdrawSession_Action() {}
+
+func (*MsgWithdrawSession_Close) isMsgWithdrawSession_Action() {}
+
+// MsgWithdrawSessionResponse defines the canonical MsgWithdrawSessionResponse fields.
+type MsgWithdrawSessionResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	EffectiveHeight uint64                 `protobuf:"varint,1,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
+	PendingAmount   *v1.Amount             `protobuf:"bytes,2,opt,name=pending_amount,json=pendingAmount,proto3" json:"pending_amount,omitempty"`
+	Status          v1.MutationStatusV1    `protobuf:"varint,3,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *MsgWithdrawSessionResponse) Reset() {
+	*x = MsgWithdrawSessionResponse{}
+	mi := &file_task_v1_msg_session_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgWithdrawSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgWithdrawSessionResponse) ProtoMessage() {}
+
+func (x *MsgWithdrawSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_session_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgWithdrawSessionResponse.ProtoReflect.Descriptor instead.
+func (*MsgWithdrawSessionResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_session_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MsgWithdrawSessionResponse) GetEffectiveHeight() uint64 {
+	if x != nil {
+		return x.EffectiveHeight
+	}
+	return 0
+}
+
+func (x *MsgWithdrawSessionResponse) GetPendingAmount() *v1.Amount {
+	if x != nil {
+		return x.PendingAmount
+	}
+	return nil
+}
+
+func (x *MsgWithdrawSessionResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
 var File_task_v1_msg_session_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_session_proto_rawDesc = "" +
 	"\n" +
-	"\x19task/v1/msg_session.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x16shared/v1/amount.proto\x1a\x14task/v1/params.proto\"\x8d\x01\n" +
+	"\x19task/v1/msg_session.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x14task/v1/params.proto\x1a\x15task/v1/session.proto\"\x8d\x01\n" +
 	"\x13MsgUpdateTaskParams\x12)\n" +
 	"\x10expected_version\x18\x01 \x01(\x04R\x0fexpectedVersion\x12-\n" +
 	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12\x1c\n" +
@@ -721,24 +1016,20 @@ const file_task_v1_msg_session_proto_rawDesc = "" +
 	"newVersion\x12\x1f\n" +
 	"\vparams_hash\x18\x02 \x01(\fR\n" +
 	"paramsHash\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"v\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xdb\x01\n" +
 	"\x10MsgCreateSession\x12%\n" +
 	"\x0esigner_address\x18\x01 \x01(\tR\rsignerAddress\x12;\n" +
 	"\vsession_key\x18\x02 \x01(\v2\x1a.task.v1.SessionKeyGrantV1R\n" +
-	"sessionKey\"\x89\x01\n" +
-	"\x11SessionKeyGrantV1\x12\x1f\n" +
-	"\vsession_key\x18\x01 \x01(\fR\n" +
-	"sessionKey\x12#\n" +
-	"\rexpiry_height\x18\x02 \x01(\x04R\fexpiryHeight\x12.\n" +
-	"\tspend_cap\x18\x03 \x01(\v2\x11.shared.v1.AmountR\bspendCap\"\x13\n" +
-	"\x11ClearSessionKeyV1\"\xc9\x01\n" +
+	"sessionKey\x12:\n" +
+	"\x0finitial_deposit\x18\x03 \x01(\v2\x11.shared.v1.AmountR\x0einitialDeposit\x12'\n" +
+	"\x0finitial_builder\x18\x04 \x01(\tR\x0einitialBuilder\"\xc9\x01\n" +
 	"\x13MsgUpdateSessionKey\x12%\n" +
 	"\x0esigner_address\x18\x01 \x01(\tR\rsignerAddress\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\fR\tsessionId\x12.\n" +
 	"\x03set\x18\x03 \x01(\v2\x1a.task.v1.SessionKeyGrantV1H\x00R\x03set\x122\n" +
 	"\x05clear\x18\x04 \x01(\v2\x1a.task.v1.ClearSessionKeyV1H\x00R\x05clearB\b\n" +
-	"\x06action\"\xbe\x02\n" +
+	"\x06action\"\xe6\x03\n" +
 	"\x1bMsgUpdateSessionKeyResponse\x124\n" +
 	"\x14session_key_or_empty\x18\x01 \x01(\fH\x00R\x11sessionKeyOrEmpty\x88\x01\x01\x12#\n" +
 	"\rexpiry_height\x18\x02 \x01(\x04R\fexpiryHeight\x12.\n" +
@@ -746,8 +1037,12 @@ const file_task_v1_msg_session_proto_rawDesc = "" +
 	"\x05spent\x18\x04 \x01(\v2\x11.shared.v1.AmountR\x05spent\x12\x1d\n" +
 	"\n" +
 	"set_height\x18\x05 \x01(\x04R\tsetHeight\x123\n" +
-	"\x06status\x18\x06 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB\x17\n" +
-	"\x15_session_key_or_empty\"\x93\x01\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x12.\n" +
+	"\x10effective_height\x18\a \x01(\x04H\x01R\x0feffectiveHeight\x88\x01\x01\x12N\n" +
+	"\x0epending_change\x18\b \x01(\v2\".task.v1.PendingSessionKeyChangeV1H\x02R\rpendingChange\x88\x01\x01B\x17\n" +
+	"\x15_session_key_or_emptyB\x13\n" +
+	"\x11_effective_heightB\x11\n" +
+	"\x0f_pending_change\"\x93\x01\n" +
 	"\x18MsgCreateSessionResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12#\n" +
@@ -757,12 +1052,35 @@ const file_task_v1_msg_session_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
 	"\x0eorder_sequence\x18\x02 \x01(\x04R\rorderSequence\x12%\n" +
-	"\x0esigner_address\x18\x03 \x01(\tR\rsignerAddress\"\xcb\x01\n" +
+	"\x0esigner_address\x18\x03 \x01(\tR\rsignerAddress\"\x83\x02\n" +
 	"\x16MsgCancelOrderResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12-\n" +
 	"\x12cancelled_sequence\x18\x02 \x01(\x04R\x11cancelledSequence\x124\n" +
 	"\x16next_expected_sequence\x18\x03 \x01(\x04R\x14nextExpectedSequence\x123\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x126\n" +
+	"\x17cancel_effective_height\x18\x05 \x01(\x04R\x15cancelEffectiveHeight\"\x84\x01\n" +
+	"\x11MsgDepositSession\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12)\n" +
+	"\x06amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x06amount\x12%\n" +
+	"\x0esigner_address\x18\x03 \x01(\tR\rsignerAddress\"}\n" +
+	"\x19MsgDepositSessionResponse\x12+\n" +
+	"\abalance\x18\x01 \x01(\v2\x11.shared.v1.AmountR\abalance\x123\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"=\n" +
+	"\x10WithdrawAmountV1\x12)\n" +
+	"\x06amount\x18\x01 \x01(\v2\x11.shared.v1.AmountR\x06amount\"\x10\n" +
+	"\x0eCloseSessionV1\"\xca\x01\n" +
+	"\x12MsgWithdrawSession\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
+	"\x0esigner_address\x18\x02 \x01(\tR\rsignerAddress\x123\n" +
+	"\x06amount\x18\x03 \x01(\v2\x19.task.v1.WithdrawAmountV1H\x00R\x06amount\x12/\n" +
+	"\x05close\x18\x04 \x01(\v2\x17.task.v1.CloseSessionV1H\x00R\x05closeB\b\n" +
+	"\x06action\"\xb6\x01\n" +
+	"\x1aMsgWithdrawSessionResponse\x12)\n" +
+	"\x10effective_height\x18\x01 \x01(\x04R\x0feffectiveHeight\x128\n" +
+	"\x0epending_amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\rpendingAmount\x123\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_msg_session_proto_rawDescOnce sync.Once
@@ -776,39 +1094,55 @@ func file_task_v1_msg_session_proto_rawDescGZIP() []byte {
 	return file_task_v1_msg_session_proto_rawDescData
 }
 
-var file_task_v1_msg_session_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_task_v1_msg_session_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_task_v1_msg_session_proto_goTypes = []any{
 	(*MsgUpdateTaskParams)(nil),         // 0: task.v1.MsgUpdateTaskParams
 	(*MsgUpdateTaskParamsResponse)(nil), // 1: task.v1.MsgUpdateTaskParamsResponse
 	(*MsgCreateSession)(nil),            // 2: task.v1.MsgCreateSession
-	(*SessionKeyGrantV1)(nil),           // 3: task.v1.SessionKeyGrantV1
-	(*ClearSessionKeyV1)(nil),           // 4: task.v1.ClearSessionKeyV1
-	(*MsgUpdateSessionKey)(nil),         // 5: task.v1.MsgUpdateSessionKey
-	(*MsgUpdateSessionKeyResponse)(nil), // 6: task.v1.MsgUpdateSessionKeyResponse
-	(*MsgCreateSessionResponse)(nil),    // 7: task.v1.MsgCreateSessionResponse
-	(*MsgCancelOrder)(nil),              // 8: task.v1.MsgCancelOrder
-	(*MsgCancelOrderResponse)(nil),      // 9: task.v1.MsgCancelOrderResponse
-	(*TaskParamsV1)(nil),                // 10: task.v1.TaskParamsV1
-	(v1.MutationStatusV1)(0),            // 11: shared.v1.MutationStatusV1
-	(*v1.Amount)(nil),                   // 12: shared.v1.Amount
+	(*MsgUpdateSessionKey)(nil),         // 3: task.v1.MsgUpdateSessionKey
+	(*MsgUpdateSessionKeyResponse)(nil), // 4: task.v1.MsgUpdateSessionKeyResponse
+	(*MsgCreateSessionResponse)(nil),    // 5: task.v1.MsgCreateSessionResponse
+	(*MsgCancelOrder)(nil),              // 6: task.v1.MsgCancelOrder
+	(*MsgCancelOrderResponse)(nil),      // 7: task.v1.MsgCancelOrderResponse
+	(*MsgDepositSession)(nil),           // 8: task.v1.MsgDepositSession
+	(*MsgDepositSessionResponse)(nil),   // 9: task.v1.MsgDepositSessionResponse
+	(*WithdrawAmountV1)(nil),            // 10: task.v1.WithdrawAmountV1
+	(*CloseSessionV1)(nil),              // 11: task.v1.CloseSessionV1
+	(*MsgWithdrawSession)(nil),          // 12: task.v1.MsgWithdrawSession
+	(*MsgWithdrawSessionResponse)(nil),  // 13: task.v1.MsgWithdrawSessionResponse
+	(*TaskParamsV1)(nil),                // 14: task.v1.TaskParamsV1
+	(v1.MutationStatusV1)(0),            // 15: shared.v1.MutationStatusV1
+	(*SessionKeyGrantV1)(nil),           // 16: task.v1.SessionKeyGrantV1
+	(*v1.Amount)(nil),                   // 17: shared.v1.Amount
+	(*ClearSessionKeyV1)(nil),           // 18: task.v1.ClearSessionKeyV1
+	(*PendingSessionKeyChangeV1)(nil),   // 19: task.v1.PendingSessionKeyChangeV1
 }
 var file_task_v1_msg_session_proto_depIdxs = []int32{
-	10, // 0: task.v1.MsgUpdateTaskParams.params:type_name -> task.v1.TaskParamsV1
-	11, // 1: task.v1.MsgUpdateTaskParamsResponse.status:type_name -> shared.v1.MutationStatusV1
-	3,  // 2: task.v1.MsgCreateSession.session_key:type_name -> task.v1.SessionKeyGrantV1
-	12, // 3: task.v1.SessionKeyGrantV1.spend_cap:type_name -> shared.v1.Amount
-	3,  // 4: task.v1.MsgUpdateSessionKey.set:type_name -> task.v1.SessionKeyGrantV1
-	4,  // 5: task.v1.MsgUpdateSessionKey.clear:type_name -> task.v1.ClearSessionKeyV1
-	12, // 6: task.v1.MsgUpdateSessionKeyResponse.spend_cap:type_name -> shared.v1.Amount
-	12, // 7: task.v1.MsgUpdateSessionKeyResponse.spent:type_name -> shared.v1.Amount
-	11, // 8: task.v1.MsgUpdateSessionKeyResponse.status:type_name -> shared.v1.MutationStatusV1
-	11, // 9: task.v1.MsgCreateSessionResponse.status:type_name -> shared.v1.MutationStatusV1
-	11, // 10: task.v1.MsgCancelOrderResponse.status:type_name -> shared.v1.MutationStatusV1
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	14, // 0: task.v1.MsgUpdateTaskParams.params:type_name -> task.v1.TaskParamsV1
+	15, // 1: task.v1.MsgUpdateTaskParamsResponse.status:type_name -> shared.v1.MutationStatusV1
+	16, // 2: task.v1.MsgCreateSession.session_key:type_name -> task.v1.SessionKeyGrantV1
+	17, // 3: task.v1.MsgCreateSession.initial_deposit:type_name -> shared.v1.Amount
+	16, // 4: task.v1.MsgUpdateSessionKey.set:type_name -> task.v1.SessionKeyGrantV1
+	18, // 5: task.v1.MsgUpdateSessionKey.clear:type_name -> task.v1.ClearSessionKeyV1
+	17, // 6: task.v1.MsgUpdateSessionKeyResponse.spend_cap:type_name -> shared.v1.Amount
+	17, // 7: task.v1.MsgUpdateSessionKeyResponse.spent:type_name -> shared.v1.Amount
+	15, // 8: task.v1.MsgUpdateSessionKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	19, // 9: task.v1.MsgUpdateSessionKeyResponse.pending_change:type_name -> task.v1.PendingSessionKeyChangeV1
+	15, // 10: task.v1.MsgCreateSessionResponse.status:type_name -> shared.v1.MutationStatusV1
+	15, // 11: task.v1.MsgCancelOrderResponse.status:type_name -> shared.v1.MutationStatusV1
+	17, // 12: task.v1.MsgDepositSession.amount:type_name -> shared.v1.Amount
+	17, // 13: task.v1.MsgDepositSessionResponse.balance:type_name -> shared.v1.Amount
+	15, // 14: task.v1.MsgDepositSessionResponse.status:type_name -> shared.v1.MutationStatusV1
+	17, // 15: task.v1.WithdrawAmountV1.amount:type_name -> shared.v1.Amount
+	10, // 16: task.v1.MsgWithdrawSession.amount:type_name -> task.v1.WithdrawAmountV1
+	11, // 17: task.v1.MsgWithdrawSession.close:type_name -> task.v1.CloseSessionV1
+	17, // 18: task.v1.MsgWithdrawSessionResponse.pending_amount:type_name -> shared.v1.Amount
+	15, // 19: task.v1.MsgWithdrawSessionResponse.status:type_name -> shared.v1.MutationStatusV1
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_session_proto_init() }
@@ -817,18 +1151,23 @@ func file_task_v1_msg_session_proto_init() {
 		return
 	}
 	file_task_v1_params_proto_init()
-	file_task_v1_msg_session_proto_msgTypes[5].OneofWrappers = []any{
+	file_task_v1_session_proto_init()
+	file_task_v1_msg_session_proto_msgTypes[3].OneofWrappers = []any{
 		(*MsgUpdateSessionKey_Set)(nil),
 		(*MsgUpdateSessionKey_Clear)(nil),
 	}
-	file_task_v1_msg_session_proto_msgTypes[6].OneofWrappers = []any{}
+	file_task_v1_msg_session_proto_msgTypes[4].OneofWrappers = []any{}
+	file_task_v1_msg_session_proto_msgTypes[12].OneofWrappers = []any{
+		(*MsgWithdrawSession_Amount)(nil),
+		(*MsgWithdrawSession_Close)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_msg_session_proto_rawDesc), len(file_task_v1_msg_session_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

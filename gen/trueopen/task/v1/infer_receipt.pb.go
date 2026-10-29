@@ -72,6 +72,7 @@ type InferReceiptV3 struct {
 	WorkerTokenKeyCommitment []byte `protobuf:"bytes,16,opt,name=worker_token_key_commitment,json=workerTokenKeyCommitment,proto3" json:"worker_token_key_commitment,omitempty"`
 	WorkerValueKeyCommitment []byte `protobuf:"bytes,17,opt,name=worker_value_key_commitment,json=workerValueKeyCommitment,proto3" json:"worker_value_key_commitment,omitempty"`
 	CiphertextOutputRoot     []byte `protobuf:"bytes,18,opt,name=ciphertext_output_root,json=ciphertextOutputRoot,proto3" json:"ciphertext_output_root,omitempty"`
+	DispatchTicketHash       []byte `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -228,6 +229,13 @@ func (x *InferReceiptV3) GetWorkerValueKeyCommitment() []byte {
 func (x *InferReceiptV3) GetCiphertextOutputRoot() []byte {
 	if x != nil {
 		return x.CiphertextOutputRoot
+	}
+	return nil
+}
+
+func (x *InferReceiptV3) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
 	}
 	return nil
 }
@@ -435,7 +443,7 @@ var File_task_v1_infer_receipt_proto protoreflect.FileDescriptor
 
 const file_task_v1_infer_receipt_proto_rawDesc = "" +
 	"\n" +
-	"\x1btask/v1/infer_receipt.proto\x12\atask.v1\x1a\x16task/v1/evidence.proto\"\x84\a\n" +
+	"\x1btask/v1/infer_receipt.proto\x12\atask.v1\x1a\x16task/v1/evidence.proto\"\xb6\a\n" +
 	"\x0eInferReceiptV3\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -456,7 +464,8 @@ const file_task_v1_infer_receipt_proto_rawDesc = "" +
 	"\x15output_key_commitment\x18\x0f \x01(\fR\x13outputKeyCommitment\x12=\n" +
 	"\x1bworker_token_key_commitment\x18\x10 \x01(\fR\x18workerTokenKeyCommitment\x12=\n" +
 	"\x1bworker_value_key_commitment\x18\x11 \x01(\fR\x18workerValueKeyCommitment\x124\n" +
-	"\x16ciphertext_output_root\x18\x12 \x01(\fR\x14ciphertextOutputRoot\"\xe1\a\n" +
+	"\x16ciphertext_output_root\x18\x12 \x01(\fR\x14ciphertextOutputRoot\x120\n" +
+	"\x14dispatch_ticket_hash\x18\x13 \x01(\fR\x12dispatchTicketHash\"\xe1\a\n" +
 	"\x11InferReceiptState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12#\n" +
 	"\rwinner_worker\x18\x02 \x01(\tR\fwinnerWorker\x12,\n" +

@@ -49,7 +49,7 @@ enum BuilderDataUnavailableAggregateStatusV1 {
 // the wire: the snapshot ID already commits the pool hash, so no asserted pool
 // hash copy is submitted or signed.
 //
-// This value type is shared by WorkerHandraiseV1 (global CandidatePool /
+// This value type is shared by StandingHandraiseV1 (global CandidatePool /
 // assignment flow) and VerifierHandraiseV1 below, so it is defined exactly once
 // in the module.
 // CandidateMemberRefV1 defines the CandidateMemberRefV1 wire type.

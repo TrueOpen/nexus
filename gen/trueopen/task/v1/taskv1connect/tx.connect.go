@@ -42,9 +42,6 @@ const (
 	MsgUpdateSessionKeyProcedure = "/task.v1.Msg/UpdateSessionKey"
 	// MsgCancelOrderProcedure is the fully-qualified name of the Msg's CancelOrder RPC.
 	MsgCancelOrderProcedure = "/task.v1.Msg/CancelOrder"
-	// MsgSubmitWorkerHandraisesProcedure is the fully-qualified name of the Msg's
-	// SubmitWorkerHandraises RPC.
-	MsgSubmitWorkerHandraisesProcedure = "/task.v1.Msg/SubmitWorkerHandraises"
 	// MsgSubmitInferReceiptProcedure is the fully-qualified name of the Msg's SubmitInferReceipt RPC.
 	MsgSubmitInferReceiptProcedure = "/task.v1.Msg/SubmitInferReceipt"
 	// MsgSubmitWorkerEvidenceProcedure is the fully-qualified name of the Msg's SubmitWorkerEvidence
@@ -78,6 +75,36 @@ const (
 	MsgSettleTaskProcedure = "/task.v1.Msg/SettleTask"
 	// MsgSweepDeadlineProcedure is the fully-qualified name of the Msg's SweepDeadline RPC.
 	MsgSweepDeadlineProcedure = "/task.v1.Msg/SweepDeadline"
+	// MsgRecordDispatchProcedure is the fully-qualified name of the Msg's RecordDispatch RPC.
+	MsgRecordDispatchProcedure = "/task.v1.Msg/RecordDispatch"
+	// MsgClaimDispatchCompensationProcedure is the fully-qualified name of the Msg's
+	// ClaimDispatchCompensation RPC.
+	MsgClaimDispatchCompensationProcedure = "/task.v1.Msg/ClaimDispatchCompensation"
+	// MsgRebutDispatchCompensationProcedure is the fully-qualified name of the Msg's
+	// RebutDispatchCompensation RPC.
+	MsgRebutDispatchCompensationProcedure = "/task.v1.Msg/RebutDispatchCompensation"
+	// MsgChallengeDispatchOmissionProcedure is the fully-qualified name of the Msg's
+	// ChallengeDispatchOmission RPC.
+	MsgChallengeDispatchOmissionProcedure = "/task.v1.Msg/ChallengeDispatchOmission"
+	// MsgChallengeDispatchDrawProcedure is the fully-qualified name of the Msg's ChallengeDispatchDraw
+	// RPC.
+	MsgChallengeDispatchDrawProcedure = "/task.v1.Msg/ChallengeDispatchDraw"
+	// MsgChallengeDispatchSkipProcedure is the fully-qualified name of the Msg's ChallengeDispatchSkip
+	// RPC.
+	MsgChallengeDispatchSkipProcedure = "/task.v1.Msg/ChallengeDispatchSkip"
+	// MsgReportDispatchRosterUnavailableProcedure is the fully-qualified name of the Msg's
+	// ReportDispatchRosterUnavailable RPC.
+	MsgReportDispatchRosterUnavailableProcedure = "/task.v1.Msg/ReportDispatchRosterUnavailable"
+	// MsgChallengeDispatchDoubleDispatchProcedure is the fully-qualified name of the Msg's
+	// ChallengeDispatchDoubleDispatch RPC.
+	MsgChallengeDispatchDoubleDispatchProcedure = "/task.v1.Msg/ChallengeDispatchDoubleDispatch"
+	// MsgRespondDispatchChallengeProcedure is the fully-qualified name of the Msg's
+	// RespondDispatchChallenge RPC.
+	MsgRespondDispatchChallengeProcedure = "/task.v1.Msg/RespondDispatchChallenge"
+	// MsgDepositSessionProcedure is the fully-qualified name of the Msg's DepositSession RPC.
+	MsgDepositSessionProcedure = "/task.v1.Msg/DepositSession"
+	// MsgWithdrawSessionProcedure is the fully-qualified name of the Msg's WithdrawSession RPC.
+	MsgWithdrawSessionProcedure = "/task.v1.Msg/WithdrawSession"
 )
 
 // MsgClient is a client for the task.v1.Msg service.
@@ -93,14 +120,13 @@ type MsgClient interface {
 	// SubmitWorkerHandraises is the single Task admission and Worker candidate
 	// entry; it replaces the deleted MsgAssign.
 	// SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
-	SubmitWorkerHandraises(context.Context, *connect.Request[v1.MsgSubmitWorkerHandraises]) (*connect.Response[v1.MsgSubmitWorkerHandraisesResponse], error)
 	// SubmitInferReceipt accepts the winner Worker's inference receipt; it
 	// replaces the deleted MsgInferReceiptCommitOnly.
 	// SubmitInferReceipt executes the SubmitInferReceipt operation.
 	SubmitInferReceipt(context.Context, *connect.Request[v1.MsgSubmitInferReceipt]) (*connect.Response[v1.MsgSubmitInferReceiptResponse], error)
 	// SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
 	SubmitWorkerEvidence(context.Context, *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error)
-	// SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	// SubmitVerifierValueEvidence accepts bounded committed-value contradictions.
 	SubmitVerifierValueEvidence(context.Context, *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error)
 	// SubmitVerifierHandraises is the single Open Verify entry; it replaces the
 	// deleted MsgOpenVerify.
@@ -130,6 +156,28 @@ type MsgClient interface {
 	// MsgSweepExpiredTask and MsgSessionSweep.
 	// SweepDeadline executes the SweepDeadline operation.
 	SweepDeadline(context.Context, *connect.Request[v1.MsgSweepDeadline]) (*connect.Response[v1.MsgSweepDeadlineResponse], error)
+	// RecordDispatch executes the RecordDispatch operation.
+	RecordDispatch(context.Context, *connect.Request[v1.MsgRecordDispatch]) (*connect.Response[v1.MsgRecordDispatchResponse], error)
+	// ClaimDispatchCompensation executes the ClaimDispatchCompensation operation.
+	ClaimDispatchCompensation(context.Context, *connect.Request[v1.MsgClaimDispatchCompensation]) (*connect.Response[v1.MsgClaimDispatchCompensationResponse], error)
+	// RebutDispatchCompensation executes the RebutDispatchCompensation operation.
+	RebutDispatchCompensation(context.Context, *connect.Request[v1.MsgRebutDispatchCompensation]) (*connect.Response[v1.MsgRebutDispatchCompensationResponse], error)
+	// ChallengeDispatchOmission executes the ChallengeDispatchOmission operation.
+	ChallengeDispatchOmission(context.Context, *connect.Request[v1.MsgChallengeDispatchOmission]) (*connect.Response[v1.MsgChallengeDispatchOmissionResponse], error)
+	// ChallengeDispatchDraw executes the ChallengeDispatchDraw operation.
+	ChallengeDispatchDraw(context.Context, *connect.Request[v1.MsgChallengeDispatchDraw]) (*connect.Response[v1.MsgChallengeDispatchDrawResponse], error)
+	// ChallengeDispatchSkip executes the ChallengeDispatchSkip operation.
+	ChallengeDispatchSkip(context.Context, *connect.Request[v1.MsgChallengeDispatchSkip]) (*connect.Response[v1.MsgChallengeDispatchSkipResponse], error)
+	// ReportDispatchRosterUnavailable executes the ReportDispatchRosterUnavailable operation.
+	ReportDispatchRosterUnavailable(context.Context, *connect.Request[v1.MsgReportDispatchRosterUnavailable]) (*connect.Response[v1.MsgReportDispatchRosterUnavailableResponse], error)
+	// ChallengeDispatchDoubleDispatch executes the ChallengeDispatchDoubleDispatch operation.
+	ChallengeDispatchDoubleDispatch(context.Context, *connect.Request[v1.MsgChallengeDispatchDoubleDispatch]) (*connect.Response[v1.MsgChallengeDispatchDoubleDispatchResponse], error)
+	// RespondDispatchChallenge executes the RespondDispatchChallenge operation.
+	RespondDispatchChallenge(context.Context, *connect.Request[v1.MsgRespondDispatchChallenge]) (*connect.Response[v1.MsgRespondDispatchChallengeResponse], error)
+	// DepositSession executes the DepositSession operation.
+	DepositSession(context.Context, *connect.Request[v1.MsgDepositSession]) (*connect.Response[v1.MsgDepositSessionResponse], error)
+	// WithdrawSession executes the WithdrawSession operation.
+	WithdrawSession(context.Context, *connect.Request[v1.MsgWithdrawSession]) (*connect.Response[v1.MsgWithdrawSessionResponse], error)
 }
 
 // NewMsgClient constructs a client for the task.v1.Msg service. By default, it uses the Connect
@@ -165,12 +213,6 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgCancelOrderProcedure,
 			connect.WithSchema(msgMethods.ByName("CancelOrder")),
-			connect.WithClientOptions(opts...),
-		),
-		submitWorkerHandraises: connect.NewClient[v1.MsgSubmitWorkerHandraises, v1.MsgSubmitWorkerHandraisesResponse](
-			httpClient,
-			baseURL+MsgSubmitWorkerHandraisesProcedure,
-			connect.WithSchema(msgMethods.ByName("SubmitWorkerHandraises")),
 			connect.WithClientOptions(opts...),
 		),
 		submitInferReceipt: connect.NewClient[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse](
@@ -251,29 +293,105 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			connect.WithSchema(msgMethods.ByName("SweepDeadline")),
 			connect.WithClientOptions(opts...),
 		),
+		recordDispatch: connect.NewClient[v1.MsgRecordDispatch, v1.MsgRecordDispatchResponse](
+			httpClient,
+			baseURL+MsgRecordDispatchProcedure,
+			connect.WithSchema(msgMethods.ByName("RecordDispatch")),
+			connect.WithClientOptions(opts...),
+		),
+		claimDispatchCompensation: connect.NewClient[v1.MsgClaimDispatchCompensation, v1.MsgClaimDispatchCompensationResponse](
+			httpClient,
+			baseURL+MsgClaimDispatchCompensationProcedure,
+			connect.WithSchema(msgMethods.ByName("ClaimDispatchCompensation")),
+			connect.WithClientOptions(opts...),
+		),
+		rebutDispatchCompensation: connect.NewClient[v1.MsgRebutDispatchCompensation, v1.MsgRebutDispatchCompensationResponse](
+			httpClient,
+			baseURL+MsgRebutDispatchCompensationProcedure,
+			connect.WithSchema(msgMethods.ByName("RebutDispatchCompensation")),
+			connect.WithClientOptions(opts...),
+		),
+		challengeDispatchOmission: connect.NewClient[v1.MsgChallengeDispatchOmission, v1.MsgChallengeDispatchOmissionResponse](
+			httpClient,
+			baseURL+MsgChallengeDispatchOmissionProcedure,
+			connect.WithSchema(msgMethods.ByName("ChallengeDispatchOmission")),
+			connect.WithClientOptions(opts...),
+		),
+		challengeDispatchDraw: connect.NewClient[v1.MsgChallengeDispatchDraw, v1.MsgChallengeDispatchDrawResponse](
+			httpClient,
+			baseURL+MsgChallengeDispatchDrawProcedure,
+			connect.WithSchema(msgMethods.ByName("ChallengeDispatchDraw")),
+			connect.WithClientOptions(opts...),
+		),
+		challengeDispatchSkip: connect.NewClient[v1.MsgChallengeDispatchSkip, v1.MsgChallengeDispatchSkipResponse](
+			httpClient,
+			baseURL+MsgChallengeDispatchSkipProcedure,
+			connect.WithSchema(msgMethods.ByName("ChallengeDispatchSkip")),
+			connect.WithClientOptions(opts...),
+		),
+		reportDispatchRosterUnavailable: connect.NewClient[v1.MsgReportDispatchRosterUnavailable, v1.MsgReportDispatchRosterUnavailableResponse](
+			httpClient,
+			baseURL+MsgReportDispatchRosterUnavailableProcedure,
+			connect.WithSchema(msgMethods.ByName("ReportDispatchRosterUnavailable")),
+			connect.WithClientOptions(opts...),
+		),
+		challengeDispatchDoubleDispatch: connect.NewClient[v1.MsgChallengeDispatchDoubleDispatch, v1.MsgChallengeDispatchDoubleDispatchResponse](
+			httpClient,
+			baseURL+MsgChallengeDispatchDoubleDispatchProcedure,
+			connect.WithSchema(msgMethods.ByName("ChallengeDispatchDoubleDispatch")),
+			connect.WithClientOptions(opts...),
+		),
+		respondDispatchChallenge: connect.NewClient[v1.MsgRespondDispatchChallenge, v1.MsgRespondDispatchChallengeResponse](
+			httpClient,
+			baseURL+MsgRespondDispatchChallengeProcedure,
+			connect.WithSchema(msgMethods.ByName("RespondDispatchChallenge")),
+			connect.WithClientOptions(opts...),
+		),
+		depositSession: connect.NewClient[v1.MsgDepositSession, v1.MsgDepositSessionResponse](
+			httpClient,
+			baseURL+MsgDepositSessionProcedure,
+			connect.WithSchema(msgMethods.ByName("DepositSession")),
+			connect.WithClientOptions(opts...),
+		),
+		withdrawSession: connect.NewClient[v1.MsgWithdrawSession, v1.MsgWithdrawSessionResponse](
+			httpClient,
+			baseURL+MsgWithdrawSessionProcedure,
+			connect.WithSchema(msgMethods.ByName("WithdrawSession")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // msgClient implements MsgClient.
 type msgClient struct {
-	updateTaskParams            *connect.Client[v1.MsgUpdateTaskParams, v1.MsgUpdateTaskParamsResponse]
-	createSession               *connect.Client[v1.MsgCreateSession, v1.MsgCreateSessionResponse]
-	updateSessionKey            *connect.Client[v1.MsgUpdateSessionKey, v1.MsgUpdateSessionKeyResponse]
-	cancelOrder                 *connect.Client[v1.MsgCancelOrder, v1.MsgCancelOrderResponse]
-	submitWorkerHandraises      *connect.Client[v1.MsgSubmitWorkerHandraises, v1.MsgSubmitWorkerHandraisesResponse]
-	submitInferReceipt          *connect.Client[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse]
-	submitWorkerEvidence        *connect.Client[v1.MsgSubmitWorkerEvidence, v1.MsgSubmitWorkerEvidenceResponse]
-	submitVerifierValueEvidence *connect.Client[v1.MsgSubmitVerifierValueEvidence, v1.MsgSubmitVerifierValueEvidenceResponse]
-	submitVerifierHandraises    *connect.Client[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse]
-	reportDataUnavailable       *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
-	submitBuilderEvidence       *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
-	submitVerifyCommit          *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
-	batchSubmitVerifyCommit     *connect.Client[v1.MsgBatchSubmitVerifyCommit, v1.MsgBatchSubmitVerifyCommitResponse]
-	submitVerifyResult          *connect.Client[v1.MsgSubmitVerifyResult, v1.MsgSubmitVerifyResultResponse]
-	batchSubmitVerifyResult     *connect.Client[v1.MsgBatchSubmitVerifyResult, v1.MsgBatchSubmitVerifyResultResponse]
-	openChallengeRound          *connect.Client[v1.MsgOpenChallengeRound, v1.MsgOpenChallengeRoundResponse]
-	settleTask                  *connect.Client[v1.MsgSettleTask, v1.MsgSettleTaskResponse]
-	sweepDeadline               *connect.Client[v1.MsgSweepDeadline, v1.MsgSweepDeadlineResponse]
+	updateTaskParams                *connect.Client[v1.MsgUpdateTaskParams, v1.MsgUpdateTaskParamsResponse]
+	createSession                   *connect.Client[v1.MsgCreateSession, v1.MsgCreateSessionResponse]
+	updateSessionKey                *connect.Client[v1.MsgUpdateSessionKey, v1.MsgUpdateSessionKeyResponse]
+	cancelOrder                     *connect.Client[v1.MsgCancelOrder, v1.MsgCancelOrderResponse]
+	submitInferReceipt              *connect.Client[v1.MsgSubmitInferReceipt, v1.MsgSubmitInferReceiptResponse]
+	submitWorkerEvidence            *connect.Client[v1.MsgSubmitWorkerEvidence, v1.MsgSubmitWorkerEvidenceResponse]
+	submitVerifierValueEvidence     *connect.Client[v1.MsgSubmitVerifierValueEvidence, v1.MsgSubmitVerifierValueEvidenceResponse]
+	submitVerifierHandraises        *connect.Client[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse]
+	reportDataUnavailable           *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
+	submitBuilderEvidence           *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
+	submitVerifyCommit              *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
+	batchSubmitVerifyCommit         *connect.Client[v1.MsgBatchSubmitVerifyCommit, v1.MsgBatchSubmitVerifyCommitResponse]
+	submitVerifyResult              *connect.Client[v1.MsgSubmitVerifyResult, v1.MsgSubmitVerifyResultResponse]
+	batchSubmitVerifyResult         *connect.Client[v1.MsgBatchSubmitVerifyResult, v1.MsgBatchSubmitVerifyResultResponse]
+	openChallengeRound              *connect.Client[v1.MsgOpenChallengeRound, v1.MsgOpenChallengeRoundResponse]
+	settleTask                      *connect.Client[v1.MsgSettleTask, v1.MsgSettleTaskResponse]
+	sweepDeadline                   *connect.Client[v1.MsgSweepDeadline, v1.MsgSweepDeadlineResponse]
+	recordDispatch                  *connect.Client[v1.MsgRecordDispatch, v1.MsgRecordDispatchResponse]
+	claimDispatchCompensation       *connect.Client[v1.MsgClaimDispatchCompensation, v1.MsgClaimDispatchCompensationResponse]
+	rebutDispatchCompensation       *connect.Client[v1.MsgRebutDispatchCompensation, v1.MsgRebutDispatchCompensationResponse]
+	challengeDispatchOmission       *connect.Client[v1.MsgChallengeDispatchOmission, v1.MsgChallengeDispatchOmissionResponse]
+	challengeDispatchDraw           *connect.Client[v1.MsgChallengeDispatchDraw, v1.MsgChallengeDispatchDrawResponse]
+	challengeDispatchSkip           *connect.Client[v1.MsgChallengeDispatchSkip, v1.MsgChallengeDispatchSkipResponse]
+	reportDispatchRosterUnavailable *connect.Client[v1.MsgReportDispatchRosterUnavailable, v1.MsgReportDispatchRosterUnavailableResponse]
+	challengeDispatchDoubleDispatch *connect.Client[v1.MsgChallengeDispatchDoubleDispatch, v1.MsgChallengeDispatchDoubleDispatchResponse]
+	respondDispatchChallenge        *connect.Client[v1.MsgRespondDispatchChallenge, v1.MsgRespondDispatchChallengeResponse]
+	depositSession                  *connect.Client[v1.MsgDepositSession, v1.MsgDepositSessionResponse]
+	withdrawSession                 *connect.Client[v1.MsgWithdrawSession, v1.MsgWithdrawSessionResponse]
 }
 
 // UpdateTaskParams calls task.v1.Msg.UpdateTaskParams.
@@ -294,11 +412,6 @@ func (c *msgClient) UpdateSessionKey(ctx context.Context, req *connect.Request[v
 // CancelOrder calls task.v1.Msg.CancelOrder.
 func (c *msgClient) CancelOrder(ctx context.Context, req *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error) {
 	return c.cancelOrder.CallUnary(ctx, req)
-}
-
-// SubmitWorkerHandraises calls task.v1.Msg.SubmitWorkerHandraises.
-func (c *msgClient) SubmitWorkerHandraises(ctx context.Context, req *connect.Request[v1.MsgSubmitWorkerHandraises]) (*connect.Response[v1.MsgSubmitWorkerHandraisesResponse], error) {
-	return c.submitWorkerHandraises.CallUnary(ctx, req)
 }
 
 // SubmitInferReceipt calls task.v1.Msg.SubmitInferReceipt.
@@ -366,6 +479,61 @@ func (c *msgClient) SweepDeadline(ctx context.Context, req *connect.Request[v1.M
 	return c.sweepDeadline.CallUnary(ctx, req)
 }
 
+// RecordDispatch calls task.v1.Msg.RecordDispatch.
+func (c *msgClient) RecordDispatch(ctx context.Context, req *connect.Request[v1.MsgRecordDispatch]) (*connect.Response[v1.MsgRecordDispatchResponse], error) {
+	return c.recordDispatch.CallUnary(ctx, req)
+}
+
+// ClaimDispatchCompensation calls task.v1.Msg.ClaimDispatchCompensation.
+func (c *msgClient) ClaimDispatchCompensation(ctx context.Context, req *connect.Request[v1.MsgClaimDispatchCompensation]) (*connect.Response[v1.MsgClaimDispatchCompensationResponse], error) {
+	return c.claimDispatchCompensation.CallUnary(ctx, req)
+}
+
+// RebutDispatchCompensation calls task.v1.Msg.RebutDispatchCompensation.
+func (c *msgClient) RebutDispatchCompensation(ctx context.Context, req *connect.Request[v1.MsgRebutDispatchCompensation]) (*connect.Response[v1.MsgRebutDispatchCompensationResponse], error) {
+	return c.rebutDispatchCompensation.CallUnary(ctx, req)
+}
+
+// ChallengeDispatchOmission calls task.v1.Msg.ChallengeDispatchOmission.
+func (c *msgClient) ChallengeDispatchOmission(ctx context.Context, req *connect.Request[v1.MsgChallengeDispatchOmission]) (*connect.Response[v1.MsgChallengeDispatchOmissionResponse], error) {
+	return c.challengeDispatchOmission.CallUnary(ctx, req)
+}
+
+// ChallengeDispatchDraw calls task.v1.Msg.ChallengeDispatchDraw.
+func (c *msgClient) ChallengeDispatchDraw(ctx context.Context, req *connect.Request[v1.MsgChallengeDispatchDraw]) (*connect.Response[v1.MsgChallengeDispatchDrawResponse], error) {
+	return c.challengeDispatchDraw.CallUnary(ctx, req)
+}
+
+// ChallengeDispatchSkip calls task.v1.Msg.ChallengeDispatchSkip.
+func (c *msgClient) ChallengeDispatchSkip(ctx context.Context, req *connect.Request[v1.MsgChallengeDispatchSkip]) (*connect.Response[v1.MsgChallengeDispatchSkipResponse], error) {
+	return c.challengeDispatchSkip.CallUnary(ctx, req)
+}
+
+// ReportDispatchRosterUnavailable calls task.v1.Msg.ReportDispatchRosterUnavailable.
+func (c *msgClient) ReportDispatchRosterUnavailable(ctx context.Context, req *connect.Request[v1.MsgReportDispatchRosterUnavailable]) (*connect.Response[v1.MsgReportDispatchRosterUnavailableResponse], error) {
+	return c.reportDispatchRosterUnavailable.CallUnary(ctx, req)
+}
+
+// ChallengeDispatchDoubleDispatch calls task.v1.Msg.ChallengeDispatchDoubleDispatch.
+func (c *msgClient) ChallengeDispatchDoubleDispatch(ctx context.Context, req *connect.Request[v1.MsgChallengeDispatchDoubleDispatch]) (*connect.Response[v1.MsgChallengeDispatchDoubleDispatchResponse], error) {
+	return c.challengeDispatchDoubleDispatch.CallUnary(ctx, req)
+}
+
+// RespondDispatchChallenge calls task.v1.Msg.RespondDispatchChallenge.
+func (c *msgClient) RespondDispatchChallenge(ctx context.Context, req *connect.Request[v1.MsgRespondDispatchChallenge]) (*connect.Response[v1.MsgRespondDispatchChallengeResponse], error) {
+	return c.respondDispatchChallenge.CallUnary(ctx, req)
+}
+
+// DepositSession calls task.v1.Msg.DepositSession.
+func (c *msgClient) DepositSession(ctx context.Context, req *connect.Request[v1.MsgDepositSession]) (*connect.Response[v1.MsgDepositSessionResponse], error) {
+	return c.depositSession.CallUnary(ctx, req)
+}
+
+// WithdrawSession calls task.v1.Msg.WithdrawSession.
+func (c *msgClient) WithdrawSession(ctx context.Context, req *connect.Request[v1.MsgWithdrawSession]) (*connect.Response[v1.MsgWithdrawSessionResponse], error) {
+	return c.withdrawSession.CallUnary(ctx, req)
+}
+
 // MsgHandler is an implementation of the task.v1.Msg service.
 type MsgHandler interface {
 	// UpdateTaskParams applies one governance Task params version.
@@ -379,14 +547,13 @@ type MsgHandler interface {
 	// SubmitWorkerHandraises is the single Task admission and Worker candidate
 	// entry; it replaces the deleted MsgAssign.
 	// SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
-	SubmitWorkerHandraises(context.Context, *connect.Request[v1.MsgSubmitWorkerHandraises]) (*connect.Response[v1.MsgSubmitWorkerHandraisesResponse], error)
 	// SubmitInferReceipt accepts the winner Worker's inference receipt; it
 	// replaces the deleted MsgInferReceiptCommitOnly.
 	// SubmitInferReceipt executes the SubmitInferReceipt operation.
 	SubmitInferReceipt(context.Context, *connect.Request[v1.MsgSubmitInferReceipt]) (*connect.Response[v1.MsgSubmitInferReceiptResponse], error)
 	// SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
 	SubmitWorkerEvidence(context.Context, *connect.Request[v1.MsgSubmitWorkerEvidence]) (*connect.Response[v1.MsgSubmitWorkerEvidenceResponse], error)
-	// SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+	// SubmitVerifierValueEvidence accepts bounded committed-value contradictions.
 	SubmitVerifierValueEvidence(context.Context, *connect.Request[v1.MsgSubmitVerifierValueEvidence]) (*connect.Response[v1.MsgSubmitVerifierValueEvidenceResponse], error)
 	// SubmitVerifierHandraises is the single Open Verify entry; it replaces the
 	// deleted MsgOpenVerify.
@@ -416,6 +583,28 @@ type MsgHandler interface {
 	// MsgSweepExpiredTask and MsgSessionSweep.
 	// SweepDeadline executes the SweepDeadline operation.
 	SweepDeadline(context.Context, *connect.Request[v1.MsgSweepDeadline]) (*connect.Response[v1.MsgSweepDeadlineResponse], error)
+	// RecordDispatch executes the RecordDispatch operation.
+	RecordDispatch(context.Context, *connect.Request[v1.MsgRecordDispatch]) (*connect.Response[v1.MsgRecordDispatchResponse], error)
+	// ClaimDispatchCompensation executes the ClaimDispatchCompensation operation.
+	ClaimDispatchCompensation(context.Context, *connect.Request[v1.MsgClaimDispatchCompensation]) (*connect.Response[v1.MsgClaimDispatchCompensationResponse], error)
+	// RebutDispatchCompensation executes the RebutDispatchCompensation operation.
+	RebutDispatchCompensation(context.Context, *connect.Request[v1.MsgRebutDispatchCompensation]) (*connect.Response[v1.MsgRebutDispatchCompensationResponse], error)
+	// ChallengeDispatchOmission executes the ChallengeDispatchOmission operation.
+	ChallengeDispatchOmission(context.Context, *connect.Request[v1.MsgChallengeDispatchOmission]) (*connect.Response[v1.MsgChallengeDispatchOmissionResponse], error)
+	// ChallengeDispatchDraw executes the ChallengeDispatchDraw operation.
+	ChallengeDispatchDraw(context.Context, *connect.Request[v1.MsgChallengeDispatchDraw]) (*connect.Response[v1.MsgChallengeDispatchDrawResponse], error)
+	// ChallengeDispatchSkip executes the ChallengeDispatchSkip operation.
+	ChallengeDispatchSkip(context.Context, *connect.Request[v1.MsgChallengeDispatchSkip]) (*connect.Response[v1.MsgChallengeDispatchSkipResponse], error)
+	// ReportDispatchRosterUnavailable executes the ReportDispatchRosterUnavailable operation.
+	ReportDispatchRosterUnavailable(context.Context, *connect.Request[v1.MsgReportDispatchRosterUnavailable]) (*connect.Response[v1.MsgReportDispatchRosterUnavailableResponse], error)
+	// ChallengeDispatchDoubleDispatch executes the ChallengeDispatchDoubleDispatch operation.
+	ChallengeDispatchDoubleDispatch(context.Context, *connect.Request[v1.MsgChallengeDispatchDoubleDispatch]) (*connect.Response[v1.MsgChallengeDispatchDoubleDispatchResponse], error)
+	// RespondDispatchChallenge executes the RespondDispatchChallenge operation.
+	RespondDispatchChallenge(context.Context, *connect.Request[v1.MsgRespondDispatchChallenge]) (*connect.Response[v1.MsgRespondDispatchChallengeResponse], error)
+	// DepositSession executes the DepositSession operation.
+	DepositSession(context.Context, *connect.Request[v1.MsgDepositSession]) (*connect.Response[v1.MsgDepositSessionResponse], error)
+	// WithdrawSession executes the WithdrawSession operation.
+	WithdrawSession(context.Context, *connect.Request[v1.MsgWithdrawSession]) (*connect.Response[v1.MsgWithdrawSessionResponse], error)
 }
 
 // NewMsgHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -447,12 +636,6 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgCancelOrderProcedure,
 		svc.CancelOrder,
 		connect.WithSchema(msgMethods.ByName("CancelOrder")),
-		connect.WithHandlerOptions(opts...),
-	)
-	msgSubmitWorkerHandraisesHandler := connect.NewUnaryHandler(
-		MsgSubmitWorkerHandraisesProcedure,
-		svc.SubmitWorkerHandraises,
-		connect.WithSchema(msgMethods.ByName("SubmitWorkerHandraises")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgSubmitInferReceiptHandler := connect.NewUnaryHandler(
@@ -533,6 +716,72 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		connect.WithSchema(msgMethods.ByName("SweepDeadline")),
 		connect.WithHandlerOptions(opts...),
 	)
+	msgRecordDispatchHandler := connect.NewUnaryHandler(
+		MsgRecordDispatchProcedure,
+		svc.RecordDispatch,
+		connect.WithSchema(msgMethods.ByName("RecordDispatch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgClaimDispatchCompensationHandler := connect.NewUnaryHandler(
+		MsgClaimDispatchCompensationProcedure,
+		svc.ClaimDispatchCompensation,
+		connect.WithSchema(msgMethods.ByName("ClaimDispatchCompensation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgRebutDispatchCompensationHandler := connect.NewUnaryHandler(
+		MsgRebutDispatchCompensationProcedure,
+		svc.RebutDispatchCompensation,
+		connect.WithSchema(msgMethods.ByName("RebutDispatchCompensation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgChallengeDispatchOmissionHandler := connect.NewUnaryHandler(
+		MsgChallengeDispatchOmissionProcedure,
+		svc.ChallengeDispatchOmission,
+		connect.WithSchema(msgMethods.ByName("ChallengeDispatchOmission")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgChallengeDispatchDrawHandler := connect.NewUnaryHandler(
+		MsgChallengeDispatchDrawProcedure,
+		svc.ChallengeDispatchDraw,
+		connect.WithSchema(msgMethods.ByName("ChallengeDispatchDraw")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgChallengeDispatchSkipHandler := connect.NewUnaryHandler(
+		MsgChallengeDispatchSkipProcedure,
+		svc.ChallengeDispatchSkip,
+		connect.WithSchema(msgMethods.ByName("ChallengeDispatchSkip")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgReportDispatchRosterUnavailableHandler := connect.NewUnaryHandler(
+		MsgReportDispatchRosterUnavailableProcedure,
+		svc.ReportDispatchRosterUnavailable,
+		connect.WithSchema(msgMethods.ByName("ReportDispatchRosterUnavailable")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgChallengeDispatchDoubleDispatchHandler := connect.NewUnaryHandler(
+		MsgChallengeDispatchDoubleDispatchProcedure,
+		svc.ChallengeDispatchDoubleDispatch,
+		connect.WithSchema(msgMethods.ByName("ChallengeDispatchDoubleDispatch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgRespondDispatchChallengeHandler := connect.NewUnaryHandler(
+		MsgRespondDispatchChallengeProcedure,
+		svc.RespondDispatchChallenge,
+		connect.WithSchema(msgMethods.ByName("RespondDispatchChallenge")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgDepositSessionHandler := connect.NewUnaryHandler(
+		MsgDepositSessionProcedure,
+		svc.DepositSession,
+		connect.WithSchema(msgMethods.ByName("DepositSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgWithdrawSessionHandler := connect.NewUnaryHandler(
+		MsgWithdrawSessionProcedure,
+		svc.WithdrawSession,
+		connect.WithSchema(msgMethods.ByName("WithdrawSession")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/task.v1.Msg/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MsgUpdateTaskParamsProcedure:
@@ -543,8 +792,6 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgUpdateSessionKeyHandler.ServeHTTP(w, r)
 		case MsgCancelOrderProcedure:
 			msgCancelOrderHandler.ServeHTTP(w, r)
-		case MsgSubmitWorkerHandraisesProcedure:
-			msgSubmitWorkerHandraisesHandler.ServeHTTP(w, r)
 		case MsgSubmitInferReceiptProcedure:
 			msgSubmitInferReceiptHandler.ServeHTTP(w, r)
 		case MsgSubmitWorkerEvidenceProcedure:
@@ -571,6 +818,28 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgSettleTaskHandler.ServeHTTP(w, r)
 		case MsgSweepDeadlineProcedure:
 			msgSweepDeadlineHandler.ServeHTTP(w, r)
+		case MsgRecordDispatchProcedure:
+			msgRecordDispatchHandler.ServeHTTP(w, r)
+		case MsgClaimDispatchCompensationProcedure:
+			msgClaimDispatchCompensationHandler.ServeHTTP(w, r)
+		case MsgRebutDispatchCompensationProcedure:
+			msgRebutDispatchCompensationHandler.ServeHTTP(w, r)
+		case MsgChallengeDispatchOmissionProcedure:
+			msgChallengeDispatchOmissionHandler.ServeHTTP(w, r)
+		case MsgChallengeDispatchDrawProcedure:
+			msgChallengeDispatchDrawHandler.ServeHTTP(w, r)
+		case MsgChallengeDispatchSkipProcedure:
+			msgChallengeDispatchSkipHandler.ServeHTTP(w, r)
+		case MsgReportDispatchRosterUnavailableProcedure:
+			msgReportDispatchRosterUnavailableHandler.ServeHTTP(w, r)
+		case MsgChallengeDispatchDoubleDispatchProcedure:
+			msgChallengeDispatchDoubleDispatchHandler.ServeHTTP(w, r)
+		case MsgRespondDispatchChallengeProcedure:
+			msgRespondDispatchChallengeHandler.ServeHTTP(w, r)
+		case MsgDepositSessionProcedure:
+			msgDepositSessionHandler.ServeHTTP(w, r)
+		case MsgWithdrawSessionProcedure:
+			msgWithdrawSessionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -594,10 +863,6 @@ func (UnimplementedMsgHandler) UpdateSessionKey(context.Context, *connect.Reques
 
 func (UnimplementedMsgHandler) CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.CancelOrder is not implemented"))
-}
-
-func (UnimplementedMsgHandler) SubmitWorkerHandraises(context.Context, *connect.Request[v1.MsgSubmitWorkerHandraises]) (*connect.Response[v1.MsgSubmitWorkerHandraisesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitWorkerHandraises is not implemented"))
 }
 
 func (UnimplementedMsgHandler) SubmitInferReceipt(context.Context, *connect.Request[v1.MsgSubmitInferReceipt]) (*connect.Response[v1.MsgSubmitInferReceiptResponse], error) {
@@ -650,4 +915,48 @@ func (UnimplementedMsgHandler) SettleTask(context.Context, *connect.Request[v1.M
 
 func (UnimplementedMsgHandler) SweepDeadline(context.Context, *connect.Request[v1.MsgSweepDeadline]) (*connect.Response[v1.MsgSweepDeadlineResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SweepDeadline is not implemented"))
+}
+
+func (UnimplementedMsgHandler) RecordDispatch(context.Context, *connect.Request[v1.MsgRecordDispatch]) (*connect.Response[v1.MsgRecordDispatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RecordDispatch is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ClaimDispatchCompensation(context.Context, *connect.Request[v1.MsgClaimDispatchCompensation]) (*connect.Response[v1.MsgClaimDispatchCompensationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ClaimDispatchCompensation is not implemented"))
+}
+
+func (UnimplementedMsgHandler) RebutDispatchCompensation(context.Context, *connect.Request[v1.MsgRebutDispatchCompensation]) (*connect.Response[v1.MsgRebutDispatchCompensationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RebutDispatchCompensation is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ChallengeDispatchOmission(context.Context, *connect.Request[v1.MsgChallengeDispatchOmission]) (*connect.Response[v1.MsgChallengeDispatchOmissionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ChallengeDispatchOmission is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ChallengeDispatchDraw(context.Context, *connect.Request[v1.MsgChallengeDispatchDraw]) (*connect.Response[v1.MsgChallengeDispatchDrawResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ChallengeDispatchDraw is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ChallengeDispatchSkip(context.Context, *connect.Request[v1.MsgChallengeDispatchSkip]) (*connect.Response[v1.MsgChallengeDispatchSkipResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ChallengeDispatchSkip is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ReportDispatchRosterUnavailable(context.Context, *connect.Request[v1.MsgReportDispatchRosterUnavailable]) (*connect.Response[v1.MsgReportDispatchRosterUnavailableResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ReportDispatchRosterUnavailable is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ChallengeDispatchDoubleDispatch(context.Context, *connect.Request[v1.MsgChallengeDispatchDoubleDispatch]) (*connect.Response[v1.MsgChallengeDispatchDoubleDispatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ChallengeDispatchDoubleDispatch is not implemented"))
+}
+
+func (UnimplementedMsgHandler) RespondDispatchChallenge(context.Context, *connect.Request[v1.MsgRespondDispatchChallenge]) (*connect.Response[v1.MsgRespondDispatchChallengeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RespondDispatchChallenge is not implemented"))
+}
+
+func (UnimplementedMsgHandler) DepositSession(context.Context, *connect.Request[v1.MsgDepositSession]) (*connect.Response[v1.MsgDepositSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.DepositSession is not implemented"))
+}
+
+func (UnimplementedMsgHandler) WithdrawSession(context.Context, *connect.Request[v1.MsgWithdrawSession]) (*connect.Response[v1.MsgWithdrawSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.WithdrawSession is not implemented"))
 }

@@ -13,6 +13,8 @@ message MsgRegisterVrfKey {
   bytes vrf_key_pop = 2;
   uint64 vrf_authorization_nonce = 3;
   string operator_address = 4;
+
+  shared.v1.ParticipantType participant_type = 5;
 }
 
 // MsgRegisterVrfKeyResponse reports the pending activation and accepted nonce.
@@ -21,4 +23,6 @@ message MsgRegisterVrfKeyResponse {
   uint64 pending_from_epoch = 2;
   uint64 vrf_authorization_nonce = 3;
   shared.v1.MutationStatusV1 status = 4;
+
+  shared.v1.ParticipantType participant_type = 5;
 }

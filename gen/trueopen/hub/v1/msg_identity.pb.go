@@ -23,6 +23,8 @@ const (
 )
 
 // MsgRotateServiceKey replaces the current service key binding of one stable operator (10.0c1).
+// Atomically retain the replaced generation as ServiceKeyProofState before
+// installing the new current key. Retained keys verify old facts only.
 type MsgRotateServiceKey struct {
 	state                                    protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType                          v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`

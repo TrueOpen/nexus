@@ -98,3 +98,20 @@ message ServiceKeyResponsibilityState {
   // different key generation; it is deliberately not part of the ID itself.
   uint64 service_authorization_nonce = 8;
 }
+
+// ServiceKeyProofState retains a rotated key solely for objective proof checks.
+// Primary key: (participant_type, operator_address, service_authorization_nonce).
+// Rotation copies the old binding atomically; it never restores live authority.
+// The frozen expiry covers dispatch admission, claim/rebuttal and challenge/
+// response windows, including the order freshness margin. Expiry may be extended
+// before a longer window activates, but never shortened or reopened after prune.
+// A derived (proof_expiry_height + 1, primary key) index is rebuilt on import;
+// bounded pruning uses the global visited budget. Current keys stay on identity.
+message ServiceKeyProofState {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+  uint64 service_authorization_nonce = 3;
+  bytes service_pubkey = 4;
+  uint64 retired_height = 5;
+  uint64 proof_expiry_height = 6;
+}

@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MutationStatusV1 is the accepted-mutation outcome of every ACTIVE Msg response; only APPLIED and NOOP may be returned and a reject uses a gRPC error instead (9.6a/9.6b).
+// MutationStatusV1 is the accepted-mutation outcome of every ACTIVE Msg response; APPLIED and NOOP describe successful mutations. Only independently admitted dispatch items may return REJECTED; ordinary Msg rejection uses a gRPC error.
 type MutationStatusV1 int32
 
 const (
@@ -34,6 +34,8 @@ const (
 	// Exact replay or already-final state; nothing was written.
 	// MUTATION_STATUS_V1_NOOP identifies the corresponding protocol value.
 	MutationStatusV1_MUTATION_STATUS_V1_NOOP MutationStatusV1 = 2
+	// REJECTED is used only by independently admitted dispatch batch items.
+	MutationStatusV1_MUTATION_STATUS_V1_REJECTED MutationStatusV1 = 3
 )
 
 // Enum value maps for MutationStatusV1.
@@ -42,11 +44,13 @@ var (
 		0: "MUTATION_STATUS_V1_UNSPECIFIED",
 		1: "MUTATION_STATUS_V1_APPLIED",
 		2: "MUTATION_STATUS_V1_NOOP",
+		3: "MUTATION_STATUS_V1_REJECTED",
 	}
 	MutationStatusV1_value = map[string]int32{
 		"MUTATION_STATUS_V1_UNSPECIFIED": 0,
 		"MUTATION_STATUS_V1_APPLIED":     1,
 		"MUTATION_STATUS_V1_NOOP":        2,
+		"MUTATION_STATUS_V1_REJECTED":    3,
 	}
 )
 
@@ -90,6 +94,8 @@ const (
 	// Builder identity domain.
 	// PARTICIPANT_TYPE_BUILDER identifies the corresponding protocol value.
 	ParticipantType_PARTICIPANT_TYPE_BUILDER ParticipantType = 2
+	// Validator is accepted only by the VRF registry, not service-key methods.
+	ParticipantType_PARTICIPANT_TYPE_VALIDATOR ParticipantType = 3
 )
 
 // Enum value maps for ParticipantType.
@@ -98,11 +104,13 @@ var (
 		0: "PARTICIPANT_TYPE_UNSPECIFIED",
 		1: "PARTICIPANT_TYPE_CORTEX",
 		2: "PARTICIPANT_TYPE_BUILDER",
+		3: "PARTICIPANT_TYPE_VALIDATOR",
 	}
 	ParticipantType_value = map[string]int32{
 		"PARTICIPANT_TYPE_UNSPECIFIED": 0,
 		"PARTICIPANT_TYPE_CORTEX":      1,
 		"PARTICIPANT_TYPE_BUILDER":     2,
+		"PARTICIPANT_TYPE_VALIDATOR":   3,
 	}
 )
 
@@ -489,6 +497,153 @@ func (BuilderEvidenceKind) EnumDescriptor() ([]byte, []int) {
 	return file_shared_v1_common_proto_rawDescGZIP(), []int{7}
 }
 
+// DispatchChallengeKindV1 is the closed DispatchChallengeKindV1 registry.
+type DispatchChallengeKindV1 int32
+
+const (
+	// UNSPECIFIED is the unspecified value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_UNSPECIFIED DispatchChallengeKindV1 = 0
+	// OMISSION is the omission value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_OMISSION DispatchChallengeKindV1 = 1
+	// DRAW is the draw value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_DRAW DispatchChallengeKindV1 = 2
+	// SKIP is the skip value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_SKIP DispatchChallengeKindV1 = 3
+	// ROSTER_UNAVAILABLE is the roster unavailable value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_ROSTER_UNAVAILABLE DispatchChallengeKindV1 = 4
+	// DOUBLE_DISPATCH is the double dispatch value.
+	DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_DOUBLE_DISPATCH DispatchChallengeKindV1 = 5
+)
+
+// Enum value maps for DispatchChallengeKindV1.
+var (
+	DispatchChallengeKindV1_name = map[int32]string{
+		0: "DISPATCH_CHALLENGE_KIND_V1_UNSPECIFIED",
+		1: "DISPATCH_CHALLENGE_KIND_V1_OMISSION",
+		2: "DISPATCH_CHALLENGE_KIND_V1_DRAW",
+		3: "DISPATCH_CHALLENGE_KIND_V1_SKIP",
+		4: "DISPATCH_CHALLENGE_KIND_V1_ROSTER_UNAVAILABLE",
+		5: "DISPATCH_CHALLENGE_KIND_V1_DOUBLE_DISPATCH",
+	}
+	DispatchChallengeKindV1_value = map[string]int32{
+		"DISPATCH_CHALLENGE_KIND_V1_UNSPECIFIED":        0,
+		"DISPATCH_CHALLENGE_KIND_V1_OMISSION":           1,
+		"DISPATCH_CHALLENGE_KIND_V1_DRAW":               2,
+		"DISPATCH_CHALLENGE_KIND_V1_SKIP":               3,
+		"DISPATCH_CHALLENGE_KIND_V1_ROSTER_UNAVAILABLE": 4,
+		"DISPATCH_CHALLENGE_KIND_V1_DOUBLE_DISPATCH":    5,
+	}
+)
+
+func (x DispatchChallengeKindV1) Enum() *DispatchChallengeKindV1 {
+	p := new(DispatchChallengeKindV1)
+	*p = x
+	return p
+}
+
+func (x DispatchChallengeKindV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DispatchChallengeKindV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_shared_v1_common_proto_enumTypes[8].Descriptor()
+}
+
+func (DispatchChallengeKindV1) Type() protoreflect.EnumType {
+	return &file_shared_v1_common_proto_enumTypes[8]
+}
+
+func (x DispatchChallengeKindV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DispatchChallengeKindV1.Descriptor instead.
+func (DispatchChallengeKindV1) EnumDescriptor() ([]byte, []int) {
+	return file_shared_v1_common_proto_rawDescGZIP(), []int{8}
+}
+
+// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
+type FaultKind int32
+
+const (
+	// Never written; rejects zero-value receipts.
+	// FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
+	FaultKind_FAULT_KIND_UNSPECIFIED FaultKind = 0
+	// Assigned duty missed its deadline.
+	// FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
+	FaultKind_FAULT_KIND_TIMEOUT FaultKind = 1
+	// Submitted material was objectively invalid.
+	// FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
+	FaultKind_FAULT_KIND_INVALID_RESULT FaultKind = 2
+	// Two conflicting accepted submissions for one scope.
+	// FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
+	FaultKind_FAULT_KIND_EQUIVOCATION FaultKind = 3
+	// Builder objective evidence was accepted against the operator.
+	// FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
+	FaultKind_FAULT_KIND_BUILDER_OBJECTIVE_FAULT FaultKind = 5
+	// Active bounded verifier value-evidence fault.
+	FaultKind_FAULT_KIND_VERIFIER_VALUE_MISMATCH FaultKind = 6
+	// Active objectively invalid Worker value evidence.
+	FaultKind_FAULT_KIND_WORKER_VALUES_INVALID FaultKind = 7
+	// Signed Worker dispatch cannot reserve its required liability.
+	FaultKind_FAULT_KIND_WORKER_DISPATCH_INELIGIBLE FaultKind = 8
+	// Worker signs both reject and accept for the same ticket.
+	FaultKind_FAULT_KIND_WORKER_DISPATCH_CONTRADICTION FaultKind = 9
+)
+
+// Enum value maps for FaultKind.
+var (
+	FaultKind_name = map[int32]string{
+		0: "FAULT_KIND_UNSPECIFIED",
+		1: "FAULT_KIND_TIMEOUT",
+		2: "FAULT_KIND_INVALID_RESULT",
+		3: "FAULT_KIND_EQUIVOCATION",
+		5: "FAULT_KIND_BUILDER_OBJECTIVE_FAULT",
+		6: "FAULT_KIND_VERIFIER_VALUE_MISMATCH",
+		7: "FAULT_KIND_WORKER_VALUES_INVALID",
+		8: "FAULT_KIND_WORKER_DISPATCH_INELIGIBLE",
+		9: "FAULT_KIND_WORKER_DISPATCH_CONTRADICTION",
+	}
+	FaultKind_value = map[string]int32{
+		"FAULT_KIND_UNSPECIFIED":                   0,
+		"FAULT_KIND_TIMEOUT":                       1,
+		"FAULT_KIND_INVALID_RESULT":                2,
+		"FAULT_KIND_EQUIVOCATION":                  3,
+		"FAULT_KIND_BUILDER_OBJECTIVE_FAULT":       5,
+		"FAULT_KIND_VERIFIER_VALUE_MISMATCH":       6,
+		"FAULT_KIND_WORKER_VALUES_INVALID":         7,
+		"FAULT_KIND_WORKER_DISPATCH_INELIGIBLE":    8,
+		"FAULT_KIND_WORKER_DISPATCH_CONTRADICTION": 9,
+	}
+)
+
+func (x FaultKind) Enum() *FaultKind {
+	p := new(FaultKind)
+	*p = x
+	return p
+}
+
+func (x FaultKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FaultKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_shared_v1_common_proto_enumTypes[9].Descriptor()
+}
+
+func (FaultKind) Type() protoreflect.EnumType {
+	return &file_shared_v1_common_proto_enumTypes[9]
+}
+
+func (x FaultKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FaultKind.Descriptor instead.
+func (FaultKind) EnumDescriptor() ([]byte, []int) {
+	return file_shared_v1_common_proto_rawDescGZIP(), []int{9}
+}
+
 // ByIDV1 selects exactly one object by its canonical 32-byte ID (9.6b).
 type ByIDV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -587,15 +742,17 @@ const file_shared_v1_common_proto_rawDesc = "" +
 	"\x06ByIDV1\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\"&\n" +
 	"\aBatchV1\x12\x1b\n" +
-	"\tmax_items\x18\x01 \x01(\rR\bmaxItems*s\n" +
+	"\tmax_items\x18\x01 \x01(\rR\bmaxItems*\x94\x01\n" +
 	"\x10MutationStatusV1\x12\"\n" +
 	"\x1eMUTATION_STATUS_V1_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aMUTATION_STATUS_V1_APPLIED\x10\x01\x12\x1b\n" +
-	"\x17MUTATION_STATUS_V1_NOOP\x10\x02*n\n" +
+	"\x17MUTATION_STATUS_V1_NOOP\x10\x02\x12\x1f\n" +
+	"\x1bMUTATION_STATUS_V1_REJECTED\x10\x03*\x8e\x01\n" +
 	"\x0fParticipantType\x12 \n" +
 	"\x1cPARTICIPANT_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17PARTICIPANT_TYPE_CORTEX\x10\x01\x12\x1c\n" +
-	"\x18PARTICIPANT_TYPE_BUILDER\x10\x02*@\n" +
+	"\x18PARTICIPANT_TYPE_BUILDER\x10\x02\x12\x1e\n" +
+	"\x1aPARTICIPANT_TYPE_VALIDATOR\x10\x03*@\n" +
 	"\x04Duty\x12\x14\n" +
 	"\x10DUTY_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vDUTY_WORKER\x10\x01\x12\x11\n" +
@@ -622,7 +779,24 @@ const file_shared_v1_common_proto_rawDesc = "" +
 	"!BUILDER_EVIDENCE_KIND_UNSPECIFIED\x10\x00\x12/\n" +
 	"+BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION\x10\x01\x122\n" +
 	".BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION\x10\x02\x124\n" +
-	"0BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE\x10\x04\"\x04\b\x03\x10\x03*+BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTYB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
+	"0BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE\x10\x04\"\x04\b\x03\x10\x03*+BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY*\x9b\x02\n" +
+	"\x17DispatchChallengeKindV1\x12*\n" +
+	"&DISPATCH_CHALLENGE_KIND_V1_UNSPECIFIED\x10\x00\x12'\n" +
+	"#DISPATCH_CHALLENGE_KIND_V1_OMISSION\x10\x01\x12#\n" +
+	"\x1fDISPATCH_CHALLENGE_KIND_V1_DRAW\x10\x02\x12#\n" +
+	"\x1fDISPATCH_CHALLENGE_KIND_V1_SKIP\x10\x03\x121\n" +
+	"-DISPATCH_CHALLENGE_KIND_V1_ROSTER_UNAVAILABLE\x10\x04\x12.\n" +
+	"*DISPATCH_CHALLENGE_KIND_V1_DOUBLE_DISPATCH\x10\x05*\xed\x02\n" +
+	"\tFaultKind\x12\x1a\n" +
+	"\x16FAULT_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12FAULT_KIND_TIMEOUT\x10\x01\x12\x1d\n" +
+	"\x19FAULT_KIND_INVALID_RESULT\x10\x02\x12\x1b\n" +
+	"\x17FAULT_KIND_EQUIVOCATION\x10\x03\x12&\n" +
+	"\"FAULT_KIND_BUILDER_OBJECTIVE_FAULT\x10\x05\x12&\n" +
+	"\"FAULT_KIND_VERIFIER_VALUE_MISMATCH\x10\x06\x12$\n" +
+	" FAULT_KIND_WORKER_VALUES_INVALID\x10\a\x12)\n" +
+	"%FAULT_KIND_WORKER_DISPATCH_INELIGIBLE\x10\b\x12,\n" +
+	"(FAULT_KIND_WORKER_DISPATCH_CONTRADICTION\x10\t\"\x04\b\x04\x10\x04*\x1bFAULT_KIND_EVIDENCE_DEFAULTB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
 
 var (
 	file_shared_v1_common_proto_rawDescOnce sync.Once
@@ -636,7 +810,7 @@ func file_shared_v1_common_proto_rawDescGZIP() []byte {
 	return file_shared_v1_common_proto_rawDescData
 }
 
-var file_shared_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_shared_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
 var file_shared_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_shared_v1_common_proto_goTypes = []any{
 	(MutationStatusV1)(0),            // 0: shared.v1.MutationStatusV1
@@ -647,8 +821,10 @@ var file_shared_v1_common_proto_goTypes = []any{
 	(BucketKind)(0),                  // 5: shared.v1.BucketKind
 	(TaskFinalityStatusV1)(0),        // 6: shared.v1.TaskFinalityStatusV1
 	(BuilderEvidenceKind)(0),         // 7: shared.v1.BuilderEvidenceKind
-	(*ByIDV1)(nil),                   // 8: shared.v1.ByIDV1
-	(*BatchV1)(nil),                  // 9: shared.v1.BatchV1
+	(DispatchChallengeKindV1)(0),     // 8: shared.v1.DispatchChallengeKindV1
+	(FaultKind)(0),                   // 9: shared.v1.FaultKind
+	(*ByIDV1)(nil),                   // 10: shared.v1.ByIDV1
+	(*BatchV1)(nil),                  // 11: shared.v1.BatchV1
 }
 var file_shared_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -668,7 +844,7 @@ func file_shared_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shared_v1_common_proto_rawDesc), len(file_shared_v1_common_proto_rawDesc)),
-			NumEnums:      8,
+			NumEnums:      10,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,

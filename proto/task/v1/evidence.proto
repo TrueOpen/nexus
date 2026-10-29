@@ -115,6 +115,8 @@ message OutputMMRPeakProofV1 {
 
 // OutputChunkEquivocationV1 proves that a valid Worker-signed streamed prefix
 // conflicts with the final MMR root bound by an accepted InferReceiptV3.
+// Rebuild the chunk digest with that receipt's dispatch_ticket_hash, never a
+// caller-selected attempt. A genuine frame from another attempt proves no fault.
 // OutputChunkEquivocationV1 defines the OutputChunkEquivocationV1 wire type.
 message OutputChunkEquivocationV1 {
   bytes task_id = 1;
@@ -151,9 +153,12 @@ message WorkerEvidenceReceiptState {
   uint64 accepted_height = 9;
 }
 
-// VerifierValueEvidenceKindV1 is reserved for the later bounded value-evidence
-// activation. No nonzero kind is assigned or accepted in this release.
+// VerifierValueEvidenceKindV1 identifies an active bounded contradiction proof.
 enum VerifierValueEvidenceKindV1 {
-  // The only registered pre-activation value; evidence is not accepted.
+  // Unset; rejected.
   VERIFIER_VALUE_EVIDENCE_KIND_V1_UNSPECIFIED = 0;
+  // A selected Verifier's committed local values contradict bound evidence.
+  VERIFIER_VALUE_EVIDENCE_KIND_V1_VERIFIER_VALUE_MISMATCH = 1;
+  // The committed Worker value leaf violates the bounded leaf predicates.
+  VERIFIER_VALUE_EVIDENCE_KIND_V1_WORKER_VALUES_INVALID = 2;
 }

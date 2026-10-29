@@ -166,7 +166,7 @@ const (
 	// The selected Worker key remains provable through the output-evidence window.
 	// SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE identifies the corresponding protocol value.
 	ServiceKeyResponsibilityKind_SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE ServiceKeyResponsibilityKind = 4
-	// Locked Task Builder is still exposed to objective BusEnvelope evidence for
+	// Locked Task Builder is still exposed to objective signed-stream evidence for
 	// one task, so its service key must stay verifiable.
 	//
 	// Lifecycle, all inside one cache transaction
@@ -813,80 +813,6 @@ func (RoleFaultStatus) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_common_proto_rawDescGZIP(), []int{11}
 }
 
-// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
-type FaultKind int32
-
-const (
-	// Never written; rejects zero-value receipts.
-	// FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
-	FaultKind_FAULT_KIND_UNSPECIFIED FaultKind = 0
-	// Assigned duty missed its deadline.
-	// FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
-	FaultKind_FAULT_KIND_TIMEOUT FaultKind = 1
-	// Submitted material was objectively invalid.
-	// FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
-	FaultKind_FAULT_KIND_INVALID_RESULT FaultKind = 2
-	// Two conflicting accepted submissions for one scope.
-	// FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
-	FaultKind_FAULT_KIND_EQUIVOCATION FaultKind = 3
-	// Builder objective evidence was accepted against the operator.
-	// FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
-	FaultKind_FAULT_KIND_BUILDER_OBJECTIVE_FAULT FaultKind = 5
-	// Reserved for the later verifier value-evidence admission upgrade.
-	FaultKind_FAULT_KIND_VERIFIER_VALUE_MISMATCH FaultKind = 6
-	// Reserved for objectively invalid Worker value evidence after activation.
-	FaultKind_FAULT_KIND_WORKER_VALUES_INVALID FaultKind = 7
-)
-
-// Enum value maps for FaultKind.
-var (
-	FaultKind_name = map[int32]string{
-		0: "FAULT_KIND_UNSPECIFIED",
-		1: "FAULT_KIND_TIMEOUT",
-		2: "FAULT_KIND_INVALID_RESULT",
-		3: "FAULT_KIND_EQUIVOCATION",
-		5: "FAULT_KIND_BUILDER_OBJECTIVE_FAULT",
-		6: "FAULT_KIND_VERIFIER_VALUE_MISMATCH",
-		7: "FAULT_KIND_WORKER_VALUES_INVALID",
-	}
-	FaultKind_value = map[string]int32{
-		"FAULT_KIND_UNSPECIFIED":             0,
-		"FAULT_KIND_TIMEOUT":                 1,
-		"FAULT_KIND_INVALID_RESULT":          2,
-		"FAULT_KIND_EQUIVOCATION":            3,
-		"FAULT_KIND_BUILDER_OBJECTIVE_FAULT": 5,
-		"FAULT_KIND_VERIFIER_VALUE_MISMATCH": 6,
-		"FAULT_KIND_WORKER_VALUES_INVALID":   7,
-	}
-)
-
-func (x FaultKind) Enum() *FaultKind {
-	p := new(FaultKind)
-	*p = x
-	return p
-}
-
-func (x FaultKind) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (FaultKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[12].Descriptor()
-}
-
-func (FaultKind) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[12]
-}
-
-func (x FaultKind) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use FaultKind.Descriptor instead.
-func (FaultKind) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{12}
-}
-
 // ParamsModuleV1 selects the owner of a parameter-update event.
 type ParamsModuleV1 int32
 
@@ -927,11 +853,11 @@ func (x ParamsModuleV1) String() string {
 }
 
 func (ParamsModuleV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[13].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[12].Descriptor()
 }
 
 func (ParamsModuleV1) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[13]
+	return &file_hub_v1_common_proto_enumTypes[12]
 }
 
 func (x ParamsModuleV1) Number() protoreflect.EnumNumber {
@@ -940,7 +866,7 @@ func (x ParamsModuleV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ParamsModuleV1.Descriptor instead.
 func (ParamsModuleV1) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{13}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{12}
 }
 
 // EventLifecycleReason is the closed lifecycle reason carried by jail, slash and exit events (9.6b).
@@ -998,11 +924,11 @@ func (x EventLifecycleReason) String() string {
 }
 
 func (EventLifecycleReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_hub_v1_common_proto_enumTypes[14].Descriptor()
+	return file_hub_v1_common_proto_enumTypes[13].Descriptor()
 }
 
 func (EventLifecycleReason) Type() protoreflect.EnumType {
-	return &file_hub_v1_common_proto_enumTypes[14]
+	return &file_hub_v1_common_proto_enumTypes[13]
 }
 
 func (x EventLifecycleReason) Number() protoreflect.EnumNumber {
@@ -1011,7 +937,7 @@ func (x EventLifecycleReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EventLifecycleReason.Descriptor instead.
 func (EventLifecycleReason) EnumDescriptor() ([]byte, []int) {
-	return file_hub_v1_common_proto_rawDescGZIP(), []int{14}
+	return file_hub_v1_common_proto_rawDescGZIP(), []int{13}
 }
 
 var File_hub_v1_common_proto protoreflect.FileDescriptor
@@ -1084,15 +1010,7 @@ const file_hub_v1_common_proto_rawDesc = "" +
 	"\x0fRoleFaultStatus\x12!\n" +
 	"\x1dROLE_FAULT_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bROLE_FAULT_STATUS_CONFIRMED\x10\x01\x12 \n" +
-	"\x1cROLE_FAULT_STATUS_SUPERSEDED\x10\x02*\x94\x02\n" +
-	"\tFaultKind\x12\x1a\n" +
-	"\x16FAULT_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12FAULT_KIND_TIMEOUT\x10\x01\x12\x1d\n" +
-	"\x19FAULT_KIND_INVALID_RESULT\x10\x02\x12\x1b\n" +
-	"\x17FAULT_KIND_EQUIVOCATION\x10\x03\x12&\n" +
-	"\"FAULT_KIND_BUILDER_OBJECTIVE_FAULT\x10\x05\x12&\n" +
-	"\"FAULT_KIND_VERIFIER_VALUE_MISMATCH\x10\x06\x12$\n" +
-	" FAULT_KIND_WORKER_VALUES_INVALID\x10\a\"\x04\b\x04\x10\x04*\x1bFAULT_KIND_EVIDENCE_DEFAULT*g\n" +
+	"\x1cROLE_FAULT_STATUS_SUPERSEDED\x10\x02*g\n" +
 	"\x0eParamsModuleV1\x12 \n" +
 	"\x1cPARAMS_MODULE_V1_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PARAMS_MODULE_V1_HUB\x10\x01\x12\x19\n" +
@@ -1117,7 +1035,7 @@ func file_hub_v1_common_proto_rawDescGZIP() []byte {
 	return file_hub_v1_common_proto_rawDescData
 }
 
-var file_hub_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
+var file_hub_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
 var file_hub_v1_common_proto_goTypes = []any{
 	(ServiceKeyStatus)(0),               // 0: hub.v1.ServiceKeyStatus
 	(ServiceKeyRevocationReason)(0),     // 1: hub.v1.ServiceKeyRevocationReason
@@ -1131,9 +1049,8 @@ var file_hub_v1_common_proto_goTypes = []any{
 	(ModelSupportStatus)(0),             // 9: hub.v1.ModelSupportStatus
 	(ModelSupportSuspendReason)(0),      // 10: hub.v1.ModelSupportSuspendReason
 	(RoleFaultStatus)(0),                // 11: hub.v1.RoleFaultStatus
-	(FaultKind)(0),                      // 12: hub.v1.FaultKind
-	(ParamsModuleV1)(0),                 // 13: hub.v1.ParamsModuleV1
-	(EventLifecycleReason)(0),           // 14: hub.v1.EventLifecycleReason
+	(ParamsModuleV1)(0),                 // 12: hub.v1.ParamsModuleV1
+	(EventLifecycleReason)(0),           // 13: hub.v1.EventLifecycleReason
 }
 var file_hub_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -1153,7 +1070,7 @@ func file_hub_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_common_proto_rawDesc), len(file_hub_v1_common_proto_rawDesc)),
-			NumEnums:      15,
+			NumEnums:      14,
 			NumMessages:   0,
 			NumExtensions: 0,
 			NumServices:   0,

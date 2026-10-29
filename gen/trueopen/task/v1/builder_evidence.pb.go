@@ -21,27 +21,60 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// BuilderProtocolViolation is the closed invalid-stage violation registry whose
-// numbers the wire API freezes as UNSPECIFIED=0 /
-// WRONG_TASK_SCOPE=1 / WRONG_STAGE=2 / WRONG_BUILDER_SET=3 /
-// NON_CANONICAL_BITMAP=4 / BIT_CLEAR_ATTEMPT=5 /
-// CONFLICTING_ACCEPTED_MATERIAL=6. Only values 1 and 2 are ACTIVE in V1.
-// Values 3-6 retain their numbers but are non-active and fail closed until a
-// future typed evidence schema freezes their complete authority facts.
-// Evidence never accepts an implementation-defined reason or stage string.
-//
-// OWNERSHIP: the enum used to be declared in hub.v1 next to the retired
-// SignedEnvelopeProtocolFaultV1. Its only remaining reference is field 2 of
-// SignedEnvelopeProtocolFaultV2 below, and task.v1 may not import
-// hub.v1, so the declaration moves here rather than into shared.v1:
-// the module-split closure rule sends a declaration to shared because two domains
-// reference it, and the Hub fault kernel never sees a violation value. The Hub
-// receives only shared.v1.BuilderObjectiveEvidenceFactV2, which carries the
-// recomputed canonical_evidence_digest and no violation field. The numbers are
-// unchanged; only the protobuf FQN moved, and no alias is kept in hub.v1.
-// The violation value enters the content digest as enum_u32_be, so this must
-// stay the single numeric definition repo-wide.
-// BuilderProtocolViolation defines the BuilderProtocolViolation wire type.
+// StreamMessageKind is the closed StreamMessageKind registry.
+type StreamMessageKind int32
+
+const (
+	// UNSPECIFIED is the unspecified value.
+	StreamMessageKind_STREAM_MESSAGE_KIND_UNSPECIFIED StreamMessageKind = 0
+	// OPEN_VERIFY is the open verify value.
+	StreamMessageKind_STREAM_MESSAGE_KIND_OPEN_VERIFY StreamMessageKind = 1
+	// VERIFIER_ASSIGNMENT_NOTIFY is the verifier assignment notify value.
+	StreamMessageKind_STREAM_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY StreamMessageKind = 2
+)
+
+// Enum value maps for StreamMessageKind.
+var (
+	StreamMessageKind_name = map[int32]string{
+		0: "STREAM_MESSAGE_KIND_UNSPECIFIED",
+		1: "STREAM_MESSAGE_KIND_OPEN_VERIFY",
+		2: "STREAM_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY",
+	}
+	StreamMessageKind_value = map[string]int32{
+		"STREAM_MESSAGE_KIND_UNSPECIFIED":                0,
+		"STREAM_MESSAGE_KIND_OPEN_VERIFY":                1,
+		"STREAM_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY": 2,
+	}
+)
+
+func (x StreamMessageKind) Enum() *StreamMessageKind {
+	p := new(StreamMessageKind)
+	*p = x
+	return p
+}
+
+func (x StreamMessageKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StreamMessageKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_builder_evidence_proto_enumTypes[0].Descriptor()
+}
+
+func (StreamMessageKind) Type() protoreflect.EnumType {
+	return &file_task_v1_builder_evidence_proto_enumTypes[0]
+}
+
+func (x StreamMessageKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StreamMessageKind.Descriptor instead.
+func (StreamMessageKind) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{0}
+}
+
+// BuilderProtocolViolation defines the BuilderProtocolViolation contract.
 type BuilderProtocolViolation int32
 
 const (
@@ -105,11 +138,11 @@ func (x BuilderProtocolViolation) String() string {
 }
 
 func (BuilderProtocolViolation) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_builder_evidence_proto_enumTypes[0].Descriptor()
+	return file_task_v1_builder_evidence_proto_enumTypes[1].Descriptor()
 }
 
 func (BuilderProtocolViolation) Type() protoreflect.EnumType {
-	return &file_task_v1_builder_evidence_proto_enumTypes[0]
+	return &file_task_v1_builder_evidence_proto_enumTypes[1]
 }
 
 func (x BuilderProtocolViolation) Number() protoreflect.EnumNumber {
@@ -118,151 +151,10 @@ func (x BuilderProtocolViolation) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BuilderProtocolViolation.Descriptor instead.
 func (BuilderProtocolViolation) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{0}
-}
-
-// SignedEnvelopeEquivocationV2 carries the two conflicting BusEnvelope frames of
-// one protocol scope as exact serialized bytes.
-//
-// Both frames must share chain_id, subject, kind, sender operator, service
-// authorization nonce, message_id, payload_type and expiry and must derive the
-// same payload-based action scope, must both verify under the proof-only
-// profile, must have different bus_signing_digest values, and must collide on
-// the (message_id, nonce) dual replay key.
-//
-// Canonical selected fields for the content digest are
-// (lower_bus_signing_digest, higher_bus_signing_digest): the two raw32 digests
-// sorted lexicographically ascending by bytes, so swapping the submission order
-// of the two envelopes cannot produce a second evidence identity.
-// SignedEnvelopeEquivocationV2 defines the SignedEnvelopeEquivocationV2 wire type.
-type SignedEnvelopeEquivocationV2 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes;
-	// never re-marshaled and never decoded into a Task-local envelope struct.
-	EnvelopeA []byte `protobuf:"bytes,1,opt,name=envelope_a,json=envelopeA,proto3" json:"envelope_a,omitempty"`
-	// Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes.
-	EnvelopeB     []byte `protobuf:"bytes,2,opt,name=envelope_b,json=envelopeB,proto3" json:"envelope_b,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SignedEnvelopeEquivocationV2) Reset() {
-	*x = SignedEnvelopeEquivocationV2{}
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SignedEnvelopeEquivocationV2) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SignedEnvelopeEquivocationV2) ProtoMessage() {}
-
-func (x *SignedEnvelopeEquivocationV2) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SignedEnvelopeEquivocationV2.ProtoReflect.Descriptor instead.
-func (*SignedEnvelopeEquivocationV2) Descriptor() ([]byte, []int) {
-	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *SignedEnvelopeEquivocationV2) GetEnvelopeA() []byte {
-	if x != nil {
-		return x.EnvelopeA
-	}
-	return nil
-}
-
-func (x *SignedEnvelopeEquivocationV2) GetEnvelopeB() []byte {
-	if x != nil {
-		return x.EnvelopeB
-	}
-	return nil
-}
-
-// SignedEnvelopeProtocolFaultV2 binds one exact serialized BusEnvelope frame to
-// one closed violation. The envelope must verify, its
-// action scope must be recomputable from the typed payload plus Task/BuilderSet
-// state, and it must land on exactly one closed violation value; malformed,
-// unknown-kind and unattributable material is rejected rather than downgraded.
-//
-// Canonical selected fields for the content digest are
-// (bus_signing_digest, violation as enum_u32_be).
-// SignedEnvelopeProtocolFaultV2 defines the SignedEnvelopeProtocolFaultV2 wire type.
-type SignedEnvelopeProtocolFaultV2 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exact serialized bus.v1.BusEnvelopeV1 bytes, <= 1,048,576 bytes.
-	Envelope []byte `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"`
-	// Closed violation the verified envelope provably hits.
-	Violation     BuilderProtocolViolation `protobuf:"varint,2,opt,name=violation,proto3,enum=task.v1.BuilderProtocolViolation" json:"violation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SignedEnvelopeProtocolFaultV2) Reset() {
-	*x = SignedEnvelopeProtocolFaultV2{}
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SignedEnvelopeProtocolFaultV2) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SignedEnvelopeProtocolFaultV2) ProtoMessage() {}
-
-func (x *SignedEnvelopeProtocolFaultV2) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SignedEnvelopeProtocolFaultV2.ProtoReflect.Descriptor instead.
-func (*SignedEnvelopeProtocolFaultV2) Descriptor() ([]byte, []int) {
 	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *SignedEnvelopeProtocolFaultV2) GetEnvelope() []byte {
-	if x != nil {
-		return x.Envelope
-	}
-	return nil
-}
-
-func (x *SignedEnvelopeProtocolFaultV2) GetViolation() BuilderProtocolViolation {
-	if x != nil {
-		return x.Violation
-	}
-	return BuilderProtocolViolation_BUILDER_PROTOCOL_VIOLATION_UNSPECIFIED
-}
-
-// DataUnavailableStateReferenceV1 locates one already CONFIRMED Task-owned
-// round-1 data-unavailable aggregate for a Builder that made the actual
-// data-ready attestation. Worker self-rescue and challenge-round
-// aggregates never produce this evidence branch. It submits stable primary keys
-// only: the deadline, accepted version, report hash, counts, threshold and
-// verdict are loaded and recomputed by the Keeper, never carried here.
-//
-// Canonical selected fields for the content digest are
-// (task_id, verify_round, builder_operator).
-// DataUnavailableStateReferenceV1 defines the DataUnavailableStateReferenceV1 wire type.
+// DataUnavailableStateReferenceV1 defines the DataUnavailableStateReferenceV1 contract.
 type DataUnavailableStateReferenceV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Charged task, raw32; also the scope_id of the derived fact.
@@ -278,7 +170,7 @@ type DataUnavailableStateReferenceV1 struct {
 
 func (x *DataUnavailableStateReferenceV1) Reset() {
 	*x = DataUnavailableStateReferenceV1{}
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[2]
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -290,7 +182,7 @@ func (x *DataUnavailableStateReferenceV1) String() string {
 func (*DataUnavailableStateReferenceV1) ProtoMessage() {}
 
 func (x *DataUnavailableStateReferenceV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[2]
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -303,7 +195,7 @@ func (x *DataUnavailableStateReferenceV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataUnavailableStateReferenceV1.ProtoReflect.Descriptor instead.
 func (*DataUnavailableStateReferenceV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{2}
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DataUnavailableStateReferenceV1) GetTaskId() []byte {
@@ -327,40 +219,187 @@ func (x *DataUnavailableStateReferenceV1) GetBuilderOperator() string {
 	return ""
 }
 
-// BuilderEvidenceV2 is the only accepted public Builder objective-evidence wire
-// of fresh genesis. Free-text reasons, arbitrary
-// evidence_hash values and "a proposal was rejected" never form a fault.
-//
-// The ACTIVE oneof is the closed set of tags 2, 3 and 5,
-// and each branch maps to exactly one shared.v1.BuilderEvidenceKind
-// :
-//
-//	tag 2 equivocation             -> BUILDER_EVIDENCE_KIND_PROPOSAL_EQUIVOCATION      (1)
-//	tag 3 invalid_stage_submission -> BUILDER_EVIDENCE_KIND_INVALID_STAGE_SUBMISSION    (2)
-//	tag 5 data_unavailable         -> BUILDER_EVIDENCE_KIND_OBJECTIVE_DATA_UNAVAILABLE  (4)
-//
-// Tags 2 and 3 are checked by the proof-only profile of this contract
-// plus the Task authority state; tag 5 accepts only an already CONFIRMED round-1
-// aggregate for an actual data-ready attesting Builder. A handler must not write
-// a BuilderFault merely because the oneof structure is present.
-//
-// Field number 4 is permanently reserved. It used
-// to be the missed-duty branch, and BUILDER_EVIDENCE_KIND_OBJECTIVE_MISSED_DUTY (3) is now
-// kept exclusively for an internal fault the Keeper may in future derive from an
-// authoritative duty receipt. This Msg accepts no missed-duty branch, the old
-// tag 4 is never reused, and any future public missed-duty wire must use a new
-// schema and a new tag.
-//
-// scope_id of the derived fact is the existing authoritative primary key of the
-// charged fact, which is task_id for all three branches; evidence introduces no
-// new hash semantics.
-// BuilderEvidenceV2 defines the BuilderEvidenceV2 wire type.
+// MsgSubmitBuilderEvidence defines the MsgSubmitBuilderEvidence contract.
+type MsgSubmitBuilderEvidence struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	EvidenceBytes    []byte                 `protobuf:"bytes,1,opt,name=evidence_bytes,json=evidenceBytes,proto3" json:"evidence_bytes,omitempty"`
+	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MsgSubmitBuilderEvidence) Reset() {
+	*x = MsgSubmitBuilderEvidence{}
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSubmitBuilderEvidence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSubmitBuilderEvidence) ProtoMessage() {}
+
+func (x *MsgSubmitBuilderEvidence) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSubmitBuilderEvidence.ProtoReflect.Descriptor instead.
+func (*MsgSubmitBuilderEvidence) Descriptor() ([]byte, []int) {
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *MsgSubmitBuilderEvidence) GetEvidenceBytes() []byte {
+	if x != nil {
+		return x.EvidenceBytes
+	}
+	return nil
+}
+
+func (x *MsgSubmitBuilderEvidence) GetSubmitterAddress() string {
+	if x != nil {
+		return x.SubmitterAddress
+	}
+	return ""
+}
+
+// SignedMessageEquivocationV2 defines the canonical SignedMessageEquivocationV2 fields.
+type SignedMessageEquivocationV2 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MessageKind   StreamMessageKind      `protobuf:"varint,1,opt,name=message_kind,json=messageKind,proto3,enum=task.v1.StreamMessageKind" json:"message_kind,omitempty"`
+	MessageA      []byte                 `protobuf:"bytes,2,opt,name=message_a,json=messageA,proto3" json:"message_a,omitempty"`
+	MessageB      []byte                 `protobuf:"bytes,3,opt,name=message_b,json=messageB,proto3" json:"message_b,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedMessageEquivocationV2) Reset() {
+	*x = SignedMessageEquivocationV2{}
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedMessageEquivocationV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedMessageEquivocationV2) ProtoMessage() {}
+
+func (x *SignedMessageEquivocationV2) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedMessageEquivocationV2.ProtoReflect.Descriptor instead.
+func (*SignedMessageEquivocationV2) Descriptor() ([]byte, []int) {
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SignedMessageEquivocationV2) GetMessageKind() StreamMessageKind {
+	if x != nil {
+		return x.MessageKind
+	}
+	return StreamMessageKind_STREAM_MESSAGE_KIND_UNSPECIFIED
+}
+
+func (x *SignedMessageEquivocationV2) GetMessageA() []byte {
+	if x != nil {
+		return x.MessageA
+	}
+	return nil
+}
+
+func (x *SignedMessageEquivocationV2) GetMessageB() []byte {
+	if x != nil {
+		return x.MessageB
+	}
+	return nil
+}
+
+// SignedMessageProtocolFaultV2 defines the canonical SignedMessageProtocolFaultV2 fields.
+type SignedMessageProtocolFaultV2 struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	MessageKind   StreamMessageKind        `protobuf:"varint,1,opt,name=message_kind,json=messageKind,proto3,enum=task.v1.StreamMessageKind" json:"message_kind,omitempty"`
+	Message       []byte                   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Violation     BuilderProtocolViolation `protobuf:"varint,3,opt,name=violation,proto3,enum=task.v1.BuilderProtocolViolation" json:"violation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedMessageProtocolFaultV2) Reset() {
+	*x = SignedMessageProtocolFaultV2{}
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedMessageProtocolFaultV2) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedMessageProtocolFaultV2) ProtoMessage() {}
+
+func (x *SignedMessageProtocolFaultV2) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedMessageProtocolFaultV2.ProtoReflect.Descriptor instead.
+func (*SignedMessageProtocolFaultV2) Descriptor() ([]byte, []int) {
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SignedMessageProtocolFaultV2) GetMessageKind() StreamMessageKind {
+	if x != nil {
+		return x.MessageKind
+	}
+	return StreamMessageKind_STREAM_MESSAGE_KIND_UNSPECIFIED
+}
+
+func (x *SignedMessageProtocolFaultV2) GetMessage() []byte {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *SignedMessageProtocolFaultV2) GetViolation() BuilderProtocolViolation {
+	if x != nil {
+		return x.Violation
+	}
+	return BuilderProtocolViolation_BUILDER_PROTOCOL_VIOLATION_UNSPECIFIED
+}
+
+// BuilderEvidenceV2 carries exact typed stream-message bytes, not a transport envelope.
+// Strict decoding rejects unknown fields, duplicate singular fields and oneof conflicts.
 type BuilderEvidenceV2 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always 2 for this evidence generation.
-	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	// Exactly one typed evidence branch must be present; the branch selects the
-	// evidence kind and the canonical selected fields of the content digest.
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	// evidence selects exactly one supported proof.
 	//
 	// Types that are valid to be assigned to Evidence:
 	//
@@ -374,7 +413,7 @@ type BuilderEvidenceV2 struct {
 
 func (x *BuilderEvidenceV2) Reset() {
 	*x = BuilderEvidenceV2{}
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[3]
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +425,7 @@ func (x *BuilderEvidenceV2) String() string {
 func (*BuilderEvidenceV2) ProtoMessage() {}
 
 func (x *BuilderEvidenceV2) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[3]
+	mi := &file_task_v1_builder_evidence_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +438,7 @@ func (x *BuilderEvidenceV2) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuilderEvidenceV2.ProtoReflect.Descriptor instead.
 func (*BuilderEvidenceV2) Descriptor() ([]byte, []int) {
-	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{3}
+	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BuilderEvidenceV2) GetSchemaVersion() uint32 {
@@ -416,7 +455,7 @@ func (x *BuilderEvidenceV2) GetEvidence() isBuilderEvidenceV2_Evidence {
 	return nil
 }
 
-func (x *BuilderEvidenceV2) GetEquivocation() *SignedEnvelopeEquivocationV2 {
+func (x *BuilderEvidenceV2) GetEquivocation() *SignedMessageEquivocationV2 {
 	if x != nil {
 		if x, ok := x.Evidence.(*BuilderEvidenceV2_Equivocation); ok {
 			return x.Equivocation
@@ -425,7 +464,7 @@ func (x *BuilderEvidenceV2) GetEquivocation() *SignedEnvelopeEquivocationV2 {
 	return nil
 }
 
-func (x *BuilderEvidenceV2) GetInvalidStageSubmission() *SignedEnvelopeProtocolFaultV2 {
+func (x *BuilderEvidenceV2) GetInvalidStageSubmission() *SignedMessageProtocolFaultV2 {
 	if x != nil {
 		if x, ok := x.Evidence.(*BuilderEvidenceV2_InvalidStageSubmission); ok {
 			return x.InvalidStageSubmission
@@ -448,17 +487,14 @@ type isBuilderEvidenceV2_Evidence interface {
 }
 
 type BuilderEvidenceV2_Equivocation struct {
-	// Two conflicting signed envelopes for one scope.
-	Equivocation *SignedEnvelopeEquivocationV2 `protobuf:"bytes,2,opt,name=equivocation,proto3,oneof"`
+	Equivocation *SignedMessageEquivocationV2 `protobuf:"bytes,2,opt,name=equivocation,proto3,oneof"`
 }
 
 type BuilderEvidenceV2_InvalidStageSubmission struct {
-	// One signed envelope that provably violates its stage contract.
-	InvalidStageSubmission *SignedEnvelopeProtocolFaultV2 `protobuf:"bytes,3,opt,name=invalid_stage_submission,json=invalidStageSubmission,proto3,oneof"`
+	InvalidStageSubmission *SignedMessageProtocolFaultV2 `protobuf:"bytes,3,opt,name=invalid_stage_submission,json=invalidStageSubmission,proto3,oneof"`
 }
 
 type BuilderEvidenceV2_DataUnavailable struct {
-	// One CONFIRMED data-unavailable aggregate reference.
 	DataUnavailable *DataUnavailableStateReferenceV1 `protobuf:"bytes,5,opt,name=data_unavailable,json=dataUnavailable,proto3,oneof"`
 }
 
@@ -468,99 +504,37 @@ func (*BuilderEvidenceV2_InvalidStageSubmission) isBuilderEvidenceV2_Evidence() 
 
 func (*BuilderEvidenceV2_DataUnavailable) isBuilderEvidenceV2_Evidence() {}
 
-// MsgSubmitBuilderEvidence is the permissionless Builder objective-evidence
-// entry owned by task.v1.Msg. evidence_bytes preserves the exact serialized
-// BuilderEvidenceV2 so the Wire strict decoder can reject unknown fields,
-// duplicate singular/oneof fields and wrong wire types before gogo decoding can
-// discard or collapse them. submitter_address is the only Cosmos signer and
-// never enters any digest; anyone may submit. The Msg must not carry
-// Keeper-derived BPS, thresholds, deadlines or counts.
-//
-// The RPC returns shared.v1.BuilderObjectiveEvidenceReceiptV2 directly
-// : there is deliberately no MsgSubmitBuilderEvidenceResponse
-// wrapper, because a per-module wrapper would be a second copy of the shared
-// receipt shape. evidence_id is the idempotency key: exact replay is a NOOP and
-// the same key with different evidence is a conflict.
-// MsgSubmitBuilderEvidence defines the MsgSubmitBuilderEvidence wire type.
-type MsgSubmitBuilderEvidence struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	EvidenceBytes    []byte                 `protobuf:"bytes,1,opt,name=evidence_bytes,json=evidenceBytes,proto3" json:"evidence_bytes,omitempty"`
-	SubmitterAddress string                 `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *MsgSubmitBuilderEvidence) Reset() {
-	*x = MsgSubmitBuilderEvidence{}
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MsgSubmitBuilderEvidence) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MsgSubmitBuilderEvidence) ProtoMessage() {}
-
-func (x *MsgSubmitBuilderEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_builder_evidence_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MsgSubmitBuilderEvidence.ProtoReflect.Descriptor instead.
-func (*MsgSubmitBuilderEvidence) Descriptor() ([]byte, []int) {
-	return file_task_v1_builder_evidence_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *MsgSubmitBuilderEvidence) GetEvidenceBytes() []byte {
-	if x != nil {
-		return x.EvidenceBytes
-	}
-	return nil
-}
-
-func (x *MsgSubmitBuilderEvidence) GetSubmitterAddress() string {
-	if x != nil {
-		return x.SubmitterAddress
-	}
-	return ""
-}
-
 var File_task_v1_builder_evidence_proto protoreflect.FileDescriptor
 
 const file_task_v1_builder_evidence_proto_rawDesc = "" +
 	"\n" +
-	"\x1etask/v1/builder_evidence.proto\x12\atask.v1\"\\\n" +
-	"\x1cSignedEnvelopeEquivocationV2\x12\x1d\n" +
-	"\n" +
-	"envelope_a\x18\x01 \x01(\fR\tenvelopeA\x12\x1d\n" +
-	"\n" +
-	"envelope_b\x18\x02 \x01(\fR\tenvelopeB\"|\n" +
-	"\x1dSignedEnvelopeProtocolFaultV2\x12\x1a\n" +
-	"\benvelope\x18\x01 \x01(\fR\benvelope\x12?\n" +
-	"\tviolation\x18\x02 \x01(\x0e2!.task.v1.BuilderProtocolViolationR\tviolation\"\x88\x01\n" +
+	"\x1etask/v1/builder_evidence.proto\x12\atask.v1\"\x88\x01\n" +
 	"\x1fDataUnavailableStateReferenceV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fverify_round\x18\x02 \x01(\rR\vverifyRound\x12)\n" +
-	"\x10builder_operator\x18\x03 \x01(\tR\x0fbuilderOperator\"\xd4\x02\n" +
-	"\x11BuilderEvidenceV2\x12%\n" +
-	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12K\n" +
-	"\fequivocation\x18\x02 \x01(\v2%.task.v1.SignedEnvelopeEquivocationV2H\x00R\fequivocation\x12b\n" +
-	"\x18invalid_stage_submission\x18\x03 \x01(\v2&.task.v1.SignedEnvelopeProtocolFaultV2H\x00R\x16invalidStageSubmission\x12U\n" +
-	"\x10data_unavailable\x18\x05 \x01(\v2(.task.v1.DataUnavailableStateReferenceV1H\x00R\x0fdataUnavailableB\n" +
-	"\n" +
-	"\bevidenceJ\x04\b\x04\x10\x05\"n\n" +
+	"\x10builder_operator\x18\x03 \x01(\tR\x0fbuilderOperator\"n\n" +
 	"\x18MsgSubmitBuilderEvidence\x12%\n" +
 	"\x0eevidence_bytes\x18\x01 \x01(\fR\revidenceBytes\x12+\n" +
-	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress*\xfa\x02\n" +
+	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\x96\x01\n" +
+	"\x1bSignedMessageEquivocationV2\x12=\n" +
+	"\fmessage_kind\x18\x01 \x01(\x0e2\x1a.task.v1.StreamMessageKindR\vmessageKind\x12\x1b\n" +
+	"\tmessage_a\x18\x02 \x01(\fR\bmessageA\x12\x1b\n" +
+	"\tmessage_b\x18\x03 \x01(\fR\bmessageB\"\xb8\x01\n" +
+	"\x1cSignedMessageProtocolFaultV2\x12=\n" +
+	"\fmessage_kind\x18\x01 \x01(\x0e2\x1a.task.v1.StreamMessageKindR\vmessageKind\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\fR\amessage\x12?\n" +
+	"\tviolation\x18\x03 \x01(\x0e2!.task.v1.BuilderProtocolViolationR\tviolation\"\xd2\x02\n" +
+	"\x11BuilderEvidenceV2\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12J\n" +
+	"\fequivocation\x18\x02 \x01(\v2$.task.v1.SignedMessageEquivocationV2H\x00R\fequivocation\x12a\n" +
+	"\x18invalid_stage_submission\x18\x03 \x01(\v2%.task.v1.SignedMessageProtocolFaultV2H\x00R\x16invalidStageSubmission\x12U\n" +
+	"\x10data_unavailable\x18\x05 \x01(\v2(.task.v1.DataUnavailableStateReferenceV1H\x00R\x0fdataUnavailableB\n" +
+	"\n" +
+	"\bevidenceJ\x04\b\x04\x10\x05*\x91\x01\n" +
+	"\x11StreamMessageKind\x12#\n" +
+	"\x1fSTREAM_MESSAGE_KIND_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fSTREAM_MESSAGE_KIND_OPEN_VERIFY\x10\x01\x122\n" +
+	".STREAM_MESSAGE_KIND_VERIFIER_ASSIGNMENT_NOTIFY\x10\x02*\xfa\x02\n" +
 	"\x18BuilderProtocolViolation\x12*\n" +
 	"&BUILDER_PROTOCOL_VIOLATION_UNSPECIFIED\x10\x00\x12/\n" +
 	"+BUILDER_PROTOCOL_VIOLATION_WRONG_TASK_SCOPE\x10\x01\x12*\n" +
@@ -582,26 +556,29 @@ func file_task_v1_builder_evidence_proto_rawDescGZIP() []byte {
 	return file_task_v1_builder_evidence_proto_rawDescData
 }
 
-var file_task_v1_builder_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_task_v1_builder_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_task_v1_builder_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_task_v1_builder_evidence_proto_goTypes = []any{
-	(BuilderProtocolViolation)(0),           // 0: task.v1.BuilderProtocolViolation
-	(*SignedEnvelopeEquivocationV2)(nil),    // 1: task.v1.SignedEnvelopeEquivocationV2
-	(*SignedEnvelopeProtocolFaultV2)(nil),   // 2: task.v1.SignedEnvelopeProtocolFaultV2
-	(*DataUnavailableStateReferenceV1)(nil), // 3: task.v1.DataUnavailableStateReferenceV1
-	(*BuilderEvidenceV2)(nil),               // 4: task.v1.BuilderEvidenceV2
-	(*MsgSubmitBuilderEvidence)(nil),        // 5: task.v1.MsgSubmitBuilderEvidence
+	(StreamMessageKind)(0),                  // 0: task.v1.StreamMessageKind
+	(BuilderProtocolViolation)(0),           // 1: task.v1.BuilderProtocolViolation
+	(*DataUnavailableStateReferenceV1)(nil), // 2: task.v1.DataUnavailableStateReferenceV1
+	(*MsgSubmitBuilderEvidence)(nil),        // 3: task.v1.MsgSubmitBuilderEvidence
+	(*SignedMessageEquivocationV2)(nil),     // 4: task.v1.SignedMessageEquivocationV2
+	(*SignedMessageProtocolFaultV2)(nil),    // 5: task.v1.SignedMessageProtocolFaultV2
+	(*BuilderEvidenceV2)(nil),               // 6: task.v1.BuilderEvidenceV2
 }
 var file_task_v1_builder_evidence_proto_depIdxs = []int32{
-	0, // 0: task.v1.SignedEnvelopeProtocolFaultV2.violation:type_name -> task.v1.BuilderProtocolViolation
-	1, // 1: task.v1.BuilderEvidenceV2.equivocation:type_name -> task.v1.SignedEnvelopeEquivocationV2
-	2, // 2: task.v1.BuilderEvidenceV2.invalid_stage_submission:type_name -> task.v1.SignedEnvelopeProtocolFaultV2
-	3, // 3: task.v1.BuilderEvidenceV2.data_unavailable:type_name -> task.v1.DataUnavailableStateReferenceV1
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0, // 0: task.v1.SignedMessageEquivocationV2.message_kind:type_name -> task.v1.StreamMessageKind
+	0, // 1: task.v1.SignedMessageProtocolFaultV2.message_kind:type_name -> task.v1.StreamMessageKind
+	1, // 2: task.v1.SignedMessageProtocolFaultV2.violation:type_name -> task.v1.BuilderProtocolViolation
+	4, // 3: task.v1.BuilderEvidenceV2.equivocation:type_name -> task.v1.SignedMessageEquivocationV2
+	5, // 4: task.v1.BuilderEvidenceV2.invalid_stage_submission:type_name -> task.v1.SignedMessageProtocolFaultV2
+	2, // 5: task.v1.BuilderEvidenceV2.data_unavailable:type_name -> task.v1.DataUnavailableStateReferenceV1
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_builder_evidence_proto_init() }
@@ -609,7 +586,7 @@ func file_task_v1_builder_evidence_proto_init() {
 	if File_task_v1_builder_evidence_proto != nil {
 		return
 	}
-	file_task_v1_builder_evidence_proto_msgTypes[3].OneofWrappers = []any{
+	file_task_v1_builder_evidence_proto_msgTypes[4].OneofWrappers = []any{
 		(*BuilderEvidenceV2_Equivocation)(nil),
 		(*BuilderEvidenceV2_InvalidStageSubmission)(nil),
 		(*BuilderEvidenceV2_DataUnavailable)(nil),
@@ -619,7 +596,7 @@ func file_task_v1_builder_evidence_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_builder_evidence_proto_rawDesc), len(file_task_v1_builder_evidence_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,

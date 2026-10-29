@@ -45,7 +45,7 @@ enum SessionLifecycleAction {
 
 // OrderSequenceStatus is the per-sequence audit status of this contract.
 //
-// The five nonzero values are frozen in sequence lifecycle order.
+// Statuses distinguish retained sequence outcomes and pending cancellation.
 // OrderSequenceStatus defines the OrderSequenceStatus wire type.
 enum OrderSequenceStatus {
   // Never written; an absent row is the unused state.
@@ -54,7 +54,7 @@ enum OrderSequenceStatus {
   // Reserved sequence that no task has consumed yet.
   // ORDER_SEQUENCE_STATUS_UNUSED identifies the corresponding protocol value.
   ORDER_SEQUENCE_STATUS_UNUSED = 1;
-  // Consumed by an accepted first Worker proposal.
+  // Consumed by an accepted dispatch entry.
   // ORDER_SEQUENCE_STATUS_CONSUMED identifies the corresponding protocol value.
   ORDER_SEQUENCE_STATUS_CONSUMED = 2;
   // Skipped by MsgCancelOrder; no funds moved.
@@ -66,6 +66,8 @@ enum OrderSequenceStatus {
   // Task reached a settled terminal state.
   // ORDER_SEQUENCE_STATUS_SETTLED identifies the corresponding protocol value.
   ORDER_SEQUENCE_STATUS_SETTLED = 5;
+  // Cancellation is registered but not yet effective.
+  ORDER_SEQUENCE_STATUS_CANCEL_PENDING = 6;
 }
 
 // TaskBudgetStatus is the TaskBudgetState lifecycle of this contract.
@@ -121,6 +123,21 @@ message StreamState {
   // no key is registered. A delegated order's signed anchor height must be at
   // least this height, preventing signatures from a revoked grant reviving.
   uint64 session_key_set_height = 11;
+
+  shared.v1.Amount balance = 12;
+  shared.v1.Amount frozen_total = 13;
+  SessionWithdrawKindV1 pending_withdraw_kind = 14;
+  shared.v1.Amount pending_withdraw_amount = 15;
+  uint64 pending_withdraw_effective_height = 16;
+  string bound_builder = 17;
+  uint64 bound_change_height = 18;
+  uint64 last_record_height = 19;
+  optional string last_record_winner = 20;
+  uint64 sticky_anchor_sequence = 21;
+  uint64 sticky_anchor_height = 22;
+  uint32 sticky_run_count = 23;
+  optional PendingSessionKeyChangeV1 pending_session_key_change = 24;
+  optional PendingTakeoverV1 pending_takeover = 25;
 }
 
 // OrderSequenceState records how one order sequence was used (this contract, key =
@@ -134,6 +151,8 @@ message OrderSequenceState {
   bytes task_id = 4;
   uint64 consumed_height = 5;
   uint64 cancelled_height = 6;
+
+  uint64 cancel_effective_height = 7;
 }
 
 // SessionHistoryPruneCursorState folds order history after a session closed
@@ -204,4 +223,54 @@ message TaskBudgetState {
   uint32 gas_reimbursement_count = 16;
   shared.v1.Amount gas_reimbursed_total = 17;
   TaskBudgetStatus budget_status = 18;
+}
+
+// SessionKeyGrantV1 registers a delegated order/request signer for one session.
+// The raw20 address must be nonzero and different from the owner's address.
+// At registration/renewal, current_height < expiry_height <= current_height +
+// the current effective max_session_key_blocks (checked addition). The limit
+// is not resolved through the session's pinned historical parameter version.
+// A canonical zero spend_cap (atomic_units = "0") is unlimited; otherwise it
+// bounds cumulative admitted max_fee, not actual spend or a prepaid balance.
+message SessionKeyGrantV1 {
+  bytes session_key = 1;
+  uint64 expiry_height = 2;
+  shared.v1.Amount spend_cap = 3;
+}
+
+// ClearSessionKeyV1 registers delayed revocation.
+message ClearSessionKeyV1 {}
+// SessionWithdrawKindV1 is the closed SessionWithdrawKindV1 registry.
+enum SessionWithdrawKindV1 {
+  // UNSPECIFIED is the unspecified value.
+  SESSION_WITHDRAW_KIND_V1_UNSPECIFIED = 0;
+  // NONE is the none value.
+  SESSION_WITHDRAW_KIND_V1_NONE = 1;
+  // AMOUNT is the amount value.
+  SESSION_WITHDRAW_KIND_V1_AMOUNT = 2;
+  // CLOSE is the close value.
+  SESSION_WITHDRAW_KIND_V1_CLOSE = 3;
+}
+// SessionKeyChangeKindV1 is the closed SessionKeyChangeKindV1 registry.
+enum SessionKeyChangeKindV1 {
+  // UNSPECIFIED is the unspecified value.
+  SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED = 0;
+  // SET is the set value.
+  SESSION_KEY_CHANGE_KIND_V1_SET = 1;
+  // CLEAR is the clear value.
+  SESSION_KEY_CHANGE_KIND_V1_CLEAR = 2;
+}
+// PendingTakeoverV1 defines the canonical PendingTakeoverV1 fields.
+message PendingTakeoverV1 {
+  string candidate_builder = 1;
+  uint64 order_sequence = 2;
+  bytes order_task_hash = 3;
+  uint64 registered_height = 4;
+  uint64 activation_height = 5;
+}
+// PendingSessionKeyChangeV1 defines the canonical PendingSessionKeyChangeV1 fields.
+message PendingSessionKeyChangeV1 {
+  SessionKeyChangeKindV1 kind = 1;
+  optional SessionKeyGrantV1 grant = 2;
+  uint64 effective_height = 3;
 }

@@ -23,8 +23,8 @@ const (
 )
 
 // TaskPhase is the aggregate task phase. Numeric values are frozen by
-// the wire API; ascending order is the mandatory forward order, so
-// transition checks are monotonic with no rollback and no skipping.
+// the wire API. Consumers validate explicit allowed transitions; numeric order
+// does not express the lifecycle after retired values have been reserved.
 // TaskPhase defines the TaskPhase wire type.
 type TaskPhase int32
 
@@ -32,12 +32,9 @@ const (
 	// Never written; rejects zero-value rows.
 	// TASK_PHASE_UNSPECIFIED identifies the corresponding protocol value.
 	TaskPhase_TASK_PHASE_UNSPECIFIED TaskPhase = 0
-	// First Worker proposal accepted; candidate union still open.
-	// TASK_PHASE_WORKER_ASSIGNMENT_PENDING identifies the corresponding protocol value.
-	TaskPhase_TASK_PHASE_WORKER_ASSIGNMENT_PENDING TaskPhase = 1
-	// Winner Worker finalized from the frozen legal set.
-	// TASK_PHASE_WORKER_ASSIGNED identifies the corresponding protocol value.
-	TaskPhase_TASK_PHASE_WORKER_ASSIGNED TaskPhase = 2
+	// Dispatch accepted, inference in progress.
+	// TASK_PHASE_INFER_PENDING identifies the corresponding protocol value.
+	TaskPhase_TASK_PHASE_INFER_PENDING TaskPhase = 10
 	// Infer receipt accepted.
 	// TASK_PHASE_RECEIPT_COMMITTED identifies the corresponding protocol value.
 	TaskPhase_TASK_PHASE_RECEIPT_COMMITTED TaskPhase = 3
@@ -64,28 +61,26 @@ const (
 // Enum value maps for TaskPhase.
 var (
 	TaskPhase_name = map[int32]string{
-		0: "TASK_PHASE_UNSPECIFIED",
-		1: "TASK_PHASE_WORKER_ASSIGNMENT_PENDING",
-		2: "TASK_PHASE_WORKER_ASSIGNED",
-		3: "TASK_PHASE_RECEIPT_COMMITTED",
-		4: "TASK_PHASE_VERIFIER_ASSIGNED",
-		5: "TASK_PHASE_COMMITTING",
-		6: "TASK_PHASE_REVEALING",
-		7: "TASK_PHASE_SETTLING",
-		8: "TASK_PHASE_SETTLED",
-		9: "TASK_PHASE_FAILED",
+		0:  "TASK_PHASE_UNSPECIFIED",
+		10: "TASK_PHASE_INFER_PENDING",
+		3:  "TASK_PHASE_RECEIPT_COMMITTED",
+		4:  "TASK_PHASE_VERIFIER_ASSIGNED",
+		5:  "TASK_PHASE_COMMITTING",
+		6:  "TASK_PHASE_REVEALING",
+		7:  "TASK_PHASE_SETTLING",
+		8:  "TASK_PHASE_SETTLED",
+		9:  "TASK_PHASE_FAILED",
 	}
 	TaskPhase_value = map[string]int32{
-		"TASK_PHASE_UNSPECIFIED":               0,
-		"TASK_PHASE_WORKER_ASSIGNMENT_PENDING": 1,
-		"TASK_PHASE_WORKER_ASSIGNED":           2,
-		"TASK_PHASE_RECEIPT_COMMITTED":         3,
-		"TASK_PHASE_VERIFIER_ASSIGNED":         4,
-		"TASK_PHASE_COMMITTING":                5,
-		"TASK_PHASE_REVEALING":                 6,
-		"TASK_PHASE_SETTLING":                  7,
-		"TASK_PHASE_SETTLED":                   8,
-		"TASK_PHASE_FAILED":                    9,
+		"TASK_PHASE_UNSPECIFIED":       0,
+		"TASK_PHASE_INFER_PENDING":     10,
+		"TASK_PHASE_RECEIPT_COMMITTED": 3,
+		"TASK_PHASE_VERIFIER_ASSIGNED": 4,
+		"TASK_PHASE_COMMITTING":        5,
+		"TASK_PHASE_REVEALING":         6,
+		"TASK_PHASE_SETTLING":          7,
+		"TASK_PHASE_SETTLED":           8,
+		"TASK_PHASE_FAILED":            9,
 	}
 )
 
@@ -129,15 +124,9 @@ const (
 	// No assignment activity yet.
 	// ASSIGNMENT_STATUS_NONE identifies the corresponding protocol value.
 	AssignmentStatus_ASSIGNMENT_STATUS_NONE AssignmentStatus = 1
-	// Legal set frozen, waiting for the future beacon.
-	// ASSIGNMENT_STATUS_RANDOMNESS_PENDING identifies the corresponding protocol value.
-	AssignmentStatus_ASSIGNMENT_STATUS_RANDOMNESS_PENDING AssignmentStatus = 2
-	// Winner finalized and liability reserved.
-	// ASSIGNMENT_STATUS_WORKER_ASSIGNED identifies the corresponding protocol value.
-	AssignmentStatus_ASSIGNMENT_STATUS_WORKER_ASSIGNED AssignmentStatus = 3
-	// Assignment could not be completed.
-	// ASSIGNMENT_STATUS_ASSIGN_TIMEOUT identifies the corresponding protocol value.
-	AssignmentStatus_ASSIGNMENT_STATUS_ASSIGN_TIMEOUT AssignmentStatus = 4
+	// Dispatch accepted and liability reserved.
+	// ASSIGNMENT_STATUS_WORKER_RECORDED identifies the corresponding protocol value.
+	AssignmentStatus_ASSIGNMENT_STATUS_WORKER_RECORDED AssignmentStatus = 6
 	// Winner missed the inference deadline.
 	// ASSIGNMENT_STATUS_WORKER_TIMEOUT identifies the corresponding protocol value.
 	AssignmentStatus_ASSIGNMENT_STATUS_WORKER_TIMEOUT AssignmentStatus = 5
@@ -148,18 +137,14 @@ var (
 	AssignmentStatus_name = map[int32]string{
 		0: "ASSIGNMENT_STATUS_UNSPECIFIED",
 		1: "ASSIGNMENT_STATUS_NONE",
-		2: "ASSIGNMENT_STATUS_RANDOMNESS_PENDING",
-		3: "ASSIGNMENT_STATUS_WORKER_ASSIGNED",
-		4: "ASSIGNMENT_STATUS_ASSIGN_TIMEOUT",
+		6: "ASSIGNMENT_STATUS_WORKER_RECORDED",
 		5: "ASSIGNMENT_STATUS_WORKER_TIMEOUT",
 	}
 	AssignmentStatus_value = map[string]int32{
-		"ASSIGNMENT_STATUS_UNSPECIFIED":        0,
-		"ASSIGNMENT_STATUS_NONE":               1,
-		"ASSIGNMENT_STATUS_RANDOMNESS_PENDING": 2,
-		"ASSIGNMENT_STATUS_WORKER_ASSIGNED":    3,
-		"ASSIGNMENT_STATUS_ASSIGN_TIMEOUT":     4,
-		"ASSIGNMENT_STATUS_WORKER_TIMEOUT":     5,
+		"ASSIGNMENT_STATUS_UNSPECIFIED":     0,
+		"ASSIGNMENT_STATUS_NONE":            1,
+		"ASSIGNMENT_STATUS_WORKER_RECORDED": 6,
+		"ASSIGNMENT_STATUS_WORKER_TIMEOUT":  5,
 	}
 )
 
@@ -408,74 +393,6 @@ func (SettlementStatus) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_assignment_proto_rawDescGZIP(), []int{4}
 }
 
-// AssignmentFailureReason is the single closed reason for a failed Worker
-// assignment, frozen by this contract.
-// AssignmentFailureReason defines the AssignmentFailureReason wire type.
-type AssignmentFailureReason int32
-
-const (
-	// No failure recorded.
-	// ASSIGNMENT_FAILURE_REASON_UNSPECIFIED identifies the corresponding protocol value.
-	AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_UNSPECIFIED AssignmentFailureReason = 0
-	// Frozen union bitmap held no usable candidate.
-	// ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET identifies the corresponding protocol value.
-	AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET AssignmentFailureReason = 1
-	// Required future beacon never became available.
-	// ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE identifies the corresponding protocol value.
-	AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE AssignmentFailureReason = 2
-	// Drawn winner could no longer reserve task liability.
-	// ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE identifies the corresponding protocol value.
-	AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE AssignmentFailureReason = 3
-	// Order expired before assignment completed.
-	// ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED identifies the corresponding protocol value.
-	AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED AssignmentFailureReason = 4
-)
-
-// Enum value maps for AssignmentFailureReason.
-var (
-	AssignmentFailureReason_name = map[int32]string{
-		0: "ASSIGNMENT_FAILURE_REASON_UNSPECIFIED",
-		1: "ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET",
-		2: "ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE",
-		3: "ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE",
-		4: "ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED",
-	}
-	AssignmentFailureReason_value = map[string]int32{
-		"ASSIGNMENT_FAILURE_REASON_UNSPECIFIED":                  0,
-		"ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET":              1,
-		"ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE":       2,
-		"ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE": 3,
-		"ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED":                4,
-	}
-)
-
-func (x AssignmentFailureReason) Enum() *AssignmentFailureReason {
-	p := new(AssignmentFailureReason)
-	*p = x
-	return p
-}
-
-func (x AssignmentFailureReason) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AssignmentFailureReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[5].Descriptor()
-}
-
-func (AssignmentFailureReason) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[5]
-}
-
-func (x AssignmentFailureReason) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AssignmentFailureReason.Descriptor instead.
-func (AssignmentFailureReason) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{5}
-}
-
 // TaskCandidateStage selects the handraise stage of one task.
 //
 // The bitmap domains use OPEN_TASK=1 and OPEN_VERIFY=2. SETTLE is not a
@@ -487,9 +404,6 @@ const (
 	// Never written; rejects zero-value rows and keys.
 	// TASK_CANDIDATE_STAGE_UNSPECIFIED identifies the corresponding protocol value.
 	TaskCandidateStage_TASK_CANDIDATE_STAGE_UNSPECIFIED TaskCandidateStage = 0
-	// Worker handraise stage.
-	// TASK_CANDIDATE_STAGE_OPEN_TASK identifies the corresponding protocol value.
-	TaskCandidateStage_TASK_CANDIDATE_STAGE_OPEN_TASK TaskCandidateStage = 1
 	// Verifier handraise stage.
 	// TASK_CANDIDATE_STAGE_OPEN_VERIFY identifies the corresponding protocol value.
 	TaskCandidateStage_TASK_CANDIDATE_STAGE_OPEN_VERIFY TaskCandidateStage = 2
@@ -499,12 +413,10 @@ const (
 var (
 	TaskCandidateStage_name = map[int32]string{
 		0: "TASK_CANDIDATE_STAGE_UNSPECIFIED",
-		1: "TASK_CANDIDATE_STAGE_OPEN_TASK",
 		2: "TASK_CANDIDATE_STAGE_OPEN_VERIFY",
 	}
 	TaskCandidateStage_value = map[string]int32{
 		"TASK_CANDIDATE_STAGE_UNSPECIFIED": 0,
-		"TASK_CANDIDATE_STAGE_OPEN_TASK":   1,
 		"TASK_CANDIDATE_STAGE_OPEN_VERIFY": 2,
 	}
 )
@@ -520,11 +432,11 @@ func (x TaskCandidateStage) String() string {
 }
 
 func (TaskCandidateStage) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[6].Descriptor()
+	return file_task_v1_assignment_proto_enumTypes[5].Descriptor()
 }
 
 func (TaskCandidateStage) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[6]
+	return &file_task_v1_assignment_proto_enumTypes[5]
 }
 
 func (x TaskCandidateStage) Number() protoreflect.EnumNumber {
@@ -533,7 +445,7 @@ func (x TaskCandidateStage) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TaskCandidateStage.Descriptor instead.
 func (TaskCandidateStage) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{5}
 }
 
 // TaskCandidateStageStatusV1 is the handraise window status, frozen by this contract.
@@ -581,11 +493,11 @@ func (x TaskCandidateStageStatusV1) String() string {
 }
 
 func (TaskCandidateStageStatusV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[7].Descriptor()
+	return file_task_v1_assignment_proto_enumTypes[6].Descriptor()
 }
 
 func (TaskCandidateStageStatusV1) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[7]
+	return &file_task_v1_assignment_proto_enumTypes[6]
 }
 
 func (x TaskCandidateStageStatusV1) Number() protoreflect.EnumNumber {
@@ -594,7 +506,7 @@ func (x TaskCandidateStageStatusV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TaskCandidateStageStatusV1.Descriptor instead.
 func (TaskCandidateStageStatusV1) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{6}
 }
 
 // PayloadModeV1 reserves encrypted payload selection for a later activation.
@@ -643,11 +555,11 @@ func (x PayloadModeV1) String() string {
 }
 
 func (PayloadModeV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[8].Descriptor()
+	return file_task_v1_assignment_proto_enumTypes[7].Descriptor()
 }
 
 func (PayloadModeV1) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[8]
+	return &file_task_v1_assignment_proto_enumTypes[7]
 }
 
 func (x PayloadModeV1) Number() protoreflect.EnumNumber {
@@ -656,7 +568,7 @@ func (x PayloadModeV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PayloadModeV1.Descriptor instead.
 func (PayloadModeV1) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{7}
 }
 
 // FinalizeCursorStatusV1 is the bounded finalize cursor status.
@@ -699,11 +611,11 @@ func (x FinalizeCursorStatusV1) String() string {
 }
 
 func (FinalizeCursorStatusV1) Descriptor() protoreflect.EnumDescriptor {
-	return file_task_v1_assignment_proto_enumTypes[9].Descriptor()
+	return file_task_v1_assignment_proto_enumTypes[8].Descriptor()
 }
 
 func (FinalizeCursorStatusV1) Type() protoreflect.EnumType {
-	return &file_task_v1_assignment_proto_enumTypes[9]
+	return &file_task_v1_assignment_proto_enumTypes[8]
 }
 
 func (x FinalizeCursorStatusV1) Number() protoreflect.EnumNumber {
@@ -712,7 +624,7 @@ func (x FinalizeCursorStatusV1) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FinalizeCursorStatusV1.Descriptor instead.
 func (FinalizeCursorStatusV1) EnumDescriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{8}
 }
 
 // TaskCoreState is the only primary of the six task sub-states (public storage contract
@@ -956,31 +868,25 @@ func (x *TaskCoreState) GetAcceptedPayloadMode() PayloadModeV1 {
 }
 
 // TaskAssignmentState holds Worker assignment facts only (key = task_id).
-// assignment_status is NOT duplicated here. winner_draw_digest is derived at
-// winner finalize by TRUEOPEN_WINNER_DRAW_V1 (the wire API).
+// assignment_status is joined from TaskCoreState, never duplicated here.
 // candidate_pool_ref_released makes the CandidatePoolTaskRefState release
 // idempotent (the public storage contract).
 // TaskAssignmentState defines the TaskAssignmentState wire type.
 type TaskAssignmentState struct {
-	state                        protoimpl.MessageState  `protogen:"open.v1"`
-	TaskId                       []byte                  `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	AssignAcceptHeight           uint64                  `protobuf:"varint,2,opt,name=assign_accept_height,json=assignAcceptHeight,proto3" json:"assign_accept_height,omitempty"`
-	AssignmentRandomnessHeight   uint64                  `protobuf:"varint,3,opt,name=assignment_randomness_height,json=assignmentRandomnessHeight,proto3" json:"assignment_randomness_height,omitempty"`
-	WinnerConfirmHeight          uint64                  `protobuf:"varint,4,opt,name=winner_confirm_height,json=winnerConfirmHeight,proto3" json:"winner_confirm_height,omitempty"`
-	InferDeadlineHeight          uint64                  `protobuf:"varint,5,opt,name=infer_deadline_height,json=inferDeadlineHeight,proto3" json:"infer_deadline_height,omitempty"`
-	AssignmentFailReason         AssignmentFailureReason `protobuf:"varint,6,opt,name=assignment_fail_reason,json=assignmentFailReason,proto3,enum=task.v1.AssignmentFailureReason" json:"assignment_fail_reason,omitempty"`
-	CandidatePoolSnapshotId      []byte                  `protobuf:"bytes,7,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
-	CandidatePoolHash            []byte                  `protobuf:"bytes,8,opt,name=candidate_pool_hash,json=candidatePoolHash,proto3" json:"candidate_pool_hash,omitempty"`
-	AssignmentCandidateSetHash   []byte                  `protobuf:"bytes,9,opt,name=assignment_candidate_set_hash,json=assignmentCandidateSetHash,proto3" json:"assignment_candidate_set_hash,omitempty"`
-	WinnerWorker                 string                  `protobuf:"bytes,10,opt,name=winner_worker,json=winnerWorker,proto3" json:"winner_worker,omitempty"`
-	WinnerDrawDigest             []byte                  `protobuf:"bytes,11,opt,name=winner_draw_digest,json=winnerDrawDigest,proto3" json:"winner_draw_digest,omitempty"`
-	ProfileExecutionSnapshotHash []byte                  `protobuf:"bytes,12,opt,name=profile_execution_snapshot_hash,json=profileExecutionSnapshotHash,proto3" json:"profile_execution_snapshot_hash,omitempty"`
-	JudgmentFunctionVersion      string                  `protobuf:"bytes,13,opt,name=judgment_function_version,json=judgmentFunctionVersion,proto3" json:"judgment_function_version,omitempty"`
-	EvidenceSchemaHash           []byte                  `protobuf:"bytes,14,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
-	CanonicalEncodingVersion     string                  `protobuf:"bytes,15,opt,name=canonical_encoding_version,json=canonicalEncodingVersion,proto3" json:"canonical_encoding_version,omitempty"`
-	GenerationParamsDigest       []byte                  `protobuf:"bytes,16,opt,name=generation_params_digest,json=generationParamsDigest,proto3" json:"generation_params_digest,omitempty"`
-	MetricAggregateProofVersion  string                  `protobuf:"bytes,17,opt,name=metric_aggregate_proof_version,json=metricAggregateProofVersion,proto3" json:"metric_aggregate_proof_version,omitempty"`
-	CandidatePoolRefReleased     bool                    `protobuf:"varint,18,opt,name=candidate_pool_ref_released,json=candidatePoolRefReleased,proto3" json:"candidate_pool_ref_released,omitempty"`
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	TaskId                       []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	WinnerConfirmHeight          uint64                 `protobuf:"varint,4,opt,name=winner_confirm_height,json=winnerConfirmHeight,proto3" json:"winner_confirm_height,omitempty"`
+	InferDeadlineHeight          uint64                 `protobuf:"varint,5,opt,name=infer_deadline_height,json=inferDeadlineHeight,proto3" json:"infer_deadline_height,omitempty"`
+	CandidatePoolSnapshotId      []byte                 `protobuf:"bytes,7,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
+	CandidatePoolHash            []byte                 `protobuf:"bytes,8,opt,name=candidate_pool_hash,json=candidatePoolHash,proto3" json:"candidate_pool_hash,omitempty"`
+	WinnerWorker                 string                 `protobuf:"bytes,10,opt,name=winner_worker,json=winnerWorker,proto3" json:"winner_worker,omitempty"`
+	ProfileExecutionSnapshotHash []byte                 `protobuf:"bytes,12,opt,name=profile_execution_snapshot_hash,json=profileExecutionSnapshotHash,proto3" json:"profile_execution_snapshot_hash,omitempty"`
+	JudgmentFunctionVersion      string                 `protobuf:"bytes,13,opt,name=judgment_function_version,json=judgmentFunctionVersion,proto3" json:"judgment_function_version,omitempty"`
+	EvidenceSchemaHash           []byte                 `protobuf:"bytes,14,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
+	CanonicalEncodingVersion     string                 `protobuf:"bytes,15,opt,name=canonical_encoding_version,json=canonicalEncodingVersion,proto3" json:"canonical_encoding_version,omitempty"`
+	GenerationParamsDigest       []byte                 `protobuf:"bytes,16,opt,name=generation_params_digest,json=generationParamsDigest,proto3" json:"generation_params_digest,omitempty"`
+	MetricAggregateProofVersion  string                 `protobuf:"bytes,17,opt,name=metric_aggregate_proof_version,json=metricAggregateProofVersion,proto3" json:"metric_aggregate_proof_version,omitempty"`
+	CandidatePoolRefReleased     bool                   `protobuf:"varint,18,opt,name=candidate_pool_ref_released,json=candidatePoolRefReleased,proto3" json:"candidate_pool_ref_released,omitempty"`
 	// Timeout interval selected at admission from the exact retained Hub bucket.
 	InferTimeoutBlocks uint64 `protobuf:"varint,19,opt,name=infer_timeout_blocks,json=inferTimeoutBlocks,proto3" json:"infer_timeout_blocks,omitempty"`
 	// Profile-local challenge window frozen at admission.
@@ -990,9 +896,12 @@ type TaskAssignmentState struct {
 	WorkerInferTimeoutSlashBps  uint32 `protobuf:"varint,21,opt,name=worker_infer_timeout_slash_bps,json=workerInferTimeoutSlashBps,proto3" json:"worker_infer_timeout_slash_bps,omitempty"`
 	ResultRevealMissingSlashBps uint32 `protobuf:"varint,22,opt,name=result_reveal_missing_slash_bps,json=resultRevealMissingSlashBps,proto3" json:"result_reveal_missing_slash_bps,omitempty"`
 	// Profile minimum stake frozen at admission for later Verifier eligibility.
-	MinStakeSnapshot *v1.Amount `protobuf:"bytes,23,opt,name=min_stake_snapshot,json=minStakeSnapshot,proto3" json:"min_stake_snapshot,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	MinStakeSnapshot   *v1.Amount `protobuf:"bytes,23,opt,name=min_stake_snapshot,json=minStakeSnapshot,proto3" json:"min_stake_snapshot,omitempty"`
+	RecordHeight       uint64     `protobuf:"varint,24,opt,name=record_height,json=recordHeight,proto3" json:"record_height,omitempty"`
+	DispatchRecordHash []byte     `protobuf:"bytes,25,opt,name=dispatch_record_hash,json=dispatchRecordHash,proto3" json:"dispatch_record_hash,omitempty"`
+	DispatchTicketHash []byte     `protobuf:"bytes,26,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *TaskAssignmentState) Reset() {
@@ -1032,20 +941,6 @@ func (x *TaskAssignmentState) GetTaskId() []byte {
 	return nil
 }
 
-func (x *TaskAssignmentState) GetAssignAcceptHeight() uint64 {
-	if x != nil {
-		return x.AssignAcceptHeight
-	}
-	return 0
-}
-
-func (x *TaskAssignmentState) GetAssignmentRandomnessHeight() uint64 {
-	if x != nil {
-		return x.AssignmentRandomnessHeight
-	}
-	return 0
-}
-
 func (x *TaskAssignmentState) GetWinnerConfirmHeight() uint64 {
 	if x != nil {
 		return x.WinnerConfirmHeight
@@ -1058,13 +953,6 @@ func (x *TaskAssignmentState) GetInferDeadlineHeight() uint64 {
 		return x.InferDeadlineHeight
 	}
 	return 0
-}
-
-func (x *TaskAssignmentState) GetAssignmentFailReason() AssignmentFailureReason {
-	if x != nil {
-		return x.AssignmentFailReason
-	}
-	return AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_UNSPECIFIED
 }
 
 func (x *TaskAssignmentState) GetCandidatePoolSnapshotId() []byte {
@@ -1081,25 +969,11 @@ func (x *TaskAssignmentState) GetCandidatePoolHash() []byte {
 	return nil
 }
 
-func (x *TaskAssignmentState) GetAssignmentCandidateSetHash() []byte {
-	if x != nil {
-		return x.AssignmentCandidateSetHash
-	}
-	return nil
-}
-
 func (x *TaskAssignmentState) GetWinnerWorker() string {
 	if x != nil {
 		return x.WinnerWorker
 	}
 	return ""
-}
-
-func (x *TaskAssignmentState) GetWinnerDrawDigest() []byte {
-	if x != nil {
-		return x.WinnerDrawDigest
-	}
-	return nil
 }
 
 func (x *TaskAssignmentState) GetProfileExecutionSnapshotHash() []byte {
@@ -1186,109 +1060,23 @@ func (x *TaskAssignmentState) GetMinStakeSnapshot() *v1.Amount {
 	return nil
 }
 
-// AssignmentCandidateSetState is the task-local dual commitment header
-// (the public storage contract, key = task_id). The pool commitment and the task legal-set
-// commitment are separate: candidate_pool_snapshot_id/pool_hash commit to the
-// public candidate source, union_bitmap_hash plus
-// assignment_candidate_set_hash commit to the accepted handraise subset. No
-// second candidate vector is materialized; rows stay in TaskCandidateFactState.
-// AssignmentCandidateSetState defines the AssignmentCandidateSetState wire type.
-type AssignmentCandidateSetState struct {
-	state                      protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion              uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	TaskId                     []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskHash                   []byte                 `protobuf:"bytes,3,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	CandidatePoolSnapshotId    []byte                 `protobuf:"bytes,4,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
-	CandidatePoolHash          []byte                 `protobuf:"bytes,5,opt,name=candidate_pool_hash,json=candidatePoolHash,proto3" json:"candidate_pool_hash,omitempty"`
-	UnionBitmapHash            []byte                 `protobuf:"bytes,6,opt,name=union_bitmap_hash,json=unionBitmapHash,proto3" json:"union_bitmap_hash,omitempty"`
-	CandidateCount             uint32                 `protobuf:"varint,7,opt,name=candidate_count,json=candidateCount,proto3" json:"candidate_count,omitempty"`
-	AssignmentCandidateSetHash []byte                 `protobuf:"bytes,8,opt,name=assignment_candidate_set_hash,json=assignmentCandidateSetHash,proto3" json:"assignment_candidate_set_hash,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
-}
-
-func (x *AssignmentCandidateSetState) Reset() {
-	*x = AssignmentCandidateSetState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AssignmentCandidateSetState) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AssignmentCandidateSetState) ProtoMessage() {}
-
-func (x *AssignmentCandidateSetState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[2]
+func (x *TaskAssignmentState) GetRecordHeight() uint64 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AssignmentCandidateSetState.ProtoReflect.Descriptor instead.
-func (*AssignmentCandidateSetState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *AssignmentCandidateSetState) GetSchemaVersion() uint32 {
-	if x != nil {
-		return x.SchemaVersion
+		return x.RecordHeight
 	}
 	return 0
 }
 
-func (x *AssignmentCandidateSetState) GetTaskId() []byte {
+func (x *TaskAssignmentState) GetDispatchRecordHash() []byte {
 	if x != nil {
-		return x.TaskId
+		return x.DispatchRecordHash
 	}
 	return nil
 }
 
-func (x *AssignmentCandidateSetState) GetTaskHash() []byte {
+func (x *TaskAssignmentState) GetDispatchTicketHash() []byte {
 	if x != nil {
-		return x.TaskHash
-	}
-	return nil
-}
-
-func (x *AssignmentCandidateSetState) GetCandidatePoolSnapshotId() []byte {
-	if x != nil {
-		return x.CandidatePoolSnapshotId
-	}
-	return nil
-}
-
-func (x *AssignmentCandidateSetState) GetCandidatePoolHash() []byte {
-	if x != nil {
-		return x.CandidatePoolHash
-	}
-	return nil
-}
-
-func (x *AssignmentCandidateSetState) GetUnionBitmapHash() []byte {
-	if x != nil {
-		return x.UnionBitmapHash
-	}
-	return nil
-}
-
-func (x *AssignmentCandidateSetState) GetCandidateCount() uint32 {
-	if x != nil {
-		return x.CandidateCount
-	}
-	return 0
-}
-
-func (x *AssignmentCandidateSetState) GetAssignmentCandidateSetHash() []byte {
-	if x != nil {
-		return x.AssignmentCandidateSetHash
+		return x.DispatchTicketHash
 	}
 	return nil
 }
@@ -1352,7 +1140,7 @@ type TaskCandidateFactState struct {
 
 func (x *TaskCandidateFactState) Reset() {
 	*x = TaskCandidateFactState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[3]
+	mi := &file_task_v1_assignment_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +1152,7 @@ func (x *TaskCandidateFactState) String() string {
 func (*TaskCandidateFactState) ProtoMessage() {}
 
 func (x *TaskCandidateFactState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[3]
+	mi := &file_task_v1_assignment_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1377,7 +1165,7 @@ func (x *TaskCandidateFactState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCandidateFactState.ProtoReflect.Descriptor instead.
 func (*TaskCandidateFactState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{3}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TaskCandidateFactState) GetSchemaVersion() uint32 {
@@ -1533,7 +1321,7 @@ type BuilderStageProposalState struct {
 
 func (x *BuilderStageProposalState) Reset() {
 	*x = BuilderStageProposalState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[4]
+	mi := &file_task_v1_assignment_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1545,7 +1333,7 @@ func (x *BuilderStageProposalState) String() string {
 func (*BuilderStageProposalState) ProtoMessage() {}
 
 func (x *BuilderStageProposalState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[4]
+	mi := &file_task_v1_assignment_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1558,7 +1346,7 @@ func (x *BuilderStageProposalState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuilderStageProposalState.ProtoReflect.Descriptor instead.
 func (*BuilderStageProposalState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{4}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *BuilderStageProposalState) GetSchemaVersion() uint32 {
@@ -1647,7 +1435,7 @@ type TaskStageHandraiseUnionState struct {
 
 func (x *TaskStageHandraiseUnionState) Reset() {
 	*x = TaskStageHandraiseUnionState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[5]
+	mi := &file_task_v1_assignment_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1659,7 +1447,7 @@ func (x *TaskStageHandraiseUnionState) String() string {
 func (*TaskStageHandraiseUnionState) ProtoMessage() {}
 
 func (x *TaskStageHandraiseUnionState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[5]
+	mi := &file_task_v1_assignment_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1672,7 +1460,7 @@ func (x *TaskStageHandraiseUnionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskStageHandraiseUnionState.ProtoReflect.Descriptor instead.
 func (*TaskStageHandraiseUnionState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *TaskStageHandraiseUnionState) GetSchemaVersion() uint32 {
@@ -1783,7 +1571,7 @@ type TaskStageHandraiseUnionSegmentState struct {
 
 func (x *TaskStageHandraiseUnionSegmentState) Reset() {
 	*x = TaskStageHandraiseUnionSegmentState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[6]
+	mi := &file_task_v1_assignment_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1795,7 +1583,7 @@ func (x *TaskStageHandraiseUnionSegmentState) String() string {
 func (*TaskStageHandraiseUnionSegmentState) ProtoMessage() {}
 
 func (x *TaskStageHandraiseUnionSegmentState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[6]
+	mi := &file_task_v1_assignment_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1808,7 +1596,7 @@ func (x *TaskStageHandraiseUnionSegmentState) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use TaskStageHandraiseUnionSegmentState.ProtoReflect.Descriptor instead.
 func (*TaskStageHandraiseUnionSegmentState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TaskStageHandraiseUnionSegmentState) GetSchemaVersion() uint32 {
@@ -1885,12 +1673,11 @@ func (x *TaskStageHandraiseUnionSegmentState) GetBitmap() []byte {
 // the frozen selection projection order above.
 // TaskBuilderSelectionState defines the TaskBuilderSelectionState wire type.
 type TaskBuilderSelectionState struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	TaskId                 []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	SessionAnchorBlockHash []byte                 `protobuf:"bytes,2,opt,name=session_anchor_block_hash,json=sessionAnchorBlockHash,proto3" json:"session_anchor_block_hash,omitempty"`
-	BuilderSetId           string                 `protobuf:"bytes,3,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
-	BuilderSetHash         []byte                 `protobuf:"bytes,4,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
-	// Frozen order; length equals builders_per_task while body_status is ACTIVE
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TaskId         []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	BuilderSetId   string                 `protobuf:"bytes,3,opt,name=builder_set_id,json=builderSetId,proto3" json:"builder_set_id,omitempty"`
+	BuilderSetHash []byte                 `protobuf:"bytes,4,opt,name=builder_set_hash,json=builderSetHash,proto3" json:"builder_set_hash,omitempty"`
+	// Frozen order; length equals the locked BuilderSet snapshot size while body_status is ACTIVE
 	// and is empty once the body is pruned.
 	SelectedTaskBuilders []string `protobuf:"bytes,5,rep,name=selected_task_builders,json=selectedTaskBuilders,proto3" json:"selected_task_builders,omitempty"`
 	// Unchanged by pruning.
@@ -1912,7 +1699,7 @@ type TaskBuilderSelectionState struct {
 
 func (x *TaskBuilderSelectionState) Reset() {
 	*x = TaskBuilderSelectionState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[7]
+	mi := &file_task_v1_assignment_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1924,7 +1711,7 @@ func (x *TaskBuilderSelectionState) String() string {
 func (*TaskBuilderSelectionState) ProtoMessage() {}
 
 func (x *TaskBuilderSelectionState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[7]
+	mi := &file_task_v1_assignment_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1937,19 +1724,12 @@ func (x *TaskBuilderSelectionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskBuilderSelectionState.ProtoReflect.Descriptor instead.
 func (*TaskBuilderSelectionState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *TaskBuilderSelectionState) GetTaskId() []byte {
 	if x != nil {
 		return x.TaskId
-	}
-	return nil
-}
-
-func (x *TaskBuilderSelectionState) GetSessionAnchorBlockHash() []byte {
-	if x != nil {
-		return x.SessionAnchorBlockHash
 	}
 	return nil
 }
@@ -2045,7 +1825,7 @@ type TaskCandidateFinalizeCursorState struct {
 
 func (x *TaskCandidateFinalizeCursorState) Reset() {
 	*x = TaskCandidateFinalizeCursorState{}
-	mi := &file_task_v1_assignment_proto_msgTypes[8]
+	mi := &file_task_v1_assignment_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2057,7 +1837,7 @@ func (x *TaskCandidateFinalizeCursorState) String() string {
 func (*TaskCandidateFinalizeCursorState) ProtoMessage() {}
 
 func (x *TaskCandidateFinalizeCursorState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_assignment_proto_msgTypes[8]
+	mi := &file_task_v1_assignment_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2070,7 +1850,7 @@ func (x *TaskCandidateFinalizeCursorState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCandidateFinalizeCursorState.ProtoReflect.Descriptor instead.
 func (*TaskCandidateFinalizeCursorState) Descriptor() ([]byte, []int) {
-	return file_task_v1_assignment_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_assignment_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TaskCandidateFinalizeCursorState) GetSchemaVersion() uint32 {
@@ -2178,21 +1958,16 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\"evidence_retention_blocks_snapshot\x18\x16 \x01(\x04R\x1fevidenceRetentionBlocksSnapshot\x12N\n" +
 	"$objective_forgery_slash_bps_snapshot\x18\x17 \x01(\rR objectiveForgerySlashBpsSnapshot\x12J\n" +
 	"\x15accepted_payload_mode\x18\x18 \x01(\x0e2\x16.task.v1.PayloadModeV1R\x13acceptedPayloadModeB\x17\n" +
-	"\x15_task_finality_height\"\xe5\n" +
+	"\x15_task_finality_height\"\xce\n" +
 	"\n" +
 	"\x13TaskAssignmentState\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
-	"\x14assign_accept_height\x18\x02 \x01(\x04R\x12assignAcceptHeight\x12@\n" +
-	"\x1cassignment_randomness_height\x18\x03 \x01(\x04R\x1aassignmentRandomnessHeight\x122\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x122\n" +
 	"\x15winner_confirm_height\x18\x04 \x01(\x04R\x13winnerConfirmHeight\x122\n" +
-	"\x15infer_deadline_height\x18\x05 \x01(\x04R\x13inferDeadlineHeight\x12V\n" +
-	"\x16assignment_fail_reason\x18\x06 \x01(\x0e2 .task.v1.AssignmentFailureReasonR\x14assignmentFailReason\x12;\n" +
+	"\x15infer_deadline_height\x18\x05 \x01(\x04R\x13inferDeadlineHeight\x12;\n" +
 	"\x1acandidate_pool_snapshot_id\x18\a \x01(\fR\x17candidatePoolSnapshotId\x12.\n" +
-	"\x13candidate_pool_hash\x18\b \x01(\fR\x11candidatePoolHash\x12A\n" +
-	"\x1dassignment_candidate_set_hash\x18\t \x01(\fR\x1aassignmentCandidateSetHash\x12#\n" +
+	"\x13candidate_pool_hash\x18\b \x01(\fR\x11candidatePoolHash\x12#\n" +
 	"\rwinner_worker\x18\n" +
-	" \x01(\tR\fwinnerWorker\x12,\n" +
-	"\x12winner_draw_digest\x18\v \x01(\fR\x10winnerDrawDigest\x12E\n" +
+	" \x01(\tR\fwinnerWorker\x12E\n" +
 	"\x1fprofile_execution_snapshot_hash\x18\f \x01(\fR\x1cprofileExecutionSnapshotHash\x12:\n" +
 	"\x19judgment_function_version\x18\r \x01(\tR\x17judgmentFunctionVersion\x120\n" +
 	"\x14evidence_schema_hash\x18\x0e \x01(\fR\x12evidenceSchemaHash\x12<\n" +
@@ -2204,16 +1979,11 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"%challenge_open_window_blocks_snapshot\x18\x14 \x01(\x04R!challengeOpenWindowBlocksSnapshot\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x15 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
 	"\x1fresult_reveal_missing_slash_bps\x18\x16 \x01(\rR\x1bresultRevealMissingSlashBps\x12?\n" +
-	"\x12min_stake_snapshot\x18\x17 \x01(\v2\x11.shared.v1.AmountR\x10minStakeSnapshot\"\xff\x02\n" +
-	"\x1bAssignmentCandidateSetState\x12%\n" +
-	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12\x1b\n" +
-	"\ttask_hash\x18\x03 \x01(\fR\btaskHash\x12;\n" +
-	"\x1acandidate_pool_snapshot_id\x18\x04 \x01(\fR\x17candidatePoolSnapshotId\x12.\n" +
-	"\x13candidate_pool_hash\x18\x05 \x01(\fR\x11candidatePoolHash\x12*\n" +
-	"\x11union_bitmap_hash\x18\x06 \x01(\fR\x0funionBitmapHash\x12'\n" +
-	"\x0fcandidate_count\x18\a \x01(\rR\x0ecandidateCount\x12A\n" +
-	"\x1dassignment_candidate_set_hash\x18\b \x01(\fR\x1aassignmentCandidateSetHash\"\xa1\b\n" +
+	"\x12min_stake_snapshot\x18\x17 \x01(\v2\x11.shared.v1.AmountR\x10minStakeSnapshot\x12#\n" +
+	"\rrecord_height\x18\x18 \x01(\x04R\frecordHeight\x120\n" +
+	"\x14dispatch_record_hash\x18\x19 \x01(\fR\x12dispatchRecordHash\x120\n" +
+	"\x14dispatch_ticket_hash\x18\x1a \x01(\fR\x12dispatchTicketHashJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\t\x10\n" +
+	"J\x04\b\v\x10\fR\x14assign_accept_heightR\x1cassignment_randomness_heightR\x16assignment_fail_reasonR\x1dassignment_candidate_set_hashR\x12winner_draw_digest\"\xa1\b\n" +
 	"\x16TaskCandidateFactState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x121\n" +
@@ -2267,10 +2037,9 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x121\n" +
 	"\x05stage\x18\x03 \x01(\x0e2\x1b.task.v1.TaskCandidateStageR\x05stage\x12#\n" +
 	"\rsegment_index\x18\x04 \x01(\rR\fsegmentIndex\x12\x16\n" +
-	"\x06bitmap\x18\x05 \x01(\fR\x06bitmap\"\xd9\x04\n" +
+	"\x06bitmap\x18\x05 \x01(\fR\x06bitmap\"\xbf\x04\n" +
 	"\x19TaskBuilderSelectionState\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\fR\x06taskId\x129\n" +
-	"\x19session_anchor_block_hash\x18\x02 \x01(\fR\x16sessionAnchorBlockHash\x12$\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12$\n" +
 	"\x0ebuilder_set_id\x18\x03 \x01(\tR\fbuilderSetId\x12(\n" +
 	"\x10builder_set_hash\x18\x04 \x01(\fR\x0ebuilderSetHash\x124\n" +
 	"\x16selected_task_builders\x18\x05 \x03(\tR\x14selectedTaskBuilders\x12=\n" +
@@ -2281,7 +2050,7 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"bodyStatus\x127\n" +
 	"\x18builder_set_ref_released\x18\n" +
 	" \x01(\bR\x15builderSetRefReleased\x12F\n" +
-	" builder_fault_slash_bps_snapshot\x18\v \x01(\rR\x1cbuilderFaultSlashBpsSnapshot\"\xf0\x03\n" +
+	" builder_fault_slash_bps_snapshot\x18\v \x01(\rR\x1cbuilderFaultSlashBpsSnapshotJ\x04\b\x02\x10\x03R\x19session_anchor_block_hash\"\xf0\x03\n" +
 	" TaskCandidateFinalizeCursorState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x121\n" +
@@ -2294,25 +2063,23 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\x06status\x18\t \x01(\x0e2\x1f.task.v1.FinalizeCursorStatusV1R\x06status\x128\n" +
 	"\x18materialized_fact_chunks\x18\n" +
 	" \x03(\fR\x16materializedFactChunksB\x14\n" +
-	"\x12_randomness_height*\xb2\x02\n" +
+	"\x12_randomness_height*\xd4\x02\n" +
 	"\tTaskPhase\x12\x1a\n" +
-	"\x16TASK_PHASE_UNSPECIFIED\x10\x00\x12(\n" +
-	"$TASK_PHASE_WORKER_ASSIGNMENT_PENDING\x10\x01\x12\x1e\n" +
-	"\x1aTASK_PHASE_WORKER_ASSIGNED\x10\x02\x12 \n" +
+	"\x16TASK_PHASE_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18TASK_PHASE_INFER_PENDING\x10\n" +
+	"\x12 \n" +
 	"\x1cTASK_PHASE_RECEIPT_COMMITTED\x10\x03\x12 \n" +
 	"\x1cTASK_PHASE_VERIFIER_ASSIGNED\x10\x04\x12\x19\n" +
 	"\x15TASK_PHASE_COMMITTING\x10\x05\x12\x18\n" +
 	"\x14TASK_PHASE_REVEALING\x10\x06\x12\x17\n" +
 	"\x13TASK_PHASE_SETTLING\x10\a\x12\x16\n" +
 	"\x12TASK_PHASE_SETTLED\x10\b\x12\x15\n" +
-	"\x11TASK_PHASE_FAILED\x10\t*\xee\x01\n" +
+	"\x11TASK_PHASE_FAILED\x10\t\"\x04\b\x01\x10\x01\"\x04\b\x02\x10\x02*$TASK_PHASE_WORKER_ASSIGNMENT_PENDING*\x1aTASK_PHASE_WORKER_ASSIGNED*\x9b\x02\n" +
 	"\x10AssignmentStatus\x12!\n" +
 	"\x1dASSIGNMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
-	"\x16ASSIGNMENT_STATUS_NONE\x10\x01\x12(\n" +
-	"$ASSIGNMENT_STATUS_RANDOMNESS_PENDING\x10\x02\x12%\n" +
-	"!ASSIGNMENT_STATUS_WORKER_ASSIGNED\x10\x03\x12$\n" +
-	" ASSIGNMENT_STATUS_ASSIGN_TIMEOUT\x10\x04\x12$\n" +
-	" ASSIGNMENT_STATUS_WORKER_TIMEOUT\x10\x05*\x91\x01\n" +
+	"\x16ASSIGNMENT_STATUS_NONE\x10\x01\x12%\n" +
+	"!ASSIGNMENT_STATUS_WORKER_RECORDED\x10\x06\x12$\n" +
+	" ASSIGNMENT_STATUS_WORKER_TIMEOUT\x10\x05\"\x04\b\x02\x10\x02\"\x04\b\x03\x10\x03\"\x04\b\x04\x10\x04*$ASSIGNMENT_STATUS_RANDOMNESS_PENDING*!ASSIGNMENT_STATUS_WORKER_ASSIGNED* ASSIGNMENT_STATUS_ASSIGN_TIMEOUT*\x91\x01\n" +
 	"\rReceiptStatus\x12\x1e\n" +
 	"\x1aRECEIPT_STATUS_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RECEIPT_STATUS_NONE\x10\x01\x12#\n" +
@@ -2335,17 +2102,10 @@ const file_task_v1_assignment_proto_rawDesc = "" +
 	"\x1dSETTLEMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16SETTLEMENT_STATUS_NONE\x10\x01\x12\x1f\n" +
 	"\x1bSETTLEMENT_STATUS_FINALIZED\x10\x02\x12\x1e\n" +
-	"\x1aSETTLEMENT_STATUS_REFUNDED\x10\x03*\x92\x02\n" +
-	"\x17AssignmentFailureReason\x12)\n" +
-	"%ASSIGNMENT_FAILURE_REASON_UNSPECIFIED\x10\x00\x12-\n" +
-	")ASSIGNMENT_FAILURE_REASON_EMPTY_LEGAL_SET\x10\x01\x124\n" +
-	"0ASSIGNMENT_FAILURE_REASON_RANDOMNESS_UNAVAILABLE\x10\x02\x12:\n" +
-	"6ASSIGNMENT_FAILURE_REASON_WINNER_LIABILITY_UNAVAILABLE\x10\x03\x12+\n" +
-	"'ASSIGNMENT_FAILURE_REASON_ORDER_EXPIRED\x10\x04*\x84\x01\n" +
+	"\x1aSETTLEMENT_STATUS_REFUNDED\x10\x03*\x86\x01\n" +
 	"\x12TaskCandidateStage\x12$\n" +
-	" TASK_CANDIDATE_STAGE_UNSPECIFIED\x10\x00\x12\"\n" +
-	"\x1eTASK_CANDIDATE_STAGE_OPEN_TASK\x10\x01\x12$\n" +
-	" TASK_CANDIDATE_STAGE_OPEN_VERIFY\x10\x02*\xd2\x01\n" +
+	" TASK_CANDIDATE_STAGE_UNSPECIFIED\x10\x00\x12$\n" +
+	" TASK_CANDIDATE_STAGE_OPEN_VERIFY\x10\x02\"\x04\b\x01\x10\x01*\x1eTASK_CANDIDATE_STAGE_OPEN_TASK*\xd2\x01\n" +
 	"\x1aTaskCandidateStageStatusV1\x12.\n" +
 	"*TASK_CANDIDATE_STAGE_STATUS_V1_UNSPECIFIED\x10\x00\x12'\n" +
 	"#TASK_CANDIDATE_STAGE_STATUS_V1_OPEN\x10\x01\x12-\n" +
@@ -2372,64 +2132,61 @@ func file_task_v1_assignment_proto_rawDescGZIP() []byte {
 	return file_task_v1_assignment_proto_rawDescData
 }
 
-var file_task_v1_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_task_v1_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_task_v1_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_task_v1_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_task_v1_assignment_proto_goTypes = []any{
 	(TaskPhase)(0),                              // 0: task.v1.TaskPhase
 	(AssignmentStatus)(0),                       // 1: task.v1.AssignmentStatus
 	(ReceiptStatus)(0),                          // 2: task.v1.ReceiptStatus
 	(VerificationStatus)(0),                     // 3: task.v1.VerificationStatus
 	(SettlementStatus)(0),                       // 4: task.v1.SettlementStatus
-	(AssignmentFailureReason)(0),                // 5: task.v1.AssignmentFailureReason
-	(TaskCandidateStage)(0),                     // 6: task.v1.TaskCandidateStage
-	(TaskCandidateStageStatusV1)(0),             // 7: task.v1.TaskCandidateStageStatusV1
-	(PayloadModeV1)(0),                          // 8: task.v1.PayloadModeV1
-	(FinalizeCursorStatusV1)(0),                 // 9: task.v1.FinalizeCursorStatusV1
-	(*TaskCoreState)(nil),                       // 10: task.v1.TaskCoreState
-	(*TaskAssignmentState)(nil),                 // 11: task.v1.TaskAssignmentState
-	(*AssignmentCandidateSetState)(nil),         // 12: task.v1.AssignmentCandidateSetState
-	(*TaskCandidateFactState)(nil),              // 13: task.v1.TaskCandidateFactState
-	(*BuilderStageProposalState)(nil),           // 14: task.v1.BuilderStageProposalState
-	(*TaskStageHandraiseUnionState)(nil),        // 15: task.v1.TaskStageHandraiseUnionState
-	(*TaskStageHandraiseUnionSegmentState)(nil), // 16: task.v1.TaskStageHandraiseUnionSegmentState
-	(*TaskBuilderSelectionState)(nil),           // 17: task.v1.TaskBuilderSelectionState
-	(*TaskCandidateFinalizeCursorState)(nil),    // 18: task.v1.TaskCandidateFinalizeCursorState
-	(v1.TaskType)(0),                            // 19: shared.v1.TaskType
-	(*v1.Amount)(nil),                           // 20: shared.v1.Amount
-	(v1.TaskFinalityStatusV1)(0),                // 21: shared.v1.TaskFinalityStatusV1
-	(v1.Duty)(0),                                // 22: shared.v1.Duty
-	(v1.StoredBodyStatus)(0),                    // 23: shared.v1.StoredBodyStatus
+	(TaskCandidateStage)(0),                     // 5: task.v1.TaskCandidateStage
+	(TaskCandidateStageStatusV1)(0),             // 6: task.v1.TaskCandidateStageStatusV1
+	(PayloadModeV1)(0),                          // 7: task.v1.PayloadModeV1
+	(FinalizeCursorStatusV1)(0),                 // 8: task.v1.FinalizeCursorStatusV1
+	(*TaskCoreState)(nil),                       // 9: task.v1.TaskCoreState
+	(*TaskAssignmentState)(nil),                 // 10: task.v1.TaskAssignmentState
+	(*TaskCandidateFactState)(nil),              // 11: task.v1.TaskCandidateFactState
+	(*BuilderStageProposalState)(nil),           // 12: task.v1.BuilderStageProposalState
+	(*TaskStageHandraiseUnionState)(nil),        // 13: task.v1.TaskStageHandraiseUnionState
+	(*TaskStageHandraiseUnionSegmentState)(nil), // 14: task.v1.TaskStageHandraiseUnionSegmentState
+	(*TaskBuilderSelectionState)(nil),           // 15: task.v1.TaskBuilderSelectionState
+	(*TaskCandidateFinalizeCursorState)(nil),    // 16: task.v1.TaskCandidateFinalizeCursorState
+	(v1.TaskType)(0),                            // 17: shared.v1.TaskType
+	(*v1.Amount)(nil),                           // 18: shared.v1.Amount
+	(v1.TaskFinalityStatusV1)(0),                // 19: shared.v1.TaskFinalityStatusV1
+	(v1.Duty)(0),                                // 20: shared.v1.Duty
+	(v1.StoredBodyStatus)(0),                    // 21: shared.v1.StoredBodyStatus
 }
 var file_task_v1_assignment_proto_depIdxs = []int32{
-	19, // 0: task.v1.TaskCoreState.task_type:type_name -> shared.v1.TaskType
-	20, // 1: task.v1.TaskCoreState.order_value:type_name -> shared.v1.Amount
+	17, // 0: task.v1.TaskCoreState.task_type:type_name -> shared.v1.TaskType
+	18, // 1: task.v1.TaskCoreState.order_value:type_name -> shared.v1.Amount
 	0,  // 2: task.v1.TaskCoreState.task_phase:type_name -> task.v1.TaskPhase
 	1,  // 3: task.v1.TaskCoreState.assignment_status:type_name -> task.v1.AssignmentStatus
 	2,  // 4: task.v1.TaskCoreState.receipt_status:type_name -> task.v1.ReceiptStatus
 	3,  // 5: task.v1.TaskCoreState.verification_status:type_name -> task.v1.VerificationStatus
 	4,  // 6: task.v1.TaskCoreState.settlement_status:type_name -> task.v1.SettlementStatus
-	21, // 7: task.v1.TaskCoreState.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
-	8,  // 8: task.v1.TaskCoreState.accepted_payload_mode:type_name -> task.v1.PayloadModeV1
-	5,  // 9: task.v1.TaskAssignmentState.assignment_fail_reason:type_name -> task.v1.AssignmentFailureReason
-	20, // 10: task.v1.TaskAssignmentState.min_stake_snapshot:type_name -> shared.v1.Amount
-	6,  // 11: task.v1.TaskCandidateFactState.stage:type_name -> task.v1.TaskCandidateStage
-	22, // 12: task.v1.TaskCandidateFactState.duty:type_name -> shared.v1.Duty
-	20, // 13: task.v1.TaskCandidateFactState.active_bond_snapshot:type_name -> shared.v1.Amount
-	20, // 14: task.v1.TaskCandidateFactState.available_bond_snapshot:type_name -> shared.v1.Amount
-	20, // 15: task.v1.TaskCandidateFactState.required_task_liability_snapshot:type_name -> shared.v1.Amount
-	20, // 16: task.v1.TaskCandidateFactState.min_stake_snapshot:type_name -> shared.v1.Amount
-	6,  // 17: task.v1.BuilderStageProposalState.stage:type_name -> task.v1.TaskCandidateStage
-	6,  // 18: task.v1.TaskStageHandraiseUnionState.stage:type_name -> task.v1.TaskCandidateStage
-	7,  // 19: task.v1.TaskStageHandraiseUnionState.status:type_name -> task.v1.TaskCandidateStageStatusV1
-	6,  // 20: task.v1.TaskStageHandraiseUnionSegmentState.stage:type_name -> task.v1.TaskCandidateStage
-	23, // 21: task.v1.TaskBuilderSelectionState.body_status:type_name -> shared.v1.StoredBodyStatus
-	6,  // 22: task.v1.TaskCandidateFinalizeCursorState.stage:type_name -> task.v1.TaskCandidateStage
-	9,  // 23: task.v1.TaskCandidateFinalizeCursorState.status:type_name -> task.v1.FinalizeCursorStatusV1
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	19, // 7: task.v1.TaskCoreState.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
+	7,  // 8: task.v1.TaskCoreState.accepted_payload_mode:type_name -> task.v1.PayloadModeV1
+	18, // 9: task.v1.TaskAssignmentState.min_stake_snapshot:type_name -> shared.v1.Amount
+	5,  // 10: task.v1.TaskCandidateFactState.stage:type_name -> task.v1.TaskCandidateStage
+	20, // 11: task.v1.TaskCandidateFactState.duty:type_name -> shared.v1.Duty
+	18, // 12: task.v1.TaskCandidateFactState.active_bond_snapshot:type_name -> shared.v1.Amount
+	18, // 13: task.v1.TaskCandidateFactState.available_bond_snapshot:type_name -> shared.v1.Amount
+	18, // 14: task.v1.TaskCandidateFactState.required_task_liability_snapshot:type_name -> shared.v1.Amount
+	18, // 15: task.v1.TaskCandidateFactState.min_stake_snapshot:type_name -> shared.v1.Amount
+	5,  // 16: task.v1.BuilderStageProposalState.stage:type_name -> task.v1.TaskCandidateStage
+	5,  // 17: task.v1.TaskStageHandraiseUnionState.stage:type_name -> task.v1.TaskCandidateStage
+	6,  // 18: task.v1.TaskStageHandraiseUnionState.status:type_name -> task.v1.TaskCandidateStageStatusV1
+	5,  // 19: task.v1.TaskStageHandraiseUnionSegmentState.stage:type_name -> task.v1.TaskCandidateStage
+	21, // 20: task.v1.TaskBuilderSelectionState.body_status:type_name -> shared.v1.StoredBodyStatus
+	5,  // 21: task.v1.TaskCandidateFinalizeCursorState.stage:type_name -> task.v1.TaskCandidateStage
+	8,  // 22: task.v1.TaskCandidateFinalizeCursorState.status:type_name -> task.v1.FinalizeCursorStatusV1
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_assignment_proto_init() }
@@ -2438,15 +2195,15 @@ func file_task_v1_assignment_proto_init() {
 		return
 	}
 	file_task_v1_assignment_proto_msgTypes[0].OneofWrappers = []any{}
-	file_task_v1_assignment_proto_msgTypes[5].OneofWrappers = []any{}
-	file_task_v1_assignment_proto_msgTypes[8].OneofWrappers = []any{}
+	file_task_v1_assignment_proto_msgTypes[4].OneofWrappers = []any{}
+	file_task_v1_assignment_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_assignment_proto_rawDesc), len(file_task_v1_assignment_proto_rawDesc)),
-			NumEnums:      10,
-			NumMessages:   9,
+			NumEnums:      9,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

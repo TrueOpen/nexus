@@ -8,6 +8,8 @@ import "shared/v1/common.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // MsgRotateServiceKey replaces the current service key binding of one stable operator (10.0c1).
+// Atomically retain the replaced generation as ServiceKeyProofState before
+// installing the new current key. Retained keys verify old facts only.
 message MsgRotateServiceKey {
   shared.v1.ParticipantType participant_type = 1;
   bytes new_service_pubkey = 2;

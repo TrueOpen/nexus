@@ -19,10 +19,8 @@ Mirroring rules (field-for-field identical to wire, dropping only what nexus doe
 After changing proto files run `make proto` as usual; whether the node mirror is correct is decided by the
 descriptor fingerprint in internal/chaincli/node_descriptor_test.go.
 
-nexus.v1 is deliberately not in PACKAGES: the wire copy of nexus/v1/ingress.proto is comment-stripped and this
-repository keeps the documented one. It must still match wire field for field, which
-internal/ingress/wire_descriptor_test.go pins (its expected value is derived by running mirror_file() over the wire
-proto, generating, and hashing that descriptor).
+nexus.v1 is mirrored like the other packages: the wire copy is the documented IngressAPI and dispatch
+stream contract, so this repository no longer keeps a hand-maintained copy.
 """
 import pathlib
 import re
@@ -35,7 +33,7 @@ PACKAGES = {
     "hub": "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1",
     "task": "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1",
     "shared": "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1",
-    "bus": "github.com/TrueOpen/nexus/gen/bus/v1;busv1",
+    "nexus": "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1",
 }
 SKIP_FILES = {"shared/v1/rest_encoding.proto"}
 DROP_IMPORTS = {

@@ -7,6 +7,7 @@ import "task/v1/builder_evidence.proto";
 import "task/v1/deadline.proto";
 import "task/v1/msg_assignment.proto";
 import "task/v1/msg_challenge.proto";
+import "task/v1/msg_dispatch.proto";
 import "task/v1/msg_session.proto";
 import "task/v1/msg_settlement.proto";
 import "task/v1/msg_verification.proto";
@@ -30,14 +31,13 @@ service Msg {
   // SubmitWorkerHandraises is the single Task admission and Worker candidate
   // entry; it replaces the deleted MsgAssign.
   // SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
-  rpc SubmitWorkerHandraises(MsgSubmitWorkerHandraises) returns (MsgSubmitWorkerHandraisesResponse);
   // SubmitInferReceipt accepts the winner Worker's inference receipt; it
   // replaces the deleted MsgInferReceiptCommitOnly.
   // SubmitInferReceipt executes the SubmitInferReceipt operation.
   rpc SubmitInferReceipt(MsgSubmitInferReceipt) returns (MsgSubmitInferReceiptResponse);
   // SubmitWorkerEvidence accepts one strict-encoded objective Worker proof.
   rpc SubmitWorkerEvidence(MsgSubmitWorkerEvidence) returns (MsgSubmitWorkerEvidenceResponse);
-  // SubmitVerifierValueEvidence is registered but returns ERR_NOT_ACTIVATED.
+  // SubmitVerifierValueEvidence accepts bounded committed-value contradictions.
   rpc SubmitVerifierValueEvidence(MsgSubmitVerifierValueEvidence) returns (MsgSubmitVerifierValueEvidenceResponse);
   // SubmitVerifierHandraises is the single Open Verify entry; it replaces the
   // deleted MsgOpenVerify.
@@ -67,22 +67,37 @@ service Msg {
   // MsgSweepExpiredTask and MsgSessionSweep.
   // SweepDeadline executes the SweepDeadline operation.
   rpc SweepDeadline(MsgSweepDeadline) returns (MsgSweepDeadlineResponse);
-}
 
-// Removed development messages have no alias or compatibility decoder in the
-// fresh v0.3.0 schema:
-//   MsgSessionSweep, MsgSweepExpiredTask   -> MsgSweepDeadline
-//   MsgAssign                              -> MsgSubmitWorkerHandraises
-//   MsgOpenVerify                          -> MsgSubmitVerifierHandraises
-//   MsgInferReceiptCommitOnly              -> MsgSubmitInferReceipt
-//   MsgSettle                              -> MsgSettleTask
-//   MsgCommit / MsgBatchCommit             -> MsgSubmitVerifyCommit / batch
-//   MsgResult / MsgBatchResult             -> MsgSubmitVerifyResult / batch
-//   MsgWorkerReveal                        -> deleted; this contract registers no
-//                                             separate worker reveal Msg
-//   MsgUserChallenge, MsgChallengeCommit, MsgChallengeResult,
-//   MsgSubmitChallengeFullResultReveal     -> replaced by the round-2 protocol;
-//                                             proof/opening messages remain absent
-//   MsgUpdateTimeoutBucket                 -> moved to hub.v1.Msg, whose
-//                                             governance handler is the only
-//                                             parameter bucket writer
+  // RecordDispatch executes the RecordDispatch operation.
+  rpc RecordDispatch(MsgRecordDispatch) returns (MsgRecordDispatchResponse);
+
+  // ClaimDispatchCompensation executes the ClaimDispatchCompensation operation.
+  rpc ClaimDispatchCompensation(MsgClaimDispatchCompensation) returns (MsgClaimDispatchCompensationResponse);
+
+  // RebutDispatchCompensation executes the RebutDispatchCompensation operation.
+  rpc RebutDispatchCompensation(MsgRebutDispatchCompensation) returns (MsgRebutDispatchCompensationResponse);
+
+  // ChallengeDispatchOmission executes the ChallengeDispatchOmission operation.
+  rpc ChallengeDispatchOmission(MsgChallengeDispatchOmission) returns (MsgChallengeDispatchOmissionResponse);
+
+  // ChallengeDispatchDraw executes the ChallengeDispatchDraw operation.
+  rpc ChallengeDispatchDraw(MsgChallengeDispatchDraw) returns (MsgChallengeDispatchDrawResponse);
+
+  // ChallengeDispatchSkip executes the ChallengeDispatchSkip operation.
+  rpc ChallengeDispatchSkip(MsgChallengeDispatchSkip) returns (MsgChallengeDispatchSkipResponse);
+
+  // ReportDispatchRosterUnavailable executes the ReportDispatchRosterUnavailable operation.
+  rpc ReportDispatchRosterUnavailable(MsgReportDispatchRosterUnavailable) returns (MsgReportDispatchRosterUnavailableResponse);
+
+  // ChallengeDispatchDoubleDispatch executes the ChallengeDispatchDoubleDispatch operation.
+  rpc ChallengeDispatchDoubleDispatch(MsgChallengeDispatchDoubleDispatch) returns (MsgChallengeDispatchDoubleDispatchResponse);
+
+  // RespondDispatchChallenge executes the RespondDispatchChallenge operation.
+  rpc RespondDispatchChallenge(MsgRespondDispatchChallenge) returns (MsgRespondDispatchChallengeResponse);
+
+  // DepositSession executes the DepositSession operation.
+  rpc DepositSession(MsgDepositSession) returns (MsgDepositSessionResponse);
+
+  // WithdrawSession executes the WithdrawSession operation.
+  rpc WithdrawSession(MsgWithdrawSession) returns (MsgWithdrawSessionResponse);
+}

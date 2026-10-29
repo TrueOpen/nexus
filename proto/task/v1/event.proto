@@ -7,7 +7,9 @@ import "shared/v1/common.proto";
 import "shared/v1/round_economics.proto";
 import "task/v1/assignment.proto";
 import "task/v1/deadline.proto";
+import "task/v1/dispatch_event.proto";
 import "task/v1/settlement.proto";
+import "task/v1/value_evidence.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 
@@ -116,31 +118,9 @@ message EventTaskFailureClassUpdated {
   bool freeze_signal_eligible = 8;
 }
 
-// EventWorkerHandraisesAccepted is event code 10, emitted once per proposal that
-// added at least one candidate and committed.
-// EventWorkerHandraisesAccepted defines the EventWorkerHandraisesAccepted wire type.
-message EventWorkerHandraisesAccepted {
-  bytes session_id = 1;
-  bytes task_id = 2;
-  uint64 order_sequence = 3;
-  bytes proposal_digest = 4;
-  bytes added_bitmap_hash = 5;
-  optional string builder_or_empty = 6;
-  uint32 union_count = 7;
-}
-
 // EventWorkerAssignmentFinalized is event code 11, emitted once when the winner
 // and its task liability commit in the same transaction.
 // EventWorkerAssignmentFinalized defines the EventWorkerAssignmentFinalized wire type.
-message EventWorkerAssignmentFinalized {
-  bytes session_id = 1;
-  bytes task_id = 2;
-  string winner_worker = 3;
-  bytes assignment_candidate_set_hash = 4;
-  uint64 randomness_height = 5;
-  shared.v1.Amount reserved_amount = 6;
-  uint64 infer_deadline = 7;
-}
 
 // EventInferReceiptAccepted is event code 12, emitted once when the receipt is
 // first accepted and the verifier window build index is written.
@@ -260,12 +240,6 @@ message EventDeadlineSwept {
 // EventAssignmentFailed is event code 22, emitted once when the assignment
 // failure and its refund commit together.
 // EventAssignmentFailed defines the EventAssignmentFailed wire type.
-message EventAssignmentFailed {
-  bytes session_id = 1;
-  bytes task_id = 2;
-  AssignmentFailureReason reason = 3;
-  shared.v1.Amount refund_amount = 4;
-}
 
 // EventWorkerTimeout is event code 23, emitted once when the inference deadline
 // first closes the Task.
@@ -377,6 +351,12 @@ message EventTaskParamsUpdated {
 // exactly like hub.v1.ProtocolEventPayloadV1 does for Hub-owned codes.
 // TaskProtocolEventPayloadV1 defines the TaskProtocolEventPayloadV1 wire type.
 message TaskProtocolEventPayloadV1 {
+  reserved 10;
+  reserved "worker_handraises_accepted";
+  reserved 11;
+  reserved "worker_assignment_finalized";
+  reserved 22;
+  reserved "assignment_failed";
   // Exactly one payload matching the envelope event_code is set.
   // typed_event selects one supported variant.
   oneof typed_event {
@@ -384,8 +364,7 @@ message TaskProtocolEventPayloadV1 {
     EventOrderCancelled order_cancelled = 2;
     EventRevealPhaseStarted reveal_phase_started = 8;
     EventTaskFailureClassUpdated task_failure_class_updated = 9;
-    EventWorkerHandraisesAccepted worker_handraises_accepted = 10;
-    EventWorkerAssignmentFinalized worker_assignment_finalized = 11;
+
     EventInferReceiptAccepted infer_receipt_accepted = 12;
     EventVerifierAssignmentFinalized verifier_assignment_finalized = 13;
     EventDataUnavailableReported data_unavailable_reported = 14;
@@ -394,7 +373,7 @@ message TaskProtocolEventPayloadV1 {
     EventResultAccepted result_accepted = 17;
     EventTaskSettled task_settled = 19;
     EventDeadlineSwept deadline_swept = 20;
-    EventAssignmentFailed assignment_failed = 22;
+
     EventWorkerTimeout worker_timeout = 23;
     EventVerifyOpenTimeout verify_open_timeout = 24;
     EventCommitDeadlineClosed commit_deadline_closed = 25;
@@ -402,9 +381,25 @@ message TaskProtocolEventPayloadV1 {
     EventVerificationRoundClosed verification_round_closed = 27;
     EventTaskGasReimbursementRecorded task_gas_reimbursement_recorded = 28;
     EventWorkerEvidenceAccepted worker_evidence_accepted = 29;
+    EventVerifierValueEvidenceAccepted verifier_value_evidence_accepted = 30;
     EventVerifierHandraisesAccepted verifier_handraises_accepted = 34;
     EventSessionKeyUpdated session_key_updated = 106;
     EventTaskParamsUpdated task_params_updated = 111;
+    EventDispatchRecorded dispatch_recorded = 128;
+    EventSessionBuilderBound session_builder_bound = 129;
+    EventSessionTakeoverRegistered session_takeover_registered = 130;
+    EventSessionTakeoverVoided session_takeover_voided = 131;
+    EventDispatchCompensationClaimed dispatch_compensation_claimed = 132;
+    EventDispatchCompensationPaid dispatch_compensation_paid = 133;
+    EventDispatchCompensationRebutted dispatch_compensation_rebutted = 134;
+    EventDispatchChallengeOpened dispatch_challenge_opened = 135;
+    EventDispatchChallengeResolved dispatch_challenge_resolved = 136;
+    EventBuilderDispatchFaultRecorded builder_dispatch_fault_recorded = 137;
+    EventSessionDeposited session_deposited = 138;
+    EventSessionWithdrawRequested session_withdraw_requested = 139;
+    EventSessionWithdrawEffective session_withdraw_effective = 140;
+    EventSessionKeyChangeRequested session_key_change_requested = 141;
+    EventOrderCancelRequested order_cancel_requested = 142;
   }
 }
 

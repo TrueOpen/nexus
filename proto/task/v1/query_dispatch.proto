@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "task/v1/dispatch_state.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// DispatchRecordByOrderV1 defines the canonical DispatchRecordByOrderV1 fields.
+message DispatchRecordByOrderV1 {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+}
+// QueryDispatchRecordRequest selects one immutable dispatch record.
+message QueryDispatchRecordRequest {
+  // selector selects exactly one supported variant.
+  oneof selector {
+    DispatchRecordByOrderV1 by_order = 1;
+    bytes dispatch_record_hash = 2;
+  }
+}
+// QueryDispatchRecordResponse defines the canonical QueryDispatchRecordResponse fields.
+message QueryDispatchRecordResponse {
+  DispatchRecordState record = 1;
+}
+// QueryDispatchCompensationClaimRequest defines the canonical QueryDispatchCompensationClaimRequest fields.
+message QueryDispatchCompensationClaimRequest {
+  bytes dispatch_ticket_hash = 1;
+}
+// QueryDispatchCompensationClaimResponse defines the canonical QueryDispatchCompensationClaimResponse fields.
+message QueryDispatchCompensationClaimResponse {
+  DispatchCompensationClaimState claim = 1;
+}
+// QueryDispatchWinnerIneligibleRequest defines the canonical QueryDispatchWinnerIneligibleRequest fields.
+message QueryDispatchWinnerIneligibleRequest {
+  bytes dispatch_ticket_hash = 1;
+}
+// QueryDispatchWinnerIneligibleResponse defines the canonical QueryDispatchWinnerIneligibleResponse fields.
+message QueryDispatchWinnerIneligibleResponse {
+  DispatchWinnerIneligibleState row = 1;
+}
+// QueryDispatchChallengeRequest defines the canonical QueryDispatchChallengeRequest fields.
+message QueryDispatchChallengeRequest {
+  bytes challenge_id = 1;
+}
+// QueryDispatchChallengeResponse defines the canonical QueryDispatchChallengeResponse fields.
+message QueryDispatchChallengeResponse {
+  DispatchChallengeState row = 1;
+}

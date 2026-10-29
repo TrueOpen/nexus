@@ -13,7 +13,7 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1";
 // protobuf FQN, the generated symbol and the import path. No alias, duplicate
 // enum or compatibility shim is kept in hub.v1.
 
-// MutationStatusV1 is the accepted-mutation outcome of every ACTIVE Msg response; only APPLIED and NOOP may be returned and a reject uses a gRPC error instead (9.6a/9.6b).
+// MutationStatusV1 is the accepted-mutation outcome of every ACTIVE Msg response; APPLIED and NOOP describe successful mutations. Only independently admitted dispatch items may return REJECTED; ordinary Msg rejection uses a gRPC error.
 enum MutationStatusV1 {
   // Never returned.
   // MUTATION_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
@@ -24,6 +24,8 @@ enum MutationStatusV1 {
   // Exact replay or already-final state; nothing was written.
   // MUTATION_STATUS_V1_NOOP identifies the corresponding protocol value.
   MUTATION_STATUS_V1_NOOP = 2;
+  // REJECTED is used only by independently admitted dispatch batch items.
+  MUTATION_STATUS_V1_REJECTED = 3;
 }
 
 // ParticipantType selects the Hub identity domain a service key or descriptor belongs to (9.6b).
@@ -37,6 +39,8 @@ enum ParticipantType {
   // Builder identity domain.
   // PARTICIPANT_TYPE_BUILDER identifies the corresponding protocol value.
   PARTICIPANT_TYPE_BUILDER = 2;
+  // Validator is accepted only by the VRF registry, not service-key methods.
+  PARTICIPANT_TYPE_VALIDATOR = 3;
 }
 
 // Duty is the task role an operator can be selected for (9.6b).
@@ -144,4 +148,50 @@ message ByIDV1 {
 // BatchV1 selects a bounded batch; max_items is capped per transaction (9.6b).
 message BatchV1 {
   uint32 max_items = 1;
+}
+
+// DispatchChallengeKindV1 is the closed DispatchChallengeKindV1 registry.
+enum DispatchChallengeKindV1 {
+  // UNSPECIFIED is the unspecified value.
+  DISPATCH_CHALLENGE_KIND_V1_UNSPECIFIED = 0;
+  // OMISSION is the omission value.
+  DISPATCH_CHALLENGE_KIND_V1_OMISSION = 1;
+  // DRAW is the draw value.
+  DISPATCH_CHALLENGE_KIND_V1_DRAW = 2;
+  // SKIP is the skip value.
+  DISPATCH_CHALLENGE_KIND_V1_SKIP = 3;
+  // ROSTER_UNAVAILABLE is the roster unavailable value.
+  DISPATCH_CHALLENGE_KIND_V1_ROSTER_UNAVAILABLE = 4;
+  // DOUBLE_DISPATCH is the double dispatch value.
+  DISPATCH_CHALLENGE_KIND_V1_DOUBLE_DISPATCH = 5;
+}
+
+// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
+enum FaultKind {
+  reserved 4;
+  reserved "FAULT_KIND_EVIDENCE_DEFAULT";
+
+  // Never written; rejects zero-value receipts.
+  // FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
+  FAULT_KIND_UNSPECIFIED = 0;
+  // Assigned duty missed its deadline.
+  // FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
+  FAULT_KIND_TIMEOUT = 1;
+  // Submitted material was objectively invalid.
+  // FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
+  FAULT_KIND_INVALID_RESULT = 2;
+  // Two conflicting accepted submissions for one scope.
+  // FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
+  FAULT_KIND_EQUIVOCATION = 3;
+  // Builder objective evidence was accepted against the operator.
+  // FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
+  FAULT_KIND_BUILDER_OBJECTIVE_FAULT = 5;
+  // Active bounded verifier value-evidence fault.
+  FAULT_KIND_VERIFIER_VALUE_MISMATCH = 6;
+  // Active objectively invalid Worker value evidence.
+  FAULT_KIND_WORKER_VALUES_INVALID = 7;
+  // Signed Worker dispatch cannot reserve its required liability.
+  FAULT_KIND_WORKER_DISPATCH_INELIGIBLE = 8;
+  // Worker signs both reject and accept for the same ticket.
+  FAULT_KIND_WORKER_DISPATCH_CONTRADICTION = 9;
 }

@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/common.proto";
+import "task/v1/evidence.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// WorkerValueCommitmentOpeningV1 opens only the two unavailable commitment
+// fields. Chain, task, Worker and evidence schema come from accepted authority.
+message WorkerValueCommitmentOpeningV1 {
+  bytes worker_value_root = 1;
+  uint64 worker_values_encoded_size_bytes = 2;
+}
+
+// VerifierValuePositionOpeningV1 contains bounded canonical leaves and their
+// membership paths. A WORKER_VALUES_INVALID proof leaves Verifier/metric data empty.
+message VerifierValuePositionOpeningV1 {
+  uint64 position = 1;
+  bytes worker_value_leaf = 2;
+  repeated bytes worker_value_path = 3;
+  bytes verifier_value_leaf = 4;
+  repeated bytes verifier_value_path = 5;
+  bytes metric_leaf = 6;
+  repeated bytes metric_path = 7;
+}
+
+// VerifierValueEvidenceV1 is exact strict-decoded material, never a persisted
+// opening state. Positions must be strictly increasing and unique, within the
+// accepted receipt's token count and the per-target cumulative parameter cap.
+message VerifierValueEvidenceV1 {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string target_operator_address = 4;
+  VerifierValueEvidenceKindV1 evidence_kind = 5;
+  WorkerValueCommitmentOpeningV1 worker_value_commitment_opening = 6;
+  repeated VerifierValuePositionOpeningV1 positions = 7;
+}
+
+// VerifierValueEvidenceReceiptState retains accepted identity only. Its primary
+// key is (task_id, verify_round, target_operator_address, position); all positions
+// for the same target/round reuse the first fault_id. Cleanup follows Task evidence.
+message VerifierValueEvidenceReceiptState {
+  uint32 schema_version = 1;
+  bytes task_id = 2;
+  uint32 verify_round = 3;
+  string target_operator_address = 4;
+  uint64 position = 5;
+  VerifierValueEvidenceKindV1 evidence_kind = 6;
+  shared.v1.Duty faulted_duty = 7;
+  bytes evidence_digest = 8;
+  bytes fault_id = 9;
+  uint64 accepted_height = 10;
+}
+
+// EventVerifierValueEvidenceAccepted is event 30. Invalid proof and exact replay
+// emit nothing. Local contradictions record role fault without changing verdict.
+message EventVerifierValueEvidenceAccepted {
+  bytes task_id = 1;
+  uint32 verify_round = 2;
+  string target_operator = 3;
+  shared.v1.Duty faulted_duty = 4;
+  VerifierValueEvidenceKindV1 evidence_kind = 5;
+  bytes evidence_digest = 6;
+  bytes fault_id = 7;
+  uint32 position_count = 8;
+  uint64 accepted_height = 9;
+}
