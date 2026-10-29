@@ -285,3 +285,26 @@ func TestTakeoverEntryKey(t *testing.T) {
 }
 
 func hexID(id [32]byte) string { return hex.EncodeToString(id[:]) }
+
+// A withdrawn takeover entry whose transaction is refused as a whole is not sent again: it is
+// dropped when the transaction is.
+func TestWithdrawnTakeoverIsNotSentAfterARequeue(t *testing.T) {
+	e := newEnv(t)
+	tk := e.takeovers()
+	e.recordTakeover(takeover(t, 0xaa, 1, 50))
+	e.block(10)
+	_, raw := e.lastSent()
+	e.r.WithdrawTakeover(context.Background(), sessionHex(0xaa), 1)
+	e.chain.execute(raw, chaincli.TxResult{Height: 11, Code: 5, Codespace: "task"})
+	e.block(11)
+	e.block(12)
+	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
+		t.Fatalf("%d messages: the withdrawn entry was sent again", len(msgs))
+	}
+	if got := tk.got(); len(got) != 0 {
+		t.Fatalf("reports = %v", got)
+	}
+	if keys := e.outboxKeys(); len(keys) != 0 {
+		t.Fatalf("outbox keeps %v", keys)
+	}
+}

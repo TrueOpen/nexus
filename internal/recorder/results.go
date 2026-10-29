@@ -120,14 +120,19 @@ func (r *Recorder) recordable(hash string, height uint64) bool {
 	return false
 }
 
-// requeue drops a transaction that will not land: its unresolved entries wait for the next block.
+// requeue drops a transaction that will not land: its unresolved entries wait for the next block;
+// a withdrawn takeover entry of it is dropped.
 func (r *Recorder) requeue(hash string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ops := []kv.WriteOp{deleteOp(txKey(hash))}
 	delete(r.txs, hash)
 	for _, e := range r.entries {
-		if e.Tx == hash {
+		switch {
+		case e.Tx != hash:
+		case e.Takeover && e.Withdrawn:
+			r.removeLocked(e, &ops)
+		default:
 			e.Tx = ""
 			ops = append(ops, r.entryOp(e))
 		}
@@ -340,7 +345,11 @@ func (r *Recorder) dropTxLocked(hash string, ops *[]kv.WriteOp) {
 	delete(r.txs, hash)
 	*ops = append(*ops, deleteOp(txKey(hash)))
 	for _, e := range r.entries {
-		if e.Tx == hash {
+		switch {
+		case e.Tx != hash:
+		case e.Takeover && e.Withdrawn:
+			r.removeLocked(e, ops)
+		default:
 			e.Tx = ""
 			*ops = append(*ops, r.entryOp(e))
 		}
