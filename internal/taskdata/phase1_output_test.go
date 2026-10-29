@@ -293,3 +293,51 @@ func TestCumulativeTokensAreKeptAndNeverDecrease(t *testing.T) {
 		t.Fatalf("frames = %+v", frames)
 	}
 }
+
+// Before the chain knows the task, the winner reads its INPUT by the accept this Builder holds:
+// the request names the order version of the attempt and its input_hash. Any other Cortex, and a
+// request for another version, is refused. Once the record is admitted the chain's task decides
+// again.
+func TestWinnerFetchesInputByItsAcceptBeforeTheRecord(t *testing.T) {
+	p := newPhase1Fixture(t)
+	body := []byte("the input")
+	header := testHeader(body)
+	stored := prepareObject(t, p.store, header, body)
+	if _, err := p.store.MarkReady(context.Background(), stored.Key); err != nil {
+		t.Fatal(err)
+	}
+	ticket := ticketOf(0x71)
+	p.accept(p.worker.Address(), ticket, attempt.Pending)
+	won, _ := p.attempts.Current(testTaskID)
+	won.InputHash = header.Key.ContentHash
+	p.attempts.set(won)
+	fetch := func(caller signer.Signer, key ObjectKey, nonce byte) ([]byte, error) {
+		reader, _, _, err := p.service.OpenFetch(context.Background(), p.fixtureFetch(t, caller, key, nil, nonce, 110), nil)
+		if err != nil {
+			return nil, err
+		}
+		defer reader.Close()
+		var buf bytes.Buffer
+		_, err = buf.ReadFrom(reader)
+		return buf.Bytes(), err
+	}
+	got, err := fetch(p.worker, stored.Key, 1)
+	if err != nil || string(got) != string(body) {
+		t.Fatalf("winner fetch = %q, %v", got, err)
+	}
+	if receipts, err := p.service.FetchReceipts(context.Background(), testSessionID, testTaskID); err != nil || len(receipts) != 1 {
+		t.Fatalf("the winner's fetch is not kept: %+v, %v", receipts, err)
+	}
+	if _, err := fetch(p.other, stored.Key, 2); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("another Cortex: %v", err)
+	}
+	otherVersionKey := stored.Key
+	otherVersionKey.TaskHash = testContent
+	if _, err := fetch(p.worker, otherVersionKey, 3); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("another order version: %v", err)
+	}
+	p.accept(p.worker.Address(), ticket, attempt.Recorded)
+	if _, err := fetch(p.worker, stored.Key, 4); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("after the record the chain's task is read: %v", err)
+	}
+}

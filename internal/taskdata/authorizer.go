@@ -266,7 +266,9 @@ func (a *Authorizer) AttemptLive(taskID string, ticket []byte) bool {
 //
 // Authorization looks only at on-chain roles: selected Worker -> INPUT, selected Verifier ->
 // INPUT/OUTPUT/Worker bundle and the Verifier bundles canReadEvidence admits, original User ->
-// OUTPUT. A role the requester claims does not count.
+// OUTPUT. A role the requester claims does not count. The one exception is the INPUT of a task
+// whose record is still pending: the chain has no task yet, and the winner is authorized by the
+// accept this Builder holds (authorizePendingInput).
 //
 // The returned grant carries what the Builder keeps as the requester's fetch receipt: the
 // height the request was authorized at and, for CORTEX_SERVICE, the service key the signature
@@ -281,6 +283,9 @@ func (a *Authorizer) AuthorizeFetch(
 	if err := serviceBodyBound(request, true, digest, "fetch"); err != nil {
 		return FetchGrant{}, err
 	}
+	if won, ok := a.pendingAttempt(request); ok {
+		return a.authorizePendingInput(ctx, request, digest, won)
+	}
 	task, height, requesterKey, err := a.verifyRequestKey(ctx, request, MethodFetch, digest)
 	if err != nil {
 		return FetchGrant{}, err
@@ -294,6 +299,48 @@ func (a *Authorizer) AuthorizeFetch(
 	}
 	if err := a.consumeRequestNonce(request, height); err != nil {
 		return FetchGrant{}, err
+	}
+	return FetchGrant{Task: task, Height: height, RequesterKey: requesterKey}, nil
+}
+
+// pendingAttempt returns the task's attempt when a Cortex asks for the INPUT of a task whose
+// record is still pending: the chain does not know the task, and only the attempt book can name
+// the Worker that may read it.
+func (a *Authorizer) pendingAttempt(request RequestAuth) (attempt.Attempt, bool) {
+	if request.Key.Kind != ObjectKindInput || request.RequesterKind != RequesterKindCortexService || a.cfg.Attempts == nil {
+		return attempt.Attempt{}, false
+	}
+	won, ok := a.cfg.Attempts.Current(request.Key.TaskID)
+	if !ok || won.Status != attempt.Pending || won.SessionID != request.Key.SessionID {
+		return attempt.Attempt{}, false
+	}
+	return won, true
+}
+
+// authorizePendingInput authorizes the INPUT fetch of a task whose record is pending: the
+// requester must be the Worker whose accept this Builder holds, and the request must name the
+// attempt's order version and the input_hash its ticket commits. A candidate that did not win, or
+// was skipped, reads nothing. The grant names the winner as the task's Worker, so the fetch is
+// kept like a selected Worker's.
+func (a *Authorizer) authorizePendingInput(ctx context.Context, request RequestAuth, body [32]byte, won attempt.Attempt) (FetchGrant, error) {
+	height, requesterKey, err := a.verifyLocalRequest(ctx, request, MethodFetch, body)
+	if err != nil {
+		return FetchGrant{}, err
+	}
+	if request.RequesterAddress != won.Worker {
+		return FetchGrant{}, fmt.Errorf("%w: requester is not the Worker whose accept this Builder holds", roleDenied(request))
+	}
+	if request.Key.TaskHash != won.TaskHash || request.Key.ContentHash != InputContentHash(won.InputHash) {
+		return FetchGrant{}, fmt.Errorf("%w: input version is not the accepted ticket's", roleDenied(request))
+	}
+	if err := a.consumeRequestNonce(request, height); err != nil {
+		return FetchGrant{}, err
+	}
+	task := chaincli.OnChainTask{
+		SessionID: won.SessionID, TaskID: won.TaskID,
+		Assignment: chaincli.TaskAssignmentState{
+			SelectedWorkerOperatorAddress: won.Worker, AcceptedTaskHash: won.TaskHash, AcceptedInputHash: won.InputHash,
+		},
 	}
 	return FetchGrant{Task: task, Height: height, RequesterKey: requesterKey}, nil
 }
