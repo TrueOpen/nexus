@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"sync"
 
+	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/config"
 )
 
@@ -115,6 +117,32 @@ type Client interface {
 	QuerySession(ctx context.Context, sessionID string) (SessionState, error)
 	// QueryBusinessDenom reads hub params phase0.business_denom.
 	QueryBusinessDenom(ctx context.Context) (string, error)
+
+	// --- Phase 1 dispatch queries (dispatch_query.go, pool_query.go) ---
+	// QueryDispatchRecordByOrder reads the dispatch record admitted for (session_id, order_sequence).
+	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
+	// QueryDispatchRecordByHash reads one dispatch record by dispatch_record_hash.
+	QueryDispatchRecordByHash(ctx context.Context, recordHash []byte) (*taskv1.DispatchRecordState, error)
+	// QueryDispatchCompensationClaim reads the compensation claim keyed by a dispatch ticket hash.
+	QueryDispatchCompensationClaim(ctx context.Context, ticketHash []byte) (*taskv1.DispatchCompensationClaimState, error)
+	// QueryDispatchWinnerIneligible reads the winner ineligibility marker of a dispatch ticket.
+	QueryDispatchWinnerIneligible(ctx context.Context, ticketHash []byte) (*taskv1.DispatchWinnerIneligibleState, error)
+	// QueryDispatchChallenge reads one dispatch challenge by challenge_id.
+	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
+	// QueryDispatchParams reads task params dispatch.
+	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
+	// QueryCandidatePoolSnapshotMember reads one operator's membership and weight in a pool snapshot.
+	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
+	// QueryCandidatePoolSnapshot reads the header of one pool snapshot.
+	QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []byte) (*hubv1.CandidatePoolSnapshotViewV1, error)
+	// QueryCurrentCandidatePool reads the ACTIVE pool snapshot the chain currently points to.
+	QueryCurrentCandidatePool(ctx context.Context) (*hubv1.CandidatePoolSnapshotViewV1, error)
+	// QueryBuilderCompensationAccount reads a Builder's compensation account.
+	QueryBuilderCompensationAccount(ctx context.Context, builder string) (*hubv1.BuilderCompensationAccountState, error)
+	// QueryVrfKey reads an operator's VRF keys in one participant domain (BUILDER, CORTEX, VALIDATOR).
+	QueryVrfKey(ctx context.Context, participantType, operator string) (VrfKey, error)
+	// QueryBeacon reads the beacon recorded at one height.
+	QueryBeacon(ctx context.Context, height uint64) (*hubv1.BeaconState, error)
 
 	// --- Broadcast signed Tx (Assign / OpenVerify / WorkerReveal / Settle / Register / Unbond) ---
 	BroadcastTx(ctx context.Context, tx []byte) (TxResult, error)

@@ -49,3 +49,90 @@ func TestSessionStateFromPB(t *testing.T) {
 		}
 	}
 }
+
+// A Builder's preflight, takeover and sticky draw read the Phase 1 half of StreamState.
+func TestSessionStateFromPBReadsPhase1Fields(t *testing.T) {
+	id := bytes.Repeat([]byte{0x11}, 32)
+	winner := "trueopen1winner"
+	pb := &taskv1.StreamState{
+		SessionId: id, OwnerUserAddress: "trueopen1owner", Status: taskv1.SessionStatus_SESSION_STATUS_ACTIVE,
+		NextExpectedSequence: 12, OpenPendingCount: 2,
+		Balance: &sharedv1.Amount{AtomicUnits: "9000"}, FrozenTotal: &sharedv1.Amount{AtomicUnits: "3000"},
+		PendingWithdrawKind:            taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_AMOUNT,
+		PendingWithdrawAmount:          &sharedv1.Amount{AtomicUnits: "1000"},
+		PendingWithdrawEffectiveHeight: 400,
+		BoundBuilder:                   "trueopen1builder", BoundChangeHeight: 77,
+		LastRecordHeight: 390, LastRecordWinner: &winner,
+		StickyAnchorSequence: 9, StickyAnchorHeight: 380, StickyRunCount: 3,
+		PendingSessionKeyChange: &taskv1.PendingSessionKeyChangeV1{
+			Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET,
+			Grant: &taskv1.SessionKeyGrantV1{
+				SessionKey: bytes.Repeat([]byte{0x44}, 20), ExpiryHeight: 900, SpendCap: &sharedv1.Amount{AtomicUnits: "50"},
+			},
+			EffectiveHeight: 410,
+		},
+		PendingTakeover: &taskv1.PendingTakeoverV1{
+			CandidateBuilder: "trueopen1candidate", OrderSequence: 12, OrderTaskHash: bytes.Repeat([]byte{0x55}, 32),
+			RegisteredHeight: 395, ActivationHeight: 405,
+		},
+	}
+	got, err := sessionStateFromPB(id, pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NextExpectedSequence != 12 || got.OpenPendingCount != 2 || got.Balance != "9000" || got.FrozenTotal != "3000" ||
+		got.PendingWithdrawKind != taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_AMOUNT ||
+		got.PendingWithdrawAmount != "1000" || got.PendingWithdrawEffectiveHeight != 400 ||
+		got.BoundBuilder != "trueopen1builder" || got.BoundChangeHeight != 77 ||
+		got.LastRecordHeight != 390 || got.LastRecordWinner != winner ||
+		got.StickyAnchorSequence != 9 || got.StickyAnchorHeight != 380 || got.StickyRunCount != 3 {
+		t.Fatalf("state = %+v", got)
+	}
+	change := got.PendingKeyChange
+	if change == nil || change.Kind != taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET ||
+		!bytes.Equal(change.Key, bytes.Repeat([]byte{0x44}, 20)) || change.ExpiryHeight != 900 || change.SpendCap != "50" ||
+		change.EffectiveHeight != 410 {
+		t.Fatalf("pending key change = %+v", change)
+	}
+	takeover := got.PendingTakeover
+	if takeover == nil || takeover.CandidateBuilder != "trueopen1candidate" || takeover.OrderSequence != 12 ||
+		!bytes.Equal(takeover.OrderTaskHash, bytes.Repeat([]byte{0x55}, 32)) || takeover.RegisteredHeight != 395 ||
+		takeover.ActivationHeight != 405 {
+		t.Fatalf("pending takeover = %+v", takeover)
+	}
+
+	pb.LastRecordWinner, pb.PendingSessionKeyChange, pb.PendingTakeover = nil, nil, nil
+	got, err = sessionStateFromPB(id, pb)
+	if err != nil || got.LastRecordWinner != "" || got.PendingKeyChange != nil || got.PendingTakeover != nil {
+		t.Fatalf("no pending changes: %+v, %v", got, err)
+	}
+
+	for name, edit := range map[string]func(*taskv1.StreamState){
+		"short takeover task hash": func(s *taskv1.StreamState) {
+			s.PendingTakeover = &taskv1.PendingTakeoverV1{CandidateBuilder: "trueopen1candidate", OrderTaskHash: []byte{1}}
+		},
+		"takeover without candidate": func(s *taskv1.StreamState) {
+			s.PendingTakeover = &taskv1.PendingTakeoverV1{OrderTaskHash: bytes.Repeat([]byte{0x55}, 32)}
+		},
+		"short pending key": func(s *taskv1.StreamState) {
+			s.PendingSessionKeyChange = &taskv1.PendingSessionKeyChangeV1{
+				Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET, Grant: &taskv1.SessionKeyGrantV1{SessionKey: []byte{1}},
+			}
+		},
+		"SET without grant": func(s *taskv1.StreamState) {
+			s.PendingSessionKeyChange = &taskv1.PendingSessionKeyChangeV1{Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET}
+		},
+		"CLEAR with grant": func(s *taskv1.StreamState) {
+			s.PendingSessionKeyChange = &taskv1.PendingSessionKeyChangeV1{
+				Kind:  taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_CLEAR,
+				Grant: &taskv1.SessionKeyGrantV1{SessionKey: bytes.Repeat([]byte{0x44}, 20)},
+			}
+		},
+	} {
+		bad := proto.Clone(pb).(*taskv1.StreamState)
+		edit(bad)
+		if _, err := sessionStateFromPB(id, bad); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+}
