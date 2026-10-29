@@ -196,9 +196,15 @@ type fakeSubmitter struct {
 	next        []error
 	rebroadcast []chaincli.TxResult
 	resent      [][]byte
+	// beforeSign, when set, runs once a transaction's entries are chosen, before it is signed and
+	// persisted (the submitter reads the account sequence there).
+	beforeSign func()
 }
 
 func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func([]byte) error) (chaincli.TxResult, error) {
+	if s.beforeSign != nil {
+		s.beforeSign()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)

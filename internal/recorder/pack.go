@@ -56,10 +56,25 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	var waiting []*entry
 	for _, e := range r.entries {
 		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !(e.Held && r.earlierUnresolvedLocked(e)) {
+			e.packing = true
 			waiting = append(waiting, e)
 		}
 	}
 	r.mu.Unlock()
+	// Whatever the sends did, the chosen entries are carried by a transaction (Tx) or waiting
+	// again; one withdrawn meanwhile that no transaction carried is dropped now.
+	defer func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		var ops []kv.WriteOp
+		for _, e := range waiting {
+			e.packing = false
+			if e.Withdrawn && e.Tx == "" && r.entries[e.ObjectID] == e {
+				r.removeLocked(e, &ops)
+			}
+		}
+		r.writeLocked(ops)
+	}()
 	if len(waiting) == 0 {
 		return
 	}

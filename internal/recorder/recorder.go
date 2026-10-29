@@ -299,7 +299,8 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 	return nil
 }
 
-// Withdraw implements dispatcher.Recorder: an entry not sent yet is dropped; a sent one is marked
+// Withdraw implements dispatcher.Recorder: an entry not sent yet is dropped; a sent one, or one a
+// transaction being signed carries, is marked
 // so that its refusal changes nothing. A Withdraw that comes before the Record of its ticket
 // drops that Record.
 func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [32]byte) {
@@ -310,7 +311,7 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 			continue
 		}
 		var ops []kv.WriteOp
-		if e.Tx == "" {
+		if e.Tx == "" && !e.packing {
 			r.removeLocked(e, &ops)
 		} else {
 			e.Withdrawn = true

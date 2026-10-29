@@ -84,7 +84,8 @@ func (r *Recorder) RecordTakeover(_ context.Context, b *TakeoverBundle) error {
 }
 
 // WithdrawTakeover drops the session's takeover entry of sequence: an entry not sent yet is
-// removed; a sent one is marked so that its result is dropped without a report.
+// removed; a sent one, or one a transaction being signed carries, is marked so that its result is
+// dropped without a report.
 func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequence uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -93,7 +94,7 @@ func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequenc
 		if !e.Takeover || e.SessionID != sessionID || e.Sequence != sequence {
 			continue
 		}
-		if e.Tx == "" {
+		if e.Tx == "" && !e.packing {
 			r.removeLocked(e, &ops)
 		} else {
 			e.Withdrawn = true
@@ -104,8 +105,9 @@ func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequenc
 }
 
 // WithdrawUnsentTakeover removes the session's takeover entry of sequence only while no
-// transaction carries it, and reports whether it did: such an entry cannot be on chain. An entry
-// that went out (its result may still come) is left alone.
+// transaction carries it or is being signed with it, and reports whether it did: such an entry
+// cannot be on chain. An entry that went out or is going out (its result may still come) is left
+// alone.
 func (r *Recorder) WithdrawUnsentTakeover(sessionID string, sequence uint64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -113,7 +115,7 @@ func (r *Recorder) WithdrawUnsentTakeover(sessionID string, sequence uint64) boo
 		if !e.Takeover || e.SessionID != sessionID || e.Sequence != sequence || e.Withdrawn {
 			continue
 		}
-		if e.Tx != "" {
+		if e.Tx != "" || e.packing {
 			return false
 		}
 		var ops []kv.WriteOp

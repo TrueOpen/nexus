@@ -45,6 +45,9 @@ type entry struct {
 	// Takeover marks a takeover entry: it has no ticket or Worker, Deadline alone bounds it and
 	// its result goes to the Takeovers.
 	Takeover bool `json:"takeover,omitempty"`
+	// packing is set, in memory, while pack has chosen the entry for a transaction that is being
+	// signed: the transaction may carry it even though Tx is still empty.
+	packing bool
 }
 
 // txRecord is one signed record transaction, stored before it is broadcast.
