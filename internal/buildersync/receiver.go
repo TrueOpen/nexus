@@ -21,6 +21,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/registeredkey"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
@@ -75,7 +77,17 @@ type ReceiverConfig struct {
 	Retention func(*dispatchevidence.Order) uint64
 	// MaxInputBytes bounds an order version's input.
 	MaxInputBytes uint64
-	Log           *slog.Logger
+	// FeeDenom is the chain's business_denom, the feeDenom of the order signing domain: with it a
+	// synced order's user signature is checked. Empty skips that check. An order signed by a key
+	// other than the user's wallet is checked against the session's registered key in SessionKeys.
+	FeeDenom    string
+	SessionKeys SessionKeyReader
+	Log         *slog.Logger
+}
+
+// SessionKeyReader reads the registered-key state of a session (registeredkey.Cache).
+type SessionKeyReader interface {
+	Lookup(ctx context.Context, sessionID string, height uint64) (registeredkey.State, error)
 }
 
 // Receiver applies the sync streams the dispatching Builders send this Builder as a member of
@@ -697,6 +709,9 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	if !found || ev.Builder != m.Sender || ev.SessionID != m.SessionID || ev.Sequence != m.Sequence {
 		return errors.New("result header's winner is not a ticket of the order held here")
 	}
+	if err := r.checkUserOrder(ctx, m, &signed, ev.TaskHash); err != nil {
+		return err
+	}
 	acceptRaw, err := marshal(header.GetAccept())
 	if err != nil {
 		return err
@@ -728,6 +743,51 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	}
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + ev.TaskID, Val: []byte(m.key())}
 	return r.put(ev, m, index)
+}
+
+// checkUserOrder checks a synced SignedOrderV2 is the order the winner's tickets were issued for
+// (its task_hash) and, with FeeDenom set, that its user signed it: the signature recovers to the
+// user's wallet, or to the session's registered key. A registered key set after the order's
+// session_anchor_height may have replaced the one that signed: the order is then kept (the chain
+// judged the key at the order's height) and a warning logged.
+func (r *Receiver) checkUserOrder(ctx context.Context, m *memberStream, signed *taskv1.SignedOrderV2, taskHash string) error {
+	orderHash, err := nodecontract.TaskOrderHashHexV3(signed.GetOrder())
+	if err != nil {
+		return fmt.Errorf("signed order: %w", err)
+	}
+	if orderHash != taskHash {
+		return errors.New("signed order's task_hash is not the recorded winner's")
+	}
+	if r.cfg.FeeDenom == "" {
+		return nil
+	}
+	recovered, wallet, err := registeredkey.OrderSigner(signed, r.cfg.FeeDenom)
+	if err != nil {
+		return fmt.Errorf("signed order's user signature: %w", err)
+	}
+	if wallet {
+		return nil
+	}
+	order := signed.GetOrder()
+	if r.cfg.SessionKeys == nil {
+		return errors.New("signed order is not signed by its user's wallet, and session keys cannot be read here")
+	}
+	state, err := r.cfg.SessionKeys.Lookup(ctx, m.SessionID, r.head.Load())
+	if err != nil {
+		return fmt.Errorf("%w: session key: %v", ErrUnavailable, err)
+	}
+	switch {
+	case !state.Found || state.Owner != order.GetUserAddress():
+		return errors.New("signed order is not signed by its user's wallet, and the session has no key of its user")
+	case state.Key != nil && *state.Key == recovered:
+		return nil
+	case state.SetHeight > order.GetSessionAnchorHeight():
+		r.log.Warn("synced order is signed by a key other than the session's current one, which was set after the order; kept",
+			"order", m.key(), "key_set_height", state.SetHeight, "session_anchor_height", order.GetSessionAnchorHeight())
+		return nil
+	default:
+		return errors.New("signed order is signed by neither its user's wallet nor the session's registered key")
+	}
 }
 
 // replicaKey is the OUTPUT key of the recorded winner's replica.

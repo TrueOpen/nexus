@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/registeredkey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
@@ -43,7 +44,7 @@ func TestSyncContentsAndTiming(t *testing.T) {
 	if meta, err := e.member.data.Metadata(context.Background(), inputKey); err != nil || meta.State != taskdata.StateReady {
 		t.Fatalf("input copy = %+v, %v", meta, err)
 	}
-	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Pending || a.Header != nil || a.User != "trueopen1user" {
+	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Pending || a.Header != nil || a.User != f.user {
 		t.Fatalf("replica before the record = %+v, %v", a, held)
 	}
 
@@ -76,7 +77,7 @@ func TestSyncContentsAndTiming(t *testing.T) {
 		t.Fatalf("copy after the record = %+v", c)
 	}
 	a, held := e.member.r.Replica(f.sessionHex(), f.taskHex())
-	if !held || a.Status != attempt.Recorded || a.TicketHash != f.hashes[1] || a.User != "trueopen1user" || a.Worker != e.worker.op ||
+	if !held || a.Status != attempt.Recorded || a.TicketHash != f.hashes[1] || a.User != f.user || a.Worker != e.worker.op ||
 		!bytes.Equal(a.Header, f.recordedAttempt().Header) {
 		t.Fatalf("replica after the record = %+v", a)
 	}
@@ -854,5 +855,52 @@ func TestLaterRoundKeepsTheTaskHash(t *testing.T) {
 	}
 	if c := e.copyOf(); c == nil || c.TaskHash != hex.EncodeToString(e.fx.taskHash) {
 		t.Fatalf("copy task_hash = %+v", c)
+	}
+}
+
+// The order item's signed order must be the order the chain recorded (its task_hash is the
+// winner's) signed by its user's wallet or the session's registered key: another signer, or another
+// order, is refused. A registered key set after the order may have replaced its signer: kept.
+func TestOrderItemIsTheUsersSignedOrder(t *testing.T) {
+	sessionKey := bytes.Repeat([]byte{0x22}, 32)
+	for name, tc := range map[string]struct {
+		signed  func(*fixture) []byte
+		key     []byte // the session's registered key
+		setAt   uint64 // its set height
+		applies bool
+	}{
+		"wallet":         {signed: func(f *fixture) []byte { return f.signed }, applies: true},
+		"registered key": {signed: func(f *fixture) []byte { return signOrder(f.e.t, sessionKey, f.order) }, key: sessionKey, applies: true},
+		"another signer": {signed: func(f *fixture) []byte { return signOrder(f.e.t, sessionKey, f.order) }, key: bytes.Repeat([]byte{0x23}, 32)},
+		"no session key": {signed: func(f *fixture) []byte { return signOrder(f.e.t, sessionKey, f.order) }},
+		"key set later":  {signed: func(f *fixture) []byte { return signOrder(f.e.t, sessionKey, f.order) }, key: bytes.Repeat([]byte{0x23}, 32), setAt: 1 << 40, applies: true},
+		"another order": {signed: func(f *fixture) []byte {
+			order := proto.Clone(f.order).(*taskv1.TaskOrderV3)
+			order.OrderExpireHeight++
+			return signOrder(f.e.t, userKey, order)
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			if tc.key != nil {
+				key := keyAddress(tc.key)
+				e.sessions.state = registeredkey.State{Found: true, Owner: e.fx.user, Key: &key, SetHeight: tc.setAt}
+			}
+			batch := e.recordedBatch([]string{"hello, "})
+			for _, item := range batch.Items {
+				if o := item.GetOrder(); o != nil {
+					o.SignedOrder = tc.signed(e.fx)
+				}
+			}
+			batch.Output = nil
+			resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+			if err != nil || (resp.GetRefused() == "") != tc.applies {
+				t.Fatalf("order item = %v, %v", resp, err)
+			}
+			a, held := e.member.r.Replica(e.fx.sessionHex(), e.fx.taskHex())
+			if recorded := held && a.Status == attempt.Recorded; recorded != tc.applies {
+				t.Fatalf("order item applied %v: %+v", recorded, a)
+			}
+		})
 	}
 }

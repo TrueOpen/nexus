@@ -602,6 +602,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		members, err := orderPath.newMembers(membersDeps{
 			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix, Keys: keyCache, Groups: coord,
 			Store: store, Data: taskStore, OutputConfig: outputConfig, Publish: publish, Chain: taskChain, MaxInputBytes: cfg.TaskData.MaxBlobBytes,
+			FeeDenom: feeDenom, SessionKeys: sessionKeys.cache,
 		})
 		if err != nil {
 			_ = store.Close()

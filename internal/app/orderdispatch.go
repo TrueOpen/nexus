@@ -413,7 +413,7 @@ func (od *orderDispatch) newMembers(deps membersDeps) (*buildersync.Receiver, er
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, AddressPrefix: deps.AddressPrefix, Keys: deps.Keys, Groups: deps.Groups,
 		Store: deps.Store, Evidence: od.Evidence, Inputs: buildersync.StoredInputs{Store: deps.Data}, Outputs: deps.Data,
 		OutputConfig: deps.OutputConfig, Publish: deps.Publish, Chain: deps.Chain, Retention: od.evidenceRetention,
-		MaxInputBytes: deps.MaxInputBytes, Log: od.log,
+		MaxInputBytes: deps.MaxInputBytes, FeeDenom: deps.FeeDenom, SessionKeys: deps.SessionKeys, Log: od.log,
 	})
 }
 
@@ -428,6 +428,10 @@ type membersDeps struct {
 	Publish                                func(taskdata.ObjectKey, taskdata.OutputFrame)
 	Chain                                  buildersync.RecordReader
 	MaxInputBytes                          uint64
+	// FeeDenom (the business_denom; empty skips the check) and SessionKeys check the user
+	// signature of a synced order.
+	FeeDenom    string
+	SessionKeys buildersync.SessionKeyReader
 }
 
 // issuedRoot finds an issued handraise root by its digest for GetDispatchRoster.

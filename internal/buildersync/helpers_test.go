@@ -5,12 +5,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/proto"
 
 	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
@@ -19,12 +23,15 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
+	"github.com/TrueOpen/nexus/internal/eip712"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/registeredkey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 const (
@@ -33,6 +40,8 @@ const (
 	testESH     = 100
 	testBound   = 80
 	testEpoch   = 7
+	// testFeeDenom is the business_denom of the order signing domain.
+	testFeeDenom = "atrue"
 )
 
 var (
@@ -44,6 +53,63 @@ var (
 )
 
 func fill(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
+
+// userKey is the order user's wallet key; walletAddress derives its address the eth_secp256k1 way
+// (the last 20 bytes of the keccak of the uncompressed public key), which is what an order
+// signature recovers to.
+var userKey = bytes.Repeat([]byte{0x21}, 32)
+
+func walletAddress(t testing.TB, key []byte) string {
+	t.Helper()
+	sum := eip712.Keccak256(secp256k1.PrivKeyFromBytes(key).PubKey().SerializeUncompressed()[1:])
+	addr, err := bech32.ConvertAndEncode(prefix, sum[12:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return addr
+}
+
+// fakeSessionKeys answers a session's registered-key state.
+type fakeSessionKeys struct {
+	mu    sync.Mutex
+	state registeredkey.State
+}
+
+func (k *fakeSessionKeys) Lookup(context.Context, string, uint64) (registeredkey.State, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.state, nil
+}
+
+// keyAddress is the 20-byte address an order signature by key recovers to.
+func keyAddress(key []byte) [20]byte {
+	sum := eip712.Keccak256(secp256k1.PrivKeyFromBytes(key).PubKey().SerializeUncompressed()[1:])
+	return [20]byte(sum[12:])
+}
+
+// vectorOrder is the wire vector TaskOrderV3, a complete order to change fields of.
+func vectorOrder(t testing.TB) *taskv1.TaskOrderV3 {
+	t.Helper()
+	var file struct {
+		OrderPayload wirefixture.Vector `json:"order_payload"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/session_key_authorization_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	return wirefixture.TaskOrderV3(t, file.OrderPayload)
+}
+
+// signOrder signs order with key as an EIP-712 SignedOrderV2.
+func signOrder(t testing.TB, key []byte, order *taskv1.TaskOrderV3) []byte {
+	t.Helper()
+	digest, err := nodecontract.TaskOrderDigestV3(order, testFeeDenom, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := ecdsa.SignCompact(secp256k1.PrivKeyFromBytes(key), digest[:], false) // [V R S]
+	sig := append(append([]byte{}, compact[1:]...), compact[0])
+	return mustMarshal(t, &taskv1.SignedOrderV2{Order: order, SignatureScheme: "eip712", UserSignature: sig, SignatureChainId: 1})
+}
 
 func newSigner(t testing.TB, seed byte) signer.Signer {
 	t.Helper()
@@ -233,6 +299,7 @@ type env struct {
 	s         *Sender
 	member    *member
 	book      fakeBook
+	sessions  fakeSessionKeys
 
 	fx *fixture
 }
@@ -287,7 +354,7 @@ func (e *env) newMember(p party) *member {
 			defer m.pubMu.Unlock()
 			m.published = append(m.published, f)
 		},
-		Chain: e.records, Retention: evidenceParams.RetainUntil, MaxInputBytes: 4096,
+		Chain: e.records, Retention: evidenceParams.RetainUntil, MaxInputBytes: 4096, FeeDenom: testFeeDenom, SessionKeys: &e.sessions,
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -337,6 +404,8 @@ type fixture struct {
 	root       []byte
 	rootDigest [32]byte
 	rejecter   party
+	user       string
+	order      *taskv1.TaskOrderV3
 	tickets    [][]byte
 	hashes     [][32]byte
 	reject     []byte
@@ -385,16 +454,21 @@ func memberRef(op string, slot uint32) *taskv1.CandidateMemberRefV1 {
 
 func newFixture(e *env) *fixture {
 	t := e.t
-	f := &fixture{e: e, sessionID: fill(0xaa), sequence: 3, taskID: fill(0xa1), taskHash: fill(0xb1), input: []byte("hello, group members"),
-		rejecter: newParty(t, 0x06, 0x16)}
+	f := &fixture{e: e, sessionID: fill(0xaa), sequence: 3, taskID: fill(0xa1), input: []byte("hello, group members"),
+		rejecter: newParty(t, 0x06, 0x16), user: walletAddress(t, userKey)}
 	e.keys.set("CORTEX", f.rejecter)
 	inputHash := sha256.Sum256(f.input)
+	f.order = vectorOrder(t)
+	f.order.ChainId, f.order.UserAddress, f.order.SessionId, f.order.OrderSequence = testChainID, f.user, f.sessionID, f.sequence
+	f.order.InputHash, f.order.InputSizeBytes, f.order.EarliestSubmitHeight = inputHash[:], uint64(len(f.input)), testESH
+	f.order.BuilderSetId, f.order.BuilderSetHash = "set-1", fill(0x5e)
+	taskHash, err := nodecontract.TaskOrderHashV3(f.order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.taskHash = taskHash[:]
 	e.inputs[hex.EncodeToString(f.taskHash)] = f.input
-	f.signed = mustMarshal(t, &taskv1.SignedOrderV2{Order: &taskv1.TaskOrderV3{
-		ChainId: testChainID, UserAddress: "trueopen1user", SessionId: f.sessionID, OrderSequence: f.sequence,
-		InputHash: inputHash[:], InputSizeBytes: uint64(len(f.input)), EarliestSubmitHeight: testESH,
-		BuilderSetId: "set-1", BuilderSetHash: fill(0x5e),
-	}})
+	f.signed = signOrder(t, userKey, f.order)
 	members := []dispatch.RosterMember{
 		{Slot: 1, SlotVersion: 1, OperatorAddress: f.rejecter.op, CandidateWeight: 1},
 		{Slot: 3, SlotVersion: 1, OperatorAddress: e.worker.op, CandidateWeight: 5},
@@ -404,7 +478,6 @@ func newFixture(e *env) *fixture {
 		roster.Members = append(roster.Members, &taskv1.DispatchRosterMemberV1{Slot: m.Slot, SlotVersion: m.SlotVersion, OperatorAddress: m.OperatorAddress, CandidateWeight: m.CandidateWeight})
 	}
 	f.roster = mustMarshal(t, roster)
-	var err error
 	if f.rosterHash, err = dispatch.RosterDigest(testChainID, [32]byte(f.taskID), 90, [32]byte(fill(0x66)), members); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +585,7 @@ func (f *fixture) recordedAttempt() attempt.Attempt {
 	return attempt.Attempt{
 		SessionID: f.sessionHex(), Sequence: f.sequence, TaskID: f.taskHex(), TaskHash: hex.EncodeToString(f.taskHash),
 		Worker: f.e.worker.op, TicketHash: f.hashes[1], AcceptDigest: f.acceptDig, Status: attempt.Recorded,
-		Ticket: f.tickets[1], Accept: f.accept, Header: header, User: "trueopen1user",
+		Ticket: f.tickets[1], Accept: f.accept, Header: header, User: f.user,
 	}
 }
 
