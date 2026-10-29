@@ -3,9 +3,11 @@ package dispatcher
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/kv"
 )
 
 func digestOf(t *testing.T, name string, m proto.Message) [32]byte {
@@ -713,5 +716,64 @@ func TestPlaceholderRecorderTakesNoOrders(t *testing.T) {
 	}
 	if err := e.d.Probe(context.Background(), o); err != nil {
 		t.Fatalf("probe with a recorder = %v", err)
+	}
+}
+
+// roundFailingStore refuses, while fail is set, to write an order state that holds a round: the
+// first ticket of an order is then not issued and the order parks with its draw kept.
+type roundFailingStore struct {
+	kv.Store
+	mu   sync.Mutex
+	fail bool
+}
+
+func (s *roundFailingStore) setFail(v bool) {
+	s.mu.Lock()
+	s.fail = v
+	s.mu.Unlock()
+}
+
+func (s *roundFailingStore) Set(ns kv.Namespace, key string, val []byte) error {
+	s.mu.Lock()
+	fail := s.fail
+	s.mu.Unlock()
+	if fail && ns == kv.NSDispatch {
+		var st orderState
+		if json.Unmarshal(val, &st) == nil && len(st.Rounds) > 0 {
+			return errors.New("disk full")
+		}
+	}
+	return s.Store.Set(ns, key, val)
+}
+
+// Stickiness is decided from the roster round 0 actually binds: a first ticket that could not be
+// issued leaves the draw without a round, and the next attempt decides again against the then
+// latest root. Here the sticky Worker's handraise is gone by then, so the order is not promoted.
+func TestStickyIsDecidedFromTheRosterRoundZeroBinds(t *testing.T) {
+	e := newEnv(t)
+	store := &roundFailingStore{Store: kv.NewMemStore()}
+	e.store = store
+	e.open(store)
+	s := e.session(0xaa, 6)
+	e.chain.update(s, func(st *chaincli.SessionState) {
+		st.LastRecordWinner, st.StickyAnchorSequence, st.StickyAnchorHeight, st.StickyRunCount = op3, 5, 80, 1
+	})
+	store.setFail(true)
+	e.dispatch(e.order(s, 6, 1))
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers while the round could not be written", n)
+	}
+	store.setFail(false)
+	e.handraises.setRoot(0xd2, 2, op1, op7) // op3's handraise is gone
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
+	op, ticket, _ := e.lastOffer()
+	if op != op7 || ticket.GetRank() != 0 || ticket.GetStickyAnchorSequence() != 6 || ticket.GetStickyRunCount() != 1 ||
+		!bytes.Equal(ticket.GetHandraiseRootDigest(), bytes.Repeat([]byte{0xd2}, 32)) {
+		t.Fatalf("first ticket to %s rank %d sticky (%d, %d)", op, ticket.GetRank(), ticket.GetStickyAnchorSequence(), ticket.GetStickyRunCount())
+	}
+	e.accept()
+	rec := checkRecordable(t, e, e.onlyBundle(), testBound)
+	if rec.GetStickyApplied() {
+		t.Fatal("promoted to a Worker the bound roster does not hold")
 	}
 }

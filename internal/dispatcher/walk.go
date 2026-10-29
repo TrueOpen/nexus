@@ -135,7 +135,7 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			o.parked = true
 			return done{}
 		}
-		if o.draw == nil || st.NewRound || o.roster == nil {
+		if o.draw == nil || st.NewRound || o.roster == nil || !roundStored(o) {
 			ready, out := d.openRound(ctx, o)
 			if !ready {
 				return out
@@ -161,13 +161,21 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	}
 }
 
+// roundStored reports whether the round in use already holds a ticket. Until it does, its roster
+// is not bound yet: the next attempt opens it again from the then latest root (and, for round 0,
+// decides stickiness again). Caller holds o.mu.
+func roundStored(o *order) bool {
+	rounds := o.st.Rounds
+	return len(rounds) > 0 && rounds[len(rounds)-1].Number == o.rosterRound
+}
+
 // openRound prepares the round the next ticket belongs to. After a restart it is the stored last
 // round. Otherwise the order is drawn when it has no draw yet (round 0, which also decides
 // stickiness) and a new round binds the latest signed root. It returns false when the order must
 // wait (it is then parked) or failed. Caller holds o.mu.
 func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	st := o.st
-	if o.draw != nil && !st.NewRound && len(st.Rounds) > 0 {
+	if o.draw != nil && !st.NewRound && len(st.Rounds) > 0 && o.roster == nil {
 		last := st.Rounds[len(st.Rounds)-1]
 		var msg taskv1.DispatchRosterV1
 		if err := proto.Unmarshal(last.Roster, &msg); err != nil {
@@ -207,7 +215,9 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.parked = true
 		return false, done{}
 	}
-	fresh := o.draw == nil || st.Epoch == nil || st.Epoch.Number != draw.Epoch.Number
+	// Stickiness is decided against the roster round 0 binds. Until round 0 holds a ticket (a first
+	// ticket not issued, or a restart with the draw stored but no round) it is decided again.
+	fresh := o.draw == nil || st.Epoch == nil || st.Epoch.Number != draw.Epoch.Number || len(st.Rounds) == 0
 	var sticky *taskv1.DispatchStickySnapshotV1
 	if fresh {
 		var wait bool
