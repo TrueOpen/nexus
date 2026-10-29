@@ -100,9 +100,14 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 		s.mu.Unlock()
 		return false, true
 	}
-	if r := s.retries[key+"|"+peer]; r != nil && now.Before(r.next) {
+	if r := s.retries[key+"|"+peer]; r != nil && now.Before(r.next) || st.Lost[peer] {
 		s.mu.Unlock()
 		return false, true
+	}
+	if st.Acked[peer] < st.Pruned {
+		s.markLostLocked(st, peer)
+		s.mu.Unlock()
+		return false, false
 	}
 	p := plan{stream: *st.clone(), from: st.Acked[peer] + 1, to: st.Last, output: st.Output[peer]}
 	s.mu.Unlock()
@@ -263,6 +268,10 @@ func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
 		ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncOutbox, Key: outItemKey(key, n), Delete: true})
 	}
 	next.Pruned = max(next.Pruned, acked)
+	lost := next.Acked[peer] < next.Pruned && !next.Lost[peer]
+	if lost {
+		next.Lost[peer] = true
+	}
 	op, err := streamOp(next)
 	if err == nil {
 		err = s.cfg.Store.WriteBatch(append(ops, op)...)
@@ -272,6 +281,31 @@ func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
 		return
 	}
 	s.streams[key] = next
+	if lost {
+		s.alarmLost(next, peer)
+	}
+}
+
+// markLostLocked marks a member that holds fewer items than were deleted: it lost its store and
+// needs a manual resync of the order. Caller holds s.mu.
+func (s *Sender) markLostLocked(st *outStream, peer string) {
+	next := st.clone()
+	next.Lost[peer] = true
+	if op, err := streamOp(next); err == nil {
+		if err := s.cfg.Store.WriteBatch(op); err != nil {
+			s.log.Warn("lost member not stored", "order", st.key(), "member", peer, "err", err)
+		}
+	}
+	s.streams[st.key()] = next
+	s.alarmLost(next, peer)
+}
+
+// alarmLost reports a member marked lost on an order, once.
+func (s *Sender) alarmLost(st *outStream, peer string) {
+	s.alarms.Add(1)
+	s.log.Error("group member holds fewer of an order's sync items than every member acknowledged (it lost its store); "+
+		"the outbox cannot catch it up and it needs a manual resync of the order", "order", st.key(), "member", peer,
+		"holds", st.Acked[peer], "deleted_through", st.Pruned)
 }
 
 // failed counts a failed batch and backs the member off on the order; a member failing for

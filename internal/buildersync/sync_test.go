@@ -649,3 +649,45 @@ func TestFirstBatchAfterASnapshotChange(t *testing.T) {
 		t.Fatalf("copy after the snapshot changed = %+v", c)
 	}
 }
+
+// Items every member acknowledged are deleted. A member that later holds fewer items than were
+// deleted (it lost its store) cannot be caught up from the outbox: it is marked lost on the order
+// and alarmed once, and nothing more is sent to it there.
+func TestMemberBehindDeletedItemsIsMarkedLost(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.peers.receivers[e.x.op] = e.newMember(e.x).r
+	e.peers.setFail(e.x.op, nil)
+	e.s.OrderChanged(f.issued())
+	e.s.drain()
+	e.s.deliverPeer(context.Background(), e.m.op)
+	key := streamKey(f.sessionHex(), f.sequence)
+	if st := e.s.streams[key]; st.Pruned != 0 {
+		t.Fatalf("items deleted before every member acknowledged them: %+v", st)
+	}
+	e.s.deliverPeer(context.Background(), e.x.op)
+	if st := e.s.streams[key]; st.Pruned != st.Last || st.Last == 0 {
+		t.Fatalf("items acknowledged by both members kept: %+v", st)
+	}
+
+	fresh := e.newMember(e.m) // M lost its store
+	e.member = fresh
+	e.peers.receivers[e.m.op] = fresh.r
+	e.s.OrderChanged(f.rejectedThenOut())
+	e.sync()
+	st := e.s.streams[key]
+	if !st.Lost[e.m.op] || e.s.Counts().Alarms != 1 {
+		t.Fatalf("lost member: lost %v, counts %+v", st.Lost, e.s.Counts())
+	}
+	before := len(e.peers.requests[e.m.op])
+	e.clock.advance(time.Hour)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if len(e.peers.requests[e.m.op]) != before || e.s.Counts().Alarms != 1 {
+		t.Fatal("a lost member was sent more or alarmed again")
+	}
+	// X goes on.
+	e.s.deliverPeer(context.Background(), e.x.op)
+	if st := e.s.streams[key]; st.Acked[e.x.op] != st.Last {
+		t.Fatalf("X after M was lost: %+v", st)
+	}
+}

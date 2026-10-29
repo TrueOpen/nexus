@@ -157,6 +157,9 @@ type outStream struct {
 	Pruned uint64               `json:"pruned,omitempty"`
 	Acked  map[string]uint64    `json:"acked"`
 	Output map[string]outputAck `json:"output,omitempty"`
+	// Lost marks the members that hold fewer items than every member acknowledged (they lost
+	// their store): the outbox cannot catch them up, and nothing more is sent to them.
+	Lost map[string]bool `json:"lost,omitempty"`
 	// Rounds (task/epoch/round), Inputs (task_hash), Attempts (ticket hash -> item digest) and
 	// Record (record digest) are what was turned into items.
 	Rounds   map[string]bool   `json:"rounds,omitempty"`
@@ -193,6 +196,7 @@ func (st *outStream) clone() *outStream {
 	next.Peers = append([]string(nil), st.Peers...)
 	next.Acked = cloneMap(st.Acked)
 	next.Output = cloneMap(st.Output)
+	next.Lost = cloneMap(st.Lost)
 	next.Rounds = cloneMap(st.Rounds)
 	next.Inputs = cloneMap(st.Inputs)
 	next.Attempts = cloneMap(st.Attempts)
@@ -487,7 +491,7 @@ func (s *Sender) streamLocked(ctx context.Context, view *dispatchevidence.Order)
 	st := &outStream{
 		SessionID: view.SessionID, Sequence: view.Sequence, TaskID: view.TaskID,
 		BuilderSetID: group.BuilderSetID, BuilderSetHash: append([]byte(nil), group.BuilderSetHash[:]...), Peers: peers,
-		Acked: map[string]uint64{}, Output: map[string]outputAck{},
+		Acked: map[string]uint64{}, Output: map[string]outputAck{}, Lost: map[string]bool{},
 		Rounds: map[string]bool{}, Inputs: map[string]bool{}, Attempts: map[string]string{},
 	}
 	return st, nil
