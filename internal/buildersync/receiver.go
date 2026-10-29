@@ -424,7 +424,11 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *buildersyncv
 	if _, held := o.Round(candidate.Number); held {
 		return fmt.Errorf("round %d is held already", candidate.Number)
 	}
-	o.TaskHash = hex.EncodeToString(round.GetTaskHash())
+	taskHash := hex.EncodeToString(round.GetTaskHash())
+	if o.TaskHash != "" && o.TaskHash != taskHash {
+		return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
+	}
+	o.TaskHash = taskHash
 	o.DeadlineBase = max(o.DeadlineBase, round.GetEarliestSubmitHeight())
 	o.Rounds = append(o.Rounds, candidate)
 	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })

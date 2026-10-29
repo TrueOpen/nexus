@@ -3,6 +3,7 @@ package buildersync
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -829,5 +830,29 @@ func TestFailedChangeIsAppliedAgain(t *testing.T) {
 	e.sync()
 	if c := e.copyOf(); c == nil || len(c.Rounds) != 1 {
 		t.Fatalf("copy after the chain came back = %+v", c)
+	}
+}
+
+// A later round of a task held already must carry the task_hash the copy holds: it never
+// replaces it.
+func TestLaterRoundKeepsTheTaskHash(t *testing.T) {
+	e := newEnv(t)
+	batch := e.firstBatch()
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("first batch = %v, %v", resp, err)
+	}
+	last := batch.Items[len(batch.Items)-1].GetSequence()
+	next := proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	round := proto.Clone(batch.Items[0]).(*buildersyncv1.BuilderSyncItemV1)
+	round.Sequence = last + 1
+	round.GetRound().DispatchRound = 1
+	round.GetRound().TaskHash = fill(0x02)
+	next.Items = []*buildersyncv1.BuilderSyncItemV1{round}
+	resp, err := e.member.r.Sync(context.Background(), e.signed(next))
+	if err != nil || !strings.Contains(resp.GetRefused(), "task_hash") {
+		t.Fatalf("round with another task_hash = %v, %v", resp, err)
+	}
+	if c := e.copyOf(); c == nil || c.TaskHash != hex.EncodeToString(e.fx.taskHash) {
+		t.Fatalf("copy task_hash = %+v", c)
 	}
 }
