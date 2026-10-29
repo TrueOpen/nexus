@@ -436,7 +436,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
 			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
 			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
-			Inputs:  taskStore, Observer: coord, Tasks: coord, Log: log,
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Log: log,
 		})
 		cancelParams()
 		if err != nil {
@@ -569,6 +569,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	if orderPath != nil {
 		authParams.Precheck = orderPath.Precheck
+		authParams.Takeovers = orderPath.Takeovers
 	}
 	ing, err := ingress.New(log, cfg.Ingress, authParams, coord, ingressOpts...)
 	if err != nil {

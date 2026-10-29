@@ -20,6 +20,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -40,7 +41,9 @@ type orderDispatch struct {
 	Dispatcher *dispatcher.Dispatcher
 	Recorder   *recorder.Recorder
 	Gate       *recorder.Gate
-	params     func(context.Context) (orderParams, error)
+	// Takeovers takes over the sessions bound to other Builders that orders arrive for.
+	Takeovers *takeover.Manager
+	params    func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -60,6 +63,7 @@ func (e *orderEvents) observe(ev chaincli.ChainEvent) {
 		}
 		od.Dispatcher.HandleChainEvent(ev)
 		od.Recorder.HandleChainEvent(ev)
+		od.Takeovers.HandleChainEvent(ev)
 	}
 }
 
@@ -120,7 +124,10 @@ type orderDispatchDeps struct {
 	Inputs   *taskdata.Store
 	Observer dispatcher.Observer
 	Tasks    recorder.Tasks
-	Log      *slog.Logger
+	// Held keeps the task of an order held for a takeover and dispatches it once the takeover took
+	// effect.
+	Held takeover.Tasks
+	Log  *slog.Logger
 }
 
 // orderParams are the task params the order path applies.
@@ -211,11 +218,23 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		return nil, err
 	}
 	od.Recorder.SetOrders(od.Dispatcher)
+	var track func(string) error
+	if tracker != nil {
+		track = tracker.TrackSessionEvents
+	}
+	od.Takeovers, err = takeover.New(takeover.Config{
+		Builder: deps.BuilderAddress, Store: deps.Store, Chain: deps.TaskChain, Recorder: od.Recorder, Precheck: od.Precheck,
+		Tasks: deps.Held, Track: track, Log: deps.Log,
+	})
+	if err != nil {
+		return nil, err
+	}
+	od.Recorder.SetTakeovers(od.Takeovers)
 	return od, nil
 }
 
 // Start follows the sessions the ledger holds, reads the compensation account, starts recording,
-// resumes the dispatcher's orders and keeps the params current.
+// resumes the dispatcher's orders and the takeovers, and keeps the params current.
 func (od *orderDispatch) Start(ctx context.Context) error {
 	od.Sessions.Prewarm()
 	if err := od.Gate.Refresh(ctx); err != nil {
@@ -225,6 +244,9 @@ func (od *orderDispatch) Start(ctx context.Context) error {
 		return err
 	}
 	if err := od.Dispatcher.Start(ctx); err != nil {
+		return err
+	}
+	if err := od.Takeovers.Start(ctx); err != nil {
 		return err
 	}
 	refreshCtx, cancel := context.WithCancel(context.Background())
