@@ -777,3 +777,23 @@ func TestStickyIsDecidedFromTheRosterRoundZeroBinds(t *testing.T) {
 		t.Fatal("promoted to a Worker the bound roster does not hold")
 	}
 }
+
+// A binding change seen while an order waits for its first ticket is committed by that ticket even
+// when the session state read still shows the old bound_change_height.
+func TestBindingChangeBeforeTheFirstTicket(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.orderAt(s, 0, 1, testESH+1)
+	e.dispatch(o)
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers before earliest_submit_height", n)
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: testBound + 5}})
+	e.sessions.ObserveHeight(testESH + 1)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	_, ticket, _ := e.lastOffer()
+	if ticket.GetBoundChangeHeight() != testBound+5 || ticket.GetDispatchRound() != 0 {
+		t.Fatalf("first ticket commits bound_change_height %d round %d, want %d round 0",
+			ticket.GetBoundChangeHeight(), ticket.GetDispatchRound(), testBound+5)
+	}
+}

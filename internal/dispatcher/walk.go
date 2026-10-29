@@ -247,7 +247,8 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.draw = ord
 	}
 	o.roster, o.rosterRound = roster, nextRound(st)
-	st.BoundChangeHeight, st.NewRound = session.BoundChangeHeight, false
+	// bound_change_height only grows; a binding event may have been seen before the session read.
+	st.BoundChangeHeight, st.NewRound = max(st.BoundChangeHeight, session.BoundChangeHeight), false
 	return true, done{}
 }
 
@@ -439,7 +440,17 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 	for _, o := range d.sessionOrders(sessionID) {
 		o.mu.Lock()
 		st := o.st
-		if st.Phase == phaseFailed || builder == d.cfg.Builder && (len(st.Rounds) == 0 && st.Phase == phaseDispatching || st.BoundChangeHeight == boundChangeHeight) {
+		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight == boundChangeHeight {
+			o.mu.Unlock()
+			continue
+		}
+		if builder == d.cfg.Builder && len(st.Rounds) == 0 && st.Phase == phaseDispatching {
+			// No ticket yet: nothing to void, but the first ticket must commit the new height even
+			// if the session state read lags behind this event.
+			st.BoundChangeHeight = max(st.BoundChangeHeight, boundChangeHeight)
+			if err := saveState(d.cfg.Store, st); err != nil {
+				d.log.Error("binding change not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+			}
 			o.mu.Unlock()
 			continue
 		}
