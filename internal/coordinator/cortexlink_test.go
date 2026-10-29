@@ -224,3 +224,56 @@ func TestHandleVerifyResultSubmittedOnlyRequestsReconcile(t *testing.T) {
 		t.Fatal("the notice did not request a reconcile of the task")
 	}
 }
+
+// Before this Builder has seen the assignment the task is still Assigned and the selected set is
+// unknown here: a notice is then taken as the wake-up it is, from any Cortex, and asks for a
+// reconcile. A task that has no winner yet takes no notice.
+func TestHandleVerifyResultSubmittedInAssignedRequestsReconcile(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	const session = "sess-verify-notice-assigned"
+	task := testTaskID("verify-notice-assigned")
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatal(err)
+	}
+	fsm, _ := c.getFSM(session, task)
+	verifier := testOperator("verifier-1")
+	notice := &nexusv1.VerifyResultSubmittedNoticeV1{
+		TaskId: mustHex32(task), TaskHash: fsm.taskHashBytes(),
+		VerifyRound: uint32(nodecontract.SupportedVerifyRoundV1), OperatorAddress: verifier,
+	}
+	ctx := context.Background()
+	if err := c.HandleVerifyResultSubmitted(ctx, verifier, notice); !errors.Is(err, types.ErrFailedPrecondition) {
+		t.Fatalf("notice for a Pending task = %v, want ErrFailedPrecondition", err)
+	}
+	recordTestWinner(c, session, task, testOperator("worker-1"), 101)
+	if err := c.HandleVerifyResultSubmitted(ctx, verifier, notice); err != nil {
+		t.Fatalf("notice for an Assigned task: %v", err)
+	}
+	c.reconcilePendingMu.Lock()
+	_, queued := c.reconcilePending[reconcileRequestKey(reconcileRequest{sessionID: session, taskID: task})]
+	c.reconcilePendingMu.Unlock()
+	if !queued {
+		t.Fatal("the notice did not request a reconcile of the Assigned task")
+	}
+}
+
+// A closed task leaves its verification round: its Verifier broadcasts are retired, so streams
+// that connect later are not given them.
+func TestClosedTaskRetiresItsVerifierBroadcasts(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	link := c.cortex.(*fakeCortexLink)
+	const session = "sess-retire"
+	task := testTaskID("retire")
+	verifyingTask(t, c, session, task, []string{testOperator("verifier-1")})
+	fsm, _ := c.getFSM(session, task)
+	if len(link.retiredRounds()) != 0 {
+		t.Fatalf("retired before close: %v", link.retiredRounds())
+	}
+	if !fsm.closeGone(300) {
+		t.Fatal("task did not close")
+	}
+	want := hex.EncodeToString(mustHex32(task)) + "/1"
+	if got := link.retiredRounds(); len(got) != 1 || got[0] != want {
+		t.Fatalf("retired %v, want [%s]", got, want)
+	}
+}

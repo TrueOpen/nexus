@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -115,9 +116,22 @@ func (k *testServiceKeys) QueryCurrentServiceKey(
 
 // fakeCortexLink is the in-memory CortexLink of the tests: it keeps every broadcast frame.
 type fakeCortexLink struct {
-	mu     sync.Mutex
-	frames []*nexusv1.DispatchStreamFrameV1
-	err    error
+	mu      sync.Mutex
+	frames  []*nexusv1.DispatchStreamFrameV1
+	err     error
+	retired []string // "<task_id hex>/<verify_round>"
+}
+
+func (l *fakeCortexLink) Retire(taskID []byte, verifyRound uint32) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.retired = append(l.retired, fmt.Sprintf("%x/%d", taskID, verifyRound))
+}
+
+func (l *fakeCortexLink) retiredRounds() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.retired...)
 }
 
 func (l *fakeCortexLink) Broadcast(_ context.Context, frame *nexusv1.DispatchStreamFrameV1) error {

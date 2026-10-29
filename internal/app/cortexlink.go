@@ -25,3 +25,5 @@ func (l noCortexLink) Broadcast(_ context.Context, frame *nexusv1.DispatchStream
 	l.log.Debug("cortex dispatch stream not served; dropping builder message", "message", kind)
 	return nil
 }
+
+func (noCortexLink) Retire([]byte, uint32) {}

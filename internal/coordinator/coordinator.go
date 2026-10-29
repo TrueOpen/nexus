@@ -613,6 +613,7 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		endExternalHandler:    c.callbackWG.Done,
 		onClose: func() {
 			c.deletePayload(orderInput(o))
+			c.retireVerifierMessages(o.TaskID)
 			// The terminal marker goes first, as in recovery: Terminate may report the output
 			// finalized synchronously, and that deletes the snapshot only once the marker is durable.
 			recipient := c.removeTask(key)

@@ -19,9 +19,13 @@ import (
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
-// CortexLink delivers Builder-signed messages to connected Cortex dispatch streams.
+// CortexLink delivers Builder-signed Verifier messages to the Cortex dispatch streams.
 type CortexLink interface {
+	// Broadcast sends an OpenVerifyV1 or VerifierAssignmentNotifyV1 to every connected stream and
+	// keeps it for streams that connect later, until Retire.
 	Broadcast(ctx context.Context, frame *nexusv1.DispatchStreamFrameV1) error
+	// Retire stops giving the messages of (task_id, verify_round) to streams that connect later.
+	Retire(taskID []byte, verifyRound uint32)
 }
 
 // WithCortexLink wires the downlink to connected Cortex streams. Without it the coordinator signs
@@ -165,9 +169,10 @@ func (c *Coordinator) HandleVerifierHandraise(_ context.Context, cortexOperator 
 	return nil
 }
 
-// HandleVerifyResultSubmitted takes a selected Verifier's notice that it put its result on chain
-// itself. The notice is a wake-up, not a fact: it only makes this Builder read the task from the
-// chain now instead of at the next periodic reconciliation.
+// HandleVerifyResultSubmitted takes a selected Verifier's notice that it put its commit or result on
+// chain. The notice is a wake-up, not a fact: it only makes this Builder read the task from the
+// chain now instead of at the next periodic reconciliation. It is taken while the task is Assigned
+// too, since the notice can arrive before this Builder has seen the assignment.
 func (c *Coordinator) HandleVerifyResultSubmitted(_ context.Context, cortexOperator string, m *nexusv1.VerifyResultSubmittedNoticeV1) error {
 	if m == nil {
 		return fmt.Errorf("%w: verify result notice is required", types.ErrInvalidArgument)
@@ -190,9 +195,11 @@ func (c *Coordinator) HandleVerifyResultSubmitted(_ context.Context, cortexOpera
 	switch {
 	case !bytes.Equal(m.GetTaskHash(), taskHash):
 		return fmt.Errorf("%w: task_hash does not match this task", types.ErrInvalidArgument)
-	case state != types.Verifying:
+	case state != types.Assigned && state != types.Verifying:
 		return fmt.Errorf("%w: task is not in the verify stage (state %s)", types.ErrFailedPrecondition, state)
-	case !selected:
+	case state == types.Verifying && !selected:
+		// Only once Verifying does this Builder know the selected set; before that the notice
+		// may be the first sign that the assignment exists.
 		return fmt.Errorf("%w: verifier is not selected for this task", types.ErrUnauthorized)
 	}
 	c.requestTaskReconcile(fsm.sessionID, fsm.taskID, 0, "verify result submitted notice")
@@ -215,4 +222,15 @@ func (c *Coordinator) fsmForTaskID(raw []byte) (*taskFSM, error) {
 		return nil, ErrTaskNotFound
 	}
 	return fsm, nil
+}
+
+// retireVerifierMessages tells the CortexLink that a closed task has left its verification round,
+// so its OpenVerifyV1 and VerifierAssignmentNotifyV1 are no longer given to streams that connect
+// later.
+func (c *Coordinator) retireVerifierMessages(taskID string) {
+	raw, err := hex.DecodeString(taskID)
+	if c.cortex == nil || err != nil || len(raw) != hash32Len {
+		return
+	}
+	c.cortex.Retire(raw, uint32(nodecontract.SupportedVerifyRoundV1))
 }
