@@ -18,6 +18,7 @@ const (
 	acceptName        = "task.v1.DispatchAcceptV1"
 	resultHeaderName  = "nexus.v1.DispatchResultHeaderV1"
 	inputResponseName = "nexus.v1.DispatchInputResponseV1"
+	noticeName        = "nexus.v1.RecordResultNoticeV1"
 
 	schemaVersion = 1
 )
@@ -67,6 +68,12 @@ func signResultHeader(s signer.Signer, h *nexusv1.DispatchResultHeaderV1) ([]byt
 
 func signInputResponse(s signer.Signer, r *nexusv1.DispatchInputResponseV1) ([]byte, [32]byte, error) {
 	return signMessage(s, inputResponseName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
+}
+
+// SignRecordResultNotice signs n with the Builder service key and returns its signed bytes and
+// signing digest.
+func SignRecordResultNotice(s signer.Signer, n *nexusv1.RecordResultNoticeV1) ([]byte, [32]byte, error) {
+	return signMessage(s, noticeName, n, func(sig []byte) { n.BuilderServiceSignature = sig })
 }
 
 // memberRef is the CandidateMemberRefV1 of a pool member in the snapshot.

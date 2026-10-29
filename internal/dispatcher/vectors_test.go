@@ -163,3 +163,17 @@ func TestAcceptDigestVector(t *testing.T) {
 		t.Fatalf("accept digest = %x, %v; want %s", digest, err, v.DigestHex)
 	}
 }
+
+func TestRecordResultNoticeVector(t *testing.T) {
+	var want nexusv1.RecordResultNoticeV1
+	v, wantRaw, wantSig := loadVector(t, "nexus_v1_recordresultnoticev1", &want)
+	n := &nexusv1.RecordResultNoticeV1{
+		DispatchTicketHash: want.GetDispatchTicketHash(), Status: want.GetStatus(), RejectCode: want.GetRejectCode(),
+		RecordedHeight: want.GetRecordedHeight(),
+	}
+	raw, digest, err := SignRecordResultNotice(newTestSigner(t, 0x01), n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkSigned(t, v, wantRaw, wantSig, raw, digest, n.GetBuilderServiceSignature())
+}

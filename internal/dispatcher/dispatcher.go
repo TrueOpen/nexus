@@ -60,6 +60,13 @@ var (
 	ErrRecordDeadline = errors.New("record deadline passed before a Worker accepted")
 	// ErrBoundElsewhere fails the orders of a session the chain bound to another Builder.
 	ErrBoundElsewhere = errors.New("NEXUS_INGRESS_SESSION_BOUND_ELSEWHERE")
+	// ErrRecordRejected fails the orders of a session from a sequence whose dispatch entry the
+	// chain refused or did not record by its deadline: none of them can be recorded before it.
+	ErrRecordRejected = errors.New("RECORD_REJECTED")
+	// ErrCompensationBelowMin is the Keys gate while this Builder's compensation account is below
+	// builder_compensation_account_min_balance: the chain refuses every record it sends, so no new
+	// order is taken and no ticket issued.
+	ErrCompensationBelowMin = errors.New("builder compensation account below its minimum balance")
 )
 
 // Params are the chain parameters the walk reads.
@@ -113,10 +120,11 @@ type Sessions interface {
 	Head() uint64
 }
 
-// Keys reads service key bindings from the chain.
+// Keys reads service key bindings from the chain and gates ticket issuance.
 type Keys interface {
 	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
-	// replacement key is pending, and fails when its current key cannot be confirmed.
+	// replacement key is pending, with ErrCompensationBelowMin while its compensation account is
+	// below the minimum, and fails when its current key cannot be confirmed.
 	CheckBuilderKey(ctx context.Context) error
 	// CortexRotationPending reports whether operator's CORTEX key replacement is pending.
 	CortexRotationPending(ctx context.Context, operator string) (bool, error)
@@ -442,12 +450,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 }
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this
-// Builder's key rotation is pending (it takes no new order; the session moves by takeover) or the
-// latest handraise root holds no admitted, unexpired handraise with a free slot for the order's
-// profile. The walk decides the rest.
+// Builder's key rotation is pending or its compensation account is below the minimum (it takes no
+// new order; the session moves by takeover) or the latest handraise root holds no admitted,
+// unexpired handraise with a free slot for the order's profile. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
-		if errors.Is(err, handraise.ErrBuilderRotationPending) {
+		if errors.Is(err, handraise.ErrBuilderRotationPending) || errors.Is(err, ErrCompensationBelowMin) {
 			return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
 		}
 		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
@@ -508,18 +516,53 @@ func (d *Dispatcher) RecordRejected(sessionID string, sequence uint64, reason er
 		return nil
 	}
 	o.mu.Lock()
+	defer o.mu.Unlock()
+	return d.rejectAcceptedLocked(o, reason)
+}
+
+// rejectAcceptedLocked fails an accepted order with its winner ticket VOIDED. Caller holds o.mu.
+func (d *Dispatcher) rejectAcceptedLocked(o *order, reason error) error {
 	if o.st.Phase != phaseAccepted {
-		o.mu.Unlock()
 		return nil
 	}
 	if w := o.st.winner(); w != nil {
-		w.Outcome = taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED
+		w.Outcome = outcomeVoided
 	}
 	o.st.Phase, o.st.FailReason = phaseFailed, reason.Error()
 	o.st.Accept, o.st.AcceptDigest, o.st.Record = nil, nil, nil
-	err := saveState(d.cfg.Store, o.st)
-	o.mu.Unlock()
-	return err
+	return saveState(d.cfg.Store, o.st)
+}
+
+// Suspend fails every order of the session from sequence from on, after the record of from was
+// refused or missed its deadline: the chain cannot admit a later order before it. An accepted
+// order is failed as RecordRejected does; a dispatching one stops walking, its ticket still out
+// VOIDED, and the observer is told reason. The ledger's suspension is the Recorder's.
+func (d *Dispatcher) Suspend(ctx context.Context, sessionID string, from uint64, reason error) {
+	for _, o := range d.sessionOrders(sessionID) {
+		var out done
+		o.mu.Lock()
+		switch st := o.st; {
+		case st.Sequence < from || st.Phase == phaseFailed:
+		case st.Phase == phaseAccepted:
+			if err := d.rejectAcceptedLocked(o, reason); err != nil {
+				d.log.Error("suspended order not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+			}
+		default:
+			if a := st.pending(); a != nil {
+				a.Outcome = outcomeVoided
+			}
+			out = d.fail(o, reason)
+		}
+		o.mu.Unlock()
+		d.finish(ctx, out)
+	}
+}
+
+// RecordDeadline returns the last height the order of (session, sequence) can be recorded at, as
+// the in-flight ledger holds it.
+func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, bool) {
+	e, ok := d.cfg.Ledger.Get(sessionID, sequence)
+	return e.Deadline, ok
 }
 
 // DispatchResult returns the signed DispatchResultHeaderV1 of an accepted order: its winner ticket

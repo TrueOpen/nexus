@@ -127,9 +127,12 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
-			if errors.Is(err, handraise.ErrBuilderRotationPending) {
+			switch {
+			case errors.Is(err, handraise.ErrBuilderRotationPending):
 				d.log.Info("no ticket issued: this Builder's service key rotation is pending", "session_id", st.SessionID, "order_sequence", st.Sequence)
-			} else {
+			case errors.Is(err, ErrCompensationBelowMin):
+				d.log.Warn("no ticket issued: this Builder's compensation account is below its minimum", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+			default:
 				d.log.Warn("no ticket issued: Builder service key not confirmed", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}
 			o.parked = true
