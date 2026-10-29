@@ -124,13 +124,19 @@ func (p OrderPrecheck) Check(ctx context.Context, keys SessionKeys, sessionID st
 	if err != nil {
 		return lookupErr(err)
 	}
-	err = registeredkey.CheckOrder(state, order.GetUserAddress(), p.Recovered, order.GetSessionAnchorHeight(),
-		order.GetMaxFee().GetAtomicUnits(), p.Height)
+	return OrderKeyErr(registeredkey.CheckOrder(state, order.GetUserAddress(), p.Recovered, order.GetSessionAnchorHeight(),
+		order.GetMaxFee().GetAtomicUnits(), p.Height))
+}
+
+// OrderKeyErr maps a registeredkey verdict on an order to its SDK code: an expired key
+// SDK_AUTH_SESSION_GRANT_EXPIRED, a spend cap overrun SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED,
+// any other failure SDK_AUTH_INVALID_SIGNATURE (not saying which). nil stays nil.
+func OrderKeyErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, registeredkey.ErrKeyExpired):
-		return fmt.Errorf("%w: the session's registered key has expired", ErrSessionGrantExpired)
+		return fmt.Errorf("%w: the session's registered key has expired or expires before the order's record deadline", ErrSessionGrantExpired)
 	case errors.Is(err, registeredkey.ErrSpendCapExceeded):
 		return fmt.Errorf("%w: the order's max_fee does not fit the registered key's spend cap", ErrSessionKeySpendCapExceeded)
 	default:
