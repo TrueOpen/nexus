@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/types"
 )
 
 const (
@@ -40,6 +40,12 @@ type Authority interface {
 	// QueryProfile reads the locked Verification Profile. Finalize uses its evidence_schema_hash to
 	// decide whether a manifest belongs to this schema.
 	QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (chaincli.ProfileState, error)
+}
+
+// AttemptSource names the winning dispatch attempt of each task this Builder dispatched
+// (attempt.Book).
+type AttemptSource interface {
+	Current(taskID string) (attempt.Attempt, bool)
 }
 
 type AuthorizerConfig struct {
@@ -68,6 +74,10 @@ type AuthorizerConfig struct {
 	// SessionGrants verifies session grants on USER requests: the chain reads (current height,
 	// account keys) and the network's max_session_grant_blocks.
 	SessionGrants SessionGrantEnv
+	// Attempts holds the winning dispatch attempts: the output stream of a task is taken only from
+	// the Worker whose accept this Builder holds, and before the chain knows the task the winner
+	// reads its INPUT by that accept. Nil holds none.
+	Attempts AttemptSource
 	// Log receives authorization notices; nil discards them.
 	Log *slog.Logger
 }
@@ -191,40 +201,63 @@ func (a *Authorizer) AuthorizeUploadObject(ctx context.Context, request RequestA
 	return acceptedReceiptHash, height, nil
 }
 
-// AuthorizeOutputStream authorizes the streamed upload Header: the request signature and body binding follow the whole-object upload; only the
-// Task's selected Worker is allowed; task_hash must equal the accepted_task_hash accepted on chain;
-// the task must be in ASSIGNED / VERIFYING (otherwise DeadlineExceeded).
-// It also returns the Worker's current service key for per-frame signature verification; the same
-// stream reuses it instead of querying the chain per frame.
-func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestAuth, key ObjectKey, taskHash string) (chaincli.OnChainTask, uint64, []byte, error) {
+// AuthorizeOutputStream authorizes the streamed upload Header: the request signature and body
+// binding follow the whole-object upload; the uploader must be the Worker whose accept this Builder
+// holds for the header's dispatch_ticket_hash, the task's live attempt (record pending or admitted),
+// and task_hash must be that attempt's order version. The chain's task is not read: before the
+// record it does not exist, and after it the attempt is the same winner.
+// It returns the attempt and the Worker's current service key for per-frame signature verification;
+// the same stream reuses it instead of querying the chain per frame.
+func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestAuth, key ObjectKey, taskHash string, ticket []byte) (attempt.Attempt, uint64, []byte, error) {
 	digest, err := OutputStreamBodyDigest(key)
 	if err != nil {
-		return chaincli.OnChainTask{}, 0, nil, formatErr(request, err)
+		return attempt.Attempt{}, 0, nil, formatErr(request, err)
 	}
 	if err := serviceBodyBound(request, request.Key == key, digest, "output stream header"); err != nil {
-		return chaincli.OnChainTask{}, 0, nil, err
+		return attempt.Attempt{}, 0, nil, err
 	}
-	task, height, err := a.verifyRequest(ctx, request, MethodUploadStream, digest)
+	height, workerPublicKey, err := a.verifyLocalRequest(ctx, request, MethodUploadStream, digest)
 	if err != nil {
-		return chaincli.OnChainTask{}, 0, nil, err
+		return attempt.Attempt{}, 0, nil, err
 	}
 	if request.Key != key {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream object ref is not the one the request signed", ErrInvalidSignature)
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream object ref is not the one the request signed", ErrInvalidSignature)
 	}
-	if task.Assignment.SelectedWorkerOperatorAddress == "" || task.Assignment.SelectedWorkerOperatorAddress != request.RequesterAddress {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream uploader is not the selected worker", ErrUnauthorized)
+	if request.RequesterKind != RequesterKindCortexService {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream uploader is not a Cortex service", ErrUnauthorized)
 	}
-	if !canonicalSHA256(taskHash) || task.Assignment.AcceptedTaskHash != taskHash {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: output stream task_hash does not match accepted_task_hash", ErrUnauthorized)
-	}
-	if task.State != types.Assigned && task.State != types.Verifying {
-		return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: task is not in ASSIGNED or VERIFYING", ErrExpired)
-	}
-	workerPublicKey, _, err := a.currentParticipantServiceKey(ctx, participantTypeCortex, request.RequesterAddress)
+	won, err := a.winnerAttempt(key, request.RequesterAddress)
 	if err != nil {
-		return chaincli.OnChainTask{}, 0, nil, err
+		return attempt.Attempt{}, 0, nil, err
 	}
-	return task, height, workerPublicKey, nil
+	if !won.Live() || !bytes.Equal(ticket, won.TicketHash[:]) {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream ticket %x is not the task's live attempt", ErrAttemptStale, ticket)
+	}
+	if won.TaskHash != taskHash {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream task_hash is not the accepted order version", ErrUnauthorized)
+	}
+	return won, height, workerPublicKey, nil
+}
+
+// winnerAttempt returns the task's current attempt when requester is its Worker.
+func (a *Authorizer) winnerAttempt(key ObjectKey, requester string) (attempt.Attempt, error) {
+	if a.cfg.Attempts == nil {
+		return attempt.Attempt{}, fmt.Errorf("%w: no dispatch attempt is held", ErrUnauthorized)
+	}
+	won, ok := a.cfg.Attempts.Current(key.TaskID)
+	if !ok || won.SessionID != key.SessionID || won.Worker != requester {
+		return attempt.Attempt{}, fmt.Errorf("%w: requester is not the Worker whose accept this Builder holds", ErrUnauthorized)
+	}
+	return won, nil
+}
+
+// AttemptLive reports whether ticket is still the live attempt of the task.
+func (a *Authorizer) AttemptLive(taskID string, ticket []byte) bool {
+	if a.cfg.Attempts == nil {
+		return false
+	}
+	won, ok := a.cfg.Attempts.Current(taskID)
+	return ok && won.Live() && bytes.Equal(won.TicketHash[:], ticket)
 }
 
 // AuthorizeFetch authorizes a fetch. A fetch uses the same TaskDataRequestAuthV1
@@ -400,6 +433,56 @@ func (a *Authorizer) verifyRequest(ctx context.Context, request RequestAuth, met
 // DATA_ACCESS_DENIED, expiry -> NEXUS_DATA_EXPIRED, replay -> NEXUS_DATA_REPLAY. The caller checks
 // the Task duty last.
 func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, method RequestMethod, body [32]byte) (chaincli.OnChainTask, uint64, []byte, error) {
+	requesterKey, err := a.verifyRequester(ctx, request, method, body)
+	if err != nil {
+		return chaincli.OnChainTask{}, 0, nil, err
+	}
+	height, task, err := a.currentTask(ctx, request.Key)
+	if err != nil {
+		return chaincli.OnChainTask{}, 0, nil, err
+	}
+	if err := a.checkFreshness(ctx, request, height); err != nil {
+		return chaincli.OnChainTask{}, 0, nil, err
+	}
+	return task, height, requesterKey, nil
+}
+
+// verifyLocalRequest is verifyRequestKey for a task the chain does not know yet: the requester is
+// verified the same way, and the expiry and nonce against the chain head, without reading a task.
+// The caller decides the duty from the attempt book.
+func (a *Authorizer) verifyLocalRequest(ctx context.Context, request RequestAuth, method RequestMethod, body [32]byte) (uint64, []byte, error) {
+	requesterKey, err := a.verifyRequester(ctx, request, method, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := validateStreamKeyScope(request.Key); err != nil {
+		return 0, nil, err
+	}
+	height, err := a.authority.LatestHeight(ctx)
+	if err != nil || height == 0 {
+		return 0, nil, fmt.Errorf("%w: latest height", ErrAuthorityUnavailable)
+	}
+	if err := a.checkFreshness(ctx, request, height); err != nil {
+		return 0, nil, err
+	}
+	return height, requesterKey, nil
+}
+
+// checkFreshness checks the request expiry against height and consumes a USER nonce, which is
+// stored before the Task duty is checked; consumeRequestNonce is a no-op for it afterwards.
+func (a *Authorizer) checkFreshness(ctx context.Context, request RequestAuth, height uint64) error {
+	if err := validateExpiry(height, request.ExpiryHeight, a.requestExpiryBlocks(ctx)); err != nil {
+		return err
+	}
+	if request.RequesterKind == RequesterKindUser {
+		return a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height)
+	}
+	return nil
+}
+
+// verifyRequester verifies who signed the request and returns the CORTEX_SERVICE key the
+// signature verified against (nil on the USER path).
+func (a *Authorizer) verifyRequester(ctx context.Context, request RequestAuth, method RequestMethod, body [32]byte) ([]byte, error) {
 	var requesterKey []byte
 	switch request.RequesterKind {
 	case RequesterKindCortexService:
@@ -408,40 +491,40 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		// not the NEXUS_DATA_MALFORMED of the other CORTEX_SERVICE format errors, because the wire
 		// vector cortex_service_signature_chain_id_nonzero says so; follow wire if it revises that.
 		if request.SignatureChainID != 0 {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: CORTEX_SERVICE signature_chain_id must be 0", ErrRequestMalformed)
+			return nil, fmt.Errorf("%w: CORTEX_SERVICE signature_chain_id must be 0", ErrRequestMalformed)
 		}
 		if request.ChainID != a.cfg.ChainID || request.BuilderOperatorAddress != a.cfg.BuilderAddress ||
 			request.RPCMethod != rpcMethodPath(method) {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
+			return nil, fmt.Errorf("%w: request binding", ErrUnauthorized)
 		}
 		if len(request.Signature) != 64 {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: CORTEX_SERVICE signature must be exactly 64 bytes", ErrMalformed)
+			return nil, fmt.Errorf("%w: CORTEX_SERVICE signature must be exactly 64 bytes", ErrMalformed)
 		}
 		digest, err := CortexTaskDataRequestDigest(request)
 		if err != nil {
-			return chaincli.OnChainTask{}, 0, nil, err
+			return nil, err
 		}
 		publicKey, state, err := servicekey.Current(
 			ctx, a.authority, a.cfg.AddressPrefix, participantTypeCortex, request.RequesterAddress)
 		if err != nil {
 			if errors.Is(err, servicekey.ErrAuthority) {
-				return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request identity: %v", ErrAuthorityUnavailable, err)
+				return nil, fmt.Errorf("%w: request identity: %v", ErrAuthorityUnavailable, err)
 			}
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request identity: %v", ErrUnauthorized, err)
+			return nil, fmt.Errorf("%w: request identity: %v", ErrUnauthorized, err)
 		}
 		// service_authorization_nonce pins the signature to this generation of the service key: after
 		// a rotation requests with the old nonce are no longer valid and the old key expires with
 		// them.
 		if request.ServiceAuthorizationNonce == 0 || request.ServiceAuthorizationNonce != state.AuthorizationNonce {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: stale service_authorization_nonce", ErrUnauthorized)
+			return nil, fmt.Errorf("%w: stale service_authorization_nonce", ErrUnauthorized)
 		}
 		if !signer.VerifyDigestSig(publicKey, digest[:], request.Signature) {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: request signature", ErrUnauthorized)
+			return nil, fmt.Errorf("%w: request signature", ErrUnauthorized)
 		}
 		requesterKey = publicKey
 	case RequesterKindUser:
 		if request.RPCMethod != rpcMethodPath(method) {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: rpc_method %q is not the called method %q",
+			return nil, fmt.Errorf("%w: rpc_method %q is not the called method %q",
 				ErrRequestMalformed, request.RPCMethod, rpcMethodPath(method))
 		}
 		env := a.cfg.SessionGrants
@@ -449,34 +532,20 @@ func (a *Authorizer) verifyRequestKey(ctx context.Context, request RequestAuth, 
 		env.ChainID = a.cfg.ChainID
 		env.BodyDigest = hex.EncodeToString(body[:])
 		if err := VerifyUserTaskDataRequest(ctx, request, env); err != nil {
-			return chaincli.OnChainTask{}, 0, nil, formatErr(request, err)
+			return nil, formatErr(request, err)
 		}
 		if request.BuilderOperatorAddress != a.cfg.BuilderAddress {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: the request is for Builder %q", ErrDenied, request.BuilderOperatorAddress)
+			return nil, fmt.Errorf("%w: the request is for Builder %q", ErrDenied, request.BuilderOperatorAddress)
 		}
 		// The nonce of a signed request is stored before the Task duty is checked (wire order), so an
 		// account may not store nonces faster than the cap.
 		if !a.userRate.allow(request.RequesterAddress, time.Now()) {
-			return chaincli.OnChainTask{}, 0, nil, fmt.Errorf("%w: too many Task data requests from %q", ErrCapacity, request.RequesterAddress)
+			return nil, fmt.Errorf("%w: too many Task data requests from %q", ErrCapacity, request.RequesterAddress)
 		}
 	default:
-		return chaincli.OnChainTask{}, 0, nil, formatErr(request, fmt.Errorf("%w: requester_kind", ErrMalformed))
+		return nil, formatErr(request, fmt.Errorf("%w: requester_kind", ErrMalformed))
 	}
-	height, task, err := a.currentTask(ctx, request.Key)
-	if err != nil {
-		return chaincli.OnChainTask{}, 0, nil, err
-	}
-	if err := validateExpiry(height, request.ExpiryHeight, a.requestExpiryBlocks(ctx)); err != nil {
-		return chaincli.OnChainTask{}, 0, nil, err
-	}
-	if request.RequesterKind == RequesterKindUser {
-		// A USER nonce is consumed here, before the Task duty is checked; consumeRequestNonce is a
-		// no-op for it afterwards.
-		if err := a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height); err != nil {
-			return chaincli.OnChainTask{}, 0, nil, err
-		}
-	}
-	return task, height, requesterKey, nil
+	return requesterKey, nil
 }
 
 // requestExpiryBlocks is the Task data request expiry window, re-read from the chain once per

@@ -512,7 +512,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				Chain: userChain, MaxBlocks: sessionGrantBlocks,
 				SessionKeys: sessionKeys.cache, LocalTask: localTaskRecord(coord.TaskOwner),
 			},
-			Log: log,
+			Attempts: attempts,
+			Log:      log,
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()

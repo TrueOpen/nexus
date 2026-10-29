@@ -54,6 +54,8 @@ type fakeAuthority struct {
 	// querying the wrong (model, version) must be NotFound.
 	profile chaincli.ProfileState
 	err     error
+	// taskErr fails only QueryTask: the chain does not know the task yet.
+	taskErr error
 }
 
 func (f *fakeAuthority) LatestHeight(context.Context) (uint64, error) {
@@ -66,6 +68,9 @@ func (f *fakeAuthority) LatestHeight(context.Context) (uint64, error) {
 func (f *fakeAuthority) QueryTask(context.Context, chaincli.TaskKey) (chaincli.OnChainTask, error) {
 	if f.err != nil {
 		return chaincli.OnChainTask{}, f.err
+	}
+	if f.taskErr != nil {
+		return chaincli.OnChainTask{}, f.taskErr
 	}
 	return f.task, nil
 }

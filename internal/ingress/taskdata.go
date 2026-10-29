@@ -947,6 +947,8 @@ func mapTaskDataError(err error) error {
 		code = connect.CodeUnavailable
 	case errors.Is(err, taskdata.ErrAuthorityUnavailable):
 		code = connect.CodeUnavailable
+	case errors.Is(err, taskdata.ErrAttemptStale):
+		code = connect.CodeFailedPrecondition
 	case errors.Is(err, taskdata.ErrNotReady):
 		// Retryable against the same Builder; the message keeps the NEXUS_DATA_NOT_READY prefix.
 		code = connect.CodeUnavailable

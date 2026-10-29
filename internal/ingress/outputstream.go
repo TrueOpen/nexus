@@ -291,7 +291,8 @@ func chunkFromPB(pb *nexusv1.OutputChunkV1) taskdata.OutputChunk {
 		Seq: pb.GetSeq(), Text: append([]byte(nil), pb.GetText()...), MMRRoot: append([]byte(nil), pb.GetMmrRoot()...),
 		WorkerSignature: append([]byte(nil), pb.GetWorkerSignature()...),
 		Attachment:      append([]byte(nil), pb.GetAttachment()...), AttachmentSignature: append([]byte(nil), pb.GetAttachmentSignature()...),
-		DispatchTicketHash: append([]byte(nil), pb.GetDispatchTicketHash()...),
+		DispatchTicketHash:        append([]byte(nil), pb.GetDispatchTicketHash()...),
+		CumulativeGeneratedTokens: pb.GetCumulativeGeneratedTokens(),
 	}
 }
 
@@ -299,7 +300,7 @@ func chunkToPB(chunk *taskdata.OutputChunk) *nexusv1.OutputChunkV1 {
 	return &nexusv1.OutputChunkV1{
 		Seq: chunk.Seq, Text: chunk.Text, MmrRoot: chunk.MMRRoot, WorkerSignature: chunk.WorkerSignature,
 		Attachment: chunk.Attachment, AttachmentSignature: chunk.AttachmentSignature,
-		DispatchTicketHash: chunk.DispatchTicketHash,
+		DispatchTicketHash: chunk.DispatchTicketHash, CumulativeGeneratedTokens: chunk.CumulativeGeneratedTokens,
 	}
 }
 
