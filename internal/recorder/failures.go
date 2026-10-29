@@ -76,21 +76,38 @@ func (r *Recorder) refused(res chaincli.TxResult, entries int, height uint64) {
 	case refusalFatal:
 		r.stopLocked(height, code+": "+res.RawLog)
 	default:
-		if s.streakCode != code {
-			s.streak, s.streakCode = 0, code
-		}
-		s.streak++
-		if s.streak < sameRefusalLimit {
-			return
-		}
-		s.streak = 0
-		if entries > 1 {
-			r.shrinkLocked(entries)
-			r.log.Error("record transactions refused the same way repeatedly; smaller batches follow", "code", code, "max_entries", s.maxEntries)
-			return
-		}
-		r.stopLocked(height, code+" on single entries: "+res.RawLog)
+		r.repeatedLocked(code, res.RawLog, entries, height)
 	}
+}
+
+// unattributable takes an executed record transaction of entries entries whose results could not
+// be attributed (batch_digest or object_id): a refusal of its own kind, so results that keep
+// failing halve the batch and then stop the records instead of sending every entry again each
+// block.
+func (r *Recorder) unattributable(entries int, height uint64, why string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.repeatedLocked("results/unattributable", why, entries, height)
+}
+
+// repeatedLocked counts one unexplained refusal with code: sameRefusalLimit in a row halve the
+// batch, or stop the records once a batch holds one entry. Caller holds r.mu.
+func (r *Recorder) repeatedLocked(code, detail string, entries int, height uint64) {
+	s := &r.sizing
+	if s.streakCode != code {
+		s.streak, s.streakCode = 0, code
+	}
+	s.streak++
+	if s.streak < sameRefusalLimit {
+		return
+	}
+	s.streak = 0
+	if entries > 1 {
+		r.shrinkLocked(entries)
+		r.log.Error("record transactions refused the same way repeatedly; smaller batches follow", "code", code, "max_entries", s.maxEntries)
+		return
+	}
+	r.stopLocked(height, code+" on single entries: "+detail)
 }
 
 func (r *Recorder) shrinkLocked(entries int) {

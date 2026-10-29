@@ -163,6 +163,7 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 	r.mu.Unlock()
 	if err != nil {
 		r.log.Error("record results do not match the entries sent; checking each entry on chain", "tx_hash", tx.Hash, "err", err)
+		r.unattributable(len(tx.Objects), uint64(res.Height), err.Error())
 		r.verifyByQuery(ctx, tx)
 		return
 	}
@@ -295,7 +296,8 @@ func (r *Recorder) lookup(id string) *entry {
 }
 
 // verifyByQuery resolves the entries of a transaction whose results could not be attributed: an
-// entry the chain recorded with its winner ticket is recorded; any other goes out again. A
+// entry the chain recorded with its winner ticket is recorded; one whose order the chain recorded
+// with another ticket of this Builder is resolved as with a CONFLICT; any other goes out again. A
 // takeover entry is dropped and the takeovers settle it with the chain.
 func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 	for _, id := range tx.Objects {
@@ -326,6 +328,8 @@ func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 		if e = r.entries[id]; e != nil {
 			if err == nil && bytes.Equal(rec.GetDispatchTicketHash(), e.TicketHash) {
 				r.recordLocked(e, rec.GetRecordedHeight(), &ops, &fx)
+			} else if err == nil && rec.GetBuilderAddress() == r.cfg.Builder {
+				r.recordedByAnotherTicketLocked(e, rec, &ops, &fx)
 			} else if e.Tx == tx.Hash {
 				e.Tx = ""
 				ops = append(ops, r.entryOp(e))

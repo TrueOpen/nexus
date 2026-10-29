@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 )
@@ -134,5 +135,66 @@ func TestFatalRefusalStopsRecords(t *testing.T) {
 	e.block(13 + fatalRetryBlocks)
 	if len(e.tx.msgs) != sent {
 		t.Fatal("resent after a fatal CheckTx refusal")
+	}
+}
+
+// badDigest is the executed result of msg with every entry applied under a batch_digest that does
+// not commit to the results.
+func badDigest(t *testing.T, msg *taskv1.MsgRecordDispatch, height int64) chaincli.TxResult {
+	t.Helper()
+	results := make([]result, len(msg.GetEntries()))
+	for i := range results {
+		results[i] = ok()
+	}
+	res := executed(t, msg, height, results...)
+	resp := &taskv1.MsgRecordDispatchResponse{}
+	if err := chaincli.DecodeMsgResponse(res, 0, resp); err != nil {
+		t.Fatal(err)
+	}
+	resp.BatchDigest = fill(0xee)
+	return txWith(t, height, resp)
+}
+
+// Results that keep failing their batch_digest count as refusals of the same kind: they do not
+// send a transaction every block until the record deadline, but halve the batch and then stop the
+// records like any other repeated refusal.
+func TestRepeatedUnattributableResultsStopRecords(t *testing.T) {
+	e := newEnv(t)
+	e.record(bundle(0xaa, 0, 1, 500))
+	height := uint64(10)
+	e.block(height)
+	executedCount := 0
+	for i := 0; i < 2*sameRefusalLimit; i++ {
+		msgs, raws := e.tx.sent()
+		if len(msgs) > executedCount {
+			e.chain.execute(raws[len(raws)-1], badDigest(t, msgs[len(msgs)-1], int64(height+1)))
+			executedCount = len(msgs)
+		}
+		height++
+		e.block(height)
+	}
+	if msgs, _ := e.tx.sent(); len(msgs) != sameRefusalLimit {
+		t.Fatalf("%d record transactions sent, want records stopped after %d unattributable results", len(msgs), sameRefusalLimit)
+	}
+}
+
+// An entry checked on chain because its results could not be attributed, whose order the chain
+// recorded with another ticket of this Builder, is resolved like a CONFLICT with that record: the
+// order is recorded and the entry is not sent again.
+func TestUnattributableResultOfAnOrderRecordedWithAnotherOwnTicket(t *testing.T) {
+	e := newEnv(t)
+	b := bundle(0xaa, 0, 1, 50)
+	e.record(b)
+	e.block(10)
+	msg, raw := e.lastSent()
+	e.chain.records[orderKey{b.SessionID, 0}] = &taskv1.DispatchRecordState{BuilderAddress: builder, DispatchTicketHash: fill(7), RecordedHeight: 9}
+	e.chain.execute(raw, badDigest(t, msg, 11))
+	e.block(11)
+	e.block(12)
+	if want := []taskReport{{taskID: b.TaskID, height: 9}}; !reflect.DeepEqual(e.tasks.recorded, want) || len(e.ledger.recorded) != 1 {
+		t.Fatalf("recorded: tasks %v, ledger %v", e.tasks.recorded, e.ledger.recorded)
+	}
+	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
+		t.Fatalf("entry sent again: %d messages", len(msgs))
 	}
 }
