@@ -196,6 +196,20 @@ func TestRebuttalIsResentOnlyAfterItCouldHaveLanded(t *testing.T) {
 	}
 }
 
+// A rebuttal that lands without settling the claim (refused when executed) is sent at most
+// maxSends times.
+func TestRebuttalIsSentAtMostMaxSends(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.claim(ticketHash(0, 0), op7, 400)
+	for h := uint64(151); h < 151+10*resubmitBlocks; h++ {
+		e.block(h)
+	}
+	if n := len(e.rebuts()); n != maxSends {
+		t.Fatalf("%d rebuttals, want %d", n, maxSends)
+	}
+}
+
 // A failed submission is tried again at the next block.
 func TestFailedRebuttalIsRetried(t *testing.T) {
 	e := newEnv(t)

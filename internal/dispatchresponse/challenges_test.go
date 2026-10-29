@@ -160,6 +160,13 @@ func TestPruneKeepsReferencedRoots(t *testing.T) {
 	if !e.roots.kept[[32]byte(fill(0xd1))] || !e.roots.kept[[32]byte(fill(0xd2))] || e.roots.kept[[32]byte(fill(0xd9))] {
 		t.Fatalf("kept = %v", e.roots.kept)
 	}
+	// A root an order still dispatching binds is kept too.
+	e.live[[32]byte(fill(0xd9))] = true
+	e.block(200 + pruneEveryBlocks)
+	if !e.roots.kept[[32]byte(fill(0xd9))] {
+		t.Fatal("root bound by a dispatching order not kept")
+	}
+	delete(e.live, [32]byte(fill(0xd9)))
 	// Recorded at 115: kept until max(100+60, 115+55) + 100 = 270.
 	e.block(270 + pruneEveryBlocks)
 	if _, _, found, _ := e.evidence.ByTicket(ticketHash(0, 0)); found {

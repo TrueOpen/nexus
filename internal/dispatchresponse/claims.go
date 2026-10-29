@@ -82,7 +82,7 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 	}
 	r.claimsRebutted.Add(1)
 	r.log.Info("compensation claim rebutted", "ticket", ticket, "worker", claim.GetWorkerOperatorAddress(), "outcome", attempt.Outcome)
-	it.SentAt = head
+	it.SentAt, it.Sends = head, it.Sends+1
 	r.update(claimPrefix, r.claims, &it)
 }
 

@@ -36,6 +36,9 @@ const (
 	// resubmitBlocks is how long a rebuttal or response sent waits to land before it is sent again
 	// while the claim or challenge is still open.
 	resubmitBlocks = 3
+	// maxSends bounds how often one rebuttal or response is sent: one the chain keeps refusing
+	// when executing only spends gas.
+	maxSends = 3
 	// pruneEveryBlocks is how often expired evidence and unbound handraise roots are pruned.
 	pruneEveryBlocks = 10
 	// rootKeepMarginBlocks keeps, on top of record_deadline_blocks, every handraise root an order
@@ -73,9 +76,11 @@ type Config struct {
 	Evidence  *dispatchevidence.Store
 	Chain     Chain
 	Tx        Submitter
-	// Roots, when set, has its unbound roots pruned along with the evidence.
-	Roots Roots
-	Log   *slog.Logger
+	// Roots, when set, has its unbound roots pruned along with the evidence; LiveRoots, when set,
+	// returns the roots orders still dispatching bind (dispatcher.BoundRoots), kept as well.
+	Roots     Roots
+	LiveRoots func() map[[32]byte]bool
+	Log       *slog.Logger
 }
 
 // Counts are what the responder saw since it started.
@@ -108,8 +113,9 @@ type item struct {
 	ID []byte `json:"id"`
 	// Deadline is the last height an answer can land at, as the event announced it.
 	Deadline uint64 `json:"deadline"`
-	// SentAt is the head when an answer was last broadcast; zero when none was.
+	// SentAt is the head when an answer was last broadcast, zero when none was; Sends counts them.
 	SentAt uint64 `json:"sent_at,omitempty"`
+	Sends  int    `json:"sends,omitempty"`
 	// Missing is set once the evidence was looked for and not found (logged once).
 	Missing bool `json:"missing,omitempty"`
 }
@@ -307,7 +313,12 @@ func (r *Responder) prune(head uint64) {
 	if r.cfg.Roots == nil || head <= margin {
 		return
 	}
-	if _, err := r.cfg.Roots.PruneRootsBelow(head-margin, r.cfg.Evidence.ReferencesRoot); err != nil {
+	var live map[[32]byte]bool
+	if r.cfg.LiveRoots != nil {
+		live = r.cfg.LiveRoots()
+	}
+	keep := func(digest [32]byte) bool { return live[digest] || r.cfg.Evidence.ReferencesRoot(digest) }
+	if _, err := r.cfg.Roots.PruneRootsBelow(head-margin, keep); err != nil {
 		r.log.Warn("handraise roots not pruned", "err", err)
 	}
 }
@@ -370,7 +381,9 @@ func (r *Responder) openClaims() []item     { return r.snapshot(r.claims) }
 func (r *Responder) openChallenges() []item { return r.snapshot(r.challenges) }
 
 // due reports whether an answer may be sent at head: none was sent, or the last one had time to
-// land.
-func (it *item) due(head uint64) bool { return it.SentAt == 0 || head >= it.SentAt+resubmitBlocks }
+// land and fewer than maxSends were.
+func (it *item) due(head uint64) bool {
+	return it.SentAt == 0 || head >= it.SentAt+resubmitBlocks && it.Sends < maxSends
+}
 
 func isNotFound(err error) bool { return errors.Is(err, chaincli.ErrNotFound) }

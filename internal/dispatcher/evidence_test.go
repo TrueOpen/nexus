@@ -230,3 +230,22 @@ func hexOf(b []byte) string {
 	}
 	return string(out)
 }
+
+// BoundRoots lists the roots the rounds of the orders still held bind: they are not pruned before
+// the orders' evidence pins them.
+func TestBoundRoots(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	roots := e.d.BoundRoots()
+	if len(roots) != 1 || !roots[[32]byte(bytes.Repeat([]byte{0xd1}, 32))] {
+		t.Fatalf("bound roots = %v", roots)
+	}
+	e.accept()
+	if err := e.d.Recorded(s, 0, 117); err != nil {
+		t.Fatal(err)
+	}
+	if roots := e.d.BoundRoots(); len(roots) != 0 {
+		t.Fatalf("recorded order still binds %v", roots)
+	}
+}

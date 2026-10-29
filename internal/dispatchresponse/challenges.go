@@ -79,7 +79,7 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 	}
 	r.answered.Add(1)
 	r.log.Info("dispatch challenge answered", "challenge_id", id, "kind", ch.GetKind())
-	it.SentAt = head
+	it.SentAt, it.Sends = head, it.Sends+1
 	r.update(challengePrefix, r.challenges, &it)
 }
 

@@ -268,6 +268,7 @@ type env struct {
 	chain    *fakeChain
 	tx       *fakeTx
 	roots    *fakeRoots
+	live     map[[32]byte]bool
 	r        *Responder
 }
 
@@ -277,7 +278,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(),
 		chain: &fakeChain{claims: map[string]*taskv1.DispatchCompensationClaimState{}, challenges: map[string]*taskv1.DispatchChallengeState{},
 			records: map[string]*taskv1.DispatchRecordState{}},
-		tx: &fakeTx{}, roots: &fakeRoots{},
+		tx: &fakeTx{}, roots: &fakeRoots{}, live: map[[32]byte]bool{},
 	}
 	e.evidence = dispatchevidence.New(e.store, testParams)
 	e.open()
@@ -290,7 +291,7 @@ func (e *env) open() {
 	var err error
 	e.r, err = New(Config{
 		ChainID: testChainID, Builder: self, Responder: responder, Store: e.store, Evidence: e.evidence,
-		Chain: e.chain, Tx: e.tx, Roots: e.roots,
+		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live },
 	})
 	if err != nil {
 		e.t.Fatal(err)

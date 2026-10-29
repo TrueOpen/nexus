@@ -113,3 +113,25 @@ func (d *Dispatcher) recordWithoutWinner(st *orderState, last *taskv1.DispatchTi
 	raw, _, err := signRecord(d.cfg.Signer, record)
 	return raw, err
 }
+
+// BoundRoots returns the handraise roots the rounds of the orders still held bind. Such a root may
+// not be in any evidence yet and must not be pruned.
+func (d *Dispatcher) BoundRoots() map[[32]byte]bool {
+	d.mu.Lock()
+	orders := make([]*order, 0, len(d.orders))
+	for _, o := range d.orders {
+		orders = append(orders, o)
+	}
+	d.mu.Unlock()
+	out := map[[32]byte]bool{}
+	for _, o := range orders {
+		o.mu.Lock()
+		for _, r := range o.st.Rounds {
+			if len(r.RootDigest) == 32 {
+				out[[32]byte(r.RootDigest)] = true
+			}
+		}
+		o.mu.Unlock()
+	}
+	return out
+}
