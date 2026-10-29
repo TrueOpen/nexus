@@ -78,6 +78,9 @@ const (
 	// and skip count, every ticket as the exact signed bytes offered, the rejects and the accept
 	// received (package dispatcher).
 	NSDispatch Namespace = "dispatch"
+	// NSRecordOutbox holds the dispatch entries waiting for their record on chain, as the exact
+	// entry bytes, and every signed record transaction before it is broadcast (package recorder).
+	NSRecordOutbox Namespace = "record_outbox"
 )
 
 type Store interface {
