@@ -135,6 +135,14 @@ func (f *fakeRecords) set(sessionID string, seq uint64, rec *taskv1.DispatchReco
 	f.records[streamKey(sessionID, seq)] = rec
 }
 
+// fakeBook is D's attempt book: the current attempt of each task.
+type fakeBook map[string]attempt.Attempt
+
+func (b fakeBook) Current(taskID string) (attempt.Attempt, bool) {
+	a, ok := b[taskID]
+	return a, ok
+}
+
 type fakeInputs map[string][]byte // task hash -> input
 
 func (f fakeInputs) ReadInput(_ context.Context, _, _, taskHash string) ([]byte, string, error) {
@@ -224,6 +232,7 @@ type env struct {
 	roots     map[[32]byte]*taskv1.SignedHandraiseRootV1
 	s         *Sender
 	member    *member
+	book      fakeBook
 
 	fx *fixture
 }
@@ -237,7 +246,7 @@ func newEnv(t *testing.T) *env {
 		records: &fakeRecords{records: map[string]*taskv1.DispatchRecordState{}},
 		peers:   &loopPeers{receivers: map[string]*Receiver{}, fail: map[string]error{}, requests: map[string][]*buildersyncv1.SyncRequest{}},
 		clock:   &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
-		dStore:  kv.NewMemStore(), inputs: fakeInputs{}, roots: map[[32]byte]*taskv1.SignedHandraiseRootV1{},
+		dStore:  kv.NewMemStore(), inputs: fakeInputs{}, roots: map[[32]byte]*taskv1.SignedHandraiseRootV1{}, book: fakeBook{},
 	}
 	for _, p := range []party{e.d, e.m, e.x} {
 		e.keys.set("BUILDER", p)
@@ -296,7 +305,7 @@ func (e *env) openSender() {
 			r, ok := e.roots[d]
 			return r, ok, nil
 		},
-		Inputs: e.inputs, Outputs: e.dData, Evidence: e.dEvidence, Peers: e.peers, Retention: evidenceParams.RetainUntil,
+		Inputs: e.inputs, Outputs: e.dData, Evidence: e.dEvidence, Peers: e.peers, Retention: evidenceParams.RetainUntil, Attempts: e.book,
 		InputChunkBytes: 5, AlarmAfter: time.Minute, Clock: e.clock.Now,
 	})
 	if err != nil {

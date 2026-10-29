@@ -590,3 +590,27 @@ func TestMemberWithoutOutputReplicas(t *testing.T) {
 		t.Fatal("output was sent again to a member that holds none")
 	}
 }
+
+// A recorded order whose order item never got queued (a crash after the attempt book marked it,
+// or a failed evidence read) is found again from the attempt book on a start and on later blocks.
+func TestRecordedOrderIsFoundAgain(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	e.s.OrderChanged(f.accepted())
+	e.sync()
+	e.book[f.taskHex()] = f.recordedAttempt()
+	e.openSender() // restart
+	if err := e.s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = e.s.Stop(context.Background()) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for c := e.copyOf(); c == nil || !c.Recorded; c = e.copyOf() {
+		if time.Now().After(deadline) {
+			t.Fatal("the recorded order was not found again on a start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

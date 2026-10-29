@@ -57,6 +57,11 @@ type OutputReader interface {
 	OutputStreamProgressOf(ctx context.Context, key taskdata.ObjectKey) (taskdata.OutputStreamProgress, bool, error)
 }
 
+// AttemptReader reads the current attempt of a task (attempt.Book).
+type AttemptReader interface {
+	Current(taskID string) (attempt.Attempt, bool)
+}
+
 // EvidenceReader finds the evidence of a ticket (dispatchevidence.Store).
 type EvidenceReader interface {
 	ByTicket(hash []byte) (*dispatchevidence.Order, *dispatchevidence.Attempt, bool, error)
@@ -80,6 +85,9 @@ type SenderConfig struct {
 	// Retention is the last height the sync stream of an order is kept at: the retention of its
 	// evidence (dispatchevidence.Params.RetainUntil).
 	Retention func(*dispatchevidence.Order) uint64
+	// Attempts, when set, is looked at on a start and every few blocks for recorded orders whose
+	// order item was never queued.
+	Attempts AttemptReader
 	// InputChunkBytes bounds the input bytes of one item; MaxBatchBytes the item and frame bytes of
 	// one batch, which always carries at least one item or frame.
 	InputChunkBytes int
@@ -289,7 +297,30 @@ func (s *Sender) Start(context.Context) error {
 	if len(s.queue) > 0 {
 		s.signal()
 	}
+	go s.recheckRecorded()
 	return nil
+}
+
+// recheckRecorded queues the order item of every stream the attempt book shows recorded while
+// the stream has no winner: the Recorded call was lost to a crash, or failed.
+func (s *Sender) recheckRecorded() {
+	if s.cfg.Attempts == nil {
+		return
+	}
+	s.mu.Lock()
+	var pending []*outStream
+	for _, st := range s.streams {
+		if st.Winner == nil && st.TaskID != "" {
+			pending = append(pending, st)
+		}
+	}
+	s.mu.Unlock()
+	for _, st := range pending {
+		a, ok := s.cfg.Attempts.Current(st.TaskID)
+		if ok && a.Status == attempt.Recorded && a.SessionID == st.SessionID && a.Sequence == st.Sequence {
+			s.Recorded(a)
+		}
+	}
 }
 
 // Stop ends the queue and the workers; what is queued but not stored is lost, and the dispatcher
@@ -350,6 +381,7 @@ func (s *Sender) HandleChainEvent(ev chaincli.ChainEvent) {
 	if last := s.lastPrune.Load(); head >= last+pruneEveryBlocks {
 		s.lastPrune.Store(head)
 		s.prune(head)
+		s.recheckRecorded()
 	}
 }
 
