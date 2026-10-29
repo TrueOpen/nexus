@@ -26,8 +26,14 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		r.close(challengePrefix, r.challenges, it.ID)
 		return
 	}
-	if !it.ready(head) {
+	if head < it.RetryAt || !it.ready(head) {
 		return
+	}
+	if len(it.TaskID) != 0 && !r.holdsTask(it.TaskID) {
+		if it.Kind == sharedv1.DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_SKIP {
+			r.close(challengePrefix, r.challenges, it.ID)
+		}
+		return // a ROSTER_UNAVAILABLE waits for evidence (a group member's copy) until its deadline
 	}
 	r.settleLastSend(ctx, &it)
 	if it.spent() {
@@ -71,8 +77,9 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		if !it.Missing {
 			r.log.Warn("dispatch challenge not answered", "challenge_id", id, "kind", ch.GetKind(), "proof_deadline", it.Deadline, "reason", answerErr)
 			it.Missing = true
-			r.update(challengePrefix, r.challenges, &it)
 		}
+		it.RetryAt = head + resubmitBlocks
+		r.update(challengePrefix, r.challenges, &it)
 		return
 	}
 	res, err := r.cfg.Tx.SubmitRespondDispatchChallenge(ctx, msg, r.gas(msg, &it))
@@ -84,6 +91,12 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 	r.log.Info("dispatch challenge answered", "challenge_id", id, "kind", ch.GetKind())
 	it.sent(head, res)
 	r.update(challengePrefix, r.challenges, &it)
+}
+
+// holdsTask reports whether this Builder holds evidence of a task; a failed read counts as held.
+func (r *Responder) holdsTask(taskID []byte) bool {
+	orders, err := r.cfg.Evidence.ByTask(hex.EncodeToString(taskID))
+	return err != nil || len(orders) > 0
 }
 
 // extendTask keeps every evidence of a task until height: a challenge on it is open.

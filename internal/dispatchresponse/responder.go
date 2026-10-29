@@ -28,6 +28,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
@@ -133,6 +134,11 @@ type item struct {
 	// gas of the next one (0 counts as 1).
 	TxHash    []byte `json:"tx_hash,omitempty"`
 	GasFactor uint64 `json:"gas_factor,omitempty"`
+	// Kind and TaskID are a challenge's, from its event; RetryAt is the head before which a
+	// challenge whose answer is not held here is not looked at again.
+	Kind    sharedv1.DispatchChallengeKindV1 `json:"kind,omitempty"`
+	TaskID  []byte                           `json:"task_id,omitempty"`
+	RetryAt uint64                           `json:"retry_at,omitempty"`
 	// Missing is set once the evidence was looked for and not found (logged once).
 	Missing bool `json:"missing,omitempty"`
 }
@@ -280,9 +286,17 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 				"kind", t.Kind, "challenger", t.Challenger)
 			return
 		}
+		// Only a task this Builder holds evidence of can be its own to answer: a SKIP on any other
+		// task is not followed, and nothing is read from the chain for a challenge until the
+		// evidence is here.
+		taskID, _ := hex.DecodeString(t.TaskID)
+		if t.Kind == sharedv1.DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_SKIP && !r.holdsTask(taskID) {
+			r.log.Debug("SKIP challenge on a task without evidence here; not this Builder's", "challenge_id", hex.EncodeToString(t.ChallengeID), "task_id", t.TaskID)
+			return
+		}
 		r.log.Info("dispatch challenge opened", "challenge_id", hex.EncodeToString(t.ChallengeID), "task_id", t.TaskID, "kind", t.Kind,
 			"challenger", t.Challenger, "proof_deadline", t.ProofDeadlineHeight)
-		r.open(challengePrefix, r.challenges, &item{ID: t.ChallengeID, Deadline: t.ProofDeadlineHeight})
+		r.open(challengePrefix, r.challenges, &item{ID: t.ChallengeID, Deadline: t.ProofDeadlineHeight, Kind: t.Kind, TaskID: taskID})
 	case chaincli.DispatchChallengeResolved:
 		r.log.Info("dispatch challenge resolved", "challenge_id", hex.EncodeToString(t.ChallengeID), "task_id", t.TaskID, "kind", t.Kind, "outcome", t.Outcome)
 		r.close(challengePrefix, r.challenges, t.ChallengeID)

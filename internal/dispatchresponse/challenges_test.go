@@ -156,6 +156,7 @@ func TestChallengesWithoutAnAnswerAreOnlyCounted(t *testing.T) {
 // The resolved event closes an open challenge.
 func TestResolvedChallengeIsClosed(t *testing.T) {
 	e := newEnv(t)
+	e.put(recordedOrder(t))
 	cid := e.challenge(0xc1, &taskv1.DispatchChallengeState{Kind: kindSkip, BuilderAddress: self, ChallengedTicketHash: ticketHash(0, 0), ProofDeadlineHeight: u64(125), Status: awaitingProof})
 	if len(e.r.openChallenges()) != 1 {
 		t.Fatal("challenge not open")
@@ -207,5 +208,56 @@ func TestOpenChallengeKeepsItsEvidence(t *testing.T) {
 	e.block(121)
 	if got, _, _, _ := e.evidence.ByTicket(ticketHash(0, 0)); got.RetainUntil < 900 {
 		t.Fatalf("evidence of an open challenge kept until %d", got.RetainUntil)
+	}
+}
+
+// A challenge on a task this Builder holds no evidence of is not its own: a SKIP is not followed
+// at all, and no chain read is made for it.
+func TestSkipOnATaskWithoutEvidenceIsNotFollowed(t *testing.T) {
+	e := newEnv(t)
+	e.challenge(0xc1, &taskv1.DispatchChallengeState{Kind: kindSkip, BuilderAddress: other, ChallengedTicketHash: ticketHash(0, 0), ProofDeadlineHeight: u64(125), Status: awaitingProof})
+	e.block(121)
+	if len(e.r.openChallenges()) != 0 || e.chain.chalReads != 0 {
+		t.Fatalf("open %d, chain reads %d", len(e.r.openChallenges()), e.chain.chalReads)
+	}
+}
+
+// A ROSTER_UNAVAILABLE challenge without evidence here waits for evidence (a group member's
+// synced copy) without reading the chain; once evidence is there it is answered.
+func TestRosterChallengeWithoutEvidenceWaitsWithoutChainReads(t *testing.T) {
+	e := newEnv(t)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: other, DispatchRound: u32(1), ProofDeadlineHeight: u64(200), Status: awaitingRoster,
+	})
+	for h := uint64(121); h < 131; h++ {
+		e.block(h)
+	}
+	if len(e.r.openChallenges()) != 1 || e.chain.chalReads != 0 {
+		t.Fatalf("open %d, chain reads %d", len(e.r.openChallenges()), e.chain.chalReads)
+	}
+	o := recordedOrder(t)
+	e.put(o)
+	e.chainRecord(o)
+	e.block(131)
+	if got := e.responds(); len(got) != 1 {
+		t.Fatalf("responses = %v", got)
+	}
+}
+
+// A challenge whose answer is not held is looked at again only every resubmitBlocks.
+func TestUnanswerableChallengeIsReadEveryFewBlocks(t *testing.T) {
+	e := newEnv(t)
+	o := recordedOrder(t)
+	e.put(o)
+	e.chainRecord(o)
+	e.chain.records[o.SessionID].Rounds[1].RosterHash = fill(0x55)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: self, DispatchRound: u32(1), ProofDeadlineHeight: u64(200), Status: awaitingRoster,
+	})
+	for h := uint64(121); h < 121+2*resubmitBlocks; h++ {
+		e.block(h)
+	}
+	if e.chain.chalReads != 2 {
+		t.Fatalf("%d chain reads in %d blocks", e.chain.chalReads, 2*resubmitBlocks)
 	}
 }
