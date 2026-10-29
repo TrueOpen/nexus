@@ -81,6 +81,14 @@ const (
 	// NSRecordOutbox holds the dispatch entries waiting for their record on chain, as the exact
 	// entry bytes, and every signed record transaction before it is broadcast (package recorder).
 	NSRecordOutbox Namespace = "record_outbox"
+	// NSDispatchEvidence holds the evidence of every dispatched order until its claim and challenge
+	// windows close: rosters, tickets, answers and the signed record as exact bytes, with indexes
+	// by ticket, task and handraise root, and the open claims and challenges being answered
+	// (packages dispatchevidence and dispatchresponse).
+	NSDispatchEvidence Namespace = "dispatch_evidence"
+	// NSDispatchEvidencePrune orders NSDispatchEvidence by the height its evidence may be pruned
+	// at; key = zero-padded height/evidence key.
+	NSDispatchEvidencePrune Namespace = "dispatch_evidence_prune"
 )
 
 type Store interface {
