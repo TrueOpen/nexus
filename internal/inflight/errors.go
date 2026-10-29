@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
 // Precheck failures. The text is the Ingress error code; none of them creates a task or uses the
@@ -40,6 +41,10 @@ var (
 	ErrOrderLocked = errors.New("NEXUS_INGRESS_ORDER_LOCKED")
 	// ErrTaskTerminal: another version of an order the chain already admitted.
 	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
+	// ErrOrderUploading: the same order is reserved and its input is still being uploaded on
+	// another stream; retry. It is the task data's retryable not-ready code: until the first
+	// upload hands the order to the dispatcher the order may still be dropped.
+	ErrOrderUploading = taskdata.ErrNotReady
 	// ErrUnavailable: the session state or the head could not be read; retryable, never a verdict.
 	// It is the request verification's chain-unavailable code.
 	ErrUnavailable = sdkauth.ErrUnavailable

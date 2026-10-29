@@ -164,6 +164,14 @@ func TestLedgerUnfinished(t *testing.T) {
 		_ = l.put(testSession, entry(seq, 1, false))
 	}
 	_ = l.put(other, entry(9, 1, false))
+	for _, e := range []struct {
+		session string
+		seq     uint64
+	}{{testSession, 1}, {other, 9}} {
+		if err := l.Commit(&Reservation{SessionID: e.session, Sequence: e.seq, TaskHash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	_ = l.MarkAccepted(testSession, 2)
 	_ = l.MarkRecorded(testSession, 3)
 	_ = l.MarkFailed(testSession, 4)

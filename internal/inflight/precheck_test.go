@@ -344,7 +344,9 @@ func TestPrecheckRereadsTheHeadBeforeOrderFuture(t *testing.T) {
 
 func TestPrecheckIdempotency(t *testing.T) {
 	f := newFixture(t, nil)
-	f.reserve(t, order(5))
+	if err := f.p.Commit(f.reserve(t, order(5)).Reservation); err != nil {
+		t.Fatal(err)
+	}
 	for _, step := range []struct {
 		mark func() error
 		want State
@@ -461,7 +463,9 @@ func TestPrecheckRelease(t *testing.T) {
 	if _, ok := f.ledger.Get(testSession, 5); ok {
 		t.Fatal("released order still in the ledger")
 	}
-	f.reserve(t, order(5))
+	if err := f.p.Commit(f.reserve(t, order(5)).Reservation); err != nil {
+		t.Fatal(err)
+	}
 
 	// A retry of a failed order, released: the failed attempt is back.
 	f.reserve(t, order(6))
@@ -507,6 +511,62 @@ func TestPrecheckRelease(t *testing.T) {
 	if res := f.reserve(t, order(5)); res.Existing == nil || res.Reservation != nil {
 		t.Fatalf("existing order = %+v", res)
 	}
+}
+
+// A reservation is uncommitted until its order reached the dispatcher: an exact resend while the
+// first stream still uploads the input must not be answered as accepted (the first stream may
+// still fail and release the entry, losing the order), so it gets a retryable code. Once
+// committed, the resend is the existing order.
+func TestPrecheckUncommittedReservationIsRetryable(t *testing.T) {
+	f := newFixture(t, nil)
+	res := f.reserve(t, order(5))
+	if _, err := f.p.Check(context.Background(), order(5)); !errors.Is(err, ErrOrderUploading) {
+		t.Fatalf("resend during the upload = %v, want uploading", err)
+	}
+	if err := f.p.Commit(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := f.p.Check(context.Background(), order(5)); err != nil || res.Existing == nil {
+		t.Fatalf("resend after commit = %+v, %v", res, err)
+	}
+	// A committed reservation is not released.
+	if err := f.p.Release(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := f.ledger.Get(testSession, 5); !ok || !e.Committed {
+		t.Fatalf("committed entry after release = %+v, %v", e, ok)
+	}
+	// The dispatcher's state changes commit too.
+	res = f.reserve(t, order(6))
+	if err := f.ledger.MarkAccepted(testSession, 6); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := f.ledger.Get(testSession, 6); !e.Committed {
+		t.Fatalf("accepted entry = %+v", e)
+	}
+}
+
+// After a restart an uncommitted reservation never reached the dispatcher: it is released, and
+// Unfinished lists only committed orders.
+func TestLedgerReleasesUncommittedReservationsOnRestart(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	r6 := f.reserve(t, order(6)).Reservation
+	if err := f.p.Commit(r6); err != nil {
+		t.Fatal(err)
+	}
+	if u := f.ledger.Unfinished(); len(u) != 1 || u[0].Sequence != 6 {
+		t.Fatalf("unfinished with 5 still uploading = %+v", u)
+	}
+	f.restart(t)
+	if _, ok := f.ledger.Get(testSession, 5); ok {
+		t.Fatal("uncommitted reservation survived the restart")
+	}
+	if u := f.ledger.Unfinished(); len(u) != 1 || u[0].Sequence != 6 || !u[0].Committed {
+		t.Fatalf("unfinished after restart = %+v", u)
+	}
+	// 5 is now a hole the resend fills.
+	f.reserve(t, order(5))
 }
 
 // A released order leaves no entry; when later orders are live it is a hole, retried like a
@@ -652,7 +712,9 @@ func TestPrecheckRetriesWhenTheSessionChangesAfterLookup(t *testing.T) {
 func TestPrecheckRecoversAfterRestart(t *testing.T) {
 	f := newFixture(t, nil)
 	f.reserve(t, keyOrder(5))
-	f.reserve(t, order(6))
+	if err := f.p.Commit(f.reserve(t, order(6)).Reservation); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.ledger.MarkAccepted(testSession, 5); err != nil {
 		t.Fatal(err)
 	}

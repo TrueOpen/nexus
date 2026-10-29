@@ -266,6 +266,13 @@ func (s *service) openTask(
 	}
 	coordinatorAccepted = true
 	dispatched = true
+	if r := precheck.Reservation; r != nil {
+		// From now on an exact resend is the existing order. A failed commit leaves the entry
+		// uncommitted: resends are told to retry and a restart releases it.
+		if err := s.auth.Precheck.Commit(r); err != nil {
+			s.log.Error("commit in-flight reservation", "session_id", r.SessionID, "order_sequence", r.Sequence, "err", err)
+		}
+	}
 	stageStart = time.Now()
 	ready, err := s.taskData.MarkInputReady(ctx, uploadHeader.Key)
 	timing.Since("input_ready", stageStart)

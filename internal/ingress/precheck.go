@@ -50,14 +50,14 @@ func (s *service) precheckOrder(
 }
 
 // mapPrecheckErr maps a precheck failure: session key verdicts as the SDK codes, a state that
-// could not be read Unavailable, every other code FailedPrecondition (the order cannot pass as
-// sent; the code says what the SDK changes).
+// could not be read and an order still uploading on another stream Unavailable, every other code
+// FailedPrecondition (the order cannot pass as sent; the code says what the SDK changes).
 func mapPrecheckErr(err error) error {
 	switch {
 	case errors.Is(err, registeredkey.ErrKeyInvalid), errors.Is(err, registeredkey.ErrKeyExpired),
 		errors.Is(err, registeredkey.ErrSpendCapExceeded), errors.Is(err, registeredkey.ErrChainUnreadable):
 		return mapEnvelopeErr(sdkauth.OrderKeyErr(err))
-	case errors.Is(err, inflight.ErrUnavailable):
+	case errors.Is(err, inflight.ErrUnavailable), errors.Is(err, inflight.ErrOrderUploading):
 		return connect.NewError(connect.CodeUnavailable, err)
 	default:
 		return connect.NewError(connect.CodeFailedPrecondition, err)

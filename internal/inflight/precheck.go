@@ -141,7 +141,8 @@ type PrecheckConfig struct {
 //  5. a registered takeover of the session: *TakeoverPendingError;
 //  6. local idempotency by (session_id, order_sequence): the same order dispatching, accepted or
 //     recorded is Result.Existing, also below the chain's next expected sequence (recorded before
-//     this Builder saw the event); another version of it ErrOrderReplacementUnsupported,
+//     this Builder saw the event), but ErrOrderUploading while it is an uncommitted reservation
+//     whose input another stream still uploads; another version of it ErrOrderReplacementUnsupported,
 //     ErrOrderLocked or ErrTaskTerminal; after a failed attempt the order is a retry;
 //  7. suspension after a failed record: only the suspended sequence (ErrSessionSuspended); a
 //     registered cancellation of the sequence (ErrOrderSequenceConflict); every sequence from the
@@ -203,11 +204,17 @@ func (p *Prechecker) Check(ctx context.Context, o Order) (Result, error) {
 }
 
 // Reserve runs the precheck and, when the order is bound here, new and admitted, enters it in the
-// ledger as DISPATCHING in the same step (Result.Reservation), so two concurrent orders cannot both
-// take the same sequence or the same funds. Admitting the resend of a suspended sequence ends the
-// suspension.
+// ledger as an uncommitted DISPATCHING entry in the same step (Result.Reservation), so two
+// concurrent orders cannot both take the same sequence or the same funds. The caller commits the
+// reservation once the dispatcher took the order and releases it otherwise. Admitting the resend
+// of a suspended sequence ends the suspension.
 func (p *Prechecker) Reserve(ctx context.Context, o Order) (Result, error) {
 	return p.run(ctx, o, true)
+}
+
+// Commit marks a reservation's order as handed to the dispatcher; see Ledger.Commit.
+func (p *Prechecker) Commit(r *Reservation) error {
+	return p.cfg.Ledger.Commit(r)
 }
 
 // Release undoes a reservation whose order did not reach dispatch; see Ledger.Release.
@@ -356,6 +363,9 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		switch {
 		case e.State == StateFailed:
 			res.Retry = !below
+		case e.TaskHash == o.TaskHash && e.State == StateDispatching && !e.Committed:
+			return Result{}, fmt.Errorf("%w: sequence %d is reserved and its input is still being uploaded; retry",
+				ErrOrderUploading, o.Sequence)
 		case e.TaskHash == o.TaskHash:
 			// Below next a live order is one the chain recorded before this Builder saw the event.
 			existing := *e

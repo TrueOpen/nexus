@@ -93,9 +93,11 @@ type AuthParams struct {
 // OrderPrechecker is the OpenTask precheck of the dispatching Builder; inflight.Prechecker
 // implements it. Reserve enters an admitted order in the in-flight ledger right after the header
 // is validated, so concurrent orders of the session are judged with it while its input uploads;
-// Release undoes that when the order fails before the coordinator takes it.
+// Commit marks it handed over once the coordinator took the order, and Release undoes the
+// reservation when the order fails before that.
 type OrderPrechecker interface {
 	Reserve(ctx context.Context, o inflight.Order) (inflight.Result, error)
+	Commit(r *inflight.Reservation) error
 	Release(r *inflight.Reservation) error
 }
 

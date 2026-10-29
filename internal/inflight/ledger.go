@@ -71,6 +71,11 @@ type Entry struct {
 	// max(earliest_submit_height, bound_change_height) + record_deadline_blocks.
 	Deadline uint64 `json:"deadline"`
 	State    State  `json:"state"`
+	// Committed is set once the order reached the dispatcher (Ledger.Commit, or any state change
+	// the dispatcher makes). Until then the entry is a reservation whose input is still being
+	// uploaded: an exact resend is told to retry, not that the order is accepted, and a restart
+	// releases it.
+	Committed bool `json:"committed,omitempty"`
 }
 
 // ErrUnknownOrder is a ledger update for an order the ledger does not hold.
@@ -153,7 +158,42 @@ func NewLedger(store kv.Store) (*Ledger, error) {
 	if loadErr != nil {
 		return nil, loadErr
 	}
+	if err := l.releaseUncommitted(); err != nil {
+		return nil, err
+	}
 	return l, nil
+}
+
+// releaseUncommitted drops the reservations a previous run left uncommitted: their orders never
+// reached the dispatcher. A dropped order with live orders after it is a hole the next order for
+// its sequence fills; the failed attempt or suspension such a reservation replaced is not
+// restored, and the sequence rule refuses orders past the hole all the same.
+func (l *Ledger) releaseUncommitted() error {
+	var ops []kv.WriteOp
+	type key struct {
+		session string
+		seq     uint64
+	}
+	var dropped []key
+	for id, s := range l.sessions {
+		for seq, e := range s.orders {
+			if e.State == StateDispatching && !e.Committed {
+				ops = append(ops, kv.WriteOp{NS: kv.NSInflight, Key: orderKey(id, seq), Delete: true})
+				dropped = append(dropped, key{id, seq})
+			}
+		}
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+	if err := l.store.WriteBatch(ops...); err != nil {
+		return fmt.Errorf("release uncommitted in-flight orders: %w", err)
+	}
+	for _, k := range dropped {
+		delete(l.sessions[k.session].orders, k.seq)
+		l.dropIfEmptyLocked(k.session)
+	}
+	return nil
 }
 
 func (l *Ledger) load(key string, val []byte) error {
@@ -239,11 +279,11 @@ func (l *Ledger) setStateLocked(sessionID string, seq uint64, state State) error
 	if s == nil || s.orders[seq] == nil {
 		return fmt.Errorf("%w: session %s sequence %d", ErrUnknownOrder, sessionID, seq)
 	}
-	if s.orders[seq].State == state {
+	if s.orders[seq].State == state && s.orders[seq].Committed {
 		return nil
 	}
 	e := *s.orders[seq]
-	e.State = state
+	e.State, e.Committed = state, true
 	return l.putLocked(sessionID, e)
 }
 
@@ -275,10 +315,28 @@ type Reservation struct {
 	resumed  *uint64
 }
 
+// Commit marks the reservation's order as handed to the dispatcher: from now on an exact resend
+// is the existing order, Release leaves it alone and a restart keeps it.
+func (l *Ledger) Commit(r *Reservation) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s := l.sessions[r.SessionID]
+	if s == nil || s.orders[r.Sequence] == nil || s.orders[r.Sequence].TaskHash != r.TaskHash {
+		return fmt.Errorf("%w: session %s sequence %d task_hash %s", ErrUnknownOrder, r.SessionID, r.Sequence, r.TaskHash)
+	}
+	if s.orders[r.Sequence].Committed {
+		return nil
+	}
+	e := *s.orders[r.Sequence]
+	e.Committed = true
+	return l.putLocked(r.SessionID, e)
+}
+
 // Release undoes a reservation whose order never started dispatching (the request nonce was
 // replayed, the input could not be stored, the dispatcher refused it): a new order is dropped, a
 // retry puts the failed attempt back and a suspension the retry ended is restored. A reservation
-// the order moved past (no longer DISPATCHING with its task_hash) is left alone. A dropped order
+// that was committed, or that the order moved past (no longer DISPATCHING with its task_hash), is
+// left alone. A dropped order
 // with live orders after it is a hole that a new order for its sequence fills.
 func (l *Ledger) Release(r *Reservation) error {
 	l.mu.Lock()
@@ -288,7 +346,7 @@ func (l *Ledger) Release(r *Reservation) error {
 		return nil
 	}
 	e := s.orders[r.Sequence]
-	if e == nil || e.State != StateDispatching || e.TaskHash != r.TaskHash {
+	if e == nil || e.State != StateDispatching || e.Committed || e.TaskHash != r.TaskHash {
 		return nil
 	}
 	var ops []kv.WriteOp
@@ -341,7 +399,7 @@ func (l *Ledger) Suspend(sessionID string, from uint64) error {
 			continue
 		}
 		updated := *e
-		updated.State = StateFailed
+		updated.State, updated.Committed = StateFailed, true
 		op, err := putOp(sessionID, updated)
 		if err != nil {
 			return err
@@ -558,16 +616,18 @@ type SessionEntry struct {
 	Entry
 }
 
-// Unfinished lists the orders still DISPATCHING or ACCEPTED, by session and sequence. After a
-// restart nothing else remembers them: each must be dispatched again, recorded or marked failed
-// (MarkFailed, or Suspend when a record failed) by the dispatcher, or its sequence stays taken.
+// Unfinished lists the committed orders still DISPATCHING or ACCEPTED, by session and sequence:
+// orders the dispatcher took. After a restart nothing else remembers them: each must be
+// dispatched again, recorded or marked failed (MarkFailed, or Suspend when a record failed) by
+// the dispatcher, or its sequence stays taken. Uncommitted reservations are not listed; a restart
+// releases them (they never reached the dispatcher).
 func (l *Ledger) Unfinished() []SessionEntry {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out []SessionEntry
 	for id, s := range l.sessions {
 		for _, e := range s.orders {
-			if e.State == StateDispatching || e.State == StateAccepted {
+			if e.Committed && (e.State == StateDispatching || e.State == StateAccepted) {
 				out = append(out, SessionEntry{SessionID: id, Entry: *e})
 			}
 		}

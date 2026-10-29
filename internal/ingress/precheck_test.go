@@ -20,10 +20,12 @@ import (
 // in-memory transport of newTaskDataClientWithHandler.
 
 type fakePrechecker struct {
-	orders   []inflight.Order
-	result   inflight.Result
-	err      error
-	released []*inflight.Reservation
+	orders     []inflight.Order
+	result     inflight.Result
+	err        error
+	released   []*inflight.Reservation
+	releaseErr error
+	committed  []*inflight.Reservation
 }
 
 func (p *fakePrechecker) Reserve(_ context.Context, o inflight.Order) (inflight.Result, error) {
@@ -40,6 +42,11 @@ func (p *fakePrechecker) Reserve(_ context.Context, o inflight.Order) (inflight.
 
 func (p *fakePrechecker) Release(r *inflight.Reservation) error {
 	p.released = append(p.released, r)
+	return p.releaseErr
+}
+
+func (p *fakePrechecker) Commit(r *inflight.Reservation) error {
+	p.committed = append(p.committed, r)
 	return nil
 }
 
@@ -238,8 +245,8 @@ func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
 				Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "0", Spent: "0",
 				NextExpectedSequence: 7, Balance: "100000000", FrozenTotal: "0", BoundBuilder: "trueopen1builder", BoundChangeHeight: 1,
 			})
+			h.svc.auth.Precheck = p
 			auth := h.svc.auth
-			auth.Precheck = p
 			api := &fakeTaskDataAPI{chunkSize: 4096}
 			handler := &fakeHandler{}
 			if c.setup != nil {
@@ -247,8 +254,14 @@ func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
 			}
 			orderErr := handler.orderErr
 			handler.onOrder = func(context.Context, types.Order) error {
-				if e, ok := ledger.Get(sessionID, 7); !ok || e.State != inflight.StateDispatching {
+				if e, ok := ledger.Get(sessionID, 7); !ok || e.State != inflight.StateDispatching || e.Committed {
 					t.Errorf("ledger entry during OnOrder = %+v, %v", e, ok)
+				}
+				// An exact resend while this stream has not handed the order over is told to retry:
+				// this stream may still fail and release the reservation.
+				var ce *connect.Error
+				if err := h.validate(); !errors.As(err, &ce) || ce.Code() != connect.CodeUnavailable || !errors.Is(err, inflight.ErrOrderUploading) {
+					t.Errorf("resend during the upload = %v, want unavailable NEXUS_DATA_NOT_READY", err)
 				}
 				return orderErr
 			}
@@ -263,7 +276,7 @@ func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
 				t.Fatalf("OpenTask = %v", err)
 			}
 			e, held := ledger.Get(sessionID, 7)
-			if held == c.released {
+			if held == c.released || held && !e.Committed {
 				t.Fatalf("ledger entry after OpenTask = %+v, %v, want released %v", e, held, c.released)
 			}
 		})
