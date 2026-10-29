@@ -127,11 +127,13 @@ type PrecheckConfig struct {
 //     and <= head + 1 (ErrOrderFuture);
 //  5. a registered takeover of the session: *TakeoverPendingError;
 //  6. local idempotency by (session_id, order_sequence): the same order dispatching, accepted or
-//     recorded is Result.Existing; another version of it ErrOrderReplacementUnsupported,
+//     recorded is Result.Existing, also below the chain's next expected sequence (recorded before
+//     this Builder saw the event); another version of it ErrOrderReplacementUnsupported,
 //     ErrOrderLocked or ErrTaskTerminal; after a failed attempt the order is a retry;
 //  7. suspension after a failed record: only the suspended sequence (ErrSessionSuspended); a
-//     registered cancellation of the sequence (ErrOrderSequenceConflict); sequence == the chain's
-//     next expected sequence + in-flight orders (ErrOrderSequenceConflict); in-flight orders below
+//     registered cancellation of the sequence (ErrOrderSequenceConflict); every sequence from the
+//     chain's next expected sequence to sequence-1 in flight and sequence itself not, so a hole an
+//     attempt without a record left can be retried (ErrOrderSequenceConflict); in-flight orders below
 //     builder_max_inflight_per_session and max_pending_per_session (ErrInflightLimit);
 //  8. funds: no CLOSE withdrawal registered (ErrSessionClosing), and balance - frozen_total -
 //     pending withdrawal - in-flight max_fee >= max_fee (ErrSessionBalanceInsufficient).
@@ -266,14 +268,18 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	if t := s.PendingTakeover; t != nil {
 		return Result{}, &TakeoverPendingError{Candidate: t.CandidateBuilder, ActivationHeight: t.ActivationHeight}
 	}
-	if e := ls.orders[o.Sequence]; e != nil && (e.State == StateRecorded || o.Sequence >= s.NextExpectedSequence) {
+	if e := ls.orders[o.Sequence]; e != nil {
+		below := o.Sequence < s.NextExpectedSequence
 		switch {
 		case e.State == StateFailed:
-			res.Retry = true
+			res.Retry = !below
 		case e.TaskHash == o.TaskHash:
+			// Below next a live order is one the chain recorded before this Builder saw the event.
 			existing := *e
 			res.Existing = &existing
 			return res, nil
+		case below && e.State != StateRecorded:
+			// Another version of a consumed sequence: the sequence check refuses it.
 		case e.State == StateDispatching:
 			return Result{}, fmt.Errorf("%w: sequence %d is being dispatched with task_hash %s", ErrOrderReplacementUnsupported, o.Sequence, e.TaskHash)
 		case e.State == StateAccepted:
@@ -288,9 +294,9 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	if _, cancelling := ls.meta.CancelRequested[o.Sequence]; cancelling {
 		return Result{}, fmt.Errorf("%w: a cancellation of sequence %d is registered", ErrOrderSequenceConflict, o.Sequence)
 	}
-	if expected := s.NextExpectedSequence + inFlight.count; o.Sequence != expected {
-		return Result{}, fmt.Errorf("%w: sequence %d, want %d (next %d plus %d in flight)",
-			ErrOrderSequenceConflict, o.Sequence, expected, s.NextExpectedSequence, inFlight.count)
+	if !sequenceOpen(ls, s.NextExpectedSequence, o.Sequence, inFlight.count) {
+		return Result{}, fmt.Errorf("%w: sequence %d is not the first free sequence after next %d and %d in-flight orders",
+			ErrOrderSequenceConflict, o.Sequence, s.NextExpectedSequence, inFlight.count)
 	}
 	if limit := params.BuilderMaxInflightPerSession; limit != 0 && inFlight.count >= uint64(limit) {
 		return Result{}, fmt.Errorf("%w: %d orders in flight, builder_max_inflight_per_session %d", ErrInflightLimit, inFlight.count, limit)
@@ -310,6 +316,28 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 			ErrSessionBalanceInsufficient, available, inFlight.count, o.MaxFee)
 	}
 	return res, nil
+}
+
+// sequenceOpen reports whether a new order may take seq, given next, the chain's next expected
+// sequence, and count, the live orders at or above it.
+//
+// The live orders at or above next need not be contiguous: an attempt that ends without a record
+// (no capacity, revoked, released before dispatch) leaves a hole, and later orders stay live. The
+// chain admits nothing past a hole until its sequence is recorded, so a hole is filled only by a
+// new order for it. A new order is therefore admitted at seq when every sequence from next to
+// seq-1 has a live order and seq has none: the sequence right after the run of live orders, or a
+// hole at the end of that run being retried. Any order past a hole is refused.
+func sequenceOpen(ls *sessionLedger, next, seq, count uint64) bool {
+	if seq < next || seq-next > count {
+		return false
+	}
+	for q := next; q < seq; q++ {
+		if e := ls.orders[q]; e == nil || !e.State.live() {
+			return false
+		}
+	}
+	e := ls.orders[seq]
+	return e == nil || !e.State.live()
 }
 
 // availableFunds is balance - frozen_total - pending withdrawal amount - in-flight max_fee; it may

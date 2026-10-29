@@ -318,6 +318,66 @@ func TestPrecheckRetryAfterFailure(t *testing.T) {
 	}
 }
 
+// MarkFailed does not cascade: n can fail (no capacity, revoked) while n+1 is still live. The
+// chain admits nothing past n until n is recorded, so the resend of n must be admitted as a retry,
+// and no order past the run of live orders may be.
+func TestPrecheckRetriesAHoleBelowLiveOrders(t *testing.T) {
+	f := newFixture(t, nil) // next 5
+	f.reserve(t, order(5))
+	f.reserve(t, order(6))
+	if err := f.ledger.MarkFailed(testSession, 5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.p.Check(context.Background(), order(7)); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("7 while 5 is a hole = %v, want sequence conflict", err)
+	}
+	o := order(5)
+	o.TaskHash = "resigned5"
+	if res := f.reserve(t, o); !res.Retry {
+		t.Fatalf("resend of 5 = %+v", res)
+	}
+	if res := f.reserve(t, order(7)); res.Retry || res.Existing != nil {
+		t.Fatalf("7 after 5 was resent = %+v", res)
+	}
+}
+
+func TestPrecheckRetriesAHoleInTheMiddle(t *testing.T) {
+	f := newFixture(t, nil)
+	for seq := uint64(5); seq <= 7; seq++ {
+		f.reserve(t, order(seq))
+	}
+	if err := f.ledger.MarkFailed(testSession, 6); err != nil {
+		t.Fatal(err)
+	}
+	f.p.SetParams(Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4})
+	if _, err := f.p.Check(context.Background(), order(8)); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("8 while 6 is a hole = %v, want sequence conflict", err)
+	}
+	if res := f.reserve(t, order(6)); !res.Retry {
+		t.Fatalf("resend of 6 = %+v", res)
+	}
+	f.reserve(t, order(8))
+}
+
+// The chain recorded an order whose record event this Builder has not seen yet: the state has
+// moved past it while the ledger still holds it live. An exact resend is the existing order.
+func TestPrecheckResendBelowNextIsExisting(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	_ = f.ledger.MarkAccepted(testSession, 5)
+	f.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 6; s.FrozenTotal = "200" })
+	f.cache.SessionKeyUpdated(testSession)
+	res, err := f.p.Check(context.Background(), order(5))
+	if err != nil || res.Existing == nil || res.Existing.State != StateAccepted {
+		t.Fatalf("resend of 5 = %+v, %v", res, err)
+	}
+	o := order(5)
+	o.TaskHash = "other"
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("another version of 5 = %v, want sequence conflict", err)
+	}
+}
+
 // The resend of the suspended sequence is admitted and ends the suspension.
 func TestPrecheckSuspensionEndsWithTheResend(t *testing.T) {
 	f := newFixture(t, nil)

@@ -18,8 +18,8 @@ var (
 	ErrTakeoverPending = errors.New("NEXUS_INGRESS_TAKEOVER_PENDING")
 	// ErrSessionBoundElsewhere: the session is bound to another Builder.
 	ErrSessionBoundElsewhere = errors.New("NEXUS_INGRESS_SESSION_BOUND_ELSEWHERE")
-	// ErrOrderSequenceConflict: the sequence is not the chain's next expected sequence plus this
-	// Builder's in-flight orders, or a cancellation of it is registered.
+	// ErrOrderSequenceConflict: the sequence is not the first free sequence after the chain's next
+	// expected sequence and this Builder's in-flight orders, or a cancellation of it is registered.
 	ErrOrderSequenceConflict = errors.New("NEXUS_INGRESS_ORDER_SEQUENCE_CONFLICT")
 	// ErrInflightLimit: the session already has builder_max_inflight_per_session or
 	// max_pending_per_session in-flight orders.
