@@ -382,3 +382,34 @@ func TestOutputOnlyTheOrderUser(t *testing.T) {
 		t.Fatalf("non-owner = %v", err)
 	}
 }
+
+// A max_prerecord_output_tokens of 0 holds every chunk until the record, one reporting 0 tokens
+// included.
+func TestOutputZeroCapHoldsEverything(t *testing.T) {
+	s := newSubscription(t)
+	s.book.SetMaxPrerecordTokens(0)
+	ticket := s.accept(0)
+	r := s.serve(context.Background(), s.owner, nil, nil)
+	r.header(attempt.Pending, ticket)
+	s.push(chunkOf(ticket, 0, 0))
+	s.push(chunkOf(ticket, 1, 1))
+	r.quiet()
+	s.book.Recorded(s.task, ticket)
+	r.header(attempt.Recorded, ticket)
+	r.chunk(0, 0)
+	r.chunk(1, 1)
+}
+
+// Before the record a chunk that carries text but reports 0 generated tokens is held: its count
+// does not show it within the cap.
+func TestOutputTextWithZeroTokensIsHeld(t *testing.T) {
+	s := newSubscription(t)
+	ticket := s.accept(0)
+	r := s.serve(context.Background(), s.owner, nil, nil)
+	r.header(attempt.Pending, ticket)
+	s.push(chunkOf(ticket, 0, 0))
+	r.quiet()
+	s.book.Recorded(s.task, ticket)
+	r.header(attempt.Recorded, ticket)
+	r.chunk(0, 0)
+}

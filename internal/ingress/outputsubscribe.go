@@ -71,8 +71,8 @@ func (s *service) ResumeOutput(
 //
 // Stored frames of the attempt after resumeAfter are replayed, then live frames follow, all as the
 // Worker signed them. While the record is pending only chunks whose cumulative_generated_tokens is
-// within max_prerecord_output_tokens are sent; the first chunk past it and everything after are
-// held (they are stored) and released once the record is admitted. The call ends after the Fin
+// within max_prerecord_output_tokens are sent (withinPrerecordCap); the first chunk past it and
+// everything after are held (they are stored) and released once the record is admitted. The call ends after the Fin
 // once the record is admitted.
 func (s *service) serveOutput(ctx context.Context, wireSession, wireTask, requester string, resumeAfter *uint64, ticket []byte,
 	send func(*nexusv1.SubscribeOutputResponse) error) error {
@@ -239,7 +239,7 @@ func (d *outputDelivery) offer(frame taskdata.OutputFrame) error {
 			d.lastSent != nil && frame.Chunk.Seq <= *d.lastSent {
 			return nil
 		}
-		if d.held || d.attempt.Status == attempt.Pending && frame.Chunk.CumulativeGeneratedTokens > d.service.outputStream.attempts.MaxPrerecordTokens() {
+		if d.held || d.attempt.Status == attempt.Pending && !withinPrerecordCap(frame.Chunk, d.service.outputStream.attempts.MaxPrerecordTokens()) {
 			d.held = true
 			return nil
 		}
@@ -259,4 +259,18 @@ func (d *outputDelivery) offer(frame taskdata.OutputFrame) error {
 		d.finSent = true
 	}
 	return nil
+}
+
+// withinPrerecordCap reports whether a chunk may be forwarded before its attempt is recorded: its
+// cumulative_generated_tokens is within maxTokens (max_prerecord_output_tokens). A cap of 0 holds
+// every chunk until the record, and a chunk that carries text but reports 0 tokens is held too:
+// its count does not show the text within the cap.
+func withinPrerecordCap(c *taskdata.OutputChunk, maxTokens uint64) bool {
+	switch {
+	case maxTokens == 0:
+		return false
+	case c.CumulativeGeneratedTokens == 0 && len(c.Text) > 0:
+		return false
+	}
+	return c.CumulativeGeneratedTokens <= maxTokens
 }

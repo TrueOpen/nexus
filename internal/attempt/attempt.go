@@ -170,7 +170,8 @@ func (b *Book) dropAsideLocked(taskID string) {
 }
 
 // SetMaxPrerecordTokens sets max_prerecord_output_tokens: before an attempt is recorded, output is
-// forwarded to subscribers only up to this many cumulative generated tokens.
+// forwarded to subscribers only up to this many cumulative generated tokens. 0 forwards nothing
+// before the record, and a chunk with text that reports 0 tokens is not forwarded either.
 func (b *Book) SetMaxPrerecordTokens(n uint64) { b.maxPrerecord.Store(n) }
 
 // MaxPrerecordTokens returns max_prerecord_output_tokens.
