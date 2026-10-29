@@ -29,6 +29,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -92,6 +93,21 @@ type AuthParams struct {
 	// replaces the registered-key order precheck above and also judges expiry, binding,
 	// freshness, sequence, in-flight limits and funds. FeeDenom must then be set.
 	Precheck OrderPrechecker
+	// Takeovers, when set with Precheck, takes the orders of sessions bound to another Builder
+	// (takeover.Manager): such an order registers a takeover instead of being refused.
+	Takeovers TakeoverIntake
+}
+
+// TakeoverIntake takes the OpenTask orders of sessions bound to another Builder;
+// takeover.Manager implements it. Held answers an exact resend of an order held for a takeover
+// before any precheck; Admit decides an order the precheck found bound elsewhere and reserves the
+// session's takeover for it; Submit takes it once its input is stored, and Release undoes an
+// admission whose order failed before that.
+type TakeoverIntake interface {
+	Held(sessionID string, sequence uint64, taskHash string) (takeover.Admission, bool)
+	Admit(ctx context.Context, o types.Order, pre inflight.Order) (takeover.Admission, error)
+	Submit(ctx context.Context, o types.Order) error
+	Release(sessionID, taskHash string)
 }
 
 // OrderPrechecker is the OpenTask precheck of the dispatching Builder; inflight.Prechecker

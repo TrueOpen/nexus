@@ -16,7 +16,6 @@ import (
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/hash32text"
-	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
@@ -182,6 +181,14 @@ func (s *service) openTask(
 			}
 		}()
 	}
+	takeover := precheck.Takeover
+	if takeover != nil && !takeover.Existing {
+		defer func() {
+			if !dispatched {
+				s.auth.Takeovers.Release(order.SessionID, order.TaskHash)
+			}
+		}()
+	}
 	// Step 5 (expiry window, the order's own expiry, then the nonce) comes before any storage, so a
 	// replayed OpenTask is SDK_AUTH_REPLAY rather than a conflict with the stored input, and an
 	// expired order is never stored.
@@ -197,6 +204,12 @@ func (s *service) openTask(
 		for stream.Receive() {
 		}
 		return nil, mapOpenTaskRequestErr(err)
+	}
+	// This Builder already holds the same order for a takeover: nothing is stored again.
+	if takeover != nil && takeover.Existing {
+		for stream.Receive() {
+		}
+		return connect.NewResponse(s.takeoverResponse(order, takeover)), nil
 	}
 	// This Builder already dispatches, dispatched or recorded the same order: it is not dispatched
 	// again and its input is not stored again; the SDK follows the task by its task_id.
@@ -266,7 +279,12 @@ func (s *service) openTask(
 	}
 	prepared = true
 	stageStart = time.Now()
-	err = s.h.OnOrder(ctx, order)
+	if takeover != nil {
+		// The order waits for the takeover; the takeover dispatches it once it took effect.
+		err = s.auth.Takeovers.Submit(ctx, order)
+	} else {
+		err = s.h.OnOrder(ctx, order)
+	}
 	timing.Since("on_order", stageStart)
 	if err != nil {
 		return nil, mapOrderErr(err)
@@ -286,6 +304,11 @@ func (s *service) openTask(
 	if err != nil {
 		return nil, mapTaskDataError(err)
 	}
+	if takeover != nil {
+		resp := s.takeoverResponse(order, takeover)
+		resp.InputMetadata = metadataToPB(ready, true)
+		return connect.NewResponse(resp), nil
+	}
 	return connect.NewResponse(&nexusv1.OpenTaskResponse{
 		SessionId: hash32text.FromInternal(order.SessionID), TaskId: hash32text.FromInternal(order.TaskID), Accepted: true, InputMetadata: metadataToPB(ready, true),
 		Status: nexusv1.OpenTaskStatusV1_OPEN_TASK_STATUS_V1_DISPATCHING,
@@ -294,10 +317,10 @@ func (s *service) openTask(
 
 // validateOpenTaskHeader checks the OpenTask header, the request envelope and the order; with
 // AuthParams.Precheck set it also runs the dispatching Builder's precheck, which reserves an
-// admitted new order, and returns its result.
+// admitted new order (or a takeover of a session bound elsewhere), and returns its result.
 func (s *service) validateOpenTaskHeader(
 	ctx context.Context, header *nexusv1.OpenTaskHeader,
-) (types.Order, taskdata.UploadHeader, inflight.Result, error) {
+) (types.Order, taskdata.UploadHeader, orderAdmission, error) {
 	// OpenTask is a user request: a header that fails the format step is NEXUS_INGRESS_MALFORMED.
 	malformed := func(format string, args ...any) error {
 		return mapTaskDataError(fmt.Errorf("%w: %s", taskdata.ErrRequestMalformed, fmt.Sprintf(format, args...)))
@@ -308,67 +331,67 @@ func (s *service) validateOpenTaskHeader(
 	if header == nil || header.GetSessionId() == "" || header.GetUserAddress() == "" ||
 		header.GetInputSizeBytes() == 0 || header.GetInputHash() == "" || header.GetInputMediaType() == "" ||
 		header.GetPayloadRef() == "" || len(header.GetOrderEnvelope()) == 0 {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("OpenTask header")
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("OpenTask header")
 	}
 	if err := sdkauth.CheckUserAddress("user_address", header.GetUserAddress(), s.auth.Bech32Prefix); err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, bodyErr(err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, bodyErr(err)
 	}
 	sessionID, ok := hash32text.ToInternal(header.GetSessionId())
 	if !ok {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("OpenTask session_id must be 0x followed by 64 lowercase hex characters")
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("OpenTask session_id must be 0x followed by 64 lowercase hex characters")
 	}
 	inputHash, ok := hash32text.ToInternal(header.GetInputHash())
 	if !ok {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("OpenTask input_hash must be 0x followed by 64 lowercase hex characters")
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("OpenTask input_hash must be 0x followed by 64 lowercase hex characters")
 	}
 	// There is no outer order signature: the order is authorized only by the SignedOrder's EIP-712
 	// signature, made by the user's wallet or the session's registered key, which the chain verifies.
 	// order_envelope carries the SignedOrderV2 protobuf bytes; the legacy JSON envelope is not accepted.
 	order, err := parseSignedOrderEnvelope(header.GetOrderEnvelope())
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("%v", err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("%v", err)
 	}
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(header.GetOrderEnvelope(), &signed); err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("order_envelope: %v", err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("order_envelope: %v", err)
 	}
 	signedOrder := signed.GetOrder()
 	if signedOrder.GetUserAddress() != header.GetUserAddress() ||
 		signedOrder.GetInputSizeBytes() != header.GetInputSizeBytes() ||
 		hex.EncodeToString(signedOrder.GetSessionId()) != sessionID ||
 		signedOrder.GetOrderSequence() != header.GetOrderSequence() {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed(
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed(
 			"OpenTask user_address, input_size_bytes, session_id and order_sequence must equal the signed order's")
 	}
 	order.SessionID = sessionID
 	order.OrderSequence = header.GetOrderSequence()
 	order.TaskID, err = deriveTaskID(order.SessionID, order.OrderSequence)
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("%v", err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("%v", err)
 	}
 	order.User = header.GetUserAddress()
 	// The header names the INPUT object being uploaded; its hash must be the content hash the
 	// order's input_hash implies.
 	inputContentHash := taskdata.InputContentHash(order.PayloadHash)
 	if inputHash != inputContentHash {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("OpenTask input hash")
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("OpenTask input hash")
 	}
 	// payload_ref is not in the signed body; it is a transport check against input_hash.
 	order.PayloadCID = payloadstore.RefForHash(inputHash)
 	if order.PayloadCID == "" || header.GetPayloadRef() != order.PayloadCID || order.DeadlineHeight == 0 {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("OpenTask input commitment")
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("OpenTask input commitment")
 	}
 	// task_hash enters the body recomputed from the order, never from the caller.
 	rawTaskHash, err := nodecontract.Hash32Bytes("task_hash", order.TaskHash)
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, malformed("order task_hash: %v", err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("order task_hash: %v", err)
 	}
 	var taskHash [32]byte
 	copy(taskHash[:], rawTaskHash)
 	body, err := sdkauth.OpenTaskBody(taskHash, header.GetSessionId(), order.OrderSequence, order.User,
 		header.GetInputSizeBytes(), header.GetInputHash(), header.GetInputMediaType(), header.GetIdempotencyKey())
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, bodyErr(err)
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, bodyErr(err)
 	}
 	// The order is signed by its user's wallet, which the Keeper verifies, or by the key the user
 	// registered on the session, which is prechecked here against the session's latest state, before
@@ -381,7 +404,7 @@ func (s *service) validateOpenTaskHeader(
 		precheck, err = sdkauth.BeginOrderPrecheck(ctx, &signed, s.auth.FeeDenom, s.auth.Chain)
 		stagetiming.From(ctx).Since("order_precheck", precheckStart)
 		if err != nil {
-			return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, mapEnvelopeErr(err)
+			return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, mapEnvelopeErr(err)
 		}
 	}
 	// OpenTask is signed by the order user's wallet, by a session key under a grant whose user is
@@ -395,19 +418,19 @@ func (s *service) validateOpenTaskHeader(
 	})
 	stagetiming.From(ctx).Since("envelope", envelopeStart)
 	if err != nil {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, err
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, err
 	}
 	if requester != order.User {
-		return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf(
 			"%w: request envelope signer %q is not the order user %q", sdkauth.ErrInvalidSignature, requester, order.User))
 	}
-	var result inflight.Result
+	var result orderAdmission
 	precheckStart := time.Now()
 	if s.auth.Precheck != nil {
 		result, err = s.precheckOrder(ctx, order, signedOrder, precheck)
 		stagetiming.From(ctx).Since("order_precheck", precheckStart)
 		if err != nil {
-			return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, err
+			return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, err
 		}
 	} else {
 		err = precheck.Check(ctx, s.auth.SessionKeys, order.SessionID, signedOrder)
@@ -415,7 +438,7 @@ func (s *service) validateOpenTaskHeader(
 			stagetiming.From(ctx).Since("order_precheck", precheckStart)
 		}
 		if err != nil {
-			return types.Order{}, taskdata.UploadHeader{}, inflight.Result{}, mapEnvelopeErr(err)
+			return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, mapEnvelopeErr(err)
 		}
 	}
 	// Full object ref for INPUT: task_hash is the order identity, content_hash the INPUT content
