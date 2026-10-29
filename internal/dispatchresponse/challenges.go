@@ -52,6 +52,7 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		return
 	}
 	it.Deadline = ch.GetProofDeadlineHeight()
+	r.extendTask(ch.GetTaskId(), it.Deadline)
 	msg := &taskv1.MsgRespondDispatchChallenge{ChallengeId: append([]byte(nil), it.ID...), ResponderAddress: r.cfg.Responder}
 	var answerErr error
 	switch ch.GetKind() {
@@ -83,6 +84,20 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 	r.log.Info("dispatch challenge answered", "challenge_id", id, "kind", ch.GetKind())
 	it.sent(head, res)
 	r.update(challengePrefix, r.challenges, &it)
+}
+
+// extendTask keeps every evidence of a task until height: a challenge on it is open.
+func (r *Responder) extendTask(taskID []byte, height uint64) {
+	orders, err := r.cfg.Evidence.ByTask(hex.EncodeToString(taskID))
+	if err != nil {
+		r.log.Warn("evidence of a challenged task not read", "task_id", hex.EncodeToString(taskID), "err", err)
+		return
+	}
+	for _, ev := range orders {
+		if err := r.cfg.Evidence.Extend(ev.Key(), height); err != nil {
+			r.log.Warn("evidence of an open challenge not extended", "task_id", ev.TaskID, "err", err)
+		}
+	}
 }
 
 // skipAnswer is the Worker's reject stored for the challenged ticket. Only the dispatching Builder

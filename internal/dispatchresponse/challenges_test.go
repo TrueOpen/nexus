@@ -194,3 +194,18 @@ func TestPruneKeepsReferencedRoots(t *testing.T) {
 		t.Fatal("root of pruned evidence still kept")
 	}
 }
+
+// An open challenge keeps the task's evidence until its deadline.
+func TestOpenChallengeKeepsItsEvidence(t *testing.T) {
+	e := newEnv(t)
+	o := recordedOrder(t)
+	e.put(o)
+	e.chainRecord(o)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: self, DispatchRound: u32(1), ProofDeadlineHeight: u64(900), Status: awaitingRoster,
+	})
+	e.block(121)
+	if got, _, _, _ := e.evidence.ByTicket(ticketHash(0, 0)); got.RetainUntil < 900 {
+		t.Fatalf("evidence of an open challenge kept until %d", got.RetainUntil)
+	}
+}

@@ -8,7 +8,9 @@
 // its target, every reject and late accept as received, the winner's accept, the signed record
 // and the signed order. The dispatcher writes an order's evidence when it is accepted, when it
 // fails and when it is recorded; it is kept until every claim and challenge window on it closed
-// (Params.RetainUntil), longer while a claim or challenge on it is open (Extend).
+// (Params.RetainUntil), and while a claim or challenge on it is open at least until that claim's
+// rebuttal deadline or that challenge's proof deadline (Extend, called by package
+// dispatchresponse).
 package dispatchevidence
 
 import (
