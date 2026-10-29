@@ -735,22 +735,22 @@ func TestFinalizeTaskResultAcceptsStreamedOutputByMMRRoot(t *testing.T) {
 }
 
 // The receipt's dispatch_ticket_hash must be the ticket the sealed stream was signed for, and the
-// task's winner ticket when this Builder holds the attempt.
+// task's winner ticket when this Builder holds the attempt; otherwise RECEIPT_DISPATCH_MISMATCH.
 func TestFinalizeTaskResultChecksTheReceiptTicket(t *testing.T) {
 	f := newFinalizeFixture(t)
 	wanted := f.receipt.DispatchTicketHash
 	f.receipt.DispatchTicketHash = strings.Repeat("e", 64)
 	f.resignReceipt(t)
-	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrHashMismatch) {
-		t.Fatalf("ticket other than the stream's: %v, want ErrHashMismatch", err)
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 9, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrReceiptDispatchMismatch) {
+		t.Fatalf("ticket other than the stream's: %v, want ErrReceiptDispatchMismatch", err)
 	}
 	f.receipt.DispatchTicketHash = wanted
 	f.resignReceipt(t)
 	attempts := &fakeAttempts{}
 	attempts.set(attempt.Attempt{SessionID: testSessionID, TaskID: testTaskID, TicketHash: ticketOf(0xee), Status: attempt.Recorded})
 	f.authorizer.cfg.Attempts = attempts
-	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 10, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("ticket other than the winner's: %v, want ErrUnauthorized", err)
+	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 10, EvidenceKindWorkerTokenOpening)); !errors.Is(err, ErrReceiptDispatchMismatch) {
+		t.Fatalf("ticket other than the winner's: %v, want ErrReceiptDispatchMismatch", err)
 	}
 	attempts.set(attempt.Attempt{SessionID: testSessionID, TaskID: testTaskID, TicketHash: [32]byte(mustDecodeHex(t, wanted)), Status: attempt.Recorded})
 	if _, err := f.service.FinalizeTaskResult(context.Background(), f.request(t, 11, EvidenceKindWorkerTokenOpening)); err != nil {

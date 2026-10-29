@@ -215,6 +215,21 @@ func TestMalformedHeaderTicketIsMalformedNotStale(t *testing.T) {
 	}
 }
 
+// The header's ticket is checked against the attempt book before the uploader: a Worker whose
+// attempt was replaced, uploading for its old ticket, is told its attempt is stale; another Cortex
+// naming the live ticket is not the Worker.
+func TestReplacedWorkerIsStaleNotDenied(t *testing.T) {
+	p := newPhase1Fixture(t)
+	old, live := ticketOf(0x70), ticketOf(0x71)
+	p.accept(p.other.Address(), live, attempt.Pending)
+	if _, _, err := p.open(t, p.worker, p.workerService, old, 1); !errors.Is(err, ErrAttemptStale) {
+		t.Fatalf("replaced Worker with its old ticket: %v", err)
+	}
+	if _, _, err := p.open(t, p.worker, p.workerService, live, 2); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("another Cortex with the live ticket: %v", err)
+	}
+}
+
 // A chunk or Fin whose ticket is not the header's closes the stream; so does any frame after the
 // attempt stopped being the task's live one.
 func TestFramesMustCarryTheLiveHeaderTicket(t *testing.T) {

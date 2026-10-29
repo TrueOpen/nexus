@@ -27,7 +27,7 @@ func (c *Coordinator) checkReceiptAttempt(receipt types.InferReceiptSubmission) 
 	case !a.Live():
 		return fmt.Errorf("%w: the dispatch record of ticket %x was refused", types.ErrInvalidArgument, a.TicketHash)
 	case !bytes.Equal(receipt.DispatchTicketHash, a.TicketHash[:]):
-		return fmt.Errorf("%w: dispatch_ticket_hash is not the winner ticket", types.ErrInvalidArgument)
+		return fmt.Errorf("%w: dispatch_ticket_hash is not the winner ticket", types.ErrReceiptDispatchMismatch)
 	case receipt.WorkerAddress != a.Worker || receipt.TaskHash != a.TaskHash:
 		return fmt.Errorf("%w: receipt worker or task_hash is not the winning attempt's", types.ErrInvalidArgument)
 	}
@@ -84,7 +84,8 @@ func (c *Coordinator) releaseStagedReceipt(fsm *taskFSM) bool {
 	switch {
 	case err == nil:
 		c.log.Info("staged infer receipt relayed after the dispatch record", "task_id", fsm.taskID)
-	case errors.Is(err, types.ErrInvalidArgument) || errors.Is(err, types.ErrUnauthorized):
+	case errors.Is(err, types.ErrInvalidArgument) || errors.Is(err, types.ErrUnauthorized) ||
+		errors.Is(err, types.ErrReceiptDispatchMismatch):
 		c.log.Warn("staged infer receipt refused after the dispatch record; dropped", "task_id", fsm.taskID, "err", err)
 	default:
 		c.log.Warn("staged infer receipt not relayed yet", "task_id", fsm.taskID, "err", err)

@@ -135,7 +135,7 @@ func TestReceiptMustNameTheWinnerTicket(t *testing.T) {
 	workerService, _ := signer.NewFromHex(testKeyHex, "trueopen")
 	f.receipt.DispatchTicketHash = make([]byte, 32)
 	f.sign(t, workerService)
-	if err := f.c.OnInferReceipt(context.Background(), f.receipt); !errors.Is(err, types.ErrInvalidArgument) {
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); !errors.Is(err, types.ErrReceiptDispatchMismatch) {
 		t.Fatalf("another ticket: %v", err)
 	}
 	f.receipt.DispatchTicketHash = f.ticket[:]

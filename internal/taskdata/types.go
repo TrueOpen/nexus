@@ -31,6 +31,9 @@ var (
 	// ErrAttemptStale refuses output of a dispatch attempt that is not the task's live one: an
 	// older ticket of a re-dispatched order, or an attempt whose record the chain refused.
 	ErrAttemptStale = errors.New("NEXUS_INGRESS_ATTEMPT_STALE")
+	// ErrReceiptDispatchMismatch is a receipt whose dispatch_ticket_hash is not the ticket of its
+	// sealed output stream or the task's winner ticket (FailedPrecondition).
+	ErrReceiptDispatchMismatch = errors.New("RECEIPT_DISPATCH_MISMATCH")
 	// ErrOrderExpired is an OpenTask whose signed order is past its order_expire_height: the chain
 	// no longer admits it, so the input is not stored.
 	ErrOrderExpired = errors.New("NEXUS_INGRESS_ORDER_EXPIRED")

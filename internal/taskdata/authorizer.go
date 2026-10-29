@@ -226,29 +226,25 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 	if request.RequesterKind != RequesterKindCortexService {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream uploader is not a Cortex service", ErrUnauthorized)
 	}
-	won, err := a.winnerAttempt(key, request.RequesterAddress)
-	if err != nil {
-		return attempt.Attempt{}, 0, nil, err
+	// The ticket is checked against the attempt book before the uploader: a Worker whose attempt
+	// was replaced, still uploading for its old ticket, learns that its attempt is stale.
+	if a.cfg.Attempts == nil {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: no dispatch attempt is held", ErrUnauthorized)
+	}
+	won, ok := a.cfg.Attempts.Current(key.TaskID)
+	if !ok || won.SessionID != key.SessionID {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: no dispatch attempt of this task is held", ErrUnauthorized)
 	}
 	if !won.Live() || !bytes.Equal(ticket, won.TicketHash[:]) {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream ticket %x is not the task's live attempt", ErrAttemptStale, ticket)
+	}
+	if won.Worker != request.RequesterAddress {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: requester is not the Worker whose accept this Builder holds", ErrUnauthorized)
 	}
 	if won.TaskHash != taskHash {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream task_hash is not the accepted order version", ErrUnauthorized)
 	}
 	return won, height, workerPublicKey, nil
-}
-
-// winnerAttempt returns the task's current attempt when requester is its Worker.
-func (a *Authorizer) winnerAttempt(key ObjectKey, requester string) (attempt.Attempt, error) {
-	if a.cfg.Attempts == nil {
-		return attempt.Attempt{}, fmt.Errorf("%w: no dispatch attempt is held", ErrUnauthorized)
-	}
-	won, ok := a.cfg.Attempts.Current(key.TaskID)
-	if !ok || won.SessionID != key.SessionID || won.Worker != requester {
-		return attempt.Attempt{}, fmt.Errorf("%w: requester is not the Worker whose accept this Builder holds", ErrUnauthorized)
-	}
-	return won, nil
 }
 
 // AttemptLive reports whether ticket is still the live attempt of the task.

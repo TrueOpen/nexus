@@ -92,8 +92,8 @@ func (s *service) checkReceiptStream(ctx context.Context, receipt types.InferRec
 		return mapTaskDataError(err)
 	}
 	if sealed && !bytes.Equal(fin.DispatchTicketHash, receipt.DispatchTicketHash) {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(
-			"%w: receipt dispatch_ticket_hash is not the ticket its sealed output stream was signed for", types.ErrInvalidArgument))
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%w: receipt dispatch_ticket_hash is not the ticket its sealed output stream was signed for", types.ErrReceiptDispatchMismatch))
 	}
 	return nil
 }
@@ -473,6 +473,8 @@ func mapInferReceiptErr(err error) error {
 		return connect.NewError(connect.CodeNotFound, errors.New("task not found"))
 	case errors.Is(err, types.ErrUnauthorized):
 		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, types.ErrReceiptDispatchMismatch):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, types.ErrInvalidArgument):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, types.ErrInvalidSignature):

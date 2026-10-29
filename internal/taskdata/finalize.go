@@ -327,11 +327,11 @@ func (s *Service) checkReceiptTicket(ctx context.Context, outputRef ObjectRef, r
 		return err
 	}
 	if !sealed || hex.EncodeToString(fin.DispatchTicketHash) != receipt.DispatchTicketHash {
-		return fmt.Errorf("%w: receipt dispatch_ticket_hash %s is not the sealed output stream's", ErrHashMismatch, receipt.DispatchTicketHash)
+		return fmt.Errorf("%w: receipt dispatch_ticket_hash %s is not the sealed output stream's", ErrReceiptDispatchMismatch, receipt.DispatchTicketHash)
 	}
 	if attempts := s.authorizer.cfg.Attempts; attempts != nil {
 		if won, ok := attempts.Current(outputRef.TaskID); ok && hex.EncodeToString(won.TicketHash[:]) != receipt.DispatchTicketHash {
-			return fmt.Errorf("%w: receipt dispatch_ticket_hash is not the winner ticket", ErrUnauthorized)
+			return fmt.Errorf("%w: receipt dispatch_ticket_hash is not the winner ticket", ErrReceiptDispatchMismatch)
 		}
 	}
 	return nil

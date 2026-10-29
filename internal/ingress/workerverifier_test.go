@@ -513,7 +513,7 @@ func TestInferReceiptTicketMustBeItsSealedStreams(t *testing.T) {
 		ticket []byte
 		code   connect.Code
 	}{
-		{"another ticket", bytes.Repeat([]byte{0x7e}, 32), connect.CodeInvalidArgument},
+		{"another ticket", bytes.Repeat([]byte{0x7e}, 32), connect.CodeFailedPrecondition},
 		{"the stream's ticket", req.GetReceipt().GetDispatchTicketHash(), 0},
 	} {
 		handler := &fakeHandler{sessionForTask: strings.Repeat("2b", 32)}
@@ -525,6 +525,19 @@ func TestInferReceiptTicketMustBeItsSealedStreams(t *testing.T) {
 		}
 		if relayed := handler.lastInferReceipt.TaskID != ""; relayed != (tc.code == 0) {
 			t.Fatalf("%s: handed to the handler = %t", tc.name, relayed)
+		}
+	}
+}
+
+// A receipt whose dispatch_ticket_hash is not the winner ticket, from the coordinator or from the
+// task data plane, is RECEIPT_DISPATCH_MISMATCH with FailedPrecondition.
+func TestReceiptDispatchMismatchIsFailedPrecondition(t *testing.T) {
+	for _, err := range []error{
+		mapInferReceiptErr(types.ErrReceiptDispatchMismatch),
+		mapTaskDataError(taskdata.ErrReceiptDispatchMismatch),
+	} {
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "RECEIPT_DISPATCH_MISMATCH") {
+			t.Fatalf("mapped = %v", err)
 		}
 	}
 }
