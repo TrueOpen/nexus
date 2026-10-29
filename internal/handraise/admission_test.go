@@ -274,3 +274,44 @@ func TestNoRootWhileARotationStateIsUnreadable(t *testing.T) {
 		t.Fatal("a root was kept")
 	}
 }
+
+// A holder whose CORTEX key the chain reports unusable (revoked, missing, not ACTIVE) is judged like
+// a handraise failing verification: it leaves an INVALID_HANDRAISE leaf in the next root and is
+// dropped, so roots go on being signed for everyone else instead of failing until it expires.
+func TestHolderWithAnUnusableKeyIsDroppedAndRootsGoOn(t *testing.T) {
+	e := newEnv(t)
+	kept := e.addCortex(0x11, 1)
+	revoked := e.addCortex(0x12, 2)
+	for _, c := range []cortex{kept, revoked} {
+		e.mustAccept(c, e.handraise(c, 100, 1))
+	}
+	e.mustIssue()
+	e.keys.mu.Lock()
+	e.keys.unusable = map[string]bool{revoked.operator(): true}
+	e.keys.mu.Unlock()
+	late := e.addCortex(0x13, 3)
+	e.mustAccept(late, e.handraise(late, 100, 1))
+
+	root := e.mustIssue()
+	if leaf := leafOf(t, root, late.operator()); !leaf.GetAdmitted() {
+		t.Fatalf("new handraise leaf = %v", leaf)
+	}
+	var trace *taskv1.HandraiseRootLeafV1
+	for _, leaf := range root.Leaves {
+		if leaf.GetHandraise().GetMember().GetOperatorAddress() == revoked.operator() {
+			trace = leaf
+		}
+	}
+	if trace == nil || trace.GetAdmitted() || trace.GetAdmitRejectReason() != taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE {
+		t.Fatalf("revoked holder leaf = %v", trace)
+	}
+	if _, ok := e.reg.Current(revoked.operator()); ok {
+		t.Fatal("the revoked holder's handraise is still held")
+	}
+	next := e.mustIssue()
+	for _, leaf := range next.Leaves {
+		if leaf.GetHandraise().GetMember().GetOperatorAddress() == revoked.operator() {
+			t.Fatalf("revoked holder still in the following root: %v", leaf)
+		}
+	}
+}

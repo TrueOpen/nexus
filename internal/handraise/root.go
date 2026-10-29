@@ -14,6 +14,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/lograte"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -82,7 +83,7 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 		return nil, fmt.Errorf("check Builder service key: %w", err)
 	}
 	r.sampleRTT()
-	pending, err := r.rotationsPending(ctx)
+	pending, unusable, err := r.rotationsPending(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +93,7 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	if last != nil && height < last.Root.GetRootHeight() {
 		height = last.Root.GetRootHeight()
 	}
+	r.invalidateLocked(unusable)
 	entries, traces := r.collectLocked(height, pending)
 	r.mu.Unlock()
 
@@ -150,21 +152,45 @@ func (r *Registry) holders() []string {
 	return operators
 }
 
-// rotationsPending reads which operators holding a handraise have a pending CORTEX key rotation.
-// A failed read fails the root: a root that admits a pending Cortex, or refuses one that is not,
-// is not signed on a guess.
-func (r *Registry) rotationsPending(ctx context.Context) (map[string]bool, error) {
-	pending := map[string]bool{}
+// rotationsPending reads which operators holding a handraise have a pending CORTEX key rotation,
+// and which have no usable CORTEX key at all (servicekey.ErrUnavailable: missing, not ACTIVE,
+// revoked), the same verdict that refuses a new handraise. Any other failed read fails the root: a
+// root that admits a pending Cortex, or refuses one that is not, is not signed on a guess.
+func (r *Registry) rotationsPending(ctx context.Context) (pending, unusable map[string]bool, err error) {
+	pending, unusable = map[string]bool{}, map[string]bool{}
 	for _, operator := range r.holders() {
 		p, err := r.opts.Keys.CortexRotationPending(ctx, operator)
-		if err != nil {
-			return nil, fmt.Errorf("read CORTEX key rotation of %s: %w", operator, err)
-		}
-		if p {
+		switch {
+		case errors.Is(err, servicekey.ErrUnavailable):
+			unusable[operator] = true
+		case err != nil:
+			return nil, nil, fmt.Errorf("read CORTEX key rotation of %s: %w", operator, err)
+		case p:
 			pending[operator] = true
 		}
 	}
-	return pending, nil
+	return pending, unusable, nil
+}
+
+// invalidateLocked drops the current handraise of every operator whose CORTEX key is unusable and
+// keeps it as that operator's INVALID_HANDRAISE trace for the next root (unless a newer trace is
+// waiting), as Accept does with a handraise that fails verification. The watermark stays, so the
+// dropped handraise cannot come back. Caller holds r.mu.
+func (r *Registry) invalidateLocked(unusable map[string]bool) {
+	var drop []string
+	for operator := range unusable {
+		h, ok := r.current[operator]
+		if !ok {
+			continue
+		}
+		delete(r.current, operator)
+		drop = append(drop, currentKey(operator))
+		if _, waiting := r.invalid[operator]; !waiting {
+			r.invalid[operator] = h
+		}
+		r.log.Info("handraise dropped: the holder's CORTEX service key is unusable", "operator", operator)
+	}
+	r.deleteKeys(drop)
 }
 
 // sampleRTT records the measured RTT of every operator holding a handraise. An operator without a

@@ -35,6 +35,8 @@ type fakeKeys struct {
 	cortex     map[string]*fakeKey
 	pending    map[string]bool // operators with a pending CORTEX key rotation
 	pendingErr error
+	// unusable lists operators whose CORTEX key the chain reports unusable (revoked, missing).
+	unusable   map[string]bool
 	builderErr error
 	err        error
 }
@@ -60,6 +62,9 @@ func (k *fakeKeys) CurrentCortexKey(_ context.Context, operator string) ([]byte,
 func (k *fakeKeys) CortexRotationPending(_ context.Context, operator string) (bool, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.unusable[operator] {
+		return false, fmt.Errorf("revoked: %w", servicekey.ErrUnavailable)
+	}
 	return k.pending[operator], k.pendingErr
 }
 
