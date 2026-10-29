@@ -89,6 +89,12 @@ service Query {
 
   // DispatchChallenge executes the DispatchChallenge operation.
   rpc DispatchChallenge(QueryDispatchChallengeRequest) returns (QueryDispatchChallengeResponse);
+
+  // DispatchChallengesByBuilder pages open challenges against one Builder.
+  rpc DispatchChallengesByBuilder(QueryDispatchChallengesByBuilderRequest) returns (QueryDispatchChallengesByBuilderResponse);
+
+  // DispatchCompensationClaimsByBuilder pages claims pending that Builder's rebuttal.
+  rpc DispatchCompensationClaimsByBuilder(QueryDispatchCompensationClaimsByBuilderRequest) returns (QueryDispatchCompensationClaimsByBuilderResponse);
 }
 
 // Fresh Phase 0 has no settlement preview, challenge-id, proof, opening, or

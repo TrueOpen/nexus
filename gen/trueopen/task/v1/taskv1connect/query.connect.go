@@ -106,6 +106,12 @@ const (
 	QueryDispatchWinnerIneligibleProcedure = "/task.v1.Query/DispatchWinnerIneligible"
 	// QueryDispatchChallengeProcedure is the fully-qualified name of the Query's DispatchChallenge RPC.
 	QueryDispatchChallengeProcedure = "/task.v1.Query/DispatchChallenge"
+	// QueryDispatchChallengesByBuilderProcedure is the fully-qualified name of the Query's
+	// DispatchChallengesByBuilder RPC.
+	QueryDispatchChallengesByBuilderProcedure = "/task.v1.Query/DispatchChallengesByBuilder"
+	// QueryDispatchCompensationClaimsByBuilderProcedure is the fully-qualified name of the Query's
+	// DispatchCompensationClaimsByBuilder RPC.
+	QueryDispatchCompensationClaimsByBuilderProcedure = "/task.v1.Query/DispatchCompensationClaimsByBuilder"
 )
 
 // QueryClient is a client for the task.v1.Query service.
@@ -181,6 +187,10 @@ type QueryClient interface {
 	DispatchWinnerIneligible(context.Context, *connect.Request[v1.QueryDispatchWinnerIneligibleRequest]) (*connect.Response[v1.QueryDispatchWinnerIneligibleResponse], error)
 	// DispatchChallenge executes the DispatchChallenge operation.
 	DispatchChallenge(context.Context, *connect.Request[v1.QueryDispatchChallengeRequest]) (*connect.Response[v1.QueryDispatchChallengeResponse], error)
+	// DispatchChallengesByBuilder pages open challenges against one Builder.
+	DispatchChallengesByBuilder(context.Context, *connect.Request[v1.QueryDispatchChallengesByBuilderRequest]) (*connect.Response[v1.QueryDispatchChallengesByBuilderResponse], error)
+	// DispatchCompensationClaimsByBuilder pages claims pending that Builder's rebuttal.
+	DispatchCompensationClaimsByBuilder(context.Context, *connect.Request[v1.QueryDispatchCompensationClaimsByBuilderRequest]) (*connect.Response[v1.QueryDispatchCompensationClaimsByBuilderResponse], error)
 }
 
 // NewQueryClient constructs a client for the task.v1.Query service. By default, it uses the Connect
@@ -386,43 +396,57 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(queryMethods.ByName("DispatchChallenge")),
 			connect.WithClientOptions(opts...),
 		),
+		dispatchChallengesByBuilder: connect.NewClient[v1.QueryDispatchChallengesByBuilderRequest, v1.QueryDispatchChallengesByBuilderResponse](
+			httpClient,
+			baseURL+QueryDispatchChallengesByBuilderProcedure,
+			connect.WithSchema(queryMethods.ByName("DispatchChallengesByBuilder")),
+			connect.WithClientOptions(opts...),
+		),
+		dispatchCompensationClaimsByBuilder: connect.NewClient[v1.QueryDispatchCompensationClaimsByBuilderRequest, v1.QueryDispatchCompensationClaimsByBuilderResponse](
+			httpClient,
+			baseURL+QueryDispatchCompensationClaimsByBuilderProcedure,
+			connect.WithSchema(queryMethods.ByName("DispatchCompensationClaimsByBuilder")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // queryClient implements QueryClient.
 type queryClient struct {
-	params                    *connect.Client[v1.QueryTaskParamsRequest, v1.QueryTaskParamsResponse]
-	task                      *connect.Client[v1.QueryTaskRequest, v1.QueryTaskResponse]
-	taskStage                 *connect.Client[v1.QueryTaskStageRequest, v1.QueryTaskStageResponse]
-	taskAssignment            *connect.Client[v1.QueryTaskAssignmentRequest, v1.QueryTaskAssignmentResponse]
-	taskBudget                *connect.Client[v1.QueryTaskBudgetRequest, v1.QueryTaskBudgetResponse]
-	taskBuilders              *connect.Client[v1.QueryTaskBuildersRequest, v1.QueryTaskBuildersResponse]
-	inferReceipt              *connect.Client[v1.QueryInferReceiptRequest, v1.QueryInferReceiptResponse]
-	workerEvidence            *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
-	verifierValueEvidence     *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
-	verifierCandidateWindow   *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
-	verifierAssignment        *connect.Client[v1.QueryVerifierAssignmentRequest, v1.QueryVerifierAssignmentResponse]
-	verifyCommit              *connect.Client[v1.QueryVerifyCommitRequest, v1.QueryVerifyCommitResponse]
-	resultReceipt             *connect.Client[v1.QueryResultReceiptRequest, v1.QueryResultReceiptResponse]
-	dataUnavailableReports    *connect.Client[v1.QueryDataUnavailableReportsRequest, v1.QueryDataUnavailableReportsResponse]
-	builderDataUnavailable    *connect.Client[v1.QueryBuilderDataUnavailableRequest, v1.QueryBuilderDataUnavailableResponse]
-	settlementFacts           *connect.Client[v1.QuerySettlementFactsRequest, v1.QuerySettlementFactsResponse]
-	settlement                *connect.Client[v1.QuerySettlementRequest, v1.QuerySettlementResponse]
-	verificationRound         *connect.Client[v1.QueryVerificationRoundRequest, v1.QueryVerificationRoundResponse]
-	taskGasReimbursements     *connect.Client[v1.QueryTaskGasReimbursementsRequest, v1.QueryTaskGasReimbursementsResponse]
-	taskFailureClass          *connect.Client[v1.QueryTaskFailureClassRequest, v1.QueryTaskFailureClassResponse]
-	evidenceCleanup           *connect.Client[v1.QueryEvidenceCleanupRequest, v1.QueryEvidenceCleanupResponse]
-	epochTaskSummary          *connect.Client[v1.QueryEpochTaskSummaryRequest, v1.QueryEpochTaskSummaryResponse]
-	session                   *connect.Client[v1.QuerySessionRequest, v1.QuerySessionResponse]
-	sessionNonce              *connect.Client[v1.QuerySessionNonceRequest, v1.QuerySessionNonceResponse]
-	sessionsByOwner           *connect.Client[v1.QuerySessionsByOwnerRequest, v1.QuerySessionsByOwnerResponse]
-	sessionTerminalSummary    *connect.Client[v1.QuerySessionTerminalSummaryRequest, v1.QuerySessionTerminalSummaryResponse]
-	orderSequence             *connect.Client[v1.QueryOrderSequenceRequest, v1.QueryOrderSequenceResponse]
-	roleActiveTasks           *connect.Client[v1.QueryRoleActiveTasksRequest, v1.QueryRoleActiveTasksResponse]
-	dispatchRecord            *connect.Client[v1.QueryDispatchRecordRequest, v1.QueryDispatchRecordResponse]
-	dispatchCompensationClaim *connect.Client[v1.QueryDispatchCompensationClaimRequest, v1.QueryDispatchCompensationClaimResponse]
-	dispatchWinnerIneligible  *connect.Client[v1.QueryDispatchWinnerIneligibleRequest, v1.QueryDispatchWinnerIneligibleResponse]
-	dispatchChallenge         *connect.Client[v1.QueryDispatchChallengeRequest, v1.QueryDispatchChallengeResponse]
+	params                              *connect.Client[v1.QueryTaskParamsRequest, v1.QueryTaskParamsResponse]
+	task                                *connect.Client[v1.QueryTaskRequest, v1.QueryTaskResponse]
+	taskStage                           *connect.Client[v1.QueryTaskStageRequest, v1.QueryTaskStageResponse]
+	taskAssignment                      *connect.Client[v1.QueryTaskAssignmentRequest, v1.QueryTaskAssignmentResponse]
+	taskBudget                          *connect.Client[v1.QueryTaskBudgetRequest, v1.QueryTaskBudgetResponse]
+	taskBuilders                        *connect.Client[v1.QueryTaskBuildersRequest, v1.QueryTaskBuildersResponse]
+	inferReceipt                        *connect.Client[v1.QueryInferReceiptRequest, v1.QueryInferReceiptResponse]
+	workerEvidence                      *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
+	verifierValueEvidence               *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
+	verifierCandidateWindow             *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
+	verifierAssignment                  *connect.Client[v1.QueryVerifierAssignmentRequest, v1.QueryVerifierAssignmentResponse]
+	verifyCommit                        *connect.Client[v1.QueryVerifyCommitRequest, v1.QueryVerifyCommitResponse]
+	resultReceipt                       *connect.Client[v1.QueryResultReceiptRequest, v1.QueryResultReceiptResponse]
+	dataUnavailableReports              *connect.Client[v1.QueryDataUnavailableReportsRequest, v1.QueryDataUnavailableReportsResponse]
+	builderDataUnavailable              *connect.Client[v1.QueryBuilderDataUnavailableRequest, v1.QueryBuilderDataUnavailableResponse]
+	settlementFacts                     *connect.Client[v1.QuerySettlementFactsRequest, v1.QuerySettlementFactsResponse]
+	settlement                          *connect.Client[v1.QuerySettlementRequest, v1.QuerySettlementResponse]
+	verificationRound                   *connect.Client[v1.QueryVerificationRoundRequest, v1.QueryVerificationRoundResponse]
+	taskGasReimbursements               *connect.Client[v1.QueryTaskGasReimbursementsRequest, v1.QueryTaskGasReimbursementsResponse]
+	taskFailureClass                    *connect.Client[v1.QueryTaskFailureClassRequest, v1.QueryTaskFailureClassResponse]
+	evidenceCleanup                     *connect.Client[v1.QueryEvidenceCleanupRequest, v1.QueryEvidenceCleanupResponse]
+	epochTaskSummary                    *connect.Client[v1.QueryEpochTaskSummaryRequest, v1.QueryEpochTaskSummaryResponse]
+	session                             *connect.Client[v1.QuerySessionRequest, v1.QuerySessionResponse]
+	sessionNonce                        *connect.Client[v1.QuerySessionNonceRequest, v1.QuerySessionNonceResponse]
+	sessionsByOwner                     *connect.Client[v1.QuerySessionsByOwnerRequest, v1.QuerySessionsByOwnerResponse]
+	sessionTerminalSummary              *connect.Client[v1.QuerySessionTerminalSummaryRequest, v1.QuerySessionTerminalSummaryResponse]
+	orderSequence                       *connect.Client[v1.QueryOrderSequenceRequest, v1.QueryOrderSequenceResponse]
+	roleActiveTasks                     *connect.Client[v1.QueryRoleActiveTasksRequest, v1.QueryRoleActiveTasksResponse]
+	dispatchRecord                      *connect.Client[v1.QueryDispatchRecordRequest, v1.QueryDispatchRecordResponse]
+	dispatchCompensationClaim           *connect.Client[v1.QueryDispatchCompensationClaimRequest, v1.QueryDispatchCompensationClaimResponse]
+	dispatchWinnerIneligible            *connect.Client[v1.QueryDispatchWinnerIneligibleRequest, v1.QueryDispatchWinnerIneligibleResponse]
+	dispatchChallenge                   *connect.Client[v1.QueryDispatchChallengeRequest, v1.QueryDispatchChallengeResponse]
+	dispatchChallengesByBuilder         *connect.Client[v1.QueryDispatchChallengesByBuilderRequest, v1.QueryDispatchChallengesByBuilderResponse]
+	dispatchCompensationClaimsByBuilder *connect.Client[v1.QueryDispatchCompensationClaimsByBuilderRequest, v1.QueryDispatchCompensationClaimsByBuilderResponse]
 }
 
 // Params calls task.v1.Query.Params.
@@ -585,6 +609,16 @@ func (c *queryClient) DispatchChallenge(ctx context.Context, req *connect.Reques
 	return c.dispatchChallenge.CallUnary(ctx, req)
 }
 
+// DispatchChallengesByBuilder calls task.v1.Query.DispatchChallengesByBuilder.
+func (c *queryClient) DispatchChallengesByBuilder(ctx context.Context, req *connect.Request[v1.QueryDispatchChallengesByBuilderRequest]) (*connect.Response[v1.QueryDispatchChallengesByBuilderResponse], error) {
+	return c.dispatchChallengesByBuilder.CallUnary(ctx, req)
+}
+
+// DispatchCompensationClaimsByBuilder calls task.v1.Query.DispatchCompensationClaimsByBuilder.
+func (c *queryClient) DispatchCompensationClaimsByBuilder(ctx context.Context, req *connect.Request[v1.QueryDispatchCompensationClaimsByBuilderRequest]) (*connect.Response[v1.QueryDispatchCompensationClaimsByBuilderResponse], error) {
+	return c.dispatchCompensationClaimsByBuilder.CallUnary(ctx, req)
+}
+
 // QueryHandler is an implementation of the task.v1.Query service.
 type QueryHandler interface {
 	// Params returns Task parameters.
@@ -658,6 +692,10 @@ type QueryHandler interface {
 	DispatchWinnerIneligible(context.Context, *connect.Request[v1.QueryDispatchWinnerIneligibleRequest]) (*connect.Response[v1.QueryDispatchWinnerIneligibleResponse], error)
 	// DispatchChallenge executes the DispatchChallenge operation.
 	DispatchChallenge(context.Context, *connect.Request[v1.QueryDispatchChallengeRequest]) (*connect.Response[v1.QueryDispatchChallengeResponse], error)
+	// DispatchChallengesByBuilder pages open challenges against one Builder.
+	DispatchChallengesByBuilder(context.Context, *connect.Request[v1.QueryDispatchChallengesByBuilderRequest]) (*connect.Response[v1.QueryDispatchChallengesByBuilderResponse], error)
+	// DispatchCompensationClaimsByBuilder pages claims pending that Builder's rebuttal.
+	DispatchCompensationClaimsByBuilder(context.Context, *connect.Request[v1.QueryDispatchCompensationClaimsByBuilderRequest]) (*connect.Response[v1.QueryDispatchCompensationClaimsByBuilderResponse], error)
 }
 
 // NewQueryHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -859,6 +897,18 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(queryMethods.ByName("DispatchChallenge")),
 		connect.WithHandlerOptions(opts...),
 	)
+	queryDispatchChallengesByBuilderHandler := connect.NewUnaryHandler(
+		QueryDispatchChallengesByBuilderProcedure,
+		svc.DispatchChallengesByBuilder,
+		connect.WithSchema(queryMethods.ByName("DispatchChallengesByBuilder")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryDispatchCompensationClaimsByBuilderHandler := connect.NewUnaryHandler(
+		QueryDispatchCompensationClaimsByBuilderProcedure,
+		svc.DispatchCompensationClaimsByBuilder,
+		connect.WithSchema(queryMethods.ByName("DispatchCompensationClaimsByBuilder")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/task.v1.Query/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case QueryParamsProcedure:
@@ -925,6 +975,10 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryDispatchWinnerIneligibleHandler.ServeHTTP(w, r)
 		case QueryDispatchChallengeProcedure:
 			queryDispatchChallengeHandler.ServeHTTP(w, r)
+		case QueryDispatchChallengesByBuilderProcedure:
+			queryDispatchChallengesByBuilderHandler.ServeHTTP(w, r)
+		case QueryDispatchCompensationClaimsByBuilderProcedure:
+			queryDispatchCompensationClaimsByBuilderHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1060,4 +1114,12 @@ func (UnimplementedQueryHandler) DispatchWinnerIneligible(context.Context, *conn
 
 func (UnimplementedQueryHandler) DispatchChallenge(context.Context, *connect.Request[v1.QueryDispatchChallengeRequest]) (*connect.Response[v1.QueryDispatchChallengeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.DispatchChallenge is not implemented"))
+}
+
+func (UnimplementedQueryHandler) DispatchChallengesByBuilder(context.Context, *connect.Request[v1.QueryDispatchChallengesByBuilderRequest]) (*connect.Response[v1.QueryDispatchChallengesByBuilderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.DispatchChallengesByBuilder is not implemented"))
+}
+
+func (UnimplementedQueryHandler) DispatchCompensationClaimsByBuilder(context.Context, *connect.Request[v1.QueryDispatchCompensationClaimsByBuilderRequest]) (*connect.Response[v1.QueryDispatchCompensationClaimsByBuilderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.DispatchCompensationClaimsByBuilder is not implemented"))
 }

@@ -26,20 +26,29 @@ enum OpenTaskStatusV1 {
 }
 // DispatchStreamBindingV1 defines the canonical DispatchStreamBindingV1 fields.
 message DispatchStreamBindingV1 {
+  // Must be 1. Authentication must complete before any business frame is used.
   uint32 schema_version = 1;
   string chain_id = 2;
   string builder_operator = 3;
   string cortex_operator = 4;
   uint64 service_authorization_nonce = 5;
+  // Exactly 32 fresh cryptographically random bytes, selected by Cortex for
+  // each connection; both directions echo this nonce on every frame.
   bytes stream_nonce = 6;
   bytes service_signature = 7;
 }
 // StreamAckV1 defines the canonical StreamAckV1 fields.
 message StreamAckV1 {
+  // Cumulative durable receipt in the peer's sending direction. Zero means no
+  // business frame acknowledged. Never acknowledge beyond a gap or sent cursor.
   uint64 acked_cursor = 1;
 }
 // StreamKeepaliveV1 defines the canonical StreamKeepaliveV1 fields.
 message StreamKeepaliveV1 {
+  // Echo a peer probe once with the same value. A value matching one's own
+  // outstanding probe is its echo: consume it and do not echo again. Keep one
+  // local probe outstanding; probe values increase per direction. Duplicate
+  // peer probes are not echoed again. No ack/keepalive consumes a cursor.
   uint64 sent_at_ms = 1;
 }
 // DispatchInputRequestV1 defines the canonical DispatchInputRequestV1 fields.
@@ -152,6 +161,10 @@ message ResumeOutputRequest {
 }
 // DispatchStreamFrameV1 carries typed messages on one authenticated stream.
 // Cursor is scoped to stream_nonce; reconnect never changes signed business bytes.
+// Each direction starts business cursors at 1 and increments without gaps.
+// Binding/ack/keepalive use cursor 0; all other variants require cursor > 0.
+// A reconnect uses a fresh binding/nonce and restarts business cursors at 1;
+// retained unexpired business messages keep their original signed bytes.
 message DispatchStreamFrameV1 {
   bytes stream_nonce = 1;
   uint64 cursor = 2;

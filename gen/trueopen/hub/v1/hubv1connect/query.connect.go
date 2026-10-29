@@ -121,7 +121,10 @@ type QueryClient interface {
 	Params(context.Context, *connect.Request[v1.QueryHubParamsRequest]) (*connect.Response[v1.QueryHubParamsResponse], error)
 	// Beacon returns one verified beacon by height.
 	Beacon(context.Context, *connect.Request[v1.QueryBeaconRequest]) (*connect.Response[v1.QueryBeaconResponse], error)
-	// VrfKey returns one validator operator's active and pending VRF key.
+	// VrfKey returns current active/pending keys for the selected participant role.
+	// This RPC has no by-epoch/history lookup. Audit consumers retain registration
+	// and cutover history or use archival state at the relevant height; an old
+	// ticket must never be verified by substituting the latest active key.
 	VrfKey(context.Context, *connect.Request[v1.QueryVrfKeyRequest]) (*connect.Response[v1.QueryVrfKeyResponse], error)
 	// BuilderSet returns one builder set selected by exactly one stable selector.
 	BuilderSet(context.Context, *connect.Request[v1.QueryBuilderSetRequest]) (*connect.Response[v1.QueryBuilderSetResponse], error)
@@ -662,7 +665,10 @@ type QueryHandler interface {
 	Params(context.Context, *connect.Request[v1.QueryHubParamsRequest]) (*connect.Response[v1.QueryHubParamsResponse], error)
 	// Beacon returns one verified beacon by height.
 	Beacon(context.Context, *connect.Request[v1.QueryBeaconRequest]) (*connect.Response[v1.QueryBeaconResponse], error)
-	// VrfKey returns one validator operator's active and pending VRF key.
+	// VrfKey returns current active/pending keys for the selected participant role.
+	// This RPC has no by-epoch/history lookup. Audit consumers retain registration
+	// and cutover history or use archival state at the relevant height; an old
+	// ticket must never be verified by substituting the latest active key.
 	VrfKey(context.Context, *connect.Request[v1.QueryVrfKeyRequest]) (*connect.Response[v1.QueryVrfKeyResponse], error)
 	// BuilderSet returns one builder set selected by exactly one stable selector.
 	BuilderSet(context.Context, *connect.Request[v1.QueryBuilderSetRequest]) (*connect.Response[v1.QueryBuilderSetResponse], error)

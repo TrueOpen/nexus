@@ -213,7 +213,9 @@ func (x *MsgFundBuilderCompensationResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// CandidateProfileWeightInputV1 defines the canonical CandidateProfileWeightInputV1 fields.
+// CandidateProfileWeightInputV1 is the authoritative model/profile-specific
+// eligibility input frozen in the snapshot. Match both model_id and
+// profile_version; never substitute the member-wide inference_capable flag.
 type CandidateProfileWeightInputV1 struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	ModelId             []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
@@ -292,18 +294,19 @@ func (x *CandidateProfileWeightInputV1) GetInferenceCapable() bool {
 
 // CandidateWeightInputsV1 defines the canonical CandidateWeightInputsV1 fields.
 type CandidateWeightInputsV1 struct {
-	state                    protoimpl.MessageState           `protogen:"open.v1"`
-	ActiveBond               *v1.Amount                       `protobuf:"bytes,1,opt,name=active_bond,json=activeBond,proto3" json:"active_bond,omitempty"`
-	AvailableBond            *v1.Amount                       `protobuf:"bytes,2,opt,name=available_bond,json=availableBond,proto3" json:"available_bond,omitempty"`
-	PerformanceScorePpm      uint32                           `protobuf:"varint,3,opt,name=performance_score_ppm,json=performanceScorePpm,proto3" json:"performance_score_ppm,omitempty"`
-	PerformanceMethodVersion uint32                           `protobuf:"varint,4,opt,name=performance_method_version,json=performanceMethodVersion,proto3" json:"performance_method_version,omitempty"`
-	CandidateJailFactorPpm   uint32                           `protobuf:"varint,5,opt,name=candidate_jail_factor_ppm,json=candidateJailFactorPpm,proto3" json:"candidate_jail_factor_ppm,omitempty"`
-	InferenceCapable         bool                             `protobuf:"varint,6,opt,name=inference_capable,json=inferenceCapable,proto3" json:"inference_capable,omitempty"`
-	Unbonding                bool                             `protobuf:"varint,7,opt,name=unbonding,proto3" json:"unbonding,omitempty"`
-	Tombstoned               bool                             `protobuf:"varint,8,opt,name=tombstoned,proto3" json:"tombstoned,omitempty"`
-	Profiles                 []*CandidateProfileWeightInputV1 `protobuf:"bytes,9,rep,name=profiles,proto3" json:"profiles,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	ActiveBond               *v1.Amount             `protobuf:"bytes,1,opt,name=active_bond,json=activeBond,proto3" json:"active_bond,omitempty"`
+	AvailableBond            *v1.Amount             `protobuf:"bytes,2,opt,name=available_bond,json=availableBond,proto3" json:"available_bond,omitempty"`
+	PerformanceScorePpm      uint32                 `protobuf:"varint,3,opt,name=performance_score_ppm,json=performanceScorePpm,proto3" json:"performance_score_ppm,omitempty"`
+	PerformanceMethodVersion uint32                 `protobuf:"varint,4,opt,name=performance_method_version,json=performanceMethodVersion,proto3" json:"performance_method_version,omitempty"`
+	CandidateJailFactorPpm   uint32                 `protobuf:"varint,5,opt,name=candidate_jail_factor_ppm,json=candidateJailFactorPpm,proto3" json:"candidate_jail_factor_ppm,omitempty"`
+	// Member-wide summary only. Dispatch for a profile uses that profile's flag.
+	InferenceCapable bool                             `protobuf:"varint,6,opt,name=inference_capable,json=inferenceCapable,proto3" json:"inference_capable,omitempty"`
+	Unbonding        bool                             `protobuf:"varint,7,opt,name=unbonding,proto3" json:"unbonding,omitempty"`
+	Tombstoned       bool                             `protobuf:"varint,8,opt,name=tombstoned,proto3" json:"tombstoned,omitempty"`
+	Profiles         []*CandidateProfileWeightInputV1 `protobuf:"bytes,9,rep,name=profiles,proto3" json:"profiles,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CandidateWeightInputsV1) Reset() {
@@ -399,7 +402,14 @@ func (x *CandidateWeightInputsV1) GetProfiles() []*CandidateProfileWeightInputV1
 	return nil
 }
 
-// CandidatePoolSnapshotMemberViewV1 defines the canonical CandidatePoolSnapshotMemberViewV1 fields.
+// CandidatePoolSnapshotMemberViewV1 reads only the frozen snapshot. With a
+// model/profile selector, fields 6/7 are projections of the matching profiles[]
+// entry, not independent live facts; candidate_weight uses that same entry and
+// the frozen member inputs and the snapshot header's Worker coefficients.
+// Never substitute current Task parameters. No match means
+// profile_support_fresh=false and zero
+// candidate_weight/min_stake_snapshot. Missing weight_inputs on an in-pool member
+// is an invalid snapshot, not permission to read current bond/support state.
 type CandidatePoolSnapshotMemberViewV1 struct {
 	state               protoimpl.MessageState   `protogen:"open.v1"`
 	InPool              bool                     `protobuf:"varint,1,opt,name=in_pool,json=inPool,proto3" json:"in_pool,omitempty"`

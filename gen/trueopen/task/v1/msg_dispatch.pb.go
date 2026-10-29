@@ -75,7 +75,10 @@ func (x *MsgRecordDispatch) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgRecordDispatchResponse defines the canonical MsgRecordDispatchResponse fields.
+// MsgRecordDispatchResponse returns one result in input order. object_id is
+// dispatch_record_entry_digest for dispatch, takeover_entry_digest for takeover;
+// it is never dispatch_record_hash or dispatch_ticket_hash. Exact replay echoes
+// the same entry identity with NOOP. item_index always identifies input position.
 type MsgRecordDispatchResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Results       []*BatchItemResultV1   `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`

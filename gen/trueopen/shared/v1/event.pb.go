@@ -673,6 +673,8 @@ func (x *StreamCheckpoint) GetChainHeight() uint64 {
 
 // EventTarget identifies one intended event recipient. Targets are routing
 // metadata only and do not grant authority.
+// Mandatory Phase 1 targets, including Task codes 132..137 and Hub code 145,
+// are defined in docs/PHASE1_CONTRACT.md under Event routing and gap recovery.
 // EventTarget defines the EventTarget wire type.
 type EventTarget struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

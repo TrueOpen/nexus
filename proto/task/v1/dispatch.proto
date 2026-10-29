@@ -54,6 +54,9 @@ enum AdmitRejectReasonV1 {
   ADMIT_REJECT_REASON_V1_REJECT_RATE = 3;
   // INVALID_HANDRAISE is the invalid handraise value.
   ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE = 4;
+  // The Cortex has a pending service-key replacement and cannot take new duty.
+  // Publish an admitted=false leaf; do not silently omit its standing handraise.
+  ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING = 5;
 }
 // DispatchRecordStatusV1 is the closed DispatchRecordStatusV1 registry.
 enum DispatchRecordStatusV1 {
@@ -250,7 +253,12 @@ message DispatchRosterNonInclusionProofV1 {
 // DispatchVrfInputV1 defines the canonical DispatchVrfInputV1 fields.
 message DispatchVrfInputV1 {
   string chain_id = 1;
+  // E = earliest_submit_height / epoch_length_blocks, without a genesis offset.
   uint64 epoch = 2;
+  // Raw R_h of the committed, verified beacon at E * epoch_length_blocks.
+  // Missing, unverified or placeholder beacons have no usable seed. Epoch zero
+  // has no height-zero beacon, so dispatch starts after epoch one's first beacon
+  // commits. Never substitute zero, a genesis hash or a different block's R_h.
   bytes epoch_seed = 3;
   bytes session_id = 4;
   uint64 order_sequence = 5;

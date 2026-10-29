@@ -26,7 +26,9 @@ message MsgFundBuilderCompensationResponse {
   shared.v1.Amount balance = 1;
   shared.v1.MutationStatusV1 status = 2;
 }
-// CandidateProfileWeightInputV1 defines the canonical CandidateProfileWeightInputV1 fields.
+// CandidateProfileWeightInputV1 is the authoritative model/profile-specific
+// eligibility input frozen in the snapshot. Match both model_id and
+// profile_version; never substitute the member-wide inference_capable flag.
 message CandidateProfileWeightInputV1 {
   bytes model_id = 1;
   uint32 profile_version = 2;
@@ -41,12 +43,20 @@ message CandidateWeightInputsV1 {
   uint32 performance_score_ppm = 3;
   uint32 performance_method_version = 4;
   uint32 candidate_jail_factor_ppm = 5;
+  // Member-wide summary only. Dispatch for a profile uses that profile's flag.
   bool inference_capable = 6;
   bool unbonding = 7;
   bool tombstoned = 8;
   repeated CandidateProfileWeightInputV1 profiles = 9;
 }
-// CandidatePoolSnapshotMemberViewV1 defines the canonical CandidatePoolSnapshotMemberViewV1 fields.
+// CandidatePoolSnapshotMemberViewV1 reads only the frozen snapshot. With a
+// model/profile selector, fields 6/7 are projections of the matching profiles[]
+// entry, not independent live facts; candidate_weight uses that same entry and
+// the frozen member inputs and the snapshot header's Worker coefficients.
+// Never substitute current Task parameters. No match means
+// profile_support_fresh=false and zero
+// candidate_weight/min_stake_snapshot. Missing weight_inputs on an in-pool member
+// is an invalid snapshot, not permission to read current bond/support state.
 message CandidatePoolSnapshotMemberViewV1 {
   bool in_pool = 1;
   uint32 slot = 2;

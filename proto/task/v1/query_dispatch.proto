@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package task.v1;
 
+import "shared/v1/query_page.proto";
 import "task/v1/dispatch_state.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
@@ -46,4 +47,34 @@ message QueryDispatchChallengeRequest {
 // QueryDispatchChallengeResponse defines the canonical QueryDispatchChallengeResponse fields.
 message QueryDispatchChallengeResponse {
   DispatchChallengeState row = 1;
+}
+
+// QueryDispatchChallengesByBuilderRequest recovers open challenges after gaps.
+// The selector is builder_address; status is fixed to AWAITING_PROOF or
+// AWAITING_ROSTER. Shared page tokens pin every page to one query_height and
+// reject cross-RPC/cross-Builder reuse. Empty results return an empty page.
+message QueryDispatchChallengesByBuilderRequest {
+  string builder_address = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QueryDispatchChallengesByBuilderResponse orders rows by raw32 challenge_id.
+// Include an overdue open primary until its handler actually closes it; a
+// Query must not infer a terminal outcome or drop it based on the wall clock.
+message QueryDispatchChallengesByBuilderResponse {
+  repeated DispatchChallengeState rows = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
+}
+
+// QueryDispatchCompensationClaimsByBuilderRequest recovers PENDING_REBUTTAL
+// claims only. It shares the height-pinned pagination and cap rules above.
+message QueryDispatchCompensationClaimsByBuilderRequest {
+  string builder_address = 1;
+  shared.v1.QueryPageRequestV1 page = 2;
+}
+
+// QueryDispatchCompensationClaimsByBuilderResponse orders by raw32 ticket hash.
+message QueryDispatchCompensationClaimsByBuilderResponse {
+  repeated DispatchCompensationClaimState claims = 1;
+  shared.v1.QueryPageResponseV1 page = 2;
 }

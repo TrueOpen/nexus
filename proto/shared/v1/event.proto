@@ -336,6 +336,8 @@ enum EventRole {
 
 // EventTarget identifies one intended event recipient. Targets are routing
 // metadata only and do not grant authority.
+// Mandatory Phase 1 targets, including Task codes 132..137 and Hub code 145,
+// are defined in docs/PHASE1_CONTRACT.md under Event routing and gap recovery.
 // EventTarget defines the EventTarget wire type.
 message EventTarget {
   EventRole role = 1;

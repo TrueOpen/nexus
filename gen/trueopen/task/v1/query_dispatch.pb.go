@@ -7,6 +7,7 @@
 package taskv1
 
 import (
+	v1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -474,11 +475,229 @@ func (x *QueryDispatchChallengeResponse) GetRow() *DispatchChallengeState {
 	return nil
 }
 
+// QueryDispatchChallengesByBuilderRequest recovers open challenges after gaps.
+// The selector is builder_address; status is fixed to AWAITING_PROOF or
+// AWAITING_ROSTER. Shared page tokens pin every page to one query_height and
+// reject cross-RPC/cross-Builder reuse. Empty results return an empty page.
+type QueryDispatchChallengesByBuilderRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	BuilderAddress string                 `protobuf:"bytes,1,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	Page           *v1.QueryPageRequestV1 `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryDispatchChallengesByBuilderRequest) Reset() {
+	*x = QueryDispatchChallengesByBuilderRequest{}
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryDispatchChallengesByBuilderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryDispatchChallengesByBuilderRequest) ProtoMessage() {}
+
+func (x *QueryDispatchChallengesByBuilderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryDispatchChallengesByBuilderRequest.ProtoReflect.Descriptor instead.
+func (*QueryDispatchChallengesByBuilderRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_dispatch_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *QueryDispatchChallengesByBuilderRequest) GetBuilderAddress() string {
+	if x != nil {
+		return x.BuilderAddress
+	}
+	return ""
+}
+
+func (x *QueryDispatchChallengesByBuilderRequest) GetPage() *v1.QueryPageRequestV1 {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// QueryDispatchChallengesByBuilderResponse orders rows by raw32 challenge_id.
+// Include an overdue open primary until its handler actually closes it; a
+// Query must not infer a terminal outcome or drop it based on the wall clock.
+type QueryDispatchChallengesByBuilderResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Rows          []*DispatchChallengeState `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	Page          *v1.QueryPageResponseV1   `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryDispatchChallengesByBuilderResponse) Reset() {
+	*x = QueryDispatchChallengesByBuilderResponse{}
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryDispatchChallengesByBuilderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryDispatchChallengesByBuilderResponse) ProtoMessage() {}
+
+func (x *QueryDispatchChallengesByBuilderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryDispatchChallengesByBuilderResponse.ProtoReflect.Descriptor instead.
+func (*QueryDispatchChallengesByBuilderResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_dispatch_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *QueryDispatchChallengesByBuilderResponse) GetRows() []*DispatchChallengeState {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *QueryDispatchChallengesByBuilderResponse) GetPage() *v1.QueryPageResponseV1 {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// QueryDispatchCompensationClaimsByBuilderRequest recovers PENDING_REBUTTAL
+// claims only. It shares the height-pinned pagination and cap rules above.
+type QueryDispatchCompensationClaimsByBuilderRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	BuilderAddress string                 `protobuf:"bytes,1,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	Page           *v1.QueryPageRequestV1 `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderRequest) Reset() {
+	*x = QueryDispatchCompensationClaimsByBuilderRequest{}
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryDispatchCompensationClaimsByBuilderRequest) ProtoMessage() {}
+
+func (x *QueryDispatchCompensationClaimsByBuilderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryDispatchCompensationClaimsByBuilderRequest.ProtoReflect.Descriptor instead.
+func (*QueryDispatchCompensationClaimsByBuilderRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_dispatch_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderRequest) GetBuilderAddress() string {
+	if x != nil {
+		return x.BuilderAddress
+	}
+	return ""
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderRequest) GetPage() *v1.QueryPageRequestV1 {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+// QueryDispatchCompensationClaimsByBuilderResponse orders by raw32 ticket hash.
+type QueryDispatchCompensationClaimsByBuilderResponse struct {
+	state         protoimpl.MessageState            `protogen:"open.v1"`
+	Claims        []*DispatchCompensationClaimState `protobuf:"bytes,1,rep,name=claims,proto3" json:"claims,omitempty"`
+	Page          *v1.QueryPageResponseV1           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderResponse) Reset() {
+	*x = QueryDispatchCompensationClaimsByBuilderResponse{}
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryDispatchCompensationClaimsByBuilderResponse) ProtoMessage() {}
+
+func (x *QueryDispatchCompensationClaimsByBuilderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_dispatch_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryDispatchCompensationClaimsByBuilderResponse.ProtoReflect.Descriptor instead.
+func (*QueryDispatchCompensationClaimsByBuilderResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_dispatch_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderResponse) GetClaims() []*DispatchCompensationClaimState {
+	if x != nil {
+		return x.Claims
+	}
+	return nil
+}
+
+func (x *QueryDispatchCompensationClaimsByBuilderResponse) GetPage() *v1.QueryPageResponseV1 {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
 var File_task_v1_query_dispatch_proto protoreflect.FileDescriptor
 
 const file_task_v1_query_dispatch_proto_rawDesc = "" +
 	"\n" +
-	"\x1ctask/v1/query_dispatch.proto\x12\atask.v1\x1a\x1ctask/v1/dispatch_state.proto\"_\n" +
+	"\x1ctask/v1/query_dispatch.proto\x12\atask.v1\x1a\x1ashared/v1/query_page.proto\x1a\x1ctask/v1/dispatch_state.proto\"_\n" +
 	"\x17DispatchRecordByOrderV1\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
@@ -501,7 +720,19 @@ const file_task_v1_query_dispatch_proto_rawDesc = "" +
 	"\x1dQueryDispatchChallengeRequest\x12!\n" +
 	"\fchallenge_id\x18\x01 \x01(\fR\vchallengeId\"S\n" +
 	"\x1eQueryDispatchChallengeResponse\x121\n" +
-	"\x03row\x18\x01 \x01(\v2\x1f.task.v1.DispatchChallengeStateR\x03rowB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x03row\x18\x01 \x01(\v2\x1f.task.v1.DispatchChallengeStateR\x03row\"\x85\x01\n" +
+	"'QueryDispatchChallengesByBuilderRequest\x12'\n" +
+	"\x0fbuilder_address\x18\x01 \x01(\tR\x0ebuilderAddress\x121\n" +
+	"\x04page\x18\x02 \x01(\v2\x1d.shared.v1.QueryPageRequestV1R\x04page\"\x93\x01\n" +
+	"(QueryDispatchChallengesByBuilderResponse\x123\n" +
+	"\x04rows\x18\x01 \x03(\v2\x1f.task.v1.DispatchChallengeStateR\x04rows\x122\n" +
+	"\x04page\x18\x02 \x01(\v2\x1e.shared.v1.QueryPageResponseV1R\x04page\"\x8d\x01\n" +
+	"/QueryDispatchCompensationClaimsByBuilderRequest\x12'\n" +
+	"\x0fbuilder_address\x18\x01 \x01(\tR\x0ebuilderAddress\x121\n" +
+	"\x04page\x18\x02 \x01(\v2\x1d.shared.v1.QueryPageRequestV1R\x04page\"\xa7\x01\n" +
+	"0QueryDispatchCompensationClaimsByBuilderResponse\x12?\n" +
+	"\x06claims\x18\x01 \x03(\v2'.task.v1.DispatchCompensationClaimStateR\x06claims\x122\n" +
+	"\x04page\x18\x02 \x01(\v2\x1e.shared.v1.QueryPageResponseV1R\x04pageB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_query_dispatch_proto_rawDescOnce sync.Once
@@ -515,33 +746,45 @@ func file_task_v1_query_dispatch_proto_rawDescGZIP() []byte {
 	return file_task_v1_query_dispatch_proto_rawDescData
 }
 
-var file_task_v1_query_dispatch_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_task_v1_query_dispatch_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_task_v1_query_dispatch_proto_goTypes = []any{
-	(*DispatchRecordByOrderV1)(nil),                // 0: task.v1.DispatchRecordByOrderV1
-	(*QueryDispatchRecordRequest)(nil),             // 1: task.v1.QueryDispatchRecordRequest
-	(*QueryDispatchRecordResponse)(nil),            // 2: task.v1.QueryDispatchRecordResponse
-	(*QueryDispatchCompensationClaimRequest)(nil),  // 3: task.v1.QueryDispatchCompensationClaimRequest
-	(*QueryDispatchCompensationClaimResponse)(nil), // 4: task.v1.QueryDispatchCompensationClaimResponse
-	(*QueryDispatchWinnerIneligibleRequest)(nil),   // 5: task.v1.QueryDispatchWinnerIneligibleRequest
-	(*QueryDispatchWinnerIneligibleResponse)(nil),  // 6: task.v1.QueryDispatchWinnerIneligibleResponse
-	(*QueryDispatchChallengeRequest)(nil),          // 7: task.v1.QueryDispatchChallengeRequest
-	(*QueryDispatchChallengeResponse)(nil),         // 8: task.v1.QueryDispatchChallengeResponse
-	(*DispatchRecordState)(nil),                    // 9: task.v1.DispatchRecordState
-	(*DispatchCompensationClaimState)(nil),         // 10: task.v1.DispatchCompensationClaimState
-	(*DispatchWinnerIneligibleState)(nil),          // 11: task.v1.DispatchWinnerIneligibleState
-	(*DispatchChallengeState)(nil),                 // 12: task.v1.DispatchChallengeState
+	(*DispatchRecordByOrderV1)(nil),                          // 0: task.v1.DispatchRecordByOrderV1
+	(*QueryDispatchRecordRequest)(nil),                       // 1: task.v1.QueryDispatchRecordRequest
+	(*QueryDispatchRecordResponse)(nil),                      // 2: task.v1.QueryDispatchRecordResponse
+	(*QueryDispatchCompensationClaimRequest)(nil),            // 3: task.v1.QueryDispatchCompensationClaimRequest
+	(*QueryDispatchCompensationClaimResponse)(nil),           // 4: task.v1.QueryDispatchCompensationClaimResponse
+	(*QueryDispatchWinnerIneligibleRequest)(nil),             // 5: task.v1.QueryDispatchWinnerIneligibleRequest
+	(*QueryDispatchWinnerIneligibleResponse)(nil),            // 6: task.v1.QueryDispatchWinnerIneligibleResponse
+	(*QueryDispatchChallengeRequest)(nil),                    // 7: task.v1.QueryDispatchChallengeRequest
+	(*QueryDispatchChallengeResponse)(nil),                   // 8: task.v1.QueryDispatchChallengeResponse
+	(*QueryDispatchChallengesByBuilderRequest)(nil),          // 9: task.v1.QueryDispatchChallengesByBuilderRequest
+	(*QueryDispatchChallengesByBuilderResponse)(nil),         // 10: task.v1.QueryDispatchChallengesByBuilderResponse
+	(*QueryDispatchCompensationClaimsByBuilderRequest)(nil),  // 11: task.v1.QueryDispatchCompensationClaimsByBuilderRequest
+	(*QueryDispatchCompensationClaimsByBuilderResponse)(nil), // 12: task.v1.QueryDispatchCompensationClaimsByBuilderResponse
+	(*DispatchRecordState)(nil),                              // 13: task.v1.DispatchRecordState
+	(*DispatchCompensationClaimState)(nil),                   // 14: task.v1.DispatchCompensationClaimState
+	(*DispatchWinnerIneligibleState)(nil),                    // 15: task.v1.DispatchWinnerIneligibleState
+	(*DispatchChallengeState)(nil),                           // 16: task.v1.DispatchChallengeState
+	(*v1.QueryPageRequestV1)(nil),                            // 17: shared.v1.QueryPageRequestV1
+	(*v1.QueryPageResponseV1)(nil),                           // 18: shared.v1.QueryPageResponseV1
 }
 var file_task_v1_query_dispatch_proto_depIdxs = []int32{
 	0,  // 0: task.v1.QueryDispatchRecordRequest.by_order:type_name -> task.v1.DispatchRecordByOrderV1
-	9,  // 1: task.v1.QueryDispatchRecordResponse.record:type_name -> task.v1.DispatchRecordState
-	10, // 2: task.v1.QueryDispatchCompensationClaimResponse.claim:type_name -> task.v1.DispatchCompensationClaimState
-	11, // 3: task.v1.QueryDispatchWinnerIneligibleResponse.row:type_name -> task.v1.DispatchWinnerIneligibleState
-	12, // 4: task.v1.QueryDispatchChallengeResponse.row:type_name -> task.v1.DispatchChallengeState
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 1: task.v1.QueryDispatchRecordResponse.record:type_name -> task.v1.DispatchRecordState
+	14, // 2: task.v1.QueryDispatchCompensationClaimResponse.claim:type_name -> task.v1.DispatchCompensationClaimState
+	15, // 3: task.v1.QueryDispatchWinnerIneligibleResponse.row:type_name -> task.v1.DispatchWinnerIneligibleState
+	16, // 4: task.v1.QueryDispatchChallengeResponse.row:type_name -> task.v1.DispatchChallengeState
+	17, // 5: task.v1.QueryDispatchChallengesByBuilderRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	16, // 6: task.v1.QueryDispatchChallengesByBuilderResponse.rows:type_name -> task.v1.DispatchChallengeState
+	18, // 7: task.v1.QueryDispatchChallengesByBuilderResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	17, // 8: task.v1.QueryDispatchCompensationClaimsByBuilderRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	14, // 9: task.v1.QueryDispatchCompensationClaimsByBuilderResponse.claims:type_name -> task.v1.DispatchCompensationClaimState
+	18, // 10: task.v1.QueryDispatchCompensationClaimsByBuilderResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_query_dispatch_proto_init() }
@@ -560,7 +803,7 @@ func file_task_v1_query_dispatch_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_query_dispatch_proto_rawDesc), len(file_task_v1_query_dispatch_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

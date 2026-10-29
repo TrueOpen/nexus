@@ -2,6 +2,8 @@ package dispatchstream
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +17,8 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 func acceptFrame(m *taskv1.DispatchAcceptV1) *nexusv1.DispatchStreamFrameV1 {
@@ -50,7 +54,7 @@ func TestUplinkRoutesVerifiedMessages(t *testing.T) {
 		{"accept", acceptFrame(h.keys.accept(t, cortexA, "t1")), "task.v1.DispatchAcceptV1"},
 		{"reject", rejectFrame(h.keys.reject(t, cortexA, "t2")), "task.v1.DispatchRejectV1"},
 		{"input_request", inputRequestFrame(h.keys.inputRequest(t, cortexA, "t1")), "nexus.v1.DispatchInputRequestV1"},
-		{"verifier_handraise", verifierHandraiseFrame(verifierHandraise(cortexA)), ""},
+		{"verifier_handraise", verifierHandraiseFrame(h.keys.verifierHandraise(t, cortexA)), ""},
 		{"verify_result_submitted", noticeFrame(h.keys.verifyNotice(t, cortexA, "t3")), "nexus.v1.VerifyResultSubmittedNoticeV1"},
 	}
 	var want []string
@@ -145,16 +149,28 @@ func TestUplinkRefusesUnverifiedMessages(t *testing.T) {
 		cases = append(cases, tc{"verify notice altered after signing", noticeFrame(m)})
 	}
 	cases = append(cases, tc{"verify notice of another Cortex", noticeFrame(k.verifyNotice(t, cortexB, "v"))})
-	cases = append(cases, tc{"verifier handraise of another Cortex", verifierHandraiseFrame(verifierHandraise(cortexB))})
+	cases = append(cases, tc{"verifier handraise of another Cortex", verifierHandraiseFrame(k.verifierHandraise(t, cortexB))})
 	{
-		m := verifierHandraise(cortexA)
+		m := k.verifierHandraise(t, cortexA)
 		m.ServiceAuthorizationNonce = testNonce + 1
+		resign(m, verifierHandraiseMessage, cortexA, func(s []byte) { m.ServiceSignature = s })
 		cases = append(cases, tc{"verifier handraise with another nonce", verifierHandraiseFrame(m)})
 	}
 	{
-		m := verifierHandraise(cortexA)
+		m := k.verifierHandraise(t, cortexA)
 		m.ChainId = "other-chain"
+		resign(m, verifierHandraiseMessage, cortexA, func(s []byte) { m.ServiceSignature = s })
 		cases = append(cases, tc{"verifier handraise for another chain", verifierHandraiseFrame(m)})
+	}
+	{
+		m := k.verifierHandraise(t, cortexA)
+		m.ExpiryHeight++
+		cases = append(cases, tc{"verifier handraise altered after signing", verifierHandraiseFrame(m)})
+	}
+	{
+		m := k.verifierHandraise(t, cortexA)
+		resign(m, verifierHandraiseMessage, cortexB, func(s []byte) { m.ServiceSignature = s })
+		cases = append(cases, tc{"verifier handraise signed by another key", verifierHandraiseFrame(m)})
 	}
 
 	s := h.connect(cortexA, "1")
@@ -172,16 +188,54 @@ func TestUplinkRefusesUnverifiedMessages(t *testing.T) {
 	}
 }
 
-// wire registers no signing projection for VerifierHandraiseV1, so the stream checks its signer,
-// chain and nonce and leaves the signature to the chain. Once wire adds the projection this test
-// fails and the stream must verify the signature too.
-func TestVerifierHandraiseSignatureAwaitsAWireProjection(t *testing.T) {
-	raw, err := proto.Marshal(verifierHandraise(cortexA))
-	if err != nil {
+// A verifier handraise is verified like every other uplink message: the wire vector's exact
+// protobuf verifies under its key, and the same message with another signature does not.
+func TestVerifierHandraiseVerifiesTheWireVector(t *testing.T) {
+	var file struct {
+		Vectors []struct {
+			Name         string `json:"name"`
+			ProtobufHex  string `json:"protobuf_hex"`
+			DigestHex    string `json:"digest_hex"`
+			PublicKeyHex string `json:"public_key_hex"`
+		} `json:"vectors"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/dispatch_v1.json"), &file); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dispatch.SigningDigest(verifierHandraiseMessage, raw); err == nil {
-		t.Fatal("wire now signs VerifierHandraiseV1: verify its service signature on the stream")
+	found := false
+	for _, vector := range file.Vectors {
+		if vector.Name != "task_v1_verifierhandraisev1" {
+			continue
+		}
+		found = true
+		raw, _ := hex.DecodeString(vector.ProtobufHex)
+		m := &taskv1.VerifierHandraiseV1{}
+		if err := proto.Unmarshal(raw, m); err != nil {
+			t.Fatal(err)
+		}
+		pub, _ := hex.DecodeString(vector.PublicKeyHex)
+		operator := m.GetMember().GetOperatorAddress()
+		keys := vectorKeys{operator, CortexKey{PubKey: pub, AuthorizationNonce: m.GetServiceAuthorizationNonce()}}
+		hub, err := New(nil, Config{ChainID: m.GetChainId(), BuilderOperator: testBuilder}, keys, kv.NewMemStore())
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims, _ := claimsOf(verifierHandraiseFrame(m))
+		from, err := hub.verifyUplink(context.Background(), operator, claims)
+		if err != nil {
+			t.Fatalf("wire vector verifier handraise refused: %v", err)
+		}
+		if hex.EncodeToString(from.Digest[:]) != vector.DigestHex {
+			t.Fatalf("verified digest %x, want %s", from.Digest, vector.DigestHex)
+		}
+		m.ServiceSignature[0] ^= 1
+		claims, _ = claimsOf(verifierHandraiseFrame(m))
+		if _, err := hub.verifyUplink(context.Background(), operator, claims); !errors.Is(err, errUplinkRefused) {
+			t.Fatalf("altered signature: err = %v, want refused", err)
+		}
+	}
+	if !found {
+		t.Fatal("wire vector task_v1_verifierhandraisev1 not found")
 	}
 }
 
@@ -194,7 +248,7 @@ func TestUplinkTransientFailureEndsTheStreamUnacknowledged(t *testing.T) {
 		"accept":             acceptFrame(keys.accept(t, cortexA, "a")),
 		"reject":             rejectFrame(keys.reject(t, cortexA, "r")),
 		"input request":      inputRequestFrame(keys.inputRequest(t, cortexA, "i")),
-		"verifier handraise": verifierHandraiseFrame(verifierHandraise(cortexA)),
+		"verifier handraise": verifierHandraiseFrame(keys.verifierHandraise(t, cortexA)),
 		"verify notice":      noticeFrame(keys.verifyNotice(t, cortexA, "n")),
 	} {
 		t.Run("key lookup/"+name, func(t *testing.T) {

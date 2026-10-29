@@ -745,8 +745,14 @@ type CandidatePoolSnapshotState struct {
 	ExpiresHeight      uint64 `protobuf:"varint,14,opt,name=expires_height,json=expiresHeight,proto3" json:"expires_height,omitempty"`
 	TaskRefCount       uint32 `protobuf:"varint,15,opt,name=task_ref_count,json=taskRefCount,proto3" json:"task_ref_count,omitempty"`
 	PrunedHeight       uint64 `protobuf:"varint,16,opt,name=pruned_height,json=prunedHeight,proto3" json:"pruned_height,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Frozen together on activation; their sum must equal 1,000,000.
+	// Queries and dispatch challenges use these values, never current Task params.
+	// READY headers leave both unset. Retained activated headers preserve them
+	// through expiry and pruning. These are scoring facts, not pool-hash inputs.
+	WorkerStakeWeightPpm       uint32 `protobuf:"varint,17,opt,name=worker_stake_weight_ppm,json=workerStakeWeightPpm,proto3" json:"worker_stake_weight_ppm,omitempty"`
+	WorkerPerformanceWeightPpm uint32 `protobuf:"varint,18,opt,name=worker_performance_weight_ppm,json=workerPerformanceWeightPpm,proto3" json:"worker_performance_weight_ppm,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *CandidatePoolSnapshotState) Reset() {
@@ -887,6 +893,20 @@ func (x *CandidatePoolSnapshotState) GetTaskRefCount() uint32 {
 func (x *CandidatePoolSnapshotState) GetPrunedHeight() uint64 {
 	if x != nil {
 		return x.PrunedHeight
+	}
+	return 0
+}
+
+func (x *CandidatePoolSnapshotState) GetWorkerStakeWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerStakeWeightPpm
+	}
+	return 0
+}
+
+func (x *CandidatePoolSnapshotState) GetWorkerPerformanceWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerPerformanceWeightPpm
 	}
 	return 0
 }
@@ -1408,8 +1428,11 @@ type CandidatePoolSnapshotViewV1 struct {
 	EffectiveHeight  uint64                      `protobuf:"varint,10,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
 	ExpiresHeight    uint64                      `protobuf:"varint,11,opt,name=expires_height,json=expiresHeight,proto3" json:"expires_height,omitempty"`
 	PrunedHeight     *uint64                     `protobuf:"varint,12,opt,name=pruned_height,json=prunedHeight,proto3,oneof" json:"pruned_height,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The epoch header's immutable Worker scoring policy; both zero before activation.
+	WorkerStakeWeightPpm       uint32 `protobuf:"varint,13,opt,name=worker_stake_weight_ppm,json=workerStakeWeightPpm,proto3" json:"worker_stake_weight_ppm,omitempty"`
+	WorkerPerformanceWeightPpm uint32 `protobuf:"varint,14,opt,name=worker_performance_weight_ppm,json=workerPerformanceWeightPpm,proto3" json:"worker_performance_weight_ppm,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *CandidatePoolSnapshotViewV1) Reset() {
@@ -1526,6 +1549,20 @@ func (x *CandidatePoolSnapshotViewV1) GetPrunedHeight() uint64 {
 	return 0
 }
 
+func (x *CandidatePoolSnapshotViewV1) GetWorkerStakeWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerStakeWeightPpm
+	}
+	return 0
+}
+
+func (x *CandidatePoolSnapshotViewV1) GetWorkerPerformanceWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerPerformanceWeightPpm
+	}
+	return 0
+}
+
 // CandidatePoolMemberViewV1 is the Query-only verifiable join of one member row
 // and its immutable binding. The snapshot scope comes from the request.
 // CandidatePoolMemberViewV1 defines the CandidatePoolMemberViewV1 wire type.
@@ -1622,7 +1659,7 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x1aOperatorCandidateSlotState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
-	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\"\x95\x05\n" +
+	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\"\x8f\x06\n" +
 	"\x1aCandidatePoolSnapshotState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12\x1f\n" +
@@ -1641,7 +1678,9 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x10effective_height\x18\r \x01(\x04R\x0feffectiveHeight\x12%\n" +
 	"\x0eexpires_height\x18\x0e \x01(\x04R\rexpiresHeight\x12$\n" +
 	"\x0etask_ref_count\x18\x0f \x01(\rR\ftaskRefCount\x12#\n" +
-	"\rpruned_height\x18\x10 \x01(\x04R\fprunedHeight\"\x97\x01\n" +
+	"\rpruned_height\x18\x10 \x01(\x04R\fprunedHeight\x125\n" +
+	"\x17worker_stake_weight_ppm\x18\x11 \x01(\rR\x14workerStakeWeightPpm\x12A\n" +
+	"\x1dworker_performance_weight_ppm\x18\x12 \x01(\rR\x1aworkerPerformanceWeightPpm\"\x97\x01\n" +
 	"\x1fCandidatePoolActiveSegmentState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12#\n" +
 	"\rsegment_index\x18\x02 \x01(\rR\fsegmentIndex\x12\x16\n" +
@@ -1681,7 +1720,7 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\vsnapshot_id\x18\x02 \x01(\fR\n" +
 	"snapshotId\x12'\n" +
 	"\x0facquired_height\x18\x03 \x01(\x04R\x0eacquiredHeight\x12:\n" +
-	"\x06status\x18\x04 \x01(\x0e2\".hub.v1.CandidatePoolTaskRefStatusR\x06status\"\x9f\x04\n" +
+	"\x06status\x18\x04 \x01(\x0e2\".hub.v1.CandidatePoolTaskRefStatusR\x06status\"\x99\x05\n" +
 	"\x1bCandidatePoolSnapshotViewV1\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x1f\n" +
 	"\vsnapshot_id\x18\x02 \x01(\fR\n" +
@@ -1696,7 +1735,9 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x10effective_height\x18\n" +
 	" \x01(\x04R\x0feffectiveHeight\x12%\n" +
 	"\x0eexpires_height\x18\v \x01(\x04R\rexpiresHeight\x12(\n" +
-	"\rpruned_height\x18\f \x01(\x04H\x01R\fprunedHeight\x88\x01\x01B\x13\n" +
+	"\rpruned_height\x18\f \x01(\x04H\x01R\fprunedHeight\x88\x01\x01\x125\n" +
+	"\x17worker_stake_weight_ppm\x18\r \x01(\rR\x14workerStakeWeightPpm\x12A\n" +
+	"\x1dworker_performance_weight_ppm\x18\x0e \x01(\rR\x1aworkerPerformanceWeightPpmB\x13\n" +
 	"\x11_published_heightB\x10\n" +
 	"\x0e_pruned_height\"\xb3\x01\n" +
 	"\x19CandidatePoolMemberViewV1\x12%\n" +

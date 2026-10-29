@@ -142,12 +142,7 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 	if err != nil {
 		return Origin{}, fmt.Errorf("%w: encode %s: %v", errUplinkRefused, c.name, err)
 	}
-	var digest [32]byte
-	if c.name == verifierHandraiseMessage {
-		err = dispatch.ValidateMessage(c.name, raw)
-	} else {
-		digest, err = dispatch.SigningDigest(c.name, raw)
-	}
+	digest, err := dispatch.SigningDigest(c.name, raw)
 	if err != nil {
 		return Origin{}, fmt.Errorf("%w: %s: %v", errUplinkRefused, c.name, err)
 	}
@@ -161,11 +156,6 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 	if c.nonce != key.AuthorizationNonce {
 		return Origin{}, fmt.Errorf("%w: %s service_authorization_nonce %d is not the current %d",
 			errUplinkRefused, c.name, c.nonce, key.AuthorizationNonce)
-	}
-	if c.name == verifierHandraiseMessage {
-		// The wire dispatch package registers no signing projection for VerifierHandraiseV1, so its
-		// signature is left to the chain, which checks it when the handraise is proposed.
-		return Origin{Operator: operator, Raw: raw}, nil
 	}
 	if err := dispatch.VerifyDigestSignature(key.PubKey, digest[:], c.signature); err != nil {
 		return Origin{}, fmt.Errorf("%w: %s service_signature: %v", errUplinkRefused, c.name, err)

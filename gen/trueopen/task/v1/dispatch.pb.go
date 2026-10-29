@@ -210,6 +210,9 @@ const (
 	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE AdmitRejectReasonV1 = 3
 	// INVALID_HANDRAISE is the invalid handraise value.
 	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE AdmitRejectReasonV1 = 4
+	// The Cortex has a pending service-key replacement and cannot take new duty.
+	// Publish an admitted=false leaf; do not silently omit its standing handraise.
+	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING AdmitRejectReasonV1 = 5
 )
 
 // Enum value maps for AdmitRejectReasonV1.
@@ -220,13 +223,15 @@ var (
 		2: "ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD",
 		3: "ADMIT_REJECT_REASON_V1_REJECT_RATE",
 		4: "ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE",
+		5: "ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING",
 	}
 	AdmitRejectReasonV1_value = map[string]int32{
-		"ADMIT_REJECT_REASON_V1_UNSPECIFIED":        0,
-		"ADMIT_REJECT_REASON_V1_NONE":               1,
-		"ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD": 2,
-		"ADMIT_REJECT_REASON_V1_REJECT_RATE":        3,
-		"ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE":  4,
+		"ADMIT_REJECT_REASON_V1_UNSPECIFIED":                  0,
+		"ADMIT_REJECT_REASON_V1_NONE":                         1,
+		"ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD":           2,
+		"ADMIT_REJECT_REASON_V1_REJECT_RATE":                  3,
+		"ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE":            4,
+		"ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING": 5,
 	}
 )
 
@@ -1284,12 +1289,17 @@ func (x *DispatchRosterNonInclusionProofV1) GetSuccessor() *DispatchRosterMember
 
 // DispatchVrfInputV1 defines the canonical DispatchVrfInputV1 fields.
 type DispatchVrfInputV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChainId       string                 `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	EpochSeed     []byte                 `protobuf:"bytes,3,opt,name=epoch_seed,json=epochSeed,proto3" json:"epoch_seed,omitempty"`
-	SessionId     []byte                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence uint64                 `protobuf:"varint,5,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	ChainId string                 `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	// E = earliest_submit_height / epoch_length_blocks, without a genesis offset.
+	Epoch uint64 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	// Raw R_h of the committed, verified beacon at E * epoch_length_blocks.
+	// Missing, unverified or placeholder beacons have no usable seed. Epoch zero
+	// has no height-zero beacon, so dispatch starts after epoch one's first beacon
+	// commits. Never substitute zero, a genesis hash or a different block's R_h.
+	EpochSeed     []byte `protobuf:"bytes,3,opt,name=epoch_seed,json=epochSeed,proto3" json:"epoch_seed,omitempty"`
+	SessionId     []byte `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence uint64 `protobuf:"varint,5,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2526,13 +2536,14 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"%DISPATCH_REJECT_REASON_V1_NO_CAPACITY\x10\x01\x121\n" +
 	"-DISPATCH_REJECT_REASON_V1_PROFILE_UNAVAILABLE\x10\x02\x12%\n" +
 	"!DISPATCH_REJECT_REASON_V1_EXPIRED\x10\x03\x12,\n" +
-	"(DISPATCH_REJECT_REASON_V1_INVALID_TICKET\x10\x04*\xe3\x01\n" +
+	"(DISPATCH_REJECT_REASON_V1_INVALID_TICKET\x10\x04*\x9c\x02\n" +
 	"\x13AdmitRejectReasonV1\x12&\n" +
 	"\"ADMIT_REJECT_REASON_V1_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bADMIT_REJECT_REASON_V1_NONE\x10\x01\x12-\n" +
 	")ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD\x10\x02\x12&\n" +
 	"\"ADMIT_REJECT_REASON_V1_REJECT_RATE\x10\x03\x12,\n" +
-	"(ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE\x10\x04*\xba\x01\n" +
+	"(ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE\x10\x04\x127\n" +
+	"3ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING\x10\x05*\xba\x01\n" +
 	"\x16DispatchRecordStatusV1\x12)\n" +
 	"%DISPATCH_RECORD_STATUS_V1_UNSPECIFIED\x10\x00\x12%\n" +
 	"!DISPATCH_RECORD_STATUS_V1_PENDING\x10\x01\x12&\n" +

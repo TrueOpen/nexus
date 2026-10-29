@@ -177,13 +177,15 @@ func (k *testKeys) verifyNotice(t *testing.T, operator, label string) *nexusv1.V
 	return m
 }
 
-func verifierHandraise(operator string) *taskv1.VerifierHandraiseV1 {
-	return &taskv1.VerifierHandraiseV1{
+func (k *testKeys) verifierHandraise(t *testing.T, operator string) *taskv1.VerifierHandraiseV1 {
+	t.Helper()
+	m := &taskv1.VerifierHandraiseV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: hash32("task|vh"), VerifyRound: 1,
 		InferReceiptHash: hash32("receipt"), OutputHash: hash32("output"), ModelId: hash32("model"), ProfileVersion: 1,
 		Member: member(operator), Duty: 2, ServiceAuthorizationNonce: testNonce, ExpiryHeight: 500,
-		ServiceSignature: make([]byte, 64),
 	}
+	sign(t, k.signer(operator), verifierHandraiseMessage, m, func(s []byte) { m.ServiceSignature = s })
+	return m
 }
 
 // memStream is an in-memory FrameStream: the test plays the Cortex.

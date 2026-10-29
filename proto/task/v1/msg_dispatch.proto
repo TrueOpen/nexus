@@ -16,7 +16,10 @@ message MsgRecordDispatch {
   repeated DispatchRecordEntryV1 entries = 1;
   string submitter_address = 2;
 }
-// MsgRecordDispatchResponse defines the canonical MsgRecordDispatchResponse fields.
+// MsgRecordDispatchResponse returns one result in input order. object_id is
+// dispatch_record_entry_digest for dispatch, takeover_entry_digest for takeover;
+// it is never dispatch_record_hash or dispatch_ticket_hash. Exact replay echoes
+// the same entry identity with NOOP. item_index always identifies input position.
 message MsgRecordDispatchResponse {
   repeated BatchItemResultV1 results = 1;
   bytes batch_digest = 2;

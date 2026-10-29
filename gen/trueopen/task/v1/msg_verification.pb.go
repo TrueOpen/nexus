@@ -91,7 +91,8 @@ func (DataUnavailableReasonV1) EnumDescriptor() ([]byte, []int) {
 // BatchItemResultV1 is the per-item result of a batch submission.
 // object_id only echoes the item's existing
 // authoritative business primary key, which is commit_key for both the commit and
-// the result batch; it introduces no new ID or hash semantics. Batches are
+// the result batch. MsgRecordDispatch uses its dispatch/takeover entry digest,
+// as defined on MsgRecordDispatchResponse. Verification batches are
 // all-or-nothing: structural and business failures reject the whole batch, so
 // Verification batches never return REJECTED. Dispatch batches admit items
 // independently and return REJECTED with reject_code. Exact replay returns NOOP.

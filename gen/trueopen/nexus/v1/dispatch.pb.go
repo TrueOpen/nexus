@@ -138,16 +138,19 @@ func (DispatchRevokeReasonV1) EnumDescriptor() ([]byte, []int) {
 
 // DispatchStreamBindingV1 defines the canonical DispatchStreamBindingV1 fields.
 type DispatchStreamBindingV1 struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion             uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId                   string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	BuilderOperator           string                 `protobuf:"bytes,3,opt,name=builder_operator,json=builderOperator,proto3" json:"builder_operator,omitempty"`
-	CortexOperator            string                 `protobuf:"bytes,4,opt,name=cortex_operator,json=cortexOperator,proto3" json:"cortex_operator,omitempty"`
-	ServiceAuthorizationNonce uint64                 `protobuf:"varint,5,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	StreamNonce               []byte                 `protobuf:"bytes,6,opt,name=stream_nonce,json=streamNonce,proto3" json:"stream_nonce,omitempty"`
-	ServiceSignature          []byte                 `protobuf:"bytes,7,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Must be 1. Authentication must complete before any business frame is used.
+	SchemaVersion             uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId                   string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	BuilderOperator           string `protobuf:"bytes,3,opt,name=builder_operator,json=builderOperator,proto3" json:"builder_operator,omitempty"`
+	CortexOperator            string `protobuf:"bytes,4,opt,name=cortex_operator,json=cortexOperator,proto3" json:"cortex_operator,omitempty"`
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,5,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	// Exactly 32 fresh cryptographically random bytes, selected by Cortex for
+	// each connection; both directions echo this nonce on every frame.
+	StreamNonce      []byte `protobuf:"bytes,6,opt,name=stream_nonce,json=streamNonce,proto3" json:"stream_nonce,omitempty"`
+	ServiceSignature []byte `protobuf:"bytes,7,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DispatchStreamBindingV1) Reset() {
@@ -231,8 +234,10 @@ func (x *DispatchStreamBindingV1) GetServiceSignature() []byte {
 
 // StreamAckV1 defines the canonical StreamAckV1 fields.
 type StreamAckV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AckedCursor   uint64                 `protobuf:"varint,1,opt,name=acked_cursor,json=ackedCursor,proto3" json:"acked_cursor,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Cumulative durable receipt in the peer's sending direction. Zero means no
+	// business frame acknowledged. Never acknowledge beyond a gap or sent cursor.
+	AckedCursor   uint64 `protobuf:"varint,1,opt,name=acked_cursor,json=ackedCursor,proto3" json:"acked_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -276,8 +281,12 @@ func (x *StreamAckV1) GetAckedCursor() uint64 {
 
 // StreamKeepaliveV1 defines the canonical StreamKeepaliveV1 fields.
 type StreamKeepaliveV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SentAtMs      uint64                 `protobuf:"varint,1,opt,name=sent_at_ms,json=sentAtMs,proto3" json:"sent_at_ms,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Echo a peer probe once with the same value. A value matching one's own
+	// outstanding probe is its echo: consume it and do not echo again. Keep one
+	// local probe outstanding; probe values increase per direction. Duplicate
+	// peer probes are not echoed again. No ack/keepalive consumes a cursor.
+	SentAtMs      uint64 `protobuf:"varint,1,opt,name=sent_at_ms,json=sentAtMs,proto3" json:"sent_at_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1257,6 +1266,10 @@ func (x *ResumeOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 
 // DispatchStreamFrameV1 carries typed messages on one authenticated stream.
 // Cursor is scoped to stream_nonce; reconnect never changes signed business bytes.
+// Each direction starts business cursors at 1 and increments without gaps.
+// Binding/ack/keepalive use cursor 0; all other variants require cursor > 0.
+// A reconnect uses a fresh binding/nonce and restarts business cursors at 1;
+// retained unexpired business messages keep their original signed bytes.
 type DispatchStreamFrameV1 struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	StreamNonce []byte                 `protobuf:"bytes,1,opt,name=stream_nonce,json=streamNonce,proto3" json:"stream_nonce,omitempty"`

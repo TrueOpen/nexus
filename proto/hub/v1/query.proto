@@ -15,7 +15,10 @@ service Query {
   rpc Params(QueryHubParamsRequest) returns (QueryHubParamsResponse);
   // Beacon returns one verified beacon by height.
   rpc Beacon(QueryBeaconRequest) returns (QueryBeaconResponse);
-  // VrfKey returns one validator operator's active and pending VRF key.
+  // VrfKey returns current active/pending keys for the selected participant role.
+  // This RPC has no by-epoch/history lookup. Audit consumers retain registration
+  // and cutover history or use archival state at the relevant height; an old
+  // ticket must never be verified by substituting the latest active key.
   rpc VrfKey(QueryVrfKeyRequest) returns (QueryVrfKeyResponse);
   // BuilderSet returns one builder set selected by exactly one stable selector.
   rpc BuilderSet(QueryBuilderSetRequest) returns (QueryBuilderSetResponse);
