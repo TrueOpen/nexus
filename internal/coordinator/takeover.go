@@ -70,14 +70,15 @@ func (c *Coordinator) takeoverEvent(sessionID, taskID, code string, height uint6
 }
 
 // TakeoverEnded drops the task of a held order whose takeover will not dispatch it, with code
-// (TAKEOVER_VOIDED, ORDER_EXPIRED, or the refusal); its journal stays. dropInput removes the
-// order's input as well: a voided takeover leaves nothing for a resend here.
-func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool) {
+// (TAKEOVER_VOIDED, ORDER_EXPIRED, or the refusal) and where, when known, where the session went;
+// its journal stays. dropInput removes the order's input as well: a voided takeover leaves
+// nothing for a resend here.
+func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, where *types.SessionElsewhere) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
 	}
-	if !fsm.failPending(code, types.VerdictUnspecified, height) {
+	if !fsm.failPendingElsewhere(code, types.VerdictUnspecified, height, where) {
 		return
 	}
 	c.abandonTask(taskKey(sessionID, taskID), fsm)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // An order held for a takeover has a task and a journal from intake on, but goes to the dispatcher
@@ -58,8 +59,9 @@ func TestTakeoverJournal(t *testing.T) {
 	}
 }
 
-// A takeover that ends without taking effect drops the task with its code; the journal stays. A
-// voided takeover also drops the input, an expired order keeps it for the resend.
+// A takeover that ends without taking effect drops the task with its code, and where the session
+// went when known; the journal stays. A voided takeover also drops the input, an expired order
+// keeps it for the resend.
 func TestTakeoverEnded(t *testing.T) {
 	backend := kv.NewMemStore()
 	taskStore, payloads := newCoordinatorTaskData(t, backend)
@@ -76,8 +78,9 @@ func TestTakeoverEnded(t *testing.T) {
 	if err := c.OnTakeover(ctx, expired); err != nil {
 		t.Fatal(err)
 	}
-	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 120, true)
-	c.TakeoverEnded(expired.SessionID, expired.TaskID, EvOrderExpired, 131, false)
+	where := &types.SessionElsewhere{Builder: "trueopen1bound", TaskID: "task-at-p"}
+	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 120, true, where)
+	c.TakeoverEnded(expired.SessionID, expired.TaskID, EvOrderExpired, 131, false, nil)
 	for _, o := range []string{voided.TaskID, expired.TaskID} {
 		if _, ok := c.getFSM(testPayloadSession, o); ok {
 			t.Fatalf("%s kept its task", o)
@@ -85,6 +88,10 @@ func TestTakeoverEnded(t *testing.T) {
 	}
 	if got := strings.Join(eventCodes(c, voided.SessionID, voided.TaskID), ","); got != "ORDER_RECEIVED,TAKEOVER_VOIDED" {
 		t.Fatalf("voided events = %s", got)
+	}
+	events := c.journalFor(taskKey(voided.SessionID, voided.TaskID)).snapshot()
+	if last := events[len(events)-1]; last.Elsewhere == nil || *last.Elsewhere != *where || last.ChainHeight != 120 {
+		t.Fatalf("voided event = %+v", last)
 	}
 	if got := strings.Join(eventCodes(c, expired.SessionID, expired.TaskID), ","); got != "ORDER_RECEIVED,ORDER_EXPIRED" {
 		t.Fatalf("expired events = %s", got)
@@ -96,5 +103,5 @@ func TestTakeoverEnded(t *testing.T) {
 		t.Fatal("the input of an expired order was dropped")
 	}
 	// Ending an unknown or already ended takeover does nothing.
-	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 121, true)
+	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 121, true, nil)
 }

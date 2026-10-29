@@ -131,7 +131,7 @@ func (f *fakeTasks) TakeoverRegistered(_, taskID string, activation uint64) {
 func (f *fakeTasks) TakeoverActivated(_, taskID string, height uint64) {
 	f.add("activated %s %d", taskID, height)
 }
-func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool) {
+func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool, _ *types.SessionElsewhere) {
 	f.add("ended %s %s drop=%t", taskID, code, dropInput)
 }
 func (f *fakeTasks) OnOrder(_ context.Context, o types.Order) error {

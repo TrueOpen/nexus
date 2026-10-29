@@ -342,6 +342,18 @@ type TaskEvent struct {
 	TaskPhase   string // fine-grained TaskPhase after the event
 	ChainHeight int64  // set when the event comes from chain, otherwise 0
 	TS          int64  // record time (Unix milliseconds)
+	// Elsewhere says where the session went when a takeover of it ended without taking effect;
+	// nil otherwise. GetTaskEventsResponse has no field for it yet.
+	Elsewhere *SessionElsewhere `json:",omitempty"`
+}
+
+// SessionElsewhere is where a session went when this Builder's takeover of it ended: the Builder
+// that recorded the order with its task (TaskID, lowercase hex), or the candidate of another
+// registered takeover with its activation height.
+type SessionElsewhere struct {
+	Builder          string
+	TaskID           string `json:",omitempty"`
+	ActivationHeight uint64 `json:",omitempty"`
 }
 
 // ChallengePlan is returned by PrepareChallenge: it only helps the SDK organize its challenge inputs and submits no verdict.

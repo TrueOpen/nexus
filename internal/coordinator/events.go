@@ -100,7 +100,7 @@ const (
 	EvTakeoverPending     = "TAKEOVER_PENDING"     // the chain registered this Builder's takeover of the session; chain_height is the activation height
 	EvTakeoverRecorded    = "TAKEOVER_RECORDED"    // the takeover took effect: the session is bound here and the order is dispatched from scratch
 	EvTakeoverVoided      = "TAKEOVER_VOIDED"      // the takeover will not take effect (the order was recorded or cancelled, the session closed or went to another Builder)
-	EvOrderExpired        = "ORDER_EXPIRED"        // once the takeover took effect the order could no longer be recorded before it expires; resend it re-signed
+	EvOrderExpired        = "ORDER_EXPIRED"        // the held order expired: before its takeover registered (the session stays with its Builder; a re-signed resend registers again) or before it could be recorded once the takeover took effect (resend it re-signed here)
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
 	// SDK's frozen event_code set, while the word OutputRef is
 	// otherwise retired from code -- the two conflict; the rename awaits a member/SDK-side decision (see

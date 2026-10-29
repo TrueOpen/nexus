@@ -241,7 +241,7 @@ func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 // end drops r, telling its task code.
 func (m *Manager) end(r *record, code string, dropInput bool) {
 	m.forget(r)
-	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput)
+	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput, nil)
 }
 
 // current returns the session's stored takeover of seq; nil when there is none past its upload.

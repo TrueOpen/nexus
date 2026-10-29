@@ -63,7 +63,7 @@ type Tasks interface {
 	OnTakeover(ctx context.Context, o types.Order) error
 	TakeoverRegistered(sessionID, taskID string, activation uint64)
 	TakeoverActivated(sessionID, taskID string, height uint64)
-	TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool)
+	TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, where *types.SessionElsewhere)
 	OnOrder(ctx context.Context, o types.Order) error
 }
 
@@ -289,7 +289,7 @@ func (m *Manager) Submit(ctx context.Context, o types.Order) error {
 	}
 	if err := m.submitEntry(ctx, r); err != nil {
 		m.forget(r)
-		m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, codeTaskFailed, m.head.Load(), false)
+		m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, codeTaskFailed, m.head.Load(), false, nil)
 		return err
 	}
 	m.log.Info("takeover entry submitted", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_change_height", r.BoundChangeHeight)
