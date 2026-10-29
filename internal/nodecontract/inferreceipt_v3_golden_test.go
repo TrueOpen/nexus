@@ -61,6 +61,7 @@ func wireInferReceipt(t *testing.T) (*taskv1.InferReceiptV3, wirefixture.Vector)
 		WorkerTokenKeyCommitment:    f("worker_token_key_commitment").Bytes(t),
 		WorkerValueKeyCommitment:    f("worker_value_key_commitment").Bytes(t),
 		CiphertextOutputRoot:        f("ciphertext_output_root").Bytes(t),
+		DispatchTicketHash:          f("dispatch_ticket_hash").Bytes(t),
 		ServiceSignature:            make([]byte, 64),
 	}, v
 }

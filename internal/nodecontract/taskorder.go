@@ -7,7 +7,7 @@
 // multiple quote versions of the same (session_id, order_sequence) share one task_id and each has its own
 // task_hash.
 //
-// The 28 fields are encoded in ascending TaskOrderV3 field number, with the encoding rules of hfields.go.
+// The 27 fields are encoded in ascending TaskOrderV3 field number, with the encoding rules of hfields.go.
 // V3 is the only order schema of the fresh genesis: no older schema, no field aliases, no compatibility
 // decoder. If either side changes the framing, the same TaskOrder yields different task_hash values and the
 // Keeper rejects Nexus's submission, so field order or encoding here must NOT be "optimized". The regression
@@ -61,7 +61,7 @@ func TaskOrderHashHexV3(order *taskv1.TaskOrderV3) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// canonicalTaskOrderFieldsV3 flattens TaskOrderV3 in ascending proto field number 1..28.
+// canonicalTaskOrderFieldsV3 flattens TaskOrderV3 in ascending proto field number order (27 fields).
 func canonicalTaskOrderFieldsV3(order *taskv1.TaskOrderV3) ([][]byte, error) {
 	if err := validateTaskOrderScalarScopeV3(order); err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func canonicalTaskOrderFieldsV3(order *taskv1.TaskOrderV3) ([][]byte, error) {
 	fields = append(fields,
 		Uint64BE(order.GetEarliestSubmitHeight()), Uint64BE(order.GetOrderExpireHeight()), deadline,
 		Uint64BE(order.GetTimeoutBucketVersion()),
-		Uint64BE(order.GetSessionAnchorHeight()), order.GetSessionAnchorBlockHash(),
+		Uint64BE(order.GetSessionAnchorHeight()),
 		[]byte(order.GetBuilderSetId()), order.GetBuilderSetHash(),
 		EnumBE(uint32(order.GetPayloadMode())), order.GetInputKeyCommitment(), order.GetUserRecipientPubkey(),
 	)
@@ -191,7 +191,7 @@ func validateTaskOrderScalarScopeV3(order *taskv1.TaskOrderV3) error {
 		order.GetEarliestSubmitHeight() >= order.GetOrderExpireHeight() ||
 		order.GetDeadlinePolicy().GetLatencyClass() == taskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_UNSPECIFIED ||
 		order.GetTimeoutBucketVersion() == 0 ||
-		order.GetSessionAnchorHeight() == 0 || len(order.GetSessionAnchorBlockHash()) != sha256.Size ||
+		order.GetSessionAnchorHeight() == 0 ||
 		order.GetBuilderSetId() == "" || !utf8.ValidString(order.GetBuilderSetId()) ||
 		len(order.GetBuilderSetHash()) != sha256.Size ||
 		order.GetPayloadMode() == taskv1.PayloadModeV1_PAYLOAD_MODE_V1_UNSPECIFIED ||

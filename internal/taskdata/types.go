@@ -155,6 +155,8 @@ type SignedInferReceipt struct {
 	WorkerTokenKeyCommitment string
 	WorkerValueKeyCommitment string
 	CiphertextOutputRoot     string
+	// DispatchTicketHash is the receipt's dispatch attempt, lowercase hex.
+	DispatchTicketHash string
 }
 
 // EvidenceCommitment is one entry of required_evidence_commitments[].

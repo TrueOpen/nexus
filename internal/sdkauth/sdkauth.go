@@ -561,9 +561,10 @@ func sessionTask(sessionID, taskID string) ([32]byte, [32]byte, error) {
 	return session, task, nil
 }
 
-// SubscribeOutputBody is TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1; resumeAfterSeq follows transport
-// presence (unset is absent, a set 0 is present 0).
-func SubscribeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64) ([32]byte, error) {
+// SubscribeOutputBody is TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1; resumeAfterSeq and
+// dispatchTicketHash follow transport presence (unset is absent, a set 0 is present 0). A present
+// dispatch_ticket_hash must be raw32.
+func SubscribeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64, dispatchTicketHash []byte) ([32]byte, error) {
 	session, task, err := sessionTask(sessionID, taskID)
 	if err != nil {
 		return [32]byte{}, err
@@ -572,8 +573,12 @@ func SubscribeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64) ([32]
 	if resumeAfterSeq != nil {
 		resume = u64(*resumeAfterSeq)
 	}
+	if dispatchTicketHash != nil && len(dispatchTicketHash) != 32 {
+		return [32]byte{}, fmt.Errorf("dispatch_ticket_hash must be 32 bytes, got %d", len(dispatchTicketHash))
+	}
 	return nodecontract.CanonicalHashBytes(BodySubscribeOutputDomain,
-		session[:], task[:], optional(resume, resumeAfterSeq != nil)), nil
+		session[:], task[:], optional(resume, resumeAfterSeq != nil),
+		optional(dispatchTicketHash, dispatchTicketHash != nil)), nil
 }
 
 // AckOutputBody is TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1 (the deprecated output_id does not enter it).

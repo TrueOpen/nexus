@@ -132,9 +132,9 @@ func EvidenceCommitmentsHash(items []*taskv1.EvidenceCommitmentV1) ([32]byte, er
 //	    generation_params_digest, output_hash, output_size_bytes,
 //	    evidence_commitments_hash, expiry_height, generated_token_count,
 //	    output_leaf_count, output_key_commitment, worker_token_key_commitment,
-//	    worker_value_key_commitment, ciphertext_output_root)
+//	    worker_value_key_commitment, ciphertext_output_root, dispatch_ticket_hash)
 //
-// 17 fields; service_signature (wire field 12) is not among them. The four key-commitment fields are
+// 18 fields; service_signature (wire field 12) is not among them. The four key-commitment fields are
 // hashed as sent; ValidatePlaintextInferReceiptV3 is what requires them to be 32 zero bytes. The 10th field is not a wire field:
 // required_evidence_commitments (wire field 10) enters the preimage only through EvidenceCommitmentsHash,
 // so the signature still covers the whole typed list. worker_operator_address is framed as address codec
@@ -175,6 +175,10 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV3) ([32]byte, error)
 	if err != nil {
 		return [32]byte{}, err
 	}
+	ticketHash, err := CanonicalHash32Field("dispatch_ticket_hash", receipt.GetDispatchTicketHash())
+	if err != nil {
+		return [32]byte{}, err
+	}
 	return CanonicalHashBytes(
 		DomainInferReceiptV3,
 		Uint32BE(receipt.GetSchemaVersion()),
@@ -194,6 +198,7 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV3) ([32]byte, error)
 		receipt.GetWorkerTokenKeyCommitment(),
 		receipt.GetWorkerValueKeyCommitment(),
 		receipt.GetCiphertextOutputRoot(),
+		ticketHash,
 	), nil
 }
 
@@ -260,6 +265,7 @@ func InferReceiptV3FromSubmission(receipt types.InferReceiptSubmission) (*taskv1
 		WorkerTokenKeyCommitment:    receipt.WorkerTokenKeyCommitment,
 		WorkerValueKeyCommitment:    receipt.WorkerValueKeyCommitment,
 		CiphertextOutputRoot:        receipt.CiphertextOutputRoot,
+		DispatchTicketHash:          receipt.DispatchTicketHash,
 	}, nil
 }
 

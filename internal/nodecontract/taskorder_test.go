@@ -48,8 +48,8 @@ func mustTaskOrderFields(t *testing.T, order *taskv1.TaskOrderV3) [][]byte {
 	if err != nil {
 		t.Fatalf("canonical fields: %v", err)
 	}
-	if len(fields) != 28 {
-		t.Fatalf("TaskOrderV3 must flatten to exactly 28 top-level fields, got %d", len(fields))
+	if len(fields) != 27 {
+		t.Fatalf("TaskOrderV3 must flatten to exactly 27 top-level fields, got %d", len(fields))
 	}
 	return fields
 }
@@ -200,9 +200,6 @@ func TestTaskOrderHashChangesOnEveryField(t *testing.T) {
 		}},
 		{name: "timeout_bucket_version", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) { v.TimeoutBucketVersion++ }},
 		{name: "session_anchor_height", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) { v.SessionAnchorHeight++ }},
-		{name: "session_anchor_block_hash", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) {
-			v.SessionAnchorBlockHash = repeatByte(0x25, 32)
-		}},
 		{name: "builder_set_id", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) { v.BuilderSetId = "13" }},
 		{name: "builder_set_hash", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) { v.BuilderSetHash = repeatByte(0x26, 32) }},
 		{name: "payload_mode", edit: func(_ *testing.T, v *taskv1.TaskOrderV3) {

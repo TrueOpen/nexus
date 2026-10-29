@@ -217,6 +217,7 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 		WorkerTokenKeyCommitment:  append([]byte(nil), receiptPB.GetWorkerTokenKeyCommitment()...),
 		WorkerValueKeyCommitment:  append([]byte(nil), receiptPB.GetWorkerValueKeyCommitment()...),
 		CiphertextOutputRoot:      append([]byte(nil), receiptPB.GetCiphertextOutputRoot()...),
+		DispatchTicketHash:        append([]byte(nil), receiptPB.GetDispatchTicketHash()...),
 	}
 	// Encryption is not active: the receipt carries exactly the two Worker commitments and every
 	// encryption field is 32 zero bytes.

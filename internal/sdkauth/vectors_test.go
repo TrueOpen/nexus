@@ -182,7 +182,7 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	sub := file.Vector(t, "sdk_body_subscribe_output_v1", 0)
 	session := hash32text.Encode(sub.Field(t, "session_id").Bytes(t))
 	task := hash32text.Encode(sub.Field(t, "task_id").Bytes(t))
-	got, err = SubscribeOutputBody(session, task, nil)
+	got, err = SubscribeOutputBody(session, task, nil, nil)
 	check("sdk_body_subscribe_output_v1", got, err)
 
 	ack := file.Vector(t, "sdk_body_ack_output_v1", 0)

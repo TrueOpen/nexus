@@ -1043,7 +1043,8 @@ func sameReceipt(left, right *SignedInferReceipt) bool {
 		left.OutputKeyCommitment == right.OutputKeyCommitment &&
 		left.WorkerTokenKeyCommitment == right.WorkerTokenKeyCommitment &&
 		left.WorkerValueKeyCommitment == right.WorkerValueKeyCommitment &&
-		left.CiphertextOutputRoot == right.CiphertextOutputRoot
+		left.CiphertextOutputRoot == right.CiphertextOutputRoot &&
+		left.DispatchTicketHash == right.DispatchTicketHash
 }
 
 func cloneMetadata(metadata Metadata) Metadata {

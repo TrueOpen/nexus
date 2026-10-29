@@ -71,6 +71,9 @@ type OutputChunk struct {
 	WorkerSignature     []byte
 	Attachment          []byte
 	AttachmentSignature []byte
+	// DispatchTicketHash is the dispatch attempt the Worker signed the frame for; it equals the
+	// stream header's ticket.
+	DispatchTicketHash []byte
 }
 
 // OutputFin is the closing frame of a stream (wire OutputFinV1). FinishReason and WorkerSignature
@@ -81,6 +84,9 @@ type OutputFin struct {
 	OutputMMRRoot   []byte
 	FinishReason    uint32
 	WorkerSignature []byte
+	// DispatchTicketHash is the dispatch attempt the Worker signed the Fin for; it equals the stream
+	// header's ticket.
+	DispatchTicketHash []byte
 }
 
 // OutputFrame is one frame forwarded to subscribers: either a Chunk or a Fin, never both.
@@ -110,6 +116,7 @@ type outputFrameRecord struct {
 	Length              uint32 `json:"length"`
 	Root                string `json:"root"`
 	Signature           []byte `json:"signature"`
+	DispatchTicketHash  []byte `json:"dispatch_ticket_hash,omitempty"`
 	AttachmentOffset    uint64 `json:"attachment_offset,omitempty"`
 	AttachmentLength    uint32 `json:"attachment_length,omitempty"`
 	AttachmentSignature []byte `json:"attachment_signature,omitempty"`
@@ -135,6 +142,7 @@ type outputStreamRecord struct {
 	// The Worker's Fin fields as received, kept for byte-identical replay to subscribers.
 	FinishReason       uint32 `json:"finish_reason,omitempty"`
 	FinWorkerSignature []byte `json:"fin_worker_signature,omitempty"`
+	FinDispatchTicket  []byte `json:"fin_dispatch_ticket_hash,omitempty"`
 	// Header is the Worker-signed stream declaration of the latest verified open. It is kept, not
 	// replayed: subscriptions have no header frame yet.
 	Header *OutputStreamHeaderRecord `json:"header,omitempty"`
@@ -142,7 +150,7 @@ type outputStreamRecord struct {
 
 // OutputStreamHeaderRecord is the signed part of OutputStreamHeaderV2 as received.
 type OutputStreamHeaderRecord struct {
-	Attempt             uint32 `json:"attempt"`
+	DispatchTicketHash  []byte `json:"dispatch_ticket_hash"`
 	StreamInstance      uint32 `json:"stream_instance"`
 	UserRecipientPubkey []byte `json:"user_recipient_pubkey,omitempty"`
 	OutputKeyCommitment []byte `json:"output_key_commitment"`
@@ -245,7 +253,14 @@ func (s *Store) admitStreamLocked(pending uint64) error {
 // stream. If the same Task already has an in-progress stream: the new stream takes over, any later
 // operation on the old one returns ErrConflict, and the chunks it already received are not
 // rewritten.
-func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig) (*OutputStream, OutputStreamProgress, error) {
+func (s *Store) OpenOutputStream(ctx context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig) (*OutputStream, OutputStreamProgress, error) {
+	return s.openOutputStream(ctx, key, uploader, cfg, nil)
+}
+
+// openOutputStream opens the stream for a verified header. A stream that already holds frames of
+// another dispatch attempt (a different header ticket) is refused: the frames of two attempts are
+// signed for different tickets and must never share one MMR.
+func (s *Store) openOutputStream(_ context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig, header *OutputStreamHeaderRecord) (*OutputStream, OutputStreamProgress, error) {
 	// A stream in transfer is located by (task_hash, session_id, task_id): content_hash can only be
 	// computed at Fin, so a full object ref cannot be required here.
 	if err := validateStreamKey(key); err != nil {
@@ -288,6 +303,10 @@ func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader stri
 	}
 	if found && record.Uploader != uploader {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream uploader", ErrUnauthorized)
+	}
+	if found && header != nil && record.Received && record.Header != nil &&
+		!bytes.Equal(record.Header.DispatchTicketHash, header.DispatchTicketHash) {
+		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream belongs to another dispatch attempt", ErrConflict)
 	}
 	// Release the old stream's reservation before taking over, otherwise the same stream would be
 	// counted twice.
@@ -347,6 +366,10 @@ func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader stri
 			_ = os.Remove(s.streamAttachPath(id))
 			return nil, OutputStreamProgress{}, err
 		}
+	}
+	if header != nil {
+		recorded := *header
+		stream.record.Header = &recorded
 	}
 	s.outputStreams[encoded] = stream
 	return stream, stream.record.progress(stream.acc.Root()), nil
@@ -423,13 +446,6 @@ func (st *OutputStream) Progress() OutputStreamProgress { return st.record.progr
 // Key returns the object key of this stream.
 func (st *OutputStream) Key() ObjectKey { return st.key }
 
-// recordHeader keeps the verified stream declaration; it is persisted with the next frame.
-func (st *OutputStream) recordHeader(header OutputStreamHeaderRecord) {
-	st.store.mu.Lock()
-	defer st.store.mu.Unlock()
-	st.record.Header = &header
-}
-
 func (st *OutputStream) usable() error {
 	if st.superseded {
 		return fmt.Errorf("%w: output stream superseded by a newer connection", ErrConflict)
@@ -485,7 +501,8 @@ func (st *OutputStream) Append(_ context.Context, chunk OutputChunk) (mmr.Hash, 
 	}
 	frame := outputFrameRecord{
 		Seq: chunk.Seq, Offset: st.record.TotalBytes, Length: uint32(len(chunk.Text)), Root: hex.EncodeToString(root[:]),
-		Signature: append([]byte(nil), chunk.WorkerSignature...),
+		Signature:          append([]byte(nil), chunk.WorkerSignature...),
+		DispatchTicketHash: append([]byte(nil), chunk.DispatchTicketHash...),
 	}
 	next := st.record
 	if len(chunk.Attachment) > 0 {
@@ -607,6 +624,7 @@ func (st *OutputStream) Finish(ctx context.Context, fin OutputFin) (Metadata, er
 	sealed.ContentHash = rootHex
 	sealed.FinishReason = fin.FinishReason
 	sealed.FinWorkerSignature = append([]byte(nil), fin.WorkerSignature...)
+	sealed.FinDispatchTicket = append([]byte(nil), fin.DispatchTicketHash...)
 	progress, err := json.Marshal(sealed)
 	if err != nil {
 		return Metadata{}, st.failLocked(fmt.Errorf("%w: encode output stream: %v", ErrStorage, err))
@@ -726,7 +744,8 @@ func (s *Store) SealedOutputFin(_ context.Context, key ObjectKey) (OutputFin, bo
 	}
 	return OutputFin{
 		FinalSeq: record.LeafCount - 1, OutputMMRRoot: root, FinishReason: record.FinishReason,
-		WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+		WorkerSignature:    append([]byte(nil), record.FinWorkerSignature...),
+		DispatchTicketHash: append([]byte(nil), record.FinDispatchTicket...),
 	}, true, nil
 }
 
@@ -805,6 +824,7 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 			Seq: seq, Text: text, MMRRoot: root,
 			WorkerSignature:     append([]byte(nil), frame.Signature...),
 			AttachmentSignature: append([]byte(nil), frame.AttachmentSignature...),
+			DispatchTicketHash:  append([]byte(nil), frame.DispatchTicketHash...),
 		}
 		if frame.AttachmentLength > 0 {
 			chunk.Attachment, err = readSection(attach, frame.AttachmentOffset, uint64(frame.AttachmentLength))
@@ -823,6 +843,7 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		frames = append(frames, OutputFrame{Fin: &OutputFin{
 			FinalSeq: record.LastSeq, OutputMMRRoot: root[:],
 			FinishReason: record.FinishReason, WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+			DispatchTicketHash: append([]byte(nil), record.FinDispatchTicket...),
 		}})
 	}
 	return frames, nil

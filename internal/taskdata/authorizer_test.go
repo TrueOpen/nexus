@@ -137,14 +137,6 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 	other := testSigner(t, 15)
 	workerService := testSigner(t, 16)
 	verifierService := testSigner(t, 17)
-	workerSet, err := nodecontract.CanonicalWorkerHandraiseSet([]nodecontract.WorkerHandraiseV1{{
-		SchemaVersion: nodecontract.WorkerHandraiseSchemaV1, WorkerOperatorAddress: candidate.Address(),
-		TaskID: testTaskID, TaskHash: "task-hash", CandidateSnapshotID: "snapshot",
-		ExpiryHeight: 200, ServiceSignature: "signature",
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	verifierCandidates, err := nodecontract.CanonicalVerifierHandraiseList([]nodecontract.VerifierHandraiseV1{{
 		SchemaVersion: nodecontract.VerifierHandraiseSchemaV1, VerifierOperatorAddress: candidate.Address(),
 		TaskID: testTaskID, InferReceiptHash: strings.Repeat("1", 64), OutputHash: strings.Repeat("2", 64),
@@ -161,7 +153,7 @@ func newAuthorizerFixture(t *testing.T) *authorizerFixture {
 				VerifyRound: 1, Verifiers: []string{verifier.Address()}, CommitDeadlineHeight: 150,
 			}},
 			Assignment: chaincli.TaskAssignmentState{
-				UserAddress: ethAddressOf(t, user), SelectedWorkerOperatorAddress: worker.Address(), WorkerHandraiseSet: workerSet,
+				UserAddress: ethAddressOf(t, user), SelectedWorkerOperatorAddress: worker.Address(),
 				AcceptedTaskHash: testTaskHash,
 			},
 			VerifierAssignment: chaincli.VerifierAssignmentState{VerifierHandraiseList: verifierCandidates},
@@ -880,7 +872,8 @@ func receiptSignedBy(t *testing.T, workerOperator string, service signer.Signer,
 			HashOrRoot:       strings.Repeat("c", 64),
 			EncodedSizeBytes: 4096,
 		}},
-		ExpiryHeight: 1200,
+		ExpiryHeight:       1200,
+		DispatchTicketHash: strings.Repeat("d", 64),
 		// Start with a placeholder signature of a valid shape so that the 64-byte check in
 		// receiptSubmission passes; the digest does not cover service_signature, so replacing it with
 		// the real signature afterwards does not change the digest.

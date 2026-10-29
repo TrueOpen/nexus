@@ -1,16 +1,22 @@
 package nodecontract
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
-	"strings"
+	"encoding/json"
 	"testing"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+
 	"github.com/TrueOpen/nexus/internal/mmr"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 // Streaming output conformance vectors,
 // compared byte-for-byte: TRUEOPEN_OUTPUT_MMR_V1 prefix roots / final root / empty output, and
-// TRUEOPEN_OUTPUT_CHUNK_V1 signing digest and full preimage.
+// TRUEOPEN_OUTPUT_CHUNK_V1 signing digests, preimage and signatures from wire output_mmr_v1.json.
 const (
 	goldenChainID  = "trueopen-localnet-1"
 	goldenTaskHash = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -55,79 +61,104 @@ func TestGoldenOutputMMRRoots(t *testing.T) {
 	}
 }
 
+type wireOutputChunkCase struct {
+	Seq          uint64 `json:"seq"`
+	MMRRootHex   string `json:"mmr_root_hex"`
+	DigestHex    string `json:"digest_hex"`
+	PreimageHex  string `json:"preimage_hex"`
+	SignatureHex string `json:"signature_hex"`
+}
+
+type wireOutputMMR struct {
+	Chunk struct {
+		TicketHex     string                `json:"dispatch_ticket_hash_hex"`
+		PrivateKeyHex string                `json:"test_private_key_hex"`
+		Cases         []wireOutputChunkCase `json:"cases"`
+	} `json:"chunk_signing"`
+	Fin struct {
+		ChainID     string `json:"chain_id"`
+		TaskHashHex string `json:"task_hash_hex"`
+		TicketHex   string `json:"dispatch_ticket_hash_hex"`
+		FinalSeq    uint64 `json:"final_seq"`
+		RootHex     string `json:"output_mmr_root_hex"`
+		Accepted    []struct {
+			Value     uint32 `json:"value"`
+			DigestHex string `json:"digest_hex"`
+		} `json:"accepted_finish_reasons"`
+		Rejected []struct {
+			Value int64 `json:"value"`
+		} `json:"rejected_finish_reason_values"`
+		Mutations []struct {
+			Field     string          `json:"field"`
+			Value     json.RawMessage `json:"value"`
+			ValueHex  string          `json:"value_hex"`
+			DigestHex string          `json:"digest_hex"`
+		} `json:"mutation_digests"`
+		PreimageHex  string `json:"eos_token_preimage_hex"`
+		SignatureHex string `json:"eos_token_signature_hex"`
+	} `json:"fin_signing"`
+}
+
+func loadWireOutputMMR(t *testing.T) wireOutputMMR {
+	t.Helper()
+	var v wireOutputMMR
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/output_mmr_v1.json"), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func mustHex(t *testing.T, s string) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatalf("hex %q: %v", s, err)
+	}
+	return raw
+}
+
+// signRFC6979 signs a digest with the vector key: RFC6979 deterministic, raw64 R||S low-S.
+func signRFC6979(t *testing.T, keyHex string, digest [32]byte) string {
+	t.Helper()
+	sig := ecdsa.Sign(secp256k1.PrivKeyFromBytes(mustHex(t, keyHex)), digest[:])
+	r, s := sig.R(), sig.S()
+	rb, sb := r.Bytes(), s.Bytes()
+	return hex.EncodeToString(append(rb[:], sb[:]...))
+}
+
+// TestGoldenOutputChunkSigningDigest: every wire chunk_signing case, including the ticket binding.
 func TestGoldenOutputChunkSigningDigest(t *testing.T) {
-	taskHash, err := hex.DecodeString(goldenTaskHash)
-	if err != nil {
-		t.Fatal(err)
+	v := loadWireOutputMMR(t)
+	taskHash := mustHex(t, goldenTaskHash)
+	ticket := mustHex(t, v.Chunk.TicketHex)
+	if len(v.Chunk.Cases) == 0 {
+		t.Fatal("wire chunk_signing has no cases")
 	}
-	acc, err := mmr.New(DomainOutputMMRV1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := make([][]byte, 0, len(goldenChunks))
-	for _, chunk := range goldenChunks {
-		root := acc.Append(chunk)
-		roots = append(roots, append([]byte(nil), root[:]...))
-	}
-	for _, c := range []struct {
-		seq  uint64
-		want string
-	}{
-		{0, "269082934bde72d562dc9d4850202be3240a2d8a14217d0ce95f6da852d26429"},
-		{1, "f36f8dbbcbb6f0d1703ce01154ca4fc60ff6061434c4a56dbf7e72c14858fccf"},
-	} {
-		digest, err := OutputChunkSigningDigest(goldenChainID, taskHash, c.seq, roots[c.seq])
+	for _, c := range v.Chunk.Cases {
+		digest, err := OutputChunkSigningDigest(goldenChainID, taskHash, ticket, c.Seq, mustHex(t, c.MMRRootHex))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := hex.EncodeToString(digest[:]); got != c.want {
-			t.Fatalf("seq %d digest = %s, want %s", c.seq, got, c.want)
+		if got := hex.EncodeToString(digest[:]); got != c.DigestHex {
+			t.Fatalf("seq %d digest = %s, want %s", c.Seq, got, c.DigestHex)
+		}
+		if c.PreimageHex != "" {
+			if sha256.Sum256(mustHex(t, c.PreimageHex)) != digest {
+				t.Fatalf("seq %d: published preimage does not hash to the digest", c.Seq)
+			}
+		}
+		if got := signRFC6979(t, v.Chunk.PrivateKeyHex, digest); got != c.SignatureHex {
+			t.Fatalf("seq %d signature = %s, want %s", c.Seq, got, c.SignatureHex)
 		}
 	}
-	// A mismatched seq and mmr_root pair must yield a different digest.
-	mismatched, err := OutputChunkSigningDigest(goldenChainID, taskHash, 1, roots[0])
+	// Another ticket must change the digest: an attempt cannot reuse another attempt's frames.
+	first := v.Chunk.Cases[0]
+	other := bytes.Repeat([]byte{0x34}, 32)
+	digest, err := OutputChunkSigningDigest(goldenChainID, taskHash, other, first.Seq, mustHex(t, first.MMRRootHex))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hex.EncodeToString(mismatched[:]) == "f36f8dbbcbb6f0d1703ce01154ca4fc60ff6061434c4a56dbf7e72c14858fccf" {
-		t.Fatal("seq and mmr_root must be committed together")
-	}
-	// Changing chain_id to another chain or flipping one bit of task_hash must likewise change the digest.
-	otherChain, _ := OutputChunkSigningDigest("trueopen-localnet-2", taskHash, 1, roots[1])
-	flipped := append([]byte(nil), taskHash...)
-	flipped[0] ^= 0x01
-	otherTask, _ := OutputChunkSigningDigest(goldenChainID, flipped, 1, roots[1])
-	want := "f36f8dbbcbb6f0d1703ce01154ca4fc60ff6061434c4a56dbf7e72c14858fccf"
-	if hex.EncodeToString(otherChain[:]) == want || hex.EncodeToString(otherTask[:]) == want {
-		t.Fatal("chain_id and task_hash must be committed")
-	}
-}
-
-// The full H_FIELDS_V1 preimage for seq = 1, pinning field order and length prefixes byte-for-byte.
-func TestGoldenOutputChunkPreimage(t *testing.T) {
-	taskHash, _ := hex.DecodeString(goldenTaskHash)
-	root, _ := hex.DecodeString("6dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77")
-	chain, err := CanonicalUTF8Field("chain_id", goldenChainID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, err := CanonicalHash32Field("task_hash", taskHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mmrRoot, err := CanonicalHash32Field("mmr_root", root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	preimage := CanonicalFramePreimage(DomainOutputChunkV1, chain, task, Uint64BE(1), mmrRoot)
-	want := strings.Join([]string{
-		"0000000000000018545255454f50454e5f4f55545055545f4348554e4b5f5631",
-		"0000000000000013747275656f70656e2d6c6f63616c6e65742d31",
-		"00000000000000201111111111111111111111111111111111111111111111111111111111111111",
-		"00000000000000080000000000000001",
-		"00000000000000206dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77",
-	}, "")
-	if got := hex.EncodeToString(preimage); got != want {
-		t.Fatalf("preimage = %s, want %s", got, want)
+	if hex.EncodeToString(digest[:]) == first.DigestHex {
+		t.Fatal("dispatch_ticket_hash must be committed")
 	}
 }

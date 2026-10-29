@@ -830,6 +830,7 @@ func signedInferReceiptToPB(r taskdata.SignedInferReceipt) *taskv1.InferReceiptV
 		WorkerTokenKeyCommitment:    fromHex(r.WorkerTokenKeyCommitment),
 		WorkerValueKeyCommitment:    fromHex(r.WorkerValueKeyCommitment),
 		CiphertextOutputRoot:        fromHex(r.CiphertextOutputRoot),
+		DispatchTicketHash:          fromHex(r.DispatchTicketHash),
 	}
 }
 

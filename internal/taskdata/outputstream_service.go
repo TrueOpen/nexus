@@ -1,6 +1,7 @@
 package taskdata
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,6 +34,7 @@ type OutputStreamSession struct {
 	chainID   string
 	taskHash  []byte
 	workerPub []byte
+	ticket    []byte
 }
 
 // OpenOutputStream handles the streamed upload Header: authorize (selected Worker, task_hash,
@@ -57,7 +59,7 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 	// over a live stream.
 	declaration := nodecontract.OutputStreamHeader{
 		ChainID: s.authorizer.cfg.ChainID, TaskHash: taskHash,
-		Attempt: header.Declaration.Attempt, StreamInstance: header.Declaration.StreamInstance,
+		DispatchTicketHash: header.Declaration.DispatchTicketHash, StreamInstance: header.Declaration.StreamInstance,
 		UserRecipientPubkey: header.Declaration.UserRecipientPubkey,
 		OutputKeyCommitment: header.Declaration.OutputKeyCommitment,
 		KeyPackageHash:      header.Declaration.KeyPackageHash,
@@ -79,27 +81,31 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 	if err := s.authorizer.consumeRequestNonce(request, height); err != nil {
 		return nil, OutputStreamProgress{}, err
 	}
-	stream, progress, err := s.store.OpenOutputStream(ctx, header.Key, request.RequesterAddress, s.outputStream)
+	declared := header.Declaration
+	stream, progress, err := s.store.openOutputStream(ctx, header.Key, request.RequesterAddress, s.outputStream, &declared)
 	if err != nil {
 		return nil, progress, err
 	}
-	stream.recordHeader(header.Declaration)
 	return &OutputStreamSession{
 		service: s, stream: stream, key: header.Key, chainID: s.authorizer.cfg.ChainID, taskHash: taskHash, workerPub: workerPub,
+		ticket: append([]byte(nil), declared.DispatchTicketHash...),
 	}, progress, nil
 }
 
 // Progress returns the current progress.
 func (sess *OutputStreamSession) Progress() OutputStreamProgress { return sess.stream.Progress() }
 
-// Append receives one chunk: (1) verify the TRUEOPEN_OUTPUT_CHUNK_V1 signature with the
-// Worker's current service key, then hand it to storage for (2)(3)(4). Any failure closes
-// the stream.
+// Append receives one chunk: (1) require the stream header's dispatch ticket and verify the
+// TRUEOPEN_OUTPUT_CHUNK_V1 signature with the Worker's current service key, then hand it to storage
+// for (2)(3)(4). Any failure closes the stream.
 func (sess *OutputStreamSession) Append(ctx context.Context, chunk OutputChunk) (mmr.Hash, error) {
 	if len(chunk.MMRRoot) != sha256.Size || len(chunk.WorkerSignature) != 64 {
 		return mmr.Hash{}, sess.stream.fail(fmt.Errorf("%w: chunk mmr_root or worker_signature shape", ErrMalformed))
 	}
-	digest, err := nodecontract.OutputChunkSigningDigest(sess.chainID, sess.taskHash, chunk.Seq, chunk.MMRRoot)
+	if !bytes.Equal(chunk.DispatchTicketHash, sess.ticket) {
+		return mmr.Hash{}, sess.stream.fail(fmt.Errorf("%w: chunk dispatch_ticket_hash does not match the stream header", ErrMalformed))
+	}
+	digest, err := nodecontract.OutputChunkSigningDigest(sess.chainID, sess.taskHash, sess.ticket, chunk.Seq, chunk.MMRRoot)
 	if err != nil {
 		return mmr.Hash{}, sess.stream.fail(fmt.Errorf("%w: chunk signing digest: %v", ErrMalformed, err))
 	}
@@ -121,7 +127,10 @@ func (sess *OutputStreamSession) Finish(ctx context.Context, fin OutputFin) (Met
 	if len(fin.OutputMMRRoot) != sha256.Size || len(fin.WorkerSignature) != 64 {
 		return Metadata{}, sess.stream.fail(fmt.Errorf("%w: fin output_mmr_root or worker_signature shape", ErrMalformed))
 	}
-	digest, err := nodecontract.OutputFinSigningDigest(sess.chainID, sess.taskHash, fin.FinalSeq, fin.OutputMMRRoot, fin.FinishReason)
+	if !bytes.Equal(fin.DispatchTicketHash, sess.ticket) {
+		return Metadata{}, sess.stream.fail(fmt.Errorf("%w: fin dispatch_ticket_hash does not match the stream header", ErrMalformed))
+	}
+	digest, err := nodecontract.OutputFinSigningDigest(sess.chainID, sess.taskHash, sess.ticket, fin.FinalSeq, fin.OutputMMRRoot, fin.FinishReason)
 	if err != nil {
 		return Metadata{}, sess.stream.fail(fmt.Errorf("%w: fin signing digest: %v", ErrMalformed, err))
 	}

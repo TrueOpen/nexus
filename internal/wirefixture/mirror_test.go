@@ -9,7 +9,7 @@ import (
 )
 
 // mirroredPackages are the proto/<pkg>/v1 directories tools/mirror_wire.py owns (its PACKAGES).
-var mirroredPackages = []string{"hub", "task", "shared", "bus"}
+var mirroredPackages = []string{"hub", "task", "shared", "nexus"}
 
 // TestProtoMirrorMatchesPinnedWire regenerates the proto mirror from the wire module pinned in go.mod
 // with tools/mirror_wire.py and requires proto/ to be identical, file for file. Moving the wire pin

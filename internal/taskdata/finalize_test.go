@@ -69,6 +69,7 @@ func newFinalizeFixtureOn(t *testing.T, fx *authorizerFixture, store *Store, ser
 			ExpiryHeight:           1200, GeneratedTokenCount: 3, ServiceSignature: strings.Repeat("0", 128),
 			OutputKeyCommitment: zeroHash32Hex, WorkerTokenKeyCommitment: zeroHash32Hex,
 			WorkerValueKeyCommitment: zeroHash32Hex, CiphertextOutputRoot: zeroHash32Hex,
+			DispatchTicketHash: strings.Repeat("d", 64),
 		},
 	}
 	f.streamOutput(t, []string{"hello, ", "world", "!!"})

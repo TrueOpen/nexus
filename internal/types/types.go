@@ -259,6 +259,9 @@ type InferReceiptSubmission struct {
 	WorkerTokenKeyCommitment []byte
 	WorkerValueKeyCommitment []byte
 	CiphertextOutputRoot     []byte
+	// DispatchTicketHash (field 19) names the dispatch attempt that produced the output; it must
+	// equal the ticket of the output stream header.
+	DispatchTicketHash []byte
 }
 
 // EvidenceCommitment is a single entry of required_evidence_commitments[].
