@@ -83,6 +83,14 @@ func TestQueryCurrentServiceKeyRefusesMismatchedPendingRotation(t *testing.T) {
 		},
 		"current nonce": func(p *hubv1.PendingServiceKeyRotationState) { p.CurrentServiceAuthorizationNonce = 3 },
 		"next nonce":    func(p *hubv1.PendingServiceKeyRotationState) { p.NextServiceAuthorizationNonce = 4 },
+		"short pubkey":  func(p *hubv1.PendingServiceKeyRotationState) { p.NewServicePubkey = p.NewServicePubkey[:32] },
+		"no pubkey":     func(p *hubv1.PendingServiceKeyRotationState) { p.NewServicePubkey = nil },
+		"effective at close": func(p *hubv1.PendingServiceKeyRotationState) {
+			p.EffectiveHeight = p.OldMaterialCloseHeight
+		},
+		"close before registration": func(p *hubv1.PendingServiceKeyRotationState) {
+			p.OldMaterialCloseHeight = p.RegisteredHeight - 1
+		},
 	}
 	for name, edit := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -92,5 +100,15 @@ func TestQueryCurrentServiceKeyRefusesMismatchedPendingRotation(t *testing.T) {
 				t.Fatalf("mismatched pending rotation accepted: %+v", got.PendingRotation)
 			}
 		})
+	}
+}
+
+// Old material may close at the registration height itself.
+func TestQueryCurrentServiceKeyAcceptsCloseAtRegistration(t *testing.T) {
+	pending := pendingRotation()
+	pending.OldMaterialCloseHeight = pending.RegisteredHeight
+	got, err := queryCurrentKey(t, builderKeyView(pending))
+	if err != nil || got.PendingRotation == nil || got.PendingRotation.OldMaterialCloseHeight != 100 {
+		t.Fatalf("close at registration = %+v, %v", got.PendingRotation, err)
 	}
 }

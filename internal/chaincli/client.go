@@ -647,6 +647,17 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 			pending.GetNextServiceAuthorizationNonce() <= b.GetServiceAuthorizationNonce() {
 			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation does not match the current binding")
 		}
+		if len(pending.GetNewServicePubkey()) != 33 {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation new_service_pubkey is %d bytes, want 33",
+				len(pending.GetNewServicePubkey()))
+		}
+		// The old key's material closes no earlier than the registration and before activation.
+		if !(pending.GetEffectiveHeight() > pending.GetOldMaterialCloseHeight() &&
+			pending.GetOldMaterialCloseHeight() >= pending.GetRegisteredHeight()) {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation heights out of order "+
+				"(registered %d, old material close %d, effective %d)",
+				pending.GetRegisteredHeight(), pending.GetOldMaterialCloseHeight(), pending.GetEffectiveHeight())
+		}
 		state.PendingRotation = &PendingServiceKeyRotation{
 			NextServicePubKey:      hex.EncodeToString(pending.GetNewServicePubkey()),
 			NextAuthorizationNonce: pending.GetNextServiceAuthorizationNonce(),
