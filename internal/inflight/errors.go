@@ -62,3 +62,16 @@ func (e *TakeoverPendingError) Error() string {
 }
 
 func (e *TakeoverPendingError) Unwrap() error { return ErrTakeoverPending }
+
+// SessionBoundElsewhereError is ErrSessionBoundElsewhere for an order the Builder the session is
+// bound to already recorded: the SDK follows TaskID there.
+type SessionBoundElsewhereError struct {
+	Builder string
+	TaskID  string
+}
+
+func (e *SessionBoundElsewhereError) Error() string {
+	return fmt.Sprintf("%s: Builder %s recorded the order as task %s", ErrSessionBoundElsewhere, e.Builder, e.TaskID)
+}
+
+func (e *SessionBoundElsewhereError) Unwrap() error { return ErrSessionBoundElsewhere }

@@ -304,7 +304,7 @@ func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params P
 	}
 	entry := Entry{
 		Sequence: o.Sequence, TaskID: o.TaskID, TaskHash: o.TaskHash, MaxFee: o.MaxFee,
-		SessionKey: o.SessionKey != nil, Deadline: res.Deadline, State: StateDispatching,
+		SessionKey: o.SessionKey != nil, Deadline: res.Deadline, State: StateDispatching, Takeover: o.Takeover,
 	}
 	op, err := putOp(o.SessionID, entry)
 	if err != nil {
@@ -381,7 +381,11 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the record deadline %d (head %d)",
 			ErrOrderExpired, o.ExpireHeight, res.Deadline, head)
 	}
-	if !o.Takeover && head > params.OrderFreshnessMarginBlocks && o.EarliestSubmitHeight < head-params.OrderFreshnessMarginBlocks {
+	takeover := o.Takeover
+	if e := ls.orders[o.Sequence]; e != nil && e.Takeover && e.TaskHash == o.TaskHash {
+		takeover = true // a resend of the order taken over
+	}
+	if !takeover && head > params.OrderFreshnessMarginBlocks && o.EarliestSubmitHeight < head-params.OrderFreshnessMarginBlocks {
 		return Result{}, fmt.Errorf("%w: earliest_submit_height %d is more than %d blocks below the head %d",
 			ErrOrderStale, o.EarliestSubmitHeight, params.OrderFreshnessMarginBlocks, head)
 	}

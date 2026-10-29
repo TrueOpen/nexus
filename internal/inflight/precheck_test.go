@@ -334,6 +334,20 @@ func TestPrecheckTakeoverOrderSkipsFreshness(t *testing.T) {
 	if err != nil || res.Binding != BoundHere || res.Deadline != 118 || res.Reservation == nil {
 		t.Fatalf("takeover order = %+v, %v", res, err)
 	}
+	if err := f.p.Commit(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	// The SDK's resend of it is the existing order, not a stale one.
+	o.Takeover = false
+	res, err = f.p.Check(context.Background(), o)
+	if err != nil || res.Existing == nil || !res.Existing.Takeover {
+		t.Fatalf("resend of the takeover order = %+v, %v", res, err)
+	}
+	other := order(5)
+	other.EarliestSubmitHeight, other.TaskHash = 60, "another"
+	if _, err := f.p.Check(context.Background(), other); !errors.Is(err, ErrOrderStale) {
+		t.Fatalf("another stale version = %v", err)
+	}
 }
 
 // CheckTakeoverFunds is the funds check of a takeover: the session's balance less what is frozen

@@ -76,6 +76,9 @@ type Entry struct {
 	// uploaded: an exact resend is told to retry, not that the order is accepted, and a restart
 	// releases it.
 	Committed bool `json:"committed,omitempty"`
+	// Takeover marks the order this Builder took the session over with; a resend of it is not
+	// judged for freshness.
+	Takeover bool `json:"takeover,omitempty"`
 }
 
 // ErrUnknownOrder is a ledger update for an order the ledger does not hold.
