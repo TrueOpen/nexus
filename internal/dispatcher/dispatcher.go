@@ -148,11 +148,17 @@ type Bundle struct {
 }
 
 // Recorder records accepted orders on chain.
+//
+// Record and Withdraw of one winner ticket may arrive in either order: an accept hands its entry
+// to Record after the order's lock is released, so a binding change in between can Withdraw the
+// ticket first. An implementation keys both by the winner's dispatch_ticket_hash and must not
+// record an entry whose ticket was already withdrawn.
 type Recorder interface {
 	// Record queues the entry for the next MsgRecordDispatch. It may be called again with the same
 	// bytes after a restart and must treat that as the same entry.
 	Record(ctx context.Context, b *Bundle) error
-	// Withdraw drops a queued entry whose winner ticket was voided before it was recorded.
+	// Withdraw drops a queued entry whose winner ticket was voided before it was recorded, or
+	// marks the ticket so a later Record of it is dropped.
 	Withdraw(ctx context.Context, sessionID string, sequence uint64, ticketHash [32]byte)
 }
 
