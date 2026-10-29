@@ -218,9 +218,16 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 		"BUILDER|" + integrationBuilderAddress: streamServiceKey("BUILDER", integrationBuilderAddress, builderService),
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
+	session := testSessionID("session-stream")
+	taskID := mustDeriveTaskID(t, session, 1)
+	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
+	// The Worker's accept of testDispatchTicket is held and its record admitted: the stream is
+	// authorized by it and delivered uncapped.
+	attempts := recordedAttempt(t, session, taskID, hex.EncodeToString(taskHash[:]), worker.Address(), testDispatchTicket)
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
+		Attempts: attempts,
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +239,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	options := []Option{WithPayloadMaxBytes(16), WithReadMaxBytes(16), WithTaskDataService(dataService)}
 	if enabled {
 		dataService.SetOutputStreamConfig(taskdata.OutputStreamConfig{MaxLeaves: 8, MinFrameBytes: 2, MaxFrameBytes: 16, MaxAttachmentBytes: 8})
-		options = append(options, WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend))
+		options = append(options, WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend, attempts))
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
@@ -248,9 +255,6 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	httpServer.EnableHTTP2 = true
 	httpServer.StartTLS()
 	t.Cleanup(httpServer.Close)
-	session := testSessionID("session-stream")
-	taskID := mustDeriveTaskID(t, session, 1)
-	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
 	authority.task = chaincli.OnChainTask{
 		SessionID: session, TaskID: taskID, State: types.Assigned,
 		Assignment: chaincli.TaskAssignmentState{
@@ -310,10 +314,14 @@ func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg sig
 	return out
 }
 
+// collectFrames reads a subscription's output frames; the dispatch result headers that lead it
+// carry no frame and are left out.
 func collectFrames(stream *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse]) ([]*nexusv1.SubscribeOutputResponse, error) {
 	var frames []*nexusv1.SubscribeOutputResponse
 	for stream.Receive() {
-		frames = append(frames, stream.Msg())
+		if stream.Msg().GetFrame() != nil {
+			frames = append(frames, stream.Msg())
+		}
 	}
 	return frames, stream.Err()
 }

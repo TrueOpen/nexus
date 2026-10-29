@@ -549,7 +549,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				MaxFrameBytes: cfg.TaskData.ChunkSizeBytes, MaxAttachmentBytes: stream.MaxAttachmentBytes,
 			})
 			dispatcher := taskdata.NewOutputDispatcher(int(stream.SubscriberBufferFrames))
-			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store))
+			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store, attempts))
 			log.Info("streaming output enabled",
 				"max_output_mmr_leaves", stream.MaxOutputMMRLeaves, "min_frame_bytes", stream.MinFrameBytes,
 				"max_frame_bytes", cfg.TaskData.ChunkSizeBytes, "subscriber_buffer_frames", stream.SubscriberBufferFrames)
