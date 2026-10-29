@@ -348,13 +348,13 @@ func TestResyncSkipsClaimWindowsNotOpenYet(t *testing.T) {
 	}
 	// Once the record deadline passed, the next resync asks.
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
-	e.block(100 + 20 + recheckMinBlocks)
+	e.block(100 + 20 + e.r.recheckSpacing())
 	if len(e.chain.claimReads) != 1 {
 		t.Fatalf("claim reads %v", e.chain.claimReads)
 	}
 }
 
-// Resyncs closer together than recheckMinBlocks are folded into one.
+// Resyncs closer together than recheckSpacing are folded into one.
 func TestResyncIsRateLimited(t *testing.T) {
 	e := newEnv(t)
 	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
@@ -365,9 +365,30 @@ func TestResyncIsRateLimited(t *testing.T) {
 	if len(e.chain.claimReads) != 1 {
 		t.Fatalf("claim reads %v after two close resyncs", e.chain.claimReads)
 	}
-	e.block(130 + recheckMinBlocks)
+	e.block(130 + e.r.recheckSpacing())
 	if len(e.chain.claimReads) != 2 {
 		t.Fatalf("deferred resync not done: %v", e.chain.claimReads)
+	}
+}
+
+// A resync held back by the rate limit still comes in time to rebut a claim filed during the gap:
+// resyncs are spaced at most half the rebuttal window apart.
+func TestDeferredResyncDoesNotMissAClaim(t *testing.T) {
+	e := newEnv(t) // rebuttal window 10 blocks
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(130)
+	// A claim filed at 131 while the stream was down; its event is lost.
+	e.chain.claims[string(ticketHash(0, 0))] = &taskv1.DispatchCompensationClaimState{
+		DispatchTicketHash: ticketHash(0, 0), TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: self,
+		WorkerOperatorAddress: op7, Status: statusPending, ClaimedHeight: 131, RebuttalDeadlineHeight: 141,
+	}
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	for h := uint64(132); h <= 140; h++ {
+		e.block(h)
+	}
+	if len(e.rebuts()) != 1 {
+		t.Fatal("claim of the gap missed by a deferred resync")
 	}
 }
 

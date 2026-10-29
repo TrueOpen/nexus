@@ -43,7 +43,9 @@ const (
 	// when executing only spends gas.
 	maxSends = 3
 	// recheckMinBlocks spaces the claim lookups after role stream gaps: a stream that reconnects
-	// often does not have every ticket looked up on every reconnect.
+	// often does not have every ticket looked up on every reconnect. The spacing never exceeds
+	// half the rebuttal window (recheckSpacing), so a lookup held back still comes in time to
+	// rebut a claim filed during a gap the stream could not replay (an expired cursor).
 	recheckMinBlocks = 20
 	// maxGasFactor bounds how far out-of-gas results raise the gas of one answer.
 	maxGasFactor = 8
@@ -314,7 +316,7 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 // up again, and prunes expired evidence.
 func (r *Responder) onBlock(ctx context.Context, head uint64) {
 	r.mu.Lock()
-	resync := r.resync && (r.lastRecheck == 0 || head >= r.lastRecheck+recheckMinBlocks)
+	resync := r.resync && (r.lastRecheck == 0 || head >= r.lastRecheck+r.recheckSpacing())
 	if resync {
 		r.resync, r.lastRecheck = false, head
 	}
@@ -329,6 +331,12 @@ func (r *Responder) onBlock(ctx context.Context, head uint64) {
 		r.handleChallenge(ctx, head, it)
 	}
 	r.prune(head)
+}
+
+// recheckSpacing is the least distance between two claim lookups after role stream gaps:
+// recheckMinBlocks, at most half of dispatch_compensation_rebuttal_blocks.
+func (r *Responder) recheckSpacing() uint64 {
+	return min(recheckMinBlocks, max(r.cfg.Evidence.Params().RebuttalBlocks/2, 1))
 }
 
 func (r *Responder) prune(head uint64) {
