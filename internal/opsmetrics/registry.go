@@ -243,8 +243,11 @@ func (r *Registry) Accepted(taskID string) {
 			return
 		}
 	}
-	if _, loaded := r.acceptedAt.Swap(taskID, now); !loaded {
-		r.awaiting.Add(1)
+	// Counted before it is stored: an output frame that finds the count at zero skips the lookup,
+	// so the count must never trail a stored accept.
+	r.awaiting.Add(1)
+	if _, loaded := r.acceptedAt.Swap(taskID, now); loaded {
+		r.awaiting.Add(-1)
 	}
 }
 

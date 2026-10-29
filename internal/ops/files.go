@@ -15,7 +15,9 @@ const (
 	drainRequestFile = "drain-request"
 	statusFile       = "status.json"
 	// takenSuffix marks a request the daemon took: renamed before it is read, so a request
-	// written meanwhile is a new file and is never deleted unread.
+	// written meanwhile is a new file and is never deleted unread. A crash after the taken file
+	// is removed and before the drain state is stored loses the request; the operator sends it
+	// again (nexus drain status shows whether it took effect).
 	takenSuffix = ".taken"
 )
 
