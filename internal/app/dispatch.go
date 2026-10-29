@@ -109,13 +109,40 @@ func (d *directDispatch) pushRoot(ctx context.Context, issued *handraise.IssuedR
 	}
 }
 
-// onConnection gives a Cortex whose stream (re)bound the latest root and its proof at once.
+// onConnection gives a Cortex whose stream (re)bound the latest root and its proof at once. A
+// Cortex whose stream ended has its handraise withdrawn and a new root is issued without its leaf,
+// so rounds built after it pay no skip for a Worker no ticket can reach.
 func (d *directDispatch) onConnection(operator string, connected bool) {
-	if !connected || d.Registry == nil || d.streams == nil {
+	if d.Registry == nil || d.streams == nil {
+		return
+	}
+	if !connected {
+		d.withdraw(operator)
 		return
 	}
 	if latest, ok := d.Registry.LatestRoot(); ok {
 		d.pushRoot(context.Background(), latest, []string{operator})
+	}
+}
+
+// withdraw drops operator's handraise unless its stream bound again meanwhile, then issues the root
+// without it. A failed issuance is left to the root loop's next interval.
+func (d *directDispatch) withdraw(operator string) {
+	if d.Streams != nil && d.Streams.Connected(operator) {
+		return
+	}
+	if !d.Registry.Withdraw(operator) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	issued, err := d.Registry.IssueRoot(ctx)
+	if err != nil {
+		d.log.Info("root without a disconnected Cortex not issued yet; the root loop retries", "operator", operator, "err", err)
+		return
+	}
+	if issued != nil {
+		d.pushRoot(ctx, issued, d.streams.Operators())
 	}
 }
 

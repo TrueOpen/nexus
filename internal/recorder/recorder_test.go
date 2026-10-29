@@ -405,3 +405,21 @@ func TestBlocksDriveTheRecorder(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// A Withdraw that arrives before the Record of its winner ticket drops that Record.
+func TestWithdrawBeforeRecord(t *testing.T) {
+	e := newEnv(t)
+	b := bundle(0xaa, 0, 1, 50)
+	e.r.Withdraw(context.Background(), b.SessionID, 0, [32]byte(fill(1)))
+	e.record(b, bundle(0xbb, 0, 2, 50))
+	e.block(10)
+	if msg, _ := e.lastSent(); !reflect.DeepEqual(entriesOf(msg), []string{"bb/0"}) {
+		t.Fatalf("submitted %v", entriesOf(msg))
+	}
+	// The same order accepted again with another ticket is recorded.
+	e.record(bundle(0xaa, 0, 3, 50))
+	e.block(11)
+	if msg, _ := e.lastSent(); !reflect.DeepEqual(entriesOf(msg), []string{"aa/0"}) {
+		t.Fatalf("submitted %v", entriesOf(msg))
+	}
+}

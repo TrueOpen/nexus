@@ -12,8 +12,9 @@ import (
 )
 
 // ErrDispatchUnavailable refuses new orders on a Builder without direct dispatch configured (no
-// service key or no VRF key): it accepts none rather than one it cannot run.
-var ErrDispatchUnavailable = errors.New("NEXUS_INGRESS_DISPATCH_UNAVAILABLE")
+// service key or no VRF key): it accepts none rather than one it cannot run. It is the
+// dispatcher's sentinel, so a refusal from either maps alike.
+var ErrDispatchUnavailable = dispatcher.ErrDispatchUnavailable
 
 // Dispatcher dispatches the orders the in-flight precheck reserved (package dispatcher). Which
 // version of an order may be dispatched, retried or is locked is the precheck's decision.

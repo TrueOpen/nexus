@@ -10,16 +10,21 @@ import (
 )
 
 // unknownAnchorHeight stands for the anchor height of a run an earlier, not yet recorded order of
-// the session starts: it becomes that order's record height, which is not known yet. No later
-// order is promoted against it.
+// the session starts: it becomes that order's record height, which is not known yet. While the head
+// is still at the order's earliest_submit_height that anchor could equal it, so the order waits
+// (stickySnapshot). Once the head is past it, the anchor is recorded above earliest_submit_height,
+// and an earliest_submit_height below the anchor is outside the sticky window: the order is not
+// promoted. This follows the chain's current below-anchor semantics, which the protocol has yet to
+// settle.
 const unknownAnchorHeight = math.MaxUint64
 
 // stickySnapshot is the session's sticky state as it will be when this order is recorded: the
 // chain's StreamState after every earlier order of the session this Builder still has in flight
 // is recorded with its accepted winner ticket. It reports wait while an earlier order has no
 // winner yet (it is still dispatching, or failed and not resent) or is recorded but the session
-// state read does not include it yet. Caller holds o.mu; the earlier orders' locks are taken
-// inside it.
+// state read does not include it yet, and while a run an earlier order starts has an unknown
+// anchor height and the head is still at this order's earliest_submit_height. Caller holds o.mu;
+// the earlier orders' locks are taken inside it.
 func (d *Dispatcher) stickySnapshot(o *order, session inflight.Session) (*taskv1.DispatchStickySnapshotV1, bool) {
 	snap := &taskv1.DispatchStickySnapshotV1{
 		AnchorSequence: session.StickyAnchorSequence,
@@ -48,6 +53,11 @@ func (d *Dispatcher) stickySnapshot(o *order, session inflight.Session) (*taskv1
 		} else {
 			snap.RunCount = ticket.GetStickyRunCount()
 		}
+	}
+	if snap.AnchorHeight == unknownAnchorHeight && o.signed.GetOrder().GetEarliestSubmitHeight() >= d.cfg.Sessions.Head() {
+		// The unknown anchor could still be recorded at earliest_submit_height: wait for the
+		// earlier order's record result or a later head.
+		return nil, true
 	}
 	return snap, false
 }

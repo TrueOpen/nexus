@@ -128,6 +128,8 @@ type Recorder struct {
 	entries  map[string]*entry    // object id -> unresolved entry
 	txs      map[string]*txRecord // tx hash -> transaction
 	tooLarge map[string]bool      // entries already reported as too large to send
+	// withdrawn holds the winner tickets withdrawn before their Record, with the head then.
+	withdrawn map[string]uint64
 
 	latest atomic.Uint64
 	wake   chan struct{}
@@ -150,7 +152,7 @@ func New(cfg Config, params Params) (*Recorder, error) {
 		return nil, err
 	}
 	r := &Recorder{
-		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{},
+		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{}, withdrawn: map[string]uint64{},
 		wake: make(chan struct{}, 1), stop: make(chan struct{}),
 	}
 	if r.log == nil {
@@ -229,6 +231,11 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.withdrawn[string(e.TicketHash)]; ok {
+		delete(r.withdrawn, string(e.TicketHash))
+		r.log.Info("dispatch entry of a withdrawn ticket dropped", "session_id", e.SessionID, "order_sequence", e.Sequence)
+		return nil
+	}
 	if _, ok := r.entries[e.ObjectID]; ok {
 		return nil
 	}
@@ -244,12 +251,13 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 }
 
 // Withdraw implements dispatcher.Recorder: an entry not sent yet is dropped; a sent one is marked
-// so that its refusal changes nothing.
-func (r *Recorder) Withdraw(_ context.Context, sessionID string, sequence uint64, ticketHash [32]byte) {
+// so that its refusal changes nothing. A Withdraw that comes before the Record of its ticket
+// drops that Record.
+func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [32]byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
-		if e.SessionID != sessionID || e.Sequence != sequence || string(e.TicketHash) != string(ticketHash[:]) {
+		if string(e.TicketHash) != string(ticketHash[:]) {
 			continue
 		}
 		var ops []kv.WriteOp
@@ -260,7 +268,9 @@ func (r *Recorder) Withdraw(_ context.Context, sessionID string, sequence uint64
 			ops = append(ops, r.entryOp(e))
 		}
 		r.writeLocked(ops)
+		return
 	}
+	r.withdrawn[string(ticketHash[:])] = r.latest.Load()
 }
 
 // HandleChainEvent follows the head, the dispatch_recorded events of the sessions this Builder
@@ -301,10 +311,25 @@ func (r *Recorder) HandleChainEvent(ev chaincli.ChainEvent) {
 // onBlock checks the transactions out, resolves the entries past their deadline, reads the
 // compensation account when due and sends the waiting entries.
 func (r *Recorder) onBlock(ctx context.Context, height uint64) {
+	r.pruneWithdrawn(height)
 	r.checkTxs(ctx, height)
 	r.expire(ctx, height)
 	r.cfg.Gate.onBlock(ctx, height)
 	r.pack(ctx, height)
+}
+
+// withdrawnKeepBlocks is how long a ticket withdrawn before its Record is remembered; the Record
+// follows the accept at once, so this only bounds the memory of tickets never handed over.
+const withdrawnKeepBlocks = 100
+
+func (r *Recorder) pruneWithdrawn(height uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for ticket, at := range r.withdrawn {
+		if at+withdrawnKeepBlocks < height {
+			delete(r.withdrawn, ticket)
+		}
+	}
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

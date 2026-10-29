@@ -38,7 +38,7 @@ func TestRosterFiltersHandraises(t *testing.T) {
 		leaf(vectorOp1, 1, true, 1, 200, Profile{ModelID: otherModel, Version: 1}), // other profile
 		leaf("trueopen1notinpool", 9, true, 1, 200, vectorProfile),
 	)
-	roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, height, 1<<20, nil)
+	roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, height, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestRosterFiltersHandraises(t *testing.T) {
 				leaf(vectorOp7, 7, tc.admitted, tc.free, tc.expiry, Profile{ModelID: vectorModel, Version: tc.version}),
 				leaf(vectorOp3, 3, true, 1, 200, vectorProfile),
 			)
-			roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, height, 1<<20, nil)
+			roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, height, 1<<20)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,11 +92,11 @@ func TestRosterMembersComeFromThePool(t *testing.T) {
 
 func TestEmptyRosterIsNoCapacity(t *testing.T) {
 	pool := vectorPool(t)
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, nil, pool, 150, 1<<20, nil); !errors.Is(err, ErrNoCapacity) {
+	if _, err := BuildRoster(vectorChainID, vectorTaskID, nil, pool, 150, 1<<20); !errors.Is(err, ErrNoCapacity) {
 		t.Fatalf("no root yet: %v", err)
 	}
 	root := issuedRoot(leaf(vectorOp7, 7, true, 0, 200, vectorProfile))
-	_, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20, nil)
+	_, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20)
 	if !errors.Is(err, ErrNoCapacity) || err.Error() != "NEXUS_INGRESS_NO_CAPACITY" {
 		t.Fatalf("empty roster: %v", err)
 	}
@@ -111,33 +111,13 @@ func TestRosterSizeLimit(t *testing.T) {
 		leaf(vectorOp1, 1, true, 2, 200, vectorProfile),
 		leaf(vectorOp3, 3, true, 1, 200, vectorProfile),
 	)
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, size, nil); err != nil {
+	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, size); err != nil {
 		t.Fatalf("roster of exactly the limit: %v", err)
 	}
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, size-1, nil); !errors.Is(err, ErrRosterTooLarge) {
+	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, size-1); !errors.Is(err, ErrRosterTooLarge) {
 		t.Fatalf("roster above the limit: %v", err)
 	}
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 0, nil); err == nil {
+	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 0); err == nil {
 		t.Fatal("a zero limit must be rejected")
-	}
-}
-
-// A Cortex whose service key rotation is pending may not take new Worker duties: the caller's
-// exclusion keeps it out of the roster though its leaf is admitted.
-func TestRosterExcludesOperators(t *testing.T) {
-	pool := vectorPool(t)
-	root := issuedRoot(
-		leaf(vectorOp7, 7, true, 1, 200, vectorProfile),
-		leaf(vectorOp3, 3, true, 1, 200, vectorProfile),
-	)
-	roster, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20, func(op string) bool { return op == vectorOp7 })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := slots(roster.Members()); !reflect.DeepEqual(got, []uint32{3}) {
-		t.Fatalf("roster slots = %v, want [3]", got)
-	}
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20, func(string) bool { return true }); !errors.Is(err, ErrNoCapacity) {
-		t.Fatalf("everyone excluded: %v", err)
 	}
 }

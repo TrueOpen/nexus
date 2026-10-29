@@ -24,6 +24,16 @@ const (
 	outcomeVoided   = taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED
 )
 
+// recordLeadBlocks is how far ahead of its record deadline an order must be accepted: an entry
+// accepted while the head is h goes out with the record transaction of block h+1 and lands in
+// block h+2 at the earliest.
+const recordLeadBlocks = 2
+
+// TooLateToRecord reports whether an entry accepted with the chain head at head can no longer be
+// recorded by deadline. No ticket is issued and no accept taken then: a late record is charged to
+// the Builder.
+func TooLateToRecord(head, deadline uint64) bool { return head+recordLeadBlocks > deadline }
+
 // done is what a step leaves for after the order's lock is released.
 type done struct {
 	// accepted and failed name an order that left DISPATCHING; the observer and the Recorder are
@@ -123,7 +133,7 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if st.Phase != phaseDispatching || st.pending() != nil {
 			return done{}
 		}
-		if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && d.cfg.Sessions.Head() > entry.Deadline {
+		if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
@@ -138,7 +148,7 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			o.parked = true
 			return done{}
 		}
-		if o.draw == nil || st.NewRound || o.roster == nil {
+		if o.draw == nil || st.NewRound || o.roster == nil || !roundStored(o) {
 			ready, out := d.openRound(ctx, o)
 			if !ready {
 				return out
@@ -164,13 +174,21 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	}
 }
 
+// roundStored reports whether the round in use already holds a ticket. Until it does, its roster
+// is not bound yet: the next attempt opens it again from the then latest root (and, for round 0,
+// decides stickiness again). Caller holds o.mu.
+func roundStored(o *order) bool {
+	rounds := o.st.Rounds
+	return len(rounds) > 0 && rounds[len(rounds)-1].Number == o.rosterRound
+}
+
 // openRound prepares the round the next ticket belongs to. After a restart it is the stored last
 // round. Otherwise the order is drawn when it has no draw yet (round 0, which also decides
 // stickiness) and a new round binds the latest signed root. It returns false when the order must
 // wait (it is then parked) or failed. Caller holds o.mu.
 func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	st := o.st
-	if o.draw != nil && !st.NewRound && len(st.Rounds) > 0 {
+	if o.draw != nil && !st.NewRound && len(st.Rounds) > 0 && o.roster == nil {
 		last := st.Rounds[len(st.Rounds)-1]
 		var msg taskv1.DispatchRosterV1
 		if err := proto.Unmarshal(last.Roster, &msg); err != nil {
@@ -210,7 +228,9 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.parked = true
 		return false, done{}
 	}
-	fresh := o.draw == nil || st.Epoch == nil || st.Epoch.Number != draw.Epoch.Number
+	// Stickiness is decided against the roster round 0 binds. Until round 0 holds a ticket (a first
+	// ticket not issued, or a restart with the draw stored but no round) it is decided again.
+	fresh := o.draw == nil || st.Epoch == nil || st.Epoch.Number != draw.Epoch.Number || len(st.Rounds) == 0
 	var sticky *taskv1.DispatchStickySnapshotV1
 	if fresh {
 		var wait bool
@@ -221,8 +241,7 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		}
 	}
 	root, _ := d.cfg.Handraises.LatestRoot()
-	roster, err := dispatchdraw.BuildRoster(d.cfg.ChainID, [32]byte(mustHex(st.TaskID)), root, draw.Pool, head, params.MaxRosterBytes,
-		func(operator string) bool { return d.cortexPending(ctx, operator) })
+	roster, err := dispatchdraw.BuildRoster(d.cfg.ChainID, [32]byte(mustHex(st.TaskID)), root, draw.Pool, head, params.MaxRosterBytes)
 	if err != nil {
 		return false, d.fail(o, err)
 	}
@@ -241,7 +260,8 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.draw = ord
 	}
 	o.roster, o.rosterRound = roster, nextRound(st)
-	st.BoundChangeHeight, st.NewRound = session.BoundChangeHeight, false
+	// bound_change_height only grows; a binding event may have been seen before the session read.
+	st.BoundChangeHeight, st.NewRound = max(st.BoundChangeHeight, session.BoundChangeHeight), false
 	return true, done{}
 }
 
@@ -257,15 +277,15 @@ func nextRound(st *orderState) uint32 {
 func (d *Dispatcher) cortexPending(ctx context.Context, operator string) bool {
 	pending, err := d.cfg.Keys.CortexRotationPending(ctx, operator)
 	if err != nil {
-		d.log.Warn("Cortex key unreadable; left out of the dispatch", "operator", operator, "err", err)
+		d.log.Warn("Cortex key unreadable; its ticket times out unsent", "operator", operator, "err", err)
 		return true
 	}
 	return pending
 }
 
 // issue signs the ticket of cand, stores it and offers it. A member that cannot be reached now
-// (no stream, or its key rotation became pending after the roster was built) still gets its
-// ticket, which times out at once: every roster member ranked before the winner must have an
+// (no stream, or its key rotation is pending: the chain refuses a dispatch entry naming it as
+// winner) still gets its ticket, which times out at once: every roster member ranked before the winner must have an
 // attempt. It reports whether a ticket went out. Caller holds o.mu.
 func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Candidate) (bool, error) {
 	st := o.st
@@ -433,7 +453,17 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 	for _, o := range d.sessionOrders(sessionID) {
 		o.mu.Lock()
 		st := o.st
-		if st.Phase == phaseFailed || builder == d.cfg.Builder && (len(st.Rounds) == 0 && st.Phase == phaseDispatching || st.BoundChangeHeight == boundChangeHeight) {
+		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight == boundChangeHeight {
+			o.mu.Unlock()
+			continue
+		}
+		if builder == d.cfg.Builder && len(st.Rounds) == 0 && st.Phase == phaseDispatching {
+			// No ticket yet: nothing to void, but the first ticket must commit the new height even
+			// if the session state read lags behind this event.
+			st.BoundChangeHeight = max(st.BoundChangeHeight, boundChangeHeight)
+			if err := saveState(d.cfg.Store, st); err != nil {
+				d.log.Error("binding change not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+			}
 			o.mu.Unlock()
 			continue
 		}

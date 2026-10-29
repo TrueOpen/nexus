@@ -44,6 +44,9 @@ import (
 )
 
 var (
+	// ErrDispatchUnavailable refuses new orders on a Builder that cannot run them to the end: no
+	// direct dispatch configured.
+	ErrDispatchUnavailable = errors.New("NEXUS_INGRESS_DISPATCH_UNAVAILABLE")
 	// ErrNotReserved refuses an order the in-flight precheck did not reserve for dispatch.
 	ErrNotReserved = errors.New("order is not reserved for dispatch")
 	// ErrTicketClosed refuses an accept that came after its ticket's accept deadline, or for a
@@ -153,11 +156,17 @@ type Bundle struct {
 }
 
 // Recorder records accepted orders on chain.
+//
+// Record and Withdraw of one winner ticket may arrive in either order: an accept hands its entry
+// to Record after the order's lock is released, so a binding change in between can Withdraw the
+// ticket first. An implementation keys both by the winner's dispatch_ticket_hash and must not
+// record an entry whose ticket was already withdrawn.
 type Recorder interface {
 	// Record queues the entry for the next MsgRecordDispatch. It may be called again with the same
 	// bytes after a restart and must treat that as the same entry.
 	Record(ctx context.Context, b *Bundle) error
-	// Withdraw drops a queued entry whose winner ticket was voided before it was recorded.
+	// Withdraw drops a queued entry whose winner ticket was voided before it was recorded, or
+	// marks the ticket so a later Record of it is dropped.
 	Withdraw(ctx context.Context, sessionID string, sequence uint64, ticketHash [32]byte)
 }
 

@@ -44,11 +44,11 @@ func (r *Roster) Contains(m dispatch.RosterMember) bool {
 // the round's first ticket. A member is taken from each admitted leaf whose handraise lists the
 // pool's profile, has a free slot, has an expiry height not below height (this Builder's chain
 // height) and whose operator is in the pool; it carries the pool's slot, slot version and weight.
-// An operator for which exclude (when set) reports true is left out: a Cortex whose service key
-// rotation is pending may take no new Worker duty, and the chain refuses a dispatch entry naming
-// it. No root or no member is ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is
+// These are exactly the roster membership conditions an omission challenge checks, so nothing else
+// (such as a pending service key rotation) may leave a member out; the dispatcher gives such a
+// member a ticket that times out unsent instead. No root or no member is ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is
 // ErrRosterTooLarge.
-func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, pool *Pool, height, maxBytes uint64, exclude func(operator string) bool) (*Roster, error) {
+func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, pool *Pool, height, maxBytes uint64) (*Roster, error) {
 	if maxBytes == 0 {
 		return nil, fmt.Errorf("max_dispatch_roster_bytes must be positive")
 	}
@@ -62,7 +62,7 @@ func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, po
 			continue
 		}
 		m, ok := pool.Member(h.GetMember().GetOperatorAddress())
-		if !ok || exclude != nil && exclude(m.OperatorAddress) {
+		if !ok {
 			continue
 		}
 		if _, dup := r.bySlot[m.Slot]; dup {

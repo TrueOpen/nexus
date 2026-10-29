@@ -3,9 +3,11 @@ package dispatcher
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/kv"
 )
 
 func digestOf(t *testing.T, name string, m proto.Message) [32]byte {
@@ -170,7 +173,7 @@ func TestAcceptStopsTheWalk(t *testing.T) {
 		t.Fatal("the offer does not carry the signed order")
 	}
 	roster, err := dispatchdraw.BuildRoster(testChainID, [32]byte(mustHex(o.TaskID)), e.handraises.root,
-		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap, nil)
+		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +251,8 @@ func TestRejectWithoutFreeSlotIsNotCounted(t *testing.T) {
 	e.handraises.setRoot(0xd1, 1, op1, op3, op7)
 	s := e.session(0xaa, 0)
 	e.dispatch(e.order(s, 0, 1))
-	e.accept() // op7 takes its one slot
+	e.accept()                            // op7 takes its one slot
+	e.sessions.ObserveHeight(testESH + 1) // past the unknown sticky anchor's possible height
 	e.dispatch(e.order(s, 1, 1))
 	if op, _, _ := e.lastOffer(); op != op7 {
 		t.Fatalf("second order offered to %s", op)
@@ -417,7 +421,10 @@ func TestStickyPromotionStaysOnTheRecordWhenThePromotedWorkerRejects(t *testing.
 
 // An order dispatched while an earlier order of the session is accepted but unrecorded predicts the
 // sticky state from that order's winner ticket: a new run started by it has no known anchor height
-// yet, so the next order is not promoted. While the earlier order still dispatches, the next waits.
+// yet. While the head is still at the order's earliest_submit_height that anchor (the earlier
+// order's record height) could equal it, so the order waits; once the head is past it, an anchor
+// recorded later lies above earliest_submit_height, outside the window, and the order is not
+// promoted. While the earlier order still dispatches, the next waits.
 func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -427,9 +434,14 @@ func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 		t.Fatalf("%d offers: the second order must wait for the first", n)
 	}
 	e.accept() // order 0 won by op7, a new run
+	if n := len(e.streams.offers()); n != 1 {
+		t.Fatalf("%d offers: at earliest_submit_height the second order must wait for the anchor", n)
+	}
+	e.sessions.ObserveHeight(testESH + 1)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
 	offers := e.streams.offers()
 	if len(offers) != 2 {
-		t.Fatalf("%d offers after the first accept", len(offers))
+		t.Fatalf("%d offers once the head passed earliest_submit_height", len(offers))
 	}
 	second := offers[1].frame.GetOffer().GetTicket()
 	if offers[1].operator != op7 || second.GetOrderSequence() != 1 || second.GetStickyAnchorSequence() != 1 || second.GetStickyRunCount() != 1 {
@@ -513,24 +525,34 @@ func TestOwnRotationPendingIssuesNoTickets(t *testing.T) {
 	}
 }
 
-// A Cortex with a pending key rotation is left out of the roster; one that becomes pending or
-// disconnects after the roster was built gets a ticket that times out unsent, so the round still
-// has an attempt for every roster member before the winner.
+// A Cortex with a pending key rotation stays in the roster, which holds exactly the members the
+// bound root admits (anything less loses an omission challenge): it, like a member that becomes
+// pending or disconnects later, gets a ticket that times out unsent, so the round still has an
+// attempt for every roster member before the winner.
 func TestUnreachableMembers(t *testing.T) {
 	e := newEnv(t)
 	e.keys.cortexPended[op7] = true
 	s := e.session(0xaa, 0)
-	e.dispatch(e.order(s, 0, 1))
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
 	op, ticket, _ := e.lastOffer()
 	if op != op1 || ticket.GetRank() != 1 {
 		t.Fatalf("first offer to %s rank %d, want op1 rank 1", op, ticket.GetRank())
+	}
+	full, err := dispatchdraw.BuildRoster(testChainID, [32]byte(mustHex(o.TaskID)), e.handraises.root,
+		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(ticket.GetRosterHash(), full.Hash[:]) {
+		t.Fatal("the pending member was left out of the roster")
 	}
 	e.keys.mu.Lock()
 	e.keys.cortexPended[op3] = true
 	e.keys.mu.Unlock()
 	e.reject()
 	if n := len(e.streams.offers()); n != 1 {
-		t.Fatalf("%d offers: the pending member must not be offered", n)
+		t.Fatalf("%d offers: the pending members must not be offered", n)
 	}
 	if got := e.observer.snapshot().failed; len(got) != 1 || !errors.Is(got[0], dispatchdraw.ErrNoCapacity) {
 		t.Fatalf("failed = %v", got)
@@ -668,5 +690,112 @@ func TestOfferLive(t *testing.T) {
 	}
 	if !OfferLive(&nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_Revoke{Revoke: &nexusv1.DispatchRevokeV1{}}}, now) {
 		t.Fatal("other frames are kept")
+	}
+}
+
+// roundFailingStore refuses, while fail is set, to write an order state that holds a round: the
+// first ticket of an order is then not issued and the order parks with its draw kept.
+type roundFailingStore struct {
+	kv.Store
+	mu   sync.Mutex
+	fail bool
+}
+
+func (s *roundFailingStore) setFail(v bool) {
+	s.mu.Lock()
+	s.fail = v
+	s.mu.Unlock()
+}
+
+func (s *roundFailingStore) Set(ns kv.Namespace, key string, val []byte) error {
+	s.mu.Lock()
+	fail := s.fail
+	s.mu.Unlock()
+	if fail && ns == kv.NSDispatch {
+		var st orderState
+		if json.Unmarshal(val, &st) == nil && len(st.Rounds) > 0 {
+			return errors.New("disk full")
+		}
+	}
+	return s.Store.Set(ns, key, val)
+}
+
+// Stickiness is decided from the roster round 0 actually binds: a first ticket that could not be
+// issued leaves the draw without a round, and the next attempt decides again against the then
+// latest root. Here the sticky Worker's handraise is gone by then, so the order is not promoted.
+func TestStickyIsDecidedFromTheRosterRoundZeroBinds(t *testing.T) {
+	e := newEnv(t)
+	store := &roundFailingStore{Store: kv.NewMemStore()}
+	e.store = store
+	e.open(store)
+	s := e.session(0xaa, 6)
+	e.chain.update(s, func(st *chaincli.SessionState) {
+		st.LastRecordWinner, st.StickyAnchorSequence, st.StickyAnchorHeight, st.StickyRunCount = op3, 5, 80, 1
+	})
+	store.setFail(true)
+	e.dispatch(e.order(s, 6, 1))
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers while the round could not be written", n)
+	}
+	store.setFail(false)
+	e.handraises.setRoot(0xd2, 2, op1, op7) // op3's handraise is gone
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
+	op, ticket, _ := e.lastOffer()
+	if op != op7 || ticket.GetRank() != 0 || ticket.GetStickyAnchorSequence() != 6 || ticket.GetStickyRunCount() != 1 ||
+		!bytes.Equal(ticket.GetHandraiseRootDigest(), bytes.Repeat([]byte{0xd2}, 32)) {
+		t.Fatalf("first ticket to %s rank %d sticky (%d, %d)", op, ticket.GetRank(), ticket.GetStickyAnchorSequence(), ticket.GetStickyRunCount())
+	}
+	e.accept()
+	rec := checkRecordable(t, e, e.onlyBundle(), testBound)
+	if rec.GetStickyApplied() {
+		t.Fatal("promoted to a Worker the bound roster does not hold")
+	}
+}
+
+// A binding change seen while an order waits for its first ticket is committed by that ticket even
+// when the session state read still shows the old bound_change_height.
+func TestBindingChangeBeforeTheFirstTicket(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.orderAt(s, 0, 1, testESH+1)
+	e.dispatch(o)
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers before earliest_submit_height", n)
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: testBound + 5}})
+	e.sessions.ObserveHeight(testESH + 1)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	_, ticket, _ := e.lastOffer()
+	if ticket.GetBoundChangeHeight() != testBound+5 || ticket.GetDispatchRound() != 0 {
+		t.Fatalf("first ticket commits bound_change_height %d round %d, want %d round 0",
+			ticket.GetBoundChangeHeight(), ticket.GetDispatchRound(), testBound+5)
+	}
+}
+
+// An accept that arrives once the head passed the order's record deadline cannot be recorded in
+// time (a late record is charged to the Builder): it is refused as DISPATCH_TICKET_CLOSED and the
+// order fails.
+func TestAcceptAfterTheRecordDeadlineFailsTheOrder(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, ticket, hash := e.lastOffer()
+	e.sessions.ObserveHeight(testDeadline + 1)
+	m, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
+		t.Fatalf("accept after the record deadline = %v, want DISPATCH_TICKET_CLOSED", err)
+	}
+	if got := e.observer.snapshot(); len(got.accepted) != 0 || len(got.failed) != 1 || !errors.Is(got.failed[0], ErrRecordDeadline) {
+		t.Fatalf("observed %+v", got)
+	}
+	if n := len(e.recorder.recorded()); n != 0 {
+		t.Fatalf("%d entries handed to the recorder", n)
+	}
+	if e.ledgerState(o) != inflight.StateFailed {
+		t.Fatal("the order is not failed")
+	}
+	if n := len(e.streams.offers()); n != 1 {
+		t.Fatalf("%d offers after the deadline", n)
 	}
 }
