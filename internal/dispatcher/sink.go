@@ -44,10 +44,11 @@ func (d *Dispatcher) answered(from dispatchstream.Origin, hash []byte, chainID s
 }
 
 // HandleDispatchAccept takes a Worker's accept. Only the ticket out, answered before its accept
-// deadline on the Builder's clock, can win; any other accept is DISPATCH_TICKET_CLOSED. The winner
-// ends the walk: the order is ACCEPTED in the ledger, the Worker's local free slots drop by one,
-// the record is signed and the dispatch entry goes to the Recorder. A state that cannot be stored
-// leaves the accept unacknowledged (ErrTransient) so the Cortex sends it again.
+// deadline on the Builder's clock while the order can still be recorded in time, can win; any
+// other accept is DISPATCH_TICKET_CLOSED. The winner ends the walk: the order is ACCEPTED in the
+// ledger, the Worker's local free slots drop by one, the record is signed and the dispatch entry
+// goes to the Recorder. A state that cannot be stored leaves the accept unacknowledged
+// (ErrTransient) so the Cortex sends it again.
 func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstream.Origin, m *taskv1.DispatchAcceptV1) error {
 	o, a, ticket, err := d.answered(from, m.GetDispatchTicketHash(), m.GetChainId(), m.GetTaskId(), m.GetTaskHash(), m.GetMember(), m.GetSchemaVersion())
 	if err != nil {
@@ -67,9 +68,11 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	}
 	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
 		// The entry can no longer be recorded in time, and a late record is charged to this
-		// Builder: the ticket closes and the next step fails the order on its record deadline.
-		d.timeoutLocked(o, a, true)
-		out := d.step(ctx, o)
+		// Builder. The Worker answered in time, so the attempt is not its timeout: it is VOIDED
+		// with the accept kept as received, the reject rate is not fed, and the order fails on its
+		// record deadline.
+		a.Outcome, a.LateAccept, a.LateAcceptDigest = outcomeVoided, from.Raw, append([]byte(nil), from.Digest[:]...)
+		out := d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
 		o.mu.Unlock()
 		d.finish(ctx, out)
 		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, entry.Deadline)

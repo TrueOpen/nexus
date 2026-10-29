@@ -1,12 +1,14 @@
 package dispatcher
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 )
@@ -137,5 +139,82 @@ func TestAcceptMustLeaveTimeToRecord(t *testing.T) {
 	}
 	if got := e.observer.snapshot(); len(got.accepted) != 1 || len(got.failed) != 1 || !errors.Is(got.failed[0], ErrRecordDeadline) {
 		t.Fatalf("observed %+v", got)
+	}
+}
+
+// An accept that came within its ticket's accept deadline but after the order became too late to
+// record is not the Worker's timeout: the attempt is VOIDED with the accept kept as received (a
+// compensation claim on it is matched against it), the Worker's reject rate is not fed and the
+// order fails on its record deadline.
+func TestOnTimeAcceptPastTheRecordDeadlineIsVoided(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	_, ticket, hash := e.lastOffer()
+	calls := len(e.handraises.outcomeCalls())
+	e.sessions.ObserveHeight(testDeadline - 1)
+	m, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
+		t.Fatalf("accept = %v", err)
+	}
+	p, st := e.phaseOf(s, 0)
+	if p != phaseFailed || st.Skips != 0 {
+		t.Fatalf("phase %s, skips %d", p, st.Skips)
+	}
+	a := st.Rounds[0].Attempts[0]
+	if a.Outcome != outcomeVoided || !bytes.Equal(a.LateAccept, from.Raw) || !bytes.Equal(a.LateAcceptDigest, from.Digest[:]) {
+		t.Fatalf("attempt = %s, late accept kept %v", a.Outcome, bytes.Equal(a.LateAccept, from.Raw))
+	}
+	if a.rebuttable() {
+		t.Fatal("a voided attempt is rebuttable")
+	}
+	if got := e.handraises.outcomeCalls(); len(got) != calls {
+		t.Fatalf("reject rate fed: %v", got[calls:])
+	}
+	if got := e.observer.snapshot().failed; len(got) != 1 || !errors.Is(got[0], ErrRecordDeadline) {
+		t.Fatalf("failed = %v", got)
+	}
+}
+
+// Only an attempt whose ticket reached the Worker and that ended REJECTED, TIMEOUT or REVOKED may
+// rebut a compensation claim; an unsent ticket, a VOIDED or ACCEPTED one may not.
+func TestRebuttableAttempts(t *testing.T) {
+	for _, tc := range []struct {
+		outcome taskv1.DispatchAttemptOutcomeV1
+		sent    bool
+		want    bool
+	}{
+		{outcomeRejected, true, true},
+		{outcomeTimeout, true, true},
+		{taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_REVOKED, true, true},
+		{outcomeTimeout, false, false},
+		{outcomeRejected, false, false},
+		{outcomeVoided, true, false},
+		{outcomeAccepted, true, false},
+		{taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_UNSPECIFIED, true, false},
+	} {
+		a := attemptState{Outcome: tc.outcome, Sent: tc.sent}
+		if got := a.rebuttable(); got != tc.want {
+			t.Fatalf("%s sent=%v: rebuttable %v", tc.outcome, tc.sent, got)
+		}
+	}
+}
+
+// A ticket whose offer could not be queued on the Worker's stream times out unsent.
+func TestOfferNotSentIsUnsent(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	e.streams.mu.Lock()
+	e.streams.sendErr = errors.New("not connected")
+	e.streams.mu.Unlock()
+	e.dispatch(e.order(s, 0, 1))
+	_, st := e.phaseOf(s, 0)
+	if len(st.Rounds) == 0 || len(st.Rounds[0].Attempts) == 0 {
+		t.Fatal("no attempt")
+	}
+	for _, a := range st.Rounds[0].Attempts {
+		if a.Sent || a.Outcome != outcomeTimeout {
+			t.Fatalf("attempt rank %d: sent %v, %s", a.Rank, a.Sent, a.Outcome)
+		}
 	}
 }

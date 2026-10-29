@@ -334,7 +334,9 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	frame := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_Offer{Offer: &nexusv1.DispatchOfferV1{Ticket: ticket, SignedOrder: o.signed}}}
 	if err := d.cfg.Streams.Send(ctx, operator, frame); err != nil {
 		d.log.Info("dispatch offer not sent; ticket timed out", "session_id", st.SessionID, "order_sequence", st.Sequence, "operator", operator, "err", err)
-		d.timeoutLocked(o, &round.Attempts[len(round.Attempts)-1], false)
+		a := &round.Attempts[len(round.Attempts)-1]
+		a.Sent = false
+		d.timeoutLocked(o, a, false)
 		return false, nil
 	}
 	d.armTimer(o, hash, time.Duration(timeoutMs)*time.Millisecond)

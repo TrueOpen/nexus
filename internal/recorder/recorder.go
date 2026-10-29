@@ -16,6 +16,10 @@
 // session fail as RECORD_REJECTED with REJECTED notices, the session is suspended from its
 // sequence and the dispatcher fails its later orders: none of them can be recorded before it. The
 // Workers of those orders claim compensation themselves.
+//
+// Rebutting those claims is not done here yet. When it is, it may only use an attempt that
+// reached its Worker and ended REJECTED, TIMEOUT or REVOKED (the dispatcher's
+// attemptState.rebuttable): an unsent ticket, a VOIDED one and the winner are owed the claim.
 package recorder
 
 import (

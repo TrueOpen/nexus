@@ -44,6 +44,27 @@ type attemptState struct {
 	// dispatch_reject_digest; the Builder shows them when a skip is challenged.
 	Reject       []byte `json:"reject,omitempty"`
 	RejectDigest []byte `json:"reject_digest,omitempty"`
+	// LateAccept is the signed DispatchAcceptV1 of a VOIDED attempt as received: the Worker
+	// accepted within the ticket's accept deadline, but the order could no longer be recorded in
+	// time. LateAcceptDigest is its dispatch_accept_digest; a compensation claim on the ticket is
+	// matched against them.
+	LateAccept       []byte `json:"late_accept,omitempty"`
+	LateAcceptDigest []byte `json:"late_accept_digest,omitempty"`
+}
+
+// rebuttable reports whether the attempt may rebut a compensation claimed on its ticket: only a
+// ticket that reached the Worker and ended REJECTED, TIMEOUT or REVOKED. A ticket that timed out
+// unsent, a VOIDED one (the Builder's own doing) and the winner are owed the compensation.
+// Automatic rebuttal must go through this check.
+func (a *attemptState) rebuttable() bool {
+	if !a.Sent {
+		return false
+	}
+	switch a.Outcome {
+	case outcomeRejected, outcomeTimeout, taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_REVOKED:
+		return true
+	}
+	return false
 }
 
 // roundState is one dispatch round: the handraise root its tickets bind, its frozen roster and
