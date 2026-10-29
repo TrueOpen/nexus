@@ -57,6 +57,9 @@ type client struct {
 	taskEvents  taskv1connect.TaskEventServiceClient
 	hubEvents   hubv1connect.HubEventServiceClient
 	cursorStore eventCursorStore
+	// poolEpochs is created on first use, after the options set the store.
+	poolEpochsOnce sync.Once
+	poolEpochs     *poolEpochTable
 
 	events chan ChainEvent
 

@@ -278,6 +278,8 @@ func TestProtocolEventToChainEventMapsHubOperationalEvents(t *testing.T) {
 
 func TestProtocolEventCodesIncludeHubOperationalEvents(t *testing.T) {
 	want := []sharedv1.ProtocolEventCodeV1{
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_PUBLISHED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_CANDIDATE_POOL_EXPIRED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,

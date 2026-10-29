@@ -140,6 +140,9 @@ type Client interface {
 	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
 	// QueryCandidatePoolMembers reads one page of a pool snapshot's members in slot order.
 	QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error)
+	// CandidatePoolSnapshotOfEpoch returns the snapshot the protocol event stream announced as the
+	// candidate pool of epoch; ErrNotFound when none was seen.
+	CandidatePoolSnapshotOfEpoch(ctx context.Context, epoch uint64) ([]byte, error)
 	// QueryCandidatePoolSnapshot reads the header of one pool snapshot.
 	QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []byte) (*hubv1.CandidatePoolSnapshotViewV1, error)
 	// QueryCurrentCandidatePool reads the ACTIVE pool snapshot the chain currently points to.

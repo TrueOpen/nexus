@@ -433,6 +433,9 @@ func (c *client) consumeProtocolEvents(ctx context.Context, stream protocolEvent
 			return delivered, fmt.Errorf("receive protocol events: %w", err)
 		}
 		if ok {
+			if err := c.recordPoolEpoch(mapped.Typed); err != nil {
+				return delivered, fmt.Errorf("receive protocol events: %w", err)
+			}
 			if err := c.sendEvent(ctx, mapped); err != nil {
 				return delivered, err
 			}
