@@ -138,6 +138,8 @@ type Client interface {
 	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
 	// QueryDispatchParams reads task params dispatch.
 	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
+	// QueryCandidateWeightParams reads task params weights.
+	QueryCandidateWeightParams(ctx context.Context) (*taskv1.CandidateWeightParamsV1, error)
 	// QueryCandidatePoolSnapshotMember reads one operator's membership and weight in a pool snapshot.
 	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
 	// QueryCandidatePoolMembers reads one page of a pool snapshot's members in slot order.

@@ -270,6 +270,27 @@ func TestQueryDispatchParamsReadsTheDispatchGroup(t *testing.T) {
 	}
 }
 
+func TestQueryCandidateWeightParamsReadsTheWeightsGroup(t *testing.T) {
+	weights := &taskv1.CandidateWeightParamsV1{MaxWeightedDrawAttemptsPerSelection: 64}
+	c := &client{taskQuery: &dispatchTaskQuery{params: &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{Weights: weights}}}}
+	got, err := c.QueryCandidateWeightParams(context.Background())
+	if err != nil || got.GetMaxWeightedDrawAttemptsPerSelection() != 64 {
+		t.Fatalf("weights = %v, %v", got, err)
+	}
+	for name, response := range map[string]*taskv1.QueryTaskParamsResponse{
+		"no weights group":   {Params: &taskv1.TaskParamsV1{}},
+		"zero draw attempts": {Params: &taskv1.TaskParamsV1{Weights: &taskv1.CandidateWeightParamsV1{}}},
+	} {
+		c := &client{taskQuery: &dispatchTaskQuery{params: response}}
+		if _, err := c.QueryCandidateWeightParams(context.Background()); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+	if _, err := (&stubClient{}).QueryCandidateWeightParams(context.Background()); !errors.Is(err, ErrNotSupportedOnChain) {
+		t.Fatalf("stub: %v", err)
+	}
+}
+
 func TestQueryCandidatePoolSnapshotMemberSendsOptionalProfile(t *testing.T) {
 	snapshotID, modelID := mustHash32("d1"), mustHash32("d2")
 	weight := uint64(77)

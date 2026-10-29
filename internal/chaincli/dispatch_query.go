@@ -146,6 +146,23 @@ func (c *client) QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParam
 	return params, nil
 }
 
+// QueryCandidateWeightParams reads task params weights, which bound the weighted draw. A zero
+// max_weighted_draw_attempts_per_selection is refused: no draw could complete.
+func (c *client) QueryCandidateWeightParams(ctx context.Context) (*taskv1.CandidateWeightParamsV1, error) {
+	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
+	if err != nil {
+		return nil, applicationQueryError("task params", err)
+	}
+	weights := resp.Msg.GetParams().GetWeights()
+	switch {
+	case weights == nil:
+		return nil, fmt.Errorf("query task params: weights is missing")
+	case weights.GetMaxWeightedDrawAttemptsPerSelection() == 0:
+		return nil, fmt.Errorf("query task params: weights.max_weighted_draw_attempts_per_selection is zero")
+	}
+	return weights, nil
+}
+
 func checkHash32(field string, value []byte) error {
 	if len(value) != 32 {
 		return fmt.Errorf("%s is %d bytes, want 32", field, len(value))
@@ -155,6 +172,10 @@ func checkHash32(field string, value []byte) error {
 
 // The stub has no chain to ask; ErrNotFound for rows, ErrNotSupportedOnChain for params, so
 // callers fail closed.
+
+func (c *stubClient) QueryCandidateWeightParams(context.Context) (*taskv1.CandidateWeightParamsV1, error) {
+	return nil, ErrNotSupportedOnChain
+}
 
 func (c *stubClient) QueryDispatchRecordByOrder(context.Context, string, uint64) (*taskv1.DispatchRecordState, error) {
 	return nil, ErrNotFound
