@@ -3,10 +3,12 @@ package dispatcher
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/handraise"
 )
 
 // The record deadline is the Recorder's: max(the deadline handed over, max(earliest_submit_height,
@@ -112,5 +114,64 @@ func TestParamsFromChainTakeRecordDeadlineBlocks(t *testing.T) {
 		&taskv1.CandidateWeightParamsV1{MaxWeightedDrawAttemptsPerSelection: 1})
 	if err != nil || p.RecordDeadlineBlocks != 33 {
 		t.Fatalf("params = %+v, %v", p, err)
+	}
+}
+
+// A binding change of this Builder that arrives once the head passed the deadline of the old
+// bound_change_height opens the new round against the new one: the order is not failed.
+func TestBindingEventPastTheOldDeadline(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	const bound = testESH + 30
+	e.sessions.ObserveHeight(testDeadline + 1)
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = bound })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: bound}})
+	if got := e.observer.snapshot().failed; len(got) != 0 {
+		t.Fatalf("failed = %v", got)
+	}
+	_, ticket, _ := e.lastOffer()
+	if ticket.GetDispatchRound() != 1 || ticket.GetBoundChangeHeight() != bound {
+		t.Fatalf("ticket = %v", ticket)
+	}
+}
+
+// The new bound_change_height is stored with the voided round: an order that could not step at
+// the event (its Builder key rotation pending) and resumes after a restart, with the head past the
+// old deadline, opens its new round instead of failing.
+func TestBindingChangeSurvivesARestartPastTheOldDeadline(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	const bound = testESH + 30
+	e.keys.mu.Lock()
+	e.keys.builderErr = fmt.Errorf("%w: nonce 5", handraise.ErrBuilderRotationPending)
+	e.keys.mu.Unlock()
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = bound })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: bound}})
+	offers := len(e.streams.offers())
+	e.keys.mu.Lock()
+	e.keys.builderErr = nil
+	e.keys.mu.Unlock()
+	// Restarted with the head already past the old deadline.
+	if err := e.d.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.open(e.store)
+	e.sessions.ObserveHeight(testDeadline + 1)
+	if err := e.d.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testDeadline + 1})
+	if got := e.observer.snapshot().failed; len(got) != 0 {
+		t.Fatalf("failed = %v", got)
+	}
+	if len(e.streams.offers()) <= offers {
+		t.Fatal("no ticket of the new round")
+	}
+	if _, ticket, _ := e.lastOffer(); ticket.GetDispatchRound() != 1 || ticket.GetBoundChangeHeight() != bound {
+		t.Fatalf("ticket = %v", ticket)
 	}
 }

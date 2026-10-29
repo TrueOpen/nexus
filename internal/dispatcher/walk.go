@@ -501,7 +501,9 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			failed := d.fail(o, fmt.Errorf("%w: bound to %s", ErrBoundElsewhere, builder))
 			out.failed = failed.failed
 		} else {
-			st.NewRound = true
+			// The new height is taken now, not only when the new round opens: the step below (and
+			// one after a restart) judges the record deadline with it.
+			st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
 			if err := saveState(d.cfg.Store, st); err != nil {
 				d.log.Error("voided tickets not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}
