@@ -278,3 +278,9 @@ func (m *Manager) setPhase(r *record, p phase) {
 		m.log.Error("takeover phase not written", "session_id", r.SessionID, "err", err)
 	}
 }
+
+// TakeoverUnsettled implements recorder.Takeovers: the entry's result could not be attributed
+// and the entry was dropped; the session state settles the takeover.
+func (m *Manager) TakeoverUnsettled(sessionID string, sequence uint64) {
+	m.schedule(sessionID, sequence, resolveLapsed)
+}

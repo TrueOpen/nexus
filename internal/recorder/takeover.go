@@ -36,6 +36,10 @@ type Takeovers interface {
 	// TakeoverLapsed: the entry got no result by its deadline; the session state tells what
 	// happened.
 	TakeoverLapsed(sessionID string, sequence uint64)
+	// TakeoverUnsettled: the entry's result could not be attributed to it (its key did not match,
+	// as when the session's binding generation moved since it was sent); the entry is dropped and
+	// the chain settles the takeover.
+	TakeoverUnsettled(sessionID string, sequence uint64)
 }
 
 // SetTakeovers wires the takeover manager, which is built after the Recorder.
@@ -79,10 +83,33 @@ func (r *Recorder) RecordTakeover(_ context.Context, b *TakeoverBundle) error {
 	return nil
 }
 
+// WithdrawTakeover drops the session's takeover entry of sequence: an entry not sent yet is
+// removed; a sent one is marked so that its result is dropped without a report.
+func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequence uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var ops []kv.WriteOp
+	for _, e := range r.entries {
+		if !e.Takeover || e.SessionID != sessionID || e.Sequence != sequence {
+			continue
+		}
+		if e.Tx == "" {
+			r.removeLocked(e, &ops)
+		} else {
+			e.Withdrawn = true
+			ops = append(ops, r.entryOp(e))
+		}
+	}
+	r.writeLocked(ops)
+}
+
 // takeoverLocked resolves the takeover entry e and tells the Takeovers with report. Caller holds
 // r.mu.
 func (r *Recorder) takeoverLocked(e *entry, ops *[]kv.WriteOp, fx *effects, what string, report func(Takeovers)) {
 	r.removeLocked(e, ops)
+	if e.Withdrawn {
+		return
+	}
 	r.log.Info("takeover entry "+what, "session_id", e.SessionID, "order_sequence", e.Sequence)
 	t := r.takeovers
 	if t == nil {
@@ -102,4 +129,8 @@ func (r *Recorder) takeoverRefusedLocked(e *entry, code taskv1.DispatchRejectCod
 
 func (r *Recorder) takeoverLapsedLocked(e *entry, ops *[]kv.WriteOp, fx *effects) {
 	r.takeoverLocked(e, ops, fx, "lapsed", func(t Takeovers) { t.TakeoverLapsed(e.SessionID, e.Sequence) })
+}
+
+func (r *Recorder) takeoverUnsettledLocked(e *entry, ops *[]kv.WriteOp, fx *effects) {
+	r.takeoverLocked(e, ops, fx, "result not attributed", func(t Takeovers) { t.TakeoverUnsettled(e.SessionID, e.Sequence) })
 }

@@ -35,11 +35,12 @@ func takeover(t *testing.T, session byte, seq, deadline uint64) *TakeoverBundle 
 }
 
 type takeoverReport struct {
-	session string
-	seq     uint64
-	height  uint64
-	code    taskv1.DispatchRejectCodeV1
-	lapsed  bool
+	session   string
+	seq       uint64
+	height    uint64
+	code      taskv1.DispatchRejectCodeV1
+	lapsed    bool
+	unsettled bool
 }
 
 type fakeTakeovers struct {
@@ -63,6 +64,12 @@ func (f *fakeTakeovers) TakeoverLapsed(sessionID string, seq uint64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, takeoverReport{session: sessionID, seq: seq, lapsed: true})
+}
+
+func (f *fakeTakeovers) TakeoverUnsettled(sessionID string, seq uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reports = append(f.reports, takeoverReport{session: sessionID, seq: seq, unsettled: true})
 }
 
 func (f *fakeTakeovers) got() []takeoverReport {
@@ -176,8 +183,7 @@ func TestTakeoverEntryLapsesAtItsDeadline(t *testing.T) {
 	}
 }
 
-// A takeover entry survives a restart and goes out as stored; results that do not check out send
-// it again rather than querying a dispatch record.
+// A takeover entry survives a restart and goes out as stored.
 func TestTakeoverEntrySurvivesARestart(t *testing.T) {
 	e := newEnv(t)
 	tk := takeover(t, 0xaa, 1, 50)
@@ -189,19 +195,78 @@ func TestTakeoverEntrySurvivesARestart(t *testing.T) {
 	if !proto.Equal(msg.GetEntries()[0].GetTakeover(), tk.Entry) {
 		t.Fatalf("sent %v", msg)
 	}
-	// A result whose object id is not the entry's: checked by query, the takeover is sent again.
-	bad := &taskv1.MsgRecordDispatchResponse{Results: []*taskv1.BatchItemResultV1{{ObjectId: fill(9), Status: applied}}}
-	e.chain.execute(raw, txWith(t, 11, bad))
+	e.chain.execute(raw, executed(t, msg, 11, ok()))
 	e.block(11)
-	e.block(12)
-	if msgs, _ := e.tx.sent(); len(msgs) != 2 || e.chain.queries != 0 {
-		t.Fatalf("%d messages, %d queries", len(msgs), e.chain.queries)
-	}
-	msg, raw = e.lastSent()
-	e.chain.execute(raw, executed(t, msg, 13, ok()))
-	e.block(13)
-	if got := reports.got(); !reflect.DeepEqual(got, []takeoverReport{{session: sessionHex(0xaa), seq: 1, height: 13}}) {
+	if got := reports.got(); !reflect.DeepEqual(got, []takeoverReport{{session: sessionHex(0xaa), seq: 1, height: 11}}) {
 		t.Fatalf("reports = %v", got)
+	}
+}
+
+// A takeover result whose object_id is not the entry's key (the chain keyed it under a newer
+// bound_change_height) is not attributed: the entry is dropped and the takeovers settle it with
+// the chain. The dispatch entries of the same transaction keep their own results.
+func TestTakeoverKeyMismatchKeepsTheOtherResults(t *testing.T) {
+	e := newEnv(t)
+	tk := e.takeovers()
+	a0 := bundle(0xaa, 0, 1, 50)
+	e.record(a0)
+	e.recordTakeover(takeover(t, 0xbb, 1, 50))
+	e.block(10)
+	msg, raw := e.lastSent()
+	res := executed(t, msg, 11, ok(), ok())
+	resp := &taskv1.MsgRecordDispatchResponse{}
+	if err := chaincli.DecodeMsgResponse(res, 0, resp); err != nil {
+		t.Fatal(err)
+	}
+	resp.Results[1].ObjectId = fill(9)
+	digest := chaincli.RecordDispatchBatchDigest(testChainID, resp.GetResults())
+	resp.BatchDigest = digest[:]
+	e.chain.execute(raw, txWith(t, 11, resp))
+	e.block(11)
+	if got := tk.got(); !reflect.DeepEqual(got, []takeoverReport{{session: sessionHex(0xbb), seq: 1, unsettled: true}}) {
+		t.Fatalf("reports = %v", got)
+	}
+	if want := []taskReport{{taskID: a0.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
+		t.Fatalf("tasks recorded = %v", e.tasks.recorded)
+	}
+	if e.chain.queries != 0 {
+		t.Fatalf("%d record queries", e.chain.queries)
+	}
+	if keys := e.outboxKeys(); len(keys) != 0 {
+		t.Fatalf("outbox keeps %v", keys)
+	}
+	// Results that cannot be attributed at all: the takeover is settled with the chain as well.
+	e.recordTakeover(takeover(t, 0xcc, 1, 50))
+	e.block(12)
+	_, raw = e.lastSent()
+	e.chain.execute(raw, txWith(t, 13, &taskv1.MsgRecordDispatchResponse{}))
+	e.block(13)
+	if got := tk.got(); got[len(got)-1] != (takeoverReport{session: sessionHex(0xcc), seq: 1, unsettled: true}) {
+		t.Fatalf("reports = %v", got)
+	}
+}
+
+// A withdrawn takeover entry is not sent; one already sent has its result ignored.
+func TestWithdrawTakeover(t *testing.T) {
+	e := newEnv(t)
+	tk := e.takeovers()
+	e.recordTakeover(takeover(t, 0xaa, 1, 50))
+	e.r.WithdrawTakeover(context.Background(), sessionHex(0xaa), 1)
+	e.block(10)
+	if msgs, _ := e.tx.sent(); len(msgs) != 0 {
+		t.Fatalf("a withdrawn entry was sent: %v", msgs)
+	}
+	e.recordTakeover(takeover(t, 0xbb, 1, 50))
+	e.block(11)
+	msg, raw := e.lastSent()
+	e.r.WithdrawTakeover(context.Background(), sessionHex(0xbb), 1)
+	e.chain.execute(raw, executed(t, msg, 12, refused(codeTakeoverPending)))
+	e.block(12)
+	if got := tk.got(); len(got) != 0 {
+		t.Fatalf("reports = %v", got)
+	}
+	if keys := e.outboxKeys(); len(keys) != 0 {
+		t.Fatalf("outbox keeps %v", keys)
 	}
 }
 

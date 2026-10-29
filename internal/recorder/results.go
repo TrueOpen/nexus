@@ -144,13 +144,24 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		raw, _ := hex.DecodeString(id)
 		ids[i] = [32]byte(raw)
 	}
-	resp, err := chaincli.DecodeRecordDispatchResponse(res, 0, r.cfg.ChainID, ids)
+	resp, mismatched, err := chaincli.DecodeRecordDispatchResults(res, 0, r.cfg.ChainID, ids)
 	if errors.Is(err, chaincli.ErrBatchDigestMismatch) && resp != nil {
 		// The batch kind of the digest is not registered in wire yet; every result echoes its
 		// entry's key in order, so they are attributed all the same.
 		r.log.Warn("record results kept although their batch_digest does not match", "tx_hash", tx.Hash)
 		err = nil
 	}
+	// Only a takeover entry's key may legitimately differ (it commits to the binding generation
+	// when it was sent); any other mismatch leaves no result attributable.
+	unattributed := map[int]bool{}
+	r.mu.Lock()
+	for _, i := range mismatched {
+		if e := r.entries[tx.Objects[i]]; e != nil && !e.Takeover {
+			err = fmt.Errorf("result %d object_id is not the key of its dispatch entry", i)
+		}
+		unattributed[i] = true
+	}
+	r.mu.Unlock()
 	if err != nil {
 		r.log.Error("record results do not match the entries sent; checking each entry on chain", "tx_hash", tx.Hash, "err", err)
 		r.verifyByQuery(ctx, tx)
@@ -167,6 +178,8 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 			continue
 		}
 		switch rejected := item.GetStatus() == sharedv1.MutationStatusV1_MUTATION_STATUS_V1_REJECTED; {
+		case unattributed[i]:
+			r.takeoverUnsettledLocked(e, &ops, &fx)
 		case e.Takeover && rejected:
 			r.takeoverRefusedLocked(e, item.GetRejectCode(), &ops, &fx)
 		case e.Takeover:
@@ -277,19 +290,27 @@ func (r *Recorder) lookup(id string) *entry {
 
 // verifyByQuery resolves the entries of a transaction whose results could not be attributed: an
 // entry the chain recorded with its winner ticket is recorded; any other goes out again. A
-// takeover entry goes out again unread: its exact replay is answered with its first result.
+// takeover entry is dropped and the takeovers settle it with the chain.
 func (r *Recorder) verifyByQuery(ctx context.Context, tx txRecord) {
 	for _, id := range tx.Objects {
 		r.mu.Lock()
 		e := r.entries[id]
 		var session string
 		var seq uint64
-		takeover := false
+		if e != nil && e.Takeover {
+			var fx effects
+			var ops []kv.WriteOp
+			r.takeoverUnsettledLocked(e, &ops, &fx)
+			r.writeLocked(ops)
+			r.mu.Unlock()
+			fx.run(ctx)
+			continue
+		}
 		if e != nil {
-			session, seq, takeover = e.SessionID, e.Sequence, e.Takeover
+			session, seq = e.SessionID, e.Sequence
 		}
 		r.mu.Unlock()
-		if e == nil || takeover {
+		if e == nil {
 			continue
 		}
 		rec, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, session, seq)
