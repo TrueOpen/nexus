@@ -16,6 +16,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
@@ -45,7 +46,7 @@ type directDispatch struct {
 	Groups   taskgroup.Source
 	Height   handraise.ChainHeight
 
-	chainWarn warnLimiter
+	chainWarn lograte.Limiter // handraises dropped on chain read failures
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -134,7 +135,7 @@ func (d *directDispatch) HandleStandingHandraise(ctx context.Context, from dispa
 	err := d.Registry.Accept(ctx, from.Operator, m)
 	switch {
 	case errors.Is(err, handraise.ErrChainUnavailable):
-		if suppressed, ok := d.chainWarn.allow(time.Now()); ok {
+		if suppressed, ok := d.chainWarn.Allow(time.Now()); ok {
 			d.log.Warn("handraise dropped: chain read failed", "operator", from.Operator, "suppressed", suppressed, "err", err)
 		}
 		return nil
@@ -148,25 +149,6 @@ func (d *directDispatch) HandleStandingHandraise(ctx context.Context, from dispa
 // handraiseChainWarnInterval spaces the warnings about handraises dropped on chain read failures:
 // during an outage every Cortex heartbeat fails the same way.
 const handraiseChainWarnInterval = time.Minute
-
-// warnLimiter lets one warning through per handraiseChainWarnInterval and counts the rest.
-type warnLimiter struct {
-	mu         sync.Mutex
-	last       time.Time
-	suppressed int
-}
-
-// allow reports whether a warning may be logged now and how many were suppressed since the last.
-func (l *warnLimiter) allow(now time.Time) (suppressed int, ok bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.last.IsZero() && now.Sub(l.last) < handraiseChainWarnInterval {
-		l.suppressed++
-		return 0, false
-	}
-	suppressed, l.suppressed, l.last = l.suppressed, 0, now
-	return suppressed, true
-}
 
 // directDispatchDeps are what newDirectDispatch wires together.
 type directDispatchDeps struct {
@@ -190,6 +172,7 @@ type directDispatchDeps struct {
 // keys and opens the handraise registry, which samples stream RTTs and signs roots with the
 // service key.
 func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
+	d.chainWarn.Every = handraiseChainWarnInterval
 	keys, err := dispatchdraw.LoadVRFKeys(deps.VRFKeyFiles, deps.VRFKeyPassword)
 	if err != nil {
 		return err

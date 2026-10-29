@@ -25,6 +25,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/lograte"
 )
 
 // FrameStream is one connected Cortex stream. Receive and Send may be called concurrently, each from
@@ -44,7 +45,8 @@ var (
 	ErrProtocol = errors.New("dispatch stream protocol violation")
 	// ErrTransient ends a stream without acknowledging the frame in hand because it could not be
 	// judged now (the chain could not be read, local state could not be written). The Cortex
-	// reconnects and sends it again. Sinks wrap it to ask for the same treatment.
+	// reconnects and sends it again. Sinks wrap it to ask for the same treatment. A standing
+	// handraise whose CORTEX key cannot be read is the exception: it is dropped and acknowledged.
 	ErrTransient = errors.New("dispatch stream message cannot be processed now")
 	// ErrReplaced ends a stream when the same Cortex opened a newer valid stream.
 	ErrReplaced = errors.New("dispatch stream replaced by a newer stream of the same Cortex")
@@ -157,6 +159,8 @@ type Hub struct {
 	sinks        atomic.Pointer[Sinks]
 	replayFilter func(string, *nexusv1.DispatchStreamFrameV1) bool
 	observe      func(string, bool)
+	// handraiseKeyWarn spaces the warnings about standing handraises dropped on key read failures.
+	handraiseKeyWarn lograte.Limiter
 
 	// now and keepaliveTicks are replaced in tests.
 	now            func() time.Time
@@ -183,15 +187,16 @@ func New(log *slog.Logger, cfg Config, keys CortexKeys, store kv.Store, opts ...
 		return nil, fmt.Errorf("dispatch stream hub needs a Cortex key lookup and a store")
 	}
 	h := &Hub{
-		cfg:      cfg.withDefaults(),
-		log:      log,
-		keys:     keys,
-		store:    store,
-		now:      time.Now,
-		sessions: make(map[string]*session),
-		pending:  make(map[string][]*pendingMessage),
-		nextSeq:  make(map[string]uint64),
-		retained: make(map[retainKey]*retainedMessage),
+		cfg:              cfg.withDefaults(),
+		log:              log,
+		keys:             keys,
+		store:            store,
+		now:              time.Now,
+		handraiseKeyWarn: lograte.Limiter{Every: handraiseKeyWarnInterval},
+		sessions:         make(map[string]*session),
+		pending:          make(map[string][]*pendingMessage),
+		nextSeq:          make(map[string]uint64),
+		retained:         make(map[retainKey]*retainedMessage),
 		keepaliveTicks: func(d time.Duration) (<-chan time.Time, func()) {
 			ticker := time.NewTicker(d)
 			return ticker.C, ticker.Stop

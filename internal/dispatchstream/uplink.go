@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
@@ -12,7 +13,14 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
-const verifierHandraiseMessage = "task.v1.VerifierHandraiseV1"
+const (
+	standingHandraiseMessage = "task.v1.StandingHandraiseV1"
+	verifierHandraiseMessage = "task.v1.VerifierHandraiseV1"
+)
+
+// handraiseKeyWarnInterval spaces the warnings about standing handraises dropped because the
+// CORTEX key could not be read: during an outage every heartbeat fails the same way.
+const handraiseKeyWarnInterval = time.Minute
 
 // errUplinkRefused marks an uplink business message that failed verification. The stream goes on;
 // the message is dropped.
@@ -37,7 +45,7 @@ func claimsOf(frame *nexusv1.DispatchStreamFrameV1) (uplinkClaims, bool) {
 	switch m := frame.GetMessage().(type) {
 	case *nexusv1.DispatchStreamFrameV1_Handraise:
 		h := m.Handraise
-		return uplinkClaims{"task.v1.StandingHandraiseV1", h, true, h.GetChainId(), h.GetBuilderAddress(),
+		return uplinkClaims{standingHandraiseMessage, h, true, h.GetChainId(), h.GetBuilderAddress(),
 			h.GetMember().GetOperatorAddress(), h.GetServiceAuthorizationNonce(), h.GetServiceSignature()}, true
 	case *nexusv1.DispatchStreamFrameV1_Accept:
 		a := m.Accept
@@ -75,6 +83,15 @@ func (h *Hub) handleUplink(ctx context.Context, operator string, frame *nexusv1.
 	}
 	from, err := h.verifyUplink(ctx, operator, claims)
 	if err != nil {
+		// A standing handraise is soft state the Cortex re-signs every heartbeat: one whose key
+		// cannot be read now is dropped and the stream goes on. Any other message ends the stream
+		// unacknowledged so the Cortex sends it again.
+		if errors.Is(err, ErrTransient) && claims.name == standingHandraiseMessage {
+			if suppressed, ok := h.handraiseKeyWarn.Allow(h.now()); ok {
+				h.log.Warn("standing handraise dropped: CORTEX key read failed", "operator", operator, "suppressed", suppressed, "err", err)
+			}
+			return nil
+		}
 		return err
 	}
 	sinks := h.sinks.Load()
@@ -118,7 +135,7 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 		return Origin{}, fmt.Errorf("%w: %s signer is not the stream's Cortex", errUplinkRefused, c.name)
 	case c.hasChain && c.chainID != h.cfg.ChainID:
 		return Origin{}, fmt.Errorf("%w: %s chain_id %q is not this chain", errUplinkRefused, c.name, c.chainID)
-	case c.name == "task.v1.StandingHandraiseV1" && c.builder != h.cfg.BuilderOperator:
+	case c.name == standingHandraiseMessage && c.builder != h.cfg.BuilderOperator:
 		return Origin{}, fmt.Errorf("%w: standing handraise is addressed to another Builder", errUplinkRefused)
 	}
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(c.msg)

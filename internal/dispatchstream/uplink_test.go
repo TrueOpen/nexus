@@ -1,10 +1,14 @@
 package dispatchstream
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
@@ -182,18 +186,28 @@ func TestVerifierHandraiseSignatureAwaitsAWireProjection(t *testing.T) {
 }
 
 // A message that cannot be judged now (the chain cannot be read, or the receiver asks for a retry)
-// is not acknowledged: the stream ends and the Cortex sends it again after reconnecting.
+// is not acknowledged: the stream ends and the Cortex sends it again after reconnecting. Losing an
+// accept or reject silently is worse than a reconnect.
 func TestUplinkTransientFailureEndsTheStreamUnacknowledged(t *testing.T) {
-	t.Run("key lookup", func(t *testing.T) {
-		h := newHarness(t)
-		s := h.connect(cortexA, "1")
-		h.keys.setTransient(true)
-		s.send(acceptFrame(h.keys.accept(t, cortexA, "a")))
-		if err := s.wait(t); !errors.Is(err, ErrTransient) {
-			t.Fatalf("Serve = %v, want ErrTransient", err)
-		}
-		assertNoAck(t, s)
-	})
+	keys := newTestKeys()
+	for name, frame := range map[string]*nexusv1.DispatchStreamFrameV1{
+		"accept":             acceptFrame(keys.accept(t, cortexA, "a")),
+		"reject":             rejectFrame(keys.reject(t, cortexA, "r")),
+		"input request":      inputRequestFrame(keys.inputRequest(t, cortexA, "i")),
+		"verifier handraise": verifierHandraiseFrame(verifierHandraise(cortexA)),
+		"verify notice":      noticeFrame(keys.verifyNotice(t, cortexA, "n")),
+	} {
+		t.Run("key lookup/"+name, func(t *testing.T) {
+			h := newHarness(t)
+			s := h.connect(cortexA, "1")
+			h.keys.setTransient(true)
+			s.send(frame)
+			if err := s.wait(t); !errors.Is(err, ErrTransient) {
+				t.Fatalf("Serve = %v, want ErrTransient", err)
+			}
+			assertNoAck(t, s)
+		})
+	}
 	t.Run("receiver", func(t *testing.T) {
 		h := newHarness(t)
 		s := h.connect(cortexA, "1")
@@ -204,6 +218,68 @@ func TestUplinkTransientFailureEndsTheStreamUnacknowledged(t *testing.T) {
 		}
 		assertNoAck(t, s)
 	})
+}
+
+// A standing handraise whose CORTEX key cannot be read is acknowledged and dropped and the stream
+// goes on: handraises are soft state the Cortex re-signs every heartbeat. The drops are warned
+// about at most once a minute.
+func TestUplinkStandingHandraiseKeyFailureKeepsTheStream(t *testing.T) {
+	h := newHarness(t)
+	logs := &countingHandler{}
+	h.hub.log = slog.New(logs)
+	s := h.connect(cortexA, "1")
+	h.keys.setTransient(true)
+	for range 2 {
+		cursor := s.send(standingFrame(h.keys.standing(t, cortexA)))
+		if got := s.stream.nextAck(t); got != cursor {
+			t.Fatalf("acked cursor %d, want %d", got, cursor)
+		}
+	}
+	if got := h.sinks.kinds(); len(got) != 0 {
+		t.Fatalf("routed %v, want the handraises dropped", got)
+	}
+	if got := logs.count(slog.LevelWarn); got != 1 {
+		t.Fatalf("warnings = %d, want 1", got)
+	}
+	h.clock.advance(time.Minute)
+	cursor := s.send(standingFrame(h.keys.standing(t, cortexA)))
+	if got := s.stream.nextAck(t); got != cursor {
+		t.Fatalf("acked cursor %d, want %d", got, cursor)
+	}
+	if got := logs.count(slog.LevelWarn); got != 2 {
+		t.Fatalf("warnings after a minute = %d, want 2", got)
+	}
+
+	h.keys.setTransient(false)
+	cursor = s.send(acceptFrame(h.keys.accept(t, cortexA, "a")))
+	if got := s.stream.nextAck(t); got != cursor || !slices.Equal(h.sinks.kinds(), []string{"accept"}) {
+		t.Fatalf("stream after the drops: acked %d (want %d), routed %v", got, cursor, h.sinks.kinds())
+	}
+}
+
+// countingHandler counts log records by level.
+type countingHandler struct {
+	mu     sync.Mutex
+	counts map[slog.Level]int
+}
+
+func (c *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (c *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.counts == nil {
+		c.counts = map[slog.Level]int{}
+	}
+	c.counts[r.Level]++
+	return nil
+}
+func (c *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c *countingHandler) WithGroup(string) slog.Handler      { return c }
+
+func (c *countingHandler) count(level slog.Level) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.counts[level]
 }
 
 func assertNoAck(t *testing.T, s *served) {
