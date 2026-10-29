@@ -182,6 +182,8 @@ type taskFSM struct {
 	winner      string
 	assignedSet []types.BuilderRef
 	verifiers   []string
+	// recordHeight is the height the chain recorded the task's dispatch; 0 until known.
+	recordHeight uint64
 	// inferDeadlineHeight is the chain-height deadline for the winner's receipt, from the on-chain
 	// task (reconcile).
 	inferDeadlineHeight uint64
@@ -374,7 +376,7 @@ func (f *taskFSM) publishOpenVerify() {
 		return
 	}
 	ctx := context.Background()
-	if err := f.messages.signOpenVerify(ctx, payload); err != nil {
+	if err := f.messages.signOpenVerify(ctx, payload, f.recordHeight); err != nil {
 		f.log.Warn("OPEN_VERIFY not sent: it cannot be signed", "task_id", f.taskID, "err", err)
 		return
 	}
@@ -586,6 +588,9 @@ func (f *taskFSM) onWinnerRecorded(winner string, assignedSet []types.BuilderRef
 		return // idempotent
 	}
 	f.winner = winner
+	if height > 0 {
+		f.recordHeight = uint64(height)
+	}
 	if len(assignedSet) > 0 {
 		f.assignedSet = assignedSet
 	}
@@ -1035,7 +1040,7 @@ func notifyVerifiers(ev chaincli.OpenVerifyAccepted) []*taskv1.SelectedVerifierV
 // Caller must hold the lock.
 func (f *taskFSM) publishVerifierAssignment(msg *nexusv1.VerifierAssignmentNotifyV1) {
 	ctx := context.Background()
-	if err := f.messages.signVerifierAssignment(ctx, msg); err != nil {
+	if err := f.messages.signVerifierAssignment(ctx, msg, f.recordHeight); err != nil {
 		f.log.Warn("VERIFIER_ASSIGNMENT_NOTIFY not sent: it cannot be signed", "task_id", f.taskID, "err", err)
 		return
 	}

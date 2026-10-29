@@ -111,10 +111,10 @@ func TestBuilderMessagesRefuseToSendUnsigned(t *testing.T) {
 	link := &fakeCortexLink{}
 	c.cortex = link
 	messages := builderMessages{coord: c}
-	if err := messages.signOpenVerify(context.Background(), &nexusv1.OpenVerifyV1{}); !errors.Is(err, errBuilderMessageUnsigned) {
+	if err := messages.signOpenVerify(context.Background(), &nexusv1.OpenVerifyV1{}, 1); !errors.Is(err, errBuilderMessageUnsigned) {
 		t.Fatalf("signOpenVerify without a service key = %v, want errBuilderMessageUnsigned", err)
 	}
-	if err := (builderMessages{}).signVerifierAssignment(context.Background(), &nexusv1.VerifierAssignmentNotifyV1{}); !errors.Is(err, errBuilderMessageUnsigned) {
+	if err := (builderMessages{}).signVerifierAssignment(context.Background(), &nexusv1.VerifierAssignmentNotifyV1{}, 1); !errors.Is(err, errBuilderMessageUnsigned) {
 		t.Fatalf("signVerifierAssignment without a coordinator = %v, want errBuilderMessageUnsigned", err)
 	}
 
@@ -125,11 +125,48 @@ func TestBuilderMessagesRefuseToSendUnsigned(t *testing.T) {
 	}
 	// A revoked on-chain binding cannot sign either.
 	keys.revoke(servicekey.ParticipantBuilder, c.active.self)
-	if err := messages.signOpenVerify(context.Background(), &nexusv1.OpenVerifyV1{}); !errors.Is(err, errBuilderMessageUnsigned) {
+	if err := messages.signOpenVerify(context.Background(), &nexusv1.OpenVerifyV1{}, 1); !errors.Is(err, errBuilderMessageUnsigned) {
 		t.Fatalf("signOpenVerify with a revoked binding = %v, want errBuilderMessageUnsigned", err)
 	}
 	if len(link.frames) != 0 {
 		t.Fatalf("frames sent = %d, want 0", len(link.frames))
+	}
+}
+
+// While this Builder's key replacement is pending, Verifier messages of a Task recorded at or after
+// the block before its registration are not signed (the other group members send them); an older
+// Task's are signed with the current nonce.
+func TestBuilderMessagesDuringOwnKeyRotation(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	keys, _ := enableTestBuilderMessages(c)
+	keys.setPending(servicekey.ParticipantBuilder, c.active.self, &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: testAuthorizationNo + 1, RegisteredHeight: 100})
+	messages := builderMessages{coord: c}
+	ctx := context.Background()
+
+	raw32 := make([]byte, 32)
+	old := &nexusv1.OpenVerifyV1{
+		TaskId: raw32, TaskHash: raw32, ModelId: raw32, ProfileVersion: 1, InferReceiptHash: raw32, OutputHash: raw32,
+		WorkerOperatorAddress: testBuilderSelf, VerifyRound: 1,
+	}
+	if err := messages.signOpenVerify(ctx, old, 98); err != nil {
+		t.Fatalf("task recorded before the rotation: %v", err)
+	}
+	signature := old.GetBuilderServiceSignature()
+	old.BuilderServiceSignature = nil
+	assertBuilderSigned(t, c, "nexus.v1.OpenVerifyV1", old, old.GetBinding(), signature)
+	for _, height := range []uint64{99, 100, 150, 0} {
+		if err := messages.signOpenVerify(ctx, &nexusv1.OpenVerifyV1{}, height); !errors.Is(err, errRotationPendingTask) {
+			t.Fatalf("OpenVerify of a task recorded at %d = %v, want errRotationPendingTask", height, err)
+		}
+		if err := messages.signVerifierAssignment(ctx, &nexusv1.VerifierAssignmentNotifyV1{}, height); !errors.Is(err, errRotationPendingTask) {
+			t.Fatalf("VerifierAssignmentNotify of a task recorded at %d = %v, want errRotationPendingTask", height, err)
+		}
+	}
+	keys.setPending(servicekey.ParticipantBuilder, c.active.self, nil)
+	old.Binding, old.BuilderServiceSignature = nil, nil
+	if err := messages.signOpenVerify(ctx, old, 150); err != nil {
+		t.Fatalf("after the rotation cleared: %v", err)
 	}
 }
 

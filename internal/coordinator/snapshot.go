@@ -346,6 +346,9 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	if t.Assignment.InferDeadlineHeight != 0 {
 		f.inferDeadlineHeight = t.Assignment.InferDeadlineHeight
 	}
+	if t.Assignment.WinnerConfirmHeight != 0 {
+		f.recordHeight = t.Assignment.WinnerConfirmHeight
+	}
 	if len(t.AssignedSet) > 0 {
 		f.assignedSet = t.AssignedSet
 	}

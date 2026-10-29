@@ -13,6 +13,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/stagetiming"
@@ -38,6 +39,12 @@ func WithCortexLink(link CortexLink) Option {
 // configured, or the chain does not hold this node's current binding.
 var errBuilderMessageUnsigned = errors.New("builder message signing is not available")
 
+// errRotationPendingTask refuses a Builder message for a Task recorded at or after the block before
+// this Builder registered its service key replacement: the evidence context of such a Task reserves
+// the pending next nonce, so the current nonce cannot sign for it, and the next key is not usable
+// before it activates. The other members of the Task Builders group send it.
+var errRotationPendingTask = errors.New("builder message for a task recorded during this Builder's key rotation")
+
 // builderMessages signs the Phase 1 Builder messages of one coordinator and hands them to the
 // CortexLink. It is shared by every task FSM.
 type builderMessages struct {
@@ -46,11 +53,12 @@ type builderMessages struct {
 
 // signOpenVerify fills the signed binding and builder_service_signature of an OpenVerifyV1. The
 // signature is over dispatch.SigningDigest("nexus.v1.OpenVerifyV1", ...) of the message without it.
-func (m builderMessages) signOpenVerify(ctx context.Context, msg *nexusv1.OpenVerifyV1) error {
+// recordHeight is the height the chain recorded the task's dispatch (0 when not known).
+func (m builderMessages) signOpenVerify(ctx context.Context, msg *nexusv1.OpenVerifyV1, recordHeight uint64) error {
 	if m.coord == nil {
 		return errBuilderMessageUnsigned
 	}
-	binding, err := m.coord.builderBinding(ctx)
+	binding, err := m.coord.builderBinding(ctx, recordHeight)
 	if err != nil {
 		return err
 	}
@@ -65,11 +73,11 @@ func (m builderMessages) signOpenVerify(ctx context.Context, msg *nexusv1.OpenVe
 
 // signVerifierAssignment fills the signed binding and builder_service_signature of a
 // VerifierAssignmentNotifyV1, signed like signOpenVerify.
-func (m builderMessages) signVerifierAssignment(ctx context.Context, msg *nexusv1.VerifierAssignmentNotifyV1) error {
+func (m builderMessages) signVerifierAssignment(ctx context.Context, msg *nexusv1.VerifierAssignmentNotifyV1, recordHeight uint64) error {
 	if m.coord == nil {
 		return errBuilderMessageUnsigned
 	}
-	binding, err := m.coord.builderBinding(ctx)
+	binding, err := m.coord.builderBinding(ctx, recordHeight)
 	if err != nil {
 		return err
 	}
@@ -91,15 +99,21 @@ func (m builderMessages) broadcast(ctx context.Context, frame *nexusv1.DispatchS
 	return m.coord.cortex.Broadcast(ctx, frame)
 }
 
-// builderBinding is the signed identity of a Builder message: the Task chain, this Builder's
-// operator address and the authorization nonce of its current service key.
-func (c *Coordinator) builderBinding(ctx context.Context) (*nexusv1.BuilderMessageBindingV1, error) {
+// builderBinding is the signed identity of a Builder message for a task the chain recorded at
+// recordHeight: the Task chain, this Builder's operator address and the authorization nonce of its
+// current service key. While a replacement key is pending, a task recorded at or after the block
+// before its registration (or at an unknown height) gets no message from this Builder
+// (errRotationPendingTask); older tasks keep the current nonce. No other nonce is ever signed.
+func (c *Coordinator) builderBinding(ctx context.Context, recordHeight uint64) (*nexusv1.BuilderMessageBindingV1, error) {
 	if c.serviceSigner == nil || c.serviceKeys == nil || c.active.self == "" {
 		return nil, errBuilderMessageUnsigned
 	}
-	nonce, err := c.selfAuthorizationNonce(ctx)
+	nonce, pending, err := c.selfAuthorizationNonce(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if pending != nil && (recordHeight == 0 || recordHeight+1 >= pending.RegisteredHeight) {
+		return nil, fmt.Errorf("%w: recorded at %d, rotation registered at %d", errRotationPendingTask, recordHeight, pending.RegisteredHeight)
 	}
 	return &nexusv1.BuilderMessageBindingV1{
 		ChainId: c.chainID, BuilderAddress: c.active.self, ServiceAuthorizationNonce: nonce,
@@ -130,24 +144,24 @@ func builderMessageDigest(name string, msg proto.Message) ([32]byte, error) {
 	return digest, nil
 }
 
-// selfAuthorizationNonce reads the authorization nonce of this node's current Builder binding and
-// asserts that the on-chain public key is this local private key's: a message signed by any other
-// key can never verify at the receiver.
-func (c *Coordinator) selfAuthorizationNonce(ctx context.Context) (uint64, error) {
+// selfAuthorizationNonce reads the authorization nonce of this node's current Builder binding, and
+// its pending replacement if any, and asserts that the on-chain public key is this local private
+// key's: a message signed by any other key can never verify at the receiver.
+func (c *Coordinator) selfAuthorizationNonce(ctx context.Context) (uint64, *chaincli.PendingServiceKeyRotation, error) {
 	readAt := time.Now()
 	publicKey, state, err := servicekey.Current(
 		ctx, c.serviceKeys, c.addressPrefix, servicekey.ParticipantBuilder, c.active.self)
 	stagetiming.From(ctx).Since("chain_service_key", readAt)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", errBuilderMessageUnsigned, err)
+		return 0, nil, fmt.Errorf("%w: %v", errBuilderMessageUnsigned, err)
 	}
 	if !bytes.Equal(publicKey, c.serviceSigner.PubKeyCompressed()) {
-		return 0, fmt.Errorf("%w: on-chain service key does not match the local signer", errBuilderMessageUnsigned)
+		return 0, nil, fmt.Errorf("%w: on-chain service key does not match the local signer", errBuilderMessageUnsigned)
 	}
 	if state.AuthorizationNonce == 0 {
-		return 0, fmt.Errorf("%w: service binding has no authorization nonce", errBuilderMessageUnsigned)
+		return 0, nil, fmt.Errorf("%w: service binding has no authorization nonce", errBuilderMessageUnsigned)
 	}
-	return state.AuthorizationNonce, nil
+	return state.AuthorizationNonce, state.PendingRotation, nil
 }
 
 // HandleVerifierHandraise takes a Verifier handraise that arrived on a Cortex dispatch stream. The

@@ -59,10 +59,19 @@ type testServiceKeys struct {
 	// A (participant|operator) listed in revoked returns ErrNotFound from the query; it is used to
 	// build the "no usable current key on chain" counterexamples.
 	revoked map[string]bool
+	// pending holds the registered replacement of a (participant|operator) key.
+	pending map[string]*chaincli.PendingServiceKeyRotation
 }
 
 func newTestServiceKeys() *testServiceKeys {
-	return &testServiceKeys{signers: map[string]signer.Signer{}, revoked: map[string]bool{}}
+	return &testServiceKeys{signers: map[string]signer.Signer{}, revoked: map[string]bool{},
+		pending: map[string]*chaincli.PendingServiceKeyRotation{}}
+}
+
+func (k *testServiceKeys) setPending(participantType, operator string, p *chaincli.PendingServiceKeyRotation) {
+	k.mu.Lock()
+	k.pending[testServiceKeyKey(participantType, operator)] = p
+	k.mu.Unlock()
 }
 
 func testServiceKeyKey(participantType, operator string) string {
@@ -98,6 +107,7 @@ func (k *testServiceKeys) QueryCurrentServiceKey(
 ) (chaincli.ServiceKeyState, error) {
 	k.mu.Lock()
 	revoked := k.revoked[testServiceKeyKey(participantType, operator)]
+	pending := k.pending[testServiceKeyKey(participantType, operator)]
 	k.mu.Unlock()
 	if revoked {
 		return chaincli.ServiceKeyState{}, chaincli.ErrNotFound
@@ -111,6 +121,7 @@ func (k *testServiceKeys) QueryCurrentServiceKey(
 		AuthorizationNonce: testAuthorizationNo,
 		UpdatedHeight:      testSnapshotHeight,
 		Status:             servicekey.StatusActive,
+		PendingRotation:    pending,
 	}, nil
 }
 
