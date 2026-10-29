@@ -56,6 +56,16 @@ const (
 	NSOutputAck Namespace = "output_ack"
 	// NSLocalSchema holds the version of the local state layout, see package localschema.
 	NSLocalSchema Namespace = "local_schema"
+	// NSHandraise holds the direct dispatch handraise registry: the current standing handraise of
+	// each Cortex operator, reject-rate suspensions, the RTT admission threshold history and the
+	// pointer to the latest issued handraise root.
+	NSHandraise Namespace = "handraise"
+	// NSHandraiseRoot holds every issued signed handraise root with its leaves, as the bytes that
+	// were signed and sent; key = zero-padded root_height/root_version. A root is never re-signed.
+	NSHandraiseRoot Namespace = "handraise_root"
+	// NSHandraiseRootDigest is the handraise_root_digest -> NSHandraiseRoot key index used to
+	// look up a root named by a ticket or a challenge.
+	NSHandraiseRootDigest Namespace = "handraise_root_digest"
 )
 
 type Store interface {
