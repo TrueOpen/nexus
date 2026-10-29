@@ -82,13 +82,17 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 		return nil, fmt.Errorf("check Builder service key: %w", err)
 	}
 	r.sampleRTT()
+	pending, err := r.rotationsPending(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	r.mu.Lock()
 	last := r.latest
 	if last != nil && height < last.Root.GetRootHeight() {
 		height = last.Root.GetRootHeight()
 	}
-	entries, traces := r.collectLocked(height)
+	entries, traces := r.collectLocked(height, pending)
 	r.mu.Unlock()
 
 	leaves, digests, err := buildLeaves(entries)
@@ -135,19 +139,41 @@ func (r *Registry) signedByLocalKey(issued *IssuedRoot) bool {
 	return dispatch.VerifyDigestSignature(r.opts.Signer.PubKeyCompressed(), issued.Digest[:], issued.Root.GetBuilderServiceSignature()) == nil
 }
 
+// holders lists the operators holding a handraise.
+func (r *Registry) holders() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	operators := make([]string, 0, len(r.current))
+	for operator := range r.current {
+		operators = append(operators, operator)
+	}
+	return operators
+}
+
+// rotationsPending reads which operators holding a handraise have a pending CORTEX key rotation.
+// A failed read fails the root: a root that admits a pending Cortex, or refuses one that is not,
+// is not signed on a guess.
+func (r *Registry) rotationsPending(ctx context.Context) (map[string]bool, error) {
+	pending := map[string]bool{}
+	for _, operator := range r.holders() {
+		p, err := r.opts.Keys.CortexRotationPending(ctx, operator)
+		if err != nil {
+			return nil, fmt.Errorf("read CORTEX key rotation of %s: %w", operator, err)
+		}
+		if p {
+			pending[operator] = true
+		}
+	}
+	return pending, nil
+}
+
 // sampleRTT records the measured RTT of every operator holding a handraise. An operator without a
 // measurement keeps its last recorded one.
 func (r *Registry) sampleRTT() {
 	if r.opts.RTT == nil {
 		return
 	}
-	r.mu.Lock()
-	operators := make([]string, 0, len(r.current))
-	for operator := range r.current {
-		operators = append(operators, operator)
-	}
-	r.mu.Unlock()
-	for _, operator := range operators {
+	for _, operator := range r.holders() {
 		if rtt, ok := r.opts.RTT.RTT(operator); ok {
 			r.RecordRTT(operator, uint64((rtt+time.Millisecond-1)/time.Millisecond))
 		}
@@ -226,8 +252,9 @@ type entry struct {
 }
 
 // collectLocked drops expired handraises and ended suspensions, then returns every held handraise
-// with its decision and takes the pending invalid-handraise traces.
-func (r *Registry) collectLocked(height uint64) ([]entry, map[string]*held) {
+// with its decision (rotationPending names the operators whose CORTEX key rotation is pending) and
+// takes the pending invalid-handraise traces.
+func (r *Registry) collectLocked(height uint64, rotationPending map[string]bool) ([]entry, map[string]*held) {
 	var drop []string
 	for operator, h := range r.current {
 		if r.expiredLocked(h, height) {
@@ -245,7 +272,7 @@ func (r *Registry) collectLocked(height uint64) ([]entry, map[string]*held) {
 
 	entries := make([]entry, 0, len(r.current)+len(r.invalid))
 	for operator, h := range r.current {
-		admitted, reason, rtt := r.decisionLocked(operator, height)
+		admitted, reason, rtt := r.decisionLocked(operator, height, rotationPending[operator])
 		entries = append(entries, entry{h: h, admitted: admitted, reason: reason, rtt: rtt})
 	}
 	traces := r.invalid

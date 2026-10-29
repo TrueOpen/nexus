@@ -45,9 +45,10 @@ func (r *Roster) Contains(m dispatch.RosterMember) bool {
 // pool's profile, has a free slot, has an expiry height not below height (this Builder's chain
 // height) and whose operator is in the pool; it carries the pool's slot, slot version and weight.
 // These are exactly the roster membership conditions an omission challenge checks, so nothing else
-// (such as a pending service key rotation) may leave a member out; the dispatcher gives such a
-// member a ticket that times out unsent instead. No root or no member is ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is
-// ErrRosterTooLarge.
+// may leave a member out. A Cortex whose service key rotation was pending when the root was signed
+// is already a not-admitted leaf; one whose rotation was registered after that root stays in the
+// roster, and the dispatcher gives it a ticket that times out unsent. No root or no member is
+// ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is ErrRosterTooLarge.
 func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, pool *Pool, height, maxBytes uint64) (*Roster, error) {
 	if maxBytes == 0 {
 		return nil, fmt.Errorf("max_dispatch_roster_bytes must be positive")

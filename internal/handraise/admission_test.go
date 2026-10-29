@@ -1,6 +1,8 @@
 package handraise
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ const (
 	reasonNone       = taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_NONE
 	reasonRTT        = taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD
 	reasonRejectRate = taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE
+	reasonPending    = taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING
 )
 
 func TestRTTOverThresholdIsNotAdmitted(t *testing.T) {
@@ -221,5 +224,53 @@ func TestRootSamplesStreamRTT(t *testing.T) {
 	}
 	if leaf := leafOf(t, root, near.operator()); !leaf.GetAdmitted() {
 		t.Fatalf("near leaf = %v", leaf)
+	}
+}
+
+// A Cortex whose CORTEX key replacement is pending may take no new duty: its held handraise stays a
+// leaf of the root, not admitted, with SERVICE_KEY_ROTATION_PENDING and no RTT, ahead of any other
+// reason. Once the replacement activates it is admitted again.
+func TestRotationPendingCortexIsNotAdmitted(t *testing.T) {
+	e := newEnv(t)
+	ready := e.addCortex(0x11, 1)
+	pending := e.addCortex(0x12, 2)
+	for _, c := range []cortex{ready, pending} {
+		e.mustAccept(c, e.handraise(c, 100, 1))
+	}
+	e.reg.RecordRTT(pending.operator(), 900)
+	e.keys.setPending(pending.operator(), true)
+
+	root := e.mustIssue()
+	if len(root.Leaves) != 2 {
+		t.Fatalf("root has %d leaves, want both handraises", len(root.Leaves))
+	}
+	if leaf := leafOf(t, root, ready.operator()); !leaf.GetAdmitted() {
+		t.Fatalf("ready leaf = %v", leaf)
+	}
+	if leaf := leafOf(t, root, pending.operator()); leaf.GetAdmitted() || leaf.GetAdmitRejectReason() != reasonPending || leaf.GetBuilderMeasuredRttMs() != 0 {
+		t.Fatalf("pending leaf = %v", leaf)
+	}
+
+	e.keys.setPending(pending.operator(), false)
+	e.reg.RecordRTT(pending.operator(), 20)
+	if leaf := leafOf(t, e.mustIssue(), pending.operator()); !leaf.GetAdmitted() {
+		t.Fatalf("leaf after the rotation activated = %v", leaf)
+	}
+}
+
+// Without knowing whether a Cortex's rotation is pending no root is signed: the previous root stays
+// the latest and the next interval tries again.
+func TestNoRootWhileARotationStateIsUnreadable(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 1)
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	e.keys.mu.Lock()
+	e.keys.pendingErr = errors.New("node down")
+	e.keys.mu.Unlock()
+	if issued, err := e.reg.IssueRoot(context.Background()); err == nil || issued != nil {
+		t.Fatalf("IssueRoot = %v, %v; want an error and no root", issued, err)
+	}
+	if _, ok := e.reg.LatestRoot(); ok {
+		t.Fatal("a root was kept")
 	}
 }

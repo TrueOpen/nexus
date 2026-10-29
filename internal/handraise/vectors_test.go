@@ -160,6 +160,45 @@ func TestStandingHandraiseVectorAcceptedAndRooted(t *testing.T) {
 	}
 }
 
+// The wire vector handraise standing for a Cortex whose key rotation is pending is rooted as the
+// handraise_root_leaf_pending_rotation leaf.
+func TestPendingRotationLeafMatchesWireVector(t *testing.T) {
+	file := wirefixture.Load(t, dispatchVectors)
+	raw, pub, _ := loadSigned(t, file.Vector(t, "task_v1_standinghandraisev1", 0))
+	var h taskv1.StandingHandraiseV1
+	if err := proto.Unmarshal(raw, &h); err != nil {
+		t.Fatal(err)
+	}
+	operator := h.GetMember().GetOperatorAddress()
+	keys := &fakeKeys{cortex: map[string]*fakeKey{operator: {pub: pub, nonce: h.GetServiceAuthorizationNonce()}}}
+	keys.setPending(operator, true)
+	pool := &fakePool{
+		members: map[string]bool{operator: true},
+		support: map[string]map[string]bool{operator: {profileKey(h.GetProfiles()[0]): true}},
+	}
+	reg, err := New(Options{
+		ChainID: h.GetChainId(), BuilderAddress: h.GetBuilderAddress(), Config: testDispatchConfig(),
+		Store: kv.NewMemStore(), Keys: keys, Pool: pool, Height: &fakeHeight{h: 1},
+		Signer: newSigner(t, 0x01), Now: (&fakeClock{now: time.Unix(1_800_000_000, 0)}).Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Accept(context.Background(), operator, &h); err != nil {
+		t.Fatalf("wire vector handraise refused: %v", err)
+	}
+	issued, err := reg.IssueRoot(context.Background())
+	if err != nil || issued == nil {
+		t.Fatalf("issue root: %v", err)
+	}
+	leafVector := file.Vector(t, "handraise_root_leaf_pending_rotation", 0)
+	leafVector.CheckPreimage(t)
+	leafDigest, err := LeafDigest(issued.Leaves[0])
+	if err != nil || leafDigest != leafVector.Digest(t) {
+		t.Fatalf("leaf digest = %x, %v; want %s", leafDigest, err, leafVector.DigestHex)
+	}
+}
+
 // Signing the wire SignedHandraiseRootV1 vector's fields with the fixture key reproduces its bytes,
 // digest and signature exactly.
 func TestSignedHandraiseRootVector(t *testing.T) {

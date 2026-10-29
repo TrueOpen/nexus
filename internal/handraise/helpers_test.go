@@ -33,6 +33,8 @@ var (
 type fakeKeys struct {
 	mu         sync.Mutex
 	cortex     map[string]*fakeKey
+	pending    map[string]bool // operators with a pending CORTEX key rotation
+	pendingErr error
 	builderErr error
 	err        error
 }
@@ -53,6 +55,21 @@ func (k *fakeKeys) CurrentCortexKey(_ context.Context, operator string) ([]byte,
 		return nil, 0, fmt.Errorf("no key: %w", servicekey.ErrUnavailable)
 	}
 	return key.pub, key.nonce, nil
+}
+
+func (k *fakeKeys) CortexRotationPending(_ context.Context, operator string) (bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.pending[operator], k.pendingErr
+}
+
+func (k *fakeKeys) setPending(operator string, pending bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.pending == nil {
+		k.pending = map[string]bool{}
+	}
+	k.pending[operator] = pending
 }
 
 func (k *fakeKeys) CheckBuilderKey(context.Context) error {

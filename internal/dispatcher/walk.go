@@ -350,8 +350,10 @@ func (d *Dispatcher) cortexPending(ctx context.Context, operator string) bool {
 
 // issue signs the ticket of cand, stores it and offers it. A member that cannot be reached now
 // (no stream, or its key rotation is pending: the chain refuses a dispatch entry naming it as
-// winner) still gets its ticket, which times out at once: every roster member ranked before the winner must have an
-// attempt. It reports whether a ticket went out. Caller holds o.mu.
+// winner) still gets its ticket, which times out at once: every roster member ranked before the
+// winner must have an attempt. A rotation pending when the round's root was signed already kept
+// the member out of the roster (a not-admitted leaf); this covers one registered since. It reports
+// whether a ticket went out. Caller holds o.mu.
 func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Candidate) (bool, error) {
 	st := o.st
 	operator := cand.Member.OperatorAddress

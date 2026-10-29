@@ -6,8 +6,9 @@
 // key and candidate pool eligibility, keeps exactly one current handraise per operator, and on a
 // fixed interval signs a SignedHandraiseRootV1: a Merkle root over one admission leaf per handraise
 // it holds, sorted by standing handraise digest. Every member gets the root with its own inclusion
-// proof. A handraise that is held but not admitted (RTT over the public threshold, reject-rate
-// suspension, or an invalid signature / eligibility) is still a leaf, so the decision is on record.
+// proof. A handraise that is held but not admitted (a pending CORTEX service key rotation, RTT over
+// the public threshold, reject-rate suspension, or an invalid signature / eligibility) is still a
+// leaf, so the decision is on record.
 //
 // Rosters are built from the latest root by the dispatcher; this package only exposes it.
 package handraise
@@ -68,6 +69,9 @@ type ServiceKeys interface {
 	// compressed) and its authorization nonce. When it is determined that no usable key exists the
 	// error wraps servicekey.ErrUnavailable; any other error means the chain could not be read.
 	CurrentCortexKey(ctx context.Context, operator string) ([]byte, uint64, error)
+	// CortexRotationPending reports whether operator registered a CORTEX service key replacement
+	// that has not activated yet: such a Cortex may take no new Worker duty.
+	CortexRotationPending(ctx context.Context, operator string) (bool, error)
 	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is the key the root
 	// signer holds and no replacement is pending (ErrBuilderRotationPending).
 	CheckBuilderKey(ctx context.Context) error
