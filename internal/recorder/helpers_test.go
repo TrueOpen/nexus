@@ -29,6 +29,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -195,9 +196,15 @@ type fakeSubmitter struct {
 	next        []error
 	rebroadcast []chaincli.TxResult
 	resent      [][]byte
+	// beforeSign, when set, runs once a transaction's entries are chosen, before it is signed and
+	// persisted (the submitter reads the account sequence there).
+	beforeSign func()
 }
 
 func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func([]byte) error) (chaincli.TxResult, error) {
+	if s.beforeSign != nil {
+		s.beforeSign()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
@@ -396,6 +403,7 @@ type env struct {
 	gate     *Gate
 	evidence *fakeEvidence
 	account  *accountReader
+	metrics  *opsmetrics.Registry
 	r        *Recorder
 	params   Params
 }
@@ -443,7 +451,7 @@ func (e *env) open() {
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
 		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics: e.metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {
 		e.t.Fatal(err)

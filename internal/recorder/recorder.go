@@ -32,6 +32,7 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -145,7 +147,9 @@ type Config struct {
 	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
 	// for each entry.
 	GasBase, GasPerEntry uint64
-	Log                  *slog.Logger
+	// Metrics takes the record stage timings and outcomes; nil keeps none.
+	Metrics *opsmetrics.Registry
+	Log     *slog.Logger
 }
 
 // Recorder records accepted dispatch entries; it implements dispatcher.Recorder.
@@ -165,6 +169,10 @@ type Recorder struct {
 	sizing sizing
 	// takeovers hears the results of takeover entries.
 	takeovers Takeovers
+	// queuedAt and sentAt are when an entry of this run was handed over and first broadcast, for
+	// the stage timings.
+	queuedAt map[string]time.Time
+	sentAt   map[string]time.Time
 
 	latest atomic.Uint64
 	wake   chan struct{}
@@ -190,6 +198,7 @@ func New(cfg Config, params Params) (*Recorder, error) {
 	}
 	r := &Recorder{
 		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{}, withdrawn: map[string]uint64{},
+		queuedAt: map[string]time.Time{}, sentAt: map[string]time.Time{},
 		wake: make(chan struct{}, 1), stop: make(chan struct{}),
 	}
 	if r.log == nil {
@@ -286,10 +295,12 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		return fmt.Errorf("store dispatch entry: %w", err)
 	}
 	r.entries[e.ObjectID] = e
+	r.queuedAt[e.ObjectID] = time.Now()
 	return nil
 }
 
-// Withdraw implements dispatcher.Recorder: an entry not sent yet is dropped; a sent one is marked
+// Withdraw implements dispatcher.Recorder: an entry not sent yet is dropped; a sent one, or one a
+// transaction being signed carries, is marked
 // so that its refusal changes nothing. A Withdraw that comes before the Record of its ticket
 // drops that Record.
 func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [32]byte) {
@@ -300,7 +311,7 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 			continue
 		}
 		var ops []kv.WriteOp
-		if e.Tx == "" {
+		if e.Tx == "" && !e.packing {
 			r.removeLocked(e, &ops)
 		} else {
 			e.Withdrawn = true
@@ -310,6 +321,34 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 		return
 	}
 	r.withdrawn[string(ticketHash[:])] = r.latest.Load()
+}
+
+// OutboxState counts the record outbox.
+type OutboxState struct {
+	// Entries are the entries the chain has not resolved, takeover entries included; Waiting
+	// those not carried by a transaction yet (they go out with the next block's record).
+	Entries int `json:"entries"`
+	Waiting int `json:"waiting"`
+	// Takeovers are the takeover entries among Entries; Transactions the record transactions
+	// followed on chain.
+	Takeovers    int `json:"takeovers"`
+	Transactions int `json:"transactions"`
+}
+
+// Outbox counts the record outbox.
+func (r *Recorder) Outbox() OutboxState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := OutboxState{Entries: len(r.entries), Transactions: len(r.txs)}
+	for _, e := range r.entries {
+		if e.Tx == "" {
+			s.Waiting++
+		}
+		if e.Takeover {
+			s.Takeovers++
+		}
+	}
+	return s
 }
 
 // HandleChainEvent follows the head, the dispatch_recorded events of the sessions this Builder
@@ -393,6 +432,8 @@ func (r *Recorder) entryOp(e *entry) kv.WriteOp {
 
 func (r *Recorder) removeLocked(e *entry, ops *[]kv.WriteOp) {
 	delete(r.entries, e.ObjectID)
+	delete(r.queuedAt, e.ObjectID)
+	delete(r.sentAt, e.ObjectID)
 	*ops = append(*ops, deleteOp(entryKey(e.ObjectID)))
 }
 

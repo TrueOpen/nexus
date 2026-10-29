@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -372,6 +373,57 @@ func (s *Sender) Stop(context.Context) error {
 // Counts returns what the sender saw since it started.
 func (s *Sender) Counts() SenderCounts {
 	return SenderCounts{Batches: s.batches.Load(), Failures: s.failures.Load(), Alarms: s.alarms.Load()}
+}
+
+// Outstanding is what one member has not acknowledged of one order's sync stream: Items sync items,
+// and Output while the recorded winner's output is not sealed at the member. Peer is empty for a
+// change still queued, not turned into items yet.
+type Outstanding struct {
+	SessionID string
+	Sequence  uint64
+	TaskID    string
+	Peer      string
+	Items     uint64
+	Output    bool
+}
+
+// Outstanding lists what members have not acknowledged and the changes still queued, by order and
+// member. Members verify sync batches under this Builder's current service key, so all of it is
+// refused once the key rotated.
+func (s *Sender) Outstanding() []Outstanding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Outstanding
+	for _, ev := range s.queue {
+		switch {
+		case ev.view != nil:
+			out = append(out, Outstanding{SessionID: ev.view.SessionID, Sequence: ev.view.Sequence, TaskID: ev.view.TaskID})
+		case ev.recorded != nil:
+			out = append(out, Outstanding{SessionID: ev.recorded.SessionID, Sequence: ev.recorded.Sequence, TaskID: ev.recorded.TaskID})
+		}
+	}
+	for _, st := range s.streams {
+		for _, peer := range st.Peers {
+			o := Outstanding{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Peer: peer}
+			if acked := st.Acked[peer]; acked < st.Last {
+				o.Items = st.Last - acked
+			}
+			o.Output = st.Winner != nil && !st.Output[peer].Sealed
+			if o.Items > 0 || o.Output {
+				out = append(out, o)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SessionID != out[j].SessionID {
+			return out[i].SessionID < out[j].SessionID
+		}
+		if out[i].Sequence != out[j].Sequence {
+			return out[i].Sequence < out[j].Sequence
+		}
+		return out[i].Peer < out[j].Peer
+	})
+	return out
 }
 
 // OrderChanged implements dispatcher.OrderSync: the change is queued, never sent from the caller.

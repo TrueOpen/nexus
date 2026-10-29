@@ -17,8 +17,41 @@ nexus start      # start the service
 nexus version    # version
 nexus keys create-keystore  # convert a hex private key into an encrypted keystore
 nexus builder register       # ensure the Builder record and descriptor on the Hub match local config
+nexus drain begin|end|status # drain the running Builder before a service key rotation (see below)
+nexus status     # readiness, diagnostics, drain and metrics as the running daemon last wrote them
 nexus --help     # help
 ```
+
+### Service key rotation
+
+A dispatch record is admitted only under the Builder's current service key, and the chain's
+rotation guard does not count orders accepted but not recorded yet; group members also verify
+synced items under the current key. Rotate only after a drain:
+
+1. `nexus drain begin`: the running daemon takes no new order, issues no ticket and admits no
+   takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight orders are accepted,
+   recorded or fail as usual, and the group sync finishes. A held takeover whose entry has not
+   gone out is ended as `NO_CAPACITY` at once (its user goes to another Builder); one whose entry
+   went out takes effect and its order is dispatched with tickets as usual. `/readyz` turns 503.
+2. `nexus drain status` until `phase` is `DRAINED` (no in-flight order, record outbox entry,
+   takeover or unacknowledged sync item; `remaining` lists what is left, `sync_pending` names the
+   order/member pairs that would be refused after the rotation). `DRAINED` does not cover the
+   Builder-signed dispatch stream messages Cortex nodes have not acknowledged yet, nor the
+   handraise roots already broadcast: they are signed by the old key and are resent as stored
+   (`nexus status` shows the stream resend backlog).
+3. Submit the rotation with the operator key. The phase is `ROTATION_PENDING` until it activates,
+   then `RESTART_REQUIRED`: restart nexus with the new service keystore. The drain ends by itself
+   once the chain shows the new key current and the daemon signs with it (`nexus drain end` ends
+   it at any time).
+
+Not done yet: once this Builder's own rotation activated, group sync streams that only retry
+items signed by the old key should be marked complete instead of retrying until their retention
+ends (follows the Builder-to-Builder sync once merged).
+
+The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
+next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state
+is stored, so it survives a restart, and a request left while the daemon is down is applied at
+its next start.
 
 ## Running
 
@@ -36,6 +69,10 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 ```bash
 # Health check (plain HTTP, hit it with curl)
 curl localhost:8080/healthz                       # {"status":"ok"}
+curl localhost:8080/readyz                        # 200 {"ready":true} or 503 naming the failed checks
+curl localhost:8080/v1/dispatch/stats             # public dispatch statistics (RTT admission threshold, timeout/reject rates, skips)
+# The statistics are this Builder's local observations since its start, per Cortex operator; they
+# are not chain facts.
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
 # client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.
@@ -532,6 +569,9 @@ internal/coordinator orchestration core: verify and settle stages (InferReceipt 
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
 internal/relay       custody of the selected Worker's signed InferReceipt (never payload blobs), written through to kv
 internal/kv          local persistence (Pebble)
+internal/drain       service key rotation drain: stops new work, reports what remains
+internal/ops         readiness, diagnostics, public dispatch statistics, operator files under <data_dir>/ops
+internal/opsmetrics  in-process stage timings, skips and Worker outcomes of the order path
 internal/localschema version and migrations of the local state layout
 internal/types       shared cross-module types
 ```

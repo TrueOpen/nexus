@@ -138,6 +138,7 @@ type Registry struct {
 	outcomes  map[string][]outcome
 	suspended map[string]uint64 // operator -> first height admitted again
 	threshold RTTThresholdChange
+	history   []RTTThresholdChange // every threshold used, oldest first
 	latest    *IssuedRoot
 }
 
@@ -243,6 +244,13 @@ func (r *Registry) Current(operator string) (*taskv1.StandingHandraiseV1, bool) 
 		return nil, false
 	}
 	return h.msg, true
+}
+
+// Standing counts the standing handraises held.
+func (r *Registry) Standing() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.current)
 }
 
 // Withdraw drops operator's current handraise because its dispatch stream ended: the next root

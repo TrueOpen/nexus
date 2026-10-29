@@ -24,6 +24,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -140,6 +141,8 @@ type service struct {
 	// memberReplicas holds the tasks this Builder keeps as a Task Builders group member (nil =
 	// none).
 	memberReplicas MemberReplicas
+	// metrics times the precheck and first output frames (nil = none).
+	metrics *opsmetrics.Registry
 }
 
 type serviceOption func(*service)

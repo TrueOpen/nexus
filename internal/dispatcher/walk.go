@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -16,6 +17,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
 const (
@@ -187,7 +189,8 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 }
 
 // step issues the order's next ticket, if it may: no ticket is out, the order still dispatches,
-// its record deadline is ahead and this Builder's key may issue tickets. It walks past members
+// its record deadline is ahead, this Builder does not drain (unless the order is a takeover's)
+// and its key may issue tickets. It walks past members
 // that cannot be reached until one is offered or the order fails. Caller holds o.mu.
 func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	st := o.st
@@ -198,6 +201,9 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		}
 		if deadline, ok := d.liveRecordDeadline(ctx, o); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
+		}
+		if d.draining() && !d.takeoverOrder(o) {
+			return d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 			switch {
@@ -225,8 +231,10 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		}
 		cand, ok := o.draw.Next(o.roster, st.Cursor)
 		if !ok {
+			d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(len(o.draw.Members))-min(uint64(st.Cursor), uint64(len(o.draw.Members))))
 			return d.fail(o, fmt.Errorf("%w: no member of round %d left after rank %d", dispatchdraw.ErrNoCapacity, o.rosterRound, st.Cursor))
 		}
+		d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(cand.Rank-min(cand.Rank, st.Cursor)))
 		offered, err := d.issue(ctx, o, cand)
 		if err != nil {
 			d.log.Error("ticket not issued", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
@@ -237,6 +245,14 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			return done{}
 		}
 	}
+}
+
+// takeoverOrder reports whether o is the order of a takeover that took effect: the takeover was
+// on chain before a drain could stop it, so its order is walked through a drain. Caller holds
+// o.mu.
+func (d *Dispatcher) takeoverOrder(o *order) bool {
+	entry, ok := d.cfg.Ledger.Get(o.st.SessionID, o.st.Sequence)
+	return ok && entry.Takeover && entry.TaskHash == o.st.TaskHash
 }
 
 // roundStored reports whether the round in use already holds a ticket. Until it does, its roster
@@ -273,6 +289,10 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.parked = true
 		return false, done{}
 	}
+	if !o.waited && !o.takenAt.IsZero() {
+		d.cfg.Metrics.ObserveStage(opsmetrics.StageWaitESH, d.clock.Now().Sub(o.takenAt))
+	}
+	o.waited = true
 	session, _, err := d.cfg.Sessions.Lookup(ctx, st.SessionID)
 	if err != nil || !session.Found {
 		d.log.Warn("order waits: session state unreadable", "session_id", st.SessionID, "err", err)
@@ -284,7 +304,9 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	}
 	params := d.params.Load()
 	profile := dispatchdraw.Profile{ModelID: [32]byte(signedOrder.GetModelId()), Version: signedOrder.GetProfileVersion()}
+	drawStart := d.clock.Now()
 	draw, err := d.cfg.Drawer.Draw(ctx, [32]byte(signedOrder.GetSessionId()), st.Sequence, esh, profile, params.MaxDrawAttempts)
+	d.cfg.Metrics.ObserveStage(opsmetrics.StageDraw, d.clock.Now().Sub(drawStart))
 	if errors.Is(err, dispatchdraw.ErrNoCapacity) {
 		return false, d.fail(o, err)
 	}
@@ -372,7 +394,14 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	if err != nil {
 		return false, err
 	}
-	reachable := d.cfg.Streams.Connected(operator) && !d.cortexPending(ctx, operator)
+	skip := ""
+	switch {
+	case !d.cfg.Streams.Connected(operator):
+		skip = opsmetrics.SkipUnreachable
+	case d.cortexPending(ctx, operator):
+		skip = opsmetrics.SkipRotationPending
+	}
+	reachable := skip == ""
 	prev := cloneState(st)
 	if len(st.Rounds) == 0 || st.Rounds[len(st.Rounds)-1].Number != o.rosterRound {
 		rosterRaw, err := marshal(o.roster.Msg)
@@ -394,7 +423,10 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		return false, err
 	}
 	d.indexTicket(o, hash)
+	o.ticketAt = now
 	if !reachable {
+		d.cfg.Metrics.Inc(opsmetrics.CounterSkips, skip)
+		d.cfg.Metrics.WorkerOutcome(operator, tier, opsmetrics.OutcomeUnsent)
 		d.log.Info("dispatch member unreachable; ticket timed out unsent", "session_id", st.SessionID, "order_sequence", st.Sequence, "rank", cand.Rank, "operator", operator)
 		return false, nil
 	}
@@ -476,7 +508,7 @@ func (d *Dispatcher) onTimeout(key string, hash [32]byte) {
 }
 
 // timeoutLocked marks a ticket TIMEOUT. A ticket the Worker received counts in its reject-rate
-// denominator as not rejected. Caller holds o.mu.
+// denominator as not rejected; one that was never sent is an unreachable skip. Caller holds o.mu.
 func (d *Dispatcher) timeoutLocked(o *order, a *attemptState, received bool) {
 	a.Outcome = outcomeTimeout
 	o.st.Skips++
@@ -484,16 +516,41 @@ func (d *Dispatcher) timeoutLocked(o *order, a *attemptState, received bool) {
 		d.log.Error("ticket timeout not written", "session_id", o.st.SessionID, "order_sequence", o.st.Sequence, "err", err)
 	}
 	if received {
-		d.recordOutcome(a.Operator, false)
+		d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipTimeout)
+		d.recordOutcome(a, opsmetrics.OutcomeTimeout)
+		return
+	}
+	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipUnreachable)
+	d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, opsmetrics.OutcomeUnsent)
+}
+
+// recordOutcome feeds the Worker's reject rate and its statistics with a ticket it received:
+// every such ticket counts, and only a signed reject while it advertised a free slot
+// (OutcomeRejected) is a reject.
+func (d *Dispatcher) recordOutcome(a *attemptState, outcome opsmetrics.Outcome) {
+	d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, outcome)
+	if err := d.cfg.Handraises.RecordOutcome(a.Operator, d.cfg.Sessions.Head(), outcome == opsmetrics.OutcomeRejected); err != nil {
+		d.log.Warn("reject-rate outcome not recorded", "operator", a.Operator, "err", err)
 	}
 }
 
-// recordOutcome feeds the Worker's reject rate: every ticket it received counts, and rejected is
-// a signed reject while it advertised a free slot.
-func (d *Dispatcher) recordOutcome(operator string, rejected bool) {
-	if err := d.cfg.Handraises.RecordOutcome(operator, d.cfg.Sessions.Head(), rejected); err != nil {
-		d.log.Warn("reject-rate outcome not recorded", "operator", operator, "err", err)
+// orderLeft counts a dispatch attempt of an order that ended, accepted or failed, with the tickets
+// it took so far: a retry of a failed sequence (an SDK resend) is counted again, with its earlier
+// tickets.
+func (d *Dispatcher) orderLeft(st *orderState, outcome string) {
+	if d.cfg.Metrics == nil {
+		return
 	}
+	tickets := 0
+	for _, r := range st.Rounds {
+		tickets += len(r.Attempts)
+	}
+	label := strconv.Itoa(tickets)
+	if tickets > 9 {
+		label = "10+"
+	}
+	d.cfg.Metrics.Inc(opsmetrics.CounterTicketsPerOrder, label)
+	d.cfg.Metrics.Inc(opsmetrics.CounterOrders, outcome)
 }
 
 // fail ends the order without a winner. The sequence is not used; its ledger entry fails, so a
@@ -511,6 +568,7 @@ func (d *Dispatcher) fail(o *order, reason error) done {
 	if err := d.cfg.Ledger.MarkFailed(st.SessionID, st.Sequence); err != nil && !errors.Is(err, inflight.ErrUnknownOrder) {
 		d.log.Error("failed dispatch not written to the ledger", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 	}
+	d.orderLeft(st, "failed")
 	d.log.Info("dispatch failed", "session_id", st.SessionID, "order_sequence", st.Sequence, "reason", reason)
 	return done{failed: reason, session: st.SessionID, sequence: st.Sequence, taskID: st.TaskID}
 }

@@ -113,6 +113,9 @@ const (
 	// sync stream was applied, the recorded winner and the input pieces not assembled yet
 	// (package buildersync).
 	NSBuilderSyncMember Namespace = "builder_sync_member"
+	// NSOps holds operator state: the service key rotation drain (package drain) and the
+	// readiness write probe.
+	NSOps Namespace = "ops"
 )
 
 type Store interface {

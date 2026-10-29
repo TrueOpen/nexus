@@ -40,6 +40,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -71,6 +72,9 @@ var (
 	// builder_compensation_account_min_balance: the chain refuses every record it sends, so no new
 	// order is taken and no ticket issued.
 	ErrCompensationBelowMin = errors.New("builder compensation account below its minimum balance")
+	// ErrDraining refuses new orders and tickets while this Builder drains before a service key
+	// rotation; it comes wrapped in dispatchdraw.ErrNoCapacity, like a pending rotation.
+	ErrDraining = errors.New("Builder is draining before a service key rotation")
 	// ErrCompensationUnread is the Keys gate until this Builder's compensation account was read
 	// once: no ticket is issued on an account that may be below the minimum.
 	ErrCompensationUnread = errors.New("builder compensation account not read yet")
@@ -232,6 +236,13 @@ type Config struct {
 	// Sync hands every stored change of an order to the other members of its Task Builders group;
 	// nil syncs nothing.
 	Sync OrderSync
+	// Metrics takes the stage timings, skips and Worker outcomes of the walk; nil keeps none.
+	Metrics *opsmetrics.Registry
+	// Draining reports a service key rotation drain: no new order is taken and no ticket issued,
+	// so an order that needs its next ticket fails as NO_CAPACITY; tickets out still win, and the
+	// order of a takeover (registered on chain before the drain) is walked as usual. nil never
+	// drains.
+	Draining func() bool
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.
@@ -275,6 +286,12 @@ type order struct {
 	// parked is set while the order waits for the chain: its earliest_submit_height, an earlier
 	// order of the session, a readable chain, or the end of this Builder's key rotation.
 	parked bool
+	// takenAt is when this run took the order (zero for an order resumed after a restart) and
+	// waited whether its earliest_submit_height wait was timed; ticketAt is when the ticket out
+	// was issued. They only feed the stage timings.
+	takenAt  time.Time
+	waited   bool
+	ticketAt time.Time
 }
 
 func (o *order) key() string { return stateKey(o.st.SessionID, o.st.Sequence) }
@@ -305,6 +322,8 @@ func New(cfg Config, params Params) (*Dispatcher, error) {
 	d.SetParams(params)
 	return d, nil
 }
+
+func (d *Dispatcher) draining() bool { return d.cfg.Draining != nil && d.cfg.Draining() }
 
 // SetParams replaces the walk's params after a params change on chain.
 func (d *Dispatcher) SetParams(p Params) { d.params.Store(&p) }
@@ -446,6 +465,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 			return err
 		}
 		existing.signed, existing.roster = &signed, nil
+		existing.takenAt, existing.waited = d.clock.Now(), false
 		existing.mu.Unlock()
 		d.mu.Lock()
 		d.byTask[o.TaskID] = existing
@@ -458,7 +478,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		if err := saveState(d.cfg.Store, st); err != nil {
 			return err
 		}
-		existing = &order{st: st, signed: &signed}
+		existing = &order{st: st, signed: &signed, takenAt: d.clock.Now()}
 		d.register(existing)
 	}
 	if err := d.cfg.Ledger.Commit(&inflight.Reservation{SessionID: o.SessionID, Sequence: o.OrderSequence, TaskHash: o.TaskHash}); err != nil {
@@ -475,10 +495,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 }
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this
-// Builder's key rotation is pending or its compensation account is below the minimum (it takes no
-// new order; the session moves by takeover) or the latest handraise root holds no admitted,
-// unexpired handraise with a free slot for the order's profile. The walk decides the rest.
+// Builder drains, its key rotation is pending or its compensation account is below the minimum (it
+// takes no new order; the session moves by takeover) or the latest handraise root holds no
+// admitted, unexpired handraise with a free slot for the order's profile. The walk decides the
+// rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
+	if d.draining() {
+		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
+	}
 	if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 		if errors.Is(err, handraise.ErrBuilderRotationPending) || errors.Is(err, ErrCompensationBelowMin) {
 			return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)

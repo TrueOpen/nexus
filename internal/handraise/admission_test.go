@@ -92,6 +92,15 @@ func TestRejectRateSuspendsAdmission(t *testing.T) {
 	}
 
 	e.height.set(101)
+	if got := e.reg.Suspensions(101); len(got) != 1 || got[bad.operator()] != 200 {
+		t.Fatalf("suspensions = %v", got)
+	}
+	if got := e.reg.Suspensions(200); len(got) != 0 {
+		t.Fatalf("suspensions after their end = %v", got)
+	}
+	if e.reg.Standing() != 2 {
+		t.Fatalf("standing = %d", e.reg.Standing())
+	}
 	root := e.mustIssue()
 	if leaf := leafOf(t, root, bad.operator()); leaf.GetAdmitted() || leaf.GetAdmitRejectReason() != reasonRejectRate || leaf.GetBuilderMeasuredRttMs() != 0 {
 		t.Fatalf("suspended leaf = %v", leaf)

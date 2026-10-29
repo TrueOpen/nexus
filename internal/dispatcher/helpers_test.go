@@ -9,6 +9,7 @@ import (
 	"io"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -395,10 +397,14 @@ type env struct {
 	evidence   *dispatchevidence.Store
 	clock      *fakeClock
 	syncer     *fakeSync
-	signer     signer.Signer
-	builder    string
-	d          *Dispatcher
-	params     Params
+	metrics    *opsmetrics.Registry
+	draining   atomic.Bool
+	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
+	takeoverOrders bool
+	signer         signer.Signer
+	builder        string
+	d              *Dispatcher
+	params         Params
 }
 
 // fakeChain holds the session states the session cache reads.
@@ -479,7 +485,7 @@ func (e *env) open(store kv.Store) {
 		InputChunkBytes: 4, Signer: e.signer, Store: store, Ledger: e.ledger, Sessions: e.sessions,
 		Streams: e.streams, Handraises: e.handraises, Drawer: e.drawer, Keys: e.keys, Inputs: e.inputs,
 		Recorder: e.recorder, Observer: e.observer, Attempts: e.attempts, Evidence: e.evidence, Clock: e.clock,
-		Background: func(f func()) { f() },
+		Background: func(f func()) { f() }, Metrics: e.metrics, Draining: e.draining.Load,
 	}
 	if e.syncer != nil {
 		cfg.Sync = e.syncer
@@ -533,7 +539,7 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 	e.inputs.data[o.TaskHash] = []byte("hello world")
 	res, err := e.precheck.Reserve(context.Background(), inflight.Order{
 		SessionID: sessionID, Sequence: seq, TaskID: taskID, TaskHash: o.TaskHash, User: testUser, MaxFee: 10,
-		EarliestSubmitHeight: esh, ExpireHeight: 10_000,
+		EarliestSubmitHeight: esh, ExpireHeight: 10_000, Takeover: e.takeoverOrders,
 	})
 	if err != nil {
 		e.t.Fatalf("reserve %s/%d: %v", sessionID, seq, err)

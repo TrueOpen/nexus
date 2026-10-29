@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -72,6 +74,18 @@ type fakeRecorder struct {
 	bundles   []*recorder.TakeoverBundle
 	err       error
 	withdrawn int
+	// sent marks the sessions whose takeover entry went out in a transaction.
+	sent map[string]bool
+}
+
+func (r *fakeRecorder) WithdrawUnsentTakeover(sessionID string, _ uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.bundles) == 0 || r.sent[sessionID] {
+		return false
+	}
+	r.withdrawn++
+	return true
 }
 
 func (r *fakeRecorder) WithdrawTakeover(context.Context, string, uint64) {
@@ -175,6 +189,8 @@ type env struct {
 	keys     *fakeKeys
 	tracked  []string
 	m        *Manager
+	metrics  *opsmetrics.Registry
+	draining atomic.Bool
 }
 
 // newEnv: the session is bound to "bound" at 40, next sequence 5, balance 1000 of which 100 is
@@ -199,7 +215,7 @@ func (e *env) open() {
 	m, err := New(Config{
 		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks, Keys: e.keys,
 		Track:      func(s string) error { e.tracked = append(e.tracked, s); return nil },
-		Background: func(f func()) { f() },
+		Background: func(f func()) { f() }, Metrics: e.metrics, Draining: e.draining.Load,
 	})
 	if err != nil {
 		e.t.Fatal(err)

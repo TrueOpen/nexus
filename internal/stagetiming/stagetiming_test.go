@@ -24,6 +24,22 @@ func TestRecorderSumsStagesInOrder(t *testing.T) {
 	}
 }
 
+func TestTotalReadsOneStage(t *testing.T) {
+	rec := New()
+	rec.Add("a", time.Millisecond)
+	rec.Add("a", 2*time.Millisecond)
+	if d, ok := rec.Total("a"); !ok || d != 3*time.Millisecond {
+		t.Fatalf("Total(a) = %v %v", d, ok)
+	}
+	if _, ok := rec.Total("b"); ok {
+		t.Fatal("Total found a stage never added")
+	}
+	var none *Recorder
+	if _, ok := none.Total("a"); ok {
+		t.Fatal("nil Recorder has a total")
+	}
+}
+
 func TestRecorderAcceptsConcurrentStages(t *testing.T) {
 	rec := New()
 	var wg sync.WaitGroup

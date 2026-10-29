@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,9 +23,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/dispatchresponse"
+	"github.com/TrueOpen/nexus/internal/drain"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -62,7 +65,9 @@ type orderDispatch struct {
 	// the output data plane exists, applies what other Builders sync to this one.
 	Sync    *buildersync.Sender
 	Members *buildersync.Receiver
-	params  func(context.Context) (orderParams, error)
+	// Drain stops new orders, tickets and takeovers before a service key rotation.
+	Drain  *drain.Controller
+	params func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -154,6 +159,7 @@ type orderDispatchDeps struct {
 	Held takeover.Tasks
 	// Attempts is the book of winning attempts the output data plane reads.
 	Attempts *attempt.Book
+	Metrics  *opsmetrics.Registry
 	Log      *slog.Logger
 }
 
@@ -248,7 +254,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
 		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry,
 		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Attempts: syncedAttempts{deps.Attempts, od.Sync},
-		Streams: deps.Direct.Streams, Gate: od.Gate, Evidence: od.Evidence, Log: deps.Log,
+		Streams: deps.Direct.Streams, Gate: od.Gate, Evidence: od.Evidence, Metrics: deps.Metrics, Log: deps.Log,
 	}, params.record)
 	if err != nil {
 		return nil, err
@@ -258,7 +264,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
 		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
 		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer, Attempts: deps.Attempts, Evidence: od.Evidence,
-		Sync: od.Sync, Log: deps.Log,
+		Sync: od.Sync, Metrics: deps.Metrics, Draining: od.draining, Log: deps.Log,
 	}, params.walk)
 	if err != nil {
 		return nil, err
@@ -270,7 +276,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	}
 	od.Takeovers, err = takeover.New(takeover.Config{
 		Builder: deps.BuilderAddress, Store: deps.Store, Chain: deps.TaskChain, Recorder: od.Recorder, Precheck: od.Precheck,
-		Tasks: deps.Held, Keys: od.Gate, Track: track, Log: deps.Log,
+		Tasks: deps.Held, Keys: od.Gate, Track: track, Metrics: deps.Metrics, Draining: od.draining, Log: deps.Log,
 	})
 	if err != nil {
 		return nil, err
@@ -284,6 +290,26 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		return nil, err
 	}
 	od.Recorder.SetTakeovers(od.Takeovers)
+	od.Drain, err = drain.New(drain.Config{
+		Store: deps.Store, LocalPubKey: hex.EncodeToString(deps.Signer.PubKeyCompressed()), Log: deps.Log,
+		OnDraining: od.Takeovers.EndUnsent,
+		Key: func(ctx context.Context) (chaincli.ServiceKeyState, error) {
+			_, state, err := servicekey.Current(ctx, deps.Keys.Resolver, deps.Keys.AddressPrefix, servicekey.ParticipantBuilder, deps.BuilderAddress)
+			return state, err
+		},
+		Sources: drain.Sources{
+			InFlight: func() (int, *big.Int) {
+				s := od.Ledger.Summary()
+				return s.Pending, s.PendingMaxFee
+			},
+			Records:   func() int { return od.Recorder.Outbox().Entries },
+			Takeovers: od.Takeovers.Pending,
+			Sync:      func() []drain.SyncPending { return syncPending(od.Sync.Outstanding()) },
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
 	od.Rosters = dispatchevidence.Rosters{ChainID: deps.ChainID, Evidence: od.Evidence, Chain: deps.TaskChain, Root: issuedRoot(deps.Direct.Registry)}
 	return od, nil
 }
@@ -385,6 +411,22 @@ func builderSetAt(chain chaincli.Client) func(context.Context, uint64) (taskgrou
 		}
 		return out, nil
 	}
+}
+
+// draining reports the rotation drain to the dispatcher and the takeovers, which are built before
+// it.
+func (od *orderDispatch) draining() bool { return od.Drain != nil && od.Drain.Draining() }
+
+// syncPending is the group sync's outstanding work as the drain lists it.
+func syncPending(out []buildersync.Outstanding) []drain.SyncPending {
+	if len(out) == 0 {
+		return nil
+	}
+	pending := make([]drain.SyncPending, len(out))
+	for i, o := range out {
+		pending[i] = drain.SyncPending{SessionID: o.SessionID, Sequence: o.Sequence, TaskID: o.TaskID, Peer: o.Peer, Items: o.Items, Output: o.Output}
+	}
+	return pending
 }
 
 // evidenceRetention is the last height an order's evidence is kept at under the current params.

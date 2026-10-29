@@ -17,6 +17,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/stagetiming"
@@ -132,6 +133,9 @@ func (s *service) OpenTask(ctx context.Context, stream *connect.ClientStream[nex
 		}
 		attrs := append([]any{"session_id", order.SessionID, "task_id", order.TaskID, "outcome", outcome}, timing.Attrs()...)
 		s.log.Info("open task intake timing", attrs...)
+	}
+	if d, ok := timing.Total("order_precheck"); ok {
+		s.metrics.ObserveStage(opsmetrics.StagePrecheck, d)
 	}
 	return response, err
 }

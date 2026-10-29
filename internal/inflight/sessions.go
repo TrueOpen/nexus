@@ -182,6 +182,19 @@ func (c *SessionCache) Prewarm() {
 	}
 }
 
+// BoundTo counts the cached sessions bound to builder.
+func (c *SessionCache) BoundTo(builder string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, s := range c.sessions {
+		if s.have && s.state.Found && s.state.BoundBuilder == builder {
+			n++
+		}
+	}
+	return n
+}
+
 // Head returns the latest height seen, 0 before any.
 func (c *SessionCache) Head() uint64 { return c.head.Load() }
 

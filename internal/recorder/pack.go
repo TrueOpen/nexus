@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
 // split cuts entries, in record order, into transactions of at most maxEntries entries and
@@ -54,10 +56,25 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	var waiting []*entry
 	for _, e := range r.entries {
 		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !(e.Held && r.earlierUnresolvedLocked(e)) {
+			e.packing = true
 			waiting = append(waiting, e)
 		}
 	}
 	r.mu.Unlock()
+	// Whatever the sends did, the chosen entries are carried by a transaction (Tx) or waiting
+	// again; one withdrawn meanwhile that no transaction carried is dropped now.
+	defer func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		var ops []kv.WriteOp
+		for _, e := range waiting {
+			e.packing = false
+			if e.Withdrawn && e.Tx == "" && r.entries[e.ObjectID] == e {
+				r.removeLocked(e, &ops)
+			}
+		}
+		r.writeLocked(ops)
+	}()
 	if len(waiting) == 0 {
 		return
 	}
@@ -149,11 +166,13 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 	}
 	_, err := r.cfg.Tx.SubmitRecordDispatch(ctx, msg, gasLimit, persist)
 	if err == nil {
+		r.broadcast(objects)
 		r.log.Info("record transaction broadcast", "tx_hash", current, "entries", len(entries), "height", height)
 		return
 	}
 	var se *coordinator.SubmissionError
 	if errors.As(err, &se) && se.Phase == coordinator.SubmissionBroadcast && !se.Definitive && current != "" {
+		r.broadcast(objects)
 		r.log.Warn("record transaction broadcast outcome unknown; following it on chain", "tx_hash", current, "err", err)
 		return
 	}
@@ -163,5 +182,24 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 	}
 	if current != "" {
 		r.requeue(current)
+	}
+}
+
+// broadcast times the first broadcast of each entry of this run since it was handed over.
+func (r *Recorder) broadcast(objects []string) {
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range objects {
+		if _, live := r.entries[id]; !live {
+			continue
+		}
+		if _, sent := r.sentAt[id]; sent {
+			continue
+		}
+		r.sentAt[id] = now
+		if at, ok := r.queuedAt[id]; ok {
+			r.cfg.Metrics.ObserveStage(opsmetrics.StageAcceptToRecordSubmit, now.Sub(at))
+		}
 	}
 }

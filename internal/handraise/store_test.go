@@ -3,6 +3,7 @@ package handraise
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,22 @@ func TestRTTThresholdHistory(t *testing.T) {
 	}
 	if ms, since := e.reg.RTTThreshold(); ms != 90 || !since.Equal(start.Add(2*time.Hour)) {
 		t.Fatalf("threshold = %d since %v", ms, since)
+	}
+	// The history is served from memory: the public statistics read it every tick.
+	var keys []string
+	_ = e.store.Scan(kv.NSHandraise, func(key string, _ []byte) bool {
+		if strings.HasPrefix(key, thresholdPrefix) {
+			keys = append(keys, key)
+		}
+		return true
+	})
+	for _, key := range keys {
+		if err := e.store.Delete(kv.NSHandraise, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if again, err := e.reg.RTTThresholdHistory(); err != nil || len(again) != 2 {
+		t.Fatalf("history after the store lost it = %+v, %v", again, err)
 	}
 }
 

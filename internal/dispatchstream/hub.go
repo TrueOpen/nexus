@@ -269,6 +269,29 @@ func (h *Hub) RTT(operator string) (time.Duration, bool) {
 	return s.srtt, true
 }
 
+// Backlog counts the bound streams and the Builder-signed downlink messages Cortex nodes have not
+// acknowledged (sent again as stored when their stream binds again).
+type Backlog struct {
+	Sessions   int `json:"sessions"`
+	Unacked    int `json:"unacked"`
+	Operators  int `json:"operators_with_unacked"`
+	Broadcasts int `json:"retained_broadcasts"`
+}
+
+// Backlog counts the bound streams and the unacknowledged downlink messages.
+func (h *Hub) Backlog() Backlog {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	b := Backlog{Sessions: len(h.sessions), Broadcasts: len(h.retained)}
+	for _, pending := range h.pending {
+		if len(pending) > 0 {
+			b.Unacked += len(pending)
+			b.Operators++
+		}
+	}
+	return b
+}
+
 func (h *Hub) notify(operator string, connected bool) {
 	if h.observe != nil {
 		h.observe(operator, connected)

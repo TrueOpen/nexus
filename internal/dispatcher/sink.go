@@ -12,6 +12,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
 // The dispatcher is the stream hub's DispatchSink: the hub verified each answer's signature under
@@ -101,7 +102,12 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	if current, ok := d.cfg.Handraises.Current(a.Operator); ok {
 		d.slots.accepted(a.Operator, current)
 	}
-	d.recordOutcome(a.Operator, false)
+	d.recordOutcome(a, opsmetrics.OutcomeAccepted)
+	if !o.ticketAt.IsZero() {
+		d.cfg.Metrics.ObserveStage(opsmetrics.StageTicketToAccept, d.clock.Now().Sub(o.ticketAt))
+	}
+	d.cfg.Metrics.Accepted(st.TaskID)
+	d.orderLeft(st, "accepted")
 	out := done{session: st.SessionID, sequence: st.Sequence, taskID: st.TaskID, worker: a.Operator, ticket: [32]byte(a.Hash)}
 	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok {
 		out.accepted, err = d.bundle(st, d.recordDeadline(o, entry.Deadline))
@@ -146,7 +152,12 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 		o.timer.Stop()
 	}
 	current, _ := d.cfg.Handraises.Current(a.Operator)
-	d.recordOutcome(a.Operator, d.slots.free(a.Operator, current) > 0)
+	outcome := opsmetrics.OutcomeRejectedWithoutFreeSlot
+	if d.slots.free(a.Operator, current) > 0 {
+		outcome = opsmetrics.OutcomeRejected
+	}
+	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipRejected)
+	d.recordOutcome(a, outcome)
 	out := d.step(ctx, o)
 	o.mu.Unlock()
 	d.finish(ctx, out)
