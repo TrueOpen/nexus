@@ -27,7 +27,10 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 	if !it.ready(head) {
 		return
 	}
-	r.settleLastSend(ctx, &it)
+	if r.settleLastSend(ctx, head, &it) {
+		r.update(claimPrefix, r.claims, &it)
+		return
+	}
 	if it.spent() {
 		r.update(claimPrefix, r.claims, &it)
 		return

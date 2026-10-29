@@ -134,6 +134,8 @@ type item struct {
 	// gas of the next one (0 counts as 1).
 	TxHash    []byte `json:"tx_hash,omitempty"`
 	GasFactor uint64 `json:"gas_factor,omitempty"`
+	// Waited is set while the last answer's transaction was not found once and is looked up again.
+	Waited bool `json:"waited,omitempty"`
 	// Kind and TaskID are a challenge's, from its event; RetryAt is the head before which a
 	// challenge whose answer is not held here is not looked at again.
 	Kind    sharedv1.DispatchChallengeKindV1 `json:"kind,omitempty"`
@@ -429,22 +431,33 @@ func (r *Responder) gas(msg proto.Message, it *item) uint64 {
 
 // settleLastSend reads the result of the item's last answer once it had time to land. One that
 // ran out of gas below maxGasFactor goes again with twice the gas and does not count as a send.
-func (r *Responder) settleLastSend(ctx context.Context, it *item) {
+// A transaction not found yet (not in a block) is looked up once more after another
+// resubmitBlocks before anything is sent: settleLastSend then returns true.
+func (r *Responder) settleLastSend(ctx context.Context, head uint64, it *item) bool {
 	if len(it.TxHash) == 0 {
-		return
+		return false
 	}
 	res, err := r.cfg.Chain.QueryTx(ctx, it.TxHash)
-	it.TxHash = nil
-	if err != nil || res.Codespace != "sdk" || res.Code != 11 {
-		return
+	if isNotFound(err) && !it.Waited {
+		it.Waited, it.SentAt = true, head
+		return true
+	}
+	it.TxHash, it.Waited = nil, false
+	if err != nil || !chaincli.IsOutOfGas(res) {
+		return false
 	}
 	factor := max(it.GasFactor, 1)
 	if factor >= maxGasFactor {
 		r.log.Error("dispatch answer out of gas at the highest gas; raise dispatch.answer_gas_base or answer_gas_per_byte", "id", hex.EncodeToString(it.ID))
-		return
+		return false
 	}
 	it.GasFactor, it.Sends = factor*2, it.Sends-1
 	r.log.Warn("dispatch answer out of gas; it goes again with more gas", "id", hex.EncodeToString(it.ID), "gas_factor", it.GasFactor)
+	if it.Deadline != 0 && head+resubmitBlocks > it.Deadline {
+		r.log.Warn("the window ends before this answer's result can be read; no further gas increase fits",
+			"id", hex.EncodeToString(it.ID), "deadline", it.Deadline)
+	}
+	return false
 }
 
 // sent records an answer broadcast at head.

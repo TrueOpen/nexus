@@ -144,3 +144,9 @@ func TestTruncateRawLogKeepsUTF8Whole(t *testing.T) {
 		t.Fatalf("cut = %d bytes, want %d (before the split rune)", len(got), RawLogLimit-1)
 	}
 }
+
+func TestIsOutOfGas(t *testing.T) {
+	if !IsOutOfGas(TxResult{Code: 11, Codespace: "sdk"}) || IsOutOfGas(TxResult{Code: 11, Codespace: "task"}) || IsOutOfGas(TxResult{Code: 5, Codespace: "sdk"}) {
+		t.Fatal("out-of-gas is sdk code 11 only")
+	}
+}

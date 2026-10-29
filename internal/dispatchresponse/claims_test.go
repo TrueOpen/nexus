@@ -174,8 +174,8 @@ func TestClaimWaitsForItsEvidence(t *testing.T) {
 	}
 }
 
-// A rebuttal sent is not sent again while it may still land; a claim still pending after that is
-// rebutted again, and the rebutted event closes it.
+// A rebuttal sent is not sent again while it may still land; a claim still pending after it
+// landed (refused when executed) is rebutted again, and the rebutted event closes it.
 func TestRebuttalIsResentOnlyAfterItCouldHaveLanded(t *testing.T) {
 	e := newEnv(t)
 	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
@@ -185,6 +185,8 @@ func TestRebuttalIsResentOnlyAfterItCouldHaveLanded(t *testing.T) {
 	if n := len(e.rebuts()); n != 1 {
 		t.Fatalf("%d rebuttals in two blocks", n)
 	}
+	hash := e.tx.hashes[0]
+	e.chain.txResults[string(hash)] = chaincli.TxResult{TxHash: hash, Code: 7, Codespace: "task"}
 	e.block(151 + resubmitBlocks)
 	if n := len(e.rebuts()); n != 2 {
 		t.Fatalf("%d rebuttals after %d blocks", n, resubmitBlocks)
@@ -243,6 +245,25 @@ func TestOutOfGasRebuttalGoesAgainWithMoreGas(t *testing.T) {
 	g := e.tx.gas[0]
 	if want := []uint64{g, 2 * g, 4 * g, 8 * g, 8 * g, 8 * g}; !reflect.DeepEqual(e.tx.gas, want) {
 		t.Fatalf("gas = %v, want %v", e.tx.gas, want)
+	}
+}
+
+// A rebuttal whose transaction is not found yet (not in a block) is looked up again after another
+// resubmitBlocks before anything is sent; an out-of-gas result found then still doubles the gas.
+func TestRebuttalNotFoundYetIsLookedUpAgain(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.claim(ticketHash(0, 0), op7, 400)
+	e.block(151)
+	e.block(151 + resubmitBlocks)
+	if n := len(e.rebuts()); n != 1 {
+		t.Fatalf("%d rebuttals while the first was not found yet", n)
+	}
+	hash := e.tx.hashes[0]
+	e.chain.txResults[string(hash)] = chaincli.TxResult{TxHash: hash, Code: 11, Codespace: "sdk"}
+	e.block(151 + 2*resubmitBlocks)
+	if len(e.tx.gas) != 2 || e.tx.gas[1] != 2*e.tx.gas[0] {
+		t.Fatalf("gas = %v", e.tx.gas)
 	}
 }
 

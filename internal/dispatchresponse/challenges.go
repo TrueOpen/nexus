@@ -35,7 +35,10 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		}
 		return // a ROSTER_UNAVAILABLE waits for evidence (a group member's copy) until its deadline
 	}
-	r.settleLastSend(ctx, &it)
+	if r.settleLastSend(ctx, head, &it) {
+		r.update(challengePrefix, r.challenges, &it)
+		return
+	}
 	if it.spent() {
 		r.update(challengePrefix, r.challenges, &it)
 		return
