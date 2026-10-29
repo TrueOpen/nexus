@@ -246,10 +246,30 @@ func TestPrecheckFreshnessBoundaries(t *testing.T) {
 			t.Fatalf("earliest_submit_height %d at head 100: %v", esh, err)
 		}
 	}
-	o := order(5)
-	o.ExpireHeight = 102
+}
+
+// The order must stay recordable until its record deadline D = max(earliest_submit_height,
+// bound_change_height) + record_deadline_blocks: the Keeper refuses a record at or after
+// order_expire_height, and an order that expires before this Builder could record it is this
+// Builder's precheck fault, which the accepting GPU can claim for.
+func TestPrecheckExpiryCoversTheRecordDeadline(t *testing.T) {
+	f := newFixture(t, nil) // head 100, record_deadline_blocks 20, bound at 10
+	o := order(5)           // earliest_submit_height 100: D = 120
+	o.ExpireHeight = 121
 	if _, err := f.p.Check(context.Background(), o); err != nil {
-		t.Fatalf("order recordable at 101 before expiry 102: %v", err)
+		t.Fatalf("order expiring after D: %v", err)
+	}
+	for _, expire := range []uint64{120, 102} {
+		o.ExpireHeight = expire
+		if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+			t.Fatalf("order_expire_height %d with D 120 = %v, want expired", expire, err)
+		}
+	}
+	// A later bound_change_height moves D.
+	f = newFixture(t, func(s *chaincli.SessionState) { s.BoundChangeHeight = 110 })
+	o.ExpireHeight = 130
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+		t.Fatalf("order_expire_height 130 with D 130 = %v, want expired", err)
 	}
 }
 

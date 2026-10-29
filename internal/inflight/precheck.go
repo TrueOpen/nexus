@@ -119,8 +119,9 @@ type PrecheckConfig struct {
 //  1. session: known, owned by the order user (else the registered key error ErrKeyInvalid), not
 //     closed (ErrSessionClosing); an order signed by the session key passes
 //     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key;
-//  2. expiry: the order must be recordable before order_expire_height, so head + 1 <
-//     order_expire_height, else ErrOrderExpired;
+//  2. expiry: the order must stay recordable until its record deadline D = max(
+//     earliest_submit_height, bound_change_height) + record_deadline_blocks, so D <
+//     order_expire_height (and head + 1 < order_expire_height), else ErrOrderExpired;
 //  3. binding: a session bound to another Builder ends the precheck with BoundElsewhere;
 //  4. freshness: earliest_submit_height >= head - order_freshness_margin_blocks (ErrOrderStale)
 //     and <= head + 1 (ErrOrderFuture);
@@ -243,9 +244,12 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 			return Result{}, err
 		}
 	}
-	if head+1 >= o.ExpireHeight {
-		return Result{}, fmt.Errorf("%w: the order cannot be recorded at height %d or later, before order_expire_height %d",
-			ErrOrderExpired, head+1, o.ExpireHeight)
+	// The Keeper refuses a record at or after order_expire_height, and this Builder guarantees the
+	// record only by the deadline: an order expiring earlier could fail at record time through
+	// this precheck's fault.
+	if head+1 >= o.ExpireHeight || res.Deadline >= o.ExpireHeight {
+		return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the record deadline %d (head %d)",
+			ErrOrderExpired, o.ExpireHeight, res.Deadline, head)
 	}
 	if s.BoundBuilder != p.cfg.Builder {
 		res.Binding = BoundElsewhere
