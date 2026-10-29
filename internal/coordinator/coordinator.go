@@ -1181,10 +1181,15 @@ func (c *Coordinator) TaskStatus(_ context.Context, sessionID, taskID string) (t
 		return types.TaskStatus{}, ErrTaskNotFound
 	}
 	fsm.mu.Lock()
+	pending := fsm.state == types.Pending
 	st := fsm.state.String()
 	ph := fsm.phase.String()
 	fsm.mu.Unlock()
-	return types.TaskStatus{State: st, TaskPhase: ph}, nil
+	status := types.TaskStatus{State: st, TaskPhase: ph}
+	if pending {
+		status.Stage = c.takeoverStage(sessionID, taskID)
+	}
+	return status, nil
 }
 
 // ---- Typed chain-event entry points (callable directly; in production eventLoop adapts chain.Events() and forwards) ----

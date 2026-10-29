@@ -97,6 +97,10 @@ const (
 	EvDispatchRecorded    = "DISPATCH_RECORDED"    // the chain recorded the dispatch: the winner is final
 	EvNoCapacity          = "NO_CAPACITY"          // no Worker accepted within max_skips; the sequence is unused
 	EvRecordRejected      = "RECORD_REJECTED"      // the chain refused the dispatch entry or it missed its record deadline
+	EvTakeoverPending     = "TAKEOVER_PENDING"     // the chain registered this Builder's takeover of the session; chain_height is the activation height
+	EvTakeoverRecorded    = "TAKEOVER_RECORDED"    // the takeover took effect: the session is bound here and the order is dispatched from scratch
+	EvTakeoverVoided      = "TAKEOVER_VOIDED"      // the takeover will not take effect (the order was recorded or cancelled, the session closed or went to another Builder)
+	EvOrderExpired        = "ORDER_EXPIRED"        // once the takeover took effect the order could no longer be recorded before it expires; resend it re-signed
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
 	// SDK's frozen event_code set, while the word OutputRef is
 	// otherwise retired from code -- the two conflict; the rename awaits a member/SDK-side decision (see
