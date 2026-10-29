@@ -13,9 +13,11 @@ import (
 	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/taskdata"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
 
 // From the first ticket on, the member holds the round with its roster and the root it binds, the
@@ -416,8 +418,8 @@ func TestStartedSenderDelivers(t *testing.T) {
 }
 
 // An order whose sync stream began under the then current BuilderSet keeps syncing after the
-// snapshot is replaced (a recorded task keeps the group it was locked with); a new order of the
-// replaced snapshot is refused.
+// snapshot is replaced (a recorded task keeps the group it was locked with); a new order of a
+// snapshot older than the previous one is refused.
 func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
@@ -431,10 +433,17 @@ func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
 	if c := e.copyOf(); len(c.Rounds[0].Attempts) != 2 {
 		t.Fatalf("the order stopped syncing after the snapshot changed: %+v", c.Rounds[0].Attempts)
 	}
+	// Two replacements later a new order of the first snapshot is refused.
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100})
+	e.groups.mu.Lock()
+	e.groups.snapshot = taskgroupSnapshot("set-3", 0x60, e.d.op, e.m.op)
+	e.groups.mu.Unlock()
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 101})
 	batch := e.firstBatch()
 	batch.SessionId = fill(0xab)
+	batch.BuilderSetId, batch.BuilderSetHash = "set-1", fill(0x5e)
 	if _, err := e.member.r.Sync(context.Background(), e.signed(batch)); !errors.Is(err, ErrNotGroupMember) {
-		t.Fatalf("new order of the replaced snapshot: %v", err)
+		t.Fatalf("new order of a snapshot two replacements back: %v", err)
 	}
 }
 
@@ -612,5 +621,31 @@ func TestRecordedOrderIsFoundAgain(t *testing.T) {
 			t.Fatal("the recorded order was not found again on a start")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// The snapshot may be replaced between the dispatch of an order and its first batch: the sender
+// builds the order's group from the chain's copy of the snapshot the order names, and a member
+// takes a new order of the snapshot it saw just before the current one.
+func TestFirstBatchAfterASnapshotChange(t *testing.T) {
+	e := newEnv(t)
+	set1 := e.groups.snapshot
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100})
+	e.groups.mu.Lock()
+	e.groups.snapshot = taskgroupSnapshot("set-2", 0x5f, e.d.op, e.m.op)
+	e.groups.mu.Unlock()
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 101})
+	var asked uint64
+	e.s.cfg.SnapshotAt = func(_ context.Context, height uint64) (taskgroup.Snapshot, error) {
+		asked = height
+		return set1, nil
+	}
+	e.s.OrderChanged(e.fx.issued())
+	e.sync()
+	if asked != testESH {
+		t.Fatalf("snapshot asked at height %d", asked)
+	}
+	if c := e.copyOf(); c == nil || len(c.Rounds) != 1 {
+		t.Fatalf("copy after the snapshot changed = %+v", c)
 	}
 }

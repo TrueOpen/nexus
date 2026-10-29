@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -85,6 +86,9 @@ type SenderConfig struct {
 	// Retention is the last height the sync stream of an order is kept at: the retention of its
 	// evidence (dispatchevidence.Params.RetainUntil).
 	Retention func(*dispatchevidence.Order) uint64
+	// SnapshotAt, when set, reads the BuilderSet snapshot in effect at a height from the chain: an
+	// order whose snapshot was replaced before its first sync gets the group the order names.
+	SnapshotAt func(ctx context.Context, height uint64) (taskgroup.Snapshot, error)
 	// Attempts, when set, is looked at on a start and every few blocks for recorded orders whose
 	// order item was never queued.
 	Attempts AttemptReader
@@ -414,7 +418,7 @@ func (s *Sender) drain() {
 func (s *Sender) applyView(ctx context.Context, view *dispatchevidence.Order) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st, err := s.streamLocked(view)
+	st, err := s.streamLocked(ctx, view)
 	if err != nil || st == nil {
 		return err
 	}
@@ -456,7 +460,7 @@ func (s *Sender) applyRecorded(ctx context.Context, a attempt.Attempt) error {
 
 // streamLocked returns the order's stream, creating it with the other members of the order's
 // group; nil when the order has no other member. Caller holds s.mu.
-func (s *Sender) streamLocked(view *dispatchevidence.Order) (*outStream, error) {
+func (s *Sender) streamLocked(ctx context.Context, view *dispatchevidence.Order) (*outStream, error) {
 	key := streamKey(view.SessionID, view.Sequence)
 	if st := s.streams[key]; st != nil {
 		return st, nil
@@ -466,6 +470,9 @@ func (s *Sender) streamLocked(view *dispatchevidence.Order) (*outStream, error) 
 		return nil, fmt.Errorf("order %s: signed order: %w", key, err)
 	}
 	snapshot, err := taskgroup.CheckOrder(s.cfg.Groups, signed.GetOrder())
+	if errors.Is(err, taskgroup.ErrBuilderSetStale) && s.cfg.SnapshotAt != nil {
+		snapshot, err = s.orderSnapshot(ctx, signed.GetOrder())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("order %s: Task Builders group: %w", key, err)
 	}
@@ -484,6 +491,19 @@ func (s *Sender) streamLocked(view *dispatchevidence.Order) (*outStream, error) 
 		Rounds: map[string]bool{}, Inputs: map[string]bool{}, Attempts: map[string]string{},
 	}
 	return st, nil
+}
+
+// orderSnapshot reads from the chain the snapshot an order names, as in effect at its
+// earliest_submit_height.
+func (s *Sender) orderSnapshot(ctx context.Context, order *taskv1.TaskOrderV3) (taskgroup.Snapshot, error) {
+	snapshot, err := s.cfg.SnapshotAt(ctx, order.GetEarliestSubmitHeight())
+	if err != nil {
+		return taskgroup.Snapshot{}, fmt.Errorf("BuilderSet at height %d: %w", order.GetEarliestSubmitHeight(), err)
+	}
+	if snapshot.ID != order.GetBuilderSetId() || !bytes.Equal(snapshot.Hash[:], order.GetBuilderSetHash()) {
+		return taskgroup.Snapshot{}, fmt.Errorf("%w: the chain's BuilderSet at the order's height is %q", taskgroup.ErrBuilderSetStale, snapshot.ID)
+	}
+	return snapshot, nil
 }
 
 // diff returns the items of what view shows that st has not turned into items yet, and marks it

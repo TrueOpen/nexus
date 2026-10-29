@@ -87,6 +87,8 @@ type Receiver struct {
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex
 	replicas map[string]*taskdata.OutputStream
+	// current and previous are the last two BuilderSet snapshots seen current.
+	current, previous *taskgroup.Snapshot
 
 	head      atomic.Uint64
 	lastPrune atomic.Uint64
@@ -135,6 +137,7 @@ func (r *Receiver) HandleChainEvent(ev chaincli.ChainEvent) {
 		return
 	}
 	r.head.Store(head)
+	r.observeSnapshot()
 	if last := r.lastPrune.Load(); head >= last+pruneEveryBlocks {
 		r.lastPrune.Store(head)
 		r.prune(head)
@@ -269,17 +272,41 @@ func (r *Receiver) admit(batch *buildersyncv1.BuilderSyncBatchV1, key string) er
 // checkGroup requires the BuilderSet of a new order's batch to be the current snapshot with both
 // the sender and this Builder among its members: the order's group.
 func (r *Receiver) checkGroup(batch *buildersyncv1.BuilderSyncBatchV1) error {
-	snapshot, ok := r.cfg.Groups.CurrentBuilderSet()
+	current, previous, ok := r.observeSnapshot()
 	if !ok {
 		return fmt.Errorf("%w: no current BuilderSet snapshot", ErrUnavailable)
 	}
-	if snapshot.ID != batch.GetBuilderSetId() || !bytes.Equal(snapshot.Hash[:], batch.GetBuilderSetHash()) {
-		return fmt.Errorf("%w: batch names BuilderSet %q, current is %q", ErrNotGroupMember, batch.GetBuilderSetId(), snapshot.ID)
+	snapshot := current
+	if !names(batch, current) {
+		// An order dispatched just before the snapshot was replaced may sync its first batch after.
+		if previous == nil || !names(batch, *previous) {
+			return fmt.Errorf("%w: batch names BuilderSet %q, current is %q", ErrNotGroupMember, batch.GetBuilderSetId(), current.ID)
+		}
+		snapshot = *previous
 	}
 	if !slices.Contains(snapshot.Members, batch.GetSenderOperatorAddress()) || !slices.Contains(snapshot.Members, r.cfg.Builder) {
 		return fmt.Errorf("%w: sender or receiver is not a member of BuilderSet %q", ErrNotGroupMember, snapshot.ID)
 	}
 	return nil
+}
+
+func names(batch *buildersyncv1.BuilderSyncBatchV1, s taskgroup.Snapshot) bool {
+	return s.ID == batch.GetBuilderSetId() && bytes.Equal(s.Hash[:], batch.GetBuilderSetHash())
+}
+
+// observeSnapshot returns the current snapshot and the one current before it, as far as this
+// receiver saw them.
+func (r *Receiver) observeSnapshot() (taskgroup.Snapshot, *taskgroup.Snapshot, bool) {
+	current, ok := r.cfg.Groups.CurrentBuilderSet()
+	if !ok {
+		return taskgroup.Snapshot{}, nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current == nil || r.current.ID != current.ID || r.current.Hash != current.Hash {
+		r.previous, r.current = r.current, &current
+	}
+	return current, r.previous, true
 }
 
 // incoming is what one batch's items share.

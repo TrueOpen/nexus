@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -237,7 +239,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Groups: deps.Direct.Groups,
 		Roots: issuedRoot(deps.Direct.Registry), Inputs: buildersync.StoredInputs{Store: deps.Inputs}, Outputs: deps.Inputs,
 		Evidence: od.Evidence, Peers: buildersync.NewChainPeers(deps.HubChain), Retention: od.evidenceRetention, Attempts: deps.Attempts,
-		Log: deps.Log,
+		SnapshotAt: builderSetAt(deps.HubChain), Log: deps.Log,
 	})
 	if err != nil {
 		return nil, err
@@ -364,6 +366,25 @@ func (od *orderDispatch) Stop(ctx context.Context) error {
 		od.Members.Close()
 	}
 	return err
+}
+
+// builderSetAt reads the BuilderSet snapshot in effect at a height from the chain.
+func builderSetAt(chain chaincli.Client) func(context.Context, uint64) (taskgroup.Snapshot, error) {
+	return func(ctx context.Context, height uint64) (taskgroup.Snapshot, error) {
+		set, err := chain.QueryBuilderSetAtHeight(ctx, height)
+		if err != nil {
+			return taskgroup.Snapshot{}, err
+		}
+		hash, err := hex.DecodeString(strings.TrimPrefix(set.SetHash, "0x"))
+		if err != nil || len(hash) != 32 {
+			return taskgroup.Snapshot{}, fmt.Errorf("BuilderSet %s hash %q is not 32 bytes", set.BuilderSetID, set.SetHash)
+		}
+		out := taskgroup.Snapshot{ID: set.BuilderSetID, Hash: [32]byte(hash), Members: make([]string, len(set.Members))}
+		for i, m := range set.Members {
+			out.Members[i] = m.Address
+		}
+		return out, nil
+	}
 }
 
 // evidenceRetention is the last height an order's evidence is kept at under the current params.
