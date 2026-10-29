@@ -261,3 +261,24 @@ func TestUnanswerableChallengeIsReadEveryFewBlocks(t *testing.T) {
 		t.Fatalf("%d chain reads in %d blocks", e.chain.chalReads, 2*resubmitBlocks)
 	}
 }
+
+// A challenge response that ran out of gas goes again with twice the gas, not counted as a send.
+func TestOutOfGasResponseGoesAgainWithMoreGas(t *testing.T) {
+	e := newEnv(t)
+	o := recordedOrder(t)
+	e.put(o)
+	e.chainRecord(o)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: self, DispatchRound: u32(1), ProofDeadlineHeight: u64(200), Status: awaitingRoster,
+	})
+	e.block(121)
+	hash := e.tx.hashes[0]
+	e.chain.txResults[string(hash)] = chaincli.TxResult{TxHash: hash, Code: 11, Codespace: "sdk"}
+	e.block(121 + resubmitBlocks)
+	if len(e.tx.gas) != 2 || e.tx.gas[1] != 2*e.tx.gas[0] {
+		t.Fatalf("gas = %v", e.tx.gas)
+	}
+	if it := e.r.openChallenges(); len(it) != 1 || it[0].Sends != 1 {
+		t.Fatalf("open challenges = %+v", it)
+	}
+}

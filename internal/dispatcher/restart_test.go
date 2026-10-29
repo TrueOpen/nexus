@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/kv"
 )
 
 // restart stops the dispatcher and starts a new one over the same store, as a process restart.
@@ -169,5 +170,31 @@ func TestRestartMarksTheEvidenceOfARecordedOrder(t *testing.T) {
 	ev, _ := e.evidenceOf(hash)
 	if !ev.Recorded || ev.RecordedHeight != testDeadline {
 		t.Fatalf("evidence recorded %v at %d, want at the record deadline %d", ev.Recorded, ev.RecordedHeight, testDeadline)
+	}
+}
+
+// An accepted order the ledger no longer holds at all was recorded and let go by the ledger: it is
+// dropped on restart with its evidence marked recorded at the head then.
+func TestRestartMarksTheEvidenceOfAnOrderTheLedgerLetGo(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	_, hash := e.accept()
+	var keys []string
+	if err := e.store.Scan(kv.NSInflight, func(key string, _ []byte) bool { keys = append(keys, key); return true }); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		if err := e.store.Delete(kv.NSInflight, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.restart()
+	if states, _ := loadStates(e.store); len(states) != 0 {
+		t.Fatal("state of an order the ledger let go kept")
+	}
+	ev, _ := e.evidenceOf(hash)
+	if !ev.Recorded || ev.RecordedHeight != testESH {
+		t.Fatalf("evidence recorded %v at %d, want at the head %d", ev.Recorded, ev.RecordedHeight, testESH)
 	}
 }

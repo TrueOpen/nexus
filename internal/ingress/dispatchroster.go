@@ -96,7 +96,8 @@ func (s *service) checkRosterRequest(ctx context.Context, r *nexusv1.DispatchRos
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("NEXUS_INGRESS_MALFORMED: roster request: %w", err))
 	}
-	// The signature is checked before the height is read: an unsigned request costs no chain read.
+	// The signature is checked before the height is read: a request whose signature fails costs
+	// no height read (the key lookup itself reads the chain when the key is not cached).
 	if err := s.verifyParticipantRoleDigest(ctx, servicekey.ParticipantCortex, r.GetRequester(), digest[:], r.GetServiceSignature()); err != nil {
 		return mapRoleSignatureErr(err)
 	}
