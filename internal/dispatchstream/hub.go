@@ -75,8 +75,8 @@ type Config struct {
 	BuilderOperator string
 	// BindTimeout bounds the wait for the binding frame.
 	BindTimeout time.Duration
-	// KeepaliveInterval is how often the Builder probes each stream; KeepaliveMisses unanswered
-	// probes in a row end the stream.
+	// KeepaliveInterval is how often the Builder probes each stream, one probe at a time; a probe
+	// left unanswered for KeepaliveMisses intervals ends the stream.
 	KeepaliveInterval time.Duration
 	KeepaliveMisses   int
 	// MaxPending bounds the unacknowledged downlink messages kept per Cortex; the oldest are dropped

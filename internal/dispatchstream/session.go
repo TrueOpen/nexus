@@ -14,7 +14,7 @@ import (
 )
 
 // session is one bound stream. queue, wake, nextCursor and srtt are guarded by Hub.mu; lastUplink
-// and probes belong to the Serve goroutine.
+// and the keepalive state belong to the Serve goroutine.
 type session struct {
 	operator    string
 	streamNonce []byte
@@ -32,14 +32,18 @@ type session struct {
 
 	// owned by the Serve goroutine
 	lastUplink uint64 // cursor of the last business frame received; the next must be lastUplink+1
-	probes     map[uint64]time.Time
+	// probe is the value of the outstanding local keepalive (0 when none), sent at probeSentAt and
+	// unanswered for probeTicks keepalive ticks; lastProbe is the latest value sent, lastPeerProbe
+	// the latest peer probe echoed.
+	probe, lastProbe, lastPeerProbe uint64
+	probeSentAt                     time.Time
+	probeTicks                      int
 }
 
 func newSession(operator string, streamNonce []byte, stream FrameStream) *session {
 	return &session{
 		operator: operator, streamNonce: append([]byte(nil), streamNonce...), stream: stream,
 		done: make(chan struct{}), wake: make(chan struct{}, 1), nextCursor: 1,
-		probes: make(map[uint64]time.Time),
 	}
 }
 
@@ -284,43 +288,50 @@ func (h *Hub) handleFrame(ctx context.Context, s *session, frame *nexusv1.Dispat
 	return nil
 }
 
-// keepalive sends one probe, or ends the stream after too many unanswered ones.
+// keepalive runs on each keepalive tick. At most one probe is outstanding: while it is, the tick
+// only counts against it, and KeepaliveMisses such ticks end the stream. Otherwise a new probe goes
+// out; its value is the clock in milliseconds, raised above the previous probe when needed so the
+// values sent always increase.
 func (h *Hub) keepalive(s *session) error {
-	if len(s.probes) >= h.cfg.KeepaliveMisses {
-		return fmt.Errorf("%w: %d probes unanswered", ErrKeepaliveTimeout, len(s.probes))
+	if s.probe != 0 {
+		s.probeTicks++
+		if s.probeTicks >= h.cfg.KeepaliveMisses {
+			return fmt.Errorf("%w: probe unanswered for %d intervals", ErrKeepaliveTimeout, s.probeTicks)
+		}
+		return nil
 	}
 	now := h.now()
-	sentAt := uint64(now.UnixMilli())
-	s.probes[sentAt] = now
+	s.probe = max(uint64(now.UnixMilli()), s.lastProbe+1)
+	s.lastProbe, s.probeSentAt, s.probeTicks = s.probe, now, 0
 	h.transport(s, &nexusv1.DispatchStreamFrameV1{
-		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: sentAt}},
+		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: s.probe}},
 	})
 	return nil
 }
 
-// keepaliveReceived handles a peer keepalive. One that echoes an outstanding probe of ours measures
-// the round trip and clears it and every older probe; any other is the peer's own probe, echoed
-// back unchanged.
-func (h *Hub) keepaliveReceived(s *session, sentAt uint64) {
-	sent, ours := s.probes[sentAt]
-	if !ours {
-		h.transport(s, &nexusv1.DispatchStreamFrameV1{
-			Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: sentAt}},
-		})
+// keepaliveReceived handles a peer keepalive. The value of the outstanding probe is its echo: it
+// measures the round trip, clears the probe and is not answered. Any other value is a peer probe,
+// echoed back unchanged once; a value not above the latest peer probe echoed is a repeat and is
+// dropped. Both sides probing at once therefore never bounce keepalives back and forth.
+func (h *Hub) keepaliveReceived(s *session, value uint64) {
+	if s.probe != 0 && value == s.probe {
+		s.probe = 0
+		sample := max(h.now().Sub(s.probeSentAt), time.Millisecond)
+		h.mu.Lock()
+		if s.srtt == 0 {
+			s.srtt = sample
+		} else {
+			// Smoothed like TCP's SRTT: one eighth of each new sample.
+			s.srtt += (sample - s.srtt) / 8
+		}
+		h.mu.Unlock()
 		return
 	}
-	for probe := range s.probes {
-		if probe <= sentAt {
-			delete(s.probes, probe)
-		}
+	if value <= s.lastPeerProbe {
+		return
 	}
-	sample := max(h.now().Sub(sent), time.Millisecond)
-	h.mu.Lock()
-	if s.srtt == 0 {
-		s.srtt = sample
-	} else {
-		// Smoothed like TCP's SRTT: one eighth of each new sample.
-		s.srtt += (sample - s.srtt) / 8
-	}
-	h.mu.Unlock()
+	s.lastPeerProbe = value
+	h.transport(s, &nexusv1.DispatchStreamFrameV1{
+		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: value}},
+	})
 }

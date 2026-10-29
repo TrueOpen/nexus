@@ -196,36 +196,72 @@ func TestSendAllAndErrors(t *testing.T) {
 	}
 }
 
-// Keepalives measure the round trip, echo the Cortex's own probes and end a silent stream.
+// Keepalives keep one probe outstanding with increasing values, measure the round trip from its
+// echo without answering the echo, echo each new Cortex probe once, and end a silent stream.
 func TestKeepalive(t *testing.T) {
 	h := newHarness(t)
 	s := h.connect(cortexA, "1")
+	keepalive := func(v uint64) {
+		s.stream.in <- &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce,
+			Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: v}}}
+	}
+	nextProbe := func() uint64 {
+		t.Helper()
+		f := s.stream.next(t)
+		if f.GetKeepalive() == nil || f.GetCursor() != 0 {
+			t.Fatalf("frame = %v, want a keepalive with cursor 0", f)
+		}
+		return f.GetKeepalive().GetSentAtMs()
+	}
 	if _, ok := h.hub.RTT(cortexA); ok {
 		t.Fatal("RTT known before any keepalive")
 	}
 	h.ticks <- time.Time{}
-	probe := s.stream.next(t).GetKeepalive()
-	if probe == nil || probe.GetSentAtMs() != uint64(h.clock.Now().UnixMilli()) {
-		t.Fatalf("probe = %v", probe)
+	first := nextProbe()
+	if first != uint64(h.clock.Now().UnixMilli()) {
+		t.Fatalf("probe = %d, want the clock in ms", first)
 	}
+	// One probe at a time: a tick while it is outstanding sends nothing.
+	h.ticks <- time.Time{}
+	s.stream.quiet(t)
+
+	// Its echo measures the round trip and is not answered.
 	h.clock.advance(40 * time.Millisecond)
-	s.stream.in <- &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce,
-		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: probe}}
+	keepalive(first)
 	waitRTT(t, h, 40*time.Millisecond)
+	s.stream.quiet(t)
 
-	// The Cortex's own probe comes back unchanged.
-	s.stream.in <- &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce,
-		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: 12345}}}
-	if echo := s.stream.next(t).GetKeepalive(); echo.GetSentAtMs() != 12345 {
-		t.Fatalf("echo = %v", echo)
+	// Probe values increase even when the clock does not.
+	h.clock.advance(-40 * time.Millisecond)
+	h.ticks <- time.Time{}
+	second := nextProbe()
+	if second <= first {
+		t.Fatalf("second probe %d is not above the first %d", second, first)
 	}
 
-	// Unanswered probes end the stream.
-	for i := 0; i < DefaultKeepaliveMisses; i++ {
-		h.clock.advance(time.Second)
+	// A Cortex probe is echoed once, also while our probe is outstanding; repeated or older values
+	// are not echoed again.
+	keepalive(12345)
+	if got := nextProbe(); got != 12345 {
+		t.Fatalf("echo = %d, want 12345", got)
+	}
+	keepalive(12345)
+	keepalive(12344)
+	s.stream.quiet(t)
+	keepalive(12346)
+	if got := nextProbe(); got != 12346 {
+		t.Fatalf("echo = %d, want 12346", got)
+	}
+	keepalive(second)
+	s.stream.quiet(t)
+
+	// A probe left unanswered for KeepaliveMisses ticks ends the stream.
+	h.ticks <- time.Time{}
+	nextProbe()
+	for i := 1; i < DefaultKeepaliveMisses; i++ {
 		h.ticks <- time.Time{}
-		s.stream.next(t)
 	}
+	s.stream.quiet(t)
 	h.ticks <- time.Time{}
 	if err := s.wait(t); !errors.Is(err, ErrKeepaliveTimeout) {
 		t.Fatalf("Serve = %v, want ErrKeepaliveTimeout", err)
