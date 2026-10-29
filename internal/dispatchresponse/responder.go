@@ -41,6 +41,9 @@ const (
 	// maxSends bounds how often one rebuttal or response is sent: one the chain keeps refusing
 	// when executing only spends gas.
 	maxSends = 3
+	// recheckMinBlocks spaces the claim lookups after role stream gaps: a stream that reconnects
+	// often does not have every ticket looked up on every reconnect.
+	recheckMinBlocks = 20
 	// maxGasFactor bounds how far out-of-gas results raise the gas of one answer.
 	maxGasFactor = 8
 	// pruneEveryBlocks is how often expired evidence and unbound handraise roots are pruned.
@@ -103,11 +106,12 @@ type Responder struct {
 	cfg Config
 	log *slog.Logger
 
-	mu         sync.Mutex
-	claims     map[string]*item // ticket hash -> open claim
-	challenges map[string]*item // challenge id -> open challenge
-	resync     bool
-	lastPrune  uint64
+	mu          sync.Mutex
+	claims      map[string]*item // ticket hash -> open claim
+	challenges  map[string]*item // challenge id -> open challenge
+	resync      bool
+	lastRecheck uint64
+	lastPrune   uint64
 
 	claimsSeen, claimsRebutted, claimsOwed atomic.Uint64
 	answered, unanswerable                 atomic.Uint64
@@ -294,8 +298,10 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 // up again, and prunes expired evidence.
 func (r *Responder) onBlock(ctx context.Context, head uint64) {
 	r.mu.Lock()
-	resync := r.resync
-	r.resync = false
+	resync := r.resync && (r.lastRecheck == 0 || head >= r.lastRecheck+recheckMinBlocks)
+	if resync {
+		r.resync, r.lastRecheck = false, head
+	}
 	r.mu.Unlock()
 	if resync {
 		r.recheckClaims(ctx, head)

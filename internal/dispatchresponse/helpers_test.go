@@ -126,7 +126,7 @@ func evidenceOrder(t testing.TB, recorded bool, rounds ...[]attemptSpec) *dispat
 	t.Helper()
 	o := &dispatchevidence.Order{
 		SessionID: hex.EncodeToString(testSession), Sequence: 3, TaskID: hex.EncodeToString(testTask), TaskHash: hex.EncodeToString(fill(0xbb)),
-		Epoch: 1, SignedOrder: []byte("signed order"), DeadlineBase: 100,
+		Epoch: 1, SignedOrder: mustMarshal(t, &taskv1.SignedOrderV2{Order: &taskv1.TaskOrderV3{EarliestSubmitHeight: 100}}), DeadlineBase: 100,
 	}
 	record := &taskv1.DispatchRecordV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: testTask, TaskHash: fill(0xbb), SessionId: testSession, OrderSequence: 3,

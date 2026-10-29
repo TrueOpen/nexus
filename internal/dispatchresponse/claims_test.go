@@ -315,6 +315,41 @@ func TestResyncSkipsClosedClaimWindows(t *testing.T) {
 	}
 }
 
+// A claim cannot be filed before its ticket's record deadline passed: such tickets are not asked
+// about on a resync.
+func TestResyncSkipsClaimWindowsNotOpenYet(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(100 + 20)
+	if len(e.chain.claimReads) != 0 {
+		t.Fatalf("claims asked about before their window: %v", e.chain.claimReads)
+	}
+	// Once the record deadline passed, the next resync asks.
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(100 + 20 + recheckMinBlocks)
+	if len(e.chain.claimReads) != 1 {
+		t.Fatalf("claim reads %v", e.chain.claimReads)
+	}
+}
+
+// Resyncs closer together than recheckMinBlocks are folded into one.
+func TestResyncIsRateLimited(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(130)
+	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRoleResync})
+	e.block(131)
+	if len(e.chain.claimReads) != 1 {
+		t.Fatalf("claim reads %v after two close resyncs", e.chain.claimReads)
+	}
+	e.block(130 + recheckMinBlocks)
+	if len(e.chain.claimReads) != 2 {
+		t.Fatalf("deferred resync not done: %v", e.chain.claimReads)
+	}
+}
+
 func hexOf(b []byte) string {
 	const digits = "0123456789abcdef"
 	out := make([]byte, 0, 2*len(b))

@@ -159,8 +159,10 @@ func recordOutcome(record *taskv1.DispatchRecordV1, hash []byte) taskv1.Dispatch
 }
 
 // recheckClaims looks up, after a role stream gap, the claim on every ticket the evidence could
-// rebut while its claim window may still be open, and opens the pending ones of this Builder.
-// Tickets whose compensation is owed are not asked about.
+// rebut whose claim window is open: claims on a ticket open record_deadline_blocks after
+// max(earliest_submit_height, the ticket's bound_change_height) and last the claim window plus
+// the rebuttal blocks. Pending claims of this Builder are opened. Tickets whose compensation is
+// owed are not asked about.
 func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
 	p := r.cfg.Evidence.Params()
 	var hashes [][]byte
@@ -168,9 +170,14 @@ func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
 		if head > ev.DeadlineBase+p.RecordDeadlineBlocks+p.ClaimWindowBlocks+p.RebuttalBlocks {
 			return true
 		}
+		var order taskv1.SignedOrderV2
+		_ = proto.Unmarshal(ev.SignedOrder, &order)
+		esh := order.GetOrder().GetEarliestSubmitHeight()
 		for _, round := range ev.Rounds {
 			for _, a := range round.Attempts {
-				if a.Rebuttable() {
+				var ticket taskv1.DispatchTicketV1
+				_ = proto.Unmarshal(a.Ticket, &ticket)
+				if open := max(esh, ticket.GetBoundChangeHeight()) + p.RecordDeadlineBlocks; a.Rebuttable() && head > open {
 					hashes = append(hashes, a.Hash)
 				}
 			}
