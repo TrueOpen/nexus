@@ -84,8 +84,43 @@ func (d *Dispatcher) accepted(b *Bundle) {
 		SessionID: b.SessionID, Sequence: b.Sequence, User: b.Entry.GetSignedOrder().GetOrder().GetUserAddress(),
 		Ticket: b.Entry.GetWinnerTicket(), Accept: b.Entry.GetAccept(),
 	}
-	if err := d.cfg.Attempts.Accepted(w); err != nil {
-		d.log.Error("accepted winner not given to the attempt book", "session_id", b.SessionID, "order_sequence", b.Sequence, "err", err)
+	d.book(w)
+}
+
+// book hands w to the attempt book. A failure other than a task recorded with another ticket is
+// retried on the next block: until the book holds the winner its Worker cannot stream.
+func (d *Dispatcher) book(w attempt.Winner) {
+	taskID := hex.EncodeToString(w.Ticket.GetTaskId())
+	err := d.cfg.Attempts.Accepted(w)
+	d.unbookedMu.Lock()
+	defer d.unbookedMu.Unlock()
+	switch {
+	case err == nil, errors.Is(err, attempt.ErrRecordedWithAnotherTicket):
+		if err != nil {
+			d.log.Warn("accepted winner not booked: the task is recorded with another ticket", "session_id", w.SessionID, "order_sequence", w.Sequence, "err", err)
+		}
+		if cur, ok := d.unbooked[taskID]; ok && proto.Equal(cur.Ticket, w.Ticket) {
+			delete(d.unbooked, taskID)
+		}
+	default:
+		d.log.Error("accepted winner not given to the attempt book; retried on the next block", "session_id", w.SessionID, "order_sequence", w.Sequence, "err", err)
+		if d.unbooked == nil {
+			d.unbooked = map[string]attempt.Winner{}
+		}
+		d.unbooked[taskID] = w
+	}
+}
+
+// retryUnbooked hands the attempt book the winners it could not take before.
+func (d *Dispatcher) retryUnbooked() {
+	d.unbookedMu.Lock()
+	winners := make([]attempt.Winner, 0, len(d.unbooked))
+	for _, w := range d.unbooked {
+		winners = append(winners, w)
+	}
+	d.unbookedMu.Unlock()
+	for _, w := range winners {
+		d.book(w)
 	}
 }
 
@@ -103,6 +138,7 @@ func (d *Dispatcher) kickParked(sessionID string) {
 
 // onBlock lets every parked order try again at a new head.
 func (d *Dispatcher) onBlock() {
+	d.retryUnbooked()
 	d.mu.Lock()
 	orders := make([]*order, 0, len(d.orders))
 	for _, o := range d.orders {

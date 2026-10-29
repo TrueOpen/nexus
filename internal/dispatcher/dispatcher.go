@@ -247,6 +247,10 @@ type Dispatcher struct {
 	byTask  map[string]*order // task_id -> order
 	tickets map[string]*order // dispatch_ticket_hash -> order
 	wg      sync.WaitGroup
+
+	// unbooked holds the winners the attempt book could not take, by task; each block retries them.
+	unbookedMu sync.Mutex
+	unbooked   map[string]attempt.Winner
 }
 
 // order is one order's state with what is rebuilt from it in memory. Locks: an order's mutex may

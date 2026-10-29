@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/handraise"
 )
@@ -187,4 +189,42 @@ func TestAcceptedWinnerNamesTheOrderUser(t *testing.T) {
 	if a, ok := e.attempts.Current(o.TaskID); !ok || a.User != testUser {
 		t.Fatalf("attempt = %+v, %v", a, ok)
 	}
+}
+
+// flakyAttempts fails the first fails Accepted calls.
+type flakyAttempts struct {
+	Attempts
+	mu    sync.Mutex
+	fails int
+}
+
+func (f *flakyAttempts) Accepted(w attempt.Winner) error {
+	f.mu.Lock()
+	failing := f.fails > 0
+	if failing {
+		f.fails--
+	}
+	f.mu.Unlock()
+	if failing {
+		return errors.New("attempt store unavailable")
+	}
+	return f.Attempts.Accepted(w)
+}
+
+// A winner the attempt book could not take is handed to it again on the next block.
+func TestAcceptedWinnerRetriedOnTheNextBlock(t *testing.T) {
+	e := newEnv(t)
+	e.d.cfg.Attempts = &flakyAttempts{Attempts: e.attempts, fails: 1}
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, hash := e.accept()
+	if _, ok := e.attempts.Current(o.TaskID); ok {
+		t.Fatal("the failed winner is in the book")
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	if a, ok := e.attempts.Current(o.TaskID); !ok || a.TicketHash != hash {
+		t.Fatalf("attempt after the next block = %+v, %v", a, ok)
+	}
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 2})
 }
