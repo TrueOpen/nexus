@@ -127,11 +127,14 @@ type Sender struct {
 	streams map[string]*outStream // streamKey -> stream
 	retries map[string]*retry     // streamKey|peer -> backoff
 	workers map[string]chan struct{}
-	queue   []event
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wake    chan struct{}
-	wg      sync.WaitGroup
+	// qmu guards queue alone, so a caller handing over a change never waits on s.mu (held while
+	// a change is turned into items, which may read the chain).
+	qmu    sync.Mutex
+	queue  []event
+	ctx    context.Context
+	cancel context.CancelFunc
+	wake   chan struct{}
+	wg     sync.WaitGroup
 
 	head                      atomic.Uint64
 	lastPrune                 atomic.Uint64
@@ -304,7 +307,10 @@ func (s *Sender) Start(context.Context) error {
 			s.ensureWorkerLocked(peer)
 		}
 	}
-	if len(s.queue) > 0 {
+	s.qmu.Lock()
+	queued := len(s.queue) > 0
+	s.qmu.Unlock()
+	if queued {
 		s.signal()
 	}
 	go s.recheckRecorded()
@@ -365,9 +371,9 @@ func (s *Sender) Recorded(a attempt.Attempt) {
 }
 
 func (s *Sender) enqueue(ev event) {
-	s.mu.Lock()
+	s.qmu.Lock()
 	s.queue = append(s.queue, ev)
-	s.mu.Unlock()
+	s.qmu.Unlock()
 	s.signal()
 }
 
@@ -398,14 +404,15 @@ func (s *Sender) HandleChainEvent(ev chaincli.ChainEvent) {
 // drain turns the queued changes into items.
 func (s *Sender) drain() {
 	for {
-		s.mu.Lock()
+		s.qmu.Lock()
 		if len(s.queue) == 0 {
-			s.mu.Unlock()
+			s.qmu.Unlock()
 			return
 		}
 		ev := s.queue[0]
+		s.queue[0] = event{}
 		s.queue = s.queue[1:]
-		s.mu.Unlock()
+		s.qmu.Unlock()
 		ctx := context.Background()
 		var err error
 		if ev.view != nil {

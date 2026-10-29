@@ -735,3 +735,22 @@ func TestOutputIsReadABatchAtATime(t *testing.T) {
 		}
 	}
 }
+
+// Handing the sender a change never waits for a batch being built or a chain read under the
+// stream lock: the dispatcher calls OrderChanged on its own path.
+func TestOrderChangedDoesNotWaitForTheStreamLock(t *testing.T) {
+	e := newEnv(t)
+	e.s.mu.Lock()
+	defer e.s.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		e.s.OrderChanged(e.fx.issued())
+		e.s.Recorded(e.fx.recordedAttempt())
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OrderChanged waited for the stream lock")
+	}
+}
