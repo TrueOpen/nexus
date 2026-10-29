@@ -161,21 +161,6 @@ type Recorder interface {
 	Withdraw(ctx context.Context, sessionID string, sequence uint64, ticketHash [32]byte)
 }
 
-// UnimplementedRecorder is the Recorder until on-chain recording exists: it records nothing, so an
-// accepted order never reaches the chain and its Worker may claim compensation.
-type UnimplementedRecorder struct{ Log *slog.Logger }
-
-// Record implements Recorder.
-func (r UnimplementedRecorder) Record(_ context.Context, b *Bundle) error {
-	if r.Log != nil {
-		r.Log.Warn("dispatch entry NOT recorded: no recorder", "session_id", b.SessionID, "order_sequence", b.Sequence)
-	}
-	return nil
-}
-
-// Withdraw implements Recorder.
-func (UnimplementedRecorder) Withdraw(context.Context, string, uint64, [32]byte) {}
-
 // Timer is a pending clock callback.
 type Timer interface{ Stop() bool }
 

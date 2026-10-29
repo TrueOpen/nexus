@@ -253,6 +253,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// streams and the task chain's events once it is built.
 	orders := &orderEvents{keys: sessionKeys.cache}
 	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(orders), chaincli.WithEventObserver(orders.observe))
+	eventOptions.hub = append(eventOptions.hub, chaincli.WithEventObserver(orders.observeHub))
 	// Current service keys are read on every stream message, handraise and Builder signature; the
 	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
 	// protocol stream, drops a rotated key at once.
@@ -339,6 +340,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	var registrationModule *module
 	var serviceSG signer.Signer
+	var taskSubmitter coordinator.Submitter
 	ingressOpts := []ingress.Option{
 		ingress.WithPayloadMaxBytes(inlinePayloadMax(cfg.PayloadStorage.MaxBytes, cfg.TaskData.InlineMaxBytes)),
 		ingress.WithReadMaxBytes(cfg.TaskData.ChunkSizeBytes),
@@ -373,8 +375,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			}
 			ingressOpts = append(ingressOpts, ingress.WithBuilderDescriptor(descriptorBody))
 		}
+		taskSubmitter = coordinator.NewSignedSubmitter(log, taskChain, registrationChain, sg, serviceSG, cfg.Chain)
 		coordOpts = append(coordOpts,
-			coordinator.WithSubmitter(coordinator.NewSignedSubmitter(log, taskChain, registrationChain, sg, serviceSG, cfg.Chain)),
+			coordinator.WithSubmitter(taskSubmitter),
 			coordinator.WithIdentitySigner(sg),
 			coordinator.WithBuilderRegistry(registrationChain),
 			coordinator.WithBuilderSelectionQuerier(taskChain)) // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
@@ -430,9 +433,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		paramsCtx, cancelParams := context.WithTimeout(context.Background(), 30*time.Second)
 		orderPath, err = newOrderDispatch(paramsCtx, orderDispatchDeps{
 			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, Config: cfg.Dispatch, InputChunkBytes: cfg.TaskData.ChunkSizeBytes,
-			Signer: serviceSG, Store: store, TaskChain: taskChain, Direct: dispatch,
-			Keys:   handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
-			Inputs: taskStore, Observer: coord, Log: log,
+			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
+			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
+			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Log: log,
 		})
 		cancelParams()
 		if err != nil {

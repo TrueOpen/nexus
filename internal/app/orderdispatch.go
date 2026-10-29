@@ -9,13 +9,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
@@ -25,15 +28,19 @@ import (
 const paramsRefreshInterval = time.Minute
 
 // orderDispatch is the order path of a dispatching Builder: the in-flight ledger, the session
-// cache, the OpenTask precheck that reserves orders in the ledger, and the dispatcher that walks
-// them. Its chain events arrive through orderEvents, which exists before the chain client.
+// cache, the OpenTask precheck that reserves orders in the ledger, the dispatcher that walks them
+// and the recorder that records the accepted ones, with the gate on this Builder's key and
+// compensation account. Its chain events arrive through orderEvents, which exists before the chain
+// client.
 type orderDispatch struct {
 	log        *slog.Logger
 	Ledger     *inflight.Ledger
 	Sessions   *inflight.SessionCache
 	Precheck   *inflight.Prechecker
 	Dispatcher *dispatcher.Dispatcher
-	params     func(context.Context) (inflight.Params, dispatcher.Params, error)
+	Recorder   *recorder.Recorder
+	Gate       *recorder.Gate
+	params     func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -52,6 +59,15 @@ func (e *orderEvents) observe(ev chaincli.ChainEvent) {
 			od.log.Error("in-flight ledger not updated from a chain event", "type", ev.Type, "session_id", ev.SessionID, "err", err)
 		}
 		od.Dispatcher.HandleChainEvent(ev)
+		od.Recorder.HandleChainEvent(ev)
+	}
+}
+
+// observeHub feeds the Hub chain's events, when the Hub is a chain of its own, to the gate: the
+// compensation account lives there.
+func (e *orderEvents) observeHub(ev chaincli.ChainEvent) {
+	if od := e.order.Load(); od != nil {
+		od.Gate.HandleChainEvent(ev)
 	}
 }
 
@@ -92,36 +108,63 @@ type orderDispatchDeps struct {
 	InputChunkBytes uint64
 	Signer          signer.Signer
 	Store           kv.Store
-	// TaskChain answers sessions, heights and task params, and follows session events.
+	// TaskChain answers sessions, heights, task params and transactions, and follows session
+	// events.
 	TaskChain chaincli.Client
-	Direct    *directDispatch
-	Keys      handraise.ChainServiceKeys
-	Inputs    *taskdata.Store
-	Observer  dispatcher.Observer
-	Log       *slog.Logger
+	// HubChain answers the compensation account.
+	HubChain chaincli.Client
+	// Records sends the record transactions from the service account.
+	Records  coordinator.RecordSubmitter
+	Direct   *directDispatch
+	Keys     handraise.ChainServiceKeys
+	Inputs   *taskdata.Store
+	Observer dispatcher.Observer
+	Tasks    recorder.Tasks
+	Log      *slog.Logger
 }
 
-// newOrderDispatch reads the dispatch params and builds the order path. Accepted orders go to
-// dispatcher.UnimplementedRecorder: nothing records them on chain yet.
+// orderParams are the task params the order path applies.
+type orderParams struct {
+	precheck inflight.Params
+	walk     dispatcher.Params
+	record   recorder.Params
+}
+
+// recordChain is what the recorder reads from the task chain.
+type recordChain struct {
+	chaincli.Client
+	chaincli.TxQuerier
+}
+
+// newOrderDispatch reads the dispatch params and builds the order path.
 func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispatch, error) {
+	txs, ok := deps.TaskChain.(chaincli.TxQuerier)
+	if !ok {
+		return nil, fmt.Errorf("order dispatch needs a task chain that reads transaction results")
+	}
 	od := &orderDispatch{log: deps.Log}
-	od.params = func(ctx context.Context) (inflight.Params, dispatcher.Params, error) {
+	od.params = func(ctx context.Context) (orderParams, error) {
 		dispatch, err := deps.TaskChain.QueryDispatchParams(ctx)
 		if err != nil {
-			return inflight.Params{}, dispatcher.Params{}, fmt.Errorf("query task params dispatch: %w", err)
+			return orderParams{}, fmt.Errorf("query task params dispatch: %w", err)
 		}
 		weights, err := deps.TaskChain.QueryCandidateWeightParams(ctx)
 		if err != nil {
-			return inflight.Params{}, dispatcher.Params{}, fmt.Errorf("query task params weights: %w", err)
+			return orderParams{}, fmt.Errorf("query task params weights: %w", err)
 		}
-		precheck, err := inflight.ParamsFromChain(dispatch)
-		if err != nil {
-			return inflight.Params{}, dispatcher.Params{}, err
+		var p orderParams
+		if p.precheck, err = inflight.ParamsFromChain(dispatch); err != nil {
+			return orderParams{}, err
 		}
-		walk, err := dispatcher.ParamsFromChain(dispatch, weights)
-		return precheck, walk, err
+		if p.walk, err = dispatcher.ParamsFromChain(dispatch, weights); err != nil {
+			return orderParams{}, err
+		}
+		if p.record, err = recorder.ParamsFromChain(dispatch); err != nil {
+			return orderParams{}, err
+		}
+		return p, nil
 	}
-	precheckParams, walkParams, err := od.params(ctx)
+	params, err := od.params(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -137,28 +180,49 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		return nil, err
 	}
 	od.Precheck, err = inflight.NewPrechecker(inflight.PrecheckConfig{
-		Builder: deps.BuilderAddress, Params: precheckParams, Sessions: od.Sessions, Ledger: od.Ledger,
+		Builder: deps.BuilderAddress, Params: params.precheck, Sessions: od.Sessions, Ledger: od.Ledger,
 	})
+	if err != nil {
+		return nil, err
+	}
+	od.Gate = recorder.NewGate(recorder.GateConfig{
+		Keys: deps.Keys, Builder: deps.BuilderAddress, MinBalance: params.record.MinCompensation, Log: deps.Log,
+		Account: func(ctx context.Context) (*hubv1.BuilderCompensationAccountState, error) {
+			return deps.HubChain.QueryBuilderCompensationAccount(ctx, deps.BuilderAddress)
+		},
+	})
+	od.Recorder, err = recorder.New(recorder.Config{
+		ChainID: deps.ChainID, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
+		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Streams: deps.Direct.Streams,
+		Gate: od.Gate, Log: deps.Log,
+	}, params.record)
 	if err != nil {
 		return nil, err
 	}
 	od.Dispatcher, err = dispatcher.New(dispatcher.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Dispatch: deps.Config, InputChunkBytes: deps.InputChunkBytes,
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
-		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: deps.Keys,
-		Inputs: storedInputs{deps.Inputs}, Recorder: dispatcher.UnimplementedRecorder{Log: deps.Log}, Observer: deps.Observer,
+		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
+		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer,
 		Log: deps.Log,
-	}, walkParams)
+	}, params.walk)
 	if err != nil {
 		return nil, err
 	}
+	od.Recorder.SetOrders(od.Dispatcher)
 	return od, nil
 }
 
-// Start follows the sessions the ledger holds, resumes the dispatcher's orders and keeps the params
-// current.
+// Start follows the sessions the ledger holds, reads the compensation account, starts recording,
+// resumes the dispatcher's orders and keeps the params current.
 func (od *orderDispatch) Start(ctx context.Context) error {
 	od.Sessions.Prewarm()
+	if err := od.Gate.Refresh(ctx); err != nil {
+		od.log.Warn("compensation account not read; no order is taken until it is", "err", err)
+	}
+	if err := od.Recorder.Start(ctx); err != nil {
+		return err
+	}
 	if err := od.Dispatcher.Start(ctx); err != nil {
 		return err
 	}
@@ -184,24 +248,29 @@ func (od *orderDispatch) Start(ctx context.Context) error {
 func (od *orderDispatch) refreshParams(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	precheck, walk, err := od.params(readCtx)
+	params, err := od.params(readCtx)
 	if err == nil {
-		err = od.Precheck.SetParams(precheck)
+		err = od.Precheck.SetParams(params.precheck)
 	}
 	if err != nil {
 		od.log.Warn("dispatch params not refreshed; the previous ones stay", "err", err)
 		return
 	}
-	od.Dispatcher.SetParams(walk)
+	od.Dispatcher.SetParams(params.walk)
+	od.Recorder.SetParams(params.record)
 }
 
-// Stop ends the params refresh and the dispatcher's work.
+// Stop ends the params refresh, the dispatcher's work and the recording.
 func (od *orderDispatch) Stop(ctx context.Context) error {
 	if od.cancel != nil {
 		od.cancel()
 		od.wg.Wait()
 	}
-	return od.Dispatcher.Stop(ctx)
+	err := od.Dispatcher.Stop(ctx)
+	if stopErr := od.Recorder.Stop(ctx); err == nil {
+		err = stopErr
+	}
+	return err
 }
 
 // keepOnReplayAt drops, when a Cortex reconnects, stored handraise root notices (the latest root
