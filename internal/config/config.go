@@ -23,6 +23,7 @@ type Config struct {
 	PayloadStorage PayloadStorageConfig `yaml:"payload_storage"`
 	OutputDelivery OutputDeliveryConfig `yaml:"output_delivery"`
 	TaskData       TaskDataConfig       `yaml:"task_data"`
+	Dispatch       DispatchConfig       `yaml:"dispatch"`
 }
 
 type PayloadStorageConfig struct {
@@ -550,6 +551,7 @@ func defaults() Config {
 		Hub: HubConfig{
 			GasLimit: 200000,
 		},
+		Dispatch: defaultDispatch(),
 		Identity: IdentityConfig{
 			Bech32Prefix:                "trueopen",
 			DescriptorValidityBlocks:    100000,
@@ -594,6 +596,7 @@ func applyEnv(cfg *Config) {
 	cfg.TaskData.OutputStream.MinFrameBytes = envUint64("NEXUS_TASK_DATA_OUTPUT_STREAM_MIN_FRAME_BYTES", cfg.TaskData.OutputStream.MinFrameBytes)
 	cfg.TaskData.OutputStream.MaxAttachmentBytes = envUint64("NEXUS_TASK_DATA_OUTPUT_STREAM_MAX_ATTACHMENT_BYTES", cfg.TaskData.OutputStream.MaxAttachmentBytes)
 	cfg.TaskData.OutputStream.SubscriberBufferFrames = envUint32("NEXUS_TASK_DATA_OUTPUT_STREAM_SUBSCRIBER_BUFFER_FRAMES", cfg.TaskData.OutputStream.SubscriberBufferFrames)
+	applyDispatchEnv(&cfg.Dispatch)
 	if value, ok := nonEmptyEnv("NEXUS_API_KEYS"); ok {
 		cfg.Ingress.APIKeys = splitNonEmpty(value)
 	}
