@@ -18,6 +18,10 @@ import (
 
 const dispatchVectors = "task/dispatch_v1.json"
 
+// singleLeafRoot is the handraise root over the one leaf of the wire handraise_root_leaf_admitted
+// vector (leaf digest 9866bd91...).
+const singleLeafRoot = "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010"
+
 type signedVector struct {
 	ProtobufHex  string `json:"protobuf_hex"`
 	PublicKeyHex string `json:"public_key_hex"`
@@ -91,9 +95,13 @@ func TestStandingHandraiseVectorAcceptedAndRooted(t *testing.T) {
 	}
 
 	// The root field of the wire SignedHandraiseRootV1 vector is a filler value, not the root of
-	// the leaf vector, so the single-leaf root is checked against the wire tree function.
+	// the leaf vector, so the single-leaf root is checked against the wire tree function and
+	// pinned until wire publishes a root vector.
 	if want := dispatch.HandraiseRoot([][32]byte{leafDigest}); !bytes.Equal(issued.Root.GetRoot(), want[:]) {
 		t.Fatalf("root = %x, want %x", issued.Root.GetRoot(), want)
+	}
+	if got := hex.EncodeToString(issued.Root.GetRoot()); got != singleLeafRoot {
+		t.Fatalf("single-leaf root = %s, want %s", got, singleLeafRoot)
 	}
 	notice, ok := issued.Notice(operator)
 	if !ok || notice.GetProof().GetLeafIndex() != 0 || len(notice.GetProof().GetSiblings()) != 0 ||

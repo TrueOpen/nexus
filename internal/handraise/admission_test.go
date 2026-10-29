@@ -161,3 +161,34 @@ func TestRejectRateBeforeRTT(t *testing.T) {
 		t.Fatalf("leaf = %v", leaf)
 	}
 }
+
+// The latest measured RTT survives a restart.
+func TestMeasuredRTTIsKeptAcrossRestart(t *testing.T) {
+	e := newEnv(t)
+	c := e.addCortex(0x11, 4)
+	e.reg.RecordRTT(c.operator(), 400)
+	e.reg = e.open()
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	leaf := leafOf(t, e.mustIssue(), c.operator())
+	if leaf.GetAdmitted() || leaf.GetAdmitRejectReason() != taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_RTT_OVER_THRESHOLD ||
+		leaf.GetBuilderMeasuredRttMs() != 400 {
+		t.Fatalf("leaf after restart = %v", leaf)
+	}
+}
+
+// gpu_reject_rate_min_samples sets how many tickets the window needs before a rate counts.
+func TestRejectRateMinSamplesIsConfigured(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.GPURejectRateMinSamples = 2
+	e.reg = e.open()
+	c := e.addCortex(0x11, 4)
+	for i := 0; i < 2; i++ {
+		if err := e.reg.RecordOutcome(c.operator(), 100, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.mustAccept(c, e.handraise(c, 100, 1))
+	if leaf := leafOf(t, e.mustIssue(), c.operator()); leaf.GetAdmitRejectReason() != taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE {
+		t.Fatalf("leaf = %v, want a reject-rate suspension after two samples", leaf)
+	}
+}

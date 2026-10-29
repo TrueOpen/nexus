@@ -19,13 +19,35 @@ import (
 // Keys of kv.NSHandraise.
 const (
 	currentPrefix    = "current/"
+	watermarkPrefix  = "watermark/"
+	rttPrefix        = "rtt/"
 	suspensionPrefix = "suspension/"
 	thresholdPrefix  = "rtt_threshold/"
 	latestRootKey    = "latest_root"
 )
 
 func currentKey(operator string) string    { return currentPrefix + operator }
+func watermarkKey(operator string) string  { return watermarkPrefix + operator }
+func rttKey(operator string) string        { return rttPrefix + operator }
 func suspensionKey(operator string) string { return suspensionPrefix + operator }
+
+func encodeOrder(o order) []byte { return []byte(fmt.Sprintf("%d/%d", o.issued, o.nonce)) }
+
+func decodeOrder(value []byte) (order, error) {
+	issued, nonce, ok := strings.Cut(string(value), "/")
+	if !ok {
+		return order{}, fmt.Errorf("malformed handraise watermark %q", value)
+	}
+	var o order
+	var err error
+	if o.issued, err = strconv.ParseUint(issued, 10, 64); err != nil {
+		return order{}, err
+	}
+	if o.nonce, err = strconv.ParseUint(nonce, 10, 64); err != nil {
+		return order{}, err
+	}
+	return o, nil
+}
 
 func nsCurrentKey(operator string) (kv.Namespace, string) {
 	return kv.NSHandraise, currentKey(operator)
@@ -65,10 +87,18 @@ func (r *Registry) persistCurrent(operator string, h *held) error {
 	if err != nil {
 		return err
 	}
-	if err := r.opts.Store.Set(kv.NSHandraise, currentKey(operator), raw); err != nil {
+	// The watermark has its own key: expiry deletes the current handraise, never the watermark.
+	if err := r.opts.Store.WriteBatch(
+		kv.WriteOp{NS: kv.NSHandraise, Key: currentKey(operator), Val: raw},
+		kv.WriteOp{NS: kv.NSHandraise, Key: watermarkKey(operator), Val: encodeOrder(orderOf(h.msg))},
+	); err != nil {
 		return fmt.Errorf("store handraise: %w", err)
 	}
 	return nil
+}
+
+func (r *Registry) persistRTT(operator string, rttMs uint64) error {
+	return r.opts.Store.Set(kv.NSHandraise, rttKey(operator), []byte(strconv.FormatUint(rttMs, 10)))
 }
 
 func (r *Registry) persistSuspension(operator string, until uint64) error {
@@ -243,7 +273,8 @@ func (r *Registry) RTTThresholdHistory() ([]RTTThresholdChange, error) {
 	return out, err
 }
 
-// recover loads current handraises, suspensions, the threshold history and the latest root, and
+// recover loads current handraises, watermarks, measured RTTs, suspensions, the threshold history
+// and the latest root, and
 // records the configured RTT threshold when it differs from the last one used.
 func (r *Registry) recover() error {
 	var thresholds []RTTThresholdChange
@@ -253,6 +284,14 @@ func (r *Registry) recover() error {
 		switch {
 		case strings.HasPrefix(key, currentPrefix):
 			loadErr = r.recoverCurrent(strings.TrimPrefix(key, currentPrefix), value)
+		case strings.HasPrefix(key, watermarkPrefix):
+			var mark order
+			mark, loadErr = decodeOrder(value)
+			r.watermark[strings.TrimPrefix(key, watermarkPrefix)] = mark
+		case strings.HasPrefix(key, rttPrefix):
+			var rtt uint64
+			rtt, loadErr = strconv.ParseUint(string(value), 10, 64)
+			r.rtt[strings.TrimPrefix(key, rttPrefix)] = rtt
 		case strings.HasPrefix(key, suspensionPrefix):
 			var until uint64
 			until, loadErr = strconv.ParseUint(string(value), 10, 64)
@@ -274,6 +313,12 @@ func (r *Registry) recover() error {
 	}
 	if err != nil {
 		return err
+	}
+	// A current handraise stored before watermarks had their own key still sets the watermark.
+	for operator, h := range r.current {
+		if mark, ok := r.watermark[operator]; !ok || orderOf(h.msg).after(mark) {
+			r.watermark[operator] = orderOf(h.msg)
+		}
 	}
 	if latestKey != "" {
 		if r.latest, err = r.loadRoot(latestKey); err != nil {

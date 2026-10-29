@@ -142,6 +142,9 @@ type env struct {
 	reg     *Registry
 }
 
+// minRejectRateSamples is gpu_reject_rate_min_samples of testDispatchConfig.
+const minRejectRateSamples = 10
+
 func testDispatchConfig() config.DispatchConfig {
 	return config.DispatchConfig{
 		HandraiseHeartbeatMs:          2000,
@@ -152,7 +155,10 @@ func testDispatchConfig() config.DispatchConfig {
 		BuilderRTTAdmitMs:             150,
 		GPURejectRateThreshold:        0.5,
 		GPURejectRateSuspensionBlocks: 100,
+		GPURejectRateMinSamples:       minRejectRateSamples,
 		BuilderTimeoutRateThreshold:   0.2,
+
+		HandraiseIssuedHeightToleranceBlocks: 3,
 	}
 }
 

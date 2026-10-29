@@ -40,11 +40,15 @@ const (
 )
 
 // Stream error codes of a refused handraise. The text of each is the code the stream layer
-// returns: ErrInvalid as InvalidArgument, ErrNotEligible as PermissionDenied. Any other error from
-// Accept means the chain could not be read and the handraise may be sent again.
+// logs; none of them ends the stream. Any other error from Accept means the chain could not be
+// read (or local state could not be written) and the handraise may be sent again.
 var (
 	ErrInvalid     = errors.New("HANDRAISE_INVALID")
 	ErrNotEligible = errors.New("HANDRAISE_NOT_ELIGIBLE")
+	// ErrAhead refuses a handraise issued further above this Builder's chain height than
+	// handraise_issued_height_tolerance_blocks. It is not the Cortex's fault, leaves no trace and
+	// does not end the stream; the next heartbeat is judged again.
+	ErrAhead = errors.New("HANDRAISE_AHEAD_OF_CHAIN")
 )
 
 // ServiceKeys reads current service keys from the chain.
@@ -97,14 +101,33 @@ type Registry struct {
 	// issueMu serialises root issuance so (root_height, root_version) is never reused.
 	issueMu sync.Mutex
 
-	mu        sync.Mutex
-	current   map[string]*held // operator -> current handraise
+	mu      sync.Mutex
+	current map[string]*held // operator -> current handraise
+	// watermark is the (issued_height, handraise_nonce) of the newest handraise ever accepted per
+	// operator. It outlives the current handraise's TTL, so an old handraise cannot be replayed
+	// once the newer one expired.
+	watermark map[string]order
 	invalid   map[string]*held // operator -> latest invalid handraise awaiting its trace leaf
 	rtt       map[string]uint64
 	outcomes  map[string][]outcome
 	suspended map[string]uint64 // operator -> first height admitted again
 	threshold RTTThresholdChange
 	latest    *IssuedRoot
+}
+
+// order is the replay order of one operator's handraises.
+type order struct{ issued, nonce uint64 }
+
+func orderOf(h *taskv1.StandingHandraiseV1) order {
+	return order{issued: h.GetIssuedHeight(), nonce: h.GetHandraiseNonce()}
+}
+
+// after orders handraises of one member by (issued_height, handraise_nonce).
+func (o order) after(p order) bool {
+	if o.issued != p.issued {
+		return o.issued > p.issued
+	}
+	return o.nonce > p.nonce
 }
 
 // held is one received handraise with the bytes it is stored and hashed as.
@@ -131,6 +154,7 @@ func New(opts Options) (*Registry, error) {
 		now:       opts.Now,
 		log:       opts.Log,
 		current:   map[string]*held{},
+		watermark: map[string]order{},
 		invalid:   map[string]*held{},
 		rtt:       map[string]uint64{},
 		outcomes:  map[string][]outcome{},
@@ -151,7 +175,7 @@ func New(opts Options) (*Registry, error) {
 // Accept takes a standing handraise received on operator's authenticated dispatch stream.
 //
 // A malformed, foreign, expired, replayed or too frequent handraise is refused with ErrInvalid and
-// leaves no trace. One that is well formed but fails its signature, the current key binding or
+// leaves no trace; one issued too far above this Builder's chain height is refused with ErrAhead. One that is well formed but fails its signature, the current key binding or
 // eligibility is refused with ErrInvalid or ErrNotEligible and becomes an INVALID_HANDRAISE leaf of
 // the next root; it never replaces the operator's current handraise. Resending the current
 // handraise is accepted without effect.
@@ -164,9 +188,11 @@ func (r *Registry) Accept(ctx context.Context, operator string, h *taskv1.Standi
 	if err != nil {
 		return fmt.Errorf("read chain height: %w", err)
 	}
-	if h.GetExpiryHeight() < height || h.GetIssuedHeight() > height+1 {
-		return fmt.Errorf("%w: handraise issued at %d expiring at %d is outside chain height %d",
-			ErrInvalid, h.GetIssuedHeight(), h.GetExpiryHeight(), height)
+	if h.GetExpiryHeight() < height {
+		return fmt.Errorf("%w: handraise expiring at %d is behind chain height %d", ErrInvalid, h.GetExpiryHeight(), height)
+	}
+	if tolerance := r.opts.Config.HandraiseIssuedHeightToleranceBlocks; h.GetIssuedHeight() > height+tolerance {
+		return fmt.Errorf("%w: handraise issued at %d, chain height %d", ErrAhead, h.GetIssuedHeight(), height)
 	}
 	if done, err := r.checkOrder(operator, got); done || err != nil {
 		return err
@@ -237,15 +263,15 @@ func (r *Registry) checkOrder(operator string, got *held) (done bool, err error)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cur, ok := r.current[operator]
-	if !ok {
-		return false, nil
-	}
-	if cur.digest == got.digest {
+	if ok && cur.digest == got.digest {
 		return true, nil
 	}
-	if !newer(got.msg, cur.msg) {
-		return false, fmt.Errorf("%w: handraise (%d, %d) is not newer than the current (%d, %d)", ErrInvalid,
-			got.msg.GetIssuedHeight(), got.msg.GetHandraiseNonce(), cur.msg.GetIssuedHeight(), cur.msg.GetHandraiseNonce())
+	if mark, seen := r.watermark[operator]; seen && !orderOf(got.msg).after(mark) {
+		return false, fmt.Errorf("%w: handraise (%d, %d) is not newer than the newest accepted (%d, %d)", ErrInvalid,
+			got.msg.GetIssuedHeight(), got.msg.GetHandraiseNonce(), mark.issued, mark.nonce)
+	}
+	if !ok {
+		return false, nil
 	}
 	// Half the minimum change interval tolerates jitter between the Cortex clock and arrival.
 	minGap := time.Duration(r.opts.Config.HandraiseMinChangeIntervalMs) * time.Millisecond / 2
@@ -295,18 +321,17 @@ func (r *Registry) verify(ctx context.Context, operator string, got *held) error
 func (r *Registry) store(operator string, got *held) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if cur, ok := r.current[operator]; ok {
-		if cur.digest == got.digest {
-			return nil
-		}
-		if !newer(got.msg, cur.msg) {
-			return fmt.Errorf("%w: a newer handraise was accepted meanwhile", ErrInvalid)
-		}
+	if cur, ok := r.current[operator]; ok && cur.digest == got.digest {
+		return nil
+	}
+	if mark, seen := r.watermark[operator]; seen && !orderOf(got.msg).after(mark) {
+		return fmt.Errorf("%w: a newer handraise was accepted meanwhile", ErrInvalid)
 	}
 	if err := r.persistCurrent(operator, got); err != nil {
 		return err
 	}
 	r.current[operator] = got
+	r.watermark[operator] = orderOf(got.msg)
 	return nil
 }
 
@@ -314,14 +339,6 @@ func (r *Registry) store(operator string, got *held) error {
 func (r *Registry) expiredLocked(h *held, height uint64) bool {
 	ttl := time.Duration(r.opts.Config.HandraiseTTLMs) * time.Millisecond
 	return r.now().Sub(h.receivedAt) > ttl || height != 0 && h.msg.GetExpiryHeight() < height
-}
-
-// newer orders handraises of one member by (issued_height, handraise_nonce).
-func newer(a, b *taskv1.StandingHandraiseV1) bool {
-	if a.GetIssuedHeight() != b.GetIssuedHeight() {
-		return a.GetIssuedHeight() > b.GetIssuedHeight()
-	}
-	return a.GetHandraiseNonce() > b.GetHandraiseNonce()
 }
 
 func compareProfiles(a, b *taskv1.DispatchProfileV1) int {
