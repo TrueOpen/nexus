@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	eventCursorKindTask     = "task"
-	eventCursorKindProtocol = "protocol"
+	eventCursorKindTask        = "task"
+	eventCursorKindProtocol    = "protocol"
+	eventCursorKindBuilderRole = "builder_role"
 )
 
 type eventCursorStore struct {
@@ -71,10 +72,10 @@ func eventCursorKey(chainID, kind, scope string) (string, error) {
 		return "", fmt.Errorf("chain event cursor chain_id is invalid")
 	}
 	switch kind {
-	case eventCursorKindTask:
+	case eventCursorKindTask, eventCursorKindBuilderRole:
 		scope = strings.TrimSpace(scope)
 		if scope == "" || strings.Contains(scope, "|") {
-			return "", fmt.Errorf("chain event cursor task scope is invalid")
+			return "", fmt.Errorf("chain event cursor %s scope is invalid", kind)
 		}
 		return chainID + "|" + kind + "|" + scope, nil
 	case eventCursorKindProtocol:

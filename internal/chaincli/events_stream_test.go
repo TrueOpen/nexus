@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -405,17 +406,30 @@ func (s *protocolEventTestService) SubscribeProtocolEvents(
 		return ctx.Err()
 	}
 	if call == 1 {
-		// First send a Hub-domain event outside the subscription filter (SERVICE_KEY_ROTATED)
+		// First send a Hub-domain event outside the subscription filter (BUILDER_REGISTERED)
 		// to verify "no local mapping still advances the cursor and is not passed upward
-		// disguised as BuilderSetUpdated"; then send BUILDER_SET_UPDATED to verify it maps to
-		// a BuilderSetUpdated carrying the event code.
+		// disguised as BuilderSetUpdated"; then SERVICE_KEY_ROTATED, which maps to a typed Hub
+		// event; then BUILDER_SET_UPDATED to verify it maps to a BuilderSetUpdated carrying the
+		// event code.
 		if err := stream.Send(&hubv1.SubscribeProtocolEventsResponse{Item: &hubv1.SubscribeProtocolEventsResponse_Event{Event: &hubv1.ProtocolEvent{
 			Cursor: "protocol-cursor", ChainHeight: 51, BlockHash: []byte("BLOCK"), TxHash: []byte("TX"),
+			Source: sharedv1.TaskEventSource_TASK_EVENT_SOURCE_TX,
+			Code:   sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_REGISTERED,
+			Payload: &hubv1.ProtocolEventPayloadV1{
+				TypedEvent: &hubv1.ProtocolEventPayloadV1_BuilderRegistered{
+					BuilderRegistered: &hubv1.EventBuilderRegistered{},
+				},
+			},
+		}}}); err != nil {
+			return err
+		}
+		if err := stream.Send(&hubv1.SubscribeProtocolEventsResponse{Item: &hubv1.SubscribeProtocolEventsResponse_Event{Event: &hubv1.ProtocolEvent{
+			Cursor: "rotated-cursor", ChainHeight: 51, BlockHash: []byte("BLOCK"), TxHash: []byte("TX"),
 			Source: sharedv1.TaskEventSource_TASK_EVENT_SOURCE_TX,
 			Code:   sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
 			Payload: &hubv1.ProtocolEventPayloadV1{
 				TypedEvent: &hubv1.ProtocolEventPayloadV1_ServiceKeyRotated{
-					ServiceKeyRotated: &hubv1.EventServiceKeyRotated{AuthorizationNonce: 7},
+					ServiceKeyRotated: &hubv1.EventServiceKeyRotated{Operator: "trueopen1worker", AuthorizationNonce: 7},
 				},
 			},
 		}}}); err != nil {
@@ -460,9 +474,9 @@ func TestProtocolEventStream(t *testing.T) {
 	t.Cleanup(func() { _ = c.Stop(context.Background()) })
 
 	first := receiveProtocolEventRequest(t, service.requests)
-	// Subscribe only to the BuilderSet rotation code: other Hub events have no local mapping in nexus.
+	// Subscribe only to the mapped codes: other Hub events have no local mapping in nexus.
 	if first.GetTargetAddress() != "" || first.GetAfterCursor() != "" || first.GetFromHeight() != 50 ||
-		len(first.GetCodes()) != 1 || first.GetCodes()[0] != sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED {
+		!reflect.DeepEqual(first.GetCodes(), protocolEventCodes()) {
 		t.Fatalf("first protocol request = %+v", first)
 	}
 	// The one BuilderSetUpdated emitted on stream setup is the rotation reconcile trigger and carries no event code.
@@ -470,7 +484,13 @@ func TestProtocolEventStream(t *testing.T) {
 	if refresh.Type != EventBuilderSetUpdated || refresh.EventCode != "" {
 		t.Fatalf("protocol connection refresh = %+v", refresh)
 	}
-	// SERVICE_KEY_ROTATED produces no local event; the next one received must be the mapping of the on-chain BUILDER_SET_UPDATED.
+	// BUILDER_REGISTERED produces no local event; SERVICE_KEY_ROTATED arrives typed, then the
+	// mapping of the on-chain BUILDER_SET_UPDATED.
+	rotated := receiveChainEvent(t, c.Events())
+	if rotated.Type != EventHubOperational || rotated.EventCode != "SERVICE_KEY_ROTATED" ||
+		rotated.Typed != (ServiceKeyRotated{Operator: "trueopen1worker", AuthorizationNonce: 7}) {
+		t.Fatalf("service key rotated event = %+v", rotated)
+	}
 	updated := receiveChainEvent(t, c.Events())
 	if updated.Type != EventBuilderSetUpdated || updated.EventCode != "BUILDER_SET_UPDATED" {
 		t.Fatalf("builder set updated event = %+v", updated)

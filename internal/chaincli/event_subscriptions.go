@@ -356,12 +356,11 @@ func (c *client) subscribeProtocolEventsOnce(ctx context.Context) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	// BuilderSet rotation has its own event code BUILDER_SET_UPDATED; subscribe only to it.
-	// Each new stream still emits one BuilderSetUpdated first: a rotation may have been missed
-	// while the stream was down, and having the coordinator reconcile via Query once is the safest.
-	request := &hubv1.SubscribeProtocolEventsRequest{
-		Codes: []sharedv1.ProtocolEventCodeV1{sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED},
-	}
+	// BuilderSet rotation has its own event code BUILDER_SET_UPDATED; with it come the Hub events
+	// in protocolEventCodes. Each new stream still emits one BuilderSetUpdated first: a rotation
+	// may have been missed while the stream was down, and having the coordinator reconcile via
+	// Query once is the safest.
+	request := &hubv1.SubscribeProtocolEventsRequest{Codes: protocolEventCodes()}
 	if cursor != "" {
 		request.AfterCursor = cursor
 	} else {
@@ -398,12 +397,12 @@ func (c *client) subscribeProtocolEventsOnce(ctx context.Context) (bool, error) 
 		if event == nil {
 			return delivered, fmt.Errorf("receive protocol events: response item is required")
 		}
-		if event.GetCode() == sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED {
-			height, err := uint64ToInt64("protocol event chain height", event.GetChainHeight())
-			if err != nil {
-				return delivered, fmt.Errorf("receive protocol events: %w", err)
-			}
-			if err := c.sendEvent(ctx, ChainEvent{Type: EventBuilderSetUpdated, EventCode: protocolEventCodeName(event.GetCode()), Height: height}); err != nil {
+		mapped, ok, err := protocolEventToChainEvent(event)
+		if err != nil {
+			return delivered, fmt.Errorf("receive protocol events: %w", err)
+		}
+		if ok {
+			if err := c.sendEvent(ctx, mapped); err != nil {
 				return delivered, err
 			}
 		} else {
