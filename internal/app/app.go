@@ -472,6 +472,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	streams.SetSinks(sinks)
 	ingressOpts = append(ingressOpts, ingress.WithDispatchStream(streams))
 	var taskAuthorizer *taskdata.Authorizer
+	// The output limits and fan-out, when streaming output is on; a group member writes its output
+	// replicas under the same limits and hands their frames to the same subscribers.
+	var outputConfig taskdata.OutputStreamConfig
+	var outputFanout *taskdata.OutputDispatcher
 	// User request verification reads the current height (session grant windows) and the key each
 	// account holds on chain; found keys are cached, since an account's key never changes.
 	userChain := sdkauth.NewCachedChain(taskChain.LatestHeight, taskChain.AccountPubKey,
@@ -553,11 +557,13 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				_ = store.Close()
 				return nil, err
 			}
-			taskService.SetOutputStreamConfig(taskdata.OutputStreamConfig{
+			outputConfig = taskdata.OutputStreamConfig{
 				MaxLeaves: stream.MaxOutputMMRLeaves, MinFrameBytes: stream.MinFrameBytes,
 				MaxFrameBytes: cfg.TaskData.ChunkSizeBytes, MaxAttachmentBytes: stream.MaxAttachmentBytes,
-			})
+			}
+			taskService.SetOutputStreamConfig(outputConfig)
 			dispatcher := taskdata.NewOutputDispatcher(int(stream.SubscriberBufferFrames))
+			outputFanout = dispatcher
 			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store, attempts))
 			log.Info("streaming output enabled",
 				"max_output_mmr_leaves", stream.MaxOutputMMRLeaves, "min_frame_bytes", stream.MinFrameBytes,
@@ -589,7 +595,20 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		FeeDenom:              feeDenom,
 	}
 	if orderPath != nil {
-		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters))
+		var publish func(taskdata.ObjectKey, taskdata.OutputFrame)
+		if outputFanout != nil {
+			publish = outputFanout.Publish
+		}
+		members, err := orderPath.newMembers(membersDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix, Keys: keyCache, Groups: coord,
+			Store: store, Data: taskStore, OutputConfig: outputConfig, Publish: publish, Chain: taskChain, MaxInputBytes: cfg.TaskData.MaxBlobBytes,
+		})
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("builder sync: %w", err)
+		}
+		orderPath.Members = members
+		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters), ingress.WithBuilderSync(members), ingress.WithMemberReplicas(members))
 		authParams.Precheck = orderPath.Precheck
 		authParams.Takeovers = orderPath.Takeovers
 	}

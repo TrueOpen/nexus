@@ -13,6 +13,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
+	"github.com/TrueOpen/nexus/internal/buildersync"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
@@ -23,9 +24,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/recorder"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
 
 // paramsRefreshInterval is how often the dispatch params are read again; a params change on chain
@@ -53,6 +56,10 @@ type orderDispatch struct {
 	Responder *dispatchresponse.Responder
 	// Rosters serves GetDispatchRoster from the evidence.
 	Rosters dispatchevidence.Rosters
+	// Sync syncs every order to the other members of its Task Builders group; Members, set once
+	// the output data plane exists, applies what other Builders sync to this one.
+	Sync    *buildersync.Sender
+	Members *buildersync.Receiver
 	params  func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
@@ -75,6 +82,10 @@ func (e *orderEvents) observe(ev chaincli.ChainEvent) {
 		od.Recorder.HandleChainEvent(ev)
 		od.Takeovers.HandleChainEvent(ev)
 		od.Responder.HandleChainEvent(ev)
+		od.Sync.HandleChainEvent(ev)
+		if od.Members != nil {
+			od.Members.HandleChainEvent(ev)
+		}
 	}
 }
 
@@ -222,11 +233,19 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		},
 	})
 	od.Evidence = dispatchevidence.New(deps.Store, params.evidence)
+	od.Sync, err = buildersync.NewSender(buildersync.SenderConfig{
+		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Groups: deps.Direct.Groups,
+		Roots: issuedRoot(deps.Direct.Registry), Inputs: buildersync.StoredInputs{Store: deps.Inputs}, Outputs: deps.Inputs,
+		Evidence: od.Evidence, Peers: buildersync.NewChainPeers(deps.HubChain), Retention: od.evidenceRetention, Log: deps.Log,
+	})
+	if err != nil {
+		return nil, err
+	}
 	od.Recorder, err = recorder.New(recorder.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
 		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry,
-		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Attempts: deps.Attempts, Streams: deps.Direct.Streams,
-		Gate: od.Gate, Evidence: od.Evidence, Log: deps.Log,
+		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Attempts: syncedAttempts{deps.Attempts, od.Sync},
+		Streams: deps.Direct.Streams, Gate: od.Gate, Evidence: od.Evidence, Log: deps.Log,
 	}, params.record)
 	if err != nil {
 		return nil, err
@@ -236,7 +255,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
 		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
 		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer, Attempts: deps.Attempts, Evidence: od.Evidence,
-		Log: deps.Log,
+		Sync: od.Sync, Log: deps.Log,
 	}, params.walk)
 	if err != nil {
 		return nil, err
@@ -283,6 +302,9 @@ func (od *orderDispatch) Start(ctx context.Context) error {
 		return err
 	}
 	if err := od.Responder.Start(ctx); err != nil {
+		return err
+	}
+	if err := od.Sync.Start(ctx); err != nil {
 		return err
 	}
 	refreshCtx, cancel := context.WithCancel(context.Background())
@@ -334,7 +356,56 @@ func (od *orderDispatch) Stop(ctx context.Context) error {
 	if stopErr := od.Responder.Stop(ctx); err == nil {
 		err = stopErr
 	}
+	if stopErr := od.Sync.Stop(ctx); err == nil {
+		err = stopErr
+	}
+	if od.Members != nil {
+		od.Members.Close()
+	}
 	return err
+}
+
+// evidenceRetention is the last height an order's evidence is kept at under the current params.
+func (od *orderDispatch) evidenceRetention(o *dispatchevidence.Order) uint64 {
+	return od.Evidence.Params().RetainUntil(o)
+}
+
+// syncedAttempts is the attempt book the recorder marks; an attempt it marks RECORDED is also
+// handed to the group sync, which then sends the members the user's order.
+type syncedAttempts struct {
+	*attempt.Book
+	sync *buildersync.Sender
+}
+
+// Recorded implements recorder.Attempts.
+func (a syncedAttempts) Recorded(taskID string, ticketHash [32]byte) {
+	a.Book.Recorded(taskID, ticketHash)
+	if current, ok := a.Book.Current(taskID); ok && current.Status == attempt.Recorded && current.TicketHash == ticketHash {
+		a.sync.Recorded(current)
+	}
+}
+
+// newMembers builds the receiving side of the group sync over the order path's evidence.
+func (od *orderDispatch) newMembers(deps membersDeps) (*buildersync.Receiver, error) {
+	return buildersync.NewReceiver(buildersync.ReceiverConfig{
+		ChainID: deps.ChainID, Builder: deps.BuilderAddress, AddressPrefix: deps.AddressPrefix, Keys: deps.Keys, Groups: deps.Groups,
+		Store: deps.Store, Evidence: od.Evidence, Inputs: buildersync.StoredInputs{Store: deps.Data}, Outputs: deps.Data,
+		OutputConfig: deps.OutputConfig, Publish: deps.Publish, Chain: deps.Chain, Retention: od.evidenceRetention,
+		MaxInputBytes: deps.MaxInputBytes, Log: od.log,
+	})
+}
+
+// membersDeps are what the receiving side of the group sync needs besides the evidence.
+type membersDeps struct {
+	ChainID, BuilderAddress, AddressPrefix string
+	Keys                                   servicekey.Resolver
+	Groups                                 taskgroup.Source
+	Store                                  kv.Store
+	Data                                   *taskdata.Store
+	OutputConfig                           taskdata.OutputStreamConfig
+	Publish                                func(taskdata.ObjectKey, taskdata.OutputFrame)
+	Chain                                  buildersync.RecordReader
+	MaxInputBytes                          uint64
 }
 
 // issuedRoot finds an issued handraise root by its digest for GetDispatchRoster.
