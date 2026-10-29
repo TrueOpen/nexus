@@ -137,3 +137,24 @@ func TestMemberDoesNotAnswerSkip(t *testing.T) {
 		t.Fatalf("member answered a SKIP: %v", got)
 	}
 }
+
+// A member's copy whose record has not been synced yet is not a reason to give the claim up: it
+// is looked at again on the next blocks, and rebutted once the record arrives.
+func TestMemberWaitsForTheSyncedRecord(t *testing.T) {
+	e := newEnv(t)
+	o := memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	record := o.Record
+	o.Record = nil
+	e.put(o)
+	e.memberClaim(ticketHash(0, 0), op7, 160)
+	e.block(155)
+	if len(e.rebuts()) != 0 || len(e.r.openClaims()) != 1 {
+		t.Fatalf("claim without the synced record: rebuts %v, open %v", e.rebuts(), e.r.openClaims())
+	}
+	o.Record = record
+	e.put(o)
+	e.block(156)
+	if len(e.rebuts()) != 1 {
+		t.Fatal("claim not rebutted once the record arrived")
+	}
+}
