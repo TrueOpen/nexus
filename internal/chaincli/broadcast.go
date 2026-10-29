@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	abciv1beta1 "cosmossdk.io/api/cosmos/base/abci/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 )
 
@@ -29,7 +30,12 @@ func (c *client) BroadcastTx(ctx context.Context, tx []byte) (TxResult, error) {
 	if txResp == nil {
 		return TxResult{}, fmt.Errorf("broadcast: empty result")
 	}
+	return txResultFromResponse(txResp), nil
+}
 
+// txResultFromResponse maps a node TxResponse. A data field that is not hex is left out: only
+// DecodeMsgResponse reads it, and it then fails on the missing responses.
+func txResultFromResponse(txResp *abciv1beta1.TxResponse) TxResult {
 	res := TxResult{
 		Code:      txResp.GetCode(),
 		Codespace: txResp.GetCodespace(),
@@ -43,7 +49,10 @@ func (c *client) BroadcastTx(ctx context.Context, tx []byte) (TxResult, error) {
 			res.TxHash = []byte(h)
 		}
 	}
-	return res, nil
+	if data, err := hex.DecodeString(txResp.GetData()); err == nil && len(data) != 0 {
+		res.Data = data
+	}
+	return res
 }
 
 // Simulate runs signed tx bytes through cosmos.tx.v1beta1.Service/Simulate: the node executes
@@ -105,19 +114,5 @@ func (c *client) QueryTx(ctx context.Context, txHash []byte) (TxResult, error) {
 	if txResp == nil {
 		return TxResult{}, fmt.Errorf("query tx: empty result")
 	}
-
-	res := TxResult{
-		Code:      txResp.GetCode(),
-		Codespace: txResp.GetCodespace(),
-		Height:    txResp.GetHeight(),
-		RawLog:    txResp.GetRawLog(),
-	}
-	if h := txResp.GetTxhash(); h != "" {
-		if raw, derr := hex.DecodeString(h); derr == nil {
-			res.TxHash = raw
-		} else {
-			res.TxHash = []byte(h)
-		}
-	}
-	return res, nil
+	return txResultFromResponse(txResp), nil
 }

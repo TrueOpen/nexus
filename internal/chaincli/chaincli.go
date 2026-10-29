@@ -46,6 +46,9 @@ type TxResult struct {
 	Codespace string
 	Height    int64
 	RawLog    string
+	// Data is the executed transaction's TxMsgData (hex-decoded TxResponse.data); only a QueryTx
+	// result has it. DecodeMsgResponse reads the Msg responses from it.
+	Data []byte
 }
 
 // OutputStreamLimits are the task params that decide whether an output stream is valid.
