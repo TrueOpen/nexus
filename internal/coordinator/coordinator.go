@@ -1872,19 +1872,28 @@ func settlementFactsHasFullReveal(facts chaincli.SettlementBuildFacts, verifier 
 }
 
 // reconcileMissingPendingTask handles a task the chain does not hold yet while it waits for its
-// dispatch to be recorded: past the order's deadline it is abandoned, otherwise it keeps waiting.
+// dispatch to be recorded: past the order's record deadline it fails as RECORD_REJECTED (an order
+// whose deadline is not known any more fails once the order expires), otherwise it keeps waiting.
 func (c *Coordinator) reconcileMissingPendingTask(fsm *taskFSM, eventHeight int64, reason string) bool {
 	fsm.mu.Lock()
 	if fsm.state != types.Pending {
 		fsm.mu.Unlock()
 		return false
 	}
-	taskID := fsm.taskID
+	sessionID, taskID, sequence := fsm.sessionID, fsm.taskID, fsm.order.OrderSequence
 	deadline := fsm.order.DeadlineHeight
 	fsm.mu.Unlock()
 	height, authoritative := c.currentChainHeight()
 	if eventHeight > 0 && uint64(eventHeight) > height {
 		height, authoritative = uint64(eventHeight), true
+	}
+	if c.dispatcher != nil {
+		if recordDeadline, ok := c.dispatcher.RecordDeadline(sessionID, sequence); ok {
+			if authoritative && height > recordDeadline {
+				c.failRecord(fsm, height)
+			}
+			return true
+		}
 	}
 	if authoritative && deadline != 0 && height > deadline {
 		fsm.onAssignTimeout(height)

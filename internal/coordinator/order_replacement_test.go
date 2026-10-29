@@ -22,6 +22,15 @@ type fakeDispatcher struct {
 	dispatchEr error
 	dispatched []types.Order
 	header     *nexusv1.DispatchResultHeaderV1
+	// deadlines are the record deadlines by order sequence.
+	deadlines map[uint64]uint64
+}
+
+func (f *fakeDispatcher) RecordDeadline(_ string, sequence uint64) (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.deadlines[sequence]
+	return d, ok
 }
 
 func (f *fakeDispatcher) Probe(context.Context, types.Order) error { return f.probeErr }

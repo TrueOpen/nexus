@@ -5,7 +5,9 @@ import (
 	"errors"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -22,6 +24,8 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, o types.Order) error
 	// DispatchResult returns the signed result header of an accepted, unrecorded order.
 	DispatchResult(sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool)
+	// RecordDeadline returns the last height the order of (session, sequence) can be recorded at.
+	RecordDeadline(sessionID string, sequence uint64) (uint64, bool)
 }
 
 // SetDispatcher wires direct dispatch in; call it before Start. Without it every new order is
@@ -112,9 +116,9 @@ func (c *Coordinator) DispatchAccepted(sessionID, taskID string, _ [32]byte, wor
 }
 
 // DispatchFailed implements dispatcher.Observer: the order's attempt ended without a winner
-// (NO_CAPACITY, or TASK_FAILED for any other reason). The task is dropped; its journal stays so
-// the user sees why, and a retry of the sequence starts a new task on it. Its input stays for that
-// retry.
+// (NO_CAPACITY; RECORD_REJECTED when an earlier order of the session was not recorded; TASK_FAILED
+// for any other reason). The task is dropped; its journal stays so the user sees why, and a retry
+// of the sequence starts a new task on it. Its input stays for that retry.
 func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	key := taskKey(sessionID, taskID)
 	fsm, ok := c.getFSM(sessionID, taskID)
@@ -122,12 +126,41 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 		return
 	}
 	code := EvTaskFailed
-	if errors.Is(reason, dispatchdraw.ErrNoCapacity) {
+	switch {
+	case errors.Is(reason, dispatchdraw.ErrNoCapacity):
 		code = EvNoCapacity
+	case errors.Is(reason, dispatcher.ErrRecordRejected):
+		code = EvRecordRejected
 	}
 	fsm.mu.Lock()
 	fsm.emit(code, 0)
 	fsm.mu.Unlock()
 	c.abandonTask(key, fsm)
 	c.log.Info("dispatch failed", "session_id", sessionID, "task_id", taskID, "reason", reason)
+}
+
+// DispatchRecorded is the Recorder's report that the chain admitted the task's dispatch entry at
+// height: the task is reconciled with the chain, which moves it to Assigned (DISPATCH_RECORDED).
+func (c *Coordinator) DispatchRecorded(sessionID, taskID string, height uint64) {
+	c.requestTaskReconcile(sessionID, taskID, int64(height), "dispatch recorded")
+}
+
+// RecordRejected is the Recorder's report that the chain refused the task's dispatch entry with
+// code, or did not record it by its deadline (RECORD_REJECTED). The task is dropped like a failed
+// dispatch: its journal and input stay for a resend of the sequence.
+func (c *Coordinator) RecordRejected(sessionID, taskID string, code taskv1.DispatchRejectCodeV1) {
+	fsm, ok := c.getFSM(sessionID, taskID)
+	if !ok {
+		return
+	}
+	height, _ := c.currentChainHeight()
+	c.failRecord(fsm, height)
+	c.log.Info("dispatch record rejected", "session_id", sessionID, "task_id", taskID, "reject_code", code)
+}
+
+// failRecord ends a Pending task whose dispatch entry will not be recorded.
+func (c *Coordinator) failRecord(fsm *taskFSM, height uint64) {
+	if fsm.failPending(EvRecordRejected, height) {
+		c.abandonTask(taskKey(fsm.sessionID, fsm.taskID), fsm)
+	}
 }

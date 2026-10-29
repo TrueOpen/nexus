@@ -295,26 +295,32 @@ func (f *taskFSM) acceptedInputContentHashLocked() string {
 }
 
 func (f *taskFSM) onAssignTimeout(height uint64) {
-	f.mu.Lock()
-	if f.state != types.Pending {
-		f.mu.Unlock()
+	if !f.failPending(EvAssignTimeout, height) {
 		return
+	}
+	f.log.Info("task assign timed out before on-chain acceptance", "task_id", f.taskID,
+		"height", height, "deadline_height", f.order.DeadlineHeight)
+	if f.onAbandon != nil {
+		f.onAbandon()
+	}
+}
+
+// failPending ends a task that never reached the chain with event code; it reports false when the
+// task is no longer Pending. Removing the task is the caller's.
+func (f *taskFSM) failPending(code string, height uint64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.state != types.Pending {
+		return false
 	}
 	f.state = types.Failed
 	f.verdict = types.VerdictAssignTimeout
 	f.terminal = true
-	f.emit(EvAssignTimeout, int64(height))
+	f.emit(code, int64(height))
 	f.save()
 	f.teardown()
 	f.relay.Release(f.sessionID, f.taskID)
-	deadline := f.order.DeadlineHeight
-	f.mu.Unlock()
-
-	f.log.Info("task assign timed out before on-chain acceptance", "task_id", f.taskID,
-		"height", height, "deadline_height", deadline)
-	if f.onAbandon != nil {
-		f.onAbandon()
-	}
+	return true
 }
 
 // acceptInferReceipt records the first signed InferReceipt and makes exact
