@@ -55,7 +55,7 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		r.log.Info("compensation claim window closed", "ticket", ticket, "rebuttal_deadline", claim.GetRebuttalDeadlineHeight())
 		r.close(claimPrefix, r.claims, it.ID)
 		return
-	case claim.GetBuilderAddress() != r.cfg.Builder:
+	case claim.GetBuilderAddress() != r.cfg.Builder && !r.holdsCopyOf(it.ID, claim.GetBuilderAddress()):
 		r.close(claimPrefix, r.claims, it.ID)
 		return
 	}
@@ -74,8 +74,17 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		}
 		return
 	}
+	if dispatcherOf(ev, r.cfg.Builder) != claim.GetBuilderAddress() {
+		r.log.Info("compensation claim names another Builder than the evidence of its ticket", "ticket", ticket, "builder", claim.GetBuilderAddress())
+		r.close(claimPrefix, r.claims, it.ID)
+		return
+	}
 	if err := r.cfg.Evidence.Extend(ev.Key(), it.Deadline); err != nil {
 		r.log.Warn("evidence of an open claim not extended", "ticket", ticket, "err", err)
+	}
+	if ev.Builder != "" && !memberTurn(head, it.Deadline, r.cfg.Evidence.Params().RebuttalBlocks) {
+		r.update(claimPrefix, r.claims, &it)
+		return
 	}
 	msg, err := rebuttal(r.cfg.Responder, ev, attempt, claim)
 	if err != nil {
@@ -164,11 +173,13 @@ func recordOutcome(record *taskv1.DispatchRecordV1, hash []byte) taskv1.Dispatch
 // recheckClaims looks up, after a role stream gap, the claim on every ticket the evidence could
 // rebut whose claim window is open: claims on a ticket open record_deadline_blocks after
 // max(earliest_submit_height, the ticket's bound_change_height) and last the claim window plus
-// the rebuttal blocks. Pending claims of this Builder are opened. Tickets whose compensation is
-// owed are not asked about.
+// the rebuttal blocks. Pending claims on the Builder whose ticket it is (this Builder, or the
+// dispatching Builder of a member's copy) are opened. Tickets whose compensation is owed are not
+// asked about.
 func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
 	p := r.cfg.Evidence.Params()
 	var hashes [][]byte
+	builders := map[string]string{} // ticket hash -> the Builder whose ticket it is
 	err := r.cfg.Evidence.Scan(func(ev *dispatchevidence.Order) bool {
 		if head > ev.DeadlineBase+p.RecordDeadlineBlocks+p.ClaimWindowBlocks+p.RebuttalBlocks {
 			return true
@@ -182,6 +193,7 @@ func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
 				_ = proto.Unmarshal(a.Ticket, &ticket)
 				if open := max(esh, ticket.GetBoundChangeHeight()) + p.RecordDeadlineBlocks; a.Rebuttable() && head > open {
 					hashes = append(hashes, a.Hash)
+					builders[string(a.Hash)] = dispatcherOf(ev, r.cfg.Builder)
 				}
 			}
 		}
@@ -200,11 +212,34 @@ func (r *Responder) recheckClaims(ctx context.Context, head uint64) {
 			r.log.Warn("compensation claim not read after a role stream gap", "ticket", hex.EncodeToString(hash), "err", err)
 			continue
 		}
-		if claim.GetStatus() != claimPending || claim.GetBuilderAddress() != r.cfg.Builder {
+		if claim.GetStatus() != claimPending || claim.GetBuilderAddress() != builders[string(hash)] {
 			continue
 		}
 		r.open(claimPrefix, r.claims, &item{ID: hash, Deadline: claim.GetRebuttalDeadlineHeight()})
 		opened++
 	}
 	r.log.Info("claims looked up again after a role stream gap", "tickets", len(hashes), "pending", opened)
+}
+
+// dispatcherOf is the Builder that dispatched the order of ev: the one named in a member's copy,
+// otherwise this Builder.
+func dispatcherOf(ev *dispatchevidence.Order, self string) string {
+	if ev.Builder != "" {
+		return ev.Builder
+	}
+	return self
+}
+
+// memberTurn reports whether a group member answers at head a claim or challenge whose answer is
+// due by deadline after a window of the given length: in the second half of the window. The first
+// half is the dispatching Builder's, so the group does not pay for the same answer twice.
+func memberTurn(head, deadline, window uint64) bool {
+	return head+window/2 >= deadline
+}
+
+// holdsCopyOf reports whether this Builder holds builder's evidence of a ticket as a member of
+// the ticket's Task Builders group.
+func (r *Responder) holdsCopyOf(ticketHash []byte, builder string) bool {
+	ev, _, found, err := r.cfg.Evidence.ByTicket(ticketHash)
+	return err == nil && found && ev.Builder != "" && ev.Builder == builder
 }

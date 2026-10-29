@@ -62,6 +62,10 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 	}
 	it.Deadline = ch.GetProofDeadlineHeight()
 	r.extendTask(ch.GetTaskId(), it.Deadline)
+	if !r.holdsOwnTask(ch.GetTaskId()) && !memberTurn(head, it.Deadline, r.cfg.Evidence.Params().ChallengeResponseBlocks) {
+		r.update(challengePrefix, r.challenges, &it)
+		return
+	}
 	msg := &taskv1.MsgRespondDispatchChallenge{ChallengeId: append([]byte(nil), it.ID...), ResponderAddress: r.cfg.Responder}
 	var answerErr error
 	switch ch.GetKind() {
@@ -100,6 +104,21 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 func (r *Responder) holdsTask(taskID []byte) bool {
 	orders, err := r.cfg.Evidence.ByTask(hex.EncodeToString(taskID))
 	return err != nil || len(orders) > 0
+}
+
+// holdsOwnTask reports whether this Builder dispatched the task: it holds evidence of it that is
+// not a member's copy. A failed read counts as held.
+func (r *Responder) holdsOwnTask(taskID []byte) bool {
+	orders, err := r.cfg.Evidence.ByTask(hex.EncodeToString(taskID))
+	if err != nil {
+		return true
+	}
+	for _, ev := range orders {
+		if ev.Builder == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // extendTask keeps every evidence of a task until height: a challenge on it is open.

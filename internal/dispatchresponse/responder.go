@@ -4,7 +4,10 @@
 // A Worker that claims compensation on one of this Builder's tickets is rebutted within the
 // rebuttal window when the evidence shows the ticket reached it and it rejected (the Worker's own
 // reject goes with the record), timed out or was revoked; every other claim is owed and left to be
-// paid. A SKIP challenge on this Builder's record is answered with the Worker's reject stored for
+// paid. As a member of another Builder's Task Builders group this Builder does the same from the
+// copy of that Builder's evidence synced to it, in the second half of the window, so the
+// dispatching Builder answers first; a ROSTER_UNAVAILABLE challenge is answered from a copy the
+// same way. A SKIP challenge on this Builder's record is answered with the Worker's reject stored for
 // the challenged ticket, a ROSTER_UNAVAILABLE challenge with the stored roster of the challenged
 // round whose roster_hash the chain's record holds. OMISSION, DRAW and DOUBLE_DISPATCH challenges
 // have no answer; they are logged and counted.
@@ -264,7 +267,7 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 	}
 	switch t := ev.Typed.(type) {
 	case chaincli.DispatchCompensationClaimed:
-		if t.Builder != r.cfg.Builder {
+		if t.Builder != r.cfg.Builder && !r.holdsCopyOf(t.TicketHash, t.Builder) {
 			return
 		}
 		r.claimsSeen.Add(1)
