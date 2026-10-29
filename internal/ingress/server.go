@@ -109,7 +109,7 @@ type Server struct {
 	dispatchStream       dispatchStreamServer
 	dispatchRosters      DispatchRosters
 	memberReplicas       MemberReplicas
-	builderSync          BuilderSync
+	builderSync          builderSyncService
 
 	tlsCertificate *tls.Certificate
 
@@ -252,10 +252,10 @@ func (s *Server) handler() http.Handler {
 		}
 	})
 	mux.Handle(path, handler)
-	if s.builderSync != nil {
+	if s.builderSync.sync != nil {
 		// Builder-to-Builder sync is authenticated by each batch's signature, not by the SDK API key
 		// or the IP allowlist.
-		syncPath, syncHandler := buildersyncv1connect.NewBuilderSyncServiceHandler(builderSyncService{s.builderSync},
+		syncPath, syncHandler := buildersyncv1connect.NewBuilderSyncServiceHandler(s.builderSync,
 			connect.WithInterceptors(loggingInterceptor(s.log)), connect.WithReadMaxBytes(builderSyncReadMaxBytes))
 		mux.Handle(syncPath, http.MaxBytesHandler(syncHandler, 2*builderSyncReadMaxBytes))
 	}

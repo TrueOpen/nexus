@@ -421,3 +421,23 @@ func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
 		t.Fatalf("new order of the replaced snapshot: %v", err)
 	}
 }
+
+// A batch naming a sender outside the BuilderSet is refused from local state alone: the endpoint
+// takes no API key, so a made-up sender must never cost a chain read of its key.
+func TestNonMemberCostsNoKeyLookup(t *testing.T) {
+	e := newEnv(t)
+	batch := e.firstBatch()
+	e.keys.mu.Lock()
+	e.keys.lookups = nil
+	e.keys.mu.Unlock()
+	batch.SenderOperatorAddress = newParty(t, 0x08, 0x18).op
+	req := e.signed(batch)
+	if _, err := e.member.r.Sync(context.Background(), req); !errors.Is(err, ErrNotGroupMember) {
+		t.Fatalf("made-up sender: %v", err)
+	}
+	e.keys.mu.Lock()
+	defer e.keys.mu.Unlock()
+	if len(e.keys.lookups) != 0 {
+		t.Fatalf("a made-up sender cost key lookups: %v", e.keys.lookups)
+	}
+}

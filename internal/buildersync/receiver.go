@@ -173,6 +173,14 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 		return nil, fmt.Errorf("%w: session_id", ErrMalformed)
 	}
 	sender := batch.GetSenderOperatorAddress()
+	sessionID := hex.EncodeToString(batch.GetSessionId())
+	key := memberKey(sender, sessionID, batch.GetOrderSequence())
+	// The group is the allowlist: only a member of the snapshot a new order names, or the sender of
+	// a stream already held, is worth reading a service key for. Both are decided locally, so a
+	// batch with a made-up sender costs no chain read.
+	if err := r.admit(&batch, key); err != nil {
+		return nil, err
+	}
 	senderKey, err := r.serviceKey(ctx, servicekey.ParticipantBuilder, sender)
 	if err != nil {
 		return nil, err
@@ -181,25 +189,15 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 	if dispatch.VerifyDigestSignature(senderKey, digest[:], req.GetSenderSignature()) != nil {
 		return nil, fmt.Errorf("%w: batch signature is not the sender's current service key", ErrUnauthenticated)
 	}
-	sessionID := hex.EncodeToString(batch.GetSessionId())
-	key := memberKey(sender, sessionID, batch.GetOrderSequence())
 	unlock := r.lock(key)
 	defer unlock()
 	m, found, err := r.loadMember(key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
-	switch {
-	case !found:
-		// A new order's group is the current snapshot; once its stream began the order keeps the
-		// group it began with, as the chain keeps the group it locks a recorded task with.
-		if err := r.checkGroup(&batch); err != nil {
-			return nil, err
-		}
+	if !found {
 		m = &memberStream{Sender: sender, SessionID: sessionID, Sequence: batch.GetOrderSequence(),
 			BuilderSetID: batch.GetBuilderSetId(), BuilderSetHash: batch.GetBuilderSetHash(), Inputs: map[string]*memberInput{}}
-	case m.BuilderSetID != batch.GetBuilderSetId() || !bytes.Equal(m.BuilderSetHash, batch.GetBuilderSetHash()):
-		return nil, fmt.Errorf("%w: the order's sync stream names BuilderSet %q", ErrMalformed, m.BuilderSetID)
 	}
 	resp := &buildersyncv1.SyncResponse{}
 	in := &incoming{senderKey: senderKey}
@@ -245,6 +243,22 @@ func (r *Receiver) serviceKey(ctx context.Context, participant, operator string)
 		return nil, fmt.Errorf("%w: %v", ErrUnauthenticated, err)
 	}
 	return key, nil
+}
+
+// admit decides from local state whether a batch may be looked at: a new order's group is the
+// current snapshot (checkGroup); once an order's stream began it keeps the group it began with, as
+// the chain keeps the group it locks a recorded task with.
+func (r *Receiver) admit(batch *buildersyncv1.BuilderSyncBatchV1, key string) error {
+	m, found, err := r.loadMember(key)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	case !found:
+		return r.checkGroup(batch)
+	case m.BuilderSetID != batch.GetBuilderSetId() || !bytes.Equal(m.BuilderSetHash, batch.GetBuilderSetHash()):
+		return fmt.Errorf("%w: the order's sync stream names BuilderSet %q", ErrMalformed, m.BuilderSetID)
+	}
+	return nil
 }
 
 // checkGroup requires the BuilderSet of a new order's batch to be the current snapshot with both

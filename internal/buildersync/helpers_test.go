@@ -66,9 +66,10 @@ func newParty(t testing.TB, opSeed, keySeed byte) party {
 
 // fakeKeys answers current service keys.
 type fakeKeys struct {
-	mu    sync.Mutex
-	keys  map[string]signer.Signer // participant|operator
-	fails bool
+	mu      sync.Mutex
+	keys    map[string]signer.Signer // participant|operator
+	fails   bool
+	lookups []string // participant|operator of every lookup
 }
 
 func (k *fakeKeys) set(participant string, p party) {
@@ -80,6 +81,7 @@ func (k *fakeKeys) set(participant string, p party) {
 func (k *fakeKeys) QueryCurrentServiceKey(_ context.Context, participant, operator string) (chaincli.ServiceKeyState, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	k.lookups = append(k.lookups, participant+"|"+operator)
 	if k.fails {
 		return chaincli.ServiceKeyState{}, errors.New("chain unreachable")
 	}

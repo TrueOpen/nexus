@@ -3,6 +3,9 @@ package ingress
 import (
 	"context"
 	"errors"
+	"net"
+	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -11,8 +14,19 @@ import (
 	"github.com/TrueOpen/nexus/internal/buildersync"
 )
 
-// builderSyncReadMaxBytes bounds one sync batch: a run of items and output frames.
-const builderSyncReadMaxBytes = 8 << 20
+const (
+	// builderSyncReadMaxBytes bounds one sync batch: a run of items and output frames.
+	builderSyncReadMaxBytes = 8 << 20
+	// builderSyncPerSecond and builderSyncBurst limit the sync requests of one source address. A
+	// dispatching Builder sends one batch at a time to each member, so this is far above what a
+	// group member needs.
+	builderSyncPerSecond = 100
+	builderSyncBurst     = 200
+	// maxLimitedAddresses bounds the addresses the limiter remembers.
+	maxLimitedAddresses = 4096
+)
+
+var errBuilderSyncRateLimited = connect.NewError(connect.CodeResourceExhausted, errors.New("NEXUS_BUILDER_SYNC_RATE_LIMITED: too many sync requests from this address"))
 
 // BuilderSync applies the sync batches the dispatching Builders of this Builder's groups send
 // (buildersync.Receiver).
@@ -23,18 +37,24 @@ type BuilderSync interface {
 // WithBuilderSync serves BuilderSyncService on the ingress port. Its requests are authenticated
 // by the sender's signature on each batch, so the SDK API key and IP allowlist do not apply.
 func WithBuilderSync(sync BuilderSync) Option {
-	return func(s *Server) { s.builderSync = sync }
+	return func(s *Server) {
+		s.builderSync = builderSyncService{sync: sync, limit: newAddressLimiter(builderSyncPerSecond, builderSyncBurst, time.Now)}
+	}
 }
 
 // builderSyncService is the Connect handler of BuilderSyncService.
 type builderSyncService struct {
-	sync BuilderSync
+	sync  BuilderSync
+	limit *addressLimiter
 }
 
 var _ buildersyncv1connect.BuilderSyncServiceHandler = builderSyncService{}
 
 // Sync applies one batch.
 func (b builderSyncService) Sync(ctx context.Context, req *connect.Request[buildersyncv1.SyncRequest]) (*connect.Response[buildersyncv1.SyncResponse], error) {
+	if b.limit != nil && !b.limit.allow(peerHost(req.Peer().Addr)) {
+		return nil, errBuilderSyncRateLimited
+	}
 	resp, err := b.sync.Sync(ctx, req.Msg)
 	if err != nil {
 		return nil, mapBuilderSyncErr(err)
@@ -55,4 +75,53 @@ func mapBuilderSyncErr(err error) error {
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}
+}
+
+// peerHost is the host of a peer address, or the address as it is.
+func peerHost(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
+}
+
+// addressLimiter is a token bucket per source address.
+type addressLimiter struct {
+	perSecond, burst float64
+	now              func() time.Time
+
+	mu      sync.Mutex
+	buckets map[string]*tokenBucket
+}
+
+type tokenBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newAddressLimiter(perSecond, burst float64, now func() time.Time) *addressLimiter {
+	return &addressLimiter{perSecond: perSecond, burst: burst, now: now, buckets: map[string]*tokenBucket{}}
+}
+
+// allow takes a token of addr's bucket.
+func (l *addressLimiter) allow(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	b := l.buckets[addr]
+	if b == nil {
+		if len(l.buckets) >= maxLimitedAddresses {
+			// Forgetting every bucket only lets each address start again from a full burst.
+			clear(l.buckets)
+		}
+		b = &tokenBucket{tokens: l.burst, last: now}
+		l.buckets[addr] = b
+	}
+	b.tokens = min(l.burst, b.tokens+now.Sub(b.last).Seconds()*l.perSecond)
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -127,7 +128,7 @@ func TestBuilderSyncErrors(t *testing.T) {
 		buildersync.ErrUnavailable:     connect.CodeUnavailable,
 		errors.New("disk"):             connect.CodeInternal,
 	} {
-		_, got := builderSyncService{fakeBuilderSync{err: err}}.Sync(context.Background(), connect.NewRequest(&buildersyncv1.SyncRequest{}))
+		_, got := builderSyncService{sync: fakeBuilderSync{err: err}}.Sync(context.Background(), connect.NewRequest(&buildersyncv1.SyncRequest{}))
 		if connect.CodeOf(got) != want {
 			t.Fatalf("%v -> %v, want %v", err, connect.CodeOf(got), want)
 		}
@@ -149,5 +150,28 @@ func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
 	var resp buildersyncv1.SyncResponse
 	if rec.Code != http.StatusOK || proto.Unmarshal(rec.Body.Bytes(), &resp) != nil || resp.GetAppliedThrough() != 7 {
 		t.Fatalf("sync over the ingress handler = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// Sync requests are limited per source address: the endpoint takes no API key.
+func TestBuilderSyncIsRateLimitedPerAddress(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	limiter := newAddressLimiter(1, 2, func() time.Time { return now })
+	for i, want := range []bool{true, true, false} {
+		if got := limiter.allow("10.0.0.1"); got != want {
+			t.Fatalf("request %d allowed %v", i, got)
+		}
+	}
+	if !limiter.allow("10.0.0.2") {
+		t.Fatal("another address was limited")
+	}
+	now = now.Add(time.Second)
+	if !limiter.allow("10.0.0.1") {
+		t.Fatal("the address was not let through again after a second")
+	}
+	_, err := builderSyncService{sync: fakeBuilderSync{}, limit: newAddressLimiter(0, 0, time.Now)}.Sync(context.Background(),
+		connect.NewRequest(&buildersyncv1.SyncRequest{}))
+	if connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Fatalf("over the limit: %v", err)
 	}
 }
