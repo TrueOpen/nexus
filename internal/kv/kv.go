@@ -56,6 +56,10 @@ const (
 	NSOutputAck Namespace = "output_ack"
 	// NSLocalSchema holds the version of the local state layout, see package localschema.
 	NSLocalSchema Namespace = "local_schema"
+	// NSStreamSession holds the Cortex dispatch stream state: the StoreOnce marker of every stream
+	// binding and the Builder-signed downlink messages a Cortex has not acknowledged yet, as the
+	// exact bytes first sent (package dispatchstream).
+	NSStreamSession Namespace = "stream_session"
 )
 
 type Store interface {
