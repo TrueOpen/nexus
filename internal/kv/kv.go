@@ -104,6 +104,15 @@ const (
 	// NSDispatchEvidencePrune orders NSDispatchEvidence by the height its evidence may be pruned
 	// at; key = zero-padded height/evidence key.
 	NSDispatchEvidencePrune Namespace = "dispatch_evidence_prune"
+	// NSBuilderSyncOutbox holds what the dispatching Builder still has to sync to the other members
+	// of each order's Task Builders group: per order, the sync stream with each member's progress,
+	// and the items not every member acknowledged yet, as the exact bytes sent (package
+	// buildersync).
+	NSBuilderSyncOutbox Namespace = "builder_sync_outbox"
+	// NSBuilderSyncMember holds, per order synced to this Builder as a group member, how far the
+	// sync stream was applied, the recorded winner and the input pieces not assembled yet
+	// (package buildersync).
+	NSBuilderSyncMember Namespace = "builder_sync_member"
 )
 
 type Store interface {

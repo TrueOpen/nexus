@@ -1,0 +1,620 @@
+package buildersync
+
+import (
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
+	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
+	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/taskdata"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
+)
+
+const (
+	defaultInputChunkBytes = 256 << 10
+	defaultMaxBatchBytes   = 1 << 20
+	defaultRetryMin        = 500 * time.Millisecond
+	defaultRetryMax        = 30 * time.Second
+	defaultAlarmAfter      = 5 * time.Minute
+	defaultPollInterval    = 250 * time.Millisecond
+	defaultRequestTimeout  = 10 * time.Second
+	// maxBatchesPerPass bounds how many batches in a row one order sends to one member before the
+	// member's other orders get their turn.
+	maxBatchesPerPass = 8
+	// pruneEveryBlocks is how often the sync streams past their retention are dropped.
+	pruneEveryBlocks = 10
+)
+
+// Peers sends a signed batch to a member of a Task Builders group (ChainPeers).
+type Peers interface {
+	Sync(ctx context.Context, operator string, req *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error)
+}
+
+// InputReader reads the input of an order version as OpenTask stored it, with its media type
+// (StoredInputs).
+type InputReader interface {
+	ReadInput(ctx context.Context, sessionID, taskID, taskHash string) ([]byte, string, error)
+}
+
+// OutputReader reads a task's OUTPUT stream (taskdata.Store).
+type OutputReader interface {
+	OutputFrames(ctx context.Context, key taskdata.ObjectKey, afterSeq *uint64) ([]taskdata.OutputFrame, error)
+	OutputStreamProgressOf(ctx context.Context, key taskdata.ObjectKey) (taskdata.OutputStreamProgress, bool, error)
+}
+
+// EvidenceReader finds the evidence of a ticket (dispatchevidence.Store).
+type EvidenceReader interface {
+	ByTicket(hash []byte) (*dispatchevidence.Order, *dispatchevidence.Attempt, bool, error)
+}
+
+// SenderConfig wires a Sender.
+type SenderConfig struct {
+	ChainID string
+	// Builder is this Builder's operator address; Signer its service key, which signs the batches.
+	Builder string
+	Signer  signer.Signer
+	Store   kv.Store
+	// Groups answers the current BuilderSet snapshot: an order's group is its members.
+	Groups taskgroup.Source
+	// Roots finds a handraise root this Builder issued by its digest (handraise.Registry).
+	Roots    func(digest [32]byte) (*taskv1.SignedHandraiseRootV1, bool, error)
+	Inputs   InputReader
+	Outputs  OutputReader
+	Evidence EvidenceReader
+	Peers    Peers
+	// Retention is the last height the sync stream of an order is kept at: the retention of its
+	// evidence (dispatchevidence.Params.RetainUntil).
+	Retention func(*dispatchevidence.Order) uint64
+	// InputChunkBytes bounds the input bytes of one item; MaxBatchBytes the item and frame bytes of
+	// one batch, which always carries at least one item or frame.
+	InputChunkBytes int
+	MaxBatchBytes   int
+	// RetryMin and RetryMax bound the backoff after a member failed; AlarmAfter is how long a member
+	// may stay failing before it is logged as an error.
+	RetryMin, RetryMax time.Duration
+	AlarmAfter         time.Duration
+	// PollInterval is how often members are looked at for retries and new output frames;
+	// RequestTimeout bounds one batch.
+	PollInterval   time.Duration
+	RequestTimeout time.Duration
+	// Clock is nil for the system clock.
+	Clock func() time.Time
+	Log   *slog.Logger
+}
+
+// SenderCounts are what the sender saw since it started.
+type SenderCounts struct {
+	// Batches counts batches a member applied in full; Failures every failed or refused batch;
+	// Alarms the times a member stayed failing past AlarmAfter.
+	Batches, Failures, Alarms uint64
+}
+
+// Sender syncs the orders this Builder dispatches to the other members of their groups.
+type Sender struct {
+	cfg SenderConfig
+	log *slog.Logger
+
+	mu      sync.Mutex
+	streams map[string]*outStream // streamKey -> stream
+	retries map[string]*retry     // streamKey|peer -> backoff
+	workers map[string]chan struct{}
+	queue   []event
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wake    chan struct{}
+	wg      sync.WaitGroup
+
+	head                      atomic.Uint64
+	lastPrune                 atomic.Uint64
+	batches, failures, alarms atomic.Uint64
+}
+
+// event is one change handed to the sender: an order's evidence, or its winner recorded.
+type event struct {
+	view     *dispatchevidence.Order
+	recorded *attempt.Attempt
+}
+
+// outStream is the sync stream of one order, with each member's progress and what of the order
+// was turned into items already.
+type outStream struct {
+	SessionID      string   `json:"session_id"`
+	Sequence       uint64   `json:"sequence"`
+	TaskID         string   `json:"task_id"`
+	BuilderSetID   string   `json:"builder_set_id"`
+	BuilderSetHash []byte   `json:"builder_set_hash"`
+	Peers          []string `json:"peers"`
+	// Last is the last item sequence assigned; items up to Pruned were acknowledged by every
+	// member and deleted.
+	Last   uint64               `json:"last"`
+	Pruned uint64               `json:"pruned,omitempty"`
+	Acked  map[string]uint64    `json:"acked"`
+	Output map[string]outputAck `json:"output,omitempty"`
+	// Rounds (task/epoch/round), Inputs (task_hash), Attempts (ticket hash -> item digest) and
+	// Record (record digest) are what was turned into items.
+	Rounds   map[string]bool   `json:"rounds,omitempty"`
+	Inputs   map[string]bool   `json:"inputs,omitempty"`
+	Attempts map[string]string `json:"attempts,omitempty"`
+	Record   string            `json:"record,omitempty"`
+	// Winner is set once the order item was queued: the chain recorded it.
+	Winner       *winnerRef `json:"winner,omitempty"`
+	ExpireHeight uint64     `json:"expire_height"`
+}
+
+// winnerRef is the recorded winner whose output follows the order item.
+type winnerRef struct {
+	TaskHash     string `json:"task_hash"`
+	TicketHash   []byte `json:"ticket_hash"`
+	Ticket       []byte `json:"ticket"`
+	AcceptDigest []byte `json:"accept_digest"`
+}
+
+// outputAck is a member's output progress as it last answered.
+type outputAck struct {
+	Received bool   `json:"received,omitempty"`
+	LastSeq  uint64 `json:"last_seq,omitempty"`
+	Sealed   bool   `json:"sealed,omitempty"`
+}
+
+func (st *outStream) key() string { return streamKey(st.SessionID, st.Sequence) }
+
+func (st *outStream) clone() *outStream {
+	next := *st
+	next.BuilderSetHash = append([]byte(nil), st.BuilderSetHash...)
+	next.Peers = append([]string(nil), st.Peers...)
+	next.Acked = cloneMap(st.Acked)
+	next.Output = cloneMap(st.Output)
+	next.Rounds = cloneMap(st.Rounds)
+	next.Inputs = cloneMap(st.Inputs)
+	next.Attempts = cloneMap(st.Attempts)
+	if st.Winner != nil {
+		w := *st.Winner
+		next.Winner = &w
+	}
+	return &next
+}
+
+func cloneMap[K comparable, V any](m map[K]V) map[K]V {
+	out := make(map[K]V, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// Keys of kv.NSBuilderSyncOutbox: "stream/<stream key>" holds the stream as JSON and
+// "item/<stream key>/<zero-padded sequence>" each item not every member acknowledged.
+const (
+	outStreamPrefix = "stream/"
+	outItemPrefix   = "item/"
+)
+
+func outItemKey(stream string, n uint64) string {
+	return fmt.Sprintf("%s%s/%020d", outItemPrefix, stream, n)
+}
+
+// NewSender loads the stored sync streams.
+func NewSender(cfg SenderConfig) (*Sender, error) {
+	switch {
+	case cfg.ChainID == "" || cfg.Builder == "" || cfg.Signer == nil || cfg.Store == nil || cfg.Groups == nil:
+		return nil, fmt.Errorf("builder sync sender needs the chain id, Builder address, service signer, store and BuilderSet source")
+	case cfg.Roots == nil || cfg.Inputs == nil || cfg.Outputs == nil || cfg.Evidence == nil || cfg.Peers == nil || cfg.Retention == nil:
+		return nil, fmt.Errorf("builder sync sender needs the roots, inputs, outputs, evidence, peers and retention")
+	}
+	setDefault(&cfg.InputChunkBytes, defaultInputChunkBytes)
+	setDefault(&cfg.MaxBatchBytes, defaultMaxBatchBytes)
+	setDefault(&cfg.RetryMin, defaultRetryMin)
+	setDefault(&cfg.RetryMax, defaultRetryMax)
+	setDefault(&cfg.AlarmAfter, defaultAlarmAfter)
+	setDefault(&cfg.PollInterval, defaultPollInterval)
+	setDefault(&cfg.RequestTimeout, defaultRequestTimeout)
+	if cfg.Clock == nil {
+		cfg.Clock = time.Now
+	}
+	s := &Sender{
+		cfg: cfg, log: cfg.Log, streams: map[string]*outStream{}, retries: map[string]*retry{},
+		workers: map[string]chan struct{}{}, wake: make(chan struct{}, 1),
+	}
+	if s.log == nil {
+		s.log = slog.New(slog.DiscardHandler)
+	}
+	var decodeErr error
+	err := cfg.Store.Scan(kv.NSBuilderSyncOutbox, func(key string, val []byte) bool {
+		if !strings.HasPrefix(key, outStreamPrefix) {
+			return key < outStreamPrefix
+		}
+		var st outStream
+		if err := json.Unmarshal(val, &st); err != nil || outStreamPrefix+st.key() != key {
+			decodeErr = fmt.Errorf("builder sync stream %q is malformed", key)
+			return false
+		}
+		s.streams[st.key()] = &st
+		return true
+	})
+	if err == nil {
+		err = decodeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func setDefault[T comparable](v *T, def T) {
+	var zero T
+	if *v == zero {
+		*v = def
+	}
+}
+
+// Start runs the queue and one delivery worker per member.
+func (s *Sender) Start(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.wake:
+				s.drain()
+			}
+		}
+	}()
+	for _, st := range s.streams {
+		for _, peer := range st.Peers {
+			s.ensureWorkerLocked(peer)
+		}
+	}
+	if len(s.queue) > 0 {
+		s.signal()
+	}
+	return nil
+}
+
+// Stop ends the queue and the workers; what is queued but not stored is lost, and the dispatcher
+// hands its live orders over again after a restart.
+func (s *Sender) Stop(context.Context) error {
+	s.mu.Lock()
+	cancel := s.cancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	s.wg.Wait()
+	return nil
+}
+
+// Counts returns what the sender saw since it started.
+func (s *Sender) Counts() SenderCounts {
+	return SenderCounts{Batches: s.batches.Load(), Failures: s.failures.Load(), Alarms: s.alarms.Load()}
+}
+
+// OrderChanged implements dispatcher.OrderSync: the change is queued, never sent from the caller.
+func (s *Sender) OrderChanged(o *dispatchevidence.Order) { s.enqueue(event{view: o}) }
+
+// Recorded queues the order item of an attempt the chain recorded: the user's signed order with
+// the attempt's RECORDED header. It is called once the attempt book holds the attempt as
+// RECORDED.
+func (s *Sender) Recorded(a attempt.Attempt) {
+	if a.Status != attempt.Recorded {
+		return
+	}
+	s.enqueue(event{recorded: &a})
+}
+
+func (s *Sender) enqueue(ev event) {
+	s.mu.Lock()
+	s.queue = append(s.queue, ev)
+	s.mu.Unlock()
+	s.signal()
+}
+
+func (s *Sender) signal() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// HandleChainEvent follows the head and drops the sync streams past their retention.
+func (s *Sender) HandleChainEvent(ev chaincli.ChainEvent) {
+	if ev.Type != chaincli.EventNewBlock || ev.Height <= 0 {
+		return
+	}
+	head := uint64(ev.Height)
+	if head <= s.head.Load() {
+		return
+	}
+	s.head.Store(head)
+	if last := s.lastPrune.Load(); head >= last+pruneEveryBlocks {
+		s.lastPrune.Store(head)
+		s.prune(head)
+	}
+}
+
+// drain turns the queued changes into items.
+func (s *Sender) drain() {
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
+			s.mu.Unlock()
+			return
+		}
+		ev := s.queue[0]
+		s.queue = s.queue[1:]
+		s.mu.Unlock()
+		ctx := context.Background()
+		var err error
+		if ev.view != nil {
+			err = s.applyView(ctx, ev.view)
+		} else {
+			err = s.applyRecorded(ctx, *ev.recorded)
+		}
+		if err != nil {
+			s.failures.Add(1)
+			s.log.Error("order change not queued for the Task Builders group", "err", err)
+		}
+	}
+}
+
+// applyView turns what is new in an order's evidence into items.
+func (s *Sender) applyView(ctx context.Context, view *dispatchevidence.Order) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.streamLocked(view)
+	if err != nil || st == nil {
+		return err
+	}
+	next := st.clone()
+	items, err := s.diff(ctx, next, view)
+	if err != nil {
+		return fmt.Errorf("order %s/%d: %w", view.SessionID, view.Sequence, err)
+	}
+	next.ExpireHeight = max(next.ExpireHeight, s.cfg.Retention(view))
+	return s.commitLocked(next, items)
+}
+
+// applyRecorded queues the order item of a recorded winner after anything still missing of its
+// evidence.
+func (s *Sender) applyRecorded(ctx context.Context, a attempt.Attempt) error {
+	ev, _, found, err := s.cfg.Evidence.ByTicket(a.TicketHash[:])
+	if err != nil {
+		return fmt.Errorf("evidence of recorded ticket %x: %w", a.TicketHash[:4], err)
+	}
+	if !found {
+		return fmt.Errorf("no evidence of recorded ticket %x: the group cannot get the order", a.TicketHash[:4])
+	}
+	if err := s.applyView(ctx, ev); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.streams[streamKey(ev.SessionID, ev.Sequence)]
+	if st == nil || st.Winner != nil {
+		return nil
+	}
+	next := st.clone()
+	next.Winner = &winnerRef{TaskHash: a.TaskHash, TicketHash: append([]byte(nil), a.TicketHash[:]...), Ticket: a.Ticket, AcceptDigest: append([]byte(nil), a.AcceptDigest[:]...)}
+	item := &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Order{Order: &buildersyncv1.BuilderSyncOrderV1{
+		SignedOrder: ev.SignedOrder, ResultHeader: a.Header,
+	}}}
+	return s.commitLocked(next, []*buildersyncv1.BuilderSyncItemV1{item})
+}
+
+// streamLocked returns the order's stream, creating it with the other members of the order's
+// group; nil when the order has no other member. Caller holds s.mu.
+func (s *Sender) streamLocked(view *dispatchevidence.Order) (*outStream, error) {
+	key := streamKey(view.SessionID, view.Sequence)
+	if st := s.streams[key]; st != nil {
+		return st, nil
+	}
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(view.SignedOrder, &signed); err != nil {
+		return nil, fmt.Errorf("order %s: signed order: %w", key, err)
+	}
+	snapshot, err := taskgroup.CheckOrder(s.cfg.Groups, signed.GetOrder())
+	if err != nil {
+		return nil, fmt.Errorf("order %s: Task Builders group: %w", key, err)
+	}
+	group, err := taskgroup.New(snapshot, s.cfg.Builder)
+	if err != nil {
+		return nil, fmt.Errorf("order %s: Task Builders group: %w", key, err)
+	}
+	peers := group.Others(s.cfg.Builder)
+	if len(peers) == 0 {
+		return nil, nil
+	}
+	st := &outStream{
+		SessionID: view.SessionID, Sequence: view.Sequence, TaskID: view.TaskID,
+		BuilderSetID: group.BuilderSetID, BuilderSetHash: append([]byte(nil), group.BuilderSetHash[:]...), Peers: peers,
+		Acked: map[string]uint64{}, Output: map[string]outputAck{},
+		Rounds: map[string]bool{}, Inputs: map[string]bool{}, Attempts: map[string]string{},
+	}
+	return st, nil
+}
+
+// diff returns the items of what view shows that st has not turned into items yet, and marks it
+// in st: a round (with the version's input the first time) before its attempts, an attempt
+// whenever it changed, the record whenever it changed.
+func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence.Order) ([]*buildersyncv1.BuilderSyncItemV1, error) {
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(view.SignedOrder, &signed); err != nil {
+		return nil, fmt.Errorf("signed order: %w", err)
+	}
+	order := signed.GetOrder()
+	taskID, err := hex.DecodeString(view.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("task id: %w", err)
+	}
+	taskHash, err := hex.DecodeString(view.TaskHash)
+	if err != nil {
+		return nil, fmt.Errorf("task hash: %w", err)
+	}
+	var items []*buildersyncv1.BuilderSyncItemV1
+	for _, r := range view.Rounds {
+		roundKey := fmt.Sprintf("%s/%d/%d", view.TaskID, view.Epoch, r.Number)
+		if !st.Rounds[roundKey] {
+			if len(r.RootDigest) != 32 {
+				return nil, fmt.Errorf("round %d binds no handraise root", r.Number)
+			}
+			root, found, err := s.cfg.Roots([32]byte(r.RootDigest))
+			if err != nil || !found {
+				return nil, fmt.Errorf("handraise root %x of round %d: found %v, %v", r.RootDigest[:4], r.Number, found, err)
+			}
+			rootRaw, err := marshal(root)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Round{Round: &buildersyncv1.BuilderSyncRoundV1{
+				TaskId: taskID, TaskHash: taskHash, VrfEpoch: view.Epoch, DispatchRound: r.Number,
+				Roster: r.Roster, RosterHash: r.RosterHash, HandraiseRoot: rootRaw, EarliestSubmitHeight: order.GetEarliestSubmitHeight(),
+			}}})
+			st.Rounds[roundKey] = true
+			if !st.Inputs[view.TaskHash] {
+				chunks, err := s.inputItems(ctx, view, order)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, chunks...)
+				st.Inputs[view.TaskHash] = true
+			}
+		}
+		for _, a := range r.Attempts {
+			item := &buildersyncv1.BuilderSyncAttemptV1{Ticket: a.Ticket, Sent: a.Sent, Outcome: a.Outcome, Reject: a.Reject, LateAccept: a.LateAccept}
+			if a.Outcome == taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_ACCEPTED {
+				item.Accept = view.Accept
+			}
+			raw, err := marshal(item)
+			if err != nil {
+				return nil, err
+			}
+			digest := sum(raw)
+			fingerprint := hex.EncodeToString(digest[:])
+			hash := hex.EncodeToString(a.Hash)
+			if st.Attempts[hash] == fingerprint {
+				continue
+			}
+			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Attempt{Attempt: item}})
+			st.Attempts[hash] = fingerprint
+		}
+	}
+	if len(view.Record) > 0 {
+		digest := sum(view.Record)
+		if record := hex.EncodeToString(digest[:]); st.Record != record {
+			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Record{Record: &buildersyncv1.BuilderSyncRecordV1{Record: view.Record}}})
+			st.Record = record
+		}
+	}
+	return items, nil
+}
+
+// inputItems are the input of the order version cut into pieces.
+func (s *Sender) inputItems(ctx context.Context, view *dispatchevidence.Order, order *taskv1.TaskOrderV3) ([]*buildersyncv1.BuilderSyncItemV1, error) {
+	data, mediaType, err := s.cfg.Inputs.ReadInput(ctx, view.SessionID, view.TaskID, view.TaskHash)
+	if err != nil {
+		return nil, fmt.Errorf("input of the order: %w", err)
+	}
+	inputHash := sum(data)
+	if !bytes.Equal(inputHash[:], order.GetInputHash()) {
+		return nil, fmt.Errorf("stored input does not hash to the order's input_hash")
+	}
+	var items []*buildersyncv1.BuilderSyncItemV1
+	for offset := 0; offset < len(data) || offset == 0; offset += s.cfg.InputChunkBytes {
+		end := min(offset+s.cfg.InputChunkBytes, len(data))
+		items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_InputChunk{InputChunk: &buildersyncv1.BuilderSyncInputChunkV1{
+			TaskHash: mustHex(view.TaskHash), InputHash: inputHash[:], InputSizeBytes: uint64(len(data)), MediaType: mediaType,
+			Offset: uint64(offset), Data: data[offset:end],
+		}}})
+		if end == len(data) {
+			break
+		}
+	}
+	return items, nil
+}
+
+func mustHex(s string) []byte {
+	b, _ := hex.DecodeString(s)
+	return b
+}
+
+// commitLocked numbers items after next.Last and stores them with next in one write, then makes
+// next the stream and wakes its members' workers. Caller holds s.mu.
+func (s *Sender) commitLocked(next *outStream, items []*buildersyncv1.BuilderSyncItemV1) error {
+	cur := s.streams[next.key()]
+	if len(items) == 0 && cur != nil && cur.ExpireHeight == next.ExpireHeight {
+		return nil
+	}
+	ops := make([]kv.WriteOp, 0, len(items)+1)
+	for _, item := range items {
+		next.Last++
+		item.Sequence = next.Last
+		raw, err := marshal(item)
+		if err != nil {
+			return err
+		}
+		ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncOutbox, Key: outItemKey(next.key(), next.Last), Val: raw})
+	}
+	op, err := streamOp(next)
+	if err != nil {
+		return err
+	}
+	if err := s.cfg.Store.WriteBatch(append(ops, op)...); err != nil {
+		return fmt.Errorf("store sync items: %w", err)
+	}
+	s.streams[next.key()] = next
+	for _, peer := range next.Peers {
+		s.ensureWorkerLocked(peer)
+		s.wakeWorkerLocked(peer)
+	}
+	return nil
+}
+
+func streamOp(st *outStream) (kv.WriteOp, error) {
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return kv.WriteOp{}, fmt.Errorf("encode sync stream: %w", err)
+	}
+	return kv.WriteOp{NS: kv.NSBuilderSyncOutbox, Key: outStreamPrefix + st.key(), Val: raw}, nil
+}
+
+// prune drops the sync streams whose retention ended before head, with their items.
+func (s *Sender) prune(head uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, st := range s.streams {
+		if st.ExpireHeight == 0 || st.ExpireHeight >= head {
+			continue
+		}
+		ops := []kv.WriteOp{{NS: kv.NSBuilderSyncOutbox, Key: outStreamPrefix + key, Delete: true}}
+		for n := st.Pruned + 1; n <= st.Last; n++ {
+			ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncOutbox, Key: outItemKey(key, n), Delete: true})
+		}
+		if err := s.cfg.Store.WriteBatch(ops...); err != nil {
+			s.log.Warn("expired sync stream not deleted", "order", key, "err", err)
+			continue
+		}
+		delete(s.streams, key)
+		for _, peer := range st.Peers {
+			delete(s.retries, key+"|"+peer)
+		}
+	}
+}
