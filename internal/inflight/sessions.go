@@ -1,6 +1,7 @@
 package inflight
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -16,9 +17,18 @@ import (
 // refreshTimeout bounds a background refresh of one session's state.
 const refreshTimeout = 10 * time.Second
 
-// DefaultStateTTLBlocks is how many blocks a session state is served before it is read again
-// without any event asking for it.
-const DefaultStateTTLBlocks = uint64(20)
+// Defaults of the session cache.
+const (
+	// DefaultStateTTLBlocks is how many blocks a session state is served before it is read again
+	// without any event asking for it.
+	DefaultStateTTLBlocks = uint64(20)
+	// DefaultNegativeTTLBlocks is how many blocks a session the chain does not know is remembered
+	// as unknown; DefaultNegativeSize bounds those sessions, oldest dropped first.
+	DefaultNegativeTTLBlocks = uint64(2)
+	DefaultNegativeSize      = 1024
+	// DefaultLookupsPerSecond bounds the chain reads of lookups that find no kept state.
+	DefaultLookupsPerSecond = uint32(20)
+)
 
 // fundsReleasingTaskEvents are the task-level events after which the session's frozen_total may
 // be lower: settlement, timeouts and deadline sweeps that refund. None of them has a session-level
@@ -53,6 +63,15 @@ type SessionCacheConfig struct {
 	// next lookup; 0 is DefaultStateTTLBlocks. It bounds how long a change no event reports (funds
 	// a settlement released) stays unseen.
 	StateTTLBlocks uint64
+	// NegativeTTLBlocks and NegativeSize bound how long and how many sessions the chain does not
+	// know are remembered; 0 is the default.
+	NegativeTTLBlocks uint64
+	NegativeSize      int
+	// LookupsPerSecond bounds the chain reads of lookups without a kept state and of reloads (a
+	// burst of two seconds' worth); 0 is DefaultLookupsPerSecond. A read over the budget is
+	// ErrUnavailable. Concurrent lookups of one session share a read.
+	LookupsPerSecond uint32
+	Now              func() time.Time
 }
 
 // SessionCache keeps the chain state of the sessions this Builder receives orders for, and the
@@ -75,7 +94,25 @@ type SessionCache struct {
 
 	mu       sync.Mutex
 	sessions map[string]*cachedSession
-	gen      uint64 // bumped on every change; a read is kept only if its session did not change meanwhile
+	gen      uint64                  // bumped on every change; a read is kept only if its session did not change meanwhile
+	reads    map[string]*sessionRead // the cold read under way per session
+	unknown  map[string]*list.Element
+	unknowns *list.List // of unknownSession, oldest at the front
+	budget   readBudget
+}
+
+// sessionRead is a cold read other lookups of the session wait for.
+type sessionRead struct {
+	done    chan struct{}
+	waiters int // guarded by SessionCache.mu
+	state   Session
+	gen     uint64
+	err     error
+}
+
+type unknownSession struct {
+	sessionID  string
+	readHeight uint64
 }
 
 type cachedSession struct {
@@ -102,7 +139,47 @@ func NewSessionCache(cfg SessionCacheConfig) (*SessionCache, error) {
 	if cfg.StateTTLBlocks == 0 {
 		cfg.StateTTLBlocks = DefaultStateTTLBlocks
 	}
-	return &SessionCache{cfg: cfg, sessions: make(map[string]*cachedSession)}, nil
+	if cfg.NegativeTTLBlocks == 0 {
+		cfg.NegativeTTLBlocks = DefaultNegativeTTLBlocks
+	}
+	if cfg.NegativeSize <= 0 {
+		cfg.NegativeSize = DefaultNegativeSize
+	}
+	if cfg.LookupsPerSecond == 0 {
+		cfg.LookupsPerSecond = DefaultLookupsPerSecond
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	return &SessionCache{
+		cfg: cfg, sessions: make(map[string]*cachedSession), reads: make(map[string]*sessionRead),
+		unknown: make(map[string]*list.Element), unknowns: list.New(), budget: newReadBudget(cfg.LookupsPerSecond, cfg.Now()),
+	}, nil
+}
+
+// Prewarm follows the session-level events of every session the ledger holds, as after a
+// restart: their cancellations and records must be seen again, and their state is read as soon
+// as their stream is up, before an order arrives.
+func (c *SessionCache) Prewarm() {
+	if c.cfg.Tracker == nil {
+		return
+	}
+	for _, sessionID := range c.cfg.Ledger.Sessions() {
+		c.mu.Lock()
+		e := c.sessions[sessionID]
+		if e == nil {
+			e = &cachedSession{gen: c.bumpLocked()}
+			c.sessions[sessionID] = e
+		}
+		track := !e.tracked
+		e.tracked = true
+		c.mu.Unlock()
+		if track {
+			if err := c.cfg.Tracker.TrackSessionEvents(sessionID); err != nil {
+				c.untracked(sessionID)
+			}
+		}
+	}
 }
 
 // Head returns the latest height seen, 0 before any.
@@ -173,17 +250,55 @@ func (c *SessionCache) lookup(ctx context.Context, sessionID string) (Session, u
 	if e != nil {
 		gen = e.gen
 	}
+	if u, ok := c.unknown[sessionID]; ok && head < u.Value.(unknownSession).readHeight+c.cfg.NegativeTTLBlocks {
+		c.mu.Unlock()
+		return Session{}, head, gen, nil
+	}
+	if pending := c.reads[sessionID]; pending != nil {
+		pending.waiters++
+		c.mu.Unlock()
+		select {
+		case <-pending.done:
+		case <-ctx.Done():
+			return Session{}, 0, 0, fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
+		}
+		return pending.state, head, pending.gen, pending.err
+	}
+	if !c.budget.take(c.cfg.Now()) {
+		c.mu.Unlock()
+		return Session{}, 0, 0, fmt.Errorf("%w: session state read budget exhausted", ErrUnavailable)
+	}
+	pending := &sessionRead{done: make(chan struct{})}
+	c.reads[sessionID] = pending
 	c.mu.Unlock()
 
-	state, err := c.read(ctx, sessionID)
+	state, gen, err := c.coldRead(ctx, sessionID, head, gen)
+	c.mu.Lock()
+	delete(c.reads, sessionID)
+	pending.state, pending.gen, pending.err = state, gen, err
+	close(pending.done)
+	c.mu.Unlock()
 	if err != nil {
 		return Session{}, 0, 0, err
 	}
-	if !state.Found {
-		return state, head, gen, nil
+	return state, head, gen, nil
+}
+
+// coldRead reads a session without a kept state, keeps it when its stream is up and the session
+// did not change since gen, and returns it with its generation.
+func (c *SessionCache) coldRead(ctx context.Context, sessionID string, head, gen uint64) (Session, uint64, error) {
+	state, err := c.read(ctx, sessionID)
+	if err != nil {
+		return Session{}, 0, err
 	}
 	c.mu.Lock()
-	e = c.sessions[sessionID]
+	if !state.Found {
+		c.rememberUnknownLocked(sessionID, head)
+		c.mu.Unlock()
+		return state, gen, nil
+	}
+	c.forgetUnknownLocked(sessionID)
+	e := c.sessions[sessionID]
 	if e == nil && c.cfg.Tracker != nil {
 		// No event of the session could have been applied before the entry existed.
 		e = &cachedSession{gen: c.bumpLocked()}
@@ -209,7 +324,34 @@ func (c *SessionCache) lookup(ctx context.Context, sessionID string) (Session, u
 	if stored {
 		c.prune(sessionID, state.NextExpectedSequence, head, gen)
 	}
-	return state, head, gen, nil
+	return state, gen, nil
+}
+
+func (c *SessionCache) rememberUnknownLocked(sessionID string, head uint64) {
+	c.forgetUnknownLocked(sessionID)
+	for c.unknowns.Len() >= c.cfg.NegativeSize {
+		oldest := c.unknowns.Front()
+		c.unknowns.Remove(oldest)
+		delete(c.unknown, oldest.Value.(unknownSession).sessionID)
+	}
+	c.unknown[sessionID] = c.unknowns.PushBack(unknownSession{sessionID: sessionID, readHeight: head})
+}
+
+func (c *SessionCache) forgetUnknownLocked(sessionID string) {
+	if u, ok := c.unknown[sessionID]; ok {
+		c.unknowns.Remove(u)
+		delete(c.unknown, sessionID)
+	}
+}
+
+// joiners returns how many lookups wait for the session's cold read under way.
+func (c *SessionCache) joiners(sessionID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if pending := c.reads[sessionID]; pending != nil {
+		return pending.waiters
+	}
+	return 0
 }
 
 // current reports whether the session did not change since gen, a generation lookup returned.
@@ -271,7 +413,14 @@ func (c *SessionCache) takeRefreshLocked(sessionID string, e *cachedSession) fun
 func (c *SessionCache) refresh(sessionID string, gen, head uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
 	defer cancel()
-	state, err := c.read(ctx, sessionID)
+	var err error
+	if head == 0 { // no height seen yet: the state must not look older than it is
+		head, err = c.CurrentHeight(ctx)
+	}
+	var state Session
+	if err == nil {
+		state, err = c.read(ctx, sessionID)
+	}
 	c.mu.Lock()
 	e := c.sessions[sessionID]
 	if e == nil {
@@ -297,7 +446,7 @@ func (c *SessionCache) reload(ctx context.Context, sessionID string) bool {
 	head := c.Head()
 	c.mu.Lock()
 	e := c.sessions[sessionID]
-	if e == nil || !e.up || !e.have || e.reloadHeight >= head {
+	if e == nil || !e.up || !e.have || e.reloadHeight >= head || !c.budget.take(c.cfg.Now()) {
 		c.mu.Unlock()
 		return false
 	}
@@ -360,10 +509,10 @@ func (c *SessionCache) apply(sessionID string, height int64, update func(*Sessio
 }
 
 // SessionStreamUp implements chaincli.SessionStreamObserver: from now on events arrive; updates of
-// the gap were missed, so the state is read again.
+// the gap were missed, so the state is read again, at once in the background for a session this
+// cache follows.
 func (c *SessionCache) SessionStreamUp(sessionID string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	e := c.sessions[sessionID]
 	if e == nil {
 		// Streams opened for other reasons (the session's tasks) count too.
@@ -371,6 +520,16 @@ func (c *SessionCache) SessionStreamUp(sessionID string) {
 		c.sessions[sessionID] = e
 	}
 	e.up, e.have, e.gen = true, false, c.bumpLocked()
+	var load func()
+	if e.tracked && !e.refreshing {
+		e.refreshing = true
+		gen, head := e.gen, c.Head()
+		load = func() { c.refresh(sessionID, gen, head) }
+	}
+	c.mu.Unlock()
+	if load != nil {
+		c.cfg.Background(load)
+	}
 }
 
 // SessionStreamDown implements chaincli.SessionStreamObserver: until the stream is up again,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -21,9 +22,19 @@ type fakeChain struct {
 	reads    int
 	tracked  []string
 	trackErr error
+	// gate, when set, holds every read until it is closed; started reports each read reaching it.
+	gate    chan struct{}
+	started chan struct{}
 }
 
 func (f *fakeChain) read(_ context.Context, sessionID string) (chaincli.SessionState, error) {
+	f.mu.Lock()
+	gate, started := f.gate, f.started
+	f.mu.Unlock()
+	if gate != nil {
+		started <- struct{}{}
+		<-gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reads++
@@ -142,6 +153,7 @@ func TestSessionCacheUnknownSessionAndFailures(t *testing.T) {
 		t.Fatalf("unknown session = %+v, %v, tracked %v", s, err, chain.tracked)
 	}
 	chain.err = errors.New("node down")
+	_ = cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100 + int64(DefaultNegativeTTLBlocks)})
 	if _, _, err := cache.Lookup(context.Background(), testSession); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("failed read = %v, want unavailable", err)
 	}
@@ -359,5 +371,108 @@ func TestSessionCacheRefreshesAfterTheTTL(t *testing.T) {
 	_, _, _ = cache.Lookup(context.Background(), testSession)
 	if chain.readCount() != 3 {
 		t.Fatalf("reads at the TTL = %d, want 3", chain.readCount())
+	}
+}
+
+// Concurrent lookups of a session without a kept state share one chain read.
+func TestSessionCacheJoinsConcurrentColdReads(t *testing.T) {
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100, gate: make(chan struct{}), started: make(chan struct{}, 4)}
+	cache, _ := newTestCache(t, chain)
+	const n = 4
+	errs := make(chan error, n)
+	lookup := func() {
+		s, _, err := cache.Lookup(context.Background(), testSession)
+		if err == nil && s.NextExpectedSequence != 5 {
+			err = errors.New("wrong state")
+		}
+		errs <- err
+	}
+	go lookup()
+	<-chain.started // the first read is under way
+	for i := 1; i < n; i++ {
+		go lookup()
+	}
+	// Let the joiners reach the pending read before it completes.
+	for i := 0; i < 1000 && cache.joiners(testSession) < n-1; i++ {
+		time.Sleep(time.Millisecond)
+	}
+	close(chain.gate)
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if chain.readCount() != 1 {
+		t.Fatalf("%d concurrent cold lookups made %d reads", n, chain.readCount())
+	}
+}
+
+// A session the chain does not know is remembered for a few blocks: orders naming unknown
+// sessions do not each cost a chain read.
+func TestSessionCacheRemembersUnknownSessions(t *testing.T) {
+	chain := &fakeChain{height: 100}
+	cache, _ := newTestCache(t, chain)
+	for i := 0; i < 3; i++ {
+		if s, _, err := cache.Lookup(context.Background(), testSession); err != nil || s.Found {
+			t.Fatalf("unknown session = %+v, %v", s, err)
+		}
+	}
+	if chain.readCount() != 1 {
+		t.Fatalf("reads for an unknown session = %d, want 1", chain.readCount())
+	}
+	_ = cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100 + int64(DefaultNegativeTTLBlocks)})
+	chain.found, chain.state = true, baseSessionState()
+	if s, _, err := cache.Lookup(context.Background(), testSession); err != nil || !s.Found {
+		t.Fatalf("session created after the negative entry expired = %+v, %v", s, err)
+	}
+}
+
+// Chain reads on misses are bounded by a token bucket; a miss over the budget is unavailable.
+func TestSessionCacheReadBudget(t *testing.T) {
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+	ledger, err := NewLedger(kv.NewMemStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1000, 0)
+	cache, err := NewSessionCache(SessionCacheConfig{
+		Read: chain.read, LatestHeight: chain.latest, Ledger: ledger, LookupsPerSecond: 1,
+		Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ { // a burst of two seconds' worth
+		if _, _, err := cache.Lookup(context.Background(), testSession); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := cache.Lookup(context.Background(), testSession); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("lookup over the budget = %v, want unavailable", err)
+	}
+	now = now.Add(time.Second)
+	if _, _, err := cache.Lookup(context.Background(), testSession); err != nil {
+		t.Fatalf("lookup after a refill = %v", err)
+	}
+}
+
+// After a restart the sessions the ledger holds are followed again at once, and their state is
+// read when the stream comes up, before any order arrives.
+func TestSessionCachePrewarmsLedgerSessions(t *testing.T) {
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+	cache, ledger := newTestCache(t, chain)
+	if err := ledger.put(testSession, Entry{Sequence: 5, TaskHash: "h", MaxFee: 10, Deadline: 130, State: StateAccepted}); err != nil {
+		t.Fatal(err)
+	}
+	cache.Prewarm()
+	if len(chain.tracked) != 1 || chain.tracked[0] != testSession {
+		t.Fatalf("tracked = %v", chain.tracked)
+	}
+	cache.SessionStreamUp(testSession)
+	if chain.readCount() != 1 {
+		t.Fatalf("reads when the stream came up = %d, want 1", chain.readCount())
+	}
+	if s, _, err := cache.Lookup(context.Background(), testSession); err != nil || s.NextExpectedSequence != 5 || chain.readCount() != 1 {
+		t.Fatalf("first lookup = %+v, %v after %d reads", s, err, chain.readCount())
 	}
 }
