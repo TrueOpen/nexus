@@ -54,7 +54,9 @@ type InputReader interface {
 
 // OutputReader reads a task's OUTPUT stream (taskdata.Store).
 type OutputReader interface {
-	OutputFrames(ctx context.Context, key taskdata.ObjectKey, afterSeq *uint64) ([]taskdata.OutputFrame, error)
+	// OutputFramesUpTo reads the frames after afterSeq, at most maxBytes of chunk text (at least
+	// one chunk); the Fin only when every chunk fits.
+	OutputFramesUpTo(ctx context.Context, key taskdata.ObjectKey, afterSeq *uint64, maxBytes int) ([]taskdata.OutputFrame, error)
 	OutputStreamProgressOf(ctx context.Context, key taskdata.ObjectKey) (taskdata.OutputStreamProgress, bool, error)
 }
 

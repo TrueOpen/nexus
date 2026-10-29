@@ -780,6 +780,12 @@ func (s *Store) SealedOutputFinishReason(_ context.Context, key ObjectKey) (uint
 // from the spool (in progress) or the blob (sealed), and the attachment from the .attach file of the
 // same name.
 func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64) ([]OutputFrame, error) {
+	return s.outputFrames(key, afterSeq, 0)
+}
+
+// outputFrames is OutputFrames stopping once the chunk text read reaches maxBytes (0: no limit),
+// with at least one chunk; the Fin is appended only when every chunk after afterSeq was read.
+func (s *Store) outputFrames(key ObjectKey, afterSeq *uint64, maxBytes int) ([]OutputFrame, error) {
 	s.maintenance.RLock()
 	defer s.maintenance.RUnlock()
 	encoded := streamKeyString(key)
@@ -816,11 +822,13 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		}
 		defer attach.Close()
 	}
-	frames := make([]OutputFrame, 0, record.LeafCount+1)
-	for seq := uint64(0); seq < record.LeafCount; seq++ {
-		if afterSeq != nil && seq <= *afterSeq {
-			continue
-		}
+	start := uint64(0)
+	if afterSeq != nil {
+		start = *afterSeq + 1
+	}
+	frames := make([]OutputFrame, 0, min(record.LeafCount-min(start, record.LeafCount), 1024)+1)
+	size, complete := 0, true
+	for seq := start; seq < record.LeafCount; seq++ {
 		frame, found, err := s.outputFrameRecord(encoded, seq)
 		if err != nil {
 			return nil, err
@@ -828,6 +836,11 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		if !found {
 			return nil, fmt.Errorf("%w: output frame %d missing", ErrStorage, seq)
 		}
+		if maxBytes > 0 && len(frames) > 0 && size+int(frame.Length) > maxBytes {
+			complete = false
+			break
+		}
+		size += int(frame.Length)
 		text, err := readSection(file, frame.Offset, uint64(frame.Length))
 		if err != nil {
 			return nil, fmt.Errorf("%w: read stream chunk %d: %v", ErrStorage, seq, err)
@@ -851,7 +864,7 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		}
 		frames = append(frames, OutputFrame{Chunk: chunk})
 	}
-	if record.Sealed && record.Received {
+	if record.Sealed && record.Received && complete {
 		acc, err := record.accumulator()
 		if err != nil {
 			return nil, err

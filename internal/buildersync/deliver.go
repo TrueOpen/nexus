@@ -199,7 +199,7 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, size
 	if held.Received {
 		after = &held.LastSeq
 	}
-	frames, err := s.cfg.Outputs.OutputFrames(ctx, key, after)
+	frames, err := s.cfg.Outputs.OutputFramesUpTo(ctx, key, after, max(s.cfg.MaxBatchBytes-size, 1))
 	if err != nil {
 		return nil, fmt.Errorf("output frames: %w", err)
 	}

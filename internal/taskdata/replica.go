@@ -17,3 +17,12 @@ func (s *Store) OpenReplicaStream(ctx context.Context, key ObjectKey, worker str
 	}
 	return s.openOutputStream(ctx, key, worker, cfg, &OutputStreamHeaderRecord{DispatchTicketHash: append([]byte(nil), ticket...)})
 }
+
+// OutputFramesUpTo is OutputFrames reading at most maxBytes of chunk text (at least one chunk) for
+// a group member's sync batch; the Fin is appended only when every chunk after afterSeq fits.
+func (s *Store) OutputFramesUpTo(_ context.Context, key ObjectKey, afterSeq *uint64, maxBytes int) ([]OutputFrame, error) {
+	if maxBytes <= 0 {
+		return nil, fmt.Errorf("%w: maxBytes must be positive", ErrRangeInvalid)
+	}
+	return s.outputFrames(key, afterSeq, maxBytes)
+}

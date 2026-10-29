@@ -691,3 +691,47 @@ func TestMemberBehindDeletedItemsIsMarkedLost(t *testing.T) {
 		t.Fatalf("X after M was lost: %+v", st)
 	}
 }
+
+// countingOutputs records how many frames each read of the winner's stream returned.
+type countingOutputs struct {
+	*taskdata.Store
+	reads []int
+}
+
+func (c *countingOutputs) OutputFrames(ctx context.Context, key taskdata.ObjectKey, after *uint64) ([]taskdata.OutputFrame, error) {
+	frames, err := c.Store.OutputFrames(ctx, key, after)
+	c.reads = append(c.reads, len(frames))
+	return frames, err
+}
+
+func (c *countingOutputs) OutputFramesUpTo(ctx context.Context, key taskdata.ObjectKey, after *uint64, maxBytes int) ([]taskdata.OutputFrame, error) {
+	frames, err := c.Store.OutputFramesUpTo(ctx, key, after, maxBytes)
+	c.reads = append(c.reads, len(frames))
+	return frames, err
+}
+
+// A long output is read from the store a batch at a time, not whole for every batch.
+func TestOutputIsReadABatchAtATime(t *testing.T) {
+	e := newEnv(t)
+	outputs := &countingOutputs{Store: e.dData}
+	e.s.cfg.Outputs = outputs
+	e.s.cfg.MaxBatchBytes = 10
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	texts := []string{"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"}
+	f.writeOutput(e.dData, e.worker, texts, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	for range 10 {
+		e.sync()
+	}
+	if got := e.member.frames(); len(got) != len(texts)+1 || got[len(got)-1].Fin == nil {
+		t.Fatalf("member frames: %d", len(got))
+	}
+	for _, n := range outputs.reads {
+		if n > 3 {
+			t.Fatalf("a read returned %d frames for a 10-byte batch: %v", n, outputs.reads)
+		}
+	}
+}
