@@ -20,6 +20,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
@@ -389,6 +390,7 @@ type env struct {
 	inputs     fakeInputs
 	observer   *fakeObserver
 	recorder   *fakeRecorder
+	evidence   *dispatchevidence.Store
 	clock      *fakeClock
 	signer     signer.Signer
 	builder    string
@@ -462,12 +464,13 @@ func (e *env) open(store kv.Store) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
+	e.evidence = dispatchevidence.New(store, dispatchevidence.Params{RecordDeadlineBlocks: 20, ClaimWindowBlocks: 30, RebuttalBlocks: 10})
 	e.d, err = New(Config{
 		ChainID: testChainID, Builder: e.builder,
 		Dispatch:        config.DispatchConfig{AcceptTimeoutMsByRTTTier: testTiers},
 		InputChunkBytes: 4, Signer: e.signer, Store: store, Ledger: e.ledger, Sessions: e.sessions,
 		Streams: e.streams, Handraises: e.handraises, Drawer: e.drawer, Keys: e.keys, Inputs: e.inputs,
-		Recorder: e.recorder, Observer: e.observer, Clock: e.clock,
+		Recorder: e.recorder, Observer: e.observer, Evidence: e.evidence, Clock: e.clock,
 		Background: func(f func()) { f() },
 	}, e.params)
 	if err != nil {

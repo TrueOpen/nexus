@@ -55,6 +55,9 @@ func TestConflictIsCheckedAgainstTheRecord(t *testing.T) {
 				if want := []taskReport{{taskID: b.TaskID, height: 9}}; !reflect.DeepEqual(e.tasks.recorded, want) || len(e.orders.recorded) != 1 || len(e.ledger.recorded) != 1 {
 					t.Fatalf("recorded: tasks %v, orders %v, ledger %v", e.tasks.recorded, e.orders.recorded, e.ledger.recorded)
 				}
+				if !reflect.DeepEqual(e.orders.heights, []uint64{9}) {
+					t.Fatalf("dispatcher told recorded heights %v", e.orders.heights)
+				}
 				if len(e.ledger.suspended) != 0 || len(e.tasks.rejected) != 0 {
 					t.Fatalf("suspended %v, rejected %v", e.ledger.suspended, e.tasks.rejected)
 				}

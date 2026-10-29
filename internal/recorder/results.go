@@ -256,7 +256,7 @@ func (r *Recorder) recordedByAnotherTicketLocked(e *entry, rec *taskv1.DispatchR
 		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
-		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
+		if err := r.orders.Recorded(e.SessionID, e.Sequence, height); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
 		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)
@@ -378,7 +378,7 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
-		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
+		if err := r.orders.Recorded(e.SessionID, e.Sequence, height); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
 		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)

@@ -96,8 +96,8 @@ type Ledger interface {
 
 // Orders is the dispatcher.
 type Orders interface {
-	// Recorded forgets an order whose dispatch entry the chain admitted.
-	Recorded(sessionID string, sequence uint64) error
+	// Recorded forgets an order whose dispatch entry the chain admitted at height.
+	Recorded(sessionID string, sequence, height uint64) error
 	// Suspend fails the session's orders from sequence from on.
 	Suspend(ctx context.Context, sessionID string, from uint64, reason error)
 }

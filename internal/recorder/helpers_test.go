@@ -252,6 +252,7 @@ type fakeLedger struct {
 	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
+	heights   []uint64
 	suspended []orderKey
 }
 
@@ -274,13 +275,15 @@ type fakeOrders struct {
 	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
+	heights   []uint64
 	suspended []suspension
 }
 
-func (o *fakeOrders) Recorded(sessionID string, seq uint64) error {
+func (o *fakeOrders) Recorded(sessionID string, seq, height uint64) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.recorded = append(o.recorded, orderKey{sessionID, seq})
+	o.heights = append(o.heights, height)
 	return nil
 }
 
