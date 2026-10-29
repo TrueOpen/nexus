@@ -26,12 +26,17 @@ func WithBuilderRoleEvents(operator string) Option {
 	}
 }
 
-// builderRoleCodes are the role events a Builder must answer within a window: a claim it may
-// rebut and a challenge it may respond to.
+// builderRoleCodes are the role events addressed to a Builder: a claim it may rebut and a
+// challenge it may respond to within a window, and how claims and challenges ended (payments,
+// rebuttals, resolutions and recorded faults move its compensation account balance).
 func builderRoleCodes() []sharedv1.ProtocolEventCodeV1 {
 	return []sharedv1.ProtocolEventCodeV1{
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_CLAIMED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_PAID,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_REBUTTED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_OPENED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_RESOLVED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_DISPATCH_FAULT_RECORDED,
 	}
 }
 
