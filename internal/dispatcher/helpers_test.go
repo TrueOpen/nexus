@@ -347,6 +347,8 @@ type fakeRecorder struct {
 	mu        sync.Mutex
 	bundles   []*Bundle
 	withdrawn [][32]byte
+	// onWithdraw runs inside Withdraw.
+	onWithdraw func()
 }
 
 func (r *fakeRecorder) Record(_ context.Context, b *Bundle) error {
@@ -360,6 +362,9 @@ func (r *fakeRecorder) Withdraw(_ context.Context, _ string, _ uint64, hash [32]
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.withdrawn = append(r.withdrawn, hash)
+	if r.onWithdraw != nil {
+		r.onWithdraw()
+	}
 }
 
 func (r *fakeRecorder) recorded() []*Bundle {

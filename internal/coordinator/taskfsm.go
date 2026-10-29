@@ -295,7 +295,7 @@ func (f *taskFSM) acceptedInputContentHashLocked() string {
 }
 
 func (f *taskFSM) onAssignTimeout(height uint64) {
-	if !f.failPending(EvAssignTimeout, height) {
+	if !f.failPending(EvAssignTimeout, types.VerdictAssignTimeout, height) {
 		return
 	}
 	f.log.Info("task assign timed out before on-chain acceptance", "task_id", f.taskID,
@@ -305,16 +305,16 @@ func (f *taskFSM) onAssignTimeout(height uint64) {
 	}
 }
 
-// failPending ends a task that never reached the chain with event code; it reports false when the
-// task is no longer Pending. Removing the task is the caller's.
-func (f *taskFSM) failPending(code string, height uint64) bool {
+// failPending ends a task that never reached the chain with event code and verdict; it reports
+// false when the task is no longer Pending. Removing the task is the caller's.
+func (f *taskFSM) failPending(code string, verdict types.TaskVerdict, height uint64) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.state != types.Pending {
 		return false
 	}
 	f.state = types.Failed
-	f.verdict = types.VerdictAssignTimeout
+	f.verdict = verdict
 	f.terminal = true
 	f.emit(code, int64(height))
 	f.save()

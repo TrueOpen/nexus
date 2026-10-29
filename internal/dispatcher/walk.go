@@ -42,8 +42,6 @@ type done struct {
 	worker   string
 	ticket   [32]byte
 	failed   error
-	// withdraw names a voided winner ticket to take back from the Recorder.
-	withdraw *[32]byte
 	session  string
 	sequence uint64
 	taskID   string
@@ -64,9 +62,6 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 // finish tells the observer and the Recorder about an order that left DISPATCHING. It runs with
 // no order locked.
 func (d *Dispatcher) finish(ctx context.Context, out done) {
-	if out.withdraw != nil {
-		d.cfg.Recorder.Withdraw(ctx, out.session, out.sequence, *out.withdraw)
-	}
 	switch {
 	case out.accepted != nil:
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
@@ -140,6 +135,8 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 			switch {
 			case errors.Is(err, handraise.ErrBuilderRotationPending):
 				d.log.Info("no ticket issued: this Builder's service key rotation is pending", "session_id", st.SessionID, "order_sequence", st.Sequence)
+			case errors.Is(err, ErrCompensationUnread):
+				d.log.Warn("no ticket issued: this Builder's compensation account is not read yet", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			case errors.Is(err, ErrCompensationBelowMin):
 				d.log.Warn("no ticket issued: this Builder's compensation account is below its minimum", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			default:
@@ -478,9 +475,10 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			}
 		}
 		if w := st.winner(); w != nil && st.Phase == phaseAccepted {
+			// Withdrawn before anything of the new state is written: after a crash in between the
+			// Recorder must not still send an entry the stored state no longer stands behind.
+			d.cfg.Recorder.Withdraw(ctx, st.SessionID, st.Sequence, [32]byte(w.Hash))
 			w.Outcome = outcomeVoided
-			hash := [32]byte(w.Hash)
-			out.withdraw = &hash
 			st.Phase, st.Accept, st.AcceptDigest, st.Record = phaseDispatching, nil, nil, nil
 			if err := d.cfg.Ledger.MarkDispatching(st.SessionID, st.Sequence); err != nil {
 				d.log.Error("voided accept not written to the ledger", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)

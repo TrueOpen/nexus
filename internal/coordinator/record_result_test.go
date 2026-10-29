@@ -27,6 +27,7 @@ func TestRecordRejectedEndsThePendingTask(t *testing.T) {
 		}
 	}
 	c.DispatchAccepted(o.SessionID, o.TaskID, [32]byte{1}, "worker-1")
+	first, _ := c.getFSM(o.SessionID, o.TaskID)
 	c.RecordRejected(o.SessionID, o.TaskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
 	c.DispatchFailed(later.SessionID, later.TaskID, fmt.Errorf("%w: sequence 0", dispatcher.ErrRecordRejected))
 	for _, order := range []types.Order{o, later} {
@@ -40,8 +41,20 @@ func TestRecordRejectedEndsThePendingTask(t *testing.T) {
 	if got := strings.Join(eventCodes(c, later.SessionID, later.TaskID), ","); got != "ORDER_RECEIVED,RECORD_REJECTED" {
 		t.Fatalf("later events = %s", got)
 	}
+	if first.verdict != types.VerdictUnspecified {
+		t.Fatalf("a refused record has verdict %v", first.verdict)
+	}
 	if err := c.OnOrder(ctx, o); err != nil {
 		t.Fatalf("resend: %v", err)
+	}
+	// An order that missed its record deadline is RECORD_REJECTED too.
+	late := testPlaceholderOrder("session-2", "task-3")
+	if err := c.OnOrder(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	c.DispatchFailed(late.SessionID, late.TaskID, fmt.Errorf("%w: deadline 120", dispatcher.ErrRecordDeadline))
+	if got := strings.Join(eventCodes(c, late.SessionID, late.TaskID), ","); got != "ORDER_RECEIVED,RECORD_REJECTED" {
+		t.Fatalf("late events = %s", got)
 	}
 }
 

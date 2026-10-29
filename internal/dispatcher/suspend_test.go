@@ -218,3 +218,26 @@ func TestOfferNotSentIsUnsent(t *testing.T) {
 		}
 	}
 }
+
+// A voided winner is withdrawn from the Recorder before the order's new state is stored: a crash in
+// between must not leave the Recorder sending an entry the dispatcher no longer stands behind.
+func TestVoidedWinnerIsWithdrawnBeforeTheStateIsStored(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	e.accept()
+	var stored phase
+	e.recorder.onWithdraw = func() {
+		states, err := loadStates(e.store)
+		if err != nil || len(states) != 1 {
+			t.Errorf("states = %v, %v", states, err)
+			return
+		}
+		stored = states[0].Phase
+	}
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = testBound + 5 })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: testBound + 5}})
+	if len(e.recorder.withdrawn) != 1 || stored != phaseAccepted {
+		t.Fatalf("withdrawn %d with the stored phase %q", len(e.recorder.withdrawn), stored)
+	}
+}
