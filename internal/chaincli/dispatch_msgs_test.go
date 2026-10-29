@@ -241,6 +241,8 @@ func txMsgDataHex(t *testing.T, responses ...proto.Message) string {
 }
 
 func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
+	const chainID = "trueopen-localnet-1"
+	objectIDs := [][32]byte{[32]byte(mustHash32("01")), [32]byte(mustHash32("02")), [32]byte(mustHash32("03"))}
 	response := &taskv1.MsgRecordDispatchResponse{
 		Results: []*taskv1.BatchItemResultV1{
 			{ItemIndex: 0, ObjectId: mustHash32("01"), Status: sharedv1.MutationStatusV1_MUTATION_STATUS_V1_APPLIED},
@@ -248,8 +250,9 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 				RejectCode: taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE},
 			{ItemIndex: 2, ObjectId: mustHash32("03"), Status: sharedv1.MutationStatusV1_MUTATION_STATUS_V1_NOOP},
 		},
-		BatchDigest: mustHash32("bd"),
 	}
+	digest := RecordDispatchBatchDigest(chainID, response.GetResults())
+	response.BatchDigest = digest[:]
 	fake := &recordTxService{getResp: &txv1beta1.GetTxResponse{TxResponse: &abciv1beta1.TxResponse{
 		Height: 50, Txhash: "0A0B", Data: txMsgDataHex(t, response),
 	}}}
@@ -257,7 +260,7 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := DecodeRecordDispatchResponse(result, 0, 3)
+	got, err := DecodeRecordDispatchResponse(result, 0, chainID, objectIDs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,15 +271,22 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 		t.Fatalf("reject code = %v", got.GetResults()[1].GetRejectCode())
 	}
 
-	if _, err := DecodeRecordDispatchResponse(result, 0, 2); err == nil {
+	if _, err := DecodeRecordDispatchResponse(result, 0, chainID, objectIDs[:2]); err == nil {
 		t.Fatal("a result count that differs from the entry count was accepted")
 	}
-	if _, err := DecodeRecordDispatchResponse(result, 1, 3); err == nil {
+	swapped := [][32]byte{objectIDs[1], objectIDs[0], objectIDs[2]}
+	if _, err := DecodeRecordDispatchResponse(result, 0, chainID, swapped); err == nil {
+		t.Fatal("results were attributed to entries whose keys they do not echo")
+	}
+	if _, err := DecodeRecordDispatchResponse(result, 0, "other-chain", objectIDs); err == nil {
+		t.Fatal("a batch digest of another chain was accepted")
+	}
+	if _, err := DecodeRecordDispatchResponse(result, 1, chainID, objectIDs); err == nil {
 		t.Fatal("a missing message index was accepted")
 	}
 	failed := result
 	failed.Code = 5
-	if _, err := DecodeRecordDispatchResponse(failed, 0, 3); err == nil {
+	if _, err := DecodeRecordDispatchResponse(failed, 0, chainID, objectIDs); err == nil {
 		t.Fatal("a failed transaction's responses were read")
 	}
 	for name, edit := range map[string]func(*taskv1.MsgRecordDispatchResponse){
@@ -284,17 +294,73 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 		"rejected, no code":   func(r *taskv1.MsgRecordDispatchResponse) { r.Results[1].RejectCode = 0 },
 		"applied with a code": func(r *taskv1.MsgRecordDispatchResponse) { r.Results[0].RejectCode = 1 },
 		"no status":           func(r *taskv1.MsgRecordDispatchResponse) { r.Results[2].Status = 0 },
+		"status changed": func(r *taskv1.MsgRecordDispatchResponse) {
+			r.Results[2].Status = sharedv1.MutationStatusV1_MUTATION_STATUS_V1_APPLIED
+		},
 	} {
 		bad := proto.Clone(response).(*taskv1.MsgRecordDispatchResponse)
 		edit(bad)
+		if name != "status changed" {
+			d := RecordDispatchBatchDigest(chainID, bad.GetResults())
+			bad.BatchDigest = d[:]
+		}
 		raw, _ := hex.DecodeString(txMsgDataHex(t, bad))
-		if _, err := DecodeRecordDispatchResponse(TxResult{Data: raw}, 0, 3); err == nil {
+		if _, err := DecodeRecordDispatchResponse(TxResult{Data: raw}, 0, chainID, objectIDs); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
 	other, _ := hex.DecodeString(txMsgDataHex(t, &taskv1.MsgSettleTaskResponse{}))
-	if _, err := DecodeRecordDispatchResponse(TxResult{Data: other}, 0, 3); err == nil {
+	if _, err := DecodeRecordDispatchResponse(TxResult{Data: other}, 0, chainID, objectIDs); err == nil {
 		t.Fatal("another message's response was read as a record response")
+	}
+}
+
+// The batch digest follows the wire TRUEOPEN_BATCH_RESULT_V1 vector.
+func TestBatchResultDigestMatchesWireVector(t *testing.T) {
+	v := wirefixture.Load(t, "shared/shared_domains_v1.json").Vector(t, "batch_result_v1_model_support", 0)
+	results := []*taskv1.BatchItemResultV1{
+		{ObjectId: bytes.Repeat([]byte{0x31}, 32), Status: 1},
+		{ObjectId: bytes.Repeat([]byte{0x32}, 32), Status: 2},
+	}
+	if got := batchResultDigest(v.Field(t, "chain_id").UTF8, v.Field(t, "batch_kind").UTF8, results); got != v.Digest(t) {
+		t.Fatalf("batch digest = %x, want %s", got, v.DigestHex)
+	}
+}
+
+// The entry keys are the wire entry digests over the messages' own signing digests.
+func TestEntryObjectIDsUseTheWireEntryDigests(t *testing.T) {
+	file := wirefixture.Load(t, "task/dispatch_v1.json")
+	decode := func(name string, m proto.Message) [32]byte {
+		v := file.Vector(t, name, 0)
+		var raw struct {
+			Protobuf string `json:"protobuf_hex"`
+		}
+		if err := json.Unmarshal(v.Raw, &raw); err != nil {
+			t.Fatal(err)
+		}
+		b, err := hex.DecodeString(raw.Protobuf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := proto.Unmarshal(b, m); err != nil {
+			t.Fatal(err)
+		}
+		return v.Digest(t)
+	}
+	record, accept, ticket := &taskv1.DispatchRecordV1{}, &taskv1.DispatchAcceptV1{}, &taskv1.DispatchTicketV1{}
+	recordDigest := decode("task_v1_dispatchrecordv1", record)
+	acceptDigest := decode("task_v1_dispatchacceptv1", accept)
+	decode("task_v1_dispatchticketv1", ticket)
+	got, err := DispatchEntryObjectID("trueopen-phase1-vector-1", &taskv1.DispatchEntryV1{Record: record, WinnerTicket: ticket, Accept: accept})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := dispatch.DispatchEntryDigest("trueopen-phase1-vector-1", [32]byte(ticket.GetTaskId()), [32]byte(ticket.GetTaskHash()), recordDigest, acceptDigest)
+	if got != want {
+		t.Fatalf("dispatch entry object id = %x, want %x", got, want)
+	}
+	if _, err := DispatchEntryObjectID("c", &taskv1.DispatchEntryV1{Record: record, Accept: accept, WinnerTicket: &taskv1.DispatchTicketV1{}}); err == nil {
+		t.Fatal("an entry without a task id was keyed")
 	}
 }
 
