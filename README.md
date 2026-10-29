@@ -5,7 +5,10 @@ Integration notes live in `docs/`; the protocol wire (proto, domain registry and
 [TrueOpen/wire](https://github.com/TrueOpen/wire) repository.
 
 > Current state: a **runnable skeleton**. Module boundaries, lifecycle and the order ingress are in place;
-> chaincli is wired to the local node for query / broadcast / subscription transport, while NATS / pebble can still run offline as stubs.
+> chaincli is wired to the local node for query / broadcast / subscription transport. Order dispatch to
+> Cortex nodes is not implemented yet: a new order is refused with `Unimplemented`
+> (`NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED`), and the Cortex dispatch stream is not served (Builder
+> messages to Cortex are signed and then dropped).
 
 ## Commands (cobra)
 
@@ -95,16 +98,17 @@ at height 1) moves the local state aside.
 
 ## Interface alignment
 
-`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; together with the
-NATS layer they follow the public TrueOpen/wire definitions.
+`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; they follow the
+public TrueOpen/wire definitions.
 
 Open items:
 
-- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are retired (replaced by `OpenTask`,
-  `GetTaskDataMetadata` / `FetchTaskData`): each always returns `Unimplemented`
-  (`NEXUS_INGRESS_METHOD_RETIRED`) before the request is parsed.
-- `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
-  SDK-side field table and storage-confirmation proto are frozen.
+- `OpenTask` refuses every new order with `Unimplemented` (`NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED`)
+  before storing its input: dispatching orders to Cortex nodes is not implemented yet. An exact retry
+  of a task this Builder already tracks or finished still succeeds.
+- `DispatchStream`, `ResumeOutput` and `GetDispatchRoster` return `Unimplemented`.
+- `SubscribeOutput` and `AckOutput` serve only the streaming OUTPUT data plane
+  (`task_data.output_stream`); without it they return `Unimplemented`.
 - Replacing a pending order is not supported yet. An `OpenTask` for a `(session_id, task_id)` this
   Builder already tracks with a different `task_hash` returns `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED`), and one for a task that already finished with a
@@ -177,7 +181,6 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_OUTPUT_PLAINTEXT_TTL` | `4h` | Hard retention cap for un-ACKed plaintext; on expiry it is forced unreadable and cleaned up |
 | `NEXUS_OUTPUT_TOMBSTONE_TTL` | `24h` | Minimum retention for ACKed / expired / no-result tombstones |
 | `NEXUS_OUTPUT_SWEEP_INTERVAL` | `1m` | Sweep interval for plaintext expiry and tombstone cleanup |
-| `NEXUS_NATS_SERVERS` | (empty) | Comma-separated NATS server list; empty = stub mode |
 | `NEXUS_CHAIN_GRPC` | `localhost:9090` | Task node gRPC; used for queries, tx broadcast, TaskEventService subscription and height polling |
 | `NEXUS_CHAIN_ID` | `trueopen-localnet-1` | Chain ID |
 | `NEXUS_HUB_ENABLED` | `false` | Enable a standalone Hub; when enabled, Builder registration, stake and unbond go only to the Hub |
@@ -197,7 +200,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_BUILDER_BOND_DENOM` | (empty) | Legacy compatibility; the current node's `MsgBondBuilder` does not accept a denom |
 | `NEXUS_BUILDER_BOND_AMOUNT` | (empty) | Initial Builder bond amount, sent as uint64 to `MsgBondBuilder.amount` |
 | `NEXUS_BUILDER_MONIKER` | (empty) | Forms the canonical metadata together with the P2P hint, written to the Registry as SHA-256 |
-| `NEXUS_BUILDER_P2P_HINT` | (empty) | NATS/P2P access hint in the Builder metadata |
+| `NEXUS_BUILDER_P2P_HINT` | (empty) | P2P access hint in the Builder metadata |
 
 ## Output delivery
 
@@ -335,10 +338,6 @@ Known limits:
 ## Builder registration
 
 In Hub + Task Chain mode, `chain` always means the task chain; the Coordinator's task queries, transactions and events go through that chain. With `hub.enabled=true`, the Builder's Node Registry, stake and unbond use only `hub`. The Task Chain does not accept Builder registration transactions; identity and stake state are obtained later via Hub snapshots. Incomplete Hub configuration blocks startup and does not silently fall back to the Task Chain. Without the Hub, single-chain compatibility mode is retained and an explicit warning is printed.
-
-Once an account signer is configured, Nexus performs Stage-1 validation on every new `OpenTask`. It reproduces the Task Builder selection the task chain runs when it admits the signed order: it reads this node's `ACTIVE` Builder state, the BuilderSet at the order's `session_anchor_height` (which must be the `builder_set_id` / `builder_set_hash` the user signed) and the Hub parameter `builders_per_task`, derives `TRUEOPEN_TASK_BUILDERS_V1(chain_id, task_id, builder_set_hash, session_anchor_block_hash)`, ranks every member with `TRUEOPEN_TASK_BUILDER_RANK_V1`, and takes the first `builders_per_task` in ascending rank order. The rank, and the `TRUEOPEN_SELECTED_TASK_BUILDERS_V1` digest the chain later commits for the task, are kept with the order snapshot. The result does not depend on BuilderSet return order and is pinned by wire's `task_builder_rank_v1.json` and `task_domains_v1.json` vectors. Orders that carry only the legacy JSON envelope have no session anchor and cannot be ranked.
-
-During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `OpenTask`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs several Builder registry chain queries (Builder, BuilderSet and Hub parameters), so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
 
 The Node must enable TaskEventService. Task node setting:
 
@@ -498,7 +497,7 @@ Success criteria:
 - `rest_latest_block` must receive HTTP 200 with `block.header.chain_id` equal to `NEXUS_CHAIN_IT_CHAIN_ID` from the private environment, and a non-empty latest height.
 - `grpc_events` must receive one historical event with non-zero height for the sample composite key via TaskEventService `SubscribeTaskEvents`; the target node needs `NODED_TASK_EVENT_GRPC_ENABLED=true`.
 
-Without a stable `(session_id, task_id)` sample that allows continuous read-only queries, only `grpc_task` skips or fails; the gRPC/REST read-only preflight can still run on its own. A full `nexus start`, Ingress `/healthz`, end-to-end tx events, signed broadcast, test funds, remote NATS, P2P verification and any chain write are not part of this round's read-only success criteria.
+Without a stable `(session_id, task_id)` sample that allows continuous read-only queries, only `grpc_task` skips or fails; the gRPC/REST read-only preflight can still run on its own. A full `nexus start`, Ingress `/healthz`, end-to-end tx events, signed broadcast, test funds, P2P verification and any chain write are not part of this round's read-only success criteria.
 
 ## Module layout
 
@@ -512,10 +511,9 @@ internal/logging     slog + lumberjack (text/json, file rotation + gzip)
 internal/middleware  transport-agnostic auth / whitelist pure functions (reused by Connect interceptors)
 internal/ingress     Connect IngressAPI (:8080, gRPC+gRPC-Web+HTTP/JSON) + interceptors + /healthz
 internal/outputdelivery PREPARED/READY, subscribe, ACK, TTL and restart recovery for final plaintext
-internal/coordinator orchestration core: three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal
-internal/msgbus      NATS client (core + JetStream) + BusEnvelopeV1 sign/verify rules
+internal/coordinator orchestration core: verify and settle stages (InferReceipt / OpenVerify / Settle) + CortexLink downlink
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
-internal/relay       credential relay (keys + references, never payload blobs), written through to kv
+internal/relay       custody of the selected Worker's signed InferReceipt (never payload blobs), written through to kv
 internal/kv          local persistence (Pebble)
 internal/localschema version and migrations of the local state layout
 internal/types       shared cross-module types

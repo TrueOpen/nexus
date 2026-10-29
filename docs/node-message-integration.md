@@ -73,6 +73,11 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
 
 ## Assign
 
+> The Worker assignment path described in this section (Worker handraises, `MsgSubmitWorkerHandraises`,
+> assignment finalize) has been removed from Nexus. Orders are now dispatched directly to Cortex
+> nodes and recorded on chain; that path is not implemented yet, and Nexus refuses new orders with
+> `NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED`. The order identity rules below still apply.
+
 `MsgAssign` sends the user-signed canonical order envelope and validates it item by item:
 
 - `task_hash = H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V3", canonical TaskOrderV3)`, derived from the
@@ -81,8 +86,8 @@ TRUEOPEN_TASK_ID_V1|<trimmed-session-id>|<decimal-order-sequence>
   Together with `task_id` (the stable RBF slot) it forms the Task's entire identity.
   The old `order_digest = sha256(order_envelope)` was removed: that was a digest of the
   envelope bytes, changing with every user signature, so the same order would yield two mutually
-  unrecognizable commitments. If the transport layer needs a payload digest, use
-  `BusEnvelopeV1.payload_digest` (field 20); do not call it an order/task digest;
+  unrecognizable commitments. A transport-layer payload digest must not be called an order/task
+  digest;
 - `SignedOrderV2` envelope: `signature_scheme` is byte-for-byte `"eip712"`, `user_signature` is
   65 bytes `R||S||V` (V ∈ {27,28}, low-S). Nexus only does shape checks
   (`nodecontract.ValidateSignedOrderEnvelopeV2`) and does not verify the signature; the legacy `secp256k1` + 64-byte
@@ -103,7 +108,7 @@ The Order signature binds chain ID, owner, session ID, order sequence and the ca
 - the winner must equal the on-chain selected worker;
 - the Worker output must carry `output_size_bytes`; Nexus recomputes
   `infer_receipt_hash` per `TRUEOPEN_INFER_RECEIPT_V3`, using the H_FIELDS_V1 typed
-  framing (17 fields, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
+  framing (the receipt fields including `dispatch_ticket_hash`, uint32/uint64 big-endian, Hash32 as raw 32 bytes, operator address as address
   codec bytes); see `internal/nodecontract.InferReceiptSigningDigest` for the implementation and
   wire `testdata/v1/task/infer_receipt_v3.json` for the golden vector;
 - the receipt goes through `MsgSubmitInferReceipt` carrying the frozen `task.v1.InferReceiptV3` body;
