@@ -105,6 +105,7 @@ type Server struct {
 	httpMaxBytes         int64
 	taskData             taskDataAPI
 	outputStream         *outputStreamRuntime
+	dispatchStream       dispatchStreamServer
 
 	tlsCertificate *tls.Certificate
 
@@ -213,6 +214,9 @@ func (s *Server) handler() http.Handler {
 	}
 	if s.outputStream != nil {
 		serviceOptions = append(serviceOptions, withOutputStream(s.outputStream))
+	}
+	if s.dispatchStream != nil {
+		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))
 	}
 	service := newService(s.h, s.auth, serviceOptions...)
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)

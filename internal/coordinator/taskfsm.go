@@ -991,9 +991,9 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 		f.log.Debug("skip VERIFIER_ASSIGNMENT_NOTIFY publish: no accepted output hash on this Builder",
 			"task_id", f.taskID)
 	} else if taskID != nil && taskHash != nil {
-		// The selected verifiers' slot/slot_version are not in the event; only addresses are
-		// backfilled. The authoritative set is the on-chain VerifierAssignmentState; this
-		// message only speeds up coordination.
+		// Neither the event nor the chain client's task view carries the selected verifiers'
+		// slot/slot_version, so only addresses are filled. The authoritative set is the on-chain
+		// VerifierAssignmentState; this message only speeds up coordination.
 		verifiers := make([]*taskv1.SelectedVerifierV1, 0, len(ev.Verifiers))
 		for _, verifier := range ev.Verifiers {
 			verifiers = append(verifiers, &taskv1.SelectedVerifierV1{OperatorAddress: verifier})

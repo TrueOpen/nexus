@@ -16,6 +16,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/identity"
 	"github.com/TrueOpen/nexus/internal/ingress"
 	"github.com/TrueOpen/nexus/internal/ingresstls"
@@ -57,12 +58,13 @@ func (l outputRecoveryLifecycle) Start(ctx context.Context) error {
 	return nil
 }
 
-func runtimeModules(taskData, rl, coord, outputs, ing lifecycle) []module {
+func runtimeModules(taskData, rl, coord, outputs, streams, ing lifecycle) []module {
 	return []module{
 		{"task-data", taskData.Start, taskData.Stop},
 		{"relay", rl.Start, rl.Stop},
 		{"coordinator", coord.Start, coord.Stop},
 		{"output-delivery", outputs.Start, outputs.Stop},
+		{"dispatch-stream", streams.Start, streams.Stop},
 		{"ingress", ing.Start, ing.Stop},
 	}
 }
@@ -375,9 +377,19 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Warn("service key NOT configured; Builder messages to Cortex cannot be signed, so none are sent")
 	}
 
-	// The Cortex dispatch stream is not served yet: Builder messages are signed and then dropped.
-	coordOpts = append(coordOpts, coordinator.WithCortexLink(noCortexLink{log: log}))
+	// Cortex nodes connect to the IngressAPI DispatchStream; the hub verifies every stream and
+	// message against the Cortex's current service key (kept with the other service keys on the
+	// registration chain) and carries the coordinator's Verifier messages.
+	streams, err := dispatchstream.New(log, dispatchstream.Config{ChainID: cfg.Chain.ChainID, BuilderOperator: selfAddr},
+		dispatchstream.ServiceKeyLookup{Resolver: registrationChain, AddressPrefix: cfg.Identity.Bech32Prefix}, store)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("dispatch stream: %w", err)
+	}
+	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
+	streams.SetSinks(dispatchstream.Sinks{Verifier: coord})
+	ingressOpts = append(ingressOpts, ingress.WithDispatchStream(streams))
 	var taskAuthorizer *taskdata.Authorizer
 	// User request verification reads the current height (session grant windows) and the key each
 	// account holds on chain; found keys are cached, since an account's key never changes.
@@ -512,7 +524,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		lifecycle: outputs,
 		complete:  coord.CompleteOutputRecovery,
 	}
-	modules = append(modules, runtimeModules(taskDataModule, rl, coord, outputModule, ing)...)
+	modules = append(modules, runtimeModules(taskDataModule, rl, coord, outputModule, streams, ing)...)
 
 	return &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
@@ -594,7 +606,7 @@ func stopRuntimeModules(
 			onError("ingress-drain", err)
 		}
 	}
-	stopped := make(map[string]bool, 2)
+	stopped := make(map[string]bool, 3)
 	stopNamed := func(name string) {
 		for index := len(modules) - 1; index >= 0; index-- {
 			if modules[index].name != name {
@@ -607,8 +619,9 @@ func stopRuntimeModules(
 			return
 		}
 	}
-	// Wake long-lived output streams before waiting for graceful HTTP shutdown.
+	// Wake long-lived output and Cortex dispatch streams before waiting for graceful HTTP shutdown.
 	stopNamed("output-delivery")
+	stopNamed("dispatch-stream")
 	stopNamed("ingress")
 	for index := len(modules) - 1; index >= 0; index-- {
 		current := modules[index]

@@ -66,6 +66,10 @@ const (
 	// NSHandraiseRootDigest is the handraise_root_digest -> NSHandraiseRoot key index used to
 	// look up a root named by a ticket or a challenge.
 	NSHandraiseRootDigest Namespace = "handraise_root_digest"
+	// NSStreamSession holds the Cortex dispatch stream state: the StoreOnce marker of every stream
+	// binding and the Builder-signed downlink messages a Cortex has not acknowledged yet, as the
+	// exact bytes first sent (package dispatchstream).
+	NSStreamSession Namespace = "stream_session"
 )
 
 type Store interface {
