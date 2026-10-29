@@ -398,3 +398,26 @@ func TestStartedSenderDelivers(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// An order whose sync stream began under the then current BuilderSet keeps syncing after the
+// snapshot is replaced (a recorded task keeps the group it was locked with); a new order of the
+// replaced snapshot is refused.
+func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.s.OrderChanged(f.issued())
+	e.sync()
+	e.groups.mu.Lock()
+	e.groups.snapshot = taskgroupSnapshot("set-2", 0x5f, e.d.op, e.m.op)
+	e.groups.mu.Unlock()
+	e.s.OrderChanged(f.rejectedThenOut())
+	e.sync()
+	if c := e.copyOf(); len(c.Rounds[0].Attempts) != 2 {
+		t.Fatalf("the order stopped syncing after the snapshot changed: %+v", c.Rounds[0].Attempts)
+	}
+	batch := e.firstBatch()
+	batch.SessionId = fill(0xab)
+	if _, err := e.member.r.Sync(context.Background(), e.signed(batch)); !errors.Is(err, ErrNotGroupMember) {
+		t.Fatalf("new order of the replaced snapshot: %v", err)
+	}
+}

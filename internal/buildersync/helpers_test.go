@@ -98,6 +98,10 @@ type fakeGroups struct {
 	snapshot taskgroup.Snapshot
 }
 
+func taskgroupSnapshot(id string, hash byte, members ...string) taskgroup.Snapshot {
+	return taskgroup.Snapshot{ID: id, Hash: [32]byte(fill(hash)), Members: members}
+}
+
 func (g *fakeGroups) CurrentBuilderSet() (taskgroup.Snapshot, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -181,9 +181,6 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 	if dispatch.VerifyDigestSignature(senderKey, digest[:], req.GetSenderSignature()) != nil {
 		return nil, fmt.Errorf("%w: batch signature is not the sender's current service key", ErrUnauthenticated)
 	}
-	if err := r.checkGroup(&batch); err != nil {
-		return nil, err
-	}
 	sessionID := hex.EncodeToString(batch.GetSessionId())
 	key := memberKey(sender, sessionID, batch.GetOrderSequence())
 	unlock := r.lock(key)
@@ -192,10 +189,16 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
-	if !found {
+	switch {
+	case !found:
+		// A new order's group is the current snapshot; once its stream began the order keeps the
+		// group it began with, as the chain keeps the group it locks a recorded task with.
+		if err := r.checkGroup(&batch); err != nil {
+			return nil, err
+		}
 		m = &memberStream{Sender: sender, SessionID: sessionID, Sequence: batch.GetOrderSequence(),
 			BuilderSetID: batch.GetBuilderSetId(), BuilderSetHash: batch.GetBuilderSetHash(), Inputs: map[string]*memberInput{}}
-	} else if m.BuilderSetID != batch.GetBuilderSetId() || !bytes.Equal(m.BuilderSetHash, batch.GetBuilderSetHash()) {
+	case m.BuilderSetID != batch.GetBuilderSetId() || !bytes.Equal(m.BuilderSetHash, batch.GetBuilderSetHash()):
 		return nil, fmt.Errorf("%w: the order's sync stream names BuilderSet %q", ErrMalformed, m.BuilderSetID)
 	}
 	resp := &buildersyncv1.SyncResponse{}
@@ -244,8 +247,8 @@ func (r *Receiver) serviceKey(ctx context.Context, participant, operator string)
 	return key, nil
 }
 
-// checkGroup requires the batch's BuilderSet to be the current snapshot with both the sender and
-// this Builder among its members: the order's group.
+// checkGroup requires the BuilderSet of a new order's batch to be the current snapshot with both
+// the sender and this Builder among its members: the order's group.
 func (r *Receiver) checkGroup(batch *buildersyncv1.BuilderSyncBatchV1) error {
 	snapshot, ok := r.cfg.Groups.CurrentBuilderSet()
 	if !ok {
