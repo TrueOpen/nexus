@@ -107,3 +107,18 @@ func TestGateAccountReads(t *testing.T) {
 		t.Fatalf("zero minimum = %v", err)
 	}
 }
+
+// An account that could not be read yet stops tickets but not records: the chain decides them.
+func TestUnreadAccountStillRecords(t *testing.T) {
+	e := newEnv(t)
+	e.account.set("", errUnreadable)
+	e.open()
+	if err := e.gate.CheckBuilderKey(context.Background()); err == nil {
+		t.Fatal("tickets allowed on an unread account")
+	}
+	e.record(bundle(0xaa, 0, 1, 50))
+	e.block(10)
+	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
+		t.Fatal("no record on an unread account")
+	}
+}

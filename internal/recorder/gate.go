@@ -33,7 +33,8 @@ type GateConfig struct {
 // Gate is the dispatcher's Keys: the service key check, then this Builder's compensation
 // account. Below builder_compensation_account_min_balance the chain refuses every record of the
 // Builder whole, so the dispatcher takes no new order and issues no ticket, and the Recorder sends
-// no record, until the account is funded.
+// no record, until the account is funded. Until the account is read once no ticket is issued
+// either, but records are still sent.
 type Gate struct {
 	cfg GateConfig
 	log *slog.Logger
@@ -156,5 +157,10 @@ func (g *Gate) onBlock(ctx context.Context, height uint64) {
 	}
 }
 
-// open reports whether records may be sent.
-func (g *Gate) open() bool { return g.compensationErr() == nil }
+// belowMin reports whether the account is known to be below the minimum. An account not read yet
+// does not stop records: the chain decides, and a record not sent is a claim for sure.
+func (g *Gate) belowMin() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.balance != nil && g.balance.Cmp(g.min) < 0
+}

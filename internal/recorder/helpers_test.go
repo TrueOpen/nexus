@@ -350,9 +350,7 @@ func (e *env) open() {
 	}
 	r.SetOrders(e.orders)
 	e.r = r
-	if err := e.gate.Refresh(context.Background()); err != nil {
-		e.t.Fatal(err)
-	}
+	_ = e.gate.Refresh(context.Background())
 }
 
 func (e *env) record(bs ...*dispatcher.Bundle) {

@@ -42,7 +42,7 @@ func split(base int, sizes []int, maxEntries uint32, maxBytes uint64) (batches [
 // pack sends the entries waiting for a block: not sent yet, not held behind an unresolved earlier
 // entry of their session and still recordable in the next block, sorted by (session_id,
 // order_sequence) and split by the params. Nothing goes out while the compensation account is
-// below its minimum: the chain would refuse the whole transaction.
+// known to be below its minimum: the chain would refuse the whole transaction.
 func (r *Recorder) pack(ctx context.Context, height uint64) {
 	params := r.params.Load()
 	r.mu.Lock()
@@ -56,7 +56,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	if len(waiting) == 0 {
 		return
 	}
-	if !r.cfg.Gate.open() {
+	if r.cfg.Gate.belowMin() {
 		r.log.Warn("dispatch entries not recorded: the compensation account is below its minimum", "entries", len(waiting))
 		return
 	}
