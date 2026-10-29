@@ -134,6 +134,8 @@ type Coordinator struct {
 	dispatcher Dispatcher
 	// attempts holds the winning dispatch attempt of each task this Builder dispatched.
 	attempts *attempt.Book
+	// attemptRetention is how many blocks a terminal or dropped task's attempt is kept.
+	attemptRetention uint64
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
 
@@ -1286,14 +1288,18 @@ func (c *Coordinator) removeTask(key string) string {
 	if tracked {
 		c.taskEvents.UntrackTaskEvents(eventKey)
 	}
+	if sessionID, taskID, ok := strings.Cut(key, "|"); ok {
+		c.endAttemptOfTerminalTask(sessionID, taskID)
+	}
 	return recipient
 }
 
-// abandonTask drops a task that never reached the chain, with any receipt staged for it. Its
-// journal is kept so the user can see why it was rejected; with no output tombstone nothing
-// releases it (a known, low-volume leak).
+// abandonTask drops a task that never reached the chain, with any receipt staged for it and the
+// output stream of its unrecorded attempt. Its journal is kept so the user can see why it was
+// rejected; with no output tombstone nothing releases it (a known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 	c.dropStagedReceipt(key)
+	c.retireAbandonedAttempt(expected.sessionID, expected.taskID)
 	removed := false
 	var trackedKey chaincli.TaskKey
 	c.mu.Lock()
@@ -1941,6 +1947,9 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 		c.fillAcceptedReceipt(fsm)
 		c.fillVerifierWindow(fsm)
 		fsm.onInferReceiptAccepted()
+	}
+	if state == types.Assigned || state == types.Verifying {
+		c.limitAttemptUploads(fsm.sessionID, fsm.taskID, snapshot.Assignment.InferDeadlineHeight)
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.

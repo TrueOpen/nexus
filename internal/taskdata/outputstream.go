@@ -1010,6 +1010,22 @@ func (s *Store) recoverOutputStreams() error {
 	return nil
 }
 
+// RetireOutputStream drops the OUTPUT stream of (session, task) whose header names ticket: the
+// stream of an attempt whose record the chain refused, once its task is dropped. A stream of
+// another ticket, or none, is left as it is.
+func (s *Store) RetireOutputStream(_ context.Context, sessionID, taskID string, ticket []byte) error {
+	encoded := streamKeyString(ObjectKey{SessionID: sessionID, TaskID: taskID, Kind: ObjectKindOutput})
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, found, err := s.outputStreamRecord(encoded)
+	if err != nil || !found || record.Header == nil || !bytes.Equal(record.Header.DispatchTicketHash, ticket) {
+		return err
+	}
+	return s.retireOutputStreamLocked(encoded, record)
+}
+
 // retireOutputStreamLocked drops the stream of a dispatch attempt that was never recorded: its
 // progress, frame records and spool files and, when it was sealed, its STORED OUTPUT metadata and
 // index. An OUTPUT already finalized belongs to a recorded attempt and is never dropped. No

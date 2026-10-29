@@ -51,8 +51,10 @@ var ErrRecordedWithAnotherTicket = errors.New("task is recorded with another tic
 type Winner struct {
 	SessionID string
 	Sequence  uint64
-	Ticket    *taskv1.DispatchTicketV1
-	Accept    *taskv1.DispatchAcceptV1
+	// User is the order's user_address: the one subscriber of the task's output.
+	User   string
+	Ticket *taskv1.DispatchTicketV1
+	Accept *taskv1.DispatchAcceptV1
 }
 
 // Attempt is the current dispatch attempt of a task. Hashes are lowercase hex.
@@ -72,11 +74,27 @@ type Attempt struct {
 	Accept []byte `json:"accept"`
 	// Header is the Builder-signed DispatchResultHeaderV1 at Status, as signed.
 	Header []byte `json:"header"`
+	// User is the order's user_address, the task's one output subscriber; it outlives the task
+	// so a subscriber after a refused record still gets the REJECTED header.
+	User string `json:"user,omitempty"`
+	// UploadUntil is the last height output may be uploaded at (the task's infer deadline once
+	// recorded); 0 sets no height. UploadsClosed is set once the task is terminal.
+	UploadUntil   uint64 `json:"upload_until,omitempty"`
+	UploadsClosed bool   `json:"uploads_closed,omitempty"`
+	// ExpireHeight, once set, is the height from which the attempt is forgotten (Sweep).
+	ExpireHeight uint64 `json:"expire_height,omitempty"`
 }
 
 // Live reports whether output of the attempt may still be taken and delivered: its record is
 // pending or admitted.
 func (a Attempt) Live() bool { return a.Status == Pending || a.Status == Recorded }
+
+// AcceptsUploads reports whether the Worker may still upload output for the attempt with the
+// chain head at head: it is live, the task is not terminal and head is not past UploadUntil. A
+// head of 0 (not known) skips the height check.
+func (a Attempt) AcceptsUploads(head uint64) bool {
+	return a.Live() && !a.UploadsClosed && (a.UploadUntil == 0 || head == 0 || head <= a.UploadUntil)
+}
 
 // ResultHeader decodes the signed header.
 func (a Attempt) ResultHeader() (*nexusv1.DispatchResultHeaderV1, error) {
@@ -202,7 +220,7 @@ func (b *Book) Accepted(w Winner) error {
 		return err
 	}
 	a := &Attempt{
-		SessionID: w.SessionID, Sequence: w.Sequence,
+		SessionID: w.SessionID, Sequence: w.Sequence, User: w.User,
 		TaskID: hex.EncodeToString(w.Ticket.GetTaskId()), TaskHash: hex.EncodeToString(w.Ticket.GetTaskHash()),
 		InputHash: hex.EncodeToString(w.Ticket.GetInputHash()), Worker: w.Ticket.GetTarget().GetOperatorAddress(),
 		TicketHash: ticketHash, AcceptDigest: acceptDigest, Ticket: ticket, Accept: accept,
@@ -307,6 +325,81 @@ func (b *Book) settleLocked(cur *Attempt, status Status) {
 	if err := b.setLocked(&next, status); err != nil {
 		b.log.Error("dispatch attempt status not stored", "task_id", cur.TaskID, "status", status, "err", err)
 	}
+}
+
+// LimitUploads sets the last height output of the task's attempt of ticketHash may be uploaded
+// at (its infer deadline). Another ticket's attempt is left alone.
+func (b *Book) LimitUploads(taskID string, ticketHash [32]byte, until uint64) {
+	b.update(taskID, func(a *Attempt) bool {
+		if a.TicketHash != ticketHash || a.UploadUntil == until {
+			return false
+		}
+		a.UploadUntil = until
+		return true
+	})
+}
+
+// CloseUploads stops output uploads for the task's attempt: the task is terminal.
+func (b *Book) CloseUploads(taskID string) {
+	b.update(taskID, func(a *Attempt) bool {
+		if a.UploadsClosed {
+			return false
+		}
+		a.UploadsClosed = true
+		return true
+	})
+}
+
+// ExpireAt has the task forgotten by the first Sweep at or after height; the attempt and its
+// header are served until then. An earlier expiry already set is kept.
+func (b *Book) ExpireAt(taskID string, height uint64) {
+	b.update(taskID, func(a *Attempt) bool {
+		if a.ExpireHeight != 0 && a.ExpireHeight <= height {
+			return false
+		}
+		a.ExpireHeight = height
+		return true
+	})
+}
+
+// Sweep forgets the tasks whose expiry height is at or below head.
+func (b *Book) Sweep(head uint64) {
+	b.mu.Lock()
+	var expired []string
+	for taskID, a := range b.byTask {
+		if a.ExpireHeight != 0 && a.ExpireHeight <= head {
+			expired = append(expired, taskID)
+		}
+	}
+	b.mu.Unlock()
+	for _, taskID := range expired {
+		b.Forget(taskID)
+	}
+}
+
+// update applies change to a copy of the task's attempt and stores it when change reports a
+// change. The signed header is not touched.
+func (b *Book) update(taskID string, change func(*Attempt) bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur := b.byTask[taskID]
+	if cur == nil {
+		return
+	}
+	next := *cur
+	if !change(&next) {
+		return
+	}
+	raw, err := json.Marshal(&next)
+	if err == nil {
+		err = b.store.Set(kv.NSDispatchAttempt, taskID, raw)
+	}
+	if err != nil {
+		b.log.Error("dispatch attempt not stored", "task_id", taskID, "err", err)
+		return
+	}
+	b.byTask[taskID] = &next
+	b.notifyLocked(taskID)
 }
 
 // Forget drops everything held for the task: its attempt and its voided ones. It is called once

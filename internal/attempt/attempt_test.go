@@ -293,3 +293,39 @@ func TestForget(t *testing.T) {
 		t.Fatalf("%d voided attempts left in the store", n)
 	}
 }
+
+// Uploads stop past the attempt's upload height and once closed; the attempt itself, its header
+// and its user stay until it expires, and Sweep then forgets it.
+func TestUploadLimitsAndExpiry(t *testing.T) {
+	store := kv.NewMemStore()
+	b := newBook(t, store)
+	w, hash := winnerOf(t, 0)
+	w.User = "trueopen1user"
+	taskID := hex.EncodeToString(w.Ticket.GetTaskId())
+	_ = b.Accepted(w)
+	b.Recorded(taskID, hash)
+	header := current(t, b, taskID).Header
+	_, other := winnerOf(t, 1)
+	b.LimitUploads(taskID, other, 10)
+	if a := current(t, b, taskID); a.UploadUntil != 0 {
+		t.Fatal("another ticket's limit applied")
+	}
+	b.LimitUploads(taskID, hash, 120)
+	if a := current(t, b, taskID); !a.AcceptsUploads(120) || a.AcceptsUploads(121) || a.User != "trueopen1user" {
+		t.Fatalf("attempt = %+v", a)
+	}
+	b.CloseUploads(taskID)
+	b.ExpireAt(taskID, 200)
+	a := current(t, newBook(t, store), taskID)
+	if a.AcceptsUploads(100) || !a.Live() || !bytes.Equal(a.Header, header) || a.ExpireHeight != 200 {
+		t.Fatalf("closed attempt = %+v", a)
+	}
+	b.Sweep(199)
+	if _, ok := b.Current(taskID); !ok {
+		t.Fatal("swept before its expiry")
+	}
+	b.Sweep(200)
+	if _, ok := b.Current(taskID); ok {
+		t.Fatal("expired attempt kept")
+	}
+}

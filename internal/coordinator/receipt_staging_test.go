@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -227,5 +230,57 @@ func TestStagedReceiptDroppedOnceTheChainHasAReceipt(t *testing.T) {
 	f.c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{SessionID: f.session, TaskID: f.task, State: types.Verifying, Winner: f.worker, ReceiptAccepted: true}, 102)
 	if f.staged() {
 		t.Fatal("staged receipt kept after the chain accepted a receipt")
+	}
+}
+
+// fakePayloads records the output streams retired.
+type fakePayloads struct {
+	mu      sync.Mutex
+	retired []string
+}
+
+func (*fakePayloads) Delete(context.Context, payloadstore.Input) error { return nil }
+func (*fakePayloads) Sweep(context.Context, uint64) error              { return nil }
+func (f *fakePayloads) RetireOutput(_ context.Context, sessionID, taskID string, ticket []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retired = append(f.retired, sessionID+"|"+taskID+"|"+hex.EncodeToString(ticket))
+	return nil
+}
+
+// A task dropped after its record was refused retires the refused attempt's output stream; the
+// attempt stays in the book (its REJECTED header for a late subscriber) until its retention ends.
+func TestRefusedAttemptRetiredWithItsTask(t *testing.T) {
+	f := newStagingFixture(t)
+	payloads := &fakePayloads{}
+	f.c.payloads = payloads
+	f.c.SetAttemptRetention(50)
+	f.book.Rejected(f.task, f.ticket)
+	f.c.RecordRejected(f.session, f.task, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
+	if want := []string{f.session + "|" + f.task + "|" + hex.EncodeToString(f.ticket[:])}; !reflect.DeepEqual(payloads.retired, want) {
+		t.Fatalf("retired = %v", payloads.retired)
+	}
+	a, ok := f.book.Current(f.task)
+	if !ok || a.Status != attempt.Rejected || a.ExpireHeight == 0 || a.ExpireHeight > 50 {
+		t.Fatalf("attempt = %+v, %v", a, ok)
+	}
+}
+
+// After the record the attempt takes uploads up to the task's infer deadline; once the task is
+// terminal it takes none, and it expires after the retention.
+func TestRecordedAttemptUploadsEndWithTheTask(t *testing.T) {
+	f := newStagingFixture(t)
+	f.c.SetAttemptRetention(50)
+	f.book.Recorded(f.task, f.ticket)
+	fsm, _ := f.c.getFSM(f.session, f.task)
+	recorded := chaincli.OnChainTask{SessionID: f.session, TaskID: f.task, State: types.Assigned, Winner: f.worker}
+	recorded.Assignment.InferDeadlineHeight = 500
+	f.c.applyAuthoritativeTask(fsm, recorded, 101)
+	if a, _ := f.book.Current(f.task); a.UploadUntil != 500 || !a.AcceptsUploads(500) || a.AcceptsUploads(501) {
+		t.Fatalf("attempt after the record = %+v", a)
+	}
+	f.c.removeTask(taskKey(f.session, f.task))
+	if a, _ := f.book.Current(f.task); a.AcceptsUploads(100) || a.ExpireHeight == 0 {
+		t.Fatalf("attempt of the terminal task = %+v", a)
 	}
 }

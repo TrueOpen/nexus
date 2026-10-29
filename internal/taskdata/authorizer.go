@@ -238,6 +238,9 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 	if !won.Live() || !bytes.Equal(ticket, won.TicketHash[:]) {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: output stream ticket %x is not the task's live attempt", ErrAttemptStale, ticket)
 	}
+	if !won.AcceptsUploads(height) {
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: uploads for ticket %x are closed: the task ended or its infer deadline passed", ErrAttemptStale, ticket)
+	}
 	if won.Worker != request.RequesterAddress {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: requester is not the Worker whose accept this Builder holds", ErrUnauthorized)
 	}
@@ -247,13 +250,14 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 	return won, height, workerPublicKey, nil
 }
 
-// AttemptLive reports whether ticket is still the live attempt of the task.
+// AttemptLive reports whether ticket is still the live attempt of the task and takes uploads:
+// the task has not ended. The infer deadline is checked when the stream opens.
 func (a *Authorizer) AttemptLive(taskID string, ticket []byte) bool {
 	if a.cfg.Attempts == nil {
 		return false
 	}
 	won, ok := a.cfg.Attempts.Current(taskID)
-	return ok && won.Live() && bytes.Equal(won.TicketHash[:], ticket)
+	return ok && won.AcceptsUploads(0) && bytes.Equal(won.TicketHash[:], ticket)
 }
 
 // AuthorizeFetch authorizes a fetch. A fetch uses the same TaskDataRequestAuthV1

@@ -426,9 +426,14 @@ func (c *Coordinator) reconcileLoop() {
 					c.scheduleReconcileRetry(request)
 					continue
 				}
-			} else if c.payloads != nil {
-				if err := c.payloads.Sweep(context.Background(), height); err != nil {
-					c.log.Error("payload reconciliation sweep failed", "height", height, "err", err)
+			} else {
+				if c.payloads != nil {
+					if err := c.payloads.Sweep(context.Background(), height); err != nil {
+						c.log.Error("payload reconciliation sweep failed", "height", height, "err", err)
+					}
+				}
+				if c.attempts != nil {
+					c.attempts.Sweep(height)
 				}
 			}
 			keys := c.activeTaskKeys(request)

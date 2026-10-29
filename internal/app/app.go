@@ -426,6 +426,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, fmt.Errorf("dispatch attempts: %w", err)
 		}
 		coord.SetAttempts(attempts)
+		// A terminal or dropped task's attempt (its signed header) is kept as long as a deleted
+		// object's tombstone.
+		coord.SetAttemptRetention(cfg.TaskData.TombstoneRetentionBlocks)
 	}
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
 		// Standing handraises and roots are judged on the task chain's height; the Hub reads

@@ -35,6 +35,64 @@ func (c *Coordinator) SetDispatcher(d Dispatcher) { c.dispatcher = d }
 // SetAttempts wires the book of winning dispatch attempts in; call it before Start.
 func (c *Coordinator) SetAttempts(b *attempt.Book) { c.attempts = b }
 
+// defaultAttemptRetentionBlocks is how long the attempt of a terminal or dropped task is kept
+// when no retention is set.
+const defaultAttemptRetentionBlocks = 120960
+
+// SetAttemptRetention sets how many blocks the attempt of a terminal or dropped task is kept
+// (its header served to late subscribers) before the book forgets it; 0 keeps the default.
+func (c *Coordinator) SetAttemptRetention(blocks uint64) { c.attemptRetention = blocks }
+
+// expireAttempt has the book forget the task's attempt after the retention.
+func (c *Coordinator) expireAttempt(taskID string) {
+	retention := c.attemptRetention
+	if retention == 0 {
+		retention = defaultAttemptRetentionBlocks
+	}
+	height, _ := c.currentChainHeight()
+	c.attempts.ExpireAt(taskID, height+retention)
+}
+
+// endAttemptOfTerminalTask closes the uploads of a terminal task's attempt and has it expire.
+func (c *Coordinator) endAttemptOfTerminalTask(sessionID, taskID string) {
+	if c.attempts == nil {
+		return
+	}
+	if a, ok := c.attempts.Current(taskID); !ok || a.SessionID != sessionID {
+		return
+	}
+	c.attempts.CloseUploads(taskID)
+	c.expireAttempt(taskID)
+}
+
+// retireAbandonedAttempt drops the output stream of a dropped task's attempt that was never
+// recorded and has the attempt expire; its REJECTED header is served until then.
+func (c *Coordinator) retireAbandonedAttempt(sessionID, taskID string) {
+	if c.attempts == nil {
+		return
+	}
+	a, ok := c.attempts.Current(taskID)
+	if !ok || a.SessionID != sessionID || a.Status == attempt.Recorded {
+		return
+	}
+	if c.payloads != nil {
+		if err := c.payloads.RetireOutput(context.Background(), sessionID, taskID, a.TicketHash[:]); err != nil {
+			c.log.Warn("abandoned attempt output not retired", "task_id", taskID, "err", err)
+		}
+	}
+	c.expireAttempt(taskID)
+}
+
+// limitAttemptUploads bounds the recorded attempt's uploads by the task's infer deadline.
+func (c *Coordinator) limitAttemptUploads(sessionID, taskID string, inferDeadline uint64) {
+	if c.attempts == nil || inferDeadline == 0 {
+		return
+	}
+	if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID && a.Status == attempt.Recorded {
+		c.attempts.LimitUploads(taskID, a.TicketHash, inferDeadline)
+	}
+}
+
 // OnOrder implements the ingress order entry (called by IngressAPI after the precheck reserved the
 // order and its input is stored): the task's state machine starts (ORDER_RECEIVED) and the order
 // goes to the dispatcher. A retry of an order whose earlier attempt failed reuses the task's

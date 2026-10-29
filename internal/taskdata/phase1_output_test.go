@@ -230,6 +230,77 @@ func TestReplacedWorkerIsStaleNotDenied(t *testing.T) {
 	}
 }
 
+// A recorded attempt takes no upload once its task is terminal (uploads closed), neither a new
+// stream nor a frame of an open one, nor past its upload height (the infer deadline).
+func TestUploadsStopAtTheTasksEnd(t *testing.T) {
+	p := newPhase1Fixture(t)
+	ticket := ticketOf(0x71)
+	set := func(change func(*attempt.Attempt)) {
+		a := attempt.Attempt{
+			SessionID: testSessionID, TaskID: testTaskID, TaskHash: testTaskHash, InputHash: testContent,
+			Worker: p.worker.Address(), TicketHash: ticket, Status: attempt.Recorded,
+		}
+		change(&a)
+		p.attempts.set(a)
+	}
+	set(func(a *attempt.Attempt) { a.UploadUntil = p.authority.height - 1 })
+	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 1); !errors.Is(err, ErrAttemptStale) {
+		t.Fatalf("past the upload height: %v", err)
+	}
+	set(func(a *attempt.Attempt) { a.UploadUntil = p.authority.height })
+	session, _, err := p.open(t, p.worker, p.workerService, ticket, 2)
+	if err != nil {
+		t.Fatalf("at the upload height: %v", err)
+	}
+	set(func(a *attempt.Attempt) { a.UploadsClosed = true })
+	acc, _ := mmr.New(nodecontract.DomainOutputMMRV1)
+	if _, err := session.Append(context.Background(), p.chunk(t, acc, ticket, 0, "hello", 1)); !errors.Is(err, ErrAttemptStale) {
+		t.Fatalf("chunk after the task ended: %v", err)
+	}
+	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 3); !errors.Is(err, ErrAttemptStale) {
+		t.Fatalf("open after the task ended: %v", err)
+	}
+}
+
+// The stream of an abandoned attempt (its record refused, the task dropped) is retired with its
+// frames, sealed or not; a retirement naming another ticket leaves the stream alone.
+func TestRetireAbandonedAttemptStream(t *testing.T) {
+	for _, seal := range []bool{false, true} {
+		p := newPhase1Fixture(t)
+		ticket := ticketOf(0x71)
+		p.accept(p.worker.Address(), ticket, attempt.Pending)
+		session, _, err := p.open(t, p.worker, p.workerService, ticket, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		acc, _ := mmr.New(nodecontract.DomainOutputMMRV1)
+		if _, err := session.Append(context.Background(), p.chunk(t, acc, ticket, 0, "hello", 1)); err != nil {
+			t.Fatal(err)
+		}
+		if seal {
+			if _, err := session.Finish(context.Background(), p.fin(t, acc, ticket, 0)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		other := ticketOf(0x70)
+		if err := p.store.RetireOutputStream(context.Background(), testSessionID, testTaskID, other[:]); err != nil {
+			t.Fatal(err)
+		}
+		if frames, err := p.service.OutputFrames(context.Background(), outputStreamKey(), nil); err != nil || len(frames) == 0 {
+			t.Fatalf("seal %t: another ticket's retirement dropped frames: %v %v", seal, frames, err)
+		}
+		if err := p.store.RetireOutputStream(context.Background(), testSessionID, testTaskID, ticket[:]); err != nil {
+			t.Fatal(err)
+		}
+		if frames, err := p.service.OutputFrames(context.Background(), outputStreamKey(), nil); err == nil && len(frames) != 0 {
+			t.Fatalf("seal %t: frames left after the retirement: %v", seal, frames)
+		}
+		if err := p.store.RetireOutputStream(context.Background(), testSessionID, testTaskID, ticket[:]); err != nil {
+			t.Fatalf("seal %t: retiring again: %v", seal, err)
+		}
+	}
+}
+
 // A chunk or Fin whose ticket is not the header's closes the stream; so does any frame after the
 // attempt stopped being the task's live one.
 func TestFramesMustCarryTheLiveHeaderTicket(t *testing.T) {

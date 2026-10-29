@@ -175,3 +175,16 @@ func TestBindingChangeSurvivesARestartPastTheOldDeadline(t *testing.T) {
 		t.Fatalf("ticket = %v", ticket)
 	}
 }
+
+// The attempt book learns the order's user with the winner: it names the task's one output
+// subscriber after the task itself is gone.
+func TestAcceptedWinnerNamesTheOrderUser(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.accept()
+	if a, ok := e.attempts.Current(o.TaskID); !ok || a.User != testUser {
+		t.Fatalf("attempt = %+v, %v", a, ok)
+	}
+}

@@ -80,7 +80,10 @@ func (d *Dispatcher) finish(ctx context.Context, out done) {
 
 // accepted hands an accepted order's winner to the attempt book.
 func (d *Dispatcher) accepted(b *Bundle) {
-	w := attempt.Winner{SessionID: b.SessionID, Sequence: b.Sequence, Ticket: b.Entry.GetWinnerTicket(), Accept: b.Entry.GetAccept()}
+	w := attempt.Winner{
+		SessionID: b.SessionID, Sequence: b.Sequence, User: b.Entry.GetSignedOrder().GetOrder().GetUserAddress(),
+		Ticket: b.Entry.GetWinnerTicket(), Accept: b.Entry.GetAccept(),
+	}
 	if err := d.cfg.Attempts.Accepted(w); err != nil {
 		d.log.Error("accepted winner not given to the attempt book", "session_id", b.SessionID, "order_sequence", b.Sequence, "err", err)
 	}

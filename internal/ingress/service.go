@@ -55,6 +55,9 @@ type Handler interface {
 	// TaskOwner returns the ordering user's address (authorization for streaming subscribe / ACK);
 	// returns types.ErrTaskNotFound for an unknown task.
 	TaskOwner(ctx context.Context, sessionID, taskID string) (string, error)
+	// IsTaskTerminal reports whether the task is no longer in flight here: finished, failed or
+	// dropped.
+	IsTaskTerminal(sessionID, taskID string) bool
 	TaskStatus(ctx context.Context, sessionID, taskID string) (types.TaskStatus, error)
 	// TaskEvents subscribes to the event stream: replay after cursor + live channel + unsubscribe.
 	TaskEvents(ctx context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error)

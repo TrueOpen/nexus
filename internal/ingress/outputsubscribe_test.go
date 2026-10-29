@@ -130,7 +130,7 @@ func (s *subscription) accept(rank uint32) [32]byte {
 	}
 	accept := proto.Clone(h.GetAccept()).(*taskv1.DispatchAcceptV1)
 	accept.TaskId, accept.DispatchTicketHash = taskID, hash[:]
-	if err := s.book.Accepted(attempt.Winner{SessionID: s.session, Sequence: 1, Ticket: ticket, Accept: accept}); err != nil {
+	if err := s.book.Accepted(attempt.Winner{SessionID: s.session, Sequence: 1, User: s.owner, Ticket: ticket, Accept: accept}); err != nil {
 		s.t.Fatal(err)
 	}
 	return hash
@@ -412,4 +412,35 @@ func TestOutputTextWithZeroTokensIsHeld(t *testing.T) {
 	s.book.Recorded(s.task, ticket)
 	r.header(attempt.Recorded, ticket)
 	r.chunk(0, 0)
+}
+
+// A subscriber after a refused record whose task was dropped (no task state, no terminal marker)
+// is still the order user by the attempt the book keeps: it gets the REJECTED header and
+// RECORD_REJECTED, not "task not found". Anyone else is refused.
+func TestOutputLateSubscriberAfterAnAbandonedRejection(t *testing.T) {
+	s := newSubscription(t)
+	ticket := s.accept(0)
+	s.book.Rejected(s.task, ticket)
+	h := s.svc.h.(*fakeHandler)
+	h.taskOwner, h.taskTerminal = "", true
+	late := s.serve(context.Background(), s.owner, nil, nil)
+	late.header(attempt.Rejected, ticket)
+	if err := late.end(); !errors.Is(err, errRecordRejected) {
+		t.Fatalf("late end = %v", err)
+	}
+	other := s.serve(context.Background(), mustSigner(t, "0000000000000000000000000000000000000000000000000000000000000005").Address(), nil, nil)
+	if err := other.end(); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("another requester = %v", err)
+	}
+}
+
+// A terminal task whose attempt is no longer held (expired) ends the subscription at once instead
+// of waiting for an accept that will never come.
+func TestOutputTerminalTaskWithoutAnAttemptEnds(t *testing.T) {
+	s := newSubscription(t)
+	s.svc.h.(*fakeHandler).taskTerminal = true
+	r := s.serve(context.Background(), s.owner, nil, nil)
+	if err := r.end(); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("end = %v", err)
+	}
 }

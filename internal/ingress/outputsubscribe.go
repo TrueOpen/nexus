@@ -80,12 +80,12 @@ func (s *service) serveOutput(ctx context.Context, wireSession, wireTask, reques
 	if err != nil {
 		return err
 	}
-	if err := s.requireTaskOwner(ctx, ids.session, ids.task, requester); err != nil {
-		return err
-	}
 	rt := s.outputStream
 	if rt.attempts == nil {
 		return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_OUTPUT_STREAM_STOPPED: no dispatch attempts are held"))
+	}
+	if err := s.requireOutputOwner(ctx, ids.session, ids.task, requester); err != nil {
+		return err
 	}
 	changed, stopWatch := rt.attempts.Watch(ids.task)
 	defer stopWatch()
@@ -155,8 +155,31 @@ func (s *service) serveOutput(ctx context.Context, wireSession, wireTask, reques
 	}
 }
 
+// requireOutputOwner is requireTaskOwner, except that a task dropped after its record was refused
+// (no task state and no terminal marker) is still known by the attempt the book keeps, which
+// names the order user: its subscriber gets the REJECTED header.
+func (s *service) requireOutputOwner(ctx context.Context, sessionID, taskID, requester string) error {
+	err := s.requireTaskOwner(ctx, sessionID, taskID, requester)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		return err
+	}
+	a, ok := s.outputStream.attempts.Current(taskID)
+	if !ok || a.SessionID != sessionID || a.User == "" {
+		return err
+	}
+	if a.User != requester {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may read this task"))
+	}
+	return nil
+}
+
+// errAttemptExpired ends a subscription to a terminal task whose attempt is no longer held.
+var errAttemptExpired = connect.NewError(connect.CodeNotFound,
+	errors.New("NEXUS_OUTPUT_EXPIRED: the task is terminal and its dispatch attempt is no longer held; fetch the output with FetchTaskData"))
+
 // awaitAttempt waits until the task has an attempt of its session and checks the ticket the
-// request names against it. A nil attempt with a nil error means the caller went away.
+// request names against it; a terminal task without one ends the call. A nil attempt with a nil
+// error means the caller went away.
 func (s *service) awaitAttempt(ctx context.Context, sessionID, taskID string, ticket []byte, changed <-chan struct{}) (*attempt.Attempt, error) {
 	for {
 		a, ok := s.outputStream.attempts.Current(taskID)
@@ -168,6 +191,9 @@ func (s *service) awaitAttempt(ctx context.Context, sessionID, taskID string, ti
 		}
 		if ticket != nil {
 			return nil, errAttemptStale
+		}
+		if s.h.IsTaskTerminal(sessionID, taskID) {
+			return nil, errAttemptExpired
 		}
 		select {
 		case <-changed:
