@@ -17,6 +17,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
+	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/identity"
 	"github.com/TrueOpen/nexus/internal/ingress"
 	"github.com/TrueOpen/nexus/internal/ingresstls"
@@ -248,7 +249,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("registered session keys: %w", err)
 	}
-	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(sessionKeys.cache))
+	// The order path (in-flight ledger, session cache, dispatcher) follows the same session
+	// streams and the task chain's events once it is built.
+	orders := &orderEvents{keys: sessionKeys.cache}
+	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(orders), chaincli.WithEventObserver(orders.observe))
 	// Current service keys are read on every stream message, handraise and Builder signature; the
 	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
 	// protocol stream, drops a rotated key at once.
@@ -399,7 +403,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	dispatch := &directDispatch{log: log}
 	streams, err := dispatchstream.New(log, dispatchstream.Config{ChainID: cfg.Chain.ChainID, BuilderOperator: selfAddr},
 		dispatchstream.ServiceKeyLookup{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix}, store,
-		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplay))
+		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplayAt(time.Now)))
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)
@@ -408,6 +412,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	sinks := dispatchstream.Sinks{Verifier: coord}
 	var dispatchModule *module
+	var orderPath *orderDispatch
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
 		// Standing handraises and roots are judged on the task chain's height; the Hub reads
 		// (pool, beacon, VRF keys, epoch length) go to the registration chain.
@@ -422,6 +427,21 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		}
 		sinks.Handraise = dispatch
 		dispatchModule = &module{"handraise-roots", dispatch.Start, dispatch.Stop}
+		paramsCtx, cancelParams := context.WithTimeout(context.Background(), 30*time.Second)
+		orderPath, err = newOrderDispatch(paramsCtx, orderDispatchDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, Config: cfg.Dispatch, InputChunkBytes: cfg.TaskData.ChunkSizeBytes,
+			Signer: serviceSG, Store: store, TaskChain: taskChain, Direct: dispatch,
+			Keys:   handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
+			Inputs: taskStore, Observer: coord, Log: log,
+		})
+		cancelParams()
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("order dispatch: %w", err)
+		}
+		coord.SetDispatcher(orderPath.Dispatcher)
+		sinks.Dispatch = orderPath.Dispatcher
+		orders.order.Store(orderPath)
 	} else {
 		log.Warn("direct dispatch NOT configured (needs the service key and identity.vrf_key_files); standing handraises are dropped")
 	}
@@ -532,7 +552,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	outputs.SetPreparedResolver(coord.HasAcceptedOutput)
 	outputs.SetTaskTerminal(coord.IsTaskTerminal)
-	ing, err := ingress.New(log, cfg.Ingress, ingress.AuthParams{
+	authParams := ingress.AuthParams{
 		ChainID:               cfg.Chain.ChainID,
 		BuilderAddress:        selfAddr,
 		Bech32Prefix:          cfg.Identity.Bech32Prefix,
@@ -542,7 +562,11 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		MaxSessionGrantBlocks: sessionGrantBlocks,
 		SessionKeys:           sessionKeys.cache,
 		FeeDenom:              feeDenom,
-	}, coord, ingressOpts...)
+	}
+	if orderPath != nil {
+		authParams.Precheck = orderPath.Precheck
+	}
+	ing, err := ingress.New(log, cfg.Ingress, authParams, coord, ingressOpts...)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("ingress: %w", err)
@@ -565,6 +589,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if dispatchModule != nil {
 		// Roots are issued once the coordinator follows the chain, and before streams are served.
 		modules = insertBefore(modules, "dispatch-stream", *dispatchModule)
+	}
+	if orderPath != nil {
+		// Orders resume before streams are served, so the answers replayed to them find their tickets.
+		modules = insertBefore(modules, "dispatch-stream", module{"order-dispatch", orderPath.Start, orderPath.Stop})
 	}
 
 	app := &App{
