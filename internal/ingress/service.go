@@ -21,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/hash32text"
+	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
@@ -83,6 +84,16 @@ type AuthParams struct {
 	// prechecked.
 	SessionKeys sdkauth.SessionKeys
 	FeeDenom    string
+	// Precheck, when set, is the dispatching Builder's OpenTask precheck (inflight.Prechecker): it
+	// replaces the registered-key order precheck above and also judges expiry, binding,
+	// freshness, sequence, in-flight limits and funds. FeeDenom must then be set.
+	Precheck OrderPrechecker
+}
+
+// OrderPrechecker is the OpenTask precheck of the dispatching Builder; inflight.Prechecker
+// implements it.
+type OrderPrechecker interface {
+	Check(ctx context.Context, o inflight.Order) (inflight.Result, error)
 }
 
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.
