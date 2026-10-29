@@ -1,0 +1,498 @@
+package inflight
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"testing"
+	"time"
+
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/registeredkey"
+)
+
+var testKey = [20]byte{0xaa}
+
+var testParams = Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4}
+
+type precheckFixture struct {
+	chain  *fakeChain
+	store  kv.Store
+	cache  *SessionCache
+	ledger *Ledger
+	p      *Prechecker
+}
+
+// newFixture: head 100; session bound to "builder" at 10, next 5, balance 1000, frozen 100, the
+// registered key testKey until 500 with cap 1000 and 500 spent.
+func newFixture(t testing.TB, edit func(*chaincli.SessionState)) *precheckFixture {
+	t.Helper()
+	state := baseSessionState()
+	state.Key, state.ExpiryHeight, state.SetHeight, state.SpendCap, state.Spent = testKey[:], 500, 1, "1000", "500"
+	if edit != nil {
+		edit(&state)
+	}
+	f := &precheckFixture{chain: &fakeChain{state: state, found: true, height: 100}, store: kv.NewMemStore()}
+	f.restart(t)
+	return f
+}
+
+// restart builds the cache, ledger and prechecker again over the same store, as after a restart.
+func (f *precheckFixture) restart(t testing.TB) {
+	t.Helper()
+	var err error
+	if f.ledger, err = NewLedger(f.store); err != nil {
+		t.Fatal(err)
+	}
+	f.cache, err = NewSessionCache(SessionCacheConfig{
+		Read: f.chain.read, LatestHeight: f.chain.latest, Tracker: f.chain, Ledger: f.ledger,
+		Background: func(fn func()) { fn() },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.p, err = NewPrechecker(PrecheckConfig{Builder: "builder", Params: testParams, Sessions: f.cache, Ledger: f.ledger}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, _, err := f.cache.Lookup(ctx, testSession); err != nil {
+		t.Fatal(err)
+	}
+	f.cache.SessionStreamUp(testSession)
+	if _, _, err := f.cache.Lookup(ctx, testSession); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func order(seq uint64) Order {
+	return Order{
+		SessionID: testSession, Sequence: seq, TaskID: fmt.Sprintf("task%d", seq), TaskHash: fmt.Sprintf("hash%d", seq),
+		User: "owner", MaxFee: 100, EarliestSubmitHeight: 100, ExpireHeight: 200, SessionAnchorHeight: 50,
+	}
+}
+
+func keyOrder(seq uint64) Order {
+	o := order(seq)
+	key := testKey
+	o.SessionKey = &key
+	return o
+}
+
+func (f *precheckFixture) reserve(t testing.TB, o Order) Result {
+	t.Helper()
+	res, err := f.p.Reserve(context.Background(), o)
+	if err != nil {
+		t.Fatalf("reserve %d: %v", o.Sequence, err)
+	}
+	return res
+}
+
+func TestPrecheckAdmitsAndReserves(t *testing.T) {
+	f := newFixture(t, nil)
+	res, err := f.p.Check(context.Background(), order(5))
+	if err != nil || res.Binding != BoundHere || res.Existing != nil || res.Retry || res.Head != 100 || res.Deadline != 120 {
+		t.Fatalf("check = %+v, %v", res, err)
+	}
+	if len(f.ledger.Entries(testSession)) != 0 {
+		t.Fatal("Check changed the ledger")
+	}
+	f.reserve(t, keyOrder(5))
+	e, ok := f.ledger.Get(testSession, 5)
+	if !ok || e.State != StateDispatching || e.MaxFee != 100 || !e.SessionKey || e.Deadline != 120 || e.TaskHash != "hash5" {
+		t.Fatalf("reserved entry = %+v, %v", e, ok)
+	}
+	// Sequence n+1 may be dispatched while n is in flight.
+	f.reserve(t, order(6))
+	if f.chain.readCount() != 2 {
+		t.Fatalf("warm precheck read the chain: %d reads", f.chain.readCount())
+	}
+}
+
+// One test per error code, each from the admitted base case.
+func TestPrecheckErrorCodes(t *testing.T) {
+	cases := []struct {
+		name  string
+		state func(*chaincli.SessionState)
+		setup func(*testing.T, *precheckFixture)
+		order func(*Order)
+		want  error
+	}{
+		{name: "unknown session", setup: func(t *testing.T, f *precheckFixture) {
+			f.chain.found = false
+			f.cache.SessionStreamDown(testSession)
+		}, want: registeredkey.ErrKeyInvalid},
+		{name: "not the owner", order: func(o *Order) { o.User = "mallory" }, want: registeredkey.ErrKeyInvalid},
+		{name: "closed", state: func(s *chaincli.SessionState) { s.Closed = true }, want: ErrSessionClosing},
+		{name: "session key expires before the deadline", state: func(s *chaincli.SessionState) { s.ExpiryHeight = 119 }, order: withKey, want: registeredkey.ErrKeyExpired},
+		{name: "session key spend cap", state: func(s *chaincli.SessionState) { s.Spent = "901" }, order: withKey, want: registeredkey.ErrSpendCapExceeded},
+		{name: "expired: no block left before order_expire_height", order: func(o *Order) { o.ExpireHeight = 101 }, want: ErrOrderExpired},
+		{name: "stale", order: func(o *Order) { o.EarliestSubmitHeight = 94 }, want: ErrOrderStale},
+		{name: "future", order: func(o *Order) { o.EarliestSubmitHeight = 102 }, want: ErrOrderFuture},
+		{name: "takeover pending", state: func(s *chaincli.SessionState) {
+			s.PendingTakeover = &chaincli.PendingTakeover{CandidateBuilder: "other", OrderSequence: 5, ActivationHeight: 130}
+		}, want: ErrTakeoverPending},
+		{name: "replacement while dispatching", setup: func(t *testing.T, f *precheckFixture) { f.reserve(t, order(5)) },
+			order: func(o *Order) { o.TaskHash = "other" }, want: ErrOrderReplacementUnsupported},
+		{name: "replacement after accept", setup: func(t *testing.T, f *precheckFixture) {
+			f.reserve(t, order(5))
+			_ = f.ledger.MarkAccepted(testSession, 5)
+		}, order: func(o *Order) { o.TaskHash = "other" }, want: ErrOrderLocked},
+		{name: "replacement after record", setup: func(t *testing.T, f *precheckFixture) {
+			f.reserve(t, order(5))
+			_ = f.ledger.MarkRecorded(testSession, 5)
+		}, order: func(o *Order) { o.TaskHash = "other" }, want: ErrTaskTerminal},
+		{name: "suspended", setup: func(t *testing.T, f *precheckFixture) {
+			f.reserve(t, order(5))
+			f.reserve(t, order(6))
+			_ = f.ledger.Suspend(testSession, 5)
+		}, order: func(o *Order) { o.Sequence = 6; o.TaskHash = "new6" }, want: ErrSessionSuspended},
+		{name: "sequence gap", order: func(o *Order) { o.Sequence = 6 }, want: ErrOrderSequenceConflict},
+		{name: "sequence already consumed", order: func(o *Order) { o.Sequence = 4 }, want: ErrOrderSequenceConflict},
+		{name: "cancellation registered", setup: func(t *testing.T, f *precheckFixture) {
+			_ = f.cache.HandleChainEvent(sessionEvent(101, chaincli.OrderCancelRequested{SessionID: testSession, OrderSequence: 5, CancelEffectiveHeight: 140}))
+		}, want: ErrOrderSequenceConflict},
+		{name: "builder in-flight limit", setup: func(t *testing.T, f *precheckFixture) {
+			for seq := uint64(5); seq < 8; seq++ {
+				f.reserve(t, order(seq))
+			}
+		}, order: func(o *Order) { o.Sequence = 8 }, want: ErrInflightLimit},
+		{name: "max pending limit", setup: func(t *testing.T, f *precheckFixture) {
+			f.p.SetParams(Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 1})
+			f.reserve(t, order(5))
+		}, order: func(o *Order) { o.Sequence = 6 }, want: ErrInflightLimit},
+		{name: "close registered", state: func(s *chaincli.SessionState) {
+			s.PendingWithdrawKind = taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_CLOSE
+		}, want: ErrSessionClosing},
+		{name: "balance", order: func(o *Order) { o.MaxFee = 901 }, want: ErrSessionBalanceInsufficient},
+		{name: "balance after pending withdrawal", state: func(s *chaincli.SessionState) {
+			s.PendingWithdrawKind = taskv1.SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_AMOUNT
+			s.PendingWithdrawAmount = "801"
+		}, want: ErrSessionBalanceInsufficient},
+		{name: "balance after in-flight orders", setup: func(t *testing.T, f *precheckFixture) {
+			o := order(5)
+			o.MaxFee = 801
+			f.reserve(t, o)
+		}, order: func(o *Order) { o.Sequence = 6 }, want: ErrSessionBalanceInsufficient},
+		{name: "chain unreadable", setup: func(t *testing.T, f *precheckFixture) {
+			f.chain.err = errors.New("node down")
+			f.cache.SessionStreamDown(testSession)
+		}, want: ErrUnavailable},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t, c.state)
+			if c.setup != nil {
+				c.setup(t, f)
+			}
+			o := order(5)
+			if c.order != nil {
+				c.order(&o)
+			}
+			_, err := f.p.Check(context.Background(), o)
+			if !errors.Is(err, c.want) {
+				t.Fatalf("Check = %v, want %v", err, c.want)
+			}
+			if _, err := f.p.Reserve(context.Background(), o); !errors.Is(err, c.want) {
+				t.Fatalf("Reserve = %v, want %v", err, c.want)
+			}
+		})
+	}
+}
+
+func withKey(o *Order) {
+	key := testKey
+	o.SessionKey = &key
+}
+
+func TestPrecheckTakeoverPendingCarriesTheCandidate(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) {
+		s.PendingTakeover = &chaincli.PendingTakeover{CandidateBuilder: "other", ActivationHeight: 130}
+	})
+	_, err := f.p.Check(context.Background(), order(5))
+	var pending *TakeoverPendingError
+	if !errors.As(err, &pending) || pending.Candidate != "other" || pending.ActivationHeight != 130 {
+		t.Fatalf("Check = %v", err)
+	}
+}
+
+// A session bound elsewhere ends the precheck before freshness: the takeover path decides.
+func TestPrecheckBoundElsewhere(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) { s.BoundBuilder = "other"; s.BoundChangeHeight = 110 })
+	o := order(5)
+	o.EarliestSubmitHeight = 50 // stale for a bound session
+	res, err := f.p.Reserve(context.Background(), o)
+	if err != nil || res.Binding != BoundElsewhere || res.Session.BoundBuilder != "other" || res.Deadline != 130 {
+		t.Fatalf("Reserve = %+v, %v", res, err)
+	}
+	if len(f.ledger.Entries(testSession)) != 0 {
+		t.Fatal("an order bound elsewhere entered the ledger")
+	}
+	// The expiry still applies.
+	o.ExpireHeight = 100
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+		t.Fatalf("expired order bound elsewhere = %v", err)
+	}
+}
+
+func TestPrecheckFreshnessBoundaries(t *testing.T) {
+	f := newFixture(t, nil)
+	for _, esh := range []uint64{95, 101} {
+		o := order(5)
+		o.EarliestSubmitHeight = esh
+		if _, err := f.p.Check(context.Background(), o); err != nil {
+			t.Fatalf("earliest_submit_height %d at head 100: %v", esh, err)
+		}
+	}
+	o := order(5)
+	o.ExpireHeight = 102
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("order recordable at 101 before expiry 102: %v", err)
+	}
+}
+
+func TestPrecheckIdempotency(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	for _, step := range []struct {
+		mark func() error
+		want State
+	}{
+		{func() error { return nil }, StateDispatching},
+		{func() error { return f.ledger.MarkAccepted(testSession, 5) }, StateAccepted},
+		{func() error { return f.ledger.MarkRecorded(testSession, 5) }, StateRecorded},
+	} {
+		if err := step.mark(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := f.p.Reserve(context.Background(), order(5))
+		if err != nil || res.Existing == nil || res.Existing.State != step.want {
+			t.Fatalf("retry at %s = %+v, %v", step.want, res, err)
+		}
+	}
+	// After the chain view includes the record the order is still answered until its deadline.
+	f.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 6 })
+	f.cache.SessionKeyUpdated(testSession)
+	if res, err := f.p.Check(context.Background(), order(5)); err != nil || res.Existing == nil {
+		t.Fatalf("retry of a recorded order = %+v, %v", res, err)
+	}
+}
+
+// After a failed attempt the same sequence, even a new version of the order, is a retry.
+func TestPrecheckRetryAfterFailure(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	if err := f.ledger.MarkFailed(testSession, 5); err != nil {
+		t.Fatal(err)
+	}
+	o := order(5)
+	o.TaskHash = "resigned"
+	res := f.reserve(t, o)
+	if !res.Retry || res.Existing != nil {
+		t.Fatalf("retry = %+v", res)
+	}
+	if e, _ := f.ledger.Get(testSession, 5); e.State != StateDispatching || e.TaskHash != "resigned" {
+		t.Fatalf("entry after retry = %+v", e)
+	}
+}
+
+// The resend of the suspended sequence is admitted and ends the suspension.
+func TestPrecheckSuspensionEndsWithTheResend(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	f.reserve(t, order(6))
+	if err := f.ledger.Suspend(testSession, 5); err != nil {
+		t.Fatal(err)
+	}
+	res := f.reserve(t, order(5))
+	if !res.Retry {
+		t.Fatalf("resend = %+v", res)
+	}
+	if _, suspended := f.ledger.SuspendedFrom(testSession); suspended {
+		t.Fatal("suspension kept after the resend was admitted")
+	}
+	if res := f.reserve(t, order(6)); !res.Retry {
+		t.Fatalf("sequence 6 after the resend = %+v", res)
+	}
+}
+
+// Two in-flight orders signed by the session key: each fits the cap alone, the second must count
+// the first, or the Keeper would admit one and reject the other at record time.
+func TestPrecheckSpendCapCountsInFlightOrders(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) { s.SpendCap = "700" }) // 500 spent: room for 200
+	f.reserve(t, keyOrder(5))
+	f.reserve(t, keyOrder(6))
+	if _, err := f.p.Check(context.Background(), keyOrder(7)); !errors.Is(err, registeredkey.ErrSpendCapExceeded) {
+		t.Fatalf("third key order = %v, want spend cap exceeded", err)
+	}
+	// Wallet orders in flight do not use the key's cap, and a wallet order is not bound by it.
+	if _, err := f.p.Check(context.Background(), order(7)); err != nil {
+		t.Fatalf("wallet order = %v", err)
+	}
+}
+
+func TestPrecheckPendingRestrictionIsEffective(t *testing.T) {
+	cases := []struct {
+		name   string
+		change *chaincli.PendingSessionKeyChange
+		want   error
+	}{
+		{name: "clear", change: &chaincli.PendingSessionKeyChange{
+			Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_CLEAR, EffectiveHeight: 400,
+		}, want: registeredkey.ErrKeyInvalid},
+		{name: "lower cap", change: &chaincli.PendingSessionKeyChange{
+			Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET, Key: testKey[:], ExpiryHeight: 500, SpendCap: "550", EffectiveHeight: 400,
+		}, want: registeredkey.ErrSpendCapExceeded},
+		{name: "higher cap", change: &chaincli.PendingSessionKeyChange{
+			Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET, Key: testKey[:], ExpiryHeight: 500, SpendCap: "9000", EffectiveHeight: 400,
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t, func(s *chaincli.SessionState) { s.PendingKeyChange = c.change })
+			if _, err := f.p.Check(context.Background(), keyOrder(5)); !errors.Is(err, c.want) {
+				t.Fatalf("Check = %v, want %v", err, c.want)
+			}
+		})
+	}
+	// A clear registered after the state was read arrives as an event and applies at once.
+	f := newFixture(t, nil)
+	_ = f.cache.HandleChainEvent(sessionEvent(101, chaincli.SessionKeyChangeRequested{
+		SessionID: testSession, Kind: taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_CLEAR, EffectiveHeight: 400,
+	}))
+	if _, err := f.p.Check(context.Background(), keyOrder(5)); !errors.Is(err, registeredkey.ErrKeyInvalid) {
+		t.Fatalf("key order after a clear event = %v", err)
+	}
+}
+
+func TestPrecheckCancellation(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	_ = f.cache.HandleChainEvent(sessionEvent(101, chaincli.OrderCancelRequested{SessionID: testSession, OrderSequence: 6, CancelEffectiveHeight: 140}))
+	if !f.ledger.CancelRequested(testSession, 6) {
+		t.Fatal("cancellation not recorded")
+	}
+	if _, err := f.p.Check(context.Background(), order(6)); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("order of a sequence being cancelled = %v", err)
+	}
+	// 5 fails (say, no capacity) and is cancelled: the chain's next moves past it and the ledger
+	// stops counting it.
+	_ = f.cache.HandleChainEvent(sessionEvent(140, chaincli.OrderCancelled{SessionID: testSession, OrderSequence: 5}))
+	if e, _ := f.ledger.Get(testSession, 5); e.State != StateFailed {
+		t.Fatalf("cancelled in-flight order = %s", e.State)
+	}
+	o6 := order(6)
+	o6.EarliestSubmitHeight = 140
+	if _, err := f.p.Check(context.Background(), o6); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("6 while its cancellation is pending = %v", err)
+	}
+	_ = f.cache.HandleChainEvent(sessionEvent(141, chaincli.OrderCancelled{SessionID: testSession, OrderSequence: 6}))
+	o := order(7)
+	o.EarliestSubmitHeight = 141
+	_ = f.cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 141})
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("7 after 5 and 6 were cancelled = %v", err)
+	}
+}
+
+func TestPrecheckRecoversAfterRestart(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, keyOrder(5))
+	f.reserve(t, order(6))
+	if err := f.ledger.MarkAccepted(testSession, 5); err != nil {
+		t.Fatal(err)
+	}
+	f.restart(t)
+	if res, err := f.p.Check(context.Background(), keyOrder(5)); err != nil || res.Existing == nil || res.Existing.State != StateAccepted {
+		t.Fatalf("retry of 5 after restart = %+v, %v", res, err)
+	}
+	if _, err := f.p.Check(context.Background(), order(6)); err != nil {
+		t.Fatalf("retry of 6 after restart = %v", err)
+	}
+	// Both still count: the next order is 7 and must fit after 200 in flight.
+	o := order(7)
+	o.MaxFee = 701
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrSessionBalanceInsufficient) {
+		t.Fatalf("7 after restart = %v", err)
+	}
+	o.MaxFee = 700
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("7 within the balance after restart = %v", err)
+	}
+}
+
+// The record of an in-flight order keeps the precheck exact before and after the cached state
+// catches up.
+func TestPrecheckAcrossARecord(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	_ = f.cache.HandleChainEvent(sessionEvent(101, chaincli.DispatchRecorded{SessionID: testSession, OrderSequence: 5, ReservedAmount: "100"}))
+	check := func(stage string) {
+		o := order(6)
+		o.MaxFee = 801
+		if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrSessionBalanceInsufficient) {
+			t.Fatalf("%s: 801 = %v", stage, err)
+		}
+		o.MaxFee = 800
+		if _, err := f.p.Check(context.Background(), o); err != nil {
+			t.Fatalf("%s: 800 = %v", stage, err)
+		}
+	}
+	f.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 6; s.FrozenTotal = "200" })
+	check("before the refresh") // this lookup starts the refresh
+	check("after the refresh")
+}
+
+// BenchmarkOpenTaskPrecheck measures Check on a warm session with two orders in flight.
+func BenchmarkOpenTaskPrecheck(b *testing.B) {
+	f := newFixture(b, nil)
+	f.reserve(b, keyOrder(5))
+	f.reserve(b, keyOrder(6))
+	o := keyOrder(7)
+	ctx := context.Background()
+	durations := make([]time.Duration, 0, b.N)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+		if _, err := f.p.Check(ctx, o); err != nil {
+			b.Fatal(err)
+		}
+		durations = append(durations, time.Since(start))
+	}
+	b.StopTimer()
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	b.ReportMetric(float64(durations[len(durations)/2].Nanoseconds()), "p50-ns")
+	b.ReportMetric(float64(durations[len(durations)*99/100].Nanoseconds()), "p99-ns")
+	if f.chain.readCount() != 2 {
+		b.Fatalf("warm precheck read the chain: %d reads", f.chain.readCount())
+	}
+}
+
+// Concurrent orders for the same sequence and funds: exactly one is reserved.
+func TestPrecheckReserveIsAtomic(t *testing.T) {
+	f := newFixture(t, nil)
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			o := order(5)
+			o.TaskHash = fmt.Sprintf("version%d", i)
+			o.MaxFee = 800
+			_, err := f.p.Reserve(context.Background(), o)
+			errs <- err
+		}(i)
+	}
+	admitted := 0
+	for i := 0; i < n; i++ {
+		if err := <-errs; err == nil {
+			admitted++
+		} else if !errors.Is(err, ErrOrderReplacementUnsupported) {
+			t.Fatalf("concurrent reserve = %v", err)
+		}
+	}
+	if admitted != 1 {
+		t.Fatalf("%d concurrent orders for one sequence were reserved", admitted)
+	}
+}
