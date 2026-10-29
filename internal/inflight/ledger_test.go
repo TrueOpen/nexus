@@ -191,3 +191,32 @@ func TestLedgerUnfinished(t *testing.T) {
 		}
 	}
 }
+
+// An accept whose ticket was voided (the session's binding changed before the record) puts the
+// order back to DISPATCHING: it is dispatched again, and still counts.
+func TestLedgerMarkDispatchingAfterVoidedAccept(t *testing.T) {
+	store := kv.NewMemStore()
+	l, err := NewLedger(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.put(testSession, entry(4, 5, false)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.MarkAccepted(testSession, 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.MarkDispatching(testSession, 4); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewLedger(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := reloaded.Get(testSession, 4); !ok || e.State != StateDispatching || !e.Committed {
+		t.Fatalf("entry = %+v %v", e, ok)
+	}
+	if err := l.MarkDispatching(testSession, 9); err == nil {
+		t.Fatal("unknown order marked")
+	}
+}

@@ -292,6 +292,12 @@ func (l *Ledger) MarkAccepted(sessionID string, seq uint64) error {
 	return l.setState(sessionID, seq, StateAccepted)
 }
 
+// MarkDispatching records that an accepted ticket of the order was voided before its record (the
+// session's binding changed): the order is dispatched again in a new round.
+func (l *Ledger) MarkDispatching(sessionID string, seq uint64) error {
+	return l.setState(sessionID, seq, StateDispatching)
+}
+
 // MarkRecorded records that the chain admitted the order's dispatch entry. The order keeps
 // counting until the session state the precheck reads includes the record.
 func (l *Ledger) MarkRecorded(sessionID string, seq uint64) error {
