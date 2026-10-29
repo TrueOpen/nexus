@@ -51,6 +51,9 @@ func New(store kv.Store, p Params) *Store {
 // RetainUntil.
 func (s *Store) SetParams(p Params) { s.params.Store(&p) }
 
+// Params returns the windows in use.
+func (s *Store) Params() Params { return *s.params.Load() }
+
 // Put stores o, replacing the evidence of the same key, with extra written in the same batch.
 // RetainUntil never moves earlier than what was stored or extended before.
 func (s *Store) Put(o *Order, extra ...kv.WriteOp) error {
