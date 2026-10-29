@@ -192,3 +192,34 @@ func TestRejectRateMinSamplesIsConfigured(t *testing.T) {
 		t.Fatalf("leaf = %v, want a reject-rate suspension after two samples", leaf)
 	}
 }
+
+type rttTable map[string]time.Duration
+
+func (t rttTable) RTT(operator string) (time.Duration, bool) {
+	rtt, ok := t[operator]
+	return rtt, ok
+}
+
+// With an RTT source the registry measures every held handraise before it issues a root.
+func TestRootSamplesStreamRTT(t *testing.T) {
+	e := newEnv(t)
+	far, near := e.addCortex(0x11, 4), e.addCortex(0x22, 5)
+	rtts := rttTable{far.operator(): 150*time.Millisecond + 300*time.Microsecond, near.operator(): 20 * time.Millisecond}
+	reg, err := New(Options{
+		ChainID: testChainID, BuilderAddress: e.builder.Address(), Config: e.cfg, Store: e.store, Keys: e.keys,
+		Pool: e.pool, Height: e.height, Signer: e.builder, Now: e.clock.Now, RTT: rtts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.reg = reg
+	e.mustAccept(far, e.handraise(far, 100, 1))
+	e.mustAccept(near, e.handraise(near, 100, 1))
+	root := e.mustIssue()
+	if leaf := leafOf(t, root, far.operator()); leaf.GetAdmitted() || leaf.GetBuilderMeasuredRttMs() != 151 {
+		t.Fatalf("far leaf = %v, want refused at 151 ms (rounded up)", leaf)
+	}
+	if leaf := leafOf(t, root, near.operator()); !leaf.GetAdmitted() {
+		t.Fatalf("near leaf = %v", leaf)
+	}
+}

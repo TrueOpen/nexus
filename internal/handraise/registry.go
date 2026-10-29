@@ -71,6 +71,11 @@ type CandidatePool interface {
 	HasFreshSupport(ctx context.Context, operator string, profile *taskv1.DispatchProfileV1) (bool, error)
 }
 
+// RTTSource reports the latest round-trip time measured on operator's dispatch stream.
+type RTTSource interface {
+	RTT(operator string) (time.Duration, bool)
+}
+
 // ChainHeight returns this Builder's latest observed chain height.
 type ChainHeight interface {
 	LatestHeight(ctx context.Context) (uint64, error)
@@ -87,6 +92,8 @@ type Options struct {
 	Height         ChainHeight
 	// Signer holds this Builder's current service key; it signs every root.
 	Signer signer.Signer
+	// RTT, when set, is sampled for every held handraise before each root is issued (RecordRTT).
+	RTT RTTSource
 	// Now is the local clock of handraise TTLs; nil means time.Now.
 	Now func() time.Time
 	Log *slog.Logger

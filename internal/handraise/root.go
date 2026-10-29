@@ -82,6 +82,7 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	if nonce == 0 {
 		return nil, fmt.Errorf("builder service key has no authorization nonce")
 	}
+	r.sampleRTT()
 
 	r.mu.Lock()
 	last := r.latest
@@ -128,6 +129,25 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	r.latest = issued
 	r.mu.Unlock()
 	return issued, nil
+}
+
+// sampleRTT records the measured RTT of every operator holding a handraise. An operator without a
+// measurement keeps its last recorded one.
+func (r *Registry) sampleRTT() {
+	if r.opts.RTT == nil {
+		return
+	}
+	r.mu.Lock()
+	operators := make([]string, 0, len(r.current))
+	for operator := range r.current {
+		operators = append(operators, operator)
+	}
+	r.mu.Unlock()
+	for _, operator := range operators {
+		if rtt, ok := r.opts.RTT.RTT(operator); ok {
+			r.RecordRTT(operator, uint64((rtt+time.Millisecond-1)/time.Millisecond))
+		}
+	}
 }
 
 // Run issues a root every handraise_root_interval_ms until ctx ends, handing each new root to
