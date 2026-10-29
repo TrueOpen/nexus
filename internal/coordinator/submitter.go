@@ -587,13 +587,21 @@ func (s *defaultSubmitter) submitLocked(ctx context.Context, kind, typeURL strin
 }
 
 func (s *defaultSubmitter) submitAnyLocked(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
+	build := func(p chaincli.TxParams) ([]byte, error) { return chaincli.BuildSignedTx(s.signer, p, msgAny) }
+	return s.submitBuiltLocked(ctx, kind, typeURL, build, nil)
+}
+
+// submitBuiltLocked signs with build at the cached sequence and broadcasts, refreshing the sequence
+// and signing once more on a sequence mismatch. persist, when set, gets every signed transaction
+// before it is broadcast; one it fails is not broadcast. Caller must hold seqMu.
+func (s *defaultSubmitter) submitBuiltLocked(ctx context.Context, kind, typeURL string, build func(chaincli.TxParams) ([]byte, error), persist func([]byte) error) (chaincli.TxResult, error) {
 	if !s.seqValid {
 		if err := s.refreshSequence(ctx); err != nil {
 			return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: account info: %w", kind, err)}
 		}
 	}
 
-	res, err := s.signAndBroadcast(ctx, kind, typeURL, msgAny)
+	res, err := s.signAndBroadcast(ctx, kind, typeURL, build, persist)
 	if err != nil {
 		// Broadcast failure (network/node unreachable): unknown whether the sequence was consumed -> mark dirty.
 		s.seqValid = false
@@ -617,7 +625,7 @@ func (s *defaultSubmitter) submitAnyLocked(ctx context.Context, kind, typeURL st
 	if err := s.refreshSequence(ctx); err != nil {
 		return res, &SubmissionError{Phase: SubmissionPrepare, Result: res, Err: fmt.Errorf("submit %s: refresh sequence: %w", kind, err)}
 	}
-	res, err = s.signAndBroadcast(ctx, kind, typeURL, msgAny)
+	res, err = s.signAndBroadcast(ctx, kind, typeURL, build, persist)
 	if err != nil {
 		s.seqValid = false
 		return res, err
@@ -684,16 +692,22 @@ func (s *defaultSubmitter) txParams() chaincli.TxParams {
 	}
 }
 
-// signAndBroadcast signs with the currently cached sequence and broadcasts. Caller must hold seqMu.
-func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL string, msgAny *anypb.Any) (chaincli.TxResult, error) {
+// signAndBroadcast signs with build at the currently cached sequence, hands the bytes to persist
+// (when set) and broadcasts them. Caller must hold seqMu.
+func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL string, build func(chaincli.TxParams) ([]byte, error), persist func([]byte) error) (chaincli.TxResult, error) {
 	signStart := time.Now()
-	raw, err := chaincli.BuildSignedTx(s.signer, s.txParams(), msgAny)
+	raw, err := build(s.txParams())
 	s.lastSign = time.Since(signStart)
 	if err != nil {
 		return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Definitive: true, Err: fmt.Errorf("submit %s: %w", kind, err)}
 	}
 	s.log.Debug("submit tx signed", "kind", kind, "type_url", typeURL,
 		"signer", s.signer.Address(), "sequence", s.sequence, "bytes", len(raw))
+	if persist != nil {
+		if err := persist(raw); err != nil {
+			return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: persist signed tx: %w", kind, err)}
+		}
+	}
 	broadcastStart := time.Now()
 	res, err := s.chain.BroadcastTx(ctx, raw)
 	s.lastBroadcast = time.Since(broadcastStart)
