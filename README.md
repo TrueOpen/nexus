@@ -235,6 +235,22 @@ after the first ACK it is immediately removed from the read path and physical de
 force-cleaned after the default 4-hour hard TTL. A tombstone is kept for at least 24 hours by default to block replay recovery; it contains no plaintext.
 Production deployments should restrict data directory permissions, disk backup scope and operator access to the node.
 
+## Task Builders group sync
+
+Every order this Builder dispatches is synced to the other Builders of the order's Task Builders
+group over `BuilderSyncService` on the ingress port (batches signed with the Builder service key, no
+API key; limited per source address by `ingress.builder_sync_requests_per_second` and
+`ingress.builder_sync_burst`, defaults 1000 and 2000). The dispatching side keeps an outbox per order
+and deletes the items every member applied.
+
+A member that later reports fewer items than were deleted has lost its data directory. It is logged
+once as an error ("group member holds fewer of an order's sync items ...") and counted as an alarm,
+and it cannot stand in for this Builder on that order; the other members still can. Nothing else is
+sent to it on that order except a probe every 10 minutes with the items still held. To clear the
+mark, restore that member's data directory from a backup taken after it held the deleted items: the
+next probe finds it caught up, logs "the mark is cleared" and syncing resumes. Without a backup no
+action is needed; the mark goes with the order's sync stream when its retention ends.
+
 ## User request signing
 
 User requests carry an `SDKRequestEnvelopeV2`: a 65-byte `R || S || V` signature (`V` 27 or 28,

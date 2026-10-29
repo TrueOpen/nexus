@@ -654,7 +654,8 @@ func TestFirstBatchAfterASnapshotChange(t *testing.T) {
 
 // Items every member acknowledged are deleted. A member that later holds fewer items than were
 // deleted (it lost its store) cannot be caught up from the outbox: it is marked lost on the order
-// and alarmed once, and nothing more is sent to it there.
+// and alarmed once, and only probed every lostProbeEvery with the items still held. Once it holds
+// what was deleted again (its store restored), the mark is cleared and it syncs as before.
 func TestMemberBehindDeletedItemsIsMarkedLost(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
@@ -672,6 +673,7 @@ func TestMemberBehindDeletedItemsIsMarkedLost(t *testing.T) {
 		t.Fatalf("items acknowledged by both members kept: %+v", st)
 	}
 
+	restored := e.member
 	fresh := e.newMember(e.m) // M lost its store
 	e.member = fresh
 	e.peers.receivers[e.m.op] = fresh.r
@@ -682,15 +684,29 @@ func TestMemberBehindDeletedItemsIsMarkedLost(t *testing.T) {
 		t.Fatalf("lost member: lost %v, counts %+v", st.Lost, e.s.Counts())
 	}
 	before := len(e.peers.requests[e.m.op])
-	e.clock.advance(time.Hour)
+	e.clock.advance(lostProbeEvery / 2)
 	e.s.deliverPeer(context.Background(), e.m.op)
-	if len(e.peers.requests[e.m.op]) != before || e.s.Counts().Alarms != 1 {
-		t.Fatal("a lost member was sent more or alarmed again")
+	if len(e.peers.requests[e.m.op]) != before {
+		t.Fatal("a lost member was sent more before its probe")
 	}
 	// X goes on.
 	e.s.deliverPeer(context.Background(), e.x.op)
 	if st := e.s.streams[key]; st.Acked[e.x.op] != st.Last {
 		t.Fatalf("X after M was lost: %+v", st)
+	}
+	e.clock.advance(lostProbeEvery)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if len(e.peers.requests[e.m.op]) != before+1 || !e.s.streams[key].Lost[e.m.op] || e.s.Counts().Alarms != 1 {
+		t.Fatalf("probe of a member still without its store: %d requests, lost %v, %+v",
+			len(e.peers.requests[e.m.op])-before, e.s.streams[key].Lost, e.s.Counts())
+	}
+
+	e.member = restored // M's store is restored from a backup
+	e.peers.receivers[e.m.op] = restored.r
+	e.clock.advance(lostProbeEvery)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if st := e.s.streams[key]; st.Lost[e.m.op] || st.Acked[e.m.op] != st.Last {
+		t.Fatalf("restored member: %+v", st)
 	}
 }
 

@@ -100,16 +100,26 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 		s.mu.Unlock()
 		return false, true
 	}
-	if r := s.retries[key+"|"+peer]; r != nil && now.Before(r.next) || st.Lost[peer] {
+	from, probe := st.Acked[peer]+1, st.Lost[peer]
+	switch {
+	case probe:
+		// A member marked lost is only sent the items still held now and then: once it holds what
+		// was deleted again (its store restored) it takes them and the mark is cleared.
+		if now.Before(s.probes[key+"|"+peer]) || st.Pruned >= st.Last {
+			s.mu.Unlock()
+			return false, true
+		}
+		s.probes[key+"|"+peer] = now.Add(lostProbeEvery)
+		from = st.Pruned + 1
+	case s.retries[key+"|"+peer] != nil && now.Before(s.retries[key+"|"+peer].next):
 		s.mu.Unlock()
 		return false, true
-	}
-	if st.Acked[peer] < st.Pruned {
+	case st.Acked[peer] < st.Pruned:
 		s.markLostLocked(st, peer)
 		s.mu.Unlock()
 		return false, false
 	}
-	p := plan{stream: *st.clone(), from: st.Acked[peer] + 1, to: st.Last, output: st.Output[peer]}
+	p := plan{stream: *st.clone(), from: from, to: st.Last, output: st.Output[peer]}
 	s.mu.Unlock()
 
 	batch, err := s.batch(ctx, p, peer)
@@ -137,6 +147,11 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 		}
 	}
 	if err != nil {
+		if probe {
+			s.failures.Add(1)
+			s.log.Info("group member marked lost on an order still lacks its deleted sync items", "order", key, "member", peer, "err", err)
+			return true, false
+		}
 		s.failed(key, peer, err)
 		return true, false
 	}
@@ -272,6 +287,10 @@ func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
 	if lost {
 		next.Lost[peer] = true
 	}
+	restored := next.Lost[peer] && next.Acked[peer] >= next.Pruned
+	if restored {
+		delete(next.Lost, peer)
+	}
 	op, err := streamOp(next)
 	if err == nil {
 		err = s.cfg.Store.WriteBatch(append(ops, op)...)
@@ -282,7 +301,12 @@ func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
 	}
 	s.streams[key] = next
 	if lost {
+		s.probes[key+"|"+peer] = s.cfg.Clock().Add(lostProbeEvery)
 		s.alarmLost(next, peer)
+	}
+	if restored {
+		delete(s.probes, key+"|"+peer)
+		s.log.Info("group member marked lost on an order holds its sync items again; the mark is cleared", "order", key, "member", peer)
 	}
 }
 
@@ -297,14 +321,17 @@ func (s *Sender) markLostLocked(st *outStream, peer string) {
 		}
 	}
 	s.streams[st.key()] = next
+	s.probes[st.key()+"|"+peer] = s.cfg.Clock().Add(lostProbeEvery)
 	s.alarmLost(next, peer)
 }
 
 // alarmLost reports a member marked lost on an order, once.
 func (s *Sender) alarmLost(st *outStream, peer string) {
 	s.alarms.Add(1)
-	s.log.Error("group member holds fewer of an order's sync items than every member acknowledged (it lost its store); "+
-		"the outbox cannot catch it up and it needs a manual resync of the order", "order", st.key(), "member", peer,
+	s.log.Error("group member holds fewer of an order's sync items than every member acknowledged (it lost its store): "+
+		"it cannot stand in for this Builder on the order. Restore the member's data directory from a backup taken after "+
+		"it held the deleted items; it is probed every 10 minutes and the mark clears once it holds them. Otherwise the "+
+		"mark is dropped with the order's sync stream at the end of its retention", "order", st.key(), "member", peer,
 		"holds", st.Acked[peer], "deleted_through", st.Pruned)
 }
 

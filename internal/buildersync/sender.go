@@ -42,6 +42,9 @@ const (
 	// maxChangeRetries is how many prune ticks a change that failed is applied again before it is
 	// dropped (the dispatcher hands the order over again on its next change or a restart).
 	maxChangeRetries = 30
+	// lostProbeEvery is how often a member marked lost on an order is sent the items still held, to
+	// find out whether its store was restored.
+	lostProbeEvery = 10 * time.Minute
 )
 
 // Peers sends a signed batch to a member of a Task Builders group (ChainPeers).
@@ -129,6 +132,7 @@ type Sender struct {
 	mu      sync.Mutex
 	streams map[string]*outStream // streamKey -> stream
 	retries map[string]*retry     // streamKey|peer -> backoff
+	probes  map[string]time.Time  // streamKey|peer -> next probe of a member marked lost
 	workers map[string]chan struct{}
 	// qmu guards queue alone, so a caller handing over a change never waits on s.mu (held while
 	// a change is turned into items, which may read the chain).
@@ -263,7 +267,7 @@ func NewSender(cfg SenderConfig) (*Sender, error) {
 		cfg.Clock = time.Now
 	}
 	s := &Sender{
-		cfg: cfg, log: cfg.Log, streams: map[string]*outStream{}, retries: map[string]*retry{},
+		cfg: cfg, log: cfg.Log, streams: map[string]*outStream{}, retries: map[string]*retry{}, probes: map[string]time.Time{},
 		workers: map[string]chan struct{}{}, wake: make(chan struct{}, 1), redo: map[string]event{},
 	}
 	if s.log == nil {
@@ -743,6 +747,7 @@ func (s *Sender) prune(head uint64) {
 		delete(s.streams, key)
 		for _, peer := range st.Peers {
 			delete(s.retries, key+"|"+peer)
+			delete(s.probes, key+"|"+peer)
 		}
 	}
 }
