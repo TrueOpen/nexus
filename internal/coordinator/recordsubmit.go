@@ -21,6 +21,12 @@ type RecordSubmitter interface {
 	SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func(raw []byte) error) (chaincli.TxResult, error)
 	// BroadcastTx sends signed transaction bytes again, unchanged.
 	BroadcastTx(ctx context.Context, raw []byte) (chaincli.TxResult, error)
+	// SubmitRebutDispatchCompensation signs and broadcasts a rebuttal of a compensation claim on
+	// one of this Builder's tickets; responder_address must be the service account.
+	SubmitRebutDispatchCompensation(ctx context.Context, msg *taskv1.MsgRebutDispatchCompensation) (chaincli.TxResult, error)
+	// SubmitRespondDispatchChallenge signs and broadcasts the answer to a dispatch challenge;
+	// responder_address must be the service account.
+	SubmitRespondDispatchChallenge(ctx context.Context, msg *taskv1.MsgRespondDispatchChallenge) (chaincli.TxResult, error)
 }
 
 // NewRecordSubmitter builds the RecordSubmitter of serviceSigner. When shared is the signed task
@@ -50,6 +56,28 @@ func (s *defaultSubmitter) SubmitRecordDispatch(ctx context.Context, msg *taskv1
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	return s.submitBuiltLocked(ctx, "MsgRecordDispatch", chaincli.TypeURLMsgRecordDispatch, build, persist)
+}
+
+// SubmitRebutDispatchCompensation implements RecordSubmitter.
+func (s *defaultSubmitter) SubmitRebutDispatchCompensation(ctx context.Context, msg *taskv1.MsgRebutDispatchCompensation) (chaincli.TxResult, error) {
+	if s.signer == nil {
+		return chaincli.TxResult{}, prepareSubmissionError("MsgRebutDispatchCompensation: service signer is required")
+	}
+	build := func(p chaincli.TxParams) ([]byte, error) { return chaincli.BuildRebutDispatchCompensationTx(s.signer, p, msg) }
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	return s.submitBuiltLocked(ctx, "MsgRebutDispatchCompensation", chaincli.TypeURLMsgRebutDispatchCompensation, build, nil)
+}
+
+// SubmitRespondDispatchChallenge implements RecordSubmitter.
+func (s *defaultSubmitter) SubmitRespondDispatchChallenge(ctx context.Context, msg *taskv1.MsgRespondDispatchChallenge) (chaincli.TxResult, error) {
+	if s.signer == nil {
+		return chaincli.TxResult{}, prepareSubmissionError("MsgRespondDispatchChallenge: service signer is required")
+	}
+	build := func(p chaincli.TxParams) ([]byte, error) { return chaincli.BuildRespondDispatchChallengeTx(s.signer, p, msg) }
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	return s.submitBuiltLocked(ctx, "MsgRespondDispatchChallenge", chaincli.TypeURLMsgRespondDispatchChallenge, build, nil)
 }
 
 // BroadcastTx implements RecordSubmitter.

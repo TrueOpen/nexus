@@ -22,6 +22,7 @@ type seqChain struct {
 	accQueries int
 	accSeq     uint64 // sequence returned by AccountInfo (tests may change it to simulate external consumption)
 	broadcasts []uint64
+	raws       [][]byte            // the transactions broadcast
 	results    []chaincli.TxResult // popped in order; returns Code 0 once exhausted
 	errs       []error             // aligned with results; nil = no error
 }
@@ -41,6 +42,7 @@ func (c *seqChain) BroadcastTx(_ context.Context, tx []byte) (chaincli.TxResult,
 		return chaincli.TxResult{}, err
 	}
 	c.broadcasts = append(c.broadcasts, auth.SignerInfos[0].Sequence)
+	c.raws = append(c.raws, tx)
 
 	if len(c.results) > 0 {
 		res, err := c.results[0], c.errs[0]
