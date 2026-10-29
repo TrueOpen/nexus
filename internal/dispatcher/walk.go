@@ -11,6 +11,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
@@ -66,9 +67,11 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 func (d *Dispatcher) finish(ctx context.Context, out done) {
 	if out.withdraw != nil {
 		d.cfg.Recorder.Withdraw(ctx, out.session, out.sequence, *out.withdraw)
+		d.cfg.Attempts.Voided(out.taskID, *out.withdraw)
 	}
 	switch {
 	case out.accepted != nil:
+		d.accepted(out.accepted)
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
 		if err := d.cfg.Recorder.Record(ctx, out.accepted); err != nil {
 			d.log.Error("dispatch entry not handed to the recorder", "session_id", out.session, "order_sequence", out.sequence, "err", err)
@@ -79,6 +82,14 @@ func (d *Dispatcher) finish(ctx context.Context, out done) {
 		return
 	}
 	d.kickParked(out.session)
+}
+
+// accepted hands an accepted order's winner to the attempt book.
+func (d *Dispatcher) accepted(b *Bundle) {
+	w := attempt.Winner{SessionID: b.SessionID, Sequence: b.Sequence, Ticket: b.Entry.GetWinnerTicket(), Accept: b.Entry.GetAccept()}
+	if err := d.cfg.Attempts.Accepted(w); err != nil {
+		d.log.Error("accepted winner not given to the attempt book", "session_id", b.SessionID, "order_sequence", b.Sequence, "err", err)
+	}
 }
 
 // kickParked lets the parked orders of a session try again: an earlier order of it was decided.

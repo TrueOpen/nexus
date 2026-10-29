@@ -16,6 +16,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
@@ -207,14 +208,10 @@ func TestAcceptStopsTheWalk(t *testing.T) {
 	if n := len(e.streams.offers()); n != 1 {
 		t.Fatalf("%d offers after the accept", n)
 	}
-	header, ok := e.d.DispatchResult(s, o.TaskID)
-	if !ok || digestOf(t, ticketName, header.GetWinnerTicket()) != hash || !bytes.Equal(header.GetAccept().GetDispatchTicketHash(), hash[:]) ||
-		header.GetRecordStatus() != taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_PENDING {
-		t.Fatalf("result header = %v %v", header, ok)
-	}
-	digest := digestOf(t, resultHeaderName, header)
-	if err := dispatch.VerifyDigestSignature(e.signer.PubKeyCompressed(), digest[:], header.GetBuilderServiceSignature()); err != nil {
-		t.Fatalf("result header signature: %v", err)
+	// The winner is the task's PENDING attempt.
+	won, ok := e.attempts.Current(o.TaskID)
+	if !ok || won.TicketHash != hash || won.Worker != op7 || won.Status != attempt.Pending {
+		t.Fatalf("attempt = %+v %v", won, ok)
 	}
 	// Outcomes feed the reject rate: the accepting Worker counts as not rejecting.
 	if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, []outcomeCall{{op7, false}}) {
@@ -473,11 +470,17 @@ func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
 	if w := e.recorder.withdrawn; len(w) != 1 || w[0] != firstWin {
 		t.Fatalf("withdrawn = %x", w)
 	}
+	if a, ok := e.attempts.Current(o.TaskID); ok {
+		t.Fatalf("voided winner is still the task's attempt: %+v", a)
+	}
 	op, ticket, _ = e.lastOffer()
 	if op != op3 || ticket.GetDispatchRound() != 2 || ticket.GetBoundChangeHeight() != 70 {
 		t.Fatalf("after the second change: %s %v", op, ticket)
 	}
-	e.accept()
+	_, secondWin := e.accept()
+	if a, ok := e.attempts.Current(o.TaskID); !ok || a.TicketHash != secondWin || a.Status != attempt.Pending {
+		t.Fatalf("attempt after the new round's accept = %+v %v", a, ok)
+	}
 	bundles := e.recorder.recorded()
 	rec := checkRecordable(t, e, bundles[len(bundles)-1], 70)
 	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:VOIDED", "1:1:VOIDED", "2:2:ACCEPTED"}) {

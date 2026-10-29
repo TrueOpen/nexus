@@ -99,6 +99,12 @@ type Tasks interface {
 	RecordRejected(sessionID, taskID string, code taskv1.DispatchRejectCodeV1)
 }
 
+// Attempts is told the record outcome of each winner ticket (attempt.Book).
+type Attempts interface {
+	Recorded(taskID string, ticketHash [32]byte)
+	Rejected(taskID string, ticketHash [32]byte)
+}
+
 // Streams sends the record notices to the winners' dispatch streams.
 type Streams interface {
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
@@ -109,13 +115,14 @@ type Config struct {
 	ChainID string
 	// Signer is the Builder service key: it signs the record transactions as their
 	// submitter_address and the record notices.
-	Signer  signer.Signer
-	Store   kv.Store
-	Ledger  Ledger
-	Chain   Chain
-	Tx      Submitter
-	Tasks   Tasks
-	Streams Streams
+	Signer   signer.Signer
+	Store    kv.Store
+	Ledger   Ledger
+	Chain    Chain
+	Tx       Submitter
+	Tasks    Tasks
+	Attempts Attempts
+	Streams  Streams
 	// Gate holds the compensation account: no record is sent while it is below the minimum.
 	Gate *Gate
 	Log  *slog.Logger
@@ -148,8 +155,8 @@ func New(cfg Config, params Params) (*Recorder, error) {
 	switch {
 	case cfg.ChainID == "" || cfg.Signer == nil || cfg.Store == nil || cfg.Ledger == nil:
 		return nil, fmt.Errorf("recorder needs the chain id, service signer, store and ledger")
-	case cfg.Chain == nil || cfg.Tx == nil || cfg.Tasks == nil || cfg.Streams == nil || cfg.Gate == nil:
-		return nil, fmt.Errorf("recorder needs the chain, submitter, tasks, streams and gate")
+	case cfg.Chain == nil || cfg.Tx == nil || cfg.Tasks == nil || cfg.Attempts == nil || cfg.Streams == nil || cfg.Gate == nil:
+		return nil, fmt.Errorf("recorder needs the chain, submitter, tasks, attempt book, streams and gate")
 	}
 	entries, txs, err := loadOutbox(cfg.Store)
 	if err != nil {

@@ -10,7 +10,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -21,7 +20,6 @@ type fakeDispatcher struct {
 	probeErr   error
 	dispatchEr error
 	dispatched []types.Order
-	header     *nexusv1.DispatchResultHeaderV1
 	// deadlines are the record deadlines by order sequence.
 	deadlines map[uint64]uint64
 }
@@ -43,10 +41,6 @@ func (f *fakeDispatcher) Dispatch(_ context.Context, o types.Order) error {
 	}
 	f.dispatched = append(f.dispatched, o)
 	return nil
-}
-
-func (f *fakeDispatcher) DispatchResult(string, string) (*nexusv1.DispatchResultHeaderV1, bool) {
-	return f.header, f.header != nil
 }
 
 func eventCodes(c *Coordinator, sessionID, taskID string) []string {

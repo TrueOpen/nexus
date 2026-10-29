@@ -6,6 +6,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -23,8 +24,6 @@ type Dispatcher interface {
 	Probe(ctx context.Context, o types.Order) error
 	// Dispatch takes over a reserved order and walks it in the background.
 	Dispatch(ctx context.Context, o types.Order) error
-	// DispatchResult returns the signed result header of an accepted, unrecorded order.
-	DispatchResult(sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool)
 	// RecordDeadline returns the last height the order of (session, sequence) can be recorded at.
 	RecordDeadline(sessionID string, sequence uint64) (uint64, bool)
 }
@@ -32,6 +31,9 @@ type Dispatcher interface {
 // SetDispatcher wires direct dispatch in; call it before Start. Without it every new order is
 // refused with ErrDispatchUnavailable.
 func (c *Coordinator) SetDispatcher(d Dispatcher) { c.dispatcher = d }
+
+// SetAttempts wires the book of winning dispatch attempts in; call it before Start.
+func (c *Coordinator) SetAttempts(b *attempt.Book) { c.attempts = b }
 
 // OnOrder implements the ingress order entry (called by IngressAPI after the precheck reserved the
 // order and its input is stored): the task's state machine starts (ORDER_RECEIVED) and the order
@@ -94,12 +96,22 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	return nil
 }
 
-// DispatchResult returns the signed dispatch result header of an accepted, unrecorded order.
+// DispatchResult returns the signed dispatch result header of the task's winning attempt at its
+// current record status.
 func (c *Coordinator) DispatchResult(_ context.Context, sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool) {
-	if c.dispatcher == nil {
+	if c.attempts == nil {
 		return nil, false
 	}
-	return c.dispatcher.DispatchResult(sessionID, taskID)
+	a, ok := c.attempts.Current(taskID)
+	if !ok || a.SessionID != sessionID {
+		return nil, false
+	}
+	header, err := a.ResultHeader()
+	if err != nil {
+		c.log.Error("stored dispatch result header unreadable", "task_id", taskID, "err", err)
+		return nil, false
+	}
+	return header, true
 }
 
 // DispatchAccepted implements dispatcher.Observer: a Worker accepted the order (DISPATCH_ACCEPTED).

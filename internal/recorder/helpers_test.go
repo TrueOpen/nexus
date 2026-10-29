@@ -287,6 +287,30 @@ func (f *fakeTasks) RecordRejected(_, taskID string, code taskv1.DispatchRejectC
 	f.rejected = append(f.rejected, taskReport{taskID: taskID, code: code})
 }
 
+// attemptReport is one record outcome told to the attempt book.
+type attemptReport struct {
+	taskID   string
+	ticket   [32]byte
+	recorded bool
+}
+
+type fakeAttempts struct {
+	mu      sync.Mutex
+	reports []attemptReport
+}
+
+func (f *fakeAttempts) Recorded(taskID string, ticket [32]byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket, recorded: true})
+}
+
+func (f *fakeAttempts) Rejected(taskID string, ticket [32]byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket})
+}
+
 type notice struct {
 	operator string
 	n        *nexusv1.RecordResultNoticeV1
@@ -305,19 +329,20 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 }
 
 type env struct {
-	t       *testing.T
-	store   kv.Store
-	signer  signer.Signer
-	chain   *fakeChain
-	tx      *fakeSubmitter
-	ledger  *fakeLedger
-	orders  *fakeOrders
-	tasks   *fakeTasks
-	streams *fakeStreams
-	gate    *Gate
-	account *accountReader
-	r       *Recorder
-	params  Params
+	t        *testing.T
+	store    kv.Store
+	signer   signer.Signer
+	chain    *fakeChain
+	tx       *fakeSubmitter
+	ledger   *fakeLedger
+	orders   *fakeOrders
+	tasks    *fakeTasks
+	streams  *fakeStreams
+	attempts *fakeAttempts
+	gate     *Gate
+	account  *accountReader
+	r        *Recorder
+	params   Params
 }
 
 func newEnv(t *testing.T) *env {
@@ -339,11 +364,11 @@ func newEnv(t *testing.T) *env {
 // open builds the recorder over the env's store, as after a start.
 func (e *env) open() {
 	e.t.Helper()
-	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{}, &fakeOrders{}, &fakeTasks{}, &fakeStreams{}
+	e.ledger, e.orders, e.tasks, e.streams, e.attempts = &fakeLedger{}, &fakeOrders{}, &fakeTasks{}, &fakeStreams{}, &fakeAttempts{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {
 		e.t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/builderreg"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/chainreset"
@@ -416,6 +417,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	sinks := dispatchstream.Sinks{Verifier: coord}
 	var dispatchModule *module
 	var orderPath *orderDispatch
+	// attempts holds the winning attempt of every order this Builder dispatched; the output data
+	// plane authorizes and gates by it. It needs the service key that signs the result headers.
+	var attempts *attempt.Book
+	if serviceSG != nil {
+		if attempts, err = attempt.New(store, serviceSG, log); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("dispatch attempts: %w", err)
+		}
+		coord.SetAttempts(attempts)
+	}
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
 		// Standing handraises and roots are judged on the task chain's height; the Hub reads
 		// (pool, beacon, VRF keys, epoch length) go to the registration chain.
@@ -436,7 +447,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
 			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
 			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
-			Inputs:  taskStore, Observer: coord, Tasks: coord, Log: log,
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Attempts: attempts, Log: log,
 		})
 		cancelParams()
 		if err != nil {

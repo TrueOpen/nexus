@@ -128,17 +128,6 @@ func TestRecordVector(t *testing.T) {
 	checkSigned(t, v, wantRaw, wantSig, raw, digest, record.GetBuilderServiceSignature())
 }
 
-func TestResultHeaderVector(t *testing.T) {
-	var want nexusv1.DispatchResultHeaderV1
-	v, wantRaw, wantSig := loadVector(t, "nexus_v1_dispatchresultheaderv1", &want)
-	h := proto.Clone(&want).(*nexusv1.DispatchResultHeaderV1)
-	raw, digest, err := signResultHeader(newTestSigner(t, 0x01), h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkSigned(t, v, wantRaw, wantSig, raw, digest, h.GetBuilderServiceSignature())
-}
-
 func TestInputResponseVector(t *testing.T) {
 	var want nexusv1.DispatchInputResponseV1
 	v, wantRaw, wantSig := loadVector(t, "nexus_v1_dispatchinputresponsev1", &want)

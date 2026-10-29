@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/inflight"
 )
 
@@ -84,8 +85,8 @@ func TestRestartAfterAcceptHandsTheSameEntryAgain(t *testing.T) {
 	if n := len(e.streams.offers()); n != 1 {
 		t.Fatalf("%d offers", n)
 	}
-	if _, ok := e.d.DispatchResult(s, o.TaskID); !ok {
-		t.Fatal("no dispatch result after the restart")
+	if a, ok := e.attempts.Current(o.TaskID); !ok || a.Status != attempt.Pending {
+		t.Fatalf("attempt after the restart = %+v %v", a, ok)
 	}
 }
 

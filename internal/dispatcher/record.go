@@ -5,7 +5,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
@@ -90,28 +89,4 @@ func (d *Dispatcher) bundle(st *orderState, deadline uint64) (*Bundle, error) {
 		}
 	}
 	return &Bundle{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Deadline: deadline, Entry: entry}, nil
-}
-
-// resultHeader is the signed DispatchResultHeaderV1 of an accepted, not yet recorded order.
-func (d *Dispatcher) resultHeader(st *orderState) (*nexusv1.DispatchResultHeaderV1, error) {
-	w := st.winner()
-	if w == nil {
-		return nil, fmt.Errorf("order has no winner")
-	}
-	h := &nexusv1.DispatchResultHeaderV1{
-		TaskId:       mustHex(st.TaskID),
-		WinnerTicket: &taskv1.DispatchTicketV1{},
-		Accept:       &taskv1.DispatchAcceptV1{},
-		RecordStatus: taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_PENDING,
-	}
-	if err := proto.Unmarshal(w.Ticket, h.WinnerTicket); err != nil {
-		return nil, err
-	}
-	if err := proto.Unmarshal(st.Accept, h.Accept); err != nil {
-		return nil, err
-	}
-	if _, _, err := signResultHeader(d.cfg.Signer, h); err != nil {
-		return nil, err
-	}
-	return h, nil
 }

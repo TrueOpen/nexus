@@ -88,6 +88,11 @@ func TestPartialRejection(t *testing.T) {
 	if want := []taskReport{{taskID: a1.TaskID, code: codeBalance}}; !reflect.DeepEqual(e.tasks.rejected, want) {
 		t.Fatalf("tasks rejected = %v", e.tasks.rejected)
 	}
+	ticketOf := func(b *dispatcher.Bundle) [32]byte { return [32]byte(b.Entry.GetRecord().GetDispatchTicketHash()) }
+	wantAttempts := []attemptReport{{a0.TaskID, ticketOf(a0), true}, {a1.TaskID, ticketOf(a1), false}, {b0.TaskID, ticketOf(b0), true}}
+	if !reflect.DeepEqual(e.attempts.reports, wantAttempts) {
+		t.Fatalf("attempt outcomes = %v, want %v", e.attempts.reports, wantAttempts)
+	}
 	if want := []orderKey{{a1.SessionID, 1}}; !reflect.DeepEqual(e.ledger.suspended, want) {
 		t.Fatalf("ledger suspended = %v", e.ledger.suspended)
 	}
@@ -380,7 +385,7 @@ func TestBlocksDriveTheRecorder(t *testing.T) {
 	e := newEnv(t)
 	idle, err := New(Config{
 		ChainID: testChainID, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate,
+		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate,
 	}, e.params)
 	if err != nil {
 		t.Fatal(err)

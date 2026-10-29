@@ -17,6 +17,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
@@ -384,6 +385,7 @@ type env struct {
 	inputs     fakeInputs
 	observer   *fakeObserver
 	recorder   *fakeRecorder
+	attempts   *attempt.Book
 	clock      *fakeClock
 	signer     signer.Signer
 	builder    string
@@ -457,12 +459,16 @@ func (e *env) open(store kv.Store) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
+	e.attempts, err = attempt.New(store, e.signer, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
 	e.d, err = New(Config{
 		ChainID: testChainID, Builder: e.builder,
 		Dispatch:        config.DispatchConfig{AcceptTimeoutMsByRTTTier: testTiers},
 		InputChunkBytes: 4, Signer: e.signer, Store: store, Ledger: e.ledger, Sessions: e.sessions,
 		Streams: e.streams, Handraises: e.handraises, Drawer: e.drawer, Keys: e.keys, Inputs: e.inputs,
-		Recorder: e.recorder, Observer: e.observer, Clock: e.clock,
+		Recorder: e.recorder, Observer: e.observer, Attempts: e.attempts, Clock: e.clock,
 		Background: func(f func()) { f() },
 	}, e.params)
 	if err != nil {

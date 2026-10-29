@@ -22,6 +22,7 @@ import (
 	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
@@ -131,6 +132,8 @@ type Coordinator struct {
 	cortex CortexLink
 	// dispatcher takes new orders (nil = none accepted).
 	dispatcher Dispatcher
+	// attempts holds the winning dispatch attempt of each task this Builder dispatched.
+	attempts *attempt.Book
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
 

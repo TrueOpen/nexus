@@ -85,6 +85,7 @@ func (d *Dispatcher) recover(ctx context.Context) error {
 		d.cfg.Observer.DispatchFailed(e.SessionID, e.TaskID, errLost)
 	}
 	for _, b := range accepted {
+		d.accepted(b)
 		if err := d.cfg.Recorder.Record(ctx, b); err != nil {
 			d.log.Error("dispatch entry not handed to the recorder", "session_id", b.SessionID, "order_sequence", b.Sequence, "err", err)
 		}

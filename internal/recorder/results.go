@@ -271,6 +271,7 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 		if err := r.orders.Recorded(e.SessionID, e.Sequence); err != nil {
 			r.log.Error("record not given to the dispatcher", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		}
+		r.cfg.Attempts.Recorded(e.TaskID, [32]byte(e.TicketHash))
 		r.cfg.Tasks.DispatchRecorded(e.SessionID, e.TaskID, height)
 		r.notify(ctx, e, statusRecorded, 0, height)
 	})
@@ -312,6 +313,7 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 			if x == e {
 				c = code
 			}
+			r.cfg.Attempts.Rejected(x.TaskID, [32]byte(x.TicketHash))
 			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, c)
 			r.notify(ctx, x, statusRejected, c, 0)
 		}

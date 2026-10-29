@@ -34,6 +34,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
@@ -170,6 +171,17 @@ type Recorder interface {
 	Withdraw(ctx context.Context, sessionID string, sequence uint64, ticketHash [32]byte)
 }
 
+// Attempts follows the winner of each accepted order until the chain decides its record
+// (attempt.Book): the output data plane trusts it before the chain knows the task.
+type Attempts interface {
+	// Accepted makes the winner its task's current attempt. It may be called again with the same
+	// winner after a restart.
+	Accepted(w attempt.Winner) error
+	// Voided drops the attempt of a winner ticket a binding change voided; it may come before the
+	// Accepted of that ticket.
+	Voided(taskID string, ticketHash [32]byte)
+}
+
 // Timer is a pending clock callback.
 type Timer interface{ Stop() bool }
 
@@ -205,6 +217,7 @@ type Config struct {
 	Inputs     Inputs
 	Recorder   Recorder
 	Observer   Observer
+	Attempts   Attempts
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.
@@ -255,8 +268,8 @@ func New(cfg Config, params Params) (*Dispatcher, error) {
 		return nil, fmt.Errorf("dispatcher needs the chain id, Builder address, service signer, store and ledger")
 	case cfg.Sessions == nil || cfg.Streams == nil || cfg.Handraises == nil || cfg.Drawer == nil || cfg.Keys == nil || cfg.Inputs == nil:
 		return nil, fmt.Errorf("dispatcher needs the sessions, streams, handraises, drawer, keys and inputs")
-	case cfg.Recorder == nil || cfg.Observer == nil:
-		return nil, fmt.Errorf("dispatcher needs a recorder and an observer")
+	case cfg.Recorder == nil || cfg.Observer == nil || cfg.Attempts == nil:
+		return nil, fmt.Errorf("dispatcher needs a recorder, an observer and the attempt book")
 	case len(cfg.Dispatch.AcceptTimeoutMsByRTTTier) == 0 || cfg.InputChunkBytes == 0:
 		return nil, fmt.Errorf("dispatcher needs accept timeout tiers and an input chunk size")
 	}
@@ -557,28 +570,6 @@ func (d *Dispatcher) Suspend(ctx context.Context, sessionID string, from uint64,
 func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, bool) {
 	e, ok := d.cfg.Ledger.Get(sessionID, sequence)
 	return e.Deadline, ok
-}
-
-// DispatchResult returns the signed DispatchResultHeaderV1 of an accepted order: its winner ticket
-// and accept, record status PENDING.
-func (d *Dispatcher) DispatchResult(sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool) {
-	d.mu.Lock()
-	o := d.byTask[taskID]
-	d.mu.Unlock()
-	if o == nil {
-		return nil, false
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.st.SessionID != sessionID || o.st.Phase != phaseAccepted {
-		return nil, false
-	}
-	header, err := d.resultHeader(o.st)
-	if err != nil {
-		d.log.Error("dispatch result header not signed", "task_id", taskID, "err", err)
-		return nil, false
-	}
-	return header, true
 }
 
 func cloneState(s *orderState) *orderState {
