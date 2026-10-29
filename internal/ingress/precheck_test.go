@@ -13,18 +13,20 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
+	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // These tests open no listener: validateOpenTaskHeader is called directly, OpenTask through the
 // in-memory transport of newTaskDataClientWithHandler.
 
 type fakePrechecker struct {
-	orders []inflight.Order
-	result inflight.Result
-	err    error
+	orders   []inflight.Order
+	result   inflight.Result
+	err      error
+	released []*inflight.Reservation
 }
 
-func (p *fakePrechecker) Check(_ context.Context, o inflight.Order) (inflight.Result, error) {
+func (p *fakePrechecker) Reserve(_ context.Context, o inflight.Order) (inflight.Result, error) {
 	p.orders = append(p.orders, o)
 	if p.err != nil {
 		return inflight.Result{}, p.err
@@ -34,6 +36,11 @@ func (p *fakePrechecker) Check(_ context.Context, o inflight.Order) (inflight.Re
 		result.Binding = inflight.BoundHere
 	}
 	return result, nil
+}
+
+func (p *fakePrechecker) Release(r *inflight.Reservation) error {
+	p.released = append(p.released, r)
+	return nil
 }
 
 // The vector OpenTask (sequence 7, earliest_submit_height 1000, order_expire_height 2000, anchor
@@ -156,6 +163,29 @@ func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 		Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "1150000", Spent: "1000000",
 		NextExpectedSequence: 6, Balance: "100000000", FrozenTotal: "0", BoundBuilder: "trueopen1builder", BoundChangeHeight: 1,
 	}
+	p, ledger := newPrechecker(t, state)
+	h.svc.auth.Precheck = p
+	// Sequence 6 in flight, signed by the key with max_fee 1: 1000000 + 1 + 150000 > 1150000.
+	if _, err := p.Reserve(context.Background(), inflight.Order{
+		SessionID: sessionID, Sequence: 6, TaskID: "t6", TaskHash: hex.EncodeToString([]byte{6}), User: h.file.Account.Bech32,
+		MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 2000, SessionAnchorHeight: 990, SessionKey: &key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wantConnectErr(t, h.validate(), connect.CodeFailedPrecondition, "SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED")
+	if err := ledger.MarkFailed(sessionID, 6); err != nil {
+		t.Fatal(err)
+	}
+	// 6 failed: the next order is 6 again, so 7 is out of sequence.
+	if err := h.validate(); !errors.Is(err, inflight.ErrOrderSequenceConflict) {
+		t.Fatalf("order 7 after 6 failed = %v", err)
+	}
+}
+
+// newPrechecker is the real precheck over a session in the given state, at head 1000, for
+// Builder trueopen1builder.
+func newPrechecker(t *testing.T, state chaincli.SessionState) (*inflight.Prechecker, *inflight.Ledger) {
+	t.Helper()
 	ledger, err := inflight.NewLedger(kv.NewMemStore())
 	if err != nil {
 		t.Fatal(err)
@@ -175,20 +205,87 @@ func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.svc.auth.Precheck = p
-	// Sequence 6 in flight, signed by the key with max_fee 1: 1000000 + 1 + 150000 > 1150000.
-	if _, err := p.Reserve(context.Background(), inflight.Order{
-		SessionID: sessionID, Sequence: 6, TaskID: "t6", TaskHash: hex.EncodeToString([]byte{6}), User: h.file.Account.Bech32,
-		MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 2000, SessionAnchorHeight: 990, SessionKey: &key,
-	}); err != nil {
-		t.Fatal(err)
+	return p, ledger
+}
+
+// The precheck reserves the order's sequence and funds in the in-flight ledger before the input
+// is uploaded, so a concurrent order of the session is judged with it; any failure before the
+// coordinator takes the order releases the reservation, and a dispatched order keeps it.
+func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
+	cases := []struct {
+		name     string
+		setup    func(*fakeTaskDataAPI, *fakeHandler)
+		released bool
+	}{
+		{name: "request nonce refused", setup: func(api *fakeTaskDataAPI, _ *fakeHandler) {
+			api.openTaskErr = errors.New("replayed")
+		}, released: true},
+		{name: "input not stored", setup: func(api *fakeTaskDataAPI, _ *fakeHandler) {
+			api.chunkSize = 1 // the chunk below is too large
+		}, released: true},
+		{name: "coordinator refuses", setup: func(_ *fakeTaskDataAPI, handler *fakeHandler) {
+			handler.orderErr = errors.New("NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED")
+		}, released: true},
+		{name: "dispatched", released: false},
 	}
-	wantConnectErr(t, h.validate(), connect.CodeFailedPrecondition, "SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED")
-	if err := ledger.MarkFailed(sessionID, 6); err != nil {
-		t.Fatal(err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newRegisteredKeyHeader(t)
+			h.signEnvelopeWithWallet(t)
+			sessionID := h.header.GetSessionId()[2:]
+			key := *h.keys.state.Key
+			p, ledger := newPrechecker(t, chaincli.SessionState{
+				Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "0", Spent: "0",
+				NextExpectedSequence: 7, Balance: "100000000", FrozenTotal: "0", BoundBuilder: "trueopen1builder", BoundChangeHeight: 1,
+			})
+			auth := h.svc.auth
+			auth.Precheck = p
+			api := &fakeTaskDataAPI{chunkSize: 4096}
+			handler := &fakeHandler{}
+			if c.setup != nil {
+				c.setup(api, handler)
+			}
+			orderErr := handler.orderErr
+			handler.onOrder = func(context.Context, types.Order) error {
+				if e, ok := ledger.Get(sessionID, 7); !ok || e.State != inflight.StateDispatching {
+					t.Errorf("ledger entry during OnOrder = %+v, %v", e, ok)
+				}
+				return orderErr
+			}
+			client := newTaskDataClientWithHandler(t, handler, api, auth)
+			stream := client.OpenTask(context.Background())
+			if err := stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: h.header}}); err != nil {
+				t.Fatal(err)
+			}
+			_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: make([]byte, 16)}})
+			_, err := stream.CloseAndReceive()
+			if (err != nil) != c.released {
+				t.Fatalf("OpenTask = %v", err)
+			}
+			e, held := ledger.Get(sessionID, 7)
+			if held == c.released {
+				t.Fatalf("ledger entry after OpenTask = %+v, %v, want released %v", e, held, c.released)
+			}
+		})
 	}
-	// 6 failed: the next order is 6 again, so 7 is out of sequence.
-	if err := h.validate(); !errors.Is(err, inflight.ErrOrderSequenceConflict) {
-		t.Fatalf("order 7 after 6 failed = %v", err)
+}
+
+// The ingress side of a reservation with the fake: released once on failure, never on success.
+func TestOpenTaskReleasesTheReservationItGot(t *testing.T) {
+	h := newRegisteredKeyHeader(t)
+	h.signEnvelopeWithWallet(t)
+	reservation := &inflight.Reservation{SessionID: h.header.GetSessionId()[2:], Sequence: 7}
+	fake := &fakePrechecker{result: inflight.Result{Reservation: reservation}}
+	auth := h.svc.auth
+	auth.Precheck = fake
+	api := &fakeTaskDataAPI{chunkSize: 4096, openTaskErr: errors.New("replayed")}
+	client := newTaskDataClientWithHandler(t, &fakeHandler{}, api, auth)
+	stream := client.OpenTask(context.Background())
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: h.header}})
+	if _, err := stream.CloseAndReceive(); err == nil {
+		t.Fatal("OpenTask with a refused nonce succeeded")
+	}
+	if len(fake.released) != 1 || fake.released[0] != reservation {
+		t.Fatalf("released = %v", fake.released)
 	}
 }

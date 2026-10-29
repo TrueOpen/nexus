@@ -114,7 +114,7 @@ func TestLedgerReleaseAndPrune(t *testing.T) {
 	_ = l.put(testSession, entry(3, 1, false))
 	_ = l.MarkRecorded(testSession, 1)
 	_ = l.MarkFailed(testSession, 2)
-	if err := l.Release(testSession, 3); err != nil {
+	if err := l.Release(&Reservation{SessionID: testSession, Sequence: 3, TaskHash: "h"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := l.Get(testSession, 3); ok {
@@ -151,5 +151,35 @@ func TestLedgerRefusesMalformedRecord(t *testing.T) {
 	_ = store.Set(kv.NSInflight, orderKey(testSession, 1), []byte("{"))
 	if _, err := NewLedger(store); err == nil {
 		t.Fatal("malformed ledger record accepted")
+	}
+}
+
+// Unfinished lists the orders still dispatching or accepted, across sessions: after a crash
+// nothing else remembers them.
+func TestLedgerUnfinished(t *testing.T) {
+	store := kv.NewMemStore()
+	l, _ := NewLedger(store)
+	other := "2222222222222222222222222222222222222222222222222222222222222222"
+	for seq := uint64(1); seq <= 4; seq++ {
+		_ = l.put(testSession, entry(seq, 1, false))
+	}
+	_ = l.put(other, entry(9, 1, false))
+	_ = l.MarkAccepted(testSession, 2)
+	_ = l.MarkRecorded(testSession, 3)
+	_ = l.MarkFailed(testSession, 4)
+	restarted, _ := NewLedger(store)
+	got := restarted.Unfinished()
+	want := []struct {
+		session string
+		seq     uint64
+		state   State
+	}{{testSession, 1, StateDispatching}, {testSession, 2, StateAccepted}, {other, 9, StateDispatching}}
+	if len(got) != len(want) {
+		t.Fatalf("unfinished = %+v", got)
+	}
+	for i, w := range want {
+		if got[i].SessionID != w.session || got[i].Sequence != w.seq || got[i].State != w.state {
+			t.Fatalf("unfinished[%d] = %+v, want %+v", i, got[i], w)
+		}
 	}
 }

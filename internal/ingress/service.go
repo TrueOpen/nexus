@@ -91,9 +91,12 @@ type AuthParams struct {
 }
 
 // OrderPrechecker is the OpenTask precheck of the dispatching Builder; inflight.Prechecker
-// implements it.
+// implements it. Reserve enters an admitted order in the in-flight ledger right after the header
+// is validated, so concurrent orders of the session are judged with it while its input uploads;
+// Release undoes that when the order fails before the coordinator takes it.
 type OrderPrechecker interface {
-	Check(ctx context.Context, o inflight.Order) (inflight.Result, error)
+	Reserve(ctx context.Context, o inflight.Order) (inflight.Result, error)
+	Release(r *inflight.Reservation) error
 }
 
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.

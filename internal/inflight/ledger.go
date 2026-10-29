@@ -264,20 +264,64 @@ func (l *Ledger) MarkFailed(sessionID string, seq uint64) error {
 	return l.setState(sessionID, seq, StateFailed)
 }
 
-// Release drops the order, for an admission that never started dispatching (the input could not
-// be stored, for example).
-func (l *Ledger) Release(sessionID string, seq uint64) error {
+// Reservation is an order Prechecker.Reserve entered in the ledger as DISPATCHING. Release undoes
+// it when the order never reaches dispatch.
+type Reservation struct {
+	SessionID string
+	Sequence  uint64
+	TaskHash  string
+	// replaced is the failed attempt the reservation replaced; resumed the suspension it ended.
+	replaced *Entry
+	resumed  *uint64
+}
+
+// Release undoes a reservation whose order never started dispatching (the request nonce was
+// replayed, the input could not be stored, the dispatcher refused it): a new order is dropped, a
+// retry puts the failed attempt back and a suspension the retry ended is restored. A reservation
+// the order moved past (no longer DISPATCHING with its task_hash) is left alone. A dropped order
+// with live orders after it is a hole that a new order for its sequence fills.
+func (l *Ledger) Release(r *Reservation) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	s := l.sessions[sessionID]
-	if s == nil || s.orders[seq] == nil {
+	s := l.sessions[r.SessionID]
+	if s == nil {
 		return nil
 	}
-	if err := l.store.Delete(kv.NSInflight, orderKey(sessionID, seq)); err != nil {
-		return fmt.Errorf("delete in-flight order: %w", err)
+	e := s.orders[r.Sequence]
+	if e == nil || e.State != StateDispatching || e.TaskHash != r.TaskHash {
+		return nil
 	}
-	delete(s.orders, seq)
-	l.dropIfEmptyLocked(sessionID)
+	var ops []kv.WriteOp
+	if r.replaced != nil {
+		op, err := putOp(r.SessionID, *r.replaced)
+		if err != nil {
+			return err
+		}
+		ops = append(ops, op)
+	} else {
+		ops = append(ops, kv.WriteOp{NS: kv.NSInflight, Key: orderKey(r.SessionID, r.Sequence), Delete: true})
+	}
+	meta := s.meta
+	if r.resumed != nil && meta.SuspendedFrom == nil {
+		from := *r.resumed
+		meta.SuspendedFrom = &from
+		op, err := metaOp(r.SessionID, meta)
+		if err != nil {
+			return err
+		}
+		ops = append(ops, op)
+	}
+	if err := l.store.WriteBatch(ops...); err != nil {
+		return fmt.Errorf("release in-flight order: %w", err)
+	}
+	if r.replaced != nil {
+		replaced := *r.replaced
+		s.orders[r.Sequence] = &replaced
+	} else {
+		delete(s.orders, r.Sequence)
+	}
+	s.meta = meta
+	l.dropIfEmptyLocked(r.SessionID)
 	return nil
 }
 
@@ -505,6 +549,35 @@ func (l *Ledger) Entries(sessionID string) []Entry {
 		out = append(out, *e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Sequence < out[j].Sequence })
+	return out
+}
+
+// SessionEntry is an order of the ledger with its session.
+type SessionEntry struct {
+	SessionID string
+	Entry
+}
+
+// Unfinished lists the orders still DISPATCHING or ACCEPTED, by session and sequence. After a
+// restart nothing else remembers them: each must be dispatched again, recorded or marked failed
+// (MarkFailed, or Suspend when a record failed) by the dispatcher, or its sequence stays taken.
+func (l *Ledger) Unfinished() []SessionEntry {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []SessionEntry
+	for id, s := range l.sessions {
+		for _, e := range s.orders {
+			if e.State == StateDispatching || e.State == StateAccepted {
+				out = append(out, SessionEntry{SessionID: id, Entry: *e})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SessionID != out[j].SessionID {
+			return out[i].SessionID < out[j].SessionID
+		}
+		return out[i].Sequence < out[j].Sequence
+	})
 	return out
 }
 

@@ -168,6 +168,16 @@ func (s *service) openTask(
 		}
 		return nil, err
 	}
+	// The precheck reserved the order's sequence and funds; every failure before the coordinator
+	// takes the order releases them.
+	dispatched := false
+	if r := precheck.Reservation; r != nil {
+		defer func() {
+			if !dispatched {
+				_ = s.auth.Precheck.Release(r)
+			}
+		}()
+	}
 	// Step 5 (expiry window, the order's own expiry, then the nonce) comes before any storage, so a
 	// replayed OpenTask is SDK_AUTH_REPLAY rather than a conflict with the stored input, and an
 	// expired order is never stored.
@@ -255,6 +265,7 @@ func (s *service) openTask(
 		return nil, mapOrderErr(err)
 	}
 	coordinatorAccepted = true
+	dispatched = true
 	stageStart = time.Now()
 	ready, err := s.taskData.MarkInputReady(ctx, uploadHeader.Key)
 	timing.Since("input_ready", stageStart)
@@ -267,7 +278,8 @@ func (s *service) openTask(
 }
 
 // validateOpenTaskHeader checks the OpenTask header, the request envelope and the order; with
-// AuthParams.Precheck set it also runs the dispatching Builder's precheck and returns its result.
+// AuthParams.Precheck set it also runs the dispatching Builder's precheck, which reserves an
+// admitted new order, and returns its result.
 func (s *service) validateOpenTaskHeader(
 	ctx context.Context, header *nexusv1.OpenTaskHeader,
 ) (types.Order, taskdata.UploadHeader, inflight.Result, error) {

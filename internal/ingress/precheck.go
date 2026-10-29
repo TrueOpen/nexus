@@ -17,9 +17,11 @@ import (
 )
 
 // precheckOrder runs the dispatching Builder's precheck on an authenticated OpenTask order, before
-// the request nonce is used or the input stored. signer says who signed the order: its wallet or
-// the session's registered key. A session bound to another Builder is refused with
-// NEXUS_INGRESS_SESSION_BOUND_ELSEWHERE naming it: this Builder does not take sessions over.
+// the request nonce is used or the input stored, and reserves an admitted new order in the
+// in-flight ledger (Result.Reservation; the caller releases it if the order fails later). signer
+// says who signed the order: its wallet or the session's registered key. A session bound to
+// another Builder is refused with NEXUS_INGRESS_SESSION_BOUND_ELSEWHERE naming it: this Builder
+// does not take sessions over.
 func (s *service) precheckOrder(
 	ctx context.Context, order types.Order, signed *taskv1.TaskOrderV3, signer sdkauth.OrderPrecheck,
 ) (inflight.Result, error) {
@@ -36,7 +38,7 @@ func (s *service) precheckOrder(
 		key := signer.Recovered
 		o.SessionKey = &key
 	}
-	result, err := s.auth.Precheck.Check(ctx, o)
+	result, err := s.auth.Precheck.Reserve(ctx, o)
 	if err != nil {
 		return inflight.Result{}, mapPrecheckErr(err)
 	}

@@ -93,6 +93,9 @@ type Result struct {
 	// Retry is set when an earlier attempt at this sequence failed without a record: the order is
 	// dispatched as a new round, not refused as a replacement.
 	Retry bool
+	// Reservation is set when Reserve entered the order in the ledger; the caller releases it if
+	// the order does not reach dispatch.
+	Reservation *Reservation
 }
 
 // OpenTaskStatus is the OpenTask status of an order in this state: DISPATCHING while tickets are
@@ -200,10 +203,16 @@ func (p *Prechecker) Check(ctx context.Context, o Order) (Result, error) {
 }
 
 // Reserve runs the precheck and, when the order is bound here, new and admitted, enters it in the
-// ledger as DISPATCHING in the same step, so two concurrent orders cannot both take the same
-// sequence or the same funds. Admitting the resend of a suspended sequence ends the suspension.
+// ledger as DISPATCHING in the same step (Result.Reservation), so two concurrent orders cannot both
+// take the same sequence or the same funds. Admitting the resend of a suspended sequence ends the
+// suspension.
 func (p *Prechecker) Reserve(ctx context.Context, o Order) (Result, error) {
 	return p.run(ctx, o, true)
+}
+
+// Release undoes a reservation whose order did not reach dispatch; see Ledger.Release.
+func (p *Prechecker) Release(r *Reservation) error {
+	return p.cfg.Ledger.Release(r)
 }
 
 // run judges the order against one session state and the ledger as it was when that state was
@@ -273,9 +282,16 @@ func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params P
 	if err != nil {
 		return Result{}, err
 	}
+	reservation := &Reservation{SessionID: o.SessionID, Sequence: o.Sequence, TaskHash: o.TaskHash}
+	if prev := ls.orders[o.Sequence]; prev != nil {
+		replaced := *prev
+		reservation.replaced = &replaced
+	}
 	ops := []kv.WriteOp{op}
 	meta := ls.meta
 	if meta.SuspendedFrom != nil && *meta.SuspendedFrom == o.Sequence {
+		resumed := *meta.SuspendedFrom
+		reservation.resumed = &resumed
 		meta.SuspendedFrom = nil
 		op, err := metaOp(o.SessionID, meta)
 		if err != nil {
@@ -289,6 +305,7 @@ func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params P
 	stored := l.sessionLocked(o.SessionID)
 	stored.orders[o.Sequence] = &entry
 	stored.meta = meta
+	res.Reservation = reservation
 	return res, nil
 }
 

@@ -447,6 +447,83 @@ func TestPrecheckResendBelowNextIsExisting(t *testing.T) {
 	}
 }
 
+// Release undoes a reservation that never reached dispatch: a new order is dropped, a retry puts
+// the failed attempt back, and a suspension the retry ended is restored.
+func TestPrecheckRelease(t *testing.T) {
+	f := newFixture(t, nil)
+	res := f.reserve(t, order(5))
+	if res.Reservation == nil || res.Reservation.Sequence != 5 || res.Reservation.TaskHash != "hash5" {
+		t.Fatalf("reservation = %+v", res.Reservation)
+	}
+	if err := f.p.Release(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.ledger.Get(testSession, 5); ok {
+		t.Fatal("released order still in the ledger")
+	}
+	f.reserve(t, order(5))
+
+	// A retry of a failed order, released: the failed attempt is back.
+	f.reserve(t, order(6))
+	_ = f.ledger.MarkFailed(testSession, 6)
+	o := order(6)
+	o.TaskHash = "resigned6"
+	res = f.reserve(t, o)
+	if err := f.p.Release(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := f.ledger.Get(testSession, 6); e.State != StateFailed || e.TaskHash != "hash6" {
+		t.Fatalf("entry 6 after releasing its retry = %+v", e)
+	}
+
+	// The resend of a suspended sequence, released: the suspension is back.
+	if err := f.ledger.Suspend(testSession, 6); err != nil {
+		t.Fatal(err)
+	}
+	res = f.reserve(t, o)
+	if _, suspended := f.ledger.SuspendedFrom(testSession); suspended {
+		t.Fatal("suspension kept after the resend")
+	}
+	if err := f.p.Release(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if from, suspended := f.ledger.SuspendedFrom(testSession); !suspended || from != 6 {
+		t.Fatalf("suspension after releasing the resend = %d, %v", from, suspended)
+	}
+
+	// A reservation the order moved past is not undone.
+	res = f.reserve(t, o)
+	_ = f.ledger.MarkAccepted(testSession, 6)
+	if err := f.p.Release(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := f.ledger.Get(testSession, 6); e.State != StateAccepted {
+		t.Fatalf("accepted order after a late release = %+v", e)
+	}
+	// Check, an existing order and a session bound elsewhere reserve nothing.
+	if res, _ := f.p.Check(context.Background(), order(7)); res.Reservation != nil {
+		t.Fatal("Check returned a reservation")
+	}
+	if res := f.reserve(t, order(5)); res.Existing == nil || res.Reservation != nil {
+		t.Fatalf("existing order = %+v", res)
+	}
+}
+
+// A released order leaves no entry; when later orders are live it is a hole, retried like a
+// failed one.
+func TestPrecheckReleasedOrderIsAHole(t *testing.T) {
+	f := newFixture(t, nil)
+	r5 := f.reserve(t, order(5)).Reservation
+	f.reserve(t, order(6))
+	if err := f.p.Release(r5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.p.Check(context.Background(), order(7)); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("7 past the released 5 = %v", err)
+	}
+	f.reserve(t, order(5))
+}
+
 // The resend of the suspended sequence is admitted and ends the suspension.
 func TestPrecheckSuspensionEndsWithTheResend(t *testing.T) {
 	f := newFixture(t, nil)
