@@ -195,6 +195,16 @@ type ServiceKeyRotationRegistered struct {
 	EffectiveHeight           uint64
 }
 
+// ServiceKeyRevoked: an operator's current service key was revoked in an emergency. The key stops
+// verifying at once and any pending rotation of the operator is cancelled.
+type ServiceKeyRevoked struct {
+	ParticipantType       sharedv1.ParticipantType
+	Operator              string
+	RevokedServiceAddress string
+	AuthorizationNonce    uint64
+	Reason                hubv1.ServiceKeyRevocationReason
+}
+
 // BuilderCompensationFunded: a Builder's compensation account was funded.
 type BuilderCompensationFunded struct {
 	Builder string
@@ -241,6 +251,7 @@ func (OrderCancelRequested) typedEvent()         {}
 func (OrderCancelled) typedEvent()               {}
 func (ServiceKeyRotated) typedEvent()            {}
 func (ServiceKeyRotationRegistered) typedEvent() {}
+func (ServiceKeyRevoked) typedEvent()            {}
 func (BuilderCompensationFunded) typedEvent()    {}
 
 // typedTaskEvent decodes the Phase 1 Task payloads. It returns nil, nil for every other payload,
@@ -396,6 +407,16 @@ func typedHubEvent(payload *hubv1.ProtocolEventPayloadV1) (TypedEvent, error) {
 			ParticipantType: e.GetParticipantType(), Operator: e.GetOperatorAddress(),
 			CurrentAuthorizationNonce: e.GetCurrentServiceAuthorizationNonce(),
 			NextAuthorizationNonce:    e.GetNextServiceAuthorizationNonce(), EffectiveHeight: e.GetEffectiveHeight(),
+		}, nil
+	case *hubv1.ProtocolEventPayloadV1_ServiceKeyRevoked:
+		e := p.ServiceKeyRevoked
+		if e.GetOperator() == "" {
+			return nil, fmt.Errorf("service_key_revoked: operator is required")
+		}
+		return ServiceKeyRevoked{
+			ParticipantType: e.GetParticipantType(), Operator: e.GetOperator(),
+			RevokedServiceAddress: e.GetRevokedServiceAddress(), AuthorizationNonce: e.GetAuthorizationNonce(),
+			Reason: e.GetReason(),
 		}, nil
 	case *hubv1.ProtocolEventPayloadV1_CandidatePoolPublished:
 		e := p.CandidatePoolPublished

@@ -107,6 +107,33 @@ func TestCacheDropsOnRotationRegistration(t *testing.T) {
 	}
 }
 
+// An emergency revocation retires the current key (and cancels any pending rotation): the
+// operator's cached keys are dropped, or every key when the event names no operator.
+func TestCacheDropsOnRevocation(t *testing.T) {
+	resolver := &countingResolver{nonce: 1}
+	cache := NewCache(resolver, time.Minute)
+	read := func(op string) {
+		t.Helper()
+		if _, err := cache.QueryCurrentServiceKey(context.Background(), ParticipantBuilder, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read("op1")
+	read("op2")
+	cache.ObserveEvent(chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_REVOKED",
+		Typed: chaincli.ServiceKeyRevoked{Operator: "op1"}})
+	read("op1")
+	read("op2")
+	if resolver.calls != 3 {
+		t.Fatalf("chain reads = %d, want only op1 read again", resolver.calls)
+	}
+	cache.ObserveEvent(chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_REVOKED"})
+	read("op2")
+	if resolver.calls != 4 {
+		t.Fatal("an untyped revocation kept cached keys")
+	}
+}
+
 func TestCacheDoesNotKeepFailuresOrReadsRacingARotation(t *testing.T) {
 	resolver := &countingResolver{err: chaincli.ErrNotFound}
 	cache := NewCache(resolver, time.Minute)

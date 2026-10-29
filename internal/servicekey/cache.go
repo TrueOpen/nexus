@@ -86,7 +86,8 @@ func (c *Cache) InvalidateAll() {
 }
 
 // ObserveEvent drops the keys a chain event made stale: a SERVICE_KEY_ROTATED event (the new key
-// became current) or a SERVICE_KEY_ROTATION_REGISTERED event (a replacement is now pending) drops
+// became current), a SERVICE_KEY_ROTATION_REGISTERED event (a replacement is now pending) or a
+// SERVICE_KEY_REVOKED event (the current key was revoked and any pending rotation cancelled) drops
 // its operator's keys, or every key when the event arrived without a readable operator.
 func (c *Cache) ObserveEvent(ev chaincli.ChainEvent) {
 	if ev.Type != chaincli.EventHubOperational {
@@ -101,6 +102,10 @@ func (c *Cache) ObserveEvent(ev chaincli.ChainEvent) {
 	case "SERVICE_KEY_ROTATION_REGISTERED":
 		if registered, ok := ev.Typed.(chaincli.ServiceKeyRotationRegistered); ok {
 			operator = registered.Operator
+		}
+	case "SERVICE_KEY_REVOKED":
+		if revoked, ok := ev.Typed.(chaincli.ServiceKeyRevoked); ok {
+			operator = revoked.Operator
 		}
 	default:
 		return

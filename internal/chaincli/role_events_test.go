@@ -265,6 +265,31 @@ func TestProtocolEventToChainEventMapsHubOperationalEvents(t *testing.T) {
 		t.Fatalf("registered without operator: %+v, %v, %v", event, ok, err)
 	}
 
+	revoked := &hubv1.ProtocolEvent{
+		Cursor: "p1x", ChainHeight: 300, Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_REVOKED,
+		Payload: &hubv1.ProtocolEventPayloadV1{TypedEvent: &hubv1.ProtocolEventPayloadV1_ServiceKeyRevoked{
+			ServiceKeyRevoked: &hubv1.EventServiceKeyRevoked{
+				ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, Operator: testBuilder,
+				RevokedServiceAddress: "trueopen1old", AuthorizationNonce: 4,
+				Reason: hubv1.ServiceKeyRevocationReason_SERVICE_KEY_REVOCATION_REASON_COMPROMISED,
+			},
+		}},
+	}
+	event, ok, err = protocolEventToChainEvent(revoked)
+	if err != nil || !ok || event.Type != EventHubOperational || event.EventCode != "SERVICE_KEY_REVOKED" {
+		t.Fatalf("revoked: %+v, %v, %v", event, ok, err)
+	}
+	if want := (ServiceKeyRevoked{
+		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, Operator: testBuilder,
+		RevokedServiceAddress: "trueopen1old", AuthorizationNonce: 4, Reason: hubv1.ServiceKeyRevocationReason_SERVICE_KEY_REVOCATION_REASON_COMPROMISED,
+	}); !reflect.DeepEqual(event.Typed, want) {
+		t.Fatalf("typed = %#v", event.Typed)
+	}
+	revoked.Payload.GetServiceKeyRevoked().Operator = ""
+	if event, ok, err := protocolEventToChainEvent(revoked); !ok || err == nil || event.Typed != nil {
+		t.Fatalf("revoked without operator: %+v, %v, %v", event, ok, err)
+	}
+
 	funded := &hubv1.ProtocolEvent{
 		Cursor: "p2", ChainHeight: 301, Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 		Payload: &hubv1.ProtocolEventPayloadV1{TypedEvent: &hubv1.ProtocolEventPayloadV1_BuilderCompensationFunded{
@@ -307,6 +332,7 @@ func TestProtocolEventCodesIncludeHubOperationalEvents(t *testing.T) {
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_SET_UPDATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED,
+		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_REVOKED,
 		sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED,
 	}
 	if !reflect.DeepEqual(protocolEventCodes(), want) {
