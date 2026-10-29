@@ -387,7 +387,7 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	}
 	round.Attempts = append(round.Attempts, a)
 	st.Cursor = cand.Rank + 1
-	if err := saveState(d.cfg.Store, st); err != nil {
+	if err := d.save(st); err != nil {
 		*st = *prev
 		return false, err
 	}
@@ -478,7 +478,7 @@ func (d *Dispatcher) onTimeout(key string, hash [32]byte) {
 func (d *Dispatcher) timeoutLocked(o *order, a *attemptState, received bool) {
 	a.Outcome = outcomeTimeout
 	o.st.Skips++
-	if err := saveState(d.cfg.Store, o.st); err != nil {
+	if err := d.save(o.st); err != nil {
 		d.log.Error("ticket timeout not written", "session_id", o.st.SessionID, "order_sequence", o.st.Sequence, "err", err)
 	}
 	if received {
@@ -562,7 +562,7 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			// The new height is taken now, not only when the new round opens: the step below (and
 			// one after a restart) judges the record deadline with it.
 			st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
-			if err := saveState(d.cfg.Store, st); err != nil {
+			if err := d.save(st); err != nil {
 				d.log.Error("voided tickets not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}
 			d.log.Info("binding changed; tickets voided, new round", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", boundChangeHeight)

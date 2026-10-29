@@ -45,12 +45,74 @@ func (d *Dispatcher) putEvidence(st *orderState, recordedHeight uint64, op kv.Wr
 	if err := d.cfg.Evidence.Put(ev, op); err != nil {
 		return fmt.Errorf("write dispatch state with its evidence: %w", err)
 	}
+	if d.cfg.Sync != nil {
+		d.cfg.Sync.OrderChanged(ev)
+	}
 	return nil
+}
+
+// OrderSync hands the evidence of the orders this Builder dispatches to the other members of each
+// order's Task Builders group (buildersync.Sender).
+type OrderSync interface {
+	// OrderChanged is called with the order's evidence after every stored change of it, with the
+	// order's lock held: it must not block.
+	OrderChanged(o *dispatchevidence.Order)
+}
+
+// save stores the order's state and hands the change to the group sync. Caller holds the order's
+// lock.
+func (d *Dispatcher) save(st *orderState) error {
+	if err := saveState(d.cfg.Store, st); err != nil {
+		return err
+	}
+	d.syncOrder(st)
+	return nil
+}
+
+// syncOrder hands the order as it stands to the group sync; its record, when it has none yet, is
+// left out rather than signed. Caller holds the order's lock, or the order is not live yet.
+func (d *Dispatcher) syncOrder(st *orderState) {
+	if d.cfg.Sync == nil {
+		return
+	}
+	ev, err := d.evidenceView(st, 0)
+	if err != nil {
+		d.log.Warn("dispatch state not synced to the group", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+		return
+	}
+	if ev != nil {
+		d.cfg.Sync.OrderChanged(ev)
+	}
 }
 
 // evidenceOf is the evidence of the order as it stands; nil when no ticket was issued. An order
 // without a stored record gets one with no winner, signed now. Caller holds the order's lock.
 func (d *Dispatcher) evidenceOf(st *orderState, recordedHeight uint64) (*dispatchevidence.Order, error) {
+	ev, err := d.evidenceView(st, recordedHeight)
+	if err != nil || ev == nil {
+		return ev, err
+	}
+	var last []byte
+	for _, r := range ev.Rounds {
+		if n := len(r.Attempts); n > 0 {
+			last = r.Attempts[n-1].Ticket
+		}
+	}
+	if len(ev.Record) == 0 && last != nil {
+		var ticket taskv1.DispatchTicketV1
+		if err := proto.Unmarshal(last, &ticket); err != nil {
+			return nil, fmt.Errorf("stored ticket: %w", err)
+		}
+		if ev.Record, err = d.recordWithoutWinner(st, &ticket); err != nil {
+			return nil, err
+		}
+	}
+	return ev, nil
+}
+
+// evidenceView is the evidence of the order as it stands, with the stored record only; nil when no
+// ticket was issued. Caller holds the order's lock.
+func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispatchevidence.Order, error) {
 	if len(st.Rounds) == 0 || st.Epoch == nil {
 		return nil, nil
 	}
@@ -67,7 +129,6 @@ func (d *Dispatcher) evidenceOf(st *orderState, recordedHeight uint64) (*dispatc
 	if !ev.Recorded {
 		ev.RecordedHeight = 0
 	}
-	var last *taskv1.DispatchTicketV1
 	for _, r := range st.Rounds {
 		round := dispatchevidence.Round{Number: r.Number, RootDigest: r.RootDigest, Roster: r.Roster}
 		for _, a := range r.Attempts {
@@ -83,14 +144,8 @@ func (d *Dispatcher) evidenceOf(st *orderState, recordedHeight uint64) (*dispatc
 				Ticket: a.Ticket, Hash: a.Hash, Rank: a.Rank, Operator: a.Operator, Sent: a.Sent, Outcome: a.Outcome,
 				Reject: a.Reject, LateAccept: a.LateAccept,
 			})
-			last = &ticket
 		}
 		ev.Rounds = append(ev.Rounds, round)
-	}
-	if len(ev.Record) == 0 && last != nil {
-		if ev.Record, err = d.recordWithoutWinner(st, last); err != nil {
-			return nil, err
-		}
 	}
 	return ev, nil
 }

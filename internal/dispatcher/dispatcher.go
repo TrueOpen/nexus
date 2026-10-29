@@ -229,6 +229,9 @@ type Config struct {
 	// Evidence keeps every order's evidence once it is accepted, failed or recorded; nil keeps
 	// none (claims on its tickets then cannot be rebutted).
 	Evidence Evidence
+	// Sync hands every stored change of an order to the other members of its Task Builders group;
+	// nil syncs nothing.
+	Sync OrderSync
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.

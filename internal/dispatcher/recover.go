@@ -49,6 +49,7 @@ func (d *Dispatcher) recover(ctx context.Context) error {
 			return fmt.Errorf("dispatch state %s/%d: %w", st.SessionID, st.Sequence, err)
 		}
 		d.register(o)
+		d.syncOrder(st)
 		switch {
 		case !live:
 		case st.Phase == phaseFailed:

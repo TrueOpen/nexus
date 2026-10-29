@@ -137,7 +137,7 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 	prev := cloneState(st)
 	a.Outcome, a.Reject, a.RejectDigest = outcomeRejected, from.Raw, append([]byte(nil), from.Digest[:]...)
 	st.Skips++
-	if err := saveState(d.cfg.Store, st); err != nil {
+	if err := d.save(st); err != nil {
 		o.st = prev
 		o.mu.Unlock()
 		return fmt.Errorf("%w: store reject: %v", dispatchstream.ErrTransient, err)
