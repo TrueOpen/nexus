@@ -26,6 +26,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
@@ -169,6 +170,8 @@ type App struct {
 	kv               kv.Store
 	modules          []module
 	beginIngressStop func(context.Context) error
+	// dispatch is nil when direct dispatch is not configured.
+	dispatch *directDispatch
 }
 
 type chainEventOptions struct {
@@ -246,6 +249,17 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("registered session keys: %w", err)
 	}
 	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(sessionKeys.cache))
+	// Current service keys are read on every stream message, handraise and Builder signature; the
+	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
+	// protocol stream, drops a rotated key at once.
+	var keyCache *servicekey.Cache
+	keyEvents := chaincli.WithEventObserver(func(ev chaincli.ChainEvent) {
+		if keyCache != nil {
+			keyCache.ObserveEvent(ev)
+		}
+	})
+	eventOptions.task = append(eventOptions.task, keyEvents)
+	eventOptions.hub = append(eventOptions.hub, keyEvents)
 	taskChain := chaincli.New(log, cfg.Chain, eventOptions.task...) // Task Chain: source of truth for task queries, txs and events.
 	sessionKeys.chain = taskChain
 	registrationChain := taskChain
@@ -257,6 +271,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Warn("builder registration using single-chain compatibility mode",
 			"authority_chain_id", authority.Chain.ChainID)
 	}
+	keyCache = servicekey.NewCache(registrationChain, servicekey.DefaultCacheTTL)
 	rl := relay.NewKV(log, store) // the credential store is written through to disk so restart recovery still holds the credentials
 	taskStore, err := taskdata.NewStore(log, taskDataRoot(cfg.DataDir), store, taskdata.Config{
 		InlineMaxBytes: cfg.TaskData.InlineMaxBytes, ChunkSizeBytes: cfg.TaskData.ChunkSizeBytes,
@@ -372,23 +387,45 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// service key, bound to the on-chain binding looked up by (participant_type, operator).
 		// Without a service key no Builder message is signed or sent: there is no unsigned fallback.
 		coordOpts = append(coordOpts,
-			coordinator.WithServiceKey(serviceSG, taskAuthority, cfg.Identity.Bech32Prefix))
+			coordinator.WithServiceKey(serviceSG, newTaskDataAuthority(taskChain, keyCache, registrationChain), cfg.Identity.Bech32Prefix))
 	} else {
 		log.Warn("service key NOT configured; Builder messages to Cortex cannot be signed, so none are sent")
 	}
 
 	// Cortex nodes connect to the IngressAPI DispatchStream; the hub verifies every stream and
 	// message against the Cortex's current service key (kept with the other service keys on the
-	// registration chain) and carries the coordinator's Verifier messages.
+	// registration chain), carries the coordinator's Verifier messages and the standing
+	// handraises, and gives every (re)bound stream the latest handraise root.
+	dispatch := &directDispatch{log: log}
 	streams, err := dispatchstream.New(log, dispatchstream.Config{ChainID: cfg.Chain.ChainID, BuilderOperator: selfAddr},
-		dispatchstream.ServiceKeyLookup{Resolver: registrationChain, AddressPrefix: cfg.Identity.Bech32Prefix}, store)
+		dispatchstream.ServiceKeyLookup{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix}, store,
+		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplay))
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)
 	}
 	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
-	streams.SetSinks(dispatchstream.Sinks{Verifier: coord})
+	sinks := dispatchstream.Sinks{Verifier: coord}
+	var dispatchModule *module
+	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
+		// Standing handraises and roots are judged on the task chain's height; the Hub reads
+		// (pool, beacon, VRF keys, epoch length) go to the registration chain.
+		if err := newDirectDispatch(dispatch, directDispatchDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
+			Config: cfg.Dispatch, VRFKeyFiles: cfg.Identity.VRFKeyFiles, VRFKeyPassword: cfg.Identity.VRFKeyPasswordFile,
+			Store: store, Chain: registrationChain, Keys: keyCache, Height: newCachedHeight(taskChain.LatestHeight),
+			Signer: serviceSG, Streams: streams, Groups: coord,
+		}); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("direct dispatch: %w", err)
+		}
+		sinks.Handraise = dispatch
+		dispatchModule = &module{"handraise-roots", dispatch.Start, dispatch.Stop}
+	} else {
+		log.Warn("direct dispatch NOT configured (needs the service key and identity.vrf_key_files); standing handraises are dropped")
+	}
+	streams.SetSinks(sinks)
 	ingressOpts = append(ingressOpts, ingress.WithDispatchStream(streams))
 	var taskAuthorizer *taskdata.Authorizer
 	// User request verification reads the current height (session grant windows) and the key each
@@ -525,12 +562,32 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		complete:  coord.CompleteOutputRecovery,
 	}
 	modules = append(modules, runtimeModules(taskDataModule, rl, coord, outputModule, streams, ing)...)
+	if dispatchModule != nil {
+		// Roots are issued once the coordinator follows the chain, and before streams are served.
+		modules = insertBefore(modules, "dispatch-stream", *dispatchModule)
+	}
 
-	return &App{
+	app := &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
 		beginIngressStop: ing.BeginStop,
 		chainReset:       chainResetMonitor,
-	}, nil
+	}
+	if dispatchModule != nil {
+		app.dispatch = dispatch
+	}
+	return app, nil
+}
+
+// insertBefore returns modules with m placed just before the module named name, or at the end.
+func insertBefore(modules []module, name string, m module) []module {
+	for i, current := range modules {
+		if current.name == name {
+			out := append([]module(nil), modules[:i]...)
+			out = append(out, m)
+			return append(out, modules[i:]...)
+		}
+	}
+	return append(modules, m)
 }
 
 func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
