@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
@@ -145,5 +146,86 @@ func TestReceiptMustNameTheWinnerTicket(t *testing.T) {
 	}
 	if f.staged() {
 		t.Fatal("a refused receipt was staged")
+	}
+}
+
+// failingCustodian refuses the first fails holds with a storage error.
+type failingCustodian struct {
+	relay.Custodian
+	fails int
+}
+
+func (f *failingCustodian) Hold(receipt types.InferReceiptSubmission, ttl time.Duration) error {
+	if f.fails > 0 {
+		f.fails--
+		return errors.New("relay store unavailable")
+	}
+	return f.Custodian.Hold(receipt, ttl)
+}
+
+// A staged receipt the normal path cannot take when the record shows up stays staged and the
+// reconcile reports the task unfinished; the next reconcile of the Assigned task relays it.
+func TestStagedReceiptRetriedAfterAFailedRelease(t *testing.T) {
+	f := newStagingFixture(t)
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); err != nil {
+		t.Fatal(err)
+	}
+	f.book.Recorded(f.task, f.ticket)
+	f.c.relay = &failingCustodian{Custodian: f.c.relay, fails: 1}
+	fsm, _ := f.c.getFSM(f.session, f.task)
+	recorded := chaincli.OnChainTask{SessionID: f.session, TaskID: f.task, State: types.Assigned, Winner: f.worker}
+	if done := f.c.applyAuthoritativeTask(fsm, recorded, 101); done || !f.staged() || f.submitted() != 0 {
+		t.Fatalf("failed release: done %t, staged %t, submitted %d", done, f.staged(), f.submitted())
+	}
+	if done := f.c.applyAuthoritativeTask(fsm, recorded, 102); !done || f.staged() || f.submitted() != 1 {
+		t.Fatalf("next reconcile: done %t, staged %t, submitted %d", done, f.staged(), f.submitted())
+	}
+}
+
+// A restart between saving the task Assigned and releasing its staged receipt does not orphan
+// the receipt: the reconcile after the restart finds the task Assigned and relays it.
+func TestStagedReceiptReleasedAfterARestart(t *testing.T) {
+	f := newStagingFixture(t)
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); err != nil {
+		t.Fatal(err)
+	}
+	f.book.Recorded(f.task, f.ticket)
+	fsm, _ := f.c.getFSM(f.session, f.task)
+	fsm.onWinnerRecorded(f.worker, nil, 101, 0) // saved Assigned; the process stops here
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), f.store, testBuilderSelf, testChainID)
+	enableTestBuilderMessages(c)
+	submit := &fakeSubmitter{}
+	c.submit = submit
+	c.SetAttempts(f.book)
+	if err := c.recoverTasks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fsm, ok := c.getFSM(f.session, f.task)
+	if !ok {
+		t.Fatal("task not recovered")
+	}
+	c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{SessionID: f.session, TaskID: f.task, State: types.Assigned, Winner: f.worker}, 102)
+	submit.mu.Lock()
+	n := len(submit.openVerify)
+	submit.mu.Unlock()
+	if f.staged() || n != 1 {
+		t.Fatalf("after the restart: staged %t, submitted %d", f.staged(), n)
+	}
+}
+
+// Once the chain holds a receipt for the task a staged one has nothing left to do and is dropped.
+func TestStagedReceiptDroppedOnceTheChainHasAReceipt(t *testing.T) {
+	f := newStagingFixture(t)
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); err != nil {
+		t.Fatal(err)
+	}
+	f.book.Recorded(f.task, f.ticket)
+	fsm, _ := f.c.getFSM(f.session, f.task)
+	fsm.onWinnerRecorded(f.worker, nil, 101, 0)
+	f.c.applyAuthoritativeTask(fsm, chaincli.OnChainTask{SessionID: f.session, TaskID: f.task, State: types.Verifying, Winner: f.worker, ReceiptAccepted: true}, 102)
+	if f.staged() {
+		t.Fatal("staged receipt kept after the chain accepted a receipt")
 	}
 }

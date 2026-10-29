@@ -65,20 +65,20 @@ func (f *taskFSM) stageInferReceipt(store kv.Store, receipt types.InferReceiptSu
 	return true, nil
 }
 
-// releaseStagedReceipt relays the receipt staged for a task the chain now shows recorded. A receipt
-// the normal path refuses as invalid is dropped; one it cannot take now stays for the next
-// reconcile.
-func (c *Coordinator) releaseStagedReceipt(fsm *taskFSM) {
+// releaseStagedReceipt relays the receipt staged for a task the chain now shows recorded and
+// reports whether none is left staged. A receipt the normal path refuses as invalid is dropped;
+// one it cannot take now stays for the next reconcile.
+func (c *Coordinator) releaseStagedReceipt(fsm *taskFSM) bool {
 	key := taskKey(fsm.sessionID, fsm.taskID)
 	raw, found := c.kv.Get(kv.NSReceiptStaging, key)
 	if !found {
-		return
+		return true
 	}
 	var receipt types.InferReceiptSubmission
 	if err := json.Unmarshal(raw, &receipt); err != nil {
 		c.log.Error("staged infer receipt unreadable; dropped", "task_id", fsm.taskID, "err", err)
 		c.dropStagedReceipt(key)
-		return
+		return true
 	}
 	err := c.OnInferReceipt(context.Background(), receipt)
 	switch {
@@ -88,9 +88,19 @@ func (c *Coordinator) releaseStagedReceipt(fsm *taskFSM) {
 		c.log.Warn("staged infer receipt refused after the dispatch record; dropped", "task_id", fsm.taskID, "err", err)
 	default:
 		c.log.Warn("staged infer receipt not relayed yet", "task_id", fsm.taskID, "err", err)
-		return
+		return false
 	}
 	c.dropStagedReceipt(key)
+	return true
+}
+
+// dropStagedReceiptOf drops the task's staged receipt, if any.
+func (c *Coordinator) dropStagedReceiptOf(fsm *taskFSM) {
+	key := taskKey(fsm.sessionID, fsm.taskID)
+	if _, found := c.kv.Get(kv.NSReceiptStaging, key); found {
+		c.log.Info("staged infer receipt dropped: the chain holds a receipt", "task_id", fsm.taskID)
+		c.dropStagedReceipt(key)
+	}
 }
 
 func (c *Coordinator) dropStagedReceipt(key string) {

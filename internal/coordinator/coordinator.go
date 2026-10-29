@@ -1601,8 +1601,12 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 			"session_id", sessionID, "task_id", taskID, "reason", reason, "err", err)
 		return false
 	}
-	c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
+	released := c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
 	c.confirmSubmittedTxs(fsm)
+	if !released {
+		c.log.Info("task reconciliation retried: a staged infer receipt is not relayed yet", "task_id", taskID, "reason", reason)
+		return false
+	}
 	c.log.Debug("task reconciled", "task_id", taskID, "reason", reason, "state", snapshot.State.String(), "phase", snapshot.Status)
 	var settlementFacts *chaincli.SettlementBuildFacts
 	if snapshot.State == types.Verifying && snapshot.Status != "RECEIPT_ONLY_ACCEPTED" {
@@ -1884,7 +1888,9 @@ func (c *Coordinator) fillVerifierWindow(fsm *taskFSM) {
 	fsm.setVerifierWindow(window)
 }
 
-func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
+// applyAuthoritativeTask moves the task to the chain's facts. It reports false while a staged
+// receipt of the task still waits to be relayed, so the reconcile is retried.
+func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) bool {
 	// task_hash is a consensus fact and may only come from on-chain query/event.
 	if fsm.rememberAcceptedVersion(snapshot.Assignment.AcceptedTaskHash, snapshot.Assignment.AcceptedInputHash) {
 		// The local input is another version than the accepted one: it must not be served, and
@@ -1894,7 +1900,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	}
 	if snapshot.State == types.Failed {
 		fsm.onAuthoritativeFailure(snapshot, height)
-		return
+		return true
 	}
 	if snapshot.Compacted {
 		closeHeight := uint64(0)
@@ -1905,7 +1911,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 			closeHeight = currentHeight
 		}
 		fsm.closeCompacted(snapshot, closeHeight)
-		return
+		return true
 	}
 	fsm.mu.Lock()
 	state := fsm.state
@@ -1916,7 +1922,17 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 			authoritativeEventHeight(snapshot.Assignment.WinnerConfirmHeight, height),
 			snapshot.Assignment.InferDeadlineHeight)
 		state = types.Assigned
-		c.releaseStagedReceipt(fsm)
+	}
+	// A receipt staged before the record is relayed on every reconcile of the recorded task until
+	// it leaves the staging: one saved Assigned before a restart, or whose relay failed, is not
+	// orphaned. Once the chain holds a receipt the staged one is dropped.
+	released := true
+	if state == types.Assigned || state == types.Verifying {
+		if snapshot.ReceiptAccepted || snapshot.InferReceipt.InferReceiptHash != "" {
+			c.dropStagedReceiptOf(fsm)
+		} else {
+			released = c.releaseStagedReceipt(fsm)
+		}
 	}
 	// Once the chain accepts the receipt (from RECEIPT_COMMITTED on) OPEN_VERIFY should be sent; it and
 	// "verifiers decided" are two different facts, the former only opens the verify window.
@@ -1957,6 +1973,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	if currentHeight, authoritative := c.currentChainHeight(); authoritative {
 		fsm.closeSettledAtHeight(currentHeight)
 	}
+	return released
 }
 
 func authoritativeEventHeight(authoritative uint64, fallback int64) int64 {
