@@ -379,6 +379,7 @@ func TestPrepareChallengeHeightProtoContract(t *testing.T) {
 // fakeHandler records calls and returns controllable results.
 type fakeHandler struct {
 	taskOwner           string
+	taskTerminal        bool
 	lastOrder           types.Order
 	orderErr            error
 	dispatchResult      *nexusv1.DispatchResultHeaderV1
@@ -1091,6 +1092,8 @@ func TestSubscribeAndAckRejectBareIDs(t *testing.T) {
 		}
 	}
 }
+
+func (h *fakeHandler) IsTaskTerminal(_, _ string) bool { return h.taskTerminal }
 
 func (h *fakeHandler) TaskOwner(_ context.Context, _, _ string) (string, error) {
 	if h.taskOwner == "" {

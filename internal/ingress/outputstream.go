@@ -28,11 +28,13 @@ type outputStreamAPI interface {
 }
 
 // outputStreamRuntime wires the streaming data plane into ingress: storage and authorization (service), per-task
-// fan-out (dispatcher), the user's local delivery progress (acks, kv NSOutputAck).
+// fan-out (dispatcher), the user's local delivery progress (acks, kv NSOutputAck) and the winning dispatch
+// attempts whose header leads every subscription and whose record status gates delivery (attempts).
 type outputStreamRuntime struct {
 	service    outputStreamAPI
 	dispatcher *taskdata.OutputDispatcher
 	acks       kv.Store
+	attempts   AttemptBook
 }
 
 func withOutputStream(runtime *outputStreamRuntime) serviceOption {
@@ -40,10 +42,10 @@ func withOutputStream(runtime *outputStreamRuntime) serviceOption {
 }
 
 // WithOutputStream enables the streaming OUTPUT data plane (task_data.output_stream.enabled).
-func WithOutputStream(service *taskdata.Service, dispatcher *taskdata.OutputDispatcher, acks kv.Store) Option {
+func WithOutputStream(service *taskdata.Service, dispatcher *taskdata.OutputDispatcher, acks kv.Store, attempts AttemptBook) Option {
 	return func(s *Server) {
-		if service != nil && dispatcher != nil && acks != nil {
-			s.outputStream = &outputStreamRuntime{service: service, dispatcher: dispatcher, acks: acks}
+		if service != nil && dispatcher != nil && acks != nil && attempts != nil {
+			s.outputStream = &outputStreamRuntime{service: service, dispatcher: dispatcher, acks: acks, attempts: attempts}
 		}
 	}
 }
@@ -149,9 +151,9 @@ func (s *service) UploadTaskOutputStream(
 	}
 }
 
-// subscribeOutputStream, diagram 5: verify the envelope, allow only the ordering user; first replay persisted frames with
-// seq > resume_after_seq, then live frames (the subscriber is registered before replay, live frames are buffered, and only those with seq above the highest replayed are sent).
-// If the stream has ended, only historical frames and Fin are sent. When disconnected due to a full buffer, ResourceExhausted is returned and the SDK resubscribes with last_seq.
+// subscribeOutputStream verifies the envelope (only the order user) and serves the task's output
+// (serveOutput): the attempt's result header first, then the stored frames after resume_after_seq and
+// the live ones.
 func (s *service) subscribeOutputStream(
 	ctx context.Context,
 	req *connect.Request[nexusv1.SubscribeOutputRequest],
@@ -165,65 +167,7 @@ func (s *service) subscribeOutputStream(
 	if err != nil {
 		return err
 	}
-	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
-	if err != nil {
-		return err
-	}
-	if err := s.requireTaskOwner(ctx, ids.session, ids.task, requester); err != nil {
-		return err
-	}
-	key := taskdata.ObjectKey{SessionID: ids.session, TaskID: ids.task, Kind: taskdata.ObjectKindOutput}
-	sub := s.outputStream.dispatcher.Subscribe(key)
-	defer sub.Close()
-
-	// wire v0.2.0 gives resume_after_seq explicit presence: unset replays from seq = 0, and any set
-	// value n (including 0) replays only seq > n.
-	var after *uint64
-	if m.ResumeAfterSeq != nil {
-		resume := m.GetResumeAfterSeq()
-		after = &resume
-	}
-	frames, err := s.outputStream.service.OutputFrames(ctx, key, after)
-	if err != nil {
-		return mapTaskDataError(err)
-	}
-	sent := false
-	var lastSent uint64
-	for _, frame := range frames {
-		if err := stream.Send(outputFrameToPB(frame)); err != nil {
-			return err
-		}
-		if frame.Fin != nil {
-			return nil
-		}
-		sent, lastSent = true, frame.Chunk.Seq
-	}
-	for {
-		select {
-		case frame, ok := <-sub.Frames:
-			if !ok {
-				if sub.Overflowed() {
-					return connect.NewError(connect.CodeResourceExhausted,
-						errors.New("NEXUS_OUTPUT_SUBSCRIBER_OVERFLOW: subscriber buffer full, re-subscribe with resume_after_seq"))
-				}
-				return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_OUTPUT_STREAM_STOPPED: builder is shutting down"))
-			}
-			if frame.Chunk != nil {
-				if sent && frame.Chunk.Seq <= lastSent {
-					continue
-				}
-				sent, lastSent = true, frame.Chunk.Seq
-			}
-			if err := stream.Send(outputFrameToPB(frame)); err != nil {
-				return err
-			}
-			if frame.Fin != nil {
-				return nil
-			}
-		case <-ctx.Done():
-			return nil
-		}
-	}
+	return s.serveOutput(ctx, m.GetSessionId(), m.GetTaskId(), requester, m.ResumeAfterSeq, m.GetDispatchTicketHash(), stream.Send)
 }
 
 // outputAckRecord is the user's local delivery progress (task, last_seq): not an on-chain fact, not part of settlement / retention / attribution.
@@ -291,7 +235,8 @@ func chunkFromPB(pb *nexusv1.OutputChunkV1) taskdata.OutputChunk {
 		Seq: pb.GetSeq(), Text: append([]byte(nil), pb.GetText()...), MMRRoot: append([]byte(nil), pb.GetMmrRoot()...),
 		WorkerSignature: append([]byte(nil), pb.GetWorkerSignature()...),
 		Attachment:      append([]byte(nil), pb.GetAttachment()...), AttachmentSignature: append([]byte(nil), pb.GetAttachmentSignature()...),
-		DispatchTicketHash: append([]byte(nil), pb.GetDispatchTicketHash()...),
+		DispatchTicketHash:        append([]byte(nil), pb.GetDispatchTicketHash()...),
+		CumulativeGeneratedTokens: pb.GetCumulativeGeneratedTokens(),
 	}
 }
 
@@ -299,7 +244,7 @@ func chunkToPB(chunk *taskdata.OutputChunk) *nexusv1.OutputChunkV1 {
 	return &nexusv1.OutputChunkV1{
 		Seq: chunk.Seq, Text: chunk.Text, MmrRoot: chunk.MMRRoot, WorkerSignature: chunk.WorkerSignature,
 		Attachment: chunk.Attachment, AttachmentSignature: chunk.AttachmentSignature,
-		DispatchTicketHash: chunk.DispatchTicketHash,
+		DispatchTicketHash: chunk.DispatchTicketHash, CumulativeGeneratedTokens: chunk.CumulativeGeneratedTokens,
 	}
 }
 

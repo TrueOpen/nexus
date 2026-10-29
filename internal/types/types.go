@@ -15,6 +15,12 @@ var (
 	ErrInvalidArgument = errors.New("invalid argument")
 	// ErrFailedPrecondition: the request itself is valid, but the task's current phase does not accept it (FAILED_PRECONDITION).
 	ErrFailedPrecondition = errors.New("failed precondition")
+	// ErrReceiptDispatchMismatch is a receipt whose dispatch_ticket_hash is not the task's winner
+	// ticket held here (FailedPrecondition).
+	ErrReceiptDispatchMismatch = errors.New("RECEIPT_DISPATCH_MISMATCH")
+	// ErrUnavailable is a request this Builder cannot judge yet; the same request may be sent
+	// again (Unavailable).
+	ErrUnavailable = errors.New("unavailable")
 	// ErrChainStateUnavailable: authoritative chain height or task facts are temporarily unavailable.
 	ErrChainStateUnavailable = errors.New("authoritative chain state unavailable")
 )

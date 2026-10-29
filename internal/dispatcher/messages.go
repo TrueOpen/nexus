@@ -16,7 +16,6 @@ const (
 	ticketName        = "task.v1.DispatchTicketV1"
 	recordName        = "task.v1.DispatchRecordV1"
 	acceptName        = "task.v1.DispatchAcceptV1"
-	resultHeaderName  = "nexus.v1.DispatchResultHeaderV1"
 	inputResponseName = "nexus.v1.DispatchInputResponseV1"
 	noticeName        = "nexus.v1.RecordResultNoticeV1"
 
@@ -60,10 +59,6 @@ func signTicket(s signer.Signer, t *taskv1.DispatchTicketV1) ([]byte, [32]byte, 
 // signRecord signs r; its digest is the dispatch_record_hash.
 func signRecord(s signer.Signer, r *taskv1.DispatchRecordV1) ([]byte, [32]byte, error) {
 	return signMessage(s, recordName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
-}
-
-func signResultHeader(s signer.Signer, h *nexusv1.DispatchResultHeaderV1) ([]byte, [32]byte, error) {
-	return signMessage(s, resultHeaderName, h, func(sig []byte) { h.BuilderServiceSignature = sig })
 }
 
 func signInputResponse(s signer.Signer, r *nexusv1.DispatchInputResponseV1) ([]byte, [32]byte, error) {

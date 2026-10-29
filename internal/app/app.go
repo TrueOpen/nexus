@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/builderreg"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/chainreset"
@@ -416,6 +417,19 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	sinks := dispatchstream.Sinks{Verifier: coord}
 	var dispatchModule *module
 	var orderPath *orderDispatch
+	// attempts holds the winning attempt of every order this Builder dispatched; the output data
+	// plane authorizes and gates by it. It needs the service key that signs the result headers.
+	var attempts *attempt.Book
+	if serviceSG != nil {
+		if attempts, err = attempt.New(store, serviceSG, log); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("dispatch attempts: %w", err)
+		}
+		coord.SetAttempts(attempts)
+		// A terminal or dropped task's attempt (its signed header) is kept as long as a deleted
+		// object's tombstone.
+		coord.SetAttemptRetention(cfg.TaskData.TombstoneRetentionBlocks)
+	}
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
 		// Standing handraises and roots are judged on the task chain's height; the Hub reads
 		// (pool, beacon, VRF keys, epoch length) go to the registration chain.
@@ -436,7 +450,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
 			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
 			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
-			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Log: log,
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Attempts: attempts, Log: log,
 		})
 		cancelParams()
 		if err != nil {
@@ -501,7 +515,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				Chain: userChain, MaxBlocks: sessionGrantBlocks,
 				SessionKeys: sessionKeys.cache, LocalTask: localTaskRecord(coord.TaskOwner),
 			},
-			Log: log,
+			Attempts: attempts,
+			Log:      log,
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()
@@ -537,7 +552,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				MaxFrameBytes: cfg.TaskData.ChunkSizeBytes, MaxAttachmentBytes: stream.MaxAttachmentBytes,
 			})
 			dispatcher := taskdata.NewOutputDispatcher(int(stream.SubscriberBufferFrames))
-			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store))
+			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store, attempts))
 			log.Info("streaming output enabled",
 				"max_output_mmr_leaves", stream.MaxOutputMMRLeaves, "min_frame_bytes", stream.MinFrameBytes,
 				"max_frame_bytes", cfg.TaskData.ChunkSizeBytes, "subscriber_buffer_frames", stream.SubscriberBufferFrames)

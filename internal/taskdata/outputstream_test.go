@@ -426,10 +426,10 @@ func TestOutputStreamOpenHonoursCapacityAndWatermark(t *testing.T) {
 	}
 }
 
-// A stream that already holds frames of one dispatch attempt cannot be taken over by a header of
-// another attempt: the frames are signed for different tickets and must not share one MMR. The
-// replayed frames keep the ticket they were received with.
-func TestOutputStreamRefusesAnotherDispatchAttempt(t *testing.T) {
+// A header of the same dispatch attempt resumes its stream; a header of another attempt (the
+// caller authorized it as the task's live one) drops the stored frames and starts afresh, so two
+// attempts never share one MMR. Replayed frames keep the ticket they were received with.
+func TestOutputStreamOfAnotherDispatchAttemptStartsAfresh(t *testing.T) {
 	store, _, _ := newTestStore(t, streamStoreConfig())
 	key := streamKey(testTaskID)
 	first := &OutputStreamHeaderRecord{DispatchTicketHash: bytes.Repeat([]byte{0x31}, 32)}
@@ -445,23 +445,29 @@ func TestOutputStreamRefusesAnotherDispatchAttempt(t *testing.T) {
 	}
 	stream.Close()
 
-	other := &OutputStreamHeaderRecord{DispatchTicketHash: bytes.Repeat([]byte{0x32}, 32)}
-	if _, _, err := store.openOutputStream(context.Background(), key, "worker-1", testStreamConfig(), other); !errors.Is(err, ErrConflict) {
-		t.Fatalf("open with another ticket error = %v, want conflict", err)
-	}
 	stream, progress, err := store.openOutputStream(context.Background(), key, "worker-1", testStreamConfig(), first)
-	if err != nil {
+	if err != nil || !progress.Received || progress.LastSeq != 0 {
+		t.Fatalf("resume progress = %+v, %v", progress, err)
+	}
+	stream.Close()
+
+	other := &OutputStreamHeaderRecord{DispatchTicketHash: bytes.Repeat([]byte{0x32}, 32)}
+	stream, progress, err = store.openOutputStream(context.Background(), key, "worker-2", testStreamConfig(), other)
+	if err != nil || progress.Received {
+		t.Fatalf("another attempt's progress = %+v, %v", progress, err)
+	}
+	acc, _ = mmr.New(nodecontract.DomainOutputMMRV1)
+	chunk = chunkFor(acc, 0, "again, ")
+	chunk.DispatchTicketHash = other.DispatchTicketHash
+	if _, err := stream.Append(context.Background(), chunk); err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
-	if !progress.Received || progress.LastSeq != 0 {
-		t.Fatalf("progress = %+v", progress)
-	}
+	stream.Close()
 	frames, err := store.OutputFrames(context.Background(), key, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(frames) != 1 || !bytes.Equal(frames[0].Chunk.DispatchTicketHash, first.DispatchTicketHash) {
+	if len(frames) != 1 || !bytes.Equal(frames[0].Chunk.DispatchTicketHash, other.DispatchTicketHash) || string(frames[0].Chunk.Text) != "again, " {
 		t.Fatalf("replayed frames = %+v", frames)
 	}
 }

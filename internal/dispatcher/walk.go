@@ -11,6 +11,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
@@ -34,18 +35,18 @@ const recordLeadBlocks = 2
 // the Builder.
 func TooLateToRecord(head, deadline uint64) bool { return head+recordLeadBlocks > deadline }
 
-// recordDeadline is the last height the order can be recorded at: its deadline in the ledger
-// and, while another Builder's takeover of its session is registered, the takeover's activation
+// liveRecordDeadline is the last height the order can be recorded at: its recordDeadline and,
+// while another Builder's takeover of its session is registered, the takeover's activation
 // height (records of that block are admitted before EndBlock moves the binding; a later record
 // is refused and its Worker claims compensation).
-// A session state that cannot be read leaves the ledger deadline.
-func (d *Dispatcher) recordDeadline(ctx context.Context, st *orderState) (uint64, bool) {
-	entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence)
+// A session state that cannot be read leaves the recordDeadline. Caller holds o.mu.
+func (d *Dispatcher) liveRecordDeadline(ctx context.Context, o *order) (uint64, bool) {
+	entry, ok := d.cfg.Ledger.Get(o.st.SessionID, o.st.Sequence)
 	if !ok {
 		return 0, false
 	}
-	deadline := entry.Deadline
-	if s, _, err := d.cfg.Sessions.Lookup(ctx, st.SessionID); err == nil && s.Found {
+	deadline := d.recordDeadline(o, entry.Deadline)
+	if s, _, err := d.cfg.Sessions.Lookup(ctx, o.st.SessionID); err == nil && s.Found {
 		if t := s.PendingTakeover; t != nil && t.CandidateBuilder != d.cfg.Builder && t.ActivationHeight > 0 {
 			deadline = min(deadline, t.ActivationHeight)
 		}
@@ -83,6 +84,7 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 func (d *Dispatcher) finish(ctx context.Context, out done) {
 	switch {
 	case out.accepted != nil:
+		d.accepted(out.accepted)
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
 		if err := d.cfg.Recorder.Record(ctx, out.accepted); err != nil {
 			d.log.Error("dispatch entry not handed to the recorder", "session_id", out.session, "order_sequence", out.sequence, "err", err)
@@ -93,6 +95,52 @@ func (d *Dispatcher) finish(ctx context.Context, out done) {
 		return
 	}
 	d.kickParked(out.session)
+}
+
+// accepted hands an accepted order's winner to the attempt book.
+func (d *Dispatcher) accepted(b *Bundle) {
+	w := attempt.Winner{
+		SessionID: b.SessionID, Sequence: b.Sequence, User: b.Entry.GetSignedOrder().GetOrder().GetUserAddress(),
+		Ticket: b.Entry.GetWinnerTicket(), Accept: b.Entry.GetAccept(),
+	}
+	d.book(w)
+}
+
+// book hands w to the attempt book. A failure other than a task recorded with another ticket is
+// retried on the next block: until the book holds the winner its Worker cannot stream.
+func (d *Dispatcher) book(w attempt.Winner) {
+	taskID := hex.EncodeToString(w.Ticket.GetTaskId())
+	err := d.cfg.Attempts.Accepted(w)
+	d.unbookedMu.Lock()
+	defer d.unbookedMu.Unlock()
+	switch {
+	case err == nil, errors.Is(err, attempt.ErrRecordedWithAnotherTicket):
+		if err != nil {
+			d.log.Warn("accepted winner not booked: the task is recorded with another ticket", "session_id", w.SessionID, "order_sequence", w.Sequence, "err", err)
+		}
+		if cur, ok := d.unbooked[taskID]; ok && proto.Equal(cur.Ticket, w.Ticket) {
+			delete(d.unbooked, taskID)
+		}
+	default:
+		d.log.Error("accepted winner not given to the attempt book; retried on the next block", "session_id", w.SessionID, "order_sequence", w.Sequence, "err", err)
+		if d.unbooked == nil {
+			d.unbooked = map[string]attempt.Winner{}
+		}
+		d.unbooked[taskID] = w
+	}
+}
+
+// retryUnbooked hands the attempt book the winners it could not take before.
+func (d *Dispatcher) retryUnbooked() {
+	d.unbookedMu.Lock()
+	winners := make([]attempt.Winner, 0, len(d.unbooked))
+	for _, w := range d.unbooked {
+		winners = append(winners, w)
+	}
+	d.unbookedMu.Unlock()
+	for _, w := range winners {
+		d.book(w)
+	}
 }
 
 // kickParked lets the parked orders of a session try again: an earlier order of it was decided.
@@ -109,6 +157,7 @@ func (d *Dispatcher) kickParked(sessionID string) {
 
 // onBlock lets every parked order try again at a new head.
 func (d *Dispatcher) onBlock() {
+	d.retryUnbooked()
 	d.mu.Lock()
 	orders := make([]*order, 0, len(d.orders))
 	for _, o := range d.orders {
@@ -147,7 +196,7 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if st.Phase != phaseDispatching || st.pending() != nil {
 			return done{}
 		}
-		if deadline, ok := d.recordDeadline(ctx, st); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
+		if deadline, ok := d.liveRecordDeadline(ctx, o); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
@@ -471,7 +520,9 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 	for _, o := range d.sessionOrders(sessionID) {
 		o.mu.Lock()
 		st := o.st
-		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight == boundChangeHeight {
+		// bound_change_height only grows: an event of this Builder at or below the order's height is
+		// a replay or out of order, and voids nothing.
+		if st.Phase == phaseFailed || builder == d.cfg.Builder && st.BoundChangeHeight >= boundChangeHeight {
 			o.mu.Unlock()
 			continue
 		}
@@ -497,6 +548,7 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			// Withdrawn before anything of the new state is written: after a crash in between the
 			// Recorder must not still send an entry the stored state no longer stands behind.
 			d.cfg.Recorder.Withdraw(ctx, st.SessionID, st.Sequence, [32]byte(w.Hash))
+			d.cfg.Attempts.Voided(st.TaskID, [32]byte(w.Hash))
 			w.Outcome = outcomeVoided
 			st.Phase, st.Accept, st.AcceptDigest, st.Record = phaseDispatching, nil, nil, nil
 			if err := d.cfg.Ledger.MarkDispatching(st.SessionID, st.Sequence); err != nil {
@@ -507,7 +559,9 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			failed := d.fail(o, fmt.Errorf("%w: bound to %s", ErrBoundElsewhere, builder))
 			out.failed = failed.failed
 		} else {
-			st.NewRound = true
+			// The new height is taken now, not only when the new round opens: the step below (and
+			// one after a restart) judges the record deadline with it.
+			st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
 			if err := saveState(d.cfg.Store, st); err != nil {
 				d.log.Error("voided tickets not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}

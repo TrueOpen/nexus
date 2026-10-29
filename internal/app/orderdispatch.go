@@ -11,6 +11,7 @@ import (
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
@@ -43,6 +44,7 @@ type orderDispatch struct {
 	Gate       *recorder.Gate
 	// Takeovers takes over the sessions bound to other Builders that orders arrive for.
 	Takeovers *takeover.Manager
+	Attempts  *attempt.Book
 	params    func(context.Context) (orderParams, error)
 
 	cancel context.CancelFunc
@@ -127,7 +129,9 @@ type orderDispatchDeps struct {
 	// Held keeps the task of an order held for a takeover and dispatches it once the takeover took
 	// effect.
 	Held takeover.Tasks
-	Log  *slog.Logger
+	// Attempts is the book of winning attempts the output data plane reads.
+	Attempts *attempt.Book
+	Log      *slog.Logger
 }
 
 // orderParams are the task params the order path applies.
@@ -135,6 +139,8 @@ type orderParams struct {
 	precheck inflight.Params
 	walk     dispatcher.Params
 	record   recorder.Params
+	// maxPrerecordTokens is max_prerecord_output_tokens.
+	maxPrerecordTokens uint64
 }
 
 // recordChain is what the recorder reads from the task chain.
@@ -149,7 +155,10 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if !ok {
 		return nil, fmt.Errorf("order dispatch needs a task chain that reads transaction results")
 	}
-	od := &orderDispatch{log: deps.Log}
+	if deps.Attempts == nil {
+		return nil, fmt.Errorf("order dispatch needs the attempt book")
+	}
+	od := &orderDispatch{log: deps.Log, Attempts: deps.Attempts}
 	od.params = func(ctx context.Context) (orderParams, error) {
 		dispatch, err := deps.TaskChain.QueryDispatchParams(ctx)
 		if err != nil {
@@ -169,12 +178,14 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		if p.record, err = recorder.ParamsFromChain(dispatch); err != nil {
 			return orderParams{}, err
 		}
+		p.maxPrerecordTokens = dispatch.GetMaxPrerecordOutputTokens()
 		return p, nil
 	}
 	params, err := od.params(ctx)
 	if err != nil {
 		return nil, err
 	}
+	od.Attempts.SetMaxPrerecordTokens(params.maxPrerecordTokens)
 	od.Ledger, err = inflight.NewLedger(deps.Store)
 	if err != nil {
 		return nil, err
@@ -201,7 +212,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	od.Recorder, err = recorder.New(recorder.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
 		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry,
-		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Streams: deps.Direct.Streams,
+		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Attempts: deps.Attempts, Streams: deps.Direct.Streams,
 		Gate: od.Gate, Log: deps.Log,
 	}, params.record)
 	if err != nil {
@@ -211,7 +222,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Dispatch: deps.Config, InputChunkBytes: deps.InputChunkBytes,
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
 		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
-		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer,
+		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer, Attempts: deps.Attempts,
 		Log: deps.Log,
 	}, params.walk)
 	if err != nil {
@@ -281,6 +292,7 @@ func (od *orderDispatch) refreshParams(ctx context.Context) {
 	}
 	od.Dispatcher.SetParams(params.walk)
 	od.Recorder.SetParams(params.record)
+	od.Attempts.SetMaxPrerecordTokens(params.maxPrerecordTokens)
 }
 
 // Stop ends the params refresh, the dispatcher's work and the recording.

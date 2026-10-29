@@ -6,6 +6,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/types"
@@ -23,8 +24,6 @@ type Dispatcher interface {
 	Probe(ctx context.Context, o types.Order) error
 	// Dispatch takes over a reserved order and walks it in the background.
 	Dispatch(ctx context.Context, o types.Order) error
-	// DispatchResult returns the signed result header of an accepted, unrecorded order.
-	DispatchResult(sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool)
 	// RecordDeadline returns the last height the order of (session, sequence) can be recorded at.
 	RecordDeadline(sessionID string, sequence uint64) (uint64, bool)
 }
@@ -32,6 +31,72 @@ type Dispatcher interface {
 // SetDispatcher wires direct dispatch in; call it before Start. Without it every new order is
 // refused with ErrDispatchUnavailable.
 func (c *Coordinator) SetDispatcher(d Dispatcher) { c.dispatcher = d }
+
+// SetAttempts wires the book of winning dispatch attempts in; call it before Start.
+func (c *Coordinator) SetAttempts(b *attempt.Book) { c.attempts = b }
+
+// defaultAttemptRetentionBlocks is how long the attempt of a terminal or dropped task is kept
+// when no retention is set.
+const defaultAttemptRetentionBlocks = 120960
+
+// SetAttemptRetention sets how many blocks the attempt of a terminal or dropped task is kept
+// (its header served to late subscribers) before the book forgets it; 0 keeps the default.
+func (c *Coordinator) SetAttemptRetention(blocks uint64) { c.attemptRetention = blocks }
+
+// expireAttempt has the book forget the task's attempt after the retention.
+func (c *Coordinator) expireAttempt(taskID string) {
+	retention := c.attemptRetention
+	if retention == 0 {
+		retention = defaultAttemptRetentionBlocks
+	}
+	height, _ := c.currentChainHeight()
+	c.attempts.ExpireAt(taskID, height+retention)
+}
+
+// endAttemptOfTerminalTask closes the uploads of a terminal task's attempt and has it expire.
+func (c *Coordinator) endAttemptOfTerminalTask(sessionID, taskID string) {
+	if c.attempts == nil {
+		return
+	}
+	if a, ok := c.attempts.Current(taskID); !ok || a.SessionID != sessionID {
+		return
+	}
+	c.attempts.CloseUploads(taskID)
+	c.expireAttempt(taskID)
+}
+
+// retireAbandonedAttempt drops the output stream of a dropped task's attempt that was never
+// recorded and has the attempt expire; its REJECTED header is served until then.
+func (c *Coordinator) retireAbandonedAttempt(sessionID, taskID string) {
+	if c.attempts == nil {
+		return
+	}
+	a, ok := c.attempts.Current(taskID)
+	if !ok || a.SessionID != sessionID {
+		return
+	}
+	if a.Status == attempt.Recorded {
+		// The chain holds this attempt: its output is not dropped, the attempt only expires.
+		c.expireAttempt(taskID)
+		return
+	}
+	if c.payloads != nil {
+		if err := c.payloads.RetireOutput(context.Background(), sessionID, taskID, a.TicketHash[:]); err != nil {
+			c.log.Warn("abandoned attempt output not retired", "task_id", taskID, "err", err)
+		}
+	}
+	c.expireAttempt(taskID)
+}
+
+// limitAttemptUploads bounds the recorded attempt's uploads by the task's infer deadline.
+func (c *Coordinator) limitAttemptUploads(sessionID, taskID string, inferDeadline uint64) {
+	if c.attempts == nil || inferDeadline == 0 {
+		return
+	}
+	if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID && a.Status == attempt.Recorded {
+		c.attempts.LimitUploads(taskID, a.TicketHash, inferDeadline)
+	}
+}
 
 // OnOrder implements the ingress order entry (called by IngressAPI after the precheck reserved the
 // order and its input is stored): the task's state machine starts (ORDER_RECEIVED) and the order
@@ -94,12 +159,22 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	return nil
 }
 
-// DispatchResult returns the signed dispatch result header of an accepted, unrecorded order.
+// DispatchResult returns the signed dispatch result header of the task's winning attempt at its
+// current record status.
 func (c *Coordinator) DispatchResult(_ context.Context, sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool) {
-	if c.dispatcher == nil {
+	if c.attempts == nil {
 		return nil, false
 	}
-	return c.dispatcher.DispatchResult(sessionID, taskID)
+	a, ok := c.attempts.Current(taskID)
+	if !ok || a.SessionID != sessionID {
+		return nil, false
+	}
+	header, err := a.ResultHeader()
+	if err != nil {
+		c.log.Error("stored dispatch result header unreadable", "task_id", taskID, "err", err)
+		return nil, false
+	}
+	return header, true
 }
 
 // DispatchAccepted implements dispatcher.Observer: a Worker accepted the order (DISPATCH_ACCEPTED).
@@ -125,6 +200,15 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
+	}
+	if c.attempts != nil {
+		if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID && a.Status == attempt.Recorded {
+			// The chain recorded the task (a voided winner whose record landed after all): it is
+			// assigned, not failed. The chain's state decides it.
+			c.log.Warn("dispatch failure of a recorded task ignored; reconciling", "session_id", sessionID, "task_id", taskID, "reason", reason)
+			c.requestTaskReconcile(sessionID, taskID, 0, "dispatch failed after the record")
+			return
+		}
 	}
 	code := EvTaskFailed
 	switch {

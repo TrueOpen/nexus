@@ -191,6 +191,9 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 		return FinalizeResultOutcome{}, fmt.Errorf("%w: output leaf count %d, receipt says %d",
 			ErrHashMismatch, output.OutputLeafCount, receipt.OutputLeafCount)
 	}
+	if err := s.checkReceiptTicket(ctx, outputRef, receipt); err != nil {
+		return FinalizeResultOutcome{}, err
+	}
 	// Both calls of a result must carry the same receipt: the first froze the OUTPUT with it.
 	if output.State == StateReady {
 		if output.Receipt == nil {
@@ -315,6 +318,25 @@ func outputConfirmationKey(ref ObjectRef, receiptHash string) (string, error) {
 // FinalizeVerifierEvidence is the atomic commit point on the Verifier side. It switches only the
 // bundle of that producer/round and does not change the readiness of the Worker OUTPUT or of Worker
 // evidence.
+// checkReceiptTicket binds the receipt to the dispatch attempt of its output: dispatch_ticket_hash
+// must be the ticket the sealed stream's header and Fin were signed for and, when this Builder
+// holds the task's attempt, its winner ticket.
+func (s *Service) checkReceiptTicket(ctx context.Context, outputRef ObjectRef, receipt SignedInferReceipt) error {
+	fin, sealed, err := s.store.SealedOutputFin(ctx, outputRef)
+	if err != nil {
+		return err
+	}
+	if !sealed || hex.EncodeToString(fin.DispatchTicketHash) != receipt.DispatchTicketHash {
+		return fmt.Errorf("%w: receipt dispatch_ticket_hash %s is not the sealed output stream's", ErrReceiptDispatchMismatch, receipt.DispatchTicketHash)
+	}
+	if attempts := s.authorizer.cfg.Attempts; attempts != nil {
+		if won, ok := attempts.Current(outputRef.TaskID); ok && hex.EncodeToString(won.TicketHash[:]) != receipt.DispatchTicketHash {
+			return fmt.Errorf("%w: receipt dispatch_ticket_hash is not the winner ticket", ErrReceiptDispatchMismatch)
+		}
+	}
+	return nil
+}
+
 func (s *Service) FinalizeVerifierEvidence(ctx context.Context, request FinalizeVerifierRequest) (FinalizeVerifierOutcome, error) {
 	scope := request.Auth.Key
 	body, err := TaskDataFinalizeVerifierBodyDigest(

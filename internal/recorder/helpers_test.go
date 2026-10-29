@@ -319,6 +319,7 @@ type fakeTasks struct {
 }
 
 func (f *fakeTasks) DispatchRecorded(_, taskID string, height uint64) {
+	f.calls.add("tasks.recorded")
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recorded = append(f.recorded, taskReport{taskID: taskID, height: height})
@@ -329,6 +330,33 @@ func (f *fakeTasks) RecordRejected(_, taskID string, code taskv1.DispatchRejectC
 	defer f.mu.Unlock()
 	f.rejected = append(f.rejected, taskReport{taskID: taskID, code: code})
 	f.calls.add("tasks.rejected")
+}
+
+// attemptReport is one record outcome told to the attempt book.
+type attemptReport struct {
+	taskID   string
+	ticket   [32]byte
+	recorded bool
+}
+
+type fakeAttempts struct {
+	calls   *calls
+	mu      sync.Mutex
+	reports []attemptReport
+}
+
+func (f *fakeAttempts) Recorded(taskID string, ticket [32]byte) {
+	f.calls.add("attempts.recorded")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket, recorded: true})
+}
+
+func (f *fakeAttempts) Rejected(taskID string, ticket [32]byte) {
+	f.calls.add("attempts.rejected")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket})
 }
 
 type notice struct {
@@ -349,16 +377,19 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 }
 
 type env struct {
-	t       *testing.T
-	calls   *calls
-	store   kv.Store
-	signer  signer.Signer
-	chain   *fakeChain
-	tx      *fakeSubmitter
-	ledger  *fakeLedger
-	orders  *fakeOrders
-	tasks   *fakeTasks
-	streams *fakeStreams
+	t        *testing.T
+	calls    *calls
+	store    kv.Store
+	signer   signer.Signer
+	chain    *fakeChain
+	tx       *fakeSubmitter
+	ledger   *fakeLedger
+	orders   *fakeOrders
+	tasks    *fakeTasks
+	streams  *fakeStreams
+	attempts *fakeAttempts
+	// book, when set, is the attempt book the recorder tells instead of attempts.
+	book    Attempts
 	gate    *Gate
 	account *accountReader
 	r       *Recorder
@@ -386,10 +417,15 @@ func (e *env) open() {
 	e.t.Helper()
 	e.calls = &calls{}
 	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{calls: e.calls}, &fakeOrders{calls: e.calls}, &fakeTasks{calls: e.calls}, &fakeStreams{}
+	e.attempts = &fakeAttempts{calls: e.calls}
+	var book Attempts = e.attempts
+	if e.book != nil {
+		book = e.book
+	}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {

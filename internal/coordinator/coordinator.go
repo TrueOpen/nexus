@@ -22,6 +22,7 @@ import (
 	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
@@ -131,6 +132,10 @@ type Coordinator struct {
 	cortex CortexLink
 	// dispatcher takes new orders (nil = none accepted).
 	dispatcher Dispatcher
+	// attempts holds the winning dispatch attempt of each task this Builder dispatched.
+	attempts *attempt.Book
+	// attemptRetention is how many blocks a terminal or dropped task's attempt is kept.
+	attemptRetention uint64
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
 
@@ -811,6 +816,14 @@ func (c *Coordinator) OnInferReceipt(_ context.Context, receipt types.InferRecei
 	if !ok {
 		return ErrTaskNotFound
 	}
+	if c.attempts != nil {
+		if err := c.checkReceiptAttempt(receipt); err != nil {
+			return err
+		}
+		if staged, err := fsm.stageInferReceipt(c.kv, receipt); staged || err != nil {
+			return err
+		}
+	}
 	if err := fsm.validateInferReceipt(receipt); err != nil {
 		return err
 	}
@@ -890,74 +903,6 @@ func validateInferReceiptShape(receipt types.InferReceiptSubmission) error {
 	default:
 		return nil
 	}
-}
-
-// SubscribeOutput replays the prepared plaintext output or waits for its submission to complete.
-//
-// It only waits when the delivery has been Prepared (a record exists). This is the legacy plaintext
-// path, used only when task_data.output_stream is disabled; no production entry point
-// calls Prepare, so without a record the wait would never end; return OUTPUT_UNAVAILABLE right away
-// so the SDK fails fast instead of hanging. Users pick up output via FetchOutputRef +
-// FetchTaskData(OUTPUT).
-func (c *Coordinator) SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
-	if c.outputs == nil {
-		return types.PlaintextOutput{}, outputdelivery.ErrUnavailable
-	}
-	owner := ""
-	if fsm, ok := c.getFSM(sessionID, taskID); ok {
-		fsm.mu.Lock()
-		owner = fsm.user
-		fsm.mu.Unlock()
-	} else if !c.outputs.Known(sessionID, taskID) {
-		recipient, known, err := c.terminalRecipient(sessionID, taskID)
-		if err != nil {
-			return types.PlaintextOutput{}, err
-		}
-		if !known {
-			return types.PlaintextOutput{}, types.ErrTaskNotFound
-		}
-		if recipient == "" || recipient != requester {
-			return types.PlaintextOutput{}, outputdelivery.ErrUnauthorized
-		}
-	}
-	if !c.outputs.Known(sessionID, taskID) {
-		if owner != "" && owner != requester {
-			return types.PlaintextOutput{}, outputdelivery.ErrUnauthorized
-		}
-		return types.PlaintextOutput{}, outputdelivery.ErrUnavailable
-	}
-	return c.outputs.Subscribe(ctx, outputdelivery.SubscribeRequest{
-		SessionID: sessionID, TaskID: taskID, Requester: requester, ActiveTaskOwner: owner,
-	})
-}
-
-// AckOutput acknowledges durable SDK receipt and makes plaintext immediately unreadable.
-func (c *Coordinator) AckOutput(_ context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error) {
-	if c.outputs == nil {
-		return types.OutputAck{}, outputdelivery.ErrUnavailable
-	}
-	if fsm, ok := c.getFSM(sessionID, taskID); ok {
-		fsm.mu.Lock()
-		owner := fsm.user
-		fsm.mu.Unlock()
-		if owner == "" || owner != requester {
-			return types.OutputAck{}, outputdelivery.ErrUnauthorized
-		}
-	} else if !c.outputs.Known(sessionID, taskID) {
-		recipient, known, err := c.terminalRecipient(sessionID, taskID)
-		if err != nil {
-			return types.OutputAck{}, err
-		}
-		if !known {
-			return types.OutputAck{}, types.ErrTaskNotFound
-		}
-		if recipient == "" || recipient != requester {
-			return types.OutputAck{}, outputdelivery.ErrUnauthorized
-		}
-	}
-	return c.outputs.Ack(outputdelivery.AckRequest{
-		SessionID: sessionID, TaskID: taskID, OutputID: outputID, Requester: requester,
-	})
 }
 
 // TaskOwner returns the ordering user's address: streaming SubscribeOutput / AckOutput may only be subscribed by it.
@@ -1348,12 +1293,18 @@ func (c *Coordinator) removeTask(key string) string {
 	if tracked {
 		c.taskEvents.UntrackTaskEvents(eventKey)
 	}
+	if sessionID, taskID, ok := strings.Cut(key, "|"); ok {
+		c.endAttemptOfTerminalTask(sessionID, taskID)
+	}
 	return recipient
 }
 
-// abandonTask drops a task that never reached the chain. Its journal is kept so the user can see
-// why it was rejected; with no output tombstone nothing releases it (a known, low-volume leak).
+// abandonTask drops a task that never reached the chain, with any receipt staged for it and the
+// output stream of its unrecorded attempt. Its journal is kept so the user can see why it was
+// rejected; with no output tombstone nothing releases it (a known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
+	c.dropStagedReceipt(key)
+	c.retireAbandonedAttempt(expected.sessionID, expected.taskID)
 	removed := false
 	var trackedKey chaincli.TaskKey
 	c.mu.Lock()
@@ -1661,8 +1612,12 @@ func (c *Coordinator) reconcileTask(sessionID, taskID string, eventHeight int64,
 			"session_id", sessionID, "task_id", taskID, "reason", reason, "err", err)
 		return false
 	}
-	c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
+	released := c.applyAuthoritativeTask(fsm, snapshot, eventHeight)
 	c.confirmSubmittedTxs(fsm)
+	if !released {
+		c.log.Info("task reconciliation retried: a staged infer receipt is not relayed yet", "task_id", taskID, "reason", reason)
+		return false
+	}
 	c.log.Debug("task reconciled", "task_id", taskID, "reason", reason, "state", snapshot.State.String(), "phase", snapshot.Status)
 	var settlementFacts *chaincli.SettlementBuildFacts
 	if snapshot.State == types.Verifying && snapshot.Status != "RECEIPT_ONLY_ACCEPTED" {
@@ -1944,7 +1899,9 @@ func (c *Coordinator) fillVerifierWindow(fsm *taskFSM) {
 	fsm.setVerifierWindow(window)
 }
 
-func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) {
+// applyAuthoritativeTask moves the task to the chain's facts. It reports false while a staged
+// receipt of the task still waits to be relayed, so the reconcile is retried.
+func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnChainTask, height int64) bool {
 	// task_hash is a consensus fact and may only come from on-chain query/event.
 	if fsm.rememberAcceptedVersion(snapshot.Assignment.AcceptedTaskHash, snapshot.Assignment.AcceptedInputHash) {
 		// The local input is another version than the accepted one: it must not be served, and
@@ -1954,7 +1911,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	}
 	if snapshot.State == types.Failed {
 		fsm.onAuthoritativeFailure(snapshot, height)
-		return
+		return true
 	}
 	if snapshot.Compacted {
 		closeHeight := uint64(0)
@@ -1965,7 +1922,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 			closeHeight = currentHeight
 		}
 		fsm.closeCompacted(snapshot, closeHeight)
-		return
+		return true
 	}
 	fsm.mu.Lock()
 	state := fsm.state
@@ -1977,6 +1934,17 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 			snapshot.Assignment.InferDeadlineHeight)
 		state = types.Assigned
 	}
+	// A receipt staged before the record is relayed on every reconcile of the recorded task until
+	// it leaves the staging: one saved Assigned before a restart, or whose relay failed, is not
+	// orphaned. Once the chain holds a receipt the staged one is dropped.
+	released := true
+	if state == types.Assigned || state == types.Verifying {
+		if snapshot.ReceiptAccepted || snapshot.InferReceipt.InferReceiptHash != "" {
+			c.dropStagedReceiptOf(fsm)
+		} else {
+			released = c.releaseStagedReceipt(fsm)
+		}
+	}
 	// Once the chain accepts the receipt (from RECEIPT_COMMITTED on) OPEN_VERIFY should be sent; it and
 	// "verifiers decided" are two different facts, the former only opens the verify window.
 	if (state == types.Assigned || state == types.Verifying) &&
@@ -1984,6 +1952,9 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 		c.fillAcceptedReceipt(fsm)
 		c.fillVerifierWindow(fsm)
 		fsm.onInferReceiptAccepted()
+	}
+	if state == types.Assigned || state == types.Verifying {
+		c.limitAttemptUploads(fsm.sessionID, fsm.taskID, snapshot.Assignment.InferDeadlineHeight)
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.
@@ -2016,6 +1987,7 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	if currentHeight, authoritative := c.currentChainHeight(); authoritative {
 		fsm.closeSettledAtHeight(currentHeight)
 	}
+	return released
 }
 
 func authoritativeEventHeight(authoritative uint64, fallback int64) int64 {

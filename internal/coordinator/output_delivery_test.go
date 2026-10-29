@@ -102,158 +102,6 @@ func plaintextReceipt(session, task, text string) types.InferReceiptSubmission {
 	return testInferReceipt(session, task, "worker-1", hash[:])
 }
 
-type coordinatorSubscribeResult struct {
-	output types.PlaintextOutput
-	err    error
-}
-
-func subscribeCoordinator(ctx context.Context, c *Coordinator, session, task, requester string) <-chan coordinatorSubscribeResult {
-	result := make(chan coordinatorSubscribeResult, 1)
-	go func() {
-		output, err := c.SubscribeOutput(ctx, session, task, requester)
-		result <- coordinatorSubscribeResult{output: output, err: err}
-	}()
-	return result
-}
-
-// TestCoordinatorSubscribeWithoutPreparedOutputFailsFast a task that was never Prepared:
-// SubscribeOutput returns OUTPUT_UNAVAILABLE immediately instead of blocking: production code has
-// no caller of Prepare (interface RESERVED), so the wait would never end.
-func TestCoordinatorSubscribeWithoutPreparedOutputFailsFast(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	const session, task, user = "session-nowait", "task-nowait", testUserAddress
-	driveOutputTestToAssigned(t, c, session, task, user)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	started := time.Now()
-	_, err := c.SubscribeOutput(ctx, session, task, user)
-	if !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("SubscribeOutput without prepared output error = %v", err)
-	}
-	if time.Since(started) > time.Second {
-		t.Fatalf("SubscribeOutput waited %s instead of failing fast", time.Since(started))
-	}
-	if _, err := c.SubscribeOutput(ctx, session, task, "trueopen1other"); !errors.Is(err, outputdelivery.ErrUnauthorized) {
-		t.Fatalf("non-owner error = %v", err)
-	}
-}
-
-func TestCoordinatorOutputDeliveryHappyPath(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	const session, task, user, text = "session-output", "task-output", testUserAddress, "hello"
-	driveOutputTestToAssigned(t, c, session, task, user)
-
-	// Prepare first (so a record exists); only then does the subscription wait for Commit.
-	receipt := plaintextReceipt(session, task, text)
-	body := text
-	outputID, prepared, err := c.outputs.Prepare(outputdelivery.Submission{
-		SessionID: session, TaskID: task, Recipient: user,
-		OutputText: &body, OutputHash: receipt.OutputHash,
-	})
-	if err != nil || !prepared {
-		t.Fatalf("prepare plaintext: prepared=%v err=%v", prepared, err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	result := subscribeCoordinator(ctx, c, session, task, user)
-	if err := c.OnInferReceipt(context.Background(), receipt); err != nil {
-		t.Fatalf("infer receipt: %v", err)
-	}
-	if err := c.outputs.Commit(session, task, outputID); err != nil {
-		t.Fatalf("commit plaintext: %v", err)
-	}
-	ref := receipt
-	delivered := <-result
-	if delivered.err != nil || delivered.output.Text != text || !bytes.Equal(delivered.output.Hash, ref.OutputHash) {
-		t.Fatalf("delivered = %+v/%v", delivered.output, delivered.err)
-	}
-	ack, err := c.AckOutput(ctx, session, task, delivered.output.OutputID, user)
-	if err != nil || !ack.Acked || ack.AlreadyAcked {
-		t.Fatalf("AckOutput = %+v/%v", ack, err)
-	}
-	_, err = c.SubscribeOutput(ctx, session, task, user)
-	if !errors.Is(err, outputdelivery.ErrAlreadyAcked) {
-		t.Fatalf("Subscribe after ACK error = %v", err)
-	}
-}
-
-func TestCoordinatorOutputDeliveryWithoutAndWithEmptyPlaintext(t *testing.T) {
-	t.Run("receipt without plaintext", func(t *testing.T) {
-		c, _, _ := newOutputTestCoordinator(t)
-		const session, task, user = "session-legacy", "task-legacy", testUserAddress
-		driveOutputTestToAssigned(t, c, session, task, user)
-		ref := testInferReceipt(session, task, "worker-1", []byte("legacy-hash"))
-		if err := c.OnInferReceipt(context.Background(), ref); err != nil {
-			t.Fatalf("receipt without plaintext: %v", err)
-		}
-		if !c.HasAcceptedOutput(session, task, ref.OutputHash) {
-			t.Fatal("infer receipt was not accepted")
-		}
-	})
-
-	t.Run("explicit empty plaintext", func(t *testing.T) {
-		c, _, _ := newOutputTestCoordinator(t)
-		const session, task, user = "session-empty", "task-empty", testUserAddress
-		driveOutputTestToAssigned(t, c, session, task, user)
-		ref, err := deliverPlaintext(t, c, session, task, user, "")
-		if err != nil {
-			t.Fatalf("empty plaintext delivery: %v", err)
-		}
-		output, err := c.SubscribeOutput(context.Background(), session, task, user)
-		if err != nil || output.OutputID == "" || output.Text != "" || !bytes.Equal(output.Hash, ref.OutputHash) {
-			t.Fatalf("empty output = %+v/%v", output, err)
-		}
-	})
-}
-
-func TestCoordinatorOutputDeliveryRejectsNonOwnerSubscription(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	const session, task, user, text = "session-private", "task-private", testUserAddress, "private"
-	driveOutputTestToAssigned(t, c, session, task, user)
-	if _, err := deliverPlaintext(t, c, session, task, user, text); err != nil {
-		t.Fatalf("deliver plaintext: %v", err)
-	}
-	if _, err := c.SubscribeOutput(context.Background(), session, task, "trueopen1other"); !errors.Is(err, outputdelivery.ErrUnauthorized) {
-		t.Fatalf("non-owner error = %v", err)
-	}
-}
-
-func TestCoordinatorOutputDeliveryRejectsNonOwnerAckBeforeReady(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	const session, task, user = "session-ack-private", "task-ack-private", testUserAddress
-	driveOutputTestToAssigned(t, c, session, task, user)
-	if _, err := c.AckOutput(context.Background(), session, task, "missing", "trueopen1other"); !errors.Is(err, outputdelivery.ErrUnauthorized) {
-		t.Fatalf("non-owner AckOutput error = %v", err)
-	}
-	if _, err := c.AckOutput(context.Background(), session, task, "missing", user); !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("owner AckOutput before ready error = %v", err)
-	}
-}
-
-func TestCoordinatorOutputDeliveryUnknownTaskIsNotFound(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	if _, err := c.SubscribeOutput(context.Background(), "unknown-session", "unknown-task", testUserAddress); !errors.Is(err, types.ErrTaskNotFound) {
-		t.Fatalf("unknown SubscribeOutput error = %v", err)
-	}
-	if _, err := c.AckOutput(context.Background(), "unknown-session", "unknown-task", "output", testUserAddress); !errors.Is(err, types.ErrTaskNotFound) {
-		t.Fatalf("unknown AckOutput error = %v", err)
-	}
-}
-
-type failFirstCommitManager struct {
-	outputdelivery.Manager
-	mu     sync.Mutex
-	failed bool
-}
-
-type blockingCommitManager struct {
-	outputdelivery.Manager
-	entered chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
-
 type readyWriteFaultStore struct {
 	kv.Store
 	failReady bool
@@ -269,88 +117,6 @@ func (s *readyWriteFaultStore) Set(ns kv.Namespace, key string, value []byte) er
 		}
 	}
 	return s.Store.Set(ns, key, value)
-}
-
-func (m *blockingCommitManager) Commit(sessionID, taskID, outputID string) error {
-	m.once.Do(func() { close(m.entered) })
-	<-m.release
-	return m.Manager.Commit(sessionID, taskID, outputID)
-}
-
-func (m *failFirstCommitManager) Commit(sessionID, taskID, outputID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.failed {
-		m.failed = true
-		return outputdelivery.ErrDeliveryFailure
-	}
-	return m.Manager.Commit(sessionID, taskID, outputID)
-}
-
-func TestCoordinatorOutputDeliveryRetriesCommitWithoutDuplicateEvent(t *testing.T) {
-	c, outputs, _ := newOutputTestCoordinator(t)
-	failing := &failFirstCommitManager{Manager: outputs}
-	c.outputs = failing
-	const session, task, user, text = "session-retry", "task-retry", testUserAddress, "retry"
-	driveOutputTestToAssigned(t, c, session, task, user)
-	if _, err := deliverPlaintext(t, c, session, task, user, text); !errors.Is(err, outputdelivery.ErrDeliveryFailure) {
-		t.Fatalf("first delivery error = %v", err)
-	}
-	if _, err := deliverPlaintext(t, c, session, task, user, text); err != nil {
-		t.Fatalf("retry delivery: %v", err)
-	}
-	replay, _, cancel, err := c.TaskEvents(context.Background(), session, task, 0)
-	if err != nil {
-		t.Fatalf("TaskEvents: %v", err)
-	}
-	cancel()
-	count := 0
-	for _, event := range replay {
-		if event.EventCode == EvInferReceiptReceived {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("OUTPUT_REF_RECEIVED count = %d", count)
-	}
-	delivered, err := c.SubscribeOutput(context.Background(), session, task, user)
-	if err != nil || delivered.Text != text {
-		t.Fatalf("SubscribeOutput = %+v/%v", delivered, err)
-	}
-}
-
-func TestCoordinatorTerminalizationPreservesAcceptedPreparedOutput(t *testing.T) {
-	c, outputs, _ := newOutputTestCoordinator(t)
-	blocking := &blockingCommitManager{
-		Manager: outputs, entered: make(chan struct{}), release: make(chan struct{}),
-	}
-	c.outputs = blocking
-	const session, task, user, text = "session-terminal-race", "task-terminal-race", testUserAddress, "accepted before terminal"
-	driveOutputTestToAssigned(t, c, session, task, user)
-	result := make(chan error, 1)
-	go func() {
-		_, err := deliverPlaintext(t, c, session, task, user, text)
-		result <- err
-	}()
-	select {
-	case <-blocking.entered:
-	case <-time.After(time.Second):
-		t.Fatal("Commit was not reached")
-	}
-	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
-		SessionID: session, TaskID: task, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT, Height: 200,
-	})
-	close(blocking.release)
-	if err := <-result; err != nil {
-		t.Fatalf("deliver plaintext: %v", err)
-	}
-	if _, ok := c.getFSM(session, task); ok {
-		t.Fatal("terminal task remains active")
-	}
-	delivered, err := c.SubscribeOutput(context.Background(), session, task, user)
-	if err != nil || delivered.Text != text {
-		t.Fatalf("SubscribeOutput = %+v/%v", delivered, err)
-	}
 }
 
 func TestCoordinatorConflictingOutputRetryDoesNotReplaceCustody(t *testing.T) {
@@ -373,21 +139,6 @@ func TestCoordinatorConflictingOutputRetryDoesNotReplaceCustody(t *testing.T) {
 	}
 	if string(served.InferReceiptHash) != string(first.InferReceiptHash) {
 		t.Fatalf("custody replaced by rejected conflict: %+v", served)
-	}
-}
-
-func TestCoordinatorTerminalWithoutOutputWakesSubscriber(t *testing.T) {
-	c, _, _ := newOutputTestCoordinator(t)
-	const session, task, user = "session-terminal", "task-terminal", testUserAddress
-	driveOutputTestToAssigned(t, c, session, task, user)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	result := subscribeCoordinator(ctx, c, session, task, user)
-	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
-		SessionID: session, TaskID: task, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_VERIFY_OPEN_TIMEOUT, Height: 200,
-	})
-	if got := (<-result).err; !errors.Is(got, outputdelivery.ErrUnavailable) {
-		t.Fatalf("terminal subscription error = %v", got)
 	}
 }
 
@@ -429,17 +180,8 @@ func TestCoordinatorTerminalTaskRemainsKnownAfterTombstoneGC(t *testing.T) {
 	if err := c2.CompleteOutputRecovery(); err != nil {
 		t.Fatalf("CompleteOutputRecovery: %v", err)
 	}
-	if _, err := c2.SubscribeOutput(context.Background(), session, task, user); !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("SubscribeOutput after tombstone GC error = %v", err)
-	}
-	if _, err := c2.AckOutput(context.Background(), session, task, "missing", user); !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("AckOutput after tombstone GC error = %v", err)
-	}
-	if _, err := c2.SubscribeOutput(context.Background(), session, task, "trueopen1other"); !errors.Is(err, outputdelivery.ErrUnauthorized) {
-		t.Fatalf("non-owner SubscribeOutput after tombstone GC error = %v", err)
-	}
-	if _, err := c2.AckOutput(context.Background(), session, task, "missing", "trueopen1other"); !errors.Is(err, outputdelivery.ErrUnauthorized) {
-		t.Fatalf("non-owner AckOutput after tombstone GC error = %v", err)
+	if owner, err := c2.TaskOwner(context.Background(), session, task); err != nil || owner != user {
+		t.Fatalf("TaskOwner after tombstone GC = %q, %v", owner, err)
 	}
 }
 
@@ -671,9 +413,9 @@ func TestCoordinatorRecoveryPromotesTerminalAcceptedPreparedOutputAcrossCrashBou
 	if _, ok := store.Get(kv.NSTask, taskKey(session, task)); ok {
 		t.Fatal("terminal snapshot remains after output recovery completed")
 	}
-	delivered, err := c2.SubscribeOutput(context.Background(), session, task, user)
+	delivered, err := outputs2.Subscribe(context.Background(), outputdelivery.SubscribeRequest{SessionID: session, TaskID: task, Requester: user})
 	if err != nil || delivered.OutputID != id || delivered.Text != text {
-		t.Fatalf("SubscribeOutput = %+v/%v", delivered, err)
+		t.Fatalf("Subscribe = %+v/%v", delivered, err)
 	}
 }
 
@@ -836,9 +578,9 @@ func TestCoordinatorRetainsSnapshotWhenTerminalPromotionFails(t *testing.T) {
 	if err := c2.CompleteOutputRecovery(); err != nil {
 		t.Fatalf("c2 CompleteOutputRecovery: %v", err)
 	}
-	delivered, err := c2.SubscribeOutput(context.Background(), session, task, user)
+	delivered, err := outputs2.Subscribe(context.Background(), outputdelivery.SubscribeRequest{SessionID: session, TaskID: task, Requester: user})
 	if err != nil || delivered.Text != text {
-		t.Fatalf("SubscribeOutput = %+v/%v", delivered, err)
+		t.Fatalf("Subscribe = %+v/%v", delivered, err)
 	}
 }
 
@@ -881,11 +623,8 @@ func TestCoordinatorRecoveryMarksTerminalTaskWithoutOutputUnavailable(t *testing
 	if err := c.CompleteOutputRecovery(); err != nil {
 		t.Fatalf("CompleteOutputRecovery: %v", err)
 	}
-	if _, err := c.SubscribeOutput(context.Background(), session, task, user); !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("SubscribeOutput error = %v", err)
-	}
-	if _, err := c.AckOutput(context.Background(), session, task, "missing", user); !errors.Is(err, outputdelivery.ErrUnavailable) {
-		t.Fatalf("AckOutput error = %v", err)
+	if _, err := outputs.Subscribe(context.Background(), outputdelivery.SubscribeRequest{SessionID: session, TaskID: task, Requester: user}); !errors.Is(err, outputdelivery.ErrUnavailable) {
+		t.Fatalf("Subscribe error = %v", err)
 	}
 }
 

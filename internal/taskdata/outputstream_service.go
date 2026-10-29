@@ -37,26 +37,21 @@ type OutputStreamSession struct {
 	ticket    []byte
 }
 
-// OpenOutputStream handles the streamed upload Header: authorize (selected Worker, task_hash,
-// task phase), open or take over the write stream, consume the request nonce. If the stream
-// is already finalized or a complete object exists, it returns the progress with ErrConflict
-// and a nil session: the caller replies with the progress and then ends with AlreadyExists.
+// OpenOutputStream handles the streamed upload Header: authorize (the Worker whose accept this
+// Builder holds for the header's ticket, the task's live attempt, its task_hash), open or take over
+// the write stream, consume the request nonce. If the stream is already finalized or a complete
+// object exists, it returns the progress with ErrConflict and a nil session: the caller replies
+// with the progress and then ends with AlreadyExists.
 func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, header OutputStreamHeader) (*OutputStreamSession, OutputStreamProgress, error) {
 	if err := s.outputStream.validate(); err != nil {
 		return nil, OutputStreamProgress{}, err
 	}
-	_, height, workerPub, err := s.authorizer.AuthorizeOutputStream(ctx, request, header.Key, header.TaskHash)
-	if err != nil {
-		return nil, OutputStreamProgress{}, err
-	}
+	// The declared shape comes first: a malformed header (a dispatch_ticket_hash that is not 32
+	// bytes, say) is refused as malformed before the attempt book is asked about its ticket.
 	taskHash, err := hex.DecodeString(header.TaskHash)
 	if err != nil || len(taskHash) != sha256.Size {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: task_hash", ErrMalformed)
 	}
-	// The declaration binds the stream to the selected Worker's service key on its own, apart from
-	// the request authorization, which only says who is calling. It is checked before the nonce is
-	// consumed and before the stream is opened, so a forged header can neither burn a nonce nor take
-	// over a live stream.
 	declaration := nodecontract.OutputStreamHeader{
 		ChainID: s.authorizer.cfg.ChainID, TaskHash: taskHash,
 		DispatchTicketHash: header.Declaration.DispatchTicketHash, StreamInstance: header.Declaration.StreamInstance,
@@ -67,6 +62,14 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 	if err := declaration.ValidatePlaintext(); err != nil {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream header: %v", ErrMalformed, err)
 	}
+	_, height, workerPub, err := s.authorizer.AuthorizeOutputStream(ctx, request, header.Key, header.TaskHash, header.Declaration.DispatchTicketHash)
+	if err != nil {
+		return nil, OutputStreamProgress{}, err
+	}
+	// The declaration binds the stream to the selected Worker's service key on its own, apart from
+	// the request authorization, which only says who is calling. It is checked before the nonce is
+	// consumed and before the stream is opened, so a forged header can neither burn a nonce nor take
+	// over a live stream.
 	headerDigest, err := declaration.SigningDigest()
 	if err != nil {
 		return nil, OutputStreamProgress{}, fmt.Errorf("%w: output stream header: %v", ErrMalformed, err)
@@ -95,15 +98,27 @@ func (s *Service) OpenOutputStream(ctx context.Context, request RequestAuth, hea
 // Progress returns the current progress.
 func (sess *OutputStreamSession) Progress() OutputStreamProgress { return sess.stream.Progress() }
 
-// Append receives one chunk: (1) require the stream header's dispatch ticket and verify the
-// TRUEOPEN_OUTPUT_CHUNK_V1 signature with the Worker's current service key, then hand it to storage
-// for (2)(3)(4). Any failure closes the stream.
+// live refuses a frame once the stream's attempt is no longer the task's live one: the record was
+// refused or the order went to another ticket.
+func (sess *OutputStreamSession) live() error {
+	if !sess.service.authorizer.AttemptLive(sess.key.TaskID, sess.ticket) {
+		return sess.stream.fail(fmt.Errorf("%w: ticket %x is no longer the task's live attempt", ErrAttemptStale, sess.ticket))
+	}
+	return nil
+}
+
+// Append receives one chunk: (1) require the stream header's dispatch ticket, still the task's live
+// attempt, and verify the TRUEOPEN_OUTPUT_CHUNK_V1 signature with the Worker's current service key,
+// then hand it to storage for (2)(3)(4). Any failure closes the stream.
 func (sess *OutputStreamSession) Append(ctx context.Context, chunk OutputChunk) (mmr.Hash, error) {
 	if len(chunk.MMRRoot) != sha256.Size || len(chunk.WorkerSignature) != 64 {
 		return mmr.Hash{}, sess.stream.fail(fmt.Errorf("%w: chunk mmr_root or worker_signature shape", ErrMalformed))
 	}
 	if !bytes.Equal(chunk.DispatchTicketHash, sess.ticket) {
 		return mmr.Hash{}, sess.stream.fail(fmt.Errorf("%w: chunk dispatch_ticket_hash does not match the stream header", ErrMalformed))
+	}
+	if err := sess.live(); err != nil {
+		return mmr.Hash{}, err
 	}
 	digest, err := nodecontract.OutputChunkSigningDigest(sess.chainID, sess.taskHash, sess.ticket, chunk.Seq, chunk.MMRRoot)
 	if err != nil {
@@ -129,6 +144,9 @@ func (sess *OutputStreamSession) Finish(ctx context.Context, fin OutputFin) (Met
 	}
 	if !bytes.Equal(fin.DispatchTicketHash, sess.ticket) {
 		return Metadata{}, sess.stream.fail(fmt.Errorf("%w: fin dispatch_ticket_hash does not match the stream header", ErrMalformed))
+	}
+	if err := sess.live(); err != nil {
+		return Metadata{}, err
 	}
 	digest, err := nodecontract.OutputFinSigningDigest(sess.chainID, sess.taskHash, sess.ticket, fin.FinalSeq, fin.OutputMMRRoot, fin.FinishReason)
 	if err != nil {

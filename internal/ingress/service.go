@@ -24,7 +24,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -57,6 +56,9 @@ type Handler interface {
 	// TaskOwner returns the ordering user's address (authorization for streaming subscribe / ACK);
 	// returns types.ErrTaskNotFound for an unknown task.
 	TaskOwner(ctx context.Context, sessionID, taskID string) (string, error)
+	// IsTaskTerminal reports whether the task is no longer in flight here: finished, failed or
+	// dropped.
+	IsTaskTerminal(sessionID, taskID string) bool
 	TaskStatus(ctx context.Context, sessionID, taskID string) (types.TaskStatus, error)
 	// TaskEvents subscribes to the event stream: replay after cursor + live channel + unsubscribe.
 	TaskEvents(ctx context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error)
@@ -448,30 +450,6 @@ func mapPrepareChallengeErr(err error) error {
 }
 
 // ---- error mapping (aligned with the SDK error code semantics) ----
-
-func mapOutputDeliveryErr(err error) error {
-	switch {
-	case errors.Is(err, outputdelivery.ErrUnauthorized):
-		return connect.NewError(connect.CodePermissionDenied, err)
-	case errors.Is(err, outputdelivery.ErrInvalidUTF8),
-		errors.Is(err, outputdelivery.ErrHashMismatch),
-		errors.Is(err, outputdelivery.ErrPlaintextRequired):
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	case errors.Is(err, outputdelivery.ErrTooLarge):
-		return connect.NewError(connect.CodeResourceExhausted, err)
-	case errors.Is(err, outputdelivery.ErrConflict),
-		errors.Is(err, outputdelivery.ErrExpired),
-		errors.Is(err, outputdelivery.ErrAlreadyAcked),
-		errors.Is(err, outputdelivery.ErrUnavailable):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, outputdelivery.ErrDeliveryFailure):
-		return connect.NewError(connect.CodeUnavailable, err)
-	case errors.Is(err, types.ErrTaskNotFound):
-		return connect.NewError(connect.CodeNotFound, err)
-	default:
-		return connect.NewError(connect.CodeInternal, err)
-	}
-}
 
 // ---- pb <-> types conversion ----
 

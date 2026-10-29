@@ -59,6 +59,11 @@ func (s *service) SubmitInferReceipt(
 	if err != nil {
 		return nil, mapInferReceiptErr(err)
 	}
+	if err := s.checkReceiptStream(ctx, receipt); err != nil {
+		return nil, err
+	}
+	// The handler checks dispatch_ticket_hash against the winner ticket and keeps the receipt
+	// until the dispatch is recorded.
 	if err := s.h.OnInferReceipt(ctx, receipt); err != nil {
 		return nil, mapInferReceiptErr(err)
 	}
@@ -69,6 +74,28 @@ func (s *service) SubmitInferReceipt(
 	// FinalizeTaskResult after checking the receipt, the STORED output and all required evidence;
 	// the transport-level receipt must not prematurely express "the whole Task Result is READY".
 	return connect.NewResponse(response), nil
+}
+
+// checkReceiptStream binds a receipt to the output stream it claims: when this Builder sealed the
+// stream whose root is the receipt's output_hash, the receipt's dispatch_ticket_hash must be the
+// ticket that stream's header and Fin were signed for.
+func (s *service) checkReceiptStream(ctx context.Context, receipt types.InferReceiptSubmission) error {
+	if s.taskData == nil {
+		return nil
+	}
+	key := taskdata.ObjectKey{
+		TaskHash: receipt.TaskHash, SessionID: receipt.SessionID, TaskID: receipt.TaskID,
+		Kind: taskdata.ObjectKindOutput, ContentHash: hex.EncodeToString(receipt.OutputHash),
+	}
+	fin, sealed, err := s.taskData.OutputFin(ctx, key)
+	if err != nil {
+		return mapTaskDataError(err)
+	}
+	if sealed && !bytes.Equal(fin.DispatchTicketHash, receipt.DispatchTicketHash) {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%w: receipt dispatch_ticket_hash is not the ticket its sealed output stream was signed for", types.ErrReceiptDispatchMismatch))
+	}
+	return nil
 }
 
 // SubmitVerifyCommit: the initial relay implementation trusts the Builder; the commit signed by the selected Verifier is
@@ -446,6 +473,10 @@ func mapInferReceiptErr(err error) error {
 		return connect.NewError(connect.CodeNotFound, errors.New("task not found"))
 	case errors.Is(err, types.ErrUnauthorized):
 		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, types.ErrReceiptDispatchMismatch):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, types.ErrUnavailable):
+		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, types.ErrInvalidArgument):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, types.ErrInvalidSignature):

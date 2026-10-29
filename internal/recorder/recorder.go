@@ -108,6 +108,12 @@ type Tasks interface {
 	RecordRejected(sessionID, taskID string, code taskv1.DispatchRejectCodeV1)
 }
 
+// Attempts is told the record outcome of each winner ticket (attempt.Book).
+type Attempts interface {
+	Recorded(taskID string, ticketHash [32]byte)
+	Rejected(taskID string, ticketHash [32]byte)
+}
+
 // Streams sends the record notices to the winners' dispatch streams.
 type Streams interface {
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
@@ -121,13 +127,14 @@ type Config struct {
 	Builder string
 	// Signer is the Builder service key: it signs the record transactions as their
 	// submitter_address and the record notices.
-	Signer  signer.Signer
-	Store   kv.Store
-	Ledger  Ledger
-	Chain   Chain
-	Tx      Submitter
-	Tasks   Tasks
-	Streams Streams
+	Signer   signer.Signer
+	Store    kv.Store
+	Ledger   Ledger
+	Chain    Chain
+	Tx       Submitter
+	Tasks    Tasks
+	Attempts Attempts
+	Streams  Streams
 	// Gate holds the compensation account: no record is sent while it is below the minimum.
 	Gate *Gate
 	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
@@ -169,8 +176,8 @@ func New(cfg Config, params Params) (*Recorder, error) {
 		return nil, fmt.Errorf("recorder needs the chain id, Builder address, service signer, store and ledger")
 	case cfg.GasBase == 0 || cfg.GasPerEntry == 0:
 		return nil, fmt.Errorf("recorder needs the record gas base and per-entry gas")
-	case cfg.Chain == nil || cfg.Tx == nil || cfg.Tasks == nil || cfg.Streams == nil || cfg.Gate == nil:
-		return nil, fmt.Errorf("recorder needs the chain, submitter, tasks, streams and gate")
+	case cfg.Chain == nil || cfg.Tx == nil || cfg.Tasks == nil || cfg.Attempts == nil || cfg.Streams == nil || cfg.Gate == nil:
+		return nil, fmt.Errorf("recorder needs the chain, submitter, tasks, attempt book, streams and gate")
 	}
 	entries, txs, err := loadOutbox(cfg.Store)
 	if err != nil {
@@ -362,12 +369,13 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 
 // deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
 // bound_change_height) + record_deadline_blocks with the current params, never earlier than the
-// deadline handed over. A takeover entry has only the deadline handed over.
+// deadline handed over. The dispatcher decides with the same formula. A takeover entry has only the
+// deadline handed over.
 func (r *Recorder) deadlineLocked(e *entry) uint64 {
 	if e.Takeover {
 		return e.Deadline
 	}
-	return max(e.Deadline, max(e.EarliestSubmit, e.BoundChange)+r.params.Load().RecordDeadlineBlocks)
+	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, r.params.Load().RecordDeadlineBlocks)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

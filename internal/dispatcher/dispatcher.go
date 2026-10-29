@@ -34,6 +34,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
@@ -84,15 +85,19 @@ type Params struct {
 	MaxRosterBytes uint64
 	// MaxDrawAttempts is max_weighted_draw_attempts_per_selection.
 	MaxDrawAttempts uint32
+	// RecordDeadlineBlocks is record_deadline_blocks; with it the record deadline follows the
+	// current params as the Recorder's does (EffectiveRecordDeadline).
+	RecordDeadlineBlocks uint64
 }
 
 // ParamsFromChain takes the walk's params from task params dispatch and weights.
 func ParamsFromChain(dispatch *taskv1.DispatchParamsV1, weights *taskv1.CandidateWeightParamsV1) (Params, error) {
 	p := Params{
-		MaxSkips:        dispatch.GetMaxSkips(),
-		Sticky:          dispatchdraw.StickyParams{MaxOrders: dispatch.GetStickyMaxOrders(), WindowBlocks: dispatch.GetStickyWindowBlocks()},
-		MaxRosterBytes:  dispatch.GetMaxDispatchRosterBytes(),
-		MaxDrawAttempts: weights.GetMaxWeightedDrawAttemptsPerSelection(),
+		MaxSkips:             dispatch.GetMaxSkips(),
+		Sticky:               dispatchdraw.StickyParams{MaxOrders: dispatch.GetStickyMaxOrders(), WindowBlocks: dispatch.GetStickyWindowBlocks()},
+		MaxRosterBytes:       dispatch.GetMaxDispatchRosterBytes(),
+		MaxDrawAttempts:      weights.GetMaxWeightedDrawAttemptsPerSelection(),
+		RecordDeadlineBlocks: dispatch.GetRecordDeadlineBlocks(),
 	}
 	if p.MaxRosterBytes == 0 || p.MaxDrawAttempts == 0 {
 		return Params{}, fmt.Errorf("dispatch params: max_dispatch_roster_bytes %d and max_weighted_draw_attempts_per_selection %d must be set",
@@ -174,6 +179,17 @@ type Recorder interface {
 	Withdraw(ctx context.Context, sessionID string, sequence uint64, ticketHash [32]byte)
 }
 
+// Attempts follows the winner of each accepted order until the chain decides its record
+// (attempt.Book): the output data plane trusts it before the chain knows the task.
+type Attempts interface {
+	// Accepted makes the winner its task's current attempt. It may be called again with the same
+	// winner after a restart.
+	Accepted(w attempt.Winner) error
+	// Voided drops the attempt of a winner ticket a binding change voided; it may come before the
+	// Accepted of that ticket.
+	Voided(taskID string, ticketHash [32]byte)
+}
+
 // Timer is a pending clock callback.
 type Timer interface{ Stop() bool }
 
@@ -209,6 +225,7 @@ type Config struct {
 	Inputs     Inputs
 	Recorder   Recorder
 	Observer   Observer
+	Attempts   Attempts
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.
@@ -230,6 +247,10 @@ type Dispatcher struct {
 	byTask  map[string]*order // task_id -> order
 	tickets map[string]*order // dispatch_ticket_hash -> order
 	wg      sync.WaitGroup
+
+	// unbooked holds the winners the attempt book could not take, by task; each block retries them.
+	unbookedMu sync.Mutex
+	unbooked   map[string]attempt.Winner
 }
 
 // order is one order's state with what is rebuilt from it in memory. Locks: an order's mutex may
@@ -259,8 +280,8 @@ func New(cfg Config, params Params) (*Dispatcher, error) {
 		return nil, fmt.Errorf("dispatcher needs the chain id, Builder address, service signer, store and ledger")
 	case cfg.Sessions == nil || cfg.Streams == nil || cfg.Handraises == nil || cfg.Drawer == nil || cfg.Keys == nil || cfg.Inputs == nil:
 		return nil, fmt.Errorf("dispatcher needs the sessions, streams, handraises, drawer, keys and inputs")
-	case cfg.Recorder == nil || cfg.Observer == nil:
-		return nil, fmt.Errorf("dispatcher needs a recorder and an observer")
+	case cfg.Recorder == nil || cfg.Observer == nil || cfg.Attempts == nil:
+		return nil, fmt.Errorf("dispatcher needs a recorder, an observer and the attempt book")
 	case len(cfg.Dispatch.AcceptTimeoutMsByRTTTier) == 0 || cfg.InputChunkBytes == 0:
 		return nil, fmt.Errorf("dispatcher needs accept timeout tiers and an input chunk size")
 	}
@@ -556,33 +577,35 @@ func (d *Dispatcher) Suspend(ctx context.Context, sessionID string, from uint64,
 	}
 }
 
-// RecordDeadline returns the last height the order of (session, sequence) can be recorded at, as
-// the in-flight ledger holds it.
+// RecordDeadline returns the last height the order of (session, sequence) can be recorded at: the
+// in-flight ledger's deadline moved by the current params and binding as the Recorder moves it.
 func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, bool) {
 	e, ok := d.cfg.Ledger.Get(sessionID, sequence)
-	return e.Deadline, ok
-}
-
-// DispatchResult returns the signed DispatchResultHeaderV1 of an accepted order: its winner ticket
-// and accept, record status PENDING.
-func (d *Dispatcher) DispatchResult(sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool) {
-	d.mu.Lock()
-	o := d.byTask[taskID]
-	d.mu.Unlock()
+	if !ok {
+		return 0, false
+	}
+	o := d.get(stateKey(sessionID, sequence))
 	if o == nil {
-		return nil, false
+		return e.Deadline, true
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.st.SessionID != sessionID || o.st.Phase != phaseAccepted {
-		return nil, false
-	}
-	header, err := d.resultHeader(o.st)
-	if err != nil {
-		d.log.Error("dispatch result header not signed", "task_id", taskID, "err", err)
-		return nil, false
-	}
-	return header, true
+	return d.recordDeadline(o, e.Deadline), true
+}
+
+// EffectiveRecordDeadline is the last height an entry can be recorded at:
+// max(earliest_submit_height, bound_change_height) + record_deadline_blocks with the current
+// params, never earlier than the deadline handed over (stored). The Recorder and the dispatcher
+// both decide with it, so an entry one of them still takes the other does not give up on.
+func EffectiveRecordDeadline(stored, earliestSubmit, boundChange, deadlineBlocks uint64) uint64 {
+	return max(stored, max(earliestSubmit, boundChange)+deadlineBlocks)
+}
+
+// recordDeadline is the order's EffectiveRecordDeadline: its bound_change_height is the current
+// round's, the one its winner ticket commits. Caller holds o.mu.
+func (d *Dispatcher) recordDeadline(o *order, stored uint64) uint64 {
+	return EffectiveRecordDeadline(stored, o.signed.GetOrder().GetEarliestSubmitHeight(), o.st.BoundChangeHeight,
+		d.params.Load().RecordDeadlineBlocks)
 }
 
 func cloneState(s *orderState) *orderState {

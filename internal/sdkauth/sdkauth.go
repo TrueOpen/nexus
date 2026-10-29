@@ -509,6 +509,7 @@ func ReplayKey(e *Envelope) string {
 const (
 	BodyOpenTaskDomain         = "TRUEOPEN_SDK_BODY_OPEN_TASK_V1"
 	BodySubscribeOutputDomain  = "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1"
+	BodyResumeOutputDomain     = "TRUEOPEN_SDK_BODY_RESUME_OUTPUT_V1"
 	BodyAckOutputDomain        = "TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1"
 	BodyGetTaskEventsDomain    = "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1"
 	BodyPrepareChallengeDomain = "TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1"
@@ -565,6 +566,16 @@ func sessionTask(sessionID, taskID string) ([32]byte, [32]byte, error) {
 // dispatchTicketHash follow transport presence (unset is absent, a set 0 is present 0). A present
 // dispatch_ticket_hash must be raw32.
 func SubscribeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64, dispatchTicketHash []byte) ([32]byte, error) {
+	return outputBody(BodySubscribeOutputDomain, sessionID, taskID, resumeAfterSeq, dispatchTicketHash)
+}
+
+// ResumeOutputBody is TRUEOPEN_SDK_BODY_RESUME_OUTPUT_V1: the fields of SubscribeOutputBody under
+// ResumeOutput's own domain.
+func ResumeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64, dispatchTicketHash []byte) ([32]byte, error) {
+	return outputBody(BodyResumeOutputDomain, sessionID, taskID, resumeAfterSeq, dispatchTicketHash)
+}
+
+func outputBody(domain, sessionID, taskID string, resumeAfterSeq *uint64, dispatchTicketHash []byte) ([32]byte, error) {
 	session, task, err := sessionTask(sessionID, taskID)
 	if err != nil {
 		return [32]byte{}, err
@@ -576,7 +587,7 @@ func SubscribeOutputBody(sessionID, taskID string, resumeAfterSeq *uint64, dispa
 	if dispatchTicketHash != nil && len(dispatchTicketHash) != 32 {
 		return [32]byte{}, fmt.Errorf("dispatch_ticket_hash must be 32 bytes, got %d", len(dispatchTicketHash))
 	}
-	return nodecontract.CanonicalHashBytes(BodySubscribeOutputDomain,
+	return nodecontract.CanonicalHashBytes(domain,
 		session[:], task[:], optional(resume, resumeAfterSeq != nil),
 		optional(dispatchTicketHash, dispatchTicketHash != nil)), nil
 }

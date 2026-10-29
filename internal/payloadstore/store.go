@@ -45,10 +45,11 @@ type Input struct {
 
 // Store removes task inputs. The bytes are written and served by taskdata; what is left here is
 // the cleanup when a task terminates, and the sweep of inline payload records written by older
-// releases.
+// releases. RetireOutput drops the output stream of a dispatch attempt whose record was refused.
 type Store interface {
 	Delete(context.Context, Input) error
 	Sweep(context.Context, uint64) error
+	RetireOutput(ctx context.Context, sessionID, taskID string, ticket []byte) error
 }
 
 type Option func(*store)
@@ -126,6 +127,18 @@ func (s *store) Delete(ctx context.Context, input Input) error {
 // tombstone only, which also stops that input from being uploaded after the task ended. Without a version it falls back to the
 // INPUT index, which is how cleanup intents queued by older releases name the object, and an
 // unresolvable index means there is nothing to delete.
+// RetireOutput drops the task's output stream when it is ticket's: the attempt's record was
+// refused and the task dropped, so its frames will never be delivered.
+func (s *store) RetireOutput(ctx context.Context, sessionID, taskID string, ticket []byte) error {
+	if s.taskData == nil {
+		return nil
+	}
+	if err := s.taskData.RetireOutputStream(ctx, sessionID, taskID, ticket); err != nil {
+		return mapTaskDataError(err)
+	}
+	return nil
+}
+
 func (s *store) deleteTaskData(ctx context.Context, input Input) error {
 	ref := taskdata.ObjectKey{
 		TaskHash: input.TaskHash, SessionID: input.SessionID, TaskID: input.TaskID,
