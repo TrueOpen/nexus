@@ -237,6 +237,24 @@ func (r *Registry) Current(operator string) (*taskv1.StandingHandraiseV1, bool) 
 	return h.msg, true
 }
 
+// Withdraw drops operator's current handraise because its dispatch stream ended: the next root
+// leaves its leaf out, so later rounds and orders pay no skip for a Worker no ticket can reach. The
+// watermark stays, so the withdrawn handraise cannot be replayed; the Cortex comes back with a
+// newer one (it re-signs every heartbeat). It reports whether a handraise was withdrawn.
+func (r *Registry) Withdraw(operator string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.current[operator]; !ok {
+		return false
+	}
+	delete(r.current, operator)
+	// Under r.mu, so a newer handraise stored right after is not deleted with it.
+	if err := r.opts.Store.Delete(kv.NSHandraise, currentKey(operator)); err != nil {
+		r.log.Warn("withdrawn handraise not deleted from the store; it expires on recovery", "operator", operator, "err", err)
+	}
+	return true
+}
+
 // checkShape validates everything that needs no chain read and computes the standing digest.
 func (r *Registry) checkShape(operator string, h *taskv1.StandingHandraiseV1) (*held, error) {
 	switch {

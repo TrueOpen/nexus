@@ -414,3 +414,25 @@ func TestCachedHeightReadsOncePerInterval(t *testing.T) {
 		t.Fatalf("height = %d after %d reads", got, reads)
 	}
 }
+
+// A Cortex whose stream ended loses its leaf at once: its handraise is withdrawn and a new root is
+// issued, so rounds built after it pay no skip for that Worker.
+func TestDisconnectWithdrawsTheHandraise(t *testing.T) {
+	f := newWiringFixture(t)
+	ctx := context.Background()
+	if err := f.d.HandleStandingHandraise(ctx, dispatchstream.Origin{Operator: f.cortex.Address()}, f.handraise(t)); err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.d.Registry.IssueRoot(ctx)
+	if err != nil || first == nil {
+		t.Fatalf("root = %v, %v", first, err)
+	}
+	f.d.onConnection(f.cortex.Address(), false)
+	if _, ok := f.d.Registry.Current(f.cortex.Address()); ok {
+		t.Fatal("the disconnected Cortex keeps its handraise")
+	}
+	latest, ok := f.d.Registry.LatestRoot()
+	if !ok || latest.Digest == first.Digest || latest.Root.GetLeafCount() != 0 {
+		t.Fatalf("latest root after the disconnect = %v", latest.Root)
+	}
+}

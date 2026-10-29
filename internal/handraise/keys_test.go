@@ -241,3 +241,42 @@ func TestRunRateLimitsRepeatedIssueFailures(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// A Cortex whose stream ended has its current handraise withdrawn: the next root leaves it out, so
+// later rounds pay no skip for a Worker that cannot get the ticket. The watermark stays, so only a
+// newer handraise brings it back, and the withdrawal survives a restart.
+func TestWithdrawDropsTheLeafFromTheNextRoot(t *testing.T) {
+	e := newEnv(t)
+	c1, c2 := e.addCortex(0x11, 1), e.addCortex(0x12, 2)
+	h1 := e.handraise(c1, 100, 1)
+	e.mustAccept(c1, h1)
+	e.mustAccept(c2, e.handraise(c2, 100, 1))
+	if root := e.mustIssue(); root.Root.GetLeafCount() != 2 {
+		t.Fatalf("leaves = %d", root.Root.GetLeafCount())
+	}
+	if !e.reg.Withdraw(c1.operator()) {
+		t.Fatal("no handraise withdrawn")
+	}
+	if e.reg.Withdraw(c1.operator()) {
+		t.Fatal("withdrew twice")
+	}
+	if _, ok := e.reg.Current(c1.operator()); ok {
+		t.Fatal("the withdrawn handraise is still current")
+	}
+	root := e.mustIssue()
+	if root.Root.GetLeafCount() != 1 || leafOf(t, root, c2.operator()) == nil {
+		t.Fatalf("root after the withdrawal = %v", root.Root)
+	}
+	e.reg = e.open()
+	if _, ok := e.reg.Current(c1.operator()); ok {
+		t.Fatal("the withdrawn handraise came back after a restart")
+	}
+	if err := e.accept(c1, h1); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("replayed withdrawn handraise = %v, want ErrInvalid", err)
+	}
+	e.clock.advance(time.Second)
+	e.mustAccept(c1, e.handraise(c1, 100, 2))
+	if root := e.mustIssue(); root.Root.GetLeafCount() != 2 {
+		t.Fatalf("leaves after a newer handraise = %d", root.Root.GetLeafCount())
+	}
+}
