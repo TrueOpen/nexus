@@ -34,6 +34,24 @@ const recordLeadBlocks = 2
 // the Builder.
 func TooLateToRecord(head, deadline uint64) bool { return head+recordLeadBlocks > deadline }
 
+// recordDeadline is the last height the order can be recorded at: its deadline in the ledger
+// and, while another Builder's takeover of its session is registered, the block before that
+// takeover takes effect, since a record after it is refused and its Worker claims compensation.
+// A session state that cannot be read leaves the ledger deadline.
+func (d *Dispatcher) recordDeadline(ctx context.Context, st *orderState) (uint64, bool) {
+	entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence)
+	if !ok {
+		return 0, false
+	}
+	deadline := entry.Deadline
+	if s, _, err := d.cfg.Sessions.Lookup(ctx, st.SessionID); err == nil && s.Found {
+		if t := s.PendingTakeover; t != nil && t.CandidateBuilder != d.cfg.Builder && t.ActivationHeight > 0 {
+			deadline = min(deadline, t.ActivationHeight-1)
+		}
+	}
+	return deadline, true
+}
+
 // done is what a step leaves for after the order's lock is released.
 type done struct {
 	// accepted and failed name an order that left DISPATCHING; the observer and the Recorder are
@@ -128,8 +146,8 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if st.Phase != phaseDispatching || st.pending() != nil {
 			return done{}
 		}
-		if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
-			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
+		if deadline, ok := d.recordDeadline(ctx, st); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
+			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 			switch {

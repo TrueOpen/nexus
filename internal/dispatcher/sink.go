@@ -66,16 +66,16 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		d.finish(ctx, out)
 		return fmt.Errorf("%w: accept of ticket %x after its deadline", ErrTicketClosed, a.Hash)
 	}
-	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
+	if deadline, ok := d.recordDeadline(ctx, st); ok && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 		// The entry can no longer be recorded in time, and a late record is charged to this
 		// Builder. The Worker answered in time, so the attempt is not its timeout: it is VOIDED
 		// with the accept kept as received, the reject rate is not fed, and the order fails on its
 		// record deadline.
 		a.Outcome, a.LateAccept, a.LateAcceptDigest = outcomeVoided, from.Raw, append([]byte(nil), from.Digest[:]...)
-		out := d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
+		out := d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
 		o.mu.Unlock()
 		d.finish(ctx, out)
-		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, entry.Deadline)
+		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, deadline)
 	}
 	prev := cloneState(st)
 	a.Outcome = outcomeAccepted

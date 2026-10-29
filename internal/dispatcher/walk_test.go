@@ -799,3 +799,38 @@ func TestAcceptAfterTheRecordDeadlineFailsTheOrder(t *testing.T) {
 		t.Fatalf("%d offers after the deadline", n)
 	}
 }
+
+// While another Builder's takeover of the session is registered, an order is recorded only if its
+// record lands before the takeover takes effect: a record after it is refused and its Worker
+// claims compensation. An accept too close to the activation height is refused and the order
+// fails; one in time is recorded, which voids the takeover.
+func TestRegisteredTakeoverBoundsTheRecordDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		activation uint64
+		accepted   bool
+	}{{testESH + 2, false}, {testESH + 3, true}} {
+		e := newEnv(t)
+		s := e.session(0xaa, 0)
+		o := e.order(s, 0, 1)
+		e.dispatch(o)
+		_, ticket, hash := e.lastOffer()
+		e.chain.update(s, func(st *chaincli.SessionState) {
+			st.PendingTakeover = &chaincli.PendingTakeover{CandidateBuilder: op1, OrderSequence: 0, ActivationHeight: tc.activation}
+		})
+		m, from := e.acceptMsg(ticket, hash)
+		err := e.d.HandleDispatchAccept(context.Background(), from, m)
+		got := e.observer.snapshot()
+		if tc.accepted {
+			if err != nil || len(got.accepted) != 1 || len(e.recorder.recorded()) != 1 {
+				t.Fatalf("activation %d: accept = %v, observed %+v", tc.activation, err, got)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrTicketClosed) || len(got.failed) != 1 || !errors.Is(got.failed[0], ErrRecordDeadline) {
+			t.Fatalf("activation %d: accept = %v, observed %+v", tc.activation, err, got)
+		}
+		if e.ledgerState(o) != inflight.StateFailed {
+			t.Fatal("the order is not failed")
+		}
+	}
+}
