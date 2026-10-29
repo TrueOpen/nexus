@@ -940,3 +940,50 @@ func TestPreviousSnapshotHasAWindow(t *testing.T) {
 		t.Fatalf("past the window: %v", err)
 	}
 }
+
+// A reject whose target has no usable CORTEX key any more (deregistered or revoked since) is
+// dropped like one that does not verify: the attempt is kept as REJECTED without it and the order's
+// later items still apply. Only a chain that cannot be read leaves the batch to be sent again.
+func TestRejectOfATargetWithoutAKey(t *testing.T) {
+	heldBatch := func(e *env) *buildersyncv1.BuilderSyncBatchV1 {
+		e.peers.setFail(e.m.op, errors.New("held back"))
+		e.s.OrderChanged(e.fx.issued())
+		e.s.OrderChanged(e.fx.rejectedThenOut())
+		e.sync()
+		reqs := e.peers.requests[e.m.op]
+		var batch buildersyncv1.BuilderSyncBatchV1
+		if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
+			t.Fatal(err)
+		}
+		return &batch
+	}
+	t.Run("no key", func(t *testing.T) {
+		e := newEnv(t)
+		batch := heldBatch(e)
+		e.keys.mu.Lock()
+		delete(e.keys.keys, "CORTEX|"+e.fx.rejecter.op)
+		e.keys.mu.Unlock()
+		resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+		if err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != uint64(len(batch.Items)) {
+			t.Fatalf("reject of a target without a key = %v, %v", resp, err)
+		}
+		if a := e.copyOf().Rounds[0].Attempts; len(a) != 2 || a[0].Outcome != outcomeRejected || len(a[0].Reject) != 0 {
+			t.Fatalf("attempts = %+v", a)
+		}
+	})
+	t.Run("chain unreachable", func(t *testing.T) {
+		e := newEnv(t)
+		batch := heldBatch(e)
+		e.keys.mu.Lock()
+		e.keys.failsFor = "CORTEX"
+		e.keys.mu.Unlock()
+		resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+		retried := errors.Is(err, ErrUnavailable) || err == nil && resp.GetRefused() != "" && resp.GetAppliedThrough() < uint64(len(batch.Items))
+		if !retried {
+			t.Fatalf("reject with the chain unreachable = %v, %v", resp, err)
+		}
+		if c := e.copyOf(); c != nil && len(c.Rounds) > 0 && len(c.Rounds[0].Attempts) > 0 && c.Rounds[0].Attempts[0].Outcome == outcomeRejected {
+			t.Fatalf("the reject's attempt was stored with the chain unreachable: %+v", c.Rounds[0].Attempts)
+		}
+	})
+}

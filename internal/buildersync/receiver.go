@@ -581,18 +581,25 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 			return errors.New("reject is not the target's reject of the ticket")
 		}
 		// A rebuttal carries the reject: one that does not verify under the target's current key
-		// would only cost a refused tx. The target may have rotated its key since it signed, so the
-		// reject is dropped rather than the order's sync stopped: the attempt stays REJECTED, without
-		// the reject a rebuttal needs.
-		targetKey, err := r.serviceKey(ctx, servicekey.ParticipantCortex, target)
-		if err != nil {
-			return fmt.Errorf("reject signer: %w", err)
-		}
-		digest, err := signingDigest(rejectName, rejectRaw)
-		if err != nil || dispatch.VerifyDigestSignature(targetKey, digest[:], reject.GetServiceSignature()) != nil {
-			r.log.Warn("synced reject does not verify under its target's current key; kept without it, so this member cannot rebut a claim on the ticket",
-				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target)
+		// would only cost a refused tx. The target may have rotated its key since it signed, or have
+		// no usable key any more (deregistered or revoked), so the reject is dropped rather than the
+		// order's sync stopped: the attempt stays REJECTED, without the reject a rebuttal needs. Only
+		// a chain that cannot be read leaves the batch to be sent again.
+		targetKey, _, err := servicekey.Current(ctx, r.cfg.Keys, r.cfg.AddressPrefix, servicekey.ParticipantCortex, target)
+		switch {
+		case errors.Is(err, servicekey.ErrAuthority):
+			return fmt.Errorf("%w: reject signer: %v", ErrUnavailable, err)
+		case err != nil:
+			r.log.Warn("synced reject's target has no usable service key; kept without the reject, so this member cannot rebut a claim on the ticket",
+				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target, "err", err)
 			rejectRaw = nil
+		default:
+			digest, err := signingDigest(rejectName, rejectRaw)
+			if err != nil || dispatch.VerifyDigestSignature(targetKey, digest[:], reject.GetServiceSignature()) != nil {
+				r.log.Warn("synced reject does not verify under its target's current key; kept without it, so this member cannot rebut a claim on the ticket",
+					"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target)
+				rejectRaw = nil
+			}
 		}
 	}
 	for _, raw := range [][]byte{a.GetLateAccept(), a.GetAccept()} {
