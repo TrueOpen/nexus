@@ -22,7 +22,7 @@ const rosterRequestName = "nexus.v1.DispatchRosterRequestV1"
 type DispatchRosters interface {
 	// DispatchRoster returns the rounds and record hash of a recorded task (internal hex spelling
 	// of the ids); dispatchevidence.ErrRosterNotFound when none is held.
-	DispatchRoster(sessionID, taskID string) (*nexusv1.GetDispatchRosterResponse, error)
+	DispatchRoster(ctx context.Context, sessionID, taskID string) (*nexusv1.GetDispatchRosterResponse, error)
 }
 
 // WithDispatchRosters serves IngressAPI.GetDispatchRoster from rosters.
@@ -70,12 +70,12 @@ func (s *service) GetDispatchRoster(ctx context.Context, req *connect.Request[ne
 	default:
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("SDK_AUTH_INVALID_SIGNATURE: roster_request or request_envelope required"))
 	}
-	resp, err := s.dispatchRosters.DispatchRoster(ids.session, ids.task)
+	resp, err := s.dispatchRosters.DispatchRoster(ctx, ids.session, ids.task)
 	switch {
 	case errors.Is(err, dispatchevidence.ErrRosterNotFound):
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	case err != nil:
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeUnavailable, err)
 	}
 	return connect.NewResponse(resp), nil
 }

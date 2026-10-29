@@ -103,6 +103,24 @@ func TestRosterUnavailableIsAnsweredWithTheRoundsRoster(t *testing.T) {
 	}
 }
 
+// The evidence of an order the chain recorded may not be marked recorded (its write was lost on a
+// restart): the roster is matched against the chain's record all the same.
+func TestRosterUnavailableIsAnsweredFromUnmarkedEvidence(t *testing.T) {
+	e := newEnv(t)
+	o := recordedOrder(t)
+	o.Recorded, o.RecordedHeight = false, 0
+	e.put(o)
+	o.RecordedHeight = 115
+	e.chainRecord(o)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: self, DispatchRound: u32(0), ProofDeadlineHeight: u64(125), Status: awaitingRoster,
+	})
+	e.block(121)
+	if got := e.responds(); len(got) != 1 || got[0].GetRoster() == nil {
+		t.Fatalf("responses = %v", got)
+	}
+}
+
 // A roster whose hash is not the one the chain's record holds for the round is never sent.
 func TestRosterOfAnotherHashIsNotSent(t *testing.T) {
 	e := newEnv(t)

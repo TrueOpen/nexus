@@ -2,13 +2,16 @@ package dispatchevidence
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
@@ -19,76 +22,113 @@ func testRoots(digest [32]byte) (*taskv1.SignedHandraiseRootV1, bool, error) {
 	return &taskv1.SignedHandraiseRootV1{ChainId: "c", RootHeight: uint64(digest[0])}, true, nil
 }
 
-func rosterBytes(t *testing.T, height uint64) []byte {
+const (
+	rosterChain = "trueopen-phase1-vector-1"
+	rosterOp1   = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
+	rosterOp3   = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
+)
+
+// rosterOf is a valid DispatchRosterV1 of task 0xaa holding the given (slot, operator) members,
+// and its roster_hash.
+func rosterOf(t *testing.T, height uint64, members ...dispatch.RosterMember) ([]byte, []byte) {
 	t.Helper()
-	raw, err := proto.Marshal(&taskv1.DispatchRosterV1{TaskId: fill(0xaa), ReferenceHeight: height})
+	msg := &taskv1.DispatchRosterV1{TaskId: fill(0xaa), ReferenceHeight: height, CandidatePoolSnapshotId: fill(0x66)}
+	for _, m := range members {
+		msg.Members = append(msg.Members, &taskv1.DispatchRosterMemberV1{Slot: m.Slot, SlotVersion: m.SlotVersion, OperatorAddress: m.OperatorAddress, CandidateWeight: m.CandidateWeight})
+	}
+	raw, err := proto.Marshal(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return raw
+	hash, err := dispatch.RosterDigest(rosterChain, [32]byte(fill(0xaa)), height, [32]byte(fill(0x66)), members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw, hash[:]
 }
 
-// GetDispatchRoster serves a recorded task: every round's roster with the root it binds, and the
-// hash of the record the chain holds.
-func TestRostersOfARecordedTask(t *testing.T) {
+type fakeRecords map[string]*taskv1.DispatchRecordState
+
+func (f fakeRecords) QueryDispatchRecordByOrder(_ context.Context, sessionID string, seq uint64) (*taskv1.DispatchRecordState, error) {
+	rec, ok := f[fmt.Sprintf("%s/%d", sessionID, seq)]
+	if !ok {
+		return nil, chaincli.ErrNotFound
+	}
+	return rec, nil
+}
+
+// rosterFixture stores the evidence of task 0xaa with two rounds of valid rosters, not marked
+// recorded, and the chain's record of it.
+func rosterFixture(t *testing.T) (*Store, *Order, fakeRecords) {
+	t.Helper()
 	s := New(kv.NewMemStore(), testParams)
 	o := testOrder(t)
-	o.Rounds[0].Roster, o.Rounds[1].Roster = rosterBytes(t, 90), rosterBytes(t, 91)
-	record, err := proto.Marshal(&taskv1.DispatchRecordV1{
-		ChainId: "c", TaskId: fill(0xaa), TaskHash: fill(0xbb), SessionId: fill(0x01), OrderSequence: 3,
-		CandidatePoolSnapshotId: fill(0x66), VrfOutput: fill(0x05), DispatchTicketHash: fill(0x12),
-		BuilderAddress: "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	o.Record, o.Recorded, o.RecordedHeight = record, true, 120
+	var h0, h1 []byte
+	o.Rounds[0].Roster, h0 = rosterOf(t, 90, dispatch.RosterMember{Slot: 1, SlotVersion: 1, OperatorAddress: rosterOp1, CandidateWeight: 1})
+	o.Rounds[1].Roster, h1 = rosterOf(t, 90, dispatch.RosterMember{Slot: 3, SlotVersion: 1, OperatorAddress: rosterOp3, CandidateWeight: 5})
+	o.Rounds[0].RosterHash, o.Rounds[1].RosterHash = h0, h1
 	if err := s.Put(o); err != nil {
 		t.Fatal(err)
 	}
-	r := Rosters{Evidence: s, Root: testRoots}
-	resp, err := r.DispatchRoster(o.SessionID, o.TaskID)
+	records := fakeRecords{fmt.Sprintf("%s/%d", o.SessionID, o.Sequence): {
+		TaskId: fill(0xaa), DispatchRecordHash: fill(0x77), Rounds: []*taskv1.DispatchRoundV1{
+			{DispatchRound: 0, HandraiseRootDigest: fill(0xd1), RosterHash: h0},
+			{DispatchRound: 1, HandraiseRootDigest: fill(0xd2), RosterHash: h1},
+		},
+	}}
+	return s, o, records
+}
+
+// GetDispatchRoster serves a task the chain recorded: every round's stored roster whose hash the
+// chain's record holds, with the root it binds, and the chain's dispatch_record_hash. Whether the
+// evidence was marked recorded does not matter.
+func TestRostersOfARecordedTask(t *testing.T) {
+	s, o, records := rosterFixture(t)
+	r := Rosters{ChainID: rosterChain, Evidence: s, Chain: records, Root: testRoots}
+	resp, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHash, err := dispatch.SigningDigest("task.v1.DispatchRecordV1", record)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(resp.GetDispatchRecordHash(), wantHash[:]) || len(resp.GetRounds()) != 2 {
+	if !bytes.Equal(resp.GetDispatchRecordHash(), fill(0x77)) || len(resp.GetRounds()) != 2 {
 		t.Fatalf("response = %v", resp)
 	}
 	for i, round := range resp.GetRounds() {
-		if round.GetDispatchRound() != uint32(i) || round.GetRoster().GetReferenceHeight() != uint64(90+i) ||
+		if round.GetDispatchRound() != uint32(i) || round.GetRoster().GetMembers()[0].GetSlot() != []uint32{1, 3}[i] ||
 			round.GetHandraiseRoot().GetRootHeight() != uint64(0xd1+i) {
 			t.Fatalf("round %d = %v", i, round)
 		}
 	}
 }
 
-// A task not recorded, of another session, or without its bound root is not served.
+// A task the chain did not record, of another session, whose stored rosters or roots are not the
+// recorded ones, or without its bound root is not served.
 func TestRostersNotServed(t *testing.T) {
-	s := New(kv.NewMemStore(), testParams)
-	o := testOrder(t)
-	if err := s.Put(o); err != nil {
-		t.Fatal(err)
-	}
-	r := Rosters{Evidence: s, Root: testRoots}
-	if _, err := r.DispatchRoster(o.SessionID, o.TaskID); !errors.Is(err, ErrRosterNotFound) {
+	s, o, records := rosterFixture(t)
+	r := Rosters{ChainID: rosterChain, Evidence: s, Chain: fakeRecords{}, Root: testRoots}
+	if _, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID); !errors.Is(err, ErrRosterNotFound) {
 		t.Fatalf("unrecorded task: %v", err)
 	}
-	o.Recorded, o.RecordedHeight = true, 120
-	if err := s.Put(o); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.DispatchRoster("02", o.TaskID); !errors.Is(err, ErrRosterNotFound) {
+	r.Chain = records
+	if _, err := r.DispatchRoster(context.Background(), "02", o.TaskID); !errors.Is(err, ErrRosterNotFound) {
 		t.Fatalf("other session: %v", err)
 	}
+	key := fmt.Sprintf("%s/%d", o.SessionID, o.Sequence)
+	records[key].Rounds[1].RosterHash = fill(0x55)
+	if _, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID); !errors.Is(err, ErrRosterNotFound) {
+		t.Fatalf("other roster recorded: %v", err)
+	}
+	_, _, records = rosterFixture(t)
+	r.Chain = records
+	records[key].Rounds[1].HandraiseRootDigest = fill(0xd3)
+	if _, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID); !errors.Is(err, ErrRosterNotFound) {
+		t.Fatalf("other root recorded: %v", err)
+	}
+	records[key].Rounds[1].HandraiseRootDigest = fill(0xd9)
 	o.Rounds[1].RootDigest = fill(0xd9)
 	if err := s.Put(o); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.DispatchRoster(o.SessionID, o.TaskID); err == nil || errors.Is(err, ErrRosterNotFound) {
+	if _, err := r.DispatchRoster(context.Background(), o.SessionID, o.TaskID); err == nil || errors.Is(err, ErrRosterNotFound) {
 		t.Fatalf("missing bound root: %v", err)
 	}
 }

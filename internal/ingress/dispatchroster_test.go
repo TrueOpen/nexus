@@ -36,7 +36,7 @@ type fakeRosters struct {
 	calls         int
 }
 
-func (f *fakeRosters) DispatchRoster(sessionID, taskID string) (*nexusv1.GetDispatchRosterResponse, error) {
+func (f *fakeRosters) DispatchRoster(_ context.Context, sessionID, taskID string) (*nexusv1.GetDispatchRosterResponse, error) {
 	f.calls++
 	if sessionID != f.session || taskID != f.task {
 		return nil, dispatchevidence.ErrRosterNotFound

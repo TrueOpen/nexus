@@ -232,7 +232,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if err != nil {
 		return nil, err
 	}
-	od.Rosters = dispatchevidence.Rosters{Evidence: od.Evidence, Root: issuedRoot(deps.Direct.Registry)}
+	od.Rosters = dispatchevidence.Rosters{ChainID: deps.ChainID, Evidence: od.Evidence, Chain: deps.TaskChain, Root: issuedRoot(deps.Direct.Registry)}
 	return od, nil
 }
 

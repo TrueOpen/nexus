@@ -6,12 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"google.golang.org/protobuf/proto"
-
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/dispatchdraw"
-	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 )
 
 // answerable reports whether a challenge kind takes an answer: SKIP (the Worker's reject) and
@@ -103,7 +99,8 @@ func (r *Responder) skipAnswer(ch *taskv1.DispatchChallengeState) (*taskv1.Dispa
 }
 
 // rosterAnswer is the stored roster of the challenged round of a recorded task: the one whose
-// roster_hash the chain's record holds for that round.
+// roster_hash the chain's record holds for that round. Whether the evidence was marked recorded
+// does not matter: the chain's record decides.
 func (r *Responder) rosterAnswer(ctx context.Context, ch *taskv1.DispatchChallengeState) (*taskv1.DispatchRosterV1, error) {
 	if ch.DispatchRound == nil {
 		return nil, fmt.Errorf("challenge names no dispatch round")
@@ -113,19 +110,28 @@ func (r *Responder) rosterAnswer(ctx context.Context, ch *taskv1.DispatchChallen
 	if err != nil {
 		return nil, err
 	}
+	records := map[string]*taskv1.DispatchRecordState{}
 	for _, ev := range orders {
-		if !ev.Recorded {
-			continue
+		key := fmt.Sprintf("%s/%d", ev.SessionID, ev.Sequence)
+		record, ok := records[key]
+		if !ok {
+			record, err = r.cfg.Chain.QueryDispatchRecordByOrder(ctx, ev.SessionID, ev.Sequence)
+			if isNotFound(err) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("chain record of the task: %w", err)
+			}
+			records[key] = record
 		}
-		record, err := r.cfg.Chain.QueryDispatchRecordByOrder(ctx, ev.SessionID, ev.Sequence)
-		if err != nil {
-			return nil, fmt.Errorf("chain record of the task: %w", err)
+		if !bytes.Equal(record.GetTaskId(), ch.GetTaskId()) {
+			continue
 		}
 		want := chainRosterHash(record, round)
 		if want == nil {
 			return nil, fmt.Errorf("chain record has no round %d", round)
 		}
-		if roster, ok := matchingRoster(r.cfg.ChainID, ev, round, want); ok {
+		if roster, ok := ev.RosterFor(r.cfg.ChainID, round, want); ok {
 			return roster, nil
 		}
 	}
@@ -139,22 +145,4 @@ func chainRosterHash(record *taskv1.DispatchRecordState, round uint32) []byte {
 		}
 	}
 	return nil
-}
-
-// matchingRoster decodes the stored roster of a round and recomputes its roster_hash: it is sent
-// only when that is want.
-func matchingRoster(chainID string, ev *dispatchevidence.Order, round uint32, want []byte) (*taskv1.DispatchRosterV1, bool) {
-	stored, ok := ev.Round(round)
-	if !ok || len(stored.RootDigest) != 32 {
-		return nil, false
-	}
-	var msg taskv1.DispatchRosterV1
-	if proto.Unmarshal(stored.Roster, &msg) != nil {
-		return nil, false
-	}
-	restored, err := dispatchdraw.RestoreRoster(chainID, [32]byte(stored.RootDigest), &msg)
-	if err != nil || !bytes.Equal(restored.Hash[:], want) {
-		return nil, false
-	}
-	return &msg, true
 }
