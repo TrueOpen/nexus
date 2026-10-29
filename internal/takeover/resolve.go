@@ -11,6 +11,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -390,12 +391,14 @@ func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 		}
 	}
 	m.log.Info("takeover took effect; order dispatched", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_change_height", boundChange)
+	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, outcomeActivated)
 	m.forget(r)
 }
 
 // end drops r and its outbox entry, telling its task code and where the session went.
 func (m *Manager) end(ctx context.Context, r *record, code string, dropInput bool, where *types.SessionElsewhere) {
 	m.forget(r)
+	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, code)
 	m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
 	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput, where)
 }

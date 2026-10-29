@@ -126,6 +126,7 @@ func (s *service) UploadTaskOutputStream(
 			if _, err := session.Append(ctx, chunk); err != nil {
 				return mapTaskDataError(err)
 			}
+			s.metrics.OutputFrame(key.TaskID)
 			s.outputStream.dispatcher.Publish(key, taskdata.OutputFrame{Chunk: &chunk})
 		case *nexusv1.UploadTaskOutputStreamRequest_Fin:
 			fin := taskdata.OutputFin{

@@ -32,6 +32,7 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -145,7 +147,9 @@ type Config struct {
 	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
 	// for each entry.
 	GasBase, GasPerEntry uint64
-	Log                  *slog.Logger
+	// Metrics takes the record stage timings and outcomes; nil keeps none.
+	Metrics *opsmetrics.Registry
+	Log     *slog.Logger
 }
 
 // Recorder records accepted dispatch entries; it implements dispatcher.Recorder.
@@ -165,6 +169,10 @@ type Recorder struct {
 	sizing sizing
 	// takeovers hears the results of takeover entries.
 	takeovers Takeovers
+	// queuedAt and sentAt are when an entry of this run was handed over and first broadcast, for
+	// the stage timings.
+	queuedAt map[string]time.Time
+	sentAt   map[string]time.Time
 
 	latest atomic.Uint64
 	wake   chan struct{}
@@ -190,6 +198,7 @@ func New(cfg Config, params Params) (*Recorder, error) {
 	}
 	r := &Recorder{
 		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{}, withdrawn: map[string]uint64{},
+		queuedAt: map[string]time.Time{}, sentAt: map[string]time.Time{},
 		wake: make(chan struct{}, 1), stop: make(chan struct{}),
 	}
 	if r.log == nil {
@@ -286,6 +295,7 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		return fmt.Errorf("store dispatch entry: %w", err)
 	}
 	r.entries[e.ObjectID] = e
+	r.queuedAt[e.ObjectID] = time.Now()
 	return nil
 }
 
@@ -393,6 +403,8 @@ func (r *Recorder) entryOp(e *entry) kv.WriteOp {
 
 func (r *Recorder) removeLocked(e *entry, ops *[]kv.WriteOp) {
 	delete(r.entries, e.ObjectID)
+	delete(r.queuedAt, e.ObjectID)
+	delete(r.sentAt, e.ObjectID)
 	*ops = append(*ops, deleteOp(entryKey(e.ObjectID)))
 }
 

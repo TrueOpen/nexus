@@ -43,8 +43,8 @@ const (
 	CounterTicketsPerOrder = "tickets_per_order"
 	// CounterOrders counts orders that left dispatching: "accepted" or "failed".
 	CounterOrders = "orders"
-	// CounterRecordOutcomes counts resolved dispatch entries: "ADMITTED", the reject code name,
-	// or "DEADLINE_PASSED".
+	// CounterRecordOutcomes counts resolved dispatch entries: "ADMITTED" or the reject code
+	// without its DISPATCH_REJECT_CODE_V1_ prefix (RECORD_LATE for an entry past its deadline).
 	CounterRecordOutcomes = "record_outcomes"
 	// CounterTakeoverOutcomes counts ended takeovers by how they ended.
 	CounterTakeoverOutcomes = "takeover_outcomes"

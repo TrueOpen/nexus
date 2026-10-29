@@ -21,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -166,6 +167,7 @@ func (f *fakeTasks) calls() []string {
 }
 
 type env struct {
+	metrics  *opsmetrics.Registry
 	t        *testing.T
 	store    kv.Store
 	chain    *fakeChain
@@ -199,7 +201,7 @@ func (e *env) open() {
 	m, err := New(Config{
 		Builder: self, Store: e.store, Chain: e.chain, Recorder: e.rec, Precheck: e.precheck, Tasks: e.tasks, Keys: e.keys,
 		Track:      func(s string) error { e.tracked = append(e.tracked, s); return nil },
-		Background: func(f func()) { f() },
+		Background: func(f func()) { f() }, Metrics: e.metrics,
 	})
 	if err != nil {
 		e.t.Fatal(err)

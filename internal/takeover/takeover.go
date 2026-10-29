@@ -40,6 +40,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -95,8 +96,13 @@ type Config struct {
 	// Background runs chain reads and dispatch off the caller's goroutine; nil runs them on a new
 	// goroutine.
 	Background func(func())
-	Log        *slog.Logger
+	// Metrics counts how takeovers ended; nil counts nothing.
+	Metrics *opsmetrics.Registry
+	Log     *slog.Logger
 }
+
+// outcomeActivated labels a takeover that took effect with its order dispatched.
+const outcomeActivated = "ACTIVATED"
 
 // Admission is an admitted takeover order.
 type Admission struct {

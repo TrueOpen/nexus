@@ -40,6 +40,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -232,6 +233,8 @@ type Config struct {
 	// Sync hands every stored change of an order to the other members of its Task Builders group;
 	// nil syncs nothing.
 	Sync OrderSync
+	// Metrics takes the stage timings, skips and Worker outcomes of the walk; nil keeps none.
+	Metrics *opsmetrics.Registry
 	// Clock is nil for the system clock.
 	Clock Clock
 	// Background runs order work off the caller's goroutine; nil runs it on a new goroutine.
@@ -275,6 +278,12 @@ type order struct {
 	// parked is set while the order waits for the chain: its earliest_submit_height, an earlier
 	// order of the session, a readable chain, or the end of this Builder's key rotation.
 	parked bool
+	// takenAt is when this run took the order (zero for an order resumed after a restart) and
+	// waited whether its earliest_submit_height wait was timed; ticketAt is when the ticket out
+	// was issued. They only feed the stage timings.
+	takenAt  time.Time
+	waited   bool
+	ticketAt time.Time
 }
 
 func (o *order) key() string { return stateKey(o.st.SessionID, o.st.Sequence) }
@@ -446,6 +455,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 			return err
 		}
 		existing.signed, existing.roster = &signed, nil
+		existing.takenAt, existing.waited = d.clock.Now(), false
 		existing.mu.Unlock()
 		d.mu.Lock()
 		d.byTask[o.TaskID] = existing
@@ -458,7 +468,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		if err := saveState(d.cfg.Store, st); err != nil {
 			return err
 		}
-		existing = &order{st: st, signed: &signed}
+		existing = &order{st: st, signed: &signed, takenAt: d.clock.Now()}
 		d.register(existing)
 	}
 	if err := d.cfg.Ledger.Commit(&inflight.Reservation{SessionID: o.SessionID, Sequence: o.OrderSequence, TaskHash: o.TaskHash}); err != nil {

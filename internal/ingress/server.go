@@ -25,6 +25,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/middleware"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -110,6 +111,8 @@ type Server struct {
 	dispatchRosters      DispatchRosters
 	memberReplicas       MemberReplicas
 	builderSync          builderSyncService
+	metrics              *opsmetrics.Registry
+	routes               []route
 
 	tlsCertificate *tls.Certificate
 
@@ -212,7 +215,7 @@ func (s *Server) handler() http.Handler {
 	if s.readMaxBytes > 0 {
 		legacyHandlerOptions = append(legacyHandlerOptions, connect.WithReadMaxBytes(s.readMaxBytes))
 	}
-	serviceOptions := []serviceOption{withServiceLogger(s.log)}
+	serviceOptions := []serviceOption{withServiceLogger(s.log), withServiceMetrics(s.metrics)}
 	if s.taskData != nil {
 		serviceOptions = append(serviceOptions, withTaskDataAPI(s.taskData))
 	}
@@ -272,6 +275,9 @@ func (s *Server) handler() http.Handler {
 	})
 	if len(s.builderDescriptor) > 0 {
 		mux.Handle(nodecontract.BuilderDescriptorPath, nodecontract.DescriptorHandler(s.builderDescriptor))
+	}
+	for _, r := range s.routes {
+		mux.Handle(r.pattern, r.handler)
 	}
 	return mux
 }

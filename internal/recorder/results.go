@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -14,6 +16,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
 const (
@@ -417,6 +420,10 @@ func (r *Recorder) expire(ctx context.Context, height uint64) {
 // and the attempt book takes the voided ticket back as the task's recorded attempt (never the new
 // round's ticket). Caller holds r.mu.
 func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *effects) {
+	if at, ok := r.sentAt[e.ObjectID]; ok {
+		r.cfg.Metrics.ObserveStage(opsmetrics.StageRecordToAdmitted, time.Since(at))
+	}
+	r.cfg.Metrics.Inc(opsmetrics.CounterRecordOutcomes, "ADMITTED")
 	r.removeLocked(e, ops)
 	if e.Withdrawn {
 		r.log.Warn("withdrawn dispatch entry recorded: it is the order's record", "session_id", e.SessionID, "order_sequence", e.Sequence, "height", height)
@@ -468,6 +475,11 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 	sortEntries(failed)
 	for _, x := range failed {
 		r.removeLocked(x, ops)
+		c := codeLaterSequence
+		if x == e {
+			c = code
+		}
+		r.cfg.Metrics.Inc(opsmetrics.CounterRecordOutcomes, strings.TrimPrefix(c.String(), "DISPATCH_REJECT_CODE_V1_"))
 	}
 	r.log.Warn("dispatch record rejected; session suspended", "session_id", e.SessionID, "order_sequence", e.Sequence,
 		"task_id", e.TaskID, "reject_code", code, "later_entries", len(failed)-1)
