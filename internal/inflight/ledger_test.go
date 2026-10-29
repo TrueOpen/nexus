@@ -220,3 +220,22 @@ func TestLedgerMarkDispatchingAfterVoidedAccept(t *testing.T) {
 		t.Fatal("unknown order marked")
 	}
 }
+
+// Summary counts sessions, suspended sessions, the orders still dispatching or accepted with their
+// max_fee, and the recorded ones.
+func TestLedgerSummary(t *testing.T) {
+	l, _ := NewLedger(kv.NewMemStore())
+	other := "2222222222222222222222222222222222222222222222222222222222222222"
+	for seq := uint64(1); seq <= 4; seq++ {
+		_ = l.put(testSession, entry(seq, 10*seq, false))
+	}
+	_ = l.put(other, entry(9, 7, false))
+	_ = l.MarkAccepted(testSession, 2)
+	_ = l.MarkRecorded(testSession, 3)
+	_ = l.MarkFailed(testSession, 4)
+	_ = l.Suspend(other, 9)
+	s := l.Summary()
+	if s.Sessions != 2 || s.Suspended != 1 || s.Pending != 2 || s.PendingMaxFee.Uint64() != 30 || s.Recorded != 1 {
+		t.Fatalf("summary = %+v (max fee %s)", s, s.PendingMaxFee)
+	}
+}

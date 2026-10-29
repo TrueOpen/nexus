@@ -99,3 +99,17 @@ func (r *Registry) decisionLocked(operator string, height uint64) (bool, taskv1.
 	}
 	return true, taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_NONE, 0
 }
+
+// Suspensions returns, per operator suspended for its reject rate, the first height its handraise
+// is admitted again; suspensions that ended by height are left out.
+func (r *Registry) Suspensions(height uint64) map[string]uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]uint64, len(r.suspended))
+	for operator, until := range r.suspended {
+		if height < until {
+			out[operator] = until
+		}
+	}
+	return out
+}

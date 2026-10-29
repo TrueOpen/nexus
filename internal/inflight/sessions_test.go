@@ -138,6 +138,12 @@ func TestSessionCacheKeepsStateOnlyWhileTheStreamIsUp(t *testing.T) {
 	if chain.readCount() != 3 {
 		t.Fatalf("reads with the stream up = %d, want 3 (one after it came up)", chain.readCount())
 	}
+	if n := cache.BoundTo(baseSessionState().BoundBuilder); n != 1 {
+		t.Fatalf("sessions bound to the Builder = %d", n)
+	}
+	if n := cache.BoundTo("trueopen1other"); n != 0 {
+		t.Fatalf("sessions bound to another Builder = %d", n)
+	}
 	cache.SessionStreamDown(testSession)
 	_, _, _ = cache.Lookup(ctx, testSession)
 	_, _, _ = cache.Lookup(ctx, testSession)

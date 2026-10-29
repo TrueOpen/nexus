@@ -76,6 +76,15 @@ func (k *VRFKeys) KeyFor(ctx context.Context, epoch uint64) (ed25519.PrivateKey,
 	return nil, fmt.Errorf("epoch %d: %w", epoch, ErrVRFKeyMismatch)
 }
 
+// PublicKeyFor returns the public key of the local key the chain registered for epoch.
+func (k *VRFKeys) PublicKeyFor(ctx context.Context, epoch uint64) (ed25519.PublicKey, error) {
+	key, err := k.KeyFor(ctx, epoch)
+	if err != nil {
+		return nil, err
+	}
+	return key.Public().(ed25519.PublicKey), nil
+}
+
 // Ready reports whether orders of epoch can be dispatched: the chain has an active Builder VRF key
 // for it and a local key matches it. Workload readiness checks the current epoch.
 func (k *VRFKeys) Ready(ctx context.Context, epoch uint64) error {

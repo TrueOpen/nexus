@@ -237,6 +237,13 @@ func (r *Registry) Current(operator string) (*taskv1.StandingHandraiseV1, bool) 
 	return h.msg, true
 }
 
+// Standing counts the standing handraises held.
+func (r *Registry) Standing() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.current)
+}
+
 // Withdraw drops operator's current handraise because its dispatch stream ended: the next root
 // leaves its leaf out, so later rounds and orders pay no skip for a Worker no ticket can reach. The
 // watermark stays, so the withdrawn handraise cannot be replayed; the Cortex comes back with a

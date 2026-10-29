@@ -52,6 +52,9 @@ func TestUnacknowledgedMessagesAreReplayedOnReconnect(t *testing.T) {
 	}
 	s1.ack(1)
 	waitPending(t, h, cortexA, 2)
+	if b := h.hub.Backlog(); b.Sessions != 1 || b.Unacked != 2 || b.Operators != 1 {
+		t.Fatalf("backlog = %+v", b)
+	}
 	s1.stream.close()
 	s1.wait(t)
 	h.waitConn(cortexA, false)

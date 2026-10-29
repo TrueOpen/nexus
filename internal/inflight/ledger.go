@@ -619,6 +619,40 @@ func (l *Ledger) Entries(sessionID string) []Entry {
 	return out
 }
 
+// Summary counts the ledger.
+type Summary struct {
+	// Sessions holds state; Suspended of them are suspended after a failed record.
+	Sessions, Suspended int
+	// Pending are the orders still DISPATCHING or ACCEPTED, reservations included, with the sum of
+	// their max_fee; Recorded the RECORDED orders the session state has not caught up with yet.
+	Pending       int
+	PendingMaxFee *big.Int
+	Recorded      int
+}
+
+// Summary counts the ledger.
+func (l *Ledger) Summary() Summary {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s := Summary{Sessions: len(l.sessions), PendingMaxFee: new(big.Int)}
+	var fee big.Int
+	for _, ls := range l.sessions {
+		if ls.meta.SuspendedFrom != nil {
+			s.Suspended++
+		}
+		for _, e := range ls.orders {
+			switch e.State {
+			case StateDispatching, StateAccepted:
+				s.Pending++
+				s.PendingMaxFee.Add(s.PendingMaxFee, fee.SetUint64(e.MaxFee))
+			case StateRecorded:
+				s.Recorded++
+			}
+		}
+	}
+	return s
+}
+
 // SessionEntry is an order of the ledger with its session.
 type SessionEntry struct {
 	SessionID string
