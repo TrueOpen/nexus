@@ -348,3 +348,33 @@ func TestMarkRecordedRacingPuts(t *testing.T) {
 		}
 	}
 }
+
+// A member's copy of an order and this Builder's own evidence of the same order (after it took the
+// session over) are kept apart.
+func TestMemberCopyIsKeptApartFromOwnEvidence(t *testing.T) {
+	s := New(kv.NewMemStore(), testParams)
+	own := testOrder(t)
+	copyOf := testOrder(t)
+	copyOf.Builder = "trueopen1dispatchingbuilder"
+	for i := range copyOf.Rounds {
+		for j := range copyOf.Rounds[i].Attempts {
+			copyOf.Rounds[i].Attempts[j].Hash = fill(byte(0x50 + i*4 + j))
+		}
+	}
+	if own.Key() == copyOf.Key() {
+		t.Fatal("a member's copy has the key of own evidence")
+	}
+	for _, o := range []*Order{own, copyOf} {
+		if err := s.Put(o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orders, err := s.ByTask(own.TaskID)
+	if err != nil || len(orders) != 2 {
+		t.Fatalf("orders of the task = %d, %v", len(orders), err)
+	}
+	got, _, found, err := s.ByTicket(fill(0x50))
+	if err != nil || !found || got.Builder != copyOf.Builder {
+		t.Fatalf("copy by ticket = %v %v %v", got, found, err)
+	}
+}

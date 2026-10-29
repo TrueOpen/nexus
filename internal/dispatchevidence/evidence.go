@@ -99,9 +99,14 @@ type Order struct {
 	RetainUntil uint64 `json:"retain_until"`
 }
 
-// Key identifies the evidence: one per (session, sequence, task_id, epoch).
+// Key identifies the evidence: one per (session, sequence, task_id, epoch), and per dispatching
+// Builder for a member's copy, which stays apart from this Builder's own evidence of the order.
 func (o *Order) Key() string {
-	return fmt.Sprintf("%s/%020d/%s/%020d", o.SessionID, o.Sequence, o.TaskID, o.Epoch)
+	key := fmt.Sprintf("%s/%020d/%s/%020d", o.SessionID, o.Sequence, o.TaskID, o.Epoch)
+	if o.Builder != "" {
+		key += "@" + o.Builder
+	}
+	return key
 }
 
 // Attempt finds the attempt of a ticket hash.

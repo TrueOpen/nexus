@@ -136,7 +136,8 @@ func TestRostersNotServed(t *testing.T) {
 // A group member's evidence carries the roots the dispatching Builder signed, as synced: they are
 // not in this Builder's own registry, and a member serves the roster with them.
 func TestRostersOfAMemberCopy(t *testing.T) {
-	s, o, records := rosterFixture(t)
+	_, o, records := rosterFixture(t)
+	s := New(kv.NewMemStore(), testParams)
 	o.Builder = "trueopen1dispatchingbuilder"
 	for i := range o.Rounds {
 		root := &taskv1.SignedHandraiseRootV1{ChainId: rosterChain, BuilderAddress: o.Builder, RootHeight: uint64(0x40 + i)}
