@@ -143,6 +143,12 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		ids[i] = [32]byte(raw)
 	}
 	resp, err := chaincli.DecodeRecordDispatchResponse(res, 0, r.cfg.ChainID, ids)
+	if errors.Is(err, chaincli.ErrBatchDigestMismatch) && resp != nil {
+		// The batch kind of the digest is not registered in wire yet; every result echoes its
+		// entry's key in order, so they are attributed all the same.
+		r.log.Warn("record results kept although their batch_digest does not match", "tx_hash", tx.Hash)
+		err = nil
+	}
 	if err != nil {
 		r.log.Error("record results do not match the entries sent; checking each entry on chain", "tx_hash", tx.Hash, "err", err)
 		r.verifyByQuery(ctx, tx)

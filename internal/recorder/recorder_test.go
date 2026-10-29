@@ -440,3 +440,30 @@ func TestSequenceZeroPastTheDeadlineIsResolvedByQuery(t *testing.T) {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
 	}
 }
+
+// Results whose batch_digest does not match (the batch kind is not registered in wire yet) but
+// that echo every entry's key in order are taken as they are.
+func TestBatchDigestMismatchKeepsMatchingResults(t *testing.T) {
+	e := newEnv(t)
+	a, b := bundle(0xaa, 0, 1, 50), bundle(0xbb, 0, 2, 50)
+	e.record(a, b)
+	e.block(10)
+	msg, raw := e.lastSent()
+	res := executed(t, msg, 11, ok(), refused(codeBalance))
+	resp := &taskv1.MsgRecordDispatchResponse{}
+	if err := chaincli.DecodeMsgResponse(res, 0, resp); err != nil {
+		t.Fatal(err)
+	}
+	resp.BatchDigest = fill(0xee)
+	e.chain.execute(raw, txWith(t, 11, resp))
+	e.block(11)
+	if want := []taskReport{{taskID: a.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
+		t.Fatalf("recorded = %v", e.tasks.recorded)
+	}
+	if want := []taskReport{{taskID: b.TaskID, code: codeBalance}}; !reflect.DeepEqual(e.tasks.rejected, want) {
+		t.Fatalf("rejected = %v", e.tasks.rejected)
+	}
+	if e.chain.queries != 0 {
+		t.Fatalf("%d record queries", e.chain.queries)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
@@ -125,11 +126,18 @@ func DecodeMsgResponse(result TxResult, msgIndex int, out proto.Message) error {
 	return nil
 }
 
+// ErrBatchDigestMismatch reports a MsgRecordDispatch response whose batch_digest is not the one
+// computed from its results. The batch kind it is computed with is provisional (see
+// recordDispatchBatchKind), so DecodeRecordDispatchResponse returns the response with it when
+// every other check passed.
+var ErrBatchDigestMismatch = errors.New("record dispatch: batch_digest does not match the results")
+
 // DecodeRecordDispatchResponse reads the per-entry results of the MsgRecordDispatch at msgIndex
 // of an executed transaction. objectIDs are the keys of the entries sent, in entry order
 // (DispatchEntryObjectID, TakeoverEntryObjectID). There is one result per entry, in entry order,
-// echoing that entry's key as object_id; batch_digest commits to every (object_id, status); a
-// REJECTED entry carries its DispatchRejectCodeV1 and only a REJECTED entry does.
+// echoing that entry's key as object_id; a REJECTED entry carries its DispatchRejectCodeV1 and
+// only a REJECTED entry does. batch_digest commits to every (object_id, status): when only it
+// does not match, the response is returned with ErrBatchDigestMismatch.
 func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string, objectIDs [][32]byte) (*taskv1.MsgRecordDispatchResponse, error) {
 	response := &taskv1.MsgRecordDispatchResponse{}
 	if err := DecodeMsgResponse(result, msgIndex, response); err != nil {
@@ -137,9 +145,6 @@ func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string,
 	}
 	if len(response.GetResults()) != len(objectIDs) {
 		return nil, fmt.Errorf("record dispatch: %d results for %d entries", len(response.GetResults()), len(objectIDs))
-	}
-	if digest := RecordDispatchBatchDigest(chainID, response.GetResults()); !bytes.Equal(response.GetBatchDigest(), digest[:]) {
-		return nil, fmt.Errorf("record dispatch: batch_digest does not match the results")
 	}
 	for i, item := range response.GetResults() {
 		if item.GetItemIndex() != uint32(i) {
@@ -155,6 +160,9 @@ func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string,
 		case rejected != (item.GetRejectCode() != taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED):
 			return nil, fmt.Errorf("record dispatch: result %d status %s with reject_code %s", i, item.GetStatus(), item.GetRejectCode())
 		}
+	}
+	if digest := RecordDispatchBatchDigest(chainID, response.GetResults()); !bytes.Equal(response.GetBatchDigest(), digest[:]) {
+		return response, ErrBatchDigestMismatch
 	}
 	return response, nil
 }

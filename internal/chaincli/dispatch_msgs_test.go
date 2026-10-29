@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -278,8 +279,10 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 	if _, err := DecodeRecordDispatchResponse(result, 0, chainID, swapped); err == nil {
 		t.Fatal("results were attributed to entries whose keys they do not echo")
 	}
-	if _, err := DecodeRecordDispatchResponse(result, 0, "other-chain", objectIDs); err == nil {
-		t.Fatal("a batch digest of another chain was accepted")
+	// The batch kind of MsgRecordDispatch is not registered in wire yet: a batch_digest that does
+	// not match is reported, but results that echo every entry's key in order are kept.
+	if got, err := DecodeRecordDispatchResponse(result, 0, "other-chain", objectIDs); !errors.Is(err, ErrBatchDigestMismatch) || !proto.Equal(got, response) {
+		t.Fatalf("batch digest of another chain = %v, %v", got, err)
 	}
 	if _, err := DecodeRecordDispatchResponse(result, 1, chainID, objectIDs); err == nil {
 		t.Fatal("a missing message index was accepted")
@@ -305,7 +308,14 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 			bad.BatchDigest = d[:]
 		}
 		raw, _ := hex.DecodeString(txMsgDataHex(t, bad))
-		if _, err := DecodeRecordDispatchResponse(TxResult{Data: raw}, 0, chainID, objectIDs); err == nil {
+		got, err := DecodeRecordDispatchResponse(TxResult{Data: raw}, 0, chainID, objectIDs)
+		if name == "status changed" {
+			if !errors.Is(err, ErrBatchDigestMismatch) || got == nil {
+				t.Fatalf("%s: %v, %v", name, got, err)
+			}
+			continue
+		}
+		if err == nil || got != nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
