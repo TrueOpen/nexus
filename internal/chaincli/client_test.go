@@ -257,7 +257,7 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 				SelectedVerifiers: []*taskv1.SelectedVerifierV1{
 					{OperatorAddress: "verifier-1", Slot: 1},
 					{OperatorAddress: "verifier-2", Slot: 2},
-					{OperatorAddress: "verifier-3", Slot: 3},
+					{OperatorAddress: "verifier-3", Slot: 3, SlotVersion: 4},
 				},
 				CommitDeadlineHeight: 60, RevealDeadlineHeight: 80, VerifyDeadlineHeight: 90,
 			},
@@ -283,6 +283,10 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 	}
 	if len(got.Verifiers) != 3 || got.Verifiers[2] != "verifier-3" {
 		t.Fatalf("verifiers=%v", got.Verifiers)
+	}
+	if len(got.SelectedVerifiers) != 3 || got.SelectedVerifiers[2] != (SelectedVerifier{Operator: "verifier-3", Slot: 3, SlotVersion: 4}) ||
+		len(got.VerifierRounds) != 1 || got.VerifierRounds[0].Selected[1] != (SelectedVerifier{Operator: "verifier-2", Slot: 2}) {
+		t.Fatalf("selected verifiers=%+v rounds=%+v", got.SelectedVerifiers, got.VerifierRounds)
 	}
 	if got.Deadlines.Commit != 60 || got.Deadlines.Reveal != 80 || got.Deadlines.Verify != 90 {
 		t.Fatalf("deadlines=%+v", got.Deadlines)
@@ -331,8 +335,10 @@ func TestQueryTaskMapsBothVerifierRounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []VerifierRound{
-		{VerifyRound: 1, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, CommitDeadlineHeight: 60, RevealDeadlineHeight: 70},
-		{VerifyRound: 2, Verifiers: []string{"challenger-1", "challenger-2"}, CommitDeadlineHeight: 120},
+		{VerifyRound: 1, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, CommitDeadlineHeight: 60, RevealDeadlineHeight: 70,
+			Selected: []SelectedVerifier{{Operator: "verifier-1", Slot: 1}, {Operator: "verifier-2", Slot: 2}, {Operator: "verifier-3", Slot: 3}}},
+		{VerifyRound: 2, Verifiers: []string{"challenger-1", "challenger-2"}, CommitDeadlineHeight: 120,
+			Selected: []SelectedVerifier{{Operator: "challenger-1", Slot: 1}, {Operator: "challenger-2", Slot: 2}}},
 	}
 	if !reflect.DeepEqual(got.VerifierRounds, want) {
 		t.Fatalf("verifier rounds = %+v, want %+v", got.VerifierRounds, want)

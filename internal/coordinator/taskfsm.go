@@ -991,13 +991,9 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 		f.log.Debug("skip VERIFIER_ASSIGNMENT_NOTIFY publish: no accepted output hash on this Builder",
 			"task_id", f.taskID)
 	} else if taskID != nil && taskHash != nil {
-		// Neither the event nor the chain client's task view carries the selected verifiers'
-		// slot/slot_version, so only addresses are filled. The authoritative set is the on-chain
-		// VerifierAssignmentState; this message only speeds up coordination.
-		verifiers := make([]*taskv1.SelectedVerifierV1, 0, len(ev.Verifiers))
-		for _, verifier := range ev.Verifiers {
-			verifiers = append(verifiers, &taskv1.SelectedVerifierV1{OperatorAddress: verifier})
-		}
+		// The authoritative set is the on-chain VerifierAssignmentState; this message only speeds
+		// up coordination.
+		verifiers := notifyVerifiers(ev)
 		f.publishVerifierAssignment(&nexusv1.VerifierAssignmentNotifyV1{
 			TaskId:               taskID,
 			TaskHash:             taskHash,
@@ -1016,6 +1012,22 @@ func (f *taskFSM) onOpenVerifyAccepted(ev chaincli.OpenVerifyAccepted) {
 	f.save()
 	f.log.Info("task verifying: verifier set + deadlines dispatched (seed pending beacon)",
 		"task_id", f.taskID, "verifiers", len(ev.Verifiers))
+}
+
+// notifyVerifiers is the verifiers[] of a VerifierAssignmentNotifyV1: each formal Verifier with
+// its candidate slot and slot version when the source read them (QueryTask), the address alone
+// when it did not (the chain event).
+func notifyVerifiers(ev chaincli.OpenVerifyAccepted) []*taskv1.SelectedVerifierV1 {
+	verifiers := make([]*taskv1.SelectedVerifierV1, 0, len(ev.Verifiers))
+	slotted := len(ev.Selected) == len(ev.Verifiers)
+	for i, verifier := range ev.Verifiers {
+		v := &taskv1.SelectedVerifierV1{OperatorAddress: verifier}
+		if slotted && ev.Selected[i].Operator == verifier {
+			v.Slot, v.SlotVersion = ev.Selected[i].Slot, ev.Selected[i].SlotVersion
+		}
+		verifiers = append(verifiers, v)
+	}
+	return verifiers
 }
 
 // publishVerifierAssignment sends one Builder-signed VerifierAssignmentNotifyV1 to every connected

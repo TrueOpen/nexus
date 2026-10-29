@@ -1049,6 +1049,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		for _, verifier := range verification.GetSelectedVerifiers() {
 			if address := verifier.GetOperatorAddress(); address != "" {
 				round.Verifiers = append(round.Verifiers, address)
+				round.Selected = append(round.Selected, selectedVerifier(verifier))
 			}
 		}
 		result.VerifierRounds = append(result.VerifierRounds, round)
@@ -1058,6 +1059,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		for _, verifier := range verification.GetSelectedVerifiers() {
 			if address := verifier.GetOperatorAddress(); address != "" {
 				result.Verifiers = append(result.Verifiers, address)
+				result.SelectedVerifiers = append(result.SelectedVerifiers, selectedVerifier(verifier))
 			}
 		}
 		// VerificationSampleSeed / WorkerRevealDeadlineHeight /
@@ -1345,4 +1347,8 @@ func newGRPCTransport(base string) *http2.Transport {
 			return d.DialContext(ctx, network, addr)
 		},
 	}
+}
+
+func selectedVerifier(v *taskv1.SelectedVerifierV1) SelectedVerifier {
+	return SelectedVerifier{Operator: v.GetOperatorAddress(), Slot: v.GetSlot(), SlotVersion: v.GetSlotVersion()}
 }

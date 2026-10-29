@@ -2064,8 +2064,8 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.
 	if state == types.Assigned && taskStateAtLeastVerifying(snapshot.State) && len(snapshot.Verifiers) > 0 {
 		fsm.onOpenVerifyAccepted(chaincli.OpenVerifyAccepted{
-			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, Verifiers: snapshot.Verifiers, Deadlines: snapshot.Deadlines,
-			Height: authoritativeEventHeight(snapshot.VerifierAssignment.OpenVerifyHeight, height),
+			SessionID: snapshot.SessionID, TaskID: snapshot.TaskID, Verifiers: snapshot.Verifiers, Selected: snapshot.SelectedVerifiers,
+			Deadlines: snapshot.Deadlines, Height: authoritativeEventHeight(snapshot.VerifierAssignment.OpenVerifyHeight, height),
 		})
 		state = types.Verifying
 	}
