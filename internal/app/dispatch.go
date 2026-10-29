@@ -194,7 +194,7 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 	if err != nil {
 		return err
 	}
-	vrf, err := dispatchdraw.NewVRFKeys(keys, dispatchdraw.NewChainVRFKeys(deps.Chain, deps.BuilderAddress))
+	vrf, err := dispatchdraw.NewVRFKeys(keys, dispatchdraw.NewChainVRFKeys(deps.Chain, deps.Store, deps.ChainID, deps.BuilderAddress))
 	if err != nil {
 		return err
 	}

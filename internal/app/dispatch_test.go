@@ -313,10 +313,18 @@ func TestDirectDispatchWiring(t *testing.T) {
 	if err := f.d.Ready(ctx); err != nil {
 		t.Fatalf("not ready: %v", err)
 	}
-	f.chain.mu.Lock()
-	f.chain.vrf = bytes.Repeat([]byte{0x01}, ed25519.PublicKeySize)
-	f.chain.mu.Unlock()
-	if err := f.d.Ready(ctx); !errors.Is(err, dispatchdraw.ErrVRFKeyMismatch) {
+	other := newWiringFixture(t)
+	other.groups.snapshot = f.groups.snapshot
+	if err := other.d.HandleStandingHandraise(ctx, dispatchstream.Origin{Operator: other.cortex.Address()}, other.handraise(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.d.Registry.IssueRoot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	other.chain.mu.Lock()
+	other.chain.vrf = bytes.Repeat([]byte{0x01}, ed25519.PublicKeySize)
+	other.chain.mu.Unlock()
+	if err := other.d.Ready(ctx); !errors.Is(err, dispatchdraw.ErrVRFKeyMismatch) {
 		t.Fatalf("ready with another registered VRF key: %v", err)
 	}
 	if f.d.Drawer == nil || f.d.Pools == nil {

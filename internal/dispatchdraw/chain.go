@@ -8,10 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/kv"
 )
 
 // maxRememberedEpochs bounds the epochs the chain adapters remember: orders of older epochs are
@@ -179,71 +183,144 @@ type VRFKeyChain interface {
 	QueryVrfKey(ctx context.Context, participantType, operator string) (chaincli.VrfKey, error)
 }
 
-// ChainVRFKeys implements VRFKeyRegistry with the Builder's registered VRF keys. The chain keeps
-// only the active key and a pending next-epoch key, so the key found for each epoch is remembered:
-// after a rotation the older epoch's key stays available to its unexpired orders.
+const vrfEpochKeyPrefix = "builder_vrf_epoch/"
+
+// ChainVRFKeys implements VRFKeyRegistry with the Builder's registered VRF keys.
+//
+// The key of an epoch is the chain's active key: proofs of an epoch are verified with the key
+// active in it, and a pending key is never used because its activation may be postponed. The chain
+// keeps only the current active key, so the key found for each epoch is remembered (in the
+// chain_state namespace, so a restart keeps it): after a rotation the older epoch's key stays
+// available to its unexpired orders, and a draw does not read the chain for an epoch it already
+// knows. Callers ask only for epochs that have begun, whose active key a later registration cannot
+// change (a registration takes effect from the next epoch at the earliest).
 type ChainVRFKeys struct {
 	chain   VRFKeyChain
+	store   kv.Store
+	chainID string
 	builder string
 
-	mu    sync.Mutex
-	known map[uint64][]byte
+	mu     sync.Mutex
+	loaded bool
+	known  map[uint64][]byte
 }
 
-// NewChainVRFKeys reads builder's BUILDER VRF keys through chain.
-func NewChainVRFKeys(chain VRFKeyChain, builder string) *ChainVRFKeys {
-	return &ChainVRFKeys{chain: chain, builder: builder, known: map[uint64][]byte{}}
+// NewChainVRFKeys reads builder's BUILDER VRF keys through chain and remembers the key of each
+// epoch in store (nil keeps them in memory only).
+func NewChainVRFKeys(chain VRFKeyChain, store kv.Store, chainID, builder string) *ChainVRFKeys {
+	return &ChainVRFKeys{chain: chain, store: store, chainID: chainID, builder: builder}
 }
 
 // BuilderVRFKey implements VRFKeyRegistry.
 func (k *ChainVRFKeys) BuilderVRFKey(ctx context.Context, epoch uint64) ([]byte, error) {
+	key, ok, err := k.remembered(epoch)
+	if err != nil || ok {
+		return key, err
+	}
 	keys, err := k.chain.QueryVrfKey(ctx, "BUILDER", k.builder)
 	if errors.Is(err, chaincli.ErrNotFound) {
-		if key, ok := k.remembered(epoch); ok {
-			return key, nil
-		}
 		return nil, fmt.Errorf("builder %s: %w", k.builder, ErrNoVRFKey)
 	}
 	if err != nil {
 		return nil, err
 	}
-	var key []byte
-	switch {
-	case keys.PendingPubKey != nil && epoch >= keys.PendingFromEpoch:
-		key = keys.PendingPubKey
-	case epoch >= keys.ActiveFromEpoch:
-		key = keys.ActivePubKey
-	default:
-		if key, ok := k.remembered(epoch); ok {
-			return key, nil
-		}
+	if epoch < keys.ActiveFromEpoch {
 		return nil, fmt.Errorf("epoch %d precedes the active key (from epoch %d) and its key was not seen: %w",
 			epoch, keys.ActiveFromEpoch, ErrNoVRFKey)
 	}
-	if len(key) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("builder VRF key is %d bytes", len(key))
+	if len(keys.ActivePubKey) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("builder VRF key is %d bytes", len(keys.ActivePubKey))
 	}
-	k.remember(epoch, key)
-	return bytes.Clone(key), nil
-}
-
-func (k *ChainVRFKeys) remembered(epoch uint64) ([]byte, bool) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	key, ok := k.known[epoch]
-	return bytes.Clone(key), ok
-}
-
-func (k *ChainVRFKeys) remember(epoch uint64, key []byte) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if prev, ok := k.known[epoch]; ok && bytes.Equal(prev, key) {
-		return
-	}
-	k.known[epoch] = bytes.Clone(key)
-	for e := range k.known {
-		if e+maxRememberedEpochs <= epoch {
-			delete(k.known, e)
+	// While a pending key is due by epoch the cutover may not be visible yet: answer the active
+	// key without remembering it, so the next read sees the cutover.
+	if keys.PendingPubKey == nil || epoch < keys.PendingFromEpoch {
+		if err := k.remember(epoch, keys.ActivePubKey); err != nil {
+			return nil, err
 		}
 	}
+	return bytes.Clone(keys.ActivePubKey), nil
+}
+
+func (k *ChainVRFKeys) vrfEpochKey(epoch uint64) string {
+	return fmt.Sprintf("%s%s/%s/%020d", vrfEpochKeyPrefix, k.chainID, k.builder, epoch)
+}
+
+func (k *ChainVRFKeys) loadLocked() error {
+	if k.loaded {
+		return nil
+	}
+	k.known = map[uint64][]byte{}
+	if k.store != nil {
+		prefix := vrfEpochKeyPrefix + k.chainID + "/" + k.builder + "/"
+		var bad error
+		err := k.store.Scan(kv.NSChainState, func(key string, value []byte) bool {
+			rest, ok := strings.CutPrefix(key, prefix)
+			if !ok {
+				return true
+			}
+			epoch, err := strconv.ParseUint(rest, 10, 64)
+			if err != nil || len(value) != ed25519.PublicKeySize {
+				bad = fmt.Errorf("malformed builder VRF epoch entry %q", key)
+				return false
+			}
+			k.known[epoch] = bytes.Clone(value)
+			return true
+		})
+		if err == nil {
+			err = bad
+		}
+		if err != nil {
+			return fmt.Errorf("load builder VRF epochs: %w", err)
+		}
+	}
+	k.loaded = true
+	return nil
+}
+
+func (k *ChainVRFKeys) remembered(epoch uint64) ([]byte, bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err := k.loadLocked(); err != nil {
+		return nil, false, err
+	}
+	key, ok := k.known[epoch]
+	return bytes.Clone(key), ok, nil
+}
+
+// remember keeps key as the active key of epoch and forgets the oldest epochs beyond
+// maxRememberedEpochs.
+func (k *ChainVRFKeys) remember(epoch uint64, key []byte) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err := k.loadLocked(); err != nil {
+		return err
+	}
+	if bytes.Equal(k.known[epoch], key) {
+		return nil
+	}
+	ops := []kv.WriteOp{{NS: kv.NSChainState, Key: k.vrfEpochKey(epoch), Val: bytes.Clone(key)}}
+	epochs := make([]uint64, 0, len(k.known)+1)
+	for e := range k.known {
+		if e != epoch {
+			epochs = append(epochs, e)
+		}
+	}
+	epochs = append(epochs, epoch)
+	slices.Sort(epochs)
+	var dropped []uint64
+	for len(epochs) > maxRememberedEpochs {
+		dropped = append(dropped, epochs[0])
+		ops = append(ops, kv.WriteOp{NS: kv.NSChainState, Key: k.vrfEpochKey(epochs[0]), Delete: true})
+		epochs = epochs[1:]
+	}
+	if k.store != nil {
+		if err := k.store.WriteBatch(ops...); err != nil {
+			return fmt.Errorf("store builder VRF epoch: %w", err)
+		}
+	}
+	k.known[epoch] = bytes.Clone(key)
+	for _, e := range dropped {
+		delete(k.known, e)
+	}
+	return nil
 }
