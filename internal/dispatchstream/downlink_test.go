@@ -196,8 +196,8 @@ func TestSendAllAndErrors(t *testing.T) {
 	}
 }
 
-// Keepalives keep one probe outstanding with increasing values, measure the round trip from its
-// echo without answering the echo, echo each new Cortex probe once, and end a silent stream.
+// Keepalives keep one probe outstanding with increasing odd values, measure the round trip from
+// its echo without answering the echo, echo each new Cortex probe once, and end a silent stream.
 func TestKeepalive(t *testing.T) {
 	h := newHarness(t)
 	s := h.connect(cortexA, "1")
@@ -218,8 +218,14 @@ func TestKeepalive(t *testing.T) {
 	}
 	h.ticks <- time.Time{}
 	first := nextProbe()
-	if first != uint64(h.clock.Now().UnixMilli()) {
-		t.Fatalf("probe = %d, want the clock in ms", first)
+	if first != uint64(h.clock.Now().UnixMilli())|1 {
+		t.Fatalf("probe = %d, want the clock in ms made odd", first)
+	}
+	// A Cortex probe sent in the same millisecond carries the clock as is: it is not our probe's
+	// echo, so it is echoed and ours stays outstanding.
+	keepalive(uint64(h.clock.Now().UnixMilli()))
+	if got := nextProbe(); got != uint64(h.clock.Now().UnixMilli()) {
+		t.Fatalf("echo = %d, want the Cortex probe", got)
 	}
 	// One probe at a time: a tick while it is outstanding sends nothing.
 	h.ticks <- time.Time{}
@@ -235,22 +241,23 @@ func TestKeepalive(t *testing.T) {
 	h.clock.advance(-40 * time.Millisecond)
 	h.ticks <- time.Time{}
 	second := nextProbe()
-	if second <= first {
-		t.Fatalf("second probe %d is not above the first %d", second, first)
+	if second <= first || second%2 != 1 {
+		t.Fatalf("second probe %d is not an odd value above the first %d", second, first)
 	}
 
 	// A Cortex probe is echoed once, also while our probe is outstanding; repeated or older values
 	// are not echoed again.
-	keepalive(12345)
-	if got := nextProbe(); got != 12345 {
-		t.Fatalf("echo = %d, want 12345", got)
+	peer := uint64(h.clock.Now().UnixMilli()) + 100
+	keepalive(peer)
+	if got := nextProbe(); got != peer {
+		t.Fatalf("echo = %d, want %d", got, peer)
 	}
-	keepalive(12345)
-	keepalive(12344)
+	keepalive(peer)
+	keepalive(peer - 1)
 	s.stream.quiet(t)
-	keepalive(12346)
-	if got := nextProbe(); got != 12346 {
-		t.Fatalf("echo = %d, want 12346", got)
+	keepalive(peer + 1)
+	if got := nextProbe(); got != peer+1 {
+		t.Fatalf("echo = %d, want %d", got, peer+1)
 	}
 	keepalive(second)
 	s.stream.quiet(t)
