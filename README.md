@@ -72,7 +72,7 @@ curl localhost:8080/healthz                       # {"status":"ok"}
 curl localhost:8080/readyz                        # 200 {"ready":true} or 503 naming the failed checks
 curl localhost:8080/v1/dispatch/stats             # public dispatch statistics (RTT admission threshold, timeout/reject rates, skips)
 # The statistics are this Builder's local observations since its start, per Cortex operator; they
-# are not chain facts.
+# are not chain facts and are no basis for an SLA. They carry no per-order or per-model data.
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
 # client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.
