@@ -18,6 +18,11 @@ import (
 // ingress status code.
 var ErrNoCapacity = errors.New("NEXUS_INGRESS_NO_CAPACITY")
 
+// ErrInvalidSnapshot means a candidate pool snapshot lists an in-pool member without the frozen
+// weight inputs every member must carry. No pool is built from it and nothing is read from live
+// state instead; orders of the epoch have no capacity, so it wraps ErrNoCapacity.
+var ErrInvalidSnapshot = fmt.Errorf("%w: invalid candidate pool snapshot", ErrNoCapacity)
+
 // Profile is the (model_id, profile_version) an order runs.
 type Profile struct {
 	ModelID [32]byte
@@ -79,9 +84,12 @@ func (p *Pool) Draw(chainID string, r [32]byte, maxAttempts uint32) ([]dispatch.
 }
 
 // BuildPool reads the dispatch pool of profile at ep from the chain. A member is in the pool when
-// the snapshot froze it with fresh declared support for the profile, inference capability, no
-// tombstone or unbonding, a nonzero jail factor, an available bond of at least the profile's
-// minimum stake, and a positive candidate_weight. Weights are taken as frozen, never computed.
+// the snapshot froze, in its weight_inputs.profiles entry for the profile, fresh declared support
+// and inference capability, and froze for the member no tombstone or unbonding, a nonzero jail
+// factor, an available bond of at least the entry's minimum stake, and a positive candidate_weight.
+// Weights are taken as frozen, never computed: the chain derives candidate_weight from the same
+// entry, the frozen member inputs and the Worker coefficients frozen on the snapshot header, never
+// from current Task params. An in-pool member without weight inputs is ErrInvalidSnapshot.
 func BuildPool(ctx context.Context, chainID string, src PoolSource, ep Epoch, profile Profile) (*Pool, error) {
 	listed, err := src.SnapshotMembers(ctx, ep.SnapshotID)
 	if err != nil {
@@ -119,12 +127,17 @@ func BuildPool(ctx context.Context, chainID string, src PoolSource, ep Epoch, pr
 
 // eligibleForProfile applies the pool conditions for one (model_id, profile_version). Support,
 // minimum stake and inference capability are facts of that profile, so they are read from its
-// weight_inputs.profiles entry; a member without an entry is not in the pool. The view's top-level
-// copies, when present, must agree with the entry: a pool built from contradicting facts could
-// differ from the chain's by one member, and either direction fails a challenge.
+// weight_inputs.profiles entry, matched on both model_id and profile_version; a member without an
+// entry is not in the pool. The member-wide inference_capable is only a summary and is not read.
+// The view's top-level copies, when present, must agree with the entry: a pool built from
+// contradicting facts could differ from the chain's by one member, and either direction fails a
+// challenge.
 func eligibleForProfile(view *hubv1.CandidatePoolSnapshotMemberViewV1, profile Profile) (bool, error) {
 	in := view.GetWeightInputs()
-	if in == nil || view.GetCandidateWeight() == 0 {
+	if in == nil {
+		return false, fmt.Errorf("%w: in-pool member without weight inputs", ErrInvalidSnapshot)
+	}
+	if view.GetCandidateWeight() == 0 {
 		return false, nil
 	}
 	entry, err := profileEntry(in, profile)
@@ -133,9 +146,6 @@ func eligibleForProfile(view *hubv1.CandidatePoolSnapshotMemberViewV1, profile P
 	}
 	if view.ProfileSupportFresh != nil && view.GetProfileSupportFresh() != entry.GetProfileSupportFresh() {
 		return false, fmt.Errorf("profile_support_fresh disagrees with the profile entry")
-	}
-	if entry.GetInferenceCapable() && !in.GetInferenceCapable() {
-		return false, fmt.Errorf("profile is inference capable but the member is not")
 	}
 	minStake, err := atomicUnits(entry.GetMinStakeSnapshot())
 	if err != nil {

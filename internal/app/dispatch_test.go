@@ -220,7 +220,8 @@ func newWiringFixture(t *testing.T) *wiringFixture {
 		},
 		vrf: []byte(vrfKey.Public().(ed25519.PublicKey)),
 		members: map[string]*hubv1.CandidatePoolSnapshotMemberViewV1{
-			cortex.Address() + "/":                 {InPool: true, Slot: 4, SlotVersion: 1},
+			cortex.Address() + "/": {InPool: true, Slot: 4, SlotVersion: 1,
+				WeightInputs: &hubv1.CandidateWeightInputsV1{CandidateJailFactorPpm: 1_000_000}},
 			cortex.Address() + "/" + string(model): {InPool: true, Slot: 4, SlotVersion: 1, ProfileSupportFresh: &fresh},
 		},
 	}

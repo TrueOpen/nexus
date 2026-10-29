@@ -49,6 +49,8 @@ func TestChainPoolChecksTheCurrentSnapshot(t *testing.T) {
 			"op1/":                     {InPool: true, Slot: 4, SlotVersion: 1, WeightInputs: eligibleInputs()},
 			"op1/" + string(testModel): {InPool: true, Slot: 4, SlotVersion: 1, ProfileSupportFresh: &fresh},
 			"jailed/":                  {InPool: true, Slot: 5, SlotVersion: 1, WeightInputs: &hubv1.CandidateWeightInputsV1{InferenceCapable: true}},
+			"noinputs/":                {InPool: true, Slot: 6, SlotVersion: 1},
+			"summary/":                 {InPool: true, Slot: 7, SlotVersion: 1, WeightInputs: &hubv1.CandidateWeightInputsV1{CandidateJailFactorPpm: 1_000_000}},
 		},
 	}
 	now := time.Unix(1_800_000_000, 0)
@@ -67,6 +69,10 @@ func TestChainPoolChecksTheCurrentSnapshot(t *testing.T) {
 		"old version":    {member("op1", 4, 0, testSnapshot), false},
 		"not a member":   {member("op2", 4, 1, testSnapshot), false},
 		"jailed":         {member("jailed", 5, 1, testSnapshot), false},
+		// An in-pool member without weight inputs is an invalid snapshot row, never eligible.
+		"no weight inputs": {member("noinputs", 6, 1, testSnapshot), false},
+		// The member-wide inference_capable is a summary; capability is decided per profile.
+		"member-wide summary false": {member("summary", 7, 1, testSnapshot), true},
 	} {
 		got, err := pool.IsEligibleMember(context.Background(), tc.member)
 		if err != nil || got != tc.want {

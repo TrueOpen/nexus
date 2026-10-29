@@ -85,7 +85,6 @@ func TestPoolExcludesIneligibleMembers(t *testing.T) {
 		"tombstoned":              func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.Tombstoned = true },
 		"jail factor zero":        func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.CandidateJailFactorPpm = 0 },
 		"available below stake":   func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.AvailableBond = amount("499") },
-		"weight inputs absent":    func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs = nil },
 		"candidate weight absent": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.CandidateWeight = nil },
 		"candidate weight zero": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
 			zero := uint64(0)
@@ -107,6 +106,31 @@ func TestPoolExcludesIneligibleMembers(t *testing.T) {
 				t.Fatal("ineligible member must not be found")
 			}
 		})
+	}
+}
+
+// Eligibility is the matching profile entry's: the member-wide inference_capable summary neither
+// grants nor withdraws it.
+func TestPoolIgnoresTheMemberWideInferenceSummary(t *testing.T) {
+	src := vectorPoolSource()
+	src.members[1].views[vectorProfile].WeightInputs.InferenceCapable = false
+	pool, err := BuildPool(context.Background(), vectorChainID, src, vectorEpoch, vectorProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := pool.Member(vectorOp3); !ok {
+		t.Fatal("a member whose profile entry is capable was left out for the member-wide summary")
+	}
+}
+
+// An in-pool member without weight inputs is an invalid snapshot, not a member to skip: the pool
+// is not built and the order has no capacity.
+func TestPoolRefusesAnInPoolMemberWithoutWeightInputs(t *testing.T) {
+	src := vectorPoolSource()
+	src.members[1].views[vectorProfile].WeightInputs = nil
+	_, err := BuildPool(context.Background(), vectorChainID, src, vectorEpoch, vectorProfile)
+	if !errors.Is(err, ErrInvalidSnapshot) || !errors.Is(err, ErrNoCapacity) {
+		t.Fatalf("BuildPool = %v, want ErrInvalidSnapshot and ErrNoCapacity", err)
 	}
 }
 
@@ -157,9 +181,6 @@ func TestPoolRejectsInconsistentChainViews(t *testing.T) {
 		},
 		"top-level min stake contradicts the profile entry": func(src *fakePoolSource) {
 			src.members[1].views[vectorProfile].MinStakeSnapshot = amount("400")
-		},
-		"profile capable but member not": func(src *fakePoolSource) {
-			src.members[1].views[vectorProfile].WeightInputs.InferenceCapable = false
 		},
 		"duplicate profile entries": func(src *fakePoolSource) {
 			in := src.members[1].views[vectorProfile].WeightInputs
