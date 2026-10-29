@@ -67,11 +67,11 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `gen/` (committed, so builds do not need to run buf first) and must not be edited by hand.
 
 `nexus.v1` is also a frozen package of the TrueOpen/wire release (`release/packages.json`), so
-`proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
-repository keeps the documented version (the wire copy is comment-stripped and is therefore not
-produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
-fingerprint to the wire v0.5.1 definition; `internal/chaincli/node_descriptor_test.go` does the same
-for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
+`proto/nexus/v1/` must stay field-for-field identical to the wire copy; `tools/mirror_wire.py`
+mirrors it like the other packages. `internal/ingress/wire_descriptor_test.go` pins its descriptor
+fingerprint to the wire definition pinned in `go.mod`; `internal/chaincli/node_descriptor_test.go`
+does the same for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned
+values together.
 
 ### Consuming the contract (`gen/trueopen` standalone module)
 
@@ -81,8 +81,9 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.5.1`. TrueOpen/node
-must pin the same release in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
+nexus is built against TrueOpen/wire commit `55d875b` (Go pseudo-version
+`v0.5.2-0.20261029040229-55d875b768e5`, see `go.mod`). TrueOpen/node must pin the same wire
+commit in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
 [`docs/node-message-integration.md`](docs/node-message-integration.md).
