@@ -203,6 +203,11 @@ func (c *stubClient) Stop(_ context.Context) error {
 	return nil
 }
 
+// QueryEpochLengthBlocks has no chain to read in stub mode.
+func (c *stubClient) QueryEpochLengthBlocks(context.Context) (uint64, error) {
+	return 0, ErrNotSupportedOnChain
+}
+
 // QueryBuilderSetAtHeight has no source of truth to query in stub mode: it returns ErrNotFound
 // rather than a fake set with "term equals height". The old stub returned
 // BuilderSet{Epoch: epoch} because the input was the term itself; now the input is a

@@ -99,13 +99,16 @@ type Coordinator struct {
 	selection       BuilderSelectionQuerier
 	epochLength     atomic.Uint64
 	// epochTriedAt is when the epoch length was last read (UnixNano), for the retry pause.
-	epochTriedAt    atomic.Int64
-	relay           relay.Custodian
-	kv              kv.Store
-	submit          Submitter
-	outputs         outputdelivery.Manager
-	payloads        payloadstore.Store
-	resultReadiness ResultReadiness
+	epochTriedAt atomic.Int64
+	// epochUnsupportedWarned makes the warning about a selection querier without the epoch
+	// length read appear once.
+	epochUnsupportedWarned atomic.Bool
+	relay                  relay.Custodian
+	kv                     kv.Store
+	submit                 Submitter
+	outputs                outputdelivery.Manager
+	payloads               payloadstore.Store
+	resultReadiness        ResultReadiness
 
 	mu           sync.RWMutex
 	tasks        map[string]*taskFSM // key = session_id|task_id
@@ -267,6 +270,9 @@ func (c *Coordinator) refreshEpochLength(ctx context.Context) {
 	}
 	query, ok := c.selection.(epochLengthQuerier)
 	if !ok {
+		if c.epochUnsupportedWarned.CompareAndSwap(false, true) {
+			c.log.Warn("builder selection querier cannot read the hub epoch length; refused verifier handraises are never retried by epoch")
+		}
 		return
 	}
 	now := time.Now().UnixNano()

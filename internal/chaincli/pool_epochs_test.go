@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
@@ -82,5 +84,17 @@ func TestPoolEpochTableForgetsTheOldestEpochs(t *testing.T) {
 	}
 	if err := table.record(9, []byte{1}); err == nil {
 		t.Fatal("a short snapshot id was recorded")
+	}
+}
+
+func TestStubAnswersEpochQueriesAsUnsupported(t *testing.T) {
+	stub := NewStub(slog.New(slog.DiscardHandler), config.ChainConfig{}).(interface {
+		QueryEpochLengthBlocks(context.Context) (uint64, error)
+	})
+	if _, err := stub.QueryEpochLengthBlocks(context.Background()); !errors.Is(err, ErrNotSupportedOnChain) {
+		t.Fatalf("epoch length: err = %v", err)
+	}
+	if _, err := NewStub(slog.New(slog.DiscardHandler), config.ChainConfig{}).CandidatePoolSnapshotOfEpoch(context.Background(), 1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pool of epoch: err = %v", err)
 	}
 }

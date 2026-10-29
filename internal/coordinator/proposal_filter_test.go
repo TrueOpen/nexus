@@ -284,3 +284,16 @@ func TestEpochLengthIsReadOutsideTheTaskLock(t *testing.T) {
 		t.Fatalf("hub reads = %d, want the cached length reused", query.calls)
 	}
 }
+
+// A selection querier without the epoch length read is reported once, not on every reconcile.
+func TestEpochLengthUnsupportedIsWarnedOnce(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	var logs bytes.Buffer
+	c.log = slog.New(slog.NewTextHandler(&logs, nil))
+	c.selection = struct{ BuilderSelectionQuerier }{}
+	c.refreshEpochLength(context.Background())
+	c.refreshEpochLength(context.Background())
+	if n := strings.Count(logs.String(), "cannot read the hub epoch length"); n != 1 {
+		t.Fatalf("warnings = %d, want 1:\n%s", n, logs.String())
+	}
+}
