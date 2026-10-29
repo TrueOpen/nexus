@@ -327,9 +327,11 @@ func validateTaskDeadlineKind(kind taskv1.DeadlineKindV1) error {
 		return nil
 	case taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE,
-		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP:
-		// Challenge/evidence kinds: Phase 0 does not activate challenge rounds, Nexus has no
-		// corresponding local object to sweep; leave them to the chain's own EndBlock.
+		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP,
+		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE:
+		// Challenge/evidence kinds: Phase 0 does not activate challenge rounds, and Nexus keeps no
+		// verifier value-evidence window either; with no corresponding local object to sweep, leave
+		// them to the chain's own EndBlock.
 		return fmt.Errorf("deadline_kind %s is not swept by the Builder in Phase 0", kind.String())
 	case taskv1.DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE:
 		return fmt.Errorf("deadline_kind SESSION_LIFECYCLE belongs to the session_lifecycle locator, not a task locator")

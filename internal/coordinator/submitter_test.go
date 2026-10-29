@@ -633,6 +633,7 @@ func TestSubmitSweepDeadlineRejectsNonTaskKindsBeforeBroadcast(t *testing.T) {
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP,
+		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE,
 		taskv1.DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE,
 	}
 	for _, kind := range rejected {

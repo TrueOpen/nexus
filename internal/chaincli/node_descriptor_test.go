@@ -68,15 +68,17 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 2, "task_round", protoreflect.MessageKind, false)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 3, "", protoreflect.MessageKind, true)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 4, "session_lifecycle", protoreflect.MessageKind, false)
-		// DeadlineKindV1 4/11/12/13 are the kinds the nexus submit gate rejects by name
+		// DeadlineKindV1 4/11/12/13/14 are the kinds the nexus submit gate names
 		// (validateTaskDeadlineKind); EVIDENCE_REQUEST(3) / CHALLENGE_RESOLVE /
 		// CHALLENGE_CLOSE were removed.
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE", 4)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_FINAL", 11)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE", 12)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_EVIDENCE_CLEANUP", 13)
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE", 14)
 		for _, name := range []string{
 			"DEADLINE_KIND_V1_EVIDENCE_REQUEST", "DEADLINE_KIND_V1_CHALLENGE_RESOLVE", "DEADLINE_KIND_V1_CHALLENGE_CLOSE",
+			"DEADLINE_KIND_V1_SESSION_CHANGE_EFFECTIVE",
 		} {
 			assertContractEnumValueAbsent(t, "task.v1.DeadlineKindV1", name)
 		}
