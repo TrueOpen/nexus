@@ -24,6 +24,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/ingresstls"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/ops"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/relay"
@@ -348,7 +350,11 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	var registrationModule *module
 	var serviceSG signer.Signer
 	var taskSubmitter coordinator.Submitter
+	// metrics are the order path's stage timings, skips and Worker outcomes, for the operator
+	// status and the public statistics.
+	metrics := opsmetrics.New()
 	ingressOpts := []ingress.Option{
+		ingress.WithMetrics(metrics),
 		ingress.WithPayloadMaxBytes(inlinePayloadMax(cfg.PayloadStorage.MaxBytes, cfg.TaskData.InlineMaxBytes)),
 		ingress.WithReadMaxBytes(cfg.TaskData.ChunkSizeBytes),
 	}
@@ -456,7 +462,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
 			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
 			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
-			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Attempts: attempts, Log: log,
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Attempts: attempts, Metrics: metrics, Log: log,
 		})
 		cancelParams()
 		if err != nil {
@@ -613,6 +619,20 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		authParams.Precheck = orderPath.Precheck
 		authParams.Takeovers = orderPath.Takeovers
 	}
+	// The operator monitor: readiness, diagnostics and the drain requests in <data_dir>/ops, and the
+	// public readiness verdict and dispatch statistics on the ingress port.
+	var directForOps *directDispatch
+	if orderPath != nil {
+		directForOps = dispatch
+	}
+	monitor := newOpsMonitor(opsDeps{
+		DataDir: cfg.DataDir, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix, Dispatch: cfg.Dispatch,
+		Store: store, Height: taskChain.LatestHeight, Keys: keyCache, Streams: streams, Metrics: metrics,
+		Direct: directForOps, Orders: orderPath, Log: log,
+	})
+	ingressOpts = append(ingressOpts,
+		ingress.WithRoute("GET "+ops.ReadinessPath, monitor.ReadinessHandler()),
+		ingress.WithRoute("GET "+ops.PublicStatsPath, monitor.PublicStatsHandler()))
 	ing, err := ingress.New(log, cfg.Ingress, authParams, coord, ingressOpts...)
 	if err != nil {
 		_ = store.Close()
@@ -641,6 +661,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// Orders resume before streams are served, so the answers replayed to them find their tickets.
 		modules = insertBefore(modules, "dispatch-stream", module{"order-dispatch", orderPath.Start, orderPath.Stop})
 	}
+	// A drain request left while the daemon was down is applied before ingress takes orders.
+	modules = insertBefore(modules, "ingress", module{"ops", monitor.Start, monitor.Stop})
 
 	app := &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
