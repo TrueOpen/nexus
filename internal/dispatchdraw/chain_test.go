@@ -5,13 +5,17 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/TrueOpen/wire/dispatch"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 type epochChain struct {
@@ -21,6 +25,8 @@ type epochChain struct {
 	byEpoch   map[uint64][]byte
 	headers   map[string]*hubv1.CandidatePoolSnapshotViewV1
 	beaconAsk []uint64
+	// beaconEdit, when set, alters each verified proposer VRF beacon returned.
+	beaconEdit func(*hubv1.BeaconState)
 }
 
 func (c *epochChain) QueryEpochLengthBlocks(context.Context) (uint64, error) { return c.length, nil }
@@ -31,7 +37,11 @@ func (c *epochChain) QueryBeacon(_ context.Context, height uint64) (*hubv1.Beaco
 	if !ok {
 		return nil, chaincli.ErrNotFound
 	}
-	return &hubv1.BeaconState{Height: height, RandomnessHex: r}, nil
+	b := &hubv1.BeaconState{Height: height, RandomnessHex: r, SourceTag: "proposer_vrf_v1", Verified: true}
+	if c.beaconEdit != nil {
+		c.beaconEdit(b)
+	}
+	return b, nil
 }
 
 func (c *epochChain) QueryCurrentCandidatePool(context.Context) (*hubv1.CandidatePoolSnapshotViewV1, error) {
@@ -99,6 +109,94 @@ func TestChainEpochsResolveTheEpochOfTheOrder(t *testing.T) {
 	chain.current = &hubv1.CandidatePoolSnapshotViewV1{Epoch: 9, SnapshotId: snap7[:]}
 	if _, err := epochs.EpochOf(context.Background(), 900); err == nil {
 		t.Fatal("a malformed beacon was used as the seed")
+	}
+}
+
+// The epoch seed is the raw R_h of the committed, verified beacon at the epoch's start height. An
+// unverified or placeholder beacon, or one recorded for another height, is no seed: the epoch stays
+// unresolved and is asked again later.
+func TestChainEpochsUseOnlyTheVerifiedEpochStartBeacon(t *testing.T) {
+	seed, snap := fill32(0x07), fill32(0xa7)
+	for name, edit := range map[string]func(*hubv1.BeaconState){
+		"unverified":           func(b *hubv1.BeaconState) { b.Verified = false },
+		"placeholder":          func(b *hubv1.BeaconState) { b.SourceTag = "placeholder_blockhash_v1" },
+		"another height":       func(b *hubv1.BeaconState) { b.Height++ },
+		"randomness not raw32": func(b *hubv1.BeaconState) { b.RandomnessHex = b.RandomnessHex[:62] },
+	} {
+		t.Run(name, func(t *testing.T) {
+			chain := &epochChain{
+				length:     100,
+				beacons:    map[uint64]string{700: hex.EncodeToString(seed[:])},
+				current:    &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: snap[:]},
+				beaconEdit: edit,
+			}
+			epochs := NewChainEpochs(chain)
+			if ep, err := epochs.EpochOf(context.Background(), 750); err == nil {
+				t.Fatalf("resolved %+v", ep)
+			}
+			chain.beaconEdit = nil
+			if ep, err := epochs.EpochOf(context.Background(), 750); err != nil || ep.Seed != seed {
+				t.Fatalf("after the beacon verified: %+v, %v", ep, err)
+			}
+		})
+	}
+}
+
+// The wire derivation vector: the order's epoch, its start height and the seed taken from the
+// verified start beacon, and the VRF alpha and proof over that seed.
+func TestChainEpochsMatchTheWireSeedDerivation(t *testing.T) {
+	file := wirefixture.Load(t, dispatchVectors)
+	var vec struct {
+		Source struct {
+			Length       uint64 `json:"epoch_length_blocks"`
+			Height       uint64 `json:"earliest_submit_height"`
+			Epoch        uint64 `json:"epoch"`
+			Start        uint64 `json:"epoch_start_height"`
+			BeaconHeight uint64 `json:"beacon_height"`
+			Verified     bool   `json:"beacon_verified"`
+			Beacon       string `json:"beacon_randomness_hex"`
+			Seed         string `json:"epoch_seed_hex"`
+			AlphaVector  string `json:"alpha_vector"`
+			Alpha        string `json:"alpha_hex"`
+			Proof        string `json:"vrf_proof_hex"`
+		} `json:"epoch_seed_derivation"`
+		VRF struct {
+			PublicKey  string `json:"public_key_hex"`
+			Randomness string `json:"randomness_hex"`
+		} `json:"vrf"`
+	}
+	if err := json.Unmarshal(file.Raw, &vec); err != nil {
+		t.Fatal(err)
+	}
+	src := vec.Source
+	if !src.Verified || src.BeaconHeight != src.Start {
+		t.Fatalf("vector source is not a verified start beacon: %+v", src)
+	}
+	snap := fill32(0xa1)
+	chain := &epochChain{
+		length:  src.Length,
+		beacons: map[uint64]string{src.BeaconHeight: src.Beacon},
+		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: src.Epoch, SnapshotId: snap[:]},
+	}
+	ep, err := NewChainEpochs(chain).EpochOf(context.Background(), src.Height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep.Number != src.Epoch || ep.ReferenceHeight != src.Start || hex.EncodeToString(ep.Seed[:]) != src.Seed {
+		t.Fatalf("epoch %+v, want epoch %d start %d seed %s", ep, src.Epoch, src.Start, src.Seed)
+	}
+	alphaVector := file.Vector(t, src.AlphaVector, 0)
+	var session [32]byte
+	copy(session[:], alphaVector.Field(t, "session_id").Bytes(t))
+	alpha, err := VRFAlpha(alphaVector.Field(t, "chain_id").UTF8, ep.Number, ep.Seed, session, alphaVector.Field(t, "order_sequence").Uint64(t))
+	if err != nil || hex.EncodeToString(alpha[:]) != src.Alpha {
+		t.Fatalf("alpha = %x, %v; want %s", alpha, err, src.Alpha)
+	}
+	pub, _ := hex.DecodeString(vec.VRF.PublicKey)
+	proof, _ := hex.DecodeString(src.Proof)
+	randomness, _ := hex.DecodeString(vec.VRF.Randomness)
+	if err := dispatch.VerifyDispatchVRF(pub, alpha[:], proof, randomness); err != nil {
+		t.Fatalf("vector proof does not verify over the derived alpha: %v", err)
 	}
 }
 

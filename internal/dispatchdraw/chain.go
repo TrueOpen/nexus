@@ -7,11 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/TrueOpen/wire/dispatch"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -21,6 +22,10 @@ import (
 // maxRememberedEpochs bounds the epochs the chain adapters remember: orders of older epochs are
 // past every record deadline.
 const maxRememberedEpochs = 64
+
+// placeholderBeaconSource tags a dev-only beacon derived from the block hash; it is never an epoch
+// seed.
+const placeholderBeaconSource = "placeholder_blockhash_v1"
 
 // EpochChain is the chain reads ChainEpochs makes.
 type EpochChain interface {
@@ -36,7 +41,10 @@ type EpochChain interface {
 // Epochs are half-open runs of epoch_length_blocks heights: the epoch of a height is
 // height / epoch_length_blocks, and it starts at epoch × epoch_length_blocks. The epoch of an order
 // is the one containing its earliest_submit_height and its reference height is that start. The
-// epoch seed is the beacon randomness recorded at the reference height, and the snapshot is the
+// epoch seed is the raw R_h of the committed, verified beacon at the reference height
+// (dispatch.ResolveEpochSeed): a missing, unverified or placeholder beacon leaves the epoch
+// unresolved, with no substitute, and epoch 0, which has no beacon at height 0, never resolves. The
+// snapshot is the
 // candidate pool snapshot the chain published for the epoch: the current pool when it serves that
 // epoch, otherwise the one seen in a CANDIDATE_POOL_PUBLISHED or CANDIDATE_POOL_EXPIRED event.
 // A resolved epoch never changes, so it is kept.
@@ -66,22 +74,25 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	if ok {
 		return ep, nil
 	}
-	if number > math.MaxUint64/length {
-		return Epoch{}, fmt.Errorf("epoch %d start height overflows", number)
+	if number == 0 {
+		return Epoch{}, fmt.Errorf("epoch 0 has no beacon at its reference height; dispatch starts in epoch 1")
 	}
-	ep = Epoch{Number: number, ReferenceHeight: number * length}
-	if ep.ReferenceHeight == 0 {
-		return Epoch{}, fmt.Errorf("epoch 0 has no beacon at its reference height")
-	}
-	beacon, err := s.chain.QueryBeacon(ctx, ep.ReferenceHeight)
+	reference := number * length // at most earliestSubmitHeight
+	beacon, err := s.chain.QueryBeacon(ctx, reference)
 	if err != nil {
-		return Epoch{}, fmt.Errorf("read beacon at reference height %d: %w", ep.ReferenceHeight, err)
+		return Epoch{}, fmt.Errorf("read beacon at reference height %d: %w", reference, err)
 	}
 	seed, err := hex.DecodeString(beacon.GetRandomnessHex())
-	if err != nil || len(seed) != 32 || hex.EncodeToString(seed) != beacon.GetRandomnessHex() {
-		return Epoch{}, fmt.Errorf("beacon at height %d has no canonical 32-byte randomness", ep.ReferenceHeight)
+	if err != nil || hex.EncodeToString(seed) != beacon.GetRandomnessHex() {
+		seed = nil
 	}
-	copy(ep.Seed[:], seed)
+	verified := beacon.GetVerified() && beacon.GetSourceTag() != placeholderBeaconSource
+	source, err := dispatch.ResolveEpochSeed(earliestSubmitHeight, length, beacon.GetHeight(), seed, verified)
+	if err != nil {
+		return Epoch{}, fmt.Errorf("epoch %d seed from the beacon at height %d (source %q, verified %t): %w",
+			number, reference, beacon.GetSourceTag(), beacon.GetVerified(), err)
+	}
+	ep = Epoch{Number: source.Epoch, ReferenceHeight: source.ReferenceHeight, Seed: source.Randomness}
 	snapshot, err := s.snapshotOf(ctx, number)
 	if err != nil {
 		return Epoch{}, err
