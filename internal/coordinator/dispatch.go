@@ -129,8 +129,8 @@ func (c *Coordinator) DispatchAccepted(sessionID, taskID string, _ [32]byte, wor
 }
 
 // DispatchFailed implements dispatcher.Observer: the order's attempt ended without a winner
-// (NO_CAPACITY; RECORD_REJECTED when an earlier order of the session was not recorded; TASK_FAILED
-// for any other reason). The task is dropped; its journal stays so the user sees why, and a retry
+// (NO_CAPACITY; RECORD_REJECTED when it or an earlier order of the session cannot be recorded by
+// its deadline; TASK_FAILED for any other reason). The task is dropped; its journal stays so the user sees why, and a retry
 // of the sequence starts a new task on it. Its input stays for that retry.
 func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	key := taskKey(sessionID, taskID)
@@ -142,7 +142,7 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	switch {
 	case errors.Is(reason, dispatchdraw.ErrNoCapacity):
 		code = EvNoCapacity
-	case errors.Is(reason, dispatcher.ErrRecordRejected):
+	case errors.Is(reason, dispatcher.ErrRecordRejected), errors.Is(reason, dispatcher.ErrRecordDeadline):
 		code = EvRecordRejected
 	}
 	fsm.mu.Lock()
@@ -173,7 +173,7 @@ func (c *Coordinator) RecordRejected(sessionID, taskID string, code taskv1.Dispa
 
 // failRecord ends a Pending task whose dispatch entry will not be recorded.
 func (c *Coordinator) failRecord(fsm *taskFSM, height uint64) {
-	if fsm.failPending(EvRecordRejected, height) {
+	if fsm.failPending(EvRecordRejected, types.VerdictUnspecified, height) {
 		c.abandonTask(taskKey(fsm.sessionID, fsm.taskID), fsm)
 	}
 }

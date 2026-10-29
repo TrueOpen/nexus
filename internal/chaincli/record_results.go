@@ -11,6 +11,9 @@ import (
 )
 
 // recordDispatchBatchKind is the batch_kind of MsgRecordDispatch in the batch result digest.
+// Provisional: wire registers no batch kind for MsgRecordDispatch yet, so this value is a guess
+// and DecodeRecordDispatchResponse keeps results whose digest alone does not match. Replace it
+// with the registered kind once wire freezes it; it is used nowhere else.
 const recordDispatchBatchKind = "DISPATCH_RECORD"
 
 // Every BatchItemResultV1 of a MsgRecordDispatch echoes the entry's own key as object_id: the

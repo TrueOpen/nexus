@@ -28,13 +28,16 @@ import (
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 const (
-	testChainID = "trueopen-recorder-test"
-	worker      = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
-	builder     = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
+	testChainID     = "trueopen-recorder-test"
+	testGasBase     = 1000
+	testGasPerEntry = 100
+	worker          = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
+	builder         = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
 )
 
 var (
@@ -147,6 +150,10 @@ func (c *fakeChain) QueryDispatchRecordByOrder(_ context.Context, sessionID stri
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.queries++
+	// As the client: the session id must be a Hash32; any sequence, 0 included, is asked.
+	if _, err := nodecontract.Hash32Bytes("session_id", sessionID); err != nil {
+		return nil, fmt.Errorf("query dispatch record: %w", err)
+	}
 	if c.recordErr != nil {
 		return nil, c.recordErr
 	}
@@ -169,13 +176,14 @@ type fakeSubmitter struct {
 	sequence uint64
 	msgs     []*taskv1.MsgRecordDispatch
 	raws     [][]byte
+	gas      []uint64
 	// next scripts the outcome of the next submissions (default: CheckTx passes).
 	next        []error
 	rebroadcast []chaincli.TxResult
 	resent      [][]byte
 }
 
-func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, persist func([]byte) error) (chaincli.TxResult, error) {
+func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func([]byte) error) (chaincli.TxResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
@@ -188,6 +196,7 @@ func (s *fakeSubmitter) SubmitRecordDispatch(_ context.Context, msg *taskv1.MsgR
 	}
 	s.msgs = append(s.msgs, proto.Clone(msg).(*taskv1.MsgRecordDispatch))
 	s.raws = append(s.raws, raw)
+	s.gas = append(s.gas, gasLimit)
 	if len(s.next) > 0 {
 		err := s.next[0]
 		s.next = s.next[1:]
@@ -224,7 +233,23 @@ type suspension struct {
 	reason  error
 }
 
+// calls is the order of the suspension and rejection effects across the fakes.
+type calls struct {
+	mu  sync.Mutex
+	log []string
+}
+
+func (c *calls) add(name string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.log = append(c.log, name)
+}
+
 type fakeLedger struct {
+	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
 	suspended []orderKey
@@ -241,10 +266,12 @@ func (l *fakeLedger) Suspend(sessionID string, from uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.suspended = append(l.suspended, orderKey{sessionID, from})
+	l.calls.add("ledger.suspend")
 	return nil
 }
 
 type fakeOrders struct {
+	calls     *calls
 	mu        sync.Mutex
 	recorded  []orderKey
 	suspended []suspension
@@ -261,6 +288,7 @@ func (o *fakeOrders) Suspend(_ context.Context, sessionID string, from uint64, r
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.suspended = append(o.suspended, suspension{sessionID, from, reason})
+	o.calls.add("orders.suspend")
 }
 
 type taskReport struct {
@@ -270,12 +298,14 @@ type taskReport struct {
 }
 
 type fakeTasks struct {
+	calls    *calls
 	mu       sync.Mutex
 	recorded []taskReport
 	rejected []taskReport
 }
 
 func (f *fakeTasks) DispatchRecorded(_, taskID string, height uint64) {
+	f.calls.add("tasks.recorded")
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recorded = append(f.recorded, taskReport{taskID: taskID, height: height})
@@ -285,6 +315,7 @@ func (f *fakeTasks) RecordRejected(_, taskID string, code taskv1.DispatchRejectC
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rejected = append(f.rejected, taskReport{taskID: taskID, code: code})
+	f.calls.add("tasks.rejected")
 }
 
 // attemptReport is one record outcome told to the attempt book.
@@ -295,17 +326,20 @@ type attemptReport struct {
 }
 
 type fakeAttempts struct {
+	calls   *calls
 	mu      sync.Mutex
 	reports []attemptReport
 }
 
 func (f *fakeAttempts) Recorded(taskID string, ticket [32]byte) {
+	f.calls.add("attempts.recorded")
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket, recorded: true})
 }
 
 func (f *fakeAttempts) Rejected(taskID string, ticket [32]byte) {
+	f.calls.add("attempts.rejected")
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, attemptReport{taskID: taskID, ticket: ticket})
@@ -330,6 +364,7 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 
 type env struct {
 	t        *testing.T
+	calls    *calls
 	store    kv.Store
 	signer   signer.Signer
 	chain    *fakeChain
@@ -355,7 +390,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(), signer: s,
 		chain: &fakeChain{txs: map[[32]byte]chaincli.TxResult{}, records: map[orderKey]*taskv1.DispatchRecordState{}},
 		tx:    &fakeSubmitter{}, account: &accountReader{balance: "1000"},
-		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100)},
+		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100), RecordDeadlineBlocks: 10},
 	}
 	e.open()
 	return e
@@ -364,11 +399,14 @@ func newEnv(t *testing.T) *env {
 // open builds the recorder over the env's store, as after a start.
 func (e *env) open() {
 	e.t.Helper()
-	e.ledger, e.orders, e.tasks, e.streams, e.attempts = &fakeLedger{}, &fakeOrders{}, &fakeTasks{}, &fakeStreams{}, &fakeAttempts{}
+	e.calls = &calls{}
+	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{calls: e.calls}, &fakeOrders{calls: e.calls}, &fakeTasks{calls: e.calls}, &fakeStreams{}
+	e.attempts = &fakeAttempts{calls: e.calls}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
-		ChainID: testChainID, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
+		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {
 		e.t.Fatal(err)
@@ -481,3 +519,7 @@ func (a *accountReader) set(balance string, err error) {
 }
 
 var errUnreadable = errors.New("node unreachable")
+
+func sha(raw []byte) [32]byte { return sha256.Sum256(raw) }
+
+func errorsIs(err, target error) bool { return errors.Is(err, target) }

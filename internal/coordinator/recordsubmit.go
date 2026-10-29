@@ -14,10 +14,11 @@ import (
 // chain takes a record only with the dispatching Builder's current service address as
 // submitter_address and Cosmos signer.
 type RecordSubmitter interface {
-	// SubmitRecordDispatch signs msg at the account's next sequence and broadcasts it. Every
-	// signed transaction goes to persist first and is broadcast only once persist succeeded; a
-	// sequence mismatch signs, persists and broadcasts once more at the chain's sequence.
-	SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, persist func(raw []byte) error) (chaincli.TxResult, error)
+	// SubmitRecordDispatch signs msg at the account's next sequence with gasLimit (0 keeps the
+	// chain config's) and broadcasts it. Every signed transaction goes to persist first and is
+	// broadcast only once persist succeeded; a sequence mismatch signs, persists and broadcasts
+	// once more at the chain's sequence.
+	SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func(raw []byte) error) (chaincli.TxResult, error)
 	// BroadcastTx sends signed transaction bytes again, unchanged.
 	BroadcastTx(ctx context.Context, raw []byte) (chaincli.TxResult, error)
 }
@@ -33,14 +34,19 @@ func NewRecordSubmitter(log *slog.Logger, chain chaincli.Client, serviceSigner c
 }
 
 // SubmitRecordDispatch implements RecordSubmitter.
-func (s *defaultSubmitter) SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, persist func(raw []byte) error) (chaincli.TxResult, error) {
+func (s *defaultSubmitter) SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func(raw []byte) error) (chaincli.TxResult, error) {
 	if s.signer == nil {
 		return chaincli.TxResult{}, prepareSubmissionError("MsgRecordDispatch: service signer is required")
 	}
 	if msg.GetSubmitterAddress() != s.signer.Address() {
 		return chaincli.TxResult{}, prepareSubmissionError("MsgRecordDispatch: submitter_address must be the service account %s", s.signer.Address())
 	}
-	build := func(p chaincli.TxParams) ([]byte, error) { return chaincli.BuildRecordDispatchTx(s.signer, p, msg) }
+	build := func(p chaincli.TxParams) ([]byte, error) {
+		if gasLimit != 0 {
+			p.GasLimit = gasLimit
+		}
+		return chaincli.BuildRecordDispatchTx(s.signer, p, msg)
+	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	return s.submitBuiltLocked(ctx, "MsgRecordDispatch", chaincli.TypeURLMsgRecordDispatch, build, persist)

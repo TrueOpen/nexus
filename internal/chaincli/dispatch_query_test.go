@@ -141,6 +141,13 @@ func TestQueryDispatchRecordSelectsByOrderOrHash(t *testing.T) {
 	if !bytes.Equal(byOrder.GetSessionId(), testSessionIDBytes) || byOrder.GetOrderSequence() != 7 {
 		t.Fatalf("by order request = %v", query.recordRequest)
 	}
+	// A session's orders start at sequence 0.
+	if got, err := c.QueryDispatchRecordByOrder(context.Background(), testSessionIDHex, 0); err != nil || got.GetRecordedHeight() != 120 {
+		t.Fatalf("by order, sequence 0 = %v, %v", got, err)
+	}
+	if query.recordRequest.GetByOrder() == nil || query.recordRequest.GetByOrder().GetOrderSequence() != 0 {
+		t.Fatalf("sequence 0 request = %v", query.recordRequest)
+	}
 
 	got, err = c.QueryDispatchRecordByHash(context.Background(), mustHash32("a1"))
 	if err != nil || !bytes.Equal(got.GetDispatchTicketHash(), mustHash32("a2")) {
@@ -173,9 +180,6 @@ func TestQueryDispatchRecordSelectsByOrderOrHash(t *testing.T) {
 	}
 	if _, err := c.QueryDispatchRecordByOrder(context.Background(), "not-hex", 7); err == nil {
 		t.Fatal("a malformed session id was sent")
-	}
-	if _, err := c.QueryDispatchRecordByOrder(context.Background(), testSessionIDHex, 0); err == nil {
-		t.Fatal("order sequence 0 was sent")
 	}
 	if _, err := c.QueryDispatchRecordByHash(context.Background(), []byte{1}); err == nil {
 		t.Fatal("a short record hash was sent")

@@ -129,6 +129,9 @@ dispatch:
   gpu_reject_rate_min_samples: 10
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
+  # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry.
+  record_gas_base: 200000
+  record_gas_per_entry: 300000
 
 # Production security switch: dev (default, behavior unchanged) | production.
 # production rejects: non-loopback plaintext chain/hub grpc_addr;

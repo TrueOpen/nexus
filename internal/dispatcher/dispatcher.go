@@ -71,6 +71,9 @@ var (
 	// builder_compensation_account_min_balance: the chain refuses every record it sends, so no new
 	// order is taken and no ticket issued.
 	ErrCompensationBelowMin = errors.New("builder compensation account below its minimum balance")
+	// ErrCompensationUnread is the Keys gate until this Builder's compensation account was read
+	// once: no ticket is issued on an account that may be below the minimum.
+	ErrCompensationUnread = errors.New("builder compensation account not read yet")
 )
 
 // Params are the chain parameters the walk reads.
@@ -160,7 +163,8 @@ type Bundle struct {
 //
 // Record and Withdraw of one winner ticket may arrive in either order: an accept hands its entry
 // to Record after the order's lock is released, so a binding change in between can Withdraw the
-// ticket first. An implementation keys both by the winner's dispatch_ticket_hash and must not
+// ticket first. Withdraw is called with the order's lock held, so an implementation must not wait
+// on the dispatcher inside it. An implementation keys both by the winner's dispatch_ticket_hash and must not
 // record an entry whose ticket was already withdrawn.
 type Recorder interface {
 	// Record queues the entry for the next MsgRecordDispatch. It may be called again with the same

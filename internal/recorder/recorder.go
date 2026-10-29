@@ -9,6 +9,10 @@
 // longer land) is sent with the same entry bytes in a new transaction; the chain answers an entry
 // it already admitted with its first result.
 //
+// Records keep going while this Builder's own key rotation is pending (the dispatcher issues no
+// new ticket then); only a compensation account known to be below its minimum, or a refusal of
+// the submitter itself, stops them.
+//
 // An entry is resolved only by its result in an executed transaction, a dispatch_recorded event of
 // its winner ticket, or its record deadline passing (then the dispatch record query decides).
 // Admitted, the order leaves the in-flight ledger and the dispatcher, its task is reconciled and
@@ -50,11 +54,16 @@ type Params struct {
 	MaxBytes uint64
 	// MinCompensation is builder_compensation_account_min_balance.
 	MinCompensation *big.Int
+	// RecordDeadlineBlocks is record_deadline_blocks.
+	RecordDeadlineBlocks uint64
 }
 
 // ParamsFromChain takes the Recorder's params from task params dispatch.
 func ParamsFromChain(d *taskv1.DispatchParamsV1) (Params, error) {
-	p := Params{MaxEntries: d.GetMaxDispatchEntriesPerRecord(), MaxBytes: d.GetMaxDispatchRecordBytes(), MinCompensation: new(big.Int)}
+	p := Params{
+		MaxEntries: d.GetMaxDispatchEntriesPerRecord(), MaxBytes: d.GetMaxDispatchRecordBytes(), MinCompensation: new(big.Int),
+		RecordDeadlineBlocks: d.GetRecordDeadlineBlocks(),
+	}
 	if p.MaxEntries == 0 || p.MaxBytes == 0 {
 		return Params{}, fmt.Errorf("dispatch params: max_dispatch_entries_per_record %d and max_dispatch_record_bytes %d must be set", p.MaxEntries, p.MaxBytes)
 	}
@@ -75,7 +84,7 @@ type Chain interface {
 // Submitter sends record transactions from the Builder service account
 // (coordinator.RecordSubmitter).
 type Submitter interface {
-	SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, persist func(raw []byte) error) (chaincli.TxResult, error)
+	SubmitRecordDispatch(ctx context.Context, msg *taskv1.MsgRecordDispatch, gasLimit uint64, persist func(raw []byte) error) (chaincli.TxResult, error)
 	BroadcastTx(ctx context.Context, raw []byte) (chaincli.TxResult, error)
 }
 
@@ -113,6 +122,9 @@ type Streams interface {
 // Config wires a Recorder.
 type Config struct {
 	ChainID string
+	// Builder is this Builder's operator address; an event of its service key resumes records a
+	// fatal refusal stopped.
+	Builder string
 	// Signer is the Builder service key: it signs the record transactions as their
 	// submitter_address and the record notices.
 	Signer   signer.Signer
@@ -125,7 +137,10 @@ type Config struct {
 	Streams  Streams
 	// Gate holds the compensation account: no record is sent while it is below the minimum.
 	Gate *Gate
-	Log  *slog.Logger
+	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
+	// for each entry.
+	GasBase, GasPerEntry uint64
+	Log                  *slog.Logger
 }
 
 // Recorder records accepted dispatch entries; it implements dispatcher.Recorder.
@@ -141,6 +156,8 @@ type Recorder struct {
 	tooLarge map[string]bool      // entries already reported as too large to send
 	// withdrawn holds the winner tickets withdrawn before their Record, with the head then.
 	withdrawn map[string]uint64
+	// sizing is what deterministic transaction failures did to the batch size and gas.
+	sizing sizing
 
 	latest atomic.Uint64
 	wake   chan struct{}
@@ -153,8 +170,10 @@ var _ dispatcher.Recorder = (*Recorder)(nil)
 // New builds a Recorder over the stored outbox. SetOrders must be called before Start.
 func New(cfg Config, params Params) (*Recorder, error) {
 	switch {
-	case cfg.ChainID == "" || cfg.Signer == nil || cfg.Store == nil || cfg.Ledger == nil:
-		return nil, fmt.Errorf("recorder needs the chain id, service signer, store and ledger")
+	case cfg.ChainID == "" || cfg.Builder == "" || cfg.Signer == nil || cfg.Store == nil || cfg.Ledger == nil:
+		return nil, fmt.Errorf("recorder needs the chain id, Builder address, service signer, store and ledger")
+	case cfg.GasBase == 0 || cfg.GasPerEntry == 0:
+		return nil, fmt.Errorf("recorder needs the record gas base and per-entry gas")
 	case cfg.Chain == nil || cfg.Tx == nil || cfg.Tasks == nil || cfg.Attempts == nil || cfg.Streams == nil || cfg.Gate == nil:
 		return nil, fmt.Errorf("recorder needs the chain, submitter, tasks, attempt book, streams and gate")
 	}
@@ -239,6 +258,8 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		ObjectID: hex.EncodeToString(id[:]), SessionID: b.SessionID, Sequence: b.Sequence, TaskID: b.TaskID,
 		TicketHash: append([]byte(nil), b.Entry.GetRecord().GetDispatchTicketHash()...),
 		Worker:     b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
+		EarliestSubmit: b.Entry.GetSignedOrder().GetOrder().GetEarliestSubmitHeight(),
+		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -289,6 +310,7 @@ func (r *Recorder) Withdraw(_ context.Context, _ string, _ uint64, ticketHash [3
 // task chain event.
 func (r *Recorder) HandleChainEvent(ev chaincli.ChainEvent) {
 	r.cfg.Gate.HandleChainEvent(ev)
+	r.resumeOnKeyEvent(ev)
 	if ev.Type == chaincli.EventNewBlock && ev.Height > 0 {
 		for {
 			latest := r.latest.Load()
@@ -341,6 +363,13 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 			delete(r.withdrawn, ticket)
 		}
 	}
+}
+
+// deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
+// bound_change_height) + record_deadline_blocks with the current params, never earlier than the
+// deadline handed over.
+func (r *Recorder) deadlineLocked(e *entry) uint64 {
+	return max(e.Deadline, max(e.EarliestSubmit, e.BoundChange)+r.params.Load().RecordDeadlineBlocks)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

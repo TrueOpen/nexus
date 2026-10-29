@@ -19,14 +19,11 @@ import (
 // their retention ends.
 
 // QueryDispatchRecordByOrder reads the dispatch record the chain admitted for one session order
-// (task.v1.Query/DispatchRecord by_order).
+// (task.v1.Query/DispatchRecord by_order). A session's orders start at sequence 0.
 func (c *client) QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error) {
 	id, err := nodecontract.Hash32Bytes("session_id", sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("query dispatch record: %w", err)
-	}
-	if orderSequence == 0 {
-		return nil, fmt.Errorf("query dispatch record: order_sequence must be greater than zero")
 	}
 	return c.queryDispatchRecord(ctx, &taskv1.QueryDispatchRecordRequest{
 		Selector: &taskv1.QueryDispatchRecordRequest_ByOrder{ByOrder: &taskv1.DispatchRecordByOrderV1{
