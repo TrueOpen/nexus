@@ -101,8 +101,9 @@ type orderDispatchDeps struct {
 	Log       *slog.Logger
 }
 
-// newOrderDispatch reads the dispatch params and builds the order path. Accepted orders go to
-// dispatcher.UnimplementedRecorder: nothing records them on chain yet.
+// newOrderDispatch reads the dispatch params and builds the order path. Nothing records accepted
+// orders on chain yet (dispatcher.UnimplementedRecorder), so the dispatcher refuses every new order
+// with ErrDispatchUnavailable until a Recorder replaces it.
 func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispatch, error) {
 	od := &orderDispatch{log: deps.Log}
 	od.params = func(ctx context.Context) (inflight.Params, dispatcher.Params, error) {

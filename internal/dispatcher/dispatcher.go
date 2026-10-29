@@ -44,6 +44,9 @@ import (
 )
 
 var (
+	// ErrDispatchUnavailable refuses new orders on a Builder that cannot run them to the end: no
+	// direct dispatch configured, or no Recorder yet to put accepted orders on chain.
+	ErrDispatchUnavailable = errors.New("NEXUS_INGRESS_DISPATCH_UNAVAILABLE")
 	// ErrNotReserved refuses an order the in-flight precheck did not reserve for dispatch.
 	ErrNotReserved = errors.New("order is not reserved for dispatch")
 	// ErrTicketClosed refuses an accept that came after its ticket's accept deadline, or for a
@@ -154,8 +157,14 @@ type Recorder interface {
 }
 
 // UnimplementedRecorder is the Recorder until on-chain recording exists: it records nothing, so an
-// accepted order never reaches the chain and its Worker may claim compensation.
+// accepted order would never reach the chain and its Worker could claim compensation. A Dispatcher
+// built with it takes no new orders (ErrDispatchUnavailable); it only resumes stored ones.
 type UnimplementedRecorder struct{ Log *slog.Logger }
+
+// placeholder marks UnimplementedRecorder; only types of this package can carry it.
+func (UnimplementedRecorder) placeholder() {}
+
+type placeholderRecorder interface{ placeholder() }
 
 // Record implements Recorder.
 func (r UnimplementedRecorder) Record(_ context.Context, b *Bundle) error {
@@ -382,6 +391,9 @@ func (d *Dispatcher) sessionOrders(sessionID string) []*order {
 // background. Nothing is offered before both are written, so an order whose commit was lost by a
 // crash has no ticket out and is dropped on restart.
 func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
+	if !d.Recording() {
+		return fmt.Errorf("%w: accepted orders cannot be recorded yet", ErrDispatchUnavailable)
+	}
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
 		return fmt.Errorf("dispatch order: signed order does not decode")
@@ -446,6 +458,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 // latest handraise root holds no admitted, unexpired handraise with a free slot for the order's
 // profile. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
+	if !d.Recording() {
+		return fmt.Errorf("%w: accepted orders cannot be recorded yet", ErrDispatchUnavailable)
+	}
 	if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 		if errors.Is(err, handraise.ErrBuilderRotationPending) {
 			return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
@@ -477,6 +492,13 @@ func servesOrder(h *taskv1.StandingHandraiseV1, o *taskv1.TaskOrderV3) bool {
 		}
 	}
 	return false
+}
+
+// Recording reports whether accepted orders reach the chain: false while the Recorder is the
+// UnimplementedRecorder placeholder.
+func (d *Dispatcher) Recording() bool {
+	_, placeholder := d.cfg.Recorder.(placeholderRecorder)
+	return !placeholder
 }
 
 // Recorded forgets an order whose dispatch entry the chain admitted.

@@ -15,6 +15,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
@@ -678,5 +679,39 @@ func TestOfferLive(t *testing.T) {
 	}
 	if !OfferLive(&nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_Revoke{Revoke: &nexusv1.DispatchRevokeV1{}}}, now) {
 		t.Fatal("other frames are kept")
+	}
+}
+
+// While the Recorder is the placeholder no order is taken: an accepted order would never be
+// recorded, its Worker could claim compensation and its ledger slot would stay ACCEPTED.
+func TestPlaceholderRecorderTakesNoOrders(t *testing.T) {
+	e := newEnv(t)
+	d, err := New(Config{
+		ChainID: testChainID, Builder: e.builder,
+		Dispatch:        config.DispatchConfig{AcceptTimeoutMsByRTTTier: testTiers},
+		InputChunkBytes: 4, Signer: e.signer, Store: e.store, Ledger: e.ledger, Sessions: e.sessions,
+		Streams: e.streams, Handraises: e.handraises, Drawer: e.drawer, Keys: e.keys, Inputs: e.inputs,
+		Recorder: UnimplementedRecorder{}, Observer: e.observer, Clock: e.clock,
+		Background: func(f func()) { f() },
+	}, e.params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Recording() || !e.d.Recording() {
+		t.Fatal("Recording does not tell the placeholder apart")
+	}
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	if err := d.Probe(context.Background(), o); !errors.Is(err, ErrDispatchUnavailable) {
+		t.Fatalf("probe = %v, want ErrDispatchUnavailable", err)
+	}
+	if err := d.Dispatch(context.Background(), o); !errors.Is(err, ErrDispatchUnavailable) {
+		t.Fatalf("dispatch = %v, want ErrDispatchUnavailable", err)
+	}
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers", n)
+	}
+	if err := e.d.Probe(context.Background(), o); err != nil {
+		t.Fatalf("probe with a recorder = %v", err)
 	}
 }

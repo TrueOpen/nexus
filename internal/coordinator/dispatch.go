@@ -6,12 +6,14 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // ErrDispatchUnavailable refuses new orders on a Builder without direct dispatch configured (no
-// service key or no VRF key): it accepts none rather than one it cannot run.
-var ErrDispatchUnavailable = errors.New("NEXUS_INGRESS_DISPATCH_UNAVAILABLE")
+// service key or no VRF key) or that cannot record accepted orders yet: it accepts none rather than
+// one it cannot run. It is the dispatcher's sentinel, so both refusals map alike.
+var ErrDispatchUnavailable = dispatcher.ErrDispatchUnavailable
 
 // Dispatcher dispatches the orders the in-flight precheck reserved (package dispatcher). Which
 // version of an order may be dispatched, retried or is locked is the precheck's decision.
