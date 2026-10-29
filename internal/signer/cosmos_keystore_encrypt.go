@@ -24,15 +24,22 @@ func encryptKeystoreArmor(raw, passphrase []byte, random io.Reader) ([]byte, err
 	if err := validatePrivateKey(raw); err != nil {
 		return nil, err
 	}
+	return encryptCosmosArmor(aminoKey(cosmosPrivKeySecp256k1Prefix, raw), passphrase, cosmosSecp256k1Algo, random)
+}
+
+// aminoKey is the amino encoding of a private key: the type prefix and the length-prefixed key.
+func aminoKey(prefix [4]byte, raw []byte) []byte {
+	plain := make([]byte, 0, len(prefix)+binary.MaxVarintLen64+len(raw))
+	plain = append(plain, prefix[:]...)
+	plain = binary.AppendUvarint(plain, uint64(len(raw)))
+	return append(plain, raw...)
+}
+
+// encryptCosmosArmor writes the argon2/chacha20poly1305 Cosmos armor of an amino encoded key.
+func encryptCosmosArmor(plain, passphrase []byte, algo string, random io.Reader) ([]byte, error) {
 	if len(passphrase) == 0 {
 		return nil, fmt.Errorf("signer: empty keystore passphrase")
 	}
-
-	plain := make([]byte, 0, len(cosmosPrivKeySecp256k1Prefix)+binary.MaxVarintLen64+len(raw))
-	plain = append(plain, cosmosPrivKeySecp256k1Prefix[:]...)
-	plain = binary.AppendUvarint(plain, uint64(len(raw)))
-	plain = append(plain, raw...)
-
 	salt := make([]byte, cosmosArgon2SaltSize)
 	if _, err := io.ReadFull(random, salt); err != nil {
 		return nil, fmt.Errorf("signer: generate cosmos keystore salt: %w", err)
@@ -48,7 +55,7 @@ func encryptKeystoreArmor(raw, passphrase []byte, random io.Reader) ([]byte, err
 	w, err := armor.Encode(&out, cosmosArmorPrivKeyBlock, map[string]string{
 		"kdf":  cosmosArgon2KDF,
 		"salt": hex.EncodeToString(salt),
-		"type": cosmosSecp256k1Algo,
+		"type": algo,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("signer: encode cosmos keystore armor: %w", err)
