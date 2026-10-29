@@ -541,3 +541,10 @@ func TestReceiptDispatchMismatchIsFailedPrecondition(t *testing.T) {
 		}
 	}
 }
+
+// A receipt the coordinator cannot judge yet (its attempt not held yet) is Unavailable: retry.
+func TestReceiptNotJudgedYetIsUnavailable(t *testing.T) {
+	if err := mapInferReceiptErr(types.ErrUnavailable); connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("mapped = %v", err)
+	}
+}

@@ -72,7 +72,12 @@ func (c *Coordinator) retireAbandonedAttempt(sessionID, taskID string) {
 		return
 	}
 	a, ok := c.attempts.Current(taskID)
-	if !ok || a.SessionID != sessionID || a.Status == attempt.Recorded {
+	if !ok || a.SessionID != sessionID {
+		return
+	}
+	if a.Status == attempt.Recorded {
+		// The chain holds this attempt: its output is not dropped, the attempt only expires.
+		c.expireAttempt(taskID)
 		return
 	}
 	if c.payloads != nil {

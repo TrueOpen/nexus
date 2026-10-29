@@ -304,3 +304,33 @@ func TestDispatchFailureOfARecordedTaskKeepsIt(t *testing.T) {
 		t.Fatal("the staged receipt was dropped")
 	}
 }
+
+// A task dropped while its attempt is recorded keeps the attempt's output stream; the attempt
+// still expires after the retention.
+func TestAbandonedRecordedAttemptExpiresAndKeepsItsStream(t *testing.T) {
+	f := newStagingFixture(t)
+	payloads := &fakePayloads{}
+	f.c.payloads = payloads
+	f.book.Recorded(f.task, f.ticket)
+	fsm, _ := f.c.getFSM(f.session, f.task)
+	f.c.abandonTask(taskKey(f.session, f.task), fsm)
+	if len(payloads.retired) != 0 {
+		t.Fatalf("retired = %v", payloads.retired)
+	}
+	if a, ok := f.book.Current(f.task); !ok || a.ExpireHeight == 0 {
+		t.Fatalf("attempt = %+v, %v", a, ok)
+	}
+}
+
+// A receipt for a task in flight whose attempt the book does not hold yet (it is still taking
+// the winner) is retryable, not refused, and nothing is staged.
+func TestReceiptBeforeTheBookHoldsTheAttemptIsRetryable(t *testing.T) {
+	f := newStagingFixture(t)
+	f.c.SetAttempts(newTestBook(t, kv.NewMemStore()))
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); !errors.Is(err, types.ErrUnavailable) {
+		t.Fatalf("receipt = %v", err)
+	}
+	if f.staged() {
+		t.Fatal("receipt staged")
+	}
+}

@@ -18,11 +18,14 @@ import (
 // a refused record drops it with the task. The Worker sees relay_accepted either way.
 
 // checkReceiptAttempt requires the receipt to name the task's live winning attempt: its
-// dispatch_ticket_hash, worker and task_hash.
+// dispatch_ticket_hash, worker and task_hash. The caller holds the task in flight: with no attempt
+// held yet (the book is still taking the winner) the receipt is retryable.
 func (c *Coordinator) checkReceiptAttempt(receipt types.InferReceiptSubmission) error {
 	a, ok := c.attempts.Current(receipt.TaskID)
 	switch {
-	case !ok || a.SessionID != receipt.SessionID:
+	case !ok:
+		return fmt.Errorf("%w: no dispatch attempt of this task is held yet", types.ErrUnavailable)
+	case a.SessionID != receipt.SessionID:
 		return fmt.Errorf("%w: no dispatch attempt of this task is held", types.ErrInvalidArgument)
 	case !a.Live():
 		return fmt.Errorf("%w: the dispatch record of ticket %x was refused", types.ErrInvalidArgument, a.TicketHash)

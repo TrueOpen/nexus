@@ -169,16 +169,17 @@ func TestWinnerStreamsBeforeTheRecord(t *testing.T) {
 }
 
 // Only the Worker whose accept this Builder holds for the header's ticket may open the stream:
-// another Cortex is refused, an older attempt's ticket is stale, and with no attempt at all the
-// chain's assignment does not stand in for it. A rejected attempt is stale too.
+// another Cortex is refused, an older attempt's ticket is stale, and with no attempt yet (the
+// attempt book may still be taking the winner) the open is retryable; the chain's assignment does
+// not stand in for it. A rejected attempt is stale too.
 func TestStreamOpenNeedsTheLiveWinnerTicket(t *testing.T) {
 	p := newPhase1Fixture(t)
 	ticket := ticketOf(0x71)
-	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 1); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 1); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("no attempt: %v", err)
 	}
 	p.authority.taskErr = nil // the chain names the Worker; it no longer decides
-	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 2); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := p.open(t, p.worker, p.workerService, ticket, 2); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("no attempt, chain assignment: %v", err)
 	}
 	p.accept(p.worker.Address(), ticket, attempt.Pending)

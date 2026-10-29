@@ -18,6 +18,9 @@ var (
 	// ErrReceiptDispatchMismatch is a receipt whose dispatch_ticket_hash is not the task's winner
 	// ticket held here (FailedPrecondition).
 	ErrReceiptDispatchMismatch = errors.New("RECEIPT_DISPATCH_MISMATCH")
+	// ErrUnavailable is a request this Builder cannot judge yet; the same request may be sent
+	// again (Unavailable).
+	ErrUnavailable = errors.New("unavailable")
 	// ErrChainStateUnavailable: authoritative chain height or task facts are temporarily unavailable.
 	ErrChainStateUnavailable = errors.New("authoritative chain state unavailable")
 )

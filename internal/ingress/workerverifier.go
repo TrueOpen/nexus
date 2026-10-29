@@ -475,6 +475,8 @@ func mapInferReceiptErr(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, err)
 	case errors.Is(err, types.ErrReceiptDispatchMismatch):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, types.ErrUnavailable):
+		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, types.ErrInvalidArgument):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, types.ErrInvalidSignature):

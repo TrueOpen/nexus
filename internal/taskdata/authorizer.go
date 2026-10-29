@@ -232,7 +232,11 @@ func (a *Authorizer) AuthorizeOutputStream(ctx context.Context, request RequestA
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: no dispatch attempt is held", ErrUnauthorized)
 	}
 	won, ok := a.cfg.Attempts.Current(key.TaskID)
-	if !ok || won.SessionID != key.SessionID {
+	if !ok {
+		// The attempt book may still be taking the winner (it is retried each block): ask again.
+		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: no dispatch attempt of this task is held yet", ErrNotReady)
+	}
+	if won.SessionID != key.SessionID {
 		return attempt.Attempt{}, 0, nil, fmt.Errorf("%w: no dispatch attempt of this task is held", ErrUnauthorized)
 	}
 	if !won.Live() || !bytes.Equal(ticket, won.TicketHash[:]) {
