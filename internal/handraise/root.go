@@ -3,6 +3,7 @@ package handraise
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -157,6 +158,7 @@ func (r *Registry) sampleRTT() {
 func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 	ticker := time.NewTicker(time.Duration(r.opts.Config.HandraiseRootIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
+	pending := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -164,6 +166,15 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 		case <-ticker.C:
 		}
 		issued, err := r.IssueRoot(ctx)
+		if errors.Is(err, ErrBuilderRotationPending) {
+			// Expected for the whole rotation wait; say so once instead of every interval.
+			if !pending {
+				r.log.Info("handraise roots paused until the Builder service key rotation activates", "error", err)
+			}
+			pending = true
+			continue
+		}
+		pending = false
 		if err != nil {
 			r.log.Warn("issue handraise root", "error", err)
 			continue

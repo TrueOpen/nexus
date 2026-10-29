@@ -53,6 +53,23 @@ func TestChainServiceKeys(t *testing.T) {
 	if err := keys.CheckBuilderKey(context.Background()); err == nil {
 		t.Fatal("builder key accepted for a key the local signer does not hold")
 	}
+
+	// A registered replacement leaves the current key in force, but a pending Builder issues no
+	// new roots until the replacement activates.
+	keys.Signer = builder
+	pending := resolver[servicekey.ParticipantBuilder+"/"+builderOperator]
+	pending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 5, EffectiveHeight: 400}
+	resolver[servicekey.ParticipantBuilder+"/"+builderOperator] = pending
+	if err := keys.CheckBuilderKey(context.Background()); !errors.Is(err, ErrBuilderRotationPending) {
+		t.Fatalf("builder key check with a pending rotation = %v, want ErrBuilderRotationPending", err)
+	}
+	// A pending Cortex keeps its current key for messages it already owes.
+	cortexPending := resolver[servicekey.ParticipantCortex+"/"+cortexOperator]
+	cortexPending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 10, EffectiveHeight: 400}
+	resolver[servicekey.ParticipantCortex+"/"+cortexOperator] = cortexPending
+	if _, nonce, err := keys.CurrentCortexKey(context.Background(), cortexOperator); err != nil || nonce != 9 {
+		t.Fatalf("cortex key with a pending rotation = %d, %v", nonce, err)
+	}
 }
 
 func TestRunIssuesRootsOnInterval(t *testing.T) {

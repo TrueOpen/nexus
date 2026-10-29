@@ -56,6 +56,10 @@ var (
 	ErrChainUnavailable = errors.New("handraise chain read failed")
 	// ErrStorage means an accepted handraise could not be written to the local store.
 	ErrStorage = errors.New("handraise store write failed")
+	// ErrBuilderRotationPending means this Builder registered a service key replacement that has
+	// not activated yet. Its current key stays valid for material already signed, but it issues no
+	// new roots (nor tickets) until the replacement is current.
+	ErrBuilderRotationPending = errors.New("builder service key rotation pending")
 )
 
 // ServiceKeys reads current service keys from the chain.
@@ -65,7 +69,7 @@ type ServiceKeys interface {
 	// error wraps servicekey.ErrUnavailable; any other error means the chain could not be read.
 	CurrentCortexKey(ctx context.Context, operator string) ([]byte, uint64, error)
 	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is the key the root
-	// signer holds.
+	// signer holds and no replacement is pending (ErrBuilderRotationPending).
 	CheckBuilderKey(ctx context.Context) error
 }
 

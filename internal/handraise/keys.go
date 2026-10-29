@@ -30,12 +30,15 @@ func (k ChainServiceKeys) CurrentCortexKey(ctx context.Context, operator string)
 }
 
 func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
-	pub, _, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
+	pub, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
 	if err != nil {
 		return err
 	}
 	if k.Signer == nil || !bytes.Equal(pub, k.Signer.PubKeyCompressed()) {
 		return fmt.Errorf("on-chain BUILDER service key does not match the local signer")
+	}
+	if p := state.PendingRotation; p != nil {
+		return fmt.Errorf("%w: nonce %d effective at height %d", ErrBuilderRotationPending, p.NextAuthorizationNonce, p.EffectiveHeight)
 	}
 	return nil
 }
