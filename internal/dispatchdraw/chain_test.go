@@ -129,7 +129,11 @@ func TestChainPoolsBuildTheWholePool(t *testing.T) {
 			InPool: true, Slot: slot, SlotVersion: 1, ProfileSupportFresh: &fresh, CandidateWeight: weight(w),
 			MinStakeSnapshot: &sharedv1.Amount{AtomicUnits: "1"},
 			WeightInputs: &hubv1.CandidateWeightInputsV1{InferenceCapable: true, CandidateJailFactorPpm: 1,
-				AvailableBond: &sharedv1.Amount{AtomicUnits: "5"}},
+				AvailableBond: &sharedv1.Amount{AtomicUnits: "5"},
+				Profiles: []*hubv1.CandidateProfileWeightInputV1{{
+					ModelId: vectorProfile.ModelID[:], ProfileVersion: vectorProfile.Version,
+					ProfileSupportFresh: true, MinStakeSnapshot: &sharedv1.Amount{AtomicUnits: "1"}, InferenceCapable: true,
+				}}},
 		}
 	}
 	src := &poolPager{
