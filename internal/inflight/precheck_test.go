@@ -211,14 +211,24 @@ func setParams(t testing.TB, f *precheckFixture, params Params) {
 	}
 }
 
-// An in-flight limit of zero refuses every order: a missing param must not lift the bound.
+// An in-flight limit of zero is refused as a param and, should it get through, refuses every
+// order: a missing param must not lift the bound.
 func TestPrecheckZeroInflightLimitRefuses(t *testing.T) {
 	for _, params := range []Params{
 		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 4},
 		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3},
 	} {
 		f := newFixture(t, nil)
-		setParams(t, f, params)
+		if err := f.p.SetParams(params); err == nil {
+			t.Fatalf("SetParams(%+v) accepted a zero in-flight limit", params)
+		}
+		if _, err := ParamsFromChain(&taskv1.DispatchParamsV1{
+			RecordDeadlineBlocks: params.RecordDeadlineBlocks, OrderFreshnessMarginBlocks: params.OrderFreshnessMarginBlocks,
+			BuilderMaxInflightPerSession: params.BuilderMaxInflightPerSession, MaxPendingPerSession: params.MaxPendingPerSession,
+		}); err == nil {
+			t.Fatalf("ParamsFromChain accepted a zero in-flight limit: %+v", params)
+		}
+		f.p.params = params
 		if _, err := f.p.Check(context.Background(), order(5)); !errors.Is(err, ErrInflightLimit) {
 			t.Fatalf("params %+v: Check = %v, want in-flight limit", params, err)
 		}

@@ -25,11 +25,16 @@ type Params struct {
 }
 
 // validate checks that the freshness margin is below record_deadline_blocks, otherwise an order
-// could be admitted after its record deadline.
+// could be admitted after its record deadline, and that both in-flight limits are set: a zero
+// limit would admit no order.
 func (p Params) validate() error {
 	if p.RecordDeadlineBlocks == 0 || p.OrderFreshnessMarginBlocks >= p.RecordDeadlineBlocks {
 		return fmt.Errorf("dispatch params: order_freshness_margin_blocks %d must be below record_deadline_blocks %d",
 			p.OrderFreshnessMarginBlocks, p.RecordDeadlineBlocks)
+	}
+	if p.BuilderMaxInflightPerSession == 0 || p.MaxPendingPerSession == 0 {
+		return fmt.Errorf("dispatch params: builder_max_inflight_per_session %d and max_pending_per_session %d must be set",
+			p.BuilderMaxInflightPerSession, p.MaxPendingPerSession)
 	}
 	return nil
 }
@@ -181,7 +186,8 @@ func NewPrechecker(cfg PrecheckConfig) (*Prechecker, error) {
 }
 
 // SetParams replaces the params, after a params change on chain. Params whose freshness margin is
-// not below record_deadline_blocks are refused and the current ones kept.
+// not below record_deadline_blocks, or with a zero in-flight limit, are refused and the current
+// ones kept.
 func (p *Prechecker) SetParams(params Params) error {
 	if err := params.validate(); err != nil {
 		return err
