@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 
@@ -131,14 +132,48 @@ func TestChainEpochsUseOnlyTheVerifiedEpochStartBeacon(t *testing.T) {
 				beaconEdit: edit,
 			}
 			epochs := NewChainEpochs(chain)
+			now := time.Unix(1_800_000_000, 0)
+			epochs.now = func() time.Time { return now }
 			if ep, err := epochs.EpochOf(context.Background(), 750); err == nil {
 				t.Fatalf("resolved %+v", ep)
 			}
 			chain.beaconEdit = nil
+			now = now.Add(epochMissTTL)
 			if ep, err := epochs.EpochOf(context.Background(), 750); err != nil || ep.Seed != seed {
 				t.Fatalf("after the beacon verified: %+v, %v", ep, err)
 			}
 		})
+	}
+}
+
+// An epoch whose start beacon is not usable yet is not asked about again for every parked order:
+// the miss is kept for epochMissTTL, then the beacon is read again.
+func TestChainEpochsKeepAMissingSeedBriefly(t *testing.T) {
+	seed, snap := fill32(0x07), fill32(0xa7)
+	chain := &epochChain{
+		length:     100,
+		beacons:    map[uint64]string{700: hex.EncodeToString(seed[:])},
+		current:    &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: snap[:]},
+		beaconEdit: func(b *hubv1.BeaconState) { b.Verified = false },
+	}
+	epochs := NewChainEpochs(chain)
+	now := time.Unix(1_800_000_000, 0)
+	epochs.now = func() time.Time { return now }
+	for _, esh := range []uint64{701, 750, 799} {
+		if _, err := epochs.EpochOf(context.Background(), esh); err == nil {
+			t.Fatal("an unverified beacon resolved")
+		}
+	}
+	if len(chain.beaconAsk) != 1 {
+		t.Fatalf("beacon reads = %v, want one while the miss is kept", chain.beaconAsk)
+	}
+	chain.beaconEdit = nil
+	now = now.Add(epochMissTTL)
+	if ep, err := epochs.EpochOf(context.Background(), 750); err != nil || ep.Seed != seed {
+		t.Fatalf("after the miss expired: %+v, %v", ep, err)
+	}
+	if len(chain.beaconAsk) != 2 {
+		t.Fatalf("beacon reads = %v", chain.beaconAsk)
 	}
 }
 

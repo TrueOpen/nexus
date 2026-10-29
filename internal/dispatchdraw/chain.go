@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 
@@ -22,6 +23,10 @@ import (
 // maxRememberedEpochs bounds the epochs the chain adapters remember: orders of older epochs are
 // past every record deadline.
 const maxRememberedEpochs = 64
+
+// epochMissTTL is how long an epoch whose start beacon could not give a seed is not read again:
+// every order of the epoch parked on it asks on each block, and one read per block time is enough.
+const epochMissTTL = time.Second
 
 // placeholderBeaconSource tags a dev-only beacon derived from the block hash; it is never an epoch
 // seed.
@@ -50,15 +55,23 @@ type EpochChain interface {
 // A resolved epoch never changes, so it is kept.
 type ChainEpochs struct {
 	chain EpochChain
+	now   func() time.Time
 
 	mu     sync.Mutex
 	length uint64
 	epochs map[uint64]Epoch
+	// misses keeps, per epoch, why its seed was not found and until when that answer stands.
+	misses map[uint64]epochMiss
+}
+
+type epochMiss struct {
+	err   error
+	until time.Time
 }
 
 // NewChainEpochs resolves epochs through chain.
 func NewChainEpochs(chain EpochChain) *ChainEpochs {
-	return &ChainEpochs{chain: chain, epochs: map[uint64]Epoch{}}
+	return &ChainEpochs{chain: chain, now: time.Now, epochs: map[uint64]Epoch{}, misses: map[uint64]epochMiss{}}
 }
 
 // EpochOf implements EpochSource.
@@ -77,20 +90,9 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	if number == 0 {
 		return Epoch{}, fmt.Errorf("epoch 0 has no beacon at its reference height; dispatch starts in epoch 1")
 	}
-	reference := number * length // at most earliestSubmitHeight
-	beacon, err := s.chain.QueryBeacon(ctx, reference)
+	source, err := s.seedOf(ctx, number, length, earliestSubmitHeight)
 	if err != nil {
-		return Epoch{}, fmt.Errorf("read beacon at reference height %d: %w", reference, err)
-	}
-	seed, err := hex.DecodeString(beacon.GetRandomnessHex())
-	if err != nil || hex.EncodeToString(seed) != beacon.GetRandomnessHex() {
-		seed = nil
-	}
-	verified := beacon.GetVerified() && beacon.GetSourceTag() != placeholderBeaconSource
-	source, err := dispatch.ResolveEpochSeed(earliestSubmitHeight, length, beacon.GetHeight(), seed, verified)
-	if err != nil {
-		return Epoch{}, fmt.Errorf("epoch %d seed from the beacon at height %d (source %q, verified %t): %w",
-			number, reference, beacon.GetSourceTag(), beacon.GetVerified(), err)
+		return Epoch{}, err
 	}
 	ep = Epoch{Number: source.Epoch, ReferenceHeight: source.ReferenceHeight, Seed: source.Randomness}
 	snapshot, err := s.snapshotOf(ctx, number)
@@ -100,6 +102,45 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	copy(ep.SnapshotID[:], snapshot)
 	s.remember(ep)
 	return ep, nil
+}
+
+// seedOf reads the start beacon of epoch number and resolves its seed. A failure is kept for
+// epochMissTTL, during which the epoch's other orders get the same answer without a chain read.
+func (s *ChainEpochs) seedOf(ctx context.Context, number, length, earliestSubmitHeight uint64) (dispatch.EpochSeed, error) {
+	s.mu.Lock()
+	miss, missed := s.misses[number]
+	s.mu.Unlock()
+	if missed && s.now().Before(miss.until) {
+		return dispatch.EpochSeed{}, miss.err
+	}
+	source, err := s.readSeed(ctx, number, length, earliestSubmitHeight)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.misses[number] = epochMiss{err: err, until: s.now().Add(epochMissTTL)}
+	} else {
+		delete(s.misses, number)
+	}
+	return source, err
+}
+
+func (s *ChainEpochs) readSeed(ctx context.Context, number, length, earliestSubmitHeight uint64) (dispatch.EpochSeed, error) {
+	reference := number * length // at most earliestSubmitHeight
+	beacon, err := s.chain.QueryBeacon(ctx, reference)
+	if err != nil {
+		return dispatch.EpochSeed{}, fmt.Errorf("read beacon at reference height %d: %w", reference, err)
+	}
+	seed, err := hex.DecodeString(beacon.GetRandomnessHex())
+	if err != nil || hex.EncodeToString(seed) != beacon.GetRandomnessHex() {
+		seed = nil
+	}
+	verified := beacon.GetVerified() && beacon.GetSourceTag() != placeholderBeaconSource
+	source, err := dispatch.ResolveEpochSeed(earliestSubmitHeight, length, beacon.GetHeight(), seed, verified)
+	if err != nil {
+		return dispatch.EpochSeed{}, fmt.Errorf("epoch %d seed from the beacon at height %d (source %q, verified %t): %w",
+			number, reference, beacon.GetSourceTag(), beacon.GetVerified(), err)
+	}
+	return source, nil
 }
 
 // CurrentEpoch returns the epoch containing height, for readiness checks.
@@ -163,6 +204,11 @@ func (s *ChainEpochs) remember(ep Epoch) {
 	for number := range s.epochs {
 		if number+maxRememberedEpochs <= ep.Number {
 			delete(s.epochs, number)
+		}
+	}
+	for number := range s.misses {
+		if number < ep.Number {
+			delete(s.misses, number)
 		}
 	}
 }
