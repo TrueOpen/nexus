@@ -69,7 +69,7 @@ func TestStickyPromotionBoundaries(t *testing.T) {
 		{name: "past the window", esh: 1051},
 		{name: "zero window same height", params: StickyParams{MaxOrders: 3}, esh: 1000, applied: true},
 		{name: "zero window next height", params: StickyParams{MaxOrders: 3}, esh: 1001},
-		{name: "order signed before the anchor was recorded", esh: 990, applied: true},
+		{name: "order signed before the anchor was recorded", esh: 990},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -68,9 +68,25 @@ func TestPoolExcludesIneligibleMembers(t *testing.T) {
 	type edit func(v *hubv1.CandidatePoolSnapshotMemberViewV1)
 	no := false
 	cases := map[string]edit{
-		"support not fresh":       func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.ProfileSupportFresh = &no },
-		"support absent":          func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.ProfileSupportFresh = nil },
-		"not inference capable":   func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.InferenceCapable = false },
+		"support not fresh": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
+			v.ProfileSupportFresh = &no
+			v.WeightInputs.Profiles[0].ProfileSupportFresh = false
+		},
+		"support not fresh without top-level copy": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
+			v.ProfileSupportFresh = nil
+			v.WeightInputs.Profiles[0].ProfileSupportFresh = false
+		},
+		"no entry for the profile": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
+			v.ProfileSupportFresh, v.MinStakeSnapshot = nil, nil
+			v.WeightInputs.Profiles[0].ProfileVersion++
+		},
+		"profile not inference capable": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
+			v.WeightInputs.Profiles[0].InferenceCapable = false
+		},
+		"available below profile stake": func(v *hubv1.CandidatePoolSnapshotMemberViewV1) {
+			v.MinStakeSnapshot = amount("501")
+			v.WeightInputs.Profiles[0].MinStakeSnapshot = amount("501")
+		},
 		"unbonding":               func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.Unbonding = true },
 		"tombstoned":              func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.Tombstoned = true },
 		"jail factor zero":        func(v *hubv1.CandidatePoolSnapshotMemberViewV1) { v.WeightInputs.CandidateJailFactorPpm = 0 },
@@ -118,7 +134,7 @@ func TestPoolIsPerProfile(t *testing.T) {
 	src := vectorPoolSource()
 	// Only slot 3 is eligible for the other model; slots 1 and 7 report no fresh support.
 	other := Profile{ModelID: otherModel, Version: 1}
-	src.members[1].views[other] = eligibleView(3, 1, 9, true)
+	src.members[1].views[other] = eligibleViewFor(other, 3, 1, 9, true)
 	pool, err := BuildPool(context.Background(), vectorChainID, src, vectorEpoch, other)
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +155,22 @@ func TestPoolRejectsInconsistentChainViews(t *testing.T) {
 			src.members[0], src.members[1] = src.members[1], src.members[0]
 		},
 		"bad stake amount": func(src *fakePoolSource) { src.members[1].views[vectorProfile].MinStakeSnapshot = amount("01") },
+		"bad profile stake amount": func(src *fakePoolSource) {
+			src.members[1].views[vectorProfile].WeightInputs.Profiles[0].MinStakeSnapshot = amount("01")
+		},
+		"top-level support contradicts the profile entry": func(src *fakePoolSource) {
+			src.members[1].views[vectorProfile].WeightInputs.Profiles[0].ProfileSupportFresh = false
+		},
+		"top-level min stake contradicts the profile entry": func(src *fakePoolSource) {
+			src.members[1].views[vectorProfile].MinStakeSnapshot = amount("400")
+		},
+		"profile capable but member not": func(src *fakePoolSource) {
+			src.members[1].views[vectorProfile].WeightInputs.InferenceCapable = false
+		},
+		"duplicate profile entries": func(src *fakePoolSource) {
+			in := src.members[1].views[vectorProfile].WeightInputs
+			in.Profiles = append(in.Profiles, in.Profiles[0])
+		},
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
