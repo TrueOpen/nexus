@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -518,6 +519,32 @@ func TestPrecheckCancellation(t *testing.T) {
 	_ = f.cache.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 141})
 	if _, err := f.p.Check(context.Background(), o); err != nil {
 		t.Fatalf("7 after 5 and 6 were cancelled = %v", err)
+	}
+}
+
+// An order cancellation moves the cached next and fails the ledger entry in two steps. A precheck
+// that read the state before the first and the ledger after the second would see sequence 5 as a
+// failed hole at next and admit a retry of a sequence the chain already consumed; it must judge
+// the new state instead.
+func TestPrecheckRetriesWhenTheSessionChangesAfterLookup(t *testing.T) {
+	f := newFixture(t, nil)
+	f.reserve(t, order(5))
+	f.reserve(t, order(6))
+	var once sync.Once
+	f.p.afterLookup = func() {
+		once.Do(func() {
+			if err := f.cache.HandleChainEvent(sessionEvent(101, chaincli.OrderCancelled{SessionID: testSession, OrderSequence: 5})); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	o := order(5)
+	o.TaskHash = "resigned5"
+	if res, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderSequenceConflict) {
+		t.Fatalf("resend of cancelled 5 = %+v, %v, want sequence conflict", res, err)
+	}
+	if _, err := f.p.Check(context.Background(), order(7)); err != nil {
+		t.Fatalf("7 after 5 was cancelled = %v", err)
 	}
 }
 

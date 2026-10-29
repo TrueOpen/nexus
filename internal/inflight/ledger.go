@@ -434,8 +434,16 @@ func (l *Ledger) CancelRequested(sessionID string, seq uint64) bool {
 // record deadline is before head, and the marks below next. Orders still dispatching or accepted
 // stay for their owner to finish.
 func (l *Ledger) Prune(sessionID string, next, head uint64) error {
+	return l.pruneIf(sessionID, next, head, func() bool { return true })
+}
+
+// pruneIf is Prune when ok, asked under the ledger lock, holds.
+func (l *Ledger) pruneIf(sessionID string, next, head uint64, ok func() bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !ok() {
+		return nil
+	}
 	return l.pruneLocked(sessionID, next, head)
 }
 

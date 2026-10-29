@@ -282,3 +282,29 @@ func TestSessionCacheRefreshesAfterARecord(t *testing.T) {
 		t.Fatalf("after the refresh = next %d frozen %s, %d reads", s.NextExpectedSequence, s.FrozenTotal, chain.readCount())
 	}
 }
+
+// A prune runs only against the state it was computed from: a session change since (an event,
+// another stored read) skips it, so the ledger never drops orders the cached state does not
+// include yet.
+func TestSessionCachePruneSkipsAChangedSession(t *testing.T) {
+	chain := &fakeChain{state: baseSessionState(), found: true, height: 100}
+	cache, ledger := newTestCache(t, chain)
+	warm(t, cache)
+	if err := ledger.put(testSession, Entry{Sequence: 5, TaskHash: "h", MaxFee: 10, Deadline: 90, State: StateRecorded}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, gen, err := cache.lookup(context.Background(), testSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cache.HandleChainEvent(sessionEvent(101, chaincli.SessionDeposited{SessionID: testSession, Balance: "2000"}))
+	cache.prune(testSession, 6, 101, gen)
+	if _, ok := ledger.Get(testSession, 5); !ok {
+		t.Fatal("pruned against a session state that changed since")
+	}
+	_, _, gen, _ = cache.lookup(context.Background(), testSession)
+	cache.prune(testSession, 6, 101, gen)
+	if _, ok := ledger.Get(testSession, 5); ok {
+		t.Fatal("not pruned against the current state")
+	}
+}

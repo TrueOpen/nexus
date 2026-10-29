@@ -153,7 +153,13 @@ type Prechecker struct {
 
 	mu     sync.Mutex
 	params Params
+
+	afterLookup func() // test hook: runs between the session lookup and the ledger lock
 }
+
+// lookupAttempts bounds the session lookups of one precheck when the session keeps changing
+// between the lookup and the ledger lock.
+const lookupAttempts = 3
 
 // NewPrechecker builds a Prechecker.
 func NewPrechecker(cfg PrecheckConfig) (*Prechecker, error) {
@@ -196,15 +202,39 @@ func (p *Prechecker) Reserve(ctx context.Context, o Order) (Result, error) {
 	return p.run(ctx, o, true)
 }
 
+// run judges the order against one session state and the ledger as it was when that state was
+// current. An event updates the cached state and then the ledger in two steps (an order
+// cancellation moves next, then fails the order); a state read before the first step judged with
+// the ledger after the second would be wrong, so the lookup is repeated when the session changed
+// before the ledger lock was taken.
 func (p *Prechecker) run(ctx context.Context, o Order, reserve bool) (Result, error) {
-	session, head, err := p.cfg.Sessions.Lookup(ctx, o.SessionID)
-	if err != nil {
-		return Result{}, err
+	for attempt := 1; ; attempt++ {
+		session, head, gen, err := p.cfg.Sessions.lookup(ctx, o.SessionID)
+		if err != nil {
+			return Result{}, err
+		}
+		if p.afterLookup != nil {
+			p.afterLookup()
+		}
+		params := p.currentParams()
+		l := p.cfg.Ledger
+		l.mu.Lock()
+		if !p.cfg.Sessions.current(o.SessionID, gen) {
+			l.mu.Unlock()
+			if attempt < lookupAttempts {
+				continue
+			}
+			return Result{}, fmt.Errorf("%w: session %s kept changing during the precheck", ErrUnavailable, o.SessionID)
+		}
+		res, err := p.judgeLocked(o, session, head, params, reserve)
+		l.mu.Unlock()
+		return res, err
 	}
-	params := p.currentParams()
+}
+
+// judgeLocked evaluates the order and, for Reserve, enters it; the caller holds the ledger lock.
+func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params Params, reserve bool) (Result, error) {
 	l := p.cfg.Ledger
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	ls := l.sessions[o.SessionID]
 	if ls == nil {
 		ls = &sessionLedger{}

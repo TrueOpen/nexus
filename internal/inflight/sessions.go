@@ -110,20 +110,27 @@ func (c *SessionCache) CurrentHeight(ctx context.Context) (uint64, error) {
 
 // Lookup returns the session's state and the head it is judged at.
 func (c *SessionCache) Lookup(ctx context.Context, sessionID string) (Session, uint64, error) {
+	state, head, _, err := c.lookup(ctx, sessionID)
+	return state, head, err
+}
+
+// lookup is Lookup that also returns the generation of the state: while current(sessionID, gen)
+// holds, no event or stored read changed the session since.
+func (c *SessionCache) lookup(ctx context.Context, sessionID string) (Session, uint64, uint64, error) {
 	head, err := c.CurrentHeight(ctx)
 	if err != nil {
-		return Session{}, 0, err
+		return Session{}, 0, 0, err
 	}
 	c.mu.Lock()
 	e := c.sessions[sessionID]
 	if e != nil && e.up && e.have {
-		state := e.state
+		state, gen := e.state, e.gen
 		refresh := c.takeRefreshLocked(sessionID, e)
 		c.mu.Unlock()
 		if refresh != nil {
 			c.cfg.Background(refresh)
 		}
-		return state, head, nil
+		return state, head, gen, nil
 	}
 	gen := uint64(0)
 	if e != nil {
@@ -133,16 +140,18 @@ func (c *SessionCache) Lookup(ctx context.Context, sessionID string) (Session, u
 
 	state, err := c.read(ctx, sessionID)
 	if err != nil {
-		return Session{}, 0, err
+		return Session{}, 0, 0, err
 	}
 	if !state.Found {
-		return state, head, nil
+		return state, head, gen, nil
 	}
 	c.mu.Lock()
 	e = c.sessions[sessionID]
 	if e == nil && c.cfg.Tracker != nil {
+		// No event of the session could have been applied before the entry existed.
 		e = &cachedSession{gen: c.bumpLocked()}
 		c.sessions[sessionID] = e
+		gen = e.gen
 	}
 	track := e != nil && !e.tracked && c.cfg.Tracker != nil
 	if track {
@@ -151,6 +160,8 @@ func (c *SessionCache) Lookup(ctx context.Context, sessionID string) (Session, u
 	stored := e != nil && e.up && e.gen == gen
 	if stored {
 		e.state, e.have, e.readHeight, e.refreshDue = state, true, head, false
+		e.gen = c.bumpLocked()
+		gen = e.gen
 	}
 	c.mu.Unlock()
 	if track {
@@ -159,9 +170,28 @@ func (c *SessionCache) Lookup(ctx context.Context, sessionID string) (Session, u
 		}
 	}
 	if stored {
-		_ = c.cfg.Ledger.Prune(sessionID, state.NextExpectedSequence, head)
+		c.prune(sessionID, state.NextExpectedSequence, head, gen)
 	}
-	return state, head, nil
+	return state, head, gen, nil
+}
+
+// current reports whether the session did not change since gen, a generation lookup returned.
+// It takes c.mu: callers may hold the ledger lock (the lock order is ledger, then cache).
+func (c *SessionCache) current(sessionID string, gen uint64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.sessions[sessionID]
+	if e == nil {
+		return gen == 0
+	}
+	return e.gen == gen
+}
+
+// prune drops the ledger state a stored session state includes, unless the session changed since
+// that state was stored at gen: a prune against an older or newer state than the cached one
+// could drop an order the cached state does not include yet.
+func (c *SessionCache) prune(sessionID string, next, head, gen uint64) {
+	_ = c.cfg.Ledger.pruneIf(sessionID, next, head, func() bool { return c.current(sessionID, gen) })
 }
 
 func (c *SessionCache) read(ctx context.Context, sessionID string) (Session, error) {
@@ -215,10 +245,12 @@ func (c *SessionCache) refresh(sessionID string, gen, head uint64) {
 	stored := err == nil && state.Found && e.up && e.gen == gen
 	if stored {
 		e.state, e.have, e.readHeight, e.refreshDue = state, true, head, false
+		e.gen = c.bumpLocked()
+		gen = e.gen
 	}
 	c.mu.Unlock()
 	if stored {
-		_ = c.cfg.Ledger.Prune(sessionID, state.NextExpectedSequence, head)
+		c.prune(sessionID, state.NextExpectedSequence, head, gen)
 	}
 }
 
@@ -347,20 +379,22 @@ func (c *SessionCache) HandleChainEvent(ev chaincli.ChainEvent) error {
 	return nil
 }
 
-// recorded handles the admission of a dispatch entry of the session.
+// recorded handles the admission of a dispatch entry of the session. The ledger is updated before
+// c.mu is taken (the lock order is ledger, then cache); a recorded order still counts, so a
+// precheck in between judges the old state consistently.
 func (c *SessionCache) recorded(t chaincli.DispatchRecorded, height int64) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e := c.sessions[t.SessionID]
-	if e != nil {
-		e.gen = c.bumpLocked()
-	}
 	entry, held := c.cfg.Ledger.Get(t.SessionID, t.OrderSequence)
 	held = held && entry.State.live()
 	if held {
 		if err := c.cfg.Ledger.MarkRecorded(t.SessionID, t.OrderSequence); err != nil {
 			return err
 		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.sessions[t.SessionID]
+	if e != nil {
+		e.gen = c.bumpLocked()
 	}
 	if e == nil || !e.have || height > 0 && uint64(height) <= e.readHeight || t.OrderSequence < e.state.NextExpectedSequence {
 		return nil
