@@ -39,19 +39,6 @@ var (
 	ErrUnauthorized = types.ErrUnauthorized
 )
 
-var (
-	// ErrOrderReplacementUnsupported refuses an order whose task_hash differs from the version this
-	// Builder already tracks for the same (session_id, task_id). Replacing a pending order is not
-	// supported yet: the tracked version stays, and the caller must not retry the new one.
-	ErrOrderReplacementUnsupported = errors.New("NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED")
-	// ErrTaskTerminal refuses an order whose task_hash differs from the version of a task that has
-	// already reached a terminal state. An exact retry of the terminal version is still accepted.
-	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
-	// ErrDispatchNotImplemented refuses every new order: this Builder does not dispatch orders to
-	// Cortex nodes yet, so it accepts none rather than one it cannot run.
-	ErrDispatchNotImplemented = errors.New("NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED")
-)
-
 // serviceKeyStatusActive is the Hub service key status of a Builder allowed to act.
 const serviceKeyStatusActive = "ACTIVE"
 
@@ -142,6 +129,8 @@ type Coordinator struct {
 	addressPrefix string
 	// cortex delivers Builder-signed messages to connected Cortex streams (nil = none sent).
 	cortex CortexLink
+	// dispatcher takes new orders (nil = none accepted).
+	dispatcher Dispatcher
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
 
@@ -682,94 +671,6 @@ func (c *Coordinator) beginCallback() bool {
 	}
 	c.callbackWG.Add(1)
 	return true
-}
-
-// OnOrder implements the ingress order entry (called by IngressAPI after signature verification).
-// Dispatching an order to Cortex nodes is not implemented yet: an exact retry of a task this Builder
-// already tracks or finished is accepted without change, and every other order is refused with
-// ErrDispatchNotImplemented, so no task is created for it.
-func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
-	return c.CheckOrder(ctx, o)
-}
-
-// CheckOrder reports whether OnOrder would refuse o, without changing any state. Ingress calls it
-// before storing the input, so a refused order is never written. An order for a task this Builder
-// already knows is answered by the version checks (an exact retry passes); any other order is
-// refused because dispatch is not implemented.
-func (c *Coordinator) CheckOrder(_ context.Context, o types.Order) error {
-	key := taskKey(o.SessionID, o.TaskID)
-	_, terminal, err := c.terminalMarker(key)
-	if err != nil {
-		return fmt.Errorf("read terminal task marker: %w", err)
-	}
-	known := terminal
-	if terminal {
-		err = c.terminalVersionErr(key, o.TaskHash)
-	} else {
-		known, err = c.trackedVersion(key, o.TaskHash)
-	}
-	if err != nil {
-		c.log.Info("order refused before input upload",
-			"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash, "err", err)
-		return err
-	}
-	if known {
-		c.log.Info("order retry for a known task ignored", "session_id", o.SessionID, "task_id", o.TaskID)
-		return nil
-	}
-	c.log.Info("order refused: dispatch is not implemented",
-		"session_id", o.SessionID, "task_id", o.TaskID, "task_hash", o.TaskHash)
-	return ErrDispatchNotImplemented
-}
-
-// trackedVersion reports whether an FSM tracks the task, refusing taskHash when it tracks a
-// different version.
-func (c *Coordinator) trackedVersion(key, taskHash string) (bool, error) {
-	c.mu.RLock()
-	_, exists := c.tasks[key]
-	c.mu.RUnlock()
-	if !exists {
-		return false, nil
-	}
-	return true, c.trackedVersionErr(key, taskHash)
-}
-
-// trackedVersionErr refuses taskHash when an FSM already tracks a different version of the task.
-// fsm.order is set before the FSM is published in c.tasks and never written afterwards, so reading
-// it under c.mu alone is safe.
-func (c *Coordinator) trackedVersionErr(key, taskHash string) error {
-	c.mu.RLock()
-	fsm, exists := c.tasks[key]
-	tracked := ""
-	if exists {
-		tracked = fsm.order.TaskHash
-	}
-	c.mu.RUnlock()
-	if exists && tracked != taskHash {
-		return fmt.Errorf("%w: tracked task_hash %s", ErrOrderReplacementUnsupported, tracked)
-	}
-	return nil
-}
-
-// terminalVersionErr refuses taskHash when the durable terminal marker records a different version.
-// A marker without a task_hash (written before the field existed, or not persisted yet) cannot tell
-// the two apart, so the order is treated as an exact retry, as before.
-func (c *Coordinator) terminalVersionErr(key, taskHash string) error {
-	raw, found, err := c.kv.GetWithError(kv.NSTerminalTask, key)
-	if err != nil {
-		return fmt.Errorf("read terminal task marker: %w", err)
-	}
-	if !found {
-		return nil
-	}
-	var record terminalTaskRecord
-	if err := json.Unmarshal(raw, &record); err != nil || record.Version != terminalTaskVersion {
-		return fmt.Errorf("invalid terminal task marker %q", key)
-	}
-	if record.TaskHash != "" && record.TaskHash != taskHash {
-		return fmt.Errorf("%w: terminal task_hash %s", ErrTaskTerminal, record.TaskHash)
-	}
-	return nil
 }
 
 // HasAcceptedOrder reports whether key is the INPUT version this Builder durably accepted, for

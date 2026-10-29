@@ -92,7 +92,10 @@ const (
 	EvAssignTimeout       = "ASSIGN_TIMEOUT"       // no on-chain task before order deadline
 	EvAssignRejected      = "ASSIGN_REJECTED"      // retired: no longer emitted, kept so the code is never reused
 	EvAssignAccepted      = "ASSIGN_ACCEPTED"      // retired: no longer emitted, kept so the code is never reused
-	EvAssignmentFinalized = "ASSIGNMENT_FINALIZED" // winner settled
+	EvAssignmentFinalized = "ASSIGNMENT_FINALIZED" // retired: no longer emitted, kept so the code is never reused
+	EvDispatchAccepted    = "DISPATCH_ACCEPTED"    // a Worker accepted a ticket; the record is not on chain yet
+	EvDispatchRecorded    = "DISPATCH_RECORDED"    // the chain recorded the dispatch: the winner is final
+	EvNoCapacity          = "NO_CAPACITY"          // no Worker accepted within max_skips; the sequence is unused
 	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
 	// SDK's frozen event_code set, while the word OutputRef is
 	// otherwise retired from code -- the two conflict; the rename awaits a member/SDK-side decision (see

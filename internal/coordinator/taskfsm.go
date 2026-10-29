@@ -594,7 +594,7 @@ func (f *taskFSM) onWinnerRecorded(winner string, assignedSet []types.BuilderRef
 	}
 	f.state = types.Assigned
 	f.phase = types.PhaseAssignmentFinalized
-	f.emit(EvAssignmentFinalized, height)
+	f.emit(EvDispatchRecorded, height)
 	f.save()
 	f.log.Info("dispatch recorded on chain: winner known", "task_id", f.taskID, "winner", winner)
 }

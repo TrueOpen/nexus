@@ -59,7 +59,7 @@ func TestTaskEventsReplayAndLive(t *testing.T) {
 		t.Fatalf("TaskEvents: %v", err)
 	}
 	defer cancel()
-	wantCodes := []string{EvOrderReceived, EvAssignmentFinalized, EvInferReceiptReceived, EvOpenVerifyAccepted}
+	wantCodes := []string{EvOrderReceived, EvDispatchRecorded, EvInferReceiptReceived, EvOpenVerifyAccepted}
 	if len(replay) != len(wantCodes) {
 		t.Fatalf("replay = %d events, want %d: %+v", len(replay), len(wantCodes), replay)
 	}

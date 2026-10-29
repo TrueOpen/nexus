@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
@@ -133,15 +134,16 @@ func TestOpenTaskHeaderSessionBoundElsewhere(t *testing.T) {
 	wantConnectErr(t, err, connect.CodeFailedPrecondition, "trueopen1other")
 }
 
-// An exact retry of an order this Builder already dispatches is answered with its state; nothing
-// is stored and the coordinator is not asked.
+// An exact retry of an order this Builder already dispatches is answered with its state and, once
+// a Worker accepted it, the signed dispatch result; nothing is stored and no order is handed over.
 func TestOpenTaskAnswersAnExistingOrder(t *testing.T) {
 	h := newRegisteredKeyHeader(t)
 	h.signEnvelopeWithWallet(t)
 	auth := h.svc.auth
 	auth.Precheck = &fakePrechecker{result: inflight.Result{Existing: &inflight.Entry{Sequence: 7, State: inflight.StateAccepted}}}
 	api := &fakeTaskDataAPI{chunkSize: 4096}
-	handler := &fakeHandler{}
+	result := &nexusv1.DispatchResultHeaderV1{TaskId: []byte{1}, BuilderServiceSignature: []byte{2}}
+	handler := &fakeHandler{dispatchResult: result}
 	client := newTaskDataClientWithHandler(t, handler, api, auth)
 	stream := client.OpenTask(context.Background())
 	if err := stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: h.header}}); err != nil {
@@ -153,7 +155,7 @@ func TestOpenTaskAnswersAnExistingOrder(t *testing.T) {
 		t.Fatalf("OpenTask: %v", err)
 	}
 	if !response.Msg.GetAccepted() || response.Msg.GetStatus() != nexusv1.OpenTaskStatusV1_OPEN_TASK_STATUS_V1_DISPATCHED ||
-		response.Msg.GetTaskId() != h.header.GetRequestEnvelope().GetTaskId() {
+		response.Msg.GetTaskId() != h.header.GetRequestEnvelope().GetTaskId() || !proto.Equal(response.Msg.GetDispatchResult(), result) {
 		t.Fatalf("response = %+v", response.Msg)
 	}
 	if api.openTaskNonce == nil {
@@ -236,7 +238,7 @@ func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
 			api.chunkSize = 1 // the chunk below is too large
 		}, released: true},
 		{name: "coordinator refuses", setup: func(_ *fakeTaskDataAPI, handler *fakeHandler) {
-			handler.orderErr = errors.New("NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED")
+			handler.orderErr = errors.New("NEXUS_INGRESS_DISPATCH_UNAVAILABLE")
 		}, released: true},
 		{name: "dispatched", released: false},
 	}

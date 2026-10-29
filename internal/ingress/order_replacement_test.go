@@ -11,6 +11,8 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -21,17 +23,17 @@ var orderVersionRefusals = []struct {
 }{
 	{
 		name:    "replacement",
-		err:     fmt.Errorf("%w: tracked task_hash aa", coordinator.ErrOrderReplacementUnsupported),
+		err:     fmt.Errorf("%w: sequence 3 is being dispatched with task_hash aa", inflight.ErrOrderReplacementUnsupported),
 		message: "NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED",
 	},
 	{
-		name:    "terminal",
-		err:     fmt.Errorf("%w: terminal task_hash aa", coordinator.ErrTaskTerminal),
-		message: "NEXUS_INGRESS_TASK_TERMINAL",
+		name:    "no capacity",
+		err:     fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity),
+		message: "NEXUS_INGRESS_NO_CAPACITY",
 	},
 }
 
-// A version the coordinator refuses is rejected before BeginInput, so nothing is stored and the
+// An order the coordinator refuses is rejected before BeginInput, so nothing is stored and the
 // stored version's input index is untouched. The client's remaining chunks are drained, so the
 // SDK receives the code instead of blocking on Send.
 func TestOpenTaskRefusesOrderVersionBeforeStoringInput(t *testing.T) {
@@ -68,8 +70,7 @@ func TestOpenTaskRefusesOrderVersionBeforeStoringInput(t *testing.T) {
 	}
 }
 
-// OnOrder repeats the check after the upload (a concurrent OpenTask may have created the task in
-// between); its refusal maps to the same code and rolls the prepared input back.
+// A refusal of OnOrder after the upload maps to the same code and rolls the prepared input back.
 func TestOpenTaskMapsOrderVersionRefusalFromOnOrder(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	for index, tt := range orderVersionRefusals {
@@ -97,6 +98,11 @@ func TestMapOrderErrVersionRefusals(t *testing.T) {
 		err := mapOrderErr(tt.err)
 		if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.HasPrefix(connectMessage(err), tt.message+":") {
 			t.Errorf("%s: mapOrderErr = %v (code %v)", tt.name, err, connect.CodeOf(err))
+		}
+	}
+	for _, err := range []error{coordinator.ErrDispatchUnavailable, inflight.ErrUnavailable} {
+		if got := mapOrderErr(err); connect.CodeOf(got) != connect.CodeUnavailable {
+			t.Errorf("mapOrderErr(%v) = %v", err, got)
 		}
 	}
 }

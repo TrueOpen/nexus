@@ -222,25 +222,19 @@ func assertBuilderSigned(t *testing.T, c *Coordinator, name string, msg proto.Me
 	}
 }
 
-// trackTestOrder starts tracking an order as a Pending task, as the dispatch path will once it
-// exists; OnOrder itself refuses every new order for now.
+// trackTestOrder starts tracking an order as a Pending task, as OnOrder does, without a
+// dispatcher.
 func trackTestOrder(c *Coordinator, o types.Order) error {
 	key := taskKey(o.SessionID, o.TaskID)
 	_, terminal, err := c.terminalMarker(key)
-	if err != nil {
-		return err
-	}
-	if terminal {
-		return c.terminalVersionErr(key, o.TaskHash) // a same-version replay is ignored
-	}
-	if err := c.trackedVersionErr(key, o.TaskHash); err != nil {
+	if err != nil || terminal {
 		return err
 	}
 	o.Payload = nil
 	c.mu.Lock()
 	if _, terminal := c.terminalTasks[key]; terminal {
 		c.mu.Unlock()
-		return c.terminalVersionErr(key, o.TaskHash)
+		return nil
 	}
 	if _, exists := c.tasks[key]; exists {
 		c.mu.Unlock()

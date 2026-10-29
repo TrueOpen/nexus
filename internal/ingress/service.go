@@ -20,6 +20,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/hash32text"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
@@ -34,11 +35,14 @@ import (
 // Handler is the application-level implementation behind IngressAPI, satisfied by the Coordinator.
 // Every task-level entry point carries the composite key session_id + task_id.
 type Handler interface {
-	// CheckOrder refuses, without changing state, an order that OnOrder would refuse (a different
-	// task_hash for a tracked or terminal task, or an order this Builder cannot dispatch). OpenTask
-	// calls it before storing the input.
+	// CheckOrder refuses, without changing state, an order that OnOrder would refuse (this Builder
+	// cannot dispatch, or no Worker can take the order now). OpenTask calls it before storing the
+	// input; which version of an order may be dispatched is the in-flight precheck's decision.
 	CheckOrder(ctx context.Context, o types.Order) error
 	OnOrder(ctx context.Context, o types.Order) error
+	// DispatchResult returns the signed dispatch result header of an order a Worker accepted and
+	// the chain has not recorded yet.
+	DispatchResult(ctx context.Context, sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool)
 	// OnInferReceipt accepts the selected Worker's signed InferReceipt.
 	// Acceptance means the Builder commits to relaying it; it does not wait for output/evidence upload and does not mean on-chain accepted.
 	// SessionForTask looks up session_id by task_id: wire relay requests carry only the on-chain
@@ -605,15 +609,10 @@ func mapPayloadErr(err error) error {
 
 func mapOrderErr(err error) error {
 	switch {
-	case errors.Is(err, coordinator.ErrDispatchNotImplemented):
-		return connect.NewError(connect.CodeUnimplemented, errors.New(
-			"NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED: this Builder does not dispatch orders yet"))
-	case errors.Is(err, coordinator.ErrOrderReplacementUnsupported):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
-			"NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED: this Builder already tracks another version of the task; do not retry"))
-	case errors.Is(err, coordinator.ErrTaskTerminal):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
-			"NEXUS_INGRESS_TASK_TERMINAL: the task already finished with another version; do not retry"))
+	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable):
+		return connect.NewError(connect.CodeUnavailable, err)
+	case errors.Is(err, dispatchdraw.ErrNoCapacity), errors.Is(err, inflight.ErrOrderReplacementUnsupported):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return mapPayloadErr(err)
 	}

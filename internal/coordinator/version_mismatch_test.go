@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -181,14 +180,6 @@ func TestTerminalMarkerRecordsTheAcceptedVersion(t *testing.T) {
 	}
 	if record.TaskHash != testAcceptedTaskHash {
 		t.Fatalf("terminal marker task_hash = %s, want the accepted %s", record.TaskHash, testAcceptedTaskHash)
-	}
-	accepted := local
-	accepted.TaskHash = testAcceptedTaskHash
-	if err := c.CheckOrder(context.Background(), accepted); err != nil {
-		t.Fatalf("retry of the accepted version = %v", err)
-	}
-	if err := c.CheckOrder(context.Background(), local); !errors.Is(err, ErrTaskTerminal) {
-		t.Fatalf("retry of the local version = %v, want ErrTaskTerminal", err)
 	}
 	for _, tc := range []struct {
 		taskHash, contentHash string

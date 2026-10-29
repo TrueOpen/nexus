@@ -203,13 +203,16 @@ func (s *service) openTask(
 	if existing := precheck.Existing; existing != nil {
 		for stream.Receive() {
 		}
-		return connect.NewResponse(&nexusv1.OpenTaskResponse{
+		resp := &nexusv1.OpenTaskResponse{
 			SessionId: hash32text.FromInternal(order.SessionID), TaskId: hash32text.FromInternal(order.TaskID),
 			Accepted: true, Status: existing.State.OpenTaskStatus(),
-		}), nil
+		}
+		if header, ok := s.h.DispatchResult(ctx, order.SessionID, order.TaskID); ok {
+			resp.DispatchResult = header
+		}
+		return connect.NewResponse(resp), nil
 	}
-	// Refuse another version of a known task before storing anything, so the refused input never
-	// replaces the stored version's index. OnOrder repeats the check after the upload.
+	// Refuse an order no Worker can take before storing anything.
 	stageStart = time.Now()
 	err = s.h.CheckOrder(ctx, order)
 	timing.Since("check_order", stageStart)
@@ -285,6 +288,7 @@ func (s *service) openTask(
 	}
 	return connect.NewResponse(&nexusv1.OpenTaskResponse{
 		SessionId: hash32text.FromInternal(order.SessionID), TaskId: hash32text.FromInternal(order.TaskID), Accepted: true, InputMetadata: metadataToPB(ready, true),
+		Status: nexusv1.OpenTaskStatusV1_OPEN_TASK_STATUS_V1_DISPATCHING,
 	}), nil
 }
 

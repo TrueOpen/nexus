@@ -879,19 +879,20 @@ func openTaskBodyDigest(header *nexusv1.OpenTaskHeader) []byte {
 	return body[:]
 }
 
-// An order this Builder cannot dispatch reaches the OpenTask caller as Unimplemented with a stable
-// code, whether the coordinator refuses it before or after the input is stored.
-func TestOpenTaskReportsDispatchNotImplemented(t *testing.T) {
+// An order this Builder cannot dispatch (direct dispatch is not configured) reaches the OpenTask
+// caller as Unavailable with a stable code, whether the coordinator refuses it before or after the
+// input is stored.
+func TestOpenTaskReportsDispatchUnavailable(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
-	refuse := func(context.Context, types.Order) error { return coordinator.ErrDispatchNotImplemented }
+	refuse := func(context.Context, types.Order) error { return coordinator.ErrDispatchUnavailable }
 	tests := []struct {
 		name    string
 		handler *fakeHandler
 		code    connect.Code
 		message string
 	}{
-		{name: "before upload", handler: &fakeHandler{checkOrder: refuse}, code: connect.CodeUnimplemented, message: "NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED"},
-		{name: "after upload", handler: &fakeHandler{orderErr: coordinator.ErrDispatchNotImplemented}, code: connect.CodeUnimplemented, message: "NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED"},
+		{name: "before upload", handler: &fakeHandler{checkOrder: refuse}, code: connect.CodeUnavailable, message: "NEXUS_INGRESS_DISPATCH_UNAVAILABLE"},
+		{name: "after upload", handler: &fakeHandler{orderErr: coordinator.ErrDispatchUnavailable}, code: connect.CodeUnavailable, message: "NEXUS_INGRESS_DISPATCH_UNAVAILABLE"},
 	}
 	for index, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

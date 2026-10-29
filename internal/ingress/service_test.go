@@ -381,6 +381,7 @@ type fakeHandler struct {
 	taskOwner           string
 	lastOrder           types.Order
 	orderErr            error
+	dispatchResult      *nexusv1.DispatchResultHeaderV1
 	lastInferReceipt    types.InferReceiptSubmission
 	inferReceiptErr     error
 	lastVerifyCommit    *taskv1.VerifyCommitV1
@@ -422,6 +423,10 @@ func (f *fakeHandler) OnOrder(ctx context.Context, o types.Order) error {
 	}
 	return f.orderErr
 }
+func (f *fakeHandler) DispatchResult(context.Context, string, string) (*nexusv1.DispatchResultHeaderV1, bool) {
+	return f.dispatchResult, f.dispatchResult != nil
+}
+
 func (f *fakeHandler) OnInferReceipt(_ context.Context, receipt types.InferReceiptSubmission) error {
 	f.lastInferReceipt = receipt
 	return f.inferReceiptErr
@@ -982,7 +987,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
 	}
-	live <- types.TaskEvent{Seq: 3, EventCode: "ASSIGNMENT_FINALIZED", State: "ASSIGNED", TaskPhase: "ASSIGNMENT_FINALIZED", ChainHeight: 101}
+	live <- types.TaskEvent{Seq: 3, EventCode: "DISPATCH_RECORDED", State: "ASSIGNED", TaskPhase: "ASSIGNMENT_FINALIZED", ChainHeight: 101}
 	close(live) // closing -> the stream ends normally
 
 	var got []*nexusv1.GetTaskEventsResponse
@@ -992,7 +997,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("stream err: %v", err)
 	}
-	if len(got) != 2 || got[0].GetCursor() != "2" || got[1].GetEventCode() != "ASSIGNMENT_FINALIZED" || got[1].GetChainHeight() != 101 {
+	if len(got) != 2 || got[0].GetCursor() != "2" || got[1].GetEventCode() != "DISPATCH_RECORDED" || got[1].GetChainHeight() != 101 {
 		t.Fatalf("stream events mismatch: %+v", got)
 	}
 }

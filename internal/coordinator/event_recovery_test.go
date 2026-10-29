@@ -456,7 +456,7 @@ func TestTaskReconciliationUsesAuthoritativeStageHeights(t *testing.T) {
 		return ready
 	})
 	wantHeights := map[string]int64{
-		EvAssignmentFinalized: 11, EvOpenVerifyAccepted: 12, EvSampleReady: 13,
+		EvDispatchRecorded: 11, EvOpenVerifyAccepted: 12, EvSampleReady: 13,
 	}
 	for _, event := range c.journalFor(taskKey("session-1", "task-1")).snapshot() {
 		if want, ok := wantHeights[event.EventCode]; ok {

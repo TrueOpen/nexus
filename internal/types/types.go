@@ -337,7 +337,7 @@ type TaskStatus struct {
 // Used only for UX hints and reconnect recovery; on-chain state is authoritative via chain query.
 type TaskEvent struct {
 	Seq         uint64 // monotonically increasing within a task; its string form is the cursor
-	EventCode   string // stable event code (ORDER_RECEIVED / ASSIGNMENT_FINALIZED / ...)
+	EventCode   string // stable event code (ORDER_RECEIVED / DISPATCH_ACCEPTED / ...)
 	State       string // coarse TaskState after the event
 	TaskPhase   string // fine-grained TaskPhase after the event
 	ChainHeight int64  // set when the event comes from chain, otherwise 0
