@@ -81,6 +81,9 @@ const (
 	// NSRecordOutbox holds the dispatch entries waiting for their record on chain, as the exact
 	// entry bytes, and every signed record transaction before it is broadcast (package recorder).
 	NSRecordOutbox Namespace = "record_outbox"
+	// NSTakeover holds the takeovers this Builder registers as candidate, one per session: the
+	// order held for each, its registration and activation height (package takeover).
+	NSTakeover Namespace = "takeover"
 )
 
 type Store interface {
