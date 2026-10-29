@@ -85,7 +85,12 @@ func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint6
 	if dropInput {
 		c.deletePayload(orderInput(fsm.order))
 	}
-	c.log.Info("takeover ended", "session_id", sessionID, "task_id", taskID, "code", code)
+	attrs := []any{"session_id", sessionID, "task_id", taskID, "code", code}
+	if where != nil {
+		attrs = append(attrs, "elsewhere_builder", where.Builder, "elsewhere_task_id", where.TaskID,
+			"elsewhere_activation_height", where.ActivationHeight)
+	}
+	c.log.Info("takeover ended", attrs...)
 }
 
 // takeoverStage is the latest takeover event of a pending task, the stage GetTaskStatus reports;

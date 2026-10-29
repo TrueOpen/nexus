@@ -1,7 +1,9 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -104,4 +106,21 @@ func TestTakeoverEnded(t *testing.T) {
 	}
 	// Ending an unknown or already ended takeover does nothing.
 	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 121, true, nil)
+}
+
+// The log line of an ended takeover names where the session went.
+func TestTakeoverEndedLogsWhereTheSessionWent(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	var out bytes.Buffer
+	c.log = slog.New(slog.NewTextHandler(&out, nil))
+	o := testPlaceholderOrder("session-1", "task-1")
+	if err := c.OnTakeover(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	c.TakeoverEnded(o.SessionID, o.TaskID, EvTakeoverVoided, 120, true, &types.SessionElsewhere{Builder: "trueopen1bound", TaskID: "task-at-p", ActivationHeight: 7})
+	for _, want := range []string{"elsewhere_builder=trueopen1bound", "elsewhere_task_id=task-at-p", "elsewhere_activation_height=7"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("log %q lacks %s", out.String(), want)
+		}
+	}
 }
