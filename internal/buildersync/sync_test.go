@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -751,5 +752,82 @@ func TestOrderChangedDoesNotWaitForTheStreamLock(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("OrderChanged waited for the stream lock")
+	}
+}
+
+// staleSnapshot has the BuilderSet replaced after the fixture's order was signed, so the sender
+// asks SnapshotAt for the order's group.
+func (e *env) staleSnapshot() taskgroup.Snapshot {
+	e.t.Helper()
+	set1 := e.groups.snapshot
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100})
+	e.groups.mu.Lock()
+	e.groups.snapshot = taskgroupSnapshot("set-2", 0x5f, e.d.op, e.m.op)
+	e.groups.mu.Unlock()
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 101})
+	return set1
+}
+
+// The chain read of an order's group runs outside the stream lock and within RequestTimeout: a
+// stuck node holds up neither the delivery workers nor the pruning.
+func TestGroupReadDoesNotHoldTheStreamLock(t *testing.T) {
+	e := newEnv(t)
+	e.staleSnapshot()
+	e.s.cfg.RequestTimeout = 50 * time.Millisecond
+	entered := make(chan bool, 1)
+	e.s.cfg.SnapshotAt = func(ctx context.Context, _ uint64) (taskgroup.Snapshot, error) {
+		_, bounded := ctx.Deadline()
+		entered <- bounded
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+		return taskgroup.Snapshot{}, errors.New("node stuck")
+	}
+	e.s.OrderChanged(e.fx.issued())
+	done := make(chan struct{})
+	go func() {
+		e.s.drain()
+		close(done)
+	}()
+	var bounded bool
+	select {
+	case bounded = <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SnapshotAt not called")
+	}
+	locked := e.s.mu.TryLock()
+	if locked {
+		e.s.mu.Unlock()
+	}
+	<-done
+	if !locked || !bounded {
+		t.Fatalf("group read: stream lock free %v, bounded by a deadline %v", locked, bounded)
+	}
+}
+
+// A change that failed (the chain could not be read) is applied again a few blocks later instead
+// of being dropped.
+func TestFailedChangeIsAppliedAgain(t *testing.T) {
+	e := newEnv(t)
+	set1 := e.staleSnapshot()
+	var down atomic.Bool
+	down.Store(true)
+	e.s.cfg.SnapshotAt = func(context.Context, uint64) (taskgroup.Snapshot, error) {
+		if down.Load() {
+			return taskgroup.Snapshot{}, errors.New("node unavailable")
+		}
+		return set1, nil
+	}
+	e.s.OrderChanged(e.fx.issued())
+	e.sync()
+	if c := e.copyOf(); c != nil {
+		t.Fatalf("copy while the chain was down = %+v", c)
+	}
+	down.Store(false)
+	e.s.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: pruneEveryBlocks})
+	e.sync()
+	if c := e.copyOf(); c == nil || len(c.Rounds) != 1 {
+		t.Fatalf("copy after the chain came back = %+v", c)
 	}
 }

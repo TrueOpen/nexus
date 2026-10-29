@@ -39,6 +39,9 @@ const (
 	maxBatchesPerPass = 8
 	// pruneEveryBlocks is how often the sync streams past their retention are dropped.
 	pruneEveryBlocks = 10
+	// maxChangeRetries is how many prune ticks a change that failed is applied again before it is
+	// dropped (the dispatcher hands the order over again on its next change or a restart).
+	maxChangeRetries = 30
 )
 
 // Peers sends a signed batch to a member of a Task Builders group (ChainPeers).
@@ -131,6 +134,7 @@ type Sender struct {
 	// a change is turned into items, which may read the chain).
 	qmu    sync.Mutex
 	queue  []event
+	redo   map[string]event // changes that failed, applied again on the next prune ticks; under qmu
 	ctx    context.Context
 	cancel context.CancelFunc
 	wake   chan struct{}
@@ -145,6 +149,15 @@ type Sender struct {
 type event struct {
 	view     *dispatchevidence.Order
 	recorded *attempt.Attempt
+	tries    int
+}
+
+// key names the order and kind of the change: a later change of the same kind supersedes it.
+func (ev event) key() string {
+	if ev.view != nil {
+		return "view|" + streamKey(ev.view.SessionID, ev.view.Sequence)
+	}
+	return "recorded|" + streamKey(ev.recorded.SessionID, ev.recorded.Sequence)
 }
 
 // outStream is the sync stream of one order, with each member's progress and what of the order
@@ -251,7 +264,7 @@ func NewSender(cfg SenderConfig) (*Sender, error) {
 	}
 	s := &Sender{
 		cfg: cfg, log: cfg.Log, streams: map[string]*outStream{}, retries: map[string]*retry{},
-		workers: map[string]chan struct{}{}, wake: make(chan struct{}, 1),
+		workers: map[string]chan struct{}{}, wake: make(chan struct{}, 1), redo: map[string]event{},
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -398,6 +411,7 @@ func (s *Sender) HandleChainEvent(ev chaincli.ChainEvent) {
 		s.lastPrune.Store(head)
 		s.prune(head)
 		s.recheckRecorded()
+		s.retryFailed()
 	}
 }
 
@@ -420,20 +434,67 @@ func (s *Sender) drain() {
 		} else {
 			err = s.applyRecorded(ctx, *ev.recorded)
 		}
-		if err != nil {
-			s.failures.Add(1)
-			s.log.Error("order change not queued for the Task Builders group", "err", err)
-		}
+		s.settled(ev, err)
 	}
 }
 
-// applyView turns what is new in an order's evidence into items.
+// settled forgets a change that applied, and keeps one that failed to be applied again on the
+// next prune ticks, up to maxChangeRetries times.
+func (s *Sender) settled(ev event, err error) {
+	key := ev.key()
+	s.qmu.Lock()
+	defer s.qmu.Unlock()
+	if err == nil {
+		delete(s.redo, key)
+		return
+	}
+	s.failures.Add(1)
+	if ev.tries >= maxChangeRetries {
+		delete(s.redo, key)
+		s.log.Error("order change not queued for the Task Builders group; given up after retries", "change", key, "err", err)
+		return
+	}
+	s.redo[key] = ev
+	s.log.Warn("order change not queued for the Task Builders group; applied again in a few blocks", "change", key, "err", err)
+}
+
+// retryFailed queues again the changes that failed.
+func (s *Sender) retryFailed() {
+	s.qmu.Lock()
+	for key, ev := range s.redo {
+		ev.tries++
+		s.queue = append(s.queue, ev)
+		delete(s.redo, key)
+	}
+	queued := len(s.queue) > 0
+	s.qmu.Unlock()
+	if queued {
+		s.signal()
+	}
+}
+
+// applyView turns what is new in an order's evidence into items. A new order's group is resolved
+// before the stream lock is taken: it may read the chain.
 func (s *Sender) applyView(ctx context.Context, view *dispatchevidence.Order) error {
+	key := streamKey(view.SessionID, view.Sequence)
+	s.mu.Lock()
+	_, held := s.streams[key]
+	s.mu.Unlock()
+	var fresh *outStream
+	if !held {
+		var err error
+		if fresh, err = s.newStream(ctx, view); err != nil || fresh == nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st, err := s.streamLocked(ctx, view)
-	if err != nil || st == nil {
-		return err
+	st := s.streams[key]
+	if st == nil {
+		st = fresh
+	}
+	if st == nil {
+		return nil // dropped past its retention meanwhile
 	}
 	next := st.clone()
 	items, err := s.diff(ctx, next, view)
@@ -471,13 +532,10 @@ func (s *Sender) applyRecorded(ctx context.Context, a attempt.Attempt) error {
 	return s.commitLocked(next, []*buildersyncv1.BuilderSyncItemV1{item})
 }
 
-// streamLocked returns the order's stream, creating it with the other members of the order's
-// group; nil when the order has no other member. Caller holds s.mu.
-func (s *Sender) streamLocked(ctx context.Context, view *dispatchevidence.Order) (*outStream, error) {
+// newStream builds a new order's stream with the other members of the order's group; nil when
+// the order has no other member. It does not need s.mu.
+func (s *Sender) newStream(ctx context.Context, view *dispatchevidence.Order) (*outStream, error) {
 	key := streamKey(view.SessionID, view.Sequence)
-	if st := s.streams[key]; st != nil {
-		return st, nil
-	}
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(view.SignedOrder, &signed); err != nil {
 		return nil, fmt.Errorf("order %s: signed order: %w", key, err)
@@ -509,6 +567,8 @@ func (s *Sender) streamLocked(ctx context.Context, view *dispatchevidence.Order)
 // orderSnapshot reads from the chain the snapshot an order names, as in effect at its
 // earliest_submit_height.
 func (s *Sender) orderSnapshot(ctx context.Context, order *taskv1.TaskOrderV3) (taskgroup.Snapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+	defer cancel()
 	snapshot, err := s.cfg.SnapshotAt(ctx, order.GetEarliestSubmitHeight())
 	if err != nil {
 		return taskgroup.Snapshot{}, fmt.Errorf("BuilderSet at height %d: %w", order.GetEarliestSubmitHeight(), err)
