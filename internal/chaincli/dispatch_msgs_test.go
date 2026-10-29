@@ -279,9 +279,8 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 	if _, err := DecodeRecordDispatchResponse(result, 0, chainID, swapped); err == nil {
 		t.Fatal("results were attributed to entries whose keys they do not echo")
 	}
-	// The batch kind of MsgRecordDispatch is not registered in wire yet: a batch_digest that does
-	// not match is reported, but results that echo every entry's key in order are kept.
-	if got, err := DecodeRecordDispatchResponse(result, 0, "other-chain", objectIDs); !errors.Is(err, ErrBatchDigestMismatch) || !proto.Equal(got, response) {
+	// A batch_digest that does not commit to the results refuses them all.
+	if got, err := DecodeRecordDispatchResponse(result, 0, "other-chain", objectIDs); !errors.Is(err, ErrBatchDigestMismatch) || got != nil {
 		t.Fatalf("batch digest of another chain = %v, %v", got, err)
 	}
 	if _, err := DecodeRecordDispatchResponse(result, 1, chainID, objectIDs); err == nil {
@@ -310,7 +309,7 @@ func TestRecordDispatchResultsComeFromTheExecutedTx(t *testing.T) {
 		raw, _ := hex.DecodeString(txMsgDataHex(t, bad))
 		got, err := DecodeRecordDispatchResponse(TxResult{Data: raw}, 0, chainID, objectIDs)
 		if name == "status changed" {
-			if !errors.Is(err, ErrBatchDigestMismatch) || got == nil {
+			if !errors.Is(err, ErrBatchDigestMismatch) || got != nil {
 				t.Fatalf("%s: %v, %v", name, got, err)
 			}
 			continue
@@ -371,6 +370,89 @@ func TestEntryObjectIDsUseTheWireEntryDigests(t *testing.T) {
 	}
 	if _, err := DispatchEntryObjectID("c", &taskv1.DispatchEntryV1{Record: record, Accept: accept, WinnerTicket: &taskv1.DispatchTicketV1{}}); err == nil {
 		t.Fatal("an entry without a task id was keyed")
+	}
+}
+
+// The wire batch result vectors: one dispatch entry built from the real signed record and accept
+// and one takeover entry, with mixed, exact-replay and independently rejected results. Each
+// result's object_id is its entry's digest (never the record or ticket hash), NOOP echoes the same
+// identity, and batch_digest commits to (object_id, status) in input order under DISPATCH_RECORD.
+func TestRecordDispatchResultsMatchTheWireBatchVectors(t *testing.T) {
+	const chainID = "trueopen-phase1-vector-1"
+	file := wirefixture.Load(t, "task/dispatch_v1.json")
+	var doc struct {
+		BatchResults []struct {
+			Name          string `json:"name"`
+			BatchDigest   string `json:"batch_digest_hex"`
+			DispatchEntry string `json:"dispatch_entry_vector"`
+			TakeoverEntry string `json:"takeover_entry_vector"`
+			Record        string `json:"record_vector"`
+			Accept        string `json:"accept_vector"`
+			Response      string `json:"response_protobuf_hex"`
+			Results       []struct {
+				ItemIndex  uint32 `json:"item_index"`
+				ObjectID   string `json:"object_id_hex"`
+				Status     int32  `json:"status"`
+				RejectCode int32  `json:"reject_code"`
+			} `json:"results"`
+		} `json:"batch_results"`
+	}
+	if err := json.Unmarshal(file.Raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.BatchResults) == 0 {
+		t.Fatal("no batch result vectors")
+	}
+	decode := func(name string, m proto.Message) {
+		var raw struct {
+			Protobuf string `json:"protobuf_hex"`
+		}
+		if err := json.Unmarshal(file.Vector(t, name, 0).Raw, &raw); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := hex.DecodeString(raw.Protobuf)
+		if err := proto.Unmarshal(b, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range doc.BatchResults {
+		t.Run(row.Name, func(t *testing.T) {
+			record, accept := &taskv1.DispatchRecordV1{}, &taskv1.DispatchAcceptV1{}
+			decode(row.Record, record)
+			decode(row.Accept, accept)
+			entryVector := file.Vector(t, row.DispatchEntry, 0)
+			entryVector.CheckPreimage(t)
+			ticket := &taskv1.DispatchTicketV1{TaskId: entryVector.Field(t, "task_id").Bytes(t), TaskHash: entryVector.Field(t, "task_hash").Bytes(t)}
+			dispatchID, err := DispatchEntryObjectID(chainID, &taskv1.DispatchEntryV1{Record: record, WinnerTicket: ticket, Accept: accept})
+			if err != nil || dispatchID != entryVector.Digest(t) {
+				t.Fatalf("dispatch entry object id = %x, %v; want %s", dispatchID, err, entryVector.DigestHex)
+			}
+			objectIDs := [][32]byte{dispatchID, file.Vector(t, row.TakeoverEntry, 0).Digest(t)}
+
+			raw, _ := hex.DecodeString(row.Response)
+			response := &taskv1.MsgRecordDispatchResponse{}
+			if err := proto.Unmarshal(raw, response); err != nil {
+				t.Fatal(err)
+			}
+			data, _ := hex.DecodeString(txMsgDataHex(t, response))
+			got, mismatched, err := DecodeRecordDispatchResults(TxResult{Data: data}, 0, chainID, objectIDs)
+			if err != nil || len(mismatched) != 0 {
+				t.Fatalf("results: mismatched %v, %v", mismatched, err)
+			}
+			if hex.EncodeToString(got.GetBatchDigest()) != row.BatchDigest || len(got.GetResults()) != len(row.Results) {
+				t.Fatalf("response = %v", got)
+			}
+			for i, want := range row.Results {
+				r := got.GetResults()[i]
+				if r.GetItemIndex() != want.ItemIndex || hex.EncodeToString(r.GetObjectId()) != want.ObjectID ||
+					int32(r.GetStatus()) != want.Status || int32(r.GetRejectCode()) != want.RejectCode {
+					t.Fatalf("result %d = %v, want %+v", i, r, want)
+				}
+			}
+			if RecordDispatchBatchDigest(chainID, got.GetResults()) != [32]byte(got.GetBatchDigest()) {
+				t.Fatal("recomputed batch digest differs")
+			}
+		})
 	}
 }
 

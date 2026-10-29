@@ -127,17 +127,16 @@ func DecodeMsgResponse(result TxResult, msgIndex int, out proto.Message) error {
 }
 
 // ErrBatchDigestMismatch reports a MsgRecordDispatch response whose batch_digest is not the one
-// computed from its results. The batch kind it is computed with is provisional (see
-// recordDispatchBatchKind), so DecodeRecordDispatchResponse returns the response with it when
-// every other check passed.
+// computed from its results; none of its results is returned.
 var ErrBatchDigestMismatch = errors.New("record dispatch: batch_digest does not match the results")
 
 // DecodeRecordDispatchResponse reads the per-entry results of the MsgRecordDispatch at msgIndex
 // of an executed transaction. objectIDs are the keys of the entries sent, in entry order
 // (DispatchEntryObjectID, TakeoverEntryObjectID). There is one result per entry, in entry order,
-// echoing that entry's key as object_id; a REJECTED entry carries its DispatchRejectCodeV1 and
-// only a REJECTED entry does. batch_digest commits to every (object_id, status): when only it
-// does not match, the response is returned with ErrBatchDigestMismatch.
+// echoing that entry's key as object_id (also for a NOOP replay); a REJECTED entry carries its
+// DispatchRejectCodeV1 and only a REJECTED entry does. batch_digest commits to every
+// (object_id, status) in entry order; a response whose batch_digest does not match is refused
+// with ErrBatchDigestMismatch.
 func DecodeRecordDispatchResponse(result TxResult, msgIndex int, chainID string, objectIDs [][32]byte) (*taskv1.MsgRecordDispatchResponse, error) {
 	response, mismatched, err := DecodeRecordDispatchResults(result, msgIndex, chainID, objectIDs)
 	if len(mismatched) > 0 {
@@ -175,7 +174,7 @@ func DecodeRecordDispatchResults(result TxResult, msgIndex int, chainID string, 
 		}
 	}
 	if digest := RecordDispatchBatchDigest(chainID, response.GetResults()); !bytes.Equal(response.GetBatchDigest(), digest[:]) {
-		return response, mismatched, ErrBatchDigestMismatch
+		return nil, nil, ErrBatchDigestMismatch
 	}
 	return response, mismatched, nil
 }

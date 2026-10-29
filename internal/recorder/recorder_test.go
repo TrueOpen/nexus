@@ -449,9 +449,9 @@ func TestSequenceZeroPastTheDeadlineIsResolvedByQuery(t *testing.T) {
 	}
 }
 
-// Results whose batch_digest does not match (the batch kind is not registered in wire yet) but
-// that echo every entry's key in order are taken as they are.
-func TestBatchDigestMismatchKeepsMatchingResults(t *testing.T) {
+// Results whose batch_digest does not commit to them are not attributed, although each echoes its
+// entry's key: every entry is checked with the dispatch record query instead.
+func TestBatchDigestMismatchIsCheckedOnChain(t *testing.T) {
 	e := newEnv(t)
 	a, b := bundle(0xaa, 0, 1, 50), bundle(0xbb, 0, 2, 50)
 	e.record(a, b)
@@ -464,14 +464,19 @@ func TestBatchDigestMismatchKeepsMatchingResults(t *testing.T) {
 	}
 	resp.BatchDigest = fill(0xee)
 	e.chain.execute(raw, txWith(t, 11, resp))
-	e.block(11)
+	e.chain.records[orderKey{a.SessionID, 0}] = &taskv1.DispatchRecordState{DispatchTicketHash: fill(1), RecordedHeight: 11}
+	e.block(12)
 	if want := []taskReport{{taskID: a.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
 		t.Fatalf("recorded = %v", e.tasks.recorded)
 	}
-	if want := []taskReport{{taskID: b.TaskID, code: codeBalance}}; !reflect.DeepEqual(e.tasks.rejected, want) {
-		t.Fatalf("rejected = %v", e.tasks.rejected)
+	if len(e.tasks.rejected) != 0 {
+		t.Fatalf("a result under a mismatched batch_digest was taken: rejected %v", e.tasks.rejected)
 	}
-	if e.chain.queries != 0 {
-		t.Fatalf("%d record queries", e.chain.queries)
+	if e.chain.queries == 0 {
+		t.Fatal("entries were not checked on chain")
+	}
+	again, _ := e.lastSent()
+	if !reflect.DeepEqual(entriesOf(again), []string{"bb/0"}) {
+		t.Fatalf("resubmitted %v", entriesOf(again))
 	}
 }

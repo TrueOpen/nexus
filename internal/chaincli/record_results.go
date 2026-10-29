@@ -11,15 +11,13 @@ import (
 )
 
 // recordDispatchBatchKind is the batch_kind of MsgRecordDispatch in the batch result digest.
-// Provisional: wire registers no batch kind for MsgRecordDispatch yet, so this value is a guess
-// and DecodeRecordDispatchResponse keeps results whose digest alone does not match. Replace it
-// with the registered kind once wire freezes it; it is used nowhere else.
 const recordDispatchBatchKind = "DISPATCH_RECORD"
 
-// Every BatchItemResultV1 of a MsgRecordDispatch echoes the entry's own key as object_id: the
-// dispatch_record_entry_digest of a dispatch entry, the takeover_entry_digest of a takeover entry.
-// Checking each object_id against the entry sent at that index, and batch_digest against the
-// results, keeps a misaligned result from being attributed to the wrong entry.
+// Every BatchItemResultV1 of a MsgRecordDispatch echoes the entry's own key as object_id, also
+// for a NOOP replay: the dispatch_record_entry_digest of a dispatch entry, the
+// takeover_entry_digest of a takeover entry, never the record or ticket hash. Checking each
+// object_id against the entry sent at that index, and batch_digest against the results, keeps a
+// misaligned result from being attributed to the wrong entry.
 
 // DispatchEntryObjectID is the dispatch_record_entry_digest of a dispatch entry: chain, task,
 // the record's signing digest and the winner accept's signing digest.
