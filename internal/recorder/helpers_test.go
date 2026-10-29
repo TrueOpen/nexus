@@ -338,20 +338,21 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 }
 
 type env struct {
-	t       *testing.T
-	calls   *calls
-	store   kv.Store
-	signer  signer.Signer
-	chain   *fakeChain
-	tx      *fakeSubmitter
-	ledger  *fakeLedger
-	orders  *fakeOrders
-	tasks   *fakeTasks
-	streams *fakeStreams
-	gate    *Gate
-	account *accountReader
-	r       *Recorder
-	params  Params
+	t        *testing.T
+	calls    *calls
+	store    kv.Store
+	signer   signer.Signer
+	chain    *fakeChain
+	tx       *fakeSubmitter
+	ledger   *fakeLedger
+	orders   *fakeOrders
+	tasks    *fakeTasks
+	streams  *fakeStreams
+	gate     *Gate
+	evidence *fakeEvidence
+	account  *accountReader
+	r        *Recorder
+	params   Params
 }
 
 func newEnv(t *testing.T) *env {
@@ -370,15 +371,28 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
+type evidenceMark struct {
+	ticket string
+	height uint64
+}
+
+type fakeEvidence struct{ marks []evidenceMark }
+
+func (f *fakeEvidence) MarkRecorded(ticketHash []byte, height uint64) error {
+	f.marks = append(f.marks, evidenceMark{string(ticketHash), height})
+	return nil
+}
+
 // open builds the recorder over the env's store, as after a start.
 func (e *env) open() {
 	e.t.Helper()
 	e.calls = &calls{}
 	e.ledger, e.orders, e.tasks, e.streams = &fakeLedger{calls: e.calls}, &fakeOrders{calls: e.calls}, &fakeTasks{calls: e.calls}, &fakeStreams{}
+	e.evidence = &fakeEvidence{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Tasks: e.tasks, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {

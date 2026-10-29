@@ -110,6 +110,11 @@ type Streams interface {
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
 }
 
+// RecordedEvidence marks dispatch evidence recorded (dispatchevidence.Store).
+type RecordedEvidence interface {
+	MarkRecorded(ticketHash []byte, height uint64) error
+}
+
 // Config wires a Recorder.
 type Config struct {
 	ChainID string
@@ -127,6 +132,9 @@ type Config struct {
 	Streams Streams
 	// Gate holds the compensation account: no record is sent while it is below the minimum.
 	Gate *Gate
+	// Evidence, when set, is told about an entry the chain admitted after its ticket was withdrawn:
+	// the dispatcher no longer holds it, but challenges on the recorded order may come.
+	Evidence RecordedEvidence
 	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
 	// for each entry.
 	GasBase, GasPerEntry uint64

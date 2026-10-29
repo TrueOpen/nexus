@@ -370,6 +370,11 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 			if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 				r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 			}
+			if r.cfg.Evidence != nil {
+				if err := r.cfg.Evidence.MarkRecorded(e.TicketHash, height); err != nil {
+					r.log.Error("evidence of a recorded entry not marked recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+				}
+			}
 		})
 		return
 	}

@@ -203,16 +203,16 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 			return deps.HubChain.QueryBuilderCompensationAccount(ctx, deps.BuilderAddress)
 		},
 	})
+	od.Evidence = dispatchevidence.New(deps.Store, params.evidence)
 	od.Recorder, err = recorder.New(recorder.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
 		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry,
 		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Streams: deps.Direct.Streams,
-		Gate: od.Gate, Log: deps.Log,
+		Gate: od.Gate, Evidence: od.Evidence, Log: deps.Log,
 	}, params.record)
 	if err != nil {
 		return nil, err
 	}
-	od.Evidence = dispatchevidence.New(deps.Store, params.evidence)
 	od.Dispatcher, err = dispatcher.New(dispatcher.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Dispatch: deps.Config, InputChunkBytes: deps.InputChunkBytes,
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,

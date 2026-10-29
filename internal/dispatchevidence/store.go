@@ -91,6 +91,18 @@ func (s *Store) Extend(key string, height uint64) error {
 	return s.kv.WriteBatch(ops...)
 }
 
+// MarkRecorded marks the evidence holding a ticket as recorded at height, for an order the chain
+// recorded after the dispatcher let it go; its retention only grows. An unknown ticket is no
+// error: there is nothing to mark.
+func (s *Store) MarkRecorded(ticketHash []byte, height uint64) error {
+	o, _, found, err := s.ByTicket(ticketHash)
+	if err != nil || !found || o.Recorded && o.RecordedHeight >= height {
+		return err
+	}
+	o.Recorded, o.RecordedHeight = true, height
+	return s.Put(o)
+}
+
 // Prune deletes the evidence whose RetainUntil is below height and returns how many it deleted.
 func (s *Store) Prune(height uint64) (int, error) {
 	var keys []string

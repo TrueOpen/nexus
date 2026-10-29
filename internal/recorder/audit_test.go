@@ -26,6 +26,10 @@ func TestWithdrawnEntryAdmitted(t *testing.T) {
 	if len(e.orders.recorded) != 0 || len(e.tasks.recorded) != 0 {
 		t.Fatalf("dispatcher %v, tasks %v told", e.orders.recorded, e.tasks.recorded)
 	}
+	// The evidence of the recorded ticket is marked recorded: challenges on the order may come.
+	if want := []evidenceMark{{string(fill(1)), 11}}; !reflect.DeepEqual(e.evidence.marks, want) {
+		t.Fatalf("evidence marks = %v", e.evidence.marks)
+	}
 }
 
 // CONFLICT means the order is recorded with another entry: when the record is this Builder's the

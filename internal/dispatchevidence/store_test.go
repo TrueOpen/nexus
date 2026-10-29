@@ -269,3 +269,23 @@ func countKeys(t *testing.T, store kv.Store, ns kv.Namespace) int {
 	}
 	return n
 }
+
+// MarkRecorded marks the evidence holding a ticket as recorded at a height, keeping it at least
+// as long as before.
+func TestMarkRecorded(t *testing.T) {
+	s := New(kv.NewMemStore(), testParams)
+	o := testOrder(t)
+	if err := s.Put(o); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRecorded(fill(0x12), 200); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _, _ := s.ByTicket(fill(0x12))
+	if !got.Recorded || got.RecordedHeight != 200 || got.RetainUntil != 200+50+5+100 {
+		t.Fatalf("marked = recorded %v at %d, kept until %d", got.Recorded, got.RecordedHeight, got.RetainUntil)
+	}
+	if err := s.MarkRecorded(fill(0x99), 200); err != nil {
+		t.Fatalf("unknown ticket: %v", err)
+	}
+}
