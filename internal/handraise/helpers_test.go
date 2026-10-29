@@ -178,6 +178,8 @@ func testDispatchConfig() config.DispatchConfig {
 		BuilderTimeoutRateThreshold:   0.2,
 
 		HandraiseIssuedHeightToleranceBlocks: 3,
+		RecordGasBase:                        200_000,
+		RecordGasPerEntry:                    300_000,
 	}
 }
 
