@@ -50,6 +50,11 @@ type DispatchConfig struct {
 	// RecordGasBase + RecordGasPerEntry for each entry it carries.
 	RecordGasBase     uint64 `yaml:"record_gas_base"`
 	RecordGasPerEntry uint64 `yaml:"record_gas_per_entry"`
+	// AnswerGasBase and AnswerGasPerByte give a compensation rebuttal or dispatch challenge
+	// response its gas limit: AnswerGasBase + AnswerGasPerByte for each encoded byte of the Msg
+	// (it carries a whole record or roster). An answer that runs out of gas goes again with more.
+	AnswerGasBase    uint64 `yaml:"answer_gas_base"`
+	AnswerGasPerByte uint64 `yaml:"answer_gas_per_byte"`
 }
 
 // RTTTierConfig is one accept timeout tier: candidates whose RTT is at most MaxRTTMs wait
@@ -79,6 +84,8 @@ func defaultDispatch() DispatchConfig {
 		HandraiseIssuedHeightToleranceBlocks: 3,
 		RecordGasBase:                        200_000,
 		RecordGasPerEntry:                    300_000,
+		AnswerGasBase:                        300_000,
+		AnswerGasPerByte:                     30,
 	}
 }
 
@@ -119,6 +126,8 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch handraise_issued_height_tolerance_blocks must not exceed %d", maxIssuedHeightTolerance)
 	case c.RecordGasBase == 0 || c.RecordGasBase > maxRecordGas || c.RecordGasPerEntry == 0 || c.RecordGasPerEntry > maxRecordGas:
 		return fmt.Errorf("dispatch record_gas_base and record_gas_per_entry must be between 1 and %d", maxRecordGas)
+	case c.AnswerGasBase == 0 || c.AnswerGasBase > maxRecordGas || c.AnswerGasPerByte == 0 || c.AnswerGasPerByte > maxRecordGas:
+		return fmt.Errorf("dispatch answer_gas_base and answer_gas_per_byte must be between 1 and %d", maxRecordGas)
 	}
 	for i, tier := range c.AcceptTimeoutMsByRTTTier {
 		if tier.AcceptTimeoutMs == 0 || tier.AcceptTimeoutMs > maxAcceptTimeoutMsByRTTTier {

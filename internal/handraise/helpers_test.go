@@ -180,6 +180,8 @@ func testDispatchConfig() config.DispatchConfig {
 		HandraiseIssuedHeightToleranceBlocks: 3,
 		RecordGasBase:                        200_000,
 		RecordGasPerEntry:                    300_000,
+		AnswerGasBase:                        300_000,
+		AnswerGasPerByte:                     30,
 	}
 }
 

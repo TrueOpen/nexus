@@ -26,6 +26,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"google.golang.org/protobuf/proto"
+
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
@@ -39,6 +41,8 @@ const (
 	// maxSends bounds how often one rebuttal or response is sent: one the chain keeps refusing
 	// when executing only spends gas.
 	maxSends = 3
+	// maxGasFactor bounds how far out-of-gas results raise the gas of one answer.
+	maxGasFactor = 8
 	// pruneEveryBlocks is how often expired evidence and unbound handraise roots are pruned.
 	pruneEveryBlocks = 10
 	// rootKeepMarginBlocks keeps, on top of record_deadline_blocks, every handraise root an order
@@ -51,13 +55,15 @@ type Chain interface {
 	QueryDispatchCompensationClaim(ctx context.Context, ticketHash []byte) (*taskv1.DispatchCompensationClaimState, error)
 	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
 	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
+	// QueryTx reads the executed result of a transaction sent.
+	QueryTx(ctx context.Context, txHash []byte) (chaincli.TxResult, error)
 }
 
 // Submitter sends rebuttals and challenge responses from the Builder service account
 // (coordinator.RecordSubmitter).
 type Submitter interface {
-	SubmitRebutDispatchCompensation(ctx context.Context, msg *taskv1.MsgRebutDispatchCompensation) (chaincli.TxResult, error)
-	SubmitRespondDispatchChallenge(ctx context.Context, msg *taskv1.MsgRespondDispatchChallenge) (chaincli.TxResult, error)
+	SubmitRebutDispatchCompensation(ctx context.Context, msg *taskv1.MsgRebutDispatchCompensation, gasLimit uint64) (chaincli.TxResult, error)
+	SubmitRespondDispatchChallenge(ctx context.Context, msg *taskv1.MsgRespondDispatchChallenge, gasLimit uint64) (chaincli.TxResult, error)
 }
 
 // Roots prunes issued handraise roots (handraise.Registry).
@@ -80,7 +86,10 @@ type Config struct {
 	// returns the roots orders still dispatching bind (dispatcher.BoundRoots), kept as well.
 	Roots     Roots
 	LiveRoots func() map[[32]byte]bool
-	Log       *slog.Logger
+	// GasBase and GasPerByte give an answer its gas limit: GasBase plus GasPerByte for each
+	// encoded byte of the Msg (dispatch.answer_gas_base, answer_gas_per_byte).
+	GasBase, GasPerByte uint64
+	Log                 *slog.Logger
 }
 
 // Counts are what the responder saw since it started.
@@ -116,6 +125,10 @@ type item struct {
 	// SentAt is the head when an answer was last broadcast, zero when none was; Sends counts them.
 	SentAt uint64 `json:"sent_at,omitempty"`
 	Sends  int    `json:"sends,omitempty"`
+	// TxHash is the last answer's transaction until its result was read; GasFactor multiplies the
+	// gas of the next one (0 counts as 1).
+	TxHash    []byte `json:"tx_hash,omitempty"`
+	GasFactor uint64 `json:"gas_factor,omitempty"`
 	// Missing is set once the evidence was looked for and not found (logged once).
 	Missing bool `json:"missing,omitempty"`
 }
@@ -133,6 +146,8 @@ func New(cfg Config) (*Responder, error) {
 		return nil, fmt.Errorf("dispatch responder needs the chain id, Builder and service addresses, store and evidence")
 	case cfg.Chain == nil || cfg.Tx == nil:
 		return nil, fmt.Errorf("dispatch responder needs the chain and a submitter")
+	case cfg.GasBase == 0 || cfg.GasPerByte == 0:
+		return nil, fmt.Errorf("dispatch responder needs the answer gas base and per-byte gas")
 	}
 	r := &Responder{
 		cfg: cfg, log: cfg.Log, claims: map[string]*item{}, challenges: map[string]*item{},
@@ -380,10 +395,41 @@ func (r *Responder) snapshot(from map[string]*item) []item {
 func (r *Responder) openClaims() []item     { return r.snapshot(r.claims) }
 func (r *Responder) openChallenges() []item { return r.snapshot(r.challenges) }
 
-// due reports whether an answer may be sent at head: none was sent, or the last one had time to
-// land and fewer than maxSends were.
-func (it *item) due(head uint64) bool {
-	return it.SentAt == 0 || head >= it.SentAt+resubmitBlocks && it.Sends < maxSends
+// ready reports whether an answer may be sent at head as far as time goes: none was sent, or the
+// last one had time to land.
+func (it *item) ready(head uint64) bool { return it.SentAt == 0 || head >= it.SentAt+resubmitBlocks }
+
+// spent reports whether the item may not be answered again: maxSends answers were sent.
+func (it *item) spent() bool { return it.Sends >= maxSends }
+
+// gas is the gas limit of msg for the item's next answer.
+func (r *Responder) gas(msg proto.Message, it *item) uint64 {
+	return (r.cfg.GasBase + r.cfg.GasPerByte*uint64(proto.Size(msg))) * max(it.GasFactor, 1)
+}
+
+// settleLastSend reads the result of the item's last answer once it had time to land. One that
+// ran out of gas below maxGasFactor goes again with twice the gas and does not count as a send.
+func (r *Responder) settleLastSend(ctx context.Context, it *item) {
+	if len(it.TxHash) == 0 {
+		return
+	}
+	res, err := r.cfg.Chain.QueryTx(ctx, it.TxHash)
+	it.TxHash = nil
+	if err != nil || res.Codespace != "sdk" || res.Code != 11 {
+		return
+	}
+	factor := max(it.GasFactor, 1)
+	if factor >= maxGasFactor {
+		r.log.Error("dispatch answer out of gas at the highest gas; raise dispatch.answer_gas_base or answer_gas_per_byte", "id", hex.EncodeToString(it.ID))
+		return
+	}
+	it.GasFactor, it.Sends = factor*2, it.Sends-1
+	r.log.Warn("dispatch answer out of gas; it goes again with more gas", "id", hex.EncodeToString(it.ID), "gas_factor", it.GasFactor)
+}
+
+// sent records an answer broadcast at head.
+func (it *item) sent(head uint64, res chaincli.TxResult) {
+	it.SentAt, it.Sends, it.TxHash = head, it.Sends+1, res.TxHash
 }
 
 func isNotFound(err error) bool { return errors.Is(err, chaincli.ErrNotFound) }

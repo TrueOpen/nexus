@@ -26,7 +26,12 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		r.close(challengePrefix, r.challenges, it.ID)
 		return
 	}
-	if !it.due(head) {
+	if !it.ready(head) {
+		return
+	}
+	r.settleLastSend(ctx, &it)
+	if it.spent() {
+		r.update(challengePrefix, r.challenges, &it)
 		return
 	}
 	ch, err := r.cfg.Chain.QueryDispatchChallenge(ctx, it.ID)
@@ -69,13 +74,14 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		}
 		return
 	}
-	if _, err := r.cfg.Tx.SubmitRespondDispatchChallenge(ctx, msg); err != nil {
+	res, err := r.cfg.Tx.SubmitRespondDispatchChallenge(ctx, msg, r.gas(msg, &it))
+	if err != nil {
 		r.log.Warn("dispatch challenge response not sent; tried again next block", "challenge_id", id, "err", err)
 		return
 	}
 	r.answered.Add(1)
 	r.log.Info("dispatch challenge answered", "challenge_id", id, "kind", ch.GetKind())
-	it.SentAt, it.Sends = head, it.Sends+1
+	it.sent(head, res)
 	r.update(challengePrefix, r.challenges, &it)
 }
 

@@ -226,8 +226,8 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	od.Recorder.SetOrders(od.Dispatcher)
 	od.Responder, err = dispatchresponse.New(dispatchresponse.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Responder: deps.Signer.Address(), Store: deps.Store,
-		Evidence: od.Evidence, Chain: deps.TaskChain, Tx: deps.Records, Roots: deps.Direct.Registry, LiveRoots: od.Dispatcher.BoundRoots,
-		Log: deps.Log,
+		Evidence: od.Evidence, Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Roots: deps.Direct.Registry,
+		LiveRoots: od.Dispatcher.BoundRoots, GasBase: deps.Config.AnswerGasBase, GasPerByte: deps.Config.AnswerGasPerByte, Log: deps.Log,
 	})
 	if err != nil {
 		return nil, err

@@ -49,6 +49,11 @@ const (
 	upheld         = taskv1.DispatchChallengeStatusV1_DISPATCH_CHALLENGE_STATUS_V1_UPHELD
 )
 
+const (
+	testGasBase    = 100_000
+	testGasPerByte = 10
+)
+
 var (
 	testParams = dispatchevidence.Params{
 		RecordDeadlineBlocks: 20, ClaimWindowBlocks: 30, RebuttalBlocks: 10,
@@ -183,6 +188,18 @@ type fakeChain struct {
 	records    map[string]*taskv1.DispatchRecordState // by session/sequence
 	claimReads []string
 	chalReads  int
+	// txResults are the executed results QueryTx returns by tx hash.
+	txResults map[string]chaincli.TxResult
+}
+
+func (c *fakeChain) QueryTx(_ context.Context, hash []byte) (chaincli.TxResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	res, ok := c.txResults[string(hash)]
+	if !ok {
+		return chaincli.TxResult{}, chaincli.ErrNotFound
+	}
+	return res, nil
 }
 
 func (c *fakeChain) QueryDispatchCompensationClaim(_ context.Context, hash []byte) (*taskv1.DispatchCompensationClaimState, error) {
@@ -221,27 +238,36 @@ type fakeTx struct {
 	mu       sync.Mutex
 	rebuts   []*taskv1.MsgRebutDispatchCompensation
 	responds []*taskv1.MsgRespondDispatchChallenge
+	gas      []uint64
+	hashes   [][]byte
 	err      error
 }
 
-func (f *fakeTx) SubmitRebutDispatchCompensation(_ context.Context, m *taskv1.MsgRebutDispatchCompensation) (chaincli.TxResult, error) {
+func (f *fakeTx) sent(gas uint64) chaincli.TxResult {
+	f.gas = append(f.gas, gas)
+	hash := bytes.Repeat([]byte{byte(len(f.gas))}, 32)
+	f.hashes = append(f.hashes, hash)
+	return chaincli.TxResult{TxHash: hash}
+}
+
+func (f *fakeTx) SubmitRebutDispatchCompensation(_ context.Context, m *taskv1.MsgRebutDispatchCompensation, gas uint64) (chaincli.TxResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return chaincli.TxResult{}, f.err
 	}
 	f.rebuts = append(f.rebuts, proto.Clone(m).(*taskv1.MsgRebutDispatchCompensation))
-	return chaincli.TxResult{}, nil
+	return f.sent(gas), nil
 }
 
-func (f *fakeTx) SubmitRespondDispatchChallenge(_ context.Context, m *taskv1.MsgRespondDispatchChallenge) (chaincli.TxResult, error) {
+func (f *fakeTx) SubmitRespondDispatchChallenge(_ context.Context, m *taskv1.MsgRespondDispatchChallenge, gas uint64) (chaincli.TxResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return chaincli.TxResult{}, f.err
 	}
 	f.responds = append(f.responds, proto.Clone(m).(*taskv1.MsgRespondDispatchChallenge))
-	return chaincli.TxResult{}, nil
+	return f.sent(gas), nil
 }
 
 type fakeRoots struct {
@@ -277,7 +303,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{
 		t: t, store: kv.NewMemStore(),
 		chain: &fakeChain{claims: map[string]*taskv1.DispatchCompensationClaimState{}, challenges: map[string]*taskv1.DispatchChallengeState{},
-			records: map[string]*taskv1.DispatchRecordState{}},
+			records: map[string]*taskv1.DispatchRecordState{}, txResults: map[string]chaincli.TxResult{}},
 		tx: &fakeTx{}, roots: &fakeRoots{}, live: map[[32]byte]bool{},
 	}
 	e.evidence = dispatchevidence.New(e.store, testParams)
@@ -292,6 +318,7 @@ func (e *env) open() {
 	e.r, err = New(Config{
 		ChainID: testChainID, Builder: self, Responder: responder, Store: e.store, Evidence: e.evidence,
 		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live },
+		GasBase: testGasBase, GasPerByte: testGasPerByte,
 	})
 	if err != nil {
 		e.t.Fatal(err)

@@ -24,7 +24,12 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		r.close(claimPrefix, r.claims, it.ID)
 		return
 	}
-	if !it.due(head) {
+	if !it.ready(head) {
+		return
+	}
+	r.settleLastSend(ctx, &it)
+	if it.spent() {
+		r.update(claimPrefix, r.claims, &it)
 		return
 	}
 	claim, err := r.cfg.Chain.QueryDispatchCompensationClaim(ctx, it.ID)
@@ -76,13 +81,14 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		r.close(claimPrefix, r.claims, it.ID)
 		return
 	}
-	if _, err := r.cfg.Tx.SubmitRebutDispatchCompensation(ctx, msg); err != nil {
+	res, err := r.cfg.Tx.SubmitRebutDispatchCompensation(ctx, msg, r.gas(msg, &it))
+	if err != nil {
 		r.log.Warn("compensation rebuttal not sent; tried again next block", "ticket", ticket, "err", err)
 		return
 	}
 	r.claimsRebutted.Add(1)
 	r.log.Info("compensation claim rebutted", "ticket", ticket, "worker", claim.GetWorkerOperatorAddress(), "outcome", attempt.Outcome)
-	it.SentAt, it.Sends = head, it.Sends+1
+	it.sent(head, res)
 	r.update(claimPrefix, r.claims, &it)
 }
 

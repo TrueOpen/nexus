@@ -3,6 +3,7 @@ package dispatchresponse
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -207,6 +208,41 @@ func TestRebuttalIsSentAtMostMaxSends(t *testing.T) {
 	}
 	if n := len(e.rebuts()); n != maxSends {
 		t.Fatalf("%d rebuttals, want %d", n, maxSends)
+	}
+}
+
+// A rebuttal's gas grows with its encoded size.
+func TestRebuttalGasFollowsItsSize(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeRejected}}))
+	e.claim(ticketHash(0, 0), op7, 400)
+	e.block(151)
+	got := e.rebuts()
+	if len(got) != 1 {
+		t.Fatalf("%d rebuttals", len(got))
+	}
+	if want := uint64(testGasBase + testGasPerByte*proto.Size(got[0])); e.tx.gas[0] != want {
+		t.Fatalf("gas %d, want %d", e.tx.gas[0], want)
+	}
+}
+
+// A rebuttal that ran out of gas goes again with twice the gas, up to eight times the first, and
+// such a send does not count against maxSends; out of gas at the cap counts.
+func TestOutOfGasRebuttalGoesAgainWithMoreGas(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.claim(ticketHash(0, 0), op7, 400)
+	for h := uint64(151); h < 151+20*resubmitBlocks; h++ {
+		e.block(h)
+		e.tx.mu.Lock()
+		for _, hash := range e.tx.hashes {
+			e.chain.txResults[string(hash)] = chaincli.TxResult{TxHash: hash, Code: 11, Codespace: "sdk"}
+		}
+		e.tx.mu.Unlock()
+	}
+	g := e.tx.gas[0]
+	if want := []uint64{g, 2 * g, 4 * g, 8 * g, 8 * g, 8 * g}; !reflect.DeepEqual(e.tx.gas, want) {
+		t.Fatalf("gas = %v, want %v", e.tx.gas, want)
 	}
 }
 
