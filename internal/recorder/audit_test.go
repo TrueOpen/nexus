@@ -14,9 +14,10 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
-// A withdrawn entry the chain admitted anyway consumed its sequence: the ledger records it and the
-// attempt book takes its (voided) ticket as the task's recorded attempt, but the dispatcher, which
-// opened a new round for the order, and the task are left to that round.
+// A withdrawn entry the chain admitted anyway is the order's record: the chain assigned the task to
+// its Worker. It is resolved like any admitted entry: the ledger, the dispatcher (which ends the new
+// round it opened), the attempt book (the voided ticket comes back as the recorded attempt) and the
+// task hear of it, and its Worker gets the RECORDED notice.
 func TestWithdrawnEntryAdmitted(t *testing.T) {
 	e := newEnv(t)
 	b := bundle(0xaa, 0, 1, 50)
@@ -29,11 +30,20 @@ func TestWithdrawnEntryAdmitted(t *testing.T) {
 	if want := []orderKey{{b.SessionID, 0}}; !reflect.DeepEqual(e.ledger.recorded, want) {
 		t.Fatalf("ledger recorded = %v", e.ledger.recorded)
 	}
-	if len(e.orders.recorded) != 0 || len(e.tasks.recorded) != 0 {
-		t.Fatalf("dispatcher %v, tasks %v told", e.orders.recorded, e.tasks.recorded)
+	if want := []orderKey{{b.SessionID, 0}}; !reflect.DeepEqual(e.orders.recorded, want) {
+		t.Fatalf("dispatcher told %v", e.orders.recorded)
+	}
+	if want := []taskReport{{taskID: b.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
+		t.Fatalf("tasks told %v", e.tasks.recorded)
 	}
 	if want := []attemptReport{{taskID: b.TaskID, ticket: [32]byte(fill(1)), recorded: true}}; !reflect.DeepEqual(e.attempts.reports, want) {
 		t.Fatalf("attempt book told %v, want %v", e.attempts.reports, want)
+	}
+	if n := e.notices(); len(n) != 1 || n[0].n.GetStatus() != statusRecorded {
+		t.Fatalf("notices = %v", n)
+	}
+	if i, j := indexOf(e.calls.log, "attempts.recorded"), indexOf(e.calls.log, "tasks.recorded"); i < 0 || j < 0 || i > j {
+		t.Fatalf("calls = %v", e.calls.log)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
@@ -227,4 +228,40 @@ func TestAcceptedWinnerRetriedOnTheNextBlock(t *testing.T) {
 		t.Fatalf("attempt after the next block = %+v, %v", a, ok)
 	}
 	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 2})
+}
+
+// The chain recorded a winner a binding change had voided (its withdrawal came too late), and the
+// new round finds no taker: the Recorder's report of the record ends the order. Its ticket out no
+// longer times out into more tickets or a failure, and its late accept is DISPATCH_TICKET_CLOSED.
+func TestRecordOfAVoidedWinnerEndsTheNewRound(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, first := e.accept()
+	const bound = testBound + 10
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = bound })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: bound}})
+	if w := e.recorder.withdrawn; len(w) != 1 || w[0] != first {
+		t.Fatalf("withdrawn = %x", w)
+	}
+	_, ticket, hash := e.lastOffer()
+	offers := len(e.streams.offers())
+	if err := e.d.Recorded(s, 0); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.advance(10 * time.Second)
+	if n := len(e.streams.offers()); n != offers {
+		t.Fatalf("%d offers after the record, want %d", n, offers)
+	}
+	if got := e.observer.snapshot().failed; len(got) != 0 {
+		t.Fatalf("failed = %v", got)
+	}
+	m, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrUnknownTicket) {
+		t.Fatalf("late accept of the new round = %v", err)
+	}
+	if got := e.observer.snapshot(); len(got.failed) != 0 || len(got.accepted) != 1 {
+		t.Fatalf("observed %+v", got)
+	}
 }

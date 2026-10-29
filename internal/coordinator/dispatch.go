@@ -196,6 +196,15 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	if !ok {
 		return
 	}
+	if c.attempts != nil {
+		if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID && a.Status == attempt.Recorded {
+			// The chain recorded the task (a voided winner whose record landed after all): it is
+			// assigned, not failed. The chain's state decides it.
+			c.log.Warn("dispatch failure of a recorded task ignored; reconciling", "session_id", sessionID, "task_id", taskID, "reason", reason)
+			c.requestTaskReconcile(sessionID, taskID, 0, "dispatch failed after the record")
+			return
+		}
+	}
 	code := EvTaskFailed
 	switch {
 	case errors.Is(reason, dispatchdraw.ErrNoCapacity):

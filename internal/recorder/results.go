@@ -366,24 +366,17 @@ func (r *Recorder) expire(ctx context.Context, height uint64) {
 }
 
 // recordLocked resolves e as admitted at height: the order leaves the ledger and the dispatcher,
-// its task is reconciled and the winner notified. Caller holds r.mu.
+// its task is reconciled and the winner notified. A withdrawn entry the chain admitted anyway is
+// resolved the same way: it is the order's record, so the dispatcher ends the new round it opened
+// and the attempt book takes the voided ticket back as the task's recorded attempt (never the new
+// round's ticket). Caller holds r.mu.
 func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *effects) {
 	r.removeLocked(e, ops)
 	if e.Withdrawn {
-		// The sequence is consumed, but the dispatcher already opened a new round for the order:
-		// that round's own outcome tells the dispatcher and the task. The attempt book takes the
-		// voided ticket back as the task's recorded attempt (never the new round's ticket): it is
-		// the winner the chain holds.
-		r.log.Warn("withdrawn dispatch entry recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "height", height)
-		fx.add(func(context.Context) {
-			if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
-				r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
-			}
-			r.cfg.Attempts.Recorded(e.TaskID, [32]byte(e.TicketHash))
-		})
-		return
+		r.log.Warn("withdrawn dispatch entry recorded: it is the order's record", "session_id", e.SessionID, "order_sequence", e.Sequence, "height", height)
+	} else {
+		r.log.Info("dispatch recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "task_id", e.TaskID, "height", height)
 	}
-	r.log.Info("dispatch recorded", "session_id", e.SessionID, "order_sequence", e.Sequence, "task_id", e.TaskID, "height", height)
 	fx.add(func(ctx context.Context) {
 		if err := r.cfg.Ledger.MarkRecorded(e.SessionID, e.Sequence); err != nil && !isUnknownOrder(err) {
 			r.log.Error("record not written to the ledger", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)

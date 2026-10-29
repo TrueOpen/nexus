@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
@@ -282,5 +284,23 @@ func TestRecordedAttemptUploadsEndWithTheTask(t *testing.T) {
 	f.c.removeTask(taskKey(f.session, f.task))
 	if a, _ := f.book.Current(f.task); a.AcceptsUploads(100) || a.ExpireHeight == 0 {
 		t.Fatalf("attempt of the terminal task = %+v", a)
+	}
+}
+
+// A dispatch failure for a task whose attempt the chain recorded (a voided winner recorded after
+// all, its new round without a taker) does not drop the task: the chain assigned it, so it is
+// reconciled instead and its staged receipt stays.
+func TestDispatchFailureOfARecordedTaskKeepsIt(t *testing.T) {
+	f := newStagingFixture(t)
+	if err := f.c.OnInferReceipt(context.Background(), f.receipt); err != nil {
+		t.Fatal(err)
+	}
+	f.book.Recorded(f.task, f.ticket)
+	f.c.DispatchFailed(f.session, f.task, fmt.Errorf("%w: no member left", dispatchdraw.ErrNoCapacity))
+	if _, ok := f.c.getFSM(f.session, f.task); !ok {
+		t.Fatal("the recorded task was dropped")
+	}
+	if !f.staged() {
+		t.Fatal("the staged receipt was dropped")
 	}
 }
