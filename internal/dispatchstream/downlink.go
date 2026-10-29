@@ -17,11 +17,13 @@ const outKeyPrefix = "out|"
 
 // pendingMessage is one Builder-signed downlink message the Cortex has not acknowledged. raw is the
 // marshalled frame with only the message set, produced once when the message was first sent;
-// cursor is its number on the operator's current stream (0 before it is assigned one).
+// cursor is its number on the operator's current stream (0 before it is assigned one); retained is
+// the Verifier broadcast it carries, if any, which counts as given to the Cortex once acknowledged.
 type pendingMessage struct {
-	seq    uint64
-	raw    []byte
-	cursor uint64
+	seq      uint64
+	raw      []byte
+	cursor   uint64
+	retained *retainedMessage
 }
 
 func outKey(operator string, seq uint64) string {
@@ -137,6 +139,12 @@ func (h *Hub) SendAll(_ context.Context, frame *nexusv1.DispatchStreamFrameV1) (
 // enqueueLocked stores raw as the next unacknowledged message of the session's Cortex, numbers it
 // on the current stream and wakes the sender. Caller holds h.mu.
 func (h *Hub) enqueueLocked(s *session, raw []byte) error {
+	_, err := h.enqueueMessageLocked(s, raw)
+	return err
+}
+
+// enqueueMessageLocked is enqueueLocked returning the queued message. Caller holds h.mu.
+func (h *Hub) enqueueMessageLocked(s *session, raw []byte) (*pendingMessage, error) {
 	operator := s.operator
 	seq := h.nextSeq[operator]
 	ops := []kv.WriteOp{{NS: kv.NSStreamSession, Key: outKey(operator, seq), Val: raw}}
@@ -147,7 +155,7 @@ func (h *Hub) enqueueLocked(s *session, raw []byte) error {
 		dropped++
 	}
 	if err := h.store.WriteBatch(ops...); err != nil {
-		return fmt.Errorf("store dispatch stream message: %w", err)
+		return nil, fmt.Errorf("store dispatch stream message: %w", err)
 	}
 	if dropped > 0 {
 		h.log.Warn("dispatch stream retention full; dropping the oldest unacknowledged messages",
@@ -157,7 +165,7 @@ func (h *Hub) enqueueLocked(s *session, raw []byte) error {
 	h.nextSeq[operator] = seq + 1
 	m := &pendingMessage{seq: seq, raw: raw}
 	h.pending[operator] = append(pending, m)
-	return s.queueLocked(m)
+	return m, s.queueLocked(m)
 }
 
 // replayLocked renumbers every unacknowledged message of the session's Cortex on the new stream,
@@ -189,15 +197,29 @@ func (h *Hub) replayLocked(s *session) error {
 		}
 	}
 	for _, r := range h.retained {
-		if r.delivered[operator] {
-			continue
-		}
-		if err := h.enqueueLocked(s, r.raw); err != nil {
+		if err := h.giveRetainedLocked(s, r); err != nil {
 			return fmt.Errorf("%w: %v", ErrTransient, err)
 		}
-		r.delivered[operator] = true
 	}
 	return nil
+}
+
+// giveRetainedLocked queues the retained broadcast r to the session's Cortex unless the Cortex
+// acknowledged it already or it is still waiting in the retention. Caller holds h.mu.
+func (h *Hub) giveRetainedLocked(s *session, r *retainedMessage) error {
+	if r.delivered[s.operator] {
+		return nil
+	}
+	for _, m := range h.pending[s.operator] {
+		if m.retained == r {
+			return nil
+		}
+	}
+	m, err := h.enqueueMessageLocked(s, r.raw)
+	if m != nil {
+		m.retained = r
+	}
+	return err
 }
 
 // ackLocked releases every message the Cortex acknowledged on stream s. Caller holds h.mu.
@@ -218,6 +240,11 @@ func (h *Hub) ackLocked(s *session, acked uint64) error {
 	if err := h.store.WriteBatch(release...); err != nil {
 		return fmt.Errorf("%w: release acknowledged dispatch stream messages: %v", ErrTransient, err)
 	}
+	for _, m := range h.pending[operator] {
+		if m.retained != nil && m.cursor != 0 && m.cursor <= acked {
+			m.retained.delivered[operator] = true
+		}
+	}
 	h.pending[operator] = keep
 	return nil
 }
@@ -229,6 +256,8 @@ type retainKey struct {
 	verifyRound uint32
 }
 
+// retainedMessage is one retained Verifier broadcast; delivered holds the Cortex operators that
+// acknowledged it.
 type retainedMessage struct {
 	raw       []byte
 	delivered map[string]bool
@@ -267,14 +296,10 @@ func (h *Hub) Broadcast(_ context.Context, frame *nexusv1.DispatchStreamFrameV1)
 		r = &retainedMessage{raw: raw, delivered: make(map[string]bool)}
 		h.retained[key] = r
 	}
-	for operator, s := range h.sessions {
-		if r.delivered[operator] {
-			continue
-		}
-		if err := h.enqueueLocked(s, raw); err != nil {
+	for _, s := range h.sessions {
+		if err := h.giveRetainedLocked(s, r); err != nil {
 			return err
 		}
-		r.delivered[operator] = true
 	}
 	return nil
 }

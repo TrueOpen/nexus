@@ -100,3 +100,65 @@ func TestBroadcastCarriesOnlyVerifierMessages(t *testing.T) {
 		t.Fatal("Broadcast accepted a dispatch offer")
 	}
 }
+
+// businessKinds reads n business frames and names what each carries.
+func businessKinds(t *testing.T, s *served, n int) map[string]int {
+	t.Helper()
+	got := map[string]int{}
+	for i := 0; i < n; i++ {
+		f := s.stream.nextBusiness(t)
+		if f.GetOffer() != nil {
+			got["offer"]++
+			continue
+		}
+		got[kindOf(f)]++
+	}
+	return got
+}
+
+// A Verifier broadcast counts as given to a Cortex only once that Cortex acknowledged it: one the
+// retention bound evicted unacknowledged is given again when the Cortex reconnects.
+func TestEvictedBroadcastIsGivenAgainOnReconnect(t *testing.T) {
+	h := newHarness(t) // MaxPending 8
+	a := h.connect(cortexA, "1")
+	mustBroadcast(t, h, openVerify("t1", "ov1"))
+	for i := 0; i < 8; i++ {
+		mustSend(t, h, cortexA, string(rune('a'+i)))
+	}
+	businessKinds(t, a, 9)
+	waitPending(t, h, cortexA, 8)
+	a.stream.close()
+	a.wait(t)
+	h.waitConn(cortexA, false)
+
+	b := h.connect(cortexA, "2")
+	if got := businessKinds(t, b, 9); got["offer"] != 8 || got["open_verify/ov1"] != 1 {
+		t.Fatalf("reconnect got %v, want 8 offers and the evicted open_verify", got)
+	}
+	b.stream.quiet(t)
+}
+
+// A broadcast still waiting for its acknowledgement is replayed once on reconnect, not once from
+// the retention and once more as a retained broadcast.
+func TestUnacknowledgedBroadcastIsReplayedOnce(t *testing.T) {
+	h := newHarness(t)
+	a := h.connect(cortexA, "1")
+	mustBroadcast(t, h, openVerify("t1", "ov1"))
+	businessKinds(t, a, 1)
+	a.stream.close()
+	a.wait(t)
+	h.waitConn(cortexA, false)
+
+	b := h.connect(cortexA, "2")
+	if got := businessKinds(t, b, 1); got["open_verify/ov1"] != 1 {
+		t.Fatalf("reconnect got %v", got)
+	}
+	b.stream.quiet(t)
+	b.ack(1)
+	waitPending(t, h, cortexA, 0)
+	b.stream.close()
+	b.wait(t)
+	h.waitConn(cortexA, false)
+	c := h.connect(cortexA, "3")
+	c.stream.quiet(t)
+}
