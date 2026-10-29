@@ -35,6 +35,8 @@ type ChainEvent struct {
 	Height           int64
 	Attrs            map[string]string
 	TaskNotification bool
+	// Typed is the decoded Phase 1 payload (dispatch_events.go); nil for every other event.
+	Typed TypedEvent
 }
 
 // TxResult is the broadcast result.
@@ -161,6 +163,13 @@ type Client interface {
 type TaskEventTracker interface {
 	TrackTaskEvents(TaskKey) error
 	UntrackTaskEvents(TaskKey)
+}
+
+// SessionEventTracker follows sessions for their session-level events (EventSessionScoped), for
+// example every session bound to this Builder, independently of task tracking.
+type SessionEventTracker interface {
+	TrackSessionEvents(sessionID string) error
+	UntrackSessionEvents(sessionID string)
 }
 
 type stubClient struct {

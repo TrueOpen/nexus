@@ -32,8 +32,10 @@ func WithProtocolEvents() Option {
 }
 
 type sessionSubscription struct {
-	tasks  map[string]struct{}
-	cancel context.CancelFunc
+	tasks map[string]struct{}
+	// watched keeps the stream for the session's own events (TrackSessionEvents) while no task needs it.
+	watched bool
+	cancel  context.CancelFunc
 }
 
 func (c *client) TrackTaskEvents(key TaskKey) error {
@@ -57,6 +59,53 @@ func (c *client) TrackTaskEvents(key TaskKey) error {
 	return nil
 }
 
+// TrackSessionEvents follows one session's stream for its session-level events (deposits,
+// withdrawals, key changes, cancellations, binding and takeover) whether or not a task of it is
+// tracked. The stream is shared with the session's tracked tasks and the cursor is the same.
+func (c *client) TrackSessionEvents(sessionID string) error {
+	if _, err := nodecontract.Hash32Bytes("session_id", sessionID); err != nil {
+		return fmt.Errorf("track session events: %w", err)
+	}
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if c.sessions == nil {
+		c.sessions = make(map[string]*sessionSubscription)
+	}
+	session := c.sessions[sessionID]
+	if session == nil {
+		session = &sessionSubscription{tasks: make(map[string]struct{})}
+		c.sessions[sessionID] = session
+		if c.started {
+			c.startTaskSessionLocked(sessionID, session)
+		}
+	}
+	session.watched = true
+	return nil
+}
+
+// UntrackSessionEvents ends TrackSessionEvents; the stream stays while a task of the session is tracked.
+func (c *client) UntrackSessionEvents(sessionID string) {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	session := c.sessions[sessionID]
+	if session == nil {
+		return
+	}
+	session.watched = false
+	c.dropIdleSessionLocked(sessionID, session)
+}
+
+// dropIdleSessionLocked stops a session stream that neither a task nor a session watch needs.
+func (c *client) dropIdleSessionLocked(sessionID string, session *sessionSubscription) {
+	if len(session.tasks) != 0 || session.watched {
+		return
+	}
+	delete(c.sessions, sessionID)
+	if session.cancel != nil {
+		session.cancel()
+	}
+}
+
 func (c *client) UntrackTaskEvents(key TaskKey) {
 	if key.Validate() != nil {
 		return
@@ -68,13 +117,7 @@ func (c *client) UntrackTaskEvents(key TaskKey) {
 		return
 	}
 	delete(session.tasks, key.TaskID)
-	if len(session.tasks) != 0 {
-		return
-	}
-	delete(c.sessions, key.SessionID)
-	if session.cancel != nil {
-		session.cancel()
-	}
+	c.dropIdleSessionLocked(key.SessionID, session)
 }
 
 func (c *client) startTaskSessionLocked(sessionID string, session *sessionSubscription) {
