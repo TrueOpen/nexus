@@ -23,8 +23,8 @@ var (
 type TaskState int
 
 const (
-	Pending   TaskState = iota // waiting for hand-raise
-	Assigned                   // AssignTx included in a block, winner decided
+	Pending   TaskState = iota // accepted locally, the task is not on chain yet
+	Assigned                   // the task is on chain with its Worker, inference in progress
 	Verifying                  // OpenVerify included in a block, commit-reveal in progress
 	Settled                    // SettleTx included in a block, challenge window open
 	Closed                     // challenge window closed, escrow released

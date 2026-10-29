@@ -205,10 +205,8 @@ func testSignature64(parts ...string) string {
 }
 
 // testSignedOrderBytes reuses the SignedOrderV2 fixture of submitter_test to give the proto-encoded
-// SignedOrderV2 that the SDK side should submit. It is the only legitimate carrier of the
-// first-proposal scope branch of MsgSubmitWorkerHandraises, and in production it can only be
-// supplied by the SDK (the user signs the frozen TaskOrderV2, which Nexus has no right to
-// reconstruct).
+// SignedOrderV2 that the SDK side submits; in production only the SDK can supply it, because the
+// user signs the order and Nexus has no right to reconstruct it.
 func testSignedOrderBytes(user string) []byte {
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(testSignedOrder(user))
 	if err != nil {

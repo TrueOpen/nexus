@@ -140,7 +140,7 @@ func TestPebbleScanNamespaceIsolation(t *testing.T) {
 	s.Set(NSTask, "a", []byte("1"))
 	s.Set(NSTask, "b", []byte("2"))
 	s.Set(NSCustody, "c", []byte("3"))
-	s.Set(NSBusCursor, "d", []byte("4"))
+	s.Set(NSCapability, "d", []byte("4"))
 
 	got := map[string]string{}
 	if err := s.Scan(NSTask, func(k string, v []byte) bool {

@@ -34,9 +34,6 @@ const (
 	// selectedVerifierCount are collected, otherwise wait this window; later arrivals go in a follow-up Tx.
 	verifierProposalBatchDelay = 2 * time.Second
 
-	// credentialTTL is the maximum single validity period of a retrieval credential (renewable by refresh).
-	credentialTTL = time.Hour
-
 	// challengeGasEstimate is the placeholder gas estimate for PrepareChallenge (switch to real estimation once Simulate is wired).
 	challengeGasEstimate = 200_000
 )

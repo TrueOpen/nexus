@@ -19,7 +19,6 @@ const (
 	NSCustodyTTL      Namespace = "custody_ttl"
 	NSReward          Namespace = "reward"
 	NSCapability      Namespace = "capability"
-	NSBusCursor       Namespace = "bus_cursor"
 	NSBuilderReg      Namespace = "builder_registration"
 	NSOutputDelivery  Namespace = "output_delivery"
 	NSOutputTombstone Namespace = "output_tombstone"
@@ -55,8 +54,6 @@ const (
 	NSTaskDataFetchReceiptIndex Namespace = "task_data_fetch_receipt_index"
 	// NSOutputAck is the user's local delivery progress for a streaming OUTPUT (task, last_seq); it is not a consensus fact.
 	NSOutputAck Namespace = "output_ack"
-	NSBusReplay Namespace = "bus_replay"
-	NSBusOutbox Namespace = "bus_outbox"
 	// NSLocalSchema holds the version of the local state layout, see package localschema.
 	NSLocalSchema Namespace = "local_schema"
 )

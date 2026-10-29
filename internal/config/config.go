@@ -555,8 +555,6 @@ func defaults() Config {
 			DescriptorValidityBlocks:    100000,
 			DescriptorRenewBeforeBlocks: 10000,
 		},
-		// UserJWTTTLMS / ChainQueryCacheTTLMS default to the upper bounds of the auth-callout protocol,
-		// because the protocol sets each default equal to its bound (3,600,000 and 60,000).
 	}
 }
 

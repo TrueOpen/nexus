@@ -123,7 +123,7 @@ chain:
     grace_blocks: 10
   # A Verifier commit or result relay answers only after its transaction executed in a
   # block, waiting at most block_interval × wait_blocks (capped at 20s: below the 60s
-  # Cortex relay call timeout and the 30s JetStream redelivery wait). No result in time
+  # Cortex relay call timeout). No result in time
   # is reported as a temporary failure and the Verifier retries.
   tx_confirm:
     block_interval: 5s
