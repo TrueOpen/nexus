@@ -12,6 +12,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 )
 
 var testKey = [20]byte{0xaa}
@@ -179,7 +180,7 @@ func TestPrecheckErrorCodes(t *testing.T) {
 		{name: "chain unreadable", setup: func(t *testing.T, f *precheckFixture) {
 			f.chain.err = errors.New("node down")
 			f.cache.SessionStreamDown(testSession)
-		}, want: ErrUnavailable},
+		}, want: sdkauth.ErrUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

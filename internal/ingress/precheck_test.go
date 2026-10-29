@@ -90,7 +90,7 @@ func TestOpenTaskHeaderPrecheckErrors(t *testing.T) {
 		{inflight.ErrInflightLimit, connect.CodeFailedPrecondition, "NEXUS_INGRESS_INFLIGHT_LIMIT"},
 		{inflight.ErrSessionClosing, connect.CodeFailedPrecondition, "NEXUS_INGRESS_SESSION_CLOSING"},
 		{inflight.ErrSessionBalanceInsufficient, connect.CodeFailedPrecondition, "NEXUS_INGRESS_SESSION_BALANCE_INSUFFICIENT"},
-		{inflight.ErrUnavailable, connect.CodeUnavailable, "NEXUS_INGRESS_PRECHECK_UNAVAILABLE"},
+		{inflight.ErrUnavailable, connect.CodeUnavailable, "NEXUS_SDKAUTH_CHAIN_UNAVAILABLE"},
 		{registeredkey.ErrKeyInvalid, connect.CodeUnauthenticated, "SDK_AUTH_INVALID_SIGNATURE"},
 		{registeredkey.ErrKeyExpired, connect.CodeDeadlineExceeded, "SDK_AUTH_SESSION_GRANT_EXPIRED"},
 		{registeredkey.ErrSpendCapExceeded, connect.CodeFailedPrecondition, "SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED"},

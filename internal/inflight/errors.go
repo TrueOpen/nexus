@@ -3,6 +3,8 @@ package inflight
 import (
 	"errors"
 	"fmt"
+
+	"github.com/TrueOpen/nexus/internal/sdkauth"
 )
 
 // Precheck failures. The text is the Ingress error code; none of them creates a task or uses the
@@ -39,7 +41,8 @@ var (
 	// ErrTaskTerminal: another version of an order the chain already admitted.
 	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
 	// ErrUnavailable: the session state or the head could not be read; retryable, never a verdict.
-	ErrUnavailable = errors.New("NEXUS_INGRESS_PRECHECK_UNAVAILABLE")
+	// It is the request verification's chain-unavailable code.
+	ErrUnavailable = sdkauth.ErrUnavailable
 )
 
 // TakeoverPendingError is ErrTakeoverPending with the registered candidate and the height the
