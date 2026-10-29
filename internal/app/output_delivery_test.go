@@ -34,6 +34,7 @@ func TestOutputDeliveryModuleOrder(t *testing.T) {
 				return nil
 			},
 		},
+		recordingLifecycle{name: "dispatch-stream", events: &events},
 		recordingLifecycle{name: "ingress", events: &events},
 	)
 	for _, module := range modules {
@@ -51,8 +52,10 @@ func TestOutputDeliveryModuleOrder(t *testing.T) {
 		func(name string, err error) { t.Errorf("stop %s: %v", name, err) },
 	)
 	want := []string{
-		"start:task-data", "start:relay", "start:coordinator", "start:output-delivery", "complete:output-recovery", "start:ingress",
-		"begin:ingress", "stop:output-delivery", "stop:ingress", "stop:coordinator", "stop:relay", "stop:task-data",
+		"start:task-data", "start:relay", "start:coordinator", "start:output-delivery", "complete:output-recovery",
+		"start:dispatch-stream", "start:ingress",
+		"begin:ingress", "stop:output-delivery", "stop:dispatch-stream", "stop:ingress", "stop:coordinator", "stop:relay",
+		"stop:task-data",
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("lifecycle order = %v, want %v", events, want)

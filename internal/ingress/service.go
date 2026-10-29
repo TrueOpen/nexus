@@ -95,6 +95,8 @@ type service struct {
 	taskData taskDataAPI
 	// outputStream non-nil means the streaming OUTPUT data plane is enabled (task_data.output_stream.enabled).
 	outputStream *outputStreamRuntime
+	// dispatchStream serves the Cortex dispatch streams (nil = Unimplemented).
+	dispatchStream dispatchStreamServer
 }
 
 type serviceOption func(*service)
