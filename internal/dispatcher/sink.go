@@ -65,6 +65,15 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		d.finish(ctx, out)
 		return fmt.Errorf("%w: accept of ticket %x after its deadline", ErrTicketClosed, a.Hash)
 	}
+	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && d.cfg.Sessions.Head() > entry.Deadline {
+		// The entry can no longer be recorded in time, and a late record is charged to this
+		// Builder: the ticket closes and the next step fails the order on its record deadline.
+		d.timeoutLocked(o, a, true)
+		out := d.step(ctx, o)
+		o.mu.Unlock()
+		d.finish(ctx, out)
+		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, entry.Deadline)
+	}
 	prev := cloneState(st)
 	a.Outcome = outcomeAccepted
 	st.Phase, st.Accept, st.AcceptDigest = phaseAccepted, from.Raw, append([]byte(nil), from.Digest[:]...)

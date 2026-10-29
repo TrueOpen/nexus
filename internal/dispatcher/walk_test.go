@@ -797,3 +797,31 @@ func TestBindingChangeBeforeTheFirstTicket(t *testing.T) {
 			ticket.GetBoundChangeHeight(), ticket.GetDispatchRound(), testBound+5)
 	}
 }
+
+// An accept that arrives once the head passed the order's record deadline cannot be recorded in
+// time (a late record is charged to the Builder): it is refused as DISPATCH_TICKET_CLOSED and the
+// order fails.
+func TestAcceptAfterTheRecordDeadlineFailsTheOrder(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, ticket, hash := e.lastOffer()
+	e.sessions.ObserveHeight(testDeadline + 1)
+	m, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
+		t.Fatalf("accept after the record deadline = %v, want DISPATCH_TICKET_CLOSED", err)
+	}
+	if got := e.observer.snapshot(); len(got.accepted) != 0 || len(got.failed) != 1 || !errors.Is(got.failed[0], ErrRecordDeadline) {
+		t.Fatalf("observed %+v", got)
+	}
+	if n := len(e.recorder.recorded()); n != 0 {
+		t.Fatalf("%d entries handed to the recorder", n)
+	}
+	if e.ledgerState(o) != inflight.StateFailed {
+		t.Fatal("the order is not failed")
+	}
+	if n := len(e.streams.offers()); n != 1 {
+		t.Fatalf("%d offers after the deadline", n)
+	}
+}
