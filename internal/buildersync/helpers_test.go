@@ -113,11 +113,15 @@ func (g *fakeGroups) CurrentBuilderSet() (taskgroup.Snapshot, bool) {
 type fakeRecords struct {
 	mu      sync.Mutex
 	records map[string]*taskv1.DispatchRecordState
+	err     error
 }
 
 func (f *fakeRecords) QueryDispatchRecordByOrder(_ context.Context, sessionID string, seq uint64) (*taskv1.DispatchRecordState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
 	rec, ok := f.records[streamKey(sessionID, seq)]
 	if !ok {
 		return nil, chaincli.ErrNotFound
@@ -409,10 +413,11 @@ func newFixture(e *env) *fixture {
 		raw, hash := signWith(t, e.d.key, ticketName, ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
 		f.tickets, f.hashes = append(f.tickets, raw), append(f.hashes, hash)
 	}
-	f.reject = mustMarshal(t, &taskv1.DispatchRejectV1{
+	reject := &taskv1.DispatchRejectV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash, DispatchTicketHash: f.hashes[0][:],
-		Member: memberRef(f.rejecter.op, 1), ServiceAuthorizationNonce: 1, ServiceSignature: bytes.Repeat([]byte{1}, 64),
-	})
+		Member: memberRef(f.rejecter.op, 1), ServiceAuthorizationNonce: 1,
+	}
+	f.reject, _ = signWith(t, f.rejecter.key, rejectName, reject, func(s []byte) { reject.ServiceSignature = s })
 	accept := &taskv1.DispatchAcceptV1{SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash,
 		DispatchTicketHash: f.hashes[1][:], Member: memberRef(e.worker.op, 3), ServiceAuthorizationNonce: 1}
 	f.accept, f.acceptDig = signWith(t, e.worker.key, acceptName, accept, func(s []byte) { accept.ServiceSignature = s })

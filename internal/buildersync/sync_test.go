@@ -306,6 +306,22 @@ func TestReceiverRefusesBadItems(t *testing.T) {
 		"roster": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
 			b.Items[0].GetRound().RosterHash = fill(0x01)
 		},
+		"round task_hash": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+			b.Items[0].GetRound().TaskHash = fill(0x02)
+			for _, item := range b.Items {
+				if c := item.GetInputChunk(); c != nil {
+					c.TaskHash = fill(0x02)
+				}
+			}
+		},
+		"input piece out of order": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+			for _, item := range b.Items {
+				if c := item.GetInputChunk(); c != nil && c.GetOffset() > 0 {
+					c.Offset++
+					break
+				}
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
@@ -439,5 +455,109 @@ func TestNonMemberCostsNoKeyLookup(t *testing.T) {
 	defer e.keys.mu.Unlock()
 	if len(e.keys.lookups) != 0 {
 		t.Fatalf("a made-up sender cost key lookups: %v", e.keys.lookups)
+	}
+}
+
+// A REJECTED attempt's reject must be the target's own: one the target did not sign is refused,
+// so a member never sends a rebuttal the chain would refuse.
+func TestReceiverChecksTheRejectSignature(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.peers.setFail(e.m.op, errors.New("held back"))
+	e.s.OrderChanged(f.issued())
+	e.s.OrderChanged(f.rejectedThenOut())
+	e.sync()
+	reqs := e.peers.requests[e.m.op]
+	var batch buildersyncv1.BuilderSyncBatchV1
+	if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range batch.Items {
+		if a := item.GetAttempt(); a != nil && len(a.Reject) > 0 {
+			var reject taskv1.DispatchRejectV1
+			_ = proto.Unmarshal(a.Reject, &reject)
+			a.Reject, _ = signWith(t, e.other.key, rejectName, &reject, func(s []byte) { reject.ServiceSignature = s })
+		}
+	}
+	resp, err := e.member.r.Sync(context.Background(), e.signed(&batch))
+	if err != nil || !strings.Contains(resp.GetRefused(), "reject") {
+		t.Fatalf("forged reject = %v, %v", resp, err)
+	}
+	e.peers.setFail(e.m.op, nil)
+	e.clock.advance(time.Minute)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if a := e.copyOf().Rounds[0].Attempts; len(a) != 2 || a[0].Outcome != outcomeRejected {
+		t.Fatalf("genuine reject = %+v", a)
+	}
+}
+
+// A winner later voided (a binding change) leaves no accept in the copy.
+func TestVoidedWinnerDropsTheAccept(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.s.OrderChanged(f.accepted())
+	e.sync()
+	if len(e.copyOf().Accept) == 0 {
+		t.Fatal("accept not synced")
+	}
+	voided := f.rejectedThenOut()
+	voided.Rounds[0].Attempts[1].Outcome = taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED
+	e.s.OrderChanged(voided)
+	e.sync()
+	if c := e.copyOf(); len(c.Accept) != 0 || c.Rounds[0].Attempts[1].Outcome != taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED {
+		t.Fatalf("copy after the void = accept %x, attempts %+v", c.Accept, c.Rounds[0].Attempts)
+	}
+}
+
+// An input over what this member can store is not held, and the rest of the order still syncs:
+// the input copy is a fallback, the evidence is a duty.
+func TestOversizedInputDoesNotStopTheOrder(t *testing.T) {
+	e := newEnv(t)
+	small := e.newMember(e.m)
+	small.r.cfg.MaxInputBytes = 4
+	e.member = small
+	e.peers.receivers[e.m.op] = small.r
+	e.s.OrderChanged(e.fx.rejectedThenOut())
+	e.sync()
+	if c := e.copyOf(); c == nil || len(c.Rounds[0].Attempts) != 2 {
+		t.Fatalf("copy with an oversized input = %+v", c)
+	}
+	m, _, _ := small.r.loadMember(memberKey(e.d.op, e.fx.sessionHex(), e.fx.sequence))
+	if in := m.Inputs[hexOf(e.fx.taskHash)]; in == nil || in.Stored || !in.Skipped {
+		t.Fatalf("oversized input = %+v", in)
+	}
+}
+
+// A Fin the winner did not sign is refused and does not seal the replica.
+func TestReceiverRefusesAForgedFin(t *testing.T) {
+	e := newEnv(t)
+	batch := e.recordedBatch([]string{"hello, "})
+	if batch.Output.Fin == nil {
+		t.Fatal("no fin in the batch")
+	}
+	batch.Output.Fin.WorkerSignature = bytes.Repeat([]byte{1}, 64)
+	resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+	if err != nil || !strings.Contains(resp.GetRefused(), "fin") || resp.GetOutputSealed() || !resp.GetOutputReceived() {
+		t.Fatalf("forged fin = %v, %v", resp, err)
+	}
+}
+
+// A chain read that fails is not a refusal of the order: the member answers it cannot judge yet,
+// and takes the order once the chain answers.
+func TestOrderWaitsForAReadableChain(t *testing.T) {
+	e := newEnv(t)
+	batch := e.recordedBatch([]string{"hello, "})
+	e.records.mu.Lock()
+	e.records.err = errors.New("node unreachable")
+	e.records.mu.Unlock()
+	resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+	if err != nil || !strings.Contains(resp.GetRefused(), "UNAVAILABLE") || e.copyOf().Recorded {
+		t.Fatalf("unreadable chain = %v, %v", resp, err)
+	}
+	e.records.mu.Lock()
+	e.records.err = nil
+	e.records.mu.Unlock()
+	if resp, err = e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" || !e.copyOf().Recorded {
+		t.Fatalf("readable chain = %v, %v", resp, err)
 	}
 }

@@ -293,7 +293,7 @@ func (r *Receiver) apply(ctx context.Context, m *memberStream, in *incoming, ite
 	case *buildersyncv1.BuilderSyncItemV1_InputChunk:
 		err = r.applyInput(ctx, next, it.InputChunk)
 	case *buildersyncv1.BuilderSyncItemV1_Attempt:
-		err = r.applyAttempt(next, in, it.Attempt)
+		err = r.applyAttempt(ctx, next, in, it.Attempt)
 	case *buildersyncv1.BuilderSyncItemV1_Record:
 		err = r.applyRecord(next, in, it.Record)
 	case *buildersyncv1.BuilderSyncItemV1_Order:
@@ -407,14 +407,17 @@ func (r *Receiver) applyInput(ctx context.Context, m *memberStream, c *buildersy
 	if len(c.GetTaskHash()) != 32 || len(c.GetInputHash()) != 32 {
 		return errors.New("input task_hash or input_hash is not 32 bytes")
 	}
-	if c.GetInputSizeBytes() > r.cfg.MaxInputBytes {
-		return fmt.Errorf("input of %d bytes is over the %d byte bound", c.GetInputSizeBytes(), r.cfg.MaxInputBytes)
-	}
 	taskHash := hex.EncodeToString(c.GetTaskHash())
 	input := m.Inputs[taskHash]
 	if input == nil {
-		input = &memberInput{InputHash: c.GetInputHash(), Size: c.GetInputSizeBytes()}
+		// An input over what this Builder stores is not held; the rest of the order still syncs, since
+		// the input copy is only a fallback for the Worker.
+		input = &memberInput{InputHash: c.GetInputHash(), Size: c.GetInputSizeBytes(), Skipped: c.GetInputSizeBytes() > r.cfg.MaxInputBytes}
 		m.Inputs[taskHash] = input
+		if input.Skipped {
+			r.log.Warn("synced input is over what this Builder stores; it is not held", "order", m.key(), "task_hash", taskHash,
+				"size", input.Size, "max", r.cfg.MaxInputBytes)
+		}
 	}
 	switch {
 	case input.Stored:
@@ -429,6 +432,9 @@ func (r *Receiver) applyInput(ctx context.Context, m *memberStream, c *buildersy
 		return errors.New("empty input piece")
 	}
 	input.Received += uint64(len(c.GetData()))
+	if input.Skipped {
+		return r.store(m)
+	}
 	if input.Received < input.Size {
 		input.Offsets = append(input.Offsets, c.GetOffset())
 		piece := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: inputPieceKey(m.key(), taskHash, c.GetOffset()), Val: c.GetData()}
@@ -468,7 +474,7 @@ func (r *Receiver) applyInput(ctx context.Context, m *memberStream, c *buildersy
 
 // applyAttempt adds or updates a ticket in the copy: signed by the sender for this order, in a
 // round held with its roster_hash and root, with the answers its target gave.
-func (r *Receiver) applyAttempt(m *memberStream, in *incoming, a *buildersyncv1.BuilderSyncAttemptV1) error {
+func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incoming, a *buildersyncv1.BuilderSyncAttemptV1) error {
 	var ticket taskv1.DispatchTicketV1
 	if err := proto.Unmarshal(a.GetTicket(), &ticket); err != nil {
 		return fmt.Errorf("ticket: %w", err)
@@ -483,6 +489,9 @@ func (r *Receiver) applyAttempt(m *memberStream, in *incoming, a *buildersyncv1.
 	}
 	if o == nil {
 		return errors.New("ticket of a round not held")
+	}
+	if hex.EncodeToString(ticket.GetTaskHash()) != o.TaskHash {
+		return errors.New("ticket's task_hash is not its round's")
 	}
 	round, held := o.Round(ticket.GetDispatchRound())
 	if !held || !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
@@ -504,6 +513,15 @@ func (r *Receiver) applyAttempt(m *memberStream, in *incoming, a *buildersyncv1.
 			reject.GetMember().GetOperatorAddress() != target {
 			return errors.New("reject is not the target's reject of the ticket")
 		}
+		// A rebuttal carries the reject: one its target did not sign would only cost a refused tx.
+		targetKey, err := r.serviceKey(ctx, servicekey.ParticipantCortex, target)
+		if err != nil {
+			return fmt.Errorf("reject signer: %w", err)
+		}
+		digest, err := signingDigest(rejectName, a.GetReject())
+		if err != nil || dispatch.VerifyDigestSignature(targetKey, digest[:], reject.GetServiceSignature()) != nil {
+			return errors.New("reject is not signed by the ticket's target")
+		}
 	}
 	for _, raw := range [][]byte{a.GetLateAccept(), a.GetAccept()} {
 		if len(raw) == 0 {
@@ -520,6 +538,12 @@ func (r *Receiver) applyAttempt(m *memberStream, in *incoming, a *buildersyncv1.
 			return errors.New("ACCEPTED attempt without its accept")
 		}
 		o.Accept = a.GetAccept()
+	} else if len(o.Accept) > 0 {
+		// A winner voided by a binding change is no winner any more.
+		var accept taskv1.DispatchAcceptV1
+		if proto.Unmarshal(o.Accept, &accept) == nil && bytes.Equal(accept.GetDispatchTicketHash(), hash[:]) {
+			o.Accept = nil
+		}
 	}
 	attempt := dispatchevidence.Attempt{
 		Ticket: a.GetTicket(), Hash: hash[:], Rank: ticket.GetRank(), Operator: target, Sent: a.GetSent(), Outcome: a.GetOutcome(),
@@ -578,6 +602,9 @@ func (r *Receiver) applyRecord(m *memberStream, in *incoming, rec *buildersyncv1
 	}
 	if o == nil {
 		return errors.New("record of an order version not held")
+	}
+	if hex.EncodeToString(record.GetTaskHash()) != o.TaskHash {
+		return errors.New("record's task_hash is not its rounds'")
 	}
 	o.Record = rec.GetRecord()
 	return r.put(o, m)

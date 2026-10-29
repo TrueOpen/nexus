@@ -46,6 +46,7 @@ const schemaVersion = 1
 const (
 	ticketName       = "task.v1.DispatchTicketV1"
 	acceptName       = "task.v1.DispatchAcceptV1"
+	rejectName       = "task.v1.DispatchRejectV1"
 	recordName       = "task.v1.DispatchRecordV1"
 	rootName         = "task.v1.SignedHandraiseRootV1"
 	resultHeaderName = "nexus.v1.DispatchResultHeaderV1"

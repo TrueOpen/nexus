@@ -40,6 +40,8 @@ type memberInput struct {
 	Received  uint64   `json:"received"`
 	Offsets   []uint64 `json:"offsets,omitempty"`
 	Stored    bool     `json:"stored,omitempty"`
+	// Skipped is set for an input over what this Builder stores: its pieces are taken and dropped.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // memberWinner is the recorded winner of a synced order: what a member's output replica and
