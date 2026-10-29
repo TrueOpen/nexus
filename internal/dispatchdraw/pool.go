@@ -1,6 +1,7 @@
 package dispatchdraw
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -100,7 +101,7 @@ func BuildPool(ctx context.Context, chainID string, src PoolSource, ep Epoch, pr
 		if !view.GetInPool() || view.GetSlot() != m.GetCandidateSlot() || view.GetSlotVersion() != m.GetSlotVersion() {
 			return nil, fmt.Errorf("candidate pool member %s: snapshot views disagree on its slot", m.GetOperatorAddress())
 		}
-		eligible, err := eligibleForProfile(view)
+		eligible, err := eligibleForProfile(view, profile)
 		if err != nil {
 			return nil, fmt.Errorf("candidate pool member %s: %w", m.GetOperatorAddress(), err)
 		}
@@ -122,21 +123,64 @@ func BuildPool(ctx context.Context, chainID string, src PoolSource, ep Epoch, pr
 	return pool, nil
 }
 
-func eligibleForProfile(view *hubv1.CandidatePoolSnapshotMemberViewV1) (bool, error) {
+// eligibleForProfile applies the pool conditions for one (model_id, profile_version). Support,
+// minimum stake and inference capability are facts of that profile, so they are read from its
+// weight_inputs.profiles entry; a member without an entry is not in the pool. The view's top-level
+// copies, when present, must agree with the entry: a pool built from contradicting facts could
+// differ from the chain's by one member, and either direction fails a challenge.
+func eligibleForProfile(view *hubv1.CandidatePoolSnapshotMemberViewV1, profile Profile) (bool, error) {
 	in := view.GetWeightInputs()
-	if in == nil || !view.GetProfileSupportFresh() || view.GetCandidateWeight() == 0 ||
-		!in.GetInferenceCapable() || in.GetUnbonding() || in.GetTombstoned() || in.GetCandidateJailFactorPpm() == 0 {
+	if in == nil || view.GetCandidateWeight() == 0 {
+		return false, nil
+	}
+	entry, err := profileEntry(in, profile)
+	if err != nil || entry == nil {
+		return false, err
+	}
+	if view.ProfileSupportFresh != nil && view.GetProfileSupportFresh() != entry.GetProfileSupportFresh() {
+		return false, fmt.Errorf("profile_support_fresh disagrees with the profile entry")
+	}
+	if entry.GetInferenceCapable() && !in.GetInferenceCapable() {
+		return false, fmt.Errorf("profile is inference capable but the member is not")
+	}
+	minStake, err := atomicUnits(entry.GetMinStakeSnapshot())
+	if err != nil {
+		return false, fmt.Errorf("min stake: %w", err)
+	}
+	if view.MinStakeSnapshot != nil {
+		top, err := atomicUnits(view.GetMinStakeSnapshot())
+		if err != nil {
+			return false, fmt.Errorf("min stake: %w", err)
+		}
+		if top.Cmp(minStake) != 0 {
+			return false, fmt.Errorf("min_stake_snapshot disagrees with the profile entry")
+		}
+	}
+	if !entry.GetProfileSupportFresh() || !entry.GetInferenceCapable() ||
+		in.GetUnbonding() || in.GetTombstoned() || in.GetCandidateJailFactorPpm() == 0 {
 		return false, nil
 	}
 	available, err := atomicUnits(in.GetAvailableBond())
 	if err != nil {
 		return false, fmt.Errorf("available bond: %w", err)
 	}
-	minStake, err := atomicUnits(view.GetMinStakeSnapshot())
-	if err != nil {
-		return false, fmt.Errorf("min stake: %w", err)
-	}
 	return available.Cmp(minStake) >= 0, nil
+}
+
+// profileEntry returns the weight inputs of profile, or nil when the member has none. Two entries
+// for one profile are a malformed view.
+func profileEntry(in *hubv1.CandidateWeightInputsV1, profile Profile) (*hubv1.CandidateProfileWeightInputV1, error) {
+	var found *hubv1.CandidateProfileWeightInputV1
+	for _, e := range in.GetProfiles() {
+		if e.GetProfileVersion() != profile.Version || !bytes.Equal(e.GetModelId(), profile.ModelID[:]) {
+			continue
+		}
+		if found != nil {
+			return nil, fmt.Errorf("duplicate weight inputs for the profile")
+		}
+		found = e
+	}
+	return found, nil
 }
 
 // atomicUnits parses a canonical unsigned decimal amount: digits only, no leading zero.

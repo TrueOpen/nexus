@@ -184,6 +184,11 @@ func amount(units string) *sharedv1.Amount { return &sharedv1.Amount{AtomicUnits
 // eligibleView is a member view that passes every pool condition, with the given frozen weight.
 // The weight inputs deliberately do not derive that weight: the pool must take candidate_weight.
 func eligibleView(slot uint32, version, weight uint64, fresh bool) *hubv1.CandidatePoolSnapshotMemberViewV1 {
+	return eligibleViewFor(vectorProfile, slot, version, weight, fresh)
+}
+
+// eligibleViewFor is eligibleView for profile.
+func eligibleViewFor(profile Profile, slot uint32, version, weight uint64, fresh bool) *hubv1.CandidatePoolSnapshotMemberViewV1 {
 	return &hubv1.CandidatePoolSnapshotMemberViewV1{
 		InPool:      true,
 		Slot:        slot,
@@ -196,6 +201,10 @@ func eligibleView(slot uint32, version, weight uint64, fresh bool) *hubv1.Candid
 			PerformanceMethodVersion: 1,
 			CandidateJailFactorPpm:   1_000_000,
 			InferenceCapable:         true,
+			Profiles: []*hubv1.CandidateProfileWeightInputV1{{
+				ModelId: profile.ModelID[:], ProfileVersion: profile.Version,
+				ProfileSupportFresh: fresh, MinStakeSnapshot: amount("500"), InferenceCapable: true,
+			}},
 		},
 		ProfileSupportFresh: &fresh,
 		MinStakeSnapshot:    amount("500"),
