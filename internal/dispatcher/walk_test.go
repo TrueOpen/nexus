@@ -170,7 +170,7 @@ func TestAcceptStopsTheWalk(t *testing.T) {
 		t.Fatal("the offer does not carry the signed order")
 	}
 	roster, err := dispatchdraw.BuildRoster(testChainID, [32]byte(mustHex(o.TaskID)), e.handraises.root,
-		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap, nil)
+		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,24 +513,34 @@ func TestOwnRotationPendingIssuesNoTickets(t *testing.T) {
 	}
 }
 
-// A Cortex with a pending key rotation is left out of the roster; one that becomes pending or
-// disconnects after the roster was built gets a ticket that times out unsent, so the round still
-// has an attempt for every roster member before the winner.
+// A Cortex with a pending key rotation stays in the roster, which holds exactly the members the
+// bound root admits (anything less loses an omission challenge): it, like a member that becomes
+// pending or disconnects later, gets a ticket that times out unsent, so the round still has an
+// attempt for every roster member before the winner.
 func TestUnreachableMembers(t *testing.T) {
 	e := newEnv(t)
 	e.keys.cortexPended[op7] = true
 	s := e.session(0xaa, 0)
-	e.dispatch(e.order(s, 0, 1))
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
 	op, ticket, _ := e.lastOffer()
 	if op != op1 || ticket.GetRank() != 1 {
 		t.Fatalf("first offer to %s rank %d, want op1 rank 1", op, ticket.GetRank())
+	}
+	full, err := dispatchdraw.BuildRoster(testChainID, [32]byte(mustHex(o.TaskID)), e.handraises.root,
+		dispatchdraw.NewPool(testEpoch, testProfile, poolMembers), testESH, testRosterCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(ticket.GetRosterHash(), full.Hash[:]) {
+		t.Fatal("the pending member was left out of the roster")
 	}
 	e.keys.mu.Lock()
 	e.keys.cortexPended[op3] = true
 	e.keys.mu.Unlock()
 	e.reject()
 	if n := len(e.streams.offers()); n != 1 {
-		t.Fatalf("%d offers: the pending member must not be offered", n)
+		t.Fatalf("%d offers: the pending members must not be offered", n)
 	}
 	if got := e.observer.snapshot().failed; len(got) != 1 || !errors.Is(got[0], dispatchdraw.ErrNoCapacity) {
 		t.Fatalf("failed = %v", got)

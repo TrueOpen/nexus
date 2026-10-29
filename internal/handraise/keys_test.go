@@ -75,7 +75,7 @@ func TestChainServiceKeys(t *testing.T) {
 	if _, nonce, err := keys.CurrentCortexKey(context.Background(), cortexOperator); err != nil || nonce != 9 {
 		t.Fatalf("cortex key with a pending rotation = %d, %v", nonce, err)
 	}
-	// ...but takes no new Worker duty: dispatch leaves it out of rosters.
+	// ...but takes no new Worker duty: dispatch times its tickets out unsent.
 	if pending, err := keys.CortexRotationPending(context.Background(), cortexOperator); err != nil || !pending {
 		t.Fatalf("CortexRotationPending = %v, %v; want true", pending, err)
 	}

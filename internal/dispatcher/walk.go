@@ -218,8 +218,7 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		}
 	}
 	root, _ := d.cfg.Handraises.LatestRoot()
-	roster, err := dispatchdraw.BuildRoster(d.cfg.ChainID, [32]byte(mustHex(st.TaskID)), root, draw.Pool, head, params.MaxRosterBytes,
-		func(operator string) bool { return d.cortexPending(ctx, operator) })
+	roster, err := dispatchdraw.BuildRoster(d.cfg.ChainID, [32]byte(mustHex(st.TaskID)), root, draw.Pool, head, params.MaxRosterBytes)
 	if err != nil {
 		return false, d.fail(o, err)
 	}
@@ -254,15 +253,15 @@ func nextRound(st *orderState) uint32 {
 func (d *Dispatcher) cortexPending(ctx context.Context, operator string) bool {
 	pending, err := d.cfg.Keys.CortexRotationPending(ctx, operator)
 	if err != nil {
-		d.log.Warn("Cortex key unreadable; left out of the dispatch", "operator", operator, "err", err)
+		d.log.Warn("Cortex key unreadable; its ticket times out unsent", "operator", operator, "err", err)
 		return true
 	}
 	return pending
 }
 
 // issue signs the ticket of cand, stores it and offers it. A member that cannot be reached now
-// (no stream, or its key rotation became pending after the roster was built) still gets its
-// ticket, which times out at once: every roster member ranked before the winner must have an
+// (no stream, or its key rotation is pending: the chain refuses a dispatch entry naming it as
+// winner) still gets its ticket, which times out at once: every roster member ranked before the winner must have an
 // attempt. It reports whether a ticket went out. Caller holds o.mu.
 func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Candidate) (bool, error) {
 	st := o.st

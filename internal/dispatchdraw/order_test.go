@@ -253,7 +253,7 @@ func rosterOf(t *testing.T, pool *Pool, operators ...string) *Roster {
 		}
 		leaves = append(leaves, leaf(op, m.Slot, true, 1, 200, vectorProfile))
 	}
-	roster, err := BuildRoster(vectorChainID, vectorTaskID, issuedRoot(leaves...), pool, 150, 1<<20, nil)
+	roster, err := BuildRoster(vectorChainID, vectorTaskID, issuedRoot(leaves...), pool, 150, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
