@@ -396,7 +396,7 @@ func (od *orderDispatch) evidenceRetention(o *dispatchevidence.Order) uint64 {
 // handed to the group sync, which then sends the members the user's order.
 type syncedAttempts struct {
 	*attempt.Book
-	sync *buildersync.Sender
+	sync interface{ Recorded(attempt.Attempt) }
 }
 
 // Recorded implements recorder.Attempts.
