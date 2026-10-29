@@ -297,3 +297,23 @@ func TestEpochLengthUnsupportedIsWarnedOnce(t *testing.T) {
 		t.Fatalf("warnings = %d, want 1:\n%s", n, logs.String())
 	}
 }
+
+// A chain client that has no epoch length read (stub mode) is reported once and not read again,
+// unlike a temporary failure.
+func TestEpochLengthNotSupportedOnChainIsWarnedOnce(t *testing.T) {
+	c, _ := newTestCoordinator(t)
+	var logs bytes.Buffer
+	c.log = slog.New(slog.NewTextHandler(&logs, nil))
+	query := &epochSelection{err: fmt.Errorf("epoch length: %w", chaincli.ErrNotSupportedOnChain)}
+	c.selection = query
+	for range 3 {
+		c.epochTriedAt.Store(0) // past the retry pause
+		c.refreshEpochLength(context.Background())
+	}
+	if query.calls != 1 {
+		t.Fatalf("hub reads = %d, want 1", query.calls)
+	}
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 || !strings.Contains(logs.String(), "cannot read the hub epoch length") {
+		t.Fatalf("warnings = %d, want the one-time warning:\n%s", n, logs.String())
+	}
+}
