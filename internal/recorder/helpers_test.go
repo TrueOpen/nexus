@@ -28,6 +28,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -147,6 +148,10 @@ func (c *fakeChain) QueryDispatchRecordByOrder(_ context.Context, sessionID stri
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.queries++
+	// As the client: the session id must be a Hash32; any sequence, 0 included, is asked.
+	if _, err := nodecontract.Hash32Bytes("session_id", sessionID); err != nil {
+		return nil, fmt.Errorf("query dispatch record: %w", err)
+	}
 	if c.recordErr != nil {
 		return nil, c.recordErr
 	}

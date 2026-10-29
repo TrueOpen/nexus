@@ -423,3 +423,20 @@ func TestWithdrawBeforeRecord(t *testing.T) {
 		t.Fatalf("submitted %v", entriesOf(msg))
 	}
 }
+
+// A session's first order has sequence 0: past its deadline it is resolved by the dispatch record
+// query like any other.
+func TestSequenceZeroPastTheDeadlineIsResolvedByQuery(t *testing.T) {
+	e := newEnv(t)
+	recorded, late := bundle(0xaa, 0, 1, 20), bundle(0xbb, 0, 2, 20)
+	e.record(recorded, late)
+	e.block(10)
+	e.chain.records[orderKey{recorded.SessionID, 0}] = &taskv1.DispatchRecordState{DispatchTicketHash: fill(1), RecordedHeight: 12}
+	e.block(21)
+	if want := []taskReport{{taskID: recorded.TaskID, height: 12}}; !reflect.DeepEqual(e.tasks.recorded, want) {
+		t.Fatalf("recorded = %v", e.tasks.recorded)
+	}
+	if want := []taskReport{{taskID: late.TaskID, code: codeLate}}; !reflect.DeepEqual(e.tasks.rejected, want) {
+		t.Fatalf("rejected = %v", e.tasks.rejected)
+	}
+}
