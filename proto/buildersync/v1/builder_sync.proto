@@ -43,6 +43,9 @@ message SyncResponse {
   // refused names why the receiver stopped before the end of the batch; empty when it applied
   // everything.
   string refused = 5;
+  // output_not_held is set by a receiver that keeps no output replicas (it does not serve streamed
+  // output): the sender stops sending it output frames.
+  bool output_not_held = 6;
 }
 
 // BuilderSyncBatchV1 is a run of consecutive items of one order's sync stream, addressed to one
@@ -91,6 +94,9 @@ message BuilderSyncRoundV1 {
   bytes handraise_root = 7;
   // earliest_submit_height is the order's; claims on the order's tickets open from it.
   uint64 earliest_submit_height = 8;
+  // user_address is the order's user, the only one a member answers about the task before the
+  // order itself is synced.
+  string user_address = 9;
 }
 
 // BuilderSyncInputChunkV1 is a piece of the order version's input, sent with its first round.

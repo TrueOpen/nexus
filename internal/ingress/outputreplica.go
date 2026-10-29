@@ -35,9 +35,9 @@ var errSessionUnbound = connect.NewError(connect.CodeFailedPrecondition,
 	errors.New("NEXUS_INGRESS_SESSION_UNBOUND: this Builder is not the task's dispatching Builder and the chain has not recorded the task's dispatch yet"))
 
 // serveReplica serves a task's output from the replica this Builder holds as a member of its
-// Task Builders group, when it holds no attempt of the task itself. Before the chain recorded
-// the order a member does not serve it (NEXUS_INGRESS_SESSION_UNBOUND). After, only the order
-// user is served, and only for the recorded winner's ticket, which the request must name
+// Task Builders group, when it holds no attempt of the task itself. Only the order user is
+// answered. Before the chain recorded the order a member does not serve it
+// (NEXUS_INGRESS_SESSION_UNBOUND); after, it serves the recorded winner's ticket, which the request must name
 // (NEXUS_INGRESS_ATTEMPT_STALE otherwise): the dispatching Builder's RECORDED header first, the
 // stored frames after the cursor, then the frames as they are synced in, until the Fin. handled
 // is false when the task is not this member's to serve.
@@ -54,11 +54,12 @@ func (s *service) serveReplica(ctx context.Context, ids taskIDs, requester strin
 	if !held {
 		return false, nil
 	}
+	// The user is checked first: no one else learns whether the order was recorded.
 	switch {
-	case replica.Status != attempt.Recorded:
-		return true, errSessionUnbound
 	case replica.User == "" || replica.User != requester:
 		return true, connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_OUTPUT_UNAUTHORIZED: only the order user may read this task"))
+	case replica.Status != attempt.Recorded:
+		return true, errSessionUnbound
 	case ticket == nil || !bytes.Equal(ticket, replica.TicketHash[:]):
 		return true, errAttemptStale
 	}

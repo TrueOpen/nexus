@@ -13,10 +13,12 @@ import (
 // memberStream is how far this Builder, as a group member, applied the sync stream of one order
 // from its dispatching Builder.
 type memberStream struct {
-	Sender         string `json:"sender"`
-	SessionID      string `json:"session_id"`
-	Sequence       uint64 `json:"sequence"`
-	TaskID         string `json:"task_id,omitempty"`
+	Sender    string `json:"sender"`
+	SessionID string `json:"session_id"`
+	Sequence  uint64 `json:"sequence"`
+	TaskID    string `json:"task_id,omitempty"`
+	// User is the order's user_address as the rounds name it; the synced order must agree.
+	User           string `json:"user,omitempty"`
 	BuilderSetID   string `json:"builder_set_id"`
 	BuilderSetHash []byte `json:"builder_set_hash"`
 	// Applied is the last item sequence applied.
@@ -125,7 +127,7 @@ func (r *Receiver) Replica(sessionID, taskID string) (attempt.Attempt, bool) {
 	if !found {
 		return attempt.Attempt{}, false
 	}
-	a := attempt.Attempt{SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Status: attempt.Pending}
+	a := attempt.Attempt{SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Status: attempt.Pending, User: m.User}
 	if !m.Recorded || m.Winner == nil {
 		return a, true
 	}

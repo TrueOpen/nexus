@@ -93,7 +93,10 @@ type SyncResponse struct {
 	OutputSealed bool `protobuf:"varint,4,opt,name=output_sealed,json=outputSealed,proto3" json:"output_sealed,omitempty"`
 	// refused names why the receiver stopped before the end of the batch; empty when it applied
 	// everything.
-	Refused       string `protobuf:"bytes,5,opt,name=refused,proto3" json:"refused,omitempty"`
+	Refused string `protobuf:"bytes,5,opt,name=refused,proto3" json:"refused,omitempty"`
+	// output_not_held is set by a receiver that keeps no output replicas (it does not serve streamed
+	// output): the sender stops sending it output frames.
+	OutputNotHeld bool `protobuf:"varint,6,opt,name=output_not_held,json=outputNotHeld,proto3" json:"output_not_held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -161,6 +164,13 @@ func (x *SyncResponse) GetRefused() string {
 		return x.Refused
 	}
 	return ""
+}
+
+func (x *SyncResponse) GetOutputNotHeld() bool {
+	if x != nil {
+		return x.OutputNotHeld
+	}
+	return false
 }
 
 // BuilderSyncBatchV1 is a run of consecutive items of one order's sync stream, addressed to one
@@ -440,8 +450,11 @@ type BuilderSyncRoundV1 struct {
 	HandraiseRoot []byte `protobuf:"bytes,7,opt,name=handraise_root,json=handraiseRoot,proto3" json:"handraise_root,omitempty"`
 	// earliest_submit_height is the order's; claims on the order's tickets open from it.
 	EarliestSubmitHeight uint64 `protobuf:"varint,8,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// user_address is the order's user, the only one a member answers about the task before the
+	// order itself is synced.
+	UserAddress   string `protobuf:"bytes,9,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuilderSyncRoundV1) Reset() {
@@ -528,6 +541,13 @@ func (x *BuilderSyncRoundV1) GetEarliestSubmitHeight() uint64 {
 		return x.EarliestSubmitHeight
 	}
 	return 0
+}
+
+func (x *BuilderSyncRoundV1) GetUserAddress() string {
+	if x != nil {
+		return x.UserAddress
+	}
+	return ""
 }
 
 // BuilderSyncInputChunkV1 is a piece of the order version's input, sent with its first round.
@@ -901,13 +921,14 @@ const file_buildersync_v1_builder_sync_proto_rawDesc = "" +
 	"!buildersync/v1/builder_sync.proto\x12\x0ebuildersync.v1\x1a\x16nexus/v1/ingress.proto\x1a\x16task/v1/dispatch.proto\"N\n" +
 	"\vSyncRequest\x12\x14\n" +
 	"\x05batch\x18\x01 \x01(\fR\x05batch\x12)\n" +
-	"\x10sender_signature\x18\x02 \x01(\fR\x0fsenderSignature\"\xc7\x01\n" +
+	"\x10sender_signature\x18\x02 \x01(\fR\x0fsenderSignature\"\xef\x01\n" +
 	"\fSyncResponse\x12'\n" +
 	"\x0fapplied_through\x18\x01 \x01(\x04R\x0eappliedThrough\x12'\n" +
 	"\x0foutput_received\x18\x02 \x01(\bR\x0eoutputReceived\x12&\n" +
 	"\x0foutput_last_seq\x18\x03 \x01(\x04R\routputLastSeq\x12#\n" +
 	"\routput_sealed\x18\x04 \x01(\bR\foutputSealed\x12\x18\n" +
-	"\arefused\x18\x05 \x01(\tR\arefused\"\xe6\x03\n" +
+	"\arefused\x18\x05 \x01(\tR\arefused\x12&\n" +
+	"\x0foutput_not_held\x18\x06 \x01(\bR\routputNotHeld\"\xe6\x03\n" +
 	"\x12BuilderSyncBatchV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x126\n" +
@@ -930,7 +951,7 @@ const file_buildersync_v1_builder_sync_proto_rawDesc = "" +
 	"\aattempt\x18\x04 \x01(\v2$.buildersync.v1.BuilderSyncAttemptV1H\x00R\aattempt\x12=\n" +
 	"\x06record\x18\x05 \x01(\v2#.buildersync.v1.BuilderSyncRecordV1H\x00R\x06record\x12:\n" +
 	"\x05order\x18\x06 \x01(\v2\".buildersync.v1.BuilderSyncOrderV1H\x00R\x05orderB\x06\n" +
-	"\x04item\"\xa4\x02\n" +
+	"\x04item\"\xc7\x02\n" +
 	"\x12BuilderSyncRoundV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x02 \x01(\fR\btaskHash\x12\x1b\n" +
@@ -940,7 +961,8 @@ const file_buildersync_v1_builder_sync_proto_rawDesc = "" +
 	"\vroster_hash\x18\x06 \x01(\fR\n" +
 	"rosterHash\x12%\n" +
 	"\x0ehandraise_root\x18\a \x01(\fR\rhandraiseRoot\x124\n" +
-	"\x16earliest_submit_height\x18\b \x01(\x04R\x14earliestSubmitHeight\"\xca\x01\n" +
+	"\x16earliest_submit_height\x18\b \x01(\x04R\x14earliestSubmitHeight\x12!\n" +
+	"\fuser_address\x18\t \x01(\tR\vuserAddress\"\xca\x01\n" +
 	"\x17BuilderSyncInputChunkV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\fR\btaskHash\x12\x1d\n" +
 	"\n" +

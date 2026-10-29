@@ -355,6 +355,9 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *buildersyncv
 	if m.TaskID != "" && m.TaskID != taskID {
 		return fmt.Errorf("round names task %s, the order's is %s", taskID, m.TaskID)
 	}
+	if round.GetUserAddress() == "" || m.User != "" && m.User != round.GetUserAddress() {
+		return errors.New("round names no user, or another user than the order's earlier rounds")
+	}
 	candidate := dispatchevidence.Round{Number: round.GetDispatchRound(), Roster: round.GetRoster(), RosterHash: round.GetRosterHash()}
 	check := &dispatchevidence.Order{Rounds: []dispatchevidence.Round{candidate}}
 	if _, ok := check.RosterFor(r.cfg.ChainID, candidate.Number, candidate.RosterHash); !ok {
@@ -393,7 +396,7 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *buildersyncv
 	o.DeadlineBase = max(o.DeadlineBase, round.GetEarliestSubmitHeight())
 	o.Rounds = append(o.Rounds, candidate)
 	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
-	m.TaskID = taskID
+	m.TaskID, m.User = taskID, round.GetUserAddress()
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + taskID, Val: []byte(m.key())}
 	return r.put(o, m, index)
 }
@@ -619,8 +622,9 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	}
 	order := signed.GetOrder()
 	if hex.EncodeToString(order.GetSessionId()) != m.SessionID || order.GetOrderSequence() != m.Sequence ||
-		order.GetBuilderSetId() != m.BuilderSetID || !bytes.Equal(order.GetBuilderSetHash(), m.BuilderSetHash) {
-		return errors.New("signed order is not this order of the group's BuilderSet")
+		order.GetBuilderSetId() != m.BuilderSetID || !bytes.Equal(order.GetBuilderSetHash(), m.BuilderSetHash) ||
+		order.GetUserAddress() != m.User {
+		return errors.New("signed order is not this order of the group's BuilderSet and user")
 	}
 	var header nexusv1.DispatchResultHeaderV1
 	if err := proto.Unmarshal(item.GetResultHeader(), &header); err != nil {

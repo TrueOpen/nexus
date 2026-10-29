@@ -39,7 +39,7 @@ func TestSyncContentsAndTiming(t *testing.T) {
 	if meta, err := e.member.data.Metadata(context.Background(), inputKey); err != nil || meta.State != taskdata.StateReady {
 		t.Fatalf("input copy = %+v, %v", meta, err)
 	}
-	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Pending || a.Header != nil {
+	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Pending || a.Header != nil || a.User != "trueopen1user" {
 		t.Fatalf("replica before the record = %+v, %v", a, held)
 	}
 

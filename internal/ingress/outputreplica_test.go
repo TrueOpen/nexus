@@ -35,7 +35,7 @@ func memberSubscription(t *testing.T, status attempt.Status) (*subscription, [32
 	t.Helper()
 	s := newSubscription(t)
 	ticket := [32]byte(bytes.Repeat([]byte{0x7b}, 32))
-	a := attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Pending}
+	a := attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Pending, User: s.owner}
 	if status == attempt.Recorded {
 		header, err := proto.Marshal(&nexusv1.DispatchResultHeaderV1{
 			Accept: &taskv1.DispatchAcceptV1{DispatchTicketHash: ticket[:]}, RecordStatus: attempt.Recorded,
@@ -49,9 +49,13 @@ func memberSubscription(t *testing.T, status attempt.Status) (*subscription, [32
 	return s, ticket
 }
 
-// Before the chain recorded the order a member does not serve its output: SESSION_UNBOUND.
+// Before the chain recorded the order a member does not serve its output: SESSION_UNBOUND, told
+// only to the order user.
 func TestMemberResumeBeforeTheRecord(t *testing.T) {
 	s, ticket := memberSubscription(t, attempt.Pending)
+	if err := s.serve(context.Background(), "trueopen1someoneelse", nil, ticket[:]).end(); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("another requester before the record: %v", err)
+	}
 	err := s.serve(context.Background(), s.owner, nil, ticket[:]).end()
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !bytes.Contains([]byte(err.Error()), []byte("NEXUS_INGRESS_SESSION_UNBOUND")) {
 		t.Fatalf("resume before the record = %v", err)
