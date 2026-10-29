@@ -64,7 +64,8 @@ type ReceiverConfig struct {
 	Evidence MemberEvidence
 	Inputs   InputWriter
 	Outputs  ReplicaWriter
-	// OutputConfig holds the network's output stream limits the replica is written under.
+	// OutputConfig holds the network's output stream limits the replica is written under; zero
+	// when this Builder does not serve streamed output, which then keeps no replicas and says so.
 	OutputConfig taskdata.OutputStreamConfig
 	// Publish hands a replica frame to the live subscribers of its task (taskdata.OutputDispatcher).
 	Publish func(taskdata.ObjectKey, taskdata.OutputFrame)
@@ -217,7 +218,8 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 		}
 		m = next
 	}
-	if resp.Refused == "" && batch.Output != nil {
+	resp.OutputNotHeld = !r.holdsOutput()
+	if resp.Refused == "" && batch.Output != nil && !resp.OutputNotHeld {
 		if err := r.applyOutput(ctx, m, batch.GetOutput()); err != nil {
 			resp.Refused = fmt.Sprintf("output: %v", err)
 			r.log.Warn("synced output refused", "order", key, "err", err)
@@ -232,6 +234,9 @@ func (r *Receiver) Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*b
 	}
 	return resp, nil
 }
+
+// holdsOutput reports whether this Builder keeps output replicas: it serves streamed output.
+func (r *Receiver) holdsOutput() bool { return r.cfg.OutputConfig.MaxLeaves != 0 }
 
 // serviceKey is operator's current service key of the participant type.
 func (r *Receiver) serviceKey(ctx context.Context, participant, operator string) ([]byte, error) {

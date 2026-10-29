@@ -561,3 +561,32 @@ func TestOrderWaitsForAReadableChain(t *testing.T) {
 		t.Fatalf("readable chain = %v, %v", resp, err)
 	}
 }
+
+// A member that keeps no output replicas (streaming output off) says so: the sender stops
+// sending it output, without failures or alarms, and the rest of the order still syncs.
+func TestMemberWithoutOutputReplicas(t *testing.T) {
+	e := newEnv(t)
+	plain := e.newMember(e.m)
+	plain.r.cfg.OutputConfig = taskdata.OutputStreamConfig{}
+	e.member = plain
+	e.peers.receivers[e.m.op] = plain.r
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.sync()
+	if c := e.copyOf(); c == nil || !c.Recorded {
+		t.Fatalf("copy = %+v", c)
+	}
+	if c := e.s.Counts(); c.Failures != 0 || c.Alarms != 0 {
+		t.Fatalf("counts = %+v", c)
+	}
+	before := len(e.peers.requests[e.m.op])
+	e.clock.advance(time.Minute)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if len(e.peers.requests[e.m.op]) != before {
+		t.Fatal("output was sent again to a member that holds none")
+	}
+}

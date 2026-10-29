@@ -169,6 +169,8 @@ type outputAck struct {
 	Received bool   `json:"received,omitempty"`
 	LastSeq  uint64 `json:"last_seq,omitempty"`
 	Sealed   bool   `json:"sealed,omitempty"`
+	// NotHeld is set once the member said it keeps no output replicas.
+	NotHeld bool `json:"not_held,omitempty"`
 }
 
 func (st *outStream) key() string { return streamKey(st.SessionID, st.Sequence) }

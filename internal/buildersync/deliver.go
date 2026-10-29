@@ -167,7 +167,7 @@ func (s *Sender) batch(ctx context.Context, p plan, peer string) (*buildersyncv1
 		size += len(raw)
 	}
 	allItems := p.from+uint64(len(batch.Items)) > p.to
-	if st.Winner != nil && allItems && !p.output.Sealed {
+	if st.Winner != nil && allItems && !p.output.Sealed && !p.output.NotHeld {
 		output, err := s.output(ctx, st, p.output, size)
 		if err != nil {
 			return nil, err
@@ -252,7 +252,8 @@ func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
 			"acknowledged", next.Acked[peer], "holds", resp.GetAppliedThrough())
 	}
 	next.Acked[peer] = min(resp.GetAppliedThrough(), next.Last)
-	next.Output[peer] = outputAck{Received: resp.GetOutputReceived(), LastSeq: resp.GetOutputLastSeq(), Sealed: resp.GetOutputSealed()}
+	next.Output[peer] = outputAck{Received: resp.GetOutputReceived(), LastSeq: resp.GetOutputLastSeq(), Sealed: resp.GetOutputSealed(),
+		NotHeld: resp.GetOutputNotHeld()}
 	acked := next.Last
 	for _, p := range next.Peers {
 		acked = min(acked, next.Acked[p])
