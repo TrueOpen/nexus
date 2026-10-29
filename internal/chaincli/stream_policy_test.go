@@ -189,3 +189,16 @@ func TestProtocolStreamDeliversBusinessFieldProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestEventObserverSeesEveryQueuedEvent(t *testing.T) {
+	var seen []string
+	c := newRoleTestClient(kv.NewMemStore())
+	WithEventObserver(func(ev ChainEvent) { seen = append(seen, ev.EventCode) })(c)
+	stream := &fakeProtocolStream{items: []*hubv1.SubscribeProtocolEventsResponse{
+		{Item: &hubv1.SubscribeProtocolEventsResponse_Event{Event: rotatedEvent("p1", 300, "trueopen1worker")}},
+	}}
+	_, _ = c.consumeProtocolEvents(context.Background(), stream)
+	if len(seen) != 1 || seen[0] != "SERVICE_KEY_ROTATED" || len(drainEvents(c)) != 1 {
+		t.Fatalf("observed %v", seen)
+	}
+}

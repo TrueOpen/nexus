@@ -61,7 +61,8 @@ type client struct {
 	poolEpochsOnce sync.Once
 	poolEpochs     *poolEpochTable
 
-	events chan ChainEvent
+	events    chan ChainEvent
+	observers []func(ChainEvent)
 
 	sessionMu            sync.Mutex
 	sessions             map[string]*sessionSubscription
