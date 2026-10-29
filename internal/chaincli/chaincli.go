@@ -138,6 +138,8 @@ type Client interface {
 	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
 	// QueryCandidatePoolSnapshotMember reads one operator's membership and weight in a pool snapshot.
 	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
+	// QueryCandidatePoolMembers reads one page of a pool snapshot's members in slot order.
+	QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error)
 	// QueryCandidatePoolSnapshot reads the header of one pool snapshot.
 	QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []byte) (*hubv1.CandidatePoolSnapshotViewV1, error)
 	// QueryCurrentCandidatePool reads the ACTIVE pool snapshot the chain currently points to.

@@ -441,3 +441,66 @@ func TestStubAnswersPhase1QueriesWithoutAChain(t *testing.T) {
 		t.Fatalf("vrf key: %v", err)
 	}
 }
+
+type memberPages struct {
+	hubv1connect.QueryClient
+	pages    map[string]*hubv1.QueryCandidatePoolMembersResponse // by page token
+	requests []*hubv1.QueryCandidatePoolMembersRequest
+}
+
+func (q *memberPages) CandidatePoolMembers(_ context.Context, req *connect.Request[hubv1.QueryCandidatePoolMembersRequest]) (*connect.Response[hubv1.QueryCandidatePoolMembersResponse], error) {
+	q.requests = append(q.requests, req.Msg)
+	page, ok := q.pages[string(req.Msg.GetPage().GetPageToken())]
+	if !ok {
+		return nil, notFound
+	}
+	return connect.NewResponse(page), nil
+}
+
+func poolMembers(slots ...uint32) []*hubv1.CandidatePoolMemberViewV1 {
+	out := make([]*hubv1.CandidatePoolMemberViewV1, len(slots))
+	for i, slot := range slots {
+		out[i] = &hubv1.CandidatePoolMemberViewV1{CandidateSlot: slot, SlotVersion: 1, OperatorAddress: "trueopen1op" + string(rune('a'+slot))}
+	}
+	return out
+}
+
+func TestListCandidatePoolMembersWalksEveryPage(t *testing.T) {
+	snapshot := mustHash32("66")
+	query := &memberPages{pages: map[string]*hubv1.QueryCandidatePoolMembersResponse{
+		"":   {Members: poolMembers(1, 3), Page: &sharedv1.QueryPageResponseV1{NextPageToken: []byte("p2")}},
+		"p2": {Members: poolMembers(7)},
+	}}
+	c := &client{hubQuery: query}
+	got, err := ListCandidatePoolMembers(context.Background(), c, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].GetCandidateSlot() != 1 || got[2].GetCandidateSlot() != 7 {
+		t.Fatalf("members = %v", got)
+	}
+	if len(query.requests) != 2 || !bytes.Equal(query.requests[0].GetSnapshotId(), snapshot) ||
+		string(query.requests[1].GetPage().GetPageToken()) != "p2" {
+		t.Fatalf("requests = %v", query.requests)
+	}
+
+	for name, pages := range map[string]map[string]*hubv1.QueryCandidatePoolMembersResponse{
+		"slots out of order in a page": {"": {Members: poolMembers(3, 1)}},
+		"page goes back": {
+			"":   {Members: poolMembers(1, 3), Page: &sharedv1.QueryPageResponseV1{NextPageToken: []byte("p2")}},
+			"p2": {Members: poolMembers(3)},
+		},
+		"token repeats":           {"": {Members: poolMembers(1)}, "p": {Members: nil, Page: &sharedv1.QueryPageResponseV1{NextPageToken: []byte("p")}}},
+		"member without operator": {"": {Members: []*hubv1.CandidatePoolMemberViewV1{{CandidateSlot: 1}}}},
+	} {
+		if name == "token repeats" {
+			pages[""].Page = &sharedv1.QueryPageResponseV1{NextPageToken: []byte("p")}
+		}
+		if _, err := ListCandidatePoolMembers(context.Background(), &client{hubQuery: &memberPages{pages: pages}}, snapshot); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+	if _, _, err := c.QueryCandidatePoolMembers(context.Background(), []byte{1}, nil); err == nil {
+		t.Fatal("a short snapshot id was sent")
+	}
+}
