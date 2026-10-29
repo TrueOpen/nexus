@@ -63,6 +63,17 @@ func (r *Recorder) Since(name string, start time.Time) {
 	r.Add(name, time.Since(start))
 }
 
+// Total returns the sum of stage name and whether it was added.
+func (r *Recorder) Total(name string) (time.Duration, bool) {
+	if r == nil {
+		return 0, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.totals[name]
+	return d, ok
+}
+
 // Attrs returns slog key/value pairs: each stage as "<name>_ms" in insertion order, then
 // "total_ms", the time since the Recorder started.
 func (r *Recorder) Attrs() []any {
