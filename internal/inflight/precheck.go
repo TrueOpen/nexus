@@ -232,8 +232,14 @@ func (p *Prechecker) run(ctx context.Context, o Order, reserve bool) (Result, er
 	// The cached head trails the chain, so an order built on a newer head looks like it is from
 	// the future; the head is read again once before saying so. Stale and expired verdicts only
 	// get stricter with a newer head.
-	if errors.Is(err, ErrOrderFuture) && p.cfg.Sessions.readHead(ctx) {
-		res, err = p.attempt(ctx, o, reserve)
+	if errors.Is(err, ErrOrderFuture) {
+		moved, headErr := p.cfg.Sessions.readHead(ctx)
+		switch {
+		case headErr != nil:
+			return Result{}, headErr // no verdict: the order may well be current
+		case moved:
+			res, err = p.attempt(ctx, o, reserve)
+		}
 	}
 	// Settlement and refunds release frozen funds without a session-level event, so the cached
 	// state can hold funds the chain already released; it is read again once before the order is

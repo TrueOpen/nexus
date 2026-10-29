@@ -209,14 +209,18 @@ func (c *SessionCache) CurrentHeight(ctx context.Context) (uint64, error) {
 	return c.Head(), nil
 }
 
-// readHead reads the head from the chain and reports whether it is above the cached one.
-func (c *SessionCache) readHead(ctx context.Context) bool {
+// readHead reads the head from the chain and reports whether it is above the cached one; a
+// failed read is ErrUnavailable.
+func (c *SessionCache) readHead(ctx context.Context) (bool, error) {
 	height, err := c.cfg.LatestHeight(ctx)
-	if err != nil || height <= c.Head() {
-		return false
+	if err != nil {
+		return false, fmt.Errorf("%w: latest height: %v", ErrUnavailable, err)
+	}
+	if height <= c.Head() {
+		return false, nil
 	}
 	c.ObserveHeight(height)
-	return true
+	return true, nil
 }
 
 // Lookup returns the session's state and the head it is judged at.

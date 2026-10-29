@@ -14,14 +14,15 @@ import (
 
 // fakeChain answers QuerySession and LatestHeight and counts the reads.
 type fakeChain struct {
-	mu       sync.Mutex
-	state    chaincli.SessionState
-	found    bool
-	err      error
-	height   uint64
-	reads    int
-	tracked  []string
-	trackErr error
+	mu        sync.Mutex
+	state     chaincli.SessionState
+	found     bool
+	err       error
+	heightErr error
+	height    uint64
+	reads     int
+	tracked   []string
+	trackErr  error
 	// gate, when set, holds every read until it is closed; started reports each read reaching it.
 	gate    chan struct{}
 	started chan struct{}
@@ -52,7 +53,7 @@ func (f *fakeChain) read(_ context.Context, sessionID string) (chaincli.SessionS
 func (f *fakeChain) latest(context.Context) (uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.height, nil
+	return f.height, f.heightErr
 }
 
 func (f *fakeChain) TrackSessionEvents(sessionID string) error {

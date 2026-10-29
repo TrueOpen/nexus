@@ -340,6 +340,13 @@ func TestPrecheckRereadsTheHeadBeforeOrderFuture(t *testing.T) {
 	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderFuture) {
 		t.Fatalf("order ahead of the chain = %v, want future", err)
 	}
+	// The head cannot be read: no verdict, the order may well be current.
+	f.chain.mu.Lock()
+	f.chain.heightErr = errors.New("node down")
+	f.chain.mu.Unlock()
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrOrderFuture) {
+		t.Fatalf("order ahead of an unreadable head = %v, want unavailable", err)
+	}
 }
 
 func TestPrecheckIdempotency(t *testing.T) {
