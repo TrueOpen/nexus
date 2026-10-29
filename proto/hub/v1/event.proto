@@ -7,6 +7,7 @@ import "hub/v1/common.proto";
 import "hub/v1/dispatch.proto";
 import "hub/v1/emergency_freeze.proto";
 import "hub/v1/model_profile_state.proto";
+import "hub/v1/participant_identity.proto";
 import "hub/v1/reward.proto";
 import "hub/v1/treasury.proto";
 import "shared/v1/amount.proto";
@@ -86,6 +87,7 @@ message ProtocolEventPayloadV1 {
     EventBridgeSignerRotated bridge_signer_rotated = 127;
     EventBuilderCompensationFunded builder_compensation_funded = 143;
     EventBuilderVrfKeyRegistered builder_vrf_key_registered = 144;
+    EventServiceKeyRotationRegistered service_key_rotation_registered = 145;
   }
 }
 
@@ -358,7 +360,12 @@ message EventModelStateChanged {
   GovernanceReason reason = 5;
 }
 
-// EventServiceKeyRotated is event code 101.
+// EventServiceKeyRotationRegistered reports a proposal; current is unchanged.
+message EventServiceKeyRotationRegistered {
+  PendingServiceKeyRotationState pending_rotation = 1;
+}
+
+// EventServiceKeyRotated is event code 101, emitted only at actual epoch activation.
 message EventServiceKeyRotated {
   shared.v1.ParticipantType participant_type = 1;
   string operator = 2;

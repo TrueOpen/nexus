@@ -133,7 +133,7 @@ type GenesisState struct {
 	ModelSupportDeactivateCursors    []*ModelSupportDeactivateCursorState    `protobuf:"bytes,105,rep,name=model_support_deactivate_cursors,json=modelSupportDeactivateCursors,proto3" json:"model_support_deactivate_cursors,omitempty"`
 	BuilderCompensationAccounts      []*BuilderCompensationAccountState      `protobuf:"bytes,106,rep,name=builder_compensation_accounts,json=builderCompensationAccounts,proto3" json:"builder_compensation_accounts,omitempty"`
 	DispatchFaults                   []*DispatchFaultState                   `protobuf:"bytes,107,rep,name=dispatch_faults,json=dispatchFaults,proto3" json:"dispatch_faults,omitempty"`
-	ServiceKeyProofs                 []*ServiceKeyProofState                 `protobuf:"bytes,108,rep,name=service_key_proofs,json=serviceKeyProofs,proto3" json:"service_key_proofs,omitempty"`
+	PendingServiceKeyRotations       []*PendingServiceKeyRotationState       `protobuf:"bytes,109,rep,name=pending_service_key_rotations,json=pendingServiceKeyRotations,proto3" json:"pending_service_key_rotations,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -602,9 +602,9 @@ func (x *GenesisState) GetDispatchFaults() []*DispatchFaultState {
 	return nil
 }
 
-func (x *GenesisState) GetServiceKeyProofs() []*ServiceKeyProofState {
+func (x *GenesisState) GetPendingServiceKeyRotations() []*PendingServiceKeyRotationState {
 	if x != nil {
-		return x.ServiceKeyProofs
+		return x.PendingServiceKeyRotations
 	}
 	return nil
 }
@@ -613,7 +613,7 @@ var File_hub_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xf1(\n" +
+	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xaa)\n" +
 	"\fGenesisState\x12+\n" +
 	"\x06params\x18\x01 \x01(\v2\x13.hub.v1.HubParamsV2R\x06params\x12;\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1a.hub.v1.HubParamsMetaStateR\n" +
@@ -679,8 +679,8 @@ const file_hub_v1_genesis_proto_rawDesc = "" +
 	"$treasury_spend_epoch_cleanup_cursors\x18h \x03(\v2,.hub.v1.TreasurySpendEpochCleanupCursorStateR treasurySpendEpochCleanupCursors\x12r\n" +
 	" model_support_deactivate_cursors\x18i \x03(\v2).hub.v1.ModelSupportDeactivateCursorStateR\x1dmodelSupportDeactivateCursors\x12k\n" +
 	"\x1dbuilder_compensation_accounts\x18j \x03(\v2'.hub.v1.BuilderCompensationAccountStateR\x1bbuilderCompensationAccounts\x12C\n" +
-	"\x0fdispatch_faults\x18k \x03(\v2\x1a.hub.v1.DispatchFaultStateR\x0edispatchFaults\x12J\n" +
-	"\x12service_key_proofs\x18l \x03(\v2\x1c.hub.v1.ServiceKeyProofStateR\x10serviceKeyProofsJ\x04\b\x17\x10\x18R\x15builder_contributionsB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\x0fdispatch_faults\x18k \x03(\v2\x1a.hub.v1.DispatchFaultStateR\x0edispatchFaults\x12i\n" +
+	"\x1dpending_service_key_rotations\x18m \x03(\v2&.hub.v1.PendingServiceKeyRotationStateR\x1apendingServiceKeyRotationsJ\x04\b\x17\x10\x18J\x04\bl\x10mR\x15builder_contributionsR\x12service_key_proofsB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var (
 	file_hub_v1_genesis_proto_rawDescOnce sync.Once
@@ -759,7 +759,7 @@ var file_hub_v1_genesis_proto_goTypes = []any{
 	(*ModelSupportDeactivateCursorState)(nil),    // 60: hub.v1.ModelSupportDeactivateCursorState
 	(*BuilderCompensationAccountState)(nil),      // 61: hub.v1.BuilderCompensationAccountState
 	(*DispatchFaultState)(nil),                   // 62: hub.v1.DispatchFaultState
-	(*ServiceKeyProofState)(nil),                 // 63: hub.v1.ServiceKeyProofState
+	(*PendingServiceKeyRotationState)(nil),       // 63: hub.v1.PendingServiceKeyRotationState
 }
 var file_hub_v1_genesis_proto_depIdxs = []int32{
 	1,  // 0: hub.v1.GenesisState.params:type_name -> hub.v1.HubParamsV2
@@ -824,7 +824,7 @@ var file_hub_v1_genesis_proto_depIdxs = []int32{
 	60, // 59: hub.v1.GenesisState.model_support_deactivate_cursors:type_name -> hub.v1.ModelSupportDeactivateCursorState
 	61, // 60: hub.v1.GenesisState.builder_compensation_accounts:type_name -> hub.v1.BuilderCompensationAccountState
 	62, // 61: hub.v1.GenesisState.dispatch_faults:type_name -> hub.v1.DispatchFaultState
-	63, // 62: hub.v1.GenesisState.service_key_proofs:type_name -> hub.v1.ServiceKeyProofState
+	63, // 62: hub.v1.GenesisState.pending_service_key_rotations:type_name -> hub.v1.PendingServiceKeyRotationState
 	63, // [63:63] is the sub-list for method output_type
 	63, // [63:63] is the sub-list for method input_type
 	63, // [63:63] is the sub-list for extension type_name

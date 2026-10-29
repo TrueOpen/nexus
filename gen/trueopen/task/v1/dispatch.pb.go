@@ -557,6 +557,26 @@ const (
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED DispatchRejectCodeV1 = 26
 	// CONFLICT is the conflict value.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT DispatchRejectCodeV1 = 27
+	// The signed order could not be authenticated.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_ORDER_SIGNATURE_INVALID DispatchRejectCodeV1 = 28
+	// The session is unavailable, closed or bound to a different order owner.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_INVALID DispatchRejectCodeV1 = 29
+	// The order does not name the current immutable BuilderSet.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_BUILDER_SET_CHANGED DispatchRejectCodeV1 = 30
+	// The model or profile cannot admit new work.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_MODEL_PROFILE_UNAVAILABLE DispatchRejectCodeV1 = 31
+	// The execution/verification profile is unsupported.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_VERIFICATION_PROFILE_UNSUPPORTED DispatchRejectCodeV1 = 32
+	// An amount, budget relation or minimum order value is invalid.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID DispatchRejectCodeV1 = 33
+	// The session's order-sequence limit has been reached.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT DispatchRejectCodeV1 = 34
+	// Required task liability could not be reserved atomically.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED DispatchRejectCodeV1 = 35
+	// This objective challenge scope already has an upheld result.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE DispatchRejectCodeV1 = 36
+	// A pending rotation forbids the requested new duty or binding.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING DispatchRejectCodeV1 = 37
 )
 
 // Enum value maps for DispatchRejectCodeV1.
@@ -590,6 +610,16 @@ var (
 		25: "DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED",
 		26: "DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED",
 		27: "DISPATCH_REJECT_CODE_V1_CONFLICT",
+		28: "DISPATCH_REJECT_CODE_V1_ORDER_SIGNATURE_INVALID",
+		29: "DISPATCH_REJECT_CODE_V1_SESSION_INVALID",
+		30: "DISPATCH_REJECT_CODE_V1_BUILDER_SET_CHANGED",
+		31: "DISPATCH_REJECT_CODE_V1_MODEL_PROFILE_UNAVAILABLE",
+		32: "DISPATCH_REJECT_CODE_V1_VERIFICATION_PROFILE_UNSUPPORTED",
+		33: "DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID",
+		34: "DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT",
+		35: "DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED",
+		36: "DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE",
+		37: "DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING",
 	}
 	DispatchRejectCodeV1_value = map[string]int32{
 		"DISPATCH_REJECT_CODE_V1_UNSPECIFIED":                         0,
@@ -620,6 +650,16 @@ var (
 		"DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED":                 25,
 		"DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED":      26,
 		"DISPATCH_REJECT_CODE_V1_CONFLICT":                            27,
+		"DISPATCH_REJECT_CODE_V1_ORDER_SIGNATURE_INVALID":             28,
+		"DISPATCH_REJECT_CODE_V1_SESSION_INVALID":                     29,
+		"DISPATCH_REJECT_CODE_V1_BUILDER_SET_CHANGED":                 30,
+		"DISPATCH_REJECT_CODE_V1_MODEL_PROFILE_UNAVAILABLE":           31,
+		"DISPATCH_REJECT_CODE_V1_VERIFICATION_PROFILE_UNSUPPORTED":    32,
+		"DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID":                33,
+		"DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT":                34,
+		"DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED":        35,
+		"DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE":                 36,
+		"DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING":        37,
 	}
 )
 
@@ -907,10 +947,8 @@ type SignedHandraiseRootV1 struct {
 	LeafCount               uint32                 `protobuf:"varint,5,opt,name=leaf_count,json=leafCount,proto3" json:"leaf_count,omitempty"`
 	Root                    []byte                 `protobuf:"bytes,6,opt,name=root,proto3" json:"root,omitempty"`
 	BuilderServiceSignature []byte                 `protobuf:"bytes,7,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	// Selects the Builder proof key even after rotation; part of the signed root.
-	ServiceAuthorizationNonce uint64 `protobuf:"varint,8,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *SignedHandraiseRootV1) Reset() {
@@ -990,13 +1028,6 @@ func (x *SignedHandraiseRootV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
-}
-
-func (x *SignedHandraiseRootV1) GetServiceAuthorizationNonce() uint64 {
-	if x != nil {
-		return x.ServiceAuthorizationNonce
-	}
-	return 0
 }
 
 // HandraiseInclusionProofV1 defines the canonical HandraiseInclusionProofV1 fields.
@@ -1354,12 +1385,9 @@ type DispatchTicketV1 struct {
 	BoundChangeHeight       uint64                     `protobuf:"varint,21,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
 	StickyAnchorSequence    uint64                     `protobuf:"varint,22,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
 	StickyRunCount          uint32                     `protobuf:"varint,23,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
-	StickyApplied           bool                       `protobuf:"varint,24,opt,name=sticky_applied,json=stickyApplied,proto3" json:"sticky_applied,omitempty"`
 	BuilderServiceSignature []byte                     `protobuf:"bytes,25,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	// Part of the ticket hash; retained keys authorize evidence only, never dispatch.
-	ServiceAuthorizationNonce uint64 `protobuf:"varint,26,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *DispatchTicketV1) Reset() {
@@ -1553,25 +1581,11 @@ func (x *DispatchTicketV1) GetStickyRunCount() uint32 {
 	return 0
 }
 
-func (x *DispatchTicketV1) GetStickyApplied() bool {
-	if x != nil {
-		return x.StickyApplied
-	}
-	return false
-}
-
 func (x *DispatchTicketV1) GetBuilderServiceSignature() []byte {
 	if x != nil {
 		return x.BuilderServiceSignature
 	}
 	return nil
-}
-
-func (x *DispatchTicketV1) GetServiceAuthorizationNonce() uint64 {
-	if x != nil {
-		return x.ServiceAuthorizationNonce
-	}
-	return 0
 }
 
 // DispatchAttemptV1 defines the canonical DispatchAttemptV1 fields.
@@ -1747,14 +1761,13 @@ type DispatchRecordV1 struct {
 	BoundChangeHeight       uint64                     `protobuf:"varint,14,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
 	StickyAnchorSequence    uint64                     `protobuf:"varint,15,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
 	StickyRunCount          uint32                     `protobuf:"varint,16,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
-	StickyApplied           bool                       `protobuf:"varint,17,opt,name=sticky_applied,json=stickyApplied,proto3" json:"sticky_applied,omitempty"`
-	Rounds                  []*DispatchRoundV1         `protobuf:"bytes,18,rep,name=rounds,proto3" json:"rounds,omitempty"`
-	DispatchTicketHash      []byte                     `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
-	BuilderServiceSignature []byte                     `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	// Part of the record hash and equal to the winner ticket's signing generation.
-	ServiceAuthorizationNonce uint64 `protobuf:"varint,21,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// True when the first-round order promoted the previous Worker, even if another wins.
+	StickyApplied           bool               `protobuf:"varint,17,opt,name=sticky_applied,json=stickyApplied,proto3" json:"sticky_applied,omitempty"`
+	Rounds                  []*DispatchRoundV1 `protobuf:"bytes,18,rep,name=rounds,proto3" json:"rounds,omitempty"`
+	DispatchTicketHash      []byte             `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	BuilderServiceSignature []byte             `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *DispatchRecordV1) Reset() {
@@ -1925,13 +1938,6 @@ func (x *DispatchRecordV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
-}
-
-func (x *DispatchRecordV1) GetServiceAuthorizationNonce() uint64 {
-	if x != nil {
-		return x.ServiceAuthorizationNonce
-	}
-	return 0
 }
 
 // DispatchAcceptV1 defines the canonical DispatchAcceptV1 fields.
@@ -2368,7 +2374,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\thandraise\x18\x01 \x01(\v2\x1c.task.v1.StandingHandraiseV1R\thandraise\x12\x1a\n" +
 	"\badmitted\x18\x02 \x01(\bR\badmitted\x12L\n" +
 	"\x13admit_reject_reason\x18\x03 \x01(\x0e2\x1c.task.v1.AdmitRejectReasonV1R\x11admitRejectReason\x125\n" +
-	"\x17builder_measured_rtt_ms\x18\x04 \x01(\x04R\x14builderMeasuredRttMs\"\xce\x02\n" +
+	"\x17builder_measured_rtt_ms\x18\x04 \x01(\x04R\x14builderMeasuredRttMs\"\xb1\x02\n" +
 	"\x15SignedHandraiseRootV1\x12\x19\n" +
 	"\bchain_id\x18\x01 \x01(\tR\achainId\x12'\n" +
 	"\x0fbuilder_address\x18\x02 \x01(\tR\x0ebuilderAddress\x12\x1f\n" +
@@ -2378,8 +2384,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\n" +
 	"leaf_count\x18\x05 \x01(\rR\tleafCount\x12\x12\n" +
 	"\x04root\x18\x06 \x01(\fR\x04root\x12:\n" +
-	"\x19builder_service_signature\x18\a \x01(\fR\x17builderServiceSignature\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\x88\x01\n" +
+	"\x19builder_service_signature\x18\a \x01(\fR\x17builderServiceSignatureJ\x04\b\b\x10\tR\x1bservice_authorization_nonce\"\x88\x01\n" +
 	"\x19HandraiseInclusionProofV1\x120\n" +
 	"\x04leaf\x18\x01 \x01(\v2\x1c.task.v1.HandraiseRootLeafV1R\x04leaf\x12\x1d\n" +
 	"\n" +
@@ -2408,7 +2413,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"epoch_seed\x18\x03 \x01(\fR\tepochSeed\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\fR\tsessionId\x12%\n" +
-	"\x0eorder_sequence\x18\x05 \x01(\x04R\rorderSequence\"\xd3\b\n" +
+	"\x0eorder_sequence\x18\x05 \x01(\x04R\rorderSequence\"\xa5\b\n" +
 	"\x10DispatchTicketV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2437,10 +2442,8 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"input_hash\x18\x14 \x01(\fR\tinputHash\x12.\n" +
 	"\x13bound_change_height\x18\x15 \x01(\x04R\x11boundChangeHeight\x124\n" +
 	"\x16sticky_anchor_sequence\x18\x16 \x01(\x04R\x14stickyAnchorSequence\x12(\n" +
-	"\x10sticky_run_count\x18\x17 \x01(\rR\x0estickyRunCount\x12%\n" +
-	"\x0esticky_applied\x18\x18 \x01(\bR\rstickyApplied\x12:\n" +
-	"\x19builder_service_signature\x18\x19 \x01(\fR\x17builderServiceSignature\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\x1a \x01(\x04R\x19serviceAuthorizationNonce\"\xb5\x02\n" +
+	"\x10sticky_run_count\x18\x17 \x01(\rR\x0estickyRunCount\x12:\n" +
+	"\x19builder_service_signature\x18\x19 \x01(\fR\x17builderServiceSignatureJ\x04\b\x18\x10\x19J\x04\b\x1a\x10\x1bR\x0esticky_appliedR\x1bservice_authorization_nonce\"\xb5\x02\n" +
 	"\x11DispatchAttemptV1\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x12\n" +
 	"\x04rank\x18\x02 \x01(\rR\x04rank\x125\n" +
@@ -2453,7 +2456,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\x15handraise_root_digest\x18\x02 \x01(\fR\x13handraiseRootDigest\x12\x1f\n" +
 	"\vroster_hash\x18\x03 \x01(\fR\n" +
 	"rosterHash\x126\n" +
-	"\battempts\x18\x04 \x03(\v2\x1a.task.v1.DispatchAttemptV1R\battempts\"\xa3\a\n" +
+	"\battempts\x18\x04 \x03(\v2\x1a.task.v1.DispatchAttemptV1R\battempts\"\x86\a\n" +
 	"\x10DispatchRecordV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2477,8 +2480,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\x0esticky_applied\x18\x11 \x01(\bR\rstickyApplied\x120\n" +
 	"\x06rounds\x18\x12 \x03(\v2\x18.task.v1.DispatchRoundV1R\x06rounds\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x13 \x01(\fR\x12dispatchTicketHash\x12:\n" +
-	"\x19builder_service_signature\x18\x14 \x01(\fR\x17builderServiceSignature\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\x15 \x01(\x04R\x19serviceAuthorizationNonce\"\xe0\x02\n" +
+	"\x19builder_service_signature\x18\x14 \x01(\fR\x17builderServiceSignatureJ\x04\b\x15\x10\x16R\x1bservice_authorization_nonce\"\xe0\x02\n" +
 	"\x10DispatchAcceptV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2553,7 +2555,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"6DISPATCH_WINNER_INELIGIBLE_REASON_V1_BOND_INSUFFICIENT\x10\x01\x12?\n" +
 	";DISPATCH_WINNER_INELIGIBLE_REASON_V1_LIABILITY_INSUFFICIENT\x10\x02\x122\n" +
 	".DISPATCH_WINNER_INELIGIBLE_REASON_V1_UNBONDING\x10\x03\x123\n" +
-	"/DISPATCH_WINNER_INELIGIBLE_REASON_V1_TOMBSTONED\x10\x04*\xa9\v\n" +
+	"/DISPATCH_WINNER_INELIGIBLE_REASON_V1_TOMBSTONED\x10\x04*\xba\x0f\n" +
 	"\x14DispatchRejectCodeV1\x12'\n" +
 	"#DISPATCH_REJECT_CODE_V1_UNSPECIFIED\x10\x00\x12-\n" +
 	")DISPATCH_REJECT_CODE_V1_BUILDER_NOT_BOUND\x10\x01\x123\n" +
@@ -2583,7 +2585,17 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"+DISPATCH_REJECT_CODE_V1_SESSION_KEY_INVALID\x10\x18\x12/\n" +
 	"+DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED\x10\x19\x12:\n" +
 	"6DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED\x10\x1a\x12$\n" +
-	" DISPATCH_REJECT_CODE_V1_CONFLICT\x10\x1bB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	" DISPATCH_REJECT_CODE_V1_CONFLICT\x10\x1b\x123\n" +
+	"/DISPATCH_REJECT_CODE_V1_ORDER_SIGNATURE_INVALID\x10\x1c\x12+\n" +
+	"'DISPATCH_REJECT_CODE_V1_SESSION_INVALID\x10\x1d\x12/\n" +
+	"+DISPATCH_REJECT_CODE_V1_BUILDER_SET_CHANGED\x10\x1e\x125\n" +
+	"1DISPATCH_REJECT_CODE_V1_MODEL_PROFILE_UNAVAILABLE\x10\x1f\x12<\n" +
+	"8DISPATCH_REJECT_CODE_V1_VERIFICATION_PROFILE_UNSUPPORTED\x10 \x120\n" +
+	",DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID\x10!\x120\n" +
+	",DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT\x10\"\x128\n" +
+	"4DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED\x10#\x12/\n" +
+	"+DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE\x10$\x128\n" +
+	"4DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING\x10%B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_dispatch_proto_rawDescOnce sync.Once

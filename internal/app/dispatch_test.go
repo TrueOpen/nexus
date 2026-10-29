@@ -290,8 +290,8 @@ func TestDirectDispatchWiring(t *testing.T) {
 	if err != nil || issued == nil || !issued.Leaves[0].GetAdmitted() {
 		t.Fatalf("root = %v, %v", issued, err)
 	}
-	if issued.Root.GetServiceAuthorizationNonce() != 7 {
-		t.Fatalf("root nonce = %d, want the Builder's current 7", issued.Root.GetServiceAuthorizationNonce())
+	if err := dispatch.VerifyDigestSignature(f.builder.PubKeyCompressed(), issued.Digest[:], issued.Root.GetBuilderServiceSignature()); err != nil {
+		t.Fatalf("root is not signed by the Builder's current key: %v", err)
 	}
 
 	f.d.onConnection(f.cortex.Address(), true)

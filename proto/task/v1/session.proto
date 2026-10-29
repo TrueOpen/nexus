@@ -96,10 +96,9 @@ message SessionNonceState {
 
 // StreamState is one session: sequence counter, owner, in-flight count and
 // optional delegated signing authorization
-// (key = session_id). Model A: a session never holds a balance; the
-// abandoned SessionEscrowState double ledger is deleted, and funds live in the
-// user account and the escrow module account with TaskBudgetState as the only
-// per-task ledger.
+// (key = session_id). Balance includes frozen Task reservations in the escrow
+// module account. Admission freezes funds from this ledger; settlement charges
+// actual spend and makes the remainder available in this same session.
 // StreamState defines the StreamState wire type.
 message StreamState {
   bytes session_id = 1;
@@ -119,7 +118,8 @@ message StreamState {
   // renewal, clearing or refunds. Wallet orders do not increment it.
   shared.v1.Amount session_key_spent = 10;
   // First registration, different-key replacement or SET after CLEAR records
-  // the execution height; same-key renewal/cap changes preserve it. Zero when
+  // the effective height; initial creation is immediate. Same-key renewal/cap
+  // changes preserve it. Zero when
   // no key is registered. A delegated order's signed anchor height must be at
   // least this height, preventing signatures from a revoked grant reviving.
   uint64 session_key_set_height = 11;

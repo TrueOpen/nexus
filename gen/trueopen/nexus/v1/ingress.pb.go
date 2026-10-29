@@ -1712,7 +1712,9 @@ type OutputChunkV1 struct {
 	Attachment []byte `protobuf:"bytes,5,opt,name=attachment,proto3" json:"attachment,omitempty"`
 	// Phase 0 requires this field to be empty together with attachment.
 	AttachmentSignature []byte `protobuf:"bytes,6,opt,name=attachment_signature,json=attachmentSignature,proto3" json:"attachment_signature,omitempty"`
-	GeneratedTokenCount uint64 `protobuf:"varint,7,opt,name=generated_token_count,json=generatedTokenCount,proto3" json:"generated_token_count,omitempty"`
+	// Cumulative generated tokens through this chunk; non-decreasing across the attempt.
+	// Used for the pre-record forwarding cap, never counted again by the Builder.
+	CumulativeGeneratedTokens uint64 `protobuf:"varint,7,opt,name=cumulative_generated_tokens,json=cumulativeGeneratedTokens,proto3" json:"cumulative_generated_tokens,omitempty"`
 	// Must equal the stream header's ticket. The Worker signs
 	// H_FIELDS_V1("TRUEOPEN_OUTPUT_CHUNK_V1", chain_id, task_hash,
 	// dispatch_ticket_hash, seq, mmr_root). Attempts of one order cannot mix.
@@ -1793,9 +1795,9 @@ func (x *OutputChunkV1) GetAttachmentSignature() []byte {
 	return nil
 }
 
-func (x *OutputChunkV1) GetGeneratedTokenCount() uint64 {
+func (x *OutputChunkV1) GetCumulativeGeneratedTokens() uint64 {
 	if x != nil {
-		return x.GeneratedTokenCount
+		return x.CumulativeGeneratedTokens
 	}
 	return 0
 }
@@ -4233,7 +4235,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x10key_package_hash\x18\t \x01(\fR\x0ekeyPackageHash\x12)\n" +
 	"\x10worker_signature\x18\n" +
 	" \x01(\fR\x0fworkerSignature\x120\n" +
-	"\x14dispatch_ticket_hash\x18\v \x01(\fR\x12dispatchTicketHashJ\x04\b\x05\x10\x06R\aattempt\"\xb4\x02\n" +
+	"\x14dispatch_ticket_hash\x18\v \x01(\fR\x12dispatchTicketHashJ\x04\b\x05\x10\x06R\aattempt\"\xc0\x02\n" +
 	"\rOutputChunkV1\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\fR\x04text\x12\x19\n" +
@@ -4242,8 +4244,8 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"attachment\x18\x05 \x01(\fR\n" +
 	"attachment\x121\n" +
-	"\x14attachment_signature\x18\x06 \x01(\fR\x13attachmentSignature\x122\n" +
-	"\x15generated_token_count\x18\a \x01(\x04R\x13generatedTokenCount\x120\n" +
+	"\x14attachment_signature\x18\x06 \x01(\fR\x13attachmentSignature\x12>\n" +
+	"\x1bcumulative_generated_tokens\x18\a \x01(\x04R\x19cumulativeGeneratedTokens\x120\n" +
 	"\x14dispatch_ticket_hash\x18\b \x01(\fR\x12dispatchTicketHash\"\xed\x01\n" +
 	"\vOutputFinV1\x12\x1b\n" +
 	"\tfinal_seq\x18\x01 \x01(\x04R\bfinalSeq\x12&\n" +

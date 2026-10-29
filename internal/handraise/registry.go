@@ -64,9 +64,9 @@ type ServiceKeys interface {
 	// compressed) and its authorization nonce. When it is determined that no usable key exists the
 	// error wraps servicekey.ErrUnavailable; any other error means the chain could not be read.
 	CurrentCortexKey(ctx context.Context, operator string) ([]byte, uint64, error)
-	// CurrentBuilderNonce returns the authorization nonce of this Builder's current service key,
-	// which must be the key the root signer holds.
-	CurrentBuilderNonce(ctx context.Context) (uint64, error)
+	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is the key the root
+	// signer holds.
+	CheckBuilderKey(ctx context.Context) error
 }
 
 // CandidatePool answers candidate pool eligibility from the chain.

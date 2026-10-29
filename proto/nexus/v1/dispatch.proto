@@ -49,6 +49,8 @@ message DispatchInputRequestV1 {
   task.v1.CandidateMemberRefV1 member = 3;
   uint64 service_authorization_nonce = 4;
   bytes service_signature = 5;
+  // Binds input access to the exact locally accepted fact for this ticket.
+  bytes dispatch_accept_digest = 6;
 }
 // DispatchInputResponseV1 defines the canonical DispatchInputResponseV1 fields.
 message DispatchInputResponseV1 {
@@ -61,12 +63,21 @@ message DispatchInputResponseV1 {
   uint32 chunk_count = 7;
   bytes builder_service_signature = 8;
 }
+// DispatchRevokeReasonV1 is closed; Phase 1 only permits pre-acceptance RBF.
+enum DispatchRevokeReasonV1 {
+  // Never accepted.
+  DISPATCH_REVOKE_REASON_V1_UNSPECIFIED = 0;
+  // The user replaced an order before its ticket was accepted.
+  DISPATCH_REVOKE_REASON_V1_RBF = 1;
+}
+
 // DispatchRevokeV1 defines the canonical DispatchRevokeV1 fields.
 message DispatchRevokeV1 {
   bytes task_id = 1;
   bytes dispatch_ticket_hash = 2;
   uint64 revoked_height = 3;
   bytes builder_service_signature = 4;
+  DispatchRevokeReasonV1 reason = 5;
 }
 // RecordResultNoticeV1 defines the canonical RecordResultNoticeV1 fields.
 message RecordResultNoticeV1 {
@@ -186,6 +197,9 @@ message DispatchRosterRequestV1 {
   uint64 nonce = 3;
   uint64 expiry_height = 4;
   bytes service_signature = 5;
+  // Both fields enter the signature and are checked against the local endpoint.
+  string chain_id = 6;
+  string builder_operator = 7;
 }
 // GetDispatchRosterRequest authenticates an account or delegated SDK request.
 message GetDispatchRosterRequest {

@@ -117,9 +117,6 @@ type MsgClient interface {
 	UpdateSessionKey(context.Context, *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error)
 	// CancelOrder skips one unused order sequence.
 	CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error)
-	// SubmitWorkerHandraises is the single Task admission and Worker candidate
-	// entry; it replaces the deleted MsgAssign.
-	// SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
 	// SubmitInferReceipt accepts the winner Worker's inference receipt; it
 	// replaces the deleted MsgInferReceiptCommitOnly.
 	// SubmitInferReceipt executes the SubmitInferReceipt operation.
@@ -544,9 +541,6 @@ type MsgHandler interface {
 	UpdateSessionKey(context.Context, *connect.Request[v1.MsgUpdateSessionKey]) (*connect.Response[v1.MsgUpdateSessionKeyResponse], error)
 	// CancelOrder skips one unused order sequence.
 	CancelOrder(context.Context, *connect.Request[v1.MsgCancelOrder]) (*connect.Response[v1.MsgCancelOrderResponse], error)
-	// SubmitWorkerHandraises is the single Task admission and Worker candidate
-	// entry; it replaces the deleted MsgAssign.
-	// SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
 	// SubmitInferReceipt accepts the winner Worker's inference receipt; it
 	// replaces the deleted MsgInferReceiptCommitOnly.
 	// SubmitInferReceipt executes the SubmitInferReceipt operation.

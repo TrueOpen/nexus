@@ -39,8 +39,8 @@ message DispatchRecordState {
   uint64 recorded_height = 19;
   bytes accepted_entry_digest = 20;
   uint64 claim_window_close_height = 21;
-  // Frozen from the signed record for subsequent proof-key resolution.
-  uint64 service_authorization_nonce = 22;
+  reserved 22;
+  reserved "service_authorization_nonce";
 }
 // TakeoverEntryReceiptState defines the canonical TakeoverEntryReceiptState fields.
 message TakeoverEntryReceiptState {

@@ -68,8 +68,8 @@ enum DeadlineKindV1 {
   // EvidenceCleanupIndex bounded cursor; kind_priority 110.
   // DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
   DEADLINE_KIND_V1_EVIDENCE_CLEANUP = 13;
-  // SESSION_CHANGE_EFFECTIVE is an EndBlock-only deadline.
-  DEADLINE_KIND_V1_SESSION_CHANGE_EFFECTIVE = 14;
+  // Closes a Task's verifier value-evidence window; TaskDeadlineLocator, priority 30.
+  DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE = 14;
   // DISPATCH_CHALLENGE_RESPONSE is an EndBlock-only deadline.
   DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE = 15;
   // DISPATCH_COMPENSATION_REBUTTAL is an EndBlock-only deadline.

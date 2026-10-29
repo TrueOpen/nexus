@@ -87,6 +87,55 @@ func (OpenTaskStatusV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_dispatch_proto_rawDescGZIP(), []int{0}
 }
 
+// DispatchRevokeReasonV1 is closed; Phase 1 only permits pre-acceptance RBF.
+type DispatchRevokeReasonV1 int32
+
+const (
+	// Never accepted.
+	DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_UNSPECIFIED DispatchRevokeReasonV1 = 0
+	// The user replaced an order before its ticket was accepted.
+	DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF DispatchRevokeReasonV1 = 1
+)
+
+// Enum value maps for DispatchRevokeReasonV1.
+var (
+	DispatchRevokeReasonV1_name = map[int32]string{
+		0: "DISPATCH_REVOKE_REASON_V1_UNSPECIFIED",
+		1: "DISPATCH_REVOKE_REASON_V1_RBF",
+	}
+	DispatchRevokeReasonV1_value = map[string]int32{
+		"DISPATCH_REVOKE_REASON_V1_UNSPECIFIED": 0,
+		"DISPATCH_REVOKE_REASON_V1_RBF":         1,
+	}
+)
+
+func (x DispatchRevokeReasonV1) Enum() *DispatchRevokeReasonV1 {
+	p := new(DispatchRevokeReasonV1)
+	*p = x
+	return p
+}
+
+func (x DispatchRevokeReasonV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DispatchRevokeReasonV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_nexus_v1_dispatch_proto_enumTypes[1].Descriptor()
+}
+
+func (DispatchRevokeReasonV1) Type() protoreflect.EnumType {
+	return &file_nexus_v1_dispatch_proto_enumTypes[1]
+}
+
+func (x DispatchRevokeReasonV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DispatchRevokeReasonV1.Descriptor instead.
+func (DispatchRevokeReasonV1) EnumDescriptor() ([]byte, []int) {
+	return file_nexus_v1_dispatch_proto_rawDescGZIP(), []int{1}
+}
+
 // DispatchStreamBindingV1 defines the canonical DispatchStreamBindingV1 fields.
 type DispatchStreamBindingV1 struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
@@ -278,8 +327,10 @@ type DispatchInputRequestV1 struct {
 	Member                    *v1.CandidateMemberRefV1 `protobuf:"bytes,3,opt,name=member,proto3" json:"member,omitempty"`
 	ServiceAuthorizationNonce uint64                   `protobuf:"varint,4,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
 	ServiceSignature          []byte                   `protobuf:"bytes,5,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Binds input access to the exact locally accepted fact for this ticket.
+	DispatchAcceptDigest []byte `protobuf:"bytes,6,opt,name=dispatch_accept_digest,json=dispatchAcceptDigest,proto3" json:"dispatch_accept_digest,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *DispatchInputRequestV1) Reset() {
@@ -343,6 +394,13 @@ func (x *DispatchInputRequestV1) GetServiceAuthorizationNonce() uint64 {
 func (x *DispatchInputRequestV1) GetServiceSignature() []byte {
 	if x != nil {
 		return x.ServiceSignature
+	}
+	return nil
+}
+
+func (x *DispatchInputRequestV1) GetDispatchAcceptDigest() []byte {
+	if x != nil {
+		return x.DispatchAcceptDigest
 	}
 	return nil
 }
@@ -455,6 +513,7 @@ type DispatchRevokeV1 struct {
 	DispatchTicketHash      []byte                 `protobuf:"bytes,2,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
 	RevokedHeight           uint64                 `protobuf:"varint,3,opt,name=revoked_height,json=revokedHeight,proto3" json:"revoked_height,omitempty"`
 	BuilderServiceSignature []byte                 `protobuf:"bytes,4,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	Reason                  DispatchRevokeReasonV1 `protobuf:"varint,5,opt,name=reason,proto3,enum=nexus.v1.DispatchRevokeReasonV1" json:"reason,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -515,6 +574,13 @@ func (x *DispatchRevokeV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
+}
+
+func (x *DispatchRevokeV1) GetReason() DispatchRevokeReasonV1 {
+	if x != nil {
+		return x.Reason
+	}
+	return DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_UNSPECIFIED
 }
 
 // RecordResultNoticeV1 defines the canonical RecordResultNoticeV1 fields.
@@ -1674,8 +1740,11 @@ type DispatchRosterRequestV1 struct {
 	Nonce            uint64                 `protobuf:"varint,3,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	ExpiryHeight     uint64                 `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	ServiceSignature []byte                 `protobuf:"bytes,5,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Both fields enter the signature and are checked against the local endpoint.
+	ChainId         string `protobuf:"bytes,6,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	BuilderOperator string `protobuf:"bytes,7,opt,name=builder_operator,json=builderOperator,proto3" json:"builder_operator,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DispatchRosterRequestV1) Reset() {
@@ -1741,6 +1810,20 @@ func (x *DispatchRosterRequestV1) GetServiceSignature() []byte {
 		return x.ServiceSignature
 	}
 	return nil
+}
+
+func (x *DispatchRosterRequestV1) GetChainId() string {
+	if x != nil {
+		return x.ChainId
+	}
+	return ""
+}
+
+func (x *DispatchRosterRequestV1) GetBuilderOperator() string {
+	if x != nil {
+		return x.BuilderOperator
+	}
+	return ""
 }
 
 // GetDispatchRosterRequest authenticates an account or delegated SDK request.
@@ -1976,13 +2059,14 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"\facked_cursor\x18\x01 \x01(\x04R\vackedCursor\"1\n" +
 	"\x11StreamKeepaliveV1\x12\x1c\n" +
 	"\n" +
-	"sent_at_ms\x18\x01 \x01(\x04R\bsentAtMs\"\x87\x02\n" +
+	"sent_at_ms\x18\x01 \x01(\x04R\bsentAtMs\"\xbd\x02\n" +
 	"\x16DispatchInputRequestV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x02 \x01(\fR\x12dispatchTicketHash\x125\n" +
 	"\x06member\x18\x03 \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06member\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\x04 \x01(\x04R\x19serviceAuthorizationNonce\x12+\n" +
-	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\"\xc1\x02\n" +
+	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\x124\n" +
+	"\x16dispatch_accept_digest\x18\x06 \x01(\fR\x14dispatchAcceptDigest\"\xc1\x02\n" +
 	"\x17DispatchInputResponseV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x02 \x01(\fR\x12dispatchTicketHash\x12\x1d\n" +
@@ -1994,12 +2078,13 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"chunkIndex\x12\x1f\n" +
 	"\vchunk_count\x18\a \x01(\rR\n" +
 	"chunkCount\x12:\n" +
-	"\x19builder_service_signature\x18\b \x01(\fR\x17builderServiceSignature\"\xc0\x01\n" +
+	"\x19builder_service_signature\x18\b \x01(\fR\x17builderServiceSignature\"\xfa\x01\n" +
 	"\x10DispatchRevokeV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x02 \x01(\fR\x12dispatchTicketHash\x12%\n" +
 	"\x0erevoked_height\x18\x03 \x01(\x04R\rrevokedHeight\x12:\n" +
-	"\x19builder_service_signature\x18\x04 \x01(\fR\x17builderServiceSignature\"\xa6\x02\n" +
+	"\x19builder_service_signature\x18\x04 \x01(\fR\x17builderServiceSignature\x128\n" +
+	"\x06reason\x18\x05 \x01(\x0e2 .nexus.v1.DispatchRevokeReasonV1R\x06reason\"\xa6\x02\n" +
 	"\x14RecordResultNoticeV1\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x127\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x1f.task.v1.DispatchRecordStatusV1R\x06status\x12>\n" +
@@ -2093,13 +2178,15 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"\x15DispatchRosterRoundV1\x12%\n" +
 	"\x0edispatch_round\x18\x01 \x01(\rR\rdispatchRound\x121\n" +
 	"\x06roster\x18\x02 \x01(\v2\x19.task.v1.DispatchRosterV1R\x06roster\x12E\n" +
-	"\x0ehandraise_root\x18\x03 \x01(\v2\x1e.task.v1.SignedHandraiseRootV1R\rhandraiseRoot\"\xb8\x01\n" +
+	"\x0ehandraise_root\x18\x03 \x01(\v2\x1e.task.v1.SignedHandraiseRootV1R\rhandraiseRoot\"\xfe\x01\n" +
 	"\x17DispatchRosterRequestV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1c\n" +
 	"\trequester\x18\x02 \x01(\tR\trequester\x12\x14\n" +
 	"\x05nonce\x18\x03 \x01(\x04R\x05nonce\x12#\n" +
 	"\rexpiry_height\x18\x04 \x01(\x04R\fexpiryHeight\x12+\n" +
-	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\"\xfd\x01\n" +
+	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\x12\x19\n" +
+	"\bchain_id\x18\x06 \x01(\tR\achainId\x12)\n" +
+	"\x10builder_operator\x18\a \x01(\tR\x0fbuilderOperator\"\xfd\x01\n" +
 	"\x18GetDispatchRosterRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
@@ -2120,7 +2207,10 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"$OPEN_TASK_STATUS_V1_TAKEOVER_PENDING\x10\x02\x12\"\n" +
 	"\x1eOPEN_TASK_STATUS_V1_DISPATCHED\x10\x03\x12 \n" +
 	"\x1cOPEN_TASK_STATUS_V1_RECORDED\x10\x04\x12,\n" +
-	"(OPEN_TASK_STATUS_V1_REPLACEMENT_ACCEPTED\x10\x05B9Z7github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1b\x06proto3"
+	"(OPEN_TASK_STATUS_V1_REPLACEMENT_ACCEPTED\x10\x05*f\n" +
+	"\x16DispatchRevokeReasonV1\x12)\n" +
+	"%DISPATCH_REVOKE_REASON_V1_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dDISPATCH_REVOKE_REASON_V1_RBF\x10\x01B9Z7github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1b\x06proto3"
 
 var (
 	file_nexus_v1_dispatch_proto_rawDescOnce sync.Once
@@ -2134,90 +2224,92 @@ func file_nexus_v1_dispatch_proto_rawDescGZIP() []byte {
 	return file_nexus_v1_dispatch_proto_rawDescData
 }
 
-var file_nexus_v1_dispatch_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_nexus_v1_dispatch_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_nexus_v1_dispatch_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_nexus_v1_dispatch_proto_goTypes = []any{
 	(OpenTaskStatusV1)(0),                 // 0: nexus.v1.OpenTaskStatusV1
-	(*DispatchStreamBindingV1)(nil),       // 1: nexus.v1.DispatchStreamBindingV1
-	(*StreamAckV1)(nil),                   // 2: nexus.v1.StreamAckV1
-	(*StreamKeepaliveV1)(nil),             // 3: nexus.v1.StreamKeepaliveV1
-	(*DispatchInputRequestV1)(nil),        // 4: nexus.v1.DispatchInputRequestV1
-	(*DispatchInputResponseV1)(nil),       // 5: nexus.v1.DispatchInputResponseV1
-	(*DispatchRevokeV1)(nil),              // 6: nexus.v1.DispatchRevokeV1
-	(*RecordResultNoticeV1)(nil),          // 7: nexus.v1.RecordResultNoticeV1
-	(*VerifyResultSubmittedNoticeV1)(nil), // 8: nexus.v1.VerifyResultSubmittedNoticeV1
-	(*OpenVerifyV1)(nil),                  // 9: nexus.v1.OpenVerifyV1
-	(*VerifierAssignmentNotifyV1)(nil),    // 10: nexus.v1.VerifierAssignmentNotifyV1
-	(*HandraiseRootNoticeV1)(nil),         // 11: nexus.v1.HandraiseRootNoticeV1
-	(*DispatchOfferV1)(nil),               // 12: nexus.v1.DispatchOfferV1
-	(*DispatchResultHeaderV1)(nil),        // 13: nexus.v1.DispatchResultHeaderV1
-	(*ResumeOutputRequest)(nil),           // 14: nexus.v1.ResumeOutputRequest
-	(*DispatchStreamFrameV1)(nil),         // 15: nexus.v1.DispatchStreamFrameV1
-	(*DispatchStreamRequest)(nil),         // 16: nexus.v1.DispatchStreamRequest
-	(*DispatchStreamResponse)(nil),        // 17: nexus.v1.DispatchStreamResponse
-	(*DispatchRosterRoundV1)(nil),         // 18: nexus.v1.DispatchRosterRoundV1
-	(*DispatchRosterRequestV1)(nil),       // 19: nexus.v1.DispatchRosterRequestV1
-	(*GetDispatchRosterRequest)(nil),      // 20: nexus.v1.GetDispatchRosterRequest
-	(*GetDispatchRosterResponse)(nil),     // 21: nexus.v1.GetDispatchRosterResponse
-	(*BuilderMessageBindingV1)(nil),       // 22: nexus.v1.BuilderMessageBindingV1
-	(*v1.CandidateMemberRefV1)(nil),       // 23: task.v1.CandidateMemberRefV1
-	(v1.DispatchRecordStatusV1)(0),        // 24: task.v1.DispatchRecordStatusV1
-	(v1.DispatchRejectCodeV1)(0),          // 25: task.v1.DispatchRejectCodeV1
-	(*v1.SelectedVerifierV1)(nil),         // 26: task.v1.SelectedVerifierV1
-	(*v1.SignedHandraiseRootV1)(nil),      // 27: task.v1.SignedHandraiseRootV1
-	(*v1.HandraiseInclusionProofV1)(nil),  // 28: task.v1.HandraiseInclusionProofV1
-	(*v1.DispatchTicketV1)(nil),           // 29: task.v1.DispatchTicketV1
-	(*v1.SignedOrderV2)(nil),              // 30: task.v1.SignedOrderV2
-	(*v1.DispatchAcceptV1)(nil),           // 31: task.v1.DispatchAcceptV1
-	(*SDKRequestEnvelopeV2)(nil),          // 32: nexus.v1.SDKRequestEnvelopeV2
-	(*v1.StandingHandraiseV1)(nil),        // 33: task.v1.StandingHandraiseV1
-	(*v1.DispatchRejectV1)(nil),           // 34: task.v1.DispatchRejectV1
-	(*v1.VerifierHandraiseV1)(nil),        // 35: task.v1.VerifierHandraiseV1
-	(*v1.DispatchRosterV1)(nil),           // 36: task.v1.DispatchRosterV1
+	(DispatchRevokeReasonV1)(0),           // 1: nexus.v1.DispatchRevokeReasonV1
+	(*DispatchStreamBindingV1)(nil),       // 2: nexus.v1.DispatchStreamBindingV1
+	(*StreamAckV1)(nil),                   // 3: nexus.v1.StreamAckV1
+	(*StreamKeepaliveV1)(nil),             // 4: nexus.v1.StreamKeepaliveV1
+	(*DispatchInputRequestV1)(nil),        // 5: nexus.v1.DispatchInputRequestV1
+	(*DispatchInputResponseV1)(nil),       // 6: nexus.v1.DispatchInputResponseV1
+	(*DispatchRevokeV1)(nil),              // 7: nexus.v1.DispatchRevokeV1
+	(*RecordResultNoticeV1)(nil),          // 8: nexus.v1.RecordResultNoticeV1
+	(*VerifyResultSubmittedNoticeV1)(nil), // 9: nexus.v1.VerifyResultSubmittedNoticeV1
+	(*OpenVerifyV1)(nil),                  // 10: nexus.v1.OpenVerifyV1
+	(*VerifierAssignmentNotifyV1)(nil),    // 11: nexus.v1.VerifierAssignmentNotifyV1
+	(*HandraiseRootNoticeV1)(nil),         // 12: nexus.v1.HandraiseRootNoticeV1
+	(*DispatchOfferV1)(nil),               // 13: nexus.v1.DispatchOfferV1
+	(*DispatchResultHeaderV1)(nil),        // 14: nexus.v1.DispatchResultHeaderV1
+	(*ResumeOutputRequest)(nil),           // 15: nexus.v1.ResumeOutputRequest
+	(*DispatchStreamFrameV1)(nil),         // 16: nexus.v1.DispatchStreamFrameV1
+	(*DispatchStreamRequest)(nil),         // 17: nexus.v1.DispatchStreamRequest
+	(*DispatchStreamResponse)(nil),        // 18: nexus.v1.DispatchStreamResponse
+	(*DispatchRosterRoundV1)(nil),         // 19: nexus.v1.DispatchRosterRoundV1
+	(*DispatchRosterRequestV1)(nil),       // 20: nexus.v1.DispatchRosterRequestV1
+	(*GetDispatchRosterRequest)(nil),      // 21: nexus.v1.GetDispatchRosterRequest
+	(*GetDispatchRosterResponse)(nil),     // 22: nexus.v1.GetDispatchRosterResponse
+	(*BuilderMessageBindingV1)(nil),       // 23: nexus.v1.BuilderMessageBindingV1
+	(*v1.CandidateMemberRefV1)(nil),       // 24: task.v1.CandidateMemberRefV1
+	(v1.DispatchRecordStatusV1)(0),        // 25: task.v1.DispatchRecordStatusV1
+	(v1.DispatchRejectCodeV1)(0),          // 26: task.v1.DispatchRejectCodeV1
+	(*v1.SelectedVerifierV1)(nil),         // 27: task.v1.SelectedVerifierV1
+	(*v1.SignedHandraiseRootV1)(nil),      // 28: task.v1.SignedHandraiseRootV1
+	(*v1.HandraiseInclusionProofV1)(nil),  // 29: task.v1.HandraiseInclusionProofV1
+	(*v1.DispatchTicketV1)(nil),           // 30: task.v1.DispatchTicketV1
+	(*v1.SignedOrderV2)(nil),              // 31: task.v1.SignedOrderV2
+	(*v1.DispatchAcceptV1)(nil),           // 32: task.v1.DispatchAcceptV1
+	(*SDKRequestEnvelopeV2)(nil),          // 33: nexus.v1.SDKRequestEnvelopeV2
+	(*v1.StandingHandraiseV1)(nil),        // 34: task.v1.StandingHandraiseV1
+	(*v1.DispatchRejectV1)(nil),           // 35: task.v1.DispatchRejectV1
+	(*v1.VerifierHandraiseV1)(nil),        // 36: task.v1.VerifierHandraiseV1
+	(*v1.DispatchRosterV1)(nil),           // 37: task.v1.DispatchRosterV1
 }
 var file_nexus_v1_dispatch_proto_depIdxs = []int32{
-	23, // 0: nexus.v1.DispatchInputRequestV1.member:type_name -> task.v1.CandidateMemberRefV1
-	24, // 1: nexus.v1.RecordResultNoticeV1.status:type_name -> task.v1.DispatchRecordStatusV1
-	25, // 2: nexus.v1.RecordResultNoticeV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
-	22, // 3: nexus.v1.OpenVerifyV1.binding:type_name -> nexus.v1.BuilderMessageBindingV1
-	26, // 4: nexus.v1.VerifierAssignmentNotifyV1.verifiers:type_name -> task.v1.SelectedVerifierV1
-	22, // 5: nexus.v1.VerifierAssignmentNotifyV1.binding:type_name -> nexus.v1.BuilderMessageBindingV1
-	27, // 6: nexus.v1.HandraiseRootNoticeV1.root:type_name -> task.v1.SignedHandraiseRootV1
-	28, // 7: nexus.v1.HandraiseRootNoticeV1.proof:type_name -> task.v1.HandraiseInclusionProofV1
-	29, // 8: nexus.v1.DispatchOfferV1.ticket:type_name -> task.v1.DispatchTicketV1
-	30, // 9: nexus.v1.DispatchOfferV1.signed_order:type_name -> task.v1.SignedOrderV2
-	29, // 10: nexus.v1.DispatchResultHeaderV1.winner_ticket:type_name -> task.v1.DispatchTicketV1
-	31, // 11: nexus.v1.DispatchResultHeaderV1.accept:type_name -> task.v1.DispatchAcceptV1
-	24, // 12: nexus.v1.DispatchResultHeaderV1.record_status:type_name -> task.v1.DispatchRecordStatusV1
-	32, // 13: nexus.v1.ResumeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	1,  // 14: nexus.v1.DispatchStreamFrameV1.binding:type_name -> nexus.v1.DispatchStreamBindingV1
-	33, // 15: nexus.v1.DispatchStreamFrameV1.handraise:type_name -> task.v1.StandingHandraiseV1
-	11, // 16: nexus.v1.DispatchStreamFrameV1.handraise_root:type_name -> nexus.v1.HandraiseRootNoticeV1
-	12, // 17: nexus.v1.DispatchStreamFrameV1.offer:type_name -> nexus.v1.DispatchOfferV1
-	31, // 18: nexus.v1.DispatchStreamFrameV1.accept:type_name -> task.v1.DispatchAcceptV1
-	34, // 19: nexus.v1.DispatchStreamFrameV1.reject:type_name -> task.v1.DispatchRejectV1
-	4,  // 20: nexus.v1.DispatchStreamFrameV1.input_request:type_name -> nexus.v1.DispatchInputRequestV1
-	5,  // 21: nexus.v1.DispatchStreamFrameV1.input_response:type_name -> nexus.v1.DispatchInputResponseV1
-	6,  // 22: nexus.v1.DispatchStreamFrameV1.revoke:type_name -> nexus.v1.DispatchRevokeV1
-	7,  // 23: nexus.v1.DispatchStreamFrameV1.record_result:type_name -> nexus.v1.RecordResultNoticeV1
-	9,  // 24: nexus.v1.DispatchStreamFrameV1.open_verify:type_name -> nexus.v1.OpenVerifyV1
-	35, // 25: nexus.v1.DispatchStreamFrameV1.verifier_handraise:type_name -> task.v1.VerifierHandraiseV1
-	10, // 26: nexus.v1.DispatchStreamFrameV1.verifier_assignment:type_name -> nexus.v1.VerifierAssignmentNotifyV1
-	8,  // 27: nexus.v1.DispatchStreamFrameV1.verify_result_submitted:type_name -> nexus.v1.VerifyResultSubmittedNoticeV1
-	2,  // 28: nexus.v1.DispatchStreamFrameV1.ack:type_name -> nexus.v1.StreamAckV1
-	3,  // 29: nexus.v1.DispatchStreamFrameV1.keepalive:type_name -> nexus.v1.StreamKeepaliveV1
-	15, // 30: nexus.v1.DispatchStreamRequest.frame:type_name -> nexus.v1.DispatchStreamFrameV1
-	15, // 31: nexus.v1.DispatchStreamResponse.frame:type_name -> nexus.v1.DispatchStreamFrameV1
-	36, // 32: nexus.v1.DispatchRosterRoundV1.roster:type_name -> task.v1.DispatchRosterV1
-	27, // 33: nexus.v1.DispatchRosterRoundV1.handraise_root:type_name -> task.v1.SignedHandraiseRootV1
-	32, // 34: nexus.v1.GetDispatchRosterRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	19, // 35: nexus.v1.GetDispatchRosterRequest.roster_request:type_name -> nexus.v1.DispatchRosterRequestV1
-	18, // 36: nexus.v1.GetDispatchRosterResponse.rounds:type_name -> nexus.v1.DispatchRosterRoundV1
-	37, // [37:37] is the sub-list for method output_type
-	37, // [37:37] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	24, // 0: nexus.v1.DispatchInputRequestV1.member:type_name -> task.v1.CandidateMemberRefV1
+	1,  // 1: nexus.v1.DispatchRevokeV1.reason:type_name -> nexus.v1.DispatchRevokeReasonV1
+	25, // 2: nexus.v1.RecordResultNoticeV1.status:type_name -> task.v1.DispatchRecordStatusV1
+	26, // 3: nexus.v1.RecordResultNoticeV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
+	23, // 4: nexus.v1.OpenVerifyV1.binding:type_name -> nexus.v1.BuilderMessageBindingV1
+	27, // 5: nexus.v1.VerifierAssignmentNotifyV1.verifiers:type_name -> task.v1.SelectedVerifierV1
+	23, // 6: nexus.v1.VerifierAssignmentNotifyV1.binding:type_name -> nexus.v1.BuilderMessageBindingV1
+	28, // 7: nexus.v1.HandraiseRootNoticeV1.root:type_name -> task.v1.SignedHandraiseRootV1
+	29, // 8: nexus.v1.HandraiseRootNoticeV1.proof:type_name -> task.v1.HandraiseInclusionProofV1
+	30, // 9: nexus.v1.DispatchOfferV1.ticket:type_name -> task.v1.DispatchTicketV1
+	31, // 10: nexus.v1.DispatchOfferV1.signed_order:type_name -> task.v1.SignedOrderV2
+	30, // 11: nexus.v1.DispatchResultHeaderV1.winner_ticket:type_name -> task.v1.DispatchTicketV1
+	32, // 12: nexus.v1.DispatchResultHeaderV1.accept:type_name -> task.v1.DispatchAcceptV1
+	25, // 13: nexus.v1.DispatchResultHeaderV1.record_status:type_name -> task.v1.DispatchRecordStatusV1
+	33, // 14: nexus.v1.ResumeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	2,  // 15: nexus.v1.DispatchStreamFrameV1.binding:type_name -> nexus.v1.DispatchStreamBindingV1
+	34, // 16: nexus.v1.DispatchStreamFrameV1.handraise:type_name -> task.v1.StandingHandraiseV1
+	12, // 17: nexus.v1.DispatchStreamFrameV1.handraise_root:type_name -> nexus.v1.HandraiseRootNoticeV1
+	13, // 18: nexus.v1.DispatchStreamFrameV1.offer:type_name -> nexus.v1.DispatchOfferV1
+	32, // 19: nexus.v1.DispatchStreamFrameV1.accept:type_name -> task.v1.DispatchAcceptV1
+	35, // 20: nexus.v1.DispatchStreamFrameV1.reject:type_name -> task.v1.DispatchRejectV1
+	5,  // 21: nexus.v1.DispatchStreamFrameV1.input_request:type_name -> nexus.v1.DispatchInputRequestV1
+	6,  // 22: nexus.v1.DispatchStreamFrameV1.input_response:type_name -> nexus.v1.DispatchInputResponseV1
+	7,  // 23: nexus.v1.DispatchStreamFrameV1.revoke:type_name -> nexus.v1.DispatchRevokeV1
+	8,  // 24: nexus.v1.DispatchStreamFrameV1.record_result:type_name -> nexus.v1.RecordResultNoticeV1
+	10, // 25: nexus.v1.DispatchStreamFrameV1.open_verify:type_name -> nexus.v1.OpenVerifyV1
+	36, // 26: nexus.v1.DispatchStreamFrameV1.verifier_handraise:type_name -> task.v1.VerifierHandraiseV1
+	11, // 27: nexus.v1.DispatchStreamFrameV1.verifier_assignment:type_name -> nexus.v1.VerifierAssignmentNotifyV1
+	9,  // 28: nexus.v1.DispatchStreamFrameV1.verify_result_submitted:type_name -> nexus.v1.VerifyResultSubmittedNoticeV1
+	3,  // 29: nexus.v1.DispatchStreamFrameV1.ack:type_name -> nexus.v1.StreamAckV1
+	4,  // 30: nexus.v1.DispatchStreamFrameV1.keepalive:type_name -> nexus.v1.StreamKeepaliveV1
+	16, // 31: nexus.v1.DispatchStreamRequest.frame:type_name -> nexus.v1.DispatchStreamFrameV1
+	16, // 32: nexus.v1.DispatchStreamResponse.frame:type_name -> nexus.v1.DispatchStreamFrameV1
+	37, // 33: nexus.v1.DispatchRosterRoundV1.roster:type_name -> task.v1.DispatchRosterV1
+	28, // 34: nexus.v1.DispatchRosterRoundV1.handraise_root:type_name -> task.v1.SignedHandraiseRootV1
+	33, // 35: nexus.v1.GetDispatchRosterRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	20, // 36: nexus.v1.GetDispatchRosterRequest.roster_request:type_name -> nexus.v1.DispatchRosterRequestV1
+	19, // 37: nexus.v1.GetDispatchRosterResponse.rounds:type_name -> nexus.v1.DispatchRosterRoundV1
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_dispatch_proto_init() }
@@ -2254,7 +2346,7 @@ func file_nexus_v1_dispatch_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nexus_v1_dispatch_proto_rawDesc), len(file_nexus_v1_dispatch_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,

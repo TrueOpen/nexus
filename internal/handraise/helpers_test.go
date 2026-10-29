@@ -31,10 +31,10 @@ var (
 )
 
 type fakeKeys struct {
-	mu           sync.Mutex
-	cortex       map[string]*fakeKey
-	builderNonce uint64
-	err          error
+	mu         sync.Mutex
+	cortex     map[string]*fakeKey
+	builderErr error
+	err        error
 }
 
 type fakeKey struct {
@@ -55,10 +55,10 @@ func (k *fakeKeys) CurrentCortexKey(_ context.Context, operator string) ([]byte,
 	return key.pub, key.nonce, nil
 }
 
-func (k *fakeKeys) CurrentBuilderNonce(context.Context) (uint64, error) {
+func (k *fakeKeys) CheckBuilderKey(context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.builderNonce, nil
+	return k.builderErr
 }
 
 type fakePool struct {
@@ -195,7 +195,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{
 		t:       t,
 		store:   kv.NewMemStore(),
-		keys:    &fakeKeys{cortex: map[string]*fakeKey{}, builderNonce: 7},
+		keys:    &fakeKeys{cortex: map[string]*fakeKey{}},
 		pool:    &fakePool{members: map[string]bool{}, support: map[string]map[string]bool{}},
 		height:  &fakeHeight{h: 100},
 		clock:   &fakeClock{now: time.Unix(1_800_000_000, 0)},

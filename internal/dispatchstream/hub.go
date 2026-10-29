@@ -114,7 +114,8 @@ type HandraiseSink interface {
 }
 
 // DispatchSink takes verified answers to dispatch tickets and input requests. Whether an input
-// request may be served (only after a verified accept of that ticket) is the sink's decision.
+// request may be served (only after a verified accept of that ticket, whose signing digest the
+// request's dispatch_accept_digest must equal) is the sink's decision.
 type DispatchSink interface {
 	HandleDispatchAccept(ctx context.Context, from Origin, m *taskv1.DispatchAcceptV1) error
 	HandleDispatchReject(ctx context.Context, from Origin, m *taskv1.DispatchRejectV1) error

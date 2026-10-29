@@ -22,8 +22,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MsgRegisterVrfKey registers or rotates a validator's independent ECVRF key.
-// The Keeper derives pending_from_epoch as current_epoch + 1.
+// MsgRegisterVrfKey registers an independent Validator or Builder ECVRF key.
+// Validator and first registration activate next epoch. Existing Builder key
+// rotation waits using protocol dispatch hard limits, then switches at an epoch
+// boundary. Its existing VRF audit history stays separate from service keys.
 // MsgRegisterVrfKey defines the MsgRegisterVrfKey wire type.
 type MsgRegisterVrfKey struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`

@@ -29,16 +29,13 @@ func (k ChainServiceKeys) CurrentCortexKey(ctx context.Context, operator string)
 	return pub, state.AuthorizationNonce, nil
 }
 
-func (k ChainServiceKeys) CurrentBuilderNonce(ctx context.Context) (uint64, error) {
-	pub, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
+func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
+	pub, _, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if k.Signer == nil || !bytes.Equal(pub, k.Signer.PubKeyCompressed()) {
-		return 0, fmt.Errorf("on-chain BUILDER service key does not match the local signer")
+		return fmt.Errorf("on-chain BUILDER service key does not match the local signer")
 	}
-	if state.AuthorizationNonce == 0 {
-		return 0, fmt.Errorf("BUILDER service binding has no authorization nonce")
-	}
-	return state.AuthorizationNonce, nil
+	return nil
 }

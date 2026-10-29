@@ -208,6 +208,8 @@ message DispatchParamsV1 {
   repeated DispatchChallengeGasCapV1 dispatch_challenge_gas_cap_by_kind = 19;
   shared.v1.Amount builder_compensation_account_min_balance = 20;
   uint64 dispatch_evidence_retention_blocks = 21;
+  // ServiceBond slash for a Worker signing both rejection and acceptance; 0..10000.
+  uint32 worker_dispatch_contradiction_slash_bps = 22;
 }
 
 // PrefillCompensationV1 defines the canonical PrefillCompensationV1 fields.

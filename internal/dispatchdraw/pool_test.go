@@ -2,7 +2,6 @@ package dispatchdraw
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -14,13 +13,22 @@ import (
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-func TestPoolDigestMatchesWireVector(t *testing.T) {
-	v := wirefixture.Load(t, dispatchVectors).Vector(t, "dispatch_pool", 0)
-	v.CheckPreimage(t)
-	pool := vectorPool(t)
-	if pool.Digest != v.Digest(t) {
-		t.Fatalf("pool digest = %x, want %s", pool.Digest, v.DigestHex)
+// The wire weighted order vector: pool {1:1, 3:5, 7:2} drawn with its randomness gives [7, 3, 1].
+func TestPoolDrawMatchesWireWeightedOrder(t *testing.T) {
+	file := wirefixture.Load(t, dispatchVectors)
+	var vec struct {
+		Order struct {
+			ChainID     string                    `json:"chain_id"`
+			MaxAttempts uint32                    `json:"max_attempts"`
+			Members     []dispatch.WeightedMember `json:"members"`
+			Order       []uint32                  `json:"order"`
+			Randomness  string                    `json:"randomness"`
+		} `json:"weighted_order"`
 	}
+	if err := json.Unmarshal(file.Raw, &vec); err != nil {
+		t.Fatal(err)
+	}
+	pool := vectorPool(t)
 	want := []dispatch.RosterMember{
 		{Slot: 1, SlotVersion: 1, OperatorAddress: vectorOp1, CandidateWeight: 1},
 		{Slot: 3, SlotVersion: 1, OperatorAddress: vectorOp3, CandidateWeight: 5},
@@ -29,26 +37,12 @@ func TestPoolDigestMatchesWireVector(t *testing.T) {
 	if !reflect.DeepEqual(pool.Members, want) {
 		t.Fatalf("members = %+v", pool.Members)
 	}
-}
-
-// The wire weighted order vector: pool {1:1, 3:5, 7:2} drawn with its randomness gives [7, 3, 1].
-func TestPoolDrawMatchesWireWeightedOrder(t *testing.T) {
-	file := wirefixture.Load(t, dispatchVectors)
-	var vec struct {
-		Order struct {
-			ChainID     string   `json:"chain_id"`
-			MaxAttempts uint32   `json:"max_attempts"`
-			Order       []uint32 `json:"order"`
-			PoolHash    string   `json:"pool_hash"`
-			Randomness  string   `json:"randomness"`
-		} `json:"weighted_order"`
+	weighted := make([]dispatch.WeightedMember, len(pool.Members))
+	for i, m := range pool.Members {
+		weighted[i] = dispatch.WeightedMember{Slot: m.Slot, Weight: m.CandidateWeight}
 	}
-	if err := json.Unmarshal(file.Raw, &vec); err != nil {
-		t.Fatal(err)
-	}
-	pool := vectorPool(t)
-	if vec.Order.ChainID != vectorChainID || hex.EncodeToString(pool.Digest[:]) != vec.Order.PoolHash {
-		t.Fatalf("weighted order vector is not over the pool vector: %s %s", vec.Order.ChainID, vec.Order.PoolHash)
+	if vec.Order.ChainID != vectorChainID || !reflect.DeepEqual(weighted, vec.Order.Members) {
+		t.Fatalf("weighted order vector is not over the pool fixture: %s %+v", vec.Order.ChainID, vec.Order.Members)
 	}
 	drawn, err := pool.Draw(vec.Order.ChainID, mustHex32(t, vec.Order.Randomness), vec.Order.MaxAttempts)
 	if err != nil {

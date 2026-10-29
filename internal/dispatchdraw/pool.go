@@ -41,8 +41,6 @@ type Pool struct {
 	Epoch   Epoch
 	Profile Profile
 	Members []dispatch.RosterMember
-	// Digest is dispatch_pool_hash.
-	Digest [32]byte
 
 	byOperator map[string]int
 }
@@ -115,10 +113,6 @@ func BuildPool(ctx context.Context, chainID string, src PoolSource, ep Epoch, pr
 			OperatorAddress: m.GetOperatorAddress(),
 			CandidateWeight: view.GetCandidateWeight(),
 		})
-	}
-	pool.Digest, err = dispatch.PoolDigest(chainID, ep.SnapshotID, ep.ReferenceHeight, profile.ModelID, profile.Version, pool.Members)
-	if err != nil {
-		return nil, fmt.Errorf("dispatch pool digest: %w", err)
 	}
 	return pool, nil
 }

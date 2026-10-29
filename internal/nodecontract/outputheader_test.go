@@ -47,24 +47,22 @@ func TestOutputStreamHeaderMatchesWireVector(t *testing.T) {
 	if err := header.ValidatePlaintext(); err != nil {
 		t.Fatalf("the wire plaintext header must pass admission: %v", err)
 	}
-	t.Run("signature", func(t *testing.T) {
-		// The candidate wire vector still carries the signature over the retired digest that had
-		// attempt u32(0) in place of dispatch_ticket_hash. Pin that known state so this fails as soon
-		// as wire re-signs the vector; then replace it with a plain verification of digest.
-		retired := CanonicalHashBytes(DomainOutputStreamHeaderV1,
-			[]byte(header.ChainID), header.TaskHash, Uint32BE(0), Uint32BE(header.StreamInstance),
-			header.UserRecipientPubkey, header.OutputKeyCommitment, header.KeyPackageHash,
-		)
-		if len(pub) != 33 {
-			t.Fatalf("service pubkey length = %d", len(pub))
-		}
-		if signer.VerifyDigestSig(pub, digest[:], signature) {
-			t.Fatal("wire re-signed the vector: verify it against the ticket-bound digest and drop this pin")
-		}
-		if !signer.VerifyDigestSig(pub, retired[:], signature) {
-			t.Fatal("wire vector signature verifies under neither the current nor the retired digest")
-		}
-	})
+	if len(pub) != 33 {
+		t.Fatalf("service pubkey length = %d", len(pub))
+	}
+	if !signer.VerifyDigestSig(pub, digest[:], signature) {
+		t.Fatal("wire vector signature does not verify under the ticket-bound digest")
+	}
+	// The signature binds the ticket: the same header naming another ticket does not verify.
+	other := header
+	other.DispatchTicketHash = repeatByte(0x77, 32)
+	otherDigest, err := other.SigningDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signer.VerifyDigestSig(pub, otherDigest[:], signature) {
+		t.Fatal("wire vector signature verifies for another dispatch_ticket_hash")
+	}
 }
 
 // TestOutputStreamHeaderRejectedCases covers the wire rejected_cases.

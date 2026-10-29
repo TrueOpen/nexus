@@ -452,10 +452,9 @@ func (x *SessionNonceState) GetNextSessionNonce() uint64 {
 
 // StreamState is one session: sequence counter, owner, in-flight count and
 // optional delegated signing authorization
-// (key = session_id). Model A: a session never holds a balance; the
-// abandoned SessionEscrowState double ledger is deleted, and funds live in the
-// user account and the escrow module account with TaskBudgetState as the only
-// per-task ledger.
+// (key = session_id). Balance includes frozen Task reservations in the escrow
+// module account. Admission freezes funds from this ledger; settlement charges
+// actual spend and makes the remainder available in this same session.
 // StreamState defines the StreamState wire type.
 type StreamState struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
@@ -476,7 +475,8 @@ type StreamState struct {
 	// renewal, clearing or refunds. Wallet orders do not increment it.
 	SessionKeySpent *v1.Amount `protobuf:"bytes,10,opt,name=session_key_spent,json=sessionKeySpent,proto3" json:"session_key_spent,omitempty"`
 	// First registration, different-key replacement or SET after CLEAR records
-	// the execution height; same-key renewal/cap changes preserve it. Zero when
+	// the effective height; initial creation is immediate. Same-key renewal/cap
+	// changes preserve it. Zero when
 	// no key is registered. A delegated order's signed anchor height must be at
 	// least this height, preventing signatures from a revoked grant reviving.
 	SessionKeySetHeight            uint64                     `protobuf:"varint,11,opt,name=session_key_set_height,json=sessionKeySetHeight,proto3" json:"session_key_set_height,omitempty"`

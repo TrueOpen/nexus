@@ -197,10 +197,9 @@ func (x *ServiceDescriptorV1) GetEndpoints() []*ServiceEndpointV1 {
 	return nil
 }
 
-// CortexNodeState is the single stable Cortex identity row. Fields 10-12
-// are the three online-responsibility counters that the wire API /
-// this contract require MsgRotateServiceKey to see at zero; they replace the previous
-// string-keyed TASK_LIABILITY_* responsibility rows.
+// CortexNodeState is the single stable Cortex identity row. Fields 10-12 track
+// accepted online responsibilities. Rotation can be registered while they are
+// nonzero; Cortex activation waits for the applicable duties/material to close.
 // CortexNodeState defines the CortexNodeState wire type.
 type CortexNodeState struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -502,7 +501,9 @@ type ServiceKeyResponsibilityState struct {
 	SessionId          []byte                       `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId             []byte                       `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	CreatedHeight      uint64                       `protobuf:"varint,7,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
-	// Service-key generation that acquired this responsibility. It distinguishes
+	// Frozen material context nonce. New Builder Tasks during a pending service
+	// rotation bind the reserved next nonce without authorizing that key early.
+	// Pure operator duties do not count as old-key material dependencies. It distinguishes
 	// an exact acquire replay from the same responsibility ID presented under a
 	// different key generation; it is deliberately not part of the ID itself.
 	ServiceAuthorizationNonce uint64 `protobuf:"varint,8,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
@@ -596,40 +597,42 @@ func (x *ServiceKeyResponsibilityState) GetServiceAuthorizationNonce() uint64 {
 	return 0
 }
 
-// ServiceKeyProofState retains a rotated key solely for objective proof checks.
-// Primary key: (participant_type, operator_address, service_authorization_nonce).
-// Rotation copies the old binding atomically; it never restores live authority.
-// The frozen expiry covers dispatch admission, claim/rebuttal and challenge/
-// response windows, including the order freshness margin. Expiry may be extended
-// before a longer window activates, but never shortened or reopened after prune.
-// A derived (proof_expiry_height + 1, primary key) index is rebuilt on import;
-// bounded pruning uses the global visited budget. Current keys stay on identity.
-type ServiceKeyProofState struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	ParticipantType           v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
-	OperatorAddress           string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	ServiceAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	ServicePubkey             []byte                 `protobuf:"bytes,4,opt,name=service_pubkey,json=servicePubkey,proto3" json:"service_pubkey,omitempty"`
-	RetiredHeight             uint64                 `protobuf:"varint,5,opt,name=retired_height,json=retiredHeight,proto3" json:"retired_height,omitempty"`
-	ProofExpiryHeight         uint64                 `protobuf:"varint,6,opt,name=proof_expiry_height,json=proofExpiryHeight,proto3" json:"proof_expiry_height,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+// PendingServiceKeyRotationState is at most one replacement per role/operator.
+// The old key remains current until safe epoch activation. No retired service
+// public-key table exists. Rebuild the activation and pending-address indexes
+// from these primaries and material counts from existing responsibility rows.
+type PendingServiceKeyRotationState struct {
+	state                            protoimpl.MessageState `protogen:"open.v1"`
+	ParticipantType                  v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
+	OperatorAddress                  string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	CurrentServiceAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=current_service_authorization_nonce,json=currentServiceAuthorizationNonce,proto3" json:"current_service_authorization_nonce,omitempty"`
+	NewServicePubkey                 []byte                 `protobuf:"bytes,4,opt,name=new_service_pubkey,json=newServicePubkey,proto3" json:"new_service_pubkey,omitempty"`
+	NextServiceAuthorizationNonce    uint64                 `protobuf:"varint,5,opt,name=next_service_authorization_nonce,json=nextServiceAuthorizationNonce,proto3" json:"next_service_authorization_nonce,omitempty"`
+	RegisteredHeight                 uint64                 `protobuf:"varint,6,opt,name=registered_height,json=registeredHeight,proto3" json:"registered_height,omitempty"`
+	// First usable epoch height; process in the preceding block's EndBlock.
+	// Unclosed old material or exhausted budget postpones this by whole epochs.
+	EffectiveHeight uint64 `protobuf:"varint,7,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
+	// Inclusive dispatch-material deadline, frozen from protocol hard limits.
+	// Activation must be strictly later and all old-key material windows closed.
+	OldMaterialCloseHeight uint64 `protobuf:"varint,8,opt,name=old_material_close_height,json=oldMaterialCloseHeight,proto3" json:"old_material_close_height,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
-func (x *ServiceKeyProofState) Reset() {
-	*x = ServiceKeyProofState{}
+func (x *PendingServiceKeyRotationState) Reset() {
+	*x = PendingServiceKeyRotationState{}
 	mi := &file_hub_v1_participant_identity_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServiceKeyProofState) String() string {
+func (x *PendingServiceKeyRotationState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServiceKeyProofState) ProtoMessage() {}
+func (*PendingServiceKeyRotationState) ProtoMessage() {}
 
-func (x *ServiceKeyProofState) ProtoReflect() protoreflect.Message {
+func (x *PendingServiceKeyRotationState) ProtoReflect() protoreflect.Message {
 	mi := &file_hub_v1_participant_identity_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -641,49 +644,63 @@ func (x *ServiceKeyProofState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServiceKeyProofState.ProtoReflect.Descriptor instead.
-func (*ServiceKeyProofState) Descriptor() ([]byte, []int) {
+// Deprecated: Use PendingServiceKeyRotationState.ProtoReflect.Descriptor instead.
+func (*PendingServiceKeyRotationState) Descriptor() ([]byte, []int) {
 	return file_hub_v1_participant_identity_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ServiceKeyProofState) GetParticipantType() v1.ParticipantType {
+func (x *PendingServiceKeyRotationState) GetParticipantType() v1.ParticipantType {
 	if x != nil {
 		return x.ParticipantType
 	}
 	return v1.ParticipantType(0)
 }
 
-func (x *ServiceKeyProofState) GetOperatorAddress() string {
+func (x *PendingServiceKeyRotationState) GetOperatorAddress() string {
 	if x != nil {
 		return x.OperatorAddress
 	}
 	return ""
 }
 
-func (x *ServiceKeyProofState) GetServiceAuthorizationNonce() uint64 {
+func (x *PendingServiceKeyRotationState) GetCurrentServiceAuthorizationNonce() uint64 {
 	if x != nil {
-		return x.ServiceAuthorizationNonce
+		return x.CurrentServiceAuthorizationNonce
 	}
 	return 0
 }
 
-func (x *ServiceKeyProofState) GetServicePubkey() []byte {
+func (x *PendingServiceKeyRotationState) GetNewServicePubkey() []byte {
 	if x != nil {
-		return x.ServicePubkey
+		return x.NewServicePubkey
 	}
 	return nil
 }
 
-func (x *ServiceKeyProofState) GetRetiredHeight() uint64 {
+func (x *PendingServiceKeyRotationState) GetNextServiceAuthorizationNonce() uint64 {
 	if x != nil {
-		return x.RetiredHeight
+		return x.NextServiceAuthorizationNonce
 	}
 	return 0
 }
 
-func (x *ServiceKeyProofState) GetProofExpiryHeight() uint64 {
+func (x *PendingServiceKeyRotationState) GetRegisteredHeight() uint64 {
 	if x != nil {
-		return x.ProofExpiryHeight
+		return x.RegisteredHeight
+	}
+	return 0
+}
+
+func (x *PendingServiceKeyRotationState) GetEffectiveHeight() uint64 {
+	if x != nil {
+		return x.EffectiveHeight
+	}
+	return 0
+}
+
+func (x *PendingServiceKeyRotationState) GetOldMaterialCloseHeight() uint64 {
+	if x != nil {
+		return x.OldMaterialCloseHeight
 	}
 	return 0
 }
@@ -735,14 +752,16 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"session_id\x18\x05 \x01(\fR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x06 \x01(\fR\x06taskId\x12%\n" +
 	"\x0ecreated_height\x18\a \x01(\x04R\rcreatedHeight\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\xc6\x02\n" +
-	"\x14ServiceKeyProofState\x12E\n" +
+	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\xeb\x03\n" +
+	"\x1ePendingServiceKeyRotationState\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12)\n" +
-	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\x03 \x01(\x04R\x19serviceAuthorizationNonce\x12%\n" +
-	"\x0eservice_pubkey\x18\x04 \x01(\fR\rservicePubkey\x12%\n" +
-	"\x0eretired_height\x18\x05 \x01(\x04R\rretiredHeight\x12.\n" +
-	"\x13proof_expiry_height\x18\x06 \x01(\x04R\x11proofExpiryHeight*\xba\x01\n" +
+	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12M\n" +
+	"#current_service_authorization_nonce\x18\x03 \x01(\x04R currentServiceAuthorizationNonce\x12,\n" +
+	"\x12new_service_pubkey\x18\x04 \x01(\fR\x10newServicePubkey\x12G\n" +
+	" next_service_authorization_nonce\x18\x05 \x01(\x04R\x1dnextServiceAuthorizationNonce\x12+\n" +
+	"\x11registered_height\x18\x06 \x01(\x04R\x10registeredHeight\x12)\n" +
+	"\x10effective_height\x18\a \x01(\x04R\x0feffectiveHeight\x129\n" +
+	"\x19old_material_close_height\x18\b \x01(\x04R\x16oldMaterialCloseHeight*\xba\x01\n" +
 	"\x13ServiceEndpointKind\x12%\n" +
 	"!SERVICE_ENDPOINT_KIND_UNSPECIFIED\x10\x00\x12$\n" +
 	" SERVICE_ENDPOINT_KIND_NEXUS_GRPC\x10\x01\x12.\n" +
@@ -771,7 +790,7 @@ var file_hub_v1_participant_identity_proto_goTypes = []any{
 	(*CurrentServiceAddressIndexState)(nil), // 4: hub.v1.CurrentServiceAddressIndexState
 	(*ServiceDescriptorState)(nil),          // 5: hub.v1.ServiceDescriptorState
 	(*ServiceKeyResponsibilityState)(nil),   // 6: hub.v1.ServiceKeyResponsibilityState
-	(*ServiceKeyProofState)(nil),            // 7: hub.v1.ServiceKeyProofState
+	(*PendingServiceKeyRotationState)(nil),  // 7: hub.v1.PendingServiceKeyRotationState
 	(ServiceKeyStatus)(0),                   // 8: hub.v1.ServiceKeyStatus
 	(v1.ParticipantType)(0),                 // 9: shared.v1.ParticipantType
 	(ServiceKeyResponsibilityKind)(0),       // 10: hub.v1.ServiceKeyResponsibilityKind
@@ -784,7 +803,7 @@ var file_hub_v1_participant_identity_proto_depIdxs = []int32{
 	1,  // 4: hub.v1.ServiceDescriptorState.endpoints:type_name -> hub.v1.ServiceEndpointV1
 	9,  // 5: hub.v1.ServiceKeyResponsibilityState.participant_type:type_name -> shared.v1.ParticipantType
 	10, // 6: hub.v1.ServiceKeyResponsibilityState.responsibility_kind:type_name -> hub.v1.ServiceKeyResponsibilityKind
-	9,  // 7: hub.v1.ServiceKeyProofState.participant_type:type_name -> shared.v1.ParticipantType
+	9,  // 7: hub.v1.PendingServiceKeyRotationState.participant_type:type_name -> shared.v1.ParticipantType
 	8,  // [8:8] is the sub-list for method output_type
 	8,  // [8:8] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name

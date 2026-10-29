@@ -150,7 +150,7 @@ func (k *testKeys) inputRequest(t *testing.T, operator, label string) *nexusv1.D
 	t.Helper()
 	m := &nexusv1.DispatchInputRequestV1{
 		TaskId: hash32("task|" + label), DispatchTicketHash: hash32("ticket|" + label), Member: member(operator),
-		ServiceAuthorizationNonce: testNonce,
+		ServiceAuthorizationNonce: testNonce, DispatchAcceptDigest: hash32("accept|" + label),
 	}
 	sign(t, k.signer(operator), "nexus.v1.DispatchInputRequestV1", m, func(s []byte) { m.ServiceSignature = s })
 	return m

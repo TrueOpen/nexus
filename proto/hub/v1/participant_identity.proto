@@ -35,10 +35,9 @@ message ServiceDescriptorV1 {
   repeated ServiceEndpointV1 endpoints = 1;
 }
 
-// CortexNodeState is the single stable Cortex identity row. Fields 10-12
-// are the three online-responsibility counters that the wire API /
-// this contract require MsgRotateServiceKey to see at zero; they replace the previous
-// string-keyed TASK_LIABILITY_* responsibility rows.
+// CortexNodeState is the single stable Cortex identity row. Fields 10-12 track
+// accepted online responsibilities. Rotation can be registered while they are
+// nonzero; Cortex activation waits for the applicable duties/material to close.
 // CortexNodeState defines the CortexNodeState wire type.
 message CortexNodeState {
   uint32 schema_version = 1;
@@ -93,25 +92,29 @@ message ServiceKeyResponsibilityState {
   bytes session_id = 5;
   bytes task_id = 6;
   uint64 created_height = 7;
-  // Service-key generation that acquired this responsibility. It distinguishes
+  // Frozen material context nonce. New Builder Tasks during a pending service
+  // rotation bind the reserved next nonce without authorizing that key early.
+  // Pure operator duties do not count as old-key material dependencies. It distinguishes
   // an exact acquire replay from the same responsibility ID presented under a
   // different key generation; it is deliberately not part of the ID itself.
   uint64 service_authorization_nonce = 8;
 }
 
-// ServiceKeyProofState retains a rotated key solely for objective proof checks.
-// Primary key: (participant_type, operator_address, service_authorization_nonce).
-// Rotation copies the old binding atomically; it never restores live authority.
-// The frozen expiry covers dispatch admission, claim/rebuttal and challenge/
-// response windows, including the order freshness margin. Expiry may be extended
-// before a longer window activates, but never shortened or reopened after prune.
-// A derived (proof_expiry_height + 1, primary key) index is rebuilt on import;
-// bounded pruning uses the global visited budget. Current keys stay on identity.
-message ServiceKeyProofState {
+// PendingServiceKeyRotationState is at most one replacement per role/operator.
+// The old key remains current until safe epoch activation. No retired service
+// public-key table exists. Rebuild the activation and pending-address indexes
+// from these primaries and material counts from existing responsibility rows.
+message PendingServiceKeyRotationState {
   shared.v1.ParticipantType participant_type = 1;
   string operator_address = 2;
-  uint64 service_authorization_nonce = 3;
-  bytes service_pubkey = 4;
-  uint64 retired_height = 5;
-  uint64 proof_expiry_height = 6;
+  uint64 current_service_authorization_nonce = 3;
+  bytes new_service_pubkey = 4;
+  uint64 next_service_authorization_nonce = 5;
+  uint64 registered_height = 6;
+  // First usable epoch height; process in the preceding block's EndBlock.
+  // Unclosed old material or exhausted budget postpones this by whole epochs.
+  uint64 effective_height = 7;
+  // Inclusive dispatch-material deadline, frozen from protocol hard limits.
+  // Activation must be strictly later and all old-key material windows closed.
+  uint64 old_material_close_height = 8;
 }

@@ -225,7 +225,7 @@ func (x *MsgCreateSession) GetInitialBuilder() string {
 
 // MsgUpdateSessionKey changes authorization for an ACTIVE or IDLE session.
 // Only its owner signs this transaction. Exactly one action is required.
-// SET preserves spent; a different key or SET after CLEAR records the execution
+// SET preserves spent; a different key or SET after CLEAR records the effective
 // height as set_height. Same-key renewal/cap changes preserve set_height.
 // CLEAR zeroes key, expiry, cap and set_height, but never spent. An unchanged
 // result is NOOP without an event. Lifecycle status and activity are unchanged.
@@ -499,8 +499,9 @@ func (x *MsgCreateSessionResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgCancelOrder skips the next unconsumed order sequence so an off-chain order
-// stops occupying it. signer_address is the Cosmos signer and
+// MsgCancelOrder registers delayed cancellation of the next unconsumed sequence.
+// Registration does not consume it; the effective runner advances it only while
+// still unused. signer_address is the Cosmos signer and
 // must equal the stream owner; no duplicate detached owner signature is required.
 // It may only cancel next_expected_sequence, never a sequence already accepted by
 // MsgRecordDispatch, and it moves no funds.
@@ -565,8 +566,8 @@ func (x *MsgCancelOrder) GetSignerAddress() string {
 	return ""
 }
 
-// MsgCancelOrderResponse reports the cancelled sequence and the advanced counter
-// . task_id stays empty because a cancelled sequence never created a task.
+// MsgCancelOrderResponse reports the pending sequence and its effective height.
+// The next counter is unchanged at registration. task_id stays empty.
 // MsgCancelOrderResponse defines the MsgCancelOrderResponse wire type.
 type MsgCancelOrderResponse struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`

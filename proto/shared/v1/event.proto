@@ -282,6 +282,8 @@ enum ProtocolEventCodeV1 {
   PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED = 143;
   // Builder VRF key registration committed.
   PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED = 144;
+  // Registration of a pending service key; current binding remains unchanged.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED = 145;
 }
 
 // StreamCheckpoint advances a subscriber cursor even when no event matches its

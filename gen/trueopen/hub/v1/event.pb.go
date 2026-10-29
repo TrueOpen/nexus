@@ -181,6 +181,7 @@ type ProtocolEventPayloadV1 struct {
 	//	*ProtocolEventPayloadV1_BridgeSignerRotated
 	//	*ProtocolEventPayloadV1_BuilderCompensationFunded
 	//	*ProtocolEventPayloadV1_BuilderVrfKeyRegistered
+	//	*ProtocolEventPayloadV1_ServiceKeyRotationRegistered
 	TypedEvent    isProtocolEventPayloadV1_TypedEvent `protobuf_oneof:"typed_event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -628,6 +629,15 @@ func (x *ProtocolEventPayloadV1) GetBuilderVrfKeyRegistered() *EventBuilderVrfKe
 	return nil
 }
 
+func (x *ProtocolEventPayloadV1) GetServiceKeyRotationRegistered() *EventServiceKeyRotationRegistered {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*ProtocolEventPayloadV1_ServiceKeyRotationRegistered); ok {
+			return x.ServiceKeyRotationRegistered
+		}
+	}
+	return nil
+}
+
 type isProtocolEventPayloadV1_TypedEvent interface {
 	isProtocolEventPayloadV1_TypedEvent()
 }
@@ -812,6 +822,10 @@ type ProtocolEventPayloadV1_BuilderVrfKeyRegistered struct {
 	BuilderVrfKeyRegistered *EventBuilderVrfKeyRegistered `protobuf:"bytes,144,opt,name=builder_vrf_key_registered,json=builderVrfKeyRegistered,proto3,oneof"`
 }
 
+type ProtocolEventPayloadV1_ServiceKeyRotationRegistered struct {
+	ServiceKeyRotationRegistered *EventServiceKeyRotationRegistered `protobuf:"bytes,145,opt,name=service_key_rotation_registered,json=serviceKeyRotationRegistered,proto3,oneof"`
+}
+
 func (*ProtocolEventPayloadV1_ModelProfileRegistered) isProtocolEventPayloadV1_TypedEvent() {}
 
 func (*ProtocolEventPayloadV1_ModelProfileStateChanged) isProtocolEventPayloadV1_TypedEvent() {}
@@ -901,6 +915,8 @@ func (*ProtocolEventPayloadV1_BridgeSignerRotated) isProtocolEventPayloadV1_Type
 func (*ProtocolEventPayloadV1_BuilderCompensationFunded) isProtocolEventPayloadV1_TypedEvent() {}
 
 func (*ProtocolEventPayloadV1_BuilderVrfKeyRegistered) isProtocolEventPayloadV1_TypedEvent() {}
+
+func (*ProtocolEventPayloadV1_ServiceKeyRotationRegistered) isProtocolEventPayloadV1_TypedEvent() {}
 
 // ProtocolEventPrimaryLocatorV1 anchors one event to the Query that returns its
 // authoritative state.
@@ -3180,7 +3196,52 @@ func (x *EventModelStateChanged) GetReason() GovernanceReason {
 	return GovernanceReason_GOVERNANCE_REASON_UNSPECIFIED
 }
 
-// EventServiceKeyRotated is event code 101.
+// EventServiceKeyRotationRegistered reports a proposal; current is unchanged.
+type EventServiceKeyRotationRegistered struct {
+	state           protoimpl.MessageState          `protogen:"open.v1"`
+	PendingRotation *PendingServiceKeyRotationState `protobuf:"bytes,1,opt,name=pending_rotation,json=pendingRotation,proto3" json:"pending_rotation,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *EventServiceKeyRotationRegistered) Reset() {
+	*x = EventServiceKeyRotationRegistered{}
+	mi := &file_hub_v1_event_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventServiceKeyRotationRegistered) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventServiceKeyRotationRegistered) ProtoMessage() {}
+
+func (x *EventServiceKeyRotationRegistered) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_event_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventServiceKeyRotationRegistered.ProtoReflect.Descriptor instead.
+func (*EventServiceKeyRotationRegistered) Descriptor() ([]byte, []int) {
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *EventServiceKeyRotationRegistered) GetPendingRotation() *PendingServiceKeyRotationState {
+	if x != nil {
+		return x.PendingRotation
+	}
+	return nil
+}
+
+// EventServiceKeyRotated is event code 101, emitted only at actual epoch activation.
 type EventServiceKeyRotated struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType    v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
@@ -3194,7 +3255,7 @@ type EventServiceKeyRotated struct {
 
 func (x *EventServiceKeyRotated) Reset() {
 	*x = EventServiceKeyRotated{}
-	mi := &file_hub_v1_event_proto_msgTypes[33]
+	mi := &file_hub_v1_event_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3206,7 +3267,7 @@ func (x *EventServiceKeyRotated) String() string {
 func (*EventServiceKeyRotated) ProtoMessage() {}
 
 func (x *EventServiceKeyRotated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[33]
+	mi := &file_hub_v1_event_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3219,7 +3280,7 @@ func (x *EventServiceKeyRotated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventServiceKeyRotated.ProtoReflect.Descriptor instead.
 func (*EventServiceKeyRotated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{33}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *EventServiceKeyRotated) GetParticipantType() v1.ParticipantType {
@@ -3271,7 +3332,7 @@ type EventServiceKeyRevoked struct {
 
 func (x *EventServiceKeyRevoked) Reset() {
 	*x = EventServiceKeyRevoked{}
-	mi := &file_hub_v1_event_proto_msgTypes[34]
+	mi := &file_hub_v1_event_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3283,7 +3344,7 @@ func (x *EventServiceKeyRevoked) String() string {
 func (*EventServiceKeyRevoked) ProtoMessage() {}
 
 func (x *EventServiceKeyRevoked) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[34]
+	mi := &file_hub_v1_event_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3296,7 +3357,7 @@ func (x *EventServiceKeyRevoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventServiceKeyRevoked.ProtoReflect.Descriptor instead.
 func (*EventServiceKeyRevoked) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{34}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *EventServiceKeyRevoked) GetParticipantType() v1.ParticipantType {
@@ -3347,7 +3408,7 @@ type EventServiceUnbondingWithdrawn struct {
 
 func (x *EventServiceUnbondingWithdrawn) Reset() {
 	*x = EventServiceUnbondingWithdrawn{}
-	mi := &file_hub_v1_event_proto_msgTypes[35]
+	mi := &file_hub_v1_event_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3359,7 +3420,7 @@ func (x *EventServiceUnbondingWithdrawn) String() string {
 func (*EventServiceUnbondingWithdrawn) ProtoMessage() {}
 
 func (x *EventServiceUnbondingWithdrawn) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[35]
+	mi := &file_hub_v1_event_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3372,7 +3433,7 @@ func (x *EventServiceUnbondingWithdrawn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventServiceUnbondingWithdrawn.ProtoReflect.Descriptor instead.
 func (*EventServiceUnbondingWithdrawn) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{35}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *EventServiceUnbondingWithdrawn) GetOperator() string {
@@ -3416,7 +3477,7 @@ type EventServiceDescriptorUpdated struct {
 
 func (x *EventServiceDescriptorUpdated) Reset() {
 	*x = EventServiceDescriptorUpdated{}
-	mi := &file_hub_v1_event_proto_msgTypes[36]
+	mi := &file_hub_v1_event_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3428,7 +3489,7 @@ func (x *EventServiceDescriptorUpdated) String() string {
 func (*EventServiceDescriptorUpdated) ProtoMessage() {}
 
 func (x *EventServiceDescriptorUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[36]
+	mi := &file_hub_v1_event_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3441,7 +3502,7 @@ func (x *EventServiceDescriptorUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventServiceDescriptorUpdated.ProtoReflect.Descriptor instead.
 func (*EventServiceDescriptorUpdated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{36}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *EventServiceDescriptorUpdated) GetParticipantType() v1.ParticipantType {
@@ -3490,7 +3551,7 @@ type EventBuilderRegistered struct {
 
 func (x *EventBuilderRegistered) Reset() {
 	*x = EventBuilderRegistered{}
-	mi := &file_hub_v1_event_proto_msgTypes[37]
+	mi := &file_hub_v1_event_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3502,7 +3563,7 @@ func (x *EventBuilderRegistered) String() string {
 func (*EventBuilderRegistered) ProtoMessage() {}
 
 func (x *EventBuilderRegistered) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[37]
+	mi := &file_hub_v1_event_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3515,7 +3576,7 @@ func (x *EventBuilderRegistered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBuilderRegistered.ProtoReflect.Descriptor instead.
 func (*EventBuilderRegistered) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{37}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *EventBuilderRegistered) GetBuilderOperator() string {
@@ -3568,7 +3629,7 @@ type EventBuilderEvidenceAccepted struct {
 
 func (x *EventBuilderEvidenceAccepted) Reset() {
 	*x = EventBuilderEvidenceAccepted{}
-	mi := &file_hub_v1_event_proto_msgTypes[38]
+	mi := &file_hub_v1_event_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3580,7 +3641,7 @@ func (x *EventBuilderEvidenceAccepted) String() string {
 func (*EventBuilderEvidenceAccepted) ProtoMessage() {}
 
 func (x *EventBuilderEvidenceAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[38]
+	mi := &file_hub_v1_event_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3593,7 +3654,7 @@ func (x *EventBuilderEvidenceAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBuilderEvidenceAccepted.ProtoReflect.Descriptor instead.
 func (*EventBuilderEvidenceAccepted) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{38}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *EventBuilderEvidenceAccepted) GetEvidenceId() []byte {
@@ -3639,7 +3700,7 @@ type EventHubParamsUpdated struct {
 
 func (x *EventHubParamsUpdated) Reset() {
 	*x = EventHubParamsUpdated{}
-	mi := &file_hub_v1_event_proto_msgTypes[39]
+	mi := &file_hub_v1_event_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3651,7 +3712,7 @@ func (x *EventHubParamsUpdated) String() string {
 func (*EventHubParamsUpdated) ProtoMessage() {}
 
 func (x *EventHubParamsUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[39]
+	mi := &file_hub_v1_event_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3664,7 +3725,7 @@ func (x *EventHubParamsUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventHubParamsUpdated.ProtoReflect.Descriptor instead.
 func (*EventHubParamsUpdated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{39}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *EventHubParamsUpdated) GetOldVersion() uint64 {
@@ -3707,7 +3768,7 @@ type EventServiceRegistered struct {
 
 func (x *EventServiceRegistered) Reset() {
 	*x = EventServiceRegistered{}
-	mi := &file_hub_v1_event_proto_msgTypes[40]
+	mi := &file_hub_v1_event_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3719,7 +3780,7 @@ func (x *EventServiceRegistered) String() string {
 func (*EventServiceRegistered) ProtoMessage() {}
 
 func (x *EventServiceRegistered) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[40]
+	mi := &file_hub_v1_event_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3732,7 +3793,7 @@ func (x *EventServiceRegistered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventServiceRegistered.ProtoReflect.Descriptor instead.
 func (*EventServiceRegistered) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{40}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *EventServiceRegistered) GetOperator() string {
@@ -3795,7 +3856,7 @@ type EventProfileReferencePriceUpdated struct {
 
 func (x *EventProfileReferencePriceUpdated) Reset() {
 	*x = EventProfileReferencePriceUpdated{}
-	mi := &file_hub_v1_event_proto_msgTypes[41]
+	mi := &file_hub_v1_event_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3807,7 +3868,7 @@ func (x *EventProfileReferencePriceUpdated) String() string {
 func (*EventProfileReferencePriceUpdated) ProtoMessage() {}
 
 func (x *EventProfileReferencePriceUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[41]
+	mi := &file_hub_v1_event_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3820,7 +3881,7 @@ func (x *EventProfileReferencePriceUpdated) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use EventProfileReferencePriceUpdated.ProtoReflect.Descriptor instead.
 func (*EventProfileReferencePriceUpdated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{41}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *EventProfileReferencePriceUpdated) GetModelId() []byte {
@@ -3892,7 +3953,7 @@ type EventParameterBucketUpdated struct {
 
 func (x *EventParameterBucketUpdated) Reset() {
 	*x = EventParameterBucketUpdated{}
-	mi := &file_hub_v1_event_proto_msgTypes[42]
+	mi := &file_hub_v1_event_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3904,7 +3965,7 @@ func (x *EventParameterBucketUpdated) String() string {
 func (*EventParameterBucketUpdated) ProtoMessage() {}
 
 func (x *EventParameterBucketUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[42]
+	mi := &file_hub_v1_event_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3917,7 +3978,7 @@ func (x *EventParameterBucketUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventParameterBucketUpdated.ProtoReflect.Descriptor instead.
 func (*EventParameterBucketUpdated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{42}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *EventParameterBucketUpdated) GetBucketKind() v1.BucketKind {
@@ -3980,7 +4041,7 @@ type EventEarningsAccrued struct {
 
 func (x *EventEarningsAccrued) Reset() {
 	*x = EventEarningsAccrued{}
-	mi := &file_hub_v1_event_proto_msgTypes[43]
+	mi := &file_hub_v1_event_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3992,7 +4053,7 @@ func (x *EventEarningsAccrued) String() string {
 func (*EventEarningsAccrued) ProtoMessage() {}
 
 func (x *EventEarningsAccrued) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[43]
+	mi := &file_hub_v1_event_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4005,7 +4066,7 @@ func (x *EventEarningsAccrued) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEarningsAccrued.ProtoReflect.Descriptor instead.
 func (*EventEarningsAccrued) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{43}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *EventEarningsAccrued) GetBeneficiary() string {
@@ -4065,7 +4126,7 @@ type EventEarningsClaimed struct {
 
 func (x *EventEarningsClaimed) Reset() {
 	*x = EventEarningsClaimed{}
-	mi := &file_hub_v1_event_proto_msgTypes[44]
+	mi := &file_hub_v1_event_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4077,7 +4138,7 @@ func (x *EventEarningsClaimed) String() string {
 func (*EventEarningsClaimed) ProtoMessage() {}
 
 func (x *EventEarningsClaimed) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[44]
+	mi := &file_hub_v1_event_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4090,7 +4151,7 @@ func (x *EventEarningsClaimed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEarningsClaimed.ProtoReflect.Descriptor instead.
 func (*EventEarningsClaimed) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{44}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *EventEarningsClaimed) GetBeneficiary() string {
@@ -4138,7 +4199,7 @@ type EventTreasuryCollected struct {
 
 func (x *EventTreasuryCollected) Reset() {
 	*x = EventTreasuryCollected{}
-	mi := &file_hub_v1_event_proto_msgTypes[45]
+	mi := &file_hub_v1_event_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4150,7 +4211,7 @@ func (x *EventTreasuryCollected) String() string {
 func (*EventTreasuryCollected) ProtoMessage() {}
 
 func (x *EventTreasuryCollected) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[45]
+	mi := &file_hub_v1_event_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4163,7 +4224,7 @@ func (x *EventTreasuryCollected) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTreasuryCollected.ProtoReflect.Descriptor instead.
 func (*EventTreasuryCollected) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{45}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *EventTreasuryCollected) GetAmount() *v1.Amount {
@@ -4212,7 +4273,7 @@ type EventTreasuryAdjusted struct {
 
 func (x *EventTreasuryAdjusted) Reset() {
 	*x = EventTreasuryAdjusted{}
-	mi := &file_hub_v1_event_proto_msgTypes[46]
+	mi := &file_hub_v1_event_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4224,7 +4285,7 @@ func (x *EventTreasuryAdjusted) String() string {
 func (*EventTreasuryAdjusted) ProtoMessage() {}
 
 func (x *EventTreasuryAdjusted) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[46]
+	mi := &file_hub_v1_event_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4237,7 +4298,7 @@ func (x *EventTreasuryAdjusted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTreasuryAdjusted.ProtoReflect.Descriptor instead.
 func (*EventTreasuryAdjusted) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{46}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *EventTreasuryAdjusted) GetProposalId() uint64 {
@@ -4303,7 +4364,7 @@ type EventFreezeSignalSubmitted struct {
 
 func (x *EventFreezeSignalSubmitted) Reset() {
 	*x = EventFreezeSignalSubmitted{}
-	mi := &file_hub_v1_event_proto_msgTypes[47]
+	mi := &file_hub_v1_event_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4315,7 +4376,7 @@ func (x *EventFreezeSignalSubmitted) String() string {
 func (*EventFreezeSignalSubmitted) ProtoMessage() {}
 
 func (x *EventFreezeSignalSubmitted) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[47]
+	mi := &file_hub_v1_event_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4328,7 +4389,7 @@ func (x *EventFreezeSignalSubmitted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventFreezeSignalSubmitted.ProtoReflect.Descriptor instead.
 func (*EventFreezeSignalSubmitted) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{47}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *EventFreezeSignalSubmitted) GetFreezeSignalId() []byte {
@@ -4412,7 +4473,7 @@ type EventEmergencyFreezeVoteRecorded struct {
 
 func (x *EventEmergencyFreezeVoteRecorded) Reset() {
 	*x = EventEmergencyFreezeVoteRecorded{}
-	mi := &file_hub_v1_event_proto_msgTypes[48]
+	mi := &file_hub_v1_event_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4424,7 +4485,7 @@ func (x *EventEmergencyFreezeVoteRecorded) String() string {
 func (*EventEmergencyFreezeVoteRecorded) ProtoMessage() {}
 
 func (x *EventEmergencyFreezeVoteRecorded) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[48]
+	mi := &file_hub_v1_event_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4437,7 +4498,7 @@ func (x *EventEmergencyFreezeVoteRecorded) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEmergencyFreezeVoteRecorded.ProtoReflect.Descriptor instead.
 func (*EventEmergencyFreezeVoteRecorded) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{48}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *EventEmergencyFreezeVoteRecorded) GetFreezeSignalId() []byte {
@@ -4499,7 +4560,7 @@ type EventEmergencyFreezeAccepted struct {
 
 func (x *EventEmergencyFreezeAccepted) Reset() {
 	*x = EventEmergencyFreezeAccepted{}
-	mi := &file_hub_v1_event_proto_msgTypes[49]
+	mi := &file_hub_v1_event_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4511,7 +4572,7 @@ func (x *EventEmergencyFreezeAccepted) String() string {
 func (*EventEmergencyFreezeAccepted) ProtoMessage() {}
 
 func (x *EventEmergencyFreezeAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[49]
+	mi := &file_hub_v1_event_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4524,7 +4585,7 @@ func (x *EventEmergencyFreezeAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEmergencyFreezeAccepted.ProtoReflect.Descriptor instead.
 func (*EventEmergencyFreezeAccepted) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{49}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *EventEmergencyFreezeAccepted) GetFreezeSignalId() []byte {
@@ -4585,7 +4646,7 @@ type EventEmergencyFreezeRejected struct {
 
 func (x *EventEmergencyFreezeRejected) Reset() {
 	*x = EventEmergencyFreezeRejected{}
-	mi := &file_hub_v1_event_proto_msgTypes[50]
+	mi := &file_hub_v1_event_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4597,7 +4658,7 @@ func (x *EventEmergencyFreezeRejected) String() string {
 func (*EventEmergencyFreezeRejected) ProtoMessage() {}
 
 func (x *EventEmergencyFreezeRejected) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[50]
+	mi := &file_hub_v1_event_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4610,7 +4671,7 @@ func (x *EventEmergencyFreezeRejected) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventEmergencyFreezeRejected.ProtoReflect.Descriptor instead.
 func (*EventEmergencyFreezeRejected) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{50}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *EventEmergencyFreezeRejected) GetFreezeSignalId() []byte {
@@ -4663,7 +4724,7 @@ type EventFreezeSignalExpired struct {
 
 func (x *EventFreezeSignalExpired) Reset() {
 	*x = EventFreezeSignalExpired{}
-	mi := &file_hub_v1_event_proto_msgTypes[51]
+	mi := &file_hub_v1_event_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4675,7 +4736,7 @@ func (x *EventFreezeSignalExpired) String() string {
 func (*EventFreezeSignalExpired) ProtoMessage() {}
 
 func (x *EventFreezeSignalExpired) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[51]
+	mi := &file_hub_v1_event_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4688,7 +4749,7 @@ func (x *EventFreezeSignalExpired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventFreezeSignalExpired.ProtoReflect.Descriptor instead.
 func (*EventFreezeSignalExpired) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{51}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *EventFreezeSignalExpired) GetFreezeSignalId() []byte {
@@ -4735,7 +4796,7 @@ type EventBridgeInboundProcessed struct {
 
 func (x *EventBridgeInboundProcessed) Reset() {
 	*x = EventBridgeInboundProcessed{}
-	mi := &file_hub_v1_event_proto_msgTypes[52]
+	mi := &file_hub_v1_event_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4747,7 +4808,7 @@ func (x *EventBridgeInboundProcessed) String() string {
 func (*EventBridgeInboundProcessed) ProtoMessage() {}
 
 func (x *EventBridgeInboundProcessed) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[52]
+	mi := &file_hub_v1_event_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4760,7 +4821,7 @@ func (x *EventBridgeInboundProcessed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeInboundProcessed.ProtoReflect.Descriptor instead.
 func (*EventBridgeInboundProcessed) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{52}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *EventBridgeInboundProcessed) GetMessageId() []byte {
@@ -4828,7 +4889,7 @@ type EventBridgeOutboundDispatched struct {
 
 func (x *EventBridgeOutboundDispatched) Reset() {
 	*x = EventBridgeOutboundDispatched{}
-	mi := &file_hub_v1_event_proto_msgTypes[53]
+	mi := &file_hub_v1_event_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4840,7 +4901,7 @@ func (x *EventBridgeOutboundDispatched) String() string {
 func (*EventBridgeOutboundDispatched) ProtoMessage() {}
 
 func (x *EventBridgeOutboundDispatched) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[53]
+	mi := &file_hub_v1_event_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4853,7 +4914,7 @@ func (x *EventBridgeOutboundDispatched) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeOutboundDispatched.ProtoReflect.Descriptor instead.
 func (*EventBridgeOutboundDispatched) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{53}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *EventBridgeOutboundDispatched) GetMessageId() []byte {
@@ -4918,7 +4979,7 @@ type EventBridgeFreezeChanged struct {
 
 func (x *EventBridgeFreezeChanged) Reset() {
 	*x = EventBridgeFreezeChanged{}
-	mi := &file_hub_v1_event_proto_msgTypes[54]
+	mi := &file_hub_v1_event_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4930,7 +4991,7 @@ func (x *EventBridgeFreezeChanged) String() string {
 func (*EventBridgeFreezeChanged) ProtoMessage() {}
 
 func (x *EventBridgeFreezeChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[54]
+	mi := &file_hub_v1_event_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4943,7 +5004,7 @@ func (x *EventBridgeFreezeChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeFreezeChanged.ProtoReflect.Descriptor instead.
 func (*EventBridgeFreezeChanged) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{54}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *EventBridgeFreezeChanged) GetProposalId() uint64 {
@@ -4990,7 +5051,7 @@ type EventBridgeCutoverBegun struct {
 
 func (x *EventBridgeCutoverBegun) Reset() {
 	*x = EventBridgeCutoverBegun{}
-	mi := &file_hub_v1_event_proto_msgTypes[55]
+	mi := &file_hub_v1_event_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5002,7 +5063,7 @@ func (x *EventBridgeCutoverBegun) String() string {
 func (*EventBridgeCutoverBegun) ProtoMessage() {}
 
 func (x *EventBridgeCutoverBegun) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[55]
+	mi := &file_hub_v1_event_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5015,7 +5076,7 @@ func (x *EventBridgeCutoverBegun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeCutoverBegun.ProtoReflect.Descriptor instead.
 func (*EventBridgeCutoverBegun) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{55}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *EventBridgeCutoverBegun) GetProposalId() uint64 {
@@ -5084,7 +5145,7 @@ type EventBridgeCutoverConfirmed struct {
 
 func (x *EventBridgeCutoverConfirmed) Reset() {
 	*x = EventBridgeCutoverConfirmed{}
-	mi := &file_hub_v1_event_proto_msgTypes[56]
+	mi := &file_hub_v1_event_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5096,7 +5157,7 @@ func (x *EventBridgeCutoverConfirmed) String() string {
 func (*EventBridgeCutoverConfirmed) ProtoMessage() {}
 
 func (x *EventBridgeCutoverConfirmed) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[56]
+	mi := &file_hub_v1_event_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5109,7 +5170,7 @@ func (x *EventBridgeCutoverConfirmed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeCutoverConfirmed.ProtoReflect.Descriptor instead.
 func (*EventBridgeCutoverConfirmed) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{56}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *EventBridgeCutoverConfirmed) GetProposalId() uint64 {
@@ -5181,7 +5242,7 @@ type EventBridgeLimitsScheduled struct {
 
 func (x *EventBridgeLimitsScheduled) Reset() {
 	*x = EventBridgeLimitsScheduled{}
-	mi := &file_hub_v1_event_proto_msgTypes[57]
+	mi := &file_hub_v1_event_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5193,7 +5254,7 @@ func (x *EventBridgeLimitsScheduled) String() string {
 func (*EventBridgeLimitsScheduled) ProtoMessage() {}
 
 func (x *EventBridgeLimitsScheduled) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[57]
+	mi := &file_hub_v1_event_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5206,7 +5267,7 @@ func (x *EventBridgeLimitsScheduled) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeLimitsScheduled.ProtoReflect.Descriptor instead.
 func (*EventBridgeLimitsScheduled) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{57}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *EventBridgeLimitsScheduled) GetProposalId() uint64 {
@@ -5249,7 +5310,7 @@ type EventBridgeLimitsActivated struct {
 
 func (x *EventBridgeLimitsActivated) Reset() {
 	*x = EventBridgeLimitsActivated{}
-	mi := &file_hub_v1_event_proto_msgTypes[58]
+	mi := &file_hub_v1_event_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5261,7 +5322,7 @@ func (x *EventBridgeLimitsActivated) String() string {
 func (*EventBridgeLimitsActivated) ProtoMessage() {}
 
 func (x *EventBridgeLimitsActivated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[58]
+	mi := &file_hub_v1_event_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5274,7 +5335,7 @@ func (x *EventBridgeLimitsActivated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeLimitsActivated.ProtoReflect.Descriptor instead.
 func (*EventBridgeLimitsActivated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{58}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *EventBridgeLimitsActivated) GetInboundLimit() *v1.Amount {
@@ -5312,7 +5373,7 @@ type EventBridgeSignerRotated struct {
 
 func (x *EventBridgeSignerRotated) Reset() {
 	*x = EventBridgeSignerRotated{}
-	mi := &file_hub_v1_event_proto_msgTypes[59]
+	mi := &file_hub_v1_event_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5324,7 +5385,7 @@ func (x *EventBridgeSignerRotated) String() string {
 func (*EventBridgeSignerRotated) ProtoMessage() {}
 
 func (x *EventBridgeSignerRotated) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_event_proto_msgTypes[59]
+	mi := &file_hub_v1_event_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5337,7 +5398,7 @@ func (x *EventBridgeSignerRotated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBridgeSignerRotated.ProtoReflect.Descriptor instead.
 func (*EventBridgeSignerRotated) Descriptor() ([]byte, []int) {
-	return file_hub_v1_event_proto_rawDescGZIP(), []int{59}
+	return file_hub_v1_event_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *EventBridgeSignerRotated) GetOperator() string {
@@ -5379,7 +5440,7 @@ var File_hub_v1_event_proto protoreflect.FileDescriptor
 
 const file_hub_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x12hub/v1/event.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x13hub/v1/common.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/reward.proto\x1a\x15hub/v1/treasury.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x15shared/v1/event.proto\"\x94\x03\n" +
+	"\x12hub/v1/event.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x13hub/v1/common.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a hub/v1/model_profile_state.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x15hub/v1/treasury.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x15shared/v1/event.proto\"\x94\x03\n" +
 	"\x17ProtocolEventEnvelopeV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12=\n" +
 	"\n" +
@@ -5392,7 +5453,7 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x0fprimary_locator\x18\a \x01(\v2%.hub.v1.ProtocolEventPrimaryLocatorV1R\x0eprimaryLocator\x128\n" +
 	"\apayload\x18\b \x01(\v2\x1e.hub.v1.ProtocolEventPayloadV1R\apayloadB\n" +
 	"\n" +
-	"\b_tx_hash\"\x85 \n" +
+	"\b_tx_hash\"\xfa \n" +
 	"\x16ProtocolEventPayloadV1\x12_\n" +
 	"\x18model_profile_registered\x18\x03 \x01(\v2#.hub.v1.EventModelProfileRegisteredH\x00R\x16modelProfileRegistered\x12f\n" +
 	"\x1bmodel_profile_state_changed\x18\x04 \x01(\v2%.hub.v1.EventModelProfileStateChangedH\x00R\x18modelProfileStateChanged\x12_\n" +
@@ -5439,7 +5500,8 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\x17bridge_limits_activated\x18~ \x01(\v2\".hub.v1.EventBridgeLimitsActivatedH\x00R\x15bridgeLimitsActivated\x12V\n" +
 	"\x15bridge_signer_rotated\x18\x7f \x01(\v2 .hub.v1.EventBridgeSignerRotatedH\x00R\x13bridgeSignerRotated\x12i\n" +
 	"\x1bbuilder_compensation_funded\x18\x8f\x01 \x01(\v2&.hub.v1.EventBuilderCompensationFundedH\x00R\x19builderCompensationFunded\x12d\n" +
-	"\x1abuilder_vrf_key_registered\x18\x90\x01 \x01(\v2$.hub.v1.EventBuilderVrfKeyRegisteredH\x00R\x17builderVrfKeyRegisteredB\r\n" +
+	"\x1abuilder_vrf_key_registered\x18\x90\x01 \x01(\v2$.hub.v1.EventBuilderVrfKeyRegisteredH\x00R\x17builderVrfKeyRegistered\x12s\n" +
+	"\x1fservice_key_rotation_registered\x18\x91\x01 \x01(\v2).hub.v1.EventServiceKeyRotationRegisteredH\x00R\x1cserviceKeyRotationRegisteredB\r\n" +
 	"\vtyped_event\"\xbc\x06\n" +
 	"\x1dProtocolEventPrimaryLocatorV1\x124\n" +
 	"\asession\x18\x01 \x01(\v2\x18.hub.v1.SessionLocatorV1H\x00R\asession\x12+\n" +
@@ -5618,7 +5680,9 @@ const file_hub_v1_event_proto_rawDesc = "" +
 	"\n" +
 	"new_status\x18\x03 \x01(\x0e2\x1a.hub.v1.ModelProfileStatusR\tnewStatus\x121\n" +
 	"\x06source\x18\x04 \x01(\x0e2\x19.hub.v1.ModelStatusSourceR\x06source\x120\n" +
-	"\x06reason\x18\x05 \x01(\x0e2\x18.hub.v1.GovernanceReasonR\x06reason\"\x8c\x02\n" +
+	"\x06reason\x18\x05 \x01(\x0e2\x18.hub.v1.GovernanceReasonR\x06reason\"v\n" +
+	"!EventServiceKeyRotationRegistered\x12Q\n" +
+	"\x10pending_rotation\x18\x01 \x01(\v2&.hub.v1.PendingServiceKeyRotationStateR\x0fpendingRotation\"\x8c\x02\n" +
 	"\x16EventServiceKeyRotated\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12\x1a\n" +
 	"\boperator\x18\x02 \x01(\tR\boperator\x12.\n" +
@@ -5835,7 +5899,7 @@ func file_hub_v1_event_proto_rawDescGZIP() []byte {
 	return file_hub_v1_event_proto_rawDescData
 }
 
-var file_hub_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
+var file_hub_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 61)
 var file_hub_v1_event_proto_goTypes = []any{
 	(*ProtocolEventEnvelopeV1)(nil),           // 0: hub.v1.ProtocolEventEnvelopeV1
 	(*ProtocolEventPayloadV1)(nil),            // 1: hub.v1.ProtocolEventPayloadV1
@@ -5870,184 +5934,188 @@ var file_hub_v1_event_proto_goTypes = []any{
 	(*EventModelSupportUpdated)(nil),          // 30: hub.v1.EventModelSupportUpdated
 	(*EventModelSupportActivated)(nil),        // 31: hub.v1.EventModelSupportActivated
 	(*EventModelStateChanged)(nil),            // 32: hub.v1.EventModelStateChanged
-	(*EventServiceKeyRotated)(nil),            // 33: hub.v1.EventServiceKeyRotated
-	(*EventServiceKeyRevoked)(nil),            // 34: hub.v1.EventServiceKeyRevoked
-	(*EventServiceUnbondingWithdrawn)(nil),    // 35: hub.v1.EventServiceUnbondingWithdrawn
-	(*EventServiceDescriptorUpdated)(nil),     // 36: hub.v1.EventServiceDescriptorUpdated
-	(*EventBuilderRegistered)(nil),            // 37: hub.v1.EventBuilderRegistered
-	(*EventBuilderEvidenceAccepted)(nil),      // 38: hub.v1.EventBuilderEvidenceAccepted
-	(*EventHubParamsUpdated)(nil),             // 39: hub.v1.EventHubParamsUpdated
-	(*EventServiceRegistered)(nil),            // 40: hub.v1.EventServiceRegistered
-	(*EventProfileReferencePriceUpdated)(nil), // 41: hub.v1.EventProfileReferencePriceUpdated
-	(*EventParameterBucketUpdated)(nil),       // 42: hub.v1.EventParameterBucketUpdated
-	(*EventEarningsAccrued)(nil),              // 43: hub.v1.EventEarningsAccrued
-	(*EventEarningsClaimed)(nil),              // 44: hub.v1.EventEarningsClaimed
-	(*EventTreasuryCollected)(nil),            // 45: hub.v1.EventTreasuryCollected
-	(*EventTreasuryAdjusted)(nil),             // 46: hub.v1.EventTreasuryAdjusted
-	(*EventFreezeSignalSubmitted)(nil),        // 47: hub.v1.EventFreezeSignalSubmitted
-	(*EventEmergencyFreezeVoteRecorded)(nil),  // 48: hub.v1.EventEmergencyFreezeVoteRecorded
-	(*EventEmergencyFreezeAccepted)(nil),      // 49: hub.v1.EventEmergencyFreezeAccepted
-	(*EventEmergencyFreezeRejected)(nil),      // 50: hub.v1.EventEmergencyFreezeRejected
-	(*EventFreezeSignalExpired)(nil),          // 51: hub.v1.EventFreezeSignalExpired
-	(*EventBridgeInboundProcessed)(nil),       // 52: hub.v1.EventBridgeInboundProcessed
-	(*EventBridgeOutboundDispatched)(nil),     // 53: hub.v1.EventBridgeOutboundDispatched
-	(*EventBridgeFreezeChanged)(nil),          // 54: hub.v1.EventBridgeFreezeChanged
-	(*EventBridgeCutoverBegun)(nil),           // 55: hub.v1.EventBridgeCutoverBegun
-	(*EventBridgeCutoverConfirmed)(nil),       // 56: hub.v1.EventBridgeCutoverConfirmed
-	(*EventBridgeLimitsScheduled)(nil),        // 57: hub.v1.EventBridgeLimitsScheduled
-	(*EventBridgeLimitsActivated)(nil),        // 58: hub.v1.EventBridgeLimitsActivated
-	(*EventBridgeSignerRotated)(nil),          // 59: hub.v1.EventBridgeSignerRotated
-	(v1.ProtocolEventCodeV1)(0),               // 60: shared.v1.ProtocolEventCodeV1
-	(*EventBuilderCompensationFunded)(nil),    // 61: hub.v1.EventBuilderCompensationFunded
-	(*EventBuilderVrfKeyRegistered)(nil),      // 62: hub.v1.EventBuilderVrfKeyRegistered
-	(v1.ParticipantType)(0),                   // 63: shared.v1.ParticipantType
-	(RewardClass)(0),                          // 64: hub.v1.RewardClass
-	(v1.BucketKind)(0),                        // 65: shared.v1.BucketKind
-	(RewardBucket)(0),                         // 66: hub.v1.RewardBucket
-	(ParamsModuleV1)(0),                       // 67: hub.v1.ParamsModuleV1
-	(*v1.Amount)(nil),                         // 68: shared.v1.Amount
-	(ModelProfileStatus)(0),                   // 69: hub.v1.ModelProfileStatus
-	(ProfileStatusSource)(0),                  // 70: hub.v1.ProfileStatusSource
-	(v1.Duty)(0),                              // 71: shared.v1.Duty
-	(v1.FaultKind)(0),                         // 72: shared.v1.FaultKind
-	(EventLifecycleReason)(0),                 // 73: hub.v1.EventLifecycleReason
-	(ServiceBondStatus)(0),                    // 74: hub.v1.ServiceBondStatus
-	(ModelSupportStatus)(0),                   // 75: hub.v1.ModelSupportStatus
-	(ModelSupportSuspendReason)(0),            // 76: hub.v1.ModelSupportSuspendReason
-	(ModelStatusSource)(0),                    // 77: hub.v1.ModelStatusSource
-	(GovernanceReason)(0),                     // 78: hub.v1.GovernanceReason
-	(ServiceKeyRevocationReason)(0),           // 79: hub.v1.ServiceKeyRevocationReason
-	(v1.BuilderEvidenceKind)(0),               // 80: shared.v1.BuilderEvidenceKind
-	(TreasurySourceKind)(0),                   // 81: hub.v1.TreasurySourceKind
-	(TreasuryPurposeCode)(0),                  // 82: hub.v1.TreasuryPurposeCode
-	(EmergencyFreezeVote)(0),                  // 83: hub.v1.EmergencyFreezeVote
-	(BridgeLifecycleV1)(0),                    // 84: hub.v1.BridgeLifecycleV1
+	(*EventServiceKeyRotationRegistered)(nil), // 33: hub.v1.EventServiceKeyRotationRegistered
+	(*EventServiceKeyRotated)(nil),            // 34: hub.v1.EventServiceKeyRotated
+	(*EventServiceKeyRevoked)(nil),            // 35: hub.v1.EventServiceKeyRevoked
+	(*EventServiceUnbondingWithdrawn)(nil),    // 36: hub.v1.EventServiceUnbondingWithdrawn
+	(*EventServiceDescriptorUpdated)(nil),     // 37: hub.v1.EventServiceDescriptorUpdated
+	(*EventBuilderRegistered)(nil),            // 38: hub.v1.EventBuilderRegistered
+	(*EventBuilderEvidenceAccepted)(nil),      // 39: hub.v1.EventBuilderEvidenceAccepted
+	(*EventHubParamsUpdated)(nil),             // 40: hub.v1.EventHubParamsUpdated
+	(*EventServiceRegistered)(nil),            // 41: hub.v1.EventServiceRegistered
+	(*EventProfileReferencePriceUpdated)(nil), // 42: hub.v1.EventProfileReferencePriceUpdated
+	(*EventParameterBucketUpdated)(nil),       // 43: hub.v1.EventParameterBucketUpdated
+	(*EventEarningsAccrued)(nil),              // 44: hub.v1.EventEarningsAccrued
+	(*EventEarningsClaimed)(nil),              // 45: hub.v1.EventEarningsClaimed
+	(*EventTreasuryCollected)(nil),            // 46: hub.v1.EventTreasuryCollected
+	(*EventTreasuryAdjusted)(nil),             // 47: hub.v1.EventTreasuryAdjusted
+	(*EventFreezeSignalSubmitted)(nil),        // 48: hub.v1.EventFreezeSignalSubmitted
+	(*EventEmergencyFreezeVoteRecorded)(nil),  // 49: hub.v1.EventEmergencyFreezeVoteRecorded
+	(*EventEmergencyFreezeAccepted)(nil),      // 50: hub.v1.EventEmergencyFreezeAccepted
+	(*EventEmergencyFreezeRejected)(nil),      // 51: hub.v1.EventEmergencyFreezeRejected
+	(*EventFreezeSignalExpired)(nil),          // 52: hub.v1.EventFreezeSignalExpired
+	(*EventBridgeInboundProcessed)(nil),       // 53: hub.v1.EventBridgeInboundProcessed
+	(*EventBridgeOutboundDispatched)(nil),     // 54: hub.v1.EventBridgeOutboundDispatched
+	(*EventBridgeFreezeChanged)(nil),          // 55: hub.v1.EventBridgeFreezeChanged
+	(*EventBridgeCutoverBegun)(nil),           // 56: hub.v1.EventBridgeCutoverBegun
+	(*EventBridgeCutoverConfirmed)(nil),       // 57: hub.v1.EventBridgeCutoverConfirmed
+	(*EventBridgeLimitsScheduled)(nil),        // 58: hub.v1.EventBridgeLimitsScheduled
+	(*EventBridgeLimitsActivated)(nil),        // 59: hub.v1.EventBridgeLimitsActivated
+	(*EventBridgeSignerRotated)(nil),          // 60: hub.v1.EventBridgeSignerRotated
+	(v1.ProtocolEventCodeV1)(0),               // 61: shared.v1.ProtocolEventCodeV1
+	(*EventBuilderCompensationFunded)(nil),    // 62: hub.v1.EventBuilderCompensationFunded
+	(*EventBuilderVrfKeyRegistered)(nil),      // 63: hub.v1.EventBuilderVrfKeyRegistered
+	(v1.ParticipantType)(0),                   // 64: shared.v1.ParticipantType
+	(RewardClass)(0),                          // 65: hub.v1.RewardClass
+	(v1.BucketKind)(0),                        // 66: shared.v1.BucketKind
+	(RewardBucket)(0),                         // 67: hub.v1.RewardBucket
+	(ParamsModuleV1)(0),                       // 68: hub.v1.ParamsModuleV1
+	(*v1.Amount)(nil),                         // 69: shared.v1.Amount
+	(ModelProfileStatus)(0),                   // 70: hub.v1.ModelProfileStatus
+	(ProfileStatusSource)(0),                  // 71: hub.v1.ProfileStatusSource
+	(v1.Duty)(0),                              // 72: shared.v1.Duty
+	(v1.FaultKind)(0),                         // 73: shared.v1.FaultKind
+	(EventLifecycleReason)(0),                 // 74: hub.v1.EventLifecycleReason
+	(ServiceBondStatus)(0),                    // 75: hub.v1.ServiceBondStatus
+	(ModelSupportStatus)(0),                   // 76: hub.v1.ModelSupportStatus
+	(ModelSupportSuspendReason)(0),            // 77: hub.v1.ModelSupportSuspendReason
+	(ModelStatusSource)(0),                    // 78: hub.v1.ModelStatusSource
+	(GovernanceReason)(0),                     // 79: hub.v1.GovernanceReason
+	(*PendingServiceKeyRotationState)(nil),    // 80: hub.v1.PendingServiceKeyRotationState
+	(ServiceKeyRevocationReason)(0),           // 81: hub.v1.ServiceKeyRevocationReason
+	(v1.BuilderEvidenceKind)(0),               // 82: shared.v1.BuilderEvidenceKind
+	(TreasurySourceKind)(0),                   // 83: hub.v1.TreasurySourceKind
+	(TreasuryPurposeCode)(0),                  // 84: hub.v1.TreasuryPurposeCode
+	(EmergencyFreezeVote)(0),                  // 85: hub.v1.EmergencyFreezeVote
+	(BridgeLifecycleV1)(0),                    // 86: hub.v1.BridgeLifecycleV1
 }
 var file_hub_v1_event_proto_depIdxs = []int32{
-	60,  // 0: hub.v1.ProtocolEventEnvelopeV1.event_code:type_name -> shared.v1.ProtocolEventCodeV1
+	61,  // 0: hub.v1.ProtocolEventEnvelopeV1.event_code:type_name -> shared.v1.ProtocolEventCodeV1
 	2,   // 1: hub.v1.ProtocolEventEnvelopeV1.primary_locator:type_name -> hub.v1.ProtocolEventPrimaryLocatorV1
 	1,   // 2: hub.v1.ProtocolEventEnvelopeV1.payload:type_name -> hub.v1.ProtocolEventPayloadV1
 	17,  // 3: hub.v1.ProtocolEventPayloadV1.model_profile_registered:type_name -> hub.v1.EventModelProfileRegistered
 	18,  // 4: hub.v1.ProtocolEventPayloadV1.model_profile_state_changed:type_name -> hub.v1.EventModelProfileStateChanged
-	42,  // 5: hub.v1.ProtocolEventPayloadV1.parameter_bucket_updated:type_name -> hub.v1.EventParameterBucketUpdated
+	43,  // 5: hub.v1.ProtocolEventPayloadV1.parameter_bucket_updated:type_name -> hub.v1.EventParameterBucketUpdated
 	19,  // 6: hub.v1.ProtocolEventPayloadV1.service_stake_changed:type_name -> hub.v1.EventServiceStakeChanged
 	20,  // 7: hub.v1.ProtocolEventPayloadV1.service_unbonding_started:type_name -> hub.v1.EventServiceUnbondingStarted
 	21,  // 8: hub.v1.ProtocolEventPayloadV1.reward_epoch_closed:type_name -> hub.v1.EventRewardEpochClosed
-	43,  // 9: hub.v1.ProtocolEventPayloadV1.earnings_accrued:type_name -> hub.v1.EventEarningsAccrued
-	44,  // 10: hub.v1.ProtocolEventPayloadV1.earnings_claimed:type_name -> hub.v1.EventEarningsClaimed
+	44,  // 9: hub.v1.ProtocolEventPayloadV1.earnings_accrued:type_name -> hub.v1.EventEarningsAccrued
+	45,  // 10: hub.v1.ProtocolEventPayloadV1.earnings_claimed:type_name -> hub.v1.EventEarningsClaimed
 	22,  // 11: hub.v1.ProtocolEventPayloadV1.fault_recorded:type_name -> hub.v1.EventFaultRecorded
 	23,  // 12: hub.v1.ProtocolEventPayloadV1.role_jailed:type_name -> hub.v1.EventRoleJailed
 	24,  // 13: hub.v1.ProtocolEventPayloadV1.role_slashed:type_name -> hub.v1.EventRoleSlashed
 	25,  // 14: hub.v1.ProtocolEventPayloadV1.service_jail_recovered:type_name -> hub.v1.EventServiceJailRecovered
 	26,  // 15: hub.v1.ProtocolEventPayloadV1.builder_set_updated:type_name -> hub.v1.EventBuilderSetUpdated
-	45,  // 16: hub.v1.ProtocolEventPayloadV1.treasury_collected:type_name -> hub.v1.EventTreasuryCollected
-	46,  // 17: hub.v1.ProtocolEventPayloadV1.treasury_adjusted:type_name -> hub.v1.EventTreasuryAdjusted
+	46,  // 16: hub.v1.ProtocolEventPayloadV1.treasury_collected:type_name -> hub.v1.EventTreasuryCollected
+	47,  // 17: hub.v1.ProtocolEventPayloadV1.treasury_adjusted:type_name -> hub.v1.EventTreasuryAdjusted
 	27,  // 18: hub.v1.ProtocolEventPayloadV1.candidate_pool_published:type_name -> hub.v1.EventCandidatePoolPublished
 	28,  // 19: hub.v1.ProtocolEventPayloadV1.candidate_pool_expired:type_name -> hub.v1.EventCandidatePoolExpired
 	29,  // 20: hub.v1.ProtocolEventPayloadV1.candidate_pool_pruned:type_name -> hub.v1.EventCandidatePoolPruned
 	30,  // 21: hub.v1.ProtocolEventPayloadV1.model_support_updated:type_name -> hub.v1.EventModelSupportUpdated
 	31,  // 22: hub.v1.ProtocolEventPayloadV1.model_support_activated:type_name -> hub.v1.EventModelSupportActivated
-	47,  // 23: hub.v1.ProtocolEventPayloadV1.freeze_signal_submitted:type_name -> hub.v1.EventFreezeSignalSubmitted
-	48,  // 24: hub.v1.ProtocolEventPayloadV1.emergency_freeze_vote_recorded:type_name -> hub.v1.EventEmergencyFreezeVoteRecorded
-	49,  // 25: hub.v1.ProtocolEventPayloadV1.emergency_freeze_accepted:type_name -> hub.v1.EventEmergencyFreezeAccepted
-	50,  // 26: hub.v1.ProtocolEventPayloadV1.emergency_freeze_rejected:type_name -> hub.v1.EventEmergencyFreezeRejected
-	51,  // 27: hub.v1.ProtocolEventPayloadV1.freeze_signal_expired:type_name -> hub.v1.EventFreezeSignalExpired
+	48,  // 23: hub.v1.ProtocolEventPayloadV1.freeze_signal_submitted:type_name -> hub.v1.EventFreezeSignalSubmitted
+	49,  // 24: hub.v1.ProtocolEventPayloadV1.emergency_freeze_vote_recorded:type_name -> hub.v1.EventEmergencyFreezeVoteRecorded
+	50,  // 25: hub.v1.ProtocolEventPayloadV1.emergency_freeze_accepted:type_name -> hub.v1.EventEmergencyFreezeAccepted
+	51,  // 26: hub.v1.ProtocolEventPayloadV1.emergency_freeze_rejected:type_name -> hub.v1.EventEmergencyFreezeRejected
+	52,  // 27: hub.v1.ProtocolEventPayloadV1.freeze_signal_expired:type_name -> hub.v1.EventFreezeSignalExpired
 	32,  // 28: hub.v1.ProtocolEventPayloadV1.model_state_changed:type_name -> hub.v1.EventModelStateChanged
-	33,  // 29: hub.v1.ProtocolEventPayloadV1.service_key_rotated:type_name -> hub.v1.EventServiceKeyRotated
-	34,  // 30: hub.v1.ProtocolEventPayloadV1.service_key_revoked:type_name -> hub.v1.EventServiceKeyRevoked
-	35,  // 31: hub.v1.ProtocolEventPayloadV1.service_unbonding_withdrawn:type_name -> hub.v1.EventServiceUnbondingWithdrawn
-	36,  // 32: hub.v1.ProtocolEventPayloadV1.service_descriptor_updated:type_name -> hub.v1.EventServiceDescriptorUpdated
-	37,  // 33: hub.v1.ProtocolEventPayloadV1.builder_registered:type_name -> hub.v1.EventBuilderRegistered
-	38,  // 34: hub.v1.ProtocolEventPayloadV1.builder_evidence_accepted:type_name -> hub.v1.EventBuilderEvidenceAccepted
-	39,  // 35: hub.v1.ProtocolEventPayloadV1.hub_params_updated:type_name -> hub.v1.EventHubParamsUpdated
-	40,  // 36: hub.v1.ProtocolEventPayloadV1.service_registered:type_name -> hub.v1.EventServiceRegistered
-	41,  // 37: hub.v1.ProtocolEventPayloadV1.profile_reference_price_updated:type_name -> hub.v1.EventProfileReferencePriceUpdated
-	52,  // 38: hub.v1.ProtocolEventPayloadV1.bridge_inbound_processed:type_name -> hub.v1.EventBridgeInboundProcessed
-	53,  // 39: hub.v1.ProtocolEventPayloadV1.bridge_outbound_dispatched:type_name -> hub.v1.EventBridgeOutboundDispatched
-	54,  // 40: hub.v1.ProtocolEventPayloadV1.bridge_freeze_changed:type_name -> hub.v1.EventBridgeFreezeChanged
-	55,  // 41: hub.v1.ProtocolEventPayloadV1.bridge_cutover_begun:type_name -> hub.v1.EventBridgeCutoverBegun
-	56,  // 42: hub.v1.ProtocolEventPayloadV1.bridge_cutover_confirmed:type_name -> hub.v1.EventBridgeCutoverConfirmed
-	57,  // 43: hub.v1.ProtocolEventPayloadV1.bridge_limits_scheduled:type_name -> hub.v1.EventBridgeLimitsScheduled
-	58,  // 44: hub.v1.ProtocolEventPayloadV1.bridge_limits_activated:type_name -> hub.v1.EventBridgeLimitsActivated
-	59,  // 45: hub.v1.ProtocolEventPayloadV1.bridge_signer_rotated:type_name -> hub.v1.EventBridgeSignerRotated
-	61,  // 46: hub.v1.ProtocolEventPayloadV1.builder_compensation_funded:type_name -> hub.v1.EventBuilderCompensationFunded
-	62,  // 47: hub.v1.ProtocolEventPayloadV1.builder_vrf_key_registered:type_name -> hub.v1.EventBuilderVrfKeyRegistered
-	3,   // 48: hub.v1.ProtocolEventPrimaryLocatorV1.session:type_name -> hub.v1.SessionLocatorV1
-	4,   // 49: hub.v1.ProtocolEventPrimaryLocatorV1.task:type_name -> hub.v1.TaskLocatorV1
-	5,   // 50: hub.v1.ProtocolEventPrimaryLocatorV1.task_round:type_name -> hub.v1.TaskRoundLocatorV1
-	6,   // 51: hub.v1.ProtocolEventPrimaryLocatorV1.profile:type_name -> hub.v1.ProfileLocatorV1
-	7,   // 52: hub.v1.ProtocolEventPrimaryLocatorV1.operator:type_name -> hub.v1.OperatorLocatorV1
-	8,   // 53: hub.v1.ProtocolEventPrimaryLocatorV1.earning:type_name -> hub.v1.EarningLocatorV1
-	9,   // 54: hub.v1.ProtocolEventPrimaryLocatorV1.builder_set:type_name -> hub.v1.BuilderSetLocatorV1
-	10,  // 55: hub.v1.ProtocolEventPrimaryLocatorV1.bucket:type_name -> hub.v1.BucketLocatorV1
-	11,  // 56: hub.v1.ProtocolEventPrimaryLocatorV1.candidate_pool:type_name -> hub.v1.CandidatePoolLocatorV1
-	12,  // 57: hub.v1.ProtocolEventPrimaryLocatorV1.freeze_signal:type_name -> hub.v1.FreezeSignalLocatorV1
-	13,  // 58: hub.v1.ProtocolEventPrimaryLocatorV1.treasury:type_name -> hub.v1.TreasuryLocatorV1
-	14,  // 59: hub.v1.ProtocolEventPrimaryLocatorV1.bridge:type_name -> hub.v1.BridgeLocatorV1
-	15,  // 60: hub.v1.ProtocolEventPrimaryLocatorV1.epoch:type_name -> hub.v1.EpochLocatorV1
-	16,  // 61: hub.v1.ProtocolEventPrimaryLocatorV1.params:type_name -> hub.v1.ParamsLocatorV1
-	63,  // 62: hub.v1.OperatorLocatorV1.participant_type:type_name -> shared.v1.ParticipantType
-	64,  // 63: hub.v1.EarningLocatorV1.reward_class:type_name -> hub.v1.RewardClass
-	65,  // 64: hub.v1.BucketLocatorV1.bucket_kind:type_name -> shared.v1.BucketKind
-	66,  // 65: hub.v1.EpochLocatorV1.reward_bucket:type_name -> hub.v1.RewardBucket
-	67,  // 66: hub.v1.ParamsLocatorV1.module:type_name -> hub.v1.ParamsModuleV1
-	68,  // 67: hub.v1.EventModelProfileRegistered.registration_fee_amount:type_name -> shared.v1.Amount
-	69,  // 68: hub.v1.EventModelProfileStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
-	69,  // 69: hub.v1.EventModelProfileStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
-	70,  // 70: hub.v1.EventModelProfileStateChanged.source:type_name -> hub.v1.ProfileStatusSource
-	68,  // 71: hub.v1.EventServiceStakeChanged.amount:type_name -> shared.v1.Amount
-	68,  // 72: hub.v1.EventServiceStakeChanged.active_bond_amount:type_name -> shared.v1.Amount
-	68,  // 73: hub.v1.EventServiceUnbondingStarted.amount:type_name -> shared.v1.Amount
-	68,  // 74: hub.v1.EventRewardEpochClosed.emission_amount:type_name -> shared.v1.Amount
-	71,  // 75: hub.v1.EventFaultRecorded.duty:type_name -> shared.v1.Duty
-	72,  // 76: hub.v1.EventFaultRecorded.fault_kind:type_name -> shared.v1.FaultKind
-	71,  // 77: hub.v1.EventRoleJailed.duty:type_name -> shared.v1.Duty
-	73,  // 78: hub.v1.EventRoleJailed.reason:type_name -> hub.v1.EventLifecycleReason
-	71,  // 79: hub.v1.EventRoleSlashed.duty:type_name -> shared.v1.Duty
-	68,  // 80: hub.v1.EventRoleSlashed.applied_amount:type_name -> shared.v1.Amount
-	68,  // 81: hub.v1.EventRoleSlashed.unfilled_amount:type_name -> shared.v1.Amount
-	73,  // 82: hub.v1.EventRoleSlashed.reason:type_name -> hub.v1.EventLifecycleReason
-	71,  // 83: hub.v1.EventServiceJailRecovered.trigger_duty:type_name -> shared.v1.Duty
-	74,  // 84: hub.v1.EventServiceJailRecovered.bond_status:type_name -> hub.v1.ServiceBondStatus
-	75,  // 85: hub.v1.EventModelSupportUpdated.old_status:type_name -> hub.v1.ModelSupportStatus
-	75,  // 86: hub.v1.EventModelSupportUpdated.new_status:type_name -> hub.v1.ModelSupportStatus
-	76,  // 87: hub.v1.EventModelSupportUpdated.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
-	71,  // 88: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
-	69,  // 89: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
-	69,  // 90: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
-	77,  // 91: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
-	78,  // 92: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
-	63,  // 93: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
-	63,  // 94: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
-	79,  // 95: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
-	68,  // 96: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
-	63,  // 97: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
-	80,  // 98: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
-	68,  // 99: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
-	65,  // 100: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
-	68,  // 101: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
-	64,  // 102: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
-	68,  // 103: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
-	64,  // 104: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
-	68,  // 105: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
-	81,  // 106: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
-	68,  // 107: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
-	82,  // 108: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
-	83,  // 109: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
-	68,  // 110: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
-	68,  // 111: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
-	68,  // 112: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
-	68,  // 113: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
-	84,  // 114: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
-	68,  // 115: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
-	68,  // 116: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
-	68,  // 117: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
-	68,  // 118: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
-	119, // [119:119] is the sub-list for method output_type
-	119, // [119:119] is the sub-list for method input_type
-	119, // [119:119] is the sub-list for extension type_name
-	119, // [119:119] is the sub-list for extension extendee
-	0,   // [0:119] is the sub-list for field type_name
+	34,  // 29: hub.v1.ProtocolEventPayloadV1.service_key_rotated:type_name -> hub.v1.EventServiceKeyRotated
+	35,  // 30: hub.v1.ProtocolEventPayloadV1.service_key_revoked:type_name -> hub.v1.EventServiceKeyRevoked
+	36,  // 31: hub.v1.ProtocolEventPayloadV1.service_unbonding_withdrawn:type_name -> hub.v1.EventServiceUnbondingWithdrawn
+	37,  // 32: hub.v1.ProtocolEventPayloadV1.service_descriptor_updated:type_name -> hub.v1.EventServiceDescriptorUpdated
+	38,  // 33: hub.v1.ProtocolEventPayloadV1.builder_registered:type_name -> hub.v1.EventBuilderRegistered
+	39,  // 34: hub.v1.ProtocolEventPayloadV1.builder_evidence_accepted:type_name -> hub.v1.EventBuilderEvidenceAccepted
+	40,  // 35: hub.v1.ProtocolEventPayloadV1.hub_params_updated:type_name -> hub.v1.EventHubParamsUpdated
+	41,  // 36: hub.v1.ProtocolEventPayloadV1.service_registered:type_name -> hub.v1.EventServiceRegistered
+	42,  // 37: hub.v1.ProtocolEventPayloadV1.profile_reference_price_updated:type_name -> hub.v1.EventProfileReferencePriceUpdated
+	53,  // 38: hub.v1.ProtocolEventPayloadV1.bridge_inbound_processed:type_name -> hub.v1.EventBridgeInboundProcessed
+	54,  // 39: hub.v1.ProtocolEventPayloadV1.bridge_outbound_dispatched:type_name -> hub.v1.EventBridgeOutboundDispatched
+	55,  // 40: hub.v1.ProtocolEventPayloadV1.bridge_freeze_changed:type_name -> hub.v1.EventBridgeFreezeChanged
+	56,  // 41: hub.v1.ProtocolEventPayloadV1.bridge_cutover_begun:type_name -> hub.v1.EventBridgeCutoverBegun
+	57,  // 42: hub.v1.ProtocolEventPayloadV1.bridge_cutover_confirmed:type_name -> hub.v1.EventBridgeCutoverConfirmed
+	58,  // 43: hub.v1.ProtocolEventPayloadV1.bridge_limits_scheduled:type_name -> hub.v1.EventBridgeLimitsScheduled
+	59,  // 44: hub.v1.ProtocolEventPayloadV1.bridge_limits_activated:type_name -> hub.v1.EventBridgeLimitsActivated
+	60,  // 45: hub.v1.ProtocolEventPayloadV1.bridge_signer_rotated:type_name -> hub.v1.EventBridgeSignerRotated
+	62,  // 46: hub.v1.ProtocolEventPayloadV1.builder_compensation_funded:type_name -> hub.v1.EventBuilderCompensationFunded
+	63,  // 47: hub.v1.ProtocolEventPayloadV1.builder_vrf_key_registered:type_name -> hub.v1.EventBuilderVrfKeyRegistered
+	33,  // 48: hub.v1.ProtocolEventPayloadV1.service_key_rotation_registered:type_name -> hub.v1.EventServiceKeyRotationRegistered
+	3,   // 49: hub.v1.ProtocolEventPrimaryLocatorV1.session:type_name -> hub.v1.SessionLocatorV1
+	4,   // 50: hub.v1.ProtocolEventPrimaryLocatorV1.task:type_name -> hub.v1.TaskLocatorV1
+	5,   // 51: hub.v1.ProtocolEventPrimaryLocatorV1.task_round:type_name -> hub.v1.TaskRoundLocatorV1
+	6,   // 52: hub.v1.ProtocolEventPrimaryLocatorV1.profile:type_name -> hub.v1.ProfileLocatorV1
+	7,   // 53: hub.v1.ProtocolEventPrimaryLocatorV1.operator:type_name -> hub.v1.OperatorLocatorV1
+	8,   // 54: hub.v1.ProtocolEventPrimaryLocatorV1.earning:type_name -> hub.v1.EarningLocatorV1
+	9,   // 55: hub.v1.ProtocolEventPrimaryLocatorV1.builder_set:type_name -> hub.v1.BuilderSetLocatorV1
+	10,  // 56: hub.v1.ProtocolEventPrimaryLocatorV1.bucket:type_name -> hub.v1.BucketLocatorV1
+	11,  // 57: hub.v1.ProtocolEventPrimaryLocatorV1.candidate_pool:type_name -> hub.v1.CandidatePoolLocatorV1
+	12,  // 58: hub.v1.ProtocolEventPrimaryLocatorV1.freeze_signal:type_name -> hub.v1.FreezeSignalLocatorV1
+	13,  // 59: hub.v1.ProtocolEventPrimaryLocatorV1.treasury:type_name -> hub.v1.TreasuryLocatorV1
+	14,  // 60: hub.v1.ProtocolEventPrimaryLocatorV1.bridge:type_name -> hub.v1.BridgeLocatorV1
+	15,  // 61: hub.v1.ProtocolEventPrimaryLocatorV1.epoch:type_name -> hub.v1.EpochLocatorV1
+	16,  // 62: hub.v1.ProtocolEventPrimaryLocatorV1.params:type_name -> hub.v1.ParamsLocatorV1
+	64,  // 63: hub.v1.OperatorLocatorV1.participant_type:type_name -> shared.v1.ParticipantType
+	65,  // 64: hub.v1.EarningLocatorV1.reward_class:type_name -> hub.v1.RewardClass
+	66,  // 65: hub.v1.BucketLocatorV1.bucket_kind:type_name -> shared.v1.BucketKind
+	67,  // 66: hub.v1.EpochLocatorV1.reward_bucket:type_name -> hub.v1.RewardBucket
+	68,  // 67: hub.v1.ParamsLocatorV1.module:type_name -> hub.v1.ParamsModuleV1
+	69,  // 68: hub.v1.EventModelProfileRegistered.registration_fee_amount:type_name -> shared.v1.Amount
+	70,  // 69: hub.v1.EventModelProfileStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
+	70,  // 70: hub.v1.EventModelProfileStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
+	71,  // 71: hub.v1.EventModelProfileStateChanged.source:type_name -> hub.v1.ProfileStatusSource
+	69,  // 72: hub.v1.EventServiceStakeChanged.amount:type_name -> shared.v1.Amount
+	69,  // 73: hub.v1.EventServiceStakeChanged.active_bond_amount:type_name -> shared.v1.Amount
+	69,  // 74: hub.v1.EventServiceUnbondingStarted.amount:type_name -> shared.v1.Amount
+	69,  // 75: hub.v1.EventRewardEpochClosed.emission_amount:type_name -> shared.v1.Amount
+	72,  // 76: hub.v1.EventFaultRecorded.duty:type_name -> shared.v1.Duty
+	73,  // 77: hub.v1.EventFaultRecorded.fault_kind:type_name -> shared.v1.FaultKind
+	72,  // 78: hub.v1.EventRoleJailed.duty:type_name -> shared.v1.Duty
+	74,  // 79: hub.v1.EventRoleJailed.reason:type_name -> hub.v1.EventLifecycleReason
+	72,  // 80: hub.v1.EventRoleSlashed.duty:type_name -> shared.v1.Duty
+	69,  // 81: hub.v1.EventRoleSlashed.applied_amount:type_name -> shared.v1.Amount
+	69,  // 82: hub.v1.EventRoleSlashed.unfilled_amount:type_name -> shared.v1.Amount
+	74,  // 83: hub.v1.EventRoleSlashed.reason:type_name -> hub.v1.EventLifecycleReason
+	72,  // 84: hub.v1.EventServiceJailRecovered.trigger_duty:type_name -> shared.v1.Duty
+	75,  // 85: hub.v1.EventServiceJailRecovered.bond_status:type_name -> hub.v1.ServiceBondStatus
+	76,  // 86: hub.v1.EventModelSupportUpdated.old_status:type_name -> hub.v1.ModelSupportStatus
+	76,  // 87: hub.v1.EventModelSupportUpdated.new_status:type_name -> hub.v1.ModelSupportStatus
+	77,  // 88: hub.v1.EventModelSupportUpdated.suspend_reason:type_name -> hub.v1.ModelSupportSuspendReason
+	72,  // 89: hub.v1.EventModelSupportActivated.activation_duty:type_name -> shared.v1.Duty
+	70,  // 90: hub.v1.EventModelStateChanged.old_status:type_name -> hub.v1.ModelProfileStatus
+	70,  // 91: hub.v1.EventModelStateChanged.new_status:type_name -> hub.v1.ModelProfileStatus
+	78,  // 92: hub.v1.EventModelStateChanged.source:type_name -> hub.v1.ModelStatusSource
+	79,  // 93: hub.v1.EventModelStateChanged.reason:type_name -> hub.v1.GovernanceReason
+	80,  // 94: hub.v1.EventServiceKeyRotationRegistered.pending_rotation:type_name -> hub.v1.PendingServiceKeyRotationState
+	64,  // 95: hub.v1.EventServiceKeyRotated.participant_type:type_name -> shared.v1.ParticipantType
+	64,  // 96: hub.v1.EventServiceKeyRevoked.participant_type:type_name -> shared.v1.ParticipantType
+	81,  // 97: hub.v1.EventServiceKeyRevoked.reason:type_name -> hub.v1.ServiceKeyRevocationReason
+	69,  // 98: hub.v1.EventServiceUnbondingWithdrawn.withdrawn_amount:type_name -> shared.v1.Amount
+	64,  // 99: hub.v1.EventServiceDescriptorUpdated.participant_type:type_name -> shared.v1.ParticipantType
+	82,  // 100: hub.v1.EventBuilderEvidenceAccepted.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
+	69,  // 101: hub.v1.EventServiceRegistered.active_bond:type_name -> shared.v1.Amount
+	66,  // 102: hub.v1.EventParameterBucketUpdated.bucket_kind:type_name -> shared.v1.BucketKind
+	69,  // 103: hub.v1.EventEarningsAccrued.amount:type_name -> shared.v1.Amount
+	65,  // 104: hub.v1.EventEarningsAccrued.reward_class:type_name -> hub.v1.RewardClass
+	69,  // 105: hub.v1.EventEarningsClaimed.amount:type_name -> shared.v1.Amount
+	65,  // 106: hub.v1.EventEarningsClaimed.reward_class:type_name -> hub.v1.RewardClass
+	69,  // 107: hub.v1.EventTreasuryCollected.amount:type_name -> shared.v1.Amount
+	83,  // 108: hub.v1.EventTreasuryCollected.source_kind:type_name -> hub.v1.TreasurySourceKind
+	69,  // 109: hub.v1.EventTreasuryAdjusted.amount:type_name -> shared.v1.Amount
+	84,  // 110: hub.v1.EventTreasuryAdjusted.purpose_code:type_name -> hub.v1.TreasuryPurposeCode
+	85,  // 111: hub.v1.EventEmergencyFreezeVoteRecorded.vote:type_name -> hub.v1.EmergencyFreezeVote
+	69,  // 112: hub.v1.EventBridgeInboundProcessed.amount:type_name -> shared.v1.Amount
+	69,  // 113: hub.v1.EventBridgeInboundProcessed.cumulative_bridge_minted:type_name -> shared.v1.Amount
+	69,  // 114: hub.v1.EventBridgeOutboundDispatched.amount:type_name -> shared.v1.Amount
+	69,  // 115: hub.v1.EventBridgeOutboundDispatched.cumulative_bridge_burned:type_name -> shared.v1.Amount
+	86,  // 116: hub.v1.EventBridgeFreezeChanged.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
+	69,  // 117: hub.v1.EventBridgeLimitsScheduled.inbound_limit:type_name -> shared.v1.Amount
+	69,  // 118: hub.v1.EventBridgeLimitsScheduled.outbound_limit:type_name -> shared.v1.Amount
+	69,  // 119: hub.v1.EventBridgeLimitsActivated.inbound_limit:type_name -> shared.v1.Amount
+	69,  // 120: hub.v1.EventBridgeLimitsActivated.outbound_limit:type_name -> shared.v1.Amount
+	121, // [121:121] is the sub-list for method output_type
+	121, // [121:121] is the sub-list for method input_type
+	121, // [121:121] is the sub-list for extension type_name
+	121, // [121:121] is the sub-list for extension extendee
+	0,   // [0:121] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_event_proto_init() }
@@ -6060,6 +6128,7 @@ func file_hub_v1_event_proto_init() {
 	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_emergency_freeze_proto_init()
 	file_hub_v1_model_profile_state_proto_init()
+	file_hub_v1_participant_identity_proto_init()
 	file_hub_v1_reward_proto_init()
 	file_hub_v1_treasury_proto_init()
 	file_hub_v1_event_proto_msgTypes[0].OneofWrappers = []any{}
@@ -6109,6 +6178,7 @@ func file_hub_v1_event_proto_init() {
 		(*ProtocolEventPayloadV1_BridgeSignerRotated)(nil),
 		(*ProtocolEventPayloadV1_BuilderCompensationFunded)(nil),
 		(*ProtocolEventPayloadV1_BuilderVrfKeyRegistered)(nil),
+		(*ProtocolEventPayloadV1_ServiceKeyRotationRegistered)(nil),
 	}
 	file_hub_v1_event_proto_msgTypes[2].OneofWrappers = []any{
 		(*ProtocolEventPrimaryLocatorV1_Session)(nil),
@@ -6127,16 +6197,16 @@ func file_hub_v1_event_proto_init() {
 		(*ProtocolEventPrimaryLocatorV1_Params)(nil),
 	}
 	file_hub_v1_event_proto_msgTypes[22].OneofWrappers = []any{}
-	file_hub_v1_event_proto_msgTypes[38].OneofWrappers = []any{}
-	file_hub_v1_event_proto_msgTypes[43].OneofWrappers = []any{}
-	file_hub_v1_event_proto_msgTypes[46].OneofWrappers = []any{}
+	file_hub_v1_event_proto_msgTypes[39].OneofWrappers = []any{}
+	file_hub_v1_event_proto_msgTypes[44].OneofWrappers = []any{}
+	file_hub_v1_event_proto_msgTypes[47].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_event_proto_rawDesc), len(file_hub_v1_event_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   60,
+			NumMessages:   61,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

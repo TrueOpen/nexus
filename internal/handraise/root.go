@@ -64,8 +64,9 @@ func (r *IssuedRoot) Proof(index uint32) (*taskv1.HandraiseInclusionProofV1, err
 	return out, nil
 }
 
-// IssueRoot signs a new root over the handraises held now, if the leaves or this Builder's
-// authorization nonce changed since the latest root, and returns it; otherwise it returns nil.
+// IssueRoot signs a new root over the handraises held now, if the leaves changed since the latest
+// root or the latest root is not signed by this Builder's current service key (the key was
+// rotated), and returns it; otherwise it returns nil.
 // root_height is the local chain height (never below the latest root's); root_version counts up
 // from 0 within one root_height.
 func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
@@ -75,12 +76,8 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read chain height: %w", err)
 	}
-	nonce, err := r.opts.Keys.CurrentBuilderNonce(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read Builder authorization nonce: %w", err)
-	}
-	if nonce == 0 {
-		return nil, fmt.Errorf("builder service key has no authorization nonce")
+	if err := r.opts.Keys.CheckBuilderKey(ctx); err != nil {
+		return nil, fmt.Errorf("check Builder service key: %w", err)
 	}
 	r.sampleRTT()
 
@@ -98,7 +95,7 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 		return nil, err
 	}
 	if last == nil && len(leaves) == 0 ||
-		last != nil && last.Root.GetServiceAuthorizationNonce() == nonce && equalDigests(last.leafDigests, digests) {
+		last != nil && r.signedByLocalKey(last) && equalDigests(last.leafDigests, digests) {
 		return nil, nil
 	}
 	var version uint64
@@ -107,13 +104,12 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	}
 	rootHash := dispatch.HandraiseRoot(digests)
 	root := &taskv1.SignedHandraiseRootV1{
-		ChainId:                   r.opts.ChainID,
-		BuilderAddress:            r.opts.BuilderAddress,
-		RootHeight:                height,
-		RootVersion:               version,
-		LeafCount:                 uint32(len(leaves)),
-		Root:                      rootHash[:],
-		ServiceAuthorizationNonce: nonce,
+		ChainId:        r.opts.ChainID,
+		BuilderAddress: r.opts.BuilderAddress,
+		RootHeight:     height,
+		RootVersion:    version,
+		LeafCount:      uint32(len(leaves)),
+		Root:           rootHash[:],
 	}
 	raw, digest, err := signRoot(r.opts.Signer, root)
 	if err != nil {
@@ -129,6 +125,12 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	r.latest = issued
 	r.mu.Unlock()
 	return issued, nil
+}
+
+// signedByLocalKey reports whether issued carries a signature by the local Builder service key. The
+// root binds no key generation, so after a rotation the same leaves must be signed again.
+func (r *Registry) signedByLocalKey(issued *IssuedRoot) bool {
+	return dispatch.VerifyDigestSignature(r.opts.Signer.PubKeyCompressed(), issued.Digest[:], issued.Root.GetBuilderServiceSignature()) == nil
 }
 
 // sampleRTT records the measured RTT of every operator holding a handraise. An operator without a

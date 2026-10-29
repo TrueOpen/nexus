@@ -115,10 +115,8 @@ type DispatchRecordState struct {
 	RecordedHeight          uint64                     `protobuf:"varint,19,opt,name=recorded_height,json=recordedHeight,proto3" json:"recorded_height,omitempty"`
 	AcceptedEntryDigest     []byte                     `protobuf:"bytes,20,opt,name=accepted_entry_digest,json=acceptedEntryDigest,proto3" json:"accepted_entry_digest,omitempty"`
 	ClaimWindowCloseHeight  uint64                     `protobuf:"varint,21,opt,name=claim_window_close_height,json=claimWindowCloseHeight,proto3" json:"claim_window_close_height,omitempty"`
-	// Frozen from the signed record for subsequent proof-key resolution.
-	ServiceAuthorizationNonce uint64 `protobuf:"varint,22,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *DispatchRecordState) Reset() {
@@ -294,13 +292,6 @@ func (x *DispatchRecordState) GetAcceptedEntryDigest() []byte {
 func (x *DispatchRecordState) GetClaimWindowCloseHeight() uint64 {
 	if x != nil {
 		return x.ClaimWindowCloseHeight
-	}
-	return 0
-}
-
-func (x *DispatchRecordState) GetServiceAuthorizationNonce() uint64 {
-	if x != nil {
-		return x.ServiceAuthorizationNonce
 	}
 	return 0
 }
@@ -832,7 +823,7 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"\x0fanchor_sequence\x18\x02 \x01(\x04R\x0eanchorSequence\x12#\n" +
 	"\ranchor_height\x18\x03 \x01(\x04R\fanchorHeight\x12\x1b\n" +
 	"\trun_count\x18\x04 \x01(\rR\brunCountB\x15\n" +
-	"\x13_last_record_winner\"\xbb\b\n" +
+	"\x13_last_record_winner\"\x9e\b\n" +
 	"\x13DispatchRecordState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_record_hash\x18\x02 \x01(\fR\x12dispatchRecordHash\x120\n" +
@@ -856,8 +847,7 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"\x06winner\x18\x12 \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06winner\x12'\n" +
 	"\x0frecorded_height\x18\x13 \x01(\x04R\x0erecordedHeight\x122\n" +
 	"\x15accepted_entry_digest\x18\x14 \x01(\fR\x13acceptedEntryDigest\x129\n" +
-	"\x19claim_window_close_height\x18\x15 \x01(\x04R\x16claimWindowCloseHeight\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\x16 \x01(\x04R\x19serviceAuthorizationNonce\"\xc4\x03\n" +
+	"\x19claim_window_close_height\x18\x15 \x01(\x04R\x16claimWindowCloseHeightJ\x04\b\x16\x10\x17R\x1bservice_authorization_nonce\"\xc4\x03\n" +
 	"\x19TakeoverEntryReceiptState\x122\n" +
 	"\x15takeover_entry_digest\x18\x01 \x01(\fR\x13takeoverEntryDigest\x12\x1d\n" +
 	"\n" +

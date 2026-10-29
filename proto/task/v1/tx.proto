@@ -28,9 +28,6 @@ service Msg {
   rpc UpdateSessionKey(MsgUpdateSessionKey) returns (MsgUpdateSessionKeyResponse);
   // CancelOrder skips one unused order sequence.
   rpc CancelOrder(MsgCancelOrder) returns (MsgCancelOrderResponse);
-  // SubmitWorkerHandraises is the single Task admission and Worker candidate
-  // entry; it replaces the deleted MsgAssign.
-  // SubmitWorkerHandraises executes the SubmitWorkerHandraises operation.
   // SubmitInferReceipt accepts the winner Worker's inference receipt; it
   // replaces the deleted MsgInferReceiptCommitOnly.
   // SubmitInferReceipt executes the SubmitInferReceipt operation.

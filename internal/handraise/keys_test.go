@@ -46,12 +46,12 @@ func TestChainServiceKeys(t *testing.T) {
 	if _, _, err := keys.CurrentCortexKey(context.Background(), builderOperator); !errors.Is(err, servicekey.ErrUnavailable) {
 		t.Fatalf("missing cortex key err = %v, want ErrUnavailable", err)
 	}
-	if nonce, err := keys.CurrentBuilderNonce(context.Background()); err != nil || nonce != 4 {
-		t.Fatalf("builder nonce = %d %v", nonce, err)
+	if err := keys.CheckBuilderKey(context.Background()); err != nil {
+		t.Fatalf("builder key check: %v", err)
 	}
 	keys.Signer = newSigner(t, 0x06)
-	if _, err := keys.CurrentBuilderNonce(context.Background()); err == nil {
-		t.Fatal("builder nonce returned for a key the local signer does not hold")
+	if err := keys.CheckBuilderKey(context.Background()); err == nil {
+		t.Fatal("builder key accepted for a key the local signer does not hold")
 	}
 }
 

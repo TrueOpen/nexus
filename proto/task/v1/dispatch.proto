@@ -163,6 +163,26 @@ enum DispatchRejectCodeV1 {
   DISPATCH_REJECT_CODE_V1_SESSION_KEY_SPEND_CAP_EXCEEDED = 26;
   // CONFLICT is the conflict value.
   DISPATCH_REJECT_CODE_V1_CONFLICT = 27;
+  // The signed order could not be authenticated.
+  DISPATCH_REJECT_CODE_V1_ORDER_SIGNATURE_INVALID = 28;
+  // The session is unavailable, closed or bound to a different order owner.
+  DISPATCH_REJECT_CODE_V1_SESSION_INVALID = 29;
+  // The order does not name the current immutable BuilderSet.
+  DISPATCH_REJECT_CODE_V1_BUILDER_SET_CHANGED = 30;
+  // The model or profile cannot admit new work.
+  DISPATCH_REJECT_CODE_V1_MODEL_PROFILE_UNAVAILABLE = 31;
+  // The execution/verification profile is unsupported.
+  DISPATCH_REJECT_CODE_V1_VERIFICATION_PROFILE_UNSUPPORTED = 32;
+  // An amount, budget relation or minimum order value is invalid.
+  DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID = 33;
+  // The session's order-sequence limit has been reached.
+  DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT = 34;
+  // Required task liability could not be reserved atomically.
+  DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED = 35;
+  // This objective challenge scope already has an upheld result.
+  DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE = 36;
+  // A pending rotation forbids the requested new duty or binding.
+  DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING = 37;
 }
 // DispatchProfileV1 defines the canonical DispatchProfileV1 fields.
 message DispatchProfileV1 {
@@ -199,8 +219,8 @@ message SignedHandraiseRootV1 {
   uint32 leaf_count = 5;
   bytes root = 6;
   bytes builder_service_signature = 7;
-  // Selects the Builder proof key even after rotation; part of the signed root.
-  uint64 service_authorization_nonce = 8;
+  reserved 8;
+  reserved "service_authorization_nonce";
 }
 // HandraiseInclusionProofV1 defines the canonical HandraiseInclusionProofV1 fields.
 message HandraiseInclusionProofV1 {
@@ -260,10 +280,12 @@ message DispatchTicketV1 {
   uint64 bound_change_height = 21;
   uint64 sticky_anchor_sequence = 22;
   uint32 sticky_run_count = 23;
-  bool sticky_applied = 24;
+  // Sticky promotion is a record-level fact, including a promoted Worker that rejects.
+  reserved 24;
+  reserved "sticky_applied";
   bytes builder_service_signature = 25;
-  // Part of the ticket hash; retained keys authorize evidence only, never dispatch.
-  uint64 service_authorization_nonce = 26;
+  reserved 26;
+  reserved "service_authorization_nonce";
 }
 // DispatchAttemptV1 defines the canonical DispatchAttemptV1 fields.
 message DispatchAttemptV1 {
@@ -299,12 +321,13 @@ message DispatchRecordV1 {
   uint64 bound_change_height = 14;
   uint64 sticky_anchor_sequence = 15;
   uint32 sticky_run_count = 16;
+  // True when the first-round order promoted the previous Worker, even if another wins.
   bool sticky_applied = 17;
   repeated DispatchRoundV1 rounds = 18;
   bytes dispatch_ticket_hash = 19;
   bytes builder_service_signature = 20;
-  // Part of the record hash and equal to the winner ticket's signing generation.
-  uint64 service_authorization_nonce = 21;
+  reserved 21;
+  reserved "service_authorization_nonce";
 }
 // DispatchAcceptV1 defines the canonical DispatchAcceptV1 fields.
 message DispatchAcceptV1 {

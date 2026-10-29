@@ -1390,8 +1390,10 @@ type DispatchParamsV1 struct {
 	DispatchChallengeGasCapByKind         []*DispatchChallengeGasCapV1 `protobuf:"bytes,19,rep,name=dispatch_challenge_gas_cap_by_kind,json=dispatchChallengeGasCapByKind,proto3" json:"dispatch_challenge_gas_cap_by_kind,omitempty"`
 	BuilderCompensationAccountMinBalance  *v1.Amount                   `protobuf:"bytes,20,opt,name=builder_compensation_account_min_balance,json=builderCompensationAccountMinBalance,proto3" json:"builder_compensation_account_min_balance,omitempty"`
 	DispatchEvidenceRetentionBlocks       uint64                       `protobuf:"varint,21,opt,name=dispatch_evidence_retention_blocks,json=dispatchEvidenceRetentionBlocks,proto3" json:"dispatch_evidence_retention_blocks,omitempty"`
-	unknownFields                         protoimpl.UnknownFields
-	sizeCache                             protoimpl.SizeCache
+	// ServiceBond slash for a Worker signing both rejection and acceptance; 0..10000.
+	WorkerDispatchContradictionSlashBps uint32 `protobuf:"varint,22,opt,name=worker_dispatch_contradiction_slash_bps,json=workerDispatchContradictionSlashBps,proto3" json:"worker_dispatch_contradiction_slash_bps,omitempty"`
+	unknownFields                       protoimpl.UnknownFields
+	sizeCache                           protoimpl.SizeCache
 }
 
 func (x *DispatchParamsV1) Reset() {
@@ -1567,6 +1569,13 @@ func (x *DispatchParamsV1) GetBuilderCompensationAccountMinBalance() *v1.Amount 
 func (x *DispatchParamsV1) GetDispatchEvidenceRetentionBlocks() uint64 {
 	if x != nil {
 		return x.DispatchEvidenceRetentionBlocks
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetWorkerDispatchContradictionSlashBps() uint32 {
+	if x != nil {
+		return x.WorkerDispatchContradictionSlashBps
 	}
 	return 0
 }
@@ -1862,7 +1871,7 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x14commit_window_blocks\x18\n" +
 	" \x01(\x04R\x12commitWindowBlocks\x120\n" +
 	"\x14reveal_window_blocks\x18\v \x01(\x04R\x12revealWindowBlocks\x12E\n" +
-	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlock\"\x84\f\n" +
+	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlock\"\xda\f\n" +
 	"\x10DispatchParamsV1\x124\n" +
 	"\x16record_deadline_blocks\x18\x01 \x01(\x04R\x14recordDeadlineBlocks\x12D\n" +
 	"\x1fmax_dispatch_entries_per_record\x18\x02 \x01(\rR\x1bmaxDispatchEntriesPerRecord\x129\n" +
@@ -1885,7 +1894,8 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x1edispatch_fault_penalty_by_kind\x18\x12 \x03(\v2\x1f.task.v1.DispatchFaultPenaltyV1R\x1adispatchFaultPenaltyByKind\x12m\n" +
 	"\"dispatch_challenge_gas_cap_by_kind\x18\x13 \x03(\v2\".task.v1.DispatchChallengeGasCapV1R\x1ddispatchChallengeGasCapByKind\x12i\n" +
 	"(builder_compensation_account_min_balance\x18\x14 \x01(\v2\x11.shared.v1.AmountR$builderCompensationAccountMinBalance\x12K\n" +
-	"\"dispatch_evidence_retention_blocks\x18\x15 \x01(\x04R\x1fdispatchEvidenceRetentionBlocks\"g\n" +
+	"\"dispatch_evidence_retention_blocks\x18\x15 \x01(\x04R\x1fdispatchEvidenceRetentionBlocks\x12T\n" +
+	"'worker_dispatch_contradiction_slash_bps\x18\x16 \x01(\rR#workerDispatchContradictionSlashBps\"g\n" +
 	"\x15PrefillCompensationV1\x12#\n" +
 	"\rresource_tier\x18\x01 \x01(\rR\fresourceTier\x12)\n" +
 	"\x06amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x06amount\"{\n" +

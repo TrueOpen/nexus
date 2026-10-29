@@ -220,7 +220,7 @@ func TestDrawerDrawsTheWholePoolOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Epoch != vectorEpoch || d.VRF.Epoch != 1 || d.Pool.Digest != vectorPool(t).Digest {
+	if d.Epoch != vectorEpoch || d.VRF.Epoch != 1 || !reflect.DeepEqual(d.Pool.Members, vectorPool(t).Members) {
 		t.Fatalf("draw context = %+v", d)
 	}
 	if err := dispatch.VerifyDispatchVRF(key.Public().(ed25519.PublicKey), d.VRF.Alpha[:], d.VRF.Proof, d.VRF.Output[:]); err != nil {

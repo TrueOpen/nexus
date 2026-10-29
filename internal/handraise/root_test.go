@@ -2,6 +2,8 @@ package handraise
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,8 +24,7 @@ func TestRootIsSignedOverSortedLeaves(t *testing.T) {
 	issued := e.mustIssue()
 	root := issued.Root
 	if root.GetChainId() != testChainID || root.GetBuilderAddress() != e.builder.Address() ||
-		root.GetRootHeight() != 100 || root.GetRootVersion() != 0 || root.GetLeafCount() != 5 ||
-		root.GetServiceAuthorizationNonce() != 7 {
+		root.GetRootHeight() != 100 || root.GetRootVersion() != 0 || root.GetLeafCount() != 5 {
 		t.Fatalf("root = %v", root)
 	}
 
@@ -46,7 +47,7 @@ func TestRootIsSignedOverSortedLeaves(t *testing.T) {
 		t.Fatal("root is not the wire handraise root of the leaves")
 	}
 
-	// The signature is the Builder service key over the wire signing digest, which includes the nonce.
+	// The signature is the Builder service key over the wire signing digest.
 	digest := rootDigest(t, root)
 	if digest != issued.Digest {
 		t.Fatal("issued digest differs from the signing digest")
@@ -129,16 +130,43 @@ func TestRootHeightNeverGoesBackwards(t *testing.T) {
 	}
 }
 
-// A Builder key rotation re-signs the same leaves under the new authorization nonce.
-func TestRootReissuedOnBuilderNonceChange(t *testing.T) {
+// After a Builder key rotation the same leaves are signed again by the new key: the root binds no
+// key generation, so the old signature would not verify under the new current key.
+func TestRootReissuedOnBuilderKeyChange(t *testing.T) {
 	e := newEnv(t)
 	a := e.addCortex(0x11, 1)
 	e.mustAccept(a, e.handraise(a, 100, 1))
 	first := e.mustIssue()
-	e.keys.builderNonce = 8
+
+	rotated := newSigner(t, 0x09)
+	reg, err := New(Options{
+		ChainID: testChainID, BuilderAddress: e.builder.Address(), Config: e.cfg, Store: e.store,
+		Keys: e.keys, Pool: e.pool, Height: e.height, Signer: rotated, Now: e.clock.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.reg = reg
 	second := e.mustIssue()
-	if second.Root.GetServiceAuthorizationNonce() != 8 || !bytes.Equal(second.Root.GetRoot(), first.Root.GetRoot()) {
+	if !bytes.Equal(second.Root.GetRoot(), first.Root.GetRoot()) || second.Root.GetRootVersion() != first.Root.GetRootVersion()+1 {
 		t.Fatalf("root after rotation = %v", second.Root)
+	}
+	if err := dispatch.VerifyDigestSignature(rotated.PubKeyCompressed(), second.Digest[:], second.Root.GetBuilderServiceSignature()); err != nil {
+		t.Fatalf("root after rotation is not signed by the new key: %v", err)
+	}
+	if again := e.issue(); again != nil {
+		t.Fatal("unchanged leaves re-signed under the same key")
+	}
+}
+
+// No root is issued while the Builder's own current key cannot be confirmed.
+func TestNoRootWithoutCurrentBuilderKey(t *testing.T) {
+	e := newEnv(t)
+	a := e.addCortex(0x11, 1)
+	e.mustAccept(a, e.handraise(a, 100, 1))
+	e.keys.builderErr = errors.New("no current key")
+	if root, err := e.reg.IssueRoot(context.Background()); err == nil || root != nil {
+		t.Fatalf("IssueRoot = %v, %v; want an error", root, err)
 	}
 }
 

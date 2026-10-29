@@ -65,7 +65,7 @@ func TestStandingHandraiseVectorAcceptedAndRooted(t *testing.T) {
 	}
 
 	operator := h.GetMember().GetOperatorAddress()
-	keys := &fakeKeys{cortex: map[string]*fakeKey{operator: {pub: pub, nonce: h.GetServiceAuthorizationNonce()}}, builderNonce: 1}
+	keys := &fakeKeys{cortex: map[string]*fakeKey{operator: {pub: pub, nonce: h.GetServiceAuthorizationNonce()}}}
 	pool := &fakePool{
 		members: map[string]bool{operator: true},
 		support: map[string]map[string]bool{operator: {profileKey(h.GetProfiles()[0]): true}},
@@ -121,13 +121,12 @@ func TestSignedHandraiseRootVector(t *testing.T) {
 		t.Fatal("fixture key is not the vector key")
 	}
 	root := &taskv1.SignedHandraiseRootV1{
-		ChainId:                   "trueopen-phase1-vector-1",
-		BuilderAddress:            vector.Field(t, "builder_address").Bech32,
-		RootHeight:                vector.Field(t, "root_height").Uint64(t),
-		RootVersion:               vector.Field(t, "root_version").Uint64(t),
-		LeafCount:                 uint32(vector.Field(t, "leaf_count").Uint64(t)),
-		Root:                      vector.Field(t, "root").Bytes(t),
-		ServiceAuthorizationNonce: vector.Field(t, "service_authorization_nonce").Uint64(t),
+		ChainId:        "trueopen-phase1-vector-1",
+		BuilderAddress: vector.Field(t, "builder_address").Bech32,
+		RootHeight:     vector.Field(t, "root_height").Uint64(t),
+		RootVersion:    vector.Field(t, "root_version").Uint64(t),
+		LeafCount:      uint32(vector.Field(t, "leaf_count").Uint64(t)),
+		Root:           vector.Field(t, "root").Bytes(t),
 	}
 	gotRaw, digest, err := signRoot(key, root)
 	if err != nil {

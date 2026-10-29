@@ -271,6 +271,8 @@ const (
 	ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED ProtocolEventCodeV1 = 143
 	// Builder VRF key registration committed.
 	ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED ProtocolEventCodeV1 = 144
+	// Registration of a pending service key; current binding remains unchanged.
+	ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED ProtocolEventCodeV1 = 145
 )
 
 // Enum value maps for ProtocolEventCodeV1.
@@ -360,6 +362,7 @@ var (
 		142: "PROTOCOL_EVENT_CODE_V1_ORDER_CANCEL_REQUESTED",
 		143: "PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED",
 		144: "PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED",
+		145: "PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED",
 	}
 	ProtocolEventCodeV1_value = map[string]int32{
 		"PROTOCOL_EVENT_CODE_V1_UNSPECIFIED":                      0,
@@ -446,6 +449,7 @@ var (
 		"PROTOCOL_EVENT_CODE_V1_ORDER_CANCEL_REQUESTED":           142,
 		"PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED":      143,
 		"PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED":       144,
+		"PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED":  145,
 	}
 )
 
@@ -732,7 +736,7 @@ const file_shared_v1_event_proto_rawDesc = "" +
 	"\fchain_height\x18\x02 \x01(\x04R\vchainHeight\"Q\n" +
 	"\vEventTarget\x12(\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x14.shared.v1.EventRoleR\x04role\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress*\x85#\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress*\xc2#\n" +
 	"\x13ProtocolEventCodeV1\x12&\n" +
 	"\"PROTOCOL_EVENT_CODE_V1_UNSPECIFIED\x10\x00\x12*\n" +
 	"&PROTOCOL_EVENT_CODE_V1_SESSION_CREATED\x10\x01\x12*\n" +
@@ -817,7 +821,8 @@ const file_shared_v1_event_proto_rawDesc = "" +
 	"3PROTOCOL_EVENT_CODE_V1_SESSION_KEY_CHANGE_REQUESTED\x10\x8d\x01\x122\n" +
 	"-PROTOCOL_EVENT_CODE_V1_ORDER_CANCEL_REQUESTED\x10\x8e\x01\x127\n" +
 	"2PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED\x10\x8f\x01\x126\n" +
-	"1PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED\x10\x90\x01\"\x04\b\n" +
+	"1PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED\x10\x90\x01\x12;\n" +
+	"6PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED\x10\x91\x01\"\x04\b\n" +
 	"\x10\n" +
 	"\"\x04\b\v\x10\v\"\x04\b\x16\x10\x16*1PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED*2PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED*(PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED*t\n" +
 	"\x0fTaskEventSource\x12!\n" +

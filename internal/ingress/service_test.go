@@ -333,7 +333,7 @@ func TestOutputStreamContractSurface(t *testing.T) {
 	}
 	assertProtoFields(t, msg("OutputChunkV1"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"seq": 1, "text": 2, "mmr_root": 3, "worker_signature": 4, "attachment": 5, "attachment_signature": 6,
-		"generated_token_count": 7, "dispatch_ticket_hash": 8,
+		"cumulative_generated_tokens": 7, "dispatch_ticket_hash": 8,
 	})
 	assertProtoFields(t, msg("OutputFinV1"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"final_seq": 1, "output_mmr_root": 2, "dispatch_ticket_hash": 5,

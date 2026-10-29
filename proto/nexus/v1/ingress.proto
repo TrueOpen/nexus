@@ -600,7 +600,9 @@ message OutputChunkV1 {
   // Phase 0 requires this field to be empty together with attachment.
   bytes attachment_signature = 6;
 
-  uint64 generated_token_count = 7;
+  // Cumulative generated tokens through this chunk; non-decreasing across the attempt.
+  // Used for the pre-record forwarding cap, never counted again by the Builder.
+  uint64 cumulative_generated_tokens = 7;
   // Must equal the stream header's ticket. The Worker signs
   // H_FIELDS_V1("TRUEOPEN_OUTPUT_CHUNK_V1", chain_id, task_hash,
   // dispatch_ticket_hash, seq, mmr_root). Attempts of one order cannot mix.

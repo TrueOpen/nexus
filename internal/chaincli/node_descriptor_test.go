@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "6ef1c94af68b50c65558befd208dd74045c7ddd5633f05739e901ae06483c045"
+	const want = "6ccfff606ea5b74d27df68403fe1a71eca82f26cfe986551d238a7b860b682f7"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -322,7 +322,9 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 4, name: "service_pubkey", kind: protoreflect.BytesKind},
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 5, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
-		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, absent: true},
+		// 9 is the pending rotation; it never changes the current fields above until activation.
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, name: "pending_rotation", kind: protoreflect.MessageKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 10, absent: true},
 		{message: "hub.v1.ServiceDescriptorState", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 6, name: "descriptor_hash", kind: protoreflect.BytesKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 8, absent: true},

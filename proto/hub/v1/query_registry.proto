@@ -327,6 +327,8 @@ message CurrentServiceKeyViewV1 {
     ServiceKeyStatus builder_service_key_status = 7;
   }
   uint64 current_descriptor_version = 8;
+  // A proposal never changes the current fields above until activation.
+  optional PendingServiceKeyRotationState pending_rotation = 9;
 }
 
 // ServiceLifecycleViewV1 joins the identity and bond authorities.
