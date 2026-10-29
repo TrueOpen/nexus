@@ -66,16 +66,18 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		d.finish(ctx, out)
 		return fmt.Errorf("%w: accept of ticket %x after its deadline", ErrTicketClosed, a.Hash)
 	}
-	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
+	entry, inLedger := d.cfg.Ledger.Get(st.SessionID, st.Sequence)
+	deadline := d.recordDeadline(o, entry.Deadline)
+	if inLedger && TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
 		// The entry can no longer be recorded in time, and a late record is charged to this
 		// Builder. The Worker answered in time, so the attempt is not its timeout: it is VOIDED
 		// with the accept kept as received, the reject rate is not fed, and the order fails on its
 		// record deadline.
 		a.Outcome, a.LateAccept, a.LateAcceptDigest = outcomeVoided, from.Raw, append([]byte(nil), from.Digest[:]...)
-		out := d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
+		out := d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
 		o.mu.Unlock()
 		d.finish(ctx, out)
-		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, entry.Deadline)
+		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, deadline)
 	}
 	prev := cloneState(st)
 	a.Outcome = outcomeAccepted
@@ -104,7 +106,7 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	d.recordOutcome(a.Operator, false)
 	out := done{session: st.SessionID, sequence: st.Sequence, taskID: st.TaskID, worker: a.Operator, ticket: [32]byte(a.Hash)}
 	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok {
-		out.accepted, err = d.bundle(st, entry.Deadline)
+		out.accepted, err = d.bundle(st, d.recordDeadline(o, entry.Deadline))
 	} else {
 		err = errors.New("ledger entry missing")
 	}

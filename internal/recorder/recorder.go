@@ -367,9 +367,9 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 
 // deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
 // bound_change_height) + record_deadline_blocks with the current params, never earlier than the
-// deadline handed over.
+// deadline handed over. The dispatcher decides with the same formula.
 func (r *Recorder) deadlineLocked(e *entry) uint64 {
-	return max(e.Deadline, max(e.EarliestSubmit, e.BoundChange)+r.params.Load().RecordDeadlineBlocks)
+	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, r.params.Load().RecordDeadlineBlocks)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

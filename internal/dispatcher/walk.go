@@ -138,8 +138,10 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if st.Phase != phaseDispatching || st.pending() != nil {
 			return done{}
 		}
-		if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok && TooLateToRecord(d.cfg.Sessions.Head(), entry.Deadline) {
-			return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, entry.Deadline))
+		if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok {
+			if deadline := d.recordDeadline(o, entry.Deadline); TooLateToRecord(d.cfg.Sessions.Head(), deadline) {
+				return d.fail(o, fmt.Errorf("%w: deadline %d", ErrRecordDeadline, deadline))
+			}
 		}
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
 			switch {

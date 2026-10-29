@@ -59,7 +59,7 @@ func (d *Dispatcher) recover(ctx context.Context) error {
 			if err := d.cfg.Ledger.MarkAccepted(st.SessionID, st.Sequence); err != nil {
 				return fmt.Errorf("accept in-flight order: %w", err)
 			}
-			b, err := d.bundle(st, entry.Deadline)
+			b, err := d.bundle(st, d.recordDeadline(o, entry.Deadline))
 			if err != nil {
 				return fmt.Errorf("dispatch state %s/%d: %w", st.SessionID, st.Sequence, err)
 			}

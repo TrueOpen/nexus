@@ -433,7 +433,8 @@ func newEnv(t *testing.T) *env {
 		observer:   &fakeObserver{}, recorder: &fakeRecorder{},
 		clock:  &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
 		signer: newTestSigner(t, 0x01),
-		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64},
+		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64,
+			RecordDeadlineBlocks: 20},
 	}
 	e.builder = newTestSigner(t, 0x09).Address()
 	e.handraises.setRoot(0xd1, 2, op1, op3, op7)
