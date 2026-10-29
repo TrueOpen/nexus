@@ -82,7 +82,10 @@ type ReceiverConfig struct {
 	// other than the user's wallet is checked against the session's registered key in SessionKeys.
 	FeeDenom    string
 	SessionKeys SessionKeyReader
-	Log         *slog.Logger
+	// PreviousSnapshotBlocks is how many blocks after a BuilderSet replacement a new order of the
+	// replaced snapshot is still accepted (0 = 600).
+	PreviousSnapshotBlocks uint64
+	Log                    *slog.Logger
 }
 
 // SessionKeyReader reads the registered-key state of a session (registeredkey.Cache).
@@ -99,8 +102,10 @@ type Receiver struct {
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex
 	replicas map[string]*taskdata.OutputStream
-	// current and previous are the last two BuilderSet snapshots seen current.
+	// current and previous are the last two BuilderSet snapshots seen current; replacedAt the head
+	// when current replaced previous.
 	current, previous *taskgroup.Snapshot
+	replacedAt        uint64
 
 	head      atomic.Uint64
 	lastPrune atomic.Uint64
@@ -122,6 +127,9 @@ func NewReceiver(cfg ReceiverConfig) (*Receiver, error) {
 	}
 	if r.cfg.Publish == nil {
 		r.cfg.Publish = func(taskdata.ObjectKey, taskdata.OutputFrame) {}
+	}
+	if r.cfg.PreviousSnapshotBlocks == 0 {
+		r.cfg.PreviousSnapshotBlocks = defaultPreviousSnapshotBlocks
 	}
 	return r, nil
 }
@@ -306,8 +314,11 @@ func names(batch *buildersyncv1.BuilderSyncBatchV1, s taskgroup.Snapshot) bool {
 	return s.ID == batch.GetBuilderSetId() && bytes.Equal(s.Hash[:], batch.GetBuilderSetHash())
 }
 
-// observeSnapshot returns the current snapshot and the one current before it, as far as this
-// receiver saw them.
+// defaultPreviousSnapshotBlocks is ReceiverConfig.PreviousSnapshotBlocks when unset.
+const defaultPreviousSnapshotBlocks = 600
+
+// observeSnapshot returns the current snapshot and, within PreviousSnapshotBlocks of its
+// replacement, the one current before it, as far as this receiver saw them.
 func (r *Receiver) observeSnapshot() (taskgroup.Snapshot, *taskgroup.Snapshot, bool) {
 	current, ok := r.cfg.Groups.CurrentBuilderSet()
 	if !ok {
@@ -315,8 +326,12 @@ func (r *Receiver) observeSnapshot() (taskgroup.Snapshot, *taskgroup.Snapshot, b
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	head := r.head.Load()
 	if r.current == nil || r.current.ID != current.ID || r.current.Hash != current.Hash {
-		r.previous, r.current = r.current, &current
+		r.previous, r.current, r.replacedAt = r.current, &current, head
+	}
+	if r.previous == nil || head > r.replacedAt+r.cfg.PreviousSnapshotBlocks {
+		return current, nil, true
 	}
 	return current, r.previous, true
 }

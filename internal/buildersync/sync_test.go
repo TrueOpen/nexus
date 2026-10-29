@@ -904,3 +904,23 @@ func TestOrderItemIsTheUsersSignedOrder(t *testing.T) {
 		})
 	}
 }
+
+// The snapshot current before the last replacement is accepted for a new order only for
+// PreviousSnapshotBlocks after the replacement.
+func TestPreviousSnapshotHasAWindow(t *testing.T) {
+	e := newEnv(t)
+	set1 := e.staleSnapshot() // replaced at height 101
+	e.s.cfg.SnapshotAt = func(context.Context, uint64) (taskgroup.Snapshot, error) { return set1, nil }
+	batch := e.firstBatch()
+	e.member.r.cfg.PreviousSnapshotBlocks = 10
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 111})
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("within the window: %v, %v", resp, err)
+	}
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 112})
+	other := proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	other.SessionId = fill(0xab)
+	if _, err := e.member.r.Sync(context.Background(), e.signed(other)); !errors.Is(err, ErrNotGroupMember) {
+		t.Fatalf("past the window: %v", err)
+	}
+}
