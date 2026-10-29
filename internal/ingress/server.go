@@ -220,21 +220,27 @@ func (s *Server) handler() http.Handler {
 	}
 	service := newService(s.h, s.auth, serviceOptions...)
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)
+	// The request body of a dispatch stream is the whole uplink of a long-lived connection, so it
+	// keeps only the per-message limit and never the cumulative body cap.
+	streamHandler := legacyHandler
 	if s.httpMaxBytes > 0 {
 		legacyHandler = http.MaxBytesHandler(legacyHandler, s.httpMaxBytes)
 	}
-	handler := legacyHandler
+	var taskDataHandler http.Handler
 	if s.taskDataReadMaxBytes > 0 {
 		taskDataHandlerOptions := append(append([]connect.HandlerOption(nil), baseHandlerOptions...), connect.WithReadMaxBytes(s.taskDataReadMaxBytes))
-		_, taskDataHandler := nexusv1connect.NewIngressAPIHandler(service, taskDataHandlerOptions...)
-		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isTaskDataProcedure(r.URL.Path) {
-				taskDataHandler.ServeHTTP(w, r)
-				return
-			}
-			legacyHandler.ServeHTTP(w, r)
-		})
+		_, taskDataHandler = nexusv1connect.NewIngressAPIHandler(service, taskDataHandlerOptions...)
 	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == nexusv1connect.IngressAPIDispatchStreamProcedure:
+			streamHandler.ServeHTTP(w, r)
+		case taskDataHandler != nil && isTaskDataProcedure(r.URL.Path):
+			taskDataHandler.ServeHTTP(w, r)
+		default:
+			legacyHandler.ServeHTTP(w, r)
+		}
+	})
 	mux.Handle(path, handler)
 
 	// gRPC reflection (grpcurl debugging)
