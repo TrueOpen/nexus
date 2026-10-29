@@ -539,7 +539,8 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 	if target == "" {
 		return errors.New("ticket names no target")
 	}
-	if len(a.GetReject()) > 0 {
+	rejectRaw := a.GetReject()
+	if len(rejectRaw) > 0 {
 		if a.GetOutcome() != taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_REJECTED {
 			return errors.New("reject of an attempt that is not REJECTED")
 		}
@@ -548,14 +549,19 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 			reject.GetMember().GetOperatorAddress() != target {
 			return errors.New("reject is not the target's reject of the ticket")
 		}
-		// A rebuttal carries the reject: one its target did not sign would only cost a refused tx.
+		// A rebuttal carries the reject: one that does not verify under the target's current key
+		// would only cost a refused tx. The target may have rotated its key since it signed, so the
+		// reject is dropped rather than the order's sync stopped: the attempt stays REJECTED, without
+		// the reject a rebuttal needs.
 		targetKey, err := r.serviceKey(ctx, servicekey.ParticipantCortex, target)
 		if err != nil {
 			return fmt.Errorf("reject signer: %w", err)
 		}
-		digest, err := signingDigest(rejectName, a.GetReject())
+		digest, err := signingDigest(rejectName, rejectRaw)
 		if err != nil || dispatch.VerifyDigestSignature(targetKey, digest[:], reject.GetServiceSignature()) != nil {
-			return errors.New("reject is not signed by the ticket's target")
+			r.log.Warn("synced reject does not verify under its target's current key; kept without it, so this member cannot rebut a claim on the ticket",
+				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target)
+			rejectRaw = nil
 		}
 	}
 	for _, raw := range [][]byte{a.GetLateAccept(), a.GetAccept()} {
@@ -582,7 +588,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 	}
 	attempt := dispatchevidence.Attempt{
 		Ticket: a.GetTicket(), Hash: hash[:], Rank: ticket.GetRank(), Operator: target, Sent: a.GetSent(), Outcome: a.GetOutcome(),
-		Reject: a.GetReject(), LateAccept: a.GetLateAccept(),
+		Reject: rejectRaw, LateAccept: a.GetLateAccept(),
 	}
 	if i := slices.IndexFunc(round.Attempts, func(x dispatchevidence.Attempt) bool { return bytes.Equal(x.Hash, hash[:]) }); i >= 0 {
 		round.Attempts[i] = attempt

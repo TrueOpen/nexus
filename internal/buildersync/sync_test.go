@@ -467,8 +467,9 @@ func TestNonMemberCostsNoKeyLookup(t *testing.T) {
 	}
 }
 
-// A REJECTED attempt's reject must be the target's own: one the target did not sign is refused,
-// so a member never sends a rebuttal the chain would refuse.
+// A REJECTED attempt's reject must verify under the target's current key, so a member never sends
+// a rebuttal the chain would refuse. One that does not (the Worker rotated its key since) is
+// dropped: the attempt is kept as REJECTED without a reject and the order's later items still apply.
 func TestReceiverChecksTheRejectSignature(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
@@ -489,14 +490,12 @@ func TestReceiverChecksTheRejectSignature(t *testing.T) {
 		}
 	}
 	resp, err := e.member.r.Sync(context.Background(), e.signed(&batch))
-	if err != nil || !strings.Contains(resp.GetRefused(), "reject") {
-		t.Fatalf("forged reject = %v, %v", resp, err)
+	if err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != uint64(len(batch.Items)) {
+		t.Fatalf("reject under another key = %v, %v", resp, err)
 	}
-	e.peers.setFail(e.m.op, nil)
-	e.clock.advance(time.Minute)
-	e.s.deliverPeer(context.Background(), e.m.op)
-	if a := e.copyOf().Rounds[0].Attempts; len(a) != 2 || a[0].Outcome != outcomeRejected {
-		t.Fatalf("genuine reject = %+v", a)
+	a := e.copyOf().Rounds[0].Attempts
+	if len(a) != 2 || a[0].Outcome != outcomeRejected || len(a[0].Reject) != 0 {
+		t.Fatalf("attempts after a reject under another key = %+v", a)
 	}
 }
 
