@@ -395,7 +395,7 @@ func TestOneTakeoverPerSession(t *testing.T) {
 }
 
 // Submit stores the takeover, starts the order's task and hands the recorder the takeover entry
-// with the session's bound_change_height, recordable until the block before the order expires.
+// with the session's bound_change_height, recordable up to and including order_expire_height.
 func TestSubmitRecordsTheTakeoverEntry(t *testing.T) {
 	e := newEnv(t)
 	o := e.submit(5)
@@ -404,7 +404,7 @@ func TestSubmitRecordsTheTakeoverEntry(t *testing.T) {
 		t.Fatalf("%d bundles", len(e.rec.bundles))
 	}
 	b := e.rec.bundles[0]
-	if b.SessionID != session || b.Sequence != 5 || b.TaskID != "task5" || b.BoundChangeHeight != 40 || b.Deadline != expiresAt-1 {
+	if b.SessionID != session || b.Sequence != 5 || b.TaskID != "task5" || b.BoundChangeHeight != 40 || b.Deadline != expiresAt {
 		t.Fatalf("bundle = %+v", b)
 	}
 	var signed taskv1.SignedOrderV2

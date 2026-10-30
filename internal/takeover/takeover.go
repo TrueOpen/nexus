@@ -398,20 +398,16 @@ func (m *Manager) Release(sessionID, taskHash string) {
 	}
 }
 
-// submitEntry hands the takeover entry of r to the recorder; it can be recorded until the block
-// before the order expires.
+// submitEntry hands the takeover entry of r to the recorder; it can be recorded up to and
+// including the order's order_expire_height.
 func (m *Manager) submitEntry(ctx context.Context, r *record) error {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(r.Order.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
 		return fmt.Errorf("takeover order of session %s does not decode", r.SessionID)
 	}
-	deadline := signed.GetOrder().GetOrderExpireHeight()
-	if deadline > 0 {
-		deadline--
-	}
 	return m.cfg.Recorder.RecordTakeover(ctx, &recorder.TakeoverBundle{
 		SessionID: r.SessionID, Sequence: r.Sequence, TaskID: r.TaskID, BoundChangeHeight: r.BoundChangeHeight,
-		Deadline: deadline, Entry: &taskv1.TakeoverEntryV1{SignedOrder: &signed},
+		Deadline: signed.GetOrder().GetOrderExpireHeight(), Entry: &taskv1.TakeoverEntryV1{SignedOrder: &signed},
 	})
 }
 

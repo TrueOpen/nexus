@@ -146,12 +146,13 @@ type PrecheckConfig struct {
 //     reservation included), ACCEPTED, or RECORDED while the session state read does not include
 //     the record yet (at or above its next_expected_sequence); wallet orders do not count;
 //  2. binding: a session bound to another Builder ends the precheck with BoundElsewhere once the
-//     order could register a takeover in the next block: head + 1 < order_expire_height (else
+//     order could register a takeover in the next block: head + 1 <= order_expire_height (else
 //     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a
 //     registered key valid at head + 1;
 //  3. expiry: the order must stay recordable until its record deadline D = max(
-//     earliest_submit_height, bound_change_height) + record_deadline_blocks, so D <
-//     order_expire_height (and head + 1 < order_expire_height), else ErrOrderExpired;
+//     earliest_submit_height, bound_change_height) + record_deadline_blocks; an order is valid up
+//     to and including order_expire_height, so D <= order_expire_height (and head + 1 <=
+//     order_expire_height), else ErrOrderExpired;
 //  4. freshness, except for a takeover order: earliest_submit_height >= head -
 //     order_freshness_margin_blocks (ErrOrderStale) and <= head + 1 (ErrOrderFuture, returned only
 //     after the head was read from the chain again);
@@ -368,8 +369,8 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		}
 	}
 	if !bound {
-		if head+1 >= o.ExpireHeight {
-			return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the next height (head %d)", ErrOrderExpired, o.ExpireHeight, head)
+		if head+1 > o.ExpireHeight {
+			return Result{}, fmt.Errorf("%w: order_expire_height %d is before the next height (head %d)", ErrOrderExpired, o.ExpireHeight, head)
 		}
 		if o.EarliestSubmitHeight > head+1 {
 			return Result{}, fmt.Errorf("%w: earliest_submit_height %d is above the head %d plus one", ErrOrderFuture, o.EarliestSubmitHeight, head)
@@ -377,11 +378,11 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 		res.Binding = BoundElsewhere
 		return res, nil
 	}
-	// The Keeper refuses a record at or after order_expire_height, and this Builder guarantees the
-	// record only by the deadline: an order expiring earlier could fail at record time through
-	// this precheck's fault.
-	if head+1 >= o.ExpireHeight || res.Deadline >= o.ExpireHeight {
-		return Result{}, fmt.Errorf("%w: order_expire_height %d is not after the record deadline %d (head %d)",
+	// The Keeper admits a record up to and including order_expire_height, and this Builder
+	// guarantees the record only by the deadline: an order expiring earlier could fail at record
+	// time through this precheck's fault.
+	if head+1 > o.ExpireHeight || res.Deadline > o.ExpireHeight {
+		return Result{}, fmt.Errorf("%w: order_expire_height %d is before the record deadline %d (head %d)",
 			ErrOrderExpired, o.ExpireHeight, res.Deadline, head)
 	}
 	takeover := o.Takeover

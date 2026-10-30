@@ -130,7 +130,7 @@ func TestPrecheckErrorCodes(t *testing.T) {
 		{name: "closed", state: func(s *chaincli.SessionState) { s.Closed = true }, want: ErrSessionClosing},
 		{name: "session key expires before the deadline", state: func(s *chaincli.SessionState) { s.ExpiryHeight = 119 }, order: withKey, want: registeredkey.ErrKeyExpired},
 		{name: "session key spend cap", state: func(s *chaincli.SessionState) { s.Spent = "901" }, order: withKey, want: registeredkey.ErrSpendCapExceeded},
-		{name: "expired: no block left before order_expire_height", order: func(o *Order) { o.ExpireHeight = 101 }, want: ErrOrderExpired},
+		{name: "expired before the record deadline", order: func(o *Order) { o.ExpireHeight = 119 }, want: ErrOrderExpired},
 		{name: "stale", order: func(o *Order) { o.EarliestSubmitHeight = 94 }, want: ErrOrderStale},
 		{name: "future", order: func(o *Order) { o.EarliestSubmitHeight = 102 }, want: ErrOrderFuture},
 		{name: "takeover pending", state: func(s *chaincli.SessionState) {
@@ -305,9 +305,13 @@ func TestPrecheckBoundElsewhereChecksTheRegistration(t *testing.T) {
 	if res, err := f.p.Check(context.Background(), o); err != nil || res.Binding != BoundElsewhere {
 		t.Fatalf("Check = %+v, %v", res, err)
 	}
-	o.ExpireHeight = 101
+	o.ExpireHeight = 101 // an order is valid at its order_expire_height
+	if res, err := f.p.Check(context.Background(), o); err != nil || res.Binding != BoundElsewhere {
+		t.Fatalf("order expiring at the registration height = %+v, %v", res, err)
+	}
+	o.ExpireHeight = 100
 	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
-		t.Fatalf("order expiring at the registration height = %v", err)
+		t.Fatalf("order expiring before the registration height = %v", err)
 	}
 	o.ExpireHeight, o.EarliestSubmitHeight = 200, 102
 	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderFuture) {
@@ -387,17 +391,19 @@ func TestPrecheckFreshnessBoundaries(t *testing.T) {
 }
 
 // The order must stay recordable until its record deadline D = max(earliest_submit_height,
-// bound_change_height) + record_deadline_blocks: the Keeper refuses a record at or after
+// bound_change_height) + record_deadline_blocks: the Keeper admits a record up to and including
 // order_expire_height, and an order that expires before this Builder could record it is this
 // Builder's precheck fault, which the accepting GPU can claim for.
 func TestPrecheckExpiryCoversTheRecordDeadline(t *testing.T) {
 	f := newFixture(t, nil) // head 100, record_deadline_blocks 20, bound at 10
 	o := order(5)           // earliest_submit_height 100: D = 120
-	o.ExpireHeight = 121
-	if _, err := f.p.Check(context.Background(), o); err != nil {
-		t.Fatalf("order expiring after D: %v", err)
+	for _, expire := range []uint64{121, 120} {
+		o.ExpireHeight = expire
+		if _, err := f.p.Check(context.Background(), o); err != nil {
+			t.Fatalf("order_expire_height %d with D 120: %v", expire, err)
+		}
 	}
-	for _, expire := range []uint64{120, 102} {
+	for _, expire := range []uint64{119, 102} {
 		o.ExpireHeight = expire
 		if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
 			t.Fatalf("order_expire_height %d with D 120 = %v, want expired", expire, err)
@@ -405,9 +411,13 @@ func TestPrecheckExpiryCoversTheRecordDeadline(t *testing.T) {
 	}
 	// A later bound_change_height moves D.
 	f = newFixture(t, func(s *chaincli.SessionState) { s.BoundChangeHeight = 110 })
-	o.ExpireHeight = 130
+	o.ExpireHeight = 129
 	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
-		t.Fatalf("order_expire_height 130 with D 130 = %v, want expired", err)
+		t.Fatalf("order_expire_height 129 with D 130 = %v, want expired", err)
+	}
+	o.ExpireHeight = 130
+	if _, err := f.p.Check(context.Background(), o); err != nil {
+		t.Fatalf("order_expire_height 130 with D 130 = %v", err)
 	}
 }
 

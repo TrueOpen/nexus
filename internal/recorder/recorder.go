@@ -276,6 +276,7 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		Worker:     b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
 		EarliestSubmit: b.Entry.GetSignedOrder().GetOrder().GetEarliestSubmitHeight(),
 		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
+		OrderExpire:    b.Entry.GetSignedOrder().GetOrder().GetOrderExpireHeight(),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -413,13 +414,13 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 
 // deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
 // bound_change_height) + record_deadline_blocks with the current params, never earlier than the
-// deadline handed over. The dispatcher decides with the same formula. A takeover entry has only the
+// deadline handed over and never past order_expire_height. The dispatcher decides with the same formula. A takeover entry has only the
 // deadline handed over.
 func (r *Recorder) deadlineLocked(e *entry) uint64 {
 	if e.Takeover {
 		return e.Deadline
 	}
-	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, r.params.Load().RecordDeadlineBlocks)
+	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, r.params.Load().RecordDeadlineBlocks, e.OrderExpire)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

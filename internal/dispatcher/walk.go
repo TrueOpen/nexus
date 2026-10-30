@@ -37,7 +37,8 @@ const recordLeadBlocks = 2
 // the Builder.
 func TooLateToRecord(head, deadline uint64) bool { return head+recordLeadBlocks > deadline }
 
-// liveRecordDeadline is the last height the order can be recorded at: its recordDeadline and,
+// liveRecordDeadline is the last height the order can be recorded at: its recordDeadline (never
+// past order_expire_height) and,
 // while another Builder's takeover of its session is registered, the takeover's activation
 // height (records of that block are admitted before EndBlock moves the binding; a later record
 // is refused and its Worker claims compensation).

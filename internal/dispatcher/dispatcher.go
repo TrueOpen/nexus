@@ -628,17 +628,23 @@ func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, 
 
 // EffectiveRecordDeadline is the last height an entry can be recorded at:
 // max(earliest_submit_height, bound_change_height) + record_deadline_blocks with the current
-// params, never earlier than the deadline handed over (stored). The Recorder and the dispatcher
-// both decide with it, so an entry one of them still takes the other does not give up on.
-func EffectiveRecordDeadline(stored, earliestSubmit, boundChange, deadlineBlocks uint64) uint64 {
-	return max(stored, max(earliestSubmit, boundChange)+deadlineBlocks)
+// params, never earlier than the deadline handed over (stored), and never past orderExpire, the
+// order's order_expire_height (the last height the Keeper admits it at; zero bounds nothing). The
+// Recorder and the dispatcher both decide with it, so an entry one of them still takes the other
+// does not give up on.
+func EffectiveRecordDeadline(stored, earliestSubmit, boundChange, deadlineBlocks, orderExpire uint64) uint64 {
+	deadline := max(stored, max(earliestSubmit, boundChange)+deadlineBlocks)
+	if orderExpire != 0 {
+		deadline = min(deadline, orderExpire)
+	}
+	return deadline
 }
 
 // recordDeadline is the order's EffectiveRecordDeadline: its bound_change_height is the current
 // round's, the one its winner ticket commits. Caller holds o.mu.
 func (d *Dispatcher) recordDeadline(o *order, stored uint64) uint64 {
 	return EffectiveRecordDeadline(stored, o.signed.GetOrder().GetEarliestSubmitHeight(), o.st.BoundChangeHeight,
-		d.params.Load().RecordDeadlineBlocks)
+		d.params.Load().RecordDeadlineBlocks, o.signed.GetOrder().GetOrderExpireHeight())
 }
 
 func cloneState(s *orderState) *orderState {

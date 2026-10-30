@@ -154,6 +154,25 @@ func TestDeadlineIsRecomputedFromTheEntry(t *testing.T) {
 	}
 }
 
+// A deadline moved by a later bound_change_height stops at order_expire_height: the Keeper admits
+// the order up to and including that height and refuses it after.
+func TestDeadlineStopsAtOrderExpireHeight(t *testing.T) {
+	e := newEnv(t)
+	b := bundle(0xaa, 0, 1, 20)
+	b.Entry.SignedOrder.Order.EarliestSubmitHeight = 15
+	b.Entry.SignedOrder.Order.OrderExpireHeight = 30
+	b.Entry.WinnerTicket.BoundChangeHeight = 25 // 25 + 10 = 35, past order_expire_height
+	e.record(b)
+	e.block(30)
+	if len(e.tasks.rejected) != 0 {
+		t.Fatalf("rejected at order_expire_height = %v", e.tasks.rejected)
+	}
+	e.block(31)
+	if want := []taskReport{{taskID: b.TaskID, code: codeLate}}; !reflect.DeepEqual(e.tasks.rejected, want) {
+		t.Fatalf("rejected = %v", e.tasks.rejected)
+	}
+}
+
 // A refused record suspends the session in the ledger and the dispatcher before the task hears
 // of it, so a resend the SDK sends at once finds the suspension to lift.
 func TestSuspensionComesBeforeTheRejection(t *testing.T) {

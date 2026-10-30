@@ -16,19 +16,24 @@ import (
 )
 
 // The record deadline is the Recorder's: max(the deadline handed over, max(earliest_submit_height,
-// bound_change_height) + record_deadline_blocks with the current params).
+// bound_change_height) + record_deadline_blocks with the current params), but never past
+// order_expire_height, the last height the Keeper admits the order at (none when zero).
 func TestEffectiveRecordDeadline(t *testing.T) {
 	for _, tc := range []struct {
-		name                             string
-		stored, esh, bound, blocks, want uint64
+		name                                     string
+		stored, esh, bound, blocks, expire, want uint64
 	}{
-		{"as handed over", 120, 100, 0, 20, 120},
-		{"params raised", 120, 100, 0, 40, 140},
-		{"params lowered", 120, 100, 0, 5, 120},
-		{"bound later than esh", 120, 100, 130, 20, 150},
-		{"bound earlier than esh", 120, 100, 90, 20, 120},
+		{"as handed over", 120, 100, 0, 20, 1000, 120},
+		{"params raised", 120, 100, 0, 40, 1000, 140},
+		{"params lowered", 120, 100, 0, 5, 1000, 120},
+		{"bound later than esh", 120, 100, 130, 20, 1000, 150},
+		{"bound earlier than esh", 120, 100, 90, 20, 1000, 120},
+		{"order_expire_height is still recordable", 120, 100, 0, 20, 120, 120},
+		{"moved deadline stops at order_expire_height", 120, 100, 130, 20, 140, 140},
+		{"raised params stop at order_expire_height", 120, 100, 0, 40, 125, 125},
+		{"no order_expire_height", 120, 100, 130, 20, 0, 150},
 	} {
-		if got := EffectiveRecordDeadline(tc.stored, tc.esh, tc.bound, tc.blocks); got != tc.want {
+		if got := EffectiveRecordDeadline(tc.stored, tc.esh, tc.bound, tc.blocks, tc.expire); got != tc.want {
 			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
 		}
 	}

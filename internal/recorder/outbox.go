@@ -32,6 +32,8 @@ type entry struct {
 	// ticket's bound_change_height, the base of the record deadline.
 	EarliestSubmit uint64 `json:"earliest_submit_height"`
 	BoundChange    uint64 `json:"bound_change_height"`
+	// OrderExpire is the order's order_expire_height, past which no deadline moves.
+	OrderExpire uint64 `json:"order_expire_height,omitempty"`
 	// Entry is the DispatchRecordEntryV1 as handed over; it is never built again.
 	Entry []byte `json:"entry"`
 	// Tx is the hash of the transaction carrying the entry; empty while it waits for a block.
