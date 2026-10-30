@@ -39,6 +39,7 @@ type syncVectors struct {
 		Digest     string `json:"digest_hex"`
 		PublicKey  string `json:"public_key_hex"`
 		Signature  string `json:"signature_hex"`
+		Preimage   string `json:"preimage_hex"`
 	} `json:"vectors"`
 }
 
@@ -104,6 +105,53 @@ func TestSignRequestReproducesTheWireVectors(t *testing.T) {
 	}
 	if !bytes.Equal(record, make([]byte, 32)) {
 		t.Fatalf("unfinished record winner ticket = %x, want ZERO32", record)
+	}
+}
+
+// An applied item is kept as SHA-256 of its canonical item projection: the element of the items
+// field the batch signature commits to. The digests are equal for either encoding of a vector,
+// and the projections they hash reassemble the items field of the vector's signed preimage.
+func TestItemDigestIsTheSignedItemProjection(t *testing.T) {
+	v := readSyncVectors(t)
+	covered := 0
+	for _, row := range v.Vectors {
+		var req, equivalent nexusv1.SyncRequest
+		if err := proto.Unmarshal(unhex(t, row.Protobuf), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := proto.Unmarshal(unhex(t, row.Equivalent), &equivalent); err != nil {
+			t.Fatal(err)
+		}
+		items := req.GetBatch().GetItems()
+		if len(items) == 0 {
+			continue
+		}
+		parts := [][]byte{dispatch.Uint32(uint32(len(items)))}
+		for i, item := range items {
+			projection, err := dispatch.BuilderSyncItemCanonicalBytes(mustMarshal(t, item))
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := itemDigest(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := itemDigest(equivalent.GetBatch().GetItems()[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := sum(projection); !bytes.Equal(digest, want[:]) || !bytes.Equal(again, digest) {
+				t.Fatalf("%s item %d: digest %x (equivalent %x), want SHA-256 of the projection %x", row.Name, i, digest, again, want)
+			}
+			parts = append(parts, projection)
+			covered++
+		}
+		if !bytes.Contains(unhex(t, row.Preimage), dispatch.FieldFrame(dispatch.FieldFrame(parts...))) {
+			t.Fatalf("%s: the item projections are not the signed items field", row.Name)
+		}
+	}
+	if covered == 0 {
+		t.Fatal("no vector item compared")
 	}
 }
 

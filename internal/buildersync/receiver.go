@@ -305,15 +305,20 @@ func (r *Receiver) authenticate(ctx context.Context, sender string, raw []byte) 
 	return current, nil
 }
 
-// itemDigest identifies an item's payload: the request was validated strictly, so equal items
-// marshal to equal bytes. It depends on this version's deterministic serialization: a sender that
-// adds fields in a rolling upgrade would see its resends of applied items refused as conflicts.
+// itemDigest is the local comparison key of an item: SHA-256 of its canonical typed projection, the
+// element of the items field the batch signature commits to. Two items at one sequence are the
+// same iff those bytes are equal, nested signatures included; the protobuf encoding is never
+// compared, so field order or explicit defaults in a resend make no conflict.
 func itemDigest(item *nexusv1.BuilderSyncItemV1) ([]byte, error) {
 	raw, err := marshal(item)
 	if err != nil {
 		return nil, fmt.Errorf("%w: item %d: %v", ErrMalformed, item.GetSequence(), err)
 	}
-	digest := sum(raw)
+	projection, err := dispatch.BuilderSyncItemCanonicalBytes(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: item %d: %v", ErrMalformed, item.GetSequence(), err)
+	}
+	digest := sum(projection)
 	return digest[:], nil
 }
 
