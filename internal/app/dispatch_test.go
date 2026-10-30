@@ -418,19 +418,34 @@ func TestCachedHeightReadsOncePerInterval(t *testing.T) {
 
 // The height roots and handraises are judged at never trails the head the dispatcher opens rounds
 // at: a root signed after a round opened must not carry a height below that round's head.
-func TestCachedHeightNeverTrailsTheDispatchHead(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-	head := uint64(0)
-	h := newCachedHeight(func(context.Context) (uint64, error) { return 10, nil })
-	h.now = func() time.Time { return now }
-	h.floor = func() uint64 { return head }
-	if got, _ := h.LatestHeight(context.Background()); got != 10 {
-		t.Fatalf("height = %d", got)
+func TestRootHeightNeverTrailsTheDispatchHead(t *testing.T) {
+	f := newWiringFixture(t) // chain height 150
+	f.d.SetDispatchHead(func() uint64 { return 152 })
+	ctx := context.Background()
+	if err := f.d.HandleStandingHandraise(ctx, dispatchstream.Origin{Operator: f.cortex.Address()}, f.handraise(t)); err != nil {
+		t.Fatal(err)
 	}
-	head = 11 // the dispatcher saw block 11 while the cached read still says 10
-	if got, _ := h.LatestHeight(context.Background()); got != 11 {
-		t.Fatalf("height = %d, want the dispatch head 11", got)
+	root, err := f.d.Registry.IssueRoot(ctx)
+	if err != nil || root == nil {
+		t.Fatalf("root = %v, %v", root, err)
 	}
+	if got := root.Root.GetRootHeight(); got != 152 {
+		t.Fatalf("root height = %d, want the dispatch head 152", got)
+	}
+}
+
+// The root loop does not start before the dispatch head is wired: no root may be judged without it.
+func TestDirectDispatchStartNeedsTheDispatchHead(t *testing.T) {
+	f := newWiringFixture(t)
+	if err := f.d.Start(context.Background()); err == nil {
+		_ = f.d.Stop(context.Background())
+		t.Fatal("root loop started without the dispatch head")
+	}
+	f.d.SetDispatchHead(func() uint64 { return 0 })
+	if err := f.d.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.d.Stop(context.Background())
 }
 
 // A Cortex whose stream ended loses its leaf at once: its handraise is withdrawn and a new root is

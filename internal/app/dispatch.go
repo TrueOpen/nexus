@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
@@ -44,7 +45,11 @@ type directDispatch struct {
 	Pools    *dispatchdraw.PoolCache
 	Drawer   *dispatchdraw.Drawer
 	Groups   taskgroup.Source
-	Height   handraise.ChainHeight
+	// Height is the chain height roots and handraises are judged at (dispatchFloor).
+	Height handraise.ChainHeight
+	// head is the head the dispatcher opens rounds at (SetDispatchHead); Start refuses to run
+	// without it.
+	head atomic.Pointer[func() uint64]
 
 	chainWarn lograte.Limiter // handraises dropped on chain read failures
 
@@ -52,9 +57,15 @@ type directDispatch struct {
 	wg     sync.WaitGroup
 }
 
+// SetDispatchHead wires the head the dispatcher opens rounds at; it must be set before Start.
+func (d *directDispatch) SetDispatchHead(head func() uint64) { d.head.Store(&head) }
+
 // Start runs the root loop: every new root goes to every connected stream with that Cortex's own
 // inclusion proof.
 func (d *directDispatch) Start(context.Context) error {
+	if d.head.Load() == nil {
+		return errors.New("direct dispatch: the dispatch head is not wired")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
 	d.wg.Add(1)
@@ -214,6 +225,7 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 	if err != nil {
 		return err
 	}
+	height := dispatchFloor{chain: deps.Height, head: &d.head}
 	registry, err := handraise.New(handraise.Options{
 		ChainID:        deps.ChainID,
 		BuilderAddress: deps.BuilderAddress,
@@ -223,7 +235,7 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 			Resolver: deps.Keys, AddressPrefix: deps.AddressPrefix, BuilderAddress: deps.BuilderAddress, Signer: deps.Signer,
 		},
 		Pool:   handraise.NewChainPool(deps.Chain),
-		Height: deps.Height,
+		Height: height,
 		Signer: deps.Signer,
 		RTT:    deps.Streams,
 		Log:    d.log,
@@ -233,24 +245,40 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 	}
 	d.Registry, d.Streams, d.streams = registry, deps.Streams, deps.Streams
 	d.VRF, d.Epochs, d.Pools, d.Drawer = vrf, epochs, pools, drawer
-	d.Groups, d.Height = deps.Groups, deps.Height
+	d.Groups, d.Height = deps.Groups, height
 	return nil
+}
+
+// dispatchFloor is the chain height roots and handraises are judged at: the chain's, never below the
+// head the dispatcher opens rounds at. An omission is proved only with a root at least two blocks
+// below an order's earliest_submit_height, and a round opens with the head at most one block below
+// it, so a root signed after a round opened must not carry a height below that head. Before the
+// head is wired (SetDispatchHead) it is the chain's height alone.
+type dispatchFloor struct {
+	chain handraise.ChainHeight
+	head  *atomic.Pointer[func() uint64]
+}
+
+func (f dispatchFloor) LatestHeight(ctx context.Context) (uint64, error) {
+	height, err := f.chain.LatestHeight(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if head := f.head.Load(); head != nil {
+		height = max(height, (*head)())
+	}
+	return height, nil
 }
 
 // heightCacheTTL bounds how stale the chain height of handraise checks may be; it keeps one chain
 // read per interval instead of one per heartbeat.
 const heightCacheTTL = 250 * time.Millisecond
 
-// cachedHeight is a handraise.ChainHeight that reads the chain at most once per ttl. It never
-// returns less than floor, the head the dispatcher opens rounds at: an omission is proved only with
-// a root at least two blocks below an order's earliest_submit_height, and a round opens with the
-// head at most one block below it, so a root signed after a round opened must not carry a height
-// below that head.
+// cachedHeight is a handraise.ChainHeight that reads the chain at most once per ttl.
 type cachedHeight struct {
-	read  func(context.Context) (uint64, error)
-	ttl   time.Duration
-	now   func() time.Time
-	floor func() uint64 // nil: none; set before the first read
+	read func(context.Context) (uint64, error)
+	ttl  time.Duration
+	now  func() time.Time
 
 	mu     sync.Mutex
 	height uint64
@@ -262,17 +290,6 @@ func newCachedHeight(read func(context.Context) (uint64, error)) *cachedHeight {
 }
 
 func (h *cachedHeight) LatestHeight(ctx context.Context) (uint64, error) {
-	height, err := h.cached(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if h.floor != nil {
-		height = max(height, h.floor())
-	}
-	return height, nil
-}
-
-func (h *cachedHeight) cached(ctx context.Context) (uint64, error) {
 	h.mu.Lock()
 	if h.height != 0 && h.now().Sub(h.at) < h.ttl {
 		height := h.height
