@@ -70,10 +70,14 @@ type ChainEpochs struct {
 type epochMiss struct {
 	err   error
 	until time.Time
+	// head is the chain head read when a "not ready" answer was kept (headKnown): once the head
+	// has advanced past it the epoch is read again.
+	head      uint64
+	headKnown bool
 }
 
 // NewChainEpochs resolves epochs through chain. head, when set, reads the chain head: a kept "not
-// ready" answer is dropped once the head reaches the dispatchable height it names.
+// ready" answer is read again once the head has advanced past the head seen when it was kept.
 func NewChainEpochs(chain EpochChain, head func(context.Context) (uint64, error)) *ChainEpochs {
 	return &ChainEpochs{chain: chain, head: head, now: time.Now, epochs: map[uint64]Epoch{}, misses: map[uint64]epochMiss{}}
 }
@@ -98,13 +102,22 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 		return Epoch{}, &NotReadyError{DispatchableHeight: length,
 			Reason: "epoch 0 has no beacon at its reference height; dispatch starts in epoch 1"}
 	}
-	if missed && s.now().Before(miss.until) && !s.reached(ctx, miss.err) {
+	if missed && s.now().Before(miss.until) && !s.advanced(ctx, miss) {
 		return Epoch{}, miss.err
 	}
 	ep, err = s.resolve(ctx, number, length, earliestSubmitHeight)
+	var kept epochMiss
+	if err != nil {
+		kept = epochMiss{err: err, until: s.now().Add(epochMissTTL)}
+		if s.head != nil && errors.Is(err, ErrDispatchNotReady) {
+			if head, headErr := s.head(ctx); headErr == nil {
+				kept.head, kept.headKnown = head, true
+			}
+		}
+	}
 	s.mu.Lock()
 	if err != nil {
-		s.misses[number] = epochMiss{err: err, until: s.now().Add(epochMissTTL)}
+		s.misses[number] = kept
 	} else {
 		delete(s.misses, number)
 	}
@@ -116,16 +129,17 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	return ep, nil
 }
 
-// reached reports whether the head has reached the dispatchable height a kept "not ready" answer
-// names: with blocks shorter than epochMissTTL the answer would otherwise outlive it. An answer
-// without a known height, or a head that cannot be read, is not reached.
-func (s *ChainEpochs) reached(ctx context.Context, kept error) bool {
-	var notReady *NotReadyError
-	if s.head == nil || !errors.As(kept, &notReady) || notReady.DispatchableHeight == 0 {
+// advanced reports whether the head has advanced past the one read when a "not ready" answer was
+// kept, so the epoch is read again at most once per block: with blocks shorter than epochMissTTL
+// the answer could otherwise outlive the dispatchable height it names. The head is never compared
+// with that height, which with a separate Hub is a height of another chain. An answer kept without
+// a head, or a head that cannot be read, waits for the TTL.
+func (s *ChainEpochs) advanced(ctx context.Context, miss epochMiss) bool {
+	if !miss.headKnown {
 		return false
 	}
 	head, err := s.head(ctx)
-	return err == nil && head >= notReady.DispatchableHeight
+	return err == nil && head > miss.head
 }
 
 // resolve reads the seed and the candidate pool snapshot of epoch number.

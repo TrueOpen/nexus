@@ -536,10 +536,11 @@ func TestChainVRFKeysForgetOldEpochs(t *testing.T) {
 	}
 }
 
-// A kept "not ready" answer that names the height from which the epoch can dispatch is dropped
-// once the head reaches that height, even before epochMissTTL: with blocks shorter than the TTL
-// the order would otherwise be refused past the height it was told to wait for.
-func TestChainEpochsDropANotReadyAnswerAtItsDispatchableHeight(t *testing.T) {
+// A kept "not ready" answer is read again once the head has advanced past the head seen when it
+// was kept: at most one chain read per block, the TTL still the longest it is kept. The head is
+// never compared with the answer's dispatchable height, which with a separate Hub is a height of
+// another chain: a head always far "ahead" of it still costs one read per block, not one per order.
+func TestChainEpochsReadANotReadyEpochAgainOncePerBlock(t *testing.T) {
 	seed8, snap8 := fill32(0x08), fill32(0xa8)
 	chain := &epochChain{
 		length:  100,
@@ -554,31 +555,47 @@ func TestChainEpochsDropANotReadyAnswerAtItsDispatchableHeight(t *testing.T) {
 	epochs := NewChainEpochs(chain, func(context.Context) (uint64, error) { return head, nil })
 	now := time.Unix(1_800_000_000, 0)
 	epochs.now = func() time.Time { return now }
-	for range 2 {
-		if _, err := epochs.EpochOf(context.Background(), 801); !errors.Is(err, ErrDispatchNotReady) {
-			t.Fatalf("before the effective height: %v", err)
+	ask := func(wantReads int) {
+		t.Helper()
+		for range 3 {
+			if _, err := epochs.EpochOf(context.Background(), 801); !errors.Is(err, ErrDispatchNotReady) {
+				t.Fatalf("head %d: %v", head, err)
+			}
+		}
+		if chain.poolAsk != wantReads {
+			t.Fatalf("head %d: pool reads = %d, want %d", head, chain.poolAsk, wantReads)
 		}
 	}
-	if chain.poolAsk != 1 {
-		t.Fatalf("pool reads = %d before the effective height, want the answer kept", chain.poolAsk)
-	}
+	ask(1)
+	head = 802
+	ask(2)
+	// Past the dispatchable height (or a Hub height far behind the task chain's head): still one
+	// read per block.
+	head = 1_000_000
+	ask(3)
+	head = 1_000_001
+	ask(4)
 	chain.headers[string(snap8[:])].Status = hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE
-	head = 803
+	head++
 	if ep, err := epochs.EpochOf(context.Background(), 801); err != nil || ep.SnapshotID != snap8 {
-		t.Fatalf("at the effective height, within the TTL: %+v, %v", ep, err)
+		t.Fatalf("once effective, next block: %+v, %v", ep, err)
 	}
-	// A kept answer without a known height, or with a head that cannot be read, waits for the TTL.
-	chain.current, chain.byEpoch = &hubv1.CandidatePoolSnapshotViewV1{Epoch: 8, SnapshotId: snap8[:]}, nil
-	chain.beaconAsk = nil
-	headErr := errors.New("node unreachable")
-	epochs = NewChainEpochs(chain, func(context.Context) (uint64, error) { return 0, headErr })
+
+	// A head that cannot be read keeps the answer for the TTL.
+	chain.current, chain.byEpoch, chain.beaconAsk = &hubv1.CandidatePoolSnapshotViewV1{Epoch: 8, SnapshotId: snap8[:]}, nil, nil
+	var headErr error = errors.New("node unreachable")
+	epochs = NewChainEpochs(chain, func(context.Context) (uint64, error) { head++; return head, headErr })
 	epochs.now = func() time.Time { return now }
-	for range 2 {
+	for range 3 {
 		if _, err := epochs.EpochOf(context.Background(), 901); !errors.Is(err, ErrDispatchNotReady) {
 			t.Fatalf("beacon not committed: %v", err)
 		}
 	}
 	if n := len(chain.beaconAsk); n != 1 {
 		t.Fatalf("beacon reads = %v with the head unreadable, want the answer kept", chain.beaconAsk)
+	}
+	now = now.Add(epochMissTTL)
+	if _, err := epochs.EpochOf(context.Background(), 901); !errors.Is(err, ErrDispatchNotReady) || len(chain.beaconAsk) != 2 {
+		t.Fatalf("after the TTL: %v, beacon reads %v", err, chain.beaconAsk)
 	}
 }
