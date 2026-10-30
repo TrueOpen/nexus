@@ -87,8 +87,12 @@ type Order struct {
 	// order commits: claims on a ticket open record_deadline_blocks after its own base.
 	DeadlineBase uint64  `json:"deadline_base"`
 	Rounds       []Round `json:"rounds"`
-	// Accept is the winner's signed DispatchAcceptV1, when there is a winner.
-	Accept []byte `json:"accept,omitempty"`
+	// Accept is the winner's signed DispatchAcceptV1, when there is a winner. AcceptUnverified is
+	// set on a member's copy whose accept could not be checked because its signer has no
+	// resolvable key any more (deregistered, or rotated twice since): it is kept as synced, not as
+	// verified.
+	Accept           []byte `json:"accept,omitempty"`
+	AcceptUnverified bool   `json:"accept_unverified,omitempty"`
 	// Record is a signed DispatchRecordV1 listing every attempt: the record of the dispatch entry
 	// when there is a winner, otherwise one with no winner.
 	Record []byte `json:"record"`

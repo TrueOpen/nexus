@@ -29,7 +29,10 @@ type memberStream struct {
 	// Submit is each order version's earliest_submit_height by task_hash, as its rounds name it:
 	// the roots, tickets, records, accepts and rejects of the version verify under the key
 	// generation their nonce selects for it. The order item checks it against the user's signed
-	// order.
+	// order. Only the recorded winner's version can be checked: the sync carries the signed order
+	// of that version alone, so another version's height rests on the sender, an authenticated
+	// member of the group, and only decides which of the sender's own generations proves the
+	// sender's and its Workers' material of that version.
 	Submit map[string]uint64 `json:"submit,omitempty"`
 	// Recorded is set once the order item was applied: the chain admitted the order's dispatch
 	// entry with Winner, at RecordedHeight.

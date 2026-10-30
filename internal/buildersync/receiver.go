@@ -704,6 +704,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 		}
 	}
 	var acceptRaw, lateAcceptRaw []byte
+	acceptUnverified := false
 	for _, x := range []struct {
 		accept *taskv1.DispatchAcceptV1
 		raw    *[]byte
@@ -719,12 +720,18 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 			return err
 		}
 		// The accept is the target's dispatch proof, verified under the key generation its nonce
-		// selects for the order. The winner's accept is the order's evidence and must verify; a
-		// late accept that does not is dropped, as a reject is, rather than stop the sync.
+		// selects for the order. The winner's accept is the order's evidence: a bad signature is
+		// refused, while one whose signer has no resolvable key any more (it never will again) is
+		// kept marked unverified rather than stop the order's sync for good. A late accept that
+		// does not verify is dropped, as a reject is.
 		switch err := r.verifyProof(ctx, acceptName, *x.raw, m.submitOf(ticket.GetTaskHash())); {
 		case err == nil:
 		case errors.Is(err, ErrUnavailable):
 			return fmt.Errorf("accept signer: %w", err)
+		case x.raw == &acceptRaw && errors.Is(err, dispatch.ErrProofKeyUnavailable):
+			r.log.Warn("synced winner accept cannot be verified: its signer has no resolvable key; kept unverified",
+				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target, "err", err)
+			acceptUnverified = true
 		case x.raw == &acceptRaw:
 			return fmt.Errorf("accept is not signed by its target: %w", err)
 		default:
@@ -737,12 +744,12 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 		if acceptRaw == nil {
 			return errors.New("ACCEPTED attempt without its accept")
 		}
-		o.Accept = acceptRaw
+		o.Accept, o.AcceptUnverified = acceptRaw, acceptUnverified
 	} else if len(o.Accept) > 0 {
 		// A winner voided by a binding change is no winner any more.
 		var accept taskv1.DispatchAcceptV1
 		if proto.Unmarshal(o.Accept, &accept) == nil && bytes.Equal(accept.GetDispatchTicketHash(), hash[:]) {
-			o.Accept = nil
+			o.Accept, o.AcceptUnverified = nil, false
 		}
 	}
 	attempt := dispatchevidence.Attempt{
@@ -859,14 +866,28 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	// their material was verified under; the signed order (its task_hash, checked above) is the
 	// authority for it.
 	esh := order.GetEarliestSubmitHeight()
-	if named, ok := m.Submit[ev.TaskHash]; !ok || named != esh {
+	named, ok := m.Submit[ev.TaskHash]
+	switch {
+	case !ok:
+		return errors.New("no round of the recorded order version is held here")
+	case named != esh:
 		return fmt.Errorf("the order's rounds named earliest_submit_height %d, the signed order's is %d", named, esh)
 	}
 	acceptRaw, err := marshal(header.GetAccept())
 	if err != nil {
 		return err
 	}
-	if err := r.verifyProof(ctx, acceptName, acceptRaw, &esh); err != nil {
+	acceptUnverified := false
+	switch err := r.verifyProof(ctx, acceptName, acceptRaw, &esh); {
+	case err == nil:
+	case errors.Is(err, ErrUnavailable):
+		return fmt.Errorf("result header's accept signer: %w", err)
+	case errors.Is(err, dispatch.ErrProofKeyUnavailable):
+		// As for the attempt's accept: no resolvable key will ever check it again.
+		r.log.Warn("synced result header's accept cannot be verified: its signer has no resolvable key; kept unverified",
+			"session_id", m.SessionID, "sequence", m.Sequence, "worker", held.Operator, "err", err)
+		acceptUnverified = true
+	default:
 		return fmt.Errorf("result header's accept is not signed by the winner: %w", err)
 	}
 	acceptDigest, err := signingDigest(acceptName, acceptRaw)
@@ -887,6 +908,7 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 		return errors.New("the chain recorded another winner")
 	}
 	ev.SignedOrder = signedRaw
+	ev.AcceptUnverified = ev.AcceptUnverified || acceptUnverified
 	ev.Recorded, ev.RecordedHeight = true, record.GetRecordedHeight()
 	ev.DeadlineBase = max(ev.DeadlineBase, order.GetEarliestSubmitHeight())
 	m.Recorded, m.RecordedHeight = true, record.GetRecordedHeight()

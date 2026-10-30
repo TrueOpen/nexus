@@ -1236,3 +1236,26 @@ func TestSendSignsHeaderAndRequestWithOneKey(t *testing.T) {
 		}
 	}
 }
+
+// A winner accept whose signer has no resolvable key any more (deregistered, or rotated twice
+// since) cannot be checked, and never will be: the attempt applies, with the accept marked
+// unverified, rather than stopping the order's sync for good. A forged accept is still refused.
+func TestWinnerAcceptWithoutAResolvableKeyIsMarkedUnverified(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.peers.setFail(e.m.op, errors.New("held back"))
+	e.s.OrderChanged(f.accepted())
+	e.sync()
+	reqs := e.peers.requests[e.m.op]
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+	e.keys.mu.Lock()
+	delete(e.keys.keys, "CORTEX|"+e.worker.op)
+	e.keys.mu.Unlock()
+	resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+	if err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != uint64(len(batch.Items)) {
+		t.Fatalf("batch with an unresolvable winner key = %v, %v", resp, err)
+	}
+	if c := e.copyOf(); len(c.Accept) == 0 || !c.AcceptUnverified {
+		t.Fatalf("copy accept %x, unverified %v", c.Accept, c.AcceptUnverified)
+	}
+}
