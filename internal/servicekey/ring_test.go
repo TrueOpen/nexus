@@ -361,3 +361,71 @@ func TestRingAwaitEndsOnARevokedBinding(t *testing.T) {
 	}
 	expectRevoked(t, ring, local, 2)
 }
+
+func rotatedEvent(operator string, nonce uint64) chaincli.ChainEvent {
+	return chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_ROTATED",
+		Typed: chaincli.ServiceKeyRotated{ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, Operator: operator, AuthorizationNonce: nonce}}
+}
+
+// A revocation without a nonce that arrives before the first read names no generation: the first
+// read counts its current generation as revoked, even when it lags and shows it ACTIVE, and only a
+// newer generation signs. A cutover of this Builder after that revocation (SERVICE_KEY_ROTATED)
+// shows the generation it installs was not the one revoked: before the first read it cancels the
+// mark, after it the next read signs with that generation.
+func TestRingRevocationOfUnknownGenerationBeforeTheFirstRead(t *testing.T) {
+	local, next := testSigner(t, 1), testSigner(t, 2)
+	unknown := revokedEvent(sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, ringOperator, 0)
+
+	// The first read lags the revocation; a later read of the replacement signs.
+	resolver := &fakeResolver{}
+	setBuilderState(resolver, builderState(local, 3))
+	ring, err := NewRing(resolver, testPrefix, ringOperator, nil, local, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring.ObserveEvent(unknown)
+	for range 2 {
+		if _, err := ring.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
+			t.Fatalf("lagging read after a revocation of unknown generation = %v, want ErrRevoked", err)
+		}
+		expectRevoked(t, ring, local, 3)
+	}
+	setBuilderState(resolver, builderState(next, 4))
+	if _, err := ring.Refresh(context.Background()); err != nil {
+		t.Fatalf("read of the replacement = %v", err)
+	}
+	if k := ring.Key(); k.Revoked || k.Signer != next {
+		t.Fatalf("key after the replacement = %+v", k)
+	}
+
+	// A cutover event before the first read cancels the mark.
+	setBuilderState(resolver, builderState(next, 4))
+	cancelled, err := NewRing(resolver, testPrefix, ringOperator, nil, local, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled.ObserveEvent(unknown)
+	cancelled.ObserveEvent(rotatedEvent(ringOperator, 4))
+	if _, err := cancelled.Refresh(context.Background()); err != nil || cancelled.Key().Revoked {
+		t.Fatalf("read after revocation and cutover events = %v", err)
+	}
+
+	// A replayed revocation whose cutover event comes after the first read: the read counts the
+	// replacement as revoked until the cutover event shows otherwise.
+	replayed, err := NewRing(resolver, testPrefix, ringOperator, nil, local, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed.ObserveEvent(unknown)
+	if _, err := replayed.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("first read = %v, want ErrRevoked", err)
+	}
+	replayed.ObserveEvent(rotatedEvent("trueopen1other", 4))
+	if _, err := replayed.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("another operator's cutover lifted the mark: %v", err)
+	}
+	replayed.ObserveEvent(rotatedEvent(ringOperator, 4))
+	if _, err := replayed.Refresh(context.Background()); err != nil || replayed.Key().Revoked || replayed.Key().Signer != next {
+		t.Fatalf("read after the cutover event = %v, key %+v", err, replayed.Key())
+	}
+}

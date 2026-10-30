@@ -124,6 +124,11 @@ type Ring struct {
 	// revoked is the newest generation known revoked (0: none). A revoked generation never
 	// becomes ACTIVE again, so a read showing it ACTIVE lags the revocation.
 	revoked uint64
+	// unknown is a revocation without a nonce seen before the first read; that read counts its
+	// current generation as revoked (unknownAt, with revoked as it was before in priorRevoked)
+	// until this Builder's next cutover event shows otherwise.
+	unknown                 bool
+	unknownAt, priorRevoked uint64
 }
 
 // NewRing builds a Ring over the local keys; none signs until the first successful Refresh.
@@ -171,6 +176,14 @@ func (r *Ring) Refresh(ctx context.Context) (RingView, error) {
 		view.NextRegisteredHeight, view.NextEffectiveHeight = p.RegisteredHeight, p.EffectiveHeight
 	}
 	r.mu.Lock()
+	if r.unknown {
+		r.unknown = false
+		r.unknownAt, r.priorRevoked = view.Current.Nonce, r.revoked
+		r.revoked = max(r.revoked, view.Current.Nonce)
+	}
+	if state.Status == StatusRevoked && view.Current.Nonce == r.unknownAt {
+		r.unknownAt = 0 // the chain confirms the generation the mark named
+	}
 	if state.Status == StatusRevoked || view.Current.Nonce <= r.revoked {
 		if state.Status != StatusRevoked {
 			// A read that lags the revocation still shows the rotation it cancelled.
@@ -193,11 +206,22 @@ func (r *Ring) Refresh(ctx context.Context) (RingView, error) {
 
 // ObserveEvent takes this Builder's own SERVICE_KEY_REVOKED at once, without waiting for a read:
 // from then on the ring signs nothing, and the pending rotation the revocation cancelled is
-// dropped from the view. An event without a nonce revokes the generation the ring signs with; one
-// before the first read is applied by that read. Other events, and revocations of other
+// dropped from the view. An event without a nonce revokes the generation the ring signs with.
+// One before the first read is applied by that read: with a nonce, that generation and older ones
+// are revoked; without one, the first read's current generation counts as revoked (even if the
+// read lags and shows it ACTIVE) until this Builder's next SERVICE_KEY_ROTATED, which shows the
+// generation it installs came after the revocation. Other events, and revocations of other
 // operators, of Cortex keys or of an older generation, change nothing.
 func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
-	if ev.Type != chaincli.EventHubOperational || ev.EventCode != "SERVICE_KEY_REVOKED" {
+	if ev.Type != chaincli.EventHubOperational {
+		return
+	}
+	switch ev.EventCode {
+	case "SERVICE_KEY_REVOKED":
+	case "SERVICE_KEY_ROTATED":
+		r.observeCutover(ev)
+		return
+	default:
 		return
 	}
 	revocation, ok := ev.Typed.(chaincli.ServiceKeyRevoked)
@@ -208,6 +232,9 @@ func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
 	nonce := revocation.AuthorizationNonce
 	if nonce == 0 {
 		nonce = r.view.Current.Nonce
+		if !r.fetched {
+			r.unknown = true
+		}
 	}
 	r.revoked = max(r.revoked, nonce)
 	if !r.fetched || r.view.Current.Revoked || nonce < r.view.Current.Nonce {
@@ -220,6 +247,25 @@ func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
 	current := r.view.Current
 	r.mu.Unlock()
 	r.switched(old, current)
+}
+
+// observeCutover takes this Builder's SERVICE_KEY_ROTATED: it installed a generation after any
+// revocation seen before it, so a revocation without a nonce seen before the first read names
+// none at or above it. Before the first read the mark is dropped; after it, the generation the
+// first read counted as revoked signs again from the next read, unless a revocation with a nonce
+// moved the floor since.
+func (r *Ring) observeCutover(ev chaincli.ChainEvent) {
+	rotated, ok := ev.Typed.(chaincli.ServiceKeyRotated)
+	if !ok || rotated.ParticipantType != sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER || rotated.Operator != r.operator {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.unknown = false
+	if r.unknownAt != 0 && rotated.AuthorizationNonce >= r.unknownAt && r.revoked == r.unknownAt {
+		r.revoked = r.priorRevoked
+	}
+	r.unknownAt = 0
 }
 
 // revokedKey is k revoked: same key and nonce, signing nothing.
