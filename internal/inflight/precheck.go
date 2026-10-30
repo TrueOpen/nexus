@@ -141,7 +141,10 @@ type PrecheckConfig struct {
 //
 //  1. session: known, owned by the order user (else the registered key error ErrKeyInvalid), not
 //     closed (ErrSessionClosing); an order signed by the session key passes
-//     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key;
+//     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key:
+//     spent + their max_fee + max_fee <= spend_cap, where in flight is DISPATCHING (an uncommitted
+//     reservation included), ACCEPTED, or RECORDED while the session state read does not include
+//     the record yet (at or above its next_expected_sequence); wallet orders do not count;
 //  2. binding: a session bound to another Builder ends the precheck with BoundElsewhere once the
 //     order could register a takeover in the next block: head + 1 < order_expire_height (else
 //     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a

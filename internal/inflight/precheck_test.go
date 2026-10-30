@@ -719,6 +719,65 @@ func TestPrecheckSpendCapCountsInFlightOrders(t *testing.T) {
 	}
 }
 
+// The spend cap holds spent plus the max_fee of every in-flight order the session key signed plus
+// the new order's: with a cap of 100, a second key order of 60 is refused while the first is in
+// flight, accepted or recorded but not yet in the session's spent. A failed order frees its share.
+func TestPrecheckSpendCapCountsEveryLiveKeyOrder(t *testing.T) {
+	keyOrder60 := func(seq uint64) Order {
+		o := keyOrder(seq)
+		o.MaxFee = 60
+		return o
+	}
+	for _, state := range []State{StateDispatching, StateAccepted, StateRecorded, StateFailed} {
+		t.Run(state.String(), func(t *testing.T) {
+			f := newFixture(t, func(s *chaincli.SessionState) { s.SpendCap, s.Spent = "100", "0" })
+			f.reserve(t, keyOrder60(5))
+			mark := map[State]func(string, uint64) error{
+				StateDispatching: func(string, uint64) error { return nil },
+				StateAccepted:    f.ledger.MarkAccepted, StateRecorded: f.ledger.MarkRecorded, StateFailed: f.ledger.MarkFailed,
+			}[state]
+			if err := mark(testSession, 5); err != nil {
+				t.Fatal(err)
+			}
+			if state == StateFailed {
+				// The failed sequence 5 is retried first; its retry fits the cap again.
+				if _, err := f.p.Check(context.Background(), keyOrder60(5)); err != nil {
+					t.Fatalf("retry of the failed key order = %v", err)
+				}
+				return
+			}
+			if _, err := f.p.Reserve(context.Background(), keyOrder60(6)); !errors.Is(err, registeredkey.ErrSpendCapExceeded) {
+				t.Fatalf("second key order of 60 under a cap of 100 = %v, want spend cap exceeded", err)
+			}
+		})
+	}
+}
+
+// Two key orders reserved concurrently never both pass a cap that holds only one of them.
+func TestPrecheckSpendCapConcurrentKeyOrders(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		f := newFixture(t, func(s *chaincli.SessionState) { s.SpendCap, s.Spent = "100", "0" })
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for j, seq := range []uint64{5, 6} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				o := keyOrder(seq)
+				o.MaxFee = 60
+				_, errs[j] = f.p.Reserve(context.Background(), o)
+			}()
+		}
+		wg.Wait()
+		if errs[0] == nil && errs[1] == nil {
+			t.Fatal("both key orders of 60 passed a cap of 100")
+		}
+		if errs[0] == nil && !errors.Is(errs[1], registeredkey.ErrSpendCapExceeded) && !errors.Is(errs[1], ErrOrderSequenceConflict) {
+			t.Fatalf("second order = %v", errs[1])
+		}
+	}
+}
+
 func TestPrecheckPendingRestrictionIsEffective(t *testing.T) {
 	cases := []struct {
 		name   string
