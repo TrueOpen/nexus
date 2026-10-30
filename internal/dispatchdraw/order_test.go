@@ -41,7 +41,8 @@ func stickySnapshot() *taskv1.DispatchStickySnapshotV1 {
 
 // The previous recorded winner moves to the front exactly when it is in the first-round roster
 // (which implies a free slot), its run is below sticky_max_orders, and the order's
-// earliest_submit_height is within sticky_window_blocks of the run's anchor height.
+// earliest_submit_height is within sticky_window_blocks of the run's anchor height. An
+// earliest_submit_height below the anchor height counts as distance 0, inside the window.
 func TestStickyPromotionBoundaries(t *testing.T) {
 	pool := vectorPool(t)
 	drawn := drawnVector(t, pool)
@@ -69,7 +70,8 @@ func TestStickyPromotionBoundaries(t *testing.T) {
 		{name: "past the window", esh: 1051},
 		{name: "zero window same height", params: StickyParams{MaxOrders: 3}, esh: 1000, applied: true},
 		{name: "zero window next height", params: StickyParams{MaxOrders: 3}, esh: 1001},
-		{name: "order signed before the anchor was recorded", esh: 990},
+		{name: "order signed before the anchor was recorded", esh: 990, applied: true},
+		{name: "zero window below the anchor", params: StickyParams{MaxOrders: 3}, esh: 990, applied: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

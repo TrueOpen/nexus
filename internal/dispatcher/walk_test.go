@@ -248,8 +248,7 @@ func TestRejectWithoutFreeSlotIsNotCounted(t *testing.T) {
 	e.handraises.setRoot(0xd1, 1, op1, op3, op7)
 	s := e.session(0xaa, 0)
 	e.dispatch(e.order(s, 0, 1))
-	e.accept()                            // op7 takes its one slot
-	e.sessions.ObserveHeight(testESH + 1) // past the unknown sticky anchor's possible height
+	e.accept() // op7 takes its one slot
 	e.dispatch(e.order(s, 1, 1))
 	if op, _, _ := e.lastOffer(); op != op7 {
 		t.Fatalf("second order offered to %s", op)
@@ -418,10 +417,9 @@ func TestStickyPromotionStaysOnTheRecordWhenThePromotedWorkerRejects(t *testing.
 
 // An order dispatched while an earlier order of the session is accepted but unrecorded predicts the
 // sticky state from that order's winner ticket: a new run started by it has no known anchor height
-// yet. While the head is still at the order's earliest_submit_height that anchor (the earlier
-// order's record height) could equal it, so the order waits; once the head is past it, an anchor
-// recorded later lies above earliest_submit_height, outside the window, and the order is not
-// promoted. While the earlier order still dispatches, the next waits.
+// yet. That anchor is the earlier order's record height, above the head; an earliest_submit_height
+// below the anchor is inside the window, so the order is promoted at once, without waiting for the
+// record or a later head. While the earlier order still dispatches, the next waits.
 func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -431,18 +429,18 @@ func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 		t.Fatalf("%d offers: the second order must wait for the first", n)
 	}
 	e.accept() // order 0 won by op7, a new run
-	if n := len(e.streams.offers()); n != 1 {
-		t.Fatalf("%d offers: at earliest_submit_height the second order must wait for the anchor", n)
-	}
-	e.sessions.ObserveHeight(testESH + 1)
-	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
 	offers := e.streams.offers()
 	if len(offers) != 2 {
-		t.Fatalf("%d offers once the head passed earliest_submit_height", len(offers))
+		t.Fatalf("%d offers: the second order must go out once the first is accepted", len(offers))
 	}
 	second := offers[1].frame.GetOffer().GetTicket()
-	if offers[1].operator != op7 || second.GetOrderSequence() != 1 || second.GetStickyAnchorSequence() != 1 || second.GetStickyRunCount() != 1 {
+	if offers[1].operator != op7 || second.GetOrderSequence() != 1 || second.GetStickyAnchorSequence() != 0 || second.GetStickyRunCount() != 2 {
 		t.Fatalf("second order ticket to %s: %v", offers[1].operator, second)
+	}
+	e.accept()
+	bundles := e.recorder.recorded()
+	if rec := checkRecordable(t, e, bundles[len(bundles)-1], testBound); !rec.GetStickyApplied() {
+		t.Fatal("second order not recorded as sticky")
 	}
 }
 

@@ -34,8 +34,8 @@ type Order struct {
 // sticky_run_count as of this order's admission; while earlier orders of the session are still
 // unrecorded, the state they will leave once all are admitted). The previous winner moves to the front exactly
 // when it is in the first roster (so it has a free slot), its run count is below MaxOrders, and
-// earliestSubmitHeight is at most WindowBlocks past the run's anchor height; otherwise the drawn
-// order stands.
+// earliestSubmitHeight is at most WindowBlocks past the run's anchor height (an
+// earliestSubmitHeight below it is inside); otherwise the drawn order stands.
 func NewOrder(drawn []dispatch.RosterMember, firstRoster *Roster, sticky *taskv1.DispatchStickySnapshotV1, params StickyParams, earliestSubmitHeight, orderSequence uint64) (*Order, error) {
 	if len(drawn) == 0 {
 		return nil, ErrNoCapacity
@@ -68,9 +68,13 @@ func withinStickyLimits(s *taskv1.DispatchStickySnapshotV1, params StickyParams,
 	if s.GetRunCount() >= params.MaxOrders {
 		return false
 	}
-	// Heights subtract checked: an earliest_submit_height below the anchor height (an order signed
-	// before its anchor was recorded) does not satisfy the window, so the order starts a new run.
-	return esh >= s.GetAnchorHeight() && esh-s.GetAnchorHeight() <= params.WindowBlocks
+	// An earliest_submit_height below the anchor height (an order signed before its anchor was
+	// recorded) is at distance 0, inside the window.
+	var distance uint64
+	if esh > s.GetAnchorHeight() {
+		distance = esh - s.GetAnchorHeight()
+	}
+	return distance <= params.WindowBlocks
 }
 
 // Sticky returns the ticket sticky commitments (sticky_anchor_sequence, sticky_run_count) of rank:
