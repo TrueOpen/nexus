@@ -12,6 +12,7 @@ import (
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -175,6 +176,50 @@ func TestSequenceOtherRejectionKeepsCache(t *testing.T) {
 		t.Fatalf("account queried %d times, want 1", chain.accQueries)
 	}
 	if want := []uint64{42, 42}; chain.broadcasts[0] != want[0] || chain.broadcasts[1] != want[1] {
+		t.Fatalf("broadcast sequences = %v, want %v", chain.broadcasts, want)
+	}
+}
+
+// revocableTxSigner refuses to sign while revoked, as the service key ring does while the chain
+// shows its current key revoked.
+type revocableTxSigner struct {
+	signer.Signer
+	revoked bool
+}
+
+func (s *revocableTxSigner) SignDigest(digest [32]byte) ([]byte, error) {
+	if s.revoked {
+		return nil, servicekey.ErrRevoked
+	}
+	return s.Signer.SignDigest(digest)
+}
+
+// A transaction that could not be signed never reached the network and consumed no sequence: the
+// cache stays valid and the next submit neither reads the account again nor skips a sequence.
+func TestSequenceSigningFailureKeepsCache(t *testing.T) {
+	chain := &seqChain{accSeq: 42}
+	sg, err := signer.NewFromHex(testKeyHex, "trueopen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := &revocableTxSigner{Signer: sg}
+	sub := NewSignedSubmitter(slog.New(slog.DiscardHandler), chain, chain, key, sg, config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000})
+	ctx := context.Background()
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(sg.Address(), "t1")); err != nil {
+		t.Fatal(err)
+	}
+	key.revoked = true
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(sg.Address(), "t2")); !errors.Is(err, servicekey.ErrRevoked) {
+		t.Fatalf("submit with a revoked key = %v, want ErrRevoked", err)
+	}
+	key.revoked = false
+	if _, err := sub.SubmitSettle(ctx, sequenceSettle(sg.Address(), "t3")); err != nil {
+		t.Fatal(err)
+	}
+	if chain.accQueries != 1 {
+		t.Fatalf("account queried %d times, want 1 (cache kept)", chain.accQueries)
+	}
+	if want := []uint64{42, 43}; len(chain.broadcasts) != 2 || chain.broadcasts[0] != want[0] || chain.broadcasts[1] != want[1] {
 		t.Fatalf("broadcast sequences = %v, want %v", chain.broadcasts, want)
 	}
 }

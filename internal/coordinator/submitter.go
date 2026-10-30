@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -607,7 +608,11 @@ func (s *defaultSubmitter) submitBuiltLocked(ctx context.Context, kind, typeURL 
 	res, err := s.signAndBroadcast(ctx, kind, typeURL, build, persist)
 	if err != nil {
 		// Broadcast failure (network/node unreachable): unknown whether the sequence was consumed -> mark dirty.
-		s.seqValid = false
+		// A failure before the broadcast (signing refused, e.g. a revoked service key, or the
+		// signed bytes not persisted) sent nothing and consumed nothing: the cache stays valid.
+		if reachedBroadcast(err) {
+			s.seqValid = false
+		}
 		return res, err
 	}
 	if res.Code == 0 {
@@ -630,7 +635,9 @@ func (s *defaultSubmitter) submitBuiltLocked(ctx context.Context, kind, typeURL 
 	}
 	res, err = s.signAndBroadcast(ctx, kind, typeURL, build, persist)
 	if err != nil {
-		s.seqValid = false
+		if reachedBroadcast(err) {
+			s.seqValid = false
+		}
 		return res, err
 	}
 	if res.Code != 0 {
@@ -725,6 +732,13 @@ func (s *defaultSubmitter) signAndBroadcast(ctx context.Context, kind, typeURL s
 		return res, &SubmissionError{Phase: SubmissionBroadcast, Result: res, Err: fmt.Errorf("submit %s: broadcast: %w", kind, err)}
 	}
 	return res, nil
+}
+
+// reachedBroadcast reports whether a signAndBroadcast error came from the broadcast, after which
+// the sequence may have been consumed, rather than from preparing the transaction.
+func reachedBroadcast(err error) bool {
+	var submission *SubmissionError
+	return !errors.As(err, &submission) || submission.Phase != SubmissionPrepare
 }
 
 func definitiveSubmissionError(kind string, res chaincli.TxResult, reason string) error {
