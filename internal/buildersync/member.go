@@ -31,8 +31,9 @@ type memberStream struct {
 	// generation their nonce selects for it. The order item checks it against the user's signed
 	// order. Only the recorded winner's version can be checked: the sync carries the signed order
 	// of that version alone, so another version's height rests on the sender, an authenticated
-	// member of the group, and only decides which of the sender's own generations proves the
-	// sender's and its Workers' material of that version.
+	// member of the group, and decides which key generation, the sender's and each Worker's,
+	// proves that version's material. Such a version was never recorded, so a wrong height only
+	// affects this member's local copy; any chain check uses the real height.
 	Submit map[string]uint64 `json:"submit,omitempty"`
 	// Recorded is set once the order item was applied: the chain admitted the order's dispatch
 	// entry with Winner, at RecordedHeight.
