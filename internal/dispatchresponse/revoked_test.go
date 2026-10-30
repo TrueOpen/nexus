@@ -53,3 +53,26 @@ func TestAnswersAreHeldWhileTheServiceKeyIsRevoked(t *testing.T) {
 		t.Fatalf("resume logged %d times, want once", n)
 	}
 }
+
+// After a restart during a revocation the count of held answers is rebuilt from the reopened
+// items, and an item held before the restart is not counted again.
+func TestHeldAnswersCountSurvivesARestart(t *testing.T) {
+	e := newEnv(t)
+	e.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	e.claim(ticketHash(0, 0), op7, 200)
+	e.put(recordedOrder(t))
+	e.challenge(0xc1, &taskv1.DispatchChallengeState{
+		Kind: kindSkip, BuilderAddress: self, ChallengedTicketHash: ticketHash(0, 0), AttemptRank: u32(0),
+		ProofDeadlineHeight: u64(190), Status: awaitingProof,
+	})
+	e.tx.err = fmt.Errorf("submit: %w", servicekey.ErrRevoked)
+	e.block(151)
+	e.open()
+	if got := e.r.Counts().AnswersHeldRevoked; got != 2 {
+		t.Fatalf("answers held after the restart = %d, want 2", got)
+	}
+	e.block(152)
+	if got := e.r.Counts().AnswersHeldRevoked; got != 2 {
+		t.Fatalf("answers held after another block = %d, want 2", got)
+	}
+}

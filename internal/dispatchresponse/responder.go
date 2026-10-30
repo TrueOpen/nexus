@@ -205,6 +205,10 @@ func New(cfg Config) (*Responder, error) {
 			return false
 		}
 		into[string(it.ID)] = &it
+		if it.HeldRevoked {
+			// Held for a revoked service key before the restart: counted again as it reopens.
+			r.heldRevoked.Add(1)
+		}
 		return true
 	})
 	if err == nil {
