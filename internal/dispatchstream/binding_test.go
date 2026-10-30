@@ -12,6 +12,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
+	"github.com/TrueOpen/wire/dispatch"
 )
 
 // vectorKeys answers with one fixed key, as the chain would for the wire vector's Cortex.
@@ -25,6 +26,15 @@ func (v vectorKeys) CurrentCortexKey(_ context.Context, operator string) (Cortex
 		return CortexKey{}, errors.New("unknown operator")
 	}
 	return v.key, nil
+}
+
+func (v vectorKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		if s.OperatorAddress != v.operator {
+			return dispatch.ProofKeyBinding{}, errors.New("unknown operator")
+		}
+		return dispatch.ProofKeyBinding{PublicKey: v.key.PubKey, ServiceAuthorizationNonce: v.key.AuthorizationNonce, Status: dispatch.ProofKeyActive}, nil
+	}}
 }
 
 // The binding check reproduces the wire vector: its exact protobuf decodes, and verifies under the

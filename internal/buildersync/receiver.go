@@ -331,6 +331,18 @@ func (r *Receiver) checkApplied(m *memberStream, sequence uint64, digest []byte)
 	return nil
 }
 
+// verifyProof verifies a dispatch proof (root, ticket, record, accept or reject) with the wire
+// verifier, under the key generation its signed nonce selects: the current one, or the previous
+// one for an order version whose earliest_submit_height (nil when not known) is below that key's
+// retirement. A chain that cannot answer is ErrUnavailable.
+func (r *Receiver) verifyProof(ctx context.Context, name string, raw []byte, earliestSubmitHeight *uint64) error {
+	err := dispatch.VerifyDispatchProof(r.cfg.ChainID, name, raw, servicekey.ProofOptions(ctx, r.cfg.Keys, earliestSubmitHeight))
+	if errors.Is(err, servicekey.ErrAuthority) {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	return err
+}
+
 // holdsOutput reports whether this Builder keeps output replicas: it serves streamed output.
 func (r *Receiver) holdsOutput() bool { return r.cfg.OutputConfig.MaxLeaves != 0 }
 
@@ -423,13 +435,13 @@ func (r *Receiver) apply(ctx context.Context, m *memberStream, in *incoming, ite
 	var err error
 	switch it := item.GetItem().(type) {
 	case *nexusv1.BuilderSyncItemV1_Round:
-		err = r.applyRound(next, in, it.Round)
+		err = r.applyRound(ctx, next, it.Round)
 	case *nexusv1.BuilderSyncItemV1_InputChunk:
 		err = r.applyInput(ctx, next, it.InputChunk)
 	case *nexusv1.BuilderSyncItemV1_Attempt:
 		err = r.applyAttempt(ctx, next, in, it.Attempt)
 	case *nexusv1.BuilderSyncItemV1_Record:
-		err = r.applyRecord(next, in, it.Record)
+		err = r.applyRecord(ctx, next, it.Record)
 	case *nexusv1.BuilderSyncItemV1_Order:
 		err = r.applyOrder(ctx, next, in, it.Order)
 	default:
@@ -481,8 +493,9 @@ func (r *Receiver) store(m *memberStream, extra ...kv.WriteOp) error {
 }
 
 // applyRound adds a round to the copy: its roster must hash to its roster_hash and its root must
-// be signed by the sender.
-func (r *Receiver) applyRound(m *memberStream, in *incoming, round *nexusv1.BuilderSyncRoundV1) error {
+// be signed by the sender, under the key generation the root's nonce selects for the order
+// version's earliest_submit_height.
+func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexusv1.BuilderSyncRoundV1) error {
 	if len(round.GetTaskId()) != 32 || len(round.GetTaskHash()) != 32 || len(round.GetRosterHash()) != 32 {
 		return errors.New("round task_id, task_hash or roster_hash is not 32 bytes")
 	}
@@ -505,6 +518,11 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *nexusv1.Buil
 	if !bytes.Equal(round.GetRoster().GetTaskId(), round.GetTaskId()) {
 		return errors.New("roster is not the task's")
 	}
+	taskHash := hex.EncodeToString(round.GetTaskHash())
+	esh := round.GetEarliestSubmitHeight()
+	if held, ok := m.Submit[taskHash]; ok && held != esh {
+		return fmt.Errorf("round names earliest_submit_height %d, the order version's earlier rounds %d", esh, held)
+	}
 	root := round.GetHandraiseRoot()
 	if root.GetChainId() != r.cfg.ChainID || root.GetBuilderAddress() != m.Sender {
 		return errors.New("handraise root is not the sender's on this chain")
@@ -517,9 +535,13 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *nexusv1.Buil
 	if err != nil {
 		return err
 	}
-	if dispatch.VerifyDigestSignature(in.senderKey, rootDigest[:], root.GetBuilderServiceSignature()) != nil {
-		return errors.New("handraise root is not signed by the sender")
+	if err := r.verifyProof(ctx, rootName, rootRaw, &esh); err != nil {
+		return fmt.Errorf("handraise root is not signed by the sender: %w", err)
 	}
+	if m.Submit == nil {
+		m.Submit = map[string]uint64{}
+	}
+	m.Submit[taskHash] = esh
 	candidate.RootDigest, candidate.SignedRoot = rootDigest[:], rootRaw
 	o, err := r.copyOf(m, taskID, round.GetVrfEpoch())
 	if err != nil {
@@ -531,7 +553,6 @@ func (r *Receiver) applyRound(m *memberStream, in *incoming, round *nexusv1.Buil
 	if _, held := o.Round(candidate.Number); held {
 		return fmt.Errorf("round %d is held already", candidate.Number)
 	}
-	taskHash := hex.EncodeToString(round.GetTaskHash())
 	if o.TaskHash != "" && o.TaskHash != taskHash {
 		return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
 	}
@@ -626,7 +647,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 	if err != nil {
 		return err
 	}
-	hash, err := r.checkTicket(m, in, ticketRaw, ticket)
+	hash, err := r.checkTicket(ctx, m, ticketRaw, ticket)
 	if err != nil {
 		return err
 	}
@@ -662,26 +683,19 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 		if rejectRaw, err = marshal(reject); err != nil {
 			return err
 		}
-		// A rebuttal carries the reject: one that does not verify under the target's current key
-		// would only cost a refused tx. The target may have rotated its key since it signed, or have
-		// no usable key any more (deregistered or revoked), so the reject is dropped rather than the
-		// order's sync stopped: the attempt stays REJECTED, without the reject a rebuttal needs. Only
-		// a chain that cannot be read leaves the batch to be sent again.
-		targetKey, _, err := servicekey.Current(ctx, r.cfg.Keys, r.cfg.AddressPrefix, servicekey.ParticipantCortex, target)
-		switch {
-		case errors.Is(err, servicekey.ErrAuthority):
-			return fmt.Errorf("%w: reject signer: %v", ErrUnavailable, err)
+		// A rebuttal carries the reject: one that does not verify, under the key generation its
+		// nonce selects for the order, would only cost a refused tx. The target may have rotated
+		// twice since it signed, or have no usable key any more (deregistered), so the reject is
+		// dropped rather than the order's sync stopped: the attempt stays REJECTED, without the
+		// reject a rebuttal needs. Only a chain that cannot be read leaves the batch to be sent
+		// again.
+		switch err := r.verifyProof(ctx, rejectName, rejectRaw, m.submitOf(ticket.GetTaskHash())); {
+		case errors.Is(err, ErrUnavailable):
+			return fmt.Errorf("reject signer: %w", err)
 		case err != nil:
-			r.log.Warn("synced reject's target has no usable service key; kept without the reject, so this member cannot rebut a claim on the ticket",
+			r.log.Warn("synced reject does not verify under its target's key; kept without it, so this member cannot rebut a claim on the ticket",
 				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target, "err", err)
 			rejectRaw = nil
-		default:
-			digest, err := signingDigest(rejectName, rejectRaw)
-			if err != nil || dispatch.VerifyDigestSignature(targetKey, digest[:], reject.GetServiceSignature()) != nil {
-				r.log.Warn("synced reject does not verify under its target's current key; kept without it, so this member cannot rebut a claim on the ticket",
-					"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target)
-				rejectRaw = nil
-			}
 		}
 	}
 	var acceptRaw, lateAcceptRaw []byte
@@ -728,7 +742,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 
 // checkTicket checks a ticket is the sender's, for this order on this chain, and returns its
 // dispatch_ticket_hash.
-func (r *Receiver) checkTicket(m *memberStream, in *incoming, raw []byte, t *taskv1.DispatchTicketV1) ([32]byte, error) {
+func (r *Receiver) checkTicket(ctx context.Context, m *memberStream, raw []byte, t *taskv1.DispatchTicketV1) ([32]byte, error) {
 	if t.GetChainId() != r.cfg.ChainID || t.GetBuilderAddress() != m.Sender ||
 		hex.EncodeToString(t.GetSessionId()) != m.SessionID || t.GetOrderSequence() != m.Sequence {
 		return [32]byte{}, errors.New("ticket is not the sender's for this order")
@@ -740,14 +754,14 @@ func (r *Receiver) checkTicket(m *memberStream, in *incoming, raw []byte, t *tas
 	if err != nil {
 		return [32]byte{}, err
 	}
-	if dispatch.VerifyDigestSignature(in.senderKey, hash[:], t.GetBuilderServiceSignature()) != nil {
-		return [32]byte{}, errors.New("ticket is not signed by the sender")
+	if err := r.verifyProof(ctx, ticketName, raw, m.submitOf(t.GetTaskHash())); err != nil {
+		return [32]byte{}, fmt.Errorf("ticket is not signed by the sender: %w", err)
 	}
 	return hash, nil
 }
 
 // applyRecord sets the signed record of an order version in the copy.
-func (r *Receiver) applyRecord(m *memberStream, in *incoming, rec *nexusv1.BuilderSyncRecordV1) error {
+func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv1.BuilderSyncRecordV1) error {
 	record := rec.GetRecord()
 	recordRaw, err := marshal(record)
 	if err != nil {
@@ -757,12 +771,8 @@ func (r *Receiver) applyRecord(m *memberStream, in *incoming, rec *nexusv1.Build
 		hex.EncodeToString(record.GetSessionId()) != m.SessionID || record.GetOrderSequence() != m.Sequence {
 		return errors.New("record is not the sender's for this order")
 	}
-	digest, err := signingDigest(recordName, recordRaw)
-	if err != nil {
-		return err
-	}
-	if dispatch.VerifyDigestSignature(in.senderKey, digest[:], record.GetBuilderServiceSignature()) != nil {
-		return errors.New("record is not signed by the sender")
+	if err := r.verifyProof(ctx, recordName, recordRaw, m.submitOf(record.GetTaskHash())); err != nil {
+		return fmt.Errorf("record is not signed by the sender: %w", err)
 	}
 	o, err := r.copyOf(m, hex.EncodeToString(record.GetTaskId()), record.GetVrfEpoch())
 	if err != nil {

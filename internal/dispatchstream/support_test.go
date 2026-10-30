@@ -42,17 +42,47 @@ var (
 	cortexB     = testAccount("cortex-b").Address()
 )
 
-// testKeys is the chain's current CORTEX key table: one deterministic key per operator.
+// testKeys is the chain's current CORTEX key table: one deterministic key per operator, and the
+// previous generation a cutover retained for some.
 type testKeys struct {
 	mu        sync.Mutex
 	nonce     map[string]uint64
 	missing   map[string]bool
+	previous  map[string]previousKey
 	transient bool
 	lookups   int
 }
 
+// previousKey is a retired generation: its key, nonce and retirement height.
+type previousKey struct {
+	key     signer.Signer
+	nonce   uint64
+	retired uint64
+}
+
 func newTestKeys() *testKeys {
-	return &testKeys{nonce: map[string]uint64{}, missing: map[string]bool{}}
+	return &testKeys{nonce: map[string]uint64{}, missing: map[string]bool{}, previous: map[string]previousKey{}}
+}
+
+// ProofOptions resolves the current generation, or the previous one of a cutover, by nonce.
+func (k *testKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		current, err := k.CurrentCortexKey(context.Background(), s.OperatorAddress)
+		if err != nil {
+			return dispatch.ProofKeyBinding{}, err
+		}
+		if s.ServiceAuthorizationNonce == current.AuthorizationNonce {
+			return dispatch.ProofKeyBinding{PublicKey: current.PubKey, ServiceAuthorizationNonce: current.AuthorizationNonce, Status: dispatch.ProofKeyActive}, nil
+		}
+		k.mu.Lock()
+		p, ok := k.previous[s.OperatorAddress]
+		k.mu.Unlock()
+		if ok && s.ServiceAuthorizationNonce == p.nonce {
+			return dispatch.ProofKeyBinding{PublicKey: p.key.PubKeyCompressed(), ServiceAuthorizationNonce: p.nonce, Status: dispatch.ProofKeyPrevious,
+				PreviousRetiredHeight: p.retired}, nil
+		}
+		return dispatch.ProofKeyBinding{}, errors.New("unknown generation")
+	}}
 }
 
 func (k *testKeys) signer(operator string) signer.Signer { return testAccount("service|" + operator) }
@@ -400,6 +430,15 @@ type recordingSinks struct {
 	origins   []Origin
 	err       error
 	operators []string
+	// heights are the earliest_submit_height of the orders of known tickets.
+	heights map[string]uint64
+}
+
+func (r *recordingSinks) OrderEarliestSubmitHeight(ticketHash []byte) (uint64, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h, ok := r.heights[string(ticketHash)]
+	return h, ok
 }
 
 func (r *recordingSinks) record(kind string, from Origin, operator string) error {

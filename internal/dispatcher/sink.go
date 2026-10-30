@@ -16,8 +16,20 @@ import (
 )
 
 // The dispatcher is the stream hub's DispatchSink: the hub verified each answer's signature under
-// the stream Cortex's current key before it arrives here.
+// the key its nonce selects for the answered ticket's order before it arrives here.
 var _ dispatchstream.DispatchSink = (*Dispatcher)(nil)
+
+// OrderEarliestSubmitHeight implements dispatchstream.DispatchSink: the earliest_submit_height of
+// the signed order a ticket of this Builder was issued for.
+func (d *Dispatcher) OrderEarliestSubmitHeight(ticketHash []byte) (uint64, bool) {
+	d.mu.Lock()
+	o := d.tickets[string(ticketHash)]
+	d.mu.Unlock()
+	if o == nil {
+		return 0, false
+	}
+	return o.signed.GetOrder().GetEarliestSubmitHeight(), true
+}
 
 // answered finds the ticket an accept or reject answers and checks the answer names that ticket's
 // task, order version and target. Caller holds nothing; on success the order is locked and the

@@ -507,6 +507,45 @@ func TestReceiverChecksTheRejectSignature(t *testing.T) {
 	}
 }
 
+// After the dispatching Builder's cutover its batches are signed with its new key while the roots,
+// tickets and records it signed before keep its previous key: they still apply for an order whose
+// earliest_submit_height is below the retirement height, and are refused for a later one. A
+// Worker's reject signed with its previous key is kept on the same terms.
+func TestReceiverTakesPreviousKeyMaterialOfOrdersBeforeTheCutover(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		retired uint64
+		applied bool
+	}{{"order before the cutover", testESH + 1, true}, {"order at the cutover", testESH, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			f := e.fx
+			e.peers.setFail(e.m.op, errors.New("held back"))
+			e.s.OrderChanged(f.accepted())
+			e.sync()
+			reqs := e.peers.requests[e.m.op]
+			batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+			next := newSigner(t, 0x21)
+			e.keys.rotate("BUILDER", e.d, next, tc.retired)
+			e.keys.rotate("CORTEX", f.rejecter, newSigner(t, 0x22), tc.retired)
+			resp, err := e.member.r.Sync(context.Background(), e.signedBy(next, batch))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if applied := resp.GetRefused() == "" && resp.GetAppliedThrough() == uint64(len(batch.Items)); applied != tc.applied {
+				t.Fatalf("batch = %v; applied %v, want %v", resp, applied, tc.applied)
+			}
+			if !tc.applied {
+				return
+			}
+			c := e.copyOf()
+			if len(c.Record) == 0 || len(c.Rounds[0].Attempts) != 2 || len(c.Rounds[0].Attempts[0].Reject) == 0 {
+				t.Fatalf("copy = %+v", c)
+			}
+		})
+	}
+}
+
 // A winner later voided (a binding change) leaves no accept in the copy.
 func TestVoidedWinnerDropsTheAccept(t *testing.T) {
 	e := newEnv(t)

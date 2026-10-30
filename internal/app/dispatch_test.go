@@ -124,6 +124,10 @@ func (noCortexKeys) CurrentCortexKey(context.Context, string) (dispatchstream.Co
 	return dispatchstream.CortexKey{}, errors.New("unused")
 }
 
+func (noCortexKeys) ProofOptions(context.Context, *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{}
+}
+
 func mustSigner(t *testing.T, seed byte) signer.Signer {
 	t.Helper()
 	s, err := signer.NewFromBytes(bytes.Repeat([]byte{seed}, 32), wiringPrefix)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
@@ -18,6 +20,11 @@ type CortexKey struct {
 // ErrTransient means the chain could not answer; any other error means there is no usable key.
 type CortexKeys interface {
 	CurrentCortexKey(ctx context.Context, operator string) (CortexKey, error)
+	// ProofOptions resolves proof keys by signed nonce for the wire dispatch proof verifier: the
+	// current generation, or the previous one for an order whose earliest_submit_height (nil when
+	// unknown) is below its retirement. A lookup failure wraps ErrTransient when the chain could
+	// not answer.
+	ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions
 }
 
 // ServiceKeyLookup reads the current CORTEX key from the chain through servicekey.Current. There is
@@ -40,4 +47,18 @@ func (l ServiceKeyLookup) CurrentCortexKey(ctx context.Context, operator string)
 		return CortexKey{}, fmt.Errorf("current CORTEX service key of %s has no authorization nonce: %w", operator, servicekey.ErrUnavailable)
 	}
 	return CortexKey{PubKey: publicKey, AuthorizationNonce: state.AuthorizationNonce}, nil
+}
+
+// ProofOptions implements CortexKeys through servicekey.ProofOptions.
+func (l ServiceKeyLookup) ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
+	opts := servicekey.ProofOptions(ctx, l.Resolver, earliestSubmitHeight)
+	lookup := opts.LookupProofKey
+	opts.LookupProofKey = func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		key, err := lookup(s)
+		if errors.Is(err, servicekey.ErrAuthority) {
+			err = fmt.Errorf("%w: %v", ErrTransient, err)
+		}
+		return key, err
+	}
+	return opts
 }

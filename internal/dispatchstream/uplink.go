@@ -37,6 +37,9 @@ type uplinkClaims struct {
 	operator  string
 	nonce     uint64
 	signature []byte
+	// ticket is the dispatch_ticket_hash an accept or reject answers: those are dispatch proofs,
+	// verified by their own signed nonce against the ticket's order.
+	ticket []byte
 }
 
 // claimsOf maps an uplink frame to its signer facts; ok is false for a message a Cortex may not
@@ -46,27 +49,27 @@ func claimsOf(frame *nexusv1.DispatchStreamFrameV1) (uplinkClaims, bool) {
 	case *nexusv1.DispatchStreamFrameV1_Handraise:
 		h := m.Handraise
 		return uplinkClaims{standingHandraiseMessage, h, true, h.GetChainId(), h.GetBuilderAddress(),
-			h.GetMember().GetOperatorAddress(), h.GetServiceAuthorizationNonce(), h.GetServiceSignature()}, true
+			h.GetMember().GetOperatorAddress(), h.GetServiceAuthorizationNonce(), h.GetServiceSignature(), nil}, true
 	case *nexusv1.DispatchStreamFrameV1_Accept:
 		a := m.Accept
 		return uplinkClaims{"task.v1.DispatchAcceptV1", a, true, a.GetChainId(), "",
-			a.GetMember().GetOperatorAddress(), a.GetServiceAuthorizationNonce(), a.GetServiceSignature()}, true
+			a.GetMember().GetOperatorAddress(), a.GetServiceAuthorizationNonce(), a.GetServiceSignature(), a.GetDispatchTicketHash()}, true
 	case *nexusv1.DispatchStreamFrameV1_Reject:
 		r := m.Reject
 		return uplinkClaims{"task.v1.DispatchRejectV1", r, true, r.GetChainId(), "",
-			r.GetMember().GetOperatorAddress(), r.GetServiceAuthorizationNonce(), r.GetServiceSignature()}, true
+			r.GetMember().GetOperatorAddress(), r.GetServiceAuthorizationNonce(), r.GetServiceSignature(), r.GetDispatchTicketHash()}, true
 	case *nexusv1.DispatchStreamFrameV1_InputRequest:
 		r := m.InputRequest
 		return uplinkClaims{"nexus.v1.DispatchInputRequestV1", r, false, "", "",
-			r.GetMember().GetOperatorAddress(), r.GetServiceAuthorizationNonce(), r.GetServiceSignature()}, true
+			r.GetMember().GetOperatorAddress(), r.GetServiceAuthorizationNonce(), r.GetServiceSignature(), nil}, true
 	case *nexusv1.DispatchStreamFrameV1_VerifierHandraise:
 		v := m.VerifierHandraise
 		return uplinkClaims{verifierHandraiseMessage, v, true, v.GetChainId(), "",
-			v.GetMember().GetOperatorAddress(), v.GetServiceAuthorizationNonce(), v.GetServiceSignature()}, true
+			v.GetMember().GetOperatorAddress(), v.GetServiceAuthorizationNonce(), v.GetServiceSignature(), nil}, true
 	case *nexusv1.DispatchStreamFrameV1_VerifyResultSubmitted:
 		n := m.VerifyResultSubmitted
 		return uplinkClaims{"nexus.v1.VerifyResultSubmittedNoticeV1", n, false, "", "",
-			n.GetOperatorAddress(), n.GetServiceAuthorizationNonce(), n.GetServiceSignature()}, true
+			n.GetOperatorAddress(), n.GetServiceAuthorizationNonce(), n.GetServiceSignature(), nil}, true
 	default:
 		return uplinkClaims{}, false
 	}
@@ -75,7 +78,9 @@ func claimsOf(frame *nexusv1.DispatchStreamFrameV1) (uplinkClaims, bool) {
 // handleUplink verifies one uplink business message and routes it. A message is verified on its
 // own, whatever the binding proved: its signer must be the stream's Cortex, its chain (where it
 // names one) this chain, and its service signature must verify over its wire signing digest under
-// that Cortex's current CORTEX key with that key's authorization nonce.
+// that Cortex's current CORTEX key with that key's authorization nonce. An accept or reject is a
+// dispatch proof instead: its signed nonce selects the current key, or the previous one when the
+// answered ticket's order has an earliest_submit_height below that key's retirement.
 func (h *Hub) handleUplink(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
 	claims, ok := claimsOf(frame)
 	if !ok {
@@ -146,6 +151,12 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 	if err != nil {
 		return Origin{}, fmt.Errorf("%w: %s: %v", errUplinkRefused, c.name, err)
 	}
+	if c.ticket != nil {
+		if err := h.verifyAnswer(ctx, c, raw); err != nil {
+			return Origin{}, err
+		}
+		return Origin{Operator: operator, Raw: raw, Digest: digest}, nil
+	}
 	key, err := h.keys.CurrentCortexKey(ctx, operator)
 	if err != nil {
 		if errors.Is(err, ErrTransient) {
@@ -161,4 +172,24 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 		return Origin{}, fmt.Errorf("%w: %s service_signature: %v", errUplinkRefused, c.name, err)
 	}
 	return Origin{Operator: operator, Raw: raw, Digest: digest}, nil
+}
+
+// verifyAnswer verifies an accept or reject with the wire dispatch proof verifier, under the key
+// its signed nonce selects for the answered ticket's order.
+func (h *Hub) verifyAnswer(ctx context.Context, c uplinkClaims, raw []byte) error {
+	var esh *uint64
+	if sink := h.sinks.Load().Dispatch; sink != nil {
+		if height, ok := sink.OrderEarliestSubmitHeight(c.ticket); ok {
+			esh = &height
+		}
+	}
+	err := dispatch.VerifyDispatchProof(h.cfg.ChainID, c.name, raw, h.keys.ProofOptions(ctx, esh))
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrTransient):
+		return err
+	default:
+		return fmt.Errorf("%w: %s: %v", errUplinkRefused, c.name, err)
+	}
 }

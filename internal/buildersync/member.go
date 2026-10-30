@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/TrueOpen/nexus/internal/attempt"
@@ -25,6 +26,10 @@ type memberStream struct {
 	Applied uint64 `json:"applied"`
 	// Inputs follows each order version's input by task_hash.
 	Inputs map[string]*memberInput `json:"inputs,omitempty"`
+	// Submit is each order version's earliest_submit_height by task_hash, as its rounds name it:
+	// the sender's roots, tickets and records of the version verify under the key generation their
+	// nonce selects for it.
+	Submit map[string]uint64 `json:"submit,omitempty"`
 	// Recorded is set once the order item was applied: the chain admitted the order's dispatch
 	// entry with Winner, at RecordedHeight.
 	Recorded       bool          `json:"recorded,omitempty"`
@@ -91,6 +96,16 @@ func appliedItemKey(member string, sequence uint64) string {
 	return fmt.Sprintf("%s%s/%020d", memberItemPrefix, member, sequence)
 }
 
+// submitOf is the earliest_submit_height of the order version of taskHash, nil before its first
+// round.
+func (m *memberStream) submitOf(taskHash []byte) *uint64 {
+	esh, ok := m.Submit[hex.EncodeToString(taskHash)]
+	if !ok {
+		return nil
+	}
+	return &esh
+}
+
 func (m *memberStream) clone() *memberStream {
 	next := *m
 	next.BuilderSetHash = append([]byte(nil), m.BuilderSetHash...)
@@ -104,6 +119,7 @@ func (m *memberStream) clone() *memberStream {
 		w := *m.Winner
 		next.Winner = &w
 	}
+	next.Submit = maps.Clone(m.Submit)
 	return &next
 }
 

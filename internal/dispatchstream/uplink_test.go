@@ -188,6 +188,38 @@ func TestUplinkRefusesUnverifiedMessages(t *testing.T) {
 	}
 }
 
+// After a Cortex's cutover its accepts and rejects signed with the retired key still prove an
+// order whose earliest_submit_height is below the retirement height; later orders, and tickets
+// whose order is unknown, need the current key.
+func TestUplinkAcceptsPreviousKeyAnswersOfOrdersBeforeTheCutover(t *testing.T) {
+	h := newHarness(t)
+	old := testAccount("old|" + cortexA)
+	h.keys.previous[cortexA] = previousKey{key: old, nonce: testNonce - 1, retired: 120}
+	h.sinks.heights = map[string]uint64{string(hash32("ticket|before")): 119, string(hash32("ticket|at")): 120, string(hash32("ticket|rbefore")): 119}
+	byOld := func(m proto.Message, name string, setNonce func(), set func([]byte)) {
+		setNonce()
+		sign(t, old, name, m, set)
+	}
+	before, at, unknown := h.keys.accept(t, cortexA, "before"), h.keys.accept(t, cortexA, "at"), h.keys.accept(t, cortexA, "unknown")
+	for _, m := range []*taskv1.DispatchAcceptV1{before, at, unknown} {
+		byOld(m, "task.v1.DispatchAcceptV1", func() { m.ServiceAuthorizationNonce = testNonce - 1 }, func(s []byte) { m.ServiceSignature = s })
+	}
+	reject := h.keys.reject(t, cortexA, "rbefore")
+	byOld(reject, "task.v1.DispatchRejectV1", func() { reject.ServiceAuthorizationNonce = testNonce - 1 }, func(s []byte) { reject.ServiceSignature = s })
+
+	s := h.connect(cortexA, "1")
+	for _, f := range []*nexusv1.DispatchStreamFrameV1{acceptFrame(before), acceptFrame(at), acceptFrame(unknown), rejectFrame(reject),
+		acceptFrame(h.keys.accept(t, cortexA, "at"))} {
+		cursor := s.send(f)
+		if got := s.stream.nextAck(t); got != cursor {
+			t.Fatalf("acked %d, want %d", got, cursor)
+		}
+	}
+	if got := h.sinks.kinds(); !slices.Equal(got, []string{"accept", "reject", "accept"}) {
+		t.Fatalf("routed %v; want the pre-cutover accept and reject and the current-key accept", got)
+	}
+}
+
 // A verifier handraise is verified like every other uplink message: the wire vector's exact
 // protobuf verifies under its key, and the same message with another signature does not.
 func TestVerifierHandraiseVerifiesTheWireVector(t *testing.T) {

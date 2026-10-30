@@ -129,11 +129,13 @@ func newParty(t testing.TB, opSeed, keySeed byte) party {
 	return party{op: newSigner(t, opSeed).Address(), key: newSigner(t, keySeed)}
 }
 
-// fakeKeys answers current service keys.
+// fakeKeys answers current service keys: nonce 1, or the generation after a rotation, which keeps
+// the replaced key as the previous generation.
 type fakeKeys struct {
-	mu    sync.Mutex
-	keys  map[string]signer.Signer // participant|operator
-	fails bool
+	mu      sync.Mutex
+	keys    map[string]signer.Signer // participant|operator
+	rotated map[string]chaincli.PreviousServiceKey
+	fails   bool
 	// failsFor makes the lookups of one participant type fail as an unreachable chain.
 	failsFor string
 	lookups  []string // participant|operator of every lookup
@@ -143,6 +145,18 @@ func (k *fakeKeys) set(participant string, p party) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.keys[participant+"|"+p.op] = p.key
+}
+
+// rotate makes next the current key of p (nonce 2) and p's key the previous one, retired at
+// retired.
+func (k *fakeKeys) rotate(participant string, p party, next signer.Signer, retired uint64) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.rotated == nil {
+		k.rotated = map[string]chaincli.PreviousServiceKey{}
+	}
+	k.keys[participant+"|"+p.op] = next
+	k.rotated[participant+"|"+p.op] = chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(p.key.PubKeyCompressed()), AuthorizationNonce: 1, RetiredHeight: retired}
 }
 
 func (k *fakeKeys) QueryCurrentServiceKey(_ context.Context, participant, operator string) (chaincli.ServiceKeyState, error) {
@@ -156,10 +170,14 @@ func (k *fakeKeys) QueryCurrentServiceKey(_ context.Context, participant, operat
 	if !ok {
 		return chaincli.ServiceKeyState{}, chaincli.ErrNotFound
 	}
-	return chaincli.ServiceKeyState{
+	state := chaincli.ServiceKeyState{
 		ParticipantType: participant, OperatorAddress: operator, ServicePubKey: hex.EncodeToString(s.PubKeyCompressed()),
 		ServiceAddress: s.Address(), Status: "ACTIVE", AuthorizationNonce: 1,
-	}, nil
+	}
+	if previous, ok := k.rotated[participant+"|"+operator]; ok {
+		state.AuthorizationNonce, state.Previous = 2, &previous
+	}
+	return state, nil
 }
 
 type fakeGroups struct {
@@ -513,7 +531,7 @@ func newFixture(e *env) *fixture {
 	if f.rosterHash, err = dispatch.RosterDigest(testChainID, [32]byte(f.taskID), 90, [32]byte(fill(0x66)), members); err != nil {
 		t.Fatal(err)
 	}
-	root := &taskv1.SignedHandraiseRootV1{ChainId: testChainID, BuilderAddress: e.d.op, RootHeight: 95, LeafCount: 2, Root: fill(0x77)}
+	root := &taskv1.SignedHandraiseRootV1{ChainId: testChainID, BuilderAddress: e.d.op, RootHeight: 95, LeafCount: 2, Root: fill(0x77), ServiceAuthorizationNonce: 1}
 	f.root, f.rootDigest = signWith(t, e.d.key, rootName, root, func(s []byte) { root.BuilderServiceSignature = s })
 	e.roots[f.rootDigest] = root
 
@@ -522,7 +540,7 @@ func newFixture(e *env) *fixture {
 			SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash, SessionId: f.sessionID, OrderSequence: f.sequence,
 			BuilderAddress: e.d.op, ReferenceHeight: 90, CandidatePoolSnapshotId: fill(0x66), VrfEpoch: testEpoch, VrfOutput: fill(0x99),
 			RosterHash: f.rosterHash[:], HandraiseRootDigest: f.rootDigest[:], Rank: uint32(rank), Target: memberRef(target.op, members[rank].Slot),
-			AcceptDeadlineMs: 1, InputHash: inputHash[:], BoundChangeHeight: testBound,
+			AcceptDeadlineMs: 1, InputHash: inputHash[:], BoundChangeHeight: testBound, ServiceAuthorizationNonce: 1,
 		}
 		raw, hash := signWith(t, e.d.key, ticketName, ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
 		f.tickets, f.hashes = append(f.tickets, raw), append(f.hashes, hash)
@@ -538,7 +556,7 @@ func newFixture(e *env) *fixture {
 	record := &taskv1.DispatchRecordV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash, SessionId: f.sessionID, OrderSequence: f.sequence,
 		BuilderAddress: e.d.op, ReferenceHeight: 90, CandidatePoolSnapshotId: fill(0x66), VrfEpoch: testEpoch, VrfOutput: fill(0x99),
-		BoundChangeHeight: testBound, DispatchTicketHash: f.hashes[1][:],
+		BoundChangeHeight: testBound, DispatchTicketHash: f.hashes[1][:], ServiceAuthorizationNonce: 1,
 		Rounds: []*taskv1.DispatchRoundV1{{DispatchRound: 0, HandraiseRootDigest: f.rootDigest[:], RosterHash: f.rosterHash[:], Attempts: []*taskv1.DispatchAttemptV1{
 			{DispatchTicketHash: f.hashes[0][:], Rank: 0, Member: memberRef(f.rejecter.op, 1), Outcome: outcomeRejected, RejectDigestOrZero32: fill(0xee)},
 			{DispatchTicketHash: f.hashes[1][:], Rank: 1, Member: memberRef(e.worker.op, 3), Outcome: outcomeAccepted, RejectDigestOrZero32: make([]byte, 32)},

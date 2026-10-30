@@ -219,6 +219,30 @@ func TestAcceptStopsTheWalk(t *testing.T) {
 	}
 }
 
+// Tickets and records sign this Builder's authorization nonce, and a ticket names its order's
+// earliest_submit_height to the stream layer, which verifies the Worker's answer for that order.
+func TestTicketsAndRecordsSignTheBuilderNonce(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, ticket, _ := e.lastOffer()
+	if ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
+		t.Fatalf("ticket nonce = %d, want %d", ticket.GetServiceAuthorizationNonce(), testBuilderNonce)
+	}
+	hash := digestOf(t, ticketName, ticket)
+	if esh, ok := e.d.OrderEarliestSubmitHeight(hash[:]); !ok || esh != testESH {
+		t.Fatalf("order height of the ticket = %d, %v; want %d", esh, ok, testESH)
+	}
+	if _, ok := e.d.OrderEarliestSubmitHeight(bytes.Repeat([]byte{9}, 32)); ok {
+		t.Fatal("an unknown ticket has an order height")
+	}
+	e.accept()
+	if rec := e.onlyBundle().Entry.GetRecord(); rec.GetServiceAuthorizationNonce() != testBuilderNonce {
+		t.Fatalf("record nonce = %d, want %d", rec.GetServiceAuthorizationNonce(), testBuilderNonce)
+	}
+}
+
 // Every reject moves to the next roster member; the record lists them with their digests. Each
 // counts in the Worker's reject rate while it advertised a free slot.
 func TestRejectsWalkOnAndFeedTheRejectRate(t *testing.T) {
