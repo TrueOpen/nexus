@@ -19,6 +19,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
@@ -133,40 +134,78 @@ func TestBuilderMessagesRefuseToSendUnsigned(t *testing.T) {
 	}
 }
 
-// While this Builder's key replacement is pending, Verifier messages of a Task recorded at or after
-// the block before its registration are not signed (the other group members send them); an older
-// Task's are signed with the current nonce.
+// While this Builder's key replacement is pending, Verifier messages of every Task keep the current
+// nonce: the chain binds no Task to the next key before the cutover.
 func TestBuilderMessagesDuringOwnKeyRotation(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
 	keys, _ := enableTestBuilderMessages(c)
-	keys.setPending(servicekey.ParticipantBuilder, c.active.self, &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: testAuthorizationNo + 1, RegisteredHeight: 100})
+	keys.setPending(servicekey.ParticipantBuilder, c.active.self, &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: testAuthorizationNo + 1, RegisteredHeight: 100, EffectiveHeight: 120})
 	messages := builderMessages{coord: c}
-	ctx := context.Background()
+	for _, height := range []uint64{98, 100, 150, 0} {
+		msg := testOpenVerify()
+		if err := messages.signOpenVerify(context.Background(), msg, height); err != nil {
+			t.Fatalf("task recorded at %d: %v", height, err)
+		}
+		signature := msg.GetBuilderServiceSignature()
+		msg.BuilderServiceSignature = nil
+		assertBuilderSigned(t, c, "nexus.v1.OpenVerifyV1", msg, msg.GetBinding(), signature)
+	}
+}
 
+// After this Builder's cutover a Task keeps the nonce its responsibility froze when the chain
+// recorded it: one recorded before the cutover is signed with the retired key under its nonce, one
+// recorded at or after it with the new key. A Task of unknown record height, or one whose retired
+// key this process does not hold, gets no message.
+func TestBuilderMessagesAfterOwnCutover(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	next := testOperatorSigner("next-service-key")
+	keys, _ := enableTestBuilderMessages(c, next)
+	old := keys.signerFor(servicekey.ParticipantBuilder, c.active.self)
+	keys.rotate(servicekey.ParticipantBuilder, c.active.self, next, 120)
+	messages := builderMessages{coord: c}
+	for _, tc := range []struct {
+		height uint64
+		key    signer.Signer
+		nonce  uint64
+	}{{119, old, testAuthorizationNo}, {120, next, testAuthorizationNo + 1}, {150, next, testAuthorizationNo + 1}} {
+		msg := testOpenVerify()
+		if err := messages.signOpenVerify(context.Background(), msg, tc.height); err != nil {
+			t.Fatalf("task recorded at %d: %v", tc.height, err)
+		}
+		if got := msg.GetBinding().GetServiceAuthorizationNonce(); got != tc.nonce {
+			t.Fatalf("task recorded at %d: binding nonce %d, want %d", tc.height, got, tc.nonce)
+		}
+		signature := msg.GetBuilderServiceSignature()
+		msg.BuilderServiceSignature = nil
+		raw, _ := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
+		digest, err := dispatch.SigningDigest("nexus.v1.OpenVerifyV1", raw)
+		if err != nil || dispatch.VerifyDigestSignature(tc.key.PubKeyCompressed(), digest[:], signature) != nil {
+			t.Fatalf("task recorded at %d is not signed by the key of nonce %d: %v", tc.height, tc.nonce, err)
+		}
+	}
+	if err := messages.signOpenVerify(context.Background(), testOpenVerify(), 0); !errors.Is(err, errBuilderMessageUnsigned) {
+		t.Fatalf("unknown record height = %v, want errBuilderMessageUnsigned", err)
+	}
+
+	without := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), testBuilderSelf, testChainID)
+	enableTestBuilderMessages(without, next)
+	ring, err := servicekey.NewRing(keys, testAddressPrefix, without.active.self, nil, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	without.serviceKeys = ring
+	if err := (builderMessages{coord: without}).signOpenVerify(context.Background(), testOpenVerify(), 119); !errors.Is(err, errBuilderMessageUnsigned) {
+		t.Fatalf("retired key not held = %v, want errBuilderMessageUnsigned", err)
+	}
+}
+
+func testOpenVerify() *nexusv1.OpenVerifyV1 {
 	raw32 := make([]byte, 32)
-	old := &nexusv1.OpenVerifyV1{
+	return &nexusv1.OpenVerifyV1{
 		TaskId: raw32, TaskHash: raw32, ModelId: raw32, ProfileVersion: 1, InferReceiptHash: raw32, OutputHash: raw32,
 		WorkerOperatorAddress: testBuilderSelf, VerifyRound: 1,
-	}
-	if err := messages.signOpenVerify(ctx, old, 98); err != nil {
-		t.Fatalf("task recorded before the rotation: %v", err)
-	}
-	signature := old.GetBuilderServiceSignature()
-	old.BuilderServiceSignature = nil
-	assertBuilderSigned(t, c, "nexus.v1.OpenVerifyV1", old, old.GetBinding(), signature)
-	for _, height := range []uint64{99, 100, 150, 0} {
-		if err := messages.signOpenVerify(ctx, &nexusv1.OpenVerifyV1{}, height); !errors.Is(err, errRotationPendingTask) {
-			t.Fatalf("OpenVerify of a task recorded at %d = %v, want errRotationPendingTask", height, err)
-		}
-		if err := messages.signVerifierAssignment(ctx, &nexusv1.VerifierAssignmentNotifyV1{}, height); !errors.Is(err, errRotationPendingTask) {
-			t.Fatalf("VerifierAssignmentNotify of a task recorded at %d = %v, want errRotationPendingTask", height, err)
-		}
-	}
-	keys.setPending(servicekey.ParticipantBuilder, c.active.self, nil)
-	old.Binding, old.BuilderServiceSignature = nil, nil
-	if err := messages.signOpenVerify(ctx, old, 150); err != nil {
-		t.Fatalf("after the rotation cleared: %v", err)
 	}
 }
 

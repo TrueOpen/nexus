@@ -431,11 +431,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// registrationChain rather than taskChain.
 	taskAuthority := newTaskDataAuthority(taskChain, registrationChain, registrationChain)
 	if serviceSG != nil {
-		// Builder messages to Cortex (OpenVerify, VerifierAssignmentNotify) are signed with the current
-		// service key, bound to the on-chain binding looked up by (participant_type, operator).
+		// Builder messages to Cortex (OpenVerify, VerifierAssignmentNotify) are signed under the
+		// nonce each task froze when the chain recorded it, with the local key of that generation.
 		// Without a service key no Builder message is signed or sent: there is no unsigned fallback.
-		coordOpts = append(coordOpts,
-			coordinator.WithServiceKey(serviceSG, newTaskDataAuthority(taskChain, keyCache, registrationChain), cfg.Identity.Bech32Prefix))
+		coordOpts = append(coordOpts, coordinator.WithServiceKey(serviceRing))
 	} else {
 		log.Warn("service key NOT configured; Builder messages to Cortex cannot be signed, so none are sent")
 	}

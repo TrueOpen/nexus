@@ -122,12 +122,10 @@ type Coordinator struct {
 	identity signer.Signer // Builder account signer (nil = dev mode, no chain transactions)
 	registry BuilderRegistry
 
-	// serviceSigner is the current service key private key; serviceKeys is its on-chain query port.
-	// Without either, no Builder message can be signed and the coordinator sends none to Cortex:
-	// there is no "send unsigned for now" degradation.
-	serviceSigner signer.Signer
-	serviceKeys   servicekey.Resolver
-	addressPrefix string
+	// serviceKeys holds this Builder's service keys and follows their chain binding. Without it no
+	// Builder message can be signed and the coordinator sends none to Cortex: there is no "send
+	// unsigned for now" degradation.
+	serviceKeys *servicekey.Ring
 	// cortex delivers Builder-signed messages to connected Cortex streams (nil = none sent).
 	cortex CortexLink
 	// dispatcher takes new orders (nil = none accepted).
@@ -326,14 +324,10 @@ func WithBuilderRegistry(registry BuilderRegistry) Option {
 	return func(c *Coordinator) { c.registry = registry }
 }
 
-// WithServiceKey injects the current service key private key and its on-chain query port.
-// Not injected = this node signs no Builder message.
-func WithServiceKey(serviceSigner signer.Signer, resolver servicekey.Resolver, addressPrefix string) Option {
-	return func(c *Coordinator) {
-		c.serviceSigner = serviceSigner
-		c.serviceKeys = resolver
-		c.addressPrefix = addressPrefix
-	}
+// WithServiceKey injects this Builder's service keys. Not injected = this node signs no Builder
+// message.
+func WithServiceKey(keys *servicekey.Ring) Option {
+	return func(c *Coordinator) { c.serviceKeys = keys }
 }
 
 func WithTaskQuerier(query TaskQuerier) Option {

@@ -13,9 +13,8 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
-	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/stagetiming"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -36,14 +35,9 @@ func WithCortexLink(link CortexLink) Option {
 }
 
 // errBuilderMessageUnsigned reports that a Builder message cannot be signed: no service key is
-// configured, or the chain does not hold this node's current binding.
+// configured, the chain does not hold this node's binding, or the key of the Task's frozen nonce is
+// not held.
 var errBuilderMessageUnsigned = errors.New("builder message signing is not available")
-
-// errRotationPendingTask refuses a Builder message for a Task recorded at or after the block before
-// this Builder registered its service key replacement: the evidence context of such a Task reserves
-// the pending next nonce, so the current nonce cannot sign for it, and the next key is not usable
-// before it activates. The other members of the Task Builders group send it.
-var errRotationPendingTask = errors.New("builder message for a task recorded during this Builder's key rotation")
 
 // builderMessages signs the Phase 1 Builder messages of one coordinator and hands them to the
 // CortexLink. It is shared by every task FSM.
@@ -58,12 +52,12 @@ func (m builderMessages) signOpenVerify(ctx context.Context, msg *nexusv1.OpenVe
 	if m.coord == nil {
 		return errBuilderMessageUnsigned
 	}
-	binding, err := m.coord.builderBinding(ctx, recordHeight)
+	binding, key, err := m.coord.builderBinding(ctx, recordHeight)
 	if err != nil {
 		return err
 	}
 	msg.Binding, msg.BuilderServiceSignature = binding, nil
-	signature, err := m.coord.signBuilderMessage("nexus.v1.OpenVerifyV1", msg)
+	signature, err := signBuilderMessage(key, "nexus.v1.OpenVerifyV1", msg)
 	if err != nil {
 		return err
 	}
@@ -77,12 +71,12 @@ func (m builderMessages) signVerifierAssignment(ctx context.Context, msg *nexusv
 	if m.coord == nil {
 		return errBuilderMessageUnsigned
 	}
-	binding, err := m.coord.builderBinding(ctx, recordHeight)
+	binding, key, err := m.coord.builderBinding(ctx, recordHeight)
 	if err != nil {
 		return err
 	}
 	msg.Binding, msg.BuilderServiceSignature = binding, nil
-	signature, err := m.coord.signBuilderMessage("nexus.v1.VerifierAssignmentNotifyV1", msg)
+	signature, err := signBuilderMessage(key, "nexus.v1.VerifierAssignmentNotifyV1", msg)
 	if err != nil {
 		return err
 	}
@@ -100,34 +94,48 @@ func (m builderMessages) broadcast(ctx context.Context, frame *nexusv1.DispatchS
 }
 
 // builderBinding is the signed identity of a Builder message for a task the chain recorded at
-// recordHeight: the Task chain, this Builder's operator address and the authorization nonce of its
-// current service key. While a replacement key is pending, a task recorded at or after the block
-// before its registration (or at an unknown height) gets no message from this Builder
-// (errRotationPendingTask); older tasks keep the current nonce. No other nonce is ever signed.
-func (c *Coordinator) builderBinding(ctx context.Context, recordHeight uint64) (*nexusv1.BuilderMessageBindingV1, error) {
-	if c.serviceSigner == nil || c.serviceKeys == nil || c.active.self == "" {
-		return nil, errBuilderMessageUnsigned
+// recordHeight, and the local key that signs it: the Task chain, this Builder's operator address
+// and the authorization nonce the task's evidence responsibility froze, which is the generation
+// current when the chain recorded it. A cutover installs the new key before any transaction of its
+// height, so a task recorded below the previous generation's retirement keeps that nonce, and its
+// retired key signs; any other task takes the current one. A pending rotation changes nothing
+// until it activates. Without a retirement every known task is the current generation's; with one,
+// a task of unknown record height (0) gets no message.
+func (c *Coordinator) builderBinding(ctx context.Context, recordHeight uint64) (*nexusv1.BuilderMessageBindingV1, signer.Signer, error) {
+	if c.serviceKeys == nil || c.active.self == "" {
+		return nil, nil, errBuilderMessageUnsigned
 	}
-	nonce, pending, err := c.selfAuthorizationNonce(ctx)
+	readAt := time.Now()
+	view, err := c.serviceKeys.Refresh(ctx)
+	stagetiming.From(ctx).Since("chain_service_key", readAt)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("%w: %v", errBuilderMessageUnsigned, err)
 	}
-	if pending != nil && (recordHeight == 0 || recordHeight+1 >= pending.RegisteredHeight) {
-		return nil, fmt.Errorf("%w: recorded at %d, rotation registered at %d", errRotationPendingTask, recordHeight, pending.RegisteredHeight)
+	key := view.Current
+	if retired := view.PreviousRetiredHeight; retired != 0 {
+		switch {
+		case recordHeight == 0:
+			return nil, nil, fmt.Errorf("%w: the task's record height is not known, so its key generation is not either", errBuilderMessageUnsigned)
+		case recordHeight < retired:
+			key = view.Previous
+		}
+	}
+	if key.Signer == nil {
+		return nil, nil, fmt.Errorf("%w: the key of nonce %d, frozen for a task recorded at %d, is not held", errBuilderMessageUnsigned, key.Nonce, recordHeight)
 	}
 	return &nexusv1.BuilderMessageBindingV1{
-		ChainId: c.chainID, BuilderAddress: c.active.self, ServiceAuthorizationNonce: nonce,
-	}, nil
+		ChainId: c.chainID, BuilderAddress: c.active.self, ServiceAuthorizationNonce: key.Nonce,
+	}, key.Signer, nil
 }
 
 // signBuilderMessage signs the wire signing digest of a message registered in the wire dispatch
-// tables with the current service key.
-func (c *Coordinator) signBuilderMessage(name string, msg proto.Message) ([]byte, error) {
+// tables with key.
+func signBuilderMessage(key signer.Signer, name string, msg proto.Message) ([]byte, error) {
 	digest, err := builderMessageDigest(name, msg)
 	if err != nil {
 		return nil, err
 	}
-	return c.serviceSigner.SignDigest(digest)
+	return key.SignDigest(digest)
 }
 
 // builderMessageDigest is the wire signing digest of a Builder message: its deterministic encoding
@@ -142,26 +150,6 @@ func builderMessageDigest(name string, msg proto.Message) ([32]byte, error) {
 		return [32]byte{}, fmt.Errorf("%s signing digest: %w", name, err)
 	}
 	return digest, nil
-}
-
-// selfAuthorizationNonce reads the authorization nonce of this node's current Builder binding, and
-// its pending replacement if any, and asserts that the on-chain public key is this local private
-// key's: a message signed by any other key can never verify at the receiver.
-func (c *Coordinator) selfAuthorizationNonce(ctx context.Context) (uint64, *chaincli.PendingServiceKeyRotation, error) {
-	readAt := time.Now()
-	publicKey, state, err := servicekey.Current(
-		ctx, c.serviceKeys, c.addressPrefix, servicekey.ParticipantBuilder, c.active.self)
-	stagetiming.From(ctx).Since("chain_service_key", readAt)
-	if err != nil {
-		return 0, nil, fmt.Errorf("%w: %v", errBuilderMessageUnsigned, err)
-	}
-	if !bytes.Equal(publicKey, c.serviceSigner.PubKeyCompressed()) {
-		return 0, nil, fmt.Errorf("%w: on-chain service key does not match the local signer", errBuilderMessageUnsigned)
-	}
-	if state.AuthorizationNonce == 0 {
-		return 0, nil, fmt.Errorf("%w: service binding has no authorization nonce", errBuilderMessageUnsigned)
-	}
-	return state.AuthorizationNonce, state.PendingRotation, nil
 }
 
 // HandleVerifierHandraise takes a Verifier handraise that arrived on a Cortex dispatch stream. The

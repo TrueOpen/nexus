@@ -32,13 +32,16 @@ const (
 // testOperator derives a canonical bech32 operator address from a logical name: the wire signing
 // projection decodes addresses into codec bytes, so a non-bech32 placeholder name cannot be signed.
 // The same logical name yields the same address in every test.
-func testOperator(name string) string {
+func testOperator(name string) string { return testOperatorSigner(name).Address() }
+
+// testOperatorSigner is the key testOperator derives its address from.
+func testOperatorSigner(name string) signer.Signer {
 	seed := sha256.Sum256([]byte("test-operator|" + name))
 	sg, err := signer.NewFromBytes(seed[:], testAddressPrefix)
 	if err != nil {
 		panic(err)
 	}
-	return sg.Address()
+	return sg
 }
 
 // testBuilderSelf is the test identity of this node's own Builder.
@@ -61,11 +64,26 @@ type testServiceKeys struct {
 	revoked map[string]bool
 	// pending holds the registered replacement of a (participant|operator) key.
 	pending map[string]*chaincli.PendingServiceKeyRotation
+	// rotated holds, after a cutover, the new current key of a (participant|operator), nonce
+	// testAuthorizationNo+1, with its usual key as the previous generation.
+	rotated map[string]rotatedKey
+}
+
+type rotatedKey struct {
+	current signer.Signer
+	retired uint64
 }
 
 func newTestServiceKeys() *testServiceKeys {
 	return &testServiceKeys{signers: map[string]signer.Signer{}, revoked: map[string]bool{},
-		pending: map[string]*chaincli.PendingServiceKeyRotation{}}
+		pending: map[string]*chaincli.PendingServiceKeyRotation{}, rotated: map[string]rotatedKey{}}
+}
+
+// rotate makes current the key of (participant, operator) from a cutover at retired.
+func (k *testServiceKeys) rotate(participantType, operator string, current signer.Signer, retired uint64) {
+	k.mu.Lock()
+	k.rotated[testServiceKeyKey(participantType, operator)] = rotatedKey{current: current, retired: retired}
+	k.mu.Unlock()
 }
 
 func (k *testServiceKeys) setPending(participantType, operator string, p *chaincli.PendingServiceKeyRotation) {
@@ -108,12 +126,13 @@ func (k *testServiceKeys) QueryCurrentServiceKey(
 	k.mu.Lock()
 	revoked := k.revoked[testServiceKeyKey(participantType, operator)]
 	pending := k.pending[testServiceKeyKey(participantType, operator)]
+	rotated, isRotated := k.rotated[testServiceKeyKey(participantType, operator)]
 	k.mu.Unlock()
 	if revoked {
 		return chaincli.ServiceKeyState{}, chaincli.ErrNotFound
 	}
 	sg := k.signerFor(participantType, operator)
-	return chaincli.ServiceKeyState{
+	state := chaincli.ServiceKeyState{
 		ParticipantType:    participantType,
 		OperatorAddress:    operator,
 		ServiceAddress:     sg.Address(),
@@ -122,7 +141,13 @@ func (k *testServiceKeys) QueryCurrentServiceKey(
 		UpdatedHeight:      testSnapshotHeight,
 		Status:             servicekey.StatusActive,
 		PendingRotation:    pending,
-	}, nil
+	}
+	if isRotated {
+		state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: state.ServicePubKey, AuthorizationNonce: testAuthorizationNo, RetiredHeight: rotated.retired}
+		state.ServiceAddress, state.ServicePubKey = rotated.current.Address(), hex.EncodeToString(rotated.current.PubKeyCompressed())
+		state.AuthorizationNonce = testAuthorizationNo + 1
+	}
+	return state, nil
 }
 
 // fakeCortexLink is the in-memory CortexLink of the tests: it keeps every broadcast frame.
@@ -199,12 +224,15 @@ func (o assignmentCounter) count() int { return len(o.link.verifierAssignments()
 
 // enableTestBuilderMessages attaches a service key and a fake CortexLink to a Coordinator built with
 // New(). In production identity.LoadServiceSigner and the app wiring do this.
-func enableTestBuilderMessages(c *Coordinator) (*testServiceKeys, *fakeCortexLink) {
+func enableTestBuilderMessages(c *Coordinator, extra ...signer.Signer) (*testServiceKeys, *fakeCortexLink) {
 	keys := newTestServiceKeys()
 	link := &fakeCortexLink{}
-	c.serviceSigner = keys.signerFor(servicekey.ParticipantBuilder, c.active.self)
-	c.serviceKeys = keys
-	c.addressPrefix = testAddressPrefix
+	ring, err := servicekey.NewRing(keys, testAddressPrefix, c.active.self, nil,
+		append([]signer.Signer{keys.signerFor(servicekey.ParticipantBuilder, c.active.self)}, extra...)...)
+	if err != nil {
+		panic(err)
+	}
+	c.serviceKeys = ring
 	c.cortex = link
 	return keys, link
 }
