@@ -74,11 +74,18 @@ revoked:
   a drain) before that; no takeover is admitted (`NEXUS_INGRESS_NO_CAPACITY`);
 - an order still dispatching fails as no capacity instead of getting another ticket, and an
   accept of a ticket signed before the revocation is answered `DISPATCH_TICKET_CLOSED`: the
-  attempt is `VOIDED` with the accept kept, so the GPU is left to a compensation claim.
+  attempt is `VOIDED` with the accept kept, so the GPU is left to a compensation claim;
+- held takeovers whose entry has not gone out end as `NO_CAPACITY`; those whose entry went out
+  finish on chain;
+- the service account signs no transaction, so no compensation claim can be rebutted and no
+  dispatch challenge answered (logged once as `rebuttals and challenge answers held`, counted in
+  the `answers_held_revoked` diagnostic). They are tried again every block and go out once a
+  replacement key is current, but a compensation claim or challenge whose window closes before
+  then is paid out or penalized even though the daemon holds the evidence against it.
 
-To recover, register a replacement as in step 1 (it becomes current at the start of epoch E+2
-like any rotation). At its effective height the daemon finds it current and resumes signing and
-dispatch by itself, without a restart.
+That last point is why a replacement should be registered at once, as in step 1; it becomes
+current at the start of epoch E+2 like any rotation. At its effective height the daemon finds it
+current and resumes signing, dispatch and the held answers by itself, without a restart.
 
 `nexus drain begin` remains for an operator who wants a quiet Builder: it takes no new order,
 issues no ticket and admits no takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight
