@@ -261,20 +261,11 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// Current service keys are read on every stream message, handraise and Builder signature; the
 	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
 	// protocol stream, drops a rotated key at once.
-	// The same events end a Cortex stream whose binding key the Cortex rotated out or had revoked
-	// (keyedStreams is the stream hub, set once it exists).
-	var keyCache *servicekey.Cache
-	var keyedStreams atomic.Pointer[dispatchstream.Hub]
-	keyEvents := chaincli.WithEventObserver(func(ev chaincli.ChainEvent) {
-		if keyCache != nil {
-			keyCache.ObserveEvent(ev)
-		}
-		if h := keyedStreams.Load(); h != nil {
-			h.ObserveEvent(ev)
-		}
-	})
-	eventOptions.task = append(eventOptions.task, keyEvents)
-	eventOptions.hub = append(eventOptions.hub, keyEvents)
+	// The same events stop this Builder's ring from signing when its own key is revoked, and end a
+	// Cortex stream whose binding key the Cortex rotated out or had revoked.
+	keyEvents := &serviceKeyEvents{}
+	eventOptions.task = append(eventOptions.task, chaincli.WithEventObserver(keyEvents.observe))
+	eventOptions.hub = append(eventOptions.hub, chaincli.WithEventObserver(keyEvents.observe))
 	sg, err := identity.LoadSigner(cfg.Identity)
 	if err != nil {
 		_ = store.Close()
@@ -302,7 +293,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Warn("builder registration using single-chain compatibility mode",
 			"authority_chain_id", authority.Chain.ChainID)
 	}
-	keyCache = servicekey.NewCache(registrationChain, servicekey.DefaultCacheTTL)
+	keyCache := servicekey.NewCache(registrationChain, servicekey.DefaultCacheTTL)
+	keyEvents.cache.Store(keyCache)
 	rl := relay.NewKV(log, store) // the credential store is written through to disk so restart recovery still holds the credentials
 	taskStore, err := taskdata.NewStore(log, taskDataRoot(cfg.DataDir), store, taskdata.Config{
 		InlineMaxBytes: cfg.TaskData.InlineMaxBytes, ChunkSizeBytes: cfg.TaskData.ChunkSizeBytes,
@@ -388,16 +380,13 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			log.Info("second service key loaded; the chain binding decides which key signs", "address", nextKey.Address())
 		}
 		// At a cutover the chain makes the registered replacement current; the ring signs new
-		// messages with it from its next read. Cortex streams stay up: what was signed before keeps
-		// its own nonce.
-		onSwitch := func(old, current servicekey.Key) {
-			log.Info("service key cutover: signing with the new current key", "old_nonce", old.Nonce, "nonce", current.Nonce,
-				"service_address", current.Signer.Address())
-		}
-		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, onSwitch, keys...); err != nil {
+		// messages with it from its next read. Cortex streams stay up: what was signed before
+		// keeps its own nonce. A revoked current key signs nothing until a replacement is current.
+		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, logServiceKeySwitch(log), keys...); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
+		keyEvents.ring.Store(serviceRing)
 		serviceSG = serviceRing
 		if sharedServiceKey {
 			log.Warn("builder account and service signatures share one key; configure identity.service_keystore_file for key separation")
@@ -455,7 +444,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)
 	}
-	keyedStreams.Store(streams)
+	keyEvents.streams.Store(streams)
 	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	sinks := dispatchstream.Sinks{Verifier: coord}
@@ -739,6 +728,45 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 	return legacyMax
 }
 
+// serviceKeyEvents feeds the chain's service key events to what follows them, each set once it
+// exists: the key cache drops the operator's stale keys first, this Builder's ring stops signing
+// on its own revocation, and the stream hub ends the Cortex streams whose binding key left.
+type serviceKeyEvents struct {
+	cache   atomic.Pointer[servicekey.Cache]
+	ring    atomic.Pointer[servicekey.Ring]
+	streams atomic.Pointer[dispatchstream.Hub]
+}
+
+func (k *serviceKeyEvents) observe(ev chaincli.ChainEvent) {
+	if c := k.cache.Load(); c != nil {
+		c.ObserveEvent(ev)
+	}
+	if r := k.ring.Load(); r != nil {
+		r.ObserveEvent(ev)
+	}
+	if h := k.streams.Load(); h != nil {
+		h.ObserveEvent(ev)
+	}
+}
+
+// logServiceKeySwitch is the ring's onSwitch: it logs a cutover, a revocation of the current key
+// and the replacement that ends one.
+func logServiceKeySwitch(log *slog.Logger) func(old, current servicekey.Key) {
+	return func(old, current servicekey.Key) {
+		switch {
+		case current.Revoked:
+			log.Error("service key revoked: nothing is signed and no order is dispatched until a replacement key is current",
+				"nonce", current.Nonce, "service_address", current.Signer.Address())
+		case old.Revoked:
+			log.Info("service key replacement current: signing and dispatch resume", "old_nonce", old.Nonce, "nonce", current.Nonce,
+				"service_address", current.Signer.Address())
+		default:
+			log.Info("service key cutover: signing with the new current key", "old_nonce", old.Nonce, "nonce", current.Nonce,
+				"service_address", current.Signer.Address())
+		}
+	}
+}
+
 // serviceKeyStartupWait bounds the startup read of the service key binding; serviceKeyRetry is
 // how often it is read again after that until it succeeds.
 var (
@@ -749,7 +777,8 @@ var (
 // serviceKeyModule reads the BUILDER service key binding before anything is served: the ring
 // signs nothing before its first read. A chain that does not answer in time does not stop the
 // start; the binding is read again in the background until it does, and nothing is signed until
-// then.
+// then. A revoked current key does not stop the start either: nothing is signed until the ring
+// finds a replacement current, which the root registry's periodic key check reads.
 func serviceKeyModule(log *slog.Logger, ring *servicekey.Ring) module {
 	var cancel context.CancelFunc = func() {}
 	done := make(chan struct{})
@@ -759,6 +788,10 @@ func serviceKeyModule(log *slog.Logger, ring *servicekey.Ring) module {
 		err := ring.Await(waitCtx, serviceKeyRetry)
 		stop()
 		if err == nil {
+			return nil
+		}
+		if errors.Is(err, servicekey.ErrRevoked) {
+			log.Error("service key revoked: nothing is signed and no order is dispatched until a replacement key is current", "err", err)
 			return nil
 		}
 		log.Warn("service key binding not read; nothing is signed until it is", "err", err)
