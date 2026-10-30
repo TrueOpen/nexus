@@ -23,6 +23,12 @@ func NewDrawer(chainID string, epochs EpochSource, keys *VRFKeys, pools *PoolCac
 	return &Drawer{chainID: chainID, epochs: epochs, keys: keys, pools: pools}, nil
 }
 
+// EpochOf resolves the epoch of earliestSubmitHeight as Draw does; an epoch that cannot dispatch
+// yet fails with a *NotReadyError.
+func (d *Drawer) EpochOf(ctx context.Context, earliestSubmitHeight uint64) (Epoch, error) {
+	return d.epochs.EpochOf(ctx, earliestSubmitHeight)
+}
+
 // Draw is the randomness context and full-pool order of one order, shared by all its tickets.
 type Draw struct {
 	Epoch Epoch

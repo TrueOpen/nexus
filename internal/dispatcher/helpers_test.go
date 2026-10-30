@@ -268,6 +268,17 @@ type fakeDrawer struct {
 	drawn []dispatch.RosterMember
 	err   error
 	calls int
+	// epochErr fails EpochOf.
+	epochErr error
+}
+
+func (d *fakeDrawer) EpochOf(context.Context, uint64) (dispatchdraw.Epoch, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.epochErr != nil {
+		return dispatchdraw.Epoch{}, d.epochErr
+	}
+	return d.epoch, nil
 }
 
 func (d *fakeDrawer) Draw(_ context.Context, sessionID [32]byte, sequence, esh uint64, profile dispatchdraw.Profile, _ uint32) (*dispatchdraw.Draw, error) {

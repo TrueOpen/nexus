@@ -24,8 +24,9 @@ import (
 // past every record deadline.
 const maxRememberedEpochs = 64
 
-// epochMissTTL is how long an epoch whose start beacon could not give a seed is not read again:
-// every order of the epoch parked on it asks on each block, and one read per block time is enough.
+// epochMissTTL is how long an epoch that could not be resolved (no seed or no effective snapshot
+// yet) is not read again: every order of the epoch parked on it asks on each block, and the
+// OpenTask precheck asks for every new order; one read per block time is enough.
 const epochMissTTL = time.Second
 
 // placeholderBeaconSource tags a dev-only beacon derived from the block hash; it is never an epoch
@@ -47,12 +48,12 @@ type EpochChain interface {
 // height / epoch_length_blocks, and it starts at epoch × epoch_length_blocks. The epoch of an order
 // is the one containing its earliest_submit_height and its reference height is that start. The
 // epoch seed is the raw R_h of the committed, verified beacon at the reference height
-// (dispatch.ResolveEpochSeed): a missing, unverified or placeholder beacon leaves the epoch
-// unresolved, with no substitute, and epoch 0, which has no beacon at height 0, never resolves. The
-// snapshot is the
-// candidate pool snapshot the chain published for the epoch: the current pool when it serves that
-// epoch, otherwise the one seen in a CANDIDATE_POOL_PUBLISHED or CANDIDATE_POOL_EXPIRED event.
-// A resolved epoch never changes, so it is kept.
+// (dispatch.ResolveEpochSeed): a missing, unverified or placeholder beacon leaves the epoch not
+// ready, with no substitute, and epoch 0, which has no beacon at height 0, never resolves. The
+// snapshot is the candidate pool snapshot the chain published for the epoch: the current pool when
+// it serves that epoch, otherwise the one seen in a CANDIDATE_POOL_PUBLISHED or
+// CANDIDATE_POOL_EXPIRED event; the epoch is not ready until it is effective. A resolved epoch
+// never changes, so it is kept.
 type ChainEpochs struct {
 	chain EpochChain
 	now   func() time.Time
@@ -60,7 +61,7 @@ type ChainEpochs struct {
 	mu     sync.Mutex
 	length uint64
 	epochs map[uint64]Epoch
-	// misses keeps, per epoch, why its seed was not found and until when that answer stands.
+	// misses keeps, per epoch, why it was not resolved and until when that answer stands.
 	misses map[uint64]epochMiss
 }
 
@@ -74,7 +75,9 @@ func NewChainEpochs(chain EpochChain) *ChainEpochs {
 	return &ChainEpochs{chain: chain, now: time.Now, epochs: map[uint64]Epoch{}, misses: map[uint64]epochMiss{}}
 }
 
-// EpochOf implements EpochSource.
+// EpochOf implements EpochSource. An epoch that cannot dispatch yet fails with a *NotReadyError.
+// A failure is kept for epochMissTTL, during which the epoch's other orders get the same answer
+// without a chain read.
 func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) (Epoch, error) {
 	length, err := s.epochLength(ctx)
 	if err != nil {
@@ -83,50 +86,58 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	number := earliestSubmitHeight / length
 	s.mu.Lock()
 	ep, ok := s.epochs[number]
+	miss, missed := s.misses[number]
 	s.mu.Unlock()
 	if ok {
 		return ep, nil
 	}
 	if number == 0 {
-		return Epoch{}, fmt.Errorf("epoch 0 has no beacon at its reference height; dispatch starts in epoch 1")
+		return Epoch{}, &NotReadyError{DispatchableHeight: length,
+			Reason: "epoch 0 has no beacon at its reference height; dispatch starts in epoch 1"}
 	}
-	source, err := s.seedOf(ctx, number, length, earliestSubmitHeight)
-	if err != nil {
-		return Epoch{}, err
-	}
-	ep = Epoch{Number: source.Epoch, ReferenceHeight: source.ReferenceHeight, Seed: source.Randomness}
-	snapshot, err := s.snapshotOf(ctx, number)
-	if err != nil {
-		return Epoch{}, err
-	}
-	copy(ep.SnapshotID[:], snapshot)
-	s.remember(ep)
-	return ep, nil
-}
-
-// seedOf reads the start beacon of epoch number and resolves its seed. A failure is kept for
-// epochMissTTL, during which the epoch's other orders get the same answer without a chain read.
-func (s *ChainEpochs) seedOf(ctx context.Context, number, length, earliestSubmitHeight uint64) (dispatch.EpochSeed, error) {
-	s.mu.Lock()
-	miss, missed := s.misses[number]
-	s.mu.Unlock()
 	if missed && s.now().Before(miss.until) {
-		return dispatch.EpochSeed{}, miss.err
+		return Epoch{}, miss.err
 	}
-	source, err := s.readSeed(ctx, number, length, earliestSubmitHeight)
+	ep, err = s.resolve(ctx, number, length, earliestSubmitHeight)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err != nil {
 		s.misses[number] = epochMiss{err: err, until: s.now().Add(epochMissTTL)}
 	} else {
 		delete(s.misses, number)
 	}
-	return source, err
+	s.mu.Unlock()
+	if err != nil {
+		return Epoch{}, err
+	}
+	s.remember(ep)
+	return ep, nil
 }
 
+// resolve reads the seed and the candidate pool snapshot of epoch number.
+func (s *ChainEpochs) resolve(ctx context.Context, number, length, earliestSubmitHeight uint64) (Epoch, error) {
+	source, err := s.readSeed(ctx, number, length, earliestSubmitHeight)
+	if err != nil {
+		return Epoch{}, err
+	}
+	ep := Epoch{Number: source.Epoch, ReferenceHeight: source.ReferenceHeight, Seed: source.Randomness}
+	snapshot, err := s.snapshotOf(ctx, number)
+	if err != nil {
+		return Epoch{}, err
+	}
+	copy(ep.SnapshotID[:], snapshot)
+	return ep, nil
+}
+
+// readSeed reads the start beacon of epoch number and resolves its seed. A beacon not committed
+// yet is not ready until the epoch's first block commits it; one that is committed but unusable
+// (unverified, a placeholder, malformed) is not ready with no known height.
 func (s *ChainEpochs) readSeed(ctx context.Context, number, length, earliestSubmitHeight uint64) (dispatch.EpochSeed, error) {
 	reference := number * length // at most earliestSubmitHeight
 	beacon, err := s.chain.QueryBeacon(ctx, reference)
+	if errors.Is(err, chaincli.ErrNotFound) {
+		return dispatch.EpochSeed{}, &NotReadyError{Epoch: number, DispatchableHeight: reference,
+			Reason: fmt.Sprintf("the beacon at reference height %d is not committed", reference)}
+	}
 	if err != nil {
 		return dispatch.EpochSeed{}, fmt.Errorf("read beacon at reference height %d: %w", reference, err)
 	}
@@ -137,8 +148,8 @@ func (s *ChainEpochs) readSeed(ctx context.Context, number, length, earliestSubm
 	verified := beacon.GetVerified() && beacon.GetSourceTag() != placeholderBeaconSource
 	source, err := dispatch.ResolveEpochSeed(earliestSubmitHeight, length, beacon.GetHeight(), seed, verified)
 	if err != nil {
-		return dispatch.EpochSeed{}, fmt.Errorf("epoch %d seed from the beacon at height %d (source %q, verified %t): %w",
-			number, reference, beacon.GetSourceTag(), beacon.GetVerified(), err)
+		return dispatch.EpochSeed{}, &NotReadyError{Epoch: number, Reason: fmt.Sprintf(
+			"no seed from the beacon at height %d (source %q, verified %t): %v", reference, beacon.GetSourceTag(), beacon.GetVerified(), err)}
 	}
 	return source, nil
 }
@@ -172,16 +183,26 @@ func (s *ChainEpochs) epochLength(ctx context.Context) (uint64, error) {
 	return length, nil
 }
 
+// snapshotOf returns the candidate pool snapshot of epoch. It is not ready while the chain has
+// published none for the epoch and the current pool serves an earlier one, or while the published
+// one has not reached its effective_height.
 func (s *ChainEpochs) snapshotOf(ctx context.Context, epoch uint64) ([]byte, error) {
 	current, err := s.chain.QueryCurrentCandidatePool(ctx)
 	if err != nil && !errors.Is(err, chaincli.ErrNotFound) {
 		return nil, fmt.Errorf("read current candidate pool: %w", err)
 	}
 	if err == nil && current.GetEpoch() == epoch {
+		if err := effective(current, epoch); err != nil {
+			return nil, err
+		}
 		return current.GetSnapshotId(), nil
 	}
 	snapshot, err := s.chain.CandidatePoolSnapshotOfEpoch(ctx, epoch)
 	if errors.Is(err, chaincli.ErrNotFound) {
+		if current.GetEpoch() < epoch {
+			return nil, &NotReadyError{Epoch: epoch, Reason: fmt.Sprintf(
+				"no candidate pool snapshot is published for epoch %d (current pool serves epoch %d)", epoch, current.GetEpoch())}
+		}
 		return nil, fmt.Errorf("no candidate pool snapshot is known for epoch %d (current pool serves epoch %d)", epoch, current.GetEpoch())
 	}
 	if err != nil {
@@ -194,7 +215,20 @@ func (s *ChainEpochs) snapshotOf(ctx context.Context, epoch uint64) ([]byte, err
 	if header.GetEpoch() != epoch {
 		return nil, fmt.Errorf("candidate pool snapshot %x serves epoch %d, not %d", snapshot, header.GetEpoch(), epoch)
 	}
+	if err := effective(header, epoch); err != nil {
+		return nil, err
+	}
 	return snapshot, nil
+}
+
+// effective refuses a snapshot that is published but not effective yet (READY): its scoring
+// coefficients are not frozen before its effective_height.
+func effective(header *hubv1.CandidatePoolSnapshotViewV1, epoch uint64) error {
+	if header.GetStatus() != hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_READY {
+		return nil
+	}
+	return &NotReadyError{Epoch: epoch, DispatchableHeight: header.GetEffectiveHeight(), Reason: fmt.Sprintf(
+		"candidate pool snapshot %x is not effective before height %d", header.GetSnapshotId(), header.GetEffectiveHeight())}
 }
 
 func (s *ChainEpochs) remember(ep Epoch) {

@@ -646,9 +646,13 @@ func mapPayloadErr(err error) error {
 	}
 }
 
+// mapOrderErr maps a refusal of a new order. An epoch that cannot dispatch yet
+// (NEXUS_INGRESS_DISPATCH_NOT_READY) is Unavailable like a state that could not be read: the SDK
+// waits and retries this Builder, and the message ends with the dispatchable height when known.
 func mapOrderErr(err error) error {
 	switch {
-	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable):
+	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable),
+		errors.Is(err, dispatchdraw.ErrDispatchNotReady):
 		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, dispatchdraw.ErrNoCapacity), errors.Is(err, inflight.ErrOrderReplacementUnsupported):
 		return connect.NewError(connect.CodeFailedPrecondition, err)

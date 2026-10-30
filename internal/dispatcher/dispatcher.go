@@ -126,6 +126,9 @@ type Handraises interface {
 
 // Drawer draws an order's randomness and complete pool order (dispatchdraw.Drawer).
 type Drawer interface {
+	// EpochOf resolves the epoch of an order's earliest_submit_height; an epoch that cannot
+	// dispatch yet fails with a *dispatchdraw.NotReadyError.
+	EpochOf(ctx context.Context, earliestSubmitHeight uint64) (dispatchdraw.Epoch, error)
 	Draw(ctx context.Context, sessionID [32]byte, sequence, earliestSubmitHeight uint64, profile dispatchdraw.Profile, maxAttempts uint32) (*dispatchdraw.Draw, error)
 }
 
@@ -496,9 +499,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this
 // Builder drains, its key rotation is pending or its compensation account is below the minimum (it
-// takes no new order; the session moves by takeover) or the latest handraise root holds no
-// admitted, unexpired handraise with a free slot for the order's profile. The walk decides the
-// rest.
+// takes no new order; the session moves by takeover), the order's epoch cannot dispatch yet
+// (dispatchdraw.ErrDispatchNotReady: the user retries this Builder later, so it is checked before
+// any NO_CAPACITY answer) or the latest handraise root holds no admitted, unexpired handraise with a
+// free slot for the order's profile. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -512,6 +516,12 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil {
 		return fmt.Errorf("probe order: signed order does not decode")
+	}
+	if _, err := d.cfg.Drawer.EpochOf(ctx, signed.GetOrder().GetEarliestSubmitHeight()); err != nil {
+		if errors.Is(err, dispatchdraw.ErrDispatchNotReady) {
+			return err
+		}
+		return fmt.Errorf("%w: epoch of the order: %v", inflight.ErrUnavailable, err)
 	}
 	root, ok := d.cfg.Handraises.LatestRoot()
 	if !ok {

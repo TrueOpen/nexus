@@ -153,6 +153,11 @@ Open items:
   different `task_hash` returns `FailedPrecondition` (`NEXUS_INGRESS_TASK_TERMINAL`). The tracked
   version is kept and the refused input is not kept. An exact retry of the tracked version still
   succeeds. The caller must not retry the refused version, here or on another Builder.
+- `OpenTask` refuses an order whose epoch cannot dispatch yet (epoch 0, an epoch start beacon not
+  committed or verified yet, or an epoch candidate pool snapshot not effective yet) with
+  `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and
+  retries the same Builder. Wire has no field for the height from which dispatch is possible, so
+  when it is known the error message ends with `dispatchable_height=<n>`.
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.

@@ -114,3 +114,29 @@ func connectMessage(err error) string {
 	}
 	return err.Error()
 }
+
+// An order whose epoch cannot dispatch yet is refused before its input is stored as the
+// retryable NEXUS_INGRESS_DISPATCH_NOT_READY (Unavailable), its message ending with the height
+// from which dispatch is possible.
+func TestOpenTaskRefusesAnEpochNotReady(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	api := &fakeTaskDataAPI{chunkSize: 64}
+	handler := &fakeHandler{}
+	handler.checkOrder = func(context.Context, types.Order) error {
+		return &dispatchdraw.NotReadyError{Epoch: 8, DispatchableHeight: 812, Reason: "snapshot not effective"}
+	}
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain,
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	header := openTaskHeader(t, user, testSessionID("session-not-ready"), 5, []byte("input"))
+	stream := client.OpenTask(context.Background())
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})
+	_, err := stream.CloseAndReceive()
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasPrefix(connectMessage(err), "NEXUS_INGRESS_DISPATCH_NOT_READY:") ||
+		!strings.HasSuffix(connectMessage(err), "dispatchable_height=812") {
+		t.Fatalf("OpenTask error=%v code=%v, want Unavailable DISPATCH_NOT_READY with the height", err, connect.CodeOf(err))
+	}
+	if api.inputUpload != nil {
+		t.Fatal("an order not ready was stored")
+	}
+}

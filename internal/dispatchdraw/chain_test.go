@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +28,9 @@ type epochChain struct {
 	byEpoch   map[uint64][]byte
 	headers   map[string]*hubv1.CandidatePoolSnapshotViewV1
 	beaconAsk []uint64
+	poolAsk   int
+	// currentErr, when set, fails the current candidate pool read.
+	currentErr error
 	// beaconEdit, when set, alters each verified proposer VRF beacon returned.
 	beaconEdit func(*hubv1.BeaconState)
 }
@@ -46,6 +51,10 @@ func (c *epochChain) QueryBeacon(_ context.Context, height uint64) (*hubv1.Beaco
 }
 
 func (c *epochChain) QueryCurrentCandidatePool(context.Context) (*hubv1.CandidatePoolSnapshotViewV1, error) {
+	c.poolAsk++
+	if c.currentErr != nil {
+		return nil, c.currentErr
+	}
 	if c.current == nil {
 		return nil, chaincli.ErrNotFound
 	}
@@ -174,6 +183,125 @@ func TestChainEpochsKeepAMissingSeedBriefly(t *testing.T) {
 	}
 	if len(chain.beaconAsk) != 2 {
 		t.Fatalf("beacon reads = %v", chain.beaconAsk)
+	}
+}
+
+// An epoch that cannot dispatch yet is NEXUS_INGRESS_DISPATCH_NOT_READY, naming the height from
+// which it can when that is known: epoch 0 never dispatches (epoch 1 starts at epoch_length_blocks),
+// a start beacon not committed yet commits with the epoch's first block, and a published snapshot
+// not effective yet takes effect at its effective_height. A chain read that fails, or the snapshot
+// of a past epoch that is not known, is not "not ready".
+func TestChainEpochsAnswerNotReady(t *testing.T) {
+	seed7, seed8 := fill32(0x07), fill32(0x08)
+	snap7, snap8 := fill32(0xa7), fill32(0xa8)
+	newChain := func() *epochChain {
+		return &epochChain{
+			length:  100,
+			beacons: map[uint64]string{700: hex.EncodeToString(seed7[:]), 800: hex.EncodeToString(seed8[:]), 500: hex.EncodeToString(seed7[:])},
+			current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: snap7[:], Status: hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE},
+			byEpoch: map[uint64][]byte{},
+			headers: map[string]*hubv1.CandidatePoolSnapshotViewV1{},
+		}
+	}
+	notReady := func(t *testing.T, err error, height uint64) {
+		t.Helper()
+		var nr *NotReadyError
+		if !errors.Is(err, ErrDispatchNotReady) || !errors.As(err, &nr) || nr.DispatchableHeight != height {
+			t.Fatalf("err = %v, want not ready with dispatchable height %d", err, height)
+		}
+		if !strings.HasPrefix(err.Error(), "NEXUS_INGRESS_DISPATCH_NOT_READY") {
+			t.Fatalf("message %q does not start with the status code", err.Error())
+		}
+		mark := fmt.Sprintf("dispatchable_height=%d", height)
+		if has := strings.Contains(err.Error(), "dispatchable_height="); has != (height != 0) || (height != 0 && !strings.HasSuffix(err.Error(), mark)) {
+			t.Fatalf("message %q, want it to end with %q only when the height is known", err.Error(), mark)
+		}
+	}
+	ctx := context.Background()
+
+	t.Run("epoch zero", func(t *testing.T) {
+		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 5)
+		notReady(t, err, 100)
+	})
+	t.Run("start beacon not committed", func(t *testing.T) {
+		chain := newChain()
+		delete(chain.beacons, 800)
+		_, err := NewChainEpochs(chain).EpochOf(ctx, 801)
+		notReady(t, err, 800)
+	})
+	t.Run("start beacon not verified", func(t *testing.T) {
+		chain := newChain()
+		chain.beaconEdit = func(b *hubv1.BeaconState) { b.Verified = false }
+		_, err := NewChainEpochs(chain).EpochOf(ctx, 750)
+		notReady(t, err, 0)
+	})
+	t.Run("snapshot published, not effective", func(t *testing.T) {
+		chain := newChain()
+		chain.byEpoch[8] = snap8[:]
+		chain.headers[string(snap8[:])] = &hubv1.CandidatePoolSnapshotViewV1{
+			Epoch: 8, SnapshotId: snap8[:], Status: hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_READY, EffectiveHeight: 803,
+		}
+		epochs := NewChainEpochs(chain)
+		now := time.Unix(1_800_000_000, 0)
+		epochs.now = func() time.Time { return now }
+		_, err := epochs.EpochOf(ctx, 801)
+		notReady(t, err, 803)
+		// Once the snapshot is effective the same epoch resolves.
+		chain.headers[string(snap8[:])].Status = hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE
+		now = now.Add(epochMissTTL)
+		if ep, err := epochs.EpochOf(ctx, 801); err != nil || ep.SnapshotID != snap8 || ep.Seed != seed8 {
+			t.Fatalf("after the snapshot took effect: %+v, %v", ep, err)
+		}
+	})
+	t.Run("snapshot not published", func(t *testing.T) {
+		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 801)
+		notReady(t, err, 0)
+	})
+	t.Run("no current pool yet", func(t *testing.T) {
+		chain := newChain()
+		chain.current = nil
+		_, err := NewChainEpochs(chain).EpochOf(ctx, 801)
+		notReady(t, err, 0)
+	})
+	t.Run("snapshot of a past epoch unknown", func(t *testing.T) {
+		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 550)
+		if err == nil || errors.Is(err, ErrDispatchNotReady) {
+			t.Fatalf("err = %v, want a failure that is not \"not ready\"", err)
+		}
+	})
+	t.Run("chain read failed", func(t *testing.T) {
+		chain := newChain()
+		chain.currentErr = errors.New("node unreachable")
+		_, err := NewChainEpochs(chain).EpochOf(ctx, 750)
+		if err == nil || errors.Is(err, ErrDispatchNotReady) {
+			t.Fatalf("err = %v, want a failure that is not \"not ready\"", err)
+		}
+	})
+}
+
+// An epoch whose snapshot is not effective yet is not read again for every order: like a missing
+// seed, the answer is kept for epochMissTTL.
+func TestChainEpochsKeepANotReadySnapshotBriefly(t *testing.T) {
+	seed8 := fill32(0x08)
+	chain := &epochChain{
+		length:  100,
+		beacons: map[uint64]string{800: hex.EncodeToString(seed8[:])},
+		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: bytes.Repeat([]byte{0xa7}, 32)},
+	}
+	epochs := NewChainEpochs(chain)
+	now := time.Unix(1_800_000_000, 0)
+	epochs.now = func() time.Time { return now }
+	for _, esh := range []uint64{801, 850, 899} {
+		if _, err := epochs.EpochOf(context.Background(), esh); !errors.Is(err, ErrDispatchNotReady) {
+			t.Fatalf("EpochOf(%d) = %v", esh, err)
+		}
+	}
+	if len(chain.beaconAsk) != 1 || chain.poolAsk != 1 {
+		t.Fatalf("beacon reads %v, pool reads %d; want one each while the answer is kept", chain.beaconAsk, chain.poolAsk)
+	}
+	now = now.Add(epochMissTTL)
+	if _, err := epochs.EpochOf(context.Background(), 850); !errors.Is(err, ErrDispatchNotReady) || chain.poolAsk != 2 {
+		t.Fatalf("after the answer expired: %v, pool reads %d", err, chain.poolAsk)
 	}
 }
 

@@ -12,7 +12,36 @@
 // dispatcher persists the order, its cursor and the rosters.
 package dispatchdraw
 
-import "context"
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// ErrDispatchNotReady is the status code of an order whose epoch cannot dispatch yet: epoch 0, an
+// epoch whose start beacon is not committed or not verified yet, or whose candidate pool snapshot
+// is not effective yet. It is retryable: the user waits and sends the order to the same Builder
+// again; it is never NO_CAPACITY, which sends the user to another Builder.
+var ErrDispatchNotReady = errors.New("NEXUS_INGRESS_DISPATCH_NOT_READY")
+
+// NotReadyError is an ErrDispatchNotReady answer for one epoch. DispatchableHeight, when known
+// (non-zero), is the chain height from which the epoch's orders can dispatch; the message carries
+// it as a final "dispatchable_height=<n>" so clients can read it without a structured field.
+type NotReadyError struct {
+	Epoch              uint64
+	DispatchableHeight uint64
+	Reason             string
+}
+
+func (e *NotReadyError) Error() string {
+	msg := fmt.Sprintf("%v: epoch %d: %s", ErrDispatchNotReady, e.Epoch, e.Reason)
+	if e.DispatchableHeight != 0 {
+		msg += fmt.Sprintf("; dispatchable_height=%d", e.DispatchableHeight)
+	}
+	return msg
+}
+
+func (e *NotReadyError) Unwrap() error { return ErrDispatchNotReady }
 
 // Epoch is the randomness and weight context of every order whose earliest_submit_height falls
 // in one epoch.
@@ -29,6 +58,7 @@ type Epoch struct {
 
 // EpochSource resolves the epoch of an order from the chain.
 type EpochSource interface {
-	// EpochOf returns the epoch containing an order's signed earliest_submit_height.
+	// EpochOf returns the epoch containing an order's signed earliest_submit_height; an epoch that
+	// cannot dispatch yet fails with a *NotReadyError.
 	EpochOf(ctx context.Context, earliestSubmitHeight uint64) (Epoch, error)
 }
