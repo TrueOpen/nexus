@@ -90,10 +90,15 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		return
 	}
 	res, err := r.cfg.Tx.SubmitRespondDispatchChallenge(ctx, msg, r.gas(msg, &it))
+	if r.held(&it, err) {
+		r.update(challengePrefix, r.challenges, &it)
+		return
+	}
 	if err != nil {
 		r.log.Warn("dispatch challenge response not sent; tried again next block", "challenge_id", id, "err", err)
 		return
 	}
+	r.signed()
 	r.answered.Add(1)
 	r.log.Info("dispatch challenge answered", "challenge_id", id, "kind", ch.GetKind())
 	it.sent(head, res)

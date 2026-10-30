@@ -91,4 +91,6 @@ type ResponseDiagnostics struct {
 	ClaimsOwed             uint64 `json:"claims_owed"`
 	ChallengesAnswered     uint64 `json:"challenges_answered"`
 	UnanswerableChallenges uint64 `json:"unanswerable_challenges"`
+	// AnswersHeldRevoked counts the answers held because this Builder's service key was revoked.
+	AnswersHeldRevoked uint64 `json:"answers_held_revoked,omitempty"`
 }

@@ -104,10 +104,15 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		return
 	}
 	res, err := r.cfg.Tx.SubmitRebutDispatchCompensation(ctx, msg, r.gas(msg, &it))
+	if r.held(&it, err) {
+		r.update(claimPrefix, r.claims, &it)
+		return
+	}
 	if err != nil {
 		r.log.Warn("compensation rebuttal not sent; tried again next block", "ticket", ticket, "err", err)
 		return
 	}
+	r.signed()
 	r.claimsRebutted.Add(1)
 	r.log.Info("compensation claim rebutted", "ticket", ticket, "worker", claim.GetWorkerOperatorAddress(), "outcome", attempt.Outcome)
 	it.sent(head, res)

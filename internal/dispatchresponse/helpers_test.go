@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"log/slog"
 	"sort"
 	"sync"
 	"testing"
@@ -384,6 +385,7 @@ type env struct {
 	tx       *fakeTx
 	roots    *fakeRoots
 	live     map[[32]byte]bool
+	logs     *messageCounter
 	r        *Responder
 }
 
@@ -393,7 +395,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(),
 		chain: &fakeChain{claims: map[string]*taskv1.DispatchCompensationClaimState{}, challenges: map[string]*taskv1.DispatchChallengeState{},
 			records: map[string]*taskv1.DispatchRecordState{}, txResults: map[string]chaincli.TxResult{}},
-		tx: &fakeTx{}, roots: &fakeRoots{}, live: map[[32]byte]bool{},
+		tx: &fakeTx{}, roots: &fakeRoots{}, live: map[[32]byte]bool{}, logs: &messageCounter{},
 	}
 	e.evidence = dispatchevidence.New(e.store, testParams)
 	e.open()
@@ -407,7 +409,7 @@ func (e *env) open() {
 	e.r, err = New(Config{
 		ChainID: testChainID, Builder: self, Responder: func() string { return responder }, Store: e.store, Evidence: e.evidence,
 		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live },
-		GasBase: testGasBase, GasPerByte: testGasPerByte,
+		GasBase: testGasBase, GasPerByte: testGasPerByte, Log: slog.New(e.logs),
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -453,6 +455,31 @@ func (e *env) challenge(id byte, state *taskv1.DispatchChallengeState) []byte {
 		ChallengeID: cid, TaskID: hex.EncodeToString(testTask), Kind: state.GetKind(), Challenger: op3, ProofDeadlineHeight: state.GetProofDeadlineHeight(),
 	}})
 	return cid
+}
+
+// messageCounter counts log records by message.
+type messageCounter struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func (h *messageCounter) Enabled(context.Context, slog.Level) bool { return true }
+func (h *messageCounter) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.counts == nil {
+		h.counts = map[string]int{}
+	}
+	h.counts[r.Message]++
+	return nil
+}
+func (h *messageCounter) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *messageCounter) WithGroup(string) slog.Handler      { return h }
+
+func (h *messageCounter) count(message string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.counts[message]
 }
 
 func (e *env) block(h uint64) {

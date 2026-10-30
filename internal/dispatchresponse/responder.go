@@ -36,6 +36,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 const (
@@ -108,6 +109,9 @@ type Config struct {
 type Counts struct {
 	ClaimsSeen, ClaimsRebutted, ClaimsOwed     uint64
 	ChallengesAnswered, UnanswerableChallenges uint64
+	// AnswersHeldRevoked counts the claims and challenges whose answer was held because this
+	// Builder's service key was revoked (each once per revocation).
+	AnswersHeldRevoked uint64
 }
 
 // Responder rebuts claims and answers challenges.
@@ -124,10 +128,13 @@ type Responder struct {
 
 	claimsSeen, claimsRebutted, claimsOwed atomic.Uint64
 	answered, unanswerable                 atomic.Uint64
-	latest                                 atomic.Uint64
-	wake, stop                             chan struct{}
-	wg                                     sync.WaitGroup
-	stopOnce                               sync.Once
+	heldRevoked                            atomic.Uint64
+	// revoked is set from the first answer refused for a revoked service key until one goes out.
+	revoked    atomic.Bool
+	latest     atomic.Uint64
+	wake, stop chan struct{}
+	wg         sync.WaitGroup
+	stopOnce   sync.Once
 }
 
 // item is an open claim or challenge.
@@ -153,6 +160,9 @@ type item struct {
 	// once a synced copy was found without its record yet (logged once).
 	Missing       bool `json:"missing,omitempty"`
 	RecordMissing bool `json:"record_missing,omitempty"`
+	// HeldRevoked is set once the answer was refused because this Builder's service key is
+	// revoked (counted once), until an answer goes out.
+	HeldRevoked bool `json:"held_revoked,omitempty"`
 }
 
 // Keys of the open items in kv.NSDispatchEvidence.
@@ -241,6 +251,7 @@ func (r *Responder) Counts() Counts {
 	return Counts{
 		ClaimsSeen: r.claimsSeen.Load(), ClaimsRebutted: r.claimsRebutted.Load(), ClaimsOwed: r.claimsOwed.Load(),
 		ChallengesAnswered: r.answered.Load(), UnanswerableChallenges: r.unanswerable.Load(),
+		AnswersHeldRevoked: r.heldRevoked.Load(),
 	}
 }
 
@@ -481,7 +492,33 @@ func (r *Responder) settleLastSend(ctx context.Context, head uint64, it *item) b
 
 // sent records an answer broadcast at head.
 func (it *item) sent(head uint64, res chaincli.TxResult) {
-	it.SentAt, it.Sends, it.TxHash = head, it.Sends+1, res.TxHash
+	it.SentAt, it.Sends, it.TxHash, it.HeldRevoked = head, it.Sends+1, res.TxHash, false
+}
+
+// held takes the submit error of an answer: true when the submitter refused it because this
+// Builder's service key is revoked. A revoked key's service account signs no transaction, so
+// the answer is held and tried again every block, going out once a replacement key is current;
+// claims and challenges whose windows close meanwhile are lost. The first such refusal of a
+// revocation is logged, and each item is counted once.
+func (r *Responder) held(it *item, err error) bool {
+	if !errors.Is(err, servicekey.ErrRevoked) {
+		return false
+	}
+	if r.revoked.CompareAndSwap(false, true) {
+		r.log.Warn("rebuttals and challenge answers held: this Builder's service key is revoked", "err", err)
+	}
+	if !it.HeldRevoked {
+		it.HeldRevoked = true
+		r.heldRevoked.Add(1)
+	}
+	return true
+}
+
+// signed notes that an answer went out: a revocation that held answers is over.
+func (r *Responder) signed() {
+	if r.revoked.CompareAndSwap(true, false) {
+		r.log.Info("rebuttals and challenge answers go out again: this Builder's service key signs again")
+	}
 }
 
 func isNotFound(err error) bool { return errors.Is(err, chaincli.ErrNotFound) }

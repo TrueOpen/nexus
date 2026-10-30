@@ -128,6 +128,7 @@ func diagnostics(ctx context.Context, deps opsDeps) ops.Diagnostics {
 	d.Responses = ops.ResponseDiagnostics{
 		ClaimsSeen: r.ClaimsSeen, ClaimsRebutted: r.ClaimsRebutted, ClaimsOwed: r.ClaimsOwed,
 		ChallengesAnswered: r.ChallengesAnswered, UnanswerableChallenges: r.UnanswerableChallenges,
+		AnswersHeldRevoked: r.AnswersHeldRevoked,
 	}
 	return d
 }
