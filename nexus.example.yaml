@@ -23,9 +23,9 @@ ingress:
   session_key_cache_ttl_blocks: 5
   session_key_lookups_per_second: 20
   # BuilderSyncService requests a second, and their burst, from one source address: the other
-  # Builders of this Builder's groups sync their orders here (defaults 200 and 400).
-  builder_sync_requests_per_second: 200
-  builder_sync_burst: 400
+  # Builders of this Builder's groups sync their orders here (defaults 1000 and 2000).
+  builder_sync_requests_per_second: 1000
+  builder_sync_burst: 2000
   # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed.
   # Order: `nexus tls init` generates a self-signed certificate (default <data_dir>/tls/) and prints the public key fingerprint →
   # the operator runs `nexus builder register` with the operator key to write the https address and fingerprint

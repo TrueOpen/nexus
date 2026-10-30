@@ -11,13 +11,17 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math/big"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 )
 
@@ -188,4 +192,43 @@ func selfSigned(t *testing.T) *x509.Certificate {
 		t.Fatal(err)
 	}
 	return cert
+}
+
+// roundTripFunc answers HTTP requests in memory.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A member that rate-limits the sync keeps its client; any other failure drops it, so the next
+// call reads the member's descriptor again.
+func TestRateLimitedPeerKeepsItsClient(t *testing.T) {
+	status := http.StatusTooManyRequests
+	chain := descriptorsWith(grpcEndpoint("http://m:9090", ""))
+	p := NewChainPeers(chain)
+	p.httpClient = func(e chaincli.ServiceEndpoint) (*http.Client, string, error) {
+		_, base, err := peerHTTPClient(e)
+		return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			code := map[int]string{http.StatusTooManyRequests: "resource_exhausted", http.StatusServiceUnavailable: "unavailable"}[status]
+			return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Request: r,
+				Body: io.NopCloser(strings.NewReader(`{"code":"` + code + `","message":"x"}`))}, nil
+		})}, base, err
+	}
+	for range 2 {
+		if _, err := p.Sync(context.Background(), peerOperator, &nexusv1.SyncRequest{}); connect.CodeOf(err) != connect.CodeResourceExhausted {
+			t.Fatalf("rate-limited sync: %v", err)
+		}
+	}
+	if chain.reads != 1 {
+		t.Fatalf("a rate-limited member's descriptor was read %d times", chain.reads)
+	}
+	status = http.StatusServiceUnavailable
+	for range 2 {
+		if _, err := p.Sync(context.Background(), peerOperator, &nexusv1.SyncRequest{}); connect.CodeOf(err) != connect.CodeUnavailable {
+			t.Fatalf("unavailable sync: %v", err)
+		}
+	}
+	// The first failure dropped the cached client, so the second call read the descriptor again.
+	if chain.reads != 2 {
+		t.Fatalf("an unavailable member's descriptor was read %d times, want 2", chain.reads)
+	}
 }

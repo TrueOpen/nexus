@@ -254,7 +254,7 @@ func TestBuilderSyncRateLimitIsConfigured(t *testing.T) {
 		WithBuilderSync(fakeBuilderSync{}, perSecond, burst)(srv)
 		return srv.builderSync.limit
 	}
-	if l := limit(0, 0); l.perSecond != 200 || l.burst != 400 {
+	if l := limit(0, 0); l.perSecond != 1000 || l.burst != 2000 {
 		t.Fatalf("defaults %v/s burst %v", l.perSecond, l.burst)
 	}
 	if l := limit(50, 70); l.perSecond != 50 || l.burst != 70 {

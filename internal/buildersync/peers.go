@@ -40,6 +40,8 @@ type DescriptorChain interface {
 type ChainPeers struct {
 	chain DescriptorChain
 	now   func() time.Time
+	// httpClient builds the HTTP client and base URL of an endpoint (peerHTTPClient).
+	httpClient func(chaincli.ServiceEndpoint) (*http.Client, string, error)
 
 	mu      sync.Mutex
 	clients map[string]peerClient
@@ -52,7 +54,7 @@ type peerClient struct {
 
 // NewChainPeers builds ChainPeers over the chain's descriptors.
 func NewChainPeers(chain DescriptorChain) *ChainPeers {
-	return &ChainPeers{chain: chain, now: time.Now, clients: map[string]peerClient{}}
+	return &ChainPeers{chain: chain, now: time.Now, httpClient: peerHTTPClient, clients: map[string]peerClient{}}
 }
 
 // Sync implements Peers.
@@ -62,10 +64,14 @@ func (p *ChainPeers) Sync(ctx context.Context, operator string, req *nexusv1.Syn
 		return nil, err
 	}
 	resp, err := client.Sync(ctx, connect.NewRequest(req))
-	if err != nil {
+	if err != nil && connect.CodeOf(err) != connect.CodeResourceExhausted {
+		// A member that only rate-limited the call is reachable where it is.
 		p.mu.Lock()
 		delete(p.clients, operator)
 		p.mu.Unlock()
+		return nil, err
+	}
+	if err != nil {
 		return nil, err
 	}
 	return resp.Msg, nil
@@ -82,7 +88,7 @@ func (p *ChainPeers) client(ctx context.Context, operator string) (nexusv1connec
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", errNoPeer, operator, err)
 	}
-	httpClient, baseURL, err := peerHTTPClient(endpoint)
+	httpClient, baseURL, err := p.httpClient(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", errNoPeer, operator, err)
 	}

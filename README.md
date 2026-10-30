@@ -274,7 +274,7 @@ Production deployments should restrict data directory permissions, disk backup s
 Every order this Builder dispatches is synced to the other Builders of the order's Task Builders
 group over `BuilderSyncService` on the ingress port (batches signed with the Builder service key, no
 API key; limited per source address by `ingress.builder_sync_requests_per_second` and
-`ingress.builder_sync_burst`, defaults 200 and 400). The dispatching side keeps an outbox per order
+`ingress.builder_sync_burst`, defaults 1000 and 2000). The dispatching side keeps an outbox per order
 and deletes the items every member applied.
 
 A member that later reports fewer items than were deleted has lost its data directory. It is logged

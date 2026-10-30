@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -324,5 +325,34 @@ func TestPruneDropsAppliedItemDigests(t *testing.T) {
 	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100000})
 	if count(memberItemPrefix) != 0 || count(memberStreamPrefix) != 0 {
 		t.Fatalf("after expiry: %d digests, %d streams", count(memberItemPrefix), count(memberStreamPrefix))
+	}
+}
+
+// A member that rate-limits the sync is tried again after a short fixed pause, never backed off
+// like a failing member nor alarmed about, and gets everything once it lets requests through.
+func TestRateLimitedMemberIsRetriedShortly(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	e.peers.setFail(e.m.op, connect.NewError(connect.CodeResourceExhausted, errors.New("NEXUS_BUILDER_SYNC_RATE_LIMITED")))
+	e.s.OrderChanged(f.issued())
+	e.sync()
+	key := streamKey(f.sessionHex(), f.sequence) + "|" + e.m.op
+	for range 150 {
+		r := e.s.retries[key]
+		if r == nil || r.next != e.clock.Now().Add(rateLimitedRetry) {
+			t.Fatalf("retry after a rate limit = %+v", r)
+		}
+		e.clock.advance(rateLimitedRetry)
+		e.s.deliverPeer(context.Background(), e.m.op)
+	}
+	if c := e.s.Counts(); c.Alarms != 0 {
+		t.Fatalf("a rate-limited member was alarmed about: %+v", c)
+	}
+	e.peers.setFail(e.m.op, nil)
+	e.clock.advance(rateLimitedRetry)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+	if st.Acked[e.m.op] != st.Last || e.s.retries[key] != nil {
+		t.Fatalf("after the rate limit: acked %d of %d, retry %+v", st.Acked[e.m.op], st.Last, e.s.retries[key])
 	}
 }

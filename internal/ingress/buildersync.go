@@ -22,11 +22,12 @@ const (
 	builderSyncReadMaxBytes = buildersync.MaxRequestBytes
 	// defaultBuilderSyncPerSecond and defaultBuilderSyncBurst limit the sync requests of one source
 	// address when ingress.builder_sync_requests_per_second / builder_sync_burst are unset. A
-	// dispatching Builder sends one batch at a time to each member, on each of its orders, of up to
-	// 128 items. Every request (up to 1 MiB) is validated strictly before its chain and receiver
-	// can be read, so the limit also bounds that work for a sender that is not a member.
-	defaultBuilderSyncPerSecond = 200
-	defaultBuilderSyncBurst     = 400
+	// dispatching Builder sends one batch at a time to each member, on each of its orders, and a
+	// member's sender retries a rate-limited batch after a second. The limit applies to members as
+	// well: membership is only known once a request (up to 1 MiB) was validated and decoded, the
+	// work the limit bounds for a sender that is not one.
+	defaultBuilderSyncPerSecond = 1000
+	defaultBuilderSyncBurst     = 2000
 	// maxLimitedAddresses bounds the addresses the limiter remembers.
 	maxLimitedAddresses = 4096
 )
@@ -42,7 +43,7 @@ type BuilderSync interface {
 
 // WithBuilderSync serves BuilderSyncService on the ingress port. Its requests are authenticated
 // by the sender's signature on each batch, so the SDK API key and IP allowlist do not apply; each
-// source address may send perSecond requests a second with bursts of burst (0: 200 and 400).
+// source address may send perSecond requests a second with bursts of burst (0: 1000 and 2000).
 func WithBuilderSync(sync BuilderSync, perSecond, burst uint32) Option {
 	if perSecond == 0 {
 		perSecond = defaultBuilderSyncPerSecond

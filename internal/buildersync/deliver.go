@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -147,6 +148,10 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 		}
 	}
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeResourceExhausted {
+			s.rateLimited(key, peer, err)
+			return true, false
+		}
 		if probe {
 			s.failures.Add(1)
 			s.log.Info("group member marked lost on an order still lacks its deleted sync items", "order", key, "member", peer, "err", err)
@@ -377,8 +382,11 @@ func (s *Sender) failed(key, peer string, err error) {
 	s.mu.Lock()
 	r := s.retries[key+"|"+peer]
 	if r == nil {
-		r = &retry{failingSince: now}
+		r = &retry{}
 		s.retries[key+"|"+peer] = r
+	}
+	if r.failingSince.IsZero() { // new, or only rate-limited so far
+		r.failingSince = now
 	}
 	r.delay = min(max(2*r.delay, s.cfg.RetryMin), s.cfg.RetryMax)
 	r.next = now.Add(r.delay)
@@ -394,6 +402,25 @@ func (s *Sender) failed(key, peer string, err error) {
 		s.log.Error("group member has not taken an order's sync for too long: it cannot stand in for this Builder on the order",
 			"order", key, "member", peer, "failing_since", since, "err", err)
 	}
+}
+
+// rateLimitedRetry is how long a member that rate-limited a batch is left alone on the order.
+const rateLimitedRetry = time.Second
+
+// rateLimited leaves a member that rate-limited a batch alone on the order for rateLimitedRetry:
+// it is busy, not failing, so neither the backoff of a failing member grows nor its alarm runs.
+func (s *Sender) rateLimited(key, peer string, err error) {
+	s.failures.Add(1)
+	now := s.cfg.Clock()
+	s.mu.Lock()
+	r := s.retries[key+"|"+peer]
+	if r == nil {
+		r = &retry{}
+		s.retries[key+"|"+peer] = r
+	}
+	r.next = now.Add(rateLimitedRetry)
+	s.mu.Unlock()
+	s.log.Debug("group member rate-limited the sync; tried again shortly", "order", key, "member", peer, "retry_in", rateLimitedRetry, "err", err)
 }
 
 // succeeded clears a member's backoff on the order.

@@ -591,7 +591,7 @@ func TestBuilderSyncRateLimitSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Ingress.BuilderSyncRequestsPerSecond != 200 || cfg.Ingress.BuilderSyncBurst != 400 {
+	if cfg.Ingress.BuilderSyncRequestsPerSecond != 1000 || cfg.Ingress.BuilderSyncBurst != 2000 {
 		t.Fatalf("example: %d/s burst %d", cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst)
 	}
 	t.Setenv("NEXUS_INGRESS_BUILDER_SYNC_REQUESTS_PER_SECOND", "300")
