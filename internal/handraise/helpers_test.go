@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -36,7 +37,9 @@ type fakeKeys struct {
 	pending    map[string]bool // operators with a pending CORTEX key rotation
 	pendingErr error
 	// unusable lists operators whose CORTEX key the chain reports unusable (revoked, missing).
-	unusable   map[string]bool
+	unusable map[string]bool
+	// malformed lists operators whose CORTEX binding the chain answers malformed.
+	malformed  map[string]bool
 	builderErr error
 	err        error
 }
@@ -67,6 +70,9 @@ func (k *fakeKeys) CortexRotation(_ context.Context, operator string) (uint64, e
 	defer k.mu.Unlock()
 	if k.unusable[operator] {
 		return 0, fmt.Errorf("revoked: %w", servicekey.ErrUnavailable)
+	}
+	if k.malformed[operator] {
+		return 0, fmt.Errorf("%w: %w", chaincli.ErrMalformedBinding, servicekey.ErrUnavailable)
 	}
 	if k.pending[operator] {
 		return pendingEffective, k.pendingErr

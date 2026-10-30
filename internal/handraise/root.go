@@ -13,6 +13,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 )
@@ -157,13 +158,13 @@ func (r *Registry) holders() []string {
 // and which have no usable CORTEX key at all (servicekey.ErrUnavailable: missing, not ACTIVE,
 // revoked), the same verdict that refuses a new handraise. Any other failed read fails the root: a
 // root that admits a pending Cortex, or refuses one that is not, is not signed on a guess.
-func (r *Registry) rotationsPending(ctx context.Context) (pending, unusable map[string]bool, err error) {
-	pending, unusable = map[string]bool{}, map[string]bool{}
+func (r *Registry) rotationsPending(ctx context.Context) (pending map[string]bool, unusable map[string]error, err error) {
+	pending, unusable = map[string]bool{}, map[string]error{}
 	for _, operator := range r.holders() {
 		effective, err := r.opts.Keys.CortexRotation(ctx, operator)
 		switch {
 		case errors.Is(err, servicekey.ErrUnavailable):
-			unusable[operator] = true
+			unusable[operator] = err
 		case err != nil:
 			return nil, nil, fmt.Errorf("read CORTEX key rotation of %s: %w", operator, err)
 		case effective != 0:
@@ -176,10 +177,10 @@ func (r *Registry) rotationsPending(ctx context.Context) (pending, unusable map[
 // invalidateLocked drops the current handraise of every operator whose CORTEX key is unusable and
 // keeps it as that operator's INVALID_HANDRAISE trace for the next root (unless a newer trace is
 // waiting), as Accept does with a handraise that fails verification. The watermark stays, so the
-// dropped handraise cannot come back. Caller holds r.mu.
-func (r *Registry) invalidateLocked(unusable map[string]bool) {
+// dropped handraise cannot come back. unusable maps each operator to why. Caller holds r.mu.
+func (r *Registry) invalidateLocked(unusable map[string]error) {
 	var drop []string
-	for operator := range unusable {
+	for operator, why := range unusable {
 		h, ok := r.current[operator]
 		if !ok {
 			continue
@@ -189,7 +190,11 @@ func (r *Registry) invalidateLocked(unusable map[string]bool) {
 		if _, waiting := r.invalid[operator]; !waiting {
 			r.invalid[operator] = h
 		}
-		r.log.Info("handraise dropped: the holder's CORTEX service key is unusable", "operator", operator)
+		if errors.Is(why, chaincli.ErrMalformedBinding) {
+			r.log.Warn("handraise dropped: the chain's CORTEX binding of the holder is malformed", "operator", operator, "err", why)
+		} else {
+			r.log.Info("handraise dropped: the holder's CORTEX service key is unusable", "operator", operator, "err", why)
+		}
 	}
 	r.deleteKeys(drop)
 }

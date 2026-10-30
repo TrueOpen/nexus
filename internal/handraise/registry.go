@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -239,6 +240,11 @@ func (r *Registry) Accept(ctx context.Context, operator string, h *taskv1.Standi
 		return err
 	}
 	if err := r.verify(ctx, operator, got); err != nil {
+		if errors.Is(err, chaincli.ErrMalformedBinding) {
+			// Not the Cortex's fault as such: the chain answers its binding against the binding
+			// rules. The handraise is refused all the same, and the operator should know why.
+			r.log.Warn("handraise refused: the chain's CORTEX binding of the holder is malformed", "operator", operator, "err", err)
+		}
 		if errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotEligible) {
 			r.mu.Lock()
 			r.invalid[operator] = got
@@ -351,7 +357,7 @@ func (r *Registry) checkOrder(operator string, got *held) (done bool, err error)
 func (r *Registry) verify(ctx context.Context, operator string, got *held) error {
 	pub, nonce, err := r.opts.Keys.CurrentCortexKey(ctx, operator)
 	if errors.Is(err, servicekey.ErrUnavailable) {
-		return fmt.Errorf("%w: %v", ErrInvalid, err)
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if err != nil {
 		return fmt.Errorf("%w: read current CORTEX service key: %w", ErrChainUnavailable, err)

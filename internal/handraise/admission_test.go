@@ -3,6 +3,7 @@ package handraise
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -322,5 +323,29 @@ func TestHolderWithAnUnusableKeyIsDroppedAndRootsGoOn(t *testing.T) {
 		if leaf.GetHandraise().GetMember().GetOperatorAddress() == revoked.operator() {
 			t.Fatalf("revoked holder still in the following root: %v", leaf)
 		}
+	}
+}
+
+// A holder dropped because the chain answers its CORTEX binding malformed is logged apart from
+// one whose key is simply unusable: the chain, not the Cortex, breaks the binding rules.
+func TestHolderWithAMalformedBindingIsLoggedApart(t *testing.T) {
+	e := newEnv(t)
+	logs := &messageCounter{}
+	e.reg.log = slog.New(logs)
+	revoked, malformed := e.addCortex(0x11, 1), e.addCortex(0x12, 2)
+	for _, c := range []cortex{revoked, malformed} {
+		e.mustAccept(c, e.handraise(c, 100, 1))
+	}
+	e.mustIssue()
+	e.keys.mu.Lock()
+	e.keys.unusable = map[string]bool{revoked.operator(): true}
+	e.keys.malformed = map[string]bool{malformed.operator(): true}
+	e.keys.mu.Unlock()
+	e.mustIssue()
+	if n := logs.count("handraise dropped: the holder's CORTEX service key is unusable"); n != 1 {
+		t.Fatalf("unusable-key drops logged %d times, want 1", n)
+	}
+	if n := logs.count("handraise dropped: the chain's CORTEX binding of the holder is malformed"); n != 1 {
+		t.Fatalf("malformed-binding drops logged %d times, want 1", n)
 	}
 }
