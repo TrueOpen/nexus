@@ -193,7 +193,7 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 			taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING:
 			m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
 		default:
-			m.end(ctx, r, codeRejected, false, &types.TaskEventDetail{RejectCode: int32(j.code)})
+			m.end(ctx, r, codeRejected, false, &types.TaskEventDetail{RejectCode: coordinator.RejectCategory(j.code)})
 		}
 	case causeVoided:
 		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))

@@ -56,6 +56,15 @@ func TestDispatchEventsCarryTheirDetail(t *testing.T) {
 	if code != EvRecordRejected || d == nil || *d != (types.TaskEventDetail{DispatchTicketHash: hex.EncodeToString(ticket[:]), RejectCode: int32(balance)}) {
 		t.Fatalf("%s detail = %+v", code, d)
 	}
+	unspecified := testPlaceholderOrder("session-3", "task-4")
+	if err := c.OnOrder(ctx, unspecified); err != nil {
+		t.Fatal(err)
+	}
+	c.RecordRejected(unspecified.SessionID, unspecified.TaskID, ticket, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED)
+	code, d = lastDetail(t, c, unspecified.SessionID, unspecified.TaskID)
+	if code != EvRecordRejected || d == nil || d.RejectCode != int32(taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT) {
+		t.Fatalf("refusal without a code: %s detail = %+v", code, d)
+	}
 	c.DispatchFailed(later.SessionID, later.TaskID, fmt.Errorf("%w: sequence 0", dispatcher.ErrRecordRejected))
 	code, d = lastDetail(t, c, later.SessionID, later.TaskID)
 	if code != EvRecordRejected || d == nil || d.RejectCode != int32(taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT) {

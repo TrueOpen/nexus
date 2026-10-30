@@ -246,7 +246,7 @@ func (c *Coordinator) RecordRejected(sessionID, taskID string, ticket [32]byte, 
 		return
 	}
 	height, _ := c.currentChainHeight()
-	c.failRecord(fsm, height, &types.TaskEventDetail{DispatchTicketHash: hex.EncodeToString(ticket[:]), RejectCode: int32(code)})
+	c.failRecord(fsm, height, &types.TaskEventDetail{DispatchTicketHash: hex.EncodeToString(ticket[:]), RejectCode: RejectCategory(code)})
 	c.log.Info("dispatch record rejected", "session_id", sessionID, "task_id", taskID, "reject_code", code)
 }
 
@@ -257,10 +257,19 @@ func (c *Coordinator) failRecord(fsm *taskFSM, height uint64, detail *types.Task
 	}
 }
 
+// RejectCategory is the RECORD_REJECTED rejection category of a refusal with code. The event always
+// names a nonzero category: a refusal that came without a code is CONFLICT.
+func RejectCategory(code taskv1.DispatchRejectCodeV1) int32 {
+	if code == taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED {
+		return int32(taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT)
+	}
+	return int32(code)
+}
+
 // recordRejection is the RECORD_REJECTED detail of a task with code: with the ticket of its
 // attempt when it has one.
 func (c *Coordinator) recordRejection(sessionID, taskID string, code taskv1.DispatchRejectCodeV1) *types.TaskEventDetail {
-	detail := &types.TaskEventDetail{RejectCode: int32(code)}
+	detail := &types.TaskEventDetail{RejectCode: RejectCategory(code)}
 	if c.attempts != nil {
 		if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID {
 			detail.DispatchTicketHash = hex.EncodeToString(a.TicketHash[:])

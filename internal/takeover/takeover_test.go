@@ -567,6 +567,8 @@ func TestTakeoverEntryRefusals(t *testing.T) {
 		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED, "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound"},
 		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING, "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound"},
 		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED, "ended task5 RECORD_REJECTED drop=false reject=DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED"},
+		// A refusal without a code still carries a nonzero category.
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED, "ended task5 RECORD_REJECTED drop=false reject=DISPATCH_REJECT_CODE_V1_CONFLICT"},
 	} {
 		e := newEnv(t)
 		e.submit(5)
