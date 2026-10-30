@@ -177,24 +177,29 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 }
 
 const (
-	// builderSetRefreshInterval is how recent a BuilderSet read must be for a stale order not to
-	// cause another one.
+	// builderSetRefreshInterval is how long after a BuilderSet read, failed or not, a stale order
+	// causes no other one.
 	builderSetRefreshInterval = time.Second
 	// builderSetRefreshTimeout bounds the BuilderSet read a stale order waits for.
 	builderSetRefreshTimeout = 2 * time.Second
 )
 
+// errBuilderSetRefreshBusy refuses, as retryable, a stale order that cannot cause a BuilderSet read
+// now: one runs, or the last was attempted less than builderSetRefreshInterval ago.
+var errBuilderSetRefreshBusy = errors.New("the current BuilderSet was read too recently or is being read")
+
 // checkBuilderSet checks the order names the current BuilderSet snapshot (taskgroup.CheckOrder).
 // An order naming another one may mean this Builder's view is the one behind, so before the order
 // is called stale the BuilderSet is read from the chain again (refreshBuilderSet) and the order
-// checked once more: only an order whose snapshot is still not the current one is
-// taskgroup.ErrBuilderSetStale. No snapshot known, or a read that failed, is
-// ErrDispatchUnavailable (retryable).
+// checked once more: only an order whose snapshot is still not the current one after that read is
+// taskgroup.ErrBuilderSetStale. No snapshot known, or no read that could be made or that succeeded,
+// is ErrDispatchUnavailable (retryable): an order is never called stale from a view older than the
+// request.
 func (c *Coordinator) checkBuilderSet(ctx context.Context, order *taskv1.TaskOrderV3) error {
 	_, err := taskgroup.CheckOrder(c, order)
 	if errors.Is(err, taskgroup.ErrBuilderSetStale) {
 		if refreshErr := c.refreshBuilderSet(ctx); refreshErr != nil {
-			return fmt.Errorf("%w: the order names another BuilderSet and the current one could not be read: %v", ErrDispatchUnavailable, refreshErr)
+			return fmt.Errorf("%w: the order names another BuilderSet and the current one could not be read again: %v", ErrDispatchUnavailable, refreshErr)
 		}
 		_, err = taskgroup.CheckOrder(c, order)
 	}
@@ -204,22 +209,21 @@ func (c *Coordinator) checkBuilderSet(ctx context.Context, order *taskv1.TaskOrd
 	return err
 }
 
-// refreshBuilderSet reads the current BuilderSet from the chain, within builderSetRefreshTimeout,
-// unless the last such read is less than builderSetRefreshInterval old. Concurrent callers wait
-// for one read.
+// refreshBuilderSet reads the current BuilderSet from the chain within builderSetRefreshTimeout.
+// It never waits for another caller: while a read runs, or less than builderSetRefreshInterval
+// after the last attempt, failed or not, it returns errBuilderSetRefreshBusy at once.
 func (c *Coordinator) refreshBuilderSet(ctx context.Context) error {
-	c.builderSetRefresh.Lock()
+	if !c.builderSetRefresh.TryLock() {
+		return errBuilderSetRefreshBusy
+	}
 	defer c.builderSetRefresh.Unlock()
 	if !c.builderSetRefreshedAt.IsZero() && time.Since(c.builderSetRefreshedAt) < builderSetRefreshInterval {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, builderSetRefreshTimeout)
-	defer cancel()
-	if err := c.seedBuilderSet(ctx); err != nil {
-		return err
+		return errBuilderSetRefreshBusy
 	}
 	c.builderSetRefreshedAt = time.Now()
-	return nil
+	ctx, cancel := context.WithTimeout(ctx, builderSetRefreshTimeout)
+	defer cancel()
+	return c.seedBuilderSet(ctx)
 }
 
 // DispatchResult returns the signed dispatch result header of the task's winning attempt at its

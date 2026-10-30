@@ -57,44 +57,66 @@ func builderSetRegistry(id string) *fakeBuilderRegistry {
 
 // An order naming another snapshot may mean this Builder is the one behind: the BuilderSet is read
 // from the chain again before the order is judged. When the chain's current snapshot is the
-// order's, the order goes on; when it is still another, the order is stale. A read this recent is
-// not repeated for the next stale order; a read that fails leaves the answer retryable.
+// order's, the order goes on; when it is still another, the order is stale. The read never makes a
+// request wait for another one: while a read runs, or within builderSetRefreshInterval of the last
+// attempt (failed or not), the answer is the retryable DISPATCH_UNAVAILABLE rather than STALE from
+// a view older than the request.
 func TestCheckOrderReadsTheBuilderSetAgainBeforeCallingAnOrderStale(t *testing.T) {
-	t.Run("this Builder behind", func(t *testing.T) {
-		registry := builderSetRegistry(testBuilderSetRef.ID)
+	order := testPlaceholderOrder("session-1", "task-1")
+	newCoordinator := func(t *testing.T, chainSet, localSet string) (*Coordinator, *fakeBuilderRegistry) {
+		registry := builderSetRegistry(chainSet)
 		c, _ := newTestCoordinator(t, WithBuilderRegistry(registry))
 		c.SetDispatcher(&fakeDispatcher{})
-		c.active.Update(1, []types.BuilderRef{{Address: testBuilderSelf, Rank: 1}}, builderSetRef{ID: "term-0", Hash: testBuilderSetRef.Hash})
-		if err := c.CheckOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+		c.active.Update(1, []types.BuilderRef{{Address: testBuilderSelf, Rank: 1}}, builderSetRef{ID: localSet, Hash: testBuilderSetRef.Hash})
+		return c, registry
+	}
+	reads := func(r *fakeBuilderRegistry) int {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.setCalls
+	}
+	unavailable := func(t *testing.T, err error) {
+		t.Helper()
+		if !errors.Is(err, ErrDispatchUnavailable) || errors.Is(err, taskgroup.ErrBuilderSetStale) {
+			t.Fatalf("err = %v, want DISPATCH_UNAVAILABLE", err)
+		}
+	}
+	t.Run("this Builder behind", func(t *testing.T) {
+		c, _ := newCoordinator(t, testBuilderSetRef.ID, "term-0")
+		if err := c.CheckOrder(context.Background(), order); err != nil {
 			t.Fatalf("order of the chain's current snapshot: %v", err)
 		}
 	})
 	t.Run("client behind", func(t *testing.T) {
-		registry := builderSetRegistry("term-2")
-		c, _ := newTestCoordinator(t, WithBuilderRegistry(registry))
-		c.SetDispatcher(&fakeDispatcher{})
-		c.active.Update(2, []types.BuilderRef{{Address: testBuilderSelf, Rank: 1}}, builderSetRef{ID: "term-2", Hash: testBuilderSetRef.Hash})
-		for range 3 {
-			if err := c.CheckOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); !errors.Is(err, taskgroup.ErrBuilderSetStale) {
-				t.Fatalf("order of a replaced snapshot: %v", err)
-			}
+		c, registry := newCoordinator(t, "term-2", "term-2")
+		if err := c.CheckOrder(context.Background(), order); !errors.Is(err, taskgroup.ErrBuilderSetStale) {
+			t.Fatalf("order of a replaced snapshot: %v", err)
 		}
-		registry.mu.Lock()
-		calls := registry.setCalls
-		registry.mu.Unlock()
-		if calls != 1 {
-			t.Fatalf("BuilderSet reads = %d, want one while the last read is fresh", calls)
+		unavailable(t, c.CheckOrder(context.Background(), order))
+		if n := reads(registry); n != 1 {
+			t.Fatalf("BuilderSet reads = %d, want one within the interval", n)
+		}
+		c.builderSetRefreshedAt = c.builderSetRefreshedAt.Add(-builderSetRefreshInterval)
+		if err := c.CheckOrder(context.Background(), order); !errors.Is(err, taskgroup.ErrBuilderSetStale) || reads(registry) != 2 {
+			t.Fatalf("after the interval: %v, %d reads", err, reads(registry))
 		}
 	})
 	t.Run("read failed", func(t *testing.T) {
-		registry := builderSetRegistry(testBuilderSetRef.ID)
+		c, registry := newCoordinator(t, testBuilderSetRef.ID, "term-0")
 		registry.setErr = errors.New("hub unreachable")
-		c, _ := newTestCoordinator(t, WithBuilderRegistry(registry))
-		c.SetDispatcher(&fakeDispatcher{})
-		c.active.Update(1, []types.BuilderRef{{Address: testBuilderSelf, Rank: 1}}, builderSetRef{ID: "term-0", Hash: testBuilderSetRef.Hash})
-		err := c.CheckOrder(context.Background(), testPlaceholderOrder("session-1", "task-1"))
-		if !errors.Is(err, ErrDispatchUnavailable) || errors.Is(err, taskgroup.ErrBuilderSetStale) {
-			t.Fatalf("BuilderSet unreadable: %v", err)
+		unavailable(t, c.CheckOrder(context.Background(), order))
+		unavailable(t, c.CheckOrder(context.Background(), order))
+		if n := reads(registry); n != 1 {
+			t.Fatalf("BuilderSet reads = %d, want a failed read to count against the interval", n)
+		}
+	})
+	t.Run("read running", func(t *testing.T) {
+		c, registry := newCoordinator(t, testBuilderSetRef.ID, "term-0")
+		c.builderSetRefresh.Lock()
+		unavailable(t, c.CheckOrder(context.Background(), order))
+		c.builderSetRefresh.Unlock()
+		if n := reads(registry); n != 0 {
+			t.Fatalf("BuilderSet reads = %d while another read runs", n)
 		}
 	})
 }

@@ -138,8 +138,8 @@ type Coordinator struct {
 	attemptRetention uint64
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
-	// builderSetRefresh serializes the BuilderSet reads stale orders cause; builderSetRefreshedAt
-	// is when the last one succeeded.
+	// builderSetRefresh is held while a stale order reads the BuilderSet; builderSetRefreshedAt is
+	// when the last such read started, failed or not.
 	builderSetRefresh     sync.Mutex
 	builderSetRefreshedAt time.Time
 
