@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/TrueOpen/wire/dispatch"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 // StatusRevoked is the status of a current binding that grants no live permission; it still
@@ -67,7 +69,7 @@ func proofKey(ctx context.Context, resolver Resolver, participantType, operator 
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s binding status %q: %w", participantType, state.Status, ErrUnavailable)
 		}
 		publicKey, err := decodePubKey(state.ServicePubKey)
-		if err != nil || state.AuthorizationNonce == 0 {
+		if err != nil || state.AuthorizationNonce == 0 || !derivesAddress(publicKey, state.ServiceAddress) {
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("malformed %s binding: %w", participantType, ErrUnavailable)
 		}
 		return dispatch.ProofKeyBinding{PublicKey: publicKey, ServiceAuthorizationNonce: state.AuthorizationNonce, Status: status}, nil
@@ -81,6 +83,17 @@ func proofKey(ctx context.Context, resolver Resolver, participantType, operator 
 			PreviousRetiredHeight: p.RetiredHeight}, nil
 	}
 	return dispatch.ProofKeyBinding{}, fmt.Errorf("%s generation %d is neither current nor previous: %w", participantType, nonce, ErrUnavailable)
+}
+
+// derivesAddress reports whether publicKey derives the bech32 service address, under the
+// address's own prefix. The previous generation carries no service address to check.
+func derivesAddress(publicKey []byte, address string) bool {
+	i := strings.LastIndexByte(address, '1')
+	if i <= 0 {
+		return false
+	}
+	derived, err := signer.AddressFromPubKey(address[:i], publicKey)
+	return err == nil && derived == address
 }
 
 func decodePubKey(text string) ([]byte, error) {

@@ -131,6 +131,13 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	if _, err := at(3); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("unknown generation = %v, want ErrUnavailable", err)
 	}
+	// The current key must derive the binding's service address.
+	forged := state
+	forged.ServiceAddress = previous.Address()
+	resolver.states[ParticipantBuilder+"|"+operator] = forged
+	if _, err := at(5); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("current key of another service address = %v, want ErrUnavailable", err)
+	}
 	state.Status = StatusRevoked
 	resolver.states[ParticipantBuilder+"|"+operator] = state
 	if key, err := at(5); err != nil || key.Status != dispatch.ProofKeyRevoked {
