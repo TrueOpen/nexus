@@ -47,8 +47,8 @@ type attemptState struct {
 	RejectDigest []byte `json:"reject_digest,omitempty"`
 	// LateAccept is the signed DispatchAcceptV1 of a VOIDED attempt as received: the Worker
 	// accepted within the ticket's accept deadline, but the order could no longer be recorded in
-	// time, or this Builder's service key was revoked and can sign no record. LateAcceptDigest is its dispatch_accept_digest; a compensation claim on the ticket is
-	// matched against them.
+	// time, or this Builder's service key was revoked and can sign no record. LateAcceptDigest
+	// is its dispatch_accept_digest; a compensation claim on the ticket is matched against them.
 	LateAccept       []byte `json:"late_accept,omitempty"`
 	LateAcceptDigest []byte `json:"late_accept_digest,omitempty"`
 }
