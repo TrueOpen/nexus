@@ -106,7 +106,7 @@ func TestServiceKeyModuleStartsWithARevokedKey(t *testing.T) {
 
 // The service key events reach the ring: this Builder's own SERVICE_KEY_REVOKED stops its
 // signing at once, and the cache drops the revoked binding in the same pass. The ring's switch log
-// reports the revocation as an error.
+// reports the revocation as an error and runs the revocation hook (which ends unsent takeovers).
 func TestServiceKeyEventsRevokeTheRing(t *testing.T) {
 	builder := mustSigner(t, 0x01)
 	chain := &wiringChain{
@@ -115,7 +115,8 @@ func TestServiceKeyEventsRevokeTheRing(t *testing.T) {
 	}
 	cache := servicekey.NewCache(chain, time.Hour)
 	logs := &countingHandler{}
-	ring, err := servicekey.NewRing(cache, wiringPrefix, builder.Address(), logServiceKeySwitch(slog.New(logs)), builder)
+	revocations := 0
+	ring, err := servicekey.NewRing(cache, wiringPrefix, builder.Address(), logServiceKeySwitch(slog.New(logs), func() { revocations++ }), builder)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +131,8 @@ func TestServiceKeyEventsRevokeTheRing(t *testing.T) {
 	if _, err := ring.Sign([]byte("m")); !errors.Is(err, servicekey.ErrRevoked) {
 		t.Fatalf("Sign after the revocation event = %v", err)
 	}
-	if logs.count(slog.LevelError) != 1 {
-		t.Fatalf("%d error logs, want the revocation", logs.count(slog.LevelError))
+	if logs.count(slog.LevelError) != 1 || revocations != 1 {
+		t.Fatalf("%d error logs, %d revocation hooks; want one each", logs.count(slog.LevelError), revocations)
 	}
 	revoked := serviceKeyState("BUILDER", builder.Address(), builder, 7)
 	revoked.Status = servicekey.StatusRevoked

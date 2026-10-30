@@ -251,6 +251,14 @@ func (m *Manager) EndUnsent() {
 	}
 }
 
+// KeyRevoked ends the submitted takeovers whose entry no transaction carries yet, as a drain does
+// (EndUnsent): this Builder's service key was revoked, so no entry can be signed before a
+// replacement key is current. Those whose entry went out finish on chain.
+func (m *Manager) KeyRevoked() {
+	m.log.Warn("service key revoked: takeovers whose entry has not gone out end as no capacity")
+	m.EndUnsent()
+}
+
 // Pending counts the takeovers held as candidate, reserved ones included.
 func (m *Manager) Pending() int {
 	m.mu.Lock()

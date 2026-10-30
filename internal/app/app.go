@@ -33,6 +33,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -382,7 +383,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// At a cutover the chain makes the registered replacement current; the ring signs new
 		// messages with it from its next read. Cortex streams stay up: what was signed before
 		// keeps its own nonce. A revoked current key signs nothing until a replacement is current.
-		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, logServiceKeySwitch(log), keys...); err != nil {
+		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, logServiceKeySwitch(log, keyEvents.revoked), keys...); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
@@ -495,6 +496,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		coord.SetDispatcher(orderPath.Dispatcher)
 		sinks.Dispatch = orderPath.Dispatcher
 		orders.order.Store(orderPath)
+		keyEvents.takeovers.Store(orderPath.Takeovers)
 	} else {
 		log.Warn("direct dispatch NOT configured (needs the service key and identity.vrf_key_files); standing handraises are dropped")
 	}
@@ -730,11 +732,20 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 
 // serviceKeyEvents feeds the chain's service key events to what follows them, each set once it
 // exists: the key cache drops the operator's stale keys first, this Builder's ring stops signing
-// on its own revocation, and the stream hub ends the Cortex streams whose binding key left.
+// on its own revocation, and the stream hub ends the Cortex streams whose binding key left. When
+// the ring finds its key revoked, the takeovers whose entry has not gone out end.
 type serviceKeyEvents struct {
-	cache   atomic.Pointer[servicekey.Cache]
-	ring    atomic.Pointer[servicekey.Ring]
-	streams atomic.Pointer[dispatchstream.Hub]
+	cache     atomic.Pointer[servicekey.Cache]
+	ring      atomic.Pointer[servicekey.Ring]
+	streams   atomic.Pointer[dispatchstream.Hub]
+	takeovers atomic.Pointer[takeover.Manager]
+}
+
+// revoked runs when this Builder's ring finds its current key revoked.
+func (k *serviceKeyEvents) revoked() {
+	if t := k.takeovers.Load(); t != nil {
+		t.KeyRevoked()
+	}
 }
 
 func (k *serviceKeyEvents) observe(ev chaincli.ChainEvent) {
@@ -750,13 +761,16 @@ func (k *serviceKeyEvents) observe(ev chaincli.ChainEvent) {
 }
 
 // logServiceKeySwitch is the ring's onSwitch: it logs a cutover, a revocation of the current key
-// and the replacement that ends one.
-func logServiceKeySwitch(log *slog.Logger) func(old, current servicekey.Key) {
+// (and runs onRevoked, when set) and the replacement that ends one.
+func logServiceKeySwitch(log *slog.Logger, onRevoked func()) func(old, current servicekey.Key) {
 	return func(old, current servicekey.Key) {
 		switch {
 		case current.Revoked:
 			log.Error("service key revoked: nothing is signed and no order is dispatched until a replacement key is current",
 				"nonce", current.Nonce, "service_address", current.Signer.Address())
+			if onRevoked != nil {
+				onRevoked()
+			}
 		case old.Revoked:
 			log.Info("service key replacement current: signing and dispatch resume", "old_nonce", old.Nonce, "nonce", current.Nonce,
 				"service_address", current.Signer.Address())
