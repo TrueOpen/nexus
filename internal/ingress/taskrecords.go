@@ -25,25 +25,26 @@ const (
 	maxTaskRecords = 4096
 )
 
-// taskRecords answers whether the chain recorded a task's dispatch with this Builder in its Task
-// Builders group. A recorded group never changes, so that answer is kept; "not recorded" is kept
-// for taskRecordMissTTL.
+// taskRecords answers whether the chain recorded a task's dispatch with builder (this Builder) in
+// its Task Builders group. A recorded group never changes, so that answer is kept; "not recorded"
+// is kept for taskRecordMissTTL.
 type taskRecords struct {
-	chain TaskBuilders
-	now   func() time.Time
+	chain   TaskBuilders
+	builder string
+	now     func() time.Time
 
 	mu       sync.Mutex
 	recorded map[string]bool      // task -> this Builder is in its group
 	misses   map[string]time.Time // task -> until when "not recorded" stands
 }
 
-func newTaskRecords(chain TaskBuilders) *taskRecords {
-	return &taskRecords{chain: chain, now: time.Now, recorded: map[string]bool{}, misses: map[string]time.Time{}}
+func newTaskRecords(chain TaskBuilders, builder string) *taskRecords {
+	return &taskRecords{chain: chain, builder: builder, now: time.Now, recorded: map[string]bool{}, misses: map[string]time.Time{}}
 }
 
 // member reports whether the chain recorded the task (session and task ids in hex) and, if so,
-// whether builder is in its Task Builders group.
-func (r *taskRecords) member(ctx context.Context, sessionID, taskID, builder string) (recorded, member bool, err error) {
+// whether this Builder is in its Task Builders group.
+func (r *taskRecords) member(ctx context.Context, sessionID, taskID string) (recorded, member bool, err error) {
 	r.mu.Lock()
 	member, recorded = r.recorded[taskID]
 	until, missed := r.misses[taskID]
@@ -73,7 +74,7 @@ func (r *taskRecords) member(ctx context.Context, sessionID, taskID, builder str
 	case err != nil:
 		return false, false, err
 	}
-	member = slices.Contains(state.SelectedBuilders, builder)
+	member = slices.Contains(state.SelectedBuilders, r.builder)
 	if len(r.recorded) >= maxTaskRecords {
 		clear(r.recorded)
 	}

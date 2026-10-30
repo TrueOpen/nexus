@@ -37,7 +37,7 @@ func WithMemberReplicas(replicas MemberReplicas, chain TaskBuilders, wait time.D
 
 func withMemberReplicas(replicas MemberReplicas, chain TaskBuilders, wait time.Duration) serviceOption {
 	return func(s *service) {
-		s.memberReplicas, s.taskRecords, s.replicaWait = replicas, newTaskRecords(chain), wait
+		s.memberReplicas, s.taskRecords, s.replicaWait = replicas, newTaskRecords(chain, s.auth.BuilderAddress), wait
 	}
 }
 
@@ -151,7 +151,7 @@ func (s *service) memberReplica(ctx context.Context, ids taskIDs, requester stri
 	} else if _, err := s.h.TaskOwner(ctx, ids.session, ids.task); !errors.Is(err, types.ErrTaskNotFound) {
 		return attempt.Attempt{}, false, nil
 	}
-	recorded, member, err := s.taskRecords.member(ctx, ids.session, ids.task, s.auth.BuilderAddress)
+	recorded, member, err := s.taskRecords.member(ctx, ids.session, ids.task)
 	switch {
 	case err != nil:
 		return attempt.Attempt{}, true, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read the task's record from the chain: %w", err))
