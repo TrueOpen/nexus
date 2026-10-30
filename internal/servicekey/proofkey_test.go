@@ -12,6 +12,7 @@ import (
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -159,5 +160,115 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	}
 	if _, _, err := Current(context.Background(), resolver, testPrefix, ParticipantBuilder, operator); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Current of a malformed binding = %v, want ErrUnavailable", err)
+	}
+}
+
+// retainedCase is one of wire's retained_message_cases: a retained Builder message signed under
+// signed_nonce for a ticket of ticket_nonce, against a binding whose current generation is
+// current_nonce (current_status) and whose previous one is previous_nonce, retired at
+// previous_retired_height; earliest_submit_height is the order's (absent: not known).
+type retainedCase struct {
+	Name                  string  `json:"name"`
+	SignedNonce           uint64  `json:"signed_nonce"`
+	TicketNonce           uint64  `json:"ticket_nonce"`
+	CurrentNonce          uint64  `json:"current_nonce"`
+	CurrentStatus         string  `json:"current_status"`
+	PreviousNonce         uint64  `json:"previous_nonce"`
+	EarliestSubmitHeight  *uint64 `json:"earliest_submit_height"`
+	PreviousRetiredHeight uint64  `json:"previous_retired_height"`
+	Allowed               bool    `json:"allowed"`
+}
+
+// signRetained signs m under name with key and returns its signed bytes; sign sets the signature.
+func signRetained(t *testing.T, key signer.Signer, name string, m proto.Message, sign func([]byte)) []byte {
+	t.Helper()
+	sign(nil)
+	unsigned, err := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := dispatch.SigningDigest(name, unsigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := key.SignDigest(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sign(sig)
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// Wire's retained message cases: a result header, input response, revoke or record notice keeps
+// the nonce it was signed under across a cutover and verifies under the current key (even when
+// revoked) or the previous one for an order below its retirement, never under a generation older
+// than its ticket's, an unknown one, nonce 0, or previous without the order's height. The Builder
+// verifies the synced result header (VerifyDispatchProof) and the ticket-bound messages
+// (VerifyTicketBoundDispatchProof) through ProofOptions.
+func TestProofKeysFollowTheRetainedMessageVectors(t *testing.T) {
+	var vectors struct {
+		Cases []retainedCase `json:"retained_message_cases"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/service_key_rotation_v1.json"), &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors.Cases) == 0 {
+		t.Fatal("no retained message cases")
+	}
+	v := wirefixture.Load(t, "task/dispatch_v1.json").Vector(t, "nexus_v1_dispatchresultheaderv1", 0)
+	var sv struct {
+		ProtobufHex string `json:"protobuf_hex"`
+	}
+	if err := json.Unmarshal(v.Raw, &sv); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := hex.DecodeString(sv.ProtobufHex)
+	var header nexusv1.DispatchResultHeaderV1
+	if err := proto.Unmarshal(raw, &header); err != nil {
+		t.Fatal(err)
+	}
+	chainID := header.GetWinnerTicket().GetChainId()
+	operator := testSigner(t, 9).Address()
+	previous, current, unknown := testSigner(t, 1), testSigner(t, 2), testSigner(t, 3)
+	for _, c := range vectors.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			state := activeState(ParticipantBuilder, operator, current)
+			state.AuthorizationNonce = c.CurrentNonce
+			state.Status = c.CurrentStatus
+			state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(previous.PubKeyCompressed()),
+				AuthorizationNonce: c.PreviousNonce, RetiredHeight: c.PreviousRetiredHeight}
+			resolver := &fakeResolver{states: map[string]chaincli.ServiceKeyState{ParticipantBuilder + "|" + operator: state}}
+			key := unknown
+			switch c.SignedNonce {
+			case c.CurrentNonce, 0:
+				key = current
+			case c.PreviousNonce:
+				key = previous
+			}
+			ticket := proto.Clone(header.GetWinnerTicket()).(*taskv1.DispatchTicketV1)
+			ticket.BuilderAddress, ticket.ServiceAuthorizationNonce = operator, c.TicketNonce
+			ticketRaw := signRetained(t, previous, "task.v1.DispatchTicketV1", ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
+			ticketHash, err := dispatch.SigningDigest("task.v1.DispatchTicketV1", ticketRaw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts := ProofOptions(context.Background(), resolver, testPrefix, c.EarliestSubmitHeight)
+
+			h := proto.Clone(&header).(*nexusv1.DispatchResultHeaderV1)
+			h.WinnerTicket, h.ServiceAuthorizationNonce = ticket, c.SignedNonce
+			headerRaw := signRetained(t, key, "nexus.v1.DispatchResultHeaderV1", h, func(s []byte) { h.BuilderServiceSignature = s })
+			if err := dispatch.VerifyDispatchProof(chainID, "nexus.v1.DispatchResultHeaderV1", headerRaw, opts); (err == nil) != c.Allowed {
+				t.Fatalf("result header = %v, allowed %v", err, c.Allowed)
+			}
+			notice := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: ticketHash[:], RecordedHeight: 9, ServiceAuthorizationNonce: c.SignedNonce}
+			noticeRaw := signRetained(t, key, "nexus.v1.RecordResultNoticeV1", notice, func(s []byte) { notice.BuilderServiceSignature = s })
+			if err := dispatch.VerifyTicketBoundDispatchProof(chainID, "nexus.v1.RecordResultNoticeV1", noticeRaw, ticketRaw, opts); (err == nil) != c.Allowed {
+				t.Fatalf("record notice = %v, allowed %v", err, c.Allowed)
+			}
+		})
 	}
 }
