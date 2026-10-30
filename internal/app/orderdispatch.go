@@ -245,7 +245,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Groups: deps.Direct.Groups,
 		Roots: issuedRoot(deps.Direct.Registry), Inputs: buildersync.StoredInputs{Store: deps.Inputs}, Outputs: deps.Inputs,
 		Evidence: od.Evidence, Peers: buildersync.NewChainPeers(deps.HubChain), Retention: od.evidenceRetention, Attempts: deps.Attempts,
-		SnapshotAt: builderSetAt(deps.HubChain), Log: deps.Log,
+		SnapshotAt: builderSetAt(deps.HubChain), Metrics: deps.Metrics, Log: deps.Log,
 	})
 	if err != nil {
 		return nil, err

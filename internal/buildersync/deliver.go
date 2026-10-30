@@ -15,15 +15,20 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
-// retry is the backoff of one member on one order.
+// retry is the backoff of one member on one order. limitedSince is when the member began
+// rate-limiting the order without a batch going through or failing since; limitWarned is set once
+// that was warned about.
 type retry struct {
 	next         time.Time
 	delay        time.Duration
 	failingSince time.Time
 	alarmed      bool
+	limitedSince time.Time
+	limitWarned  bool
 }
 
 // ensureWorkerLocked starts the delivery worker of a member once. Caller holds s.mu.
@@ -149,7 +154,7 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 	}
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeResourceExhausted {
-			s.rateLimited(key, peer, err)
+			s.limited(key, peer, err)
 			return true, false
 		}
 		if probe {
@@ -388,6 +393,7 @@ func (s *Sender) failed(key, peer string, err error) {
 	if r.failingSince.IsZero() { // new, or only rate-limited so far
 		r.failingSince = now
 	}
+	r.limitedSince, r.limitWarned = time.Time{}, false
 	r.delay = min(max(2*r.delay, s.cfg.RetryMin), s.cfg.RetryMax)
 	r.next = now.Add(r.delay)
 	alarm := !r.alarmed && now.Sub(r.failingSince) >= s.cfg.AlarmAfter
@@ -404,13 +410,13 @@ func (s *Sender) failed(key, peer string, err error) {
 	}
 }
 
-// rateLimitedRetry is how long a member that rate-limited a batch is left alone on the order.
-const rateLimitedRetry = time.Second
-
-// rateLimited leaves a member that rate-limited a batch alone on the order for rateLimitedRetry:
-// it is busy, not failing, so neither the backoff of a failing member grows nor its alarm runs.
-func (s *Sender) rateLimited(key, peer string, err error) {
-	s.failures.Add(1)
+// limited leaves a member that rate-limited a batch alone on the order for RetryMin: it is busy,
+// not failing, so neither the backoff of a failing member grows nor its alarm runs, and the
+// member's client is kept. The batch is counted apart from failures, and a member rate-limiting
+// the order for longer than AlarmAfter is warned about once.
+func (s *Sender) limited(key, peer string, err error) {
+	s.rateLimited.Add(1)
+	s.cfg.Metrics.Inc(opsmetrics.CounterSyncRateLimited, peer)
 	now := s.cfg.Clock()
 	s.mu.Lock()
 	r := s.retries[key+"|"+peer]
@@ -418,9 +424,22 @@ func (s *Sender) rateLimited(key, peer string, err error) {
 		r = &retry{}
 		s.retries[key+"|"+peer] = r
 	}
-	r.next = now.Add(rateLimitedRetry)
+	if r.limitedSince.IsZero() {
+		r.limitedSince = now
+	}
+	r.next = now.Add(s.cfg.RetryMin)
+	warn := !r.limitWarned && now.Sub(r.limitedSince) >= s.cfg.AlarmAfter
+	if warn {
+		r.limitWarned = true
+	}
+	since := r.limitedSince
 	s.mu.Unlock()
-	s.log.Debug("group member rate-limited the sync; tried again shortly", "order", key, "member", peer, "retry_in", rateLimitedRetry, "err", err)
+	if warn {
+		s.log.Warn("group member has rate-limited an order's sync for longer than the alarm delay; raise its ingress.builder_sync_requests_per_second",
+			"order", key, "member", peer, "limited_since", since, "err", err)
+		return
+	}
+	s.log.Debug("group member rate-limited the sync; tried again shortly", "order", key, "member", peer, "retry_in", s.cfg.RetryMin, "err", err)
 }
 
 // succeeded clears a member's backoff on the order.

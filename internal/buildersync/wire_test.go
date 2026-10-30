@@ -21,6 +21,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
@@ -328,28 +329,40 @@ func TestPruneDropsAppliedItemDigests(t *testing.T) {
 	}
 }
 
-// A member that rate-limits the sync is tried again after a short fixed pause, never backed off
-// like a failing member nor alarmed about, and gets everything once it lets requests through.
+// A member that rate-limits the sync is tried again after RetryMin, never backed off like a
+// failing member nor alarmed about. Each rate-limited batch is counted apart from failures, and a
+// member rate-limiting an order for longer than AlarmAfter is warned about once. It gets
+// everything once it lets requests through.
 func TestRateLimitedMemberIsRetriedShortly(t *testing.T) {
 	e := newEnv(t)
+	var logs bytes.Buffer
+	e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	e.s.cfg.Metrics = opsmetrics.New()
 	f := e.fx
 	e.peers.setFail(e.m.op, connect.NewError(connect.CodeResourceExhausted, errors.New("NEXUS_BUILDER_SYNC_RATE_LIMITED")))
 	e.s.OrderChanged(f.issued())
 	e.sync()
 	key := streamKey(f.sessionHex(), f.sequence) + "|" + e.m.op
-	for range 150 {
+	const rounds = 300 // 150 s at RetryMin, past AlarmAfter (1 min)
+	for range rounds - 1 {
 		r := e.s.retries[key]
-		if r == nil || r.next != e.clock.Now().Add(rateLimitedRetry) {
+		if r == nil || r.next != e.clock.Now().Add(e.s.cfg.RetryMin) {
 			t.Fatalf("retry after a rate limit = %+v", r)
 		}
-		e.clock.advance(rateLimitedRetry)
+		e.clock.advance(e.s.cfg.RetryMin)
 		e.s.deliverPeer(context.Background(), e.m.op)
 	}
-	if c := e.s.Counts(); c.Alarms != 0 {
-		t.Fatalf("a rate-limited member was alarmed about: %+v", c)
+	if c := e.s.Counts(); c.Alarms != 0 || c.Failures != 0 || c.RateLimited != rounds {
+		t.Fatalf("counts after %d rate-limited batches = %+v", rounds, c)
+	}
+	if got := e.s.cfg.Metrics.Snapshot().Counters[opsmetrics.CounterSyncRateLimited][e.m.op]; got != rounds {
+		t.Fatalf("rate-limited metric = %d", got)
+	}
+	if n := strings.Count(logs.String(), "rate-limited an order's sync for longer than"); n != 1 {
+		t.Fatalf("sustained rate limit warned %d times: %s", n, logs.String())
 	}
 	e.peers.setFail(e.m.op, nil)
-	e.clock.advance(rateLimitedRetry)
+	e.clock.advance(e.s.cfg.RetryMin)
 	e.s.deliverPeer(context.Background(), e.m.op)
 	st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
 	if st.Acked[e.m.op] != st.Last || e.s.retries[key] != nil {

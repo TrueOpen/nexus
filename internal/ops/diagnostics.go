@@ -79,6 +79,7 @@ type StreamDiagnostics struct {
 type BuilderSyncDiagnostics struct {
 	Batches     uint64 `json:"batches"`
 	Failures    uint64 `json:"failures"`
+	RateLimited uint64 `json:"rate_limited"`
 	Alarms      uint64 `json:"alarms"`
 	Outstanding int    `json:"outstanding"`
 }

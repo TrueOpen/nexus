@@ -52,6 +52,9 @@ const (
 	CounterRecordOutcomes = "record_outcomes"
 	// CounterTakeoverOutcomes counts ended takeovers by how they ended.
 	CounterTakeoverOutcomes = "takeover_outcomes"
+	// CounterSyncRateLimited counts the Builder sync batches a group member rate-limited, by the
+	// member's operator address; they are not failures.
+	CounterSyncRateLimited = "sync_rate_limited"
 )
 
 // Skip reasons.

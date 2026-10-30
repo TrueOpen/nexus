@@ -123,7 +123,7 @@ func diagnostics(ctx context.Context, deps opsDeps) ops.Diagnostics {
 	d.RecordOutbox = ops.RecordOutboxDiagnostics{Entries: outbox.Entries, Waiting: outbox.Waiting, Takeovers: outbox.Takeovers, Transactions: outbox.Transactions}
 	d.Takeovers = od.Takeovers.Pending()
 	counts := od.Sync.Counts()
-	d.BuilderSync = ops.BuilderSyncDiagnostics{Batches: counts.Batches, Failures: counts.Failures, Alarms: counts.Alarms, Outstanding: len(od.Sync.Outstanding())}
+	d.BuilderSync = ops.BuilderSyncDiagnostics{Batches: counts.Batches, Failures: counts.Failures, RateLimited: counts.RateLimited, Alarms: counts.Alarms, Outstanding: len(od.Sync.Outstanding())}
 	r := od.Responder.Counts()
 	d.Responses = ops.ResponseDiagnostics{
 		ClaimsSeen: r.ClaimsSeen, ClaimsRebutted: r.ClaimsRebutted, ClaimsOwed: r.ClaimsOwed,

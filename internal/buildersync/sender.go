@@ -22,6 +22,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
@@ -115,14 +116,17 @@ type SenderConfig struct {
 	RequestTimeout time.Duration
 	// Clock is nil for the system clock.
 	Clock func() time.Time
-	Log   *slog.Logger
+	// Metrics, when set, counts the batches members rate-limited (CounterSyncRateLimited).
+	Metrics *opsmetrics.Registry
+	Log     *slog.Logger
 }
 
 // SenderCounts are what the sender saw since it started.
 type SenderCounts struct {
 	// Batches counts batches a member applied in full; Failures every failed or refused batch;
-	// Alarms the times a member stayed failing past AlarmAfter.
-	Batches, Failures, Alarms uint64
+	// RateLimited every batch a member rate-limited; Alarms the times a member stayed failing past
+	// AlarmAfter.
+	Batches, Failures, RateLimited, Alarms uint64
 }
 
 // Sender syncs the orders this Builder dispatches to the other members of their groups.
@@ -145,9 +149,9 @@ type Sender struct {
 	wake   chan struct{}
 	wg     sync.WaitGroup
 
-	head                      atomic.Uint64
-	lastPrune                 atomic.Uint64
-	batches, failures, alarms atomic.Uint64
+	head                                   atomic.Uint64
+	lastPrune                              atomic.Uint64
+	batches, failures, rateLimited, alarms atomic.Uint64
 }
 
 // event is one change handed to the sender: an order's evidence, or its winner recorded.
@@ -373,7 +377,7 @@ func (s *Sender) Stop(context.Context) error {
 
 // Counts returns what the sender saw since it started.
 func (s *Sender) Counts() SenderCounts {
-	return SenderCounts{Batches: s.batches.Load(), Failures: s.failures.Load(), Alarms: s.alarms.Load()}
+	return SenderCounts{Batches: s.batches.Load(), Failures: s.failures.Load(), RateLimited: s.rateLimited.Load(), Alarms: s.alarms.Load()}
 }
 
 // Outstanding is what one member has not acknowledged of one order's sync stream: Items sync items,
