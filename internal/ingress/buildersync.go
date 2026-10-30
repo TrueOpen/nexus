@@ -22,9 +22,11 @@ const (
 	builderSyncReadMaxBytes = buildersync.MaxRequestBytes
 	// defaultBuilderSyncPerSecond and defaultBuilderSyncBurst limit the sync requests of one source
 	// address when ingress.builder_sync_requests_per_second / builder_sync_burst are unset. A
-	// dispatching Builder sends one batch at a time to each member, on each of its orders.
-	defaultBuilderSyncPerSecond = 1000
-	defaultBuilderSyncBurst     = 2000
+	// dispatching Builder sends one batch at a time to each member, on each of its orders, of up to
+	// 128 items. Every request (up to 1 MiB) is validated strictly before its chain and receiver
+	// can be read, so the limit also bounds that work for a sender that is not a member.
+	defaultBuilderSyncPerSecond = 200
+	defaultBuilderSyncBurst     = 400
 	// maxLimitedAddresses bounds the addresses the limiter remembers.
 	maxLimitedAddresses = 4096
 )
@@ -40,7 +42,7 @@ type BuilderSync interface {
 
 // WithBuilderSync serves BuilderSyncService on the ingress port. Its requests are authenticated
 // by the sender's signature on each batch, so the SDK API key and IP allowlist do not apply; each
-// source address may send perSecond requests a second with bursts of burst (0: 1000 and 2000).
+// source address may send perSecond requests a second with bursts of burst (0: 200 and 400).
 func WithBuilderSync(sync BuilderSync, perSecond, burst uint32) Option {
 	if perSecond == 0 {
 		perSecond = defaultBuilderSyncPerSecond
@@ -65,7 +67,7 @@ type rawSyncRequest []byte
 // handler is the Connect handler of BuilderSyncService.Sync, mounted at its path. It takes the
 // binary protobuf encoding only, kept as received: a JSON request cannot be validated byte for byte.
 func (b builderSyncService) handler(options ...connect.HandlerOption) (string, http.Handler) {
-	options = append(options, connect.WithCodec(rawSyncCodec{}))
+	options = append(options, connect.WithCodec(rawSyncCodec{}), connect.WithCodec(refusedSyncCodec{}))
 	return nexusv1connect.BuilderSyncServiceSyncProcedure,
 		connect.NewUnaryHandler(nexusv1connect.BuilderSyncServiceSyncProcedure, b.Sync, options...)
 }
@@ -104,6 +106,17 @@ func (rawSyncCodec) Unmarshal(data []byte, msg any) error {
 	*raw = append(rawSyncRequest(nil), data...)
 	return nil
 }
+
+// errSyncEncoding refuses a sync request in any encoding but binary protobuf.
+var errSyncEncoding = errors.New("NEXUS_BUILDER_SYNC_MALFORMED: unsupported encoding: BuilderSyncService takes binary protobuf only, validated byte for byte")
+
+// refusedSyncCodec takes the place of the JSON codec on BuilderSyncService and refuses every
+// request.
+type refusedSyncCodec struct{}
+
+func (refusedSyncCodec) Name() string                { return "json" }
+func (refusedSyncCodec) Marshal(any) ([]byte, error) { return nil, errSyncEncoding }
+func (refusedSyncCodec) Unmarshal([]byte, any) error { return errSyncEncoding }
 
 func mapBuilderSyncErr(err error) error {
 	switch {

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,35 +144,83 @@ func TestBuilderSyncErrors(t *testing.T) {
 	}
 }
 
-// The ingress server serves the sync service on its own handler, next to IngressAPI, and hands the
-// receiver the request bytes exactly as they arrived, unknown and duplicate fields included. A JSON
-// request is refused: it cannot be validated byte for byte.
-func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
-	var got []byte
+// builderSyncServer is an ingress server with a sync receiver fake, served through its HTTP
+// handler without a listener.
+func builderSyncServer(t *testing.T, sync fakeBuilderSync) http.Handler {
+	t.Helper()
 	srv, err := New(slog.New(slog.DiscardHandler), config.IngressConfig{APIKeys: []string{"sdk-key"}}, AuthParams{}, &fakeHandler{},
-		WithBuilderSync(fakeBuilderSync{resp: &nexusv1.SyncResponse{AppliedThrough: 7}, got: &got}, 0, 0))
+		WithBuilderSync(sync, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return srv.handler()
+}
+
+func postSync(h http.Handler, contentType string, body io.Reader) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, nexusv1connect.BuilderSyncServiceSyncProcedure, body)
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// The ingress server mounts the sync service next to IngressAPI and hands the receiver the
+// request bytes exactly as they arrived, unknown and duplicate fields included.
+func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
+	var got []byte
+	h := builderSyncServer(t, fakeBuilderSync{resp: &nexusv1.SyncResponse{AppliedThrough: 7}, got: &got})
 	body, _ := proto.Marshal(&nexusv1.SyncRequest{Batch: &nexusv1.BuilderSyncBatchV1{ChainId: "c"}})
 	body = append(body, 0x12, 0x01, 0x01, 0x78, 0x01) // a second sender_signature and unknown field 15
-	req := httptest.NewRequest(http.MethodPost, nexusv1connect.BuilderSyncServiceSyncProcedure, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/proto")
-	rec := httptest.NewRecorder()
-	srv.handler().ServeHTTP(rec, req)
+	rec := postSync(h, "application/proto", bytes.NewReader(body))
 	var resp nexusv1.SyncResponse
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("%s is not mounted", nexusv1connect.BuilderSyncServiceSyncProcedure)
+	}
 	if rec.Code != http.StatusOK || proto.Unmarshal(rec.Body.Bytes(), &resp) != nil || resp.GetAppliedThrough() != 7 {
 		t.Fatalf("sync over the ingress handler = %d %q", rec.Code, rec.Body.String())
 	}
 	if !bytes.Equal(got, body) {
 		t.Fatalf("receiver got %x, want the request bytes %x", got, body)
 	}
-	req = httptest.NewRequest(http.MethodPost, nexusv1connect.BuilderSyncServiceSyncProcedure, bytes.NewReader([]byte(`{"batch":{}}`)))
-	req.Header.Set("Content-Type", "application/json")
-	rec = httptest.NewRecorder()
-	srv.handler().ServeHTTP(rec, req)
-	if rec.Code == http.StatusOK {
-		t.Fatalf("JSON sync request = %d %q", rec.Code, rec.Body.String())
+}
+
+// A JSON request is refused as an unsupported encoding before the receiver: it cannot be
+// validated byte for byte.
+func TestBuilderSyncRefusesJSON(t *testing.T) {
+	var got []byte
+	h := builderSyncServer(t, fakeBuilderSync{resp: &nexusv1.SyncResponse{}, got: &got})
+	rec := postSync(h, "application/json", strings.NewReader(`{"batch":{}}`))
+	if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "unsupported encoding") || got != nil {
+		t.Fatalf("JSON sync request = %d %q, receiver got %q", rec.Code, rec.Body.String(), got)
+	}
+}
+
+// countingReader counts the bytes read from it.
+type countingReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
+}
+
+// A request over the 1 MiB contract cap is refused, and a body over twice the cap is cut off
+// unread; neither reaches the receiver.
+func TestBuilderSyncBoundsTheBody(t *testing.T) {
+	for _, size := range []int{builderSyncReadMaxBytes + 1, 4 * builderSyncReadMaxBytes} {
+		var got []byte
+		h := builderSyncServer(t, fakeBuilderSync{resp: &nexusv1.SyncResponse{}, got: &got})
+		body := &countingReader{r: bytes.NewReader(make([]byte, size))}
+		rec := postSync(h, "application/proto", body)
+		if rec.Code == http.StatusOK || got != nil {
+			t.Fatalf("%d-byte body = %d %q, receiver got %d bytes", size, rec.Code, rec.Body.String(), len(got))
+		}
+		if body.n > 2*builderSyncReadMaxBytes+1 {
+			t.Fatalf("%d bytes of a %d-byte body were read", body.n, size)
+		}
 	}
 }
 
@@ -204,7 +254,7 @@ func TestBuilderSyncRateLimitIsConfigured(t *testing.T) {
 		WithBuilderSync(fakeBuilderSync{}, perSecond, burst)(srv)
 		return srv.builderSync.limit
 	}
-	if l := limit(0, 0); l.perSecond != 1000 || l.burst != 2000 {
+	if l := limit(0, 0); l.perSecond != 200 || l.burst != 400 {
 		t.Fatalf("defaults %v/s burst %v", l.perSecond, l.burst)
 	}
 	if l := limit(50, 70); l.perSecond != 50 || l.burst != 70 {
