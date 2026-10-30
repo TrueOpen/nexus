@@ -23,7 +23,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
-	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
@@ -83,7 +83,7 @@ type SenderConfig struct {
 	ChainID string
 	// Builder is this Builder's operator address; Signer its service key, which signs the batches.
 	Builder string
-	Signer  signer.Signer
+	Signer  servicekey.Signer
 	Store   kv.Store
 	// Groups answers the current BuilderSet snapshot: an order's group is its members.
 	Groups taskgroup.Source

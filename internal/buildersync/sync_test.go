@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,9 +20,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
+	"github.com/TrueOpen/wire/dispatch"
 )
 
 // From the first ticket on, the member holds the round with its roster and the root it binds, the
@@ -1154,9 +1157,82 @@ func TestResultHeaderIsSignedWithTheCurrentKeyAtSend(t *testing.T) {
 	e.s.drain()
 	next := newSigner(t, 0x21)
 	e.keys.rotate("BUILDER", e.d, next, testESH+1)
-	e.s.cfg.Signer = next
+	e.s.cfg.Signer = servicekey.Static(next, 2)
 	e.s.deliverPeer(context.Background(), e.m.op)
 	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Recorded {
 		t.Fatalf("order synced after the cutover = %+v, held %v", a, held)
+	}
+}
+
+// cutoverSigner is a service key ring whose cutover comes right after its first signature.
+type cutoverSigner struct {
+	mu       sync.Mutex
+	cur      signer.Signer
+	next     signer.Signer
+	switched bool
+}
+
+type cutoverKey struct {
+	signer.Signer
+	ring *cutoverSigner
+}
+
+func (k cutoverKey) SignDigest(d [32]byte) ([]byte, error) {
+	sig, err := k.Signer.SignDigest(d)
+	k.ring.mu.Lock()
+	if !k.ring.switched {
+		k.ring.cur, k.ring.switched = k.ring.next, true
+	}
+	k.ring.mu.Unlock()
+	return sig, err
+}
+
+func (c *cutoverSigner) key() signer.Signer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cur
+}
+func (c *cutoverSigner) Key() servicekey.Key {
+	return servicekey.Key{Signer: cutoverKey{c.key(), c}, Nonce: 1}
+}
+func (c *cutoverSigner) PubKeyCompressed() []byte      { return c.key().PubKeyCompressed() }
+func (c *cutoverSigner) Address() string               { return c.key().Address() }
+func (c *cutoverSigner) Sign(m []byte) ([]byte, error) { return cutoverKey{c.key(), c}.Sign(m) }
+func (c *cutoverSigner) SignDigest(d [32]byte) ([]byte, error) {
+	return cutoverKey{c.key(), c}.SignDigest(d)
+}
+
+// A send signs its result headers and the request from one key snapshot: a cutover in between
+// does not leave a header and its request signed by different keys.
+func TestSendSignsHeaderAndRequestWithOneKey(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.s.drain()
+	e.s.cfg.Signer = &cutoverSigner{cur: e.d.key, next: newSigner(t, 0x21)}
+	e.s.deliverPeer(context.Background(), e.m.op)
+	reqs := e.peers.requests[e.m.op]
+	if len(reqs) == 0 {
+		t.Fatal("nothing sent")
+	}
+	req := reqs[0]
+	unsigned := &nexusv1.SyncRequest{Batch: req.GetBatch()}
+	digest := digestOf(t, requestName, mustMarshal(t, unsigned))
+	if dispatch.VerifyDigestSignature(e.d.key.PubKeyCompressed(), digest[:], req.GetSenderSignature()) != nil {
+		t.Fatal("request not signed by the key of the snapshot")
+	}
+	for _, item := range req.GetBatch().GetItems() {
+		if h := item.GetOrder().GetResultHeader(); h != nil {
+			c := proto.Clone(h).(*nexusv1.DispatchResultHeaderV1)
+			c.BuilderServiceSignature = nil
+			hd := digestOf(t, resultHeaderName, mustMarshal(t, c))
+			if dispatch.VerifyDigestSignature(e.d.key.PubKeyCompressed(), hd[:], h.GetBuilderServiceSignature()) != nil {
+				t.Fatal("result header and request signed by different keys")
+			}
+		}
 	}
 }

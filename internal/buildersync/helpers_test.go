@@ -27,6 +27,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/mmr"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
@@ -412,7 +413,7 @@ func (e *env) openSender() {
 	e.t.Helper()
 	var err error
 	e.s, err = NewSender(SenderConfig{
-		ChainID: testChainID, Builder: e.d.op, Signer: e.d.key, Store: e.dStore, Groups: e.groups,
+		ChainID: testChainID, Builder: e.d.op, Signer: servicekey.Static(e.d.key, 1), Store: e.dStore, Groups: e.groups,
 		Roots: func(d [32]byte) (*taskv1.SignedHandraiseRootV1, bool, error) {
 			r, ok := e.roots[d]
 			return r, ok, nil

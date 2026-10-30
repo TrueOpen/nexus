@@ -142,10 +142,12 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 	// Every send signs again with the current service key: a retransmission after a rotation
 	// carries the new key's signature. So does each RECORDED result header in it: it carries no
 	// key generation, and members check it against this Builder's current key.
-	err = resignHeaders(s.cfg.Signer, batch)
+	// Both are signed from one key snapshot, so a cutover in between cannot split them.
+	current := s.cfg.Signer.Key().Signer
+	err = resignHeaders(current, batch)
 	var req *nexusv1.SyncRequest
 	if err == nil {
-		req, err = SignRequest(s.cfg.Signer, batch)
+		req, err = SignRequest(current, batch)
 	}
 	if err == nil {
 		callCtx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
