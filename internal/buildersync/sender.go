@@ -393,9 +393,9 @@ type Outstanding struct {
 }
 
 // Outstanding lists what members have not acknowledged and the changes still queued, by order and
-// member. A batch is signed again with the current key whenever it is sent, but members verify the
-// tickets, roots, records and headers in it under this Builder's current key too, so all of it is
-// refused once the key rotated: it has to be drained first.
+// member. A batch and its result headers are signed again with the current key whenever it is
+// sent; the tickets, roots and records in it keep the generation that signed them, which members
+// accept for orders below that generation's retirement.
 func (s *Sender) Outstanding() []Outstanding {
 	s.mu.Lock()
 	defer s.mu.Unlock()

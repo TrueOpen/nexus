@@ -1259,3 +1259,46 @@ func TestWinnerAcceptWithoutAResolvableKeyIsMarkedUnverified(t *testing.T) {
 		t.Fatalf("copy accept %x, unverified %v", c.Accept, c.AcceptUnverified)
 	}
 }
+
+// A member applied the order item before a cutover but the acknowledgement was lost: the resend,
+// its result header signed by the new key, conflicts with the item applied there and that batch
+// is refused, but the refusal reports what the member applied, so the sender moves past the item
+// and the next send is taken.
+func TestAppliedOrderItemAfterACutoverIsNotSentForever(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.peers.setFail(e.m.op, errors.New("held back"))
+	e.sync()
+	reqs := e.peers.requests[e.m.op]
+	held := proto.Clone(reqs[len(reqs)-1]).(*nexusv1.SyncRequest)
+	raw, err := proto.Marshal(held)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The member takes it; its answer never reaches the sender.
+	if resp, err := e.member.r.Sync(context.Background(), raw); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("held batch = %v, %v", resp, err)
+	}
+	next := newSigner(t, 0x21)
+	e.keys.rotate("BUILDER", e.d, next, testESH+1)
+	e.s.cfg.Signer = servicekey.Static(next, 2)
+	e.peers.setFail(e.m.op, nil)
+	failures := e.s.failures.Load()
+	for range 4 {
+		e.clock.advance(time.Hour)
+		e.s.deliverPeer(context.Background(), e.m.op)
+	}
+	for _, o := range e.s.Outstanding() {
+		if o.Peer == e.m.op {
+			t.Fatalf("still outstanding for the member: %+v", o)
+		}
+	}
+	if n := e.s.failures.Load() - failures; n > 1 {
+		t.Fatalf("refused %d times", n)
+	}
+}

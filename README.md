@@ -63,10 +63,12 @@ remains, and ends by itself once the chain shows a new key current that the daem
 Builder transport messages carry no key generation, so after the cutover they are signed again
 with the new key when they go out again: unacknowledged input chunks and record notices when a
 Cortex binds again, the result header of each attempt when it is served, and the result header
-in each group sync batch. Not done yet: a result header a member already applied before the
-cutover but did not acknowledge is resent signed by the new key, and the member refuses it as a
-conflicting item; a member serving a dispatching Builder's synced result header after that
-Builder's cutover serves it as synced, under the retired key.
+in each group sync batch. A member that applied an order item before the cutover without the
+acknowledgement reaching this Builder refuses its resend (the header is signed by the new key
+now) once, reporting what it applied, and the sync moves past it. Not done yet: a member serving
+a dispatching Builder's synced result header after that Builder's cutover serves it as synced,
+under the retired key; and nexus sends no revoke yet, so a stored revoke is not signed again (to
+handle when revokes are sent).
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state
