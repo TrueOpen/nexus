@@ -417,9 +417,10 @@ func TestStickyPromotionStaysOnTheRecordWhenThePromotedWorkerRejects(t *testing.
 
 // An order dispatched while an earlier order of the session is accepted but unrecorded predicts the
 // sticky state from that order's winner ticket: a new run started by it has no known anchor height
-// yet. That anchor is the earlier order's record height, above the head; an earliest_submit_height
-// below the anchor is inside the window, so the order is promoted at once, without waiting for the
-// record or a later head. While the earlier order still dispatches, the next waits.
+// yet. That anchor is the earlier order's record height, at least the head, so earliest_submit_height
+// is at most one block past it; with a window of at least one block the order is promoted at once,
+// without waiting for the record or a later head. While the earlier order still dispatches, the
+// next waits.
 func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -441,6 +442,33 @@ func TestStickyPredictionFromAnEarlierUnrecordedOrder(t *testing.T) {
 	bundles := e.recorder.recorded()
 	if rec := checkRecordable(t, e, bundles[len(bundles)-1], testBound); !rec.GetStickyApplied() {
 		t.Fatal("second order not recorded as sticky")
+	}
+}
+
+// With sticky_window_blocks 0 an unknown anchor is no longer surely inside the window: the earlier
+// order may be recorded at the head, one block below earliest_submit_height. The order waits until
+// the head passes its earliest_submit_height; the anchor then lies above it, at distance 0.
+func TestStickyPredictionWithAZeroWindowWaitsForTheHead(t *testing.T) {
+	e := newEnv(t)
+	params := e.params
+	params.Sticky.WindowBlocks = 0
+	e.d.SetParams(params)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	e.dispatch(e.order(s, 1, 1))
+	e.accept() // order 0 won by op7, a new run
+	if n := len(e.streams.offers()); n != 1 {
+		t.Fatalf("%d offers: with a zero window the second order must wait for the head", n)
+	}
+	e.sessions.ObserveHeight(testESH + 1)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	offers := e.streams.offers()
+	if len(offers) != 2 {
+		t.Fatalf("%d offers once the head passed earliest_submit_height", len(offers))
+	}
+	second := offers[1].frame.GetOffer().GetTicket()
+	if offers[1].operator != op7 || second.GetStickyAnchorSequence() != 0 || second.GetStickyRunCount() != 2 {
+		t.Fatalf("second order ticket to %s: %v", offers[1].operator, second)
 	}
 }
 

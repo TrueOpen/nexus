@@ -9,17 +9,25 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 )
 
-// unknownAnchorHeight stands for the anchor height of a run an earlier, not yet recorded order of
-// the session starts: it becomes that order's record height, which is not known yet but lies above
-// the head. An earliest_submit_height below the anchor counts as inside the sticky window, so the
-// unknown height never keeps an order from continuing that run.
+// unknownAnchorHeight stands for the anchor height A of a run an earlier, not yet recorded order of
+// the session starts: A becomes that order's record height, which is not known yet. A is at least
+// the head (a record at or below it would already be seen), and the precheck admits an order only
+// with earliest_submit_height at most head + 1 (the head only grows since), so the real distance
+// earliest_submit_height - A is at most 1, and an earliest_submit_height below A counts as
+// distance 0. With sticky_window_blocks >= 1 the order is inside the window either way, and the
+// unknown height, above every earliest_submit_height, gives exactly that. With sticky_window_blocks
+// 0 a distance of 1 is outside, so the order waits while the head is at or below its
+// earliest_submit_height; once the head is past it, A is above earliest_submit_height and the
+// distance is 0 (stickySnapshot).
 const unknownAnchorHeight = math.MaxUint64
 
 // stickySnapshot is the session's sticky state as it will be when this order is recorded: the
 // chain's StreamState after every earlier order of the session this Builder still has in flight
 // is recorded with its accepted winner ticket. It reports wait while an earlier order has no
 // winner yet (it is still dispatching, or failed and not resent) or is recorded but the session
-// state read does not include it yet. Caller holds o.mu; the earlier orders' locks are taken
+// state read does not include it yet, and, with sticky_window_blocks 0, while a run an earlier
+// order starts has an unknown anchor height that may still continue and the head is at or below
+// this order's earliest_submit_height. Caller holds o.mu; the earlier orders' locks are taken
 // inside it.
 func (d *Dispatcher) stickySnapshot(o *order, session inflight.Session) (*taskv1.DispatchStickySnapshotV1, bool) {
 	snap := &taskv1.DispatchStickySnapshotV1{
@@ -49,6 +57,11 @@ func (d *Dispatcher) stickySnapshot(o *order, session inflight.Session) (*taskv1
 		} else {
 			snap.RunCount = ticket.GetStickyRunCount()
 		}
+	}
+	sticky := d.params.Load().Sticky
+	if snap.AnchorHeight == unknownAnchorHeight && sticky.WindowBlocks == 0 && snap.RunCount < sticky.MaxOrders &&
+		o.signed.GetOrder().GetEarliestSubmitHeight() >= d.cfg.Sessions.Head() {
+		return nil, true
 	}
 	return snap, false
 }
