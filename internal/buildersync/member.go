@@ -32,6 +32,9 @@ type memberStream struct {
 	Winner         *memberWinner `json:"winner,omitempty"`
 	// ExpireHeight is the last height the stream is kept at: the retention of its evidence.
 	ExpireHeight uint64 `json:"expire_height"`
+	// appliedDigest is the digest of the item being applied, stored with the stream under its
+	// sequence.
+	appliedDigest []byte
 }
 
 // memberInput is an order version's input: the pieces received so far, until it is whole and
@@ -66,10 +69,12 @@ type memberWinner struct {
 //	stream/<sender>/<stream key>               the memberStream as JSON
 //	task/<task id>                             member key of the task's latest synced order
 //	input/<member key>/<task hash>/<offset>    an input piece not assembled yet
+//	item/<member key>/<sequence>               the digest of the item applied at the sequence
 const (
 	memberStreamPrefix = "stream/"
 	memberTaskPrefix   = "task/"
 	memberInputPrefix  = "input/"
+	memberItemPrefix   = "item/"
 )
 
 func memberKey(sender, sessionID string, sequence uint64) string {
@@ -80,6 +85,10 @@ func (m *memberStream) key() string { return memberKey(m.Sender, m.SessionID, m.
 
 func inputPieceKey(member, taskHash string, offset uint64) string {
 	return fmt.Sprintf("%s%s/%s/%020d", memberInputPrefix, member, taskHash, offset)
+}
+
+func appliedItemKey(member string, sequence uint64) string {
+	return fmt.Sprintf("%s%s/%020d", memberItemPrefix, member, sequence)
 }
 
 func (m *memberStream) clone() *memberStream {
@@ -98,12 +107,17 @@ func (m *memberStream) clone() *memberStream {
 	return &next
 }
 
-func memberOp(m *memberStream) (kv.WriteOp, error) {
+// memberOps store m, with the digest of the item being applied.
+func memberOps(m *memberStream) ([]kv.WriteOp, error) {
 	raw, err := json.Marshal(m)
 	if err != nil {
-		return kv.WriteOp{}, fmt.Errorf("encode member sync stream: %w", err)
+		return nil, fmt.Errorf("encode member sync stream: %w", err)
 	}
-	return kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberStreamPrefix + m.key(), Val: raw}, nil
+	ops := []kv.WriteOp{{NS: kv.NSBuilderSyncMember, Key: memberStreamPrefix + m.key(), Val: raw}}
+	if m.appliedDigest != nil {
+		ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: appliedItemKey(m.key(), m.Applied), Val: m.appliedDigest})
+	}
+	return ops, nil
 }
 
 func (r *Receiver) loadMember(key string) (*memberStream, bool, error) {
@@ -152,8 +166,8 @@ func (r *Receiver) memberOfTask(sessionID, taskID string) (*memberStream, bool) 
 	return m, true
 }
 
-// prune drops the member streams whose retention ended before head, with their input pieces and
-// task index entries. The evidence, the input and the output replica follow their own retention.
+// prune drops the member streams whose retention ended before head, with their input pieces,
+// applied item digests and task index entries. The evidence, the input and the output replica follow their own retention.
 func (r *Receiver) prune(head uint64) {
 	var expired []*memberStream
 	err := r.cfg.Store.Scan(kv.NSBuilderSyncMember, func(key string, val []byte) bool {
@@ -173,6 +187,9 @@ func (r *Receiver) prune(head uint64) {
 	for _, m := range expired {
 		unlock := r.lock(m.key())
 		ops := []kv.WriteOp{{NS: kv.NSBuilderSyncMember, Key: memberStreamPrefix + m.key(), Delete: true}}
+		for n := uint64(1); n <= m.Applied; n++ {
+			ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: appliedItemKey(m.key(), n), Delete: true})
+		}
 		for taskHash, in := range m.Inputs {
 			for _, offset := range in.Offsets {
 				ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: inputPieceKey(m.key(), taskHash, offset), Delete: true})

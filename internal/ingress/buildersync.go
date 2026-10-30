@@ -3,20 +3,23 @@ package ingress
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
-	"github.com/TrueOpen/nexus/gen/buildersync/v1/buildersyncv1connect"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/buildersync"
 )
 
 const (
-	// builderSyncReadMaxBytes bounds one sync batch: a run of items and output frames.
-	builderSyncReadMaxBytes = 8 << 20
+	// builderSyncReadMaxBytes bounds one SyncRequest, as the contract does.
+	builderSyncReadMaxBytes = buildersync.MaxRequestBytes
 	// defaultBuilderSyncPerSecond and defaultBuilderSyncBurst limit the sync requests of one source
 	// address when ingress.builder_sync_requests_per_second / builder_sync_burst are unset. A
 	// dispatching Builder sends one batch at a time to each member, on each of its orders.
@@ -29,9 +32,10 @@ const (
 var errBuilderSyncRateLimited = connect.NewError(connect.CodeResourceExhausted, errors.New("NEXUS_BUILDER_SYNC_RATE_LIMITED: too many sync requests from this address"))
 
 // BuilderSync applies the sync batches the dispatching Builders of this Builder's groups send
-// (buildersync.Receiver).
+// (buildersync.Receiver). It takes the request bytes as received: they are validated strictly before
+// they are decoded, which a generated decoder would not do.
 type BuilderSync interface {
-	Sync(ctx context.Context, req *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error)
+	Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse, error)
 }
 
 // WithBuilderSync serves BuilderSyncService on the ingress port. Its requests are authenticated
@@ -55,18 +59,50 @@ type builderSyncService struct {
 	limit *addressLimiter
 }
 
-var _ buildersyncv1connect.BuilderSyncServiceHandler = builderSyncService{}
+// rawSyncRequest is a SyncRequest as the bytes it arrived as.
+type rawSyncRequest []byte
+
+// handler is the Connect handler of BuilderSyncService.Sync, mounted at its path. It takes the
+// binary protobuf encoding only, kept as received: a JSON request cannot be validated byte for byte.
+func (b builderSyncService) handler(options ...connect.HandlerOption) (string, http.Handler) {
+	options = append(options, connect.WithCodec(rawSyncCodec{}))
+	return nexusv1connect.BuilderSyncServiceSyncProcedure,
+		connect.NewUnaryHandler(nexusv1connect.BuilderSyncServiceSyncProcedure, b.Sync, options...)
+}
 
 // Sync applies one batch.
-func (b builderSyncService) Sync(ctx context.Context, req *connect.Request[buildersyncv1.SyncRequest]) (*connect.Response[buildersyncv1.SyncResponse], error) {
+func (b builderSyncService) Sync(ctx context.Context, req *connect.Request[rawSyncRequest]) (*connect.Response[nexusv1.SyncResponse], error) {
 	if b.limit != nil && !b.limit.allow(peerHost(req.Peer().Addr)) {
 		return nil, errBuilderSyncRateLimited
 	}
-	resp, err := b.sync.Sync(ctx, req.Msg)
+	resp, err := b.sync.Sync(ctx, *req.Msg)
 	if err != nil {
 		return nil, mapBuilderSyncErr(err)
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// rawSyncCodec is the binary protobuf codec of BuilderSyncService: requests are kept as their
+// bytes, responses are marshaled as usual.
+type rawSyncCodec struct{}
+
+func (rawSyncCodec) Name() string { return "proto" }
+
+func (rawSyncCodec) Marshal(msg any) ([]byte, error) {
+	m, ok := msg.(proto.Message)
+	if !ok {
+		return nil, fmt.Errorf("%T is not a protobuf message", msg)
+	}
+	return proto.Marshal(m)
+}
+
+func (rawSyncCodec) Unmarshal(data []byte, msg any) error {
+	raw, ok := msg.(*rawSyncRequest)
+	if !ok {
+		return fmt.Errorf("%T is not a sync request", msg)
+	}
+	*raw = append(rawSyncRequest(nil), data...)
+	return nil
 }
 
 func mapBuilderSyncErr(err error) error {

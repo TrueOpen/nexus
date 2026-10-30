@@ -18,10 +18,12 @@
 // nothing here ever holds up dispatching. The Receiver runs on every member: it checks that a
 // batch comes from the order's dispatching Builder, signed by its current service key, for a
 // group this Builder is in, checks every ticket, roster, root, input and output frame against
-// what the dispatching Builder and the winner signed, and applies the items in order, each once.
+// what the dispatching Builder and the winner signed, and applies the items in order, each once;
+// an item sent again must be the item applied at its sequence.
 //
-// Wire defines no Builder-to-Builder interface yet: the service (buildersync.v1) and its signing
-// domain are nexus-local until wire freezes them.
+// The service is wire's nexus.v1.BuilderSyncService. A batch is signed over its canonical typed
+// projection, not its protobuf bytes, and a receiver validates the exact request bytes strictly
+// (no unknown or duplicate fields) before decoding them.
 package buildersync
 
 import (
@@ -32,15 +34,16 @@ import (
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
-// Domain is the signing domain of a sync batch: the sender's current BUILDER service key signs
-// H_FIELDS_V1(Domain, chain_id, sender_operator_address, batch bytes).
-const Domain = "TRUEOPEN_NEXUS_BUILDER_SYNC_V1"
-
 // schemaVersion is the BuilderSyncBatchV1 schema this package writes and reads.
 const schemaVersion = 1
+
+// MaxRequestBytes bounds a complete SyncRequest; a batch also holds at most
+// dispatch.MaxBuilderSyncEntries items and as many output chunks.
+const MaxRequestBytes = 1 << 20
 
 // Wire message names of the signing projections checked here.
 const (
@@ -50,6 +53,9 @@ const (
 	recordName       = "task.v1.DispatchRecordV1"
 	rootName         = "task.v1.SignedHandraiseRootV1"
 	resultHeaderName = "nexus.v1.DispatchResultHeaderV1"
+	// requestName is the signed sync request: the sender's current BUILDER service key signs
+	// H_FIELDS_V1("TRUEOPEN_NEXUS_BUILDER_SYNC_V1", chain_id, raw20(sender), canonical batch).
+	requestName = "nexus.v1.SyncRequest"
 )
 
 var (
@@ -65,19 +71,22 @@ var (
 	ErrUnavailable = errors.New("NEXUS_BUILDER_SYNC_UNAVAILABLE")
 )
 
-// BatchDigest is the digest a sync batch is signed over.
-func BatchDigest(chainID, sender string, batch []byte) [32]byte {
-	return dispatch.HashFields(Domain, []byte(chainID), []byte(sender), batch)
-}
-
-// SignBatch signs batch bytes with the sender's service key.
-func SignBatch(s signer.Signer, chainID, sender string, batch []byte) ([]byte, error) {
-	digest := BatchDigest(chainID, sender, batch)
-	sig, err := s.SignDigest(digest)
+// SignRequest signs a batch with the sender's current service key. The batch is checked against
+// the wire contract on the way: a batch a receiver would refuse as malformed is never sent.
+func SignRequest(s signer.Signer, batch *nexusv1.BuilderSyncBatchV1) (*nexusv1.SyncRequest, error) {
+	req := &nexusv1.SyncRequest{Batch: batch}
+	raw, err := marshal(req)
 	if err != nil {
+		return nil, err
+	}
+	digest, err := signingDigest(requestName, raw)
+	if err != nil {
+		return nil, err
+	}
+	if req.SenderSignature, err = s.SignDigest(digest); err != nil {
 		return nil, fmt.Errorf("sign sync batch: %w", err)
 	}
-	return sig, nil
+	return req, nil
 }
 
 func marshal(m proto.Message) ([]byte, error) {

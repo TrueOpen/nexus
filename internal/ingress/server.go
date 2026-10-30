@@ -20,7 +20,6 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/TrueOpen/nexus/gen/buildersync/v1/buildersyncv1connect"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/middleware"
@@ -258,7 +257,7 @@ func (s *Server) handler() http.Handler {
 	if s.builderSync.sync != nil {
 		// Builder-to-Builder sync is authenticated by each batch's signature, not by the SDK API key
 		// or the IP allowlist.
-		syncPath, syncHandler := buildersyncv1connect.NewBuilderSyncServiceHandler(s.builderSync,
+		syncPath, syncHandler := s.builderSync.handler(
 			connect.WithInterceptors(loggingInterceptor(s.log)), connect.WithReadMaxBytes(builderSyncReadMaxBytes))
 		mux.Handle(syncPath, http.MaxBytesHandler(syncHandler, 2*builderSyncReadMaxBytes))
 	}

@@ -16,7 +16,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -29,7 +29,7 @@ import (
 
 const (
 	defaultInputChunkBytes = 256 << 10
-	defaultMaxBatchBytes   = 1 << 20
+	defaultMaxBatchBytes   = MaxRequestBytes
 	defaultRetryMin        = 500 * time.Millisecond
 	defaultRetryMax        = 30 * time.Second
 	defaultAlarmAfter      = 5 * time.Minute
@@ -50,7 +50,7 @@ const (
 
 // Peers sends a signed batch to a member of a Task Builders group (ChainPeers).
 type Peers interface {
-	Sync(ctx context.Context, operator string, req *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error)
+	Sync(ctx context.Context, operator string, req *nexusv1.SyncRequest) (*nexusv1.SyncResponse, error)
 }
 
 // InputReader reads the input of an order version as OpenTask stored it, with its media type
@@ -101,8 +101,8 @@ type SenderConfig struct {
 	// Attempts, when set, is looked at on a start and every few blocks for recorded orders whose
 	// order item was never queued.
 	Attempts AttemptReader
-	// InputChunkBytes bounds the input bytes of one item; MaxBatchBytes the item and frame bytes of
-	// one batch, which always carries at least one item or frame.
+	// InputChunkBytes bounds the input bytes of one item; MaxBatchBytes a complete signed request
+	// (at most MaxRequestBytes), which always carries at least one item or frame.
 	InputChunkBytes int
 	MaxBatchBytes   int
 	// RetryMin and RetryMax bound the backoff after a member failed; AlarmAfter is how long a member
@@ -259,6 +259,7 @@ func NewSender(cfg SenderConfig) (*Sender, error) {
 	}
 	setDefault(&cfg.InputChunkBytes, defaultInputChunkBytes)
 	setDefault(&cfg.MaxBatchBytes, defaultMaxBatchBytes)
+	cfg.MaxBatchBytes = min(cfg.MaxBatchBytes, MaxRequestBytes)
 	setDefault(&cfg.RetryMin, defaultRetryMin)
 	setDefault(&cfg.RetryMax, defaultRetryMax)
 	setDefault(&cfg.AlarmAfter, defaultAlarmAfter)
@@ -388,8 +389,9 @@ type Outstanding struct {
 }
 
 // Outstanding lists what members have not acknowledged and the changes still queued, by order and
-// member. Members verify sync batches under this Builder's current service key, so all of it is
-// refused once the key rotated.
+// member. A batch is signed again with the current key whenever it is sent, but members verify the
+// tickets, roots, records and headers in it under this Builder's current key too, so all of it is
+// refused once the key rotated: it has to be drained first.
 func (s *Sender) Outstanding() []Outstanding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -582,10 +584,18 @@ func (s *Sender) applyRecorded(ctx context.Context, a attempt.Attempt) error {
 	}
 	next := st.clone()
 	next.Winner = &winnerRef{TaskHash: a.TaskHash, TicketHash: append([]byte(nil), a.TicketHash[:]...), Ticket: a.Ticket, AcceptDigest: append([]byte(nil), a.AcceptDigest[:]...)}
-	item := &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Order{Order: &buildersyncv1.BuilderSyncOrderV1{
-		SignedOrder: ev.SignedOrder, ResultHeader: a.Header,
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(ev.SignedOrder, &signed); err != nil {
+		return fmt.Errorf("signed order of recorded ticket %x: %w", a.TicketHash[:4], err)
+	}
+	var header nexusv1.DispatchResultHeaderV1
+	if err := proto.Unmarshal(a.Header, &header); err != nil {
+		return fmt.Errorf("result header of recorded ticket %x: %w", a.TicketHash[:4], err)
+	}
+	item := &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Order{Order: &nexusv1.BuilderSyncOrderV1{
+		SignedOrder: &signed, ResultHeader: &header,
 	}}}
-	return s.commitLocked(next, []*buildersyncv1.BuilderSyncItemV1{item})
+	return s.commitLocked(next, []*nexusv1.BuilderSyncItemV1{item})
 }
 
 // newStream builds a new order's stream with the other members of the order's group; nil when
@@ -638,7 +648,7 @@ func (s *Sender) orderSnapshot(ctx context.Context, order *taskv1.TaskOrderV3) (
 // diff returns the items of what view shows that st has not turned into items yet, and marks it
 // in st: a round (with the version's input the first time) before its attempts, an attempt
 // whenever it changed, the record whenever it changed.
-func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence.Order) ([]*buildersyncv1.BuilderSyncItemV1, error) {
+func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence.Order) ([]*nexusv1.BuilderSyncItemV1, error) {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(view.SignedOrder, &signed); err != nil {
 		return nil, fmt.Errorf("signed order: %w", err)
@@ -652,7 +662,7 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 	if err != nil {
 		return nil, fmt.Errorf("task hash: %w", err)
 	}
-	var items []*buildersyncv1.BuilderSyncItemV1
+	var items []*nexusv1.BuilderSyncItemV1
 	for _, r := range view.Rounds {
 		roundKey := fmt.Sprintf("%s/%d/%d", view.TaskID, view.Epoch, r.Number)
 		if !st.Rounds[roundKey] {
@@ -663,13 +673,13 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 			if err != nil || !found {
 				return nil, fmt.Errorf("handraise root %x of round %d: found %v, %v", r.RootDigest[:4], r.Number, found, err)
 			}
-			rootRaw, err := marshal(root)
-			if err != nil {
-				return nil, err
+			var roster taskv1.DispatchRosterV1
+			if err := proto.Unmarshal(r.Roster, &roster); err != nil {
+				return nil, fmt.Errorf("roster of round %d: %w", r.Number, err)
 			}
-			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Round{Round: &buildersyncv1.BuilderSyncRoundV1{
+			items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Round{Round: &nexusv1.BuilderSyncRoundV1{
 				TaskId: taskID, TaskHash: taskHash, VrfEpoch: view.Epoch, DispatchRound: r.Number,
-				Roster: r.Roster, RosterHash: r.RosterHash, HandraiseRoot: rootRaw, EarliestSubmitHeight: order.GetEarliestSubmitHeight(),
+				Roster: &roster, RosterHash: r.RosterHash, HandraiseRoot: root, EarliestSubmitHeight: order.GetEarliestSubmitHeight(),
 				UserAddress: order.GetUserAddress(),
 			}}})
 			st.Rounds[roundKey] = true
@@ -683,9 +693,9 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 			}
 		}
 		for _, a := range r.Attempts {
-			item := &buildersyncv1.BuilderSyncAttemptV1{Ticket: a.Ticket, Sent: a.Sent, Outcome: a.Outcome, Reject: a.Reject, LateAccept: a.LateAccept}
-			if a.Outcome == taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_ACCEPTED {
-				item.Accept = view.Accept
+			item, err := attemptItem(a, view.Accept)
+			if err != nil {
+				return nil, fmt.Errorf("attempt of rank %d: %w", a.Rank, err)
 			}
 			raw, err := marshal(item)
 			if err != nil {
@@ -697,22 +707,54 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 			if st.Attempts[hash] == fingerprint {
 				continue
 			}
-			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Attempt{Attempt: item}})
+			items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Attempt{Attempt: item}})
 			st.Attempts[hash] = fingerprint
 		}
 	}
 	if len(view.Record) > 0 {
 		digest := sum(view.Record)
 		if record := hex.EncodeToString(digest[:]); st.Record != record {
-			items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_Record{Record: &buildersyncv1.BuilderSyncRecordV1{Record: view.Record}}})
+			var signedRecord taskv1.DispatchRecordV1
+			if err := proto.Unmarshal(view.Record, &signedRecord); err != nil {
+				return nil, fmt.Errorf("signed record: %w", err)
+			}
+			items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Record{Record: &nexusv1.BuilderSyncRecordV1{Record: &signedRecord}}})
 			st.Record = record
 		}
 	}
 	return items, nil
 }
 
+// attemptItem is the sync item of an attempt with the signed answers it has: the target's reject,
+// a late accept, and for the winner the order's accept.
+func attemptItem(a dispatchevidence.Attempt, accept []byte) (*nexusv1.BuilderSyncAttemptV1, error) {
+	item := &nexusv1.BuilderSyncAttemptV1{Ticket: &taskv1.DispatchTicketV1{}, Sent: a.Sent, Outcome: a.Outcome}
+	if err := proto.Unmarshal(a.Ticket, item.Ticket); err != nil {
+		return nil, fmt.Errorf("ticket: %w", err)
+	}
+	if len(a.Reject) > 0 {
+		item.Reject = &taskv1.DispatchRejectV1{}
+		if err := proto.Unmarshal(a.Reject, item.Reject); err != nil {
+			return nil, fmt.Errorf("reject: %w", err)
+		}
+	}
+	if len(a.LateAccept) > 0 {
+		item.LateAccept = &taskv1.DispatchAcceptV1{}
+		if err := proto.Unmarshal(a.LateAccept, item.LateAccept); err != nil {
+			return nil, fmt.Errorf("late accept: %w", err)
+		}
+	}
+	if a.Outcome == outcomeAccepted && len(accept) > 0 {
+		item.Accept = &taskv1.DispatchAcceptV1{}
+		if err := proto.Unmarshal(accept, item.Accept); err != nil {
+			return nil, fmt.Errorf("accept: %w", err)
+		}
+	}
+	return item, nil
+}
+
 // inputItems are the input of the order version cut into pieces.
-func (s *Sender) inputItems(ctx context.Context, view *dispatchevidence.Order, order *taskv1.TaskOrderV3) ([]*buildersyncv1.BuilderSyncItemV1, error) {
+func (s *Sender) inputItems(ctx context.Context, view *dispatchevidence.Order, order *taskv1.TaskOrderV3) ([]*nexusv1.BuilderSyncItemV1, error) {
 	data, mediaType, err := s.cfg.Inputs.ReadInput(ctx, view.SessionID, view.TaskID, view.TaskHash)
 	if err != nil {
 		return nil, fmt.Errorf("input of the order: %w", err)
@@ -721,10 +763,10 @@ func (s *Sender) inputItems(ctx context.Context, view *dispatchevidence.Order, o
 	if !bytes.Equal(inputHash[:], order.GetInputHash()) {
 		return nil, fmt.Errorf("stored input does not hash to the order's input_hash")
 	}
-	var items []*buildersyncv1.BuilderSyncItemV1
+	var items []*nexusv1.BuilderSyncItemV1
 	for offset := 0; offset < len(data) || offset == 0; offset += s.cfg.InputChunkBytes {
 		end := min(offset+s.cfg.InputChunkBytes, len(data))
-		items = append(items, &buildersyncv1.BuilderSyncItemV1{Item: &buildersyncv1.BuilderSyncItemV1_InputChunk{InputChunk: &buildersyncv1.BuilderSyncInputChunkV1{
+		items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_InputChunk{InputChunk: &nexusv1.BuilderSyncInputChunkV1{
 			TaskHash: mustHex(view.TaskHash), InputHash: inputHash[:], InputSizeBytes: uint64(len(data)), MediaType: mediaType,
 			Offset: uint64(offset), Data: data[offset:end],
 		}}})
@@ -742,7 +784,7 @@ func mustHex(s string) []byte {
 
 // commitLocked numbers items after next.Last and stores them with next in one write, then makes
 // next the stream and wakes its members' workers. Caller holds s.mu.
-func (s *Sender) commitLocked(next *outStream, items []*buildersyncv1.BuilderSyncItemV1) error {
+func (s *Sender) commitLocked(next *outStream, items []*nexusv1.BuilderSyncItemV1) error {
 	cur := s.streams[next.key()]
 	if len(items) == 0 && cur != nil && cur.ExpireHeight == next.ExpireHeight {
 		return nil

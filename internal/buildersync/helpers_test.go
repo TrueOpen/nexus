@@ -17,7 +17,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
@@ -47,7 +46,7 @@ const (
 var (
 	evidenceParams = dispatchevidence.Params{RecordDeadlineBlocks: 20, ClaimWindowBlocks: 30, RebuttalBlocks: 10,
 		ChallengeWindowBlocks: 50, ChallengeResponseBlocks: 6, RetentionBlocks: 100}
-	outputConfig = taskdata.OutputStreamConfig{MaxLeaves: 16, MinFrameBytes: 4, MaxFrameBytes: 64}
+	outputConfig = taskdata.OutputStreamConfig{MaxLeaves: 256, MinFrameBytes: 4, MaxFrameBytes: 64}
 	storeConfig  = taskdata.Config{InlineMaxBytes: 8, ChunkSizeBytes: 64, MaxRangeBytes: 256, MaxBlobBytes: 4096,
 		SpoolReservationBytes: 1 << 20, DiskAcceptWatermarkPercent: 90}
 )
@@ -159,7 +158,7 @@ func (k *fakeKeys) QueryCurrentServiceKey(_ context.Context, participant, operat
 	}
 	return chaincli.ServiceKeyState{
 		ParticipantType: participant, OperatorAddress: operator, ServicePubKey: hex.EncodeToString(s.PubKeyCompressed()),
-		ServiceAddress: s.Address(), Status: "ACTIVE",
+		ServiceAddress: s.Address(), Status: "ACTIVE", AuthorizationNonce: 1,
 	}, nil
 }
 
@@ -221,15 +220,16 @@ func (f fakeInputs) ReadInput(_ context.Context, _, _, taskHash string) ([]byte,
 	return data, "text/plain", nil
 }
 
-// loopPeers hands batches straight to the members' receivers; fail makes a member unreachable.
+// loopPeers hands batches straight to the members' receivers, as the bytes a member receives;
+// fail makes a member unreachable.
 type loopPeers struct {
 	mu        sync.Mutex
 	receivers map[string]*Receiver
 	fail      map[string]error
-	requests  map[string][]*buildersyncv1.SyncRequest
+	requests  map[string][]*nexusv1.SyncRequest
 }
 
-func (p *loopPeers) Sync(ctx context.Context, operator string, req *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error) {
+func (p *loopPeers) Sync(ctx context.Context, operator string, req *nexusv1.SyncRequest) (*nexusv1.SyncResponse, error) {
 	p.mu.Lock()
 	p.requests[operator] = append(p.requests[operator], req)
 	err := p.fail[operator]
@@ -238,7 +238,32 @@ func (p *loopPeers) Sync(ctx context.Context, operator string, req *buildersyncv
 	if err != nil {
 		return nil, err
 	}
-	return r.Sync(ctx, req)
+	raw, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return r.Sync(ctx, raw)
+}
+
+// nopEvidence, nopReplicas are receiver dependencies of tests that never apply an item.
+type nopEvidence struct{}
+
+func (nopEvidence) Put(*dispatchevidence.Order, ...kv.WriteOp) error {
+	return errors.New("no evidence store")
+}
+func (nopEvidence) ByTask(string) ([]*dispatchevidence.Order, error) { return nil, nil }
+func (nopEvidence) ByTicket([]byte) (*dispatchevidence.Order, *dispatchevidence.Attempt, bool, error) {
+	return nil, nil, false, nil
+}
+
+type nopReplicas struct{}
+
+func (nopReplicas) OpenReplicaStream(context.Context, taskdata.ObjectKey, string, taskdata.OutputStreamConfig, []byte) (*taskdata.OutputStream, taskdata.OutputStreamProgress, error) {
+	return nil, taskdata.OutputStreamProgress{}, errors.New("no replicas")
+}
+
+func (nopReplicas) OutputStreamProgressOf(context.Context, taskdata.ObjectKey) (taskdata.OutputStreamProgress, bool, error) {
+	return taskdata.OutputStreamProgress{}, false, nil
 }
 
 func (p *loopPeers) setFail(operator string, err error) {
@@ -313,7 +338,7 @@ func newEnv(t *testing.T) *env {
 		worker: newParty(t, 0x04, 0x14), other: newParty(t, 0x05, 0x15),
 		keys:    &fakeKeys{keys: map[string]signer.Signer{}},
 		records: &fakeRecords{records: map[string]*taskv1.DispatchRecordState{}},
-		peers:   &loopPeers{receivers: map[string]*Receiver{}, fail: map[string]error{}, requests: map[string][]*buildersyncv1.SyncRequest{}},
+		peers:   &loopPeers{receivers: map[string]*Receiver{}, fail: map[string]error{}, requests: map[string][]*nexusv1.SyncRequest{}},
 		clock:   &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
 		dStore:  kv.NewMemStore(), inputs: fakeInputs{}, roots: map[[32]byte]*taskv1.SignedHandraiseRootV1{}, book: fakeBook{},
 	}
@@ -456,8 +481,13 @@ func memberRef(op string, slot uint32) *taskv1.CandidateMemberRefV1 {
 
 func newFixture(e *env) *fixture {
 	t := e.t
-	f := &fixture{e: e, sessionID: fill(0xaa), sequence: 3, taskID: fill(0xa1), input: []byte("hello, group members"),
+	f := &fixture{e: e, sessionID: fill(0xaa), sequence: 3, input: bytes.Repeat([]byte("hello, group members "), 8),
 		rejecter: newParty(t, 0x06, 0x16), user: walletAddress(t, userKey)}
+	taskID, err := nodecontract.DeriveTaskIDFromRawSession(f.sessionID, f.sequence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.taskID = taskID[:]
 	e.keys.set("CORTEX", f.rejecter)
 	inputHash := sha256.Sum256(f.input)
 	f.order = vectorOrder(t)

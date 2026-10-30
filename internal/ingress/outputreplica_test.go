@@ -13,9 +13,8 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
-	"github.com/TrueOpen/nexus/gen/buildersync/v1/buildersyncv1connect"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/buildersync"
@@ -115,11 +114,15 @@ func TestRosterOwnerOnAMember(t *testing.T) {
 }
 
 type fakeBuilderSync struct {
-	resp *buildersyncv1.SyncResponse
+	resp *nexusv1.SyncResponse
 	err  error
+	got  *[]byte
 }
 
-func (f fakeBuilderSync) Sync(context.Context, *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error) {
+func (f fakeBuilderSync) Sync(_ context.Context, raw []byte) (*nexusv1.SyncResponse, error) {
+	if f.got != nil {
+		*f.got = raw
+	}
 	return f.resp, f.err
 }
 
@@ -132,28 +135,42 @@ func TestBuilderSyncErrors(t *testing.T) {
 		buildersync.ErrUnavailable:     connect.CodeUnavailable,
 		errors.New("disk"):             connect.CodeInternal,
 	} {
-		_, got := builderSyncService{sync: fakeBuilderSync{err: err}}.Sync(context.Background(), connect.NewRequest(&buildersyncv1.SyncRequest{}))
+		_, got := builderSyncService{sync: fakeBuilderSync{err: err}}.Sync(context.Background(), connect.NewRequest(&rawSyncRequest{}))
 		if connect.CodeOf(got) != want {
 			t.Fatalf("%v -> %v, want %v", err, connect.CodeOf(got), want)
 		}
 	}
 }
 
-// The ingress server serves the sync service on its own handler, next to IngressAPI.
+// The ingress server serves the sync service on its own handler, next to IngressAPI, and hands the
+// receiver the request bytes exactly as they arrived, unknown and duplicate fields included. A JSON
+// request is refused: it cannot be validated byte for byte.
 func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
+	var got []byte
 	srv, err := New(slog.New(slog.DiscardHandler), config.IngressConfig{APIKeys: []string{"sdk-key"}}, AuthParams{}, &fakeHandler{},
-		WithBuilderSync(fakeBuilderSync{resp: &buildersyncv1.SyncResponse{AppliedThrough: 7}}, 0, 0))
+		WithBuilderSync(fakeBuilderSync{resp: &nexusv1.SyncResponse{AppliedThrough: 7}, got: &got}, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := proto.Marshal(&buildersyncv1.SyncRequest{Batch: []byte("b")})
-	req := httptest.NewRequest(http.MethodPost, buildersyncv1connect.BuilderSyncServiceSyncProcedure, bytes.NewReader(body))
+	body, _ := proto.Marshal(&nexusv1.SyncRequest{Batch: &nexusv1.BuilderSyncBatchV1{ChainId: "c"}})
+	body = append(body, 0x12, 0x01, 0x01, 0x78, 0x01) // a second sender_signature and unknown field 15
+	req := httptest.NewRequest(http.MethodPost, nexusv1connect.BuilderSyncServiceSyncProcedure, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/proto")
 	rec := httptest.NewRecorder()
 	srv.handler().ServeHTTP(rec, req)
-	var resp buildersyncv1.SyncResponse
+	var resp nexusv1.SyncResponse
 	if rec.Code != http.StatusOK || proto.Unmarshal(rec.Body.Bytes(), &resp) != nil || resp.GetAppliedThrough() != 7 {
 		t.Fatalf("sync over the ingress handler = %d %q", rec.Code, rec.Body.String())
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("receiver got %x, want the request bytes %x", got, body)
+	}
+	req = httptest.NewRequest(http.MethodPost, nexusv1connect.BuilderSyncServiceSyncProcedure, bytes.NewReader([]byte(`{"batch":{}}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.handler().ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("JSON sync request = %d %q", rec.Code, rec.Body.String())
 	}
 }
 
@@ -174,7 +191,7 @@ func TestBuilderSyncIsRateLimitedPerAddress(t *testing.T) {
 		t.Fatal("the address was not let through again after a second")
 	}
 	_, err := builderSyncService{sync: fakeBuilderSync{}, limit: newAddressLimiter(0, 0, time.Now)}.Sync(context.Background(),
-		connect.NewRequest(&buildersyncv1.SyncRequest{}))
+		connect.NewRequest(&rawSyncRequest{}))
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("over the limit: %v", err)
 	}

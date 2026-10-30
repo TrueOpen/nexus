@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/TrueOpen/wire/dispatch"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -130,19 +131,18 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 	if batch == nil {
 		return false, true
 	}
-	raw, err := marshal(batch)
+	// Every send signs again with the current service key: a retransmission after a rotation
+	// carries the new key's signature.
+	req, err := SignRequest(s.cfg.Signer, batch)
 	if err == nil {
-		var sig []byte
-		if sig, err = SignBatch(s.cfg.Signer, s.cfg.ChainID, s.cfg.Builder, raw); err == nil {
-			callCtx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
-			var resp *buildersyncv1.SyncResponse
-			resp, err = s.cfg.Peers.Sync(callCtx, peer, &buildersyncv1.SyncRequest{Batch: raw, SenderSignature: sig})
-			cancel()
-			if err == nil {
-				s.acked(key, peer, resp)
-				if resp.GetRefused() != "" {
-					err = fmt.Errorf("member refused: %s", resp.GetRefused())
-				}
+		callCtx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		var resp *nexusv1.SyncResponse
+		resp, err = s.cfg.Peers.Sync(callCtx, peer, req)
+		cancel()
+		if err == nil {
+			s.acked(key, peer, resp)
+			if resp.GetRefused() != "" {
+				err = fmt.Errorf("member refused: %s", resp.GetRefused())
 			}
 		}
 	}
@@ -160,15 +160,16 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 }
 
 // batch builds the next batch of p for peer: the items it has not applied, then, once it gets the
-// order item, the recorded winner's frames it does not hold. nil when nothing is due.
-func (s *Sender) batch(ctx context.Context, p plan, peer string) (*buildersyncv1.BuilderSyncBatchV1, error) {
+// order item, the recorded winner's frames it does not hold. The signed request stays within
+// MaxBatchBytes and dispatch.MaxBuilderSyncEntries items and chunks. nil when nothing is due.
+func (s *Sender) batch(ctx context.Context, p plan, peer string) (*nexusv1.BuilderSyncBatchV1, error) {
 	st := &p.stream
-	batch := &buildersyncv1.BuilderSyncBatchV1{
+	batch := &nexusv1.BuilderSyncBatchV1{
 		SchemaVersion: schemaVersion, ChainId: s.cfg.ChainID, SenderOperatorAddress: s.cfg.Builder, ReceiverOperatorAddress: peer,
 		SessionId: mustHex(st.SessionID), OrderSequence: st.Sequence, BuilderSetId: st.BuilderSetID, BuilderSetHash: st.BuilderSetHash,
 	}
-	size := 0
-	for n := p.from; n <= p.to; n++ {
+	size := proto.Size(batch)
+	for n := p.from; n <= p.to && len(batch.Items) < dispatch.MaxBuilderSyncEntries; n++ {
 		raw, found, err := s.cfg.Store.GetWithError(kv.NSBuilderSyncOutbox, outItemKey(st.key(), n))
 		if err != nil {
 			return nil, fmt.Errorf("read sync item %d: %w", n, err)
@@ -176,19 +177,19 @@ func (s *Sender) batch(ctx context.Context, p plan, peer string) (*buildersyncv1
 		if !found {
 			return nil, fmt.Errorf("sync item %d is no longer held; the member is behind what every member acknowledged", n)
 		}
-		if len(batch.Items) > 0 && size+len(raw) > s.cfg.MaxBatchBytes {
+		if len(batch.Items) > 0 && requestSize(size+fieldSize(len(raw))) > s.cfg.MaxBatchBytes {
 			break
 		}
-		var item buildersyncv1.BuilderSyncItemV1
+		var item nexusv1.BuilderSyncItemV1
 		if err := proto.Unmarshal(raw, &item); err != nil {
 			return nil, fmt.Errorf("stored sync item %d: %w", n, err)
 		}
 		batch.Items = append(batch.Items, &item)
-		size += len(raw)
+		size += fieldSize(len(raw))
 	}
 	allItems := p.from+uint64(len(batch.Items)) > p.to
 	if st.Winner != nil && allItems && !p.output.Sealed && !p.output.NotHeld {
-		output, err := s.output(ctx, st, p.output, size)
+		output, err := s.output(ctx, st, p.output, size, len(batch.Items) == 0)
 		if err != nil {
 			return nil, err
 		}
@@ -200,8 +201,15 @@ func (s *Sender) batch(ctx context.Context, p plan, peer string) (*buildersyncv1
 	return batch, nil
 }
 
-// output is the run of the winner's frames after what the member holds, within the batch size.
-func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, size int) (*buildersyncv1.BuilderSyncOutputV1, error) {
+// fieldSize is the size of a length-delimited field of n bytes with a one-byte tag.
+func fieldSize(n int) int { return 1 + protowire.SizeBytes(n) }
+
+// requestSize is the size of a signed SyncRequest whose batch is batchSize bytes.
+func requestSize(batchSize int) int { return fieldSize(batchSize) + fieldSize(dispatch.SignatureSize) }
+
+// output is the run of the winner's frames after what the member holds that fits a batch of
+// batchSize bytes; alone allows one chunk past the size, so a batch always carries something.
+func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batchSize int, alone bool) (*nexusv1.BuilderSyncOutputV1, error) {
 	key := taskdata.ObjectKey{SessionID: st.SessionID, TaskID: st.TaskID, Kind: taskdata.ObjectKindOutput}
 	progress, found, err := s.cfg.Outputs.OutputStreamProgressOf(ctx, key)
 	if err != nil {
@@ -214,27 +222,41 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, size
 	if held.Received {
 		after = &held.LastSeq
 	}
-	frames, err := s.cfg.Outputs.OutputFramesUpTo(ctx, key, after, max(s.cfg.MaxBatchBytes-size, 1))
+	frames, err := s.cfg.Outputs.OutputFramesUpTo(ctx, key, after, max(s.cfg.MaxBatchBytes-batchSize, 1))
 	if err != nil {
 		return nil, fmt.Errorf("output frames: %w", err)
 	}
-	out := &buildersyncv1.BuilderSyncOutputV1{
-		DispatchTicketHash: st.Winner.TicketHash, WinnerTicket: st.Winner.Ticket, DispatchAcceptDigest: st.Winner.AcceptDigest,
+	out := &nexusv1.BuilderSyncOutputV1{
+		DispatchTicketHash: st.Winner.TicketHash, WinnerTicket: &taskv1.DispatchTicketV1{}, DispatchAcceptDigest: st.Winner.AcceptDigest,
+	}
+	if err := proto.Unmarshal(st.Winner.Ticket, out.WinnerTicket); err != nil {
+		return nil, fmt.Errorf("winner ticket: %w", err)
+	}
+	// outSize grows with each frame; a frame that does not fit ends the run, and the Fin only
+	// follows a complete run of chunks.
+	outSize := proto.Size(out)
+	fits := func(frame int) bool {
+		return requestSize(batchSize+fieldSize(outSize+fieldSize(frame))) <= s.cfg.MaxBatchBytes
 	}
 	for _, frame := range frames {
 		if frame.Chunk != nil {
 			if !bytes.Equal(frame.Chunk.DispatchTicketHash, st.Winner.TicketHash) {
 				return nil, nil // the stored stream is not the winner's
 			}
-			if size > 0 && size+len(frame.Chunk.Text) > s.cfg.MaxBatchBytes {
+			chunk := chunkToPB(frame.Chunk)
+			n := proto.Size(chunk)
+			if len(out.Chunks) == dispatch.MaxBuilderSyncEntries || !fits(n) && !(alone && len(out.Chunks) == 0) {
 				break
 			}
-			size += len(frame.Chunk.Text)
-			out.Chunks = append(out.Chunks, chunkToPB(frame.Chunk))
+			out.Chunks = append(out.Chunks, chunk)
+			outSize += fieldSize(n)
 			continue
 		}
 		if frame.Fin != nil && bytes.Equal(frame.Fin.DispatchTicketHash, st.Winner.TicketHash) {
-			out.Fin = finToPB(frame.Fin)
+			fin := finToPB(frame.Fin)
+			if fits(proto.Size(fin)) || alone && len(out.Chunks) == 0 {
+				out.Fin = fin
+			}
 		}
 	}
 	if len(out.Chunks) == 0 && out.Fin == nil {
@@ -259,7 +281,7 @@ func finToPB(f *taskdata.OutputFin) *nexusv1.OutputFinV1 {
 
 // acked takes a member's answer: how far it applied the order's items and holds its output. Items
 // every member applied are deleted.
-func (s *Sender) acked(key, peer string, resp *buildersyncv1.SyncResponse) {
+func (s *Sender) acked(key, peer string, resp *nexusv1.SyncResponse) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.streams[key]

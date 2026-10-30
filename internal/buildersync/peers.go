@@ -15,9 +15,9 @@ import (
 
 	"connectrpc.com/connect"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
-	"github.com/TrueOpen/nexus/gen/buildersync/v1/buildersyncv1connect"
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 )
 
@@ -46,7 +46,7 @@ type ChainPeers struct {
 }
 
 type peerClient struct {
-	client   buildersyncv1connect.BuilderSyncServiceClient
+	client   nexusv1connect.BuilderSyncServiceClient
 	resolved time.Time
 }
 
@@ -56,7 +56,7 @@ func NewChainPeers(chain DescriptorChain) *ChainPeers {
 }
 
 // Sync implements Peers.
-func (p *ChainPeers) Sync(ctx context.Context, operator string, req *buildersyncv1.SyncRequest) (*buildersyncv1.SyncResponse, error) {
+func (p *ChainPeers) Sync(ctx context.Context, operator string, req *nexusv1.SyncRequest) (*nexusv1.SyncResponse, error) {
 	client, err := p.client(ctx, operator)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (p *ChainPeers) Sync(ctx context.Context, operator string, req *buildersync
 	return resp.Msg, nil
 }
 
-func (p *ChainPeers) client(ctx context.Context, operator string) (buildersyncv1connect.BuilderSyncServiceClient, error) {
+func (p *ChainPeers) client(ctx context.Context, operator string) (nexusv1connect.BuilderSyncServiceClient, error) {
 	p.mu.Lock()
 	cached, ok := p.clients[operator]
 	p.mu.Unlock()
@@ -86,7 +86,7 @@ func (p *ChainPeers) client(ctx context.Context, operator string) (buildersyncv1
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", errNoPeer, operator, err)
 	}
-	client := buildersyncv1connect.NewBuilderSyncServiceClient(httpClient, baseURL)
+	client := nexusv1connect.NewBuilderSyncServiceClient(httpClient, baseURL)
 	p.mu.Lock()
 	p.clients[operator] = peerClient{client: client, resolved: p.now()}
 	p.mu.Unlock()

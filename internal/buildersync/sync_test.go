@@ -12,13 +12,14 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	buildersyncv1 "github.com/TrueOpen/nexus/gen/buildersync/v1"
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
+	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
@@ -94,7 +95,7 @@ func TestOrderIsNeverQueuedBeforeTheRecord(t *testing.T) {
 	e.s.drain()
 	err := e.dStore.Scan(kv.NSBuilderSyncOutbox, func(key string, val []byte) bool {
 		if strings.HasPrefix(key, outItemPrefix) {
-			var item buildersyncv1.BuilderSyncItemV1
+			var item nexusv1.BuilderSyncItemV1
 			if proto.Unmarshal(val, &item) == nil && item.GetOrder() != nil {
 				t.Fatalf("order item %s queued before the record", key)
 			}
@@ -194,7 +195,7 @@ func TestRedeliveryAndOutOfOrderItems(t *testing.T) {
 	e.s.OrderChanged(f.rejectedThenOut())
 	e.sync()
 	reqs := e.peers.requests[e.m.op]
-	resp, err := e.member.r.Sync(context.Background(), reqs[len(reqs)-1])
+	resp, err := e.member.r.Sync(context.Background(), e.raw(reqs[len(reqs)-1]))
 	if err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != e.s.streams[streamKey(f.sessionHex(), f.sequence)].Last {
 		t.Fatalf("redelivery = %v, %v", resp, err)
 	}
@@ -204,40 +205,58 @@ func TestRedeliveryAndOutOfOrderItems(t *testing.T) {
 
 	// A fresh member gets only the items from 3 on: refused, and it holds nothing.
 	fresh := e.newMember(e.m)
-	var batch buildersyncv1.BuilderSyncBatchV1
-	if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
-		t.Fatal(err)
-	}
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
 	batch.Items = batch.Items[2:]
-	resp, err = fresh.r.Sync(context.Background(), e.signed(&batch))
+	resp, err = fresh.r.Sync(context.Background(), e.signed(batch))
 	if err != nil || !strings.Contains(resp.GetRefused(), "out of order") || resp.GetAppliedThrough() != 0 {
 		t.Fatalf("out of order batch = %v, %v", resp, err)
 	}
 }
 
-// signed signs a batch as D.
-func (e *env) signed(batch *buildersyncv1.BuilderSyncBatchV1) *buildersyncv1.SyncRequest {
+// signed is a batch signed as D, as the bytes a member receives.
+func (e *env) signed(batch *nexusv1.BuilderSyncBatchV1) []byte {
 	e.t.Helper()
-	raw := mustMarshal(e.t, batch)
-	sig, err := SignBatch(e.d.key, testChainID, batch.GetSenderOperatorAddress(), raw)
+	return e.signedBy(e.d.key, batch)
+}
+
+// signedBy is a batch signed with key, as the bytes a member receives.
+func (e *env) signedBy(key signer.Signer, batch *nexusv1.BuilderSyncBatchV1) []byte {
+	e.t.Helper()
+	req, err := SignRequest(key, batch)
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	return &buildersyncv1.SyncRequest{Batch: raw, SenderSignature: sig}
+	return e.raw(req)
+}
+
+// raw is a request as the bytes a member receives.
+func (e *env) raw(req *nexusv1.SyncRequest) []byte {
+	e.t.Helper()
+	return mustMarshal(e.t, req)
+}
+
+// inputOnly is a copy of batch with only its first input piece: a batch whose sender or order can be
+// changed without breaking the identities the wire contract checks inside the items.
+func inputOnly(batch *nexusv1.BuilderSyncBatchV1) *nexusv1.BuilderSyncBatchV1 {
+	b := proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
+	for _, item := range b.Items {
+		if item.GetInputChunk() != nil {
+			b.Items = []*nexusv1.BuilderSyncItemV1{item}
+			return b
+		}
+	}
+	panic("batch has no input piece")
 }
 
 // firstBatch is the batch D sends M for the order's first ticket.
-func (e *env) firstBatch() *buildersyncv1.BuilderSyncBatchV1 {
+func (e *env) firstBatch() *nexusv1.BuilderSyncBatchV1 {
 	e.t.Helper()
 	e.peers.setFail(e.m.op, errors.New("held back"))
 	e.s.OrderChanged(e.fx.issued())
 	e.sync()
 	reqs := e.peers.requests[e.m.op]
-	var batch buildersyncv1.BuilderSyncBatchV1
-	if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
-		e.t.Fatal(err)
-	}
-	return &batch
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+	return batch
 }
 
 // A batch from a Builder outside the group, for a stale BuilderSet, signed by another key or not
@@ -249,27 +268,23 @@ func TestReceiverRefusesBatchesNotFromTheGroup(t *testing.T) {
 
 	outsider := newParty(t, 0x07, 0x17)
 	e.keys.set("BUILDER", outsider)
-	b := proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	b := inputOnly(batch)
 	b.SenderOperatorAddress = outsider.op
-	raw := mustMarshal(t, b)
-	sig, _ := SignBatch(outsider.key, testChainID, outsider.op, raw)
-	if _, err := e.member.r.Sync(ctx, &buildersyncv1.SyncRequest{Batch: raw, SenderSignature: sig}); !errors.Is(err, ErrNotGroupMember) {
+	if _, err := e.member.r.Sync(ctx, e.signedBy(outsider.key, b)); !errors.Is(err, ErrNotGroupMember) {
 		t.Fatalf("outsider: %v", err)
 	}
 
-	req := e.signed(batch)
-	req.SenderSignature, _ = SignBatch(e.x.key, testChainID, e.d.op, req.GetBatch())
-	if _, err := e.member.r.Sync(ctx, req); !errors.Is(err, ErrUnauthenticated) {
+	if _, err := e.member.r.Sync(ctx, e.signedBy(e.x.key, batch)); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("another key's signature: %v", err)
 	}
 
-	b = proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	b = proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
 	b.BuilderSetId = "set-0"
 	if _, err := e.member.r.Sync(ctx, e.signed(b)); !errors.Is(err, ErrNotGroupMember) {
 		t.Fatalf("stale BuilderSet: %v", err)
 	}
 
-	b = proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	b = proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
 	b.ReceiverOperatorAddress = e.x.op
 	if _, err := e.member.r.Sync(ctx, e.signed(b)); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("batch for another member: %v", err)
@@ -291,27 +306,25 @@ func TestReceiverRefusesBatchesNotFromTheGroup(t *testing.T) {
 // Items that do not stand up are refused, and nothing after them is applied: an input that does
 // not hash to its input_hash, a ticket D did not sign, a roster that is not the roster_hash.
 func TestReceiverRefusesBadItems(t *testing.T) {
-	for name, spoil := range map[string]func(*env, *buildersyncv1.BuilderSyncBatchV1){
-		"input hash": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+	for name, spoil := range map[string]func(*env, *nexusv1.BuilderSyncBatchV1){
+		"input hash": func(_ *env, b *nexusv1.BuilderSyncBatchV1) {
 			for _, item := range b.Items {
 				if c := item.GetInputChunk(); c != nil && c.GetOffset() == 0 {
 					c.Data = append([]byte("H"), c.Data[1:]...)
 				}
 			}
 		},
-		"ticket signature": func(e *env, b *buildersyncv1.BuilderSyncBatchV1) {
+		"ticket signature": func(e *env, b *nexusv1.BuilderSyncBatchV1) {
 			for _, item := range b.Items {
 				if a := item.GetAttempt(); a != nil {
-					var ticket taskv1.DispatchTicketV1
-					_ = proto.Unmarshal(a.Ticket, &ticket)
-					a.Ticket, _ = signWith(e.t, e.x.key, ticketName, &ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
+					signWith(e.t, e.x.key, ticketName, a.Ticket, func(s []byte) { a.Ticket.BuilderServiceSignature = s })
 				}
 			}
 		},
-		"roster": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+		"roster": func(_ *env, b *nexusv1.BuilderSyncBatchV1) {
 			b.Items[0].GetRound().RosterHash = fill(0x01)
 		},
-		"round task_hash": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+		"round task_hash": func(_ *env, b *nexusv1.BuilderSyncBatchV1) {
 			b.Items[0].GetRound().TaskHash = fill(0x02)
 			for _, item := range b.Items {
 				if c := item.GetInputChunk(); c != nil {
@@ -319,7 +332,7 @@ func TestReceiverRefusesBadItems(t *testing.T) {
 				}
 			}
 		},
-		"input piece out of order": func(_ *env, b *buildersyncv1.BuilderSyncBatchV1) {
+		"input piece out of order": func(_ *env, b *nexusv1.BuilderSyncBatchV1) {
 			for _, item := range b.Items {
 				if c := item.GetInputChunk(); c != nil && c.GetOffset() > 0 {
 					c.Offset++
@@ -345,7 +358,7 @@ func TestReceiverRefusesBadItems(t *testing.T) {
 
 // recordedBatch has D sync the recorded order with its output, held back from M, and returns the
 // last batch.
-func (e *env) recordedBatch(texts []string) *buildersyncv1.BuilderSyncBatchV1 {
+func (e *env) recordedBatch(texts []string) *nexusv1.BuilderSyncBatchV1 {
 	e.t.Helper()
 	f := e.fx
 	f.putAccepted()
@@ -356,14 +369,11 @@ func (e *env) recordedBatch(texts []string) *buildersyncv1.BuilderSyncBatchV1 {
 	e.peers.setFail(e.m.op, errors.New("held back"))
 	e.sync()
 	reqs := e.peers.requests[e.m.op]
-	var batch buildersyncv1.BuilderSyncBatchV1
-	if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
-		e.t.Fatal(err)
-	}
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
 	if batch.Output == nil || len(batch.Output.Chunks) != len(texts) {
 		e.t.Fatalf("recorded batch has no output: %v", batch.Output)
 	}
-	return &batch
+	return batch
 }
 
 // Output frames are checked against the recorded winner: a frame another Cortex signed, or a batch
@@ -442,7 +452,7 @@ func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
 	e.groups.snapshot = taskgroupSnapshot("set-3", 0x60, e.d.op, e.m.op)
 	e.groups.mu.Unlock()
 	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 101})
-	batch := e.firstBatch()
+	batch := inputOnly(e.peers.requests[e.m.op][0].GetBatch())
 	batch.SessionId = fill(0xab)
 	batch.BuilderSetId, batch.BuilderSetHash = "set-1", fill(0x5e)
 	if _, err := e.member.r.Sync(context.Background(), e.signed(batch)); !errors.Is(err, ErrNotGroupMember) {
@@ -454,7 +464,7 @@ func TestReceiverKeepsAnOrderAcrossASnapshotChange(t *testing.T) {
 // takes no API key, so a made-up sender must never cost a chain read of its key.
 func TestNonMemberCostsNoKeyLookup(t *testing.T) {
 	e := newEnv(t)
-	batch := e.firstBatch()
+	batch := inputOnly(e.firstBatch())
 	e.keys.mu.Lock()
 	e.keys.lookups = nil
 	e.keys.mu.Unlock()
@@ -481,18 +491,13 @@ func TestReceiverChecksTheRejectSignature(t *testing.T) {
 	e.s.OrderChanged(f.rejectedThenOut())
 	e.sync()
 	reqs := e.peers.requests[e.m.op]
-	var batch buildersyncv1.BuilderSyncBatchV1
-	if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
-		t.Fatal(err)
-	}
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
 	for _, item := range batch.Items {
-		if a := item.GetAttempt(); a != nil && len(a.Reject) > 0 {
-			var reject taskv1.DispatchRejectV1
-			_ = proto.Unmarshal(a.Reject, &reject)
-			a.Reject, _ = signWith(t, e.other.key, rejectName, &reject, func(s []byte) { reject.ServiceSignature = s })
+		if a := item.GetAttempt(); a != nil && a.Reject != nil {
+			signWith(t, e.other.key, rejectName, a.Reject, func(s []byte) { a.Reject.ServiceSignature = s })
 		}
 	}
-	resp, err := e.member.r.Sync(context.Background(), e.signed(&batch))
+	resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
 	if err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != uint64(len(batch.Items)) {
 		t.Fatalf("reject under another key = %v, %v", resp, err)
 	}
@@ -859,12 +864,12 @@ func TestLaterRoundKeepsTheTaskHash(t *testing.T) {
 		t.Fatalf("first batch = %v, %v", resp, err)
 	}
 	last := batch.Items[len(batch.Items)-1].GetSequence()
-	next := proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
-	round := proto.Clone(batch.Items[0]).(*buildersyncv1.BuilderSyncItemV1)
+	next := proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
+	round := proto.Clone(batch.Items[0]).(*nexusv1.BuilderSyncItemV1)
 	round.Sequence = last + 1
 	round.GetRound().DispatchRound = 1
 	round.GetRound().TaskHash = fill(0x02)
-	next.Items = []*buildersyncv1.BuilderSyncItemV1{round}
+	next.Items = []*nexusv1.BuilderSyncItemV1{round}
 	resp, err := e.member.r.Sync(context.Background(), e.signed(next))
 	if err != nil || !strings.Contains(resp.GetRefused(), "task_hash") {
 		t.Fatalf("round with another task_hash = %v, %v", resp, err)
@@ -905,7 +910,10 @@ func TestOrderItemIsTheUsersSignedOrder(t *testing.T) {
 			batch := e.recordedBatch([]string{"hello, "})
 			for _, item := range batch.Items {
 				if o := item.GetOrder(); o != nil {
-					o.SignedOrder = tc.signed(e.fx)
+					o.SignedOrder = &taskv1.SignedOrderV2{}
+					if err := proto.Unmarshal(tc.signed(e.fx), o.SignedOrder); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			batch.Output = nil
@@ -934,7 +942,7 @@ func TestPreviousSnapshotHasAWindow(t *testing.T) {
 		t.Fatalf("within the window: %v, %v", resp, err)
 	}
 	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 112})
-	other := proto.Clone(batch).(*buildersyncv1.BuilderSyncBatchV1)
+	other := inputOnly(batch)
 	other.SessionId = fill(0xab)
 	if _, err := e.member.r.Sync(context.Background(), e.signed(other)); !errors.Is(err, ErrNotGroupMember) {
 		t.Fatalf("past the window: %v", err)
@@ -945,17 +953,14 @@ func TestPreviousSnapshotHasAWindow(t *testing.T) {
 // dropped like one that does not verify: the attempt is kept as REJECTED without it and the order's
 // later items still apply. Only a chain that cannot be read leaves the batch to be sent again.
 func TestRejectOfATargetWithoutAKey(t *testing.T) {
-	heldBatch := func(e *env) *buildersyncv1.BuilderSyncBatchV1 {
+	heldBatch := func(e *env) *nexusv1.BuilderSyncBatchV1 {
 		e.peers.setFail(e.m.op, errors.New("held back"))
 		e.s.OrderChanged(e.fx.issued())
 		e.s.OrderChanged(e.fx.rejectedThenOut())
 		e.sync()
 		reqs := e.peers.requests[e.m.op]
-		var batch buildersyncv1.BuilderSyncBatchV1
-		if err := proto.Unmarshal(reqs[len(reqs)-1].GetBatch(), &batch); err != nil {
-			t.Fatal(err)
-		}
-		return &batch
+		batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+		return batch
 	}
 	t.Run("no key", func(t *testing.T) {
 		e := newEnv(t)
