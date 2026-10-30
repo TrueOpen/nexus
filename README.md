@@ -155,9 +155,10 @@ Open items:
   succeeds. The caller must not retry the refused version, here or on another Builder.
 - `OpenTask` refuses an order whose `builder_set_id` / `builder_set_hash` is not the current
   BuilderSet snapshot with `FailedPrecondition` (`NEXUS_INGRESS_BUILDER_SET_STALE`) before storing
-  its input; the SDK re-signs the same sequence against the current snapshot (no takeover). Until
-  this Builder has read a current snapshot every new order is `Unavailable`
-  (`NEXUS_INGRESS_DISPATCH_UNAVAILABLE`).
+  its input; the SDK re-signs the same sequence against the current snapshot (no takeover). Before
+  calling an order stale this Builder reads the BuilderSet from the chain again (at most once a
+  second, within 2s), in case its own view is the one behind; a read that fails is `Unavailable`
+  (`NEXUS_INGRESS_DISPATCH_UNAVAILABLE`), as is every new order until a current snapshot is known.
 - `OpenTask` refuses an order whose epoch cannot dispatch yet (epoch 0, an epoch start beacon not
   committed or verified yet, or an epoch candidate pool snapshot not effective yet) with
   `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and

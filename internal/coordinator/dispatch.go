@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -153,8 +154,9 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 
 // CheckOrder refuses, without changing any state, an order OnOrder would refuse before its input is
 // stored: no dispatcher; no current BuilderSet snapshot known (ErrDispatchUnavailable); an order
-// whose builder_set_id/hash is not the current snapshot (taskgroup.ErrBuilderSetStale: the user
-// re-signs the same sequence against the current one, no takeover); or no Worker can take it now.
+// whose builder_set_id/hash is not the current snapshot even after this Builder read it again
+// (taskgroup.ErrBuilderSetStale: the user re-signs the same sequence against the current one, no
+// takeover); or no Worker can take it now.
 func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	if c.dispatcher == nil {
 		return ErrDispatchUnavailable
@@ -163,14 +165,7 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil {
 		return fmt.Errorf("check order: signed order does not decode: %w", err)
 	}
-	if _, err := taskgroup.CheckOrder(c, signed.GetOrder()); err != nil {
-		if errors.Is(err, taskgroup.ErrNoSnapshot) {
-			err = fmt.Errorf("%w: %w", ErrDispatchUnavailable, err)
-		} else if errors.Is(err, taskgroup.ErrBuilderSetStale) {
-			// This Builder's view may be the one behind: have it read the chain again, without
-			// holding the request.
-			go c.requestBuilderSetReconcile(0, "an order names another BuilderSet")
-		}
+	if err := c.checkBuilderSet(ctx, signed.GetOrder()); err != nil {
 		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
 		return err
 	}
@@ -178,6 +173,52 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
 		return err
 	}
+	return nil
+}
+
+const (
+	// builderSetRefreshInterval is how recent a BuilderSet read must be for a stale order not to
+	// cause another one.
+	builderSetRefreshInterval = time.Second
+	// builderSetRefreshTimeout bounds the BuilderSet read a stale order waits for.
+	builderSetRefreshTimeout = 2 * time.Second
+)
+
+// checkBuilderSet checks the order names the current BuilderSet snapshot (taskgroup.CheckOrder).
+// An order naming another one may mean this Builder's view is the one behind, so before the order
+// is called stale the BuilderSet is read from the chain again (refreshBuilderSet) and the order
+// checked once more: only an order whose snapshot is still not the current one is
+// taskgroup.ErrBuilderSetStale. No snapshot known, or a read that failed, is
+// ErrDispatchUnavailable (retryable).
+func (c *Coordinator) checkBuilderSet(ctx context.Context, order *taskv1.TaskOrderV3) error {
+	_, err := taskgroup.CheckOrder(c, order)
+	if errors.Is(err, taskgroup.ErrBuilderSetStale) {
+		if refreshErr := c.refreshBuilderSet(ctx); refreshErr != nil {
+			return fmt.Errorf("%w: the order names another BuilderSet and the current one could not be read: %v", ErrDispatchUnavailable, refreshErr)
+		}
+		_, err = taskgroup.CheckOrder(c, order)
+	}
+	if errors.Is(err, taskgroup.ErrNoSnapshot) {
+		return fmt.Errorf("%w: %w", ErrDispatchUnavailable, err)
+	}
+	return err
+}
+
+// refreshBuilderSet reads the current BuilderSet from the chain, within builderSetRefreshTimeout,
+// unless the last such read is less than builderSetRefreshInterval old. Concurrent callers wait
+// for one read.
+func (c *Coordinator) refreshBuilderSet(ctx context.Context) error {
+	c.builderSetRefresh.Lock()
+	defer c.builderSetRefresh.Unlock()
+	if !c.builderSetRefreshedAt.IsZero() && time.Since(c.builderSetRefreshedAt) < builderSetRefreshInterval {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, builderSetRefreshTimeout)
+	defer cancel()
+	if err := c.seedBuilderSet(ctx); err != nil {
+		return err
+	}
+	c.builderSetRefreshedAt = time.Now()
 	return nil
 }
 

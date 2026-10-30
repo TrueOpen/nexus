@@ -138,6 +138,10 @@ type Coordinator struct {
 	attemptRetention uint64
 
 	active *activeSet // active BuilderSet roster + this node's identity (currently stub-fed, see activeset.go)
+	// builderSetRefresh serializes the BuilderSet reads stale orders cause; builderSetRefreshedAt
+	// is when the last one succeeded.
+	builderSetRefresh     sync.Mutex
+	builderSetRefreshedAt time.Time
 
 	// deadlineSweep decides whether this Builder actively acts as public deadline runner (off by default).
 	deadlineSweep DeadlineSweepPolicy
