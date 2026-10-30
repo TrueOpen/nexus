@@ -3,6 +3,7 @@ package dispatchstream
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
 func mustSend(t *testing.T, h *harness, operator, label string) {
@@ -277,6 +279,38 @@ func TestKeepalive(t *testing.T) {
 		t.Fatalf("Serve = %v, want ErrKeepaliveTimeout", err)
 	}
 	h.waitConn(cortexA, false)
+}
+
+// Probe values follow wire's keepalive example: a new Builder probe is odd, the echo of a Cortex
+// probe keeps the Cortex's (even) value.
+func TestKeepaliveProbeParityVector(t *testing.T) {
+	var file struct {
+		Probes struct {
+			BuilderNewProbe     uint64 `json:"builder_new_probe"`
+			BuilderEchoOfCortex uint64 `json:"builder_echo_of_cortex"`
+			CortexNewProbe      uint64 `json:"cortex_new_probe"`
+			CortexEchoOfBuilder uint64 `json:"cortex_echo_of_builder"`
+		} `json:"keepalive_probes"`
+	}
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/builder_sync_v1.json"), &file); err != nil {
+		t.Fatal(err)
+	}
+	p := file.Probes
+	if p.BuilderNewProbe%2 != 1 || p.CortexNewProbe%2 != 0 || p.BuilderEchoOfCortex != p.CortexNewProbe || p.CortexEchoOfBuilder != p.BuilderNewProbe {
+		t.Fatalf("keepalive example = %+v", p)
+	}
+	h := newHarness(t)
+	h.clock.advance(time.UnixMilli(int64(p.CortexNewProbe)).Sub(h.clock.Now()))
+	s := h.connect(cortexA, "1")
+	h.ticks <- time.Time{}
+	if got := s.stream.next(t).GetKeepalive().GetSentAtMs(); got != p.BuilderNewProbe {
+		t.Fatalf("Builder probe = %d, want %d", got, p.BuilderNewProbe)
+	}
+	s.stream.in <- &nexusv1.DispatchStreamFrameV1{StreamNonce: s.nonce,
+		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: p.CortexNewProbe}}}
+	if got := s.stream.next(t).GetKeepalive().GetSentAtMs(); got != p.BuilderEchoOfCortex {
+		t.Fatalf("echo of the Cortex probe = %d, want %d", got, p.BuilderEchoOfCortex)
+	}
 }
 
 func waitRTT(t *testing.T, h *harness, want time.Duration) {

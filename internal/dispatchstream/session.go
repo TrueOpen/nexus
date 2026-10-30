@@ -291,8 +291,8 @@ func (h *Hub) handleFrame(ctx context.Context, s *session, frame *nexusv1.Dispat
 // keepalive runs on each keepalive tick. At most one probe is outstanding: while it is, the tick
 // only counts against it, and KeepaliveMisses such ticks end the stream. Otherwise a new probe goes
 // out; its value is the clock in milliseconds made odd, raised above the previous probe when needed
-// so the values sent always increase. Odd values keep a Cortex probe that carries its own clock
-// from the same millisecond from being taken for our probe's echo.
+// so the values sent always increase. A Builder probes with odd values and a Cortex with even ones,
+// so a Cortex probe from the same millisecond is never taken for our probe's echo.
 func (h *Hub) keepalive(s *session) error {
 	if s.probe != 0 {
 		s.probeTicks++

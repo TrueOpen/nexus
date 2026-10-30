@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"testing"
@@ -128,18 +129,54 @@ func TestRecordVector(t *testing.T) {
 	checkSigned(t, v, wantRaw, wantSig, raw, digest, record.GetBuilderServiceSignature())
 }
 
-func TestInputResponseVector(t *testing.T) {
-	var want nexusv1.DispatchInputResponseV1
-	v, wantRaw, wantSig := loadVector(t, "nexus_v1_dispatchinputresponsev1", &want)
-	r := &nexusv1.DispatchInputResponseV1{
-		TaskId: want.GetTaskId(), DispatchTicketHash: want.GetDispatchTicketHash(), InputHash: want.GetInputHash(),
-		InputSizeBytes: want.GetInputSizeBytes(), Input: want.GetInput(), ChunkIndex: want.GetChunkIndex(), ChunkCount: want.GetChunkCount(),
+// An input is served as wire's input chunk vectors: zero-based chunks with a positive count, each
+// naming the whole input's size and hash, here three chunks of "abcdef" with their bytes and
+// signatures.
+func TestInputResponseVectors(t *testing.T) {
+	var assembly struct {
+		Assembly struct {
+			Count   uint32   `json:"chunk_count"`
+			Input   string   `json:"input_utf8"`
+			Vectors []string `json:"vector_names"`
+		} `json:"input_chunk_assembly"`
 	}
-	raw, digest, err := signInputResponse(newTestSigner(t, 0x01), r)
-	if err != nil {
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/"+dispatchVectors), &assembly); err != nil {
 		t.Fatal(err)
 	}
-	checkSigned(t, v, wantRaw, wantSig, raw, digest, r.GetBuilderServiceSignature())
+	a := assembly.Assembly
+	if a.Input != "abcdef" || a.Count != 3 || len(a.Vectors) != 3 {
+		t.Fatalf("input chunk assembly = %+v", a)
+	}
+	var first nexusv1.DispatchInputResponseV1
+	loadVector(t, a.Vectors[0], &first)
+	streams := &fakeStreams{}
+	d := &Dispatcher{cfg: Config{
+		Signer: newTestSigner(t, 0x01), InputChunkBytes: 2, Streams: streams,
+		Inputs: fakeInputs{data: map[string][]byte{"task-hash": []byte(a.Input)}},
+	}}
+	if err := d.sendInput(context.Background(), "worker", "session", "task", "task-hash", first.GetTaskId(), first.GetDispatchTicketHash(), first.GetInputHash()); err != nil {
+		t.Fatal(err)
+	}
+	if len(streams.sent) != 3 {
+		t.Fatalf("sent %d chunks", len(streams.sent))
+	}
+	for i, name := range a.Vectors {
+		var want nexusv1.DispatchInputResponseV1
+		v, wantRaw, wantSig := loadVector(t, name, &want)
+		if want.GetChunkIndex() != uint32(i) {
+			t.Fatalf("vector %s has chunk_index %d", name, want.GetChunkIndex())
+		}
+		got := streams.sent[i].frame.GetInputResponse()
+		raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := dispatch.SigningDigest(inputResponseName, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkSigned(t, v, wantRaw, wantSig, raw, digest, got.GetBuilderServiceSignature())
+	}
 }
 
 // The accept digest the stream hands over is the wire dispatch_accept_digest an input request must
