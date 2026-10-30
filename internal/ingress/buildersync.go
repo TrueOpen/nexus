@@ -68,7 +68,8 @@ type rawSyncRequest []byte
 // handler is the Connect handler of BuilderSyncService.Sync, mounted at its path. It takes the
 // binary protobuf encoding only, kept as received: a JSON request cannot be validated byte for byte.
 func (b builderSyncService) handler(options ...connect.HandlerOption) (string, http.Handler) {
-	options = append(options, connect.WithCodec(rawSyncCodec{}), connect.WithCodec(refusedSyncCodec{}))
+	options = append(options, connect.WithCodec(rawSyncCodec{}),
+		connect.WithCodec(refusedSyncCodec{name: "json"}), connect.WithCodec(refusedSyncCodec{name: "json; charset=utf-8"}))
 	return nexusv1connect.BuilderSyncServiceSyncProcedure,
 		connect.NewUnaryHandler(nexusv1connect.BuilderSyncServiceSyncProcedure, b.Sync, options...)
 }
@@ -111,11 +112,11 @@ func (rawSyncCodec) Unmarshal(data []byte, msg any) error {
 // errSyncEncoding refuses a sync request in any encoding but binary protobuf.
 var errSyncEncoding = errors.New("NEXUS_BUILDER_SYNC_MALFORMED: unsupported encoding: BuilderSyncService takes binary protobuf only, validated byte for byte")
 
-// refusedSyncCodec takes the place of the JSON codec on BuilderSyncService and refuses every
-// request.
-type refusedSyncCodec struct{}
+// refusedSyncCodec takes the place of a JSON codec (connect registers "json" and
+// "json; charset=utf-8") on BuilderSyncService and refuses every request.
+type refusedSyncCodec struct{ name string }
 
-func (refusedSyncCodec) Name() string                { return "json" }
+func (c refusedSyncCodec) Name() string              { return c.name }
 func (refusedSyncCodec) Marshal(any) ([]byte, error) { return nil, errSyncEncoding }
 func (refusedSyncCodec) Unmarshal([]byte, any) error { return errSyncEncoding }
 

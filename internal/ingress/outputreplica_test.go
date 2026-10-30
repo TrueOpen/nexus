@@ -187,11 +187,13 @@ func TestBuilderSyncIsServedNextToIngress(t *testing.T) {
 // A JSON request is refused as an unsupported encoding before the receiver: it cannot be
 // validated byte for byte.
 func TestBuilderSyncRefusesJSON(t *testing.T) {
-	var got []byte
-	h := builderSyncServer(t, fakeBuilderSync{resp: &nexusv1.SyncResponse{}, got: &got})
-	rec := postSync(h, "application/json", strings.NewReader(`{"batch":{}}`))
-	if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "unsupported encoding") || got != nil {
-		t.Fatalf("JSON sync request = %d %q, receiver got %q", rec.Code, rec.Body.String(), got)
+	for _, contentType := range []string{"application/json", "application/json; charset=utf-8"} {
+		var got []byte
+		h := builderSyncServer(t, fakeBuilderSync{resp: &nexusv1.SyncResponse{}, got: &got})
+		rec := postSync(h, contentType, strings.NewReader(`{"batch":{}}`))
+		if rec.Code == http.StatusOK || !strings.Contains(rec.Body.String(), "unsupported encoding") || got != nil {
+			t.Fatalf("%s sync request = %d %q, receiver got %q", contentType, rec.Code, rec.Body.String(), got)
+		}
 	}
 }
 
