@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -138,5 +139,13 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	resolver.err = errors.New("node offline")
 	if _, err := at(5); !errors.Is(err, ErrAuthority) {
 		t.Fatalf("outage = %v, want ErrAuthority", err)
+	}
+	// A binding the chain answers malformed stays so: it is unavailable, not an outage to retry.
+	resolver.err = fmt.Errorf("query current service key: %w", chaincli.ErrMalformedBinding)
+	if _, err := at(5); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("malformed binding = %v, want ErrUnavailable", err)
+	}
+	if _, _, err := Current(context.Background(), resolver, testPrefix, ParticipantBuilder, operator); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Current of a malformed binding = %v, want ErrUnavailable", err)
 	}
 }

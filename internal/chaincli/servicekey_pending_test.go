@@ -3,6 +3,7 @@ package chaincli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"reflect"
@@ -93,8 +94,8 @@ func TestQueryCurrentServiceKeyRefusesMismatchedPendingRotation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			pending := pendingRotation()
 			edit(pending)
-			if got, err := queryCurrentKey(t, builderKeyView(pending)); err == nil {
-				t.Fatalf("mismatched pending rotation accepted: %+v", got.PendingRotation)
+			if got, err := queryCurrentKey(t, builderKeyView(pending)); !errors.Is(err, ErrMalformedBinding) {
+				t.Fatalf("mismatched pending rotation = %+v, %v; want ErrMalformedBinding", got.PendingRotation, err)
 			}
 		})
 	}
@@ -141,8 +142,8 @@ func TestQueryCurrentServiceKeyRefusesMalformedPreviousGeneration(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			view := withPrevious(builderKeyView(nil))
 			edit(view)
-			if got, err := queryCurrentKey(t, view); err == nil {
-				t.Fatalf("malformed previous generation accepted: %+v", got.Previous)
+			if got, err := queryCurrentKey(t, view); !errors.Is(err, ErrMalformedBinding) {
+				t.Fatalf("malformed previous generation = %+v, %v; want ErrMalformedBinding", got.Previous, err)
 			}
 		})
 	}

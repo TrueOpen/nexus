@@ -49,8 +49,8 @@ func proofKey(ctx context.Context, resolver Resolver, participantType, operator 
 	}
 	state, err := resolver.QueryCurrentServiceKey(ctx, participantType, operator)
 	if err != nil {
-		if errors.Is(err, chaincli.ErrNotFound) {
-			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %w", participantType, ErrUnavailable)
+		if errors.Is(err, chaincli.ErrNotFound) || errors.Is(err, chaincli.ErrMalformedBinding) {
+			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %v: %w", participantType, err, ErrUnavailable)
 		}
 		return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %w", participantType, ErrAuthority)
 	}

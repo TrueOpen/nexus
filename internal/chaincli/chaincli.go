@@ -26,6 +26,11 @@ var ErrInvalidTaskKey = errors.New("chaincli: invalid task key")
 // ErrNotFound is returned when an application Query has no state for its key.
 var ErrNotFound = errors.New("chaincli: state not found")
 
+// ErrMalformedBinding means the chain answered a service key binding that breaks its own rules
+// (a pending rotation or previous generation that does not fit the current binding). Asking
+// again gets the same answer: it is no outage.
+var ErrMalformedBinding = errors.New("chaincli: malformed service key binding")
+
 // ChainEvent combines TaskEventService notifications and monotonic height polls.
 type ChainEvent struct {
 	Type             string

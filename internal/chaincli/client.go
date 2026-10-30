@@ -645,16 +645,16 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 		if pending.GetParticipantType() != b.GetParticipantType() || pending.GetOperatorAddress() != b.GetOperatorAddress() ||
 			pending.GetCurrentServiceAuthorizationNonce() != b.GetServiceAuthorizationNonce() ||
 			pending.GetNextServiceAuthorizationNonce() <= b.GetServiceAuthorizationNonce() {
-			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation does not match the current binding")
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation does not match the current binding: %w", ErrMalformedBinding)
 		}
 		if len(pending.GetNewServicePubkey()) != 33 {
-			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation new_service_pubkey is %d bytes, want 33",
-				len(pending.GetNewServicePubkey()))
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation new_service_pubkey is %d bytes, want 33: %w",
+				len(pending.GetNewServicePubkey()), ErrMalformedBinding)
 		}
 		// The next key activates at a later epoch start than the registration.
 		if pending.GetEffectiveHeight() <= pending.GetRegisteredHeight() {
-			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation effective height %d is not after its registration %d",
-				pending.GetEffectiveHeight(), pending.GetRegisteredHeight())
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation effective height %d is not after its registration %d: %w",
+				pending.GetEffectiveHeight(), pending.GetRegisteredHeight(), ErrMalformedBinding)
 		}
 		state.PendingRotation = &PendingServiceKeyRotation{
 			NextServicePubKey:      hex.EncodeToString(pending.GetNewServicePubkey()),
@@ -665,7 +665,7 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 	}
 	previous, err := previousServiceKey(b)
 	if err != nil {
-		return ServiceKeyState{}, fmt.Errorf("query current service key: %w", err)
+		return ServiceKeyState{}, fmt.Errorf("query current service key: %w: %w", err, ErrMalformedBinding)
 	}
 	state.Previous = previous
 	return state, nil
