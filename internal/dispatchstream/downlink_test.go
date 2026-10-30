@@ -329,17 +329,25 @@ func waitRTT(t *testing.T, h *harness, want time.Duration) {
 }
 
 // Transport messages carry no key generation: when a Cortex binds again, each unacknowledged
-// message passes the re-signer (which signs it with the current key) and goes out, and is kept,
-// as signed again.
+// message passes the re-signer (which signs it with the current key, without the hub lock) and
+// goes out, and is kept, as signed again.
 func TestReplaySignsTransportMessagesAgain(t *testing.T) {
 	store, keys := kv.NewMemStore(), newTestKeys()
+	var hub *Hub
+	locked := false
 	resign := WithResigner(func(f *nexusv1.DispatchStreamFrameV1) error {
+		if hub.mu.TryLock() {
+			hub.mu.Unlock()
+		} else {
+			locked = true
+		}
 		if t := f.GetOffer().GetTicket(); t != nil {
 			t.BuilderServiceSignature = append(t.BuilderServiceSignature, '\'')
 		}
 		return nil
 	})
 	h := newHarnessOn(t, store, keys, resign)
+	hub = h.hub
 	s1 := h.connect(cortexA, "1")
 	mustSend(t, h, cortexA, "a")
 	receiveOffers(t, s1, 1)
@@ -350,6 +358,9 @@ func TestReplaySignsTransportMessagesAgain(t *testing.T) {
 	s2 := h.connect(cortexA, "2")
 	if got := receiveOffers(t, s2, 1); !slices.Equal(got, []string{"a'"}) {
 		t.Fatalf("replayed %v, want [a']", got)
+	}
+	if locked {
+		t.Fatal("messages signed again under the hub lock")
 	}
 	_ = h.hub.Stop(context.Background())
 	s2.wait(t)

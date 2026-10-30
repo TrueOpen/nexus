@@ -170,6 +170,9 @@ func (h *Hub) Serve(ctx context.Context, stream FrameStream) error {
 // replay.
 func (h *Hub) bind(binding *nexusv1.DispatchStreamBindingV1, stream FrameStream) (*session, error) {
 	operator := binding.GetCortexOperator()
+	if err := h.resignPending(operator); err != nil {
+		return nil, err
+	}
 	h.mu.Lock()
 	if h.stopped {
 		h.mu.Unlock()
