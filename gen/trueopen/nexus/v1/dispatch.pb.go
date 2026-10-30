@@ -286,6 +286,9 @@ type StreamKeepaliveV1 struct {
 	// outstanding probe is its echo: consume it and do not echo again. Keep one
 	// local probe outstanding; probe values increase per direction. Duplicate
 	// peer probes are not echoed again. No ack/keepalive consumes a cursor.
+	// A new Builder probe is odd; a new Cortex probe is even. Echoes preserve
+	// the original value, regardless of the echo sender's role. This separates
+	// simultaneous probes without changing the one-outstanding-probe rule.
 	SentAtMs      uint64 `protobuf:"varint,1,opt,name=sent_at_ms,json=sentAtMs,proto3" json:"sent_at_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -416,15 +419,20 @@ func (x *DispatchInputRequestV1) GetDispatchAcceptDigest() []byte {
 
 // DispatchInputResponseV1 defines the canonical DispatchInputResponseV1 fields.
 type DispatchInputResponseV1 struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	TaskId                  []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	DispatchTicketHash      []byte                 `protobuf:"bytes,2,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
-	InputHash               []byte                 `protobuf:"bytes,3,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
-	InputSizeBytes          uint64                 `protobuf:"varint,4,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
-	Input                   []byte                 `protobuf:"bytes,5,opt,name=input,proto3" json:"input,omitempty"`
-	ChunkIndex              uint32                 `protobuf:"varint,6,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
-	ChunkCount              uint32                 `protobuf:"varint,7,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
-	BuilderServiceSignature []byte                 `protobuf:"bytes,8,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TaskId             []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	DispatchTicketHash []byte                 `protobuf:"bytes,2,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	InputHash          []byte                 `protobuf:"bytes,3,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
+	// Size of the whole input, equal across chunks, not the size of this chunk.
+	InputSizeBytes uint64 `protobuf:"varint,4,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
+	// Bytes of this chunk. Assemble chunks in index order, then verify the total
+	// size and SHA-256 against input_size_bytes and input_hash before using input.
+	Input []byte `protobuf:"bytes,5,opt,name=input,proto3" json:"input,omitempty"`
+	// Zero-based: 0 <= chunk_index < chunk_count. A single chunk has index 0.
+	ChunkIndex uint32 `protobuf:"varint,6,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	// Positive total chunk count, equal across every response for this ticket.
+	ChunkCount              uint32 `protobuf:"varint,7,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
+	BuilderServiceSignature []byte `protobuf:"bytes,8,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }

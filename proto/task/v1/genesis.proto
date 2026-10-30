@@ -85,4 +85,35 @@ message GenesisState {
   repeated DispatchWinnerIneligibleState dispatch_winner_ineligible = 78;
   repeated TakeoverEntryReceiptState takeover_entry_receipts = 79;
   repeated VerifierValueEvidenceReceiptState verifier_value_evidence_receipts = 80;
+
+  // Current Params are stored once above. Historical bodies preserve governed
+  // behavior across export/import and support epoch-reference policy lookup.
+  repeated TaskParamsHistoryState params_history = 90;
+  // Only non-current version overrides are exported. An omitted live object
+  // uses params_meta.params_version. Both lists share the same binding schema.
+  repeated ParamsVersionBindingState task_params_version_bindings = 91;
+  repeated ParamsVersionBindingState session_params_version_bindings = 92;
+}
+
+// TaskParamsHistoryState retains one superseded parameter body. Version zero
+// may name the chain's initial parameter set. Heights can coincide when several
+// governance updates execute in one block; the highest version wins at that H.
+// updated_height <= superseded_height, and params_version is below current.
+// Refcounts, height lookup and prune indexes are rebuilt from these primaries.
+// A zero-reference body remains through its supersession epoch: earliest
+// prune = EpochStart(epoch(superseded_height)+1)+1. Referenced
+// bodies outlive that floor; all retirement uses bounded shared block budgets.
+message TaskParamsHistoryState {
+  uint64 params_version = 1;
+  TaskParamsV1 params = 2;
+  uint64 updated_height = 3;
+  uint64 superseded_height = 4;
+}
+
+// ParamsVersionBindingState is a non-current override. The containing Genesis
+// list distinguishes Task from Session. Imports reject duplicate/unknown object
+// IDs, current-version overrides and versions without a retained history body.
+message ParamsVersionBindingState {
+  bytes object_id = 1;
+  uint64 params_version = 2;
 }

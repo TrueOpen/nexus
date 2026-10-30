@@ -97,14 +97,19 @@ message EventBuilderCompensationFunded {
 // DispatchFaultState defines the canonical DispatchFaultState fields.
 message DispatchFaultState {
   string builder_address = 1;
+  // The challenge_id of the first upheld challenge in this objective scope.
+  // Scope deduplication excludes the challenger; no separate fault hash exists.
   bytes fault_id = 2;
   shared.v1.DispatchChallengeKindV1 kind = 3;
   bytes task_id = 4;
   bytes dispatch_record_hash = 5;
   bytes challenged_ticket_hash_or_zero32 = 6;
+  // Actual independent penalty paid to Treasury after victim compensation.
   shared.v1.Amount penalty_amount = 7;
+  // Configured penalty minus penalty_amount; excludes compensation shortfalls.
   shared.v1.Amount unfilled_amount = 8;
   optional string compensated_worker = 9;
+  // Actual victim compensation, paid first and counted in total_paid.
   shared.v1.Amount compensated_amount = 10;
   uint64 fault_height = 11;
 }

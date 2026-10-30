@@ -1772,10 +1772,13 @@ type DispatchRecordV1 struct {
 	StickyAnchorSequence    uint64                     `protobuf:"varint,15,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
 	StickyRunCount          uint32                     `protobuf:"varint,16,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
 	// True when the first-round order promoted the previous Worker, even if another wins.
-	StickyApplied           bool               `protobuf:"varint,17,opt,name=sticky_applied,json=stickyApplied,proto3" json:"sticky_applied,omitempty"`
-	Rounds                  []*DispatchRoundV1 `protobuf:"bytes,18,rep,name=rounds,proto3" json:"rounds,omitempty"`
-	DispatchTicketHash      []byte             `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
-	BuilderServiceSignature []byte             `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	StickyApplied bool               `protobuf:"varint,17,opt,name=sticky_applied,json=stickyApplied,proto3" json:"sticky_applied,omitempty"`
+	Rounds        []*DispatchRoundV1 `protobuf:"bytes,18,rep,name=rounds,proto3" json:"rounds,omitempty"`
+	// The accepted winner ticket, or ZERO32 for an unfinished off-chain record
+	// with no accepted attempt. Unfinished records may be synced or rebut claims;
+	// they never satisfy dispatch admission's completed-winner requirements.
+	DispatchTicketHash      []byte `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	BuilderServiceSignature []byte `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }

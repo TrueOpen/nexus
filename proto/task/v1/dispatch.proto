@@ -332,6 +332,9 @@ message DispatchRecordV1 {
   // True when the first-round order promoted the previous Worker, even if another wins.
   bool sticky_applied = 17;
   repeated DispatchRoundV1 rounds = 18;
+  // The accepted winner ticket, or ZERO32 for an unfinished off-chain record
+  // with no accepted attempt. Unfinished records may be synced or rebut claims;
+  // they never satisfy dispatch admission's completed-winner requirements.
   bytes dispatch_ticket_hash = 19;
   bytes builder_service_signature = 20;
   reserved 21;

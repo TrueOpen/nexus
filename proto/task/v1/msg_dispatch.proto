@@ -61,6 +61,10 @@ message MsgChallengeDispatchOmission {
   SignedHandraiseRootV1 handraise_root = 6;
   HandraiseInclusionProofV1 inclusion_proof = 7;
   DispatchRosterNonInclusionProofV1 non_inclusion_proof = 8;
+  // Required when handraise_root differs from the round's bound digest. Verify
+  // this signed preimage against that digest before comparing height/version.
+  // If supplied for the bound-root case, it must match the same commitment.
+  optional SignedHandraiseRootV1 bound_handraise_root = 9;
 }
 // MsgChallengeDispatchOmissionResponse defines the canonical MsgChallengeDispatchOmissionResponse fields.
 message MsgChallengeDispatchOmissionResponse {

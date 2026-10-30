@@ -6,6 +6,7 @@ import "nexus/v1/dispatch.proto";
 import "nexus/v1/sdk_auth.proto";
 import "shared/v1/evidence.proto";
 import "task/v1/commit.proto";
+import "task/v1/dispatch.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
 import "task/v1/result.proto";
@@ -851,18 +852,40 @@ message GetTaskEventsRequest {
   SDKRequestEnvelopeV2 request_envelope = 4;
 }
 
-//
-//   ORDER_RECEIVED, DISPATCH_ACCEPTED, DISPATCH_RECORDED, RECORD_REJECTED,
+// GetTaskEventsResponse reports Nexus lifecycle events, separate from the Node
+// ProtocolEventCodeV1 registry. The closed event_code set is:
+//   ORDER_RECEIVED, DISPATCH_ACCEPTED, NO_CAPACITY, DISPATCH_RECORDED, RECORD_REJECTED,
 //   TAKEOVER_PENDING, TAKEOVER_RECORDED, TAKEOVER_VOIDED,
-//   OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
-//   TASK_SETTLED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED
-// GetTaskEventsResponse defines the GetTaskEventsResponse wire type.
+//   TASK_FAILED, ORDER_EXPIRED, ASSIGN_TIMEOUT, OPEN_VERIFY_ACCEPTED, SAMPLE_READY,
+//   WORKER_REVEAL_ACCEPTED, FULL_RESULT_REVEAL_ACCEPTED, SETTLE_ACCEPTED,
+//   OUTPUT_REF_RECEIVED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED.
+// Acceptance/receipt events describe observed progress, never replacement chain
+// authority. In particular OUTPUT_REF_RECEIVED is the Worker's signed receipt.
 message GetTaskEventsResponse {
   string cursor = 1;
   string state = 2;
   string task_phase = 3;
   string event_code = 4;
   int64 chain_height = 5;
+  optional TaskEventDetailV1 detail = 6;
+}
+
+// TaskEventDetailV1 carries event-local routing and rejection facts so the SDK
+// can recover without resubmitting OpenTask. Addresses identify stable operators.
+// TAKEOVER_PENDING supplies candidate + activation height; TAKEOVER_RECORDED
+// supplies bound_builder. TAKEOVER_VOIDED caused by recording supplies the
+// recording Builder + recorded task ID; cancellation/closure need no destination.
+// DISPATCH_ACCEPTED and RECORD_REJECTED supply the ticket; the former supplies
+// worker_operator_address and the latter its nonzero rejection category.
+message TaskEventDetailV1 {
+  optional string bound_builder = 1;
+  optional string recording_builder = 2;
+  optional bytes recorded_task_id = 3;
+  optional string candidate_builder = 4;
+  optional uint64 takeover_activation_height = 5;
+  optional bytes dispatch_ticket_hash = 6;
+  optional task.v1.DispatchRejectCodeV1 reject_code = 7;
+  optional string worker_operator_address = 8;
 }
 
 // PrepareChallengeRequest defines the PrepareChallengeRequest wire type.

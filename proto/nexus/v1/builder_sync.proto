@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package nexus.v1;
+
+import "nexus/v1/dispatch.proto";
+import "nexus/v1/ingress.proto";
+import "task/v1/dispatch.proto";
+import "task/v1/msg_assignment.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
+
+// BuilderSyncService replicates one dispatching Builder's order to members of
+// its immutable BuilderSet. This is transport, never a second chain authority.
+service BuilderSyncService {
+  // Sync durably applies a consecutive item prefix and winner output frames.
+  rpc Sync(SyncRequest) returns (SyncResponse);
+}
+
+// SyncRequest authenticates a decoded batch with the sender's current ACTIVE
+// Builder service key. The signature is compact low-S secp256k1 raw64 over
+// H_FIELDS_V1("TRUEOPEN_NEXUS_BUILDER_SYNC_V1", batch.chain_id,
+// raw20(batch.sender_operator_address), canonical BuilderSyncBatchV1).
+// No protobuf serialization bytes enter the batch projection. Nested business
+// signatures remain payload fields; only sender_signature is excluded.
+// Strictly validate the raw request before a generated decoder can discard
+// unknown or duplicate fields; reserialization cannot restore those checks.
+message SyncRequest {
+  BuilderSyncBatchV1 batch = 1;
+  bytes sender_signature = 2;
+}
+
+// SyncResponse acknowledges only durable progress. Zero applied_through means
+// no item; output_last_seq has meaning only when output_received is true.
+message SyncResponse {
+  uint64 applied_through = 1;
+  bool output_received = 2;
+  uint64 output_last_seq = 3;
+  bool output_sealed = 4;
+  string refused = 5;
+  bool output_not_held = 6;
+}
+
+// BuilderSyncBatchV1 is scoped to one sender, receiver and Session order. Limit
+// the complete SyncRequest to 1 MiB, at most 128 items and 128 output chunks.
+// Items start at 1 without gaps. Exact duplicates do not advance state; a gap or
+// conflicting payload at an applied sequence is refused. Output uses the
+// Worker's independent seq. An output-only retry may have no items.
+message BuilderSyncBatchV1 {
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  string sender_operator_address = 3;
+  string receiver_operator_address = 4;
+  bytes session_id = 5;
+  uint64 order_sequence = 6;
+  string builder_set_id = 7;
+  bytes builder_set_hash = 8;
+  repeated BuilderSyncItemV1 items = 9;
+  optional BuilderSyncOutputV1 output = 10;
+}
+
+// BuilderSyncItemV1 uses ONEOF_V1 with the proto field number as its signed tag.
+message BuilderSyncItemV1 {
+  uint64 sequence = 1;
+  // item selects exactly one typed replication payload.
+  oneof item {
+    BuilderSyncRoundV1 round = 2;
+    BuilderSyncInputChunkV1 input_chunk = 3;
+    BuilderSyncAttemptV1 attempt = 4;
+    BuilderSyncRecordV1 record = 5;
+    BuilderSyncOrderV1 order = 6;
+  }
+}
+
+// BuilderSyncRoundV1 supplies the committed roster/root preimages before input
+// replication. Every nested task/session/order scope must agree with the batch.
+message BuilderSyncRoundV1 {
+  bytes task_id = 1;
+  bytes task_hash = 2;
+  uint64 vrf_epoch = 3;
+  uint32 dispatch_round = 4;
+  task.v1.DispatchRosterV1 roster = 5;
+  bytes roster_hash = 6;
+  task.v1.SignedHandraiseRootV1 handraise_root = 7;
+  uint64 earliest_submit_height = 8;
+  string user_address = 9;
+}
+
+// BuilderSyncInputChunkV1 supplies a byte range of one version's whole input.
+// Ranges are applied contiguously from offset 0; duplicates must match exactly.
+message BuilderSyncInputChunkV1 {
+  bytes task_hash = 1;
+  bytes input_hash = 2;
+  uint64 input_size_bytes = 3;
+  string media_type = 4;
+  uint64 offset = 5;
+  bytes data = 6;
+}
+
+// BuilderSyncAttemptV1 publishes a ticket and each outcome transition.
+// UNSPECIFIED denotes an outstanding ticket, never a retained chain outcome.
+message BuilderSyncAttemptV1 {
+  task.v1.DispatchTicketV1 ticket = 1;
+  bool sent = 2;
+  task.v1.DispatchAttemptOutcomeV1 outcome = 3;
+  // Required for REJECTED; retain any known signed rejection for rebuttal.
+  optional task.v1.DispatchRejectV1 reject = 4;
+  // A signed acceptance that arrived after this attempt stopped being eligible.
+  optional task.v1.DispatchAcceptV1 late_accept = 5;
+  // Required for ACCEPTED. Other known proofs never rewrite chain authority.
+  optional task.v1.DispatchAcceptV1 accept = 6;
+}
+
+// BuilderSyncRecordV1 may contain an unfinished record with no accepted winner.
+message BuilderSyncRecordV1 {
+  task.v1.DispatchRecordV1 record = 1;
+}
+
+// BuilderSyncOrderV1 is sent only after chain admission, preventing a replica
+// from using an unrecorded user order to take over the Session.
+message BuilderSyncOrderV1 {
+  task.v1.SignedOrderV2 signed_order = 1;
+  DispatchResultHeaderV1 result_header = 2;
+}
+
+// BuilderSyncOutputV1 is the admitted winner's output only. The receiver must
+// already hold, or apply earlier in this batch, the admitted order item. Frames
+// retain their Worker signatures and ticket scope; a replica never re-signs them.
+message BuilderSyncOutputV1 {
+  bytes dispatch_ticket_hash = 1;
+  task.v1.DispatchTicketV1 winner_ticket = 2;
+  bytes dispatch_accept_digest = 3;
+  repeated OutputChunkV1 chunks = 4;
+  optional OutputFinV1 fin = 5;
+}

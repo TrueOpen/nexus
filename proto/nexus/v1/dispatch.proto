@@ -49,6 +49,9 @@ message StreamKeepaliveV1 {
   // outstanding probe is its echo: consume it and do not echo again. Keep one
   // local probe outstanding; probe values increase per direction. Duplicate
   // peer probes are not echoed again. No ack/keepalive consumes a cursor.
+  // A new Builder probe is odd; a new Cortex probe is even. Echoes preserve
+  // the original value, regardless of the echo sender's role. This separates
+  // simultaneous probes without changing the one-outstanding-probe rule.
   uint64 sent_at_ms = 1;
 }
 // DispatchInputRequestV1 defines the canonical DispatchInputRequestV1 fields.
@@ -66,9 +69,14 @@ message DispatchInputResponseV1 {
   bytes task_id = 1;
   bytes dispatch_ticket_hash = 2;
   bytes input_hash = 3;
+  // Size of the whole input, equal across chunks, not the size of this chunk.
   uint64 input_size_bytes = 4;
+  // Bytes of this chunk. Assemble chunks in index order, then verify the total
+  // size and SHA-256 against input_size_bytes and input_hash before using input.
   bytes input = 5;
+  // Zero-based: 0 <= chunk_index < chunk_count. A single chunk has index 0.
   uint32 chunk_index = 6;
+  // Positive total chunk count, equal across every response for this ticket.
   uint32 chunk_count = 7;
   bytes builder_service_signature = 8;
 }

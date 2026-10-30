@@ -777,20 +777,25 @@ func (x *EventBuilderCompensationFunded) GetBalance() *v1.Amount {
 
 // DispatchFaultState defines the canonical DispatchFaultState fields.
 type DispatchFaultState struct {
-	state                        protoimpl.MessageState     `protogen:"open.v1"`
-	BuilderAddress               string                     `protobuf:"bytes,1,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	BuilderAddress string                 `protobuf:"bytes,1,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	// The challenge_id of the first upheld challenge in this objective scope.
+	// Scope deduplication excludes the challenger; no separate fault hash exists.
 	FaultId                      []byte                     `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
 	Kind                         v1.DispatchChallengeKindV1 `protobuf:"varint,3,opt,name=kind,proto3,enum=shared.v1.DispatchChallengeKindV1" json:"kind,omitempty"`
 	TaskId                       []byte                     `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	DispatchRecordHash           []byte                     `protobuf:"bytes,5,opt,name=dispatch_record_hash,json=dispatchRecordHash,proto3" json:"dispatch_record_hash,omitempty"`
 	ChallengedTicketHashOrZero32 []byte                     `protobuf:"bytes,6,opt,name=challenged_ticket_hash_or_zero32,json=challengedTicketHashOrZero32,proto3" json:"challenged_ticket_hash_or_zero32,omitempty"`
-	PenaltyAmount                *v1.Amount                 `protobuf:"bytes,7,opt,name=penalty_amount,json=penaltyAmount,proto3" json:"penalty_amount,omitempty"`
-	UnfilledAmount               *v1.Amount                 `protobuf:"bytes,8,opt,name=unfilled_amount,json=unfilledAmount,proto3" json:"unfilled_amount,omitempty"`
-	CompensatedWorker            *string                    `protobuf:"bytes,9,opt,name=compensated_worker,json=compensatedWorker,proto3,oneof" json:"compensated_worker,omitempty"`
-	CompensatedAmount            *v1.Amount                 `protobuf:"bytes,10,opt,name=compensated_amount,json=compensatedAmount,proto3" json:"compensated_amount,omitempty"`
-	FaultHeight                  uint64                     `protobuf:"varint,11,opt,name=fault_height,json=faultHeight,proto3" json:"fault_height,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// Actual independent penalty paid to Treasury after victim compensation.
+	PenaltyAmount *v1.Amount `protobuf:"bytes,7,opt,name=penalty_amount,json=penaltyAmount,proto3" json:"penalty_amount,omitempty"`
+	// Configured penalty minus penalty_amount; excludes compensation shortfalls.
+	UnfilledAmount    *v1.Amount `protobuf:"bytes,8,opt,name=unfilled_amount,json=unfilledAmount,proto3" json:"unfilled_amount,omitempty"`
+	CompensatedWorker *string    `protobuf:"bytes,9,opt,name=compensated_worker,json=compensatedWorker,proto3,oneof" json:"compensated_worker,omitempty"`
+	// Actual victim compensation, paid first and counted in total_paid.
+	CompensatedAmount *v1.Amount `protobuf:"bytes,10,opt,name=compensated_amount,json=compensatedAmount,proto3" json:"compensated_amount,omitempty"`
+	FaultHeight       uint64     `protobuf:"varint,11,opt,name=fault_height,json=faultHeight,proto3" json:"fault_height,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *DispatchFaultState) Reset() {
