@@ -136,7 +136,11 @@ func (DispatchRevokeReasonV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_dispatch_proto_rawDescGZIP(), []int{1}
 }
 
-// DispatchStreamBindingV1 defines the canonical DispatchStreamBindingV1 fields.
+// DispatchStreamBindingV1 authenticates one DispatchStream with the Cortex's
+// current ACTIVE service key. It is checked once per connection: when that key
+// is no longer the Cortex's current ACTIVE key (emergency revocation, or Cortex
+// rotation activation since the binding is current-only), the receiving Builder
+// closes the established stream, and the Cortex reconnects with a fresh binding.
 type DispatchStreamBindingV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Must be 1. Authentication must complete before any business frame is used.
@@ -433,8 +437,14 @@ type DispatchInputResponseV1 struct {
 	// Positive total chunk count, equal across every response for this ticket.
 	ChunkCount              uint32 `protobuf:"varint,7,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`
 	BuilderServiceSignature []byte `protobuf:"bytes,8,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Service key generation that signed this message; the signer is the Builder
+	// that issued dispatch_ticket_hash. Must be positive and not older than that
+	// ticket's nonce. Retained with its original signed bytes across reconnect and
+	// service key cutover; verified by this nonce, never re-signed. A new live copy
+	// is accepted only while the Builder's current key is ACTIVE.
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,9,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *DispatchInputResponseV1) Reset() {
@@ -523,6 +533,13 @@ func (x *DispatchInputResponseV1) GetBuilderServiceSignature() []byte {
 	return nil
 }
 
+func (x *DispatchInputResponseV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
+}
+
 // DispatchRevokeV1 defines the canonical DispatchRevokeV1 fields.
 type DispatchRevokeV1 struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
@@ -531,8 +548,14 @@ type DispatchRevokeV1 struct {
 	RevokedHeight           uint64                 `protobuf:"varint,3,opt,name=revoked_height,json=revokedHeight,proto3" json:"revoked_height,omitempty"`
 	BuilderServiceSignature []byte                 `protobuf:"bytes,4,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
 	Reason                  DispatchRevokeReasonV1 `protobuf:"varint,5,opt,name=reason,proto3,enum=nexus.v1.DispatchRevokeReasonV1" json:"reason,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Service key generation that signed this message; the signer is the Builder
+	// that issued dispatch_ticket_hash. Must be positive and not older than that
+	// ticket's nonce. Retained with its original signed bytes across reconnect and
+	// service key cutover; verified by this nonce, never re-signed. A new live copy
+	// is accepted only while the Builder's current key is ACTIVE.
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,6,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *DispatchRevokeV1) Reset() {
@@ -600,6 +623,13 @@ func (x *DispatchRevokeV1) GetReason() DispatchRevokeReasonV1 {
 	return DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_UNSPECIFIED
 }
 
+func (x *DispatchRevokeV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
+}
+
 // RecordResultNoticeV1 defines the canonical RecordResultNoticeV1 fields.
 type RecordResultNoticeV1 struct {
 	state                   protoimpl.MessageState    `protogen:"open.v1"`
@@ -608,8 +638,14 @@ type RecordResultNoticeV1 struct {
 	RejectCode              v1.DispatchRejectCodeV1   `protobuf:"varint,3,opt,name=reject_code,json=rejectCode,proto3,enum=task.v1.DispatchRejectCodeV1" json:"reject_code,omitempty"`
 	RecordedHeight          uint64                    `protobuf:"varint,4,opt,name=recorded_height,json=recordedHeight,proto3" json:"recorded_height,omitempty"`
 	BuilderServiceSignature []byte                    `protobuf:"bytes,5,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Service key generation that signed this message; the signer is the Builder
+	// that issued dispatch_ticket_hash. Must be positive and not older than that
+	// ticket's nonce. Retained with its original signed bytes across reconnect and
+	// service key cutover; verified by this nonce, never re-signed. A new live copy
+	// is accepted only while the Builder's current key is ACTIVE.
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,6,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *RecordResultNoticeV1) Reset() {
@@ -675,6 +711,13 @@ func (x *RecordResultNoticeV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
+}
+
+func (x *RecordResultNoticeV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
 }
 
 // VerifyResultSubmittedNoticeV1 defines the canonical VerifyResultSubmittedNoticeV1 fields.
@@ -1118,7 +1161,10 @@ func (x *DispatchOfferV1) GetSignedOrder() *v1.SignedOrderV2 {
 	return nil
 }
 
-// DispatchResultHeaderV1 defines the canonical DispatchResultHeaderV1 fields.
+// DispatchResultHeaderV1 is the winner Builder's signed result summary.
+// Verifying its signature authenticates only the signer; it does not verify the
+// embedded winner_ticket or accept, which a consumer verifies separately before
+// trusting who won.
 type DispatchResultHeaderV1 struct {
 	state                   protoimpl.MessageState    `protogen:"open.v1"`
 	TaskId                  []byte                    `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1126,8 +1172,13 @@ type DispatchResultHeaderV1 struct {
 	Accept                  *v1.DispatchAcceptV1      `protobuf:"bytes,3,opt,name=accept,proto3" json:"accept,omitempty"`
 	RecordStatus            v1.DispatchRecordStatusV1 `protobuf:"varint,4,opt,name=record_status,json=recordStatus,proto3,enum=task.v1.DispatchRecordStatusV1" json:"record_status,omitempty"`
 	BuilderServiceSignature []byte                    `protobuf:"bytes,5,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Service key generation that signed this header; the signer is
+	// winner_ticket's Builder. Must be positive and not older than winner_ticket's
+	// nonce. Group members relay the header with its original signed bytes; it is
+	// verified by this nonce and never re-signed after service key cutover.
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,6,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *DispatchResultHeaderV1) Reset() {
@@ -1193,6 +1244,13 @@ func (x *DispatchResultHeaderV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
+}
+
+func (x *DispatchResultHeaderV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
 }
 
 // ResumeOutputRequest defines the canonical ResumeOutputRequest fields.
@@ -1277,7 +1335,15 @@ func (x *ResumeOutputRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 // Each direction starts business cursors at 1 and increments without gaps.
 // Binding/ack/keepalive use cursor 0; all other variants require cursor > 0.
 // A reconnect uses a fresh binding/nonce and restarts business cursors at 1;
-// retained unexpired business messages keep their original signed bytes.
+// retained unexpired business messages keep their original signed bytes, also
+// across service key cutover. They are verified by their own signed nonce; only
+// the binding must authenticate with the current ACTIVE key.
+// When the Builder's current key is revoked, the Cortex closes the stream as soon
+// as it observes this and accepts no further live messages from that Builder
+// until it has a current ACTIVE key again; copies already held stay valid as
+// proofs. A Builder rotation activation does not close the stream. When the
+// Cortex's binding key is revoked or rotated out, the Builder closes the stream.
+// Neither a revoked Builder key nor a revoked Cortex key authorizes live traffic.
 type DispatchStreamFrameV1 struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	StreamNonce []byte                 `protobuf:"bytes,1,opt,name=stream_nonce,json=streamNonce,proto3" json:"stream_nonce,omitempty"`
@@ -2087,7 +2153,7 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"\x06member\x18\x03 \x01(\v2\x1d.task.v1.CandidateMemberRefV1R\x06member\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\x04 \x01(\x04R\x19serviceAuthorizationNonce\x12+\n" +
 	"\x11service_signature\x18\x05 \x01(\fR\x10serviceSignature\x124\n" +
-	"\x16dispatch_accept_digest\x18\x06 \x01(\fR\x14dispatchAcceptDigest\"\xc1\x02\n" +
+	"\x16dispatch_accept_digest\x18\x06 \x01(\fR\x14dispatchAcceptDigest\"\x81\x03\n" +
 	"\x17DispatchInputResponseV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x02 \x01(\fR\x12dispatchTicketHash\x12\x1d\n" +
@@ -2099,20 +2165,23 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"chunkIndex\x12\x1f\n" +
 	"\vchunk_count\x18\a \x01(\rR\n" +
 	"chunkCount\x12:\n" +
-	"\x19builder_service_signature\x18\b \x01(\fR\x17builderServiceSignature\"\xfa\x01\n" +
+	"\x19builder_service_signature\x18\b \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\t \x01(\x04R\x19serviceAuthorizationNonce\"\xba\x02\n" +
 	"\x10DispatchRevokeV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x02 \x01(\fR\x12dispatchTicketHash\x12%\n" +
 	"\x0erevoked_height\x18\x03 \x01(\x04R\rrevokedHeight\x12:\n" +
 	"\x19builder_service_signature\x18\x04 \x01(\fR\x17builderServiceSignature\x128\n" +
-	"\x06reason\x18\x05 \x01(\x0e2 .nexus.v1.DispatchRevokeReasonV1R\x06reason\"\xa6\x02\n" +
+	"\x06reason\x18\x05 \x01(\x0e2 .nexus.v1.DispatchRevokeReasonV1R\x06reason\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x06 \x01(\x04R\x19serviceAuthorizationNonce\"\xe6\x02\n" +
 	"\x14RecordResultNoticeV1\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x127\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x1f.task.v1.DispatchRecordStatusV1R\x06status\x12>\n" +
 	"\vreject_code\x18\x03 \x01(\x0e2\x1d.task.v1.DispatchRejectCodeV1R\n" +
 	"rejectCode\x12'\n" +
 	"\x0frecorded_height\x18\x04 \x01(\x04R\x0erecordedHeight\x12:\n" +
-	"\x19builder_service_signature\x18\x05 \x01(\fR\x17builderServiceSignature\"\xaf\x02\n" +
+	"\x19builder_service_signature\x18\x05 \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x06 \x01(\x04R\x19serviceAuthorizationNonce\"\xaf\x02\n" +
 	"\x1dVerifyResultSubmittedNoticeV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x02 \x01(\fR\btaskHash\x12!\n" +
@@ -2154,13 +2223,14 @@ const file_nexus_v1_dispatch_proto_rawDesc = "" +
 	"\x05proof\x18\x02 \x01(\v2\".task.v1.HandraiseInclusionProofV1R\x05proof\"\x7f\n" +
 	"\x0fDispatchOfferV1\x121\n" +
 	"\x06ticket\x18\x01 \x01(\v2\x19.task.v1.DispatchTicketV1R\x06ticket\x129\n" +
-	"\fsigned_order\x18\x02 \x01(\v2\x16.task.v1.SignedOrderV2R\vsignedOrder\"\xa6\x02\n" +
+	"\fsigned_order\x18\x02 \x01(\v2\x16.task.v1.SignedOrderV2R\vsignedOrder\"\xe6\x02\n" +
 	"\x16DispatchResultHeaderV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12>\n" +
 	"\rwinner_ticket\x18\x02 \x01(\v2\x19.task.v1.DispatchTicketV1R\fwinnerTicket\x121\n" +
 	"\x06accept\x18\x03 \x01(\v2\x19.task.v1.DispatchAcceptV1R\x06accept\x12D\n" +
 	"\rrecord_status\x18\x04 \x01(\x0e2\x1f.task.v1.DispatchRecordStatusV1R\frecordStatus\x12:\n" +
-	"\x19builder_service_signature\x18\x05 \x01(\fR\x17builderServiceSignature\"\xac\x02\n" +
+	"\x19builder_service_signature\x18\x05 \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x06 \x01(\x04R\x19serviceAuthorizationNonce\"\xac\x02\n" +
 	"\x13ResumeOutputRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +

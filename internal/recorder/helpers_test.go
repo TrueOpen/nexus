@@ -30,6 +30,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -54,6 +55,13 @@ var (
 
 func fill(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 
+// testTicketNonce is the Builder nonce the test tickets were issued under; testServiceNonce the
+// nonce of the key that signs now, a later generation.
+const (
+	testTicketNonce  = 1
+	testServiceNonce = 2
+)
+
 func sessionHex(id byte) string { return hex.EncodeToString(fill(id)) }
 
 func taskIDOf(session byte, seq uint64) string {
@@ -72,8 +80,9 @@ func bundle(session byte, seq uint64, ticket byte, deadline uint64) *dispatcher.
 			BuilderAddress: builder, CandidatePoolSnapshotId: fill(0x66), VrfOutput: fill(0x0f), DispatchTicketHash: fill(ticket),
 			BuilderServiceSignature: bytes.Repeat([]byte{0x5a}, 64),
 		},
-		WinnerTicket: &taskv1.DispatchTicketV1{ChainId: testChainID, BuilderAddress: builder, TaskId: taskID, TaskHash: fill(0x70 + ticket), SessionId: fill(session), OrderSequence: seq, Target: member},
-		Accept:       &taskv1.DispatchAcceptV1{SchemaVersion: 1, ChainId: testChainID, TaskId: taskID, TaskHash: fill(0x70 + ticket), DispatchTicketHash: fill(ticket), Member: member},
+		WinnerTicket: &taskv1.DispatchTicketV1{ChainId: testChainID, BuilderAddress: builder, TaskId: taskID, TaskHash: fill(0x70 + ticket), SessionId: fill(session), OrderSequence: seq, Target: member,
+			ServiceAuthorizationNonce: testTicketNonce},
+		Accept: &taskv1.DispatchAcceptV1{SchemaVersion: 1, ChainId: testChainID, TaskId: taskID, TaskHash: fill(0x70 + ticket), DispatchTicketHash: fill(ticket), Member: member},
 	}
 	return &dispatcher.Bundle{SessionID: sessionHex(session), Sequence: seq, TaskID: taskIDOf(session, seq), Deadline: deadline, Entry: entry}
 }
@@ -483,7 +492,7 @@ func (e *env) open() {
 	e.evidence = &fakeEvidence{}
 	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
-		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
+		ChainID: testChainID, Builder: builder, Signer: servicekey.Static(e.signer, testServiceNonce), Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
 		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 		Metrics: e.metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
@@ -542,7 +551,7 @@ func (e *env) outboxKeys() []string {
 	return keys
 }
 
-// checkNotice verifies a notice's Builder signature and returns it.
+// notices verifies the notices' Builder signatures, under the signing key's nonce, and returns them.
 func (e *env) notices() []notice {
 	e.t.Helper()
 	e.streams.mu.Lock()
@@ -555,6 +564,9 @@ func (e *env) notices() []notice {
 		digest, err := dispatch.SigningDigest("nexus.v1.RecordResultNoticeV1", raw)
 		if err != nil || dispatch.VerifyDigestSignature(e.signer.PubKeyCompressed(), digest[:], sig) != nil {
 			e.t.Fatalf("notice %v is not signed by the Builder", n.n)
+		}
+		if n.n.GetServiceAuthorizationNonce() != testServiceNonce {
+			e.t.Fatalf("notice signed under nonce %d, the key's is %d", n.n.GetServiceAuthorizationNonce(), testServiceNonce)
 		}
 	}
 	return append([]notice(nil), e.streams.sent...)

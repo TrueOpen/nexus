@@ -76,6 +76,11 @@ message DispatchCompensationClaimState {
   optional string rebutted_by_or_empty = 14;
   optional uint64 resolved_height = 15;
   uint64 claim_window_close_height = 16;
+  // Frozen from the claim's verified original order, including unrecorded orders.
+  // Positive and strictly below claimed_height; retained unchanged through
+  // resolution, Query and Genesis. Previous record/reject keys each compare
+  // this value with their own retirement height, never another ticket's record.
+  uint64 earliest_submit_height = 17;
 }
 // DispatchWinnerIneligibleState defines the canonical DispatchWinnerIneligibleState fields.
 message DispatchWinnerIneligibleState {

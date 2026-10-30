@@ -43,7 +43,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
-	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // Params are the task params dispatch values the Recorder applies.
@@ -133,8 +133,8 @@ type Config struct {
 	// fatal refusal stopped.
 	Builder string
 	// Signer is the Builder service key: it signs the record transactions as their
-	// submitter_address and the record notices.
-	Signer   signer.Signer
+	// submitter_address and the record notices, under its authorization nonce.
+	Signer   servicekey.Signer
 	Store    kv.Store
 	Ledger   Ledger
 	Chain    Chain
@@ -275,8 +275,9 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 	}
 	e := &entry{
 		ObjectID: hex.EncodeToString(id[:]), SessionID: b.SessionID, Sequence: b.Sequence, TaskID: b.TaskID,
-		TicketHash: append([]byte(nil), b.Entry.GetRecord().GetDispatchTicketHash()...),
-		Worker:     b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
+		TicketHash:  append([]byte(nil), b.Entry.GetRecord().GetDispatchTicketHash()...),
+		TicketNonce: b.Entry.GetWinnerTicket().GetServiceAuthorizationNonce(),
+		Worker:      b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
 		EarliestSubmit: b.Entry.GetSignedOrder().GetOrder().GetEarliestSubmitHeight(),
 		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
 		OrderExpire:    b.Entry.GetSignedOrder().GetOrder().GetOrderExpireHeight(),
@@ -475,7 +476,7 @@ func (fx effects) run(ctx context.Context) {
 // chain after the deadline, so a winner without a stream misses nothing it relies on.
 func (r *Recorder) notify(ctx context.Context, e *entry, status taskv1.DispatchRecordStatusV1, code taskv1.DispatchRejectCodeV1, height uint64) {
 	n := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: e.TicketHash, Status: status, RejectCode: code, RecordedHeight: height}
-	if _, _, err := dispatcher.SignRecordResultNotice(r.cfg.Signer, n); err != nil {
+	if _, _, err := dispatcher.SignRecordResultNotice(r.cfg.Signer.Key(), e.TicketNonce, n); err != nil {
 		r.log.Error("record notice not signed", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 		return
 	}

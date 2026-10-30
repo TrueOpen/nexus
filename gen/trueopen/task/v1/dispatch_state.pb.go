@@ -443,8 +443,13 @@ type DispatchCompensationClaimState struct {
 	RebuttedByOrEmpty      *string                           `protobuf:"bytes,14,opt,name=rebutted_by_or_empty,json=rebuttedByOrEmpty,proto3,oneof" json:"rebutted_by_or_empty,omitempty"`
 	ResolvedHeight         *uint64                           `protobuf:"varint,15,opt,name=resolved_height,json=resolvedHeight,proto3,oneof" json:"resolved_height,omitempty"`
 	ClaimWindowCloseHeight uint64                            `protobuf:"varint,16,opt,name=claim_window_close_height,json=claimWindowCloseHeight,proto3" json:"claim_window_close_height,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Frozen from the claim's verified original order, including unrecorded orders.
+	// Positive and strictly below claimed_height; retained unchanged through
+	// resolution, Query and Genesis. Previous record/reject keys each compare
+	// this value with their own retirement height, never another ticket's record.
+	EarliestSubmitHeight uint64 `protobuf:"varint,17,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *DispatchCompensationClaimState) Reset() {
@@ -585,6 +590,13 @@ func (x *DispatchCompensationClaimState) GetResolvedHeight() uint64 {
 func (x *DispatchCompensationClaimState) GetClaimWindowCloseHeight() uint64 {
 	if x != nil {
 		return x.ClaimWindowCloseHeight
+	}
+	return 0
+}
+
+func (x *DispatchCompensationClaimState) GetEarliestSubmitHeight() uint64 {
+	if x != nil {
+		return x.EarliestSubmitHeight
 	}
 	return 0
 }
@@ -878,7 +890,7 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"#bound_change_height_at_registration\x18\x06 \x01(\x04R\x1fboundChangeHeightAtRegistration\x12+\n" +
 	"\x11registered_height\x18\a \x01(\x04R\x10registeredHeight\x12+\n" +
 	"\x11activation_height\x18\b \x01(\x04R\x10activationHeight\x12.\n" +
-	"\x13order_expire_height\x18\t \x01(\x04R\x11orderExpireHeight\"\xc4\x06\n" +
+	"\x13order_expire_height\x18\t \x01(\x04R\x11orderExpireHeight\"\xfa\x06\n" +
 	"\x1eDispatchCompensationClaimState\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12\x1d\n" +
@@ -898,7 +910,8 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"\x0funfilled_amount\x18\r \x01(\v2\x11.shared.v1.AmountR\x0eunfilledAmount\x124\n" +
 	"\x14rebutted_by_or_empty\x18\x0e \x01(\tH\x00R\x11rebuttedByOrEmpty\x88\x01\x01\x12,\n" +
 	"\x0fresolved_height\x18\x0f \x01(\x04H\x01R\x0eresolvedHeight\x88\x01\x01\x129\n" +
-	"\x19claim_window_close_height\x18\x10 \x01(\x04R\x16claimWindowCloseHeightB\x17\n" +
+	"\x19claim_window_close_height\x18\x10 \x01(\x04R\x16claimWindowCloseHeight\x124\n" +
+	"\x16earliest_submit_height\x18\x11 \x01(\x04R\x14earliestSubmitHeightB\x17\n" +
 	"\x15_rebutted_by_or_emptyB\x12\n" +
 	"\x10_resolved_height\"\xc9\x02\n" +
 	"\x1dDispatchWinnerIneligibleState\x120\n" +

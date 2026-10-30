@@ -23,6 +23,9 @@ type entry struct {
 	Sequence   uint64 `json:"sequence"`
 	TaskID     string `json:"task_id"`
 	TicketHash []byte `json:"ticket_hash"`
+	// TicketNonce is the winner ticket's service_authorization_nonce: no record notice is signed
+	// under an older one.
+	TicketNonce uint64 `json:"ticket_nonce,omitempty"`
 	// Worker is the winner's operator address, who gets the record notice.
 	Worker string `json:"worker"`
 	// Deadline is the last height the entry can be recorded at, as handed over; see

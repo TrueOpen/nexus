@@ -627,7 +627,7 @@ func (f *fixture) recordedAttempt() attempt.Attempt {
 	if proto.Unmarshal(f.tickets[1], &ticket) != nil || proto.Unmarshal(f.accept, &accept) != nil {
 		t.Fatal("fixture messages do not parse")
 	}
-	header, err := attempt.SignResultHeader(f.e.d.key, &nexusv1.DispatchResultHeaderV1{
+	header, err := attempt.SignResultHeader(servicekey.Key{Signer: f.e.d.key, Nonce: 1}, &nexusv1.DispatchResultHeaderV1{
 		TaskId: f.taskID, WinnerTicket: &ticket, Accept: &accept, RecordStatus: attempt.Recorded,
 	})
 	if err != nil {

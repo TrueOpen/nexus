@@ -15,6 +15,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // Every block packs the entries accepted since the last one, sorted by (session_id,
@@ -311,6 +312,22 @@ func TestReconcileViaEvent(t *testing.T) {
 	}
 }
 
+// A notice is signed by the current key under its nonce; for a ticket of a newer generation than
+// that key (the key read lags the ticket) none is signed, since it could never verify.
+func TestNoticeNeverPrecedesItsTicketGeneration(t *testing.T) {
+	e := newEnv(t)
+	b := bundle(0xaa, 0, 1, 50)
+	b.Entry.WinnerTicket.ServiceAuthorizationNonce = testServiceNonce + 1
+	e.record(b)
+	e.block(10)
+	msg, raw := e.lastSent()
+	e.chain.execute(raw, executed(t, msg, 11, ok()))
+	e.block(12)
+	if len(e.tasks.recorded) != 1 || len(e.notices()) != 0 {
+		t.Fatalf("recorded %d, notices %d", len(e.tasks.recorded), len(e.notices()))
+	}
+}
+
 // A withdrawn entry is not submitted; one withdrawn after it was sent is dropped when refused,
 // without suspending its session.
 func TestWithdrawnEntries(t *testing.T) {
@@ -475,7 +492,7 @@ func TestFailedTransactionIsRetried(t *testing.T) {
 func TestBlocksDriveTheRecorder(t *testing.T) {
 	e := newEnv(t)
 	idle, err := New(Config{
-		ChainID: testChainID, Builder: builder, Signer: e.signer, Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
+		ChainID: testChainID, Builder: builder, Signer: servicekey.Static(e.signer, testServiceNonce), Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
 		Tasks: e.tasks, Attempts: e.attempts, Streams: e.streams, Gate: e.gate, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
 	}, e.params)
 	if err != nil {

@@ -445,12 +445,12 @@ func (b *Book) setLocked(a *Attempt, status Status) error {
 		return fmt.Errorf("decode accept: %w", err)
 	}
 	h.TaskId = h.WinnerTicket.GetTaskId()
-	key := b.signer.Key().Signer
+	key := b.signer.Key()
 	header, err := SignResultHeader(key, h)
 	if err != nil {
 		return err
 	}
-	a.Status, a.Header, a.HeaderKey = status, header, hex.EncodeToString(key.PubKeyCompressed())
+	a.Status, a.Header, a.HeaderKey = status, header, hex.EncodeToString(key.Signer.PubKeyCompressed())
 	raw, err := json.Marshal(a)
 	if err != nil {
 		return fmt.Errorf("encode dispatch attempt: %w", err)
@@ -483,8 +483,8 @@ func (b *Book) Current(taskID string) (Attempt, bool) {
 // current service key, and stores it. A key that cannot sign yet leaves the stored header.
 // Caller holds b.mu.
 func (b *Book) resignLocked(a *Attempt) {
-	current := b.signer.Key().Signer
-	key := hex.EncodeToString(current.PubKeyCompressed())
+	current := b.signer.Key()
+	key := hex.EncodeToString(current.Signer.PubKeyCompressed())
 	if a.HeaderKey == key {
 		return
 	}

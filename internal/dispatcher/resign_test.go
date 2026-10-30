@@ -9,6 +9,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // verifies reports whether m's signature (sig) verifies under key for its wire signing digest.
@@ -35,14 +36,14 @@ func verifies(t *testing.T, name string, m proto.Message, sig []byte, key []byte
 // Input responses and record notices carry no key generation: a replay signs them again with the
 // current key. Offers keep their signature: a ticket is bound to the generation that issued it.
 func TestResignTransportSignsOnlyTransportMessages(t *testing.T) {
-	old, current := newTestSigner(t, 0x31), newTestSigner(t, 0x32)
+	old, current := servicekey.Key{Signer: newTestSigner(t, 0x31), Nonce: 1}, newTestSigner(t, 0x32)
 	input := &nexusv1.DispatchInputResponseV1{TaskId: bytes.Repeat([]byte{3}, 32), DispatchTicketHash: bytes.Repeat([]byte{1}, 32),
 		InputHash: bytes.Repeat([]byte{4}, 32), InputSizeBytes: 4, Input: []byte("data"), ChunkCount: 1}
-	if _, _, err := signInputResponse(old, input); err != nil {
+	if _, _, err := signInputResponse(old, 1, input); err != nil {
 		t.Fatal(err)
 	}
 	notice := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: bytes.Repeat([]byte{2}, 32), RecordedHeight: 9}
-	if _, _, err := SignRecordResultNotice(old, notice); err != nil {
+	if _, _, err := SignRecordResultNotice(old, 1, notice); err != nil {
 		t.Fatal(err)
 	}
 	ticketSig := []byte("ticket signature")
@@ -51,7 +52,7 @@ func TestResignTransportSignsOnlyTransportMessages(t *testing.T) {
 		{Message: &nexusv1.DispatchStreamFrameV1_RecordResult{RecordResult: notice}},
 		{Message: &nexusv1.DispatchStreamFrameV1_Offer{Offer: &nexusv1.DispatchOfferV1{Ticket: &taskv1.DispatchTicketV1{BuilderServiceSignature: ticketSig}}}},
 	}
-	resign := ResignTransport(current)
+	resign := ResignTransport(servicekey.Static(current, 2))
 	for _, f := range frames {
 		if err := resign(f); err != nil {
 			t.Fatal(err)

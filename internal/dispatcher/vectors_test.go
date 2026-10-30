@@ -157,12 +157,16 @@ func TestInputResponseVectors(t *testing.T) {
 	}
 	var first nexusv1.DispatchInputResponseV1
 	loadVector(t, a.Vectors[0], &first)
+	nonce := first.GetServiceAuthorizationNonce()
+	if nonce == 0 {
+		t.Fatal("the input response vector signs no Builder nonce")
+	}
 	streams := &fakeStreams{}
 	d := &Dispatcher{cfg: Config{
-		Signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce), InputChunkBytes: 2, Streams: streams,
+		Signer: servicekey.Static(newTestSigner(t, 0x01), nonce), InputChunkBytes: 2, Streams: streams,
 		Inputs: fakeInputs{data: map[string][]byte{"task-hash": []byte(a.Input)}},
 	}}
-	if err := d.sendInput(context.Background(), "worker", "session", "task", "task-hash", first.GetTaskId(), first.GetDispatchTicketHash(), first.GetInputHash()); err != nil {
+	if err := d.sendInput(context.Background(), "worker", "session", "task", "task-hash", first.GetTaskId(), first.GetDispatchTicketHash(), first.GetInputHash(), nonce); err != nil {
 		t.Fatal(err)
 	}
 	if len(streams.sent) != 3 {
@@ -201,13 +205,42 @@ func TestAcceptDigestVector(t *testing.T) {
 func TestRecordResultNoticeVector(t *testing.T) {
 	var want nexusv1.RecordResultNoticeV1
 	v, wantRaw, wantSig := loadVector(t, "nexus_v1_recordresultnoticev1", &want)
+	if want.GetServiceAuthorizationNonce() == 0 {
+		t.Fatal("the record notice vector signs no Builder nonce")
+	}
 	n := &nexusv1.RecordResultNoticeV1{
 		DispatchTicketHash: want.GetDispatchTicketHash(), Status: want.GetStatus(), RejectCode: want.GetRejectCode(),
 		RecordedHeight: want.GetRecordedHeight(),
 	}
-	raw, digest, err := SignRecordResultNotice(newTestSigner(t, 0x01), n)
+	key := servicekey.Key{Signer: newTestSigner(t, 0x01), Nonce: want.GetServiceAuthorizationNonce()}
+	raw, digest, err := SignRecordResultNotice(key, want.GetServiceAuthorizationNonce(), n)
 	if err != nil {
 		t.Fatal(err)
 	}
 	checkSigned(t, v, wantRaw, wantSig, raw, digest, n.GetBuilderServiceSignature())
+}
+
+// Input responses and record notices are signed under the nonce of the key that signs them, never
+// one older than their ticket's: such a message could never verify.
+func TestTicketBoundMessagesRefuseAnOlderGenerationThanTheTicket(t *testing.T) {
+	sg := newTestSigner(t, 0x01)
+	for _, nonce := range []uint64{0, 4} {
+		key := servicekey.Key{Signer: sg, Nonce: nonce}
+		if _, _, err := signInputResponse(key, 5, &nexusv1.DispatchInputResponseV1{}); err == nil {
+			t.Fatalf("input response signed under nonce %d for a ticket of nonce 5", nonce)
+		}
+		if _, _, err := SignRecordResultNotice(key, 5, &nexusv1.RecordResultNoticeV1{}); err == nil {
+			t.Fatalf("record notice signed under nonce %d for a ticket of nonce 5", nonce)
+		}
+	}
+	key := servicekey.Key{Signer: sg, Nonce: 6}
+	input := &nexusv1.DispatchInputResponseV1{TaskId: bytes.Repeat([]byte{3}, 32), DispatchTicketHash: bytes.Repeat([]byte{1}, 32), InputHash: bytes.Repeat([]byte{4}, 32), InputSizeBytes: 4,
+		Input: []byte("data"), ChunkCount: 1}
+	notice := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: bytes.Repeat([]byte{2}, 32), RecordedHeight: 9}
+	if _, _, err := signInputResponse(key, 5, input); err != nil || input.GetServiceAuthorizationNonce() != 6 {
+		t.Fatalf("input response under a newer key: nonce %d, %v", input.GetServiceAuthorizationNonce(), err)
+	}
+	if _, _, err := SignRecordResultNotice(key, 5, notice); err != nil || notice.GetServiceAuthorizationNonce() != 6 {
+		t.Fatalf("record notice under a newer key: nonce %d, %v", notice.GetServiceAuthorizationNonce(), err)
+	}
 }

@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
-	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // Wire message names of the signing projections the book uses.
@@ -34,15 +34,22 @@ func digestOf(name string, m proto.Message) ([32]byte, error) {
 	return digest, nil
 }
 
-// SignResultHeader signs h with the Builder service key over its wire signing digest and returns
-// the signed bytes. Any signature h carries is replaced.
-func SignResultHeader(s signer.Signer, h *nexusv1.DispatchResultHeaderV1) ([]byte, error) {
-	h.BuilderServiceSignature = nil
+// SignResultHeader signs h with the Builder service key over its wire signing digest, under the
+// key's authorization nonce, and returns the signed bytes. Any signature h carries is replaced. A
+// key of an older generation than h's winner ticket signs nothing: the header could never verify.
+func SignResultHeader(key servicekey.Key, h *nexusv1.DispatchResultHeaderV1) ([]byte, error) {
+	if key.Nonce == 0 {
+		return nil, fmt.Errorf("sign %s: the service key has no authorization nonce yet", resultHeaderName)
+	}
+	if ticket := h.GetWinnerTicket().GetServiceAuthorizationNonce(); key.Nonce < ticket {
+		return nil, fmt.Errorf("sign %s: service key nonce %d is older than the winner ticket's %d", resultHeaderName, key.Nonce, ticket)
+	}
+	h.BuilderServiceSignature, h.ServiceAuthorizationNonce = nil, key.Nonce
 	digest, err := digestOf(resultHeaderName, h)
 	if err != nil {
 		return nil, err
 	}
-	sig, err := s.SignDigest(digest)
+	sig, err := key.Signer.SignDigest(digest)
 	if err != nil {
 		return nil, fmt.Errorf("sign %s: %w", resultHeaderName, err)
 	}

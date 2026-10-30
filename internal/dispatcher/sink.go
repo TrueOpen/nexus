@@ -200,10 +200,13 @@ func (d *Dispatcher) HandleDispatchInputRequest(ctx context.Context, from dispat
 	if !ok {
 		return fmt.Errorf("%w: ticket %x is not an accepted winner with that accept", ErrInputRefused, m.GetDispatchTicketHash())
 	}
-	return d.sendInput(ctx, from.Operator, sessionID, taskID, taskHash, ticket.GetTaskId(), m.GetDispatchTicketHash(), inputHash)
+	return d.sendInput(ctx, from.Operator, sessionID, taskID, taskHash, ticket.GetTaskId(), m.GetDispatchTicketHash(), inputHash,
+		ticket.GetServiceAuthorizationNonce())
 }
 
-func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID, taskHash string, rawTaskID, ticketHash, inputHash []byte) error {
+// sendInput sends the input as signed chunks answering the ticket of ticketHash, whose nonce is
+// ticketNonce. Each chunk is signed with the current service key.
+func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID, taskHash string, rawTaskID, ticketHash, inputHash []byte, ticketNonce uint64) error {
 	input, size, err := d.cfg.Inputs.OpenInput(ctx, sessionID, taskID, taskHash)
 	if err != nil {
 		return fmt.Errorf("%w: open input: %v", dispatchstream.ErrTransient, err)
@@ -229,7 +232,7 @@ func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID,
 			ChunkIndex:         uint32(index),
 			ChunkCount:         uint32(count),
 		}
-		if _, _, err := signInputResponse(d.cfg.Signer, resp); err != nil {
+		if _, _, err := signInputResponse(d.cfg.Signer.Key(), ticketNonce, resp); err != nil {
 			return fmt.Errorf("%w: %v", dispatchstream.ErrTransient, err)
 		}
 		frame := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: resp}}

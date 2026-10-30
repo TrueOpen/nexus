@@ -72,28 +72,45 @@ func signRecord(key servicekey.Key, r *taskv1.DispatchRecordV1) ([]byte, [32]byt
 	return signMessage(key.Signer, recordName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
 }
 
-func signInputResponse(s signer.Signer, r *nexusv1.DispatchInputResponseV1) ([]byte, [32]byte, error) {
-	return signMessage(s, inputResponseName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
+// signTicketBound signs m, a message bound to a ticket of nonce ticketNonce, under key with key's
+// authorization nonce (set through setNonce). A key of an older generation than the ticket signs
+// nothing: the message could never verify.
+func signTicketBound(key servicekey.Key, ticketNonce uint64, name string, m proto.Message, setNonce func(uint64), setSig func([]byte)) ([]byte, [32]byte, error) {
+	if key.Nonce == 0 {
+		return nil, [32]byte{}, fmt.Errorf("sign %s: the service key has no authorization nonce yet", name)
+	}
+	if key.Nonce < ticketNonce {
+		return nil, [32]byte{}, fmt.Errorf("sign %s: service key nonce %d is older than the ticket's %d", name, key.Nonce, ticketNonce)
+	}
+	setNonce(key.Nonce)
+	return signMessage(key.Signer, name, m, setSig)
 }
 
-// SignRecordResultNotice signs n with the Builder service key and returns its signed bytes and
-// signing digest.
-func SignRecordResultNotice(s signer.Signer, n *nexusv1.RecordResultNoticeV1) ([]byte, [32]byte, error) {
-	return signMessage(s, noticeName, n, func(sig []byte) { n.BuilderServiceSignature = sig })
+// signInputResponse signs r under key; ticketNonce is the nonce of the ticket r answers.
+func signInputResponse(key servicekey.Key, ticketNonce uint64, r *nexusv1.DispatchInputResponseV1) ([]byte, [32]byte, error) {
+	return signTicketBound(key, ticketNonce, inputResponseName, r,
+		func(n uint64) { r.ServiceAuthorizationNonce = n }, func(sig []byte) { r.BuilderServiceSignature = sig })
+}
+
+// SignRecordResultNotice signs n under key, with key's authorization nonce, and returns its signed
+// bytes and signing digest; ticketNonce is the nonce of the ticket n reports on.
+func SignRecordResultNotice(key servicekey.Key, ticketNonce uint64, n *nexusv1.RecordResultNoticeV1) ([]byte, [32]byte, error) {
+	return signTicketBound(key, ticketNonce, noticeName, n,
+		func(nonce uint64) { n.ServiceAuthorizationNonce = nonce }, func(sig []byte) { n.BuilderServiceSignature = sig })
 }
 
 // ResignTransport signs the Builder transport messages of a stored downlink frame again with s,
 // in place: input responses and record notices carry no key generation, so after a service key
 // cutover only the current key vouches for them. Offers keep their signature (a ticket is bound to
 // the generation that issued it), and so does everything else.
-func ResignTransport(s signer.Signer) func(*nexusv1.DispatchStreamFrameV1) error {
+func ResignTransport(s servicekey.Signer) func(*nexusv1.DispatchStreamFrameV1) error {
 	return func(frame *nexusv1.DispatchStreamFrameV1) error {
 		switch m := frame.GetMessage().(type) {
 		case *nexusv1.DispatchStreamFrameV1_InputResponse:
-			_, _, err := signInputResponse(s, m.InputResponse)
+			_, _, err := signInputResponse(s.Key(), m.InputResponse.GetServiceAuthorizationNonce(), m.InputResponse)
 			return err
 		case *nexusv1.DispatchStreamFrameV1_RecordResult:
-			_, _, err := SignRecordResultNotice(s, m.RecordResult)
+			_, _, err := SignRecordResultNotice(s.Key(), m.RecordResult.GetServiceAuthorizationNonce(), m.RecordResult)
 			return err
 		}
 		return nil
