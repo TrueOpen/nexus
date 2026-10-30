@@ -213,8 +213,7 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 	if err := r.admit(batch, key); err != nil {
 		return nil, err
 	}
-	senderKey, err := r.authenticate(ctx, sender, raw)
-	if err != nil {
+	if err := r.authenticate(ctx, sender, raw); err != nil {
 		return nil, err
 	}
 	unlock := r.lock(key)
@@ -228,7 +227,6 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 			BuilderSetID: batch.GetBuilderSetId(), BuilderSetHash: batch.GetBuilderSetHash(), Inputs: map[string]*memberInput{}}
 	}
 	resp := &nexusv1.SyncResponse{}
-	in := &incoming{senderKey: senderKey}
 	applied := m.Applied
 	defer func() {
 		if m.Applied > applied && m.TaskID != "" {
@@ -252,7 +250,7 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 			resp.Refused = fmt.Sprintf("item %d out of order: item %d is next", item.GetSequence(), m.Applied+1)
 			break
 		}
-		next, err := r.apply(ctx, m, in, item, digest)
+		next, err := r.apply(ctx, m, item, digest)
 		if err != nil {
 			resp.Refused = fmt.Sprintf("item %d: %v", item.GetSequence(), err)
 			r.log.Warn("synced item refused", "order", key, "item", item.GetSequence(), "err", err)
@@ -278,31 +276,27 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 }
 
 // authenticate checks a request is signed by its sender's current ACTIVE BUILDER service key, for
-// this chain and this Builder, and returns that key: the key the sender's tickets, roots, records
-// and headers in the batch are checked under as well. A key the chain cannot answer is
-// ErrUnavailable.
-func (r *Receiver) authenticate(ctx context.Context, sender string, raw []byte) ([]byte, error) {
-	var current []byte
+// this chain and this Builder: sync transport is current-key only. The dispatch proofs inside the
+// batch are checked one by one under the generation their own nonce selects. A key the chain
+// cannot answer is ErrUnavailable.
+func (r *Receiver) authenticate(ctx context.Context, sender string, raw []byte) error {
 	opts := dispatch.ProofKeyOptions{LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		key, state, err := servicekey.Current(ctx, r.cfg.Keys, r.cfg.AddressPrefix, servicekey.ParticipantBuilder, s.OperatorAddress)
 		if err != nil {
 			return dispatch.ProofKeyBinding{}, err
 		}
-		current = key
 		return dispatch.ProofKeyBinding{PublicKey: key, ServiceAuthorizationNonce: state.AuthorizationNonce, Status: dispatch.ProofKeyActive}, nil
 	}}
 	err := dispatch.VerifyBuilderSyncRequest(r.cfg.ChainID, r.cfg.Builder, raw, opts)
 	switch {
 	case errors.Is(err, servicekey.ErrAuthority):
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	case errors.Is(err, dispatch.ErrDecode):
-		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		return fmt.Errorf("%w: %v", ErrMalformed, err)
 	case err != nil:
-		return nil, fmt.Errorf("%w: batch is not signed by the sender's current service key: %v", ErrUnauthenticated, err)
-	case current == nil:
-		return nil, fmt.Errorf("%w: no current service key of %s", ErrUnauthenticated, sender)
+		return fmt.Errorf("%w: batch is not signed by the sender's current service key %s: %v", ErrUnauthenticated, sender, err)
 	}
-	return current, nil
+	return nil
 }
 
 // itemDigest is the local comparison key of an item: SHA-256 of its canonical typed projection, the
@@ -426,14 +420,9 @@ func (r *Receiver) observeSnapshot() (taskgroup.Snapshot, *taskgroup.Snapshot, b
 	return current, r.previous, true
 }
 
-// incoming is what one batch's items share.
-type incoming struct {
-	senderKey []byte
-}
-
 // apply checks and applies one item on a copy of m and stores it with the item's digest; it returns
 // the copy.
-func (r *Receiver) apply(ctx context.Context, m *memberStream, in *incoming, item *nexusv1.BuilderSyncItemV1, digest []byte) (*memberStream, error) {
+func (r *Receiver) apply(ctx context.Context, m *memberStream, item *nexusv1.BuilderSyncItemV1, digest []byte) (*memberStream, error) {
 	next := m.clone()
 	next.Applied = item.GetSequence()
 	next.appliedDigest = digest
@@ -444,11 +433,11 @@ func (r *Receiver) apply(ctx context.Context, m *memberStream, in *incoming, ite
 	case *nexusv1.BuilderSyncItemV1_InputChunk:
 		err = r.applyInput(ctx, next, it.InputChunk)
 	case *nexusv1.BuilderSyncItemV1_Attempt:
-		err = r.applyAttempt(ctx, next, in, it.Attempt)
+		err = r.applyAttempt(ctx, next, it.Attempt)
 	case *nexusv1.BuilderSyncItemV1_Record:
 		err = r.applyRecord(ctx, next, it.Record)
 	case *nexusv1.BuilderSyncItemV1_Order:
-		err = r.applyOrder(ctx, next, in, it.Order)
+		err = r.applyOrder(ctx, next, it.Order)
 	default:
 		err = errors.New("unknown item")
 	}
@@ -646,7 +635,7 @@ func (r *Receiver) applyInput(ctx context.Context, m *memberStream, c *nexusv1.B
 
 // applyAttempt adds or updates a ticket in the copy: signed by the sender for this order, in a
 // round held with its roster_hash and root, with the answers its target gave (signed by it).
-func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incoming, a *nexusv1.BuilderSyncAttemptV1) error {
+func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1.BuilderSyncAttemptV1) error {
 	ticket := a.GetTicket()
 	ticketRaw, err := marshal(ticket)
 	if err != nil {
@@ -817,7 +806,7 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 // applyOrder takes the user's order once the chain recorded it: the chain's record must name the
 // winner of the sender's RECORDED header, a ticket held in the copy, the header's accept must be
 // the winner's, and the order's earliest_submit_height the one its rounds named.
-func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming, item *nexusv1.BuilderSyncOrderV1) error {
+func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv1.BuilderSyncOrderV1) error {
 	signed := item.GetSignedOrder()
 	signedRaw, err := marshal(signed)
 	if err != nil {
@@ -836,13 +825,6 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	}
 	if header.GetRecordStatus() != taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED {
 		return fmt.Errorf("result header is %s, not RECORDED", header.GetRecordStatus())
-	}
-	headerDigest, err := signingDigest(resultHeaderName, headerRaw)
-	if err != nil {
-		return err
-	}
-	if dispatch.VerifyDigestSignature(in.senderKey, headerDigest[:], header.GetBuilderServiceSignature()) != nil {
-		return errors.New("result header is not signed by the sender")
 	}
 	winnerRaw, err := marshal(header.GetWinnerTicket())
 	if err != nil {
@@ -872,6 +854,15 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 		return errors.New("no round of the recorded order version is held here")
 	case named != esh:
 		return fmt.Errorf("the order's rounds named earliest_submit_height %d, the signed order's is %d", named, esh)
+	}
+	// The header is the winner ticket's Builder's (the sender's, checked above) dispatch proof,
+	// relayed with its original bytes: its signed nonce selects the key generation, the previous
+	// one only for an order below that key's retirement.
+	if err := r.verifyProof(ctx, resultHeaderName, headerRaw, &esh); err != nil {
+		if errors.Is(err, ErrUnavailable) {
+			return fmt.Errorf("result header signer: %w", err)
+		}
+		return fmt.Errorf("result header is not signed by the sender: %w", err)
 	}
 	acceptRaw, err := marshal(header.GetAccept())
 	if err != nil {

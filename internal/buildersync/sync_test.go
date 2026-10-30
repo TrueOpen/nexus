@@ -1105,6 +1105,66 @@ func TestReceiverChecksTheAcceptSignature(t *testing.T) {
 	})
 }
 
+// splitAtOrder splits a recorded batch into its items before the order item and the order item
+// alone, without output.
+func splitAtOrder(t *testing.T, batch *nexusv1.BuilderSyncBatchV1) (before, order *nexusv1.BuilderSyncBatchV1) {
+	t.Helper()
+	before = proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
+	before.Output = nil
+	order = proto.Clone(before).(*nexusv1.BuilderSyncBatchV1)
+	for i, item := range before.Items {
+		if item.GetOrder() != nil {
+			before.Items, order.Items = before.Items[:i], before.Items[i:i+1]
+			return before, order
+		}
+	}
+	t.Fatal("no order item in the batch")
+	return nil, nil
+}
+
+// A RECORDED result header is a dispatch proof of its winner ticket's Builder, verified under the
+// generation its signed nonce selects for the order: one signed before the sender's cutover still
+// proves an order below the retirement height, after the cutover, but not one at it; a header
+// signed by another key is refused.
+func TestRecordedHeaderVerifiesUnderItsOwnGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		retired uint64 // 0: no cutover
+		signer  func(e *env) signer.Signer
+		refused bool
+	}{
+		{name: "current key"},
+		{name: "retired key, order below the retirement", retired: testESH + 1},
+		{name: "retired key, order at the retirement", retired: testESH, refused: true},
+		{name: "another key", signer: func(e *env) signer.Signer { return e.other.key }, refused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			f := e.fx
+			before, order := splitAtOrder(t, e.recordedBatch([]string{"hello, "}))
+			if tc.signer != nil {
+				h := order.Items[0].GetOrder().ResultHeader
+				signWith(t, tc.signer(e), resultHeaderName, h, func(s []byte) { h.BuilderServiceSignature = s })
+			}
+			if resp, err := e.member.r.Sync(context.Background(), e.signed(before)); err != nil || resp.GetRefused() != "" {
+				t.Fatalf("items before the order = %v, %v", resp, err)
+			}
+			key := e.d.key
+			if tc.retired != 0 {
+				key = newSigner(t, 0x21)
+				e.keys.rotate("BUILDER", e.d, key, tc.retired)
+			}
+			resp, err := e.member.r.Sync(context.Background(), e.signedBy(key, order))
+			if err != nil || (resp.GetRefused() != "") != tc.refused {
+				t.Fatalf("order item = %v, %v; refused %v", resp, err, tc.refused)
+			}
+			if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); (held && a.Status == attempt.Recorded) == tc.refused {
+				t.Fatalf("replica %+v held %v; refused %v", a, held, tc.refused)
+			}
+		})
+	}
+}
+
 // The earliest_submit_height a round names selects which key generation proves the order's
 // material; it is checked against the user's signed order once that is synced: a round that named
 // another height is refused.

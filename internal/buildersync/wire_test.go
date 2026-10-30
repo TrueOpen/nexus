@@ -179,22 +179,22 @@ func TestReceiverAuthenticatesTheWireVectors(t *testing.T) {
 		t.Run(row.Name, func(t *testing.T) {
 			r, keys := vectorReceiver(t, v)
 			for _, encoded := range []string{row.Protobuf, row.Equivalent} {
-				if _, err := r.authenticate(context.Background(), v.Sender, unhex(t, encoded)); err != nil {
+				if err := r.authenticate(context.Background(), v.Sender, unhex(t, encoded)); err != nil {
 					t.Fatalf("vector: %v", err)
 				}
 			}
 			keys.set("BUILDER", party{op: v.Sender, key: newSigner(t, 0x02)})
-			if _, err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnauthenticated) {
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnauthenticated) {
 				t.Fatalf("retired key: %v", err)
 			}
 			keys.fails = true
-			if _, err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnavailable) {
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnavailable) {
 				t.Fatalf("unreadable key: %v", err)
 			}
 			keys.fails = false
 			keys.set("BUILDER", party{op: v.Sender, key: vectorKey(t)})
 			r.cfg.ChainID = v.ChainID + "-other"
-			if _, err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); err == nil {
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); err == nil {
 				t.Fatal("authenticated on another chain")
 			}
 		})
