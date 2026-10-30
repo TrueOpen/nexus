@@ -645,7 +645,7 @@ func (r *Receiver) applyInput(ctx context.Context, m *memberStream, c *nexusv1.B
 }
 
 // applyAttempt adds or updates a ticket in the copy: signed by the sender for this order, in a
-// round held with its roster_hash and root, with the answers its target gave.
+// round held with its roster_hash and root, with the answers its target gave (signed by it).
 func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incoming, a *nexusv1.BuilderSyncAttemptV1) error {
 	ticket := a.GetTicket()
 	ticketRaw, err := marshal(ticket)
@@ -717,6 +717,20 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, in *incomi
 		}
 		if *x.raw, err = marshal(x.accept); err != nil {
 			return err
+		}
+		// The accept is the target's dispatch proof, verified under the key generation its nonce
+		// selects for the order. The winner's accept is the order's evidence and must verify; a
+		// late accept that does not is dropped, as a reject is, rather than stop the sync.
+		switch err := r.verifyProof(ctx, acceptName, *x.raw, m.submitOf(ticket.GetTaskHash())); {
+		case err == nil:
+		case errors.Is(err, ErrUnavailable):
+			return fmt.Errorf("accept signer: %w", err)
+		case x.raw == &acceptRaw:
+			return fmt.Errorf("accept is not signed by its target: %w", err)
+		default:
+			r.log.Warn("synced late accept does not verify under its target's key; kept without it",
+				"session_id", m.SessionID, "sequence", m.Sequence, "ticket", hex.EncodeToString(hash[:]), "target", target, "err", err)
+			*x.raw = nil
 		}
 	}
 	if a.GetOutcome() == outcomeAccepted {
@@ -794,7 +808,8 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 }
 
 // applyOrder takes the user's order once the chain recorded it: the chain's record must name the
-// winner of the sender's RECORDED header, a ticket held in the copy.
+// winner of the sender's RECORDED header, a ticket held in the copy, the header's accept must be
+// the winner's, and the order's earliest_submit_height the one its rounds named.
 func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming, item *nexusv1.BuilderSyncOrderV1) error {
 	signed := item.GetSignedOrder()
 	signedRaw, err := marshal(signed)
@@ -840,9 +855,19 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, in *incoming
 	if err := r.checkUserOrder(ctx, m, signed, ev.TaskHash); err != nil {
 		return err
 	}
+	// The rounds named the order version's earliest_submit_height, which chose the key generation
+	// their material was verified under; the signed order (its task_hash, checked above) is the
+	// authority for it.
+	esh := order.GetEarliestSubmitHeight()
+	if named, ok := m.Submit[ev.TaskHash]; !ok || named != esh {
+		return fmt.Errorf("the order's rounds named earliest_submit_height %d, the signed order's is %d", named, esh)
+	}
 	acceptRaw, err := marshal(header.GetAccept())
 	if err != nil {
 		return err
+	}
+	if err := r.verifyProof(ctx, acceptName, acceptRaw, &esh); err != nil {
+		return fmt.Errorf("result header's accept is not signed by the winner: %w", err)
 	}
 	acceptDigest, err := signingDigest(acceptName, acceptRaw)
 	if err != nil {

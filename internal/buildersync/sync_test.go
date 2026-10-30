@@ -1048,3 +1048,94 @@ func TestRejectOfATargetWithoutAKey(t *testing.T) {
 		}
 	})
 }
+
+// A Worker's accept is a dispatch proof: one not signed by its target, as an attempt's accept or
+// in the result header of the recorded order, is refused.
+func TestReceiverChecksTheAcceptSignature(t *testing.T) {
+	t.Run("attempt", func(t *testing.T) {
+		e := newEnv(t)
+		f := e.fx
+		e.peers.setFail(e.m.op, errors.New("held back"))
+		e.s.OrderChanged(f.accepted())
+		e.sync()
+		reqs := e.peers.requests[e.m.op]
+		batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+		spoiled := false
+		for _, item := range batch.Items {
+			if a := item.GetAttempt(); a != nil && a.Accept != nil {
+				signWith(t, e.other.key, acceptName, a.Accept, func(s []byte) { a.Accept.ServiceSignature = s })
+				spoiled = true
+			}
+		}
+		if !spoiled {
+			t.Fatal("no accept in the batch")
+		}
+		resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+		if err != nil || resp.GetRefused() == "" {
+			t.Fatalf("accept under another key = %v, %v", resp, err)
+		}
+		if c := e.copyOf(); c != nil && len(c.Accept) != 0 {
+			t.Fatal("a forged accept was kept")
+		}
+	})
+	t.Run("result header", func(t *testing.T) {
+		e := newEnv(t)
+		f := e.fx
+		batch := e.recordedBatch([]string{"hello, "})
+		spoiled := false
+		for _, item := range batch.Items {
+			if o := item.GetOrder(); o != nil {
+				h := o.ResultHeader
+				signWith(t, e.other.key, acceptName, h.Accept, func(s []byte) { h.Accept.ServiceSignature = s })
+				signWith(t, f.e.d.key, resultHeaderName, h, func(s []byte) { h.BuilderServiceSignature = s })
+				spoiled = true
+			}
+		}
+		if !spoiled {
+			t.Fatal("no order item in the batch")
+		}
+		batch.Output = nil
+		resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+		if err != nil || resp.GetRefused() == "" {
+			t.Fatalf("header with a forged accept = %v, %v", resp, err)
+		}
+	})
+}
+
+// The earliest_submit_height a round names selects which key generation proves the order's
+// material; it is checked against the user's signed order once that is synced: a round that named
+// another height is refused.
+func TestOrderItemPinsTheRoundsEarliestSubmitHeight(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.peers.setFail(e.m.op, errors.New("held back"))
+	e.sync()
+	reqs := e.peers.requests[e.m.op]
+	batch := proto.Clone(reqs[len(reqs)-1].GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+	rounds, orders := 0, 0
+	for _, item := range batch.Items {
+		if r := item.GetRound(); r != nil {
+			r.EarliestSubmitHeight--
+			rounds++
+		}
+		if item.GetOrder() != nil {
+			orders++
+		}
+	}
+	if rounds == 0 || orders == 0 {
+		t.Fatalf("batch holds %d rounds and %d orders", rounds, orders)
+	}
+	batch.Output = nil
+	resp, err := e.member.r.Sync(context.Background(), e.signed(batch))
+	if err != nil || resp.GetRefused() == "" {
+		t.Fatalf("round naming another earliest_submit_height = %v, %v", resp, err)
+	}
+	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); held && a.Status == attempt.Recorded {
+		t.Fatal("the order was recorded")
+	}
+}

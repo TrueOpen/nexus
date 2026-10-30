@@ -27,8 +27,9 @@ type memberStream struct {
 	// Inputs follows each order version's input by task_hash.
 	Inputs map[string]*memberInput `json:"inputs,omitempty"`
 	// Submit is each order version's earliest_submit_height by task_hash, as its rounds name it:
-	// the sender's roots, tickets and records of the version verify under the key generation their
-	// nonce selects for it.
+	// the roots, tickets, records, accepts and rejects of the version verify under the key
+	// generation their nonce selects for it. The order item checks it against the user's signed
+	// order.
 	Submit map[string]uint64 `json:"submit,omitempty"`
 	// Recorded is set once the order item was applied: the chain admitted the order's dispatch
 	// entry with Winner, at RecordedHeight.
