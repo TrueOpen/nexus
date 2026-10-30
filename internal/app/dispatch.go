@@ -219,13 +219,13 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 	if err != nil {
 		return err
 	}
-	epochs := dispatchdraw.NewChainEpochs(deps.Chain)
+	height := dispatchFloor{chain: deps.Height, head: &d.head}
+	epochs := dispatchdraw.NewChainEpochs(deps.Chain, height.LatestHeight)
 	pools := dispatchdraw.NewPoolCache(deps.ChainID, dispatchdraw.ChainPools{Chain: deps.Chain})
 	drawer, err := dispatchdraw.NewDrawer(deps.ChainID, epochs, vrf, pools)
 	if err != nil {
 		return err
 	}
-	height := dispatchFloor{chain: deps.Height, head: &d.head}
 	registry, err := handraise.New(handraise.Options{
 		ChainID:        deps.ChainID,
 		BuilderAddress: deps.BuilderAddress,

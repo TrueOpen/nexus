@@ -56,7 +56,9 @@ type EpochChain interface {
 // never changes, so it is kept.
 type ChainEpochs struct {
 	chain EpochChain
-	now   func() time.Time
+	// head reads the chain head; nil keeps every unresolved answer for epochMissTTL.
+	head func(context.Context) (uint64, error)
+	now  func() time.Time
 
 	mu     sync.Mutex
 	length uint64
@@ -70,9 +72,10 @@ type epochMiss struct {
 	until time.Time
 }
 
-// NewChainEpochs resolves epochs through chain.
-func NewChainEpochs(chain EpochChain) *ChainEpochs {
-	return &ChainEpochs{chain: chain, now: time.Now, epochs: map[uint64]Epoch{}, misses: map[uint64]epochMiss{}}
+// NewChainEpochs resolves epochs through chain. head, when set, reads the chain head: a kept "not
+// ready" answer is dropped once the head reaches the dispatchable height it names.
+func NewChainEpochs(chain EpochChain, head func(context.Context) (uint64, error)) *ChainEpochs {
+	return &ChainEpochs{chain: chain, head: head, now: time.Now, epochs: map[uint64]Epoch{}, misses: map[uint64]epochMiss{}}
 }
 
 // EpochOf implements EpochSource. An epoch that cannot dispatch yet fails with a *NotReadyError.
@@ -95,7 +98,7 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 		return Epoch{}, &NotReadyError{DispatchableHeight: length,
 			Reason: "epoch 0 has no beacon at its reference height; dispatch starts in epoch 1"}
 	}
-	if missed && s.now().Before(miss.until) {
+	if missed && s.now().Before(miss.until) && !s.reached(ctx, miss.err) {
 		return Epoch{}, miss.err
 	}
 	ep, err = s.resolve(ctx, number, length, earliestSubmitHeight)
@@ -111,6 +114,18 @@ func (s *ChainEpochs) EpochOf(ctx context.Context, earliestSubmitHeight uint64) 
 	}
 	s.remember(ep)
 	return ep, nil
+}
+
+// reached reports whether the head has reached the dispatchable height a kept "not ready" answer
+// names: with blocks shorter than epochMissTTL the answer would otherwise outlive it. An answer
+// without a known height, or a head that cannot be read, is not reached.
+func (s *ChainEpochs) reached(ctx context.Context, kept error) bool {
+	var notReady *NotReadyError
+	if s.head == nil || !errors.As(kept, &notReady) || notReady.DispatchableHeight == 0 {
+		return false
+	}
+	head, err := s.head(ctx)
+	return err == nil && head >= notReady.DispatchableHeight
 }
 
 // resolve reads the seed and the candidate pool snapshot of epoch number.

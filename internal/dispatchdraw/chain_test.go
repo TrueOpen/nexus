@@ -87,7 +87,7 @@ func TestChainEpochsResolveTheEpochOfTheOrder(t *testing.T) {
 		byEpoch: map[uint64][]byte{6: snap6[:]},
 		headers: map[string]*hubv1.CandidatePoolSnapshotViewV1{string(snap6[:]): {Epoch: 6, SnapshotId: snap6[:]}},
 	}
-	epochs := NewChainEpochs(chain)
+	epochs := NewChainEpochs(chain, nil)
 	for esh, want := range map[uint64]Epoch{
 		700: {Number: 7, ReferenceHeight: 700, Seed: seed7, SnapshotID: snap7},
 		799: {Number: 7, ReferenceHeight: 700, Seed: seed7, SnapshotID: snap7},
@@ -140,7 +140,7 @@ func TestChainEpochsUseOnlyTheVerifiedEpochStartBeacon(t *testing.T) {
 				current:    &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: snap[:]},
 				beaconEdit: edit,
 			}
-			epochs := NewChainEpochs(chain)
+			epochs := NewChainEpochs(chain, nil)
 			now := time.Unix(1_800_000_000, 0)
 			epochs.now = func() time.Time { return now }
 			if ep, err := epochs.EpochOf(context.Background(), 750); err == nil {
@@ -165,7 +165,7 @@ func TestChainEpochsKeepAMissingSeedBriefly(t *testing.T) {
 		current:    &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: snap[:]},
 		beaconEdit: func(b *hubv1.BeaconState) { b.Verified = false },
 	}
-	epochs := NewChainEpochs(chain)
+	epochs := NewChainEpochs(chain, nil)
 	now := time.Unix(1_800_000_000, 0)
 	epochs.now = func() time.Time { return now }
 	for _, esh := range []uint64{701, 750, 799} {
@@ -220,19 +220,19 @@ func TestChainEpochsAnswerNotReady(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("epoch zero", func(t *testing.T) {
-		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 5)
+		_, err := NewChainEpochs(newChain(), nil).EpochOf(ctx, 5)
 		notReady(t, err, 100)
 	})
 	t.Run("start beacon not committed", func(t *testing.T) {
 		chain := newChain()
 		delete(chain.beacons, 800)
-		_, err := NewChainEpochs(chain).EpochOf(ctx, 801)
+		_, err := NewChainEpochs(chain, nil).EpochOf(ctx, 801)
 		notReady(t, err, 800)
 	})
 	t.Run("start beacon not verified", func(t *testing.T) {
 		chain := newChain()
 		chain.beaconEdit = func(b *hubv1.BeaconState) { b.Verified = false }
-		_, err := NewChainEpochs(chain).EpochOf(ctx, 750)
+		_, err := NewChainEpochs(chain, nil).EpochOf(ctx, 750)
 		notReady(t, err, 0)
 	})
 	t.Run("snapshot published, not effective", func(t *testing.T) {
@@ -241,7 +241,7 @@ func TestChainEpochsAnswerNotReady(t *testing.T) {
 		chain.headers[string(snap8[:])] = &hubv1.CandidatePoolSnapshotViewV1{
 			Epoch: 8, SnapshotId: snap8[:], Status: hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_READY, EffectiveHeight: 803,
 		}
-		epochs := NewChainEpochs(chain)
+		epochs := NewChainEpochs(chain, nil)
 		now := time.Unix(1_800_000_000, 0)
 		epochs.now = func() time.Time { return now }
 		_, err := epochs.EpochOf(ctx, 801)
@@ -254,17 +254,17 @@ func TestChainEpochsAnswerNotReady(t *testing.T) {
 		}
 	})
 	t.Run("snapshot not published", func(t *testing.T) {
-		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 801)
+		_, err := NewChainEpochs(newChain(), nil).EpochOf(ctx, 801)
 		notReady(t, err, 0)
 	})
 	t.Run("no current pool yet", func(t *testing.T) {
 		chain := newChain()
 		chain.current = nil
-		_, err := NewChainEpochs(chain).EpochOf(ctx, 801)
+		_, err := NewChainEpochs(chain, nil).EpochOf(ctx, 801)
 		notReady(t, err, 0)
 	})
 	t.Run("snapshot of a past epoch unknown", func(t *testing.T) {
-		_, err := NewChainEpochs(newChain()).EpochOf(ctx, 550)
+		_, err := NewChainEpochs(newChain(), nil).EpochOf(ctx, 550)
 		if err == nil || errors.Is(err, ErrDispatchNotReady) {
 			t.Fatalf("err = %v, want a failure that is not \"not ready\"", err)
 		}
@@ -272,7 +272,7 @@ func TestChainEpochsAnswerNotReady(t *testing.T) {
 	t.Run("chain read failed", func(t *testing.T) {
 		chain := newChain()
 		chain.currentErr = errors.New("node unreachable")
-		_, err := NewChainEpochs(chain).EpochOf(ctx, 750)
+		_, err := NewChainEpochs(chain, nil).EpochOf(ctx, 750)
 		if err == nil || errors.Is(err, ErrDispatchNotReady) {
 			t.Fatalf("err = %v, want a failure that is not \"not ready\"", err)
 		}
@@ -288,7 +288,7 @@ func TestChainEpochsKeepANotReadySnapshotBriefly(t *testing.T) {
 		beacons: map[uint64]string{800: hex.EncodeToString(seed8[:])},
 		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: bytes.Repeat([]byte{0xa7}, 32)},
 	}
-	epochs := NewChainEpochs(chain)
+	epochs := NewChainEpochs(chain, nil)
 	now := time.Unix(1_800_000_000, 0)
 	epochs.now = func() time.Time { return now }
 	for _, esh := range []uint64{801, 850, 899} {
@@ -341,7 +341,7 @@ func TestChainEpochsMatchTheWireSeedDerivation(t *testing.T) {
 		beacons: map[uint64]string{src.BeaconHeight: src.Beacon},
 		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: src.Epoch, SnapshotId: snap[:]},
 	}
-	ep, err := NewChainEpochs(chain).EpochOf(context.Background(), src.Height)
+	ep, err := NewChainEpochs(chain, nil).EpochOf(context.Background(), src.Height)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,5 +533,52 @@ func TestChainVRFKeysForgetOldEpochs(t *testing.T) {
 	}
 	if _, err := restarted.BuilderVRFKey(context.Background(), 2); err != nil {
 		t.Fatalf("epoch 2 inside the kept window: err = %v", err)
+	}
+}
+
+// A kept "not ready" answer that names the height from which the epoch can dispatch is dropped
+// once the head reaches that height, even before epochMissTTL: with blocks shorter than the TTL
+// the order would otherwise be refused past the height it was told to wait for.
+func TestChainEpochsDropANotReadyAnswerAtItsDispatchableHeight(t *testing.T) {
+	seed8, snap8 := fill32(0x08), fill32(0xa8)
+	chain := &epochChain{
+		length:  100,
+		beacons: map[uint64]string{800: hex.EncodeToString(seed8[:])},
+		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: 7, SnapshotId: bytes.Repeat([]byte{0xa7}, 32)},
+		byEpoch: map[uint64][]byte{8: snap8[:]},
+		headers: map[string]*hubv1.CandidatePoolSnapshotViewV1{string(snap8[:]): {
+			Epoch: 8, SnapshotId: snap8[:], Status: hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_READY, EffectiveHeight: 803,
+		}},
+	}
+	head := uint64(801)
+	epochs := NewChainEpochs(chain, func(context.Context) (uint64, error) { return head, nil })
+	now := time.Unix(1_800_000_000, 0)
+	epochs.now = func() time.Time { return now }
+	for range 2 {
+		if _, err := epochs.EpochOf(context.Background(), 801); !errors.Is(err, ErrDispatchNotReady) {
+			t.Fatalf("before the effective height: %v", err)
+		}
+	}
+	if chain.poolAsk != 1 {
+		t.Fatalf("pool reads = %d before the effective height, want the answer kept", chain.poolAsk)
+	}
+	chain.headers[string(snap8[:])].Status = hubv1.CandidatePoolSnapshotStatus_CANDIDATE_POOL_SNAPSHOT_STATUS_ACTIVE
+	head = 803
+	if ep, err := epochs.EpochOf(context.Background(), 801); err != nil || ep.SnapshotID != snap8 {
+		t.Fatalf("at the effective height, within the TTL: %+v, %v", ep, err)
+	}
+	// A kept answer without a known height, or with a head that cannot be read, waits for the TTL.
+	chain.current, chain.byEpoch = &hubv1.CandidatePoolSnapshotViewV1{Epoch: 8, SnapshotId: snap8[:]}, nil
+	chain.beaconAsk = nil
+	headErr := errors.New("node unreachable")
+	epochs = NewChainEpochs(chain, func(context.Context) (uint64, error) { return 0, headErr })
+	epochs.now = func() time.Time { return now }
+	for range 2 {
+		if _, err := epochs.EpochOf(context.Background(), 901); !errors.Is(err, ErrDispatchNotReady) {
+			t.Fatalf("beacon not committed: %v", err)
+		}
+	}
+	if n := len(chain.beaconAsk); n != 1 {
+		t.Fatalf("beacon reads = %v with the head unreadable, want the answer kept", chain.beaconAsk)
 	}
 }
