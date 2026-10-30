@@ -626,6 +626,16 @@ func TestOwnRotationPendingRefusesNewSessions(t *testing.T) {
 	if err := e.d.Probe(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
 		t.Fatalf("probe = %v, want NO_CAPACITY", err)
 	}
+
+	// A session the chain does not show cannot be told old: the order is unavailable, not taken.
+	gone := e.session(0xbb, 0)
+	o = e.order(gone, 0, 1)
+	e.chain.mu.Lock()
+	delete(e.chain.sessions, gone)
+	e.chain.mu.Unlock()
+	if err := e.d.Probe(context.Background(), o); !errors.Is(err, inflight.ErrUnavailable) {
+		t.Fatalf("probe of an unknown session = %v, want unavailable", err)
+	}
 }
 
 // A Cortex whose rotation takes effect above the order's earliest_submit_height answers with a key

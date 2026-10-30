@@ -565,7 +565,10 @@ func (d *Dispatcher) pendingRotation(ctx context.Context, sessionID string, esh,
 	if err != nil {
 		return fmt.Errorf("%w: session state: %v", inflight.ErrUnavailable, err)
 	}
-	if session.Found && session.BoundChangeHeight >= rotation.RegisteredHeight {
+	if !session.Found {
+		return fmt.Errorf("%w: session %s not found: it cannot be told an older session", inflight.ErrUnavailable, sessionID)
+	}
+	if session.BoundChangeHeight >= rotation.RegisteredHeight {
 		return fmt.Errorf("%w: no new session while this Builder's key rotation is pending (bound at %d): %v",
 			dispatchdraw.ErrNoCapacity, session.BoundChangeHeight, rotation)
 	}
