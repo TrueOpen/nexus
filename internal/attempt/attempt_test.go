@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -11,6 +12,7 @@ import (
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 // winnerOf builds an accepted ticket from the wire header vector; rank tells two attempts apart.
@@ -328,4 +330,72 @@ func TestUploadLimitsAndExpiry(t *testing.T) {
 	if _, ok := b.Current(taskID); ok {
 		t.Fatal("expired attempt kept")
 	}
+}
+
+// switchSigner signs with whichever key it currently holds, as the service key ring does across a
+// cutover.
+type switchSigner struct {
+	mu  sync.Mutex
+	cur signer.Signer
+}
+
+func (s *switchSigner) key() signer.Signer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cur
+}
+func (s *switchSigner) set(k signer.Signer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cur = k
+}
+func (s *switchSigner) PubKeyCompressed() []byte              { return s.key().PubKeyCompressed() }
+func (s *switchSigner) Address() string                       { return s.key().Address() }
+func (s *switchSigner) Sign(m []byte) ([]byte, error)         { return s.key().Sign(m) }
+func (s *switchSigner) SignDigest(d [32]byte) ([]byte, error) { return s.key().SignDigest(d) }
+
+// The result header is transport the Builder's current key vouches for: after a cutover the
+// attempt is served with its header signed again by the new key, at the same status, and that
+// header is stored.
+func TestHeaderIsSignedAgainAfterACutover(t *testing.T) {
+	store := kv.NewMemStore()
+	keys := &switchSigner{cur: newTestSigner(t, 0x01)}
+	b, err := New(store, keys, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := winnerOf(t, 0)
+	if err := b.Accepted(w); err != nil {
+		t.Fatal(err)
+	}
+	taskID := hex.EncodeToString(w.Ticket.GetTaskId())
+	b.Recorded(taskID, mustTicketHash(t, w))
+	before := current(t, b, taskID)
+	checkHeader(t, b, before, Recorded)
+
+	keys.set(newTestSigner(t, 0x02))
+	after := current(t, b, taskID)
+	checkHeader(t, b, after, Recorded)
+	if bytes.Equal(after.Header, before.Header) {
+		t.Fatal("header not signed again after the cutover")
+	}
+	if again := current(t, b, taskID); !bytes.Equal(again.Header, after.Header) {
+		t.Fatal("header signed again under an unchanged key")
+	}
+	restored, err := New(store, keys, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := current(t, restored, taskID); !bytes.Equal(a.Header, after.Header) {
+		t.Fatal("the header signed again was not stored")
+	}
+}
+
+func mustTicketHash(t *testing.T, w Winner) [32]byte {
+	t.Helper()
+	hash, err := digestOf(ticketName, w.Ticket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }

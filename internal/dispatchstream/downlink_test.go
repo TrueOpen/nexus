@@ -327,3 +327,35 @@ func waitRTT(t *testing.T, h *harness, want time.Duration) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// Transport messages carry no key generation: when a Cortex binds again, each unacknowledged
+// message passes the re-signer (which signs it with the current key) and goes out, and is kept,
+// as signed again.
+func TestReplaySignsTransportMessagesAgain(t *testing.T) {
+	store, keys := kv.NewMemStore(), newTestKeys()
+	resign := WithResigner(func(f *nexusv1.DispatchStreamFrameV1) error {
+		if t := f.GetOffer().GetTicket(); t != nil {
+			t.BuilderServiceSignature = append(t.BuilderServiceSignature, '\'')
+		}
+		return nil
+	})
+	h := newHarnessOn(t, store, keys, resign)
+	s1 := h.connect(cortexA, "1")
+	mustSend(t, h, cortexA, "a")
+	receiveOffers(t, s1, 1)
+	s1.stream.close()
+	s1.wait(t)
+	h.waitConn(cortexA, false)
+
+	s2 := h.connect(cortexA, "2")
+	if got := receiveOffers(t, s2, 1); !slices.Equal(got, []string{"a'"}) {
+		t.Fatalf("replayed %v, want [a']", got)
+	}
+	_ = h.hub.Stop(context.Background())
+	s2.wait(t)
+	restarted := newHarnessOn(t, store, keys)
+	s3 := restarted.connect(cortexA, "3")
+	if got := receiveOffers(t, s3, 1); !slices.Equal(got, []string{"a'"}) {
+		t.Fatalf("stored after the replay %v, want [a']", got)
+	}
+}

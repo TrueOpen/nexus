@@ -1139,3 +1139,24 @@ func TestOrderItemPinsTheRoundsEarliestSubmitHeight(t *testing.T) {
 		t.Fatal("the order was recorded")
 	}
 }
+
+// A cutover between signing the RECORDED result header and syncing the order: the header carries
+// no key generation, so the sender signs it again with its current key at every send, and the
+// member, which checks it against the sender's current key, takes it.
+func TestResultHeaderIsSignedWithTheCurrentKeyAtSend(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	f.putAccepted()
+	f.recordOnChain()
+	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.s.drain()
+	next := newSigner(t, 0x21)
+	e.keys.rotate("BUILDER", e.d, next, testESH+1)
+	e.s.cfg.Signer = next
+	e.s.deliverPeer(context.Background(), e.m.op)
+	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Recorded {
+		t.Fatalf("order synced after the cutover = %+v, held %v", a, held)
+	}
+}

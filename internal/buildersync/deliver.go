@@ -14,8 +14,10 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -138,8 +140,13 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 		return false, true
 	}
 	// Every send signs again with the current service key: a retransmission after a rotation
-	// carries the new key's signature.
-	req, err := SignRequest(s.cfg.Signer, batch)
+	// carries the new key's signature. So does each RECORDED result header in it: it carries no
+	// key generation, and members check it against this Builder's current key.
+	err = resignHeaders(s.cfg.Signer, batch)
+	var req *nexusv1.SyncRequest
+	if err == nil {
+		req, err = SignRequest(s.cfg.Signer, batch)
+	}
 	if err == nil {
 		callCtx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 		var resp *nexusv1.SyncResponse
@@ -461,3 +468,16 @@ var errOversized = errors.New("larger than the builder sync request cap")
 
 // errNoPeer is returned by Peers that cannot reach a member.
 var errNoPeer = errors.New("group member endpoint unavailable")
+
+// resignHeaders signs the result header of every order item of batch with the current service
+// key; with an unchanged key the deterministic signature gives the same bytes.
+func resignHeaders(s signer.Signer, batch *nexusv1.BuilderSyncBatchV1) error {
+	for _, item := range batch.GetItems() {
+		if h := item.GetOrder().GetResultHeader(); h != nil {
+			if _, err := attempt.SignResultHeader(s, h); err != nil {
+				return fmt.Errorf("result header: %w", err)
+			}
+		}
+	}
+	return nil
+}

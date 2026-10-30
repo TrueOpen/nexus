@@ -169,26 +169,34 @@ func (h *Hub) enqueueMessageLocked(s *session, raw []byte) (*pendingMessage, err
 }
 
 // replayLocked renumbers every unacknowledged message of the session's Cortex on the new stream,
-// dropping those the replay filter no longer wants, then queues the retained Verifier broadcasts
-// this Cortex has not been given. Caller holds h.mu.
+// dropping those the replay filter no longer wants and signing the rest again (WithResigner), then
+// queues the retained Verifier broadcasts this Cortex has not been given. Caller holds h.mu.
 func (h *Hub) replayLocked(s *session) error {
 	operator := s.operator
 	var keep []*pendingMessage
-	var drop []kv.WriteOp
+	var writes []kv.WriteOp
+	resigned := map[*pendingMessage][]byte{}
 	for _, m := range h.pending[operator] {
-		if h.replayFilter != nil {
+		if h.replayFilter != nil || h.resign != nil {
 			frame := &nexusv1.DispatchStreamFrameV1{}
-			if err := proto.Unmarshal(m.raw, frame); err != nil || !h.replayFilter(operator, frame) {
-				drop = append(drop, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, m.seq), Delete: true})
+			if err := proto.Unmarshal(m.raw, frame); err != nil || h.replayFilter != nil && !h.replayFilter(operator, frame) {
+				writes = append(writes, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, m.seq), Delete: true})
 				continue
+			}
+			if raw, changed := h.resignLocked(operator, m, frame); changed {
+				resigned[m] = raw
+				writes = append(writes, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, m.seq), Val: raw})
 			}
 		}
 		keep = append(keep, m)
 	}
-	if len(drop) > 0 {
-		if err := h.store.WriteBatch(drop...); err != nil {
-			return fmt.Errorf("%w: drop expired dispatch stream messages: %v", ErrTransient, err)
+	if len(writes) > 0 {
+		if err := h.store.WriteBatch(writes...); err != nil {
+			return fmt.Errorf("%w: update the replayed dispatch stream messages: %v", ErrTransient, err)
 		}
+	}
+	for m, raw := range resigned {
+		m.raw = raw
 	}
 	h.pending[operator] = keep
 	for _, m := range keep {
@@ -202,6 +210,23 @@ func (h *Hub) replayLocked(s *session) error {
 		}
 	}
 	return nil
+}
+
+// resignLocked signs frame (m decoded) again with the re-signer and returns its new bytes when
+// they differ. A message that cannot be signed again is replayed as stored. Caller holds h.mu.
+func (h *Hub) resignLocked(operator string, m *pendingMessage, frame *nexusv1.DispatchStreamFrameV1) ([]byte, bool) {
+	if h.resign == nil {
+		return nil, false
+	}
+	if err := h.resign(frame); err != nil {
+		h.log.Warn("unacknowledged dispatch stream message not signed again; replayed as stored", "operator", operator, "err", err)
+		return nil, false
+	}
+	raw, err := encodeDownlink(frame)
+	if err != nil || bytes.Equal(raw, m.raw) {
+		return nil, false
+	}
+	return raw, true
 }
 
 // giveRetainedLocked queues the retained broadcast r to the session's Cortex unless the Cortex

@@ -60,9 +60,13 @@ entry has not gone out is ended as `NO_CAPACITY` at once; one whose entry went o
 remains, and ends by itself once the chain shows a new key current that the daemon holds
 (`nexus drain end` ends it at any time).
 
-Not done yet: Builder-signed stream messages without a nonce that a Cortex has not acknowledged
-at the cutover (input chunks, record notices, revokes) are resent as stored, under the retired
-key.
+Builder transport messages carry no key generation, so after the cutover they are signed again
+with the new key when they go out again: unacknowledged input chunks and record notices when a
+Cortex binds again, the result header of each attempt when it is served, and the result header
+in each group sync batch. Not done yet: a result header a member already applied before the
+cutover but did not acknowledge is resent signed by the new key, and the member refuses it as a
+conflicting item; a member serving a dispatching Builder's synced result header after that
+Builder's cutover serves it as synced, under the retired key.
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state

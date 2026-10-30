@@ -154,6 +154,14 @@ func WithReplayFilter(keep func(operator string, frame *nexusv1.DispatchStreamFr
 	return func(h *Hub) { h.replayFilter = keep }
 }
 
+// WithResigner signs an unacknowledged downlink message again, in place, before a replay to a
+// Cortex that bound again. Transport messages carry no key generation, so after a service key
+// cutover only the current key vouches for them; the re-signer leaves messages bound to a
+// generation (offers, verifier messages) alone. The message is kept as signed again.
+func WithResigner(resign func(frame *nexusv1.DispatchStreamFrameV1) error) Option {
+	return func(h *Hub) { h.resign = resign }
+}
+
 // WithConnectionObserver is told every time a Cortex becomes reachable (a valid stream bound) or
 // unreachable (its stream ended without a replacement). It runs outside the hub's locks.
 func WithConnectionObserver(observe func(operator string, connected bool)) Option {
@@ -168,6 +176,7 @@ type Hub struct {
 	store        kv.Store
 	sinks        atomic.Pointer[Sinks]
 	replayFilter func(string, *nexusv1.DispatchStreamFrameV1) bool
+	resign       func(*nexusv1.DispatchStreamFrameV1) error
 	observe      func(string, bool)
 	// handraiseKeyWarn spaces the warnings about standing handraises dropped on key read failures.
 	handraiseKeyWarn lograte.Limiter
@@ -291,7 +300,7 @@ func (h *Hub) RTT(operator string) (time.Duration, bool) {
 }
 
 // Backlog counts the bound streams and the Builder-signed downlink messages Cortex nodes have not
-// acknowledged (sent again as stored when their stream binds again).
+// acknowledged (sent again when their stream binds again, transport messages signed again).
 type Backlog struct {
 	Sessions   int `json:"sessions"`
 	Unacked    int `json:"unacked"`
