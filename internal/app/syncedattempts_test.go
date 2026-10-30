@@ -13,6 +13,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -55,7 +56,7 @@ func vectorWinner(t *testing.T, rank uint32) (attempt.Winner, [32]byte) {
 // the task's RECORDED attempt.
 func TestSyncedAttemptsHandOverOnlyTheRecordedTicket(t *testing.T) {
 	newBook := func(t *testing.T) *attempt.Book {
-		b, err := attempt.New(kv.NewMemStore(), mustSigner(t, 0x01), slog.New(slog.DiscardHandler))
+		b, err := attempt.New(kv.NewMemStore(), servicekey.Static(mustSigner(t, 0x01), 1), slog.New(slog.DiscardHandler))
 		if err != nil {
 			t.Fatal(err)
 		}

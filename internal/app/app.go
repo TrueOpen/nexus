@@ -472,7 +472,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// plane authorizes and gates by it. It needs the service key that signs the result headers.
 	var attempts *attempt.Book
 	if serviceSG != nil {
-		if attempts, err = attempt.New(store, serviceSG, log); err != nil {
+		if attempts, err = attempt.New(store, serviceRing, log); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("dispatch attempts: %w", err)
 		}

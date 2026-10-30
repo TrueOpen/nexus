@@ -13,6 +13,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
@@ -54,7 +55,7 @@ func newTestBook(t *testing.T, store kv.Store) *attempt.Book {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := attempt.New(store, s, nil)
+	b, err := attempt.New(store, servicekey.Static(s, 1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

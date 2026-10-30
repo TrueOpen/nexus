@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/ops"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -26,7 +27,7 @@ func newWiredOrderPath(t *testing.T, f *wiringFixture, metrics *opsmetrics.Regis
 	t.Helper()
 	chain := &orderChain{wiringChain: f.chain}
 	log := slog.New(slog.DiscardHandler)
-	attempts, err := attempt.New(f.store, f.builder, log)
+	attempts, err := attempt.New(f.store, servicekey.Static(f.builder, 1), log)
 	if err != nil {
 		t.Fatal(err)
 	}

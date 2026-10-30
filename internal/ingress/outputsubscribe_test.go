@@ -17,6 +17,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
@@ -85,7 +86,7 @@ type subscription struct {
 func newSubscription(t *testing.T) *subscription {
 	t.Helper()
 	builder := mustSigner(t, "0000000000000000000000000000000000000000000000000000000000000002")
-	book, err := attempt.New(kv.NewMemStore(), builder, nil)
+	book, err := attempt.New(kv.NewMemStore(), servicekey.Static(builder, 1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/handraise"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -67,7 +68,7 @@ func TestRoleEventsReachTheResponder(t *testing.T) {
 	f := newWiringFixture(t)
 	chain := &orderChain{wiringChain: f.chain}
 	log := slog.New(slog.DiscardHandler)
-	attempts, err := attempt.New(f.store, f.builder, log)
+	attempts, err := attempt.New(f.store, servicekey.Static(f.builder, 1), log)
 	if err != nil {
 		t.Fatal(err)
 	}

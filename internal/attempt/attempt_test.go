@@ -12,6 +12,7 @@ import (
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -33,7 +34,7 @@ func winnerOf(t *testing.T, rank uint32) (Winner, [32]byte) {
 
 func newBook(t *testing.T, store kv.Store) *Book {
 	t.Helper()
-	b, err := New(store, newTestSigner(t, 0x01), nil)
+	b, err := New(store, servicekey.Static(newTestSigner(t, 0x01), 1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,6 +338,34 @@ func TestUploadLimitsAndExpiry(t *testing.T) {
 type switchSigner struct {
 	mu  sync.Mutex
 	cur signer.Signer
+	// onSign, when set, runs once after the next signature: a cutover right after it.
+	onSign func()
+}
+
+// hooked is a key of the switchSigner that runs its onSign after signing.
+type hooked struct {
+	signer.Signer
+	s *switchSigner
+}
+
+func (h hooked) SignDigest(d [32]byte) ([]byte, error) {
+	sig, err := h.Signer.SignDigest(d)
+	h.s.fire()
+	return sig, err
+}
+
+func (s *switchSigner) fire() {
+	s.mu.Lock()
+	f := s.onSign
+	s.onSign = nil
+	s.mu.Unlock()
+	if f != nil {
+		f()
+	}
+}
+
+func (s *switchSigner) Key() servicekey.Key {
+	return servicekey.Key{Signer: hooked{s.key(), s}, Nonce: 1}
 }
 
 func (s *switchSigner) key() signer.Signer {
@@ -349,10 +378,12 @@ func (s *switchSigner) set(k signer.Signer) {
 	defer s.mu.Unlock()
 	s.cur = k
 }
-func (s *switchSigner) PubKeyCompressed() []byte              { return s.key().PubKeyCompressed() }
-func (s *switchSigner) Address() string                       { return s.key().Address() }
-func (s *switchSigner) Sign(m []byte) ([]byte, error)         { return s.key().Sign(m) }
-func (s *switchSigner) SignDigest(d [32]byte) ([]byte, error) { return s.key().SignDigest(d) }
+func (s *switchSigner) PubKeyCompressed() []byte      { return s.key().PubKeyCompressed() }
+func (s *switchSigner) Address() string               { return s.key().Address() }
+func (s *switchSigner) Sign(m []byte) ([]byte, error) { return s.key().Sign(m) }
+func (s *switchSigner) SignDigest(d [32]byte) ([]byte, error) {
+	return hooked{s.key(), s}.SignDigest(d)
+}
 
 // The result header is transport the Builder's current key vouches for: after a cutover the
 // attempt is served with its header signed again by the new key, at the same status, and that
@@ -389,6 +420,22 @@ func TestHeaderIsSignedAgainAfterACutover(t *testing.T) {
 	if a := current(t, restored, taskID); !bytes.Equal(a.Header, after.Header) {
 		t.Fatal("the header signed again was not stored")
 	}
+}
+
+// A cutover between signing a header and noting the key that signed it must not record the old
+// key's header as the new key's: the header is signed again under the new key when served.
+func TestCutoverWhileSigningAHeader(t *testing.T) {
+	keys := &switchSigner{cur: newTestSigner(t, 0x01)}
+	b, err := New(kv.NewMemStore(), keys, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys.onSign = func() { keys.set(newTestSigner(t, 0x02)) }
+	w, _ := winnerOf(t, 0)
+	if err := b.Accepted(w); err != nil {
+		t.Fatal(err)
+	}
+	checkHeader(t, b, current(t, b, hex.EncodeToString(w.Ticket.GetTaskId())), Pending)
 }
 
 func mustTicketHash(t *testing.T, w Winner) [32]byte {

@@ -12,6 +12,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // A withdrawn entry the chain admitted anyway is the order's record: the chain assigned the task to
@@ -233,7 +234,7 @@ func winnerOf(t *testing.T, b *dispatcher.Bundle, rank uint32) (attempt.Winner, 
 // live, so the recorded winner's output is taken and subscribers do not wait on a PENDING attempt.
 func TestConflictWithAVoidedOwnTicketSettlesTheBook(t *testing.T) {
 	e := newEnv(t)
-	book, err := attempt.New(kv.NewMemStore(), e.signer, nil)
+	book, err := attempt.New(kv.NewMemStore(), servicekey.Static(e.signer, 1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
