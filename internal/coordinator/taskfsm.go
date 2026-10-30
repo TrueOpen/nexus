@@ -214,10 +214,10 @@ type taskFSM struct {
 }
 
 // emit records one task event (state/phase taken from current values). Caller must hold the lock.
-func (f *taskFSM) emit(code string, height int64) { f.emitElsewhere(code, height, nil) }
+func (f *taskFSM) emit(code string, height int64) { f.emitDetail(code, height, nil) }
 
-// emitElsewhere is emit with where the session went, for a takeover that ended.
-func (f *taskFSM) emitElsewhere(code string, height int64, where *types.SessionElsewhere) {
+// emitDetail is emit with the event's routing and rejection facts.
+func (f *taskFSM) emitDetail(code string, height int64, detail *types.TaskEventDetail) {
 	if f.events == nil {
 		return
 	}
@@ -227,7 +227,7 @@ func (f *taskFSM) emitElsewhere(code string, height int64, where *types.SessionE
 		TaskPhase:   f.phase.String(),
 		ChainHeight: height,
 		TS:          nowMS(),
-		Elsewhere:   where,
+		Detail:      detail,
 	})
 }
 
@@ -312,11 +312,11 @@ func (f *taskFSM) onAssignTimeout(height uint64) {
 // failPending ends a task that never reached the chain with event code and verdict; it reports
 // false when the task is no longer Pending. Removing the task is the caller's.
 func (f *taskFSM) failPending(code string, verdict types.TaskVerdict, height uint64) bool {
-	return f.failPendingElsewhere(code, verdict, height, nil)
+	return f.failPendingDetail(code, verdict, height, nil)
 }
 
-// failPendingElsewhere is failPending with where the session went, for a takeover that ended.
-func (f *taskFSM) failPendingElsewhere(code string, verdict types.TaskVerdict, height uint64, where *types.SessionElsewhere) bool {
+// failPendingDetail is failPending with the event's routing and rejection facts.
+func (f *taskFSM) failPendingDetail(code string, verdict types.TaskVerdict, height uint64, detail *types.TaskEventDetail) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.state != types.Pending {
@@ -325,7 +325,7 @@ func (f *taskFSM) failPendingElsewhere(code string, verdict types.TaskVerdict, h
 	f.state = types.Failed
 	f.verdict = verdict
 	f.terminal = true
-	f.emitElsewhere(code, int64(height), where)
+	f.emitDetail(code, int64(height), detail)
 	f.save()
 	f.teardown()
 	f.relay.Release(f.sessionID, f.taskID)

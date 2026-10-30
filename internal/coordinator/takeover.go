@@ -47,22 +47,23 @@ func (c *Coordinator) OnTakeover(_ context.Context, o types.Order) error {
 // TakeoverRegistered reports that the chain registered the takeover the task's order was held
 // for; it takes effect at activation (TAKEOVER_PENDING with chain_height = activation).
 func (c *Coordinator) TakeoverRegistered(sessionID, taskID string, activation uint64) {
-	c.takeoverEvent(sessionID, taskID, EvTakeoverPending, activation)
+	c.takeoverEvent(sessionID, taskID, EvTakeoverPending, activation,
+		&types.TaskEventDetail{CandidateBuilder: c.active.self, TakeoverActivationHeight: activation})
 }
 
 // TakeoverActivated reports that the takeover took effect at height (TAKEOVER_RECORDED); OnOrder
 // follows with the order.
 func (c *Coordinator) TakeoverActivated(sessionID, taskID string, height uint64) {
-	c.takeoverEvent(sessionID, taskID, EvTakeoverRecorded, height)
+	c.takeoverEvent(sessionID, taskID, EvTakeoverRecorded, height, &types.TaskEventDetail{BoundBuilder: c.active.self})
 }
 
-func (c *Coordinator) takeoverEvent(sessionID, taskID, code string, height uint64) {
+func (c *Coordinator) takeoverEvent(sessionID, taskID, code string, height uint64, detail *types.TaskEventDetail) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
 	}
 	fsm.mu.Lock()
-	fsm.emit(code, int64(height))
+	fsm.emitDetail(code, int64(height), detail)
 	if err := fsm.save(); err != nil {
 		c.log.Warn("takeover event not saved", "session_id", sessionID, "task_id", taskID, "code", code, "err", err)
 	}
@@ -70,15 +71,15 @@ func (c *Coordinator) takeoverEvent(sessionID, taskID, code string, height uint6
 }
 
 // TakeoverEnded drops the task of a held order whose takeover will not dispatch it, with code
-// (TAKEOVER_VOIDED, ORDER_EXPIRED, or the refusal) and where, when known, where the session went;
-// its journal stays. dropInput removes the order's input as well: a voided takeover leaves
-// nothing for a resend here.
-func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, where *types.SessionElsewhere) {
+// (TAKEOVER_VOIDED, ORDER_EXPIRED, or the refusal) and detail, when known, where the session went
+// or why the takeover entry was refused; its journal stays. dropInput removes the order's input as
+// well: a voided takeover leaves nothing for a resend here.
+func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, detail *types.TaskEventDetail) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
 	}
-	if !fsm.failPendingElsewhere(code, types.VerdictUnspecified, height, where) {
+	if !fsm.failPendingDetail(code, types.VerdictUnspecified, height, detail) {
 		return
 	}
 	c.abandonTask(taskKey(sessionID, taskID), fsm)
@@ -86,9 +87,8 @@ func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint6
 		c.deletePayload(orderInput(fsm.order))
 	}
 	attrs := []any{"session_id", sessionID, "task_id", taskID, "code", code}
-	if where != nil {
-		attrs = append(attrs, "elsewhere_builder", where.Builder, "elsewhere_task_id", where.TaskID,
-			"elsewhere_activation_height", where.ActivationHeight)
+	if detail != nil {
+		attrs = append(attrs, "detail", *detail)
 	}
 	c.log.Info("takeover ended", attrs...)
 }

@@ -161,12 +161,19 @@ func (f *fakeTasks) TakeoverRegistered(_, taskID string, activation uint64) {
 func (f *fakeTasks) TakeoverActivated(_, taskID string, height uint64) {
 	f.add("activated %s %d", taskID, height)
 }
-func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool, where *types.SessionElsewhere) {
-	if where != nil {
-		f.add("ended %s %s drop=%t where=%s/%s/%d", taskID, code, dropInput, where.Builder, where.TaskID, where.ActivationHeight)
-		return
+func (f *fakeTasks) TakeoverEnded(_, taskID, code string, _ uint64, dropInput bool, d *types.TaskEventDetail) {
+	switch {
+	case d == nil:
+		f.add("ended %s %s drop=%t", taskID, code, dropInput)
+	case d.RecordingBuilder != "":
+		f.add("ended %s %s drop=%t where=recorded:%s/%s", taskID, code, dropInput, d.RecordingBuilder, d.RecordedTaskID)
+	case d.CandidateBuilder != "":
+		f.add("ended %s %s drop=%t where=candidate:%s@%d", taskID, code, dropInput, d.CandidateBuilder, d.TakeoverActivationHeight)
+	case d.BoundBuilder != "":
+		f.add("ended %s %s drop=%t where=bound:%s", taskID, code, dropInput, d.BoundBuilder)
+	default:
+		f.add("ended %s %s drop=%t reject=%s", taskID, code, dropInput, taskv1.DispatchRejectCodeV1(d.RejectCode))
 	}
-	f.add("ended %s %s drop=%t", taskID, code, dropInput)
 }
 func (f *fakeTasks) OnOrder(_ context.Context, o types.Order) error {
 	f.add("dispatch %s", o.TaskID)
@@ -477,7 +484,7 @@ func TestVoidedTakeoverDropsTheOrder(t *testing.T) {
 	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 65, Typed: chaincli.SessionTakeoverVoided{
 		SessionID: session, CandidateBuilder: self, OrderSequence: 5, Reason: taskv1.SessionTakeoverVoidReasonV1_SESSION_TAKEOVER_VOID_REASON_V1_ORDER_RECORDED,
 	}})
-	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound")
 	if _, held := e.m.Held(session, 5, o.TaskHash); held || e.stored() != 0 || e.rec.withdrawn != 1 {
 		t.Fatalf("a voided order is still held (withdrawn %d)", e.rec.withdrawn)
 	}
@@ -499,14 +506,14 @@ func TestBindingToAnotherBuilderVoidsTheTakeover(t *testing.T) {
 	bindOther(e)
 	e.wantCalls("held task5", "registered task5 70")
 	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 71})
-	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//0")
+	e.wantCalls("held task5", "registered task5 70", "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1other")
 
 	e = newEnv(t)
 	e.submit(5)
 	bindOther(e)
 	e.wantCalls("held task5")
 	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING)
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//0")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1other")
 }
 
 // A registration result read while the session shows the takeover neither pending nor taken
@@ -522,7 +529,7 @@ func TestRegisteredButGoneIsVoided(t *testing.T) {
 	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 60})
 	e.wantCalls("held task5")
 	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound")
 
 	// A read that catches up in between keeps it.
 	e = newEnv(t)
@@ -557,9 +564,9 @@ func TestTakeoverEntryRefusals(t *testing.T) {
 		code taskv1.DispatchRejectCodeV1
 		want string
 	}{
-		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0"},
-		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0"},
-		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED, "ended task5 RECORD_REJECTED drop=false"},
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED, "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound"},
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING, "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound"},
+		{taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED, "ended task5 RECORD_REJECTED drop=false reject=DISPATCH_REJECT_CODE_V1_SESSION_KEY_EXPIRED"},
 	} {
 		e := newEnv(t)
 		e.submit(5)
@@ -677,7 +684,7 @@ func TestRefusalRecordsWhereTheSessionWent(t *testing.T) {
 	e.submit(5)
 	e.chain.records[5] = &taskv1.DispatchRecordState{BuilderAddress: bound, TaskId: bytes.Repeat([]byte{0x05}, 32)}
 	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED)
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound/"+hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32))+"/0")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=recorded:trueopen1bound/"+hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32)))
 
 	e = newEnv(t)
 	e.submit(5)
@@ -685,7 +692,7 @@ func TestRefusalRecordsWhereTheSessionWent(t *testing.T) {
 		s.PendingTakeover = &chaincli.PendingTakeover{CandidateBuilder: other, OrderSequence: 5, ActivationHeight: 80}
 	})
 	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING)
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1other//80")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=candidate:trueopen1other@80")
 }
 
 // A session that closed while the takeover waited is gone from the chain: the takeover is voided
@@ -756,7 +763,7 @@ func TestRestartJudgesSubmittedEntriesAgain(t *testing.T) {
 		{"rotation pending", func(e *env) { e.keys.err = handraise.ErrBuilderRotationPending }, "ended task5 TASK_FAILED drop=false"},
 		{"recorded", func(e *env) {
 			e.chain.records[5] = &taskv1.DispatchRecordState{BuilderAddress: bound, TaskId: bytes.Repeat([]byte{0x05}, 32)}
-		}, "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound/" + hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32)) + "/0"},
+		}, "ended task5 TAKEOVER_VOIDED drop=true where=recorded:trueopen1bound/" + hex.EncodeToString(bytes.Repeat([]byte{0x05}, 32))},
 		{"recorder fails", func(e *env) { e.rec.err = errors.New("disk full") }, "ended task5 TASK_FAILED drop=false"},
 	} {
 		e := newEnv(t)
@@ -836,7 +843,7 @@ func TestVoidedWhileSubmitted(t *testing.T) {
 	e := newEnv(t)
 	e.submit(5)
 	e.m.HandleChainEvent(chaincli.ChainEvent{Height: 61, Typed: chaincli.SessionTakeoverVoided{SessionID: session, CandidateBuilder: self, OrderSequence: 5}})
-	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=trueopen1bound//0")
+	e.wantCalls("held task5", "ended task5 TAKEOVER_VOIDED drop=true where=bound:trueopen1bound")
 	if e.rec.withdrawn != 1 || e.stored() != 0 {
 		t.Fatalf("withdrawn %d, stored %d", e.rec.withdrawn, e.stored())
 	}

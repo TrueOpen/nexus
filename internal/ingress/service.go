@@ -468,7 +468,44 @@ func eventToPB(ev types.TaskEvent) *nexusv1.GetTaskEventsResponse {
 		TaskPhase:   ev.TaskPhase,
 		EventCode:   ev.EventCode,
 		ChainHeight: ev.ChainHeight,
+		Detail:      eventDetailToPB(ev.Detail),
 	}
+}
+
+// eventDetailToPB is an event's detail with only the facts it has present; nil when it has none.
+func eventDetailToPB(d *types.TaskEventDetail) *nexusv1.TaskEventDetailV1 {
+	if d == nil || *d == (types.TaskEventDetail{}) {
+		return nil
+	}
+	text := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	hash := func(s string) []byte {
+		if s == "" {
+			return nil
+		}
+		b, err := hex.DecodeString(s)
+		if err != nil || len(b) != 32 {
+			return nil
+		}
+		return b
+	}
+	out := &nexusv1.TaskEventDetailV1{
+		BoundBuilder: text(d.BoundBuilder), RecordingBuilder: text(d.RecordingBuilder), RecordedTaskId: hash(d.RecordedTaskID),
+		CandidateBuilder: text(d.CandidateBuilder), DispatchTicketHash: hash(d.DispatchTicketHash),
+		WorkerOperatorAddress: text(d.WorkerOperatorAddress),
+	}
+	if d.TakeoverActivationHeight != 0 {
+		out.TakeoverActivationHeight = &d.TakeoverActivationHeight
+	}
+	if d.RejectCode != 0 {
+		code := taskv1.DispatchRejectCodeV1(d.RejectCode)
+		out.RejectCode = &code
+	}
+	return out
 }
 
 // parseSignedOrderEnvelope parses the SignedOrderV2 carrier of a TaskOrderV3.

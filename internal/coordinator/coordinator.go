@@ -1850,7 +1850,7 @@ func (c *Coordinator) reconcileMissingPendingTask(fsm *taskFSM, eventHeight int6
 	if c.dispatcher != nil {
 		if recordDeadline, ok := c.dispatcher.RecordDeadline(sessionID, sequence); ok {
 			if authoritative && height > recordDeadline {
-				c.failRecord(fsm, height)
+				c.failRecord(fsm, height, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE))
 			}
 			return true
 		}

@@ -326,6 +326,8 @@ type fakeTasks struct {
 	mu       sync.Mutex
 	recorded []taskReport
 	rejected []taskReport
+	// rejectedTickets is the ticket each rejected task was reported with.
+	rejectedTickets map[string][32]byte
 }
 
 func (f *fakeTasks) DispatchRecorded(_, taskID string, height uint64) {
@@ -335,10 +337,14 @@ func (f *fakeTasks) DispatchRecorded(_, taskID string, height uint64) {
 	f.recorded = append(f.recorded, taskReport{taskID: taskID, height: height})
 }
 
-func (f *fakeTasks) RecordRejected(_, taskID string, code taskv1.DispatchRejectCodeV1) {
+func (f *fakeTasks) RecordRejected(_, taskID string, ticket [32]byte, code taskv1.DispatchRejectCodeV1) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rejected = append(f.rejected, taskReport{taskID: taskID, code: code})
+	if f.rejectedTickets == nil {
+		f.rejectedTickets = map[string][32]byte{}
+	}
+	f.rejectedTickets[taskID] = ticket
 	f.calls.add("tasks.rejected")
 }
 

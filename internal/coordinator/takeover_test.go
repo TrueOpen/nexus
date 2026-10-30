@@ -80,7 +80,7 @@ func TestTakeoverEnded(t *testing.T) {
 	if err := c.OnTakeover(ctx, expired); err != nil {
 		t.Fatal(err)
 	}
-	where := &types.SessionElsewhere{Builder: "trueopen1bound", TaskID: "task-at-p"}
+	where := &types.TaskEventDetail{RecordingBuilder: "trueopen1bound", RecordedTaskID: "task-at-p"}
 	c.TakeoverEnded(voided.SessionID, voided.TaskID, EvTakeoverVoided, 120, true, where)
 	c.TakeoverEnded(expired.SessionID, expired.TaskID, EvOrderExpired, 131, false, nil)
 	for _, o := range []string{voided.TaskID, expired.TaskID} {
@@ -92,7 +92,7 @@ func TestTakeoverEnded(t *testing.T) {
 		t.Fatalf("voided events = %s", got)
 	}
 	events := c.journalFor(taskKey(voided.SessionID, voided.TaskID)).snapshot()
-	if last := events[len(events)-1]; last.Elsewhere == nil || *last.Elsewhere != *where || last.ChainHeight != 120 {
+	if last := events[len(events)-1]; last.Detail == nil || *last.Detail != *where || last.ChainHeight != 120 {
 		t.Fatalf("voided event = %+v", last)
 	}
 	if got := strings.Join(eventCodes(c, expired.SessionID, expired.TaskID), ","); got != "ORDER_RECEIVED,ORDER_EXPIRED" {
@@ -117,8 +117,8 @@ func TestTakeoverEndedLogsWhereTheSessionWent(t *testing.T) {
 	if err := c.OnTakeover(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
-	c.TakeoverEnded(o.SessionID, o.TaskID, EvTakeoverVoided, 120, true, &types.SessionElsewhere{Builder: "trueopen1bound", TaskID: "task-at-p", ActivationHeight: 7})
-	for _, want := range []string{"elsewhere_builder=trueopen1bound", "elsewhere_task_id=task-at-p", "elsewhere_activation_height=7"} {
+	c.TakeoverEnded(o.SessionID, o.TaskID, EvTakeoverVoided, 120, true, &types.TaskEventDetail{CandidateBuilder: "trueopen1other", TakeoverActivationHeight: 7})
+	for _, want := range []string{"CandidateBuilder:trueopen1other", "TakeoverActivationHeight:7"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("log %q lacks %s", out.String(), want)
 		}

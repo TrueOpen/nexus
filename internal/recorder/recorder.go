@@ -104,7 +104,7 @@ type Orders interface {
 // Tasks is told the outcome of each entry; the coordinator implements it.
 type Tasks interface {
 	DispatchRecorded(sessionID, taskID string, height uint64)
-	RecordRejected(sessionID, taskID string, code taskv1.DispatchRejectCodeV1)
+	RecordRejected(sessionID, taskID string, ticket [32]byte, code taskv1.DispatchRejectCodeV1)
 }
 
 // Attempts is told the record outcome of each winner ticket (attempt.Book).

@@ -86,26 +86,23 @@ func (j *journal) restoreEntries(entries []types.TaskEvent) {
 	j.seq = entries[len(entries)-1].Seq
 }
 
-// Stable event codes (GetTaskEvents.event_code): the SDK relies on their stability for UX mapping; append-only, never change.
+// Event codes (GetTaskEvents.event_code): the closed Nexus lifecycle set the wire contract lists
+// above GetTaskEventsResponse, separate from the Node's protocol event codes. The SDK relies on
+// them; never change one.
 const (
-	EvOrderReceived       = "ORDER_RECEIVED"
-	EvAssignTimeout       = "ASSIGN_TIMEOUT"       // no on-chain task before order deadline
-	EvAssignRejected      = "ASSIGN_REJECTED"      // retired: no longer emitted, kept so the code is never reused
-	EvAssignAccepted      = "ASSIGN_ACCEPTED"      // retired: no longer emitted, kept so the code is never reused
-	EvAssignmentFinalized = "ASSIGNMENT_FINALIZED" // retired: no longer emitted, kept so the code is never reused
-	EvDispatchAccepted    = "DISPATCH_ACCEPTED"    // a Worker accepted a ticket; the record is not on chain yet
-	EvDispatchRecorded    = "DISPATCH_RECORDED"    // the chain recorded the dispatch: the winner is final
-	EvNoCapacity          = "NO_CAPACITY"          // no Worker accepted within max_skips; the sequence is unused
-	EvRecordRejected      = "RECORD_REJECTED"      // the chain refused the dispatch entry or it missed its record deadline
-	EvTakeoverPending     = "TAKEOVER_PENDING"     // the chain registered this Builder's takeover of the session; chain_height is the activation height
-	EvTakeoverRecorded    = "TAKEOVER_RECORDED"    // the takeover took effect: the session is bound here and the order is dispatched from scratch
-	EvTakeoverVoided      = "TAKEOVER_VOIDED"      // the takeover will not take effect (the order was recorded or cancelled, the session closed or went to another Builder)
-	EvOrderExpired        = "ORDER_EXPIRED"        // the held order expired: before its takeover registered (the session stays with its Builder; a re-signed resend registers again) or before it could be recorded once the takeover took effect (resend it re-signed here)
-	// The wire value of EvInferReceiptReceived is still OUTPUT_REF_RECEIVED: the string belongs to the
-	// SDK's frozen event_code set, while the word OutputRef is
-	// otherwise retired from code -- the two conflict; the rename awaits a member/SDK-side decision (see
-	// the open items in README.md).
-	EvInferReceiptReceived     = "OUTPUT_REF_RECEIVED"         // selected Worker submitted a signed InferReceipt
+	EvOrderReceived    = "ORDER_RECEIVED"
+	EvAssignTimeout    = "ASSIGN_TIMEOUT"    // no on-chain task before order deadline
+	EvDispatchAccepted = "DISPATCH_ACCEPTED" // a Worker accepted a ticket; the record is not on chain yet
+	EvDispatchRecorded = "DISPATCH_RECORDED" // the chain recorded the dispatch: the winner is final
+	EvNoCapacity       = "NO_CAPACITY"       // no Worker accepted within max_skips; the sequence is unused
+	EvRecordRejected   = "RECORD_REJECTED"   // the chain refused the dispatch entry or it missed its record deadline
+	EvTakeoverPending  = "TAKEOVER_PENDING"  // the chain registered this Builder's takeover of the session; chain_height is the activation height
+	EvTakeoverRecorded = "TAKEOVER_RECORDED" // the takeover took effect: the session is bound here and the order is dispatched from scratch
+	EvTakeoverVoided   = "TAKEOVER_VOIDED"   // the takeover will not take effect (the order was recorded or cancelled, the session closed or went to another Builder)
+	EvOrderExpired     = "ORDER_EXPIRED"     // the held order expired: before its takeover registered (the session stays with its Builder; a re-signed resend registers again) or before it could be recorded once the takeover took effect (resend it re-signed here)
+	// EvInferReceiptReceived is the Worker's signed InferReceipt; the contract keeps the name
+	// OUTPUT_REF_RECEIVED for it.
+	EvInferReceiptReceived     = "OUTPUT_REF_RECEIVED"
 	EvOpenVerifyAccepted       = "OPEN_VERIFY_ACCEPTED"        // formal Verifiers decided (no seed)
 	EvSampleReady              = "SAMPLE_READY"                // sampling seed ready
 	EvWorkerRevealAccepted     = "WORKER_REVEAL_ACCEPTED"      // Worker reveal receipt on-chain

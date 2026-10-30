@@ -507,7 +507,7 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 				c = code
 			}
 			r.cfg.Attempts.Rejected(x.TaskID, [32]byte(x.TicketHash))
-			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, c)
+			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, [32]byte(x.TicketHash), c)
 			r.notify(ctx, x, statusRejected, c, 0)
 		}
 	})

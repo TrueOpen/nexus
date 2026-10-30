@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
@@ -179,13 +180,13 @@ func (c *Coordinator) DispatchResult(_ context.Context, sessionID, taskID string
 
 // DispatchAccepted implements dispatcher.Observer: a Worker accepted the order (DISPATCH_ACCEPTED).
 // The task stays Pending until the chain records the dispatch.
-func (c *Coordinator) DispatchAccepted(sessionID, taskID string, _ [32]byte, worker string) {
+func (c *Coordinator) DispatchAccepted(sessionID, taskID string, ticket [32]byte, worker string) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
 	}
 	fsm.mu.Lock()
-	fsm.emit(EvDispatchAccepted, 0)
+	fsm.emitDetail(EvDispatchAccepted, 0, &types.TaskEventDetail{DispatchTicketHash: hex.EncodeToString(ticket[:]), WorkerOperatorAddress: worker})
 	fsm.save()
 	fsm.mu.Unlock()
 	c.log.Info("dispatch accepted", "session_id", sessionID, "task_id", taskID, "worker", worker)
@@ -211,14 +212,19 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 		}
 	}
 	code := EvTaskFailed
+	var detail *types.TaskEventDetail
 	switch {
 	case errors.Is(reason, dispatchdraw.ErrNoCapacity):
 		code = EvNoCapacity
-	case errors.Is(reason, dispatcher.ErrRecordRejected), errors.Is(reason, dispatcher.ErrRecordDeadline):
-		code = EvRecordRejected
+	case errors.Is(reason, dispatcher.ErrRecordRejected):
+		// An earlier order of the session cannot be recorded, so neither can this one: the
+		// category the Recorder gives the later entries of a refused one.
+		code, detail = EvRecordRejected, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED)
+	case errors.Is(reason, dispatcher.ErrRecordDeadline):
+		code, detail = EvRecordRejected, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE)
 	}
 	fsm.mu.Lock()
-	fsm.emit(code, 0)
+	fsm.emitDetail(code, 0, detail)
 	fsm.mu.Unlock()
 	c.abandonTask(key, fsm)
 	c.log.Info("dispatch failed", "session_id", sessionID, "task_id", taskID, "reason", reason)
@@ -230,22 +236,34 @@ func (c *Coordinator) DispatchRecorded(sessionID, taskID string, height uint64) 
 	c.requestTaskReconcile(sessionID, taskID, int64(height), "dispatch recorded")
 }
 
-// RecordRejected is the Recorder's report that the chain refused the task's dispatch entry with
-// code, or did not record it by its deadline (RECORD_REJECTED). The task is dropped like a failed
-// dispatch: its journal and input stay for a resend of the sequence.
-func (c *Coordinator) RecordRejected(sessionID, taskID string, code taskv1.DispatchRejectCodeV1) {
+// RecordRejected is the Recorder's report that the chain refused the dispatch entry of the task's
+// ticket with code, or did not record it by its deadline (RECORD_REJECTED). The task is dropped
+// like a failed dispatch: its journal and input stay for a resend of the sequence.
+func (c *Coordinator) RecordRejected(sessionID, taskID string, ticket [32]byte, code taskv1.DispatchRejectCodeV1) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
 		return
 	}
 	height, _ := c.currentChainHeight()
-	c.failRecord(fsm, height)
+	c.failRecord(fsm, height, &types.TaskEventDetail{DispatchTicketHash: hex.EncodeToString(ticket[:]), RejectCode: int32(code)})
 	c.log.Info("dispatch record rejected", "session_id", sessionID, "task_id", taskID, "reject_code", code)
 }
 
 // failRecord ends a Pending task whose dispatch entry will not be recorded.
-func (c *Coordinator) failRecord(fsm *taskFSM, height uint64) {
-	if fsm.failPending(EvRecordRejected, types.VerdictUnspecified, height) {
+func (c *Coordinator) failRecord(fsm *taskFSM, height uint64, detail *types.TaskEventDetail) {
+	if fsm.failPendingDetail(EvRecordRejected, types.VerdictUnspecified, height, detail) {
 		c.abandonTask(taskKey(fsm.sessionID, fsm.taskID), fsm)
 	}
+}
+
+// recordRejection is the RECORD_REJECTED detail of a task with code: with the ticket of its
+// attempt when it has one.
+func (c *Coordinator) recordRejection(sessionID, taskID string, code taskv1.DispatchRejectCodeV1) *types.TaskEventDetail {
+	detail := &types.TaskEventDetail{RejectCode: int32(code)}
+	if c.attempts != nil {
+		if a, ok := c.attempts.Current(taskID); ok && a.SessionID == sessionID {
+			detail.DispatchTicketHash = hex.EncodeToString(a.TicketHash[:])
+		}
+	}
+	return detail
 }

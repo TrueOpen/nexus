@@ -88,10 +88,10 @@ func TestPartialRejection(t *testing.T) {
 	if want := []taskReport{{taskID: a0.TaskID, height: 11}, {taskID: b0.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) {
 		t.Fatalf("tasks recorded = %v", e.tasks.recorded)
 	}
-	if want := []taskReport{{taskID: a1.TaskID, code: codeBalance}}; !reflect.DeepEqual(e.tasks.rejected, want) {
-		t.Fatalf("tasks rejected = %v", e.tasks.rejected)
-	}
 	ticketOf := func(b *dispatcher.Bundle) [32]byte { return [32]byte(b.Entry.GetRecord().GetDispatchTicketHash()) }
+	if want := []taskReport{{taskID: a1.TaskID, code: codeBalance}}; !reflect.DeepEqual(e.tasks.rejected, want) || e.tasks.rejectedTickets[a1.TaskID] != ticketOf(a1) {
+		t.Fatalf("tasks rejected = %v, tickets %x", e.tasks.rejected, e.tasks.rejectedTickets)
+	}
 	wantAttempts := []attemptReport{{a0.TaskID, ticketOf(a0), true}, {a1.TaskID, ticketOf(a1), false}, {b0.TaskID, ticketOf(b0), true}}
 	if !reflect.DeepEqual(e.attempts.reports, wantAttempts) {
 		t.Fatalf("attempt outcomes = %v, want %v", e.attempts.reports, wantAttempts)

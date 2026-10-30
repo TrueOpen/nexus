@@ -127,7 +127,7 @@ func TestReceiptStagingDroppedOnRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.book.Rejected(f.task, f.ticket)
-	f.c.RecordRejected(f.session, f.task, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
+	f.c.RecordRejected(f.session, f.task, [32]byte{1}, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
 	if f.staged() || f.submitted() != 0 {
 		t.Fatalf("after the rejection: staged %t, submitted %d", f.staged(), f.submitted())
 	}
@@ -258,7 +258,7 @@ func TestRefusedAttemptRetiredWithItsTask(t *testing.T) {
 	f.c.payloads = payloads
 	f.c.SetAttemptRetention(50)
 	f.book.Rejected(f.task, f.ticket)
-	f.c.RecordRejected(f.session, f.task, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
+	f.c.RecordRejected(f.session, f.task, [32]byte{1}, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
 	if want := []string{f.session + "|" + f.task + "|" + hex.EncodeToString(f.ticket[:])}; !reflect.DeepEqual(payloads.retired, want) {
 		t.Fatalf("retired = %v", payloads.retired)
 	}

@@ -48,18 +48,18 @@ func (c *orderChain) QueryDispatchCompensationClaim(context.Context, []byte) (*t
 
 type nopOrderObserver struct{}
 
-func (nopOrderObserver) DispatchAccepted(string, string, [32]byte, string)          {}
-func (nopOrderObserver) DispatchFailed(string, string, error)                       {}
-func (nopOrderObserver) DispatchRecorded(string, string, uint64)                    {}
-func (nopOrderObserver) RecordRejected(string, string, taskv1.DispatchRejectCodeV1) {}
+func (nopOrderObserver) DispatchAccepted(string, string, [32]byte, string)                    {}
+func (nopOrderObserver) DispatchFailed(string, string, error)                                 {}
+func (nopOrderObserver) DispatchRecorded(string, string, uint64)                              {}
+func (nopOrderObserver) RecordRejected(string, string, [32]byte, taskv1.DispatchRejectCodeV1) {}
 
 type nopHeld struct{}
 
-func (nopHeld) OnTakeover(context.Context, types.Order) error                               { return nil }
-func (nopHeld) TakeoverRegistered(string, string, uint64)                                   {}
-func (nopHeld) TakeoverActivated(string, string, uint64)                                    {}
-func (nopHeld) TakeoverEnded(string, string, string, uint64, bool, *types.SessionElsewhere) {}
-func (nopHeld) OnOrder(context.Context, types.Order) error                                  { return nil }
+func (nopHeld) OnTakeover(context.Context, types.Order) error                              { return nil }
+func (nopHeld) TakeoverRegistered(string, string, uint64)                                  {}
+func (nopHeld) TakeoverActivated(string, string, uint64)                                   {}
+func (nopHeld) TakeoverEnded(string, string, string, uint64, bool, *types.TaskEventDetail) {}
+func (nopHeld) OnOrder(context.Context, types.Order) error                                 { return nil }
 
 // A Builder role event the task chain delivers reaches the responder: a compensation claim on one
 // of this Builder's tickets is followed (read on chain at the next block).

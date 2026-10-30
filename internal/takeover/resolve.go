@@ -193,7 +193,7 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 			taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING:
 			m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
 		default:
-			m.end(ctx, r, codeRejected, false, nil)
+			m.end(ctx, r, codeRejected, false, &types.TaskEventDetail{RejectCode: int32(j.code)})
 		}
 	case causeVoided:
 		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
@@ -280,20 +280,20 @@ func (m *Manager) settle(ctx context.Context, r *record, j job) {
 		m.registered(r.SessionID, r.Sequence, t.ActivationHeight)
 		return
 	case t != nil:
-		m.end(ctx, r, codeVoided, true, &types.SessionElsewhere{Builder: t.CandidateBuilder, ActivationHeight: t.ActivationHeight})
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{CandidateBuilder: t.CandidateBuilder, TakeoverActivationHeight: t.ActivationHeight})
 		return
 	}
 	rec, err := m.cfg.Chain.QueryDispatchRecordByOrder(ctx, r.SessionID, r.Sequence)
 	switch {
 	case err == nil:
-		m.end(ctx, r, codeVoided, true, &types.SessionElsewhere{Builder: rec.GetBuilderAddress(), TaskID: hex.EncodeToString(rec.GetTaskId())})
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{RecordingBuilder: rec.GetBuilderAddress(), RecordedTaskID: hex.EncodeToString(rec.GetTaskId())})
 		return
 	case !errors.Is(err, chaincli.ErrNotFound):
 		m.retryNextBlock(r, j)
 		return
 	}
 	if r.Sequence != state.NextExpectedSequence {
-		m.end(ctx, r, codeVoided, true, &types.SessionElsewhere{Builder: state.BoundBuilder})
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{BoundBuilder: state.BoundBuilder})
 		return
 	}
 	if err := inflight.CheckTakeoverFunds(inflight.Session{SessionState: state, Found: true}, r.Precheck.MaxFee); err != nil {
@@ -314,9 +314,9 @@ func (m *Manager) settle(ctx context.Context, r *record, j job) {
 // elsewhere finds where the session went when r ends: the Builder that recorded the order with
 // its task, else the candidate of another registered takeover, else the Builder it is bound to.
 // state is the session state when already read. Nil when the chain cannot tell.
-func (m *Manager) elsewhere(ctx context.Context, r *record, state *chaincli.SessionState) *types.SessionElsewhere {
+func (m *Manager) elsewhere(ctx context.Context, r *record, state *chaincli.SessionState) *types.TaskEventDetail {
 	if rec, err := m.cfg.Chain.QueryDispatchRecordByOrder(ctx, r.SessionID, r.Sequence); err == nil {
-		return &types.SessionElsewhere{Builder: rec.GetBuilderAddress(), TaskID: hex.EncodeToString(rec.GetTaskId())}
+		return &types.TaskEventDetail{RecordingBuilder: rec.GetBuilderAddress(), RecordedTaskID: hex.EncodeToString(rec.GetTaskId())}
 	}
 	if state == nil {
 		s, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
@@ -326,10 +326,10 @@ func (m *Manager) elsewhere(ctx context.Context, r *record, state *chaincli.Sess
 		state = &s
 	}
 	if t := state.PendingTakeover; t != nil && t.CandidateBuilder != m.cfg.Builder {
-		return &types.SessionElsewhere{Builder: t.CandidateBuilder, ActivationHeight: t.ActivationHeight}
+		return &types.TaskEventDetail{CandidateBuilder: t.CandidateBuilder, TakeoverActivationHeight: t.ActivationHeight}
 	}
 	if state.BoundBuilder != "" && state.BoundBuilder != m.cfg.Builder {
-		return &types.SessionElsewhere{Builder: state.BoundBuilder}
+		return &types.TaskEventDetail{BoundBuilder: state.BoundBuilder}
 	}
 	return nil
 }
@@ -403,12 +403,13 @@ func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 	m.forget(r)
 }
 
-// end drops r and its outbox entry, telling its task code and where the session went.
-func (m *Manager) end(ctx context.Context, r *record, code string, dropInput bool, where *types.SessionElsewhere) {
+// end drops r and its outbox entry, telling its task code and detail: where the session went, or
+// why the takeover entry was refused.
+func (m *Manager) end(ctx context.Context, r *record, code string, dropInput bool, detail *types.TaskEventDetail) {
 	m.forget(r)
 	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, code)
 	m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
-	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput, where)
+	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput, detail)
 }
 
 func (m *Manager) lookup(sessionID string) *record {

@@ -348,18 +348,29 @@ type TaskEvent struct {
 	TaskPhase   string // fine-grained TaskPhase after the event
 	ChainHeight int64  // set when the event comes from chain, otherwise 0
 	TS          int64  // record time (Unix milliseconds)
-	// Elsewhere says where the session went when a takeover of it ended without taking effect;
-	// nil otherwise. GetTaskEventsResponse has no field for it yet.
-	Elsewhere *SessionElsewhere `json:",omitempty"`
+	// Detail carries the event's routing and rejection facts (GetTaskEventsResponse detail); nil
+	// when the event has none.
+	Detail *TaskEventDetail `json:",omitempty"`
 }
 
-// SessionElsewhere is where a session went when this Builder's takeover of it ended: the Builder
-// that recorded the order with its task (TaskID, lowercase hex), or the candidate of another
-// registered takeover with its activation height.
-type SessionElsewhere struct {
-	Builder          string
-	TaskID           string `json:",omitempty"`
-	ActivationHeight uint64 `json:",omitempty"`
+// TaskEventDetail is what an event tells the SDK so it can recover without resending its order.
+// TAKEOVER_PENDING names this Builder as candidate with the activation height and
+// TAKEOVER_RECORDED as bound Builder. TAKEOVER_VOIDED names where the session went when known:
+// the Builder that recorded the order with its task, the candidate of another registered
+// takeover with its activation height, or the Builder the session is bound to. DISPATCH_ACCEPTED
+// names the ticket and its Worker, RECORD_REJECTED the ticket when there is one and the nonzero
+// rejection category. Empty fields are absent.
+type TaskEventDetail struct {
+	BoundBuilder     string `json:",omitempty"`
+	RecordingBuilder string `json:",omitempty"`
+	// RecordedTaskID and DispatchTicketHash are lowercase hex.
+	RecordedTaskID           string `json:",omitempty"`
+	CandidateBuilder         string `json:",omitempty"`
+	TakeoverActivationHeight uint64 `json:",omitempty"`
+	DispatchTicketHash       string `json:",omitempty"`
+	// RejectCode is a task.v1.DispatchRejectCodeV1 value.
+	RejectCode            int32  `json:",omitempty"`
+	WorkerOperatorAddress string `json:",omitempty"`
 }
 
 // ChallengePlan is returned by PrepareChallenge: it only helps the SDK organize its challenge inputs and submits no verdict.

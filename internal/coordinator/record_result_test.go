@@ -28,7 +28,7 @@ func TestRecordRejectedEndsThePendingTask(t *testing.T) {
 	}
 	c.DispatchAccepted(o.SessionID, o.TaskID, [32]byte{1}, "worker-1")
 	first, _ := c.getFSM(o.SessionID, o.TaskID)
-	c.RecordRejected(o.SessionID, o.TaskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
+	c.RecordRejected(o.SessionID, o.TaskID, [32]byte{1}, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT)
 	c.DispatchFailed(later.SessionID, later.TaskID, fmt.Errorf("%w: sequence 0", dispatcher.ErrRecordRejected))
 	for _, order := range []types.Order{o, later} {
 		if _, ok := c.getFSM(order.SessionID, order.TaskID); ok {

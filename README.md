@@ -156,9 +156,6 @@ Open items:
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
-- Several task event codes still use Nexus names rather than the SDK-facing event names (for
-  example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
-  are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the SDK-facing name of the
   field is `challenge_close` without a fixed unit; the rename waits for that decision.
 - Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->
@@ -354,8 +351,8 @@ without a `SessionGrantV1`:
   `session_key_spend_cap` and within the chain's uint64 counter (else
   `SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED`). In-flight orders are not counted. A wallet order whose
   signature does not recover to its user now fails here with `SDK_AUTH_INVALID_SIGNATURE` instead of
-  on chain. The Keeper remains the final authority: if it rejects the order at admission the task
-  ends with `ASSIGN_REJECTED` and the client re-signs the same sequence.
+  on chain. The Keeper remains the final authority: if it refuses the order's dispatch entry the task
+  ends with `RECORD_REJECTED` and the client re-signs the same sequence.
 
 Session state is cached by session for `ingress.session_key_cache_ttl_blocks` blocks (1..10,
 default 5) past the height it was read at; "no such session" and "no key" are cached too. At most
@@ -383,8 +380,6 @@ Known limits:
   read and a session lookup before the request envelope is checked. Misses are bounded by
   `ingress.session_key_lookups_per_second`; when garbage orders spend that budget, genuine
   registered-key requests get `Unavailable` until it refills.
-- A Keeper rejection of the order seen while simulating the assignment (rather than in DeliverTx)
-  does not emit `ASSIGN_REJECTED` yet; the task waits for its assignment timeout.
 - Upgrade order: Nexus must run this mirror before the Node emits event 106. An older Nexus treats
   an unknown event without `task_id` as malformed and its stream for that session stalls on the
   event; this version skips such events with a warning.

@@ -79,7 +79,7 @@ type Tasks interface {
 	OnTakeover(ctx context.Context, o types.Order) error
 	TakeoverRegistered(sessionID, taskID string, activation uint64)
 	TakeoverActivated(sessionID, taskID string, height uint64)
-	TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, where *types.SessionElsewhere)
+	TakeoverEnded(sessionID, taskID, code string, height uint64, dropInput bool, detail *types.TaskEventDetail)
 	OnOrder(ctx context.Context, o types.Order) error
 }
 
