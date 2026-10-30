@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -33,14 +34,27 @@ func TestRingSignsWithTheChainsCurrentLocalKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k := ring.Key(); k.Signer != first || k.Nonce != 0 {
-		t.Fatalf("key before a read = %v nonce %d", k.Signer.Address(), k.Nonce)
+	// Nothing is signed before the chain was read: the first local key may be a retired one.
+	if k := ring.Key(); k.Nonce != 0 || k.Signer == nil {
+		t.Fatalf("key before a read = nonce %d", k.Nonce)
+	}
+	if _, err := ring.Sign([]byte("m")); !errors.Is(err, ErrNotRefreshed) {
+		t.Fatalf("Sign before a read = %v, want ErrNotRefreshed", err)
+	}
+	if _, err := ring.Key().Signer.SignDigest([32]byte{1}); !errors.Is(err, ErrNotRefreshed) {
+		t.Fatalf("SignDigest before a read = %v, want ErrNotRefreshed", err)
+	}
+	if _, ok := ring.View(); ok {
+		t.Fatal("a view before a read")
 	}
 	if _, err := ring.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if k := ring.Key(); k.Signer != second || k.Nonce != 7 || ring.Address() != second.Address() {
 		t.Fatalf("key after a read = %s nonce %d", k.Signer.Address(), k.Nonce)
+	}
+	if _, err := ring.Sign([]byte("m")); err != nil {
+		t.Fatalf("Sign after a read = %v", err)
 	}
 	if len(switches) != 0 {
 		t.Fatal("the first read is no switch")
@@ -125,5 +139,29 @@ func TestNewRingRefusesRepeatedKeys(t *testing.T) {
 	}
 	if _, err := NewRing(&fakeResolver{}, testPrefix, ringOperator, nil); err == nil {
 		t.Fatal("a ring without keys was accepted")
+	}
+}
+
+// Await reads until the chain answers: then the ring signs. A context that ends first returns the
+// last error.
+func TestRingAwaitWaitsForTheFirstRead(t *testing.T) {
+	local := testSigner(t, 1)
+	resolver := &fakeResolver{err: errors.New("node offline")}
+	ring, err := NewRing(resolver, testPrefix, ringOperator, nil, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := ring.Await(ctx, time.Millisecond); !errors.Is(err, ErrAuthority) {
+		t.Fatalf("Await on an unreadable chain = %v, want ErrAuthority", err)
+	}
+	resolver.err = nil
+	setBuilderState(resolver, builderState(local, 2))
+	if err := ring.Await(context.Background(), time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ring.Sign([]byte("m")); err != nil || ring.Key().Nonce != 2 {
+		t.Fatalf("after Await: Sign %v, nonce %d", err, ring.Key().Nonce)
 	}
 }

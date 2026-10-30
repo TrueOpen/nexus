@@ -422,7 +422,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			coordinator.WithIdentitySigner(sg),
 			coordinator.WithBuilderRegistry(registrationChain),
 			coordinator.WithBuilderSelectionQuerier(taskChain)) // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
-		registrationModule = newBuilderRegistrationModule(log, store, registrationChain, sg, serviceSG, cfg.Identity, authority, tlsMaterial.PubKeyHash)
+		// The registration proof is made by the configured service key itself: it is what a new
+		// Builder registers, and the ring signs nothing before it read a binding.
+		registrationModule = newBuilderRegistrationModule(log, store, registrationChain, sg, serviceKey, cfg.Identity, authority, tlsMaterial.PubKeyHash)
 	} else {
 		log.Warn("tx signing NOT configured (NEXUS_KEYSTORE_FILE or NEXUS_PRIVATE_KEY_FILE/PRIVATE_KEY/HEX); task transactions are disabled (dev only)")
 	}
@@ -678,6 +680,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if registrationModule != nil {
 		modules = append(modules, *registrationModule)
 	}
+	if serviceRing != nil {
+		modules = append(modules, serviceKeyModule(log, serviceRing))
+	}
 	outputModule := outputRecoveryLifecycle{
 		lifecycle: outputs,
 		complete:  coord.CompleteOutputRecovery,
@@ -730,6 +735,48 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 		return int(inlineMax)
 	}
 	return legacyMax
+}
+
+// serviceKeyStartupWait bounds the startup read of the service key binding; serviceKeyRetry is
+// how often it is read again after that until it succeeds.
+var (
+	serviceKeyStartupWait = 15 * time.Second
+	serviceKeyRetry       = 5 * time.Second
+)
+
+// serviceKeyModule reads the BUILDER service key binding before anything is served: the ring
+// signs nothing before its first read. A chain that does not answer in time does not stop the
+// start; the binding is read again in the background until it does, and nothing is signed until
+// then.
+func serviceKeyModule(log *slog.Logger, ring *servicekey.Ring) module {
+	var cancel context.CancelFunc = func() {}
+	done := make(chan struct{})
+	close(done)
+	start := func(ctx context.Context) error {
+		waitCtx, stop := context.WithTimeout(ctx, serviceKeyStartupWait)
+		err := ring.Await(waitCtx, serviceKeyRetry)
+		stop()
+		if err == nil {
+			return nil
+		}
+		log.Warn("service key binding not read; nothing is signed until it is", "err", err)
+		var bg context.Context
+		bg, cancel = context.WithCancel(context.Background())
+		done = make(chan struct{})
+		go func(done chan struct{}) {
+			defer close(done)
+			if err := ring.Await(bg, serviceKeyRetry); err == nil {
+				log.Info("service key binding read; signing enabled", "nonce", ring.Key().Nonce)
+			}
+		}(done)
+		return nil
+	}
+	stop := func(context.Context) error {
+		cancel()
+		<-done
+		return nil
+	}
+	return module{name: "service-key", start: start, stop: stop}
 }
 
 func newBuilderRegistrationModule(

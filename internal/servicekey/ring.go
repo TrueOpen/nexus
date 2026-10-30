@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/signer"
 )
@@ -52,10 +54,22 @@ type RingView struct {
 // Pending reports whether a replacement is registered and not active yet.
 func (v RingView) Pending() bool { return v.NextEffectiveHeight != 0 }
 
+// ErrNotRefreshed refuses a signature of a Ring that has not read the chain binding yet: none of
+// its local keys is known to be current.
+var ErrNotRefreshed = errors.New("service key ring has not read the chain binding yet")
+
+// unrefreshed is the first local key before the first read: it names the key but signs nothing,
+// since the operator may have left a retired key in that slot.
+type unrefreshed struct{ signer.Signer }
+
+func (unrefreshed) Sign([]byte) ([]byte, error)         { return nil, ErrNotRefreshed }
+func (unrefreshed) SignDigest([32]byte) ([]byte, error) { return nil, ErrNotRefreshed }
+
 // Ring holds this Builder's local BUILDER service keys and follows the chain binding: the local
 // key the chain holds current signs everything, a registered replacement held locally takes over
 // once the chain makes it current (no restart), and the retired key stays at hand for messages
-// that must keep its nonce. Ring is a Signer of the current key as of the latest Refresh.
+// that must keep its nonce. Ring is a Signer of the current key as of the latest Refresh; before
+// the first successful Refresh it signs nothing (ErrNotRefreshed).
 type Ring struct {
 	resolver Resolver
 	prefix   string
@@ -68,8 +82,8 @@ type Ring struct {
 	fetched bool
 }
 
-// NewRing builds a Ring over the local keys; the first one signs until the first Refresh. onSwitch,
-// when set, is called after a Refresh found another local key current.
+// NewRing builds a Ring over the local keys; none signs until the first successful Refresh.
+// onSwitch, when set, is called after a Refresh found another local key, or another nonce, current.
 func NewRing(resolver Resolver, addressPrefix, operator string, onSwitch func(old, current Key), local ...signer.Signer) (*Ring, error) {
 	if len(local) == 0 || local[0] == nil {
 		return nil, fmt.Errorf("service key ring needs a local key")
@@ -81,7 +95,7 @@ func NewRing(resolver Resolver, addressPrefix, operator string, onSwitch func(ol
 	}
 	return &Ring{
 		resolver: resolver, prefix: addressPrefix, operator: operator, local: local, onSwitch: onSwitch,
-		view: RingView{Current: Key{Signer: local[0]}},
+		view: RingView{Current: Key{Signer: unrefreshed{local[0]}}},
 	}, nil
 }
 
@@ -113,10 +127,26 @@ func (r *Ring) Refresh(ctx context.Context) (RingView, error) {
 	old, fetched := r.view.Current, r.fetched
 	r.view, r.fetched = view, true
 	r.mu.Unlock()
-	if fetched && r.onSwitch != nil && old.Signer != view.Current.Signer {
+	if fetched && r.onSwitch != nil && (old.Signer != view.Current.Signer || old.Nonce != view.Current.Nonce) {
 		r.onSwitch(old, view.Current)
 	}
 	return view, nil
+}
+
+// Await refreshes until the first read succeeds, every interval, or ctx ends; it returns the last
+// error then. It is the startup read that lets the ring sign before any other caller refreshes it.
+func (r *Ring) Await(ctx context.Context, interval time.Duration) error {
+	for {
+		_, err := r.Refresh(ctx)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(interval):
+		}
+	}
 }
 
 // View returns the latest view; ok is false before the first successful Refresh.
@@ -146,7 +176,8 @@ func (r *Ring) findHex(publicKey string) signer.Signer {
 	return r.find(raw)
 }
 
-// Key implements Signer: the current key and nonce of the latest Refresh (nonce 0 before it).
+// Key implements Signer: the current key and nonce of the latest Refresh. Before the first one the
+// nonce is 0 and the key refuses to sign (ErrNotRefreshed).
 func (r *Ring) Key() Key {
 	r.mu.Lock()
 	defer r.mu.Unlock()

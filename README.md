@@ -42,7 +42,9 @@ and the Builder messages of tasks recorded before it. No drain is needed:
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
    roots (signed again), record transactions from the new service account, and every Cortex
    stream binds again. Keep the old key configured (as either keystore) while tasks recorded
-   before the cutover are still open: their Builder messages keep its nonce.
+   before the cutover are still open: their Builder messages keep its nonce. Since either slot may
+   hold the retired key, the daemon signs nothing until it has read the chain's binding: it reads
+   it at startup and, if the chain does not answer, keeps reading it in the background.
 
 `nexus drain begin` remains for an operator who wants a quiet Builder: it takes no new order,
 issues no ticket and admits no takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight
