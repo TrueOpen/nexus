@@ -188,6 +188,10 @@ func validateTaskOrderScalarScopeV3(order *taskv1.TaskOrderV3) error {
 		len(order.GetInputHash()) != sha256.Size || order.GetInputSizeBytes() == 0 ||
 		order.GetOutputBudgetBucket() == 0 ||
 		order.GetEarliestSubmitHeight() == 0 || order.GetOrderExpireHeight() == 0 ||
+		// An order is valid up to and including order_expire_height. Refusing
+		// earliest_submit_height == order_expire_height is safe only because record_deadline_blocks
+		// is at least 1 (inflight.Params refuses 0): the record deadline earliest_submit_height +
+		// record_deadline_blocks would then be past the expiry, which the precheck refuses anyway.
 		order.GetEarliestSubmitHeight() >= order.GetOrderExpireHeight() ||
 		order.GetDeadlinePolicy().GetLatencyClass() == taskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_UNSPECIFIED ||
 		order.GetTimeoutBucketVersion() == 0 ||
