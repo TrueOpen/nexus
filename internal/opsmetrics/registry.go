@@ -46,8 +46,9 @@ const (
 	// CounterOrders counts the dispatch attempts that ended: "accepted" or "failed"; a resend of a
 	// failed sequence counts again.
 	CounterOrders = "orders"
-	// CounterRecordOutcomes counts resolved dispatch entries: "ADMITTED" or the reject code
-	// without its DISPATCH_REJECT_CODE_V1_ prefix (RECORD_LATE for an entry past its deadline).
+	// CounterRecordOutcomes counts resolved dispatch entries: "ADMITTED", the reject code without
+	// its DISPATCH_REJECT_CODE_V1_ prefix (RECORD_LATE for an entry past its deadline), or
+	// "CASCADED" for a later entry of a session failed with a refused one.
 	CounterRecordOutcomes = "record_outcomes"
 	// CounterTakeoverOutcomes counts ended takeovers by how they ended.
 	CounterTakeoverOutcomes = "takeover_outcomes"

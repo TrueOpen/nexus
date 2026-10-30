@@ -14,6 +14,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 )
 
 // Every block packs the entries accepted since the last one, sorted by (session_id,
@@ -128,10 +129,12 @@ func TestPartialRejection(t *testing.T) {
 }
 
 // A refused sequence fails every later entry of the session, sent or not: each is RECORD_REJECTED
-// with the code the chain gives an order past a gap, none is submitted again and their own later
-// results change nothing.
+// and noticed as CONFLICT (its sequence was not consumed) and counted as CASCADED, none is
+// submitted again and their own later results change nothing.
 func TestRejectionCascadesToLaterEntries(t *testing.T) {
 	e := newEnv(t)
+	e.metrics = opsmetrics.New()
+	e.open()
 	e.record(bundle(0xaa, 1, 1, 50))
 	e.block(10)
 	msg1, raw1 := e.lastSent()
@@ -153,8 +156,21 @@ func TestRejectionCascadesToLaterEntries(t *testing.T) {
 	if len(e.ledger.suspended) != 1 || len(e.orders.suspended) != 1 || e.orders.suspended[0].from != 1 {
 		t.Fatalf("suspended: ledger %v, orders %v", e.ledger.suspended, e.orders.suspended)
 	}
-	if n := len(e.notices()); n != 3 {
-		t.Fatalf("%d notices", n)
+	notices := e.notices()
+	if len(notices) != 3 {
+		t.Fatalf("%d notices", len(notices))
+	}
+	for _, n := range notices {
+		want := codeConflict
+		if bytes.Equal(n.n.GetDispatchTicketHash(), fill(1)) {
+			want = codeBalance // the refused entry itself
+		}
+		if n.n.GetRejectCode() != want {
+			t.Fatalf("notice of ticket %x carries %s, want %s", n.n.GetDispatchTicketHash()[:1], n.n.GetRejectCode(), want)
+		}
+	}
+	if got, want := e.metrics.Snapshot().Counters[opsmetrics.CounterRecordOutcomes], map[string]uint64{"SESSION_BALANCE_INSUFFICIENT": 1, "CASCADED": 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("record outcomes = %v", got)
 	}
 	if msgs, _ := e.tx.sent(); len(msgs) != 2 {
 		t.Fatalf("a cancelled entry was submitted: %d messages", len(msgs))

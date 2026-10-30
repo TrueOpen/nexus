@@ -28,14 +28,17 @@ const (
 
 	statusRecorded = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED
 	statusRejected = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_REJECTED
-	// codeLaterSequence is what the chain answers an order past a sequence it did not consume, the
-	// code of every later entry a refusal fails.
+	// codeLaterSequence is what the chain answers an entry whose sequence another record holds, or
+	// one behind an earlier sequence it has not recorded yet.
 	codeLaterSequence = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED
 	codeRecordLate    = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
 	codeConflict      = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT
-	// codeCascaded is the rejection category a later entry of a refused one is reported to its task
-	// with: its sequence was not consumed, and the client resends the same sequence.
+	// codeCascaded is the rejection category a later entry of a refused one is reported with, to its
+	// task and its Worker: its sequence was not consumed, and the client resends the same sequence.
 	codeCascaded = codeConflict
+	// outcomeCascaded is the record outcome metric label of such a later entry, apart from the
+	// chain's own rejection codes.
+	outcomeCascaded = "CASCADED"
 )
 
 // pendingTxs lists the transactions still carrying an unresolved entry and drops the others.
@@ -488,11 +491,11 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 	sortEntries(failed)
 	for _, x := range failed {
 		r.removeLocked(x, ops)
-		c := codeLaterSequence
+		outcome := outcomeCascaded
 		if x == e {
-			c = code
+			outcome = strings.TrimPrefix(code.String(), "DISPATCH_REJECT_CODE_V1_")
 		}
-		r.cfg.Metrics.Inc(opsmetrics.CounterRecordOutcomes, strings.TrimPrefix(c.String(), "DISPATCH_REJECT_CODE_V1_"))
+		r.cfg.Metrics.Inc(opsmetrics.CounterRecordOutcomes, outcome)
 	}
 	r.log.Warn("dispatch record rejected; session suspended", "session_id", e.SessionID, "order_sequence", e.Sequence,
 		"task_id", e.TaskID, "reject_code", code, "later_entries", len(failed)-1)
@@ -505,16 +508,12 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 		}
 		r.orders.Suspend(ctx, e.SessionID, e.Sequence, reason)
 		for _, x := range failed {
-			c := codeLaterSequence
+			c := codeCascaded
 			if x == e {
 				c = code
 			}
 			r.cfg.Attempts.Rejected(x.TaskID, [32]byte(x.TicketHash))
-			category := c
-			if x != e {
-				category = codeCascaded
-			}
-			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, [32]byte(x.TicketHash), category)
+			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, [32]byte(x.TicketHash), c)
 			r.notify(ctx, x, statusRejected, c, 0)
 		}
 	})
