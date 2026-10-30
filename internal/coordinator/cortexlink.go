@@ -101,6 +101,11 @@ func (m builderMessages) broadcast(ctx context.Context, frame *nexusv1.DispatchS
 // retired key signs; any other task takes the current one. A pending rotation changes nothing
 // until it activates. Without a retirement every known task is the current generation's; with one,
 // a task of unknown record height (0) gets no message.
+//
+// While this Builder's current key is revoked no Builder message is signed at all, not even for a
+// task recorded below the last retirement whose (unrevoked) previous key could still sign it: a
+// revoked Builder authorizes no live traffic, and the Cortex closes its streams to it anyway.
+// Refresh failing with a servicekey.RevokedError is how that stop takes effect here.
 func (c *Coordinator) builderBinding(ctx context.Context, recordHeight uint64) (*nexusv1.BuilderMessageBindingV1, signer.Signer, error) {
 	if c.serviceKeys == nil || c.active.self == "" {
 		return nil, nil, errBuilderMessageUnsigned
@@ -108,7 +113,7 @@ func (c *Coordinator) builderBinding(ctx context.Context, recordHeight uint64) (
 	readAt := time.Now()
 	view, err := c.serviceKeys.Refresh(ctx)
 	stagetiming.From(ctx).Since("chain_service_key", readAt)
-	if err != nil {
+	if err != nil { // a revoked current key included: no Builder message while it lasts
 		return nil, nil, fmt.Errorf("%w: %v", errBuilderMessageUnsigned, err)
 	}
 	key := view.Current
