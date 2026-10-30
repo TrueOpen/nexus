@@ -13,6 +13,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // Event codes the held order's task ends or moves with.
@@ -45,6 +46,10 @@ const (
 	causeSettle
 	// causeDrain: a drain ends the takeover unless its entry went out.
 	causeDrain
+	// causeAhead: the chain refused the entry SEQUENCE_NOT_NEXT, ahead of the session's next
+	// expected sequence. Nothing was consumed: the takeover stays and its entry goes again at the
+	// same sequence once the earlier sequences are recorded.
+	causeAhead
 )
 
 // job is one thing to handle on a takeover. The jobs of a takeover run one at a time, in order,
@@ -63,7 +68,8 @@ func (m *Manager) TakeoverRegistered(sessionID string, sequence, _ uint64) {
 // TakeoverRefused implements recorder.Takeovers. Refused because the sequence is consumed (the
 // bound Builder recorded it, or it was cancelled) or because another takeover is registered, the
 // takeover is voided: the order and its input are dropped and the task records where the session
-// went. Any other refusal ends the task as RECORD_REJECTED.
+// went. Refused SEQUENCE_NOT_NEXT, it waits for the earlier sequences (causeAhead). Any other
+// refusal ends the task as RECORD_REJECTED.
 func (m *Manager) TakeoverRefused(sessionID string, sequence uint64, code taskv1.DispatchRejectCodeV1) {
 	m.schedule(sessionID, sequence, job{why: causeRefused, code: code})
 }
@@ -192,6 +198,8 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 		case taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED,
 			taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING:
 			m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
+		case taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT:
+			m.retryNextBlock(r, job{why: causeAhead})
 		default:
 			m.end(ctx, r, codeRejected, false, &types.TaskEventDetail{RejectCode: coordinator.RejectCategory(j.code)})
 		}
@@ -199,6 +207,8 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
 	case causeSettle:
 		m.settle(ctx, r, j)
+	case causeAhead:
+		m.ahead(ctx, r, j)
 	case causeDrain:
 		if m.phase(r) == phaseSubmitted && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
 			m.log.Info("takeover ended by the drain before its entry went out", "session_id", r.SessionID, "order_sequence", r.Sequence)
@@ -309,6 +319,30 @@ func (m *Manager) settle(ctx context.Context, r *record, j job) {
 	if err := m.submitEntry(ctx, r); err != nil {
 		m.log.Error("takeover entry not handed to the recorder", "session_id", r.SessionID, "err", err)
 		m.end(ctx, r, codeTaskFailed, false, nil)
+	}
+}
+
+// ahead waits, once per block, for the session's next expected sequence to reach the takeover's,
+// then judges and sends its entry again (settle). The order expiring first ends it ORDER_EXPIRED;
+// the client re-signs the sequence.
+func (m *Manager) ahead(ctx context.Context, r *record, j job) {
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(r.Order.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
+		m.end(ctx, r, codeTaskFailed, false, nil)
+		return
+	}
+	if m.head.Load() > signed.GetOrder().GetOrderExpireHeight() {
+		m.end(ctx, r, codeExpired, false, nil)
+		return
+	}
+	state, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		m.end(ctx, r, codeVoided, true, nil)
+	case err != nil, r.Sequence > state.NextExpectedSequence:
+		m.retryNextBlock(r, j)
+	default:
+		m.settle(ctx, r, job{why: causeSettle})
 	}
 }
 

@@ -580,6 +580,34 @@ func TestTakeoverEntryRefusals(t *testing.T) {
 	}
 }
 
+// An entry ahead of the session's next expected sequence (SEQUENCE_NOT_NEXT) consumed nothing: the
+// takeover stays and the entry goes again at the same sequence once the earlier sequences are
+// recorded, neither voided nor rejected. An order that expires while it waits ends ORDER_EXPIRED.
+func TestTakeoverAheadOfTheNextSequenceWaits(t *testing.T) {
+	e := newEnv(t)
+	e.submit(5)
+	e.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 4 })
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	e.wantCalls("held task5")
+	if len(e.rec.bundles) != 1 || e.stored() != 1 {
+		t.Fatalf("while an earlier sequence is unrecorded: bundles %d, stored %d", len(e.rec.bundles), e.stored())
+	}
+	e.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 5 })
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 62})
+	e.wantCalls("held task5")
+	if len(e.rec.bundles) != 2 || e.rec.bundles[1].Sequence != 5 {
+		t.Fatalf("entry not sent again at its sequence: %+v", e.rec.bundles)
+	}
+
+	e = newEnv(t)
+	e.submit(5)
+	e.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 4 })
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: expiresAt + 1})
+	e.wantCalls("held task5", "ended task5 ORDER_EXPIRED drop=false")
+}
+
 // The order expired while the takeover waited: once bound here it is not dispatched; the task
 // ends ORDER_EXPIRED and the SDK resends the sequence re-signed. An entry that lapsed without
 // registering is ORDER_EXPIRED too.

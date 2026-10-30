@@ -28,11 +28,14 @@ const (
 
 	statusRecorded = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED
 	statusRejected = taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_REJECTED
-	// codeLaterSequence is what the chain answers an entry whose sequence another record holds, or
-	// one behind an earlier sequence it has not recorded yet.
-	codeLaterSequence = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED
-	codeRecordLate    = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
-	codeConflict      = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT
+	// codeSequenceConsumed retires a sequence: it is behind the session's next expected sequence,
+	// or another record holds it. codeSequenceNotNext is an entry ahead of the next expected
+	// sequence: not consumed, it goes again at the same sequence once the earlier ones are
+	// recorded.
+	codeSequenceConsumed = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED
+	codeSequenceNotNext  = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT
+	codeRecordLate       = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
+	codeConflict         = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT
 	// codeCascaded is the rejection category a later entry of a refused one is reported with, to its
 	// task and its Worker: its sequence was not consumed, and the client resends the same sequence.
 	codeCascaded = codeConflict
@@ -419,7 +422,7 @@ func (r *Recorder) expire(ctx context.Context, height uint64) {
 				r.recordLocked(e, rec.GetRecordedHeight(), &ops, &fx)
 			case err == nil:
 				// Another record holds the sequence.
-				r.rejectLocked(e, codeLaterSequence, true, &ops, &fx)
+				r.rejectLocked(e, codeSequenceConsumed, true, &ops, &fx)
 			default:
 				r.rejectLocked(e, codeRecordLate, true, &ops, &fx)
 			}
@@ -466,9 +469,10 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 }
 
 // rejectLocked resolves e as refused with code. A withdrawn entry is only dropped. Unless final,
-// SEQUENCE_CONSUMED behind an unresolved earlier entry of the session holds e for a later
-// attempt. Otherwise e and every later entry of its session fail (RECORD_REJECTED, REJECTED
-// notices), the session is suspended from e's sequence and the dispatcher fails its later orders.
+// SEQUENCE_NOT_NEXT behind an unresolved earlier entry of the session holds e for a later attempt
+// at the same sequence. Otherwise e and every later entry of its session fail (RECORD_REJECTED,
+// REJECTED notices), the session is suspended from e's sequence and the dispatcher fails its later
+// orders. SEQUENCE_CONSUMED is always final: the sequence is retired.
 // Caller holds r.mu.
 func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, final bool, ops *[]kv.WriteOp, fx *effects) {
 	if e.Withdrawn {
@@ -476,11 +480,17 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 		r.log.Info("withdrawn dispatch entry refused", "session_id", e.SessionID, "order_sequence", e.Sequence, "reject_code", code)
 		return
 	}
-	if !final && code == codeLaterSequence && r.earlierUnresolvedLocked(e) {
+	if !final && code == codeSequenceNotNext && r.earlierUnresolvedLocked(e) {
 		e.Held, e.Tx = true, ""
 		*ops = append(*ops, r.entryOp(e))
 		r.log.Info("dispatch entry held behind an unresolved earlier entry", "session_id", e.SessionID, "order_sequence", e.Sequence)
 		return
+	}
+	if code == codeSequenceConsumed && r.earlierUnresolvedLocked(e) {
+		// The sequence is retired although an earlier one of the session is not recorded: the
+		// chain says the next expected sequence is past it.
+		r.log.Warn("dispatch entry refused SEQUENCE_CONSUMED while an earlier entry of its session is unresolved",
+			"session_id", e.SessionID, "order_sequence", e.Sequence)
 	}
 	var failed []*entry
 	for _, x := range r.entries {

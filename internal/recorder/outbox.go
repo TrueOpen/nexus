@@ -41,7 +41,7 @@ type entry struct {
 	// Withdrawn is set when the winner ticket was voided after the entry was sent: its refusal is
 	// expected and changes nothing.
 	Withdrawn bool `json:"withdrawn,omitempty"`
-	// Held is set when the entry was refused SEQUENCE_CONSUMED while an earlier entry of its
+	// Held is set when the entry was refused SEQUENCE_NOT_NEXT while an earlier entry of its
 	// session was unresolved: it goes out again once none is.
 	Held bool `json:"held,omitempty"`
 	// Takeover marks a takeover entry: it has no ticket or Worker, Deadline alone bounds it and

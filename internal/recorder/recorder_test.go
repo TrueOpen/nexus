@@ -335,9 +335,10 @@ func TestWithdrawnEntries(t *testing.T) {
 	}
 }
 
-// SEQUENCE_CONSUMED while an earlier entry of the session is still unresolved is not final: the
-// entry is held and submitted again once the earlier one is recorded.
-func TestSequenceConsumedBehindAnUnresolvedEntryIsRetried(t *testing.T) {
+// SEQUENCE_NOT_NEXT while an earlier entry of the session is still unresolved is not final: the
+// sequence was not consumed, and the entry is held and submitted again once the earlier one is
+// recorded.
+func TestSequenceNotNextBehindAnUnresolvedEntryIsRetried(t *testing.T) {
 	e := newEnv(t)
 	e.record(bundle(0xaa, 0, 1, 50))
 	e.block(10)
@@ -345,7 +346,7 @@ func TestSequenceConsumedBehindAnUnresolvedEntryIsRetried(t *testing.T) {
 	e.record(bundle(0xaa, 1, 2, 50))
 	e.block(11)
 	msg1, raw1 := e.lastSent()
-	e.chain.execute(raw1, executed(t, msg1, 12, refused(codeConsumed)))
+	e.chain.execute(raw1, executed(t, msg1, 12, refused(codeNotNext)))
 	e.block(12)
 	if len(e.tasks.rejected) != 0 || len(e.ledger.suspended) != 0 {
 		t.Fatalf("held entry failed: %v", e.tasks.rejected)
@@ -358,6 +359,22 @@ func TestSequenceConsumedBehindAnUnresolvedEntryIsRetried(t *testing.T) {
 	again, _ := e.lastSent()
 	if msgs, _ := e.tx.sent(); len(msgs) != 3 || !reflect.DeepEqual(entriesOf(again), []string{"aa/1"}) {
 		t.Fatalf("held entry not resubmitted: %v", entriesOf(again))
+	}
+}
+
+// SEQUENCE_CONSUMED retires the sequence: it is final even while an earlier entry of the session
+// is unresolved (which contradicts the chain's sequence rules and is warned about).
+func TestSequenceConsumedIsFinal(t *testing.T) {
+	e := newEnv(t)
+	e.record(bundle(0xaa, 0, 1, 50))
+	e.block(10)
+	e.record(bundle(0xaa, 1, 2, 50))
+	e.block(11)
+	msg1, raw1 := e.lastSent()
+	e.chain.execute(raw1, executed(t, msg1, 12, refused(codeConsumed)))
+	e.block(12)
+	if len(e.tasks.rejected) != 1 || len(e.ledger.suspended) != 1 {
+		t.Fatalf("SEQUENCE_CONSUMED was held: rejected %v, suspended %v", e.tasks.rejected, e.ledger.suspended)
 	}
 }
 
