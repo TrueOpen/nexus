@@ -161,7 +161,8 @@ func (s *Sender) deliverOne(ctx context.Context, key, peer string) (sent, ok boo
 
 // batch builds the next batch of p for peer: the items it has not applied, then, once it gets the
 // order item, the recorded winner's frames it does not hold. The signed request stays within
-// MaxBatchBytes and dispatch.MaxBuilderSyncEntries items and chunks. nil when nothing is due.
+// MaxBatchBytes and dispatch.MaxBuilderSyncEntries items and chunks; an item or frame that cannot
+// fit even alone is errOversized and nothing is sent. nil when nothing is due.
 func (s *Sender) batch(ctx context.Context, p plan, peer string) (*nexusv1.BuilderSyncBatchV1, error) {
 	st := &p.stream
 	batch := &nexusv1.BuilderSyncBatchV1{
@@ -177,7 +178,10 @@ func (s *Sender) batch(ctx context.Context, p plan, peer string) (*nexusv1.Build
 		if !found {
 			return nil, fmt.Errorf("sync item %d is no longer held; the member is behind what every member acknowledged", n)
 		}
-		if len(batch.Items) > 0 && requestSize(size+fieldSize(len(raw))) > s.cfg.MaxBatchBytes {
+		if requestSize(size+fieldSize(len(raw))) > s.cfg.MaxBatchBytes {
+			if len(batch.Items) == 0 {
+				return nil, fmt.Errorf("%w: sync item %d of %d bytes", errOversized, n, len(raw))
+			}
 			break
 		}
 		var item nexusv1.BuilderSyncItemV1
@@ -208,7 +212,8 @@ func fieldSize(n int) int { return 1 + protowire.SizeBytes(n) }
 func requestSize(batchSize int) int { return fieldSize(batchSize) + fieldSize(dispatch.SignatureSize) }
 
 // output is the run of the winner's frames after what the member holds that fits a batch of
-// batchSize bytes; alone allows one chunk past the size, so a batch always carries something.
+// batchSize bytes. alone is set for a batch without items: a first frame that does not fit it
+// cannot be sent at all (errOversized).
 func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batchSize int, alone bool) (*nexusv1.BuilderSyncOutputV1, error) {
 	key := taskdata.ObjectKey{SessionID: st.SessionID, TaskID: st.TaskID, Kind: taskdata.ObjectKindOutput}
 	progress, found, err := s.cfg.Outputs.OutputStreamProgressOf(ctx, key)
@@ -222,10 +227,6 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batc
 	if held.Received {
 		after = &held.LastSeq
 	}
-	frames, err := s.cfg.Outputs.OutputFramesUpTo(ctx, key, after, max(s.cfg.MaxBatchBytes-batchSize, 1))
-	if err != nil {
-		return nil, fmt.Errorf("output frames: %w", err)
-	}
 	out := &nexusv1.BuilderSyncOutputV1{
 		DispatchTicketHash: st.Winner.TicketHash, WinnerTicket: &taskv1.DispatchTicketV1{}, DispatchAcceptDigest: st.Winner.AcceptDigest,
 	}
@@ -233,8 +234,13 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batc
 		return nil, fmt.Errorf("winner ticket: %w", err)
 	}
 	// outSize grows with each frame; a frame that does not fit ends the run, and the Fin only
-	// follows a complete run of chunks.
+	// follows a complete run of chunks. Only as much chunk text as the request has room for is read.
 	outSize := proto.Size(out)
+	room := s.cfg.MaxBatchBytes - requestSize(batchSize+fieldSize(outSize))
+	frames, err := s.cfg.Outputs.OutputFramesUpTo(ctx, key, after, max(room, 1))
+	if err != nil {
+		return nil, fmt.Errorf("output frames: %w", err)
+	}
 	fits := func(frame int) bool {
 		return requestSize(batchSize+fieldSize(outSize+fieldSize(frame))) <= s.cfg.MaxBatchBytes
 	}
@@ -245,7 +251,10 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batc
 			}
 			chunk := chunkToPB(frame.Chunk)
 			n := proto.Size(chunk)
-			if len(out.Chunks) == dispatch.MaxBuilderSyncEntries || !fits(n) && !(alone && len(out.Chunks) == 0) {
+			if !fits(n) && alone && len(out.Chunks) == 0 {
+				return nil, fmt.Errorf("%w: output frame %d of %d bytes", errOversized, chunk.GetSeq(), n)
+			}
+			if len(out.Chunks) == dispatch.MaxBuilderSyncEntries || !fits(n) {
 				break
 			}
 			out.Chunks = append(out.Chunks, chunk)
@@ -254,8 +263,11 @@ func (s *Sender) output(ctx context.Context, st *outStream, held outputAck, batc
 		}
 		if frame.Fin != nil && bytes.Equal(frame.Fin.DispatchTicketHash, st.Winner.TicketHash) {
 			fin := finToPB(frame.Fin)
-			if fits(proto.Size(fin)) || alone && len(out.Chunks) == 0 {
+			switch {
+			case fits(proto.Size(fin)):
 				out.Fin = fin
+			case alone && len(out.Chunks) == 0:
+				return nil, fmt.Errorf("%w: output Fin", errOversized)
 			}
 		}
 	}
@@ -395,6 +407,11 @@ func (s *Sender) succeeded(key, peer string) {
 		s.log.Info("group member caught up with an order's sync", "order", key, "member", peer)
 	}
 }
+
+// errOversized is an item or output frame that does not fit a sync request on its own; the member
+// is backed off and warned about until the configuration changes (task_data.chunk_size_bytes is
+// bounded so that a frame fits).
+var errOversized = errors.New("larger than the builder sync request cap")
 
 // errNoPeer is returned by Peers that cannot reach a member.
 var errNoPeer = errors.New("group member endpoint unavailable")

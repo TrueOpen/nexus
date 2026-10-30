@@ -55,7 +55,7 @@ output_delivery:
 # Capacity is reserved from the declared object size before Nexus accepts bytes.
 task_data:
   inline_max_bytes: 1048576
-  chunk_size_bytes: 262144
+  chunk_size_bytes: 262144 # at most 983040: an output frame must fit one 1 MiB Builder sync request
   max_range_bytes: 8388608
   max_blob_bytes: 1073741824
   spool_reservation_bytes: 4294967296

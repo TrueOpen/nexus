@@ -122,6 +122,12 @@ func (c OutputStreamConfig) WithChainLimits(maxOutputMMRLeaves, minFrameBytes, c
 	return c, nil
 }
 
+// MaxBuilderSyncFrameBytes bounds task_data.chunk_size_bytes, the largest output frame text: a
+// Builder sync request carries a recorded winner's frames and is at most 1 MiB, which must hold a
+// frame of this size with the batch header, the winner ticket and the frame's own fields. 64 KiB is
+// left for those.
+const MaxBuilderSyncFrameBytes = 1<<20 - 64<<10
+
 func (c TaskDataConfig) Validate() error {
 	switch {
 	case c.InlineMaxBytes == 0 || c.ChunkSizeBytes == 0 || c.MaxRangeBytes == 0 ||
@@ -129,6 +135,8 @@ func (c TaskDataConfig) Validate() error {
 		return fmt.Errorf("task_data byte limits must be positive")
 	case c.ChunkSizeBytes > c.MaxRangeBytes:
 		return fmt.Errorf("task_data chunk_size_bytes must not exceed max_range_bytes")
+	case c.ChunkSizeBytes > MaxBuilderSyncFrameBytes:
+		return fmt.Errorf("task_data chunk_size_bytes must not exceed %d: a larger output frame does not fit a Builder sync request", MaxBuilderSyncFrameBytes)
 	case c.MaxRangeBytes > c.MaxBlobBytes:
 		return fmt.Errorf("task_data max_range_bytes must not exceed max_blob_bytes")
 	case c.InlineMaxBytes > c.MaxBlobBytes:

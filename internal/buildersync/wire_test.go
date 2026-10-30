@@ -6,14 +6,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
@@ -228,5 +232,70 @@ func TestBatchesStayWithinTheRequestBounds(t *testing.T) {
 		if st.Acked[e.m.op] != st.Last || !st.Output[e.m.op].Sealed {
 			t.Fatalf("limit %d: member progress = %d of %d, output %+v", limit, st.Acked[e.m.op], st.Last, st.Output[e.m.op])
 		}
+	}
+}
+
+// A frame or item that cannot fit the request cap even alone is never sent: the member is backed
+// off with a warning naming the cap, and nothing it holds changes.
+func TestOversizedEntriesAreNotSent(t *testing.T) {
+	t.Run("output frame", func(t *testing.T) {
+		e := newEnv(t)
+		var logs bytes.Buffer
+		e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+		f := e.fx
+		f.putAccepted()
+		f.recordOnChain()
+		e.s.OrderChanged(f.accepted())
+		e.s.Recorded(f.recordedAttempt())
+		e.sync()
+		st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+		if st.Acked[e.m.op] != st.Last {
+			t.Fatalf("items not delivered: %d of %d", st.Acked[e.m.op], st.Last)
+		}
+		sent := len(e.peers.requests[e.m.op])
+		f.writeOutput(e.dData, e.worker, []string{strings.Repeat("x", 60)}, true)
+		e.s.cfg.MaxBatchBytes = 300
+		e.clock.advance(time.Hour)
+		e.s.deliverPeer(context.Background(), e.m.op)
+		if got := len(e.peers.requests[e.m.op]); got != sent {
+			t.Fatalf("%d requests sent with a frame over the cap", got-sent)
+		}
+		if !strings.Contains(logs.String(), "larger than the builder sync request cap") {
+			t.Fatalf("no warning about the oversized frame: %s", logs.String())
+		}
+	})
+	t.Run("first item", func(t *testing.T) {
+		e := newEnv(t)
+		var logs bytes.Buffer
+		e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+		e.s.cfg.MaxBatchBytes = 300
+		e.s.OrderChanged(e.fx.issued())
+		e.sync()
+		if n := len(e.peers.requests[e.m.op]); n != 0 {
+			t.Fatalf("%d requests sent with an item over the cap", n)
+		}
+		if !strings.Contains(logs.String(), "larger than the builder sync request cap") {
+			t.Fatalf("no warning about the oversized item: %s", logs.String())
+		}
+	})
+}
+
+// The largest output chunk text the configuration admits fits one request with a full header
+// and winner ticket.
+func TestLargestConfiguredFrameFitsTheRequestCap(t *testing.T) {
+	e := newEnv(t)
+	batch := e.recordedBatch([]string{"hello, "})
+	batch.Items = nil
+	chunk := batch.Output.Chunks[0]
+	chunk.Text = make([]byte, config.MaxBuilderSyncFrameBytes)
+	chunk.CumulativeGeneratedTokens = math.MaxUint64
+	chunk.Seq = math.MaxUint64 - 1
+	batch.Output.Chunks = []*nexusv1.OutputChunkV1{chunk}
+	batch.Output.Fin = nil
+	batch.BuilderSetId = strings.Repeat("s", 256)
+	batch.OrderSequence = math.MaxUint64
+	req := &nexusv1.SyncRequest{Batch: batch, SenderSignature: make([]byte, 64)}
+	if n := proto.Size(req); n > MaxRequestBytes {
+		t.Fatalf("largest frame request = %d bytes, cap %d", n, MaxRequestBytes)
 	}
 }

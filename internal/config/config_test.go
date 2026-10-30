@@ -177,6 +177,11 @@ func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 	tests := map[string]TaskDataConfig{
 		"zero inline":       func() TaskDataConfig { v := valid; v.InlineMaxBytes = 0; return v }(),
 		"chunk above range": func() TaskDataConfig { v := valid; v.ChunkSizeBytes = v.MaxRangeBytes + 1; return v }(),
+		"chunk above builder sync frame": func() TaskDataConfig {
+			v := valid
+			v.ChunkSizeBytes = MaxBuilderSyncFrameBytes + 1
+			return v
+		}(),
 		"range above blob":  func() TaskDataConfig { v := valid; v.MaxRangeBytes = v.MaxBlobBytes + 1; return v }(),
 		"inline above blob": func() TaskDataConfig { v := valid; v.InlineMaxBytes = v.MaxBlobBytes + 1; return v }(),
 		"reserve below blob": func() TaskDataConfig {
@@ -196,6 +201,11 @@ func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("Validate(%+v) succeeded", cfg)
 			}
 		})
+	}
+	largest := valid
+	largest.ChunkSizeBytes = MaxBuilderSyncFrameBytes
+	if err := largest.Validate(); err != nil {
+		t.Fatalf("the largest chunk a builder sync request carries: %v", err)
 	}
 }
 

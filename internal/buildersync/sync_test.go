@@ -738,23 +738,40 @@ func TestOutputIsReadABatchAtATime(t *testing.T) {
 	e := newEnv(t)
 	outputs := &countingOutputs{Store: e.dData}
 	e.s.cfg.Outputs = outputs
-	e.s.cfg.MaxBatchBytes = 10
 	f := e.fx
 	f.putAccepted()
 	f.recordOnChain()
-	texts := []string{"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"}
-	f.writeOutput(e.dData, e.worker, texts, true)
 	e.s.OrderChanged(f.accepted())
 	e.s.Recorded(f.recordedAttempt())
-	for range 10 {
-		e.sync()
+	e.sync()
+	texts := make([]string, 40)
+	for i := range texts {
+		texts[i] = strings.Repeat(string(rune('a'+i%26)), 60)
+	}
+	f.writeOutput(e.dData, e.worker, texts, true)
+	// Room for the batch header, the winner ticket and about two frames.
+	st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+	header := &nexusv1.SyncRequest{SenderSignature: make([]byte, 64), Batch: &nexusv1.BuilderSyncBatchV1{
+		SchemaVersion: schemaVersion, ChainId: testChainID, SenderOperatorAddress: e.d.op, ReceiverOperatorAddress: e.m.op,
+		SessionId: f.sessionID, OrderSequence: f.sequence, BuilderSetId: st.BuilderSetID, BuilderSetHash: st.BuilderSetHash,
+		Output: &nexusv1.BuilderSyncOutputV1{DispatchTicketHash: st.Winner.TicketHash, WinnerTicket: &taskv1.DispatchTicketV1{},
+			DispatchAcceptDigest: st.Winner.AcceptDigest},
+	}}
+	if err := proto.Unmarshal(st.Winner.Ticket, header.Batch.Output.WinnerTicket); err != nil {
+		t.Fatal(err)
+	}
+	e.s.cfg.MaxBatchBytes = proto.Size(header) + 2*230
+	outputs.reads = nil
+	for range 40 {
+		e.clock.advance(time.Minute)
+		e.s.deliverPeer(context.Background(), e.m.op)
 	}
 	if got := e.member.frames(); len(got) != len(texts)+1 || got[len(got)-1].Fin == nil {
 		t.Fatalf("member frames: %d", len(got))
 	}
 	for _, n := range outputs.reads {
-		if n > 3 {
-			t.Fatalf("a read returned %d frames for a 10-byte batch: %v", n, outputs.reads)
+		if n > 10 {
+			t.Fatalf("a read returned %d frames for a batch of about two: %v", n, outputs.reads)
 		}
 	}
 }
