@@ -48,6 +48,7 @@ type testKeys struct {
 	mu        sync.Mutex
 	nonce     map[string]uint64
 	missing   map[string]bool
+	revoked   map[string]bool
 	previous  map[string]previousKey
 	transient bool
 	lookups   int
@@ -61,12 +62,26 @@ type previousKey struct {
 }
 
 func newTestKeys() *testKeys {
-	return &testKeys{nonce: map[string]uint64{}, missing: map[string]bool{}, previous: map[string]previousKey{}}
+	return &testKeys{nonce: map[string]uint64{}, missing: map[string]bool{}, revoked: map[string]bool{}, previous: map[string]previousKey{}}
 }
 
-// ProofOptions resolves the current generation, or the previous one of a cutover, by nonce.
+// ProofOptions resolves the current generation (REVOKED when revoked), or the previous one of a
+// cutover, by nonce.
 func (k *testKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
 	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		k.mu.Lock()
+		revoked := k.revoked[s.OperatorAddress]
+		p, ok := k.previous[s.OperatorAddress]
+		k.mu.Unlock()
+		if revoked {
+			nonce := testNonce
+			if n, ok := k.nonce[s.OperatorAddress]; ok {
+				nonce = n
+			}
+			if s.ServiceAuthorizationNonce == nonce {
+				return dispatch.ProofKeyBinding{PublicKey: k.signer(s.OperatorAddress).PubKeyCompressed(), ServiceAuthorizationNonce: nonce, Status: dispatch.ProofKeyRevoked}, nil
+			}
+		}
 		current, err := k.CurrentCortexKey(context.Background(), s.OperatorAddress)
 		if err != nil {
 			return dispatch.ProofKeyBinding{}, err
@@ -74,9 +89,6 @@ func (k *testKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64)
 		if s.ServiceAuthorizationNonce == current.AuthorizationNonce {
 			return dispatch.ProofKeyBinding{PublicKey: current.PubKey, ServiceAuthorizationNonce: current.AuthorizationNonce, Status: dispatch.ProofKeyActive}, nil
 		}
-		k.mu.Lock()
-		p, ok := k.previous[s.OperatorAddress]
-		k.mu.Unlock()
 		if ok && s.ServiceAuthorizationNonce == p.nonce {
 			return dispatch.ProofKeyBinding{PublicKey: p.key.PubKeyCompressed(), ServiceAuthorizationNonce: p.nonce, Status: dispatch.ProofKeyPrevious,
 				PreviousRetiredHeight: p.retired}, nil
@@ -96,6 +108,9 @@ func (k *testKeys) CurrentCortexKey(_ context.Context, operator string) (CortexK
 	}
 	if k.missing[operator] {
 		return CortexKey{}, errors.New("no current key")
+	}
+	if k.revoked[operator] {
+		return CortexKey{}, errors.New("current key revoked")
 	}
 	nonce := testNonce
 	if n, ok := k.nonce[operator]; ok {

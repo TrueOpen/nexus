@@ -18,7 +18,9 @@ import (
 type session struct {
 	operator    string
 	streamNonce []byte
-	stream      FrameStream
+	// bindingNonce is the authorization nonce of the CORTEX key that authenticated the binding.
+	bindingNonce uint64
+	stream       FrameStream
 
 	done    chan struct{}
 	endOnce sync.Once
@@ -40,9 +42,9 @@ type session struct {
 	probeTicks                      int
 }
 
-func newSession(operator string, streamNonce []byte, stream FrameStream) *session {
+func newSession(operator string, streamNonce []byte, bindingNonce uint64, stream FrameStream) *session {
 	return &session{
-		operator: operator, streamNonce: append([]byte(nil), streamNonce...), stream: stream,
+		operator: operator, streamNonce: append([]byte(nil), streamNonce...), bindingNonce: bindingNonce, stream: stream,
 		done: make(chan struct{}), wake: make(chan struct{}, 1), nextCursor: 1,
 	}
 }
@@ -86,7 +88,8 @@ func (h *Hub) transport(s *session, frame *nexusv1.DispatchStreamFrameV1) {
 }
 
 // Serve runs one Cortex stream until it ends: the binding, the replay of unacknowledged messages,
-// then uplink frames and keepalives. It returns ErrBindingInvalid for a refused binding, io.EOF
+// then uplink frames and keepalives; each keepalive tick also checks that the binding's key is
+// still the Cortex's current one. It returns ErrBindingInvalid for a refused binding, io.EOF
 // style errors from the transport, or the reason the hub ended the stream.
 func (h *Hub) Serve(ctx context.Context, stream FrameStream) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -153,7 +156,11 @@ func (h *Hub) Serve(ctx context.Context, stream FrameStream) error {
 			s.end(err)
 			return err
 		case <-ticks:
-			if err := h.keepalive(s); err != nil {
+			err := h.keepalive(s)
+			if err == nil {
+				err = h.checkBindingKey(ctx, s)
+			}
+			if err != nil {
 				s.end(err)
 				return err
 			}
@@ -179,7 +186,7 @@ func (h *Hub) bind(binding *nexusv1.DispatchStreamBindingV1, stream FrameStream)
 		h.mu.Unlock()
 		return nil, err
 	}
-	s := newSession(operator, binding.GetStreamNonce(), stream)
+	s := newSession(operator, binding.GetStreamNonce(), binding.GetServiceAuthorizationNonce(), stream)
 	old := h.sessions[operator]
 	h.sessions[operator] = s
 	err := h.replayLocked(s)

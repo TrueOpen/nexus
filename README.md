@@ -46,8 +46,8 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    the cutover. One taken before the registration was seen waits for the cutover. `nexus status`
    warns when the registered key is not held locally.
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
-   roots (signed again), record transactions from the new service account, and every Cortex
-   stream binds again. Keep the old key configured (as either keystore) while tasks recorded
+   roots (signed again), result headers, input chunks, record notices and record transactions
+   from the new service account. Cortex streams stay up. Keep the old key configured (as either keystore) while tasks recorded
    before the cutover are still open: their Builder messages keep its nonce. Since either slot may
    hold the retired key, the daemon signs nothing until it has read the chain's binding: it reads
    it at startup and, if the chain does not answer, keeps reading it in the background.
@@ -66,6 +66,10 @@ stored result headers, unacknowledged stream messages and group sync items go ou
 as first signed, and still prove orders below the cutover under the retired key. New messages are
 signed with the new key; only the group sync request is signed again, with the current key, at
 every send. nexus sends no revoke yet.
+
+A Cortex stream is bound by the Cortex's current ACTIVE key and checked once, so the daemon ends
+it as soon as it sees that key rotated out or revoked (from the chain's key events, and on each
+keepalive tick in case an event was missed); the Cortex binds again under its new key.
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state

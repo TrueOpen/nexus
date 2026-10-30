@@ -25,7 +25,9 @@ import (
 	"time"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/lograte"
 )
@@ -56,9 +58,10 @@ var (
 	ErrKeepaliveTimeout = errors.New("dispatch stream keepalive timed out")
 	// ErrStopped ends every stream when the hub stops, and refuses new ones.
 	ErrStopped = errors.New("dispatch stream hub stopped")
-	// ErrRebind ends every stream when this Builder's service key changed at a cutover: live
-	// streams need the current key, so each Cortex binds again.
-	ErrRebind = errors.New("dispatch stream ended: the Builder service key changed; bind again")
+	// ErrBindingKeyRetired ends a stream whose binding key is no longer its Cortex's current
+	// ACTIVE key (the Cortex rotated, or its key was revoked): the Cortex binds again under its
+	// current key. This Builder's own rotation ends no stream.
+	ErrBindingKeyRetired = errors.New("dispatch stream ended: the Cortex key that bound it is no longer current; bind again")
 	// ErrNotConnected means a downlink message has no stream to go to.
 	ErrNotConnected = errors.New("cortex dispatch stream not connected")
 )
@@ -244,17 +247,62 @@ func (h *Hub) Stop(context.Context) error {
 	return nil
 }
 
-// Rebind ends every stream with ErrRebind and keeps taking new ones; unacknowledged messages stay
-// stored for the next binding.
-func (h *Hub) Rebind() {
+// ObserveEvent ends the streams a chain event retired the binding key of: SERVICE_KEY_ROTATED of
+// a Cortex (a newer generation became current) ends its stream bound under an older nonce, and
+// SERVICE_KEY_REVOKED of a Cortex its stream bound under the revoked nonce or an older one. Such an
+// event without a readable Cortex operator ends every stream, since any could be affected. Events
+// of Builder keys, this Builder's own rotation included, end nothing. The keepalive check catches
+// an event that never arrives.
+func (h *Hub) ObserveEvent(ev chaincli.ChainEvent) {
+	if ev.Type != chaincli.EventHubOperational {
+		return
+	}
+	var participant sharedv1.ParticipantType
+	var operator string
+	var retiredBelow uint64 // bindings under a nonce below this are retired; 0: all of operator's
+	switch ev.EventCode {
+	case "SERVICE_KEY_ROTATED":
+		rotated, ok := ev.Typed.(chaincli.ServiceKeyRotated)
+		if !ok {
+			h.endBindings("", 0, ev.EventCode)
+			return
+		}
+		participant, operator, retiredBelow = rotated.ParticipantType, rotated.Operator, rotated.AuthorizationNonce
+	case "SERVICE_KEY_REVOKED":
+		revoked, ok := ev.Typed.(chaincli.ServiceKeyRevoked)
+		if !ok {
+			h.endBindings("", 0, ev.EventCode)
+			return
+		}
+		participant, operator = revoked.ParticipantType, revoked.Operator
+		if revoked.AuthorizationNonce != 0 {
+			retiredBelow = revoked.AuthorizationNonce + 1
+		}
+	default:
+		return
+	}
+	switch {
+	case participant != sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX:
+	case operator == "":
+		h.endBindings("", 0, ev.EventCode)
+	default:
+		h.endBindings(operator, retiredBelow, ev.EventCode)
+	}
+}
+
+// endBindings ends with ErrBindingKeyRetired operator's stream (every stream when operator is
+// empty) bound under a nonce below retiredBelow (any nonce when it is 0).
+func (h *Hub) endBindings(operator string, retiredBelow uint64, reason string) {
 	h.mu.Lock()
-	sessions := make([]*session, 0, len(h.sessions))
-	for _, s := range h.sessions {
-		sessions = append(sessions, s)
+	var ended []*session
+	for op, s := range h.sessions {
+		if (operator == "" || op == operator) && (retiredBelow == 0 || s.bindingNonce < retiredBelow) {
+			ended = append(ended, s)
+		}
 	}
 	h.mu.Unlock()
-	for _, s := range sessions {
-		s.end(ErrRebind)
+	for _, s := range ended {
+		s.end(fmt.Errorf("%w: %s", ErrBindingKeyRetired, reason))
 	}
 }
 

@@ -261,10 +261,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// Current service keys are read on every stream message, handraise and Builder signature; the
 	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
 	// protocol stream, drops a rotated key at once.
+	// The same events end a Cortex stream whose binding key the Cortex rotated out or had revoked
+	// (keyedStreams is the stream hub, set once it exists).
 	var keyCache *servicekey.Cache
+	var keyedStreams atomic.Pointer[dispatchstream.Hub]
 	keyEvents := chaincli.WithEventObserver(func(ev chaincli.ChainEvent) {
 		if keyCache != nil {
 			keyCache.ObserveEvent(ev)
+		}
+		if h := keyedStreams.Load(); h != nil {
+			h.ObserveEvent(ev)
 		}
 	})
 	eventOptions.task = append(eventOptions.task, keyEvents)
@@ -351,9 +357,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	var registrationModule *module
 	var serviceSG signer.Signer
 	// serviceRing is serviceSG: it signs with whichever local service key the chain holds current.
-	// switchedStreams is the stream hub its cutover rebinds, set once the hub exists.
 	var serviceRing *servicekey.Ring
-	var switchedStreams atomic.Pointer[dispatchstream.Hub]
 	var taskSubmitter coordinator.Submitter
 	// metrics are the order path's stage timings, skips and Worker outcomes, for the operator
 	// status and the public statistics.
@@ -383,14 +387,12 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			keys = append(keys, nextKey)
 			log.Info("second service key loaded; the chain binding decides which key signs", "address", nextKey.Address())
 		}
-		// At a cutover the chain makes the registered replacement current; the ring signs with it
-		// from its next read, and every Cortex stream binds again under the new key.
+		// At a cutover the chain makes the registered replacement current; the ring signs new
+		// messages with it from its next read. Cortex streams stay up: what was signed before keeps
+		// its own nonce.
 		onSwitch := func(old, current servicekey.Key) {
 			log.Info("service key cutover: signing with the new current key", "old_nonce", old.Nonce, "nonce", current.Nonce,
 				"service_address", current.Signer.Address())
-			if h := switchedStreams.Load(); h != nil {
-				h.Rebind()
-			}
 		}
 		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, onSwitch, keys...); err != nil {
 			_ = store.Close()
@@ -453,7 +455,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)
 	}
-	switchedStreams.Store(streams)
+	keyedStreams.Store(streams)
 	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	sinks := dispatchstream.Sinks{Verifier: coord}

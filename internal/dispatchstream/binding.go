@@ -23,8 +23,9 @@ const (
 
 // verifyBinding checks the first frame of a stream: a DispatchStreamBindingV1 of schema version 1
 // with a 32-byte stream_nonce, carried with cursor 0, for this chain and this Builder, signed over
-// its wire signing digest by the cortex operator's current CORTEX key with that key's
-// authorization nonce. It does not record the binding (see claimBindingLocked).
+// its wire signing digest by the cortex operator's current ACTIVE CORTEX key under that key's
+// authorization nonce (wire VerifyDispatchStreamBinding: a revoked, previous or pending key never
+// authorizes a stream). It does not record the binding (see claimBindingLocked).
 func (h *Hub) verifyBinding(ctx context.Context, frame *nexusv1.DispatchStreamFrameV1) (*nexusv1.DispatchStreamBindingV1, error) {
 	binding := frame.GetBinding()
 	switch {
@@ -47,25 +48,30 @@ func (h *Hub) verifyBinding(ctx context.Context, frame *nexusv1.DispatchStreamFr
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode: %v", ErrBindingInvalid, err)
 	}
-	digest, err := dispatch.SigningDigest(bindingMessage, raw)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBindingInvalid, err)
-	}
-	key, err := h.keys.CurrentCortexKey(ctx, binding.GetCortexOperator())
-	if err != nil {
+	if err := dispatch.VerifyDispatchStreamBinding(h.cfg.ChainID, h.cfg.BuilderOperator, raw, h.keys.ProofOptions(ctx, nil)); err != nil {
 		if errors.Is(err, ErrTransient) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("%w: %v", ErrBindingInvalid, err)
 	}
-	if binding.GetServiceAuthorizationNonce() != key.AuthorizationNonce {
-		return nil, fmt.Errorf("%w: service_authorization_nonce %d is not the current %d",
-			ErrBindingInvalid, binding.GetServiceAuthorizationNonce(), key.AuthorizationNonce)
-	}
-	if err := dispatch.VerifyDigestSignature(key.PubKey, digest[:], binding.GetServiceSignature()); err != nil {
-		return nil, fmt.Errorf("%w: service_signature: %v", ErrBindingInvalid, err)
-	}
 	return binding, nil
+}
+
+// checkBindingKey ends nothing while the CORTEX key that authenticated s's binding is still its
+// operator's current ACTIVE key. Otherwise (the Cortex rotated, or its key was revoked or is gone)
+// it returns ErrBindingKeyRetired: a binding is checked once per connection, so the stream must
+// not outlive its key. A chain that cannot answer ends nothing.
+func (h *Hub) checkBindingKey(ctx context.Context, s *session) error {
+	key, err := h.keys.CurrentCortexKey(ctx, s.operator)
+	switch {
+	case errors.Is(err, ErrTransient):
+		return nil
+	case err != nil:
+		return fmt.Errorf("%w: %v", ErrBindingKeyRetired, err)
+	case key.AuthorizationNonce != s.bindingNonce:
+		return fmt.Errorf("%w: current nonce %d, bound under %d", ErrBindingKeyRetired, key.AuthorizationNonce, s.bindingNonce)
+	}
+	return nil
 }
 
 // claimBindingLocked records (operator, nonce, stream_nonce) once; a second use of the same binding is

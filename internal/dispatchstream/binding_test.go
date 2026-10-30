@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 	"github.com/TrueOpen/wire/dispatch"
@@ -110,6 +113,15 @@ func TestBindingRefusals(t *testing.T) {
 		}, ErrBindingInvalid},
 		{"stale nonce", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
 			h.keys.nonce[cortexA] = testNonce + 1
+			return bindingFrame(h.keys.binding(h.t, cortexA, hash32("n")))
+		}, ErrBindingInvalid},
+		{"previous key", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			h.keys.nonce[cortexA] = testNonce + 1
+			h.keys.previous[cortexA] = previousKey{key: h.keys.signer(cortexA), nonce: testNonce, retired: 100}
+			return bindingFrame(h.keys.binding(h.t, cortexA, hash32("n")))
+		}, ErrBindingInvalid},
+		{"revoked current key", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
+			h.keys.revoked[cortexA] = true
 			return bindingFrame(h.keys.binding(h.t, cortexA, hash32("n")))
 		}, ErrBindingInvalid},
 		{"no current key", func(h *harness) *nexusv1.DispatchStreamFrameV1 {
@@ -246,19 +258,74 @@ func TestStopEndsStreamsAndRefusesNewOnes(t *testing.T) {
 	}
 }
 
-// A cutover of this Builder's service key ends every stream so each Cortex binds again under the
-// new current key; new streams are taken as before.
-func TestRebindEndsEveryStream(t *testing.T) {
+// The Builder ends a Cortex's stream as soon as it sees that the key that authenticated the
+// binding is no longer that Cortex's current ACTIVE key: the Cortex rotated (a new generation became
+// current) or its key was revoked. Another Cortex's streams, a stream already bound under the new
+// generation and this Builder's own rotation end nothing.
+func TestCortexKeyEventsEndTheStreamsTheyRetire(t *testing.T) {
 	h := newHarness(t)
 	a, b := h.connect(cortexA, "1"), h.connect(cortexB, "2")
-	h.hub.Rebind()
-	for _, s := range []*served{a, b} {
-		if err := s.wait(t); !errors.Is(err, ErrRebind) {
-			t.Fatalf("stream ended with %v, want ErrRebind", err)
-		}
+	rotated := func(participant sharedv1.ParticipantType, operator string, nonce uint64) chaincli.ChainEvent {
+		return chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_ROTATED",
+			Typed: chaincli.ServiceKeyRotated{ParticipantType: participant, Operator: operator, AuthorizationNonce: nonce}}
 	}
-	h.connect(cortexA, "3")
-	if !h.hub.Connected(cortexA) {
-		t.Fatal("a new stream after the rebind was not taken")
+	h.hub.ObserveEvent(rotated(sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, testBuilder, testNonce+1))
+	h.hub.ObserveEvent(rotated(sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, cortexA, testNonce))
+	if !h.hub.Connected(cortexA) || !h.hub.Connected(cortexB) {
+		t.Fatal("a stream ended on a rotation that did not retire its binding key")
+	}
+	h.hub.ObserveEvent(rotated(sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, cortexA, testNonce+1))
+	if err := a.wait(t); !errors.Is(err, ErrBindingKeyRetired) {
+		t.Fatalf("stream after its Cortex rotated ended with %v, want ErrBindingKeyRetired", err)
+	}
+	if !h.hub.Connected(cortexB) {
+		t.Fatal("another Cortex's stream ended")
+	}
+	h.hub.ObserveEvent(chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_REVOKED",
+		Typed: chaincli.ServiceKeyRevoked{ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, Operator: cortexB, AuthorizationNonce: testNonce}})
+	if err := b.wait(t); !errors.Is(err, ErrBindingKeyRetired) {
+		t.Fatalf("stream after its Cortex key was revoked ended with %v, want ErrBindingKeyRetired", err)
+	}
+	// The Cortex binds again under its new current key.
+	h.keys.nonce[cortexA] = testNonce + 1
+	nonce := hash32("stream|3")
+	binding := h.keys.binding(t, cortexA, nonce)
+	binding.ServiceAuthorizationNonce = testNonce + 1
+	h.keys.signBinding(t, binding)
+	h.open(bindingFrame(binding))
+	h.waitConn(cortexA, true)
+}
+
+// A key event the Builder missed is caught on the next keepalive tick: a stream whose binding key
+// is no longer its Cortex's current one, or whose Cortex has no current key, ends; a chain that
+// cannot answer ends nothing.
+func TestKeepaliveTickEndsAStreamWhoseBindingKeyIsGone(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(k *testKeys)
+		ended  bool
+	}{
+		{"rotated", func(k *testKeys) { k.nonce[cortexA] = testNonce + 1 }, true},
+		{"revoked", func(k *testKeys) { k.revoked[cortexA] = true }, true},
+		{"chain unreadable", func(k *testKeys) { k.transient = true }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			s := h.connect(cortexA, "1")
+			h.keys.mu.Lock()
+			tc.change(h.keys)
+			h.keys.mu.Unlock()
+			h.ticks <- time.Time{}
+			if !tc.ended {
+				h.ticks <- time.Time{} // the first tick was taken, so the check ran
+				if !h.hub.Connected(cortexA) {
+					t.Fatal("stream ended while the chain could not answer")
+				}
+				return
+			}
+			if err := s.wait(t); !errors.Is(err, ErrBindingKeyRetired) {
+				t.Fatalf("stream ended with %v, want ErrBindingKeyRetired", err)
+			}
+		})
 	}
 }
