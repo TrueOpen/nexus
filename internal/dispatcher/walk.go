@@ -193,7 +193,9 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 // its record deadline is ahead, this Builder does not drain (unless the order is a takeover's)
 // and its key may sign for the order: while its rotation is pending, only an order below the
 // effective height (one at or above it waits for the cutover). It walks past members
-// that cannot be reached until one is offered or the order fails. Caller holds o.mu.
+// that cannot be reached until one is offered or the order fails. A pending Builder signs no new
+// root, so a round opened once the last root's handraises expired finds no member and fails the
+// order as no capacity. Caller holds o.mu.
 func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	st := o.st
 	o.parked = false

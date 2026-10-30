@@ -553,9 +553,11 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 // pendingRotation is Probe's local admission while this Builder's key rotation is pending. An
 // order at or above the effective height lands at or after the cutover, where only the next key
 // proves its tickets and records, and the next key cannot sign before it: such an order is
-// DISPATCH_NOT_READY until the effective height. A pending Builder accepts no new session: an
-// order of a session bound to it since the registration is NO_CAPACITY. Older sessions' orders
-// below the effective height go on under the current key.
+// DISPATCH_NOT_READY until the effective height (earliest_submit_height being at most the next
+// block, only in the block just before it). A pending Builder accepts no new session: an order of a session
+// bound to it since the registration is NO_CAPACITY. Older sessions' orders below the effective
+// height go on under the current key, but a pending Builder signs no new root: they draw from the
+// last root only until its handraises expire, and are NO_CAPACITY after that.
 func (d *Dispatcher) pendingRotation(ctx context.Context, sessionID string, esh, epoch uint64, rotation *handraise.RotationPendingError) error {
 	if esh >= rotation.EffectiveHeight {
 		return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: rotation.EffectiveHeight,

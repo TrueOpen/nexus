@@ -34,11 +34,17 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    Restart once so the daemon holds both keys, then submit the rotation with the operator key.
 2. While the rotation is pending the Builder signs no new handraise roots and takes no new
    session (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY` for a session bound to it since the
-   registration, and no takeover is admitted). Orders of its sessions below the effective height
-   are dispatched under the current key; an order at or above it is answered
-   `NEXUS_INGRESS_DISPATCH_NOT_READY` with `dispatch_available_height` set to the effective height,
-   and one taken before the registration was seen waits for the cutover. `nexus status` warns
-   when the registered key is not held locally.
+   registration, and no takeover is admitted). Its older sessions' orders below the effective
+   height can still be dispatched under the current key, but only from the last root signed
+   before the registration, and only until that root's handraises expire (their
+   `expiry_height` against the head): after that OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`,
+   and an order already taken that needs another round fails as no capacity. Most users in the
+   window therefore see `NEXUS_INGRESS_NO_CAPACITY` and go to another Builder. An order at or
+   above the effective height is answered `NEXUS_INGRESS_DISPATCH_NOT_READY` with
+   `dispatch_available_height` set to the effective height; since an order's
+   `earliest_submit_height` is at most the next block, that happens only in the block just before
+   the cutover. One taken before the registration was seen waits for the cutover. `nexus status`
+   warns when the registered key is not held locally.
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
    roots (signed again), record transactions from the new service account, and every Cortex
    stream binds again. Keep the old key configured (as either keystore) while tasks recorded
