@@ -236,6 +236,11 @@ type IngressConfig struct {
 	// source address (0 = 1000 and 2000). The other Builders of this Builder's groups send them.
 	BuilderSyncRequestsPerSecond uint32 `yaml:"builder_sync_requests_per_second"`
 	BuilderSyncBurst             uint32 `yaml:"builder_sync_burst"`
+	// OutputReplicaWait bounds how long SubscribeOutput / ResumeOutput (and the user's
+	// GetDispatchRoster) on a Task Builders group member wait for the replica of a task the chain
+	// recorded to catch up before answering the retryable NEXUS_OUTPUT_REPLICA_NOT_READY. It must
+	// be below MaxOutputReplicaWait; 0 = DefaultOutputReplicaWait, a negative value is refused.
+	OutputReplicaWait time.Duration `yaml:"output_replica_wait"`
 	// TLS lets ingress terminate TLS itself (HTTP/2 over TLS) instead of depending on a front proxy.
 	TLS IngressTLSConfig `yaml:"tls"`
 }
@@ -250,6 +255,15 @@ const DefaultMaxSessionGrantBlocks = uint64(17280)
 // be allowed to last almost forever.
 const MaxSessionGrantBlocksLimit = uint64(518400)
 
+// DefaultOutputReplicaWait is ingress.output_replica_wait when unset.
+const DefaultOutputReplicaWait = 2 * time.Second
+
+// MaxOutputReplicaWait bounds ingress.output_replica_wait from above: the retryable answer must
+// reach the SDK well within its own request deadline, or the SDK gives up on this Builder instead
+// of retrying or falling back to FetchTaskData(OUTPUT). A request whose own deadline is nearer
+// waits for at most half the time left to it.
+const MaxOutputReplicaWait = 10 * time.Second
+
 // MaxSessionKeyCacheTTLBlocks caps ingress.session_key_cache_ttl_blocks: a revoked key may still pass
 // request checks on this Builder for up to that many blocks.
 const MaxSessionKeyCacheTTLBlocks = uint64(10)
@@ -260,6 +274,14 @@ func (c IngressConfig) SessionGrantBlocks() uint64 {
 		return DefaultMaxSessionGrantBlocks
 	}
 	return c.MaxSessionGrantBlocks
+}
+
+// ReplicaWait returns OutputReplicaWait, or the default when unset.
+func (c IngressConfig) ReplicaWait() time.Duration {
+	if c.OutputReplicaWait == 0 {
+		return DefaultOutputReplicaWait
+	}
+	return c.OutputReplicaWait
 }
 
 // IngressTLSConfig is the TLS listener configuration of ingress.
@@ -301,6 +323,9 @@ func (c Config) ValidateTransport() error {
 	}
 	if n := c.Ingress.SessionKeyCacheTTLBlocks; n > MaxSessionKeyCacheTTLBlocks {
 		return fmt.Errorf("ingress.session_key_cache_ttl_blocks %d is above the limit %d", n, MaxSessionKeyCacheTTLBlocks)
+	}
+	if w := c.Ingress.ReplicaWait(); w <= 0 || w >= MaxOutputReplicaWait {
+		return fmt.Errorf("ingress.output_replica_wait %v must be above 0 and below %v", w, MaxOutputReplicaWait)
 	}
 	endpoint := strings.TrimSpace(c.Identity.PublicEndpoint)
 	if !c.Ingress.TLS.Enabled || endpoint == "" {
@@ -627,6 +652,7 @@ func applyEnv(cfg *Config) {
 	cfg.Ingress.SessionKeyLookupsPerSecond = envUint32("NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND", cfg.Ingress.SessionKeyLookupsPerSecond)
 	cfg.Ingress.BuilderSyncRequestsPerSecond = envUint32("NEXUS_INGRESS_BUILDER_SYNC_REQUESTS_PER_SECOND", cfg.Ingress.BuilderSyncRequestsPerSecond)
 	cfg.Ingress.BuilderSyncBurst = envUint32("NEXUS_INGRESS_BUILDER_SYNC_BURST", cfg.Ingress.BuilderSyncBurst)
+	cfg.Ingress.OutputReplicaWait = envDuration("NEXUS_INGRESS_OUTPUT_REPLICA_WAIT", cfg.Ingress.OutputReplicaWait)
 	cfg.Security.Mode = SecurityMode(strings.ToLower(strings.TrimSpace(env("NEXUS_SECURITY_MODE", string(cfg.Security.Mode)))))
 	cfg.Chain.GRPCAddr = env("NEXUS_CHAIN_GRPC", cfg.Chain.GRPCAddr)
 	cfg.Chain.ChainID = env("NEXUS_CHAIN_ID", cfg.Chain.ChainID)

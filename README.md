@@ -218,6 +218,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS` | `17280` | Longest session grant a user may sign, in blocks past the current height; must be the same on every Builder |
 | `NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS` | `5` | Blocks the chain state of a session's registered key is reused for (1..10) |
 | `NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND` | `20` | Chain reads of session state allowed per second on cache misses |
+| `NEXUS_INGRESS_OUTPUT_REPLICA_WAIT` | `2s` | Longest wait of a Task Builders group member for its replica of a recorded task before `NEXUS_OUTPUT_REPLICA_NOT_READY` (below 10s) |
 | `NEXUS_API_KEYS` | (empty) | Comma-separated list of valid api-keys; empty = no check |
 | `NEXUS_IP_WHITELIST` | (empty) | Comma-separated allowed IPs/CIDRs; empty = unrestricted |
 | `NEXUS_PAYLOAD_MAX_BYTES` | `16777216` | Max bytes of a single encrypted task input; also derives the Ingress message/body limit; inputs are retained until the on-chain deadline or task terminal state |
@@ -286,6 +287,15 @@ group over `BuilderSyncService` on the ingress port (batches signed with the Bui
 API key; limited per source address by `ingress.builder_sync_requests_per_second` and
 `ingress.builder_sync_burst`, defaults 1000 and 2000). The dispatching side keeps an outbox per order
 and deletes the items every member applied.
+
+A member serves `SubscribeOutput` / `ResumeOutput` of an order (from its replica) once the chain
+has recorded the order with the member in its Task Builders group, which it confirms with the
+chain's Task Builders query (a recorded group is cached; "not recorded" for one second). Before
+that the answer is `FailedPrecondition` (`NEXUS_INGRESS_SESSION_UNBOUND`). After it, a replica that
+has not caught up yet is waited for at most `ingress.output_replica_wait` (default 2s, must be
+below 10s; and at most half the time left to the request's own deadline); then the answer is the
+retryable `Unavailable` (`NEXUS_OUTPUT_REPLICA_NOT_READY`), and the SDK retries or falls back to
+`FetchTaskData(OUTPUT)`.
 
 A member that later reports fewer items than were deleted has lost its data directory. It is logged
 once as an error ("group member holds fewer of an order's sync items ...") and counted as an alarm,

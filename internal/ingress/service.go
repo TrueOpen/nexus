@@ -140,8 +140,11 @@ type service struct {
 	// dispatchRosters serves GetDispatchRoster (nil = Unimplemented).
 	dispatchRosters DispatchRosters
 	// memberReplicas holds the tasks this Builder keeps as a Task Builders group member (nil =
-	// none).
+	// none); taskRecords confirms from the chain which tasks are recorded with this Builder in
+	// their group, and replicaWait bounds the wait for a replica of one to catch up.
 	memberReplicas MemberReplicas
+	taskRecords    *taskRecords
+	replicaWait    time.Duration
 	// metrics times the precheck and first output frames (nil = none).
 	metrics *opsmetrics.Registry
 }

@@ -636,3 +636,36 @@ func TestLoadFileResolvesVRFKeyPathsAgainstTheConfigFile(t *testing.T) {
 		t.Fatalf("vrf key password file = %q", cfg.Identity.VRFKeyPasswordFile)
 	}
 }
+
+// ingress.output_replica_wait defaults to 2s when unset, loads from the example and the
+// environment, and must be positive and below MaxOutputReplicaWait.
+func TestOutputReplicaWaitSettings(t *testing.T) {
+	cfg := defaults()
+	if got := cfg.Ingress.ReplicaWait(); got != DefaultOutputReplicaWait || DefaultOutputReplicaWait != 2*time.Second {
+		t.Fatalf("default wait = %v", got)
+	}
+	if err := cfg.ValidateTransport(); err != nil {
+		t.Fatalf("default wait: %v", err)
+	}
+	for _, bad := range []time.Duration{-time.Second, MaxOutputReplicaWait} {
+		cfg.Ingress.OutputReplicaWait = bad
+		if err := cfg.ValidateTransport(); err == nil {
+			t.Fatalf("wait %v was accepted", bad)
+		}
+	}
+	cfg.Ingress.OutputReplicaWait = MaxOutputReplicaWait - time.Millisecond
+	if err := cfg.ValidateTransport(); err != nil || cfg.Ingress.ReplicaWait() != MaxOutputReplicaWait-time.Millisecond {
+		t.Fatalf("wait just below the limit: %v", err)
+	}
+	example, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if example.Ingress.ReplicaWait() != 2*time.Second || example.Ingress.OutputReplicaWait != 2*time.Second {
+		t.Fatalf("example: %v", example.Ingress.OutputReplicaWait)
+	}
+	t.Setenv("NEXUS_INGRESS_OUTPUT_REPLICA_WAIT", "500ms")
+	if got := Load().Ingress.ReplicaWait(); got != 500*time.Millisecond {
+		t.Fatalf("env: %v", got)
+	}
+}

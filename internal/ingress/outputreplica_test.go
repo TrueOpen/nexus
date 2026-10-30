@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,15 +21,106 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/buildersync"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 )
 
 // fakeReplicas holds the synced attempts of a group member.
-type fakeReplicas map[string]attempt.Attempt // session|task
+type fakeReplicas struct {
+	mu       sync.Mutex
+	held     map[string]attempt.Attempt // session|task
+	watchers map[string][]chan struct{}
+}
 
-func (f fakeReplicas) Replica(sessionID, taskID string) (attempt.Attempt, bool) {
-	a, ok := f[sessionID+"|"+taskID]
+func newFakeReplicas() *fakeReplicas {
+	return &fakeReplicas{held: map[string]attempt.Attempt{}, watchers: map[string][]chan struct{}{}}
+}
+
+func (f *fakeReplicas) Replica(sessionID, taskID string) (attempt.Attempt, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a, ok := f.held[sessionID+"|"+taskID]
 	return a, ok
+}
+
+func (f *fakeReplicas) Watch(taskID string) (<-chan struct{}, func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ch := make(chan struct{}, 1)
+	f.watchers[taskID] = append(f.watchers[taskID], ch)
+	return ch, func() {}
+}
+
+// put stores a synced attempt and signals the task's watchers, as an applied batch does.
+func (f *fakeReplicas) put(a attempt.Attempt) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held[a.SessionID+"|"+a.TaskID] = a
+	for _, ch := range f.watchers[a.TaskID] {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// fakeTaskBuilders answers the chain's Task Builders of recorded tasks.
+type fakeTaskBuilders struct {
+	mu       sync.Mutex
+	selected map[string][]string // task -> selected Task Builders
+	err      error
+	reads    int
+}
+
+func (f *fakeTaskBuilders) QueryTaskBuilders(_ context.Context, key chaincli.TaskKey) (chaincli.TaskBuilderSelectionState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if f.err != nil {
+		return chaincli.TaskBuilderSelectionState{}, f.err
+	}
+	selected, ok := f.selected[key.TaskID]
+	if !ok {
+		return chaincli.TaskBuilderSelectionState{}, chaincli.ErrNotFound
+	}
+	return chaincli.TaskBuilderSelectionState{TaskID: key.TaskID, SelectedBuilders: selected}, nil
+}
+
+func (f *fakeTaskBuilders) record(taskID string, builders ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.selected[taskID] = builders
+}
+
+func (f *fakeTaskBuilders) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
+}
+
+const testMemberBuilder = "trueopen1member"
+
+// recordedAttempt is the synced attempt of the task once the chain recorded it, with ticket as
+// the recorded winner.
+func (s *subscription) recordedAttempt(ticket [32]byte) attempt.Attempt {
+	s.t.Helper()
+	header, err := proto.Marshal(&nexusv1.DispatchResultHeaderV1{
+		Accept: &taskv1.DispatchAcceptV1{DispatchTicketHash: ticket[:]}, RecordStatus: attempt.Recorded,
+	})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Recorded, TicketHash: ticket, User: s.owner, Header: header}
+}
+
+// memberService makes s a group member that does not know the task itself (its coordinator has
+// no such task), with the replicas and chain it reads, waiting at most wait.
+func (s *subscription) memberService(wait time.Duration) (*fakeReplicas, *fakeTaskBuilders) {
+	replicas, chain := newFakeReplicas(), &fakeTaskBuilders{selected: map[string][]string{}}
+	s.svc.h = &fakeHandler{}
+	s.svc.auth.BuilderAddress = testMemberBuilder
+	withMemberReplicas(replicas, chain, wait)(s.svc)
+	return replicas, chain
 }
 
 // memberSubscription is a subscription on a Builder that holds the task only as a group member.
@@ -36,17 +128,14 @@ func memberSubscription(t *testing.T, status attempt.Status) (*subscription, [32
 	t.Helper()
 	s := newSubscription(t)
 	ticket := [32]byte(bytes.Repeat([]byte{0x7b}, 32))
+	replicas, chain := s.memberService(time.Second)
+	s.svc.h = &fakeHandler{taskOwner: s.owner}
 	a := attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Pending, User: s.owner}
 	if status == attempt.Recorded {
-		header, err := proto.Marshal(&nexusv1.DispatchResultHeaderV1{
-			Accept: &taskv1.DispatchAcceptV1{DispatchTicketHash: ticket[:]}, RecordStatus: attempt.Recorded,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		a.Status, a.TicketHash, a.User, a.Header = attempt.Recorded, ticket, s.owner, header
+		a = s.recordedAttempt(ticket)
+		chain.record(s.task, "trueopen1dispatcher", testMemberBuilder)
 	}
-	s.svc.memberReplicas = fakeReplicas{s.session + "|" + s.task: a}
+	replicas.put(a)
 	return s, ticket
 }
 
@@ -90,6 +179,127 @@ func TestMemberResumeAfterTheRecord(t *testing.T) {
 	r.fin(2)
 	if err := r.end(); err != nil {
 		t.Fatalf("end = %v", err)
+	}
+}
+
+// Once the chain recorded the order, a member whose replica has not caught up waits for it
+// (bounded) and then serves it: a pending replica is not SESSION_UNBOUND any more.
+func TestMemberWaitsForItsReplicaAfterTheRecord(t *testing.T) {
+	s, ticket := memberSubscription(t, attempt.Pending)
+	replicas, chain := s.svc.memberReplicas.(*fakeReplicas), s.svc.taskRecords.chain.(*fakeTaskBuilders)
+	chain.record(s.task, "trueopen1dispatcher", testMemberBuilder)
+	r := s.serve(context.Background(), s.owner, nil, ticket[:])
+	r.quiet()
+	replicas.put(s.recordedAttempt(ticket))
+	r.header(attempt.Recorded, ticket)
+	s.push(chunkOf(ticket, 0, 4))
+	r.chunk(0, 4)
+	s.push(finOf(ticket, 0))
+	r.fin(0)
+	if err := r.end(); err != nil {
+		t.Fatalf("end = %v", err)
+	}
+}
+
+// A member that holds nothing of a task the chain recorded with it in the group waits for the
+// replica; if it does not come within the wait the answer is the retryable
+// NEXUS_OUTPUT_REPLICA_NOT_READY, never SESSION_UNBOUND, so the SDK falls back to FetchTaskData.
+func TestMemberReplicaNotReadyAfterTheWait(t *testing.T) {
+	s := newSubscription(t)
+	ticket := [32]byte(bytes.Repeat([]byte{0x7b}, 32))
+	_, chain := s.memberService(30 * time.Millisecond)
+	chain.record(s.task, "trueopen1dispatcher", testMemberBuilder)
+	err := s.serve(context.Background(), s.owner, nil, ticket[:]).end()
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "NEXUS_OUTPUT_REPLICA_NOT_READY") {
+		t.Fatalf("replica not caught up = %v", err)
+	}
+	// The pending replica of a recorded order is not SESSION_UNBOUND either.
+	s.svc.memberReplicas.(*fakeReplicas).put(attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Pending, User: s.owner})
+	err = s.serve(context.Background(), s.owner, nil, ticket[:]).end()
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "NEXUS_OUTPUT_REPLICA_NOT_READY") {
+		t.Fatalf("pending replica of a recorded order = %v", err)
+	}
+}
+
+// A task the chain has not recorded, or recorded without this Builder in its group, is not this
+// member's: without a replica it is unknown here (task not found), as before.
+func TestMemberWithoutARecordIsNotTheTasksMember(t *testing.T) {
+	s := newSubscription(t)
+	ticket := [32]byte(bytes.Repeat([]byte{0x7b}, 32))
+	_, chain := s.memberService(time.Second)
+	if err := s.serve(context.Background(), s.owner, nil, ticket[:]).end(); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("not recorded = %v", err)
+	}
+	chain.record(s.task, "trueopen1dispatcher", "trueopen1other")
+	if err := s.serve(context.Background(), s.owner, nil, ticket[:]).end(); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("recorded without this Builder = %v", err)
+	}
+}
+
+// A chain that cannot be read leaves the record undecided: Unavailable, neither served nor
+// SESSION_UNBOUND.
+func TestMemberRecordUnreadableIsUnavailable(t *testing.T) {
+	s, ticket := memberSubscription(t, attempt.Pending)
+	s.svc.taskRecords.chain.(*fakeTaskBuilders).err = errors.New("node unreachable")
+	err := s.serve(context.Background(), s.owner, nil, ticket[:]).end()
+	if connect.CodeOf(err) != connect.CodeUnavailable || strings.Contains(err.Error(), "SESSION_UNBOUND") {
+		t.Fatalf("chain unreadable = %v", err)
+	}
+}
+
+// The chain's answer is cached: a recorded task with this Builder in its group never changes and
+// is not read again; "not recorded" stands for a short while.
+func TestMemberRecordReadsAreCached(t *testing.T) {
+	s := newSubscription(t)
+	ticket := [32]byte(bytes.Repeat([]byte{0x7b}, 32))
+	replicas, chain := s.memberService(20 * time.Millisecond)
+	now := time.Unix(1_800_000_000, 0)
+	s.svc.taskRecords.now = func() time.Time { return now }
+	for range 3 {
+		_ = s.serve(context.Background(), s.owner, nil, ticket[:]).end()
+	}
+	if n := chain.readCount(); n != 1 {
+		t.Fatalf("chain reads while \"not recorded\" stands = %d", n)
+	}
+	chain.record(s.task, testMemberBuilder)
+	now = now.Add(time.Minute)
+	for range 3 {
+		_ = s.serve(context.Background(), s.owner, nil, ticket[:]).end()
+	}
+	if n := chain.readCount(); n != 2 {
+		t.Fatalf("chain reads of a recorded task = %d", n)
+	}
+	replicas.put(s.recordedAttempt(ticket))
+	r := s.serve(context.Background(), s.owner, nil, ticket[:])
+	r.header(attempt.Recorded, ticket)
+}
+
+// GetDispatchRoster asked with the user's envelope on a member is answered once the chain recorded
+// the task: before, the task is unknown here; after, the synced rounds name the user, and a member
+// that holds nothing of the task waits for them like a subscription, NEXUS_OUTPUT_REPLICA_NOT_READY
+// on timeout.
+func TestRosterOwnerWaitsForTheReplica(t *testing.T) {
+	s := newSubscription(t)
+	replicas, chain := s.memberService(30 * time.Millisecond)
+	pending := attempt.Attempt{SessionID: s.session, Sequence: 1, TaskID: s.task, Status: attempt.Pending, User: s.owner}
+	replicas.put(pending)
+	if err := s.svc.requireTaskOrReplicaOwner(context.Background(), s.session, s.task, s.owner); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("roster owner before the record = %v", err)
+	}
+	replicas = newFakeReplicas()
+	s.svc.memberReplicas = replicas
+	chain.record(s.task, testMemberBuilder)
+	s.svc.taskRecords.now = func() time.Time { return time.Now().Add(taskRecordMissTTL) }
+	err := s.svc.requireTaskOrReplicaOwner(context.Background(), s.session, s.task, s.owner)
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "NEXUS_OUTPUT_REPLICA_NOT_READY") {
+		t.Fatalf("roster owner without the replica = %v", err)
+	}
+	replicas.put(pending)
+	if err := s.svc.requireTaskOrReplicaOwner(context.Background(), s.session, s.task, s.owner); err != nil {
+		t.Fatalf("roster owner with the synced rounds of a recorded task = %v", err)
+	}
+	if err := s.svc.requireTaskOrReplicaOwner(context.Background(), s.session, s.task, "trueopen1someoneelse"); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("another requester: %v", err)
 	}
 }
 

@@ -109,6 +109,8 @@ type Server struct {
 	dispatchStream       dispatchStreamServer
 	dispatchRosters      DispatchRosters
 	memberReplicas       MemberReplicas
+	taskBuilders         TaskBuilders
+	replicaWait          time.Duration
 	builderSync          builderSyncService
 	metrics              *opsmetrics.Registry
 	routes               []route
@@ -228,7 +230,7 @@ func (s *Server) handler() http.Handler {
 		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))
 	}
 	if s.memberReplicas != nil {
-		serviceOptions = append(serviceOptions, withMemberReplicas(s.memberReplicas))
+		serviceOptions = append(serviceOptions, withMemberReplicas(s.memberReplicas, s.taskBuilders, s.replicaWait))
 	}
 	service := newService(s.h, s.auth, serviceOptions...)
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)

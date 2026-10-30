@@ -108,6 +108,8 @@ type Receiver struct {
 
 	head      atomic.Uint64
 	lastPrune atomic.Uint64
+
+	watch watchers
 }
 
 // NewReceiver builds a Receiver.
@@ -227,6 +229,12 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 	}
 	resp := &nexusv1.SyncResponse{}
 	in := &incoming{senderKey: senderKey}
+	applied := m.Applied
+	defer func() {
+		if m.Applied > applied && m.TaskID != "" {
+			r.watch.notify(m.TaskID)
+		}
+	}()
 	for _, item := range batch.GetItems() {
 		digest, err := itemDigest(item)
 		if err != nil {

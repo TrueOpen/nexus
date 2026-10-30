@@ -26,6 +26,10 @@ ingress:
   # Builders of this Builder's groups sync their orders here (defaults 1000 and 2000).
   builder_sync_requests_per_second: 1000
   builder_sync_burst: 2000
+  # How long a Task Builders group member waits for its replica of a task the chain recorded to
+  # catch up before SubscribeOutput / ResumeOutput answer the retryable NEXUS_OUTPUT_REPLICA_NOT_READY
+  # (the SDK then retries or falls back to FetchTaskData(OUTPUT)). Below 10s; 0 or unset = 2s.
+  output_replica_wait: 2s
   # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed.
   # Order: `nexus tls init` generates a self-signed certificate (default <data_dir>/tls/) and prints the public key fingerprint →
   # the operator runs `nexus builder register` with the operator key to write the https address and fingerprint

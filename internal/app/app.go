@@ -617,7 +617,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			return nil, fmt.Errorf("builder sync: %w", err)
 		}
 		orderPath.Members = members
-		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters), ingress.WithBuilderSync(members, cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst), ingress.WithMemberReplicas(members))
+		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters), ingress.WithBuilderSync(members, cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst), ingress.WithMemberReplicas(members, taskChain, cfg.Ingress.ReplicaWait()))
 		authParams.Precheck = orderPath.Precheck
 		authParams.Takeovers = orderPath.Takeovers
 	}
