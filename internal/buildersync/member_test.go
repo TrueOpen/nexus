@@ -83,7 +83,7 @@ func syncedMember(t *testing.T) (*env, *dispatchresponse.Responder, *answerChain
 	chain := &answerChain{fakeRecords: e.records, claims: map[string]*taskv1.DispatchCompensationClaimState{}, challenges: map[string]*taskv1.DispatchChallengeState{}}
 	tx := &answerTx{}
 	r, err := dispatchresponse.New(dispatchresponse.Config{
-		ChainID: testChainID, Builder: e.m.op, Responder: e.m.key.Address(), Store: e.member.store, Evidence: e.member.evidence,
+		ChainID: testChainID, Builder: e.m.op, Responder: e.m.key.Address, Store: e.member.store, Evidence: e.member.evidence,
 		Chain: chain, Tx: tx, GasBase: 1, GasPerByte: 1,
 	})
 	if err != nil {

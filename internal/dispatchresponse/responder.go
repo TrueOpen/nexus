@@ -86,10 +86,10 @@ type Roots interface {
 // Config wires a Responder.
 type Config struct {
 	ChainID string
-	// Builder is this Builder's operator address; Responder its service account, the
-	// responder_address of what it sends.
+	// Builder is this Builder's operator address; Responder its service account in force, the
+	// responder_address of what it sends (a service key cutover changes it).
 	Builder   string
-	Responder string
+	Responder func() string
 	Store     kv.Store
 	Evidence  *dispatchevidence.Store
 	Chain     Chain
@@ -164,7 +164,7 @@ const (
 // New builds a Responder over the stored open items.
 func New(cfg Config) (*Responder, error) {
 	switch {
-	case cfg.ChainID == "" || cfg.Builder == "" || cfg.Responder == "" || cfg.Store == nil || cfg.Evidence == nil:
+	case cfg.ChainID == "" || cfg.Builder == "" || cfg.Responder == nil || cfg.Store == nil || cfg.Evidence == nil:
 		return nil, fmt.Errorf("dispatch responder needs the chain id, Builder and service addresses, store and evidence")
 	case cfg.Chain == nil || cfg.Tx == nil:
 		return nil, fmt.Errorf("dispatch responder needs the chain and a submitter")

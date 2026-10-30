@@ -126,6 +126,9 @@ func (r *Ring) View() (RingView, bool) {
 	return r.view, r.fetched
 }
 
+// Holds reports whether a key (33-byte compressed, lowercase hex) is one of the local keys.
+func (r *Ring) Holds(publicKey string) bool { return r.findHex(publicKey) != nil }
+
 func (r *Ring) find(publicKey []byte) signer.Signer {
 	for _, key := range r.local {
 		if bytes.Equal(key.PubKeyCompressed(), publicKey) {

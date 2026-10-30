@@ -209,3 +209,49 @@ func TestRecordSubmitterSendsRebuttalsAndChallengeResponses(t *testing.T) {
 		t.Fatalf("foreign responder = %v", err)
 	}
 }
+
+// switchingSigner is a service signer whose key a cutover replaces.
+type switchingSigner struct{ signer.Signer }
+
+// A service key cutover changes the service account: the next record transaction reads the new
+// account's number and sequence instead of signing at the old account's.
+func TestRecordSubmitterFollowsAServiceKeyCutover(t *testing.T) {
+	chain := &addressChain{seqChain: &seqChain{accSeq: 42}, seqs: map[string]uint64{}}
+	old, err := signer.NewFromHex(testKeyHex, "trueopen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := signer.NewFromHex(otherKeyHex, "trueopen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain.seqs[old.Address()], chain.seqs[next.Address()] = 42, 5
+	sg := &switchingSigner{old}
+	sub := NewRecordSubmitter(slog.New(slog.DiscardHandler), chain, sg, config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000}, nil)
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(old.Address()), 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	sg.Signer = next
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(next.Address()), 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := chain.asked; len(got) != 2 || got[0] != old.Address() || got[1] != next.Address() {
+		t.Fatalf("accounts read = %v", got)
+	}
+	if got := chain.broadcasts; len(got) != 2 || got[0] != 42 || got[1] != 5 {
+		t.Fatalf("broadcast sequences = %v", got)
+	}
+}
+
+// addressChain answers AccountInfo per address.
+type addressChain struct {
+	*seqChain
+	seqs  map[string]uint64
+	asked []string
+}
+
+func (c *addressChain) AccountInfo(_ context.Context, address string) (chaincli.AccountInfo, error) {
+	c.asked = append(c.asked, address)
+	c.seqChain.accSeq = c.seqs[address]
+	return chaincli.AccountInfo{AccountNumber: 7, Sequence: c.seqs[address]}, nil
+}

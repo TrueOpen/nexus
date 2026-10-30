@@ -61,10 +61,23 @@ var (
 	// a chain failure: Accept refuses the handraise as not eligible, with this reason.
 	ErrInvalidSnapshot = errors.New("invalid candidate pool snapshot")
 	// ErrBuilderRotationPending means this Builder registered a service key replacement that has
-	// not activated yet. Its current key stays valid for material already signed, but it issues no
-	// new roots (nor tickets) until the replacement is current.
+	// not activated yet. A pending Builder signs no new roots and accepts no new sessions; its
+	// current key keeps dispatching orders below the effective height (RotationPendingError).
 	ErrBuilderRotationPending = errors.New("builder service key rotation pending")
 )
+
+// RotationPendingError is ErrBuilderRotationPending with the replacement's schedule: registered at
+// RegisteredHeight, it becomes current at EffectiveHeight under NextNonce.
+type RotationPendingError struct {
+	NextNonce, RegisteredHeight, EffectiveHeight uint64
+}
+
+func (e *RotationPendingError) Error() string {
+	return fmt.Sprintf("%v: nonce %d registered at height %d, effective at height %d",
+		ErrBuilderRotationPending, e.NextNonce, e.RegisteredHeight, e.EffectiveHeight)
+}
+
+func (e *RotationPendingError) Unwrap() error { return ErrBuilderRotationPending }
 
 // ServiceKeys reads current service keys from the chain.
 type ServiceKeys interface {
@@ -72,11 +85,12 @@ type ServiceKeys interface {
 	// compressed) and its authorization nonce. When it is determined that no usable key exists the
 	// error wraps servicekey.ErrUnavailable; any other error means the chain could not be read.
 	CurrentCortexKey(ctx context.Context, operator string) ([]byte, uint64, error)
-	// CortexRotationPending reports whether operator registered a CORTEX service key replacement
-	// that has not activated yet: such a Cortex may take no new Worker duty.
-	CortexRotationPending(ctx context.Context, operator string) (bool, error)
-	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is the key the root
-	// signer holds and no replacement is pending (ErrBuilderRotationPending).
+	// CortexRotation returns the effective height of operator's registered CORTEX service key
+	// replacement, 0 when none is pending. A root declines a pending Cortex's offer for the whole
+	// wait.
+	CortexRotation(ctx context.Context, operator string) (uint64, error)
+	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is held by the root
+	// signer, and with a *RotationPendingError while a replacement is pending.
 	CheckBuilderKey(ctx context.Context) error
 }
 

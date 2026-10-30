@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/nexus/internal/attempt"
@@ -350,7 +351,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	var registrationModule *module
 	var serviceSG signer.Signer
 	// serviceRing is serviceSG: it signs with whichever local service key the chain holds current.
+	// switchedStreams is the stream hub its cutover rebinds, set once the hub exists.
 	var serviceRing *servicekey.Ring
+	var switchedStreams atomic.Pointer[dispatchstream.Hub]
 	var taskSubmitter coordinator.Submitter
 	// metrics are the order path's stage timings, skips and Worker outcomes, for the operator
 	// status and the public statistics.
@@ -370,7 +373,26 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
-		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, nil, serviceKey); err != nil {
+		keys := []signer.Signer{serviceKey}
+		nextKey, err := identity.LoadNextServiceSigner(cfg.Identity)
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("identity: %w", err)
+		}
+		if nextKey != nil {
+			keys = append(keys, nextKey)
+			log.Info("second service key loaded; the chain binding decides which key signs", "address", nextKey.Address())
+		}
+		// At a cutover the chain makes the registered replacement current; the ring signs with it
+		// from its next read, and every Cortex stream binds again under the new key.
+		onSwitch := func(old, current servicekey.Key) {
+			log.Info("service key cutover: signing with the new current key", "old_nonce", old.Nonce, "nonce", current.Nonce,
+				"service_address", current.Signer.Address())
+			if h := switchedStreams.Load(); h != nil {
+				h.Rebind()
+			}
+		}
+		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, onSwitch, keys...); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
@@ -430,6 +452,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)
 	}
+	switchedStreams.Store(streams)
 	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
 	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
 	sinks := dispatchstream.Sinks{Verifier: coord}

@@ -74,7 +74,7 @@ var (
 	ErrCompensationBelowMin = errors.New("builder compensation account below its minimum balance")
 	// ErrDraining refuses new orders and tickets while this Builder drains before a service key
 	// rotation; it comes wrapped in dispatchdraw.ErrNoCapacity, like a pending rotation.
-	ErrDraining = errors.New("Builder is draining before a service key rotation")
+	ErrDraining = errors.New("Builder is draining: no new work is taken")
 	// ErrCompensationUnread is the Keys gate until this Builder's compensation account was read
 	// once: no ticket is issued on an account that may be below the minimum.
 	ErrCompensationUnread = errors.New("builder compensation account not read yet")
@@ -140,12 +140,13 @@ type Sessions interface {
 
 // Keys reads service key bindings from the chain and gates ticket issuance.
 type Keys interface {
-	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
+	// CheckBuilderKey fails with a *handraise.RotationPendingError while this Builder's own
 	// replacement key is pending, with ErrCompensationBelowMin while its compensation account is
 	// below the minimum, and fails when its current key cannot be confirmed.
 	CheckBuilderKey(ctx context.Context) error
-	// CortexRotationPending reports whether operator's CORTEX key replacement is pending.
-	CortexRotationPending(ctx context.Context, operator string) (bool, error)
+	// CortexRotation returns the effective height of operator's pending CORTEX key replacement,
+	// 0 when none is pending.
+	CortexRotation(ctx context.Context, operator string) (uint64, error)
 }
 
 // Inputs opens the stored INPUT of an order version.
@@ -242,7 +243,7 @@ type Config struct {
 	Sync OrderSync
 	// Metrics takes the stage timings, skips and Worker outcomes of the walk; nil keeps none.
 	Metrics *opsmetrics.Registry
-	// Draining reports a service key rotation drain: no new order is taken and no ticket issued,
+	// Draining reports the operator's drain: no new order is taken and no ticket issued,
 	// so an order that needs its next ticket fails as NO_CAPACITY; tickets out still win, and the
 	// order of a takeover (registered on chain before the drain) is walked as usual. nil never
 	// drains.
@@ -499,30 +500,41 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 }
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this
-// Builder drains, its key rotation is pending or its compensation account is below the minimum (it
-// takes no new order; the session moves by takeover), the order's epoch cannot dispatch yet
-// (dispatchdraw.ErrDispatchNotReady: the user retries this Builder later, so it is checked before
-// any NO_CAPACITY answer) or the latest handraise root holds no admitted, unexpired handraise with a
+// Builder drains or its compensation account is below the minimum (it takes no new order; the
+// session moves by takeover), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
+// the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
+// Builder's key rotation is pending and the order needs the next key or belongs to a new session
+// (pendingRotation), or the latest handraise root holds no admitted, unexpired handraise with a
 // free slot for the order's profile. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
 	}
-	if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
-		if errors.Is(err, handraise.ErrBuilderRotationPending) || errors.Is(err, ErrCompensationBelowMin) {
-			return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
-		}
-		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
-	}
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil {
 		return fmt.Errorf("probe order: signed order does not decode")
 	}
-	if _, err := d.cfg.Drawer.EpochOf(ctx, signed.GetOrder().GetEarliestSubmitHeight()); err != nil {
+	esh := signed.GetOrder().GetEarliestSubmitHeight()
+	var rotation *handraise.RotationPendingError
+	switch err := d.cfg.Keys.CheckBuilderKey(ctx); {
+	case err == nil:
+	case errors.As(err, &rotation):
+	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, ErrCompensationBelowMin):
+		return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
+	default:
+		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
+	}
+	epoch, err := d.cfg.Drawer.EpochOf(ctx, esh)
+	if err != nil {
 		if errors.Is(err, dispatchdraw.ErrDispatchNotReady) {
 			return err
 		}
 		return fmt.Errorf("%w: epoch of the order: %v", inflight.ErrUnavailable, err)
+	}
+	if rotation != nil {
+		if err := d.pendingRotation(ctx, o.SessionID, esh, epoch.Number, rotation); err != nil {
+			return err
+		}
 	}
 	root, ok := d.cfg.Handraises.LatestRoot()
 	if !ok {
@@ -536,6 +548,28 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 		}
 	}
 	return fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity)
+}
+
+// pendingRotation is Probe's local admission while this Builder's key rotation is pending. An
+// order at or above the effective height lands at or after the cutover, where only the next key
+// proves its tickets and records, and the next key cannot sign before it: such an order is
+// DISPATCH_NOT_READY until the effective height. A pending Builder accepts no new session: an
+// order of a session bound to it since the registration is NO_CAPACITY. Older sessions' orders
+// below the effective height go on under the current key.
+func (d *Dispatcher) pendingRotation(ctx context.Context, sessionID string, esh, epoch uint64, rotation *handraise.RotationPendingError) error {
+	if esh >= rotation.EffectiveHeight {
+		return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: rotation.EffectiveHeight,
+			Reason: "this Builder's service key cutover comes first"}
+	}
+	session, _, err := d.cfg.Sessions.Lookup(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("%w: session state: %v", inflight.ErrUnavailable, err)
+	}
+	if session.Found && session.BoundChangeHeight >= rotation.RegisteredHeight {
+		return fmt.Errorf("%w: no new session while this Builder's key rotation is pending (bound at %d): %v",
+			dispatchdraw.ErrNoCapacity, session.BoundChangeHeight, rotation)
+	}
+	return nil
 }
 
 func servesOrder(h *taskv1.StandingHandraiseV1, o *taskv1.TaskOrderV3) bool {

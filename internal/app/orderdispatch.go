@@ -64,7 +64,7 @@ type orderDispatch struct {
 	// the output data plane exists, applies what other Builders sync to this one.
 	Sync    *buildersync.Sender
 	Members *buildersync.Receiver
-	// Drain stops new orders, tickets and takeovers before a service key rotation.
+	// Drain is the operator's optional drain: it stops new orders, tickets and takeovers.
 	Drain  *drain.Controller
 	params func(context.Context) (orderParams, error)
 
@@ -282,7 +282,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 		return nil, err
 	}
 	od.Responder, err = dispatchresponse.New(dispatchresponse.Config{
-		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Responder: deps.Signer.Address(), Store: deps.Store,
+		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Responder: deps.Signer.Address, Store: deps.Store,
 		Evidence: od.Evidence, Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Roots: deps.Direct.Registry,
 		LiveRoots: od.Dispatcher.BoundRoots, GasBase: deps.Config.AnswerGasBase, GasPerByte: deps.Config.AnswerGasPerByte, Log: deps.Log,
 	})
@@ -291,7 +291,8 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	}
 	od.Recorder.SetTakeovers(od.Takeovers)
 	od.Drain, err = drain.New(drain.Config{
-		Store: deps.Store, LocalPubKey: hex.EncodeToString(deps.Signer.PubKeyCompressed()), Log: deps.Log,
+		Store: deps.Store, LocalPubKey: func() string { return hex.EncodeToString(deps.Signer.PubKeyCompressed()) }, Holds: deps.Signer.Holds,
+		Log:        deps.Log,
 		OnDraining: od.Takeovers.EndUnsent,
 		Key: func(ctx context.Context) (chaincli.ServiceKeyState, error) {
 			_, state, err := servicekey.Current(ctx, deps.Keys.Resolver, deps.Keys.AddressPrefix, servicekey.ParticipantBuilder, deps.BuilderAddress)
@@ -413,7 +414,7 @@ func builderSetAt(chain chaincli.Client) func(context.Context, uint64) (taskgrou
 	}
 }
 
-// draining reports the rotation drain to the dispatcher and the takeovers, which are built before
+// draining reports the operator's drain to the dispatcher and the takeovers, which are built before
 // it.
 func (od *orderDispatch) draining() bool { return od.Drain != nil && od.Drain.Draining() }
 

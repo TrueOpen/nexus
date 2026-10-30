@@ -245,3 +245,20 @@ func TestStopEndsStreamsAndRefusesNewOnes(t *testing.T) {
 		t.Fatalf("new stream after stop = %v, want ErrStopped", err)
 	}
 }
+
+// A cutover of this Builder's service key ends every stream so each Cortex binds again under the
+// new current key; new streams are taken as before.
+func TestRebindEndsEveryStream(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.connect(cortexA, "1"), h.connect(cortexB, "2")
+	h.hub.Rebind()
+	for _, s := range []*served{a, b} {
+		if err := s.wait(t); !errors.Is(err, ErrRebind) {
+			t.Fatalf("stream ended with %v, want ErrRebind", err)
+		}
+	}
+	h.connect(cortexA, "3")
+	if !h.hub.Connected(cortexA) {
+		t.Fatal("a new stream after the rebind was not taken")
+	}
+}

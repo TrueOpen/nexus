@@ -160,13 +160,13 @@ func (r *Registry) holders() []string {
 func (r *Registry) rotationsPending(ctx context.Context) (pending, unusable map[string]bool, err error) {
 	pending, unusable = map[string]bool{}, map[string]bool{}
 	for _, operator := range r.holders() {
-		p, err := r.opts.Keys.CortexRotationPending(ctx, operator)
+		effective, err := r.opts.Keys.CortexRotation(ctx, operator)
 		switch {
 		case errors.Is(err, servicekey.ErrUnavailable):
 			unusable[operator] = true
 		case err != nil:
 			return nil, nil, fmt.Errorf("read CORTEX key rotation of %s: %w", operator, err)
-		case p:
+		case effective != 0:
 			pending[operator] = true
 		}
 	}

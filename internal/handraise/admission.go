@@ -87,7 +87,8 @@ func (r *Registry) RTTThreshold() (uint64, time.Time) {
 }
 
 // decisionLocked is the admission decision of operator's held handraise at height. A pending
-// CORTEX service key rotation comes first: such a Cortex may take no new duty at all. Then a
+// CORTEX service key rotation comes first: the Builder declines a pending Cortex's offers (an
+// admitted=false leaf, a local decision the chain does not make) until its cutover. Then a
 // reject-rate suspension, then the RTT threshold, whose leaf carries the measured RTT.
 func (r *Registry) decisionLocked(operator string, height uint64, rotationPending bool) (bool, taskv1.AdmitRejectReasonV1, uint64) {
 	if rotationPending {

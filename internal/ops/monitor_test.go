@@ -41,7 +41,7 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) open() {
 	f.t.Helper()
 	d, err := drain.New(drain.Config{
-		Store: f.store, LocalPubKey: localKey,
+		Store: f.store, LocalPubKey: func() string { return localKey }, Holds: func(k string) bool { return k == localKey },
 		Key: func(context.Context) (chaincli.ServiceKeyState, error) {
 			return chaincli.ServiceKeyState{ServicePubKey: localKey, AuthorizationNonce: 4}, nil
 		},
@@ -201,7 +201,7 @@ func TestStartTakesTheDrainRequestFirst(t *testing.T) {
 func TestTickIsBoundedByTheCheckTimeout(t *testing.T) {
 	f := newFixture(t)
 	d, err := drain.New(drain.Config{
-		Store: f.store, LocalPubKey: localKey,
+		Store: f.store, LocalPubKey: func() string { return localKey }, Holds: func(k string) bool { return k == localKey },
 		Key: func(ctx context.Context) (chaincli.ServiceKeyState, error) {
 			<-ctx.Done()
 			return chaincli.ServiceKeyState{}, ctx.Err()

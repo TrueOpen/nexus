@@ -11,6 +11,7 @@ import (
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/handraise"
 )
 
 // compensationRefreshBlocks is how often the compensation account is read again without an event
@@ -66,18 +67,23 @@ func (g *Gate) SetMinBalance(min *big.Int) {
 	g.min = new(big.Int).Set(min)
 }
 
-// CheckBuilderKey implements dispatcher.Keys: the key check first, then
-// dispatcher.ErrCompensationBelowMin below the minimum. An account never read is unconfirmed.
+// CheckBuilderKey implements dispatcher.Keys: a key that cannot be confirmed first, then
+// dispatcher.ErrCompensationBelowMin below the minimum (an account never read is unconfirmed),
+// then a pending own rotation, under which orders below its effective height still dispatch.
 func (g *Gate) CheckBuilderKey(ctx context.Context) error {
-	if err := g.cfg.Keys.CheckBuilderKey(ctx); err != nil {
+	err := g.cfg.Keys.CheckBuilderKey(ctx)
+	if err != nil && !errors.Is(err, handraise.ErrBuilderRotationPending) {
 		return err
 	}
-	return g.compensationErr()
+	if compensation := g.compensationErr(); compensation != nil {
+		return compensation
+	}
+	return err
 }
 
-// CortexRotationPending implements dispatcher.Keys.
-func (g *Gate) CortexRotationPending(ctx context.Context, operator string) (bool, error) {
-	return g.cfg.Keys.CortexRotationPending(ctx, operator)
+// CortexRotation implements dispatcher.Keys.
+func (g *Gate) CortexRotation(ctx context.Context, operator string) (uint64, error) {
+	return g.cfg.Keys.CortexRotation(ctx, operator)
 }
 
 func (g *Gate) compensationErr() error {

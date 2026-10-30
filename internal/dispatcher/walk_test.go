@@ -19,7 +19,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
-	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 )
@@ -548,43 +547,108 @@ func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
 	}
 }
 
-// While this Builder's own service key rotation is pending no ticket is issued and new orders are
-// refused before their input is stored; once it clears the parked order goes on.
-func TestOwnRotationPendingIssuesNoTickets(t *testing.T) {
+// While this Builder's service key rotation is pending it keeps dispatching its sessions' orders
+// below the effective height under the current key: their tickets and records keep proving them
+// after the cutover.
+func TestOwnRotationPendingDispatchesOrdersBeforeTheCutover(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
 	o := e.order(s, 0, 1)
-	e.keys.builderErr = fmt.Errorf("%w: nonce 5", handraise.ErrBuilderRotationPending)
-	if err := e.d.Probe(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
-		t.Fatalf("probe = %v", err)
-	}
-	e.dispatch(o)
-	if n := len(e.streams.offers()); n != 0 {
-		t.Fatalf("%d offers while the rotation is pending", n)
-	}
-	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
-	if n := len(e.streams.offers()); n != 0 {
-		t.Fatal("offered while still pending")
-	}
-	e.keys.mu.Lock()
-	e.keys.builderErr = nil
-	e.keys.mu.Unlock()
-	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 2})
-	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
-		t.Fatalf("offers after the rotation cleared = %v", got)
-	}
+	e.keys.pendBuilder(testBound+1, testESH+1)
 	if err := e.d.Probe(context.Background(), o); err != nil {
 		t.Fatalf("probe = %v", err)
 	}
+	e.dispatch(o)
+	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
+		t.Fatalf("offers = %v", got)
+	}
+	if _, ticket, _ := e.lastOffer(); ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
+		t.Fatalf("ticket nonce = %d, want the current %d", ticket.GetServiceAuthorizationNonce(), testBuilderNonce)
+	}
 }
 
-// A Cortex with a pending key rotation stays in the roster, which holds exactly the members the
-// bound root admits (anything less loses an omission challenge): it, like a member that becomes
-// pending or disconnects later, gets a ticket that times out unsent, so the round still has an
-// attempt for every roster member before the winner.
+// An order at or above the effective height is recorded at or after the cutover, where the
+// current key no longer proves it, and the next key cannot sign before the cutover: it is refused
+// before its input is stored as DISPATCH_NOT_READY naming that height, and one taken before the
+// rotation was seen waits for the cutover.
+func TestOwnRotationPendingHoldsOrdersAtTheCutover(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.keys.pendBuilder(testBound+1, testESH)
+	var notReady *dispatchdraw.NotReadyError
+	if err := e.d.Probe(context.Background(), o); !errors.As(err, &notReady) || notReady.DispatchableHeight != testESH {
+		t.Fatalf("probe = %v, want DISPATCH_NOT_READY at %d", err, testESH)
+	}
+	e.dispatch(o)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers before the cutover", n)
+	}
+	e.keys.pendBuilder(0, 0)
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
+		t.Fatalf("offers after the cutover = %v", got)
+	}
+	if err := e.d.Probe(context.Background(), o); err != nil {
+		t.Fatalf("probe after the cutover = %v", err)
+	}
+}
+
+// After the cutover a round opens only on a root signed by the new key: a root of the retired key
+// cannot prove an order at or above the cutover. The order waits for the next root.
+func TestRoundWaitsForARootOfTheCurrentKey(t *testing.T) {
+	e := newEnv(t)
+	e.handraises.mu.Lock()
+	e.handraises.root.Root.ServiceAuthorizationNonce = testBuilderNonce - 1
+	e.handraises.mu.Unlock()
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	if n := len(e.streams.offers()); n != 0 {
+		t.Fatalf("%d offers on a root of the retired key", n)
+	}
+	e.handraises.mu.Lock()
+	e.handraises.root.Root.ServiceAuthorizationNonce = testBuilderNonce
+	e.handraises.mu.Unlock()
+	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
+	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
+		t.Fatalf("offers on a root of the current key = %v", got)
+	}
+}
+
+// A pending Builder accepts no new session: an order of a session bound to it since the rotation
+// was registered is refused as NO_CAPACITY, so the user goes to another Builder.
+func TestOwnRotationPendingRefusesNewSessions(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.keys.pendBuilder(testBound, testESH+1)
+	if err := e.d.Probe(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
+		t.Fatalf("probe = %v, want NO_CAPACITY", err)
+	}
+}
+
+// A Cortex whose rotation takes effect above the order's earliest_submit_height answers with a key
+// that keeps proving the order after its cutover: it is offered as usual.
+func TestCortexRotationAfterTheOrderIsOffered(t *testing.T) {
+	e := newEnv(t)
+	e.keys.pendCortex(op7, testESH+1)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
+		t.Fatalf("offers = %v, want [op7]", got)
+	}
+}
+
+// A Cortex whose pending key rotation takes effect at or below the order's earliest_submit_height
+// stays in the roster, which holds exactly the members the bound root admits (anything less loses
+// an omission challenge): it, like a member that becomes so pending or disconnects later, gets a
+// ticket that times out unsent, so the round still has an attempt for every roster member before
+// the winner. Its answer, signed with its current key, would no longer prove the order once the
+// record lands after its cutover.
 func TestUnreachableMembers(t *testing.T) {
 	e := newEnv(t)
-	e.keys.cortexPended[op7] = true
+	e.keys.pendCortex(op7, testESH)
 	s := e.session(0xaa, 0)
 	o := e.order(s, 0, 1)
 	e.dispatch(o)
@@ -600,9 +664,7 @@ func TestUnreachableMembers(t *testing.T) {
 	if !bytes.Equal(ticket.GetRosterHash(), full.Hash[:]) {
 		t.Fatal("the pending member was left out of the roster")
 	}
-	e.keys.mu.Lock()
-	e.keys.cortexPended[op3] = true
-	e.keys.mu.Unlock()
+	e.keys.pendCortex(op3, testESH-5)
 	e.reject()
 	if n := len(e.streams.offers()); n != 1 {
 		t.Fatalf("%d offers: the pending members must not be offered", n)

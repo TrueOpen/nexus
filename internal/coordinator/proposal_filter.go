@@ -80,7 +80,7 @@ func (s *defaultSubmitter) submitHandraiseProposal(ctx context.Context, p handra
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
-	if !s.seqValid {
+	if s.sequenceStale() {
 		if err := s.refreshSequence(ctx); err != nil {
 			return ProposalResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: account info: %w", p.kind, err)}
 		}

@@ -59,13 +59,19 @@ func (k *fakeKeys) CurrentCortexKey(_ context.Context, operator string) ([]byte,
 	return key.pub, key.nonce, nil
 }
 
-func (k *fakeKeys) CortexRotationPending(_ context.Context, operator string) (bool, error) {
+// pendingEffective is the effective height of the test Cortex rotations.
+const pendingEffective = 1000
+
+func (k *fakeKeys) CortexRotation(_ context.Context, operator string) (uint64, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.unusable[operator] {
-		return false, fmt.Errorf("revoked: %w", servicekey.ErrUnavailable)
+		return 0, fmt.Errorf("revoked: %w", servicekey.ErrUnavailable)
 	}
-	return k.pending[operator], k.pendingErr
+	if k.pending[operator] {
+		return pendingEffective, k.pendingErr
+	}
+	return 0, k.pendingErr
 }
 
 func (k *fakeKeys) setPending(operator string, pending bool) {

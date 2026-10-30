@@ -12,19 +12,20 @@ import (
 	"github.com/TrueOpen/nexus/internal/ops"
 )
 
-// The drain subcommand runs a service key rotation without charging failed records to this
-// Builder. It talks to the running daemon through <data_dir>/ops (no network listener): the
+// The drain subcommand stops new work on the running Builder, for an operator who wants a quiet
+// Builder; a service key rotation does not need it (the daemon switches to the registered key at
+// the cutover). It talks to the running daemon through <data_dir>/ops (no network listener): the
 // request file it leaves is taken on the daemon's next tick, and the daemon's status file says
 // where the drain stands.
 //
 //	nexus drain begin   -> no new order, ticket or takeover; in-flight work finishes
-//	nexus drain status  -> wait for phase DRAINED (nothing remains), then submit the rotation
-//	                       with the operator key; ROTATION_PENDING until it activates
-//	restart nexus with the new service key -> the drain ends by itself (or: nexus drain end)
+//	nexus drain status  -> DRAINING, DRAINED (nothing remains) or ROTATION_PENDING
+//	nexus drain end     -> new orders are taken again; a drain also ends by itself once the
+//	                       chain shows a new service key current that the daemon holds
 func newDrainCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "drain",
-		Short:         "Drain the running Builder before a service key rotation",
+		Short:         "Stop or resume new work on the running Builder",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

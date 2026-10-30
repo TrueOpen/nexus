@@ -64,13 +64,15 @@ type yamlPathFields struct {
 		} `yaml:"tls"`
 	} `yaml:"ingress"`
 	Identity struct {
-		KeystoreFile                *string   `yaml:"keystore_file"`
-		KeystorePasswordFile        *string   `yaml:"keystore_password_file"`
-		PrivateKeyFile              *string   `yaml:"private_key_file"`
-		ServiceKeystoreFile         *string   `yaml:"service_keystore_file"`
-		ServiceKeystorePasswordFile *string   `yaml:"service_keystore_password_file"`
-		VRFKeyFiles                 *[]string `yaml:"vrf_key_files"`
-		VRFKeyPasswordFile          *string   `yaml:"vrf_key_password_file"`
+		KeystoreFile                    *string   `yaml:"keystore_file"`
+		KeystorePasswordFile            *string   `yaml:"keystore_password_file"`
+		PrivateKeyFile                  *string   `yaml:"private_key_file"`
+		ServiceKeystoreFile             *string   `yaml:"service_keystore_file"`
+		ServiceKeystorePasswordFile     *string   `yaml:"service_keystore_password_file"`
+		NextServiceKeystoreFile         *string   `yaml:"next_service_keystore_file"`
+		NextServiceKeystorePasswordFile *string   `yaml:"next_service_keystore_password_file"`
+		VRFKeyFiles                     *[]string `yaml:"vrf_key_files"`
+		VRFKeyPasswordFile              *string   `yaml:"vrf_key_password_file"`
 	} `yaml:"identity"`
 }
 
@@ -110,6 +112,12 @@ func resolveYAMLPaths(path string, data []byte, cfg *Config) error {
 	}
 	if fields.Identity.ServiceKeystorePasswordFile != nil {
 		cfg.Identity.ServiceKeystorePasswordFile = resolveRelativePath(baseDir, cfg.Identity.ServiceKeystorePasswordFile)
+	}
+	if fields.Identity.NextServiceKeystoreFile != nil {
+		cfg.Identity.NextServiceKeystoreFile = resolveRelativePath(baseDir, cfg.Identity.NextServiceKeystoreFile)
+	}
+	if fields.Identity.NextServiceKeystorePasswordFile != nil {
+		cfg.Identity.NextServiceKeystorePasswordFile = resolveRelativePath(baseDir, cfg.Identity.NextServiceKeystorePasswordFile)
 	}
 	if fields.Identity.VRFKeyFiles != nil {
 		for i, f := range cfg.Identity.VRFKeyFiles {

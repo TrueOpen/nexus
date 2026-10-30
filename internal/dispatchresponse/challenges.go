@@ -66,7 +66,7 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 		r.update(challengePrefix, r.challenges, &it)
 		return
 	}
-	msg := &taskv1.MsgRespondDispatchChallenge{ChallengeId: append([]byte(nil), it.ID...), ResponderAddress: r.cfg.Responder}
+	msg := &taskv1.MsgRespondDispatchChallenge{ChallengeId: append([]byte(nil), it.ID...), ResponderAddress: r.cfg.Responder()}
 	var answerErr error
 	switch ch.GetKind() {
 	case sharedv1.DispatchChallengeKindV1_DISPATCH_CHALLENGE_KIND_V1_SKIP:

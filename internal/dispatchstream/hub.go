@@ -56,6 +56,9 @@ var (
 	ErrKeepaliveTimeout = errors.New("dispatch stream keepalive timed out")
 	// ErrStopped ends every stream when the hub stops, and refuses new ones.
 	ErrStopped = errors.New("dispatch stream hub stopped")
+	// ErrRebind ends every stream when this Builder's service key changed at a cutover: live
+	// streams need the current key, so each Cortex binds again.
+	ErrRebind = errors.New("dispatch stream ended: the Builder service key changed; bind again")
 	// ErrNotConnected means a downlink message has no stream to go to.
 	ErrNotConnected = errors.New("cortex dispatch stream not connected")
 )
@@ -239,6 +242,20 @@ func (h *Hub) Stop(context.Context) error {
 		s.end(ErrStopped)
 	}
 	return nil
+}
+
+// Rebind ends every stream with ErrRebind and keeps taking new ones; unacknowledged messages stay
+// stored for the next binding.
+func (h *Hub) Rebind() {
+	h.mu.Lock()
+	sessions := make([]*session, 0, len(h.sessions))
+	for _, s := range h.sessions {
+		sessions = append(sessions, s)
+	}
+	h.mu.Unlock()
+	for _, s := range sessions {
+		s.end(ErrRebind)
+	}
 }
 
 // Connected reports whether operator has a bound stream, i.e. whether it can be dispatched to now.

@@ -37,7 +37,9 @@ type env struct {
 	store kv.Store
 	work  *fakeWork
 	key   *fakeKey
+	// local is the key this process signs with, held every key it holds.
 	local string
+	held  map[string]bool
 	now   time.Time
 	c     *Controller
 	// onDraining, when set, is the controller's OnDraining.
@@ -45,7 +47,7 @@ type env struct {
 }
 
 func newEnv(t *testing.T) *env {
-	e := &env{t: t, store: kv.NewMemStore(), work: &fakeWork{}, local: oldKey, now: time.UnixMilli(1_800_000_000_000),
+	e := &env{t: t, store: kv.NewMemStore(), work: &fakeWork{}, local: oldKey, held: map[string]bool{oldKey: true}, now: time.UnixMilli(1_800_000_000_000),
 		key: &fakeKey{state: chaincli.ServiceKeyState{ServicePubKey: oldKey, AuthorizationNonce: 4, Status: "ACTIVE"}}}
 	e.open()
 	return e
@@ -55,7 +57,8 @@ func newEnv(t *testing.T) *env {
 func (e *env) open() {
 	e.t.Helper()
 	c, err := New(Config{
-		Store: e.store, LocalPubKey: e.local, Key: e.key.read, Now: func() time.Time { return e.now }, OnDraining: e.onDraining,
+		Store: e.store, LocalPubKey: func() string { return e.local }, Holds: func(k string) bool { return e.held[k] },
+		Key: e.key.read, Now: func() time.Time { return e.now }, OnDraining: e.onDraining,
 		Sources: Sources{
 			InFlight:  func() (int, *big.Int) { return e.work.orders, big.NewInt(e.work.maxFee) },
 			Records:   func() int { return e.work.records },
@@ -148,9 +151,10 @@ func TestDrainSurvivesARestart(t *testing.T) {
 }
 
 // After the rotation registered, the drain waits for it; once the new key is current it ends by
-// itself when this process signs with the new key, and asks for a restart otherwise.
+// itself: the process holds the new key and signs with it without a restart.
 func TestDrainEndsOnceTheNewKeyIsCurrent(t *testing.T) {
 	e := newEnv(t)
+	e.held[newKey] = true
 	e.begin()
 	e.check(PhaseDrained)
 	e.key.state.PendingRotation = &chaincli.PendingServiceKeyRotation{NextServicePubKey: newKey, NextAuthorizationNonce: 5, EffectiveHeight: 900}
@@ -158,12 +162,7 @@ func TestDrainEndsOnceTheNewKeyIsCurrent(t *testing.T) {
 		t.Fatalf("status = %+v", s)
 	}
 	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
-	e.check(PhaseRestartRequired)
-	if !e.c.Draining() {
-		t.Fatal("drain ended while the process still signs with the old key")
-	}
 	e.local = newKey
-	e.open()
 	e.check(PhaseServing)
 	if e.c.Draining() {
 		t.Fatal("still draining under the new key")
@@ -174,14 +173,23 @@ func TestDrainEndsOnceTheNewKeyIsCurrent(t *testing.T) {
 	}
 }
 
-// A rotation registered while work remains is called out: the remaining items will fail.
-func TestRotationBeforeTheDrainCompletedIsWarned(t *testing.T) {
+// A registered replacement this process does not hold is called out, drain or not: it could not
+// sign after the cutover. Work remaining when the rotation registers is no warning: material of
+// orders below the cutover still verifies under the retired key.
+func TestPendingRotationWithoutTheNextKeyIsWarned(t *testing.T) {
 	e := newEnv(t)
+	e.key.state.PendingRotation = &chaincli.PendingServiceKeyRotation{NextServicePubKey: newKey, NextAuthorizationNonce: 5, EffectiveHeight: 900}
+	if s := e.check(PhaseServing); s.Warning == "" {
+		t.Fatalf("no warning while serving: %+v", s)
+	}
 	e.work.records = 1
 	e.begin()
-	e.key.state.PendingRotation = &chaincli.PendingServiceKeyRotation{NextServicePubKey: newKey, NextAuthorizationNonce: 5}
 	if s := e.check(PhaseRotationPending); s.Warning == "" {
-		t.Fatalf("no warning: %+v", s)
+		t.Fatalf("no warning while draining: %+v", s)
+	}
+	e.held[newKey] = true
+	if s := e.check(PhaseRotationPending); s.Warning != "" {
+		t.Fatalf("warning with the next key held: %+v", s)
 	}
 }
 
@@ -197,8 +205,7 @@ func TestDrainBegunWithoutAKeyReadTakesItLater(t *testing.T) {
 	e.key.err = nil
 	e.check(PhaseDrained)
 	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
-	e.local = newKey
-	e.open()
+	e.local, e.held[newKey] = newKey, true
 	e.check(PhaseServing)
 }
 
@@ -244,29 +251,30 @@ func TestOnDrainingRunsWhileDraining(t *testing.T) {
 }
 
 // A drain begun after the rotation was registered still ends: the registered replacement is the
-// rotation it waits for, through the restart with the new key.
+// rotation it waits for.
 func TestDrainBegunAfterTheRotationRegistered(t *testing.T) {
 	e := newEnv(t)
+	e.held[newKey] = true
 	e.key.state.PendingRotation = &chaincli.PendingServiceKeyRotation{NextServicePubKey: newKey, NextAuthorizationNonce: 5, EffectiveHeight: 900}
 	e.begin()
 	e.check(PhaseRotationPending)
 	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
-	e.check(PhaseRestartRequired)
 	e.local = newKey
-	e.open()
 	e.check(PhaseServing)
 }
 
-// A drain begun while the chain could not be read, whose first read already shows another key
-// than the one this process signs with, asks for the restart instead of waiting forever.
-func TestDrainBegunUnreadThenRotatedAsksForTheRestart(t *testing.T) {
+// A rotation to a key this process does not hold keeps the drain, with a warning naming the
+// missing key, until the key is configured.
+func TestRotationToAKeyNotHeldIsWarned(t *testing.T) {
 	e := newEnv(t)
 	e.key.err = errors.New("chain down")
 	e.begin()
 	e.key.err = nil
 	e.key.state = chaincli.ServiceKeyState{ServicePubKey: newKey, AuthorizationNonce: 5, Status: "ACTIVE"}
-	e.check(PhaseRestartRequired)
-	e.local = newKey
+	if s := e.check(PhaseDrained); s.Warning == "" {
+		t.Fatalf("no warning: %+v", s)
+	}
+	e.local, e.held[newKey] = newKey, true
 	e.open()
 	e.check(PhaseServing)
 }

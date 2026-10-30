@@ -96,7 +96,7 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		r.update(claimPrefix, r.claims, &it)
 		return
 	}
-	msg, err := rebuttal(r.cfg.Responder, ev, attempt, claim)
+	msg, err := rebuttal(r.cfg.Responder(), ev, attempt, claim)
 	if err != nil {
 		r.claimsOwed.Add(1)
 		r.log.Info("compensation claim not rebutted: it is owed", "ticket", ticket, "worker", claim.GetWorkerOperatorAddress(), "reason", err)

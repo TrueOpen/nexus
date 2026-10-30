@@ -68,7 +68,7 @@ func TestMetricsOfAnAcceptedWalk(t *testing.T) {
 func TestMetricsOfAFailedWalk(t *testing.T) {
 	e := newMeteredEnv(t)
 	e.handraises.setRoot(0xd2, 2, op1, op3)
-	e.keys.cortexPended[op3] = true
+	e.keys.pendCortex(op3, testESH)
 	s := e.session(0xaa, 0)
 	e.dispatch(e.order(s, 0, 1)) // drawn op7 (not in the roster), op1, op3
 	e.clock.advance(time.Second)

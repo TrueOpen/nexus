@@ -169,6 +169,12 @@ type IdentityConfig struct {
 	ServiceKeystoreFile         string `yaml:"service_keystore_file"`
 	ServiceKeystorePassword     string `yaml:"service_keystore_password"`
 	ServiceKeystorePasswordFile string `yaml:"service_keystore_password_file"`
+	// NextServiceKeystoreFile and its password file hold a second BUILDER service key next to the
+	// service keystore: the replacement of a registered rotation, loaded ahead so the cutover
+	// needs no restart. The chain binding picks each local key's role, so after a cutover the
+	// retired key may stay configured here to keep signing messages of tasks recorded before it.
+	NextServiceKeystoreFile         string `yaml:"next_service_keystore_file"`
+	NextServiceKeystorePasswordFile string `yaml:"next_service_keystore_password_file"`
 
 	// VRFKeyFiles are the Builder VRF keys (Ed25519 in the Cosmos keystore armor, mode 0600, kept
 	// apart from the service key): the key registered on chain now, plus every earlier key still
@@ -680,6 +686,8 @@ func applyEnv(cfg *Config) {
 	cfg.Identity.ServiceKeystoreFile = env("NEXUS_SERVICE_KEYSTORE_FILE", cfg.Identity.ServiceKeystoreFile)
 	cfg.Identity.ServiceKeystorePassword = env("NEXUS_SERVICE_KEYSTORE_PASSWORD", cfg.Identity.ServiceKeystorePassword)
 	cfg.Identity.ServiceKeystorePasswordFile = env("NEXUS_SERVICE_KEYSTORE_PASSWORD_FILE", cfg.Identity.ServiceKeystorePasswordFile)
+	cfg.Identity.NextServiceKeystoreFile = env("NEXUS_NEXT_SERVICE_KEYSTORE_FILE", cfg.Identity.NextServiceKeystoreFile)
+	cfg.Identity.NextServiceKeystorePasswordFile = env("NEXUS_NEXT_SERVICE_KEYSTORE_PASSWORD_FILE", cfg.Identity.NextServiceKeystorePasswordFile)
 	if v, ok := nonEmptyEnv("NEXUS_VRF_KEY_FILES"); ok {
 		cfg.Identity.VRFKeyFiles = splitNonEmpty(v)
 	}

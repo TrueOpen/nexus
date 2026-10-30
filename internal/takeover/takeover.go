@@ -59,7 +59,8 @@ type Recorder interface {
 	WithdrawUnsentTakeover(sessionID string, sequence uint64) bool
 }
 
-// Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate).
+// Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate). A
+// takeover moves a session to this Builder, and a pending Builder accepts no new session.
 type Keys interface {
 	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
 	// replacement key is pending, with dispatcher.ErrCompensationBelowMin while its compensation
@@ -100,7 +101,7 @@ type Config struct {
 	Background func(func())
 	// Metrics counts how takeovers ended; nil counts nothing.
 	Metrics *opsmetrics.Registry
-	// Draining reports a service key rotation drain: no new takeover is admitted or submitted, a
+	// Draining reports the operator's drain: no new takeover is admitted or submitted, a
 	// held one whose entry has not gone out is ended (EndUnsent), and one on chain goes on. nil
 	// never drains.
 	Draining func() bool
@@ -262,7 +263,7 @@ func (m *Manager) Pending() int {
 //   - a takeover this Builder holds for the session: the same order is Admission.Existing (or
 //     inflight.ErrOrderUploading while its input uploads), another one a TakeoverPendingError
 //     naming this Builder: one takeover per session;
-//   - a service key rotation drain: dispatchdraw.ErrNoCapacity (no new takeover);
+//   - the operator's drain: dispatchdraw.ErrNoCapacity (no new takeover);
 //   - the dispatch record of the sequence: recorded, a SessionBoundElsewhereError naming the
 //     recording Builder and task;
 //   - this Builder's own key and compensation account: a pending key rotation or an account below

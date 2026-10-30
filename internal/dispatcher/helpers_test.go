@@ -245,7 +245,8 @@ func (h *fakeHandraises) RecordOutcome(operator string, _ uint64, rejected bool)
 func (h *fakeHandraises) setRoot(digest byte, free uint32, operators ...string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	root := &handraise.IssuedRoot{Root: &taskv1.SignedHandraiseRootV1{ChainId: testChainID, RootHeight: uint64(digest)}, Digest: fill32(digest)}
+	root := &handraise.IssuedRoot{Root: &taskv1.SignedHandraiseRootV1{ChainId: testChainID, RootHeight: uint64(digest), ServiceAuthorizationNonce: testBuilderNonce},
+		Digest: fill32(digest)}
 	for _, op := range operators {
 		m := member(op)
 		hr := &taskv1.StandingHandraiseV1{
@@ -305,9 +306,10 @@ func (d *fakeDrawer) Draw(_ context.Context, sessionID [32]byte, sequence, esh u
 }
 
 type fakeKeys struct {
-	mu           sync.Mutex
-	builderErr   error
-	cortexPended map[string]bool
+	mu         sync.Mutex
+	builderErr error
+	// cortexEffective is the effective height of each operator's pending CORTEX rotation.
+	cortexEffective map[string]uint64
 }
 
 func (k *fakeKeys) CheckBuilderKey(context.Context) error {
@@ -316,10 +318,27 @@ func (k *fakeKeys) CheckBuilderKey(context.Context) error {
 	return k.builderErr
 }
 
-func (k *fakeKeys) CortexRotationPending(_ context.Context, operator string) (bool, error) {
+func (k *fakeKeys) CortexRotation(_ context.Context, operator string) (uint64, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.cortexPended[operator], nil
+	return k.cortexEffective[operator], nil
+}
+
+// pendCortex registers a CORTEX rotation of operator effective at height.
+func (k *fakeKeys) pendCortex(operator string, height uint64) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.cortexEffective[operator] = height
+}
+
+// pendBuilder registers this Builder's rotation, or clears it with zero heights.
+func (k *fakeKeys) pendBuilder(registered, effective uint64) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.builderErr = nil
+	if effective != 0 {
+		k.builderErr = &handraise.RotationPendingError{NextNonce: testBuilderNonce + 1, RegisteredHeight: registered, EffectiveHeight: effective}
+	}
 }
 
 type fakeInputs struct{ data map[string][]byte }
@@ -452,7 +471,7 @@ func newEnv(t *testing.T) *env {
 		streams:    &fakeStreams{disconnected: map[string]bool{}, rtt: map[string]time.Duration{}},
 		handraises: &fakeHandraises{current: map[string]*taskv1.StandingHandraiseV1{}},
 		drawer:     &fakeDrawer{epoch: testEpoch, drawn: []dispatch.RosterMember{member(op7), member(op1), member(op3)}},
-		keys:       &fakeKeys{cortexPended: map[string]bool{}},
+		keys:       &fakeKeys{cortexEffective: map[string]uint64{}},
 		inputs:     fakeInputs{data: map[string][]byte{}},
 		observer:   &fakeObserver{}, recorder: &fakeRecorder{},
 		clock:  &fakeClock{now: time.UnixMilli(1_800_000_000_000)},

@@ -191,7 +191,8 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 
 // step issues the order's next ticket, if it may: no ticket is out, the order still dispatches,
 // its record deadline is ahead, this Builder does not drain (unless the order is a takeover's)
-// and its key may issue tickets. It walks past members
+// and its key may sign for the order: while its rotation is pending, only an order below the
+// effective height (one at or above it waits for the cutover). It walks past members
 // that cannot be reached until one is offered or the order fails. Caller holds o.mu.
 func (d *Dispatcher) step(ctx context.Context, o *order) done {
 	st := o.st
@@ -206,10 +207,11 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		if d.draining() && !d.takeoverOrder(o) {
 			return d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining))
 		}
-		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil {
+		var rotation *handraise.RotationPendingError
+		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil && !(errors.As(err, &rotation) && o.signed.GetOrder().GetEarliestSubmitHeight() < rotation.EffectiveHeight) {
 			switch {
 			case errors.Is(err, handraise.ErrBuilderRotationPending):
-				d.log.Info("no ticket issued: this Builder's service key rotation is pending", "session_id", st.SessionID, "order_sequence", st.Sequence)
+				d.log.Info("no ticket issued: the order waits for this Builder's service key cutover", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			case errors.Is(err, ErrCompensationUnread):
 				d.log.Warn("no ticket issued: this Builder's compensation account is not read yet", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			case errors.Is(err, ErrCompensationBelowMin):
@@ -333,6 +335,14 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		}
 	}
 	root, _ := d.cfg.Handraises.LatestRoot()
+	if root != nil && root.Root.GetServiceAuthorizationNonce() != d.cfg.Signer.Key().Nonce {
+		// A cutover just made another key current; the registry signs the same leaves again
+		// under it, and a root of the retired key cannot prove an order at or above the cutover.
+		d.log.Info("order waits: the latest handraise root is not signed by the current service key yet",
+			"session_id", st.SessionID, "order_sequence", st.Sequence, "root_nonce", root.Root.GetServiceAuthorizationNonce())
+		o.parked = true
+		return false, done{}
+	}
 	roster, err := dispatchdraw.BuildRoster(d.cfg.ChainID, [32]byte(mustHex(st.TaskID)), root, draw.Pool, head, params.MaxRosterBytes)
 	if err != nil {
 		return false, d.fail(o, err)
@@ -364,22 +374,24 @@ func nextRound(st *orderState) uint32 {
 	return st.Rounds[len(st.Rounds)-1].Number + 1
 }
 
-// cortexPending reports whether operator's key rotation is pending; an unreadable key counts as
-// pending, so no ticket goes to a Worker the chain may refuse.
-func (d *Dispatcher) cortexPending(ctx context.Context, operator string) bool {
-	pending, err := d.cfg.Keys.CortexRotationPending(ctx, operator)
+// cortexPending reports whether operator's pending key rotation takes effect at or below esh: its
+// answer, signed with its current key, no longer proves an order recorded after its cutover, and
+// the next key cannot sign before it. An unreadable key counts as pending, so no ticket goes to a
+// Worker whose answer may not verify.
+func (d *Dispatcher) cortexPending(ctx context.Context, operator string, esh uint64) bool {
+	effective, err := d.cfg.Keys.CortexRotation(ctx, operator)
 	if err != nil {
 		d.log.Warn("Cortex key unreadable; its ticket times out unsent", "operator", operator, "err", err)
 		return true
 	}
-	return pending
+	return effective != 0 && esh >= effective
 }
 
 // issue signs the ticket of cand, stores it and offers it. A member that cannot be reached now
-// (no stream, or its key rotation is pending: the chain refuses a dispatch entry naming it as
-// winner) still gets its ticket, which times out at once: every roster member ranked before the
-// winner must have an attempt. A rotation pending when the round's root was signed already kept
-// the member out of the roster (a not-admitted leaf); this covers one registered since. It reports
+// (no stream, or its key rotation takes effect at or below the order's earliest_submit_height)
+// still gets its ticket, which times out at once: every roster member ranked before the winner
+// must have an attempt. A rotation pending when the round's root was signed already kept the
+// member out of the roster (a not-admitted leaf); this covers one registered since. It reports
 // whether a ticket went out. Caller holds o.mu.
 func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Candidate) (bool, error) {
 	st := o.st
@@ -403,7 +415,7 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	switch {
 	case !d.cfg.Streams.Connected(operator):
 		skip = opsmetrics.SkipUnreachable
-	case d.cortexPending(ctx, operator):
+	case d.cortexPending(ctx, operator, o.signed.GetOrder().GetEarliestSubmitHeight()):
 		skip = opsmetrics.SkipRotationPending
 	}
 	reachable := skip == ""

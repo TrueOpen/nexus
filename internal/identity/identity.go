@@ -60,6 +60,36 @@ func LoadServiceSigner(cfg config.IdentityConfig, account signer.Signer) (signer
 	return loaded, false, nil
 }
 
+// LoadNextServiceSigner loads the second BUILDER service key (identity.next_service_keystore_file),
+// nil when none is configured. It needs a dedicated service keystore next to it: a service key
+// shared with the account key cannot be rotated away from it.
+func LoadNextServiceSigner(cfg config.IdentityConfig) (signer.Signer, error) {
+	file := strings.TrimSpace(cfg.NextServiceKeystoreFile)
+	if file == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(cfg.ServiceKeystoreFile) == "" {
+		return nil, fmt.Errorf("identity: next_service_keystore_file needs service_keystore_file")
+	}
+	passFile := strings.TrimSpace(cfg.NextServiceKeystorePasswordFile)
+	if passFile == "" {
+		return nil, fmt.Errorf("identity: next_service_keystore_password_file required")
+	}
+	b, err := os.ReadFile(passFile)
+	if err != nil {
+		return nil, fmt.Errorf("identity: read next service keystore password file: %w", err)
+	}
+	passphrase := []byte(strings.TrimRight(string(b), "\r\n"))
+	if len(passphrase) == 0 {
+		return nil, fmt.Errorf("identity: next service keystore password is empty")
+	}
+	loaded, err := signer.LoadKeystoreFile(file, passphrase, cfg.Bech32Prefix)
+	if err != nil {
+		return nil, fmt.Errorf("identity: load next service keystore: %w", err)
+	}
+	return loaded, nil
+}
+
 // ResolveBuilderAddress returns the effective Builder address and rejects
 // conflicting config, because rank/proposer logic and tx signing must agree.
 func ResolveBuilderAddress(cfg config.IdentityConfig, sg signer.Signer) (string, error) {

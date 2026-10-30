@@ -82,6 +82,9 @@ func TestRingMatchesThePendingReplacement(t *testing.T) {
 		t.Fatalf("view = %+v", view)
 	}
 
+	if !ring.Holds(hex.EncodeToString(next.PubKeyCompressed())) || ring.Holds(hex.EncodeToString(foreign.PubKeyCompressed())) {
+		t.Fatal("Holds does not follow the local keys")
+	}
 	state.PendingRotation.NextServicePubKey = hex.EncodeToString(foreign.PubKeyCompressed())
 	setBuilderState(resolver, state)
 	if view, err = ring.Refresh(context.Background()); err != nil || view.Next.Signer != nil || !view.Pending() {

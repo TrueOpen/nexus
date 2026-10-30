@@ -543,7 +543,7 @@ func (k *fakeKeys) CheckBuilderKey(context.Context) error {
 	return k.err
 }
 
-func (k *fakeKeys) CortexRotationPending(context.Context, string) (bool, error) { return false, nil }
+func (k *fakeKeys) CortexRotation(context.Context, string) (uint64, error) { return 0, nil }
 
 // accountReader answers the compensation account read.
 type accountReader struct {

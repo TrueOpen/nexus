@@ -1,18 +1,18 @@
-// Package drain is the drain a dispatching Builder runs before it rotates its service key.
+// Package drain is an optional drain an operator may run around a service key rotation of a
+// dispatching Builder.
 //
-// The chain admits a dispatch record only under the Builder's current service key, and its
-// rotation guard does not count orders accepted but not recorded yet: a key switched while orders
-// are in flight makes their records fail, and the failures are charged to this Builder. Group
-// members also verify what this Builder syncs to them under its current key, so sync items signed
-// before a rotation are refused after it. The drain therefore stops new work first: while it lasts
-// no new order is taken, no ticket issued and no takeover admitted (the dispatcher and the
-// takeover manager ask Draining). The orders in flight are accepted, recorded or fail as usual and
-// the group sync finishes. A held takeover whose entry has not gone out yet cannot be on chain: it
-// is ended as NO_CAPACITY when the drain begins (OnDraining), so its user goes elsewhere at once.
-// A takeover that went out is work from before the drain: it takes effect and its order is walked
-// with tickets as usual. Once nothing remains (no in-flight order, no record outbox entry, no
-// takeover, no sync item a member has not acknowledged) the operator submits the rotation; the drain ends by itself once the chain shows the new key current and
-// this process signs with it (after a restart with the new key), or when the operator ends it.
+// No drain is required: a rotation registered in one epoch becomes current at the start of the
+// second epoch after it, the retired key keeps proving the tickets, roots, records and Worker
+// answers of orders whose earliest_submit_height is below the cutover, and this process switches
+// to the registered replacement at the cutover without a restart when it holds that key
+// (identity.next_service_keystore_file). A drain only stops new work, for an operator who wants a
+// quiet Builder: while it lasts no new order is taken, no ticket issued and no takeover admitted
+// (the dispatcher and the takeover manager ask Draining). The orders in flight are accepted,
+// recorded or fail as usual and the group sync finishes. A held takeover whose entry has not gone
+// out yet cannot be on chain: it is ended as NO_CAPACITY when the drain begins (OnDraining), so its
+// user goes elsewhere at once. A takeover that went out is work from before the drain: it takes
+// effect and its order is walked with tickets as usual. The drain ends by itself once the chain
+// shows a new key current that this process holds, or when the operator ends it.
 //
 // The drain state is stored, so it survives a restart.
 package drain
@@ -50,9 +50,6 @@ const (
 	// PhaseRotationPending: the chain registered the replacement key; it waits for its
 	// activation height.
 	PhaseRotationPending Phase = "ROTATION_PENDING"
-	// PhaseRestartRequired: the replacement key is current but this process signs with the old
-	// one; restart it with the new service key.
-	PhaseRestartRequired Phase = "RESTART_REQUIRED"
 )
 
 // SyncPending is what one group member has not acknowledged of one order's sync stream: Items
@@ -76,8 +73,7 @@ type Remaining struct {
 	RecordEntries int `json:"record_entries"`
 	// Takeovers are the takeovers held as candidate.
 	Takeovers int `json:"takeovers"`
-	// SyncPending lists the sync items group members have not acknowledged: they would be refused
-	// once the key rotated.
+	// SyncPending lists the sync items group members have not acknowledged.
 	SyncPending []SyncPending `json:"sync_pending,omitempty"`
 }
 
@@ -121,8 +117,9 @@ type Config struct {
 	// Key reads this Builder's current BUILDER service binding from the chain.
 	Key func(ctx context.Context) (chaincli.ServiceKeyState, error)
 	// LocalPubKey is the compressed public key, lowercase hex, of the service key this process
-	// signs with.
-	LocalPubKey string
+	// signs with now; Holds reports whether this process holds a key (lowercase hex).
+	LocalPubKey func() string
+	Holds       func(pubKeyHex string) bool
 	// OnDraining, when set, runs when the drain begins and on every Check while it lasts: it ends
 	// the held takeovers whose entry has not gone out.
 	OnDraining func()
@@ -165,7 +162,7 @@ type Controller struct {
 // version) is logged and taken as no drain: it must not stop the start, and the operator can
 // begin a drain again.
 func New(cfg Config) (*Controller, error) {
-	if cfg.Store == nil || cfg.Key == nil || cfg.Sources.InFlight == nil || cfg.Sources.Records == nil ||
+	if cfg.Store == nil || cfg.Key == nil || cfg.LocalPubKey == nil || cfg.Holds == nil || cfg.Sources.InFlight == nil || cfg.Sources.Records == nil ||
 		cfg.Sources.Takeovers == nil || cfg.Sources.Sync == nil {
 		return nil, fmt.Errorf("drain needs a store, the key reader and every work source")
 	}
@@ -206,9 +203,10 @@ func (c *Controller) Begin(ctx context.Context) error {
 	if draining {
 		return nil
 	}
-	next := state{Version: stateVersion, Draining: true, SinceUnixMs: c.cfg.Now().UnixMilli(), KeyPubKey: c.cfg.LocalPubKey}
+	local := c.cfg.LocalPubKey()
+	next := state{Version: stateVersion, Draining: true, SinceUnixMs: c.cfg.Now().UnixMilli(), KeyPubKey: local}
 	if key, err := c.cfg.Key(ctx); err == nil {
-		if key.ServicePubKey == c.cfg.LocalPubKey {
+		if key.ServicePubKey == local {
 			next.KeyNonce = key.AuthorizationNonce
 		}
 		if p := key.PendingRotation; p != nil {
@@ -264,7 +262,8 @@ func (c *Controller) storeLocked(next state) error {
 }
 
 // Check reads the remaining work and the key binding and returns the status. A drain whose key
-// rotated to the key this process signs with ends here.
+// rotated to a key this process holds ends here. A registered replacement this process does not
+// hold is warned about, drain or not: it could not sign after the cutover.
 func (c *Controller) Check(ctx context.Context) Status {
 	if c.Draining() {
 		c.onDraining()
@@ -279,6 +278,12 @@ func (c *Controller) Check(ctx context.Context) Status {
 		}
 		s.Key = k
 	}
+	if keyErr == nil {
+		if p := chainKey.PendingRotation; p != nil && !c.cfg.Holds(p.NextServicePubKey) {
+			s.Warning = fmt.Sprintf("the registered replacement service key is not held locally: configure identity.next_service_keystore_file "+
+				"before height %d, or this Builder cannot sign after the cutover", p.EffectiveHeight)
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.st.Draining {
@@ -288,18 +293,15 @@ func (c *Controller) Check(ctx context.Context) Status {
 	if keyErr != nil {
 		return c.workPhase(s)
 	}
-	local := chainKey.ServicePubKey == c.cfg.LocalPubKey
 	switch {
 	case chainKey.PendingRotation != nil:
 		s.Phase = PhaseRotationPending
-		if !s.Complete {
-			s.Warning = "the key rotation was registered before the drain completed: the remaining items will fail under the new key"
-		}
 		return s
 	case !c.st.rotated(chainKey):
 		return c.workPhase(s)
-	case !local:
-		s.Phase = PhaseRestartRequired
+	case !c.cfg.Holds(chainKey.ServicePubKey):
+		s = c.workPhase(s)
+		s.Warning = "the chain's current service key is not held locally: configure it as identity.service_keystore_file or identity.next_service_keystore_file"
 		return s
 	}
 	if err := c.storeLocked(state{Version: stateVersion}); err != nil {

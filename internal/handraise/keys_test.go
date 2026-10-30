@@ -71,8 +71,10 @@ func TestChainServiceKeys(t *testing.T) {
 	pending := resolver[servicekey.ParticipantBuilder+"/"+builderOperator]
 	pending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 5, EffectiveHeight: 400}
 	resolver[servicekey.ParticipantBuilder+"/"+builderOperator] = pending
-	if err := keys.CheckBuilderKey(context.Background()); !errors.Is(err, ErrBuilderRotationPending) {
-		t.Fatalf("builder key check with a pending rotation = %v, want ErrBuilderRotationPending", err)
+	var rotation *RotationPendingError
+	if err := keys.CheckBuilderKey(context.Background()); !errors.Is(err, ErrBuilderRotationPending) || !errors.As(err, &rotation) ||
+		rotation.EffectiveHeight != 400 || rotation.NextNonce != 5 {
+		t.Fatalf("builder key check with a pending rotation = %v, want a RotationPendingError", err)
 	}
 	// A pending Cortex keeps its current key for messages it already owes.
 	cortexPending := resolver[servicekey.ParticipantCortex+"/"+cortexOperator]
@@ -81,17 +83,17 @@ func TestChainServiceKeys(t *testing.T) {
 	if _, nonce, err := keys.CurrentCortexKey(context.Background(), cortexOperator); err != nil || nonce != 9 {
 		t.Fatalf("cortex key with a pending rotation = %d, %v", nonce, err)
 	}
-	// ...but takes no new Worker duty: dispatch times its tickets out unsent.
-	if pending, err := keys.CortexRotationPending(context.Background(), cortexOperator); err != nil || !pending {
-		t.Fatalf("CortexRotationPending = %v, %v; want true", pending, err)
+	// ...and its replacement's effective height is known.
+	if effective, err := keys.CortexRotation(context.Background(), cortexOperator); err != nil || effective != 400 {
+		t.Fatalf("CortexRotation = %d, %v; want 400", effective, err)
 	}
 	cortexPending.PendingRotation = nil
 	resolver[servicekey.ParticipantCortex+"/"+cortexOperator] = cortexPending
-	if pending, err := keys.CortexRotationPending(context.Background(), cortexOperator); err != nil || pending {
-		t.Fatalf("CortexRotationPending without a rotation = %v, %v", pending, err)
+	if effective, err := keys.CortexRotation(context.Background(), cortexOperator); err != nil || effective != 0 {
+		t.Fatalf("CortexRotation without a rotation = %d, %v", effective, err)
 	}
-	if _, err := keys.CortexRotationPending(context.Background(), builderOperator); !errors.Is(err, servicekey.ErrUnavailable) {
-		t.Fatalf("CortexRotationPending without a key = %v", err)
+	if _, err := keys.CortexRotation(context.Background(), builderOperator); !errors.Is(err, servicekey.ErrUnavailable) {
+		t.Fatalf("CortexRotation without a key = %v", err)
 	}
 }
 

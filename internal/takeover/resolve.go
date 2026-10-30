@@ -250,11 +250,12 @@ func (m *Manager) resolve(ctx context.Context, r *record, j job) {
 
 // settle judges a submitted entry again by Admit's rules with the current chain state and, when
 // the takeover still may register, hands the recorder its entry under the session's current
-// bound_change_height (dropping the one sent under an older one). A pending key rotation or a
-// compensation account below its minimum ends it as TASK_FAILED: no takeover then.
+// bound_change_height (dropping the one sent under an older one). A compensation account below its
+// minimum ends it as TASK_FAILED: no takeover then. A pending key rotation does not: the takeover
+// was admitted before it, and admitted takeovers go on.
 func (m *Manager) settle(ctx context.Context, r *record, j job) {
-	if err := m.cfg.Keys.CheckBuilderKey(ctx); err != nil {
-		if errors.Is(err, handraise.ErrBuilderRotationPending) || errors.Is(err, dispatcher.ErrCompensationBelowMin) {
+	if err := m.cfg.Keys.CheckBuilderKey(ctx); err != nil && !errors.Is(err, handraise.ErrBuilderRotationPending) {
+		if errors.Is(err, dispatcher.ErrCompensationBelowMin) {
 			m.log.Warn("takeover dropped: no takeover while this Builder cannot record", "session_id", r.SessionID, "err", err)
 			m.end(ctx, r, codeTaskFailed, false, nil)
 			return

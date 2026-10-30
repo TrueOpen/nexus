@@ -55,13 +55,27 @@ func TestCompensationGate(t *testing.T) {
 	}
 }
 
-// The gate is the dispatcher's one Keys: this Builder's key check comes first, so a pending own
-// rotation stays what it is.
+// The gate is the dispatcher's one Keys: a key that cannot be confirmed comes first. A pending own
+// rotation still lets orders below its effective height dispatch, so the compensation account is
+// checked under it, and the rotation is reported when the account is fine.
 func TestGateKeepsTheKeyCheck(t *testing.T) {
 	ctx := context.Background()
-	keys := &fakeKeys{err: fmt.Errorf("%w: nonce 4", handraise.ErrBuilderRotationPending)}
+	keys := &fakeKeys{err: errors.New("key unreadable")}
 	account := &accountReader{balance: "0"}
 	g := NewGate(GateConfig{Keys: keys, Builder: builder, Account: account.read, MinBalance: big.NewInt(1)})
+	if err := g.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.CheckBuilderKey(ctx); err == nil || errors.Is(err, dispatcher.ErrCompensationBelowMin) {
+		t.Fatalf("gate = %v, want the key error", err)
+	}
+	keys.err = fmt.Errorf("%w: nonce 4", handraise.ErrBuilderRotationPending)
+	if err := g.CheckBuilderKey(ctx); !errors.Is(err, dispatcher.ErrCompensationBelowMin) {
+		t.Fatalf("gate under a pending rotation = %v, want ErrCompensationBelowMin", err)
+	}
+	account.mu.Lock()
+	account.balance = "5"
+	account.mu.Unlock()
 	if err := g.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +83,7 @@ func TestGateKeepsTheKeyCheck(t *testing.T) {
 		t.Fatalf("gate = %v", err)
 	}
 	keys.err = nil
-	if err := g.CheckBuilderKey(ctx); !errors.Is(err, dispatcher.ErrCompensationBelowMin) {
+	if err := g.CheckBuilderKey(ctx); err != nil {
 		t.Fatalf("gate = %v", err)
 	}
 }

@@ -51,7 +51,8 @@ type Resolver interface {
 // verifies: the status is ACTIVE, the lookup domain and operator are consistent, ServicePubKey is 33-byte lowercase hex,
 // and the address derived from that pubkey equals state.ServiceAddress.
 //
-// Only the current key is queried, with no historical-key fallback: an old key becomes invalid the moment it is rotated.
+// Only the current key is returned: live requests and streams need it. Proofs of a retired
+// generation go through ProofKeys, which also resolves the one previous key a cutover retained.
 func Current(
 	ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string,
 ) ([]byte, chaincli.ServiceKeyState, error) {

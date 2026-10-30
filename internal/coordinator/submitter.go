@@ -98,6 +98,9 @@ type defaultSubmitter struct {
 	accNum   uint64
 	sequence uint64
 	seqValid bool // false = refresh from chain before the next submit
+	// seqAddr is the account the cache was read for: a service key cutover changes the signer's
+	// account, and the next submit reads the new one.
+	seqAddr string
 	// lastSign / lastBroadcast time the latest signAndBroadcast, for the CheckTx log line (guarded by seqMu).
 	lastSign      time.Duration
 	lastBroadcast time.Duration
@@ -271,7 +274,7 @@ func (s *defaultSubmitter) SimulateSettle(ctx context.Context, tx chaincli.Settl
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
-	if !s.seqValid {
+	if s.sequenceStale() {
 		if err := s.refreshSequence(ctx); err != nil {
 			return chaincli.SimResult{}, fmt.Errorf("simulate MsgSettleTask: account info: %w", err)
 		}
@@ -595,7 +598,7 @@ func (s *defaultSubmitter) submitAnyLocked(ctx context.Context, kind, typeURL st
 // and signing once more on a sequence mismatch. persist, when set, gets every signed transaction
 // before it is broadcast; one it fails is not broadcast. Caller must hold seqMu.
 func (s *defaultSubmitter) submitBuiltLocked(ctx context.Context, kind, typeURL string, build func(chaincli.TxParams) ([]byte, error), persist func([]byte) error) (chaincli.TxResult, error) {
-	if !s.seqValid {
+	if s.sequenceStale() {
 		if err := s.refreshSequence(ctx); err != nil {
 			return chaincli.TxResult{}, &SubmissionError{Phase: SubmissionPrepare, Err: fmt.Errorf("submit %s: account info: %w", kind, err)}
 		}
@@ -667,16 +670,23 @@ func (s *defaultSubmitter) logBroadcastAccepted(kind, typeURL string, res chainc
 	)
 }
 
+// sequenceStale reports whether the cached sequence must be read again: it was invalidated, or
+// it is another account's than the signer's now. Caller must hold seqMu.
+func (s *defaultSubmitter) sequenceStale() bool {
+	return !s.seqValid || s.seqAddr != s.signer.Address()
+}
+
 // refreshSequence queries the account from the chain and resets the local cache. Caller must hold seqMu.
 func (s *defaultSubmitter) refreshSequence(ctx context.Context) error {
-	acc, err := s.chain.AccountInfo(ctx, s.signer.Address())
+	address := s.signer.Address()
+	acc, err := s.chain.AccountInfo(ctx, address)
 	if err != nil {
 		s.seqValid = false
 		return err
 	}
 	s.accNum = acc.AccountNumber
 	s.sequence = acc.Sequence
-	s.seqValid = true
+	s.seqValid, s.seqAddr = true, address
 	return nil
 }
 

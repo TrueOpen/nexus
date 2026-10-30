@@ -1,6 +1,6 @@
 // Package ops is the operator surface of a Builder: the readiness verdict, the diagnostics, the
-// order path metrics and the public dispatch statistics, and the service key rotation drain the
-// operator asks for.
+// order path metrics and the public dispatch statistics, and the optional drain the operator asks
+// for.
 //
 // A Monitor evaluates everything once per tick: it takes the drain request the operator left in
 // <data_dir>/ops (see WriteDrainRequest), checks the drain, runs the readiness checks, gathers the
@@ -62,7 +62,7 @@ type Status struct {
 // Config wires a Monitor.
 type Config struct {
 	DataDir string
-	// Drain is the rotation drain; nil when this Builder does not dispatch (drain requests are
+	// Drain is the operator's drain; nil when this Builder does not dispatch (drain requests are
 	// then refused in the log).
 	Drain  *drain.Controller
 	Checks []Check
@@ -209,7 +209,7 @@ func (m *Monitor) check(ctx context.Context) Readiness {
 	if m.cfg.Drain != nil {
 		checks = append(checks, Check{Name: "drain", Run: func(context.Context) error {
 			if m.cfg.Drain.Draining() {
-				return errors.New("draining before a service key rotation")
+				return errors.New("draining: no new work is taken")
 			}
 			return nil
 		}})

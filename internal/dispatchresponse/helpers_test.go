@@ -405,7 +405,7 @@ func (e *env) open() {
 	e.t.Helper()
 	var err error
 	e.r, err = New(Config{
-		ChainID: testChainID, Builder: self, Responder: responder, Store: e.store, Evidence: e.evidence,
+		ChainID: testChainID, Builder: self, Responder: func() string { return responder }, Store: e.store, Evidence: e.evidence,
 		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live },
 		GasBase: testGasBase, GasPerByte: testGasPerByte,
 	})

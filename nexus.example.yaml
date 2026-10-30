@@ -207,6 +207,15 @@ identity:
   service_keystore_file: ""
   service_keystore_password: ""
   service_keystore_password_file: ""
+  # A second service key: the replacement of a registered rotation, loaded ahead
+  # so the cutover at its effective height needs no restart. The chain binding
+  # decides which local key is current; after a cutover keep the retired key
+  # configured (here or as service_keystore_file) while tasks recorded before
+  # the cutover still need Builder messages under its nonce. Needs
+  # service_keystore_file. Env: NEXUS_NEXT_SERVICE_KEYSTORE_FILE,
+  # NEXUS_NEXT_SERVICE_KEYSTORE_PASSWORD_FILE.
+  next_service_keystore_file: ""
+  next_service_keystore_password_file: ""
   # Builder VRF keys for direct dispatch: Ed25519 in the Cosmos keystore armor
   # (key type ed25519), mode 0600, kept apart from the service key. List the
   # key registered on chain now and any earlier key still needed for orders of

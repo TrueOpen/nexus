@@ -27,7 +27,7 @@ func configureOpsCommand(t *testing.T) string {
 func runDaemonTicks(t *testing.T, dataDir string) *drain.Controller {
 	t.Helper()
 	d, err := drain.New(drain.Config{
-		Store: kv.NewMemStore(), LocalPubKey: "02aa",
+		Store: kv.NewMemStore(), LocalPubKey: func() string { return "02aa" }, Holds: func(k string) bool { return k == "02aa" },
 		Key: func(context.Context) (chaincli.ServiceKeyState, error) {
 			return chaincli.ServiceKeyState{ServicePubKey: "02aa", AuthorizationNonce: 3}, nil
 		},

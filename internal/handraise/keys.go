@@ -27,15 +27,17 @@ func (k ChainServiceKeys) CurrentCortexKey(ctx context.Context, operator string)
 	return pub, state.AuthorizationNonce, nil
 }
 
-// CortexRotationPending reports whether operator registered a CORTEX service key replacement that
-// has not activated yet. Its current key still verifies the messages it owes, but it may take no
-// new Worker duty: the chain refuses a dispatch entry whose winner is pending.
-func (k ChainServiceKeys) CortexRotationPending(ctx context.Context, operator string) (bool, error) {
+// CortexRotation returns the effective height of operator's registered CORTEX service key
+// replacement, 0 when none is pending. Its current key still verifies the messages it owes.
+func (k ChainServiceKeys) CortexRotation(ctx context.Context, operator string) (uint64, error) {
 	_, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantCortex, operator)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return state.PendingRotation != nil, nil
+	if p := state.PendingRotation; p != nil {
+		return p.EffectiveHeight, nil
+	}
+	return 0, nil
 }
 
 func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
@@ -47,7 +49,7 @@ func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
 		return err
 	}
 	if view.Pending() {
-		return fmt.Errorf("%w: nonce %d effective at height %d", ErrBuilderRotationPending, view.Next.Nonce, view.NextEffectiveHeight)
+		return &RotationPendingError{NextNonce: view.Next.Nonce, RegisteredHeight: view.NextRegisteredHeight, EffectiveHeight: view.NextEffectiveHeight}
 	}
 	return nil
 }

@@ -17,36 +17,44 @@ nexus start      # start the service
 nexus version    # version
 nexus keys create-keystore  # convert a hex private key into an encrypted keystore
 nexus builder register       # ensure the Builder record and descriptor on the Hub match local config
-nexus drain begin|end|status # drain the running Builder before a service key rotation (see below)
+nexus drain begin|end|status # optionally stop new work on the running Builder (see below)
 nexus status     # readiness, diagnostics, drain and metrics as the running daemon last wrote them
 nexus --help     # help
 ```
 
 ### Service key rotation
 
-A dispatch record is admitted only under the Builder's current service key, and the chain's
-rotation guard does not count orders accepted but not recorded yet; group members also verify
-synced items under the current key. Rotate only after a drain:
+A rotation registered in epoch E becomes current at the start of epoch E+2; nothing postpones it.
+The chain keeps the replaced key as the one previous generation: it still proves the tickets,
+roots, records and Worker answers of orders whose `earliest_submit_height` is below the cutover,
+and the Builder messages of tasks recorded before it. No drain is needed:
 
-1. `nexus drain begin`: the running daemon takes no new order, issues no ticket and admits no
-   takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight orders are accepted,
-   recorded or fail as usual, and the group sync finishes. A held takeover whose entry has not
-   gone out is ended as `NO_CAPACITY` at once (its user goes to another Builder); one whose entry
-   went out takes effect and its order is dispatched with tickets as usual. `/readyz` turns 503.
-2. `nexus drain status` until `phase` is `DRAINED` (no in-flight order, record outbox entry,
-   takeover or unacknowledged sync item; `remaining` lists what is left, `sync_pending` names the
-   order/member pairs that would be refused after the rotation). `DRAINED` does not cover the
-   Builder-signed dispatch stream messages Cortex nodes have not acknowledged yet, nor the
-   handraise roots already broadcast: they are signed by the old key and are resent as stored
-   (`nexus status` shows the stream resend backlog).
-3. Submit the rotation with the operator key. The phase is `ROTATION_PENDING` until it activates,
-   then `RESTART_REQUIRED`: restart nexus with the new service keystore. The drain ends by itself
-   once the chain shows the new key current and the daemon signs with it (`nexus drain end` ends
-   it at any time).
+1. Put the new service key next to the current one: `identity.next_service_keystore_file` and
+   `identity.next_service_keystore_password_file` (needs a dedicated `service_keystore_file`).
+   Restart once so the daemon holds both keys, then submit the rotation with the operator key.
+2. While the rotation is pending the Builder signs no new handraise roots and takes no new
+   session (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY` for a session bound to it since the
+   registration, and no takeover is admitted). Orders of its sessions below the effective height
+   are dispatched under the current key; an order at or above it is answered
+   `NEXUS_INGRESS_DISPATCH_NOT_READY` with `dispatch_available_height` set to the effective height,
+   and one taken before the registration was seen waits for the cutover. `nexus status` warns
+   when the registered key is not held locally.
+3. At the effective height the daemon signs with the new key without a restart: tickets, records,
+   roots (signed again), record transactions from the new service account, and every Cortex
+   stream binds again. Keep the old key configured (as either keystore) while tasks recorded
+   before the cutover are still open: their Builder messages keep its nonce.
 
-Not done yet: once this Builder's own rotation activated, group sync streams that only retry
-items signed by the old key should be marked complete instead of retrying until their retention
-ends (follows the Builder-to-Builder sync once merged).
+`nexus drain begin` remains for an operator who wants a quiet Builder: it takes no new order,
+issues no ticket and admits no takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight
+orders are accepted, recorded or fail as usual, and the group sync finishes. A held takeover whose
+entry has not gone out is ended as `NO_CAPACITY` at once; one whose entry went out takes effect.
+`/readyz` turns 503. `nexus drain status` shows `DRAINING`, `DRAINED` or `ROTATION_PENDING`, what
+remains, and ends by itself once the chain shows a new key current that the daemon holds
+(`nexus drain end` ends it at any time).
+
+Not done yet: Builder-signed stream messages without a nonce that a Cortex has not acknowledged
+at the cutover (input chunks, record notices, revokes) are resent as stored, under the retired
+key.
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state
