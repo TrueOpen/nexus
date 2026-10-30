@@ -576,20 +576,18 @@ func TestUnreachableMembers(t *testing.T) {
 	}
 }
 
-// An order whose earliest_submit_height is above the local head waits for that height.
-func TestOrderWaitsForItsEarliestSubmitHeight(t *testing.T) {
+// An order whose earliest_submit_height is the next height is dispatched at once: its record
+// lands at earliest_submit_height at the earliest anyway, so waiting for the head to reach it only
+// loses a block.
+func TestOrderForTheNextHeightIsDispatchedAtOnce(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
-	o := e.orderAt(s, 0, 1, testESH+1)
-	e.dispatch(o)
-	if n := len(e.streams.offers()); n != 0 {
-		t.Fatalf("%d offers before the head reached earliest_submit_height", n)
-	}
-	e.sessions.ObserveHeight(testESH + 1)
-	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
+	e.dispatch(e.orderAt(s, 0, 1, testESH+1))
 	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
 		t.Fatalf("offers = %v", got)
 	}
+	e.accept()
+	checkRecordable(t, e, e.onlyBundle(), testBound)
 }
 
 // A retry of a failed sequence in the same epoch is a new round: it binds the latest root and
@@ -758,13 +756,16 @@ func TestStickyIsDecidedFromTheRosterRoundZeroBinds(t *testing.T) {
 func TestBindingChangeBeforeTheFirstTicket(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
-	o := e.orderAt(s, 0, 1, testESH+1)
+	o := e.order(s, 0, 1)
+	e.keys.builderErr = ErrCompensationUnread
 	e.dispatch(o)
 	if n := len(e.streams.offers()); n != 0 {
-		t.Fatalf("%d offers before earliest_submit_height", n)
+		t.Fatalf("%d offers while no ticket may be issued", n)
 	}
 	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: testBound + 5}})
-	e.sessions.ObserveHeight(testESH + 1)
+	e.keys.mu.Lock()
+	e.keys.builderErr = nil
+	e.keys.mu.Unlock()
 	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
 	_, ticket, _ := e.lastOffer()
 	if ticket.GetBoundChangeHeight() != testBound+5 || ticket.GetDispatchRound() != 0 {

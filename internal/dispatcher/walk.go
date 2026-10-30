@@ -285,7 +285,11 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	signedOrder := o.signed.GetOrder()
 	esh := signedOrder.GetEarliestSubmitHeight()
 	head := d.cfg.Sessions.Head()
-	if head < esh {
+	// The precheck admits an order whose earliest_submit_height is at most one block above the
+	// head, and it is dispatched at once: its record lands at earliest_submit_height at the
+	// earliest anyway. A round never opens earlier, so a root that can prove an omission (at least
+	// two blocks below earliest_submit_height) was signed before the round opened.
+	if head+1 < esh {
 		o.parked = true
 		return false, done{}
 	}

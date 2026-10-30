@@ -241,11 +241,16 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 // read per interval instead of one per heartbeat.
 const heightCacheTTL = 250 * time.Millisecond
 
-// cachedHeight is a handraise.ChainHeight that reads the chain at most once per ttl.
+// cachedHeight is a handraise.ChainHeight that reads the chain at most once per ttl. It never
+// returns less than floor, the head the dispatcher opens rounds at: an omission is proved only with
+// a root at least two blocks below an order's earliest_submit_height, and a round opens with the
+// head at most one block below it, so a root signed after a round opened must not carry a height
+// below that head.
 type cachedHeight struct {
-	read func(context.Context) (uint64, error)
-	ttl  time.Duration
-	now  func() time.Time
+	read  func(context.Context) (uint64, error)
+	ttl   time.Duration
+	now   func() time.Time
+	floor func() uint64 // nil: none; set before the first read
 
 	mu     sync.Mutex
 	height uint64
@@ -257,6 +262,17 @@ func newCachedHeight(read func(context.Context) (uint64, error)) *cachedHeight {
 }
 
 func (h *cachedHeight) LatestHeight(ctx context.Context) (uint64, error) {
+	height, err := h.cached(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if h.floor != nil {
+		height = max(height, h.floor())
+	}
+	return height, nil
+}
+
+func (h *cachedHeight) cached(ctx context.Context) (uint64, error) {
 	h.mu.Lock()
 	if h.height != 0 && h.now().Sub(h.at) < h.ttl {
 		height := h.height

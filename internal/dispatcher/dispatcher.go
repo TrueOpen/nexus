@@ -1,8 +1,8 @@
 // Package dispatcher is the direct dispatch state machine of a Builder.
 //
-// For every order the in-flight precheck admitted, the dispatcher waits until the local chain head
-// reaches the order's earliest_submit_height, draws the order's complete Worker order with the
-// Builder VRF, builds the first round's roster from the latest signed handraise root and decides
+// For every order the in-flight precheck admitted (its earliest_submit_height at most one block
+// above the local chain head), the dispatcher at once draws the order's complete Worker order with
+// the Builder VRF, builds the first round's roster from the latest signed handraise root and decides
 // session stickiness once. It then walks the order: for each member of the round's roster, in rank
 // order, it signs one DispatchTicketV1 and offers it with the signed order on that Cortex's
 // dispatch stream, one ticket at a time. A verified reject or the ticket's accept deadline moves
@@ -283,11 +283,11 @@ type order struct {
 	roster      *dispatchdraw.Roster
 	rosterRound uint32
 	timer       Timer
-	// parked is set while the order waits for the chain: its earliest_submit_height, an earlier
-	// order of the session, a readable chain, or the end of this Builder's key rotation.
+	// parked is set while the order waits for the chain: an earlier order of the session, a
+	// readable chain (its epoch included), or the end of this Builder's key rotation.
 	parked bool
 	// takenAt is when this run took the order (zero for an order resumed after a restart) and
-	// waited whether its earliest_submit_height wait was timed; ticketAt is when the ticket out
+	// waited whether the wait for its first round was timed; ticketAt is when the ticket out
 	// was issued. They only feed the stage timings.
 	takenAt  time.Time
 	waited   bool

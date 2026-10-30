@@ -443,12 +443,14 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		coord.SetAttemptRetention(cfg.TaskData.TombstoneRetentionBlocks)
 	}
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
-		// Standing handraises and roots are judged on the task chain's height; the Hub reads
-		// (pool, beacon, VRF keys, epoch length) go to the registration chain.
+		// Standing handraises and roots are judged on the task chain's height, never below the
+		// dispatcher's head; the Hub reads (pool, beacon, VRF keys, epoch length) go to the
+		// registration chain.
+		rootHeight := newCachedHeight(taskChain.LatestHeight)
 		if err := newDirectDispatch(dispatch, directDispatchDeps{
 			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
 			Config: cfg.Dispatch, VRFKeyFiles: cfg.Identity.VRFKeyFiles, VRFKeyPassword: cfg.Identity.VRFKeyPasswordFile,
-			Store: store, Chain: registrationChain, Keys: keyCache, Height: newCachedHeight(taskChain.LatestHeight),
+			Store: store, Chain: registrationChain, Keys: keyCache, Height: rootHeight,
 			Signer: serviceSG, Streams: streams, Groups: coord,
 		}); err != nil {
 			_ = store.Close()
@@ -469,6 +471,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			_ = store.Close()
 			return nil, fmt.Errorf("order dispatch: %w", err)
 		}
+		rootHeight.floor = orderPath.Sessions.Head
 		coord.SetDispatcher(orderPath.Dispatcher)
 		sinks.Dispatch = orderPath.Dispatcher
 		orders.order.Store(orderPath)

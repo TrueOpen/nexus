@@ -20,8 +20,8 @@ import (
 const (
 	// StagePrecheck is the OpenTask precheck of a dispatching Builder.
 	StagePrecheck = "precheck"
-	// StageWaitESH is from the dispatcher taking an order until the head reached its
-	// earliest_submit_height.
+	// StageWaitESH is from the dispatcher taking an order until the head was at most one block
+	// below its earliest_submit_height (at once for an order the precheck just admitted).
 	StageWaitESH = "wait_for_esh"
 	// StageDraw is the Builder VRF draw of an order's Worker order.
 	StageDraw = "draw"
