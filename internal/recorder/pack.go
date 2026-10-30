@@ -41,8 +41,8 @@ func split(base int, sizes []int, maxEntries uint32, maxBytes uint64) (batches [
 	return batches, tooLarge
 }
 
-// pack sends the entries waiting for a block: not sent yet, not held behind an unresolved earlier
-// entry of their session and still recordable in the next block, sorted by (session_id,
+// pack sends the entries waiting for a block: not sent yet, not held until their sequence is the
+// session's next (release) and still recordable in the next block, sorted by (session_id,
 // order_sequence) and split by the params. Nothing goes out while the compensation account is
 // known to be below its minimum: the chain would refuse the whole transaction.
 func (r *Recorder) pack(ctx context.Context, height uint64) {
@@ -55,7 +55,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	r.mu.Lock()
 	var waiting []*entry
 	for _, e := range r.entries {
-		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !(e.Held && r.earlierUnresolvedLocked(e)) {
+		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !e.Held {
 			e.packing = true
 			waiting = append(waiting, e)
 		}

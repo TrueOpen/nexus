@@ -16,7 +16,8 @@
 // An entry is resolved only by its result in an executed transaction, a dispatch_recorded event of
 // its winner ticket, or its record deadline passing (then the dispatch record query decides).
 // Admitted, the order leaves the in-flight ledger and the dispatcher, its task is reconciled and
-// the winner gets a RECORDED notice. Refused or late, the order and every later entry of its
+// the winner gets a RECORDED notice. Refused SEQUENCE_NOT_NEXT, the entry is held and sent again
+// once the session's next expected sequence reached it. Otherwise refused, or late, the order and every later entry of its
 // session fail as RECORD_REJECTED with REJECTED notices, the session is suspended from its
 // sequence and the dispatcher fails its later orders: none of them can be recorded before it. The
 // Workers of those orders claim compensation themselves; package dispatchresponse rebuts the
@@ -78,6 +79,8 @@ func ParamsFromChain(d *taskv1.DispatchParamsV1) (Params, error) {
 type Chain interface {
 	QueryTx(ctx context.Context, txHash []byte) (chaincli.TxResult, error)
 	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
+	// QuerySession reads a session; its next expected sequence releases held entries.
+	QuerySession(ctx context.Context, sessionID string) (chaincli.SessionState, error)
 }
 
 // Submitter sends record transactions from the Builder service account
@@ -389,12 +392,14 @@ func (r *Recorder) HandleChainEvent(ev chaincli.ChainEvent) {
 }
 
 // onBlock checks the transactions out, resolves the entries past their deadline, reads the
-// compensation account when due and sends the waiting entries.
+// compensation account when due, releases the held entries whose sequence is next and sends the
+// waiting entries.
 func (r *Recorder) onBlock(ctx context.Context, height uint64) {
 	r.pruneWithdrawn(height)
 	r.checkTxs(ctx, height)
 	r.expire(ctx, height)
 	r.cfg.Gate.onBlock(ctx, height)
+	r.release(ctx)
 	r.pack(ctx, height)
 }
 

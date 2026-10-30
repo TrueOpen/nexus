@@ -335,11 +335,12 @@ func TestWithdrawnEntries(t *testing.T) {
 	}
 }
 
-// SEQUENCE_NOT_NEXT while an earlier entry of the session is still unresolved is not final: the
-// sequence was not consumed, and the entry is held and submitted again once the earlier one is
-// recorded.
+// SEQUENCE_NOT_NEXT is never final: the sequence was not consumed. The entry is held and submitted
+// again once the session's next expected sequence reached it.
 func TestSequenceNotNextBehindAnUnresolvedEntryIsRetried(t *testing.T) {
 	e := newEnv(t)
+	session := sessionHex(0xaa)
+	e.chain.setNext(session, 0)
 	e.record(bundle(0xaa, 0, 1, 50))
 	e.block(10)
 	msg0, raw0 := e.lastSent()
@@ -355,10 +356,64 @@ func TestSequenceNotNextBehindAnUnresolvedEntryIsRetried(t *testing.T) {
 		t.Fatal("held entry resubmitted before the earlier one resolved")
 	}
 	e.chain.execute(raw0, executed(t, msg0, 13, ok()))
+	e.chain.setNext(session, 1)
 	e.block(13)
 	again, _ := e.lastSent()
 	if msgs, _ := e.tx.sent(); len(msgs) != 3 || !reflect.DeepEqual(entriesOf(again), []string{"aa/1"}) {
 		t.Fatalf("held entry not resubmitted: %v", entriesOf(again))
+	}
+}
+
+// The earlier sequence is still walking its roster (no entry of it here) while the next one is
+// accepted and sent: the chain answers SEQUENCE_NOT_NEXT, and the entry waits for the session's
+// next expected sequence, read once per block, instead of failing the session. The record
+// deadline still bounds the wait.
+func TestSequenceNotNextWaitsForAnEarlierOrderStillWalking(t *testing.T) {
+	e := newEnv(t)
+	session := sessionHex(0xaa)
+	e.chain.setNext(session, 4)
+	e.record(bundle(0xaa, 5, 2, 50))
+	e.block(10)
+	msg, raw := e.lastSent()
+	e.chain.execute(raw, executed(t, msg, 11, refused(codeNotNext)))
+	e.block(11)
+	if len(e.tasks.rejected) != 0 || len(e.ledger.suspended) != 0 || len(e.orders.suspended) != 0 || len(e.notices()) != 0 {
+		t.Fatalf("SEQUENCE_NOT_NEXT failed the session: rejected %v, suspended %v", e.tasks.rejected, e.ledger.suspended)
+	}
+	queries := e.chain.sessionQueries
+	for h := uint64(12); h < 15; h++ {
+		e.block(h)
+	}
+	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
+		t.Fatalf("held entry resent before its sequence was next: %d messages", len(msgs))
+	}
+	if got := e.chain.sessionQueries - queries; got != 3 {
+		t.Fatalf("session read %d times in 3 blocks, want once per block", got)
+	}
+	// An unreadable session keeps the entry held.
+	e.chain.sessionErr = errUnreadable
+	e.chain.setNext(session, 5)
+	e.block(15)
+	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
+		t.Fatal("held entry resent on an unreadable session")
+	}
+	e.chain.sessionErr = nil
+	e.block(16)
+	again, _ := e.lastSent()
+	if msgs, _ := e.tx.sent(); len(msgs) != 2 || !reflect.DeepEqual(entriesOf(again), []string{"aa/5"}) {
+		t.Fatalf("held entry not resent once its sequence was next: %v", entriesOf(again))
+	}
+
+	// One that never becomes next ends RECORD_LATE at its deadline.
+	e.chain.setNext(sessionHex(0xbb), 0)
+	e.record(bundle(0xbb, 3, 3, 30))
+	e.block(20)
+	msg, raw = e.lastSent()
+	e.chain.execute(raw, executed(t, msg, 21, refused(codeNotNext)))
+	e.block(21)
+	e.block(31)
+	if len(e.tasks.rejected) != 1 || e.tasks.rejected[0].code != codeLate {
+		t.Fatalf("held entry past its deadline = %v, want RECORD_LATE", e.tasks.rejected)
 	}
 }
 

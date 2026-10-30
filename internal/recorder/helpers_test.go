@@ -150,6 +150,33 @@ type fakeChain struct {
 	records   map[orderKey]*taskv1.DispatchRecordState
 	recordErr error
 	queries   int
+	// next holds each session's next_expected_sequence; a session not in it is not found.
+	next           map[string]uint64
+	sessionErr     error
+	sessionQueries int
+}
+
+func (c *fakeChain) QuerySession(_ context.Context, sessionID string) (chaincli.SessionState, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessionQueries++
+	if c.sessionErr != nil {
+		return chaincli.SessionState{}, c.sessionErr
+	}
+	next, ok := c.next[sessionID]
+	if !ok {
+		return chaincli.SessionState{}, fmt.Errorf("query session: %w", chaincli.ErrNotFound)
+	}
+	return chaincli.SessionState{SessionID: sessionID, NextExpectedSequence: next}, nil
+}
+
+func (c *fakeChain) setNext(sessionID string, next uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.next == nil {
+		c.next = map[string]uint64{}
+	}
+	c.next[sessionID] = next
 }
 
 func (c *fakeChain) QueryTx(_ context.Context, hash []byte) (chaincli.TxResult, error) {

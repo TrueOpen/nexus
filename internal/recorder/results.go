@@ -469,10 +469,11 @@ func (r *Recorder) recordLocked(e *entry, height uint64, ops *[]kv.WriteOp, fx *
 }
 
 // rejectLocked resolves e as refused with code. A withdrawn entry is only dropped. Unless final,
-// SEQUENCE_NOT_NEXT behind an unresolved earlier entry of the session holds e for a later attempt
-// at the same sequence. Otherwise e and every later entry of its session fail (RECORD_REJECTED,
-// REJECTED notices), the session is suspended from e's sequence and the dispatcher fails its later
-// orders. SEQUENCE_CONSUMED is always final: the sequence is retired.
+// SEQUENCE_NOT_NEXT holds e for a later attempt at the same sequence: the chain did not consume it,
+// and an earlier order of the session (here or still walking its roster) is not recorded yet; see
+// release. Otherwise e and every later entry of its session fail (RECORD_REJECTED, REJECTED
+// notices), the session is suspended from e's sequence and the dispatcher fails its later orders.
+// SEQUENCE_CONSUMED is always final: the sequence is retired.
 // Caller holds r.mu.
 func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, final bool, ops *[]kv.WriteOp, fx *effects) {
 	if e.Withdrawn {
@@ -480,10 +481,10 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 		r.log.Info("withdrawn dispatch entry refused", "session_id", e.SessionID, "order_sequence", e.Sequence, "reject_code", code)
 		return
 	}
-	if !final && code == codeSequenceNotNext && r.earlierUnresolvedLocked(e) {
+	if !final && code == codeSequenceNotNext {
 		e.Held, e.Tx = true, ""
 		*ops = append(*ops, r.entryOp(e))
-		r.log.Info("dispatch entry held behind an unresolved earlier entry", "session_id", e.SessionID, "order_sequence", e.Sequence)
+		r.log.Info("dispatch entry held until its sequence is the session's next", "session_id", e.SessionID, "order_sequence", e.Sequence)
 		return
 	}
 	if code == codeSequenceConsumed && r.earlierUnresolvedLocked(e) {
@@ -537,6 +538,37 @@ func (r *Recorder) earlierUnresolvedLocked(e *entry) bool {
 		}
 	}
 	return false
+}
+
+// release reads, once per block, the session of each held entry and lets the entries whose
+// sequence the session's next expected sequence reached go out again. A session that cannot be
+// read keeps its entries held; the record deadline bounds the wait (expire).
+func (r *Recorder) release(ctx context.Context) {
+	r.mu.Lock()
+	held := map[string][]string{} // session id -> object ids
+	for _, e := range r.entries {
+		if e.Held && e.Tx == "" && !e.Withdrawn && !e.Takeover {
+			held[e.SessionID] = append(held[e.SessionID], e.ObjectID)
+		}
+	}
+	r.mu.Unlock()
+	for sessionID, ids := range held {
+		state, err := r.cfg.Chain.QuerySession(ctx, sessionID)
+		if err != nil {
+			r.log.Info("session of held dispatch entries not read", "session_id", sessionID, "err", err)
+			continue
+		}
+		r.mu.Lock()
+		var ops []kv.WriteOp
+		for _, id := range ids {
+			if e := r.entries[id]; e != nil && e.Held && e.Sequence <= state.NextExpectedSequence {
+				e.Held = false
+				ops = append(ops, r.entryOp(e))
+			}
+		}
+		r.writeLocked(ops)
+		r.mu.Unlock()
+	}
 }
 
 func sortEntries(es []*entry) {
