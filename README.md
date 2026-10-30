@@ -47,10 +47,38 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    warns when the registered key is not held locally.
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
    roots (signed again), result headers, input chunks, record notices and record transactions
-   from the new service account. Cortex streams stay up. Keep the old key configured (as either keystore) while tasks recorded
-   before the cutover are still open: their Builder messages keep its nonce. Since either slot may
-   hold the retired key, the daemon signs nothing until it has read the chain's binding: it reads
-   it at startup and, if the chain does not answer, keeps reading it in the background.
+   from the new service account. Cortex streams stay up. Keep the old key configured (as either
+   keystore) while tasks recorded before the cutover are still open: their Builder messages keep
+   its nonce. Since either slot may hold the retired key, the daemon signs nothing until it has
+   read the chain's binding: it reads it at startup and, if the chain does not answer, keeps
+   reading it in the background.
+
+An emergency revocation (`MsgRevokeServiceKey`) is different: the revoked key stops at once and no
+replacement comes with it. From this Builder's own `SERVICE_KEY_REVOKED` event (or the next read of
+its binding, at startup too) until a replacement is current, the daemon signs nothing new: no
+tickets, roots, records, result headers, input chunks, record notices, group sync requests,
+Builder messages to Cortex or transactions from the service account. What it signed before is
+never signed again: stored result headers are still served as first signed, unacknowledged stream
+messages keep their bytes for when Cortex nodes, which close their streams to a revoked Builder,
+bind again, and sync items wait for the first sync request signed after the replacement. While
+revoked:
+
+- the log says `service key revoked: nothing is signed and no order is dispatched until a
+  replacement key is current` (error) and `handraise roots paused while this Builder's service key
+  is revoked`; `/readyz` turns 503 with `builder_key` failing as `this Builder's current service
+  key is revoked (nonce N)`, followed by `no replacement is registered` or `replacement nonce M is
+  current from height H`; `nexus status` shows the `service_key` diagnostic as
+  `inactive BUILDER service key (REVOKED)`;
+- OpenTask answers `NEXUS_INGRESS_DISPATCH_NOT_READY` with `dispatch_available_height` set to the
+  replacement's effective height once one is registered, and `NEXUS_INGRESS_NO_CAPACITY` (as during
+  a drain) before that; no takeover is admitted (`NEXUS_INGRESS_NO_CAPACITY`);
+- an order still dispatching fails as no capacity instead of getting another ticket, and an
+  accept of a ticket signed before the revocation is answered `DISPATCH_TICKET_CLOSED`: the
+  attempt is `VOIDED` with the accept kept, so the GPU is left to a compensation claim.
+
+To recover, register a replacement as in step 1 (it becomes current at the start of epoch E+2
+like any rotation). At its effective height the daemon finds it current and resumes signing and
+dispatch by itself, without a restart.
 
 `nexus drain begin` remains for an operator who wants a quiet Builder: it takes no new order,
 issues no ticket and admits no takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight
