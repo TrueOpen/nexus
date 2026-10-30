@@ -33,6 +33,9 @@ const (
 	codeLaterSequence = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED
 	codeRecordLate    = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
 	codeConflict      = taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT
+	// codeCascaded is the rejection category a later entry of a refused one is reported to its task
+	// with: its sequence was not consumed, and the client resends the same sequence.
+	codeCascaded = codeConflict
 )
 
 // pendingTxs lists the transactions still carrying an unresolved entry and drops the others.
@@ -507,7 +510,11 @@ func (r *Recorder) rejectLocked(e *entry, code taskv1.DispatchRejectCodeV1, fina
 				c = code
 			}
 			r.cfg.Attempts.Rejected(x.TaskID, [32]byte(x.TicketHash))
-			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, [32]byte(x.TicketHash), c)
+			category := c
+			if x != e {
+				category = codeCascaded
+			}
+			r.cfg.Tasks.RecordRejected(x.SessionID, x.TaskID, [32]byte(x.TicketHash), category)
 			r.notify(ctx, x, statusRejected, c, 0)
 		}
 	})

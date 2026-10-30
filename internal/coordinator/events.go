@@ -88,7 +88,8 @@ func (j *journal) restoreEntries(entries []types.TaskEvent) {
 
 // Event codes (GetTaskEvents.event_code): the closed Nexus lifecycle set the wire contract lists
 // above GetTaskEventsResponse, separate from the Node's protocol event codes. The SDK relies on
-// them; never change one.
+// them; never change one. ASSIGN_REJECTED, ASSIGN_ACCEPTED and ASSIGNMENT_FINALIZED are retired
+// codes of the earlier assignment flow: never reuse them.
 const (
 	EvOrderReceived    = "ORDER_RECEIVED"
 	EvAssignTimeout    = "ASSIGN_TIMEOUT"    // no on-chain task before order deadline

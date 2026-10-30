@@ -217,9 +217,10 @@ func (c *Coordinator) DispatchFailed(sessionID, taskID string, reason error) {
 	case errors.Is(reason, dispatchdraw.ErrNoCapacity):
 		code = EvNoCapacity
 	case errors.Is(reason, dispatcher.ErrRecordRejected):
-		// An earlier order of the session cannot be recorded, so neither can this one: the
-		// category the Recorder gives the later entries of a refused one.
-		code, detail = EvRecordRejected, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED)
+		// An earlier order of the session cannot be recorded, so neither can this one. Its
+		// sequence was not consumed and is resent as it is: CONFLICT, the category the Recorder
+		// gives the later entries of a refused one, never SEQUENCE_CONSUMED.
+		code, detail = EvRecordRejected, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT)
 	case errors.Is(reason, dispatcher.ErrRecordDeadline):
 		code, detail = EvRecordRejected, c.recordRejection(sessionID, taskID, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE)
 	}

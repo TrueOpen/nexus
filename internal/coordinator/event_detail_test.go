@@ -58,7 +58,7 @@ func TestDispatchEventsCarryTheirDetail(t *testing.T) {
 	}
 	c.DispatchFailed(later.SessionID, later.TaskID, fmt.Errorf("%w: sequence 0", dispatcher.ErrRecordRejected))
 	code, d = lastDetail(t, c, later.SessionID, later.TaskID)
-	if code != EvRecordRejected || d == nil || d.RejectCode != int32(taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED) {
+	if code != EvRecordRejected || d == nil || d.RejectCode != int32(taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CONFLICT) {
 		t.Fatalf("later %s detail = %+v", code, d)
 	}
 	c.DispatchFailed(late.SessionID, late.TaskID, fmt.Errorf("%w: deadline 120", dispatcher.ErrRecordDeadline))

@@ -359,7 +359,9 @@ type TaskEvent struct {
 // the Builder that recorded the order with its task, the candidate of another registered
 // takeover with its activation height, or the Builder the session is bound to. DISPATCH_ACCEPTED
 // names the ticket and its Worker, RECORD_REJECTED the ticket when there is one and the nonzero
-// rejection category. Empty fields are absent.
+// rejection category: the chain's code, RECORD_LATE past the record deadline, or CONFLICT for an
+// order failed because an earlier one of its session was refused (its sequence was not consumed;
+// the same sequence is resent). Empty fields are absent.
 type TaskEventDetail struct {
 	BoundBuilder     string `json:",omitempty"`
 	RecordingBuilder string `json:",omitempty"`

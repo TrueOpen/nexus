@@ -146,7 +146,7 @@ func TestRejectionCascadesToLaterEntries(t *testing.T) {
 	for _, r := range e.tasks.rejected {
 		codes[r.taskID] = r.code
 	}
-	want := map[string]taskv1.DispatchRejectCodeV1{taskIDOf(0xaa, 1): codeBalance, taskIDOf(0xaa, 2): codeConsumed, taskIDOf(0xaa, 3): codeConsumed}
+	want := map[string]taskv1.DispatchRejectCodeV1{taskIDOf(0xaa, 1): codeBalance, taskIDOf(0xaa, 2): codeConflict, taskIDOf(0xaa, 3): codeConflict}
 	if !reflect.DeepEqual(codes, want) || len(e.tasks.rejected) != 3 {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
 	}
@@ -250,7 +250,7 @@ func TestDeadlinePassed(t *testing.T) {
 	if msgs, _ := e.tx.sent(); len(msgs) != 1 {
 		t.Fatalf("submitted a cancelled or late entry: %v", entriesOf(msgs[len(msgs)-1]))
 	}
-	want := []taskReport{{taskID: a1.TaskID, code: codeLate}, {taskID: a2.TaskID, code: codeConsumed}}
+	want := []taskReport{{taskID: a1.TaskID, code: codeLate}, {taskID: a2.TaskID, code: codeConflict}}
 	if !reflect.DeepEqual(e.tasks.rejected, want) {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
 	}
