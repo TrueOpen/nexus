@@ -192,7 +192,7 @@ func TestQueryDispatchClaimIneligibleAndChallengeMatchTheirKeys(t *testing.T) {
 		claim: &taskv1.QueryDispatchCompensationClaimResponse{Claim: &taskv1.DispatchCompensationClaimState{
 			DispatchTicketHash: ticket, TaskId: testTaskIDBytes, SessionId: testSessionIDBytes, OrderSequence: 4,
 			BuilderAddress: "trueopen1builder", WorkerOperatorAddress: "trueopen1worker",
-			Status: taskv1.DispatchCompensationClaimStatusV1(1), RebuttalDeadlineHeight: 300,
+			Status: taskv1.DispatchCompensationClaimStatusV1(1), RebuttalDeadlineHeight: 300, ClaimedHeight: 260, EarliestSubmitHeight: 240,
 		}},
 		ineligible: &taskv1.QueryDispatchWinnerIneligibleResponse{Row: &taskv1.DispatchWinnerIneligibleState{
 			DispatchTicketHash: ticket, TaskId: testTaskIDBytes, WorkerOperatorAddress: "trueopen1worker",
@@ -205,7 +205,7 @@ func TestQueryDispatchClaimIneligibleAndChallengeMatchTheirKeys(t *testing.T) {
 	c := &client{taskQuery: query}
 
 	claim, err := c.QueryDispatchCompensationClaim(context.Background(), ticket)
-	if err != nil || claim.GetRebuttalDeadlineHeight() != 300 || !bytes.Equal(query.claimRequest.GetDispatchTicketHash(), ticket) {
+	if err != nil || claim.GetRebuttalDeadlineHeight() != 300 || claim.GetEarliestSubmitHeight() != 240 || !bytes.Equal(query.claimRequest.GetDispatchTicketHash(), ticket) {
 		t.Fatalf("claim = %v, %v", claim, err)
 	}
 	row, err := c.QueryDispatchWinnerIneligible(context.Background(), ticket)
