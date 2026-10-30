@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
+
+	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -148,10 +152,27 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 }
 
 // CheckOrder refuses, without changing any state, an order OnOrder would refuse before its input is
-// stored: no dispatcher, or no Worker can take it now.
+// stored: no dispatcher; no current BuilderSet snapshot known (ErrDispatchUnavailable); an order
+// whose builder_set_id/hash is not the current snapshot (taskgroup.ErrBuilderSetStale: the user
+// re-signs the same sequence against the current one, no takeover); or no Worker can take it now.
 func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	if c.dispatcher == nil {
 		return ErrDispatchUnavailable
+	}
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil {
+		return fmt.Errorf("check order: signed order does not decode: %w", err)
+	}
+	if _, err := taskgroup.CheckOrder(c, signed.GetOrder()); err != nil {
+		if errors.Is(err, taskgroup.ErrNoSnapshot) {
+			err = fmt.Errorf("%w: %w", ErrDispatchUnavailable, err)
+		} else if errors.Is(err, taskgroup.ErrBuilderSetStale) {
+			// This Builder's view may be the one behind: have it read the chain again, without
+			// holding the request.
+			go c.requestBuilderSetReconcile(0, "an order names another BuilderSet")
+		}
+		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
+		return err
 	}
 	if err := c.dispatcher.Probe(ctx, o); err != nil {
 		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)

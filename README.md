@@ -153,6 +153,11 @@ Open items:
   different `task_hash` returns `FailedPrecondition` (`NEXUS_INGRESS_TASK_TERMINAL`). The tracked
   version is kept and the refused input is not kept. An exact retry of the tracked version still
   succeeds. The caller must not retry the refused version, here or on another Builder.
+- `OpenTask` refuses an order whose `builder_set_id` / `builder_set_hash` is not the current
+  BuilderSet snapshot with `FailedPrecondition` (`NEXUS_INGRESS_BUILDER_SET_STALE`) before storing
+  its input; the SDK re-signs the same sequence against the current snapshot (no takeover). Until
+  this Builder has read a current snapshot every new order is `Unavailable`
+  (`NEXUS_INGRESS_DISPATCH_UNAVAILABLE`).
 - `OpenTask` refuses an order whose epoch cannot dispatch yet (epoch 0, an epoch start beacon not
   committed or verified yet, or an epoch candidate pool snapshot not effective yet) with
   `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and

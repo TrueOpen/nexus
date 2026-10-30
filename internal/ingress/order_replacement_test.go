@@ -13,6 +13,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -30,6 +31,11 @@ var orderVersionRefusals = []struct {
 		name:    "no capacity",
 		err:     fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity),
 		message: "NEXUS_INGRESS_NO_CAPACITY",
+	},
+	{
+		name:    "builder set stale",
+		err:     fmt.Errorf("%w: order names BuilderSet \"term-1\", current is \"term-2\"", taskgroup.ErrBuilderSetStale),
+		message: "NEXUS_INGRESS_BUILDER_SET_STALE",
 	},
 }
 

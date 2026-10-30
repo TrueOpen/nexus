@@ -71,6 +71,7 @@ func TestOrdersNeedADispatcher(t *testing.T) {
 // on the same journal.
 func TestOnOrderHandsTheOrderToTheDispatcher(t *testing.T) {
 	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	seedTestBuilderSet(c)
 	d := &fakeDispatcher{}
 	c.SetDispatcher(d)
 	ctx := context.Background()
@@ -107,6 +108,7 @@ func TestOnOrderHandsTheOrderToTheDispatcher(t *testing.T) {
 // A refusal of the dispatcher leaves no task; a probe refusal is CheckOrder's answer.
 func TestDispatcherRefusals(t *testing.T) {
 	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	seedTestBuilderSet(c)
 	d := &fakeDispatcher{probeErr: dispatchdraw.ErrNoCapacity, dispatchEr: errors.New("not reserved")}
 	c.SetDispatcher(d)
 	o := testPlaceholderOrder("session-1", "task-1")

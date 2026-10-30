@@ -30,6 +30,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/takeover"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -654,7 +655,8 @@ func mapOrderErr(err error) error {
 	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable),
 		errors.Is(err, dispatchdraw.ErrDispatchNotReady):
 		return connect.NewError(connect.CodeUnavailable, err)
-	case errors.Is(err, dispatchdraw.ErrNoCapacity), errors.Is(err, inflight.ErrOrderReplacementUnsupported):
+	case errors.Is(err, dispatchdraw.ErrNoCapacity), errors.Is(err, inflight.ErrOrderReplacementUnsupported),
+		errors.Is(err, taskgroup.ErrBuilderSetStale):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return mapPayloadErr(err)
