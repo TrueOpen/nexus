@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/TrueOpen/wire/dispatch"
 
@@ -23,7 +22,7 @@ const StatusRevoked = "REVOKED"
 // generation fails with ErrUnavailable, a chain that cannot answer with ErrAuthority. Resolution
 // grants no live permission: the wire verifiers refuse previous keys outside their order window
 // and require current ACTIVE authority where live traffic needs it.
-func ProofKeys(ctx context.Context, resolver Resolver) func(dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+func ProofKeys(ctx context.Context, resolver Resolver, addressPrefix string) func(dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 	return func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		var participantType string
 		switch s.ParticipantType {
@@ -34,25 +33,25 @@ func ProofKeys(ctx context.Context, resolver Resolver) func(dispatch.ServiceProo
 		default:
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("proof participant type %d: %w", s.ParticipantType, ErrUnavailable)
 		}
-		return proofKey(ctx, resolver, participantType, s.OperatorAddress, s.ServiceAuthorizationNonce)
+		return proofKey(ctx, resolver, addressPrefix, participantType, s.OperatorAddress, s.ServiceAuthorizationNonce)
 	}
 }
 
 // ProofOptions are the wire ProofKeyOptions over ProofKeys. earliestSubmitHeight is the
 // earliest_submit_height of the signed order (or accepted record) the proof belongs to; nil when
 // it is not known, which leaves only the current generation able to prove.
-func ProofOptions(ctx context.Context, resolver Resolver, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	return dispatch.ProofKeyOptions{LookupProofKey: ProofKeys(ctx, resolver), OrderEarliestSubmitHeight: earliestSubmitHeight}
+func ProofOptions(ctx context.Context, resolver Resolver, addressPrefix string, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{LookupProofKey: ProofKeys(ctx, resolver, addressPrefix), OrderEarliestSubmitHeight: earliestSubmitHeight}
 }
 
-func proofKey(ctx context.Context, resolver Resolver, participantType, operator string, nonce uint64) (dispatch.ProofKeyBinding, error) {
+func proofKey(ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string, nonce uint64) (dispatch.ProofKeyBinding, error) {
 	if resolver == nil {
 		return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %w", participantType, ErrAuthority)
 	}
 	state, err := resolver.QueryCurrentServiceKey(ctx, participantType, operator)
 	if err != nil {
 		if errors.Is(err, chaincli.ErrNotFound) || errors.Is(err, chaincli.ErrMalformedBinding) {
-			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %v: %w", participantType, err, ErrUnavailable)
+			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %w: %w", participantType, err, ErrUnavailable)
 		}
 		return dispatch.ProofKeyBinding{}, fmt.Errorf("%s proof key: %w", participantType, ErrAuthority)
 	}
@@ -69,7 +68,7 @@ func proofKey(ctx context.Context, resolver Resolver, participantType, operator 
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("%s binding status %q: %w", participantType, state.Status, ErrUnavailable)
 		}
 		publicKey, err := decodePubKey(state.ServicePubKey)
-		if err != nil || state.AuthorizationNonce == 0 || !derivesAddress(publicKey, state.ServiceAddress) {
+		if err != nil || state.AuthorizationNonce == 0 || !derivesAddress(addressPrefix, publicKey, state.ServiceAddress) {
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("malformed %s binding: %w", participantType, ErrUnavailable)
 		}
 		return dispatch.ProofKeyBinding{PublicKey: publicKey, ServiceAuthorizationNonce: state.AuthorizationNonce, Status: status}, nil
@@ -85,14 +84,10 @@ func proofKey(ctx context.Context, resolver Resolver, participantType, operator 
 	return dispatch.ProofKeyBinding{}, fmt.Errorf("%s generation %d is neither current nor previous: %w", participantType, nonce, ErrUnavailable)
 }
 
-// derivesAddress reports whether publicKey derives the bech32 service address, under the
-// address's own prefix. The previous generation carries no service address to check.
-func derivesAddress(publicKey []byte, address string) bool {
-	i := strings.LastIndexByte(address, '1')
-	if i <= 0 {
-		return false
-	}
-	derived, err := signer.AddressFromPubKey(address[:i], publicKey)
+// derivesAddress reports whether publicKey derives the service address under the configured
+// address prefix, as Current checks. The previous generation carries no service address to check.
+func derivesAddress(addressPrefix string, publicKey []byte, address string) bool {
+	derived, err := signer.AddressFromPubKey(addressPrefix, publicKey)
 	return err == nil && derived == address
 }
 

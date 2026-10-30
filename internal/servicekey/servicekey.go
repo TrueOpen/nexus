@@ -62,7 +62,7 @@ func Current(
 	state, err := resolver.QueryCurrentServiceKey(ctx, participantType, operator)
 	if err != nil {
 		if errors.Is(err, chaincli.ErrNotFound) || errors.Is(err, chaincli.ErrMalformedBinding) {
-			return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %v: %w", participantType, err, ErrUnavailable)
+			return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w: %w", participantType, err, ErrUnavailable)
 		}
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w", participantType, ErrAuthority)
 	}

@@ -94,16 +94,16 @@ func TestProofKeysFollowTheCutoverVectors(t *testing.T) {
 			t.Fatalf("%s: previous_retired_height %d, want %d", c.Name, c.PreviousRetiredHeight, retired)
 		}
 		esh := c.EarliestSubmitHeight
-		err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, &esh))
+		err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh))
 		if (err == nil) != c.Allowed {
 			t.Fatalf("%s: previous-key accept at esh %d = %v, allowed %v", c.Name, esh, err, c.Allowed)
 		}
-		if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", newAccept, ProofOptions(context.Background(), resolver, &esh)); err != nil {
+		if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", newAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh)); err != nil {
 			t.Fatalf("%s: current-key accept at esh %d = %v", c.Name, esh, err)
 		}
 	}
 	// Without the order's height only the current key proves.
-	if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, nil)); err == nil {
+	if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, testPrefix, nil)); err == nil {
 		t.Fatal("a previous-key accept proved without its order height")
 	}
 }
@@ -115,7 +115,7 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	state.AuthorizationNonce = 5
 	state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(previous.PubKeyCompressed()), AuthorizationNonce: 4, RetiredHeight: 120}
 	resolver := &fakeResolver{states: map[string]chaincli.ServiceKeyState{ParticipantBuilder + "|" + operator: state}}
-	lookup := ProofKeys(context.Background(), resolver)
+	lookup := ProofKeys(context.Background(), resolver, testPrefix)
 	at := func(nonce uint64) (dispatch.ProofKeyBinding, error) {
 		return lookup(dispatch.ServiceProofSigner{ParticipantType: dispatch.ProofParticipantBuilder, OperatorAddress: operator, ServiceAuthorizationNonce: nonce})
 	}
@@ -138,6 +138,11 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	if _, err := at(5); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("current key of another service address = %v, want ErrUnavailable", err)
 	}
+	resolver.states[ParticipantBuilder+"|"+operator] = state
+	other := ProofKeys(context.Background(), resolver, "other")
+	if _, err := other(dispatch.ServiceProofSigner{ParticipantType: dispatch.ProofParticipantBuilder, OperatorAddress: operator, ServiceAuthorizationNonce: 5}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("service address under another prefix = %v, want ErrUnavailable", err)
+	}
 	state.Status = StatusRevoked
 	resolver.states[ParticipantBuilder+"|"+operator] = state
 	if key, err := at(5); err != nil || key.Status != dispatch.ProofKeyRevoked {
@@ -149,7 +154,7 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 	}
 	// A binding the chain answers malformed stays so: it is unavailable, not an outage to retry.
 	resolver.err = fmt.Errorf("query current service key: %w", chaincli.ErrMalformedBinding)
-	if _, err := at(5); !errors.Is(err, ErrUnavailable) {
+	if _, err := at(5); !errors.Is(err, ErrUnavailable) || !errors.Is(err, chaincli.ErrMalformedBinding) {
 		t.Fatalf("malformed binding = %v, want ErrUnavailable", err)
 	}
 	if _, _, err := Current(context.Background(), resolver, testPrefix, ParticipantBuilder, operator); !errors.Is(err, ErrUnavailable) {

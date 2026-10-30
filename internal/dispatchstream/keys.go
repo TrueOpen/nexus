@@ -51,7 +51,7 @@ func (l ServiceKeyLookup) CurrentCortexKey(ctx context.Context, operator string)
 
 // ProofOptions implements CortexKeys through servicekey.ProofOptions.
 func (l ServiceKeyLookup) ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	opts := servicekey.ProofOptions(ctx, l.Resolver, earliestSubmitHeight)
+	opts := servicekey.ProofOptions(ctx, l.Resolver, l.AddressPrefix, earliestSubmitHeight)
 	lookup := opts.LookupProofKey
 	opts.LookupProofKey = func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		key, err := lookup(s)

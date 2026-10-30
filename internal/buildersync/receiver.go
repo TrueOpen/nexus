@@ -341,7 +341,7 @@ func (r *Receiver) checkApplied(m *memberStream, sequence uint64, digest []byte)
 // one for an order version whose earliest_submit_height (nil when not known) is below that key's
 // retirement. A chain that cannot answer is ErrUnavailable.
 func (r *Receiver) verifyProof(ctx context.Context, name string, raw []byte, earliestSubmitHeight *uint64) error {
-	err := dispatch.VerifyDispatchProof(r.cfg.ChainID, name, raw, servicekey.ProofOptions(ctx, r.cfg.Keys, earliestSubmitHeight))
+	err := dispatch.VerifyDispatchProof(r.cfg.ChainID, name, raw, servicekey.ProofOptions(ctx, r.cfg.Keys, r.cfg.AddressPrefix, earliestSubmitHeight))
 	if errors.Is(err, servicekey.ErrAuthority) {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}

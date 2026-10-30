@@ -49,8 +49,7 @@ func (r *Roster) Contains(m dispatch.RosterMember) bool {
 // is already a not-admitted leaf; one whose rotation was registered after that root stays in the
 // roster, and the dispatcher gives it a ticket that times out unsent when the rotation takes effect
 // at or below the order's earliest_submit_height (it is offered as usual otherwise). No root or no
-// member is
-// ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is ErrRosterTooLarge.
+// member is ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is ErrRosterTooLarge.
 func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, pool *Pool, height, maxBytes uint64) (*Roster, error) {
 	if maxBytes == 0 {
 		return nil, fmt.Errorf("max_dispatch_roster_bytes must be positive")
