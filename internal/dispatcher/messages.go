@@ -99,24 +99,6 @@ func SignRecordResultNotice(key servicekey.Key, ticketNonce uint64, n *nexusv1.R
 		func(nonce uint64) { n.ServiceAuthorizationNonce = nonce }, func(sig []byte) { n.BuilderServiceSignature = sig })
 }
 
-// ResignTransport signs the Builder transport messages of a stored downlink frame again with s,
-// in place: input responses and record notices carry no key generation, so after a service key
-// cutover only the current key vouches for them. Offers keep their signature (a ticket is bound to
-// the generation that issued it), and so does everything else.
-func ResignTransport(s servicekey.Signer) func(*nexusv1.DispatchStreamFrameV1) error {
-	return func(frame *nexusv1.DispatchStreamFrameV1) error {
-		switch m := frame.GetMessage().(type) {
-		case *nexusv1.DispatchStreamFrameV1_InputResponse:
-			_, _, err := signInputResponse(s.Key(), m.InputResponse.GetServiceAuthorizationNonce(), m.InputResponse)
-			return err
-		case *nexusv1.DispatchStreamFrameV1_RecordResult:
-			_, _, err := SignRecordResultNotice(s.Key(), m.RecordResult.GetServiceAuthorizationNonce(), m.RecordResult)
-			return err
-		}
-		return nil
-	}
-}
-
 // memberRef is the CandidateMemberRefV1 of a pool member in the snapshot.
 func memberRef(snapshotID []byte, m dispatch.RosterMember) *taskv1.CandidateMemberRefV1 {
 	return &taskv1.CandidateMemberRefV1{

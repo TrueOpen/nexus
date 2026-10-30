@@ -333,69 +333,60 @@ func TestUploadLimitsAndExpiry(t *testing.T) {
 	}
 }
 
-// switchSigner signs with whichever key it currently holds, as the service key ring does across a
+// ringKeys is a service signer whose current key a test moves, as the service key ring does at a
 // cutover.
-type switchSigner struct {
+type ringKeys struct {
 	mu  sync.Mutex
-	cur signer.Signer
-	// onSign, when set, runs once after the next signature: a cutover right after it.
-	onSign func()
+	cur servicekey.Key
 }
 
-// hooked is a key of the switchSigner that runs its onSign after signing.
-type hooked struct {
-	signer.Signer
-	s *switchSigner
+func (r *ringKeys) Key() servicekey.Key {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cur
 }
+func (r *ringKeys) set(k servicekey.Key)                  { r.mu.Lock(); r.cur = k; r.mu.Unlock() }
+func (r *ringKeys) PubKeyCompressed() []byte              { return r.Key().Signer.PubKeyCompressed() }
+func (r *ringKeys) Address() string                       { return r.Key().Signer.Address() }
+func (r *ringKeys) Sign(m []byte) ([]byte, error)         { return r.Key().Signer.Sign(m) }
+func (r *ringKeys) SignDigest(d [32]byte) ([]byte, error) { return r.Key().Signer.SignDigest(d) }
 
-func (h hooked) SignDigest(d [32]byte) ([]byte, error) {
-	sig, err := h.Signer.SignDigest(d)
-	h.s.fire()
-	return sig, err
-}
-
-func (s *switchSigner) fire() {
-	s.mu.Lock()
-	f := s.onSign
-	s.onSign = nil
-	s.mu.Unlock()
-	if f != nil {
-		f()
+// cutoverProof verifies a stored header with the wire verifier, as a member or the SDK does, once
+// oldKey (nonce 1) was retired at retired and newKey (nonce 2) took over; esh is the order's
+// earliest_submit_height (nil when not known).
+func cutoverProof(t *testing.T, a Attempt, oldKey, newKey signer.Signer, retired uint64, esh *uint64) error {
+	t.Helper()
+	h, err := a.ResultHeader()
+	if err != nil {
+		t.Fatal(err)
 	}
+	lookup := func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		switch s.ServiceAuthorizationNonce {
+		case 1:
+			return dispatch.ProofKeyBinding{PublicKey: oldKey.PubKeyCompressed(), ServiceAuthorizationNonce: 1, Status: dispatch.ProofKeyPrevious, PreviousRetiredHeight: retired}, nil
+		case 2:
+			return dispatch.ProofKeyBinding{PublicKey: newKey.PubKeyCompressed(), ServiceAuthorizationNonce: 2, Status: dispatch.ProofKeyActive}, nil
+		}
+		return dispatch.ProofKeyBinding{}, errors.New("unknown generation")
+	}
+	return dispatch.VerifyDispatchProof(h.GetWinnerTicket().GetChainId(), resultHeaderName, a.Header,
+		dispatch.ProofKeyOptions{LookupProofKey: lookup, OrderEarliestSubmitHeight: esh})
 }
 
-func (s *switchSigner) Key() servicekey.Key {
-	return servicekey.Key{Signer: hooked{s.key(), s}, Nonce: 1}
-}
-
-func (s *switchSigner) key() signer.Signer {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.cur
-}
-func (s *switchSigner) set(k signer.Signer) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cur = k
-}
-func (s *switchSigner) PubKeyCompressed() []byte      { return s.key().PubKeyCompressed() }
-func (s *switchSigner) Address() string               { return s.key().Address() }
-func (s *switchSigner) Sign(m []byte) ([]byte, error) { return s.key().Sign(m) }
-func (s *switchSigner) SignDigest(d [32]byte) ([]byte, error) {
-	return hooked{s.key(), s}.SignDigest(d)
-}
-
-// The result header is transport the Builder's current key vouches for: after a cutover the
-// attempt is served with its header signed again by the new key, at the same status, and that
-// header is stored.
-func TestHeaderIsSignedAgainAfterACutover(t *testing.T) {
+// A stored header keeps its signed bytes across a cutover and a restart: it is never signed
+// again, and still verifies under the retired key for an order below the retirement height.
+func TestHeaderKeepsItsBytesAcrossACutover(t *testing.T) {
 	store := kv.NewMemStore()
-	keys := &switchSigner{cur: newTestSigner(t, 0x01)}
+	oldKey, newKey := newTestSigner(t, 0x01), newTestSigner(t, 0x02)
+	keys := &ringKeys{cur: servicekey.Key{Signer: oldKey, Nonce: 1}}
 	b, err := New(store, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	w, _ := winnerOf(t, 0)
+	if w.Ticket.GetServiceAuthorizationNonce() != 1 {
+		t.Fatalf("winner ticket nonce %d, want 1", w.Ticket.GetServiceAuthorizationNonce())
+	}
 	if err := b.Accepted(w); err != nil {
 		t.Fatal(err)
 	}
@@ -404,38 +395,55 @@ func TestHeaderIsSignedAgainAfterACutover(t *testing.T) {
 	before := current(t, b, taskID)
 	checkHeader(t, b, before, Recorded)
 
-	keys.set(newTestSigner(t, 0x02))
-	after := current(t, b, taskID)
-	checkHeader(t, b, after, Recorded)
-	if bytes.Equal(after.Header, before.Header) {
-		t.Fatal("header not signed again after the cutover")
-	}
-	if again := current(t, b, taskID); !bytes.Equal(again.Header, after.Header) {
-		t.Fatal("header signed again under an unchanged key")
+	keys.set(servicekey.Key{Signer: newKey, Nonce: 2})
+	if after := current(t, b, taskID); !bytes.Equal(after.Header, before.Header) {
+		t.Fatal("the header changed at the cutover")
 	}
 	restored, err := New(store, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := current(t, restored, taskID); !bytes.Equal(a.Header, after.Header) {
-		t.Fatal("the header signed again was not stored")
+	served := current(t, restored, taskID)
+	if !bytes.Equal(served.Header, before.Header) {
+		t.Fatal("the header changed across a restart after the cutover")
+	}
+	const retired = 120
+	below, at := uint64(retired-1), uint64(retired)
+	if err := cutoverProof(t, served, oldKey, newKey, retired, &below); err != nil {
+		t.Fatalf("a pre-cutover header of an order below the retirement: %v", err)
+	}
+	if err := cutoverProof(t, served, oldKey, newKey, retired, &at); err == nil {
+		t.Fatal("a retired key's header proved an order at the retirement height")
+	}
+	if err := cutoverProof(t, served, oldKey, newKey, retired, nil); err == nil {
+		t.Fatal("a retired key's header proved without its order's height")
 	}
 }
 
-// A cutover between signing a header and noting the key that signed it must not record the old
-// key's header as the new key's: the header is signed again under the new key when served.
-func TestCutoverWhileSigningAHeader(t *testing.T) {
-	keys := &switchSigner{cur: newTestSigner(t, 0x01)}
+// A header signed after a cutover, for a status change of an attempt accepted before it, is new:
+// the current key signs it under its own nonce, newer than the ticket's.
+func TestStatusChangeAfterACutoverSignsWithTheCurrentKey(t *testing.T) {
+	oldKey, newKey := newTestSigner(t, 0x01), newTestSigner(t, 0x02)
+	keys := &ringKeys{cur: servicekey.Key{Signer: oldKey, Nonce: 1}}
 	b, err := New(kv.NewMemStore(), keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	keys.onSign = func() { keys.set(newTestSigner(t, 0x02)) }
 	w, _ := winnerOf(t, 0)
 	if err := b.Accepted(w); err != nil {
 		t.Fatal(err)
 	}
-	checkHeader(t, b, current(t, b, hex.EncodeToString(w.Ticket.GetTaskId())), Pending)
+	keys.set(servicekey.Key{Signer: newKey, Nonce: 2})
+	taskID := hex.EncodeToString(w.Ticket.GetTaskId())
+	b.Recorded(taskID, mustTicketHash(t, w))
+	a := current(t, b, taskID)
+	checkHeader(t, b, a, Recorded)
+	if h, _ := a.ResultHeader(); h.GetServiceAuthorizationNonce() != 2 {
+		t.Fatalf("header nonce %d, want 2", h.GetServiceAuthorizationNonce())
+	}
+	if err := cutoverProof(t, a, oldKey, newKey, 120, nil); err != nil {
+		t.Fatalf("a current-key header: %v", err)
+	}
 }
 
 func mustTicketHash(t *testing.T, w Winner) [32]byte {

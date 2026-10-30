@@ -18,7 +18,7 @@ const StatusRevoked = "REVOKED"
 
 // ProofKeys returns the wire proof-key lookup over the chain bindings: a signed nonce selects the
 // current generation (ACTIVE or REVOKED) or the one previous generation the last cutover retained;
-// nonce 0, which only nonce-free Builder transport uses, selects the current one. An unknown
+// nonce 0, which only the nonce-free Builder sync request uses, selects the current one. An unknown
 // generation fails with ErrUnavailable, a chain that cannot answer with ErrAuthority. Resolution
 // grants no live permission: the wire verifiers refuse previous keys outside their order window
 // and require current ACTIVE authority where live traffic needs it.

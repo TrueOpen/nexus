@@ -168,63 +168,6 @@ func (h *Hub) enqueueMessageLocked(s *session, raw []byte) (*pendingMessage, err
 	return m, s.queueLocked(m)
 }
 
-// resignPending signs operator's unacknowledged messages again (WithResigner) before a replay.
-// The signing runs without h.mu, so Cortex nodes binding again at once after a cutover do not
-// queue behind each other's signatures; a message acknowledged, dropped or changed meanwhile is
-// left as it is now. Messages queued meanwhile were signed with the current key already.
-func (h *Hub) resignPending(operator string) error {
-	if h.resign == nil {
-		return nil
-	}
-	type snapshot struct {
-		m   *pendingMessage
-		raw []byte
-	}
-	h.mu.Lock()
-	var pending []snapshot
-	for _, m := range h.pending[operator] {
-		pending = append(pending, snapshot{m, m.raw})
-	}
-	h.mu.Unlock()
-	resigned := map[*pendingMessage][2][]byte{} // message -> {raw signed, raw signed again}
-	for _, p := range pending {
-		frame := &nexusv1.DispatchStreamFrameV1{}
-		if proto.Unmarshal(p.raw, frame) != nil {
-			continue
-		}
-		if err := h.resign(frame); err != nil {
-			h.log.Warn("unacknowledged dispatch stream message not signed again; replayed as stored", "operator", operator, "err", err)
-			continue
-		}
-		if raw, err := encodeDownlink(frame); err == nil && !bytes.Equal(raw, p.raw) {
-			resigned[p.m] = [2][]byte{p.raw, raw}
-		}
-	}
-	if len(resigned) == 0 {
-		return nil
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var writes []kv.WriteOp
-	var apply []*pendingMessage
-	for _, m := range h.pending[operator] {
-		if r, ok := resigned[m]; ok && bytes.Equal(m.raw, r[0]) {
-			writes = append(writes, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, m.seq), Val: r[1]})
-			apply = append(apply, m)
-		}
-	}
-	if len(writes) == 0 {
-		return nil
-	}
-	if err := h.store.WriteBatch(writes...); err != nil {
-		return fmt.Errorf("%w: store the dispatch stream messages signed again: %v", ErrTransient, err)
-	}
-	for _, m := range apply {
-		m.raw = resigned[m][1]
-	}
-	return nil
-}
-
 // replayLocked renumbers every unacknowledged message of the session's Cortex on the new stream,
 // dropping those the replay filter no longer wants, then queues the retained Verifier broadcasts
 // this Cortex has not been given. Caller holds h.mu.

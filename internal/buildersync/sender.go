@@ -23,7 +23,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
-	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
@@ -83,7 +83,7 @@ type SenderConfig struct {
 	ChainID string
 	// Builder is this Builder's operator address; Signer its service key, which signs the batches.
 	Builder string
-	Signer  servicekey.Signer
+	Signer  signer.Signer
 	Store   kv.Store
 	// Groups answers the current BuilderSet snapshot: an order's group is its members.
 	Groups taskgroup.Source
@@ -393,9 +393,9 @@ type Outstanding struct {
 }
 
 // Outstanding lists what members have not acknowledged and the changes still queued, by order and
-// member. A batch and its result headers are signed again with the current key whenever it is
-// sent; the tickets, roots and records in it keep the generation that signed them, which members
-// accept for orders below that generation's retirement.
+// member. A batch is signed again with the current key whenever it is sent; the tickets, roots,
+// records and result headers in it keep the generation that signed them, which members accept for
+// orders below that generation's retirement.
 func (s *Sender) Outstanding() []Outstanding {
 	s.mu.Lock()
 	defer s.mu.Unlock()

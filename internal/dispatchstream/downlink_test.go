@@ -328,45 +328,57 @@ func waitRTT(t *testing.T, h *harness, want time.Duration) {
 	}
 }
 
-// Transport messages carry no key generation: when a Cortex binds again, each unacknowledged
-// message passes the re-signer (which signs it with the current key, without the hub lock) and
-// goes out, and is kept, as signed again.
-func TestReplaySignsTransportMessagesAgain(t *testing.T) {
+// Builder-signed input responses and record notices name the key generation that signed them, so
+// an unacknowledged one is replayed byte for byte when its Cortex binds again, also across a
+// service key cutover and a restart: nothing signs it again.
+func TestRetainedBuilderMessagesAreReplayedAsSigned(t *testing.T) {
 	store, keys := kv.NewMemStore(), newTestKeys()
-	var hub *Hub
-	locked := false
-	resign := WithResigner(func(f *nexusv1.DispatchStreamFrameV1) error {
-		if hub.mu.TryLock() {
-			hub.mu.Unlock()
-		} else {
-			locked = true
-		}
-		if t := f.GetOffer().GetTicket(); t != nil {
-			t.BuilderServiceSignature = append(t.BuilderServiceSignature, '\'')
-		}
-		return nil
-	})
-	h := newHarnessOn(t, store, keys, resign)
-	hub = h.hub
+	h := newHarnessOn(t, store, keys)
+	frames := []*nexusv1.DispatchStreamFrameV1{
+		{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: &nexusv1.DispatchInputResponseV1{
+			TaskId: hash32("task"), DispatchTicketHash: hash32("ticket"), InputHash: hash32("input"), InputSizeBytes: 4,
+			Input: []byte("data"), ChunkCount: 1, BuilderServiceSignature: []byte("signed under nonce 1"), ServiceAuthorizationNonce: 1,
+		}}},
+		{Message: &nexusv1.DispatchStreamFrameV1_RecordResult{RecordResult: &nexusv1.RecordResultNoticeV1{
+			DispatchTicketHash: hash32("ticket"), RecordedHeight: 9, BuilderServiceSignature: []byte("signed under nonce 1"),
+			ServiceAuthorizationNonce: 1,
+		}}},
+	}
+	want := make([][]byte, len(frames))
 	s1 := h.connect(cortexA, "1")
-	mustSend(t, h, cortexA, "a")
-	receiveOffers(t, s1, 1)
+	for i, f := range frames {
+		if err := h.hub.Send(context.Background(), cortexA, f); err != nil {
+			t.Fatal(err)
+		}
+		want[i] = messageBytes(t, s1.stream.nextBusiness(t))
+	}
 	s1.stream.close()
 	s1.wait(t)
 	h.waitConn(cortexA, false)
-
 	s2 := h.connect(cortexA, "2")
-	if got := receiveOffers(t, s2, 1); !slices.Equal(got, []string{"a'"}) {
-		t.Fatalf("replayed %v, want [a']", got)
-	}
-	if locked {
-		t.Fatal("messages signed again under the hub lock")
+	for i := range frames {
+		if got := messageBytes(t, s2.stream.nextBusiness(t)); !bytes.Equal(got, want[i]) {
+			t.Fatalf("replayed message %d differs from the one first sent", i)
+		}
 	}
 	_ = h.hub.Stop(context.Background())
 	s2.wait(t)
 	restarted := newHarnessOn(t, store, keys)
 	s3 := restarted.connect(cortexA, "3")
-	if got := receiveOffers(t, s3, 1); !slices.Equal(got, []string{"a'"}) {
-		t.Fatalf("stored after the replay %v, want [a']", got)
+	for i := range frames {
+		if got := messageBytes(t, s3.stream.nextBusiness(t)); !bytes.Equal(got, want[i]) {
+			t.Fatalf("message %d replayed after a restart differs from the one first sent", i)
+		}
 	}
+}
+
+// messageBytes is the deterministic encoding of a frame's business message, without the frame's
+// stream_nonce and cursor.
+func messageBytes(t *testing.T, f *nexusv1.DispatchStreamFrameV1) []byte {
+	t.Helper()
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(&nexusv1.DispatchStreamFrameV1{Message: f.GetMessage()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

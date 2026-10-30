@@ -60,15 +60,12 @@ entry has not gone out is ended as `NO_CAPACITY` at once; one whose entry went o
 remains, and ends by itself once the chain shows a new key current that the daemon holds
 (`nexus drain end` ends it at any time).
 
-Builder transport messages carry no key generation, so after the cutover they are signed again
-with the new key when they go out again: unacknowledged input chunks and record notices when a
-Cortex binds again, the result header of each attempt when it is served, and the result header
-in each group sync batch. A member that applied an order item before the cutover without the
-acknowledgement reaching this Builder refuses its resend (the header is signed by the new key
-now) once, reporting what it applied, and the sync moves past it. Not done yet: a member serving
-a dispatching Builder's synced result header after that Builder's cutover serves it as synced,
-under the retired key; and nexus sends no revoke yet, so a stored revoke is not signed again (to
-handle when revokes are sent).
+Messages the Builder signed before the cutover (tickets, records, roots, result headers, input
+chunks and record notices) name the key generation that signed them and are never signed again:
+stored result headers, unacknowledged stream messages and group sync items go out byte for byte
+as first signed, and still prove orders below the cutover under the retired key. New messages are
+signed with the new key; only the group sync request is signed again, with the current key, at
+every send. nexus sends no revoke yet.
 
 The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
 next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state

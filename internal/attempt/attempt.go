@@ -12,9 +12,10 @@
 // replaces a later round's PENDING one.
 //
 // Every attempt is stored with its Builder-signed header at its status, so a restart serves the
-// same bytes; the header is signed again when the status changes, and when the service key that
-// signed it is no longer the current one (after a cutover): the header carries no key generation,
-// so only the current key vouches for it.
+// same bytes; the header is signed again, by the current service key under its nonce, only when
+// the status changes. It names the key generation that signed it, so a header signed before a
+// service key cutover is kept and served as signed: it still proves its order under the retired
+// key while that order is below the retirement height.
 package attempt
 
 import (
@@ -26,14 +27,12 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
@@ -76,10 +75,8 @@ type Attempt struct {
 	// Ticket and Accept are the winner ticket and the accept as handed over.
 	Ticket []byte `json:"ticket"`
 	Accept []byte `json:"accept"`
-	// Header is the Builder-signed DispatchResultHeaderV1 at Status, as signed. HeaderKey is the
-	// service key (compressed, hex) that signed it.
-	Header    []byte `json:"header"`
-	HeaderKey string `json:"header_key,omitempty"`
+	// Header is the Builder-signed DispatchResultHeaderV1 at Status, as signed.
+	Header []byte `json:"header"`
 	// User is the order's user_address, the task's one output subscriber; it outlives the task
 	// so a subscriber after a refused record still gets the REJECTED header.
 	User string `json:"user,omitempty"`
@@ -114,13 +111,10 @@ func (a Attempt) ResultHeader() (*nexusv1.DispatchResultHeaderV1, error) {
 // Book holds the current attempt of every task. It is safe for concurrent use.
 type Book struct {
 	store kv.Store
-	// signer is the service key; each header is signed from one Key snapshot of it, so the key
-	// noted with the header is the key that signed it.
+	// signer is the service key; each header is signed from one Key snapshot of it, so the nonce
+	// a header names is the nonce of the key that signed it.
 	signer servicekey.Signer
 	log    *slog.Logger
-	// resignWarn spaces the warnings about headers that cannot be signed again yet (before the
-	// service key binding was read).
-	resignWarn lograte.Limiter
 
 	maxPrerecord atomic.Uint64
 
@@ -133,9 +127,6 @@ type Book struct {
 	nextID   uint64
 }
 
-// resignWarnInterval spaces the warnings about headers not signed again.
-const resignWarnInterval = time.Minute
-
 // New loads the stored attempts. s is the Builder service key that signs the result headers.
 func New(store kv.Store, s servicekey.Signer, log *slog.Logger) (*Book, error) {
 	if store == nil || s == nil {
@@ -145,7 +136,7 @@ func New(store kv.Store, s servicekey.Signer, log *slog.Logger) (*Book, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	b := &Book{
-		store: store, signer: s, log: log, resignWarn: lograte.Limiter{Every: resignWarnInterval},
+		store: store, signer: s, log: log,
 		byTask: map[string]*Attempt{}, voided: map[[32]byte]bool{}, aside: map[string]map[[32]byte]*Attempt{},
 		watchers: map[string]map[uint64]chan struct{}{},
 	}
@@ -445,12 +436,11 @@ func (b *Book) setLocked(a *Attempt, status Status) error {
 		return fmt.Errorf("decode accept: %w", err)
 	}
 	h.TaskId = h.WinnerTicket.GetTaskId()
-	key := b.signer.Key()
-	header, err := SignResultHeader(key, h)
+	header, err := SignResultHeader(b.signer.Key(), h)
 	if err != nil {
 		return err
 	}
-	a.Status, a.Header, a.HeaderKey = status, header, hex.EncodeToString(key.Signer.PubKeyCompressed())
+	a.Status, a.Header = status, header
 	raw, err := json.Marshal(a)
 	if err != nil {
 		return fmt.Errorf("encode dispatch attempt: %w", err)
@@ -467,7 +457,7 @@ func (b *Book) setLocked(a *Attempt, status Status) error {
 	return nil
 }
 
-// Current returns the task's current attempt, its header signed by the current service key.
+// Current returns the task's current attempt.
 func (b *Book) Current(taskID string) (Attempt, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -475,43 +465,7 @@ func (b *Book) Current(taskID string) (Attempt, bool) {
 	if a == nil {
 		return Attempt{}, false
 	}
-	b.resignLocked(a)
 	return *a, true
-}
-
-// resignLocked signs a's header again, at its status, when the key that signed it is not the
-// current service key, and stores it. A key that cannot sign yet leaves the stored header.
-// Caller holds b.mu.
-func (b *Book) resignLocked(a *Attempt) {
-	current := b.signer.Key()
-	key := hex.EncodeToString(current.Signer.PubKeyCompressed())
-	if a.HeaderKey == key {
-		return
-	}
-	h, err := a.ResultHeader()
-	if err != nil {
-		b.log.Error("stored dispatch result header unreadable", "task_id", a.TaskID, "err", err)
-		return
-	}
-	header, err := SignResultHeader(current, h)
-	if err != nil {
-		if suppressed, ok := b.resignWarn.Allow(time.Now()); ok {
-			b.log.Warn("dispatch result header not signed again under the current service key", "task_id", a.TaskID,
-				"suppressed", suppressed, "err", err)
-		}
-		return
-	}
-	next := *a
-	next.Header, next.HeaderKey = header, key
-	raw, err := json.Marshal(&next)
-	if err == nil {
-		err = b.store.Set(kv.NSDispatchAttempt, a.TaskID, raw)
-	}
-	if err != nil {
-		b.log.Error("dispatch attempt not stored", "task_id", a.TaskID, "err", err)
-		return
-	}
-	*a = next
 }
 
 // Watch returns a channel that receives a value whenever the task's attempt changes, and the

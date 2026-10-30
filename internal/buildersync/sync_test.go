@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,11 +19,9 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
-	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
-	"github.com/TrueOpen/wire/dispatch"
 )
 
 // From the first ticket on, the member holds the round with its roster and the root it binds, the
@@ -1203,97 +1200,39 @@ func TestOrderItemPinsTheRoundsEarliestSubmitHeight(t *testing.T) {
 	}
 }
 
-// A cutover between signing the RECORDED result header and syncing the order: the header carries
-// no key generation, so the sender signs it again with its current key at every send, and the
-// member, which checks it against the sender's current key, takes it.
-func TestResultHeaderIsSignedWithTheCurrentKeyAtSend(t *testing.T) {
+// A cutover between signing the RECORDED result header and syncing the order: the header names
+// the generation that signed it, so the sender syncs it as signed under the new key's request,
+// and the member takes it for an order below the retired key's retirement height.
+func TestPreCutoverResultHeaderIsSyncedAsSigned(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
 	f.putAccepted()
 	f.recordOnChain()
 	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
+	recorded := f.recordedAttempt()
 	e.s.OrderChanged(f.accepted())
-	e.s.Recorded(f.recordedAttempt())
+	e.s.Recorded(recorded)
 	e.s.drain()
 	next := newSigner(t, 0x21)
 	e.keys.rotate("BUILDER", e.d, next, testESH+1)
-	e.s.cfg.Signer = servicekey.Static(next, 2)
+	e.s.cfg.Signer = next
 	e.s.deliverPeer(context.Background(), e.m.op)
-	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Recorded {
-		t.Fatalf("order synced after the cutover = %+v, held %v", a, held)
-	}
-}
-
-// cutoverSigner is a service key ring whose cutover comes right after its first signature.
-type cutoverSigner struct {
-	mu       sync.Mutex
-	cur      signer.Signer
-	next     signer.Signer
-	switched bool
-}
-
-type cutoverKey struct {
-	signer.Signer
-	ring *cutoverSigner
-}
-
-func (k cutoverKey) SignDigest(d [32]byte) ([]byte, error) {
-	sig, err := k.Signer.SignDigest(d)
-	k.ring.mu.Lock()
-	if !k.ring.switched {
-		k.ring.cur, k.ring.switched = k.ring.next, true
-	}
-	k.ring.mu.Unlock()
-	return sig, err
-}
-
-func (c *cutoverSigner) key() signer.Signer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.cur
-}
-func (c *cutoverSigner) Key() servicekey.Key {
-	return servicekey.Key{Signer: cutoverKey{c.key(), c}, Nonce: 1}
-}
-func (c *cutoverSigner) PubKeyCompressed() []byte      { return c.key().PubKeyCompressed() }
-func (c *cutoverSigner) Address() string               { return c.key().Address() }
-func (c *cutoverSigner) Sign(m []byte) ([]byte, error) { return cutoverKey{c.key(), c}.Sign(m) }
-func (c *cutoverSigner) SignDigest(d [32]byte) ([]byte, error) {
-	return cutoverKey{c.key(), c}.SignDigest(d)
-}
-
-// A send signs its result headers and the request from one key snapshot: a cutover in between
-// does not leave a header and its request signed by different keys.
-func TestSendSignsHeaderAndRequestWithOneKey(t *testing.T) {
-	e := newEnv(t)
-	f := e.fx
-	f.putAccepted()
-	f.recordOnChain()
-	f.writeOutput(e.dData, e.worker, []string{"hello, "}, true)
-	e.s.OrderChanged(f.accepted())
-	e.s.Recorded(f.recordedAttempt())
-	e.s.drain()
-	e.s.cfg.Signer = &cutoverSigner{cur: e.d.key, next: newSigner(t, 0x21)}
-	e.s.deliverPeer(context.Background(), e.m.op)
-	reqs := e.peers.requests[e.m.op]
-	if len(reqs) == 0 {
-		t.Fatal("nothing sent")
-	}
-	req := reqs[0]
-	unsigned := &nexusv1.SyncRequest{Batch: req.GetBatch()}
-	digest := digestOf(t, requestName, mustMarshal(t, unsigned))
-	if dispatch.VerifyDigestSignature(e.d.key.PubKeyCompressed(), digest[:], req.GetSenderSignature()) != nil {
-		t.Fatal("request not signed by the key of the snapshot")
-	}
-	for _, item := range req.GetBatch().GetItems() {
-		if h := item.GetOrder().GetResultHeader(); h != nil {
-			c := proto.Clone(h).(*nexusv1.DispatchResultHeaderV1)
-			c.BuilderServiceSignature = nil
-			hd := digestOf(t, resultHeaderName, mustMarshal(t, c))
-			if dispatch.VerifyDigestSignature(e.d.key.PubKeyCompressed(), hd[:], h.GetBuilderServiceSignature()) != nil {
-				t.Fatal("result header and request signed by different keys")
+	sent := false
+	for _, req := range e.peers.requests[e.m.op] {
+		for _, item := range req.GetBatch().GetItems() {
+			if h := item.GetOrder().GetResultHeader(); h != nil {
+				sent = true
+				if !bytes.Equal(mustMarshal(t, h), recorded.Header) {
+					t.Fatal("the result header was not synced as signed")
+				}
 			}
 		}
+	}
+	if !sent {
+		t.Fatal("no order item sent")
+	}
+	if a, held := e.member.r.Replica(f.sessionHex(), f.taskHex()); !held || a.Status != attempt.Recorded {
+		t.Fatalf("order synced after the cutover = %+v, held %v", a, held)
 	}
 }
 
@@ -1320,11 +1259,10 @@ func TestWinnerAcceptWithoutAResolvableKeyIsMarkedUnverified(t *testing.T) {
 	}
 }
 
-// A member applied the order item before a cutover but the acknowledgement was lost: the resend,
-// its result header signed by the new key, conflicts with the item applied there and that batch
-// is refused, but the refusal reports what the member applied, so the sender moves past the item
-// and the next send is taken.
-func TestAppliedOrderItemAfterACutoverIsNotSentForever(t *testing.T) {
+// A member applied the order item before a cutover but the acknowledgement was lost: the resend
+// under the new key's request carries the item as first signed, so the member finds it equal to the
+// item applied there instead of a conflicting one, and the sender moves on.
+func TestAppliedOrderItemIsResentUnchangedAfterACutover(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
 	f.putAccepted()
@@ -1336,20 +1274,29 @@ func TestAppliedOrderItemAfterACutoverIsNotSentForever(t *testing.T) {
 	e.sync()
 	reqs := e.peers.requests[e.m.op]
 	held := proto.Clone(reqs[len(reqs)-1]).(*nexusv1.SyncRequest)
-	raw, err := proto.Marshal(held)
-	if err != nil {
-		t.Fatal(err)
-	}
+	items := held.GetBatch().GetItems()
 	// The member takes it; its answer never reaches the sender.
-	if resp, err := e.member.r.Sync(context.Background(), raw); err != nil || resp.GetRefused() != "" {
+	if resp, err := e.member.r.Sync(context.Background(), mustMarshal(t, held)); err != nil || resp.GetRefused() != "" {
 		t.Fatalf("held batch = %v, %v", resp, err)
 	}
 	next := newSigner(t, 0x21)
 	e.keys.rotate("BUILDER", e.d, next, testESH+1)
-	e.s.cfg.Signer = servicekey.Static(next, 2)
+	e.s.cfg.Signer = next
 	e.peers.setFail(e.m.op, nil)
-	failures := e.s.failures.Load()
-	for range 4 {
+	sent := len(e.peers.requests[e.m.op])
+	e.clock.advance(time.Hour)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	resent := e.peers.requests[e.m.op][sent:]
+	if len(resent) == 0 || len(resent[0].GetBatch().GetItems()) != len(items) || !proto.Equal(resent[0].GetBatch().GetItems()[len(items)-1], items[len(items)-1]) {
+		t.Fatal("the order item was not resent as first sent")
+	}
+	// The member answers the resend again the same way: every item is the one applied there (only
+	// the output it already sealed may be refused).
+	resp, err := e.member.r.Sync(context.Background(), mustMarshal(t, resent[0]))
+	if err != nil || resp.GetAppliedThrough() != uint64(len(items)) || strings.HasPrefix(resp.GetRefused(), "item") {
+		t.Fatalf("resend = %v, %v", resp, err)
+	}
+	for range 3 {
 		e.clock.advance(time.Hour)
 		e.s.deliverPeer(context.Background(), e.m.op)
 	}
@@ -1357,8 +1304,5 @@ func TestAppliedOrderItemAfterACutoverIsNotSentForever(t *testing.T) {
 		if o.Peer == e.m.op {
 			t.Fatalf("still outstanding for the member: %+v", o)
 		}
-	}
-	if n := e.s.failures.Load() - failures; n > 1 {
-		t.Fatalf("refused %d times", n)
 	}
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
-	"github.com/TrueOpen/nexus/internal/dispatcher"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/identity"
@@ -447,17 +446,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	// registration chain), carries the coordinator's Verifier messages and the standing
 	// handraises, and gives every (re)bound stream the latest handraise root.
 	dispatch := &directDispatch{log: log}
-	streamOpts := []dispatchstream.Option{
-		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplayAt(time.Now)),
-	}
-	if serviceRing != nil {
-		// Unacknowledged input responses and record notices are signed again with the current
-		// key when a Cortex binds again: after a cutover the retired key no longer vouches for
-		// them.
-		streamOpts = append(streamOpts, dispatchstream.WithResigner(dispatcher.ResignTransport(serviceRing)))
-	}
 	streams, err := dispatchstream.New(log, dispatchstream.Config{ChainID: cfg.Chain.ChainID, BuilderOperator: selfAddr},
-		dispatchstream.ServiceKeyLookup{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix}, store, streamOpts...)
+		dispatchstream.ServiceKeyLookup{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix}, store,
+		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplayAt(time.Now)))
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("dispatch stream: %w", err)

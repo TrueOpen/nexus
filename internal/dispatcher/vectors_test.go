@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -242,5 +243,52 @@ func TestTicketBoundMessagesRefuseAnOlderGenerationThanTheTicket(t *testing.T) {
 	}
 	if _, _, err := SignRecordResultNotice(key, 5, notice); err != nil || notice.GetServiceAuthorizationNonce() != 6 {
 		t.Fatalf("record notice under a newer key: nonce %d, %v", notice.GetServiceAuthorizationNonce(), err)
+	}
+}
+
+// An input response and a record notice signed before a cutover are retained and resent as
+// signed: they name the retired key's nonce and still prove their ticket's order below its
+// retirement height, but not one at it.
+func TestTicketBoundMessagesStillVerifyAfterACutover(t *testing.T) {
+	var ticket taskv1.DispatchTicketV1
+	_, ticketRaw, _ := loadVector(t, "task_v1_dispatchticketv1", &ticket)
+	ticketHash, err := dispatch.SigningDigest(ticketName, ticketRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKey, newKey := newTestSigner(t, 0x01), newTestSigner(t, 0x02)
+	signed := servicekey.Key{Signer: oldKey, Nonce: ticket.GetServiceAuthorizationNonce()}
+	input := &nexusv1.DispatchInputResponseV1{TaskId: ticket.GetTaskId(), DispatchTicketHash: ticketHash[:], InputHash: ticket.GetInputHash(),
+		InputSizeBytes: 4, Input: []byte("data"), ChunkCount: 1}
+	inputRaw, _, err := signInputResponse(signed, ticket.GetServiceAuthorizationNonce(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: ticketHash[:], Status: taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED, RecordedHeight: 9}
+	noticeRaw, _, err := SignRecordResultNotice(signed, ticket.GetServiceAuthorizationNonce(), notice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const retired = 120
+	lookup := func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+		switch {
+		case s.ServiceAuthorizationNonce == signed.Nonce:
+			return dispatch.ProofKeyBinding{PublicKey: oldKey.PubKeyCompressed(), ServiceAuthorizationNonce: signed.Nonce, Status: dispatch.ProofKeyPrevious, PreviousRetiredHeight: retired}, nil
+		case s.ServiceAuthorizationNonce == signed.Nonce+1:
+			return dispatch.ProofKeyBinding{PublicKey: newKey.PubKeyCompressed(), ServiceAuthorizationNonce: signed.Nonce + 1, Status: dispatch.ProofKeyActive}, nil
+		}
+		return dispatch.ProofKeyBinding{}, errors.New("unknown generation")
+	}
+	for _, m := range []struct {
+		name string
+		raw  []byte
+	}{{inputResponseName, inputRaw}, {noticeName, noticeRaw}} {
+		below, at := uint64(retired-1), uint64(retired)
+		if err := dispatch.VerifyTicketBoundDispatchProof(ticket.GetChainId(), m.name, m.raw, ticketRaw, dispatch.ProofKeyOptions{LookupProofKey: lookup, OrderEarliestSubmitHeight: &below}); err != nil {
+			t.Fatalf("%s signed before the cutover, order below the retirement: %v", m.name, err)
+		}
+		if err := dispatch.VerifyTicketBoundDispatchProof(ticket.GetChainId(), m.name, m.raw, ticketRaw, dispatch.ProofKeyOptions{LookupProofKey: lookup, OrderEarliestSubmitHeight: &at}); err == nil {
+			t.Fatalf("%s signed before the cutover proved an order at the retirement", m.name)
+		}
 	}
 }
