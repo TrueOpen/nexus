@@ -47,6 +47,8 @@ func TestServiceKeyLookupReadsTheCurrentCortexKey(t *testing.T) {
 	if _, err := lookup.CurrentCortexKey(context.Background(), cortexA); err == nil || errors.Is(err, ErrTransient) {
 		t.Fatalf("missing key = %v, want a final refusal", err)
 	}
+	// A revocation keeps the nonce: the binding check and the uplink compare only the nonce, so a
+	// revoked current key must be refused here.
 	revoked := state
 	revoked.Status = "REVOKED"
 	lookup.Resolver = resolverFunc(func(string, string) (chaincli.ServiceKeyState, error) { return revoked, nil })

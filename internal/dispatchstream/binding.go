@@ -60,7 +60,9 @@ func (h *Hub) verifyBinding(ctx context.Context, frame *nexusv1.DispatchStreamFr
 // checkBindingKey ends nothing while the CORTEX key that authenticated s's binding is still its
 // operator's current ACTIVE key. Otherwise (the Cortex rotated, or its key was revoked or is gone)
 // it returns ErrBindingKeyRetired: a binding is checked once per connection, so the stream must
-// not outlive its key. A chain that cannot answer ends nothing.
+// not outlive its key. A chain that cannot answer ends nothing. A revocation keeps the nonce, so
+// the nonce comparison alone would not see it: it relies on CurrentCortexKey failing for a current
+// key that is not ACTIVE.
 func (h *Hub) checkBindingKey(ctx context.Context, s *session) error {
 	key, err := h.keys.CurrentCortexKey(ctx, s.operator)
 	switch {

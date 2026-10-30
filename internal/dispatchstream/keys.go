@@ -10,14 +10,17 @@ import (
 	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
-// CortexKey is the current CORTEX service key binding of one operator.
+// CortexKey is the current CORTEX service key binding of one operator. It is always ACTIVE: a
+// lookup never returns a revoked (or otherwise not ACTIVE) current key, so it carries no status.
 type CortexKey struct {
 	PubKey             []byte // compressed secp256k1
 	AuthorizationNonce uint64
 }
 
 // CortexKeys looks up the current CORTEX service key of an operator. An error wrapping
-// ErrTransient means the chain could not answer; any other error means there is no usable key.
+// ErrTransient means the chain could not answer; any other error means there is no usable key,
+// which includes a current key that is not ACTIVE (revoked): callers that compare only the nonce
+// (a binding check, an uplink nonce) rely on that, since revocation keeps the nonce.
 type CortexKeys interface {
 	CurrentCortexKey(ctx context.Context, operator string) (CortexKey, error)
 	// ProofOptions resolves proof keys by signed nonce for the wire dispatch proof verifier: the
@@ -27,8 +30,9 @@ type CortexKeys interface {
 	ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions
 }
 
-// ServiceKeyLookup reads the current CORTEX key from the chain through servicekey.Current. There is
-// no fallback to an older key or a key the message presents.
+// ServiceKeyLookup reads the current CORTEX key from the chain through servicekey.Current, which
+// refuses a current key that is not ACTIVE. There is no fallback to an older key or a key the
+// message presents.
 type ServiceKeyLookup struct {
 	Resolver      servicekey.Resolver
 	AddressPrefix string
