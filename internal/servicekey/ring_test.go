@@ -362,8 +362,8 @@ func TestRingAwaitEndsOnARevokedBinding(t *testing.T) {
 	expectRevoked(t, ring, local, 2)
 }
 
-func rotatedEvent(operator string, nonce uint64) chaincli.ChainEvent {
-	return chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_ROTATED",
+func rotatedEvent(operator string, nonce uint64, height int64) chaincli.ChainEvent {
+	return chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_ROTATED", Height: height,
 		Typed: chaincli.ServiceKeyRotated{ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, Operator: operator, AuthorizationNonce: nonce}}
 }
 
@@ -375,6 +375,7 @@ func rotatedEvent(operator string, nonce uint64) chaincli.ChainEvent {
 func TestRingRevocationOfUnknownGenerationBeforeTheFirstRead(t *testing.T) {
 	local, next := testSigner(t, 1), testSigner(t, 2)
 	unknown := revokedEvent(sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, ringOperator, 0)
+	unknown.Height = 100
 
 	// The first read lags the revocation; a later read of the replacement signs.
 	resolver := &fakeResolver{}
@@ -398,14 +399,26 @@ func TestRingRevocationOfUnknownGenerationBeforeTheFirstRead(t *testing.T) {
 		t.Fatalf("key after the replacement = %+v", k)
 	}
 
-	// A cutover event before the first read cancels the mark.
+	// A cutover event older than the revocation before the first read changes nothing.
+	setBuilderState(resolver, builderState(next, 4))
+	older, err := NewRing(resolver, testPrefix, ringOperator, nil, local, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	older.ObserveEvent(unknown)
+	older.ObserveEvent(rotatedEvent(ringOperator, 4, 100))
+	if _, err := older.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("read after an older cutover event = %v, want ErrRevoked", err)
+	}
+
+	// A cutover event after the revocation, before the first read, cancels the mark.
 	setBuilderState(resolver, builderState(next, 4))
 	cancelled, err := NewRing(resolver, testPrefix, ringOperator, nil, local, next)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cancelled.ObserveEvent(unknown)
-	cancelled.ObserveEvent(rotatedEvent(ringOperator, 4))
+	cancelled.ObserveEvent(rotatedEvent(ringOperator, 4, 101))
 	if _, err := cancelled.Refresh(context.Background()); err != nil || cancelled.Key().Revoked {
 		t.Fatalf("read after revocation and cutover events = %v", err)
 	}
@@ -420,11 +433,17 @@ func TestRingRevocationOfUnknownGenerationBeforeTheFirstRead(t *testing.T) {
 	if _, err := replayed.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
 		t.Fatalf("first read = %v, want ErrRevoked", err)
 	}
-	replayed.ObserveEvent(rotatedEvent("trueopen1other", 4))
+	replayed.ObserveEvent(rotatedEvent("trueopen1other", 4, 101))
 	if _, err := replayed.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
 		t.Fatalf("another operator's cutover lifted the mark: %v", err)
 	}
-	replayed.ObserveEvent(rotatedEvent(ringOperator, 4))
+	// A cutover event from below the revocation's height is an older one replayed: it shows
+	// nothing about the generation after the revocation.
+	replayed.ObserveEvent(rotatedEvent(ringOperator, 4, 90))
+	if _, err := replayed.Refresh(context.Background()); !errors.Is(err, ErrRevoked) {
+		t.Fatalf("a cutover event older than the revocation lifted the mark: %v", err)
+	}
+	replayed.ObserveEvent(rotatedEvent(ringOperator, 4, 101))
 	if _, err := replayed.Refresh(context.Background()); err != nil || replayed.Key().Revoked || replayed.Key().Signer != next {
 		t.Fatalf("read after the cutover event = %v, key %+v", err, replayed.Key())
 	}

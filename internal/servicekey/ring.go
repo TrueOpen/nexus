@@ -124,10 +124,12 @@ type Ring struct {
 	// revoked is the newest generation known revoked (0: none). A revoked generation never
 	// becomes ACTIVE again, so a read showing it ACTIVE lags the revocation.
 	revoked uint64
-	// unknown is a revocation without a nonce seen before the first read; that read counts its
-	// current generation as revoked (unknownAt, with revoked as it was before in priorRevoked)
-	// until this Builder's next cutover event shows otherwise.
+	// unknown is a revocation without a nonce seen before the first read, at chain height
+	// unknownHeight; that read counts its current generation as revoked (unknownAt, with revoked
+	// as it was before in priorRevoked) until a cutover event of this Builder from a later height
+	// shows otherwise.
 	unknown                 bool
+	unknownHeight           int64
 	unknownAt, priorRevoked uint64
 }
 
@@ -209,9 +211,9 @@ func (r *Ring) Refresh(ctx context.Context) (RingView, error) {
 // dropped from the view. An event without a nonce revokes the generation the ring signs with.
 // One before the first read is applied by that read: with a nonce, that generation and older ones
 // are revoked; without one, the first read's current generation counts as revoked (even if the
-// read lags and shows it ACTIVE) until this Builder's next SERVICE_KEY_ROTATED, which shows the
-// generation it installs came after the revocation. Other events, and revocations of other
-// operators, of Cortex keys or of an older generation, change nothing.
+// read lags and shows it ACTIVE) until this Builder's SERVICE_KEY_ROTATED from a later chain
+// height, which shows the generation it installs came after the revocation. Other events, and
+// revocations of other operators, of Cortex keys or of an older generation, change nothing.
 func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
 	if ev.Type != chaincli.EventHubOperational {
 		return
@@ -233,7 +235,7 @@ func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
 	if nonce == 0 {
 		nonce = r.view.Current.Nonce
 		if !r.fetched {
-			r.unknown = true
+			r.unknown, r.unknownHeight = true, max(r.unknownHeight, ev.Height)
 		}
 	}
 	r.revoked = max(r.revoked, nonce)
@@ -249,11 +251,12 @@ func (r *Ring) ObserveEvent(ev chaincli.ChainEvent) {
 	r.switched(old, current)
 }
 
-// observeCutover takes this Builder's SERVICE_KEY_ROTATED: it installed a generation after any
-// revocation seen before it, so a revocation without a nonce seen before the first read names
-// none at or above it. Before the first read the mark is dropped; after it, the generation the
-// first read counted as revoked signs again from the next read, unless a revocation with a nonce
-// moved the floor since.
+// observeCutover takes this Builder's SERVICE_KEY_ROTATED. One from a chain height above the
+// revocation without a nonce seen before the first read installed a generation after it, so that
+// revocation names none at or above it: before the first read the mark is dropped; after it, the
+// generation the first read counted as revoked signs again from the next read, unless a
+// revocation with a nonce moved the floor since. The height, not the delivery order, decides: a
+// replayed older cutover shows nothing.
 func (r *Ring) observeCutover(ev chaincli.ChainEvent) {
 	rotated, ok := ev.Typed.(chaincli.ServiceKeyRotated)
 	if !ok || rotated.ParticipantType != sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER || rotated.Operator != r.operator {
@@ -261,11 +264,13 @@ func (r *Ring) observeCutover(ev chaincli.ChainEvent) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.unknown = false
+	if !r.unknown && r.unknownAt == 0 || ev.Height <= r.unknownHeight {
+		return
+	}
 	if r.unknownAt != 0 && rotated.AuthorizationNonce >= r.unknownAt && r.revoked == r.unknownAt {
 		r.revoked = r.priorRevoked
 	}
-	r.unknownAt = 0
+	r.unknown, r.unknownAt, r.unknownHeight = false, 0, 0
 }
 
 // revokedKey is k revoked: same key and nonce, signing nothing.
