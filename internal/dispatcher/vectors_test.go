@@ -13,6 +13,7 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -63,7 +64,11 @@ func checkSigned(t *testing.T, v wirefixture.Vector, wantRaw, wantSig, gotRaw []
 func TestTicketVector(t *testing.T) {
 	var want taskv1.DispatchTicketV1
 	v, wantRaw, wantSig := loadVector(t, "task_v1_dispatchticketv1", &want)
-	d := &Dispatcher{cfg: Config{ChainID: want.GetChainId(), Builder: want.GetBuilderAddress(), Signer: newTestSigner(t, 0x01)}}
+	if want.GetServiceAuthorizationNonce() == 0 {
+		t.Fatal("the ticket vector signs no Builder nonce")
+	}
+	d := &Dispatcher{cfg: Config{ChainID: want.GetChainId(), Builder: want.GetBuilderAddress(),
+		Signer: servicekey.Static(newTestSigner(t, 0x01), want.GetServiceAuthorizationNonce())}}
 	o := &order{
 		st: &orderState{
 			Sequence: want.GetOrderSequence(), TaskID: hex.EncodeToString(want.GetTaskId()), TaskHash: hex.EncodeToString(want.GetTaskHash()),
@@ -84,7 +89,7 @@ func TestTicketVector(t *testing.T) {
 		StickyAnchorSequence: want.GetStickyAnchorSequence(), StickyRunCount: want.GetStickyRunCount(),
 	}
 	ticket := d.ticket(o, cand, want.GetAcceptDeadlineMs())
-	raw, digest, err := signTicket(d.cfg.Signer, ticket)
+	raw, digest, err := signTicket(d.cfg.Signer.Key(), ticket)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +127,10 @@ func TestRecordVector(t *testing.T) {
 		t.Fatalf("an ACCEPTED attempt carries reject digest %x tier %d", got.GetRejectDigestOrZero32(), got.GetTimeoutTierOrZero())
 	}
 	got.RejectDigestOrZero32, got.TimeoutTierOrZero = wantAttempt.GetRejectDigestOrZero32(), wantAttempt.GetTimeoutTierOrZero()
-	raw, digest, err := signRecord(newTestSigner(t, 0x01), record)
+	if want.GetServiceAuthorizationNonce() == 0 {
+		t.Fatal("the record vector signs no Builder nonce")
+	}
+	raw, digest, err := signRecord(servicekey.Key{Signer: newTestSigner(t, 0x01), Nonce: want.GetServiceAuthorizationNonce()}, record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +159,7 @@ func TestInputResponseVectors(t *testing.T) {
 	loadVector(t, a.Vectors[0], &first)
 	streams := &fakeStreams{}
 	d := &Dispatcher{cfg: Config{
-		Signer: newTestSigner(t, 0x01), InputChunkBytes: 2, Streams: streams,
+		Signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce), InputChunkBytes: 2, Streams: streams,
 		Inputs: fakeInputs{data: map[string][]byte{"task-hash": []byte(a.Input)}},
 	}}
 	if err := d.sendInput(context.Background(), "worker", "session", "task", "task-hash", first.GetTaskId(), first.GetDispatchTicketHash(), first.GetInputHash()); err != nil {

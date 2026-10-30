@@ -8,6 +8,7 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -51,14 +52,24 @@ func signMessage(s signer.Signer, name string, m proto.Message, setSig func([]by
 	return raw, digest, nil
 }
 
-// signTicket signs t; its digest is the dispatch_ticket_hash.
-func signTicket(s signer.Signer, t *taskv1.DispatchTicketV1) ([]byte, [32]byte, error) {
-	return signMessage(s, ticketName, t, func(sig []byte) { t.BuilderServiceSignature = sig })
+// signTicket signs t under key, with key's authorization nonce; its digest is the
+// dispatch_ticket_hash.
+func signTicket(key servicekey.Key, t *taskv1.DispatchTicketV1) ([]byte, [32]byte, error) {
+	if key.Nonce == 0 {
+		return nil, [32]byte{}, fmt.Errorf("sign %s: the service key has no authorization nonce yet", ticketName)
+	}
+	t.ServiceAuthorizationNonce = key.Nonce
+	return signMessage(key.Signer, ticketName, t, func(sig []byte) { t.BuilderServiceSignature = sig })
 }
 
-// signRecord signs r; its digest is the dispatch_record_hash.
-func signRecord(s signer.Signer, r *taskv1.DispatchRecordV1) ([]byte, [32]byte, error) {
-	return signMessage(s, recordName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
+// signRecord signs r under key, with key's authorization nonce; its digest is the
+// dispatch_record_hash.
+func signRecord(key servicekey.Key, r *taskv1.DispatchRecordV1) ([]byte, [32]byte, error) {
+	if key.Nonce == 0 {
+		return nil, [32]byte{}, fmt.Errorf("sign %s: the service key has no authorization nonce yet", recordName)
+	}
+	r.ServiceAuthorizationNonce = key.Nonce
+	return signMessage(key.Signer, recordName, r, func(sig []byte) { r.BuilderServiceSignature = sig })
 }
 
 func signInputResponse(s signer.Signer, r *nexusv1.DispatchInputResponseV1) ([]byte, [32]byte, error) {

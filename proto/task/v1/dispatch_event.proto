@@ -115,9 +115,14 @@ message EventBuilderDispatchFaultRecorded {
   bytes fault_id = 2;
   shared.v1.DispatchChallengeKindV1 kind = 3;
   bytes task_id = 4;
+  // Actual independent penalty paid to Treasury after victim compensation.
   shared.v1.Amount penalty_amount = 5;
+  // Configured penalty minus penalty_amount; excludes compensation shortfalls.
   shared.v1.Amount unfilled_amount = 6;
   optional string compensated_worker_or_empty = 7;
+  // Actual victim compensation, paid first and counted in total_paid. Equals
+  // the Hub DispatchFaultState.compensated_amount; zero when no Worker is paid.
+  shared.v1.Amount compensated_amount = 8;
 }
 // EventSessionDeposited records the committed transition; exact replay emits nothing.
 message EventSessionDeposited {

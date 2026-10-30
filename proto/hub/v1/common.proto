@@ -16,7 +16,7 @@ enum ServiceKeyStatus {
   // Binding may authorize service submissions.
   // SERVICE_KEY_STATUS_ACTIVE identifies the corresponding protocol value.
   SERVICE_KEY_STATUS_ACTIVE = 1;
-  // Binding is revoked and authorizes nothing.
+  // Binding grants no live permission; retained proof identity remains usable.
   // SERVICE_KEY_STATUS_REVOKED identifies the corresponding protocol value.
   SERVICE_KEY_STATUS_REVOKED = 2;
 }
@@ -37,16 +37,10 @@ enum ServiceKeyRevocationReason {
   SERVICE_KEY_REVOCATION_REASON_GOVERNANCE_EMERGENCY = 3;
 }
 
-// ServiceKeyResponsibilityKind is the closed set of online responsibilities that
-// block MsgRotateServiceKey. The builder
-// stage kinds feed BuilderState/CortexNodeState.pending_stage_duty_count and the
-// challenge/evidence kinds feed pending_evidence_submission_count; task duty
-// liability is counted by active_task_liability_count and no longer stored as a
-// responsibility row.
-//
-// Value 4 was reassigned in the fresh Phase 0 schema. The removed evidence
-// request protocol has no compatibility alias or writer.
-// ServiceKeyResponsibilityKind defines the ServiceKeyResponsibilityKind wire type.
+// ServiceKeyResponsibilityKind attributes outstanding duties to stable operators.
+// Evidence rows retain their actual signed nonce. Only previous-generation
+// evidence responsibility blocks another registration; current group duties and
+// liability do not gate registration or fixed E+2 activation.
 enum ServiceKeyResponsibilityKind {
   // Never written; rejects zero-value rows.
   // SERVICE_KEY_RESPONSIBILITY_KIND_UNSPECIFIED identifies the corresponding protocol value.
@@ -81,9 +75,8 @@ enum ServiceKeyResponsibilityKind {
   //             task_finality_height + max_evidence_retention_blocks and the
   //             evidence bodies are pruned, deletes the row/index and does the
   //             checked -1. It is the only first-time decrement of this kind.
-  // Therefore MsgRotateServiceKey stays blocked for the whole objective-evidence
-  // admissibility window: an operator cannot clear the counter first and rotate
-  // the accusable key away afterwards.
+  // Retain the bound proof identity through this window. Once it is previous,
+  // the outstanding evidence responsibility prevents another registration.
   // SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE identifies the corresponding protocol value.
   SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE = 5;
 }
@@ -118,7 +111,7 @@ enum ServiceBondStatus {
   // Bond is effective and may back duties.
   // SERVICE_BOND_STATUS_ACTIVE identifies the corresponding protocol value.
   SERVICE_BOND_STATUS_ACTIVE = 2;
-  // Operator is jailed; no new duty is assigned.
+  // Recoverable jail: candidate eligibility follows the nonzero jail factor.
   // SERVICE_BOND_STATUS_JAILED identifies the corresponding protocol value.
   SERVICE_BOND_STATUS_JAILED = 3;
   // Operator is unbonding to zero.

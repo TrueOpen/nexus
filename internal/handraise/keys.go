@@ -1,21 +1,19 @@
 package handraise
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
 	"github.com/TrueOpen/nexus/internal/servicekey"
-	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 // ChainServiceKeys implements ServiceKeys with on-chain current service key lookups.
 type ChainServiceKeys struct {
-	Resolver       servicekey.Resolver
-	AddressPrefix  string
-	BuilderAddress string
-	// Signer is this Builder's local service key; the on-chain current BUILDER key must be it.
-	Signer signer.Signer
+	Resolver      servicekey.Resolver
+	AddressPrefix string
+	// Ring holds this Builder's local service keys; the on-chain current BUILDER key must be one
+	// of them.
+	Ring *servicekey.Ring
 }
 
 func (k ChainServiceKeys) CurrentCortexKey(ctx context.Context, operator string) ([]byte, uint64, error) {
@@ -41,15 +39,15 @@ func (k ChainServiceKeys) CortexRotationPending(ctx context.Context, operator st
 }
 
 func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
-	pub, state, err := servicekey.Current(ctx, k.Resolver, k.AddressPrefix, servicekey.ParticipantBuilder, k.BuilderAddress)
+	if k.Ring == nil {
+		return fmt.Errorf("no local BUILDER service key: %w", servicekey.ErrUnavailable)
+	}
+	view, err := k.Ring.Refresh(ctx)
 	if err != nil {
 		return err
 	}
-	if k.Signer == nil || !bytes.Equal(pub, k.Signer.PubKeyCompressed()) {
-		return fmt.Errorf("on-chain BUILDER service key does not match the local signer")
-	}
-	if p := state.PendingRotation; p != nil {
-		return fmt.Errorf("%w: nonce %d effective at height %d", ErrBuilderRotationPending, p.NextAuthorizationNonce, p.EffectiveHeight)
+	if view.Pending() {
+		return fmt.Errorf("%w: nonce %d effective at height %d", ErrBuilderRotationPending, view.Next.Nonce, view.NextEffectiveHeight)
 	}
 	return nil
 }

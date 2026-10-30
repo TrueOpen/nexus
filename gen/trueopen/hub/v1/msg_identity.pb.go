@@ -23,8 +23,9 @@ const (
 )
 
 // MsgRotateServiceKey registers one operator-authorized pending replacement.
-// Current address/key/nonce stay unchanged until safe epoch activation. Pending
-// participants stop new dispatch exposure; old-key material windows must close.
+// Current address/key/nonce stay unchanged until the fixed E+2 epoch start.
+// Previous-generation evidence and the hard-limit interval gate another
+// registration; pending admission rules are local Builder policy.
 type MsgRotateServiceKey struct {
 	state                                    protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType                          v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`

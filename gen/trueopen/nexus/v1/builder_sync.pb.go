@@ -171,8 +171,14 @@ func (x *SyncResponse) GetOutputNotHeld() bool {
 // BuilderSyncBatchV1 is scoped to one sender, receiver and Session order. Limit
 // the complete SyncRequest to 1 MiB, at most 128 items and 128 output chunks.
 // Items start at 1 without gaps. Exact duplicates do not advance state; a gap or
-// conflicting payload at an applied sequence is refused. Output uses the
-// Worker's independent seq. An output-only retry may have no items.
+// conflicting payload at an applied sequence is refused. Two items at the same
+// sequence are the same iff their canonical typed item projections, the exact
+// REPEATED_V1 elements the batch signature commits to, are byte-equal (shared
+// implementation: dispatch.BuilderSyncItemCanonicalBytes). Protobuf encoding is
+// never compared, and nested business signatures are part of the projection.
+// A receiver may retain SHA-256 of those bytes as a local comparison key; it is
+// not a protocol identity. Output uses the Worker's independent seq. An
+// output-only retry may have no items.
 type BuilderSyncBatchV1 struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion           uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`

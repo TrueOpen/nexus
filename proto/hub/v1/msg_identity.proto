@@ -8,8 +8,9 @@ import "shared/v1/common.proto";
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // MsgRotateServiceKey registers one operator-authorized pending replacement.
-// Current address/key/nonce stay unchanged until safe epoch activation. Pending
-// participants stop new dispatch exposure; old-key material windows must close.
+// Current address/key/nonce stay unchanged until the fixed E+2 epoch start.
+// Previous-generation evidence and the hard-limit interval gate another
+// registration; pending admission rules are local Builder policy.
 message MsgRotateServiceKey {
   shared.v1.ParticipantType participant_type = 1;
   bytes new_service_pubkey = 2;

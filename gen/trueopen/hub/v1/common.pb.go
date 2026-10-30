@@ -31,7 +31,7 @@ const (
 	// Binding may authorize service submissions.
 	// SERVICE_KEY_STATUS_ACTIVE identifies the corresponding protocol value.
 	ServiceKeyStatus_SERVICE_KEY_STATUS_ACTIVE ServiceKeyStatus = 1
-	// Binding is revoked and authorizes nothing.
+	// Binding grants no live permission; retained proof identity remains usable.
 	// SERVICE_KEY_STATUS_REVOKED identifies the corresponding protocol value.
 	ServiceKeyStatus_SERVICE_KEY_STATUS_REVOKED ServiceKeyStatus = 2
 )
@@ -138,16 +138,10 @@ func (ServiceKeyRevocationReason) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_common_proto_rawDescGZIP(), []int{1}
 }
 
-// ServiceKeyResponsibilityKind is the closed set of online responsibilities that
-// block MsgRotateServiceKey. The builder
-// stage kinds feed BuilderState/CortexNodeState.pending_stage_duty_count and the
-// challenge/evidence kinds feed pending_evidence_submission_count; task duty
-// liability is counted by active_task_liability_count and no longer stored as a
-// responsibility row.
-//
-// Value 4 was reassigned in the fresh Phase 0 schema. The removed evidence
-// request protocol has no compatibility alias or writer.
-// ServiceKeyResponsibilityKind defines the ServiceKeyResponsibilityKind wire type.
+// ServiceKeyResponsibilityKind attributes outstanding duties to stable operators.
+// Evidence rows retain their actual signed nonce. Only previous-generation
+// evidence responsibility blocks another registration; current group duties and
+// liability do not gate registration or fixed E+2 activation.
 type ServiceKeyResponsibilityKind int32
 
 const (
@@ -186,9 +180,8 @@ const (
 	//	          evidence bodies are pruned, deletes the row/index and does the
 	//	          checked -1. It is the only first-time decrement of this kind.
 	//
-	// Therefore MsgRotateServiceKey stays blocked for the whole objective-evidence
-	// admissibility window: an operator cannot clear the counter first and rotate
-	// the accusable key away afterwards.
+	// Retain the bound proof identity through this window. Once it is previous,
+	// the outstanding evidence responsibility prevents another registration.
 	// SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE identifies the corresponding protocol value.
 	ServiceKeyResponsibilityKind_SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE ServiceKeyResponsibilityKind = 5
 )
@@ -319,7 +312,7 @@ const (
 	// Bond is effective and may back duties.
 	// SERVICE_BOND_STATUS_ACTIVE identifies the corresponding protocol value.
 	ServiceBondStatus_SERVICE_BOND_STATUS_ACTIVE ServiceBondStatus = 2
-	// Operator is jailed; no new duty is assigned.
+	// Recoverable jail: candidate eligibility follows the nonzero jail factor.
 	// SERVICE_BOND_STATUS_JAILED identifies the corresponding protocol value.
 	ServiceBondStatus_SERVICE_BOND_STATUS_JAILED ServiceBondStatus = 3
 	// Operator is unbonding to zero.

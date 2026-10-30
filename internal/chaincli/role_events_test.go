@@ -16,6 +16,8 @@ import (
 
 const testBuilder = "trueopen1builder"
 
+var testWorkerAddr = "trueopen1worker"
+
 // fakeRoleStream replays role stream items without a server.
 type fakeRoleStream struct {
 	items []*taskv1.SubscribeRoleEventsResponse
@@ -380,9 +382,10 @@ func TestRoleEventToChainEventDecodesOutcomes(t *testing.T) {
 		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_BUILDER_DISPATCH_FAULT_RECORDED,
 			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded{
 				BuilderDispatchFaultRecorded: &taskv1.EventBuilderDispatchFaultRecorded{Builder: testBuilder, FaultId: mustHash32("f1"), TaskId: testTaskIDBytes,
-					PenaltyAmount: amount("5"), UnfilledAmount: amount("0")},
+					PenaltyAmount: amount("5"), UnfilledAmount: amount("0"), CompensatedWorkerOrEmpty: &testWorkerAddr, CompensatedAmount: amount("7")},
 			}}),
-			BuilderDispatchFaultRecorded{Builder: testBuilder, FaultID: mustHash32("f1"), TaskID: testTaskIDHex, PenaltyAmount: "5", UnfilledAmount: "0"}},
+			BuilderDispatchFaultRecorded{Builder: testBuilder, FaultID: mustHash32("f1"), TaskID: testTaskIDHex, PenaltyAmount: "5", UnfilledAmount: "0",
+				CompensatedWorker: testWorkerAddr, CompensatedAmount: "7"}},
 	}
 	for _, tc := range cases {
 		event, err := roleEventToChainEvent(tc.event)

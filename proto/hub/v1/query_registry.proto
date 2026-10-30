@@ -329,6 +329,10 @@ message CurrentServiceKeyViewV1 {
   uint64 current_descriptor_version = 8;
   // A proposal never changes the current fields above until activation.
   optional PendingServiceKeyRotationState pending_rotation = 9;
+  // One previous proof identity, with paired presence matching the stored binding.
+  optional bytes previous_service_pubkey = 10;
+  optional uint64 previous_service_authorization_nonce = 11;
+  optional uint64 previous_retired_height = 12;
 }
 
 // ServiceLifecycleViewV1 joins the identity and bond authorities.

@@ -29,7 +29,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/servicekey"
-	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 const (
@@ -109,8 +108,9 @@ type Options struct {
 	Keys           ServiceKeys
 	Pool           CandidatePool
 	Height         ChainHeight
-	// Signer holds this Builder's current service key; it signs every root.
-	Signer signer.Signer
+	// Signer holds this Builder's current service key; it signs every root with its
+	// authorization nonce.
+	Signer servicekey.Signer
 	// RTT, when set, is sampled for every held handraise before each root is issued (RecordRTT).
 	RTT RTTSource
 	// Now is the local clock of handraise TTLs; nil means time.Now.

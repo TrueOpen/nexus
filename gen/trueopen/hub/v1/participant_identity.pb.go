@@ -199,7 +199,7 @@ func (x *ServiceDescriptorV1) GetEndpoints() []*ServiceEndpointV1 {
 
 // CortexNodeState is the single stable Cortex identity row. Fields 10-12 track
 // accepted online responsibilities. Rotation can be registered while they are
-// nonzero; Cortex activation waits for the applicable duties/material to close.
+// nonzero; only previous-generation evidence duties gate another registration.
 // CortexNodeState defines the CortexNodeState wire type.
 type CortexNodeState struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -216,8 +216,13 @@ type CortexNodeState struct {
 	ActiveTaskLiabilityCount       uint32           `protobuf:"varint,10,opt,name=active_task_liability_count,json=activeTaskLiabilityCount,proto3" json:"active_task_liability_count,omitempty"`
 	PendingStageDutyCount          uint32           `protobuf:"varint,11,opt,name=pending_stage_duty_count,json=pendingStageDutyCount,proto3" json:"pending_stage_duty_count,omitempty"`
 	PendingEvidenceSubmissionCount uint32           `protobuf:"varint,12,opt,name=pending_evidence_submission_count,json=pendingEvidenceSubmissionCount,proto3" json:"pending_evidence_submission_count,omitempty"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	// The three previous fields are present together, for proof verification only.
+	// They grant no live identity or reverse-address-index entry.
+	PreviousServicePubkey             []byte  `protobuf:"bytes,13,opt,name=previous_service_pubkey,json=previousServicePubkey,proto3,oneof" json:"previous_service_pubkey,omitempty"`
+	PreviousServiceAuthorizationNonce *uint64 `protobuf:"varint,14,opt,name=previous_service_authorization_nonce,json=previousServiceAuthorizationNonce,proto3,oneof" json:"previous_service_authorization_nonce,omitempty"`
+	PreviousRetiredHeight             *uint64 `protobuf:"varint,15,opt,name=previous_retired_height,json=previousRetiredHeight,proto3,oneof" json:"previous_retired_height,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *CortexNodeState) Reset() {
@@ -330,6 +335,27 @@ func (x *CortexNodeState) GetPendingStageDutyCount() uint32 {
 func (x *CortexNodeState) GetPendingEvidenceSubmissionCount() uint32 {
 	if x != nil {
 		return x.PendingEvidenceSubmissionCount
+	}
+	return 0
+}
+
+func (x *CortexNodeState) GetPreviousServicePubkey() []byte {
+	if x != nil {
+		return x.PreviousServicePubkey
+	}
+	return nil
+}
+
+func (x *CortexNodeState) GetPreviousServiceAuthorizationNonce() uint64 {
+	if x != nil && x.PreviousServiceAuthorizationNonce != nil {
+		return *x.PreviousServiceAuthorizationNonce
+	}
+	return 0
+}
+
+func (x *CortexNodeState) GetPreviousRetiredHeight() uint64 {
+	if x != nil && x.PreviousRetiredHeight != nil {
+		return *x.PreviousRetiredHeight
 	}
 	return 0
 }
@@ -501,9 +527,9 @@ type ServiceKeyResponsibilityState struct {
 	SessionId          []byte                       `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId             []byte                       `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	CreatedHeight      uint64                       `protobuf:"varint,7,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
-	// Frozen material context nonce. New Builder Tasks during a pending service
-	// rotation bind the reserved next nonce without authorizing that key early.
-	// Pure operator duties do not count as old-key material dependencies. It distinguishes
+	// Frozen actual service generation, never a reserved pending-next nonce.
+	// Previous-generation evidence duties gate another registration; current
+	// group duties and liability do not block registration. It distinguishes
 	// an exact acquire replay from the same responsibility ID presented under a
 	// different key generation; it is deliberately not part of the ID itself.
 	ServiceAuthorizationNonce uint64 `protobuf:"varint,8,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
@@ -598,9 +624,9 @@ func (x *ServiceKeyResponsibilityState) GetServiceAuthorizationNonce() uint64 {
 }
 
 // PendingServiceKeyRotationState is at most one replacement per role/operator.
-// The old key remains current until safe epoch activation. No retired service
-// public-key table exists. Rebuild the activation and pending-address indexes
-// from these primaries and material counts from existing responsibility rows.
+// Registration in epoch E activates at epoch E+2, independently of material
+// counts or ordinary queue budgets. Rebuild activation/address indexes from
+// these primaries; the binding retains only one previous proof key.
 type PendingServiceKeyRotationState struct {
 	state                            protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType                  v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
@@ -609,14 +635,10 @@ type PendingServiceKeyRotationState struct {
 	NewServicePubkey                 []byte                 `protobuf:"bytes,4,opt,name=new_service_pubkey,json=newServicePubkey,proto3" json:"new_service_pubkey,omitempty"`
 	NextServiceAuthorizationNonce    uint64                 `protobuf:"varint,5,opt,name=next_service_authorization_nonce,json=nextServiceAuthorizationNonce,proto3" json:"next_service_authorization_nonce,omitempty"`
 	RegisteredHeight                 uint64                 `protobuf:"varint,6,opt,name=registered_height,json=registeredHeight,proto3" json:"registered_height,omitempty"`
-	// First usable epoch height; process in the preceding block's EndBlock.
-	// Unclosed old material or exhausted budget postpones this by whole epochs.
+	// Fixed E+2 epoch start; install atomically before business transactions there.
 	EffectiveHeight uint64 `protobuf:"varint,7,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
-	// Inclusive dispatch-material deadline, frozen from protocol hard limits.
-	// Activation must be strictly later and all old-key material windows closed.
-	OldMaterialCloseHeight uint64 `protobuf:"varint,8,opt,name=old_material_close_height,json=oldMaterialCloseHeight,proto3" json:"old_material_close_height,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PendingServiceKeyRotationState) Reset() {
@@ -698,13 +720,6 @@ func (x *PendingServiceKeyRotationState) GetEffectiveHeight() uint64 {
 	return 0
 }
 
-func (x *PendingServiceKeyRotationState) GetOldMaterialCloseHeight() uint64 {
-	if x != nil {
-		return x.OldMaterialCloseHeight
-	}
-	return 0
-}
-
 var File_hub_v1_participant_identity_proto protoreflect.FileDescriptor
 
 const file_hub_v1_participant_identity_proto_rawDesc = "" +
@@ -717,7 +732,7 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x0ftls_pubkey_hash\x18\x04 \x01(\fH\x00R\rtlsPubkeyHash\x88\x01\x01B\x12\n" +
 	"\x10_tls_pubkey_hash\"N\n" +
 	"\x13ServiceDescriptorV1\x127\n" +
-	"\tendpoints\x18\x01 \x03(\v2\x19.hub.v1.ServiceEndpointV1R\tendpoints\"\xae\x05\n" +
+	"\tendpoints\x18\x01 \x03(\v2\x19.hub.v1.ServiceEndpointV1R\tendpoints\"\xdf\a\n" +
 	"\x0fCortexNodeState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x126\n" +
@@ -731,7 +746,13 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x1bactive_task_liability_count\x18\n" +
 	" \x01(\rR\x18activeTaskLiabilityCount\x127\n" +
 	"\x18pending_stage_duty_count\x18\v \x01(\rR\x15pendingStageDutyCount\x12I\n" +
-	"!pending_evidence_submission_count\x18\f \x01(\rR\x1ependingEvidenceSubmissionCount\"\x8c\x01\n" +
+	"!pending_evidence_submission_count\x18\f \x01(\rR\x1ependingEvidenceSubmissionCount\x12;\n" +
+	"\x17previous_service_pubkey\x18\r \x01(\fH\x00R\x15previousServicePubkey\x88\x01\x01\x12T\n" +
+	"$previous_service_authorization_nonce\x18\x0e \x01(\x04H\x01R!previousServiceAuthorizationNonce\x88\x01\x01\x12;\n" +
+	"\x17previous_retired_height\x18\x0f \x01(\x04H\x02R\x15previousRetiredHeight\x88\x01\x01B\x1a\n" +
+	"\x18_previous_service_pubkeyB'\n" +
+	"%_previous_service_authorization_nonceB\x1a\n" +
+	"\x18_previous_retired_height\"\x8c\x01\n" +
 	"\x1fCurrentServiceAddressIndexState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\x02 \x01(\x04R\x19serviceAuthorizationNonce\"\xe9\x02\n" +
@@ -752,7 +773,7 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"session_id\x18\x05 \x01(\fR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x06 \x01(\fR\x06taskId\x12%\n" +
 	"\x0ecreated_height\x18\a \x01(\x04R\rcreatedHeight\x12>\n" +
-	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\xeb\x03\n" +
+	"\x1bservice_authorization_nonce\x18\b \x01(\x04R\x19serviceAuthorizationNonce\"\xd1\x03\n" +
 	"\x1ePendingServiceKeyRotationState\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12M\n" +
@@ -760,8 +781,7 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x12new_service_pubkey\x18\x04 \x01(\fR\x10newServicePubkey\x12G\n" +
 	" next_service_authorization_nonce\x18\x05 \x01(\x04R\x1dnextServiceAuthorizationNonce\x12+\n" +
 	"\x11registered_height\x18\x06 \x01(\x04R\x10registeredHeight\x12)\n" +
-	"\x10effective_height\x18\a \x01(\x04R\x0feffectiveHeight\x129\n" +
-	"\x19old_material_close_height\x18\b \x01(\x04R\x16oldMaterialCloseHeight*\xba\x01\n" +
+	"\x10effective_height\x18\a \x01(\x04R\x0feffectiveHeightJ\x04\b\b\x10\tR\x19old_material_close_height*\xba\x01\n" +
 	"\x13ServiceEndpointKind\x12%\n" +
 	"!SERVICE_ENDPOINT_KIND_UNSPECIFIED\x10\x00\x12$\n" +
 	" SERVICE_ENDPOINT_KIND_NEXUS_GRPC\x10\x01\x12.\n" +
@@ -818,6 +838,7 @@ func file_hub_v1_participant_identity_proto_init() {
 	}
 	file_hub_v1_common_proto_init()
 	file_hub_v1_participant_identity_proto_msgTypes[0].OneofWrappers = []any{}
+	file_hub_v1_participant_identity_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

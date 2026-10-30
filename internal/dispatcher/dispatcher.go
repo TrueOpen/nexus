@@ -41,7 +41,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
-	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -220,8 +220,9 @@ type Config struct {
 	Dispatch config.DispatchConfig
 	// InputChunkBytes bounds the input bytes of one DispatchInputResponseV1.
 	InputChunkBytes uint64
-	// Signer is the Builder service key that signs tickets, records and input responses.
-	Signer     signer.Signer
+	// Signer is the Builder service key that signs tickets, records and input responses; tickets
+	// and records carry its authorization nonce.
+	Signer     servicekey.Signer
 	Store      kv.Store
 	Ledger     *inflight.Ledger
 	Sessions   Sessions

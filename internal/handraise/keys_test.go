@@ -42,7 +42,11 @@ func TestChainServiceKeys(t *testing.T) {
 		servicekey.ParticipantBuilder + "/" + builderOperator: keyState(t, servicekey.ParticipantBuilder, builderOperator, 0x01, 4),
 		servicekey.ParticipantCortex + "/" + cortexOperator:   keyState(t, servicekey.ParticipantCortex, cortexOperator, 0x05, 9),
 	}
-	keys := ChainServiceKeys{Resolver: resolver, AddressPrefix: testPrefix, BuilderAddress: builderOperator, Signer: builder}
+	ring, err := servicekey.NewRing(resolver, testPrefix, builderOperator, nil, builder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := ChainServiceKeys{Resolver: resolver, AddressPrefix: testPrefix, Ring: ring}
 
 	pub, nonce, err := keys.CurrentCortexKey(context.Background(), cortexOperator)
 	if err != nil || nonce != 9 || hex.EncodeToString(pub) != hex.EncodeToString(newSigner(t, 0x05).PubKeyCompressed()) {
@@ -51,17 +55,19 @@ func TestChainServiceKeys(t *testing.T) {
 	if _, _, err := keys.CurrentCortexKey(context.Background(), builderOperator); !errors.Is(err, servicekey.ErrUnavailable) {
 		t.Fatalf("missing cortex key err = %v, want ErrUnavailable", err)
 	}
-	if err := keys.CheckBuilderKey(context.Background()); err != nil {
-		t.Fatalf("builder key check: %v", err)
+	if err := keys.CheckBuilderKey(context.Background()); err != nil || ring.Key().Nonce != 4 {
+		t.Fatalf("builder key check: %v (nonce %d)", err, ring.Key().Nonce)
 	}
-	keys.Signer = newSigner(t, 0x06)
-	if err := keys.CheckBuilderKey(context.Background()); err == nil {
+	other, err := servicekey.NewRing(resolver, testPrefix, builderOperator, nil, newSigner(t, 0x06))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (ChainServiceKeys{Resolver: resolver, AddressPrefix: testPrefix, Ring: other}).CheckBuilderKey(context.Background()); err == nil {
 		t.Fatal("builder key accepted for a key the local signer does not hold")
 	}
 
 	// A registered replacement leaves the current key in force, but a pending Builder issues no
 	// new roots until the replacement activates.
-	keys.Signer = builder
 	pending := resolver[servicekey.ParticipantBuilder+"/"+builderOperator]
 	pending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 5, EffectiveHeight: 400}
 	resolver[servicekey.ParticipantBuilder+"/"+builderOperator] = pending

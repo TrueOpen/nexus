@@ -349,6 +349,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	var registrationModule *module
 	var serviceSG signer.Signer
+	// serviceRing is serviceSG: it signs with whichever local service key the chain holds current.
+	var serviceRing *servicekey.Ring
 	var taskSubmitter coordinator.Submitter
 	// metrics are the order path's stage timings, skips and Worker outcomes, for the operator
 	// status and the public statistics.
@@ -363,12 +365,16 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	if sg != nil {
 		log.Info("tx signing enabled", "address", sg.Address())
-		var sharedServiceKey bool
-		serviceSG, sharedServiceKey, err = identity.LoadServiceSigner(cfg.Identity, sg)
+		serviceKey, sharedServiceKey, err := identity.LoadServiceSigner(cfg.Identity, sg)
 		if err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
+		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, nil, serviceKey); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("identity: %w", err)
+		}
+		serviceSG = serviceRing
 		if sharedServiceKey {
 			log.Warn("builder account and service signatures share one key; configure identity.service_keystore_file for key separation")
 		}
@@ -450,7 +456,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
 			Config: cfg.Dispatch, VRFKeyFiles: cfg.Identity.VRFKeyFiles, VRFKeyPassword: cfg.Identity.VRFKeyPasswordFile,
 			Store: store, Chain: registrationChain, Keys: keyCache, Height: newCachedHeight(taskChain.LatestHeight),
-			Signer: serviceSG, Streams: streams, Groups: coord,
+			Signer: serviceRing, Streams: streams, Groups: coord,
 		}); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("direct dispatch: %w", err)
@@ -460,9 +466,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		paramsCtx, cancelParams := context.WithTimeout(context.Background(), 30*time.Second)
 		orderPath, err = newOrderDispatch(paramsCtx, orderDispatchDeps{
 			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, Config: cfg.Dispatch, InputChunkBytes: cfg.TaskData.ChunkSizeBytes,
-			Signer: serviceSG, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
+			Signer: serviceRing, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
 			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
-			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, BuilderAddress: selfAddr, Signer: serviceSG},
+			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, Ring: serviceRing},
 			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Attempts: attempts, Metrics: metrics, Log: log,
 		})
 		cancelParams()

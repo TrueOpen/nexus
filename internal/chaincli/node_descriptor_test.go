@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "f8a464921cb17540f5acf9327377f29110db1d8e55b2d41974b90fa360a711d0"
+	const want = "ff35936f7ce92f22121fe977983c276ed54226d1f607988b013dcd6000a9c58a"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -308,14 +308,21 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 	}{
 		// BuilderState carries only identity + current service key + descriptor version +
 		// three pending counters; neither the admission status nor the fault counters are on this State.
-		// Everything after 12 must be empty, so the mirror cannot quietly grow a field with no authoritative source.
+		// 12..14 retain the one previous proof generation; everything after must be empty, so the
+		// mirror cannot quietly grow a field with no authoritative source.
 		{message: "hub.v1.BuilderState", number: 2, name: "builder_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.BuilderState", number: 3, name: "current_service_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.BuilderState", number: 5, name: "current_service_key_status", kind: protoreflect.EnumKind},
 		{message: "hub.v1.BuilderState", number: 6, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
 		{message: "hub.v1.BuilderState", number: 8, name: "registered_height", kind: protoreflect.Uint64Kind},
 		{message: "hub.v1.BuilderState", number: 11, name: "pending_evidence_submission_count", kind: protoreflect.Uint32Kind},
-		{message: "hub.v1.BuilderState", number: 12, absent: true},
+		{message: "hub.v1.BuilderState", number: 12, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.BuilderState", number: 13, name: "previous_service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 14, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 15, absent: true},
+		{message: "hub.v1.CortexNodeState", number: 13, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.CortexNodeState", number: 15, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CortexNodeState", number: 16, absent: true},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 1, name: "participant_type", kind: protoreflect.EnumKind},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 3, name: "descriptor", kind: protoreflect.MessageKind},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 4, name: "operator_address", kind: protoreflect.StringKind},
@@ -326,7 +333,12 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 5, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
 		// 9 is the pending rotation; it never changes the current fields above until activation.
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, name: "pending_rotation", kind: protoreflect.MessageKind},
-		{message: "hub.v1.CurrentServiceKeyViewV1", number: 10, absent: true},
+		// 10..12 are the previous generation, present together.
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 10, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 11, name: "previous_service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 12, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 13, absent: true},
+		{message: "hub.v1.PendingServiceKeyRotationState", number: 8, absent: true},
 		{message: "hub.v1.ServiceDescriptorState", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 6, name: "descriptor_hash", kind: protoreflect.BytesKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 8, absent: true},

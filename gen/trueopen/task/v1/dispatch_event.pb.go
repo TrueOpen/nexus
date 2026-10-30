@@ -899,16 +899,21 @@ func (x *EventDispatchChallengeResolved) GetOutcome() DispatchChallengeStatusV1 
 
 // EventBuilderDispatchFaultRecorded records the committed transition; exact replay emits nothing.
 type EventBuilderDispatchFaultRecorded struct {
-	state                    protoimpl.MessageState     `protogen:"open.v1"`
-	Builder                  string                     `protobuf:"bytes,1,opt,name=builder,proto3" json:"builder,omitempty"`
-	FaultId                  []byte                     `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
-	Kind                     v1.DispatchChallengeKindV1 `protobuf:"varint,3,opt,name=kind,proto3,enum=shared.v1.DispatchChallengeKindV1" json:"kind,omitempty"`
-	TaskId                   []byte                     `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	PenaltyAmount            *v1.Amount                 `protobuf:"bytes,5,opt,name=penalty_amount,json=penaltyAmount,proto3" json:"penalty_amount,omitempty"`
-	UnfilledAmount           *v1.Amount                 `protobuf:"bytes,6,opt,name=unfilled_amount,json=unfilledAmount,proto3" json:"unfilled_amount,omitempty"`
-	CompensatedWorkerOrEmpty *string                    `protobuf:"bytes,7,opt,name=compensated_worker_or_empty,json=compensatedWorkerOrEmpty,proto3,oneof" json:"compensated_worker_or_empty,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state   protoimpl.MessageState     `protogen:"open.v1"`
+	Builder string                     `protobuf:"bytes,1,opt,name=builder,proto3" json:"builder,omitempty"`
+	FaultId []byte                     `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
+	Kind    v1.DispatchChallengeKindV1 `protobuf:"varint,3,opt,name=kind,proto3,enum=shared.v1.DispatchChallengeKindV1" json:"kind,omitempty"`
+	TaskId  []byte                     `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// Actual independent penalty paid to Treasury after victim compensation.
+	PenaltyAmount *v1.Amount `protobuf:"bytes,5,opt,name=penalty_amount,json=penaltyAmount,proto3" json:"penalty_amount,omitempty"`
+	// Configured penalty minus penalty_amount; excludes compensation shortfalls.
+	UnfilledAmount           *v1.Amount `protobuf:"bytes,6,opt,name=unfilled_amount,json=unfilledAmount,proto3" json:"unfilled_amount,omitempty"`
+	CompensatedWorkerOrEmpty *string    `protobuf:"bytes,7,opt,name=compensated_worker_or_empty,json=compensatedWorkerOrEmpty,proto3,oneof" json:"compensated_worker_or_empty,omitempty"`
+	// Actual victim compensation, paid first and counted in total_paid. Equals
+	// the Hub DispatchFaultState.compensated_amount; zero when no Worker is paid.
+	CompensatedAmount *v1.Amount `protobuf:"bytes,8,opt,name=compensated_amount,json=compensatedAmount,proto3" json:"compensated_amount,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *EventBuilderDispatchFaultRecorded) Reset() {
@@ -988,6 +993,13 @@ func (x *EventBuilderDispatchFaultRecorded) GetCompensatedWorkerOrEmpty() string
 		return *x.CompensatedWorkerOrEmpty
 	}
 	return ""
+}
+
+func (x *EventBuilderDispatchFaultRecorded) GetCompensatedAmount() *v1.Amount {
+	if x != nil {
+		return x.CompensatedAmount
+	}
+	return nil
 }
 
 // EventSessionDeposited records the committed transition; exact replay emits nothing.
@@ -1396,7 +1408,7 @@ const file_task_v1_dispatch_event_proto_rawDesc = "" +
 	"\fchallenge_id\x18\x01 \x01(\fR\vchallengeId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x126\n" +
 	"\x04kind\x18\x03 \x01(\x0e2\".shared.v1.DispatchChallengeKindV1R\x04kind\x12<\n" +
-	"\aoutcome\x18\x04 \x01(\x0e2\".task.v1.DispatchChallengeStatusV1R\aoutcome\"\x83\x03\n" +
+	"\aoutcome\x18\x04 \x01(\x0e2\".task.v1.DispatchChallengeStatusV1R\aoutcome\"\xc5\x03\n" +
 	"!EventBuilderDispatchFaultRecorded\x12\x18\n" +
 	"\abuilder\x18\x01 \x01(\tR\abuilder\x12\x19\n" +
 	"\bfault_id\x18\x02 \x01(\fR\afaultId\x126\n" +
@@ -1404,7 +1416,8 @@ const file_task_v1_dispatch_event_proto_rawDesc = "" +
 	"\atask_id\x18\x04 \x01(\fR\x06taskId\x128\n" +
 	"\x0epenalty_amount\x18\x05 \x01(\v2\x11.shared.v1.AmountR\rpenaltyAmount\x12:\n" +
 	"\x0funfilled_amount\x18\x06 \x01(\v2\x11.shared.v1.AmountR\x0eunfilledAmount\x12B\n" +
-	"\x1bcompensated_worker_or_empty\x18\a \x01(\tH\x00R\x18compensatedWorkerOrEmpty\x88\x01\x01B\x1e\n" +
+	"\x1bcompensated_worker_or_empty\x18\a \x01(\tH\x00R\x18compensatedWorkerOrEmpty\x88\x01\x01\x12@\n" +
+	"\x12compensated_amount\x18\b \x01(\v2\x11.shared.v1.AmountR\x11compensatedAmountB\x1e\n" +
 	"\x1c_compensated_worker_or_empty\"\xa4\x01\n" +
 	"\x15EventSessionDeposited\x12\x1d\n" +
 	"\n" +
@@ -1499,19 +1512,20 @@ var file_task_v1_dispatch_event_proto_depIdxs = []int32{
 	19, // 11: task.v1.EventBuilderDispatchFaultRecorded.kind:type_name -> shared.v1.DispatchChallengeKindV1
 	17, // 12: task.v1.EventBuilderDispatchFaultRecorded.penalty_amount:type_name -> shared.v1.Amount
 	17, // 13: task.v1.EventBuilderDispatchFaultRecorded.unfilled_amount:type_name -> shared.v1.Amount
-	17, // 14: task.v1.EventSessionDeposited.amount:type_name -> shared.v1.Amount
-	17, // 15: task.v1.EventSessionDeposited.balance:type_name -> shared.v1.Amount
-	21, // 16: task.v1.EventSessionWithdrawRequested.kind:type_name -> task.v1.SessionWithdrawKindV1
-	17, // 17: task.v1.EventSessionWithdrawRequested.amount:type_name -> shared.v1.Amount
-	21, // 18: task.v1.EventSessionWithdrawEffective.kind:type_name -> task.v1.SessionWithdrawKindV1
-	17, // 19: task.v1.EventSessionWithdrawEffective.paid_amount:type_name -> shared.v1.Amount
-	17, // 20: task.v1.EventSessionWithdrawEffective.remaining_balance:type_name -> shared.v1.Amount
-	22, // 21: task.v1.EventSessionKeyChangeRequested.kind:type_name -> task.v1.SessionKeyChangeKindV1
-	22, // [22:22] is the sub-list for method output_type
-	22, // [22:22] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	17, // 14: task.v1.EventBuilderDispatchFaultRecorded.compensated_amount:type_name -> shared.v1.Amount
+	17, // 15: task.v1.EventSessionDeposited.amount:type_name -> shared.v1.Amount
+	17, // 16: task.v1.EventSessionDeposited.balance:type_name -> shared.v1.Amount
+	21, // 17: task.v1.EventSessionWithdrawRequested.kind:type_name -> task.v1.SessionWithdrawKindV1
+	17, // 18: task.v1.EventSessionWithdrawRequested.amount:type_name -> shared.v1.Amount
+	21, // 19: task.v1.EventSessionWithdrawEffective.kind:type_name -> task.v1.SessionWithdrawKindV1
+	17, // 20: task.v1.EventSessionWithdrawEffective.paid_amount:type_name -> shared.v1.Amount
+	17, // 21: task.v1.EventSessionWithdrawEffective.remaining_balance:type_name -> shared.v1.Amount
+	22, // 22: task.v1.EventSessionKeyChangeRequested.kind:type_name -> task.v1.SessionKeyChangeKindV1
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_dispatch_event_proto_init() }

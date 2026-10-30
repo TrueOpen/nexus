@@ -210,7 +210,8 @@ const (
 	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE AdmitRejectReasonV1 = 3
 	// INVALID_HANDRAISE is the invalid handraise value.
 	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE AdmitRejectReasonV1 = 4
-	// The Cortex has a pending service-key replacement and cannot take new duty.
+	// Builder locally declines a new offer from a pending-rotation Cortex.
+	// This is not a chain duty or recording rejection.
 	// Publish an admitted=false leaf; do not silently omit its standing handraise.
 	AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING AdmitRejectReasonV1 = 5
 )
@@ -530,7 +531,8 @@ const (
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_WINNER_NOT_ELIGIBLE DispatchRejectCodeV1 = 10
 	// RECORD_LATE is the record late value.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE DispatchRejectCodeV1 = 11
-	// TAKEOVER_SEQUENCE_CONSUMED is the takeover sequence consumed value.
+	// A takeover entry's order sequence is behind the session's next expected
+	// sequence or already taken. An ahead takeover uses SEQUENCE_NOT_NEXT.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED DispatchRejectCodeV1 = 12
 	// TAKEOVER_PENDING is the takeover pending value.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING DispatchRejectCodeV1 = 13
@@ -550,7 +552,9 @@ const (
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_STICKY_MISMATCH DispatchRejectCodeV1 = 20
 	// BOUND_CHANGE_HEIGHT_MISMATCH is the bound change height mismatch value.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_BOUND_CHANGE_HEIGHT_MISMATCH DispatchRejectCodeV1 = 21
-	// SEQUENCE_CONSUMED is the sequence consumed value.
+	// The order sequence is behind the session's next expected sequence, or it
+	// already holds a record or a state that cancellation cannot release. The
+	// client must not reuse this sequence.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED DispatchRejectCodeV1 = 22
 	// SESSION_BALANCE_INSUFFICIENT is the session balance insufficient value.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT DispatchRejectCodeV1 = 23
@@ -580,8 +584,10 @@ const (
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED DispatchRejectCodeV1 = 35
 	// This objective challenge scope already has an upheld result.
 	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE DispatchRejectCodeV1 = 36
-	// A pending rotation forbids the requested new duty or binding.
-	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING DispatchRejectCodeV1 = 37
+	// The order sequence of a dispatch or takeover entry is ahead of the
+	// session's next expected sequence. It was not consumed; resend the same
+	// sequence after the earlier sequences are recorded.
+	DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT DispatchRejectCodeV1 = 38
 )
 
 // Enum value maps for DispatchRejectCodeV1.
@@ -624,7 +630,7 @@ var (
 		34: "DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT",
 		35: "DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED",
 		36: "DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE",
-		37: "DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING",
+		38: "DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT",
 	}
 	DispatchRejectCodeV1_value = map[string]int32{
 		"DISPATCH_REJECT_CODE_V1_UNSPECIFIED":                         0,
@@ -664,7 +670,7 @@ var (
 		"DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT":                34,
 		"DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED":        35,
 		"DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE":                 36,
-		"DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING":        37,
+		"DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT":                   38,
 	}
 )
 
@@ -952,8 +958,10 @@ type SignedHandraiseRootV1 struct {
 	LeafCount               uint32                 `protobuf:"varint,5,opt,name=leaf_count,json=leafCount,proto3" json:"leaf_count,omitempty"`
 	Root                    []byte                 `protobuf:"bytes,6,opt,name=root,proto3" json:"root,omitempty"`
 	BuilderServiceSignature []byte                 `protobuf:"bytes,7,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Signed Builder generation; previous verifies only eligible old-order material.
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,9,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SignedHandraiseRootV1) Reset() {
@@ -1033,6 +1041,13 @@ func (x *SignedHandraiseRootV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
+}
+
+func (x *SignedHandraiseRootV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
 }
 
 // HandraiseInclusionProofV1 defines the canonical HandraiseInclusionProofV1 fields.
@@ -1371,33 +1386,34 @@ func (x *DispatchVrfInputV1) GetOrderSequence() uint64 {
 
 // DispatchTicketV1 defines the canonical DispatchTicketV1 fields.
 type DispatchTicketV1 struct {
-	state                   protoimpl.MessageState     `protogen:"open.v1"`
-	SchemaVersion           uint32                     `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId                 string                     `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	TaskId                  []byte                     `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	TaskHash                []byte                     `protobuf:"bytes,4,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	SessionId               []byte                     `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence           uint64                     `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	BuilderAddress          string                     `protobuf:"bytes,7,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
-	ReferenceHeight         uint64                     `protobuf:"varint,8,opt,name=reference_height,json=referenceHeight,proto3" json:"reference_height,omitempty"`
-	CandidatePoolSnapshotId []byte                     `protobuf:"bytes,9,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
-	VrfEpoch                uint64                     `protobuf:"varint,10,opt,name=vrf_epoch,json=vrfEpoch,proto3" json:"vrf_epoch,omitempty"`
-	VrfOutput               []byte                     `protobuf:"bytes,11,opt,name=vrf_output,json=vrfOutput,proto3" json:"vrf_output,omitempty"`
-	VrfProof                []byte                     `protobuf:"bytes,12,opt,name=vrf_proof,json=vrfProof,proto3" json:"vrf_proof,omitempty"`
-	RandomnessScheme        DispatchRandomnessSchemeV1 `protobuf:"varint,13,opt,name=randomness_scheme,json=randomnessScheme,proto3,enum=task.v1.DispatchRandomnessSchemeV1" json:"randomness_scheme,omitempty"`
-	RosterHash              []byte                     `protobuf:"bytes,14,opt,name=roster_hash,json=rosterHash,proto3" json:"roster_hash,omitempty"`
-	HandraiseRootDigest     []byte                     `protobuf:"bytes,15,opt,name=handraise_root_digest,json=handraiseRootDigest,proto3" json:"handraise_root_digest,omitempty"`
-	DispatchRound           uint32                     `protobuf:"varint,16,opt,name=dispatch_round,json=dispatchRound,proto3" json:"dispatch_round,omitempty"`
-	Rank                    uint32                     `protobuf:"varint,17,opt,name=rank,proto3" json:"rank,omitempty"`
-	Target                  *CandidateMemberRefV1      `protobuf:"bytes,18,opt,name=target,proto3" json:"target,omitempty"`
-	AcceptDeadlineMs        uint64                     `protobuf:"varint,19,opt,name=accept_deadline_ms,json=acceptDeadlineMs,proto3" json:"accept_deadline_ms,omitempty"`
-	InputHash               []byte                     `protobuf:"bytes,20,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
-	BoundChangeHeight       uint64                     `protobuf:"varint,21,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
-	StickyAnchorSequence    uint64                     `protobuf:"varint,22,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
-	StickyRunCount          uint32                     `protobuf:"varint,23,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
-	BuilderServiceSignature []byte                     `protobuf:"bytes,25,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                     protoimpl.MessageState     `protogen:"open.v1"`
+	SchemaVersion             uint32                     `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId                   string                     `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	TaskId                    []byte                     `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskHash                  []byte                     `protobuf:"bytes,4,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
+	SessionId                 []byte                     `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence             uint64                     `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	BuilderAddress            string                     `protobuf:"bytes,7,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	ReferenceHeight           uint64                     `protobuf:"varint,8,opt,name=reference_height,json=referenceHeight,proto3" json:"reference_height,omitempty"`
+	CandidatePoolSnapshotId   []byte                     `protobuf:"bytes,9,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
+	VrfEpoch                  uint64                     `protobuf:"varint,10,opt,name=vrf_epoch,json=vrfEpoch,proto3" json:"vrf_epoch,omitempty"`
+	VrfOutput                 []byte                     `protobuf:"bytes,11,opt,name=vrf_output,json=vrfOutput,proto3" json:"vrf_output,omitempty"`
+	VrfProof                  []byte                     `protobuf:"bytes,12,opt,name=vrf_proof,json=vrfProof,proto3" json:"vrf_proof,omitempty"`
+	RandomnessScheme          DispatchRandomnessSchemeV1 `protobuf:"varint,13,opt,name=randomness_scheme,json=randomnessScheme,proto3,enum=task.v1.DispatchRandomnessSchemeV1" json:"randomness_scheme,omitempty"`
+	RosterHash                []byte                     `protobuf:"bytes,14,opt,name=roster_hash,json=rosterHash,proto3" json:"roster_hash,omitempty"`
+	HandraiseRootDigest       []byte                     `protobuf:"bytes,15,opt,name=handraise_root_digest,json=handraiseRootDigest,proto3" json:"handraise_root_digest,omitempty"`
+	DispatchRound             uint32                     `protobuf:"varint,16,opt,name=dispatch_round,json=dispatchRound,proto3" json:"dispatch_round,omitempty"`
+	Rank                      uint32                     `protobuf:"varint,17,opt,name=rank,proto3" json:"rank,omitempty"`
+	Target                    *CandidateMemberRefV1      `protobuf:"bytes,18,opt,name=target,proto3" json:"target,omitempty"`
+	AcceptDeadlineMs          uint64                     `protobuf:"varint,19,opt,name=accept_deadline_ms,json=acceptDeadlineMs,proto3" json:"accept_deadline_ms,omitempty"`
+	InputHash                 []byte                     `protobuf:"bytes,20,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
+	BoundChangeHeight         uint64                     `protobuf:"varint,21,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
+	StickyAnchorSequence      uint64                     `protobuf:"varint,22,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
+	StickyRunCount            uint32                     `protobuf:"varint,23,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
+	BuilderServiceSignature   []byte                     `protobuf:"bytes,25,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	ServiceAuthorizationNonce uint64                     `protobuf:"varint,27,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *DispatchTicketV1) Reset() {
@@ -1598,6 +1614,13 @@ func (x *DispatchTicketV1) GetBuilderServiceSignature() []byte {
 	return nil
 }
 
+func (x *DispatchTicketV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
+}
+
 // DispatchAttemptV1 defines the canonical DispatchAttemptV1 fields.
 type DispatchAttemptV1 struct {
 	state                protoimpl.MessageState   `protogen:"open.v1"`
@@ -1777,10 +1800,11 @@ type DispatchRecordV1 struct {
 	// The accepted winner ticket, or ZERO32 for an unfinished off-chain record
 	// with no accepted attempt. Unfinished records may be synced or rebut claims;
 	// they never satisfy dispatch admission's completed-winner requirements.
-	DispatchTicketHash      []byte `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
-	BuilderServiceSignature []byte `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	DispatchTicketHash        []byte `protobuf:"bytes,19,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	BuilderServiceSignature   []byte `protobuf:"bytes,20,opt,name=builder_service_signature,json=builderServiceSignature,proto3" json:"builder_service_signature,omitempty"`
+	ServiceAuthorizationNonce uint64 `protobuf:"varint,22,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *DispatchRecordV1) Reset() {
@@ -1951,6 +1975,13 @@ func (x *DispatchRecordV1) GetBuilderServiceSignature() []byte {
 		return x.BuilderServiceSignature
 	}
 	return nil
+}
+
+func (x *DispatchRecordV1) GetServiceAuthorizationNonce() uint64 {
+	if x != nil {
+		return x.ServiceAuthorizationNonce
+	}
+	return 0
 }
 
 // DispatchAcceptV1 defines the canonical DispatchAcceptV1 fields.
@@ -2387,7 +2418,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\thandraise\x18\x01 \x01(\v2\x1c.task.v1.StandingHandraiseV1R\thandraise\x12\x1a\n" +
 	"\badmitted\x18\x02 \x01(\bR\badmitted\x12L\n" +
 	"\x13admit_reject_reason\x18\x03 \x01(\x0e2\x1c.task.v1.AdmitRejectReasonV1R\x11admitRejectReason\x125\n" +
-	"\x17builder_measured_rtt_ms\x18\x04 \x01(\x04R\x14builderMeasuredRttMs\"\xb1\x02\n" +
+	"\x17builder_measured_rtt_ms\x18\x04 \x01(\x04R\x14builderMeasuredRttMs\"\xd4\x02\n" +
 	"\x15SignedHandraiseRootV1\x12\x19\n" +
 	"\bchain_id\x18\x01 \x01(\tR\achainId\x12'\n" +
 	"\x0fbuilder_address\x18\x02 \x01(\tR\x0ebuilderAddress\x12\x1f\n" +
@@ -2397,7 +2428,8 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\n" +
 	"leaf_count\x18\x05 \x01(\rR\tleafCount\x12\x12\n" +
 	"\x04root\x18\x06 \x01(\fR\x04root\x12:\n" +
-	"\x19builder_service_signature\x18\a \x01(\fR\x17builderServiceSignatureJ\x04\b\b\x10\tR\x1bservice_authorization_nonce\"\x88\x01\n" +
+	"\x19builder_service_signature\x18\a \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\t \x01(\x04R\x19serviceAuthorizationNonceJ\x04\b\b\x10\t\"\x88\x01\n" +
 	"\x19HandraiseInclusionProofV1\x120\n" +
 	"\x04leaf\x18\x01 \x01(\v2\x1c.task.v1.HandraiseRootLeafV1R\x04leaf\x12\x1d\n" +
 	"\n" +
@@ -2426,7 +2458,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"epoch_seed\x18\x03 \x01(\fR\tepochSeed\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x04 \x01(\fR\tsessionId\x12%\n" +
-	"\x0eorder_sequence\x18\x05 \x01(\x04R\rorderSequence\"\xa5\b\n" +
+	"\x0eorder_sequence\x18\x05 \x01(\x04R\rorderSequence\"\xc8\b\n" +
 	"\x10DispatchTicketV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2456,7 +2488,8 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\x13bound_change_height\x18\x15 \x01(\x04R\x11boundChangeHeight\x124\n" +
 	"\x16sticky_anchor_sequence\x18\x16 \x01(\x04R\x14stickyAnchorSequence\x12(\n" +
 	"\x10sticky_run_count\x18\x17 \x01(\rR\x0estickyRunCount\x12:\n" +
-	"\x19builder_service_signature\x18\x19 \x01(\fR\x17builderServiceSignatureJ\x04\b\x18\x10\x19J\x04\b\x1a\x10\x1bR\x0esticky_appliedR\x1bservice_authorization_nonce\"\xb5\x02\n" +
+	"\x19builder_service_signature\x18\x19 \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x1b \x01(\x04R\x19serviceAuthorizationNonceJ\x04\b\x18\x10\x19J\x04\b\x1a\x10\x1bR\x0esticky_applied\"\xb5\x02\n" +
 	"\x11DispatchAttemptV1\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x12\n" +
 	"\x04rank\x18\x02 \x01(\rR\x04rank\x125\n" +
@@ -2469,7 +2502,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\x15handraise_root_digest\x18\x02 \x01(\fR\x13handraiseRootDigest\x12\x1f\n" +
 	"\vroster_hash\x18\x03 \x01(\fR\n" +
 	"rosterHash\x126\n" +
-	"\battempts\x18\x04 \x03(\v2\x1a.task.v1.DispatchAttemptV1R\battempts\"\x86\a\n" +
+	"\battempts\x18\x04 \x03(\v2\x1a.task.v1.DispatchAttemptV1R\battempts\"\xa9\a\n" +
 	"\x10DispatchRecordV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2493,7 +2526,8 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"\x0esticky_applied\x18\x11 \x01(\bR\rstickyApplied\x120\n" +
 	"\x06rounds\x18\x12 \x03(\v2\x18.task.v1.DispatchRoundV1R\x06rounds\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x13 \x01(\fR\x12dispatchTicketHash\x12:\n" +
-	"\x19builder_service_signature\x18\x14 \x01(\fR\x17builderServiceSignatureJ\x04\b\x15\x10\x16R\x1bservice_authorization_nonce\"\xe0\x02\n" +
+	"\x19builder_service_signature\x18\x14 \x01(\fR\x17builderServiceSignature\x12>\n" +
+	"\x1bservice_authorization_nonce\x18\x16 \x01(\x04R\x19serviceAuthorizationNonceJ\x04\b\x15\x10\x16\"\xe0\x02\n" +
 	"\x10DispatchAcceptV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
 	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x17\n" +
@@ -2569,7 +2603,7 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	"6DISPATCH_WINNER_INELIGIBLE_REASON_V1_BOND_INSUFFICIENT\x10\x01\x12?\n" +
 	";DISPATCH_WINNER_INELIGIBLE_REASON_V1_LIABILITY_INSUFFICIENT\x10\x02\x122\n" +
 	".DISPATCH_WINNER_INELIGIBLE_REASON_V1_UNBONDING\x10\x03\x123\n" +
-	"/DISPATCH_WINNER_INELIGIBLE_REASON_V1_TOMBSTONED\x10\x04*\xba\x0f\n" +
+	"/DISPATCH_WINNER_INELIGIBLE_REASON_V1_TOMBSTONED\x10\x04*\xeb\x0f\n" +
 	"\x14DispatchRejectCodeV1\x12'\n" +
 	"#DISPATCH_REJECT_CODE_V1_UNSPECIFIED\x10\x00\x12-\n" +
 	")DISPATCH_REJECT_CODE_V1_BUILDER_NOT_BOUND\x10\x01\x123\n" +
@@ -2608,8 +2642,8 @@ const file_task_v1_dispatch_proto_rawDesc = "" +
 	",DISPATCH_REJECT_CODE_V1_ORDER_AMOUNT_INVALID\x10!\x120\n" +
 	",DISPATCH_REJECT_CODE_V1_ORDER_SEQUENCE_LIMIT\x10\"\x128\n" +
 	"4DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED\x10#\x12/\n" +
-	"+DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE\x10$\x128\n" +
-	"4DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING\x10%B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"+DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE\x10$\x12-\n" +
+	")DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT\x10&\"\x04\b%\x10%*4DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDINGB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_dispatch_proto_rawDescOnce sync.Once

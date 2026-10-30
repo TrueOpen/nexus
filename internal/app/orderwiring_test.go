@@ -73,9 +73,9 @@ func TestRoleEventsReachTheResponder(t *testing.T) {
 	}
 	od, err := newOrderDispatch(context.Background(), orderDispatchDeps{
 		ChainID: wiringChainID, BuilderAddress: f.builder.Address(), Config: config.Load().Dispatch, InputChunkBytes: 1024,
-		Signer: f.builder, Store: f.store, TaskChain: chain, HubChain: chain, Direct: f.d,
+		Signer: f.ring, Store: f.store, TaskChain: chain, HubChain: chain, Direct: f.d,
 		Records: coordinator.NewRecordSubmitter(log, chain, f.builder, config.ChainConfig{ChainID: wiringChainID}, nil),
-		Keys:    handraise.ChainServiceKeys{Resolver: chain, AddressPrefix: wiringPrefix, BuilderAddress: f.builder.Address(), Signer: f.builder}, Observer: nopOrderObserver{}, Tasks: nopOrderObserver{}, Held: nopHeld{}, Attempts: attempts, Log: log,
+		Keys:    handraise.ChainServiceKeys{Resolver: chain, AddressPrefix: wiringPrefix, Ring: f.ring}, Observer: nopOrderObserver{}, Tasks: nopOrderObserver{}, Held: nopHeld{}, Attempts: attempts, Log: log,
 	})
 	if err != nil {
 		t.Fatal(err)

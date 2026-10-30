@@ -14,6 +14,7 @@ import (
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -119,7 +120,7 @@ func TestStandingHandraiseVectorAcceptedAndRooted(t *testing.T) {
 	reg, err := New(Options{
 		ChainID: h.GetChainId(), BuilderAddress: h.GetBuilderAddress(), Config: testDispatchConfig(),
 		Store: kv.NewMemStore(), Keys: keys, Pool: pool, Height: &fakeHeight{h: 1},
-		Signer: newSigner(t, 0x01), Now: clock.Now,
+		Signer: servicekey.Static(newSigner(t, 0x01), testBuilderNonce), Now: clock.Now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +180,7 @@ func TestPendingRotationLeafMatchesWireVector(t *testing.T) {
 	reg, err := New(Options{
 		ChainID: h.GetChainId(), BuilderAddress: h.GetBuilderAddress(), Config: testDispatchConfig(),
 		Store: kv.NewMemStore(), Keys: keys, Pool: pool, Height: &fakeHeight{h: 1},
-		Signer: newSigner(t, 0x01), Now: (&fakeClock{now: time.Unix(1_800_000_000, 0)}).Now,
+		Signer: servicekey.Static(newSigner(t, 0x01), testBuilderNonce), Now: (&fakeClock{now: time.Unix(1_800_000_000, 0)}).Now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +218,7 @@ func TestSignedHandraiseRootVector(t *testing.T) {
 		LeafCount:      uint32(vector.Field(t, "leaf_count").Uint64(t)),
 		Root:           vector.Field(t, "root").Bytes(t),
 	}
-	gotRaw, digest, err := signRoot(key, root)
+	gotRaw, digest, err := signRoot(servicekey.Key{Signer: key, Nonce: vector.Field(t, "service_authorization_nonce").Uint64(t)}, root)
 	if err != nil {
 		t.Fatal(err)
 	}

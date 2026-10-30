@@ -521,7 +521,12 @@ message OpenTaskRequest {
   }
 }
 
-// OpenTaskResponse defines the OpenTaskResponse wire type.
+// OpenTaskResponse is also the typed gRPC error detail for binding/takeover
+// routing. SESSION_BOUND_ELSEWHERE supplies bound_builder and task_id;
+// TAKEOVER_PENDING additionally supplies takeover_activation_height.
+// Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
+// use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
+// without switching Builder. Snapshot activation may occur later in the same epoch.
 message OpenTaskResponse {
   string task_id = 1;
   bool accepted = 2;
@@ -534,6 +539,8 @@ message OpenTaskResponse {
   optional DispatchResultHeaderV1 dispatch_result = 8;
   optional string bound_builder = 9;
   optional uint64 takeover_activation_height = 10;
+  // Earliest height to retry dispatch readiness; recheck committed availability.
+  optional uint64 dispatch_available_height = 11;
 }
 
 // The upload body includes size_bytes and media_type.
@@ -790,6 +797,11 @@ message SubmitVerifyResultResponse {
 }
 
 // SubscribeOutputRequest defines the SubscribeOutputRequest wire type.
+// A stale ticket also terminates an ongoing subscription and rejects old-ticket
+// uploads with NEXUS_INGRESS_ATTEMPT_STALE. A chain-recorded Task Builders member
+// waits boundedly for its replica, then returns NEXUS_OUTPUT_REPLICA_NOT_READY;
+// retry or use FetchTaskData(OUTPUT), never SESSION_UNBOUND for a recorded member.
+// RECORD_REJECTED and NEXUS_OUTPUT_STREAM_STOPPED terminate unusable attempts.
 // body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1", session_id,
 // task_id, OPTIONAL_V1(resume_after_seq), OPTIONAL_V1(dispatch_ticket_hash)).
 // Unset is absent, and a set zero is present zero.
@@ -873,10 +885,22 @@ message GetTaskEventsResponse {
 // TaskEventDetailV1 carries event-local routing and rejection facts so the SDK
 // can recover without resubmitting OpenTask. Addresses identify stable operators.
 // TAKEOVER_PENDING supplies candidate + activation height; TAKEOVER_RECORDED
-// supplies bound_builder. TAKEOVER_VOIDED caused by recording supplies the
-// recording Builder + recorded task ID; cancellation/closure need no destination.
-// DISPATCH_ACCEPTED and RECORD_REJECTED supply the ticket; the former supplies
-// worker_operator_address and the latter its nonzero rejection category.
+// supplies bound_builder. TAKEOVER_VOIDED supplies what voided it: recording
+// supplies the recording Builder + recorded task ID; another takeover that
+// registered first supplies that takeover's candidate_builder +
+// takeover_activation_height; a Session bound to another Builder supplies
+// bound_builder; cancellation/closure need no destination.
+// DISPATCH_ACCEPTED supplies the ticket and worker_operator_address.
+// RECORD_REJECTED supplies a nonzero reject_code and the rejected entry's ticket
+// when one exists. dispatch_ticket_hash is absent when no ticket exists: a
+// rejected takeover entry, or an order that missed its record deadline before
+// any Worker accepted. A missed record deadline uses RECORD_LATE. When one entry
+// is rejected, later sequences of the same Session are rejected with it; those
+// sequences were not consumed, so they use CONFLICT, never SEQUENCE_CONSUMED,
+// and the client resends an order at the same sequence. An order ahead of the
+// Session's next expected sequence uses SEQUENCE_NOT_NEXT and is likewise
+// resent at the same sequence once the earlier sequences are recorded; only
+// SEQUENCE_CONSUMED means the sequence must not be reused.
 message TaskEventDetailV1 {
   optional string bound_builder = 1;
   optional string recording_builder = 2;

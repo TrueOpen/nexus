@@ -40,7 +40,10 @@ message DispatchRecordState {
   bytes accepted_entry_digest = 20;
   uint64 claim_window_close_height = 21;
   reserved 22;
-  reserved "service_authorization_nonce";
+  // Frozen from the accepted record for proof-key selection after cutover.
+  uint64 service_authorization_nonce = 23;
+  // Frozen record anchor; later takeovers never move old-material windows.
+  uint64 bound_change_height = 24;
 }
 // TakeoverEntryReceiptState defines the canonical TakeoverEntryReceiptState fields.
 message TakeoverEntryReceiptState {

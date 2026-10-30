@@ -395,7 +395,7 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	now := d.clock.Now()
 	deadlineMs := uint64(now.UnixMilli()) + timeoutMs
 	ticket := d.ticket(o, cand, deadlineMs)
-	raw, hash, err := signTicket(d.cfg.Signer, ticket)
+	raw, hash, err := signTicket(d.cfg.Signer.Key(), ticket)
 	if err != nil {
 		return false, err
 	}

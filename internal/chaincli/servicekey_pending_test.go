@@ -41,7 +41,7 @@ func pendingRotation() *hubv1.PendingServiceKeyRotationState {
 	return &hubv1.PendingServiceKeyRotationState{
 		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, OperatorAddress: testBuilder,
 		CurrentServiceAuthorizationNonce: 4, NewServicePubkey: bytes.Repeat([]byte{0x03}, 33),
-		NextServiceAuthorizationNonce: 5, RegisteredHeight: 100, EffectiveHeight: 400, OldMaterialCloseHeight: 350,
+		NextServiceAuthorizationNonce: 5, RegisteredHeight: 100, EffectiveHeight: 400,
 	}
 }
 
@@ -62,7 +62,7 @@ func TestQueryCurrentServiceKeyMapsPendingRotation(t *testing.T) {
 	}
 	want := &PendingServiceKeyRotation{
 		NextServicePubKey: strings.Repeat("03", 33), NextAuthorizationNonce: 5,
-		RegisteredHeight: 100, EffectiveHeight: 400, OldMaterialCloseHeight: 350,
+		RegisteredHeight: 100, EffectiveHeight: 400,
 	}
 	if !reflect.DeepEqual(got.PendingRotation, want) {
 		t.Fatalf("pending rotation = %+v", got.PendingRotation)
@@ -85,11 +85,8 @@ func TestQueryCurrentServiceKeyRefusesMismatchedPendingRotation(t *testing.T) {
 		"next nonce":    func(p *hubv1.PendingServiceKeyRotationState) { p.NextServiceAuthorizationNonce = 4 },
 		"short pubkey":  func(p *hubv1.PendingServiceKeyRotationState) { p.NewServicePubkey = p.NewServicePubkey[:32] },
 		"no pubkey":     func(p *hubv1.PendingServiceKeyRotationState) { p.NewServicePubkey = nil },
-		"effective at close": func(p *hubv1.PendingServiceKeyRotationState) {
-			p.EffectiveHeight = p.OldMaterialCloseHeight
-		},
-		"close before registration": func(p *hubv1.PendingServiceKeyRotationState) {
-			p.OldMaterialCloseHeight = p.RegisteredHeight - 1
+		"effective at registration": func(p *hubv1.PendingServiceKeyRotationState) {
+			p.EffectiveHeight = p.RegisteredHeight
 		},
 	}
 	for name, edit := range cases {
@@ -103,12 +100,50 @@ func TestQueryCurrentServiceKeyRefusesMismatchedPendingRotation(t *testing.T) {
 	}
 }
 
-// Old material may close at the registration height itself.
-func TestQueryCurrentServiceKeyAcceptsCloseAtRegistration(t *testing.T) {
-	pending := pendingRotation()
-	pending.OldMaterialCloseHeight = pending.RegisteredHeight
-	got, err := queryCurrentKey(t, builderKeyView(pending))
-	if err != nil || got.PendingRotation == nil || got.PendingRotation.OldMaterialCloseHeight != 100 {
-		t.Fatalf("close at registration = %+v, %v", got.PendingRotation, err)
+func withPrevious(view *hubv1.CurrentServiceKeyViewV1) *hubv1.CurrentServiceKeyViewV1 {
+	pub, nonce, retired := bytes.Repeat([]byte{0x03}, 33), uint64(3), uint64(120)
+	view.PreviousServicePubkey, view.PreviousServiceAuthorizationNonce, view.PreviousRetiredHeight = pub, &nonce, &retired
+	return view
+}
+
+// The one previous generation a cutover retained is reported with the current binding.
+func TestQueryCurrentServiceKeyMapsPreviousGeneration(t *testing.T) {
+	got, err := queryCurrentKey(t, withPrevious(builderKeyView(nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &PreviousServiceKey{ServicePubKey: strings.Repeat("03", 33), AuthorizationNonce: 3, RetiredHeight: 120}
+	if !reflect.DeepEqual(got.Previous, want) || got.AuthorizationNonce != 4 {
+		t.Fatalf("previous = %+v, current nonce %d", got.Previous, got.AuthorizationNonce)
+	}
+	if got, err := queryCurrentKey(t, builderKeyView(nil)); err != nil || got.Previous != nil {
+		t.Fatalf("no previous = %+v, %v", got.Previous, err)
+	}
+}
+
+// The three previous fields are present together, name an older generation and a positive
+// retirement height; anything else is a malformed answer.
+func TestQueryCurrentServiceKeyRefusesMalformedPreviousGeneration(t *testing.T) {
+	cases := map[string]func(*hubv1.CurrentServiceKeyViewV1){
+		"pubkey only": func(v *hubv1.CurrentServiceKeyViewV1) {
+			v.PreviousServiceAuthorizationNonce, v.PreviousRetiredHeight = nil, nil
+		},
+		"no pubkey":      func(v *hubv1.CurrentServiceKeyViewV1) { v.PreviousServicePubkey = nil },
+		"no nonce":       func(v *hubv1.CurrentServiceKeyViewV1) { v.PreviousServiceAuthorizationNonce = nil },
+		"no height":      func(v *hubv1.CurrentServiceKeyViewV1) { v.PreviousRetiredHeight = nil },
+		"short pubkey":   func(v *hubv1.CurrentServiceKeyViewV1) { v.PreviousServicePubkey = v.PreviousServicePubkey[:32] },
+		"zero nonce":     func(v *hubv1.CurrentServiceKeyViewV1) { *v.PreviousServiceAuthorizationNonce = 0 },
+		"current nonce":  func(v *hubv1.CurrentServiceKeyViewV1) { *v.PreviousServiceAuthorizationNonce = 4 },
+		"zero height":    func(v *hubv1.CurrentServiceKeyViewV1) { *v.PreviousRetiredHeight = 0 },
+		"current pubkey": func(v *hubv1.CurrentServiceKeyViewV1) { v.PreviousServicePubkey = v.ServicePubkey },
+	}
+	for name, edit := range cases {
+		t.Run(name, func(t *testing.T) {
+			view := withPrevious(builderKeyView(nil))
+			edit(view)
+			if got, err := queryCurrentKey(t, view); err == nil {
+				t.Fatalf("malformed previous generation accepted: %+v", got.Previous)
+			}
+		})
 	}
 }

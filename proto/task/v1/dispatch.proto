@@ -54,7 +54,8 @@ enum AdmitRejectReasonV1 {
   ADMIT_REJECT_REASON_V1_REJECT_RATE = 3;
   // INVALID_HANDRAISE is the invalid handraise value.
   ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE = 4;
-  // The Cortex has a pending service-key replacement and cannot take new duty.
+  // Builder locally declines a new offer from a pending-rotation Cortex.
+  // This is not a chain duty or recording rejection.
   // Publish an admitted=false leaf; do not silently omit its standing handraise.
   ADMIT_REJECT_REASON_V1_SERVICE_KEY_ROTATION_PENDING = 5;
 }
@@ -134,7 +135,8 @@ enum DispatchRejectCodeV1 {
   DISPATCH_REJECT_CODE_V1_WINNER_NOT_ELIGIBLE = 10;
   // RECORD_LATE is the record late value.
   DISPATCH_REJECT_CODE_V1_RECORD_LATE = 11;
-  // TAKEOVER_SEQUENCE_CONSUMED is the takeover sequence consumed value.
+  // A takeover entry's order sequence is behind the session's next expected
+  // sequence or already taken. An ahead takeover uses SEQUENCE_NOT_NEXT.
   DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED = 12;
   // TAKEOVER_PENDING is the takeover pending value.
   DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING = 13;
@@ -154,7 +156,9 @@ enum DispatchRejectCodeV1 {
   DISPATCH_REJECT_CODE_V1_STICKY_MISMATCH = 20;
   // BOUND_CHANGE_HEIGHT_MISMATCH is the bound change height mismatch value.
   DISPATCH_REJECT_CODE_V1_BOUND_CHANGE_HEIGHT_MISMATCH = 21;
-  // SEQUENCE_CONSUMED is the sequence consumed value.
+  // The order sequence is behind the session's next expected sequence, or it
+  // already holds a record or a state that cancellation cannot release. The
+  // client must not reuse this sequence.
   DISPATCH_REJECT_CODE_V1_SEQUENCE_CONSUMED = 22;
   // SESSION_BALANCE_INSUFFICIENT is the session balance insufficient value.
   DISPATCH_REJECT_CODE_V1_SESSION_BALANCE_INSUFFICIENT = 23;
@@ -184,8 +188,13 @@ enum DispatchRejectCodeV1 {
   DISPATCH_REJECT_CODE_V1_LIABILITY_RESERVATION_FAILED = 35;
   // This objective challenge scope already has an upheld result.
   DISPATCH_REJECT_CODE_V1_CHALLENGE_DUPLICATE = 36;
-  // A pending rotation forbids the requested new duty or binding.
-  DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING = 37;
+  // Pending rotation is local Builder admission, never a chain rejection.
+  reserved 37;
+  reserved "DISPATCH_REJECT_CODE_V1_SERVICE_KEY_ROTATION_PENDING";
+  // The order sequence of a dispatch or takeover entry is ahead of the
+  // session's next expected sequence. It was not consumed; resend the same
+  // sequence after the earlier sequences are recorded.
+  DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT = 38;
 }
 // DispatchProfileV1 defines the canonical DispatchProfileV1 fields.
 message DispatchProfileV1 {
@@ -223,7 +232,8 @@ message SignedHandraiseRootV1 {
   bytes root = 6;
   bytes builder_service_signature = 7;
   reserved 8;
-  reserved "service_authorization_nonce";
+  // Signed Builder generation; previous verifies only eligible old-order material.
+  uint64 service_authorization_nonce = 9;
 }
 // HandraiseInclusionProofV1 defines the canonical HandraiseInclusionProofV1 fields.
 message HandraiseInclusionProofV1 {
@@ -293,7 +303,7 @@ message DispatchTicketV1 {
   reserved "sticky_applied";
   bytes builder_service_signature = 25;
   reserved 26;
-  reserved "service_authorization_nonce";
+  uint64 service_authorization_nonce = 27;
 }
 // DispatchAttemptV1 defines the canonical DispatchAttemptV1 fields.
 message DispatchAttemptV1 {
@@ -338,7 +348,7 @@ message DispatchRecordV1 {
   bytes dispatch_ticket_hash = 19;
   bytes builder_service_signature = 20;
   reserved 21;
-  reserved "service_authorization_nonce";
+  uint64 service_authorization_nonce = 22;
 }
 // DispatchAcceptV1 defines the canonical DispatchAcceptV1 fields.
 message DispatchAcceptV1 {

@@ -83,7 +83,7 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	st.Phase, st.Accept, st.AcceptDigest = phaseAccepted, from.Raw, append([]byte(nil), from.Digest[:]...)
 	record, err := buildRecord(d.cfg.ChainID, d.cfg.Builder, st, ticket, a.Hash)
 	if err == nil {
-		st.Record, _, err = signRecord(d.cfg.Signer, record)
+		st.Record, _, err = signRecord(d.cfg.Signer.Key(), record)
 	}
 	if err == nil {
 		err = d.saveWithEvidence(st)

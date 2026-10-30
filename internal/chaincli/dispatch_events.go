@@ -128,6 +128,8 @@ type BuilderDispatchFaultRecorded struct {
 	PenaltyAmount     string
 	UnfilledAmount    string
 	CompensatedWorker string // empty when none
+	// CompensatedAmount is the victim compensation actually paid, zero without a paid Worker.
+	CompensatedAmount string
 }
 
 // SessionDeposited: funds were added to the session balance.
@@ -344,7 +346,7 @@ func typedTaskEvent(payload *taskv1.TaskProtocolEventPayloadV1) (TypedEvent, err
 		return BuilderDispatchFaultRecorded{
 			Builder: e.GetBuilder(), FaultID: bytes.Clone(e.GetFaultId()), Kind: e.GetKind(), TaskID: hex.EncodeToString(e.GetTaskId()),
 			PenaltyAmount: e.GetPenaltyAmount().GetAtomicUnits(), UnfilledAmount: e.GetUnfilledAmount().GetAtomicUnits(),
-			CompensatedWorker: e.GetCompensatedWorkerOrEmpty(),
+			CompensatedWorker: e.GetCompensatedWorkerOrEmpty(), CompensatedAmount: e.GetCompensatedAmount().GetAtomicUnits(),
 		}, nil
 	case *taskv1.TaskProtocolEventPayloadV1_SessionDeposited:
 		e := p.SessionDeposited

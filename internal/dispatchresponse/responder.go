@@ -314,7 +314,7 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 	case chaincli.BuilderDispatchFaultRecorded:
 		if t.Builder == r.cfg.Builder {
 			r.log.Warn("dispatch fault recorded against this Builder", "fault_id", hex.EncodeToString(t.FaultID), "kind", t.Kind, "task_id", t.TaskID,
-				"penalty", t.PenaltyAmount, "unfilled", t.UnfilledAmount, "compensated_worker", t.CompensatedWorker)
+				"penalty", t.PenaltyAmount, "unfilled", t.UnfilledAmount, "compensated_worker", t.CompensatedWorker, "compensated", t.CompensatedAmount)
 		}
 	}
 }

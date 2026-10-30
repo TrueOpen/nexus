@@ -412,20 +412,28 @@ type ServiceKeyState struct {
 	// PendingRotation is a registered replacement key waiting for its activation epoch; nil when
 	// there is none. The fields above stay the current binding until it activates.
 	PendingRotation *PendingServiceKeyRotation `json:"pending_rotation,omitempty"`
+	// Previous is the one generation the last cutover retired; nil when there is none.
+	Previous *PreviousServiceKey `json:"previous,omitempty"`
+}
+
+// PreviousServiceKey is the generation a cutover replaced. It proves only material of orders
+// whose earliest_submit_height is below RetiredHeight and never authorizes live traffic.
+type PreviousServiceKey struct {
+	ServicePubKey      string `json:"service_pubkey"` // 33-byte compressed secp256k1, lowercase hex
+	AuthorizationNonce uint64 `json:"authorization_nonce"`
+	// RetiredHeight is the cutover height: the first block the replacement was current.
+	RetiredHeight uint64 `json:"retired_height"`
 }
 
 // PendingServiceKeyRotation is a registered, not yet active replacement of a service key. The
-// next key has no live or proof permission before EffectiveHeight; while it waits, a pending
-// Builder issues no new tickets or roots and a pending Cortex takes no new duties.
+// next key has no live or proof permission before EffectiveHeight.
 type PendingServiceKeyRotation struct {
 	NextServicePubKey      string `json:"next_service_pubkey"` // 33-byte compressed secp256k1, lowercase hex
 	NextAuthorizationNonce uint64 `json:"next_authorization_nonce"`
 	RegisteredHeight       uint64 `json:"registered_height"`
-	// EffectiveHeight is the first epoch height the next key is current; old material may still
-	// postpone it by whole epochs.
+	// EffectiveHeight is the fixed start of the second epoch after the registration's: the chain
+	// installs the next key before any transaction of that block, and nothing postpones it.
 	EffectiveHeight uint64 `json:"effective_height"`
-	// OldMaterialCloseHeight is the inclusive deadline of dispatch material signed by the current key.
-	OldMaterialCloseHeight uint64 `json:"old_material_close_height"`
 }
 
 // CortexNodeState is the stable Cortex identity row returned by QueryCortexNode (CortexNodeState).

@@ -178,7 +178,7 @@ type env struct {
 	pool    *fakePool
 	height  *fakeHeight
 	clock   *fakeClock
-	builder signer.Signer
+	builder servicekey.Signer
 	cfg     config.DispatchConfig
 	reg     *Registry
 }
@@ -207,6 +207,9 @@ func testDispatchConfig() config.DispatchConfig {
 	}
 }
 
+// testBuilderNonce is the authorization nonce of the test Builder's service key.
+const testBuilderNonce = 4
+
 func newSigner(t *testing.T, seed byte) signer.Signer {
 	t.Helper()
 	s, err := signer.NewFromBytes(bytes.Repeat([]byte{seed}, 32), testPrefix)
@@ -225,7 +228,7 @@ func newEnv(t *testing.T) *env {
 		pool:    &fakePool{members: map[string]bool{}, support: map[string]map[string]bool{}},
 		height:  &fakeHeight{h: 100},
 		clock:   &fakeClock{now: time.Unix(1_800_000_000, 0)},
-		builder: newSigner(t, 0x01),
+		builder: servicekey.Static(newSigner(t, 0x01), testBuilderNonce),
 		cfg:     testDispatchConfig(),
 	}
 	e.reg = e.open()

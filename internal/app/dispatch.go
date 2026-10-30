@@ -19,7 +19,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/servicekey"
-	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
 
@@ -201,7 +200,7 @@ type directDispatchDeps struct {
 	Chain   chaincli.Client
 	Keys    servicekey.Resolver
 	Height  handraise.ChainHeight
-	Signer  signer.Signer
+	Signer  *servicekey.Ring
 	Streams *dispatchstream.Hub
 	Groups  taskgroup.Source
 }
@@ -232,7 +231,7 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 		Config:         deps.Config,
 		Store:          deps.Store,
 		Keys: handraise.ChainServiceKeys{
-			Resolver: deps.Keys, AddressPrefix: deps.AddressPrefix, BuilderAddress: deps.BuilderAddress, Signer: deps.Signer,
+			Resolver: deps.Keys, AddressPrefix: deps.AddressPrefix, Ring: deps.Signer,
 		},
 		Pool:   handraise.NewChainPool(deps.Chain),
 		Height: height,

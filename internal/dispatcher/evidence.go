@@ -165,7 +165,7 @@ func (d *Dispatcher) recordWithoutWinner(st *orderState, last *taskv1.DispatchTi
 	if err != nil {
 		return nil, err
 	}
-	raw, _, err := signRecord(d.cfg.Signer, record)
+	raw, _, err := signRecord(d.cfg.Signer.Key(), record)
 	return raw, err
 }
 

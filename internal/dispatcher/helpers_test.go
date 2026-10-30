@@ -28,6 +28,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -77,6 +78,9 @@ func member(op string) dispatch.RosterMember {
 	}
 	panic("unknown test operator " + op)
 }
+
+// testBuilderNonce is the authorization nonce of the test Builder's service key.
+const testBuilderNonce = 3
 
 func newTestSigner(t testing.TB, seed byte) signer.Signer {
 	t.Helper()
@@ -412,7 +416,7 @@ type env struct {
 	draining   atomic.Bool
 	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
 	takeoverOrders bool
-	signer         signer.Signer
+	signer         servicekey.Signer
 	builder        string
 	d              *Dispatcher
 	params         Params
@@ -452,7 +456,7 @@ func newEnv(t *testing.T) *env {
 		inputs:     fakeInputs{data: map[string][]byte{}},
 		observer:   &fakeObserver{}, recorder: &fakeRecorder{},
 		clock:  &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
-		signer: newTestSigner(t, 0x01),
+		signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce),
 		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64,
 			RecordDeadlineBlocks: 20},
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
@@ -193,6 +194,8 @@ type wiringFixture struct {
 	logs    *countingHandler
 	chain   *wiringChain
 	builder signer.Signer
+	// ring is builder as the service key ring the dispatch path signs with.
+	ring    *servicekey.Ring
 	cortex  signer.Signer
 	groups  *groupSource
 	streams *recordingStreams
@@ -232,12 +235,16 @@ func newWiringFixture(t *testing.T) *wiringFixture {
 		t.Fatal(err)
 	}
 	cfg := config.Load().Dispatch
-	f := &wiringFixture{store: store, logs: logs, chain: chain, builder: builder, cortex: cortex, groups: &groupSource{},
+	ring, err := servicekey.NewRing(chain, wiringPrefix, builder.Address(), nil, builder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &wiringFixture{store: store, logs: logs, chain: chain, builder: builder, ring: ring, cortex: cortex, groups: &groupSource{},
 		streams: &recordingStreams{}, d: &directDispatch{log: slog.New(logs)}}
 	if err := newDirectDispatch(f.d, directDispatchDeps{
 		ChainID: wiringChainID, BuilderAddress: builder.Address(), AddressPrefix: wiringPrefix, Config: cfg,
 		VRFKeyFiles: []string{keyFile}, VRFKeyPassword: passFile, Store: store, Chain: chain, Keys: chain,
-		Height: fixedHeight(150), Signer: builder, Streams: hub, Groups: f.groups,
+		Height: fixedHeight(150), Signer: ring, Streams: hub, Groups: f.groups,
 	}); err != nil {
 		t.Fatal(err)
 	}

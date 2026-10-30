@@ -1243,7 +1243,12 @@ func (*OpenTaskRequest_Header) isOpenTaskRequest_Frame() {}
 
 func (*OpenTaskRequest_Chunk) isOpenTaskRequest_Frame() {}
 
-// OpenTaskResponse defines the OpenTaskResponse wire type.
+// OpenTaskResponse is also the typed gRPC error detail for binding/takeover
+// routing. SESSION_BOUND_ELSEWHERE supplies bound_builder and task_id;
+// TAKEOVER_PENDING additionally supplies takeover_activation_height.
+// Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
+// use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
+// without switching Builder. Snapshot activation may occur later in the same epoch.
 type OpenTaskResponse struct {
 	state                    protoimpl.MessageState        `protogen:"open.v1"`
 	TaskId                   string                        `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1256,8 +1261,10 @@ type OpenTaskResponse struct {
 	DispatchResult           *DispatchResultHeaderV1       `protobuf:"bytes,8,opt,name=dispatch_result,json=dispatchResult,proto3,oneof" json:"dispatch_result,omitempty"`
 	BoundBuilder             *string                       `protobuf:"bytes,9,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
 	TakeoverActivationHeight *uint64                       `protobuf:"varint,10,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Earliest height to retry dispatch readiness; recheck committed availability.
+	DispatchAvailableHeight *uint64 `protobuf:"varint,11,opt,name=dispatch_available_height,json=dispatchAvailableHeight,proto3,oneof" json:"dispatch_available_height,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *OpenTaskResponse) Reset() {
@@ -1356,6 +1363,13 @@ func (x *OpenTaskResponse) GetBoundBuilder() string {
 func (x *OpenTaskResponse) GetTakeoverActivationHeight() uint64 {
 	if x != nil && x.TakeoverActivationHeight != nil {
 		return *x.TakeoverActivationHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetDispatchAvailableHeight() uint64 {
+	if x != nil && x.DispatchAvailableHeight != nil {
+		return *x.DispatchAvailableHeight
 	}
 	return 0
 }
@@ -3253,6 +3267,11 @@ func (x *SubmitVerifyResultResponse) GetIdempotent() bool {
 }
 
 // SubscribeOutputRequest defines the SubscribeOutputRequest wire type.
+// A stale ticket also terminates an ongoing subscription and rejects old-ticket
+// uploads with NEXUS_INGRESS_ATTEMPT_STALE. A chain-recorded Task Builders member
+// waits boundedly for its replica, then returns NEXUS_OUTPUT_REPLICA_NOT_READY;
+// retry or use FetchTaskData(OUTPUT), never SESSION_UNBOUND for a recorded member.
+// RECORD_REJECTED and NEXUS_OUTPUT_STREAM_STOPPED terminate unusable attempts.
 // body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1", session_id,
 // task_id, OPTIONAL_V1(resume_after_seq), OPTIONAL_V1(dispatch_ticket_hash)).
 // Unset is absent, and a set zero is present zero.
@@ -3732,10 +3751,22 @@ func (x *GetTaskEventsResponse) GetDetail() *TaskEventDetailV1 {
 // TaskEventDetailV1 carries event-local routing and rejection facts so the SDK
 // can recover without resubmitting OpenTask. Addresses identify stable operators.
 // TAKEOVER_PENDING supplies candidate + activation height; TAKEOVER_RECORDED
-// supplies bound_builder. TAKEOVER_VOIDED caused by recording supplies the
-// recording Builder + recorded task ID; cancellation/closure need no destination.
-// DISPATCH_ACCEPTED and RECORD_REJECTED supply the ticket; the former supplies
-// worker_operator_address and the latter its nonzero rejection category.
+// supplies bound_builder. TAKEOVER_VOIDED supplies what voided it: recording
+// supplies the recording Builder + recorded task ID; another takeover that
+// registered first supplies that takeover's candidate_builder +
+// takeover_activation_height; a Session bound to another Builder supplies
+// bound_builder; cancellation/closure need no destination.
+// DISPATCH_ACCEPTED supplies the ticket and worker_operator_address.
+// RECORD_REJECTED supplies a nonzero reject_code and the rejected entry's ticket
+// when one exists. dispatch_ticket_hash is absent when no ticket exists: a
+// rejected takeover entry, or an order that missed its record deadline before
+// any Worker accepted. A missed record deadline uses RECORD_LATE. When one entry
+// is rejected, later sequences of the same Session are rejected with it; those
+// sequences were not consumed, so they use CONFLICT, never SEQUENCE_CONSUMED,
+// and the client resends an order at the same sequence. An order ahead of the
+// Session's next expected sequence uses SEQUENCE_NOT_NEXT and is likewise
+// resent at the same sequence once the earlier sequences are recorded; only
+// SEQUENCE_CONSUMED means the sequence must not be reused.
 type TaskEventDetailV1 struct {
 	state                    protoimpl.MessageState    `protogen:"open.v1"`
 	BoundBuilder             *string                   `protobuf:"bytes,1,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
@@ -4308,7 +4339,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x0fOpenTaskRequest\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x18.nexus.v1.OpenTaskHeaderH\x00R\x06header\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\a\n" +
-	"\x05frame\"\xd6\x04\n" +
+	"\x05frame\"\xb5\x05\n" +
 	"\x10OpenTaskResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x16\n" +
@@ -4321,10 +4352,12 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x0fdispatch_result\x18\b \x01(\v2 .nexus.v1.DispatchResultHeaderV1H\x00R\x0edispatchResult\x88\x01\x01\x12(\n" +
 	"\rbound_builder\x18\t \x01(\tH\x01R\fboundBuilder\x88\x01\x01\x12A\n" +
 	"\x1atakeover_activation_height\x18\n" +
-	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01B\x12\n" +
+	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01\x12?\n" +
+	"\x19dispatch_available_height\x18\v \x01(\x04H\x03R\x17dispatchAvailableHeight\x88\x01\x01B\x12\n" +
 	"\x10_dispatch_resultB\x10\n" +
 	"\x0e_bound_builderB\x1d\n" +
-	"\x1b_takeover_activation_height\"\xe0\x01\n" +
+	"\x1b_takeover_activation_heightB\x1c\n" +
+	"\x1a_dispatch_available_height\"\xe0\x01\n" +
 	"\x1eUploadTaskResultObjectHeaderV1\x12<\n" +
 	"\n" +
 	"object_ref\x18\x01 \x01(\v2\x1d.nexus.v1.TaskDataObjectRefV1R\tobjectRef\x12\x1d\n" +

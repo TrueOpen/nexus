@@ -651,22 +651,45 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation new_service_pubkey is %d bytes, want 33",
 				len(pending.GetNewServicePubkey()))
 		}
-		// The old key's material closes no earlier than the registration and before activation.
-		if !(pending.GetEffectiveHeight() > pending.GetOldMaterialCloseHeight() &&
-			pending.GetOldMaterialCloseHeight() >= pending.GetRegisteredHeight()) {
-			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation heights out of order "+
-				"(registered %d, old material close %d, effective %d)",
-				pending.GetRegisteredHeight(), pending.GetOldMaterialCloseHeight(), pending.GetEffectiveHeight())
+		// The next key activates at a later epoch start than the registration.
+		if pending.GetEffectiveHeight() <= pending.GetRegisteredHeight() {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation effective height %d is not after its registration %d",
+				pending.GetEffectiveHeight(), pending.GetRegisteredHeight())
 		}
 		state.PendingRotation = &PendingServiceKeyRotation{
 			NextServicePubKey:      hex.EncodeToString(pending.GetNewServicePubkey()),
 			NextAuthorizationNonce: pending.GetNextServiceAuthorizationNonce(),
 			RegisteredHeight:       pending.GetRegisteredHeight(),
 			EffectiveHeight:        pending.GetEffectiveHeight(),
-			OldMaterialCloseHeight: pending.GetOldMaterialCloseHeight(),
 		}
 	}
+	previous, err := previousServiceKey(b)
+	if err != nil {
+		return ServiceKeyState{}, fmt.Errorf("query current service key: %w", err)
+	}
+	state.Previous = previous
 	return state, nil
+}
+
+// previousServiceKey reads the retained previous generation of a binding: its three fields are
+// present together, the key is 33 bytes and differs from the current one, the nonce is positive
+// and older than the current one, and the retirement height is positive.
+func previousServiceKey(b *hubv1.CurrentServiceKeyViewV1) (*PreviousServiceKey, error) {
+	pub, nonce, retired := b.PreviousServicePubkey, b.PreviousServiceAuthorizationNonce, b.PreviousRetiredHeight
+	if pub == nil && nonce == nil && retired == nil {
+		return nil, nil
+	}
+	switch {
+	case pub == nil || nonce == nil || retired == nil:
+		return nil, fmt.Errorf("previous service key fields are not present together")
+	case len(pub) != 33 || bytes.Equal(pub, b.GetServicePubkey()):
+		return nil, fmt.Errorf("previous_service_pubkey must be a 33-byte key other than the current one")
+	case *nonce == 0 || *nonce >= b.GetServiceAuthorizationNonce():
+		return nil, fmt.Errorf("previous_service_authorization_nonce %d is not below the current %d", *nonce, b.GetServiceAuthorizationNonce())
+	case *retired == 0:
+		return nil, fmt.Errorf("previous_retired_height must be positive")
+	}
+	return &PreviousServiceKey{ServicePubKey: hex.EncodeToString(pub), AuthorizationNonce: *nonce, RetiredHeight: *retired}, nil
 }
 
 // currentServiceKeyStatus reads the status only from the oneof branch matching

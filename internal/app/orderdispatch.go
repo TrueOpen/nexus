@@ -30,7 +30,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
 	"github.com/TrueOpen/nexus/internal/servicekey"
-	"github.com/TrueOpen/nexus/internal/signer"
 	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
@@ -139,8 +138,9 @@ type orderDispatchDeps struct {
 	BuilderAddress  string
 	Config          config.DispatchConfig
 	InputChunkBytes uint64
-	Signer          signer.Signer
-	Store           kv.Store
+	// Signer holds this Builder's service keys and signs with the chain's current one.
+	Signer *servicekey.Ring
+	Store  kv.Store
 	// TaskChain answers sessions, heights, task params and transactions, and follows session
 	// events.
 	TaskChain chaincli.Client

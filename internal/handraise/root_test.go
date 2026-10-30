@@ -11,6 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 func TestRootIsSignedOverSortedLeaves(t *testing.T) {
@@ -130,15 +132,14 @@ func TestRootHeightNeverGoesBackwards(t *testing.T) {
 	}
 }
 
-// After a Builder key rotation the same leaves are signed again by the new key: the root binds no
-// key generation, so the old signature would not verify under the new current key.
+// After a Builder key rotation the same leaves are signed again by the new key under its nonce.
 func TestRootReissuedOnBuilderKeyChange(t *testing.T) {
 	e := newEnv(t)
 	a := e.addCortex(0x11, 1)
 	e.mustAccept(a, e.handraise(a, 100, 1))
 	first := e.mustIssue()
 
-	rotated := newSigner(t, 0x09)
+	rotated := servicekey.Static(newSigner(t, 0x09), testBuilderNonce+1)
 	reg, err := New(Options{
 		ChainID: testChainID, BuilderAddress: e.builder.Address(), Config: e.cfg, Store: e.store,
 		Keys: e.keys, Pool: e.pool, Height: e.height, Signer: rotated, Now: e.clock.Now,
@@ -151,8 +152,9 @@ func TestRootReissuedOnBuilderKeyChange(t *testing.T) {
 	if !bytes.Equal(second.Root.GetRoot(), first.Root.GetRoot()) || second.Root.GetRootVersion() != first.Root.GetRootVersion()+1 {
 		t.Fatalf("root after rotation = %v", second.Root)
 	}
-	if err := dispatch.VerifyDigestSignature(rotated.PubKeyCompressed(), second.Digest[:], second.Root.GetBuilderServiceSignature()); err != nil {
-		t.Fatalf("root after rotation is not signed by the new key: %v", err)
+	if err := dispatch.VerifyDigestSignature(rotated.PubKeyCompressed(), second.Digest[:], second.Root.GetBuilderServiceSignature()); err != nil ||
+		second.Root.GetServiceAuthorizationNonce() != testBuilderNonce+1 {
+		t.Fatalf("root after rotation is not signed by the new key under its nonce: %v", err)
 	}
 	if again := e.issue(); again != nil {
 		t.Fatal("unchanged leaves re-signed under the same key")

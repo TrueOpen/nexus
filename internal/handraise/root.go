@@ -15,7 +15,6 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/lograte"
 	"github.com/TrueOpen/nexus/internal/servicekey"
-	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 const reasonInvalid = taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_INVALID_HANDRAISE
@@ -102,8 +101,9 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 		r.restoreTraces(traces)
 		return nil, err
 	}
+	key := r.opts.Signer.Key()
 	if last == nil && len(leaves) == 0 ||
-		last != nil && r.signedByLocalKey(last) && equalDigests(last.leafDigests, digests) {
+		last != nil && signedBy(last, key) && equalDigests(last.leafDigests, digests) {
 		return nil, nil
 	}
 	var version uint64
@@ -119,7 +119,7 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 		LeafCount:      uint32(len(leaves)),
 		Root:           rootHash[:],
 	}
-	raw, digest, err := signRoot(r.opts.Signer, root)
+	raw, digest, err := signRoot(key, root)
 	if err != nil {
 		r.restoreTraces(traces)
 		return nil, err
@@ -135,10 +135,11 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	return issued, nil
 }
 
-// signedByLocalKey reports whether issued carries a signature by the local Builder service key. The
-// root binds no key generation, so after a rotation the same leaves must be signed again.
-func (r *Registry) signedByLocalKey(issued *IssuedRoot) bool {
-	return dispatch.VerifyDigestSignature(r.opts.Signer.PubKeyCompressed(), issued.Digest[:], issued.Root.GetBuilderServiceSignature()) == nil
+// signedBy reports whether issued is signed by key under its nonce: after a rotation the same
+// leaves must be signed again by the new current key.
+func signedBy(issued *IssuedRoot, key servicekey.Key) bool {
+	return issued.Root.GetServiceAuthorizationNonce() == key.Nonce &&
+		dispatch.VerifyDigestSignature(key.Signer.PubKeyCompressed(), issued.Digest[:], issued.Root.GetBuilderServiceSignature()) == nil
 }
 
 // holders lists the operators holding a handraise.
@@ -351,10 +352,13 @@ func buildLeaves(entries []entry) ([]*taskv1.HandraiseRootLeafV1, [][32]byte, er
 	return leaves, digests, nil
 }
 
-// signRoot signs root with the Builder service key and returns its serialized bytes and its
+// signRoot signs root under key, with key's authorization nonce, and returns its serialized bytes and its
 // handraise_root_digest.
-func signRoot(s signer.Signer, root *taskv1.SignedHandraiseRootV1) ([]byte, [32]byte, error) {
-	root.BuilderServiceSignature = nil
+func signRoot(key servicekey.Key, root *taskv1.SignedHandraiseRootV1) ([]byte, [32]byte, error) {
+	if key.Nonce == 0 {
+		return nil, [32]byte{}, fmt.Errorf("sign handraise root: the service key has no authorization nonce yet")
+	}
+	root.ServiceAuthorizationNonce, root.BuilderServiceSignature = key.Nonce, nil
 	unsigned, err := proto.MarshalOptions{Deterministic: true}.Marshal(root)
 	if err != nil {
 		return nil, [32]byte{}, fmt.Errorf("encode handraise root: %w", err)
@@ -363,7 +367,7 @@ func signRoot(s signer.Signer, root *taskv1.SignedHandraiseRootV1) ([]byte, [32]
 	if err != nil {
 		return nil, [32]byte{}, fmt.Errorf("handraise root signing digest: %w", err)
 	}
-	sig, err := s.SignDigest(digest)
+	sig, err := key.Signer.SignDigest(digest)
 	if err != nil {
 		return nil, [32]byte{}, fmt.Errorf("sign handraise root: %w", err)
 	}
