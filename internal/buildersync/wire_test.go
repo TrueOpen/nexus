@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -297,5 +298,31 @@ func TestLargestConfiguredFrameFitsTheRequestCap(t *testing.T) {
 	req := &nexusv1.SyncRequest{Batch: batch, SenderSignature: make([]byte, 64)}
 	if n := proto.Size(req); n > MaxRequestBytes {
 		t.Fatalf("largest frame request = %d bytes, cap %d", n, MaxRequestBytes)
+	}
+}
+
+// An expired member stream is dropped with the digests of its applied items.
+func TestPruneDropsAppliedItemDigests(t *testing.T) {
+	e := newEnv(t)
+	e.s.OrderChanged(e.fx.issued())
+	e.sync()
+	count := func(prefix string) int {
+		n := 0
+		if err := e.member.store.Scan(kv.NSBuilderSyncMember, func(key string, _ []byte) bool {
+			if strings.HasPrefix(key, prefix) {
+				n++
+			}
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count(memberItemPrefix) == 0 || count(memberStreamPrefix) != 1 {
+		t.Fatalf("before expiry: %d digests, %d streams", count(memberItemPrefix), count(memberStreamPrefix))
+	}
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100000})
+	if count(memberItemPrefix) != 0 || count(memberStreamPrefix) != 0 {
+		t.Fatalf("after expiry: %d digests, %d streams", count(memberItemPrefix), count(memberStreamPrefix))
 	}
 }

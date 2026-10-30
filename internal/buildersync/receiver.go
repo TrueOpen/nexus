@@ -184,6 +184,10 @@ func (r *Receiver) Sync(ctx context.Context, raw []byte) (*nexusv1.SyncResponse,
 	if len(raw) > MaxRequestBytes {
 		return nil, fmt.Errorf("%w: request of %d bytes", ErrMalformed, len(raw))
 	}
+	// Strict validation also enforces schema_version 1, a sender other than the receiver, a raw32
+	// session_id and builder_set_hash, a non-empty chain_id and builder_set_id, consecutive item
+	// sequences, the entry bounds and the identities inside the items; none is checked again here.
+	// The chain and receiver can only be read from the decoded request, after it.
 	if err := dispatch.ValidateMessage(requestName, raw); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
@@ -294,7 +298,8 @@ func (r *Receiver) authenticate(ctx context.Context, sender string, raw []byte) 
 }
 
 // itemDigest identifies an item's payload: the request was validated strictly, so equal items
-// marshal to equal bytes.
+// marshal to equal bytes. It depends on this version's deterministic serialization: a sender that
+// adds fields in a rolling upgrade would see its resends of applied items refused as conflicts.
 func itemDigest(item *nexusv1.BuilderSyncItemV1) ([]byte, error) {
 	raw, err := marshal(item)
 	if err != nil {

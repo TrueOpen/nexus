@@ -184,11 +184,23 @@ func (r *Receiver) prune(head uint64) {
 		r.log.Warn("member sync streams not scanned for pruning", "err", err)
 		return
 	}
+	if len(expired) == 0 {
+		return
+	}
+	members := make(map[string]bool, len(expired))
+	for _, m := range expired {
+		members[m.key()] = true
+	}
+	digests, err := r.appliedItemKeys(members)
+	if err != nil {
+		r.log.Warn("applied item digests of expired member sync streams not listed", "err", err)
+		return
+	}
 	for _, m := range expired {
 		unlock := r.lock(m.key())
 		ops := []kv.WriteOp{{NS: kv.NSBuilderSyncMember, Key: memberStreamPrefix + m.key(), Delete: true}}
-		for n := uint64(1); n <= m.Applied; n++ {
-			ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: appliedItemKey(m.key(), n), Delete: true})
+		for _, key := range digests[m.key()] {
+			ops = append(ops, kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: key, Delete: true})
 		}
 		for taskHash, in := range m.Inputs {
 			for _, offset := range in.Offsets {
@@ -205,6 +217,23 @@ func (r *Receiver) prune(head uint64) {
 		}
 		unlock()
 	}
+}
+
+// appliedItemKeys lists the applied item digest keys of the given member streams in one scan of
+// the item/ keys, by member key.
+func (r *Receiver) appliedItemKeys(members map[string]bool) (map[string][]string, error) {
+	keys := map[string][]string{}
+	err := r.cfg.Store.Scan(kv.NSBuilderSyncMember, func(key string, _ []byte) bool {
+		rest, ok := strings.CutPrefix(key, memberItemPrefix)
+		if !ok {
+			return key < memberItemPrefix
+		}
+		if i := strings.LastIndexByte(rest, '/'); i > 0 && members[rest[:i]] {
+			keys[rest[:i]] = append(keys[rest[:i]], key)
+		}
+		return true
+	})
+	return keys, err
 }
 
 func hexOf(b []byte) string { return hex.EncodeToString(b) }
