@@ -24,6 +24,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -740,8 +741,8 @@ func TestClosedSessionVoidsTheTakeover(t *testing.T) {
 	}
 }
 
-// No takeover while this Builder's own key rotation is pending or its compensation account is
-// below the minimum; a key that cannot be confirmed is retryable.
+// No takeover while this Builder's own key rotation is pending, its key is revoked or its
+// compensation account is below the minimum; a key that cannot be confirmed is retryable.
 func TestAdmitNeedsThisBuildersKey(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -749,6 +750,7 @@ func TestAdmitNeedsThisBuildersKey(t *testing.T) {
 	}{
 		{handraise.ErrBuilderRotationPending, dispatchdraw.ErrNoCapacity},
 		{dispatcher.ErrCompensationBelowMin, dispatchdraw.ErrNoCapacity},
+		{&servicekey.RevokedError{Nonce: 1, NextNonce: 2, NextEffectiveHeight: 90}, dispatchdraw.ErrNoCapacity},
 		{errors.New("key unreadable"), inflight.ErrUnavailable},
 	} {
 		e := newEnv(t)

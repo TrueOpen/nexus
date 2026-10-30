@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 const (
@@ -192,7 +193,8 @@ func (d *Dispatcher) HandleChainEvent(ev chaincli.ChainEvent) {
 // step issues the order's next ticket, if it may: no ticket is out, the order still dispatches,
 // its record deadline is ahead, this Builder does not drain (unless the order is a takeover's)
 // and its key may sign for the order: while its rotation is pending, only an order below the
-// effective height (one at or above it waits for the cutover). It walks past members
+// effective height (one at or above it waits for the cutover); while it is revoked, none (the
+// order fails as no capacity, a takeover's too, since no ticket can be signed for it). It walks past members
 // that cannot be reached until one is offered or the order fails. A pending Builder signs no new
 // root, so a round opened once the last root's handraises expired finds no member and fails the
 // order as no capacity. Caller holds o.mu.
@@ -212,6 +214,8 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		var rotation *handraise.RotationPendingError
 		if err := d.cfg.Keys.CheckBuilderKey(ctx); err != nil && !(errors.As(err, &rotation) && o.signed.GetOrder().GetEarliestSubmitHeight() < rotation.EffectiveHeight) {
 			switch {
+			case errors.Is(err, servicekey.ErrRevoked):
+				return d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, err))
 			case errors.Is(err, handraise.ErrBuilderRotationPending):
 				d.log.Info("no ticket issued: the order waits for this Builder's service key cutover", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			case errors.Is(err, ErrCompensationUnread):

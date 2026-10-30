@@ -11,8 +11,10 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 )
 
 // The dispatcher is the stream hub's DispatchSink: the hub verified each answer's signature under
@@ -90,12 +92,23 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		d.finish(ctx, out)
 		return fmt.Errorf("%w: accept of ticket %x after the record deadline %d", ErrTicketClosed, a.Hash, deadline)
 	}
+	key := d.cfg.Signer.Key()
+	if key.Revoked {
+		// This Builder's current service key was revoked after it signed the ticket: it signs no
+		// record, and the chain would admit none. The attempt is VOIDED with the accept kept as
+		// received, as above, and the order fails as no capacity.
+		a.Outcome, a.LateAccept, a.LateAcceptDigest = outcomeVoided, from.Raw, append([]byte(nil), from.Digest[:]...)
+		out := d.fail(o, fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, servicekey.ErrRevoked))
+		o.mu.Unlock()
+		d.finish(ctx, out)
+		return fmt.Errorf("%w: accept of ticket %x while this Builder's service key is revoked", ErrTicketClosed, a.Hash)
+	}
 	prev := cloneState(st)
 	a.Outcome = outcomeAccepted
 	st.Phase, st.Accept, st.AcceptDigest = phaseAccepted, from.Raw, append([]byte(nil), from.Digest[:]...)
 	record, err := buildRecord(d.cfg.ChainID, d.cfg.Builder, st, ticket, a.Hash)
 	if err == nil {
-		st.Record, _, err = signRecord(d.cfg.Signer.Key(), record)
+		st.Record, _, err = signRecord(key, record)
 	}
 	if err == nil {
 		err = d.saveWithEvidence(st)

@@ -91,7 +91,8 @@ type ServiceKeys interface {
 	// wait.
 	CortexRotation(ctx context.Context, operator string) (uint64, error)
 	// CheckBuilderKey fails unless this Builder's current ACTIVE service key is held by the root
-	// signer, and with a *RotationPendingError while a replacement is pending.
+	// signer: with a *RotationPendingError while a replacement is pending, and with a
+	// *servicekey.RevokedError while the current key is revoked.
 	CheckBuilderKey(ctx context.Context) error
 }
 

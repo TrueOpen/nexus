@@ -42,6 +42,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/recorder"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -63,8 +64,9 @@ type Recorder interface {
 // takeover moves a session to this Builder, and a pending Builder accepts no new session.
 type Keys interface {
 	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
-	// replacement key is pending, with dispatcher.ErrCompensationBelowMin while its compensation
-	// account is below the minimum, and otherwise when its key cannot be confirmed.
+	// replacement key is pending, with servicekey.ErrRevoked while its current key is revoked,
+	// with dispatcher.ErrCompensationBelowMin while its compensation account is below the minimum,
+	// and otherwise when its key cannot be confirmed.
 	CheckBuilderKey(ctx context.Context) error
 }
 
@@ -311,13 +313,16 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	return Admission{}, nil
 }
 
-// checkKey is Admit's check of this Builder's own key and compensation account.
+// checkKey is Admit's check of this Builder's own key and compensation account. A revoked key
+// signs nothing, so its takeover could never be dispatched or recorded: NO_CAPACITY, as while a
+// rotation is pending.
 func (m *Manager) checkKey(ctx context.Context) error {
 	err := m.cfg.Keys.CheckBuilderKey(ctx)
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, dispatcher.ErrCompensationBelowMin):
+	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, servicekey.ErrRevoked),
+		errors.Is(err, dispatcher.ErrCompensationBelowMin):
 		return fmt.Errorf("%w: no takeover: %v", dispatchdraw.ErrNoCapacity, err)
 	default:
 		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)

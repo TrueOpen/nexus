@@ -331,6 +331,39 @@ func (k *fakeKeys) pendCortex(operator string, height uint64) {
 	k.cortexEffective[operator] = height
 }
 
+// revokeBuilder revokes this Builder's current service key, as the chain shows it and the ring
+// signs: with a replacement current from nextEffective when that is not 0. revoked false
+// installs the replacement (or clears the revocation).
+func (e *env) revokeBuilder(revoked bool, nextEffective uint64) {
+	e.keys.mu.Lock()
+	e.keys.builderErr = nil
+	if revoked {
+		e.keys.builderErr = &servicekey.RevokedError{Nonce: testBuilderNonce, NextNonce: testBuilderNonce + 1, NextEffectiveHeight: nextEffective}
+	}
+	e.keys.mu.Unlock()
+	e.signer.(*revocable).revoked.Store(revoked)
+}
+
+// revocable is a service signer the test revokes as the ring is while the chain shows its current
+// key revoked: the key and nonce stay, and its signer refuses to sign.
+type revocable struct {
+	servicekey.Signer
+	revoked atomic.Bool
+}
+
+func (r *revocable) Key() servicekey.Key {
+	k := r.Signer.Key()
+	if r.revoked.Load() {
+		return servicekey.Key{Signer: refusingSigner{k.Signer}, Nonce: k.Nonce, Revoked: true}
+	}
+	return k
+}
+
+type refusingSigner struct{ signer.Signer }
+
+func (refusingSigner) Sign([]byte) ([]byte, error)         { return nil, servicekey.ErrRevoked }
+func (refusingSigner) SignDigest([32]byte) ([]byte, error) { return nil, servicekey.ErrRevoked }
+
 // pendBuilder registers this Builder's rotation, or clears it with zero heights.
 func (k *fakeKeys) pendBuilder(registered, effective uint64) {
 	k.mu.Lock()
@@ -475,7 +508,7 @@ func newEnv(t *testing.T) *env {
 		inputs:     fakeInputs{data: map[string][]byte{}},
 		observer:   &fakeObserver{}, recorder: &fakeRecorder{},
 		clock:  &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
-		signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce),
+		signer: &revocable{Signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce)},
 		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64,
 			RecordDeadlineBlocks: 20},
 	}

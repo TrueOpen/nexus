@@ -221,7 +221,7 @@ const issueFailureLogEvery = time.Minute
 func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 	ticker := time.NewTicker(time.Duration(r.opts.Config.HandraiseRootIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
-	pending := false
+	paused := ""
 	failures := lograte.Limiter{Every: issueFailureLogEvery}
 	for {
 		select {
@@ -230,15 +230,16 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 		case <-ticker.C:
 		}
 		issued, err := r.IssueRoot(ctx)
-		if errors.Is(err, ErrBuilderRotationPending) {
-			// Expected for the whole rotation wait; say so once instead of every interval.
-			if !pending {
-				r.log.Info("handraise roots paused until the Builder service key rotation activates", "error", err)
+		if why := pauseOf(err); why != "" {
+			// Expected for the whole rotation wait or revocation; say so once instead of every
+			// interval.
+			if why != paused {
+				r.log.Info(why, "error", err)
 			}
-			pending = true
+			paused = why
 			continue
 		}
-		pending = false
+		paused = ""
 		if err != nil {
 			if suppressed, ok := failures.Allow(r.now()); ok {
 				r.log.Warn("issue handraise root", "error", err, "suppressed", suppressed)
@@ -249,6 +250,18 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 			onRoot(issued)
 		}
 	}
+}
+
+// pauseOf names the expected pause an IssueRoot error is, "" for any other: a pending rotation
+// of this Builder's own key, or its revoked current key, signs no root until it ends.
+func pauseOf(err error) string {
+	switch {
+	case errors.Is(err, ErrBuilderRotationPending):
+		return "handraise roots paused until the Builder service key rotation activates"
+	case errors.Is(err, servicekey.ErrRevoked):
+		return "handraise roots paused while this Builder's service key is revoked"
+	}
+	return ""
 }
 
 // Latest returns the latest signed root and its leaves. They are shared and must not be modified.

@@ -76,6 +76,16 @@ func TestChainServiceKeys(t *testing.T) {
 		rotation.EffectiveHeight != 400 || rotation.NextNonce != 5 {
 		t.Fatalf("builder key check with a pending rotation = %v, want a RotationPendingError", err)
 	}
+	// A revoked current key is told apart from a pending rotation: it signs nothing, and the
+	// replacement registered after the revocation names when that ends.
+	revoked := resolver[servicekey.ParticipantBuilder+"/"+builderOperator]
+	revoked.Status = servicekey.StatusRevoked
+	resolver[servicekey.ParticipantBuilder+"/"+builderOperator] = revoked
+	var revocation *servicekey.RevokedError
+	if err := keys.CheckBuilderKey(context.Background()); errors.Is(err, ErrBuilderRotationPending) || !errors.As(err, &revocation) ||
+		revocation.NextEffectiveHeight != 400 || revocation.Nonce != 4 {
+		t.Fatalf("builder key check with a revoked key = %v, want a RevokedError", err)
+	}
 	// A pending Cortex keeps its current key for messages it already owes.
 	cortexPending := resolver[servicekey.ParticipantCortex+"/"+cortexOperator]
 	cortexPending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 10, EffectiveHeight: 400}
@@ -220,6 +230,48 @@ func TestRegistryPausesRootsDuringBuilderRotation(t *testing.T) {
 	if n := logs.count(paused); n != 1 {
 		t.Fatalf("pause logged %d times, want once", n)
 	}
+}
+
+// While this Builder's current key is revoked no root is issued; Run says so once, not as a
+// failure, and issues again once a replacement is current.
+func TestRegistryPausesRootsWhileTheBuilderKeyIsRevoked(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.HandraiseRootIntervalMs = 1
+	e.reg = e.open()
+	logs := &messageCounter{}
+	e.reg.log = slog.New(logs)
+	c1 := e.addCortex(0x11, 1)
+	e.mustAccept(c1, e.handraise(c1, 100, 1))
+	e.keys.mu.Lock()
+	e.keys.builderErr = &servicekey.RevokedError{Nonce: 4}
+	e.keys.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	roots := make(chan *IssuedRoot, 4)
+	done := make(chan error, 1)
+	go func() { done <- e.reg.Run(ctx, func(root *IssuedRoot) { roots <- root }) }()
+	const paused = "handraise roots paused while this Builder's service key is revoked"
+	waitFor(t, "the pause log", func() bool { return logs.count(paused) > 0 })
+	time.Sleep(30 * time.Millisecond) // many intervals
+	if n, failed := logs.count(paused), logs.count("issue handraise root"); n != 1 || failed != 0 {
+		t.Fatalf("pause logged %d times, failures %d; want once and none", n, failed)
+	}
+	select {
+	case <-roots:
+		t.Fatal("a root was issued while revoked")
+	default:
+	}
+	e.keys.mu.Lock()
+	e.keys.builderErr = nil
+	e.keys.mu.Unlock()
+	select {
+	case <-roots:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no root once the replacement is current")
+	}
+	cancel()
+	<-done
 }
 
 // A failure that repeats every interval (here a local signer that does not hold the on-chain key)

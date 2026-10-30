@@ -141,8 +141,9 @@ type Sessions interface {
 // Keys reads service key bindings from the chain and gates ticket issuance.
 type Keys interface {
 	// CheckBuilderKey fails with a *handraise.RotationPendingError while this Builder's own
-	// replacement key is pending, with ErrCompensationBelowMin while its compensation account is
-	// below the minimum, and fails when its current key cannot be confirmed.
+	// replacement key is pending, with a *servicekey.RevokedError while its current key is
+	// revoked, with ErrCompensationBelowMin while its compensation account is below the minimum,
+	// and fails when its current key cannot be confirmed.
 	CheckBuilderKey(ctx context.Context) error
 	// CortexRotation returns the effective height of operator's pending CORTEX key replacement,
 	// 0 when none is pending.
@@ -503,9 +504,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 // Builder drains or its compensation account is below the minimum (it takes no new order; the
 // session moves by takeover), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
 // the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
-// Builder's key rotation is pending and the order needs the next key or belongs to a new session
-// (pendingRotation), or the latest handraise root holds no admitted, unexpired handraise with a
-// free slot for the order's profile. The walk decides the rest.
+// Builder's current service key is revoked (revokedKey), its key rotation is pending and the order
+// needs the next key or belongs to a new session (pendingRotation), or the latest handraise root
+// holds no admitted, unexpired handraise with a free slot for the order's profile. The walk
+// decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -516,9 +518,10 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	}
 	esh := signed.GetOrder().GetEarliestSubmitHeight()
 	var rotation *handraise.RotationPendingError
+	var revoked *servicekey.RevokedError
 	switch err := d.cfg.Keys.CheckBuilderKey(ctx); {
 	case err == nil:
-	case errors.As(err, &rotation):
+	case errors.As(err, &rotation), errors.As(err, &revoked):
 	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, ErrCompensationBelowMin):
 		return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
 	default:
@@ -530,6 +533,9 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 			return err
 		}
 		return fmt.Errorf("%w: epoch of the order: %v", inflight.ErrUnavailable, err)
+	}
+	if revoked != nil {
+		return revokedKey(epoch.Number, revoked)
 	}
 	if rotation != nil {
 		if err := d.pendingRotation(ctx, o.SessionID, esh, epoch.Number, rotation); err != nil {
@@ -548,6 +554,18 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 		}
 	}
 	return fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity)
+}
+
+// revokedKey is Probe's answer while this Builder's current service key is revoked: the key
+// signs nothing new, so no order is taken. With a replacement registered the order is
+// DISPATCH_NOT_READY until the replacement's effective height, from which the ring signs with it;
+// without one it is NO_CAPACITY, as during a drain, and the user goes to another Builder.
+func revokedKey(epoch uint64, revoked *servicekey.RevokedError) error {
+	if revoked.NextEffectiveHeight == 0 {
+		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, revoked)
+	}
+	return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: revoked.NextEffectiveHeight,
+		Reason: "this Builder's service key is revoked and its replacement becomes current first"}
 }
 
 // pendingRotation is Probe's local admission while this Builder's key rotation is pending. An
