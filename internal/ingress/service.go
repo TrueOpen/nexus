@@ -650,11 +650,16 @@ func mapPayloadErr(err error) error {
 	}
 }
 
-// mapOrderErr maps a refusal of a new order. An epoch that cannot dispatch yet
+// mapOrderErr maps a refusal of a new order. An order that cannot dispatch yet
 // (NEXUS_INGRESS_DISPATCH_NOT_READY) is Unavailable like a state that could not be read: the SDK
-// waits and retries this Builder, and the message ends with the dispatchable height when known.
+// waits and retries this Builder. When the height to retry at is known it is the
+// OpenTaskResponse detail's dispatch_available_height, and the message ends with it too.
 func mapOrderErr(err error) error {
+	var notReady *dispatchdraw.NotReadyError
 	switch {
+	case errors.As(err, &notReady) && notReady.DispatchableHeight != 0:
+		height := notReady.DispatchableHeight
+		return withOpenTaskDetail(connect.NewError(connect.CodeUnavailable, err), &nexusv1.OpenTaskResponse{DispatchAvailableHeight: &height})
 	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable),
 		errors.Is(err, dispatchdraw.ErrDispatchNotReady):
 		return connect.NewError(connect.CodeUnavailable, err)

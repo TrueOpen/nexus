@@ -113,6 +113,22 @@ func TestMapOrderErrVersionRefusals(t *testing.T) {
 	}
 }
 
+// DISPATCH_NOT_READY is Unavailable and carries the height to retry at as a typed OpenTaskResponse
+// detail (dispatch_available_height), next to the text suffix.
+func TestMapOrderErrNotReadyCarriesTheAvailableHeight(t *testing.T) {
+	err := mapOrderErr(fmt.Errorf("probe: %w", &dispatchdraw.NotReadyError{Epoch: 3, DispatchableHeight: 120, Reason: "snapshot not effective"}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasSuffix(connectMessage(err), "dispatchable_height=120") {
+		t.Fatalf("mapOrderErr = %v (code %v)", err, connect.CodeOf(err))
+	}
+	if d := openTaskDetail(t, err); d.DispatchAvailableHeight == nil || d.GetDispatchAvailableHeight() != 120 {
+		t.Fatalf("detail = %v", d)
+	}
+	var ce *connect.Error
+	if errors.As(mapOrderErr(&dispatchdraw.NotReadyError{Epoch: 3, Reason: "no beacon"}), &ce) && len(ce.Details()) != 0 {
+		t.Fatal("a not-ready answer without a height carries a detail")
+	}
+}
+
 func connectMessage(err error) string {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
@@ -122,8 +138,8 @@ func connectMessage(err error) string {
 }
 
 // An order whose epoch cannot dispatch yet is refused before its input is stored as the
-// retryable NEXUS_INGRESS_DISPATCH_NOT_READY (Unavailable), its message ending with the height
-// from which dispatch is possible.
+// retryable NEXUS_INGRESS_DISPATCH_NOT_READY (Unavailable), with the height from which dispatch is
+// possible as the OpenTaskResponse detail and at the end of its message.
 func TestOpenTaskRefusesAnEpochNotReady(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	api := &fakeTaskDataAPI{chunkSize: 64}
@@ -141,6 +157,9 @@ func TestOpenTaskRefusesAnEpochNotReady(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasPrefix(connectMessage(err), "NEXUS_INGRESS_DISPATCH_NOT_READY:") ||
 		!strings.HasSuffix(connectMessage(err), "dispatchable_height=812") {
 		t.Fatalf("OpenTask error=%v code=%v, want Unavailable DISPATCH_NOT_READY with the height", err, connect.CodeOf(err))
+	}
+	if d := openTaskDetail(t, err); d.GetDispatchAvailableHeight() != 812 {
+		t.Fatalf("detail = %v, want dispatch_available_height 812", d)
 	}
 	if api.inputUpload != nil {
 		t.Fatal("an order not ready was stored")

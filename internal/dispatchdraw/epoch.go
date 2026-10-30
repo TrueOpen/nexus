@@ -25,8 +25,9 @@ import (
 var ErrDispatchNotReady = errors.New("NEXUS_INGRESS_DISPATCH_NOT_READY")
 
 // NotReadyError is an ErrDispatchNotReady answer for one epoch. DispatchableHeight, when known
-// (non-zero), is the chain height from which the epoch's orders can dispatch; the message carries
-// it as a final "dispatchable_height=<n>" so clients can read it without a structured field.
+// (non-zero), is the chain height from which the order can dispatch: OpenTask answers it as the
+// OpenTaskResponse detail's dispatch_available_height, and the message ends with
+// "dispatchable_height=<n>" as well.
 type NotReadyError struct {
 	Epoch              uint64
 	DispatchableHeight uint64
