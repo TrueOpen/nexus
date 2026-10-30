@@ -56,6 +56,22 @@ type Resolver interface {
 func Current(
 	ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string,
 ) ([]byte, chaincli.ServiceKeyState, error) {
+	publicKey, state, err := binding(ctx, resolver, addressPrefix, participantType, operator)
+	if err != nil {
+		return nil, chaincli.ServiceKeyState{}, err
+	}
+	if state.Status != StatusActive {
+		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("inactive %s service key (%s): %w", participantType, state.Status, ErrUnavailable)
+	}
+	return publicKey, state, nil
+}
+
+// binding is Current without the ACTIVE requirement: the current binding of a known status
+// (ACTIVE or REVOKED), consistent and self-verifying. A REVOKED binding grants nothing live; it
+// only names the generation that signed what came before.
+func binding(
+	ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string,
+) ([]byte, chaincli.ServiceKeyState, error) {
 	if resolver == nil {
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w", participantType, ErrAuthority)
 	}
@@ -66,7 +82,8 @@ func Current(
 		}
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w", participantType, ErrAuthority)
 	}
-	if state.ParticipantType != participantType || state.OperatorAddress != operator || state.Status != StatusActive {
+	if state.ParticipantType != participantType || state.OperatorAddress != operator ||
+		state.Status != StatusActive && state.Status != StatusRevoked {
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("inactive or mismatched %s service key: %w", participantType, ErrUnavailable)
 	}
 	publicKey, err := hex.DecodeString(state.ServicePubKey)
