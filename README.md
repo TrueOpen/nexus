@@ -77,11 +77,15 @@ revoked:
   attempt is `VOIDED` with the accept kept, so the GPU is left to a compensation claim;
 - held takeovers whose entry has not gone out end as `NO_CAPACITY`; those whose entry went out
   finish on chain;
-- the service account signs no transaction, so no compensation claim can be rebutted and no
-  dispatch challenge answered (logged once as `rebuttals and challenge answers held`, counted in
+- the service account signs no transaction, so this daemon rebuts no compensation claim and
+  answers no dispatch challenge (logged once as `rebuttals and challenge answers held`, counted in
   the `answers_held_revoked` diagnostic). They are tried again every block and go out once a
-  replacement key is current, but a compensation claim or challenge whose window closes before
-  then is paid out or penalized even though the daemon holds the evidence against it.
+  replacement key is current. Until then the other members of the order's Task Builders group
+  answer in the second half of each window from the copy of the evidence synced to them; no new
+  evidence is synced while the key is revoked (sync requests need the current key), so a claim or
+  challenge whose evidence did not reach a member before the revocation, and whose window closes
+  before the replacement is current, is paid out or penalized even though this daemon holds the
+  evidence against it.
 
 That last point is why a replacement should be registered at once, as in step 1; it becomes
 current at the start of epoch E+2 like any rotation. At its effective height the daemon finds it
