@@ -61,7 +61,7 @@ type Recorder interface {
 }
 
 // Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate). A
-// takeover moves a session to this Builder, and a pending Builder accepts no new session.
+// takeover is a new order, and a Builder whose key rotation is pending takes none.
 type Keys interface {
 	// CheckBuilderKey fails with handraise.ErrBuilderRotationPending while this Builder's own
 	// replacement key is pending, with servicekey.ErrRevoked while its current key is revoked,
@@ -321,14 +321,18 @@ func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) 
 	return Admission{}, nil
 }
 
-// checkKey is Admit's check of this Builder's own key and compensation account. A revoked key
-// signs nothing, so its takeover could never be dispatched or recorded: NO_CAPACITY, as while a
-// rotation is pending.
+// checkKey is Admit's check of this Builder's own key and compensation account. While its own
+// key rotation is pending a Builder takes no new order, a takeover included:
+// inflight.BuilderKeyRotatingError naming the effective height. A revoked key signs nothing, so
+// its takeover could never be dispatched or recorded: NO_CAPACITY.
 func (m *Manager) checkKey(ctx context.Context) error {
 	err := m.cfg.Keys.CheckBuilderKey(ctx)
+	var rotation *handraise.RotationPendingError
 	switch {
 	case err == nil:
 		return nil
+	case errors.As(err, &rotation):
+		return &inflight.BuilderKeyRotatingError{EffectiveHeight: rotation.EffectiveHeight}
 	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, servicekey.ErrRevoked),
 		errors.Is(err, dispatcher.ErrCompensationBelowMin):
 		return fmt.Errorf("%w: no takeover: %v", dispatchdraw.ErrNoCapacity, err)

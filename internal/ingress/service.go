@@ -654,9 +654,12 @@ func mapPayloadErr(err error) error {
 // (NEXUS_INGRESS_DISPATCH_NOT_READY) is Unavailable like a state that could not be read: the SDK
 // waits and retries this Builder. When the height to retry at is known it is the
 // OpenTaskResponse detail's dispatch_available_height, and the message ends with it too.
+// NEXUS_INGRESS_BUILDER_KEY_ROTATING is mapped by mapKeyRotating.
 func mapOrderErr(err error) error {
 	var notReady *dispatchdraw.NotReadyError
 	switch {
+	case errors.Is(err, inflight.ErrBuilderKeyRotating):
+		return mapKeyRotating(err)
 	case errors.As(err, &notReady) && notReady.DispatchableHeight != 0:
 		height := notReady.DispatchableHeight
 		return withOpenTaskDetail(connect.NewError(connect.CodeUnavailable, err), &nexusv1.OpenTaskResponse{DispatchAvailableHeight: &height})

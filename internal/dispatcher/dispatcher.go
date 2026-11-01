@@ -502,12 +502,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this
 // Builder drains or its compensation account is below the minimum (it takes no new order; the
-// session moves by takeover), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
+// session moves by takeover), its own service key rotation is registered and not active yet
+// (inflight.BuilderKeyRotatingError naming the effective height: a pending Builder takes no new
+// order at all, so its old key signs no material of an order at or above that height and the user
+// goes to another Builder), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
 // the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
-// Builder's current service key is revoked (revokedKey), its key rotation is pending and the order
-// needs the next key or belongs to a new session (pendingRotation), or the latest handraise root
-// holds no admitted, unexpired handraise with a free slot for the order's profile. The walk
-// decides the rest.
+// Builder's current service key is revoked (revokedKey), or the latest handraise root holds no
+// admitted, unexpired handraise with a free slot for the order's profile. The walk decides the
+// rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -521,7 +523,9 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	var revoked *servicekey.RevokedError
 	switch err := d.cfg.Keys.CheckBuilderKey(ctx); {
 	case err == nil:
-	case errors.As(err, &rotation), errors.As(err, &revoked):
+	case errors.As(err, &rotation):
+		return &inflight.BuilderKeyRotatingError{EffectiveHeight: rotation.EffectiveHeight}
+	case errors.As(err, &revoked):
 	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, ErrCompensationBelowMin):
 		return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
 	default:
@@ -536,11 +540,6 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	}
 	if revoked != nil {
 		return revokedKey(epoch.Number, revoked)
-	}
-	if rotation != nil {
-		if err := d.pendingRotation(ctx, o.SessionID, esh, epoch.Number, rotation); err != nil {
-			return err
-		}
 	}
 	root, ok := d.cfg.Handraises.LatestRoot()
 	if !ok {
@@ -566,33 +565,6 @@ func revokedKey(epoch uint64, revoked *servicekey.RevokedError) error {
 	}
 	return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: revoked.NextEffectiveHeight,
 		Reason: "this Builder's service key is revoked and its replacement becomes current first"}
-}
-
-// pendingRotation is Probe's local admission while this Builder's key rotation is pending. An
-// order at or above the effective height lands at or after the cutover, where only the next key
-// proves its tickets and records, and the next key cannot sign before it: such an order is
-// DISPATCH_NOT_READY until the effective height (earliest_submit_height being at most the next
-// block, only in the block just before it). A pending Builder accepts no new session: an order of a session
-// bound to it since the registration is NO_CAPACITY. Older sessions' orders below the effective
-// height go on under the current key, but a pending Builder signs no new root: they draw from the
-// last root only until its handraises expire, and are NO_CAPACITY after that.
-func (d *Dispatcher) pendingRotation(ctx context.Context, sessionID string, esh, epoch uint64, rotation *handraise.RotationPendingError) error {
-	if esh >= rotation.EffectiveHeight {
-		return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: rotation.EffectiveHeight,
-			Reason: "this Builder's service key cutover comes first"}
-	}
-	session, _, err := d.cfg.Sessions.Lookup(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("%w: session state: %v", inflight.ErrUnavailable, err)
-	}
-	if !session.Found {
-		return fmt.Errorf("%w: session %s not found: it cannot be told an older session", inflight.ErrUnavailable, sessionID)
-	}
-	if session.BoundChangeHeight >= rotation.RegisteredHeight {
-		return fmt.Errorf("%w: no new session while this Builder's key rotation is pending (bound at %d): %v",
-			dispatchdraw.ErrNoCapacity, session.BoundChangeHeight, rotation)
-	}
-	return nil
 }
 
 func servesOrder(h *taskv1.StandingHandraiseV1, o *taskv1.TaskOrderV3) bool {

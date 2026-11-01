@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/types"
 )
 
 func digestOf(t *testing.T, name string, m proto.Message) [32]byte {
@@ -547,17 +549,37 @@ func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
 	}
 }
 
-// While this Builder's service key rotation is pending it keeps dispatching its sessions' orders
-// below the effective height under the current key: their tickets and records keep proving them
-// after the cutover.
-func TestOwnRotationPendingDispatchesOrdersBeforeTheCutover(t *testing.T) {
+// While this Builder's service key rotation is pending it takes no new order, whatever its
+// session or earliest_submit_height: the probe refuses each with NEXUS_INGRESS_BUILDER_KEY_ROTATING
+// naming the effective height, from which new orders are probed as usual again.
+func TestOwnRotationPendingRefusesEveryNewOrder(t *testing.T) {
+	e := newEnv(t)
+	old := e.session(0xaa, 0)
+	fresh := e.session(0xbb, 0)
+	e.chain.update(fresh, func(s *chaincli.SessionState) { s.BoundChangeHeight = testBound + 2 })
+	late := e.session(0xcc, 0)
+	orders := []types.Order{e.order(old, 0, 1), e.order(old, 1, 1), e.order(fresh, 0, 1), e.orderAt(late, 0, 1, testESH+1)}
+	e.keys.pendBuilder(testBound+1, testESH+1)
+	for _, o := range orders {
+		var rotating *inflight.BuilderKeyRotatingError
+		if err := e.d.Probe(context.Background(), o); !errors.As(err, &rotating) || rotating.EffectiveHeight != testESH+1 ||
+			!strings.Contains(err.Error(), "NEXUS_INGRESS_BUILDER_KEY_ROTATING") {
+			t.Fatalf("probe of sequence %d of %s = %v, want BUILDER_KEY_ROTATING at %d", o.OrderSequence, o.SessionID[:4], err, testESH+1)
+		}
+	}
+	e.keys.pendBuilder(0, 0)
+	if err := e.d.Probe(context.Background(), orders[2]); err != nil {
+		t.Fatalf("probe after the rotation activated = %v", err)
+	}
+}
+
+// An order taken before this Builder's rotation was registered goes on while it is pending: below
+// the effective height it is offered under the current key, accepted and handed to the recorder.
+func TestOwnRotationPendingDispatchesOrdersTakenBefore(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
 	o := e.order(s, 0, 1)
 	e.keys.pendBuilder(testBound+1, testESH+1)
-	if err := e.d.Probe(context.Background(), o); err != nil {
-		t.Fatalf("probe = %v", err)
-	}
 	e.dispatch(o)
 	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
 		t.Fatalf("offers = %v", got)
@@ -565,21 +587,23 @@ func TestOwnRotationPendingDispatchesOrdersBeforeTheCutover(t *testing.T) {
 	if _, ticket, _ := e.lastOffer(); ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
 		t.Fatalf("ticket nonce = %d, want the current %d", ticket.GetServiceAuthorizationNonce(), testBuilderNonce)
 	}
+	e.accept()
+	if b := e.onlyBundle(); b.SessionID != s || b.Sequence != 0 {
+		t.Fatalf("bundle = %+v", b)
+	}
+	if e.ledgerState(o) != inflight.StateAccepted {
+		t.Fatalf("ledger = %v", e.ledgerState(o))
+	}
 }
 
 // An order at or above the effective height is recorded at or after the cutover, where the
-// current key no longer proves it, and the next key cannot sign before the cutover: it is refused
-// before its input is stored as DISPATCH_NOT_READY naming that height, and one taken before the
-// rotation was seen waits for the cutover.
+// current key no longer proves it, and the next key cannot sign before the cutover: one taken
+// before the rotation was seen waits for the cutover.
 func TestOwnRotationPendingHoldsOrdersAtTheCutover(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
 	o := e.order(s, 0, 1)
 	e.keys.pendBuilder(testBound+1, testESH)
-	var notReady *dispatchdraw.NotReadyError
-	if err := e.d.Probe(context.Background(), o); !errors.As(err, &notReady) || notReady.DispatchableHeight != testESH {
-		t.Fatalf("probe = %v, want DISPATCH_NOT_READY at %d", err, testESH)
-	}
 	e.dispatch(o)
 	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
 	if n := len(e.streams.offers()); n != 0 {
@@ -589,9 +613,6 @@ func TestOwnRotationPendingHoldsOrdersAtTheCutover(t *testing.T) {
 	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH + 1})
 	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
 		t.Fatalf("offers after the cutover = %v", got)
-	}
-	if err := e.d.Probe(context.Background(), o); err != nil {
-		t.Fatalf("probe after the cutover = %v", err)
 	}
 }
 
@@ -613,28 +634,6 @@ func TestRoundWaitsForARootOfTheCurrentKey(t *testing.T) {
 	e.d.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: testESH})
 	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
 		t.Fatalf("offers on a root of the current key = %v", got)
-	}
-}
-
-// A pending Builder accepts no new session: an order of a session bound to it since the rotation
-// was registered is refused as NO_CAPACITY, so the user goes to another Builder.
-func TestOwnRotationPendingRefusesNewSessions(t *testing.T) {
-	e := newEnv(t)
-	s := e.session(0xaa, 0)
-	o := e.order(s, 0, 1)
-	e.keys.pendBuilder(testBound, testESH+1)
-	if err := e.d.Probe(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
-		t.Fatalf("probe = %v, want NO_CAPACITY", err)
-	}
-
-	// A session the chain does not show cannot be told old: the order is unavailable, not taken.
-	gone := e.session(0xbb, 0)
-	o = e.order(gone, 0, 1)
-	e.chain.mu.Lock()
-	delete(e.chain.sessions, gone)
-	e.chain.mu.Unlock()
-	if err := e.d.Probe(context.Background(), o); !errors.Is(err, inflight.ErrUnavailable) {
-		t.Fatalf("probe of an unknown session = %v, want unavailable", err)
 	}
 }
 

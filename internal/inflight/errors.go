@@ -41,6 +41,10 @@ var (
 	ErrOrderLocked = errors.New("NEXUS_INGRESS_ORDER_LOCKED")
 	// ErrTaskTerminal: another version of an order the chain already admitted.
 	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
+	// ErrBuilderKeyRotating: this Builder registered a service key rotation that is not active
+	// yet, and takes no new order until it is; see BuilderKeyRotatingError. The wire Ingress error
+	// registry does not list this code yet: once it does, only this text follows it.
+	ErrBuilderKeyRotating = errors.New("NEXUS_INGRESS_BUILDER_KEY_ROTATING")
 	// ErrOrderUploading: the same order is reserved and its input is still being uploaded on
 	// another stream; retry. It is the task data's retryable not-ready code: until the first
 	// upload hands the order to the dispatcher the order may still be dropped.
@@ -62,6 +66,18 @@ func (e *TakeoverPendingError) Error() string {
 }
 
 func (e *TakeoverPendingError) Unwrap() error { return ErrTakeoverPending }
+
+// BuilderKeyRotatingError is ErrBuilderKeyRotating with the height the registered key becomes
+// current at, from which this Builder takes new orders again.
+type BuilderKeyRotatingError struct {
+	EffectiveHeight uint64
+}
+
+func (e *BuilderKeyRotatingError) Error() string {
+	return fmt.Sprintf("%s: this Builder takes no new order until its service key rotation activates; effective_height=%d", ErrBuilderKeyRotating, e.EffectiveHeight)
+}
+
+func (e *BuilderKeyRotatingError) Unwrap() error { return ErrBuilderKeyRotating }
 
 // SessionBoundElsewhereError is ErrSessionBoundElsewhere for an order the Builder the session is
 // bound to already recorded: the SDK follows TaskID there.

@@ -741,14 +741,15 @@ func TestClosedSessionVoidsTheTakeover(t *testing.T) {
 	}
 }
 
-// No takeover while this Builder's own key rotation is pending, its key is revoked or its
-// compensation account is below the minimum; a key that cannot be confirmed is retryable.
+// No takeover while this Builder's own key rotation is pending (BUILDER_KEY_ROTATING naming the
+// effective height), its key is revoked or its compensation account is below the minimum; a key
+// that cannot be confirmed is retryable.
 func TestAdmitNeedsThisBuildersKey(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
 		want error
 	}{
-		{handraise.ErrBuilderRotationPending, dispatchdraw.ErrNoCapacity},
+		{&handraise.RotationPendingError{NextNonce: 2, RegisteredHeight: 40, EffectiveHeight: 90}, inflight.ErrBuilderKeyRotating},
 		{dispatcher.ErrCompensationBelowMin, dispatchdraw.ErrNoCapacity},
 		{&servicekey.RevokedError{Nonce: 1, NextNonce: 2, NextEffectiveHeight: 90}, dispatchdraw.ErrNoCapacity},
 		{errors.New("key unreadable"), inflight.ErrUnavailable},
@@ -756,8 +757,12 @@ func TestAdmitNeedsThisBuildersKey(t *testing.T) {
 		e := newEnv(t)
 		e.keys.err = tc.err
 		o, pre := takeoverOrder(5, 1)
-		if _, err := e.m.Admit(context.Background(), o, pre); !errors.Is(err, tc.want) {
+		_, err := e.m.Admit(context.Background(), o, pre)
+		if !errors.Is(err, tc.want) {
 			t.Fatalf("%v: Admit = %v, want %v", tc.err, err, tc.want)
+		}
+		if rotating := (*inflight.BuilderKeyRotatingError)(nil); errors.As(err, &rotating) && rotating.EffectiveHeight != 90 {
+			t.Fatalf("Admit = %v, want the effective height 90", err)
 		}
 		if len(e.m.records) != 0 {
 			t.Fatal("held")

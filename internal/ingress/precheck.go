@@ -91,6 +91,8 @@ func mapPrecheckErr(err error) error {
 		return mapEnvelopeErr(sdkauth.OrderKeyErr(err))
 	case errors.Is(err, inflight.ErrUnavailable), errors.Is(err, inflight.ErrOrderUploading):
 		return connect.NewError(connect.CodeUnavailable, err)
+	case errors.Is(err, inflight.ErrBuilderKeyRotating):
+		return mapKeyRotating(err)
 	case errors.As(err, &elsewhere):
 		detail := &nexusv1.OpenTaskResponse{BoundBuilder: &elsewhere.Builder}
 		if elsewhere.TaskID != "" {
@@ -106,6 +108,21 @@ func mapPrecheckErr(err error) error {
 	default:
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+}
+
+// mapKeyRotating maps NEXUS_INGRESS_BUILDER_KEY_ROTATING: Unavailable, with the rotation's
+// effective height, from which this Builder takes new orders again, as the OpenTaskResponse
+// detail's dispatch_available_height (the message ends with it too). The SDK handles it as
+// NO_CAPACITY: the order goes to another Builder by takeover, and orders already in flight here
+// are followed here to their end.
+func mapKeyRotating(err error) error {
+	ce := connect.NewError(connect.CodeUnavailable, err)
+	var rotating *inflight.BuilderKeyRotatingError
+	if errors.As(err, &rotating) && rotating.EffectiveHeight != 0 {
+		height := rotating.EffectiveHeight
+		return withOpenTaskDetail(ce, &nexusv1.OpenTaskResponse{DispatchAvailableHeight: &height})
+	}
+	return ce
 }
 
 func withOpenTaskDetail(ce *connect.Error, detail *nexusv1.OpenTaskResponse) *connect.Error {
