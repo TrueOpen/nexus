@@ -235,8 +235,9 @@ Open items:
 - `OpenTask` refuses an order whose epoch cannot dispatch yet (epoch 0, an epoch start beacon not
   committed or verified yet, or an epoch candidate pool snapshot not effective yet) with
   `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and
-  retries the same Builder. Wire has no field for the height from which dispatch is possible, so
-  when it is known the error message ends with `dispatchable_height=<n>`.
+  retries the same Builder. When the height from which dispatch is possible is known it is the
+  `OpenTaskResponse` detail's `dispatch_available_height`, and the message ends with
+  `dispatchable_height=<n>`.
 - `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (every new order refused while this Builder's key rotation
   is pending, see Service key rotation) is not in the wire Ingress error codes yet; nexus defines
   the text in one place (`internal/inflight/errors.go`) until wire lists it. Its height rides in
