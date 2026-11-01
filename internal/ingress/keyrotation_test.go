@@ -28,12 +28,13 @@ func (f *fakeRotation) BuilderRotation(context.Context) (uint64, error) {
 
 // rotationHeader is the vector OpenTask (sequence 7) in front of the real precheck, with the
 // session bound to this Builder (trueopen1builder) since bound and next expected sequence next.
+// The registered key has room for exactly that order's max_fee.
 func rotationHeader(t *testing.T, bound, next uint64) (*registeredKeyHeader, *inflight.Prechecker, *inflight.Ledger) {
 	t.Helper()
 	h := newRegisteredKeyHeader(t)
 	key := *h.keys.state.Key
 	p, ledger := newPrechecker(t, chaincli.SessionState{
-		Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "100000000", Spent: "0",
+		Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "1150000", Spent: "1000000",
 		NextExpectedSequence: next, Balance: "100000000", FrozenTotal: "0", BoundBuilder: "trueopen1builder", BoundChangeHeight: bound,
 	})
 	h.svc.auth.Precheck = p

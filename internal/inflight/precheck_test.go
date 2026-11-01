@@ -771,6 +771,43 @@ func TestPrecheckSpendCapCountsInFlightOrders(t *testing.T) {
 	}
 }
 
+// An exact resend of a key order this Builder holds is answered with its state, also at the cap:
+// its own max_fee is already among the in-flight orders and is not counted a second time. Another
+// order still counts it.
+func TestPrecheckResendAtTheSpendCapIsExisting(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) { s.SpendCap = "700" }) // 500 spent: room for 200
+	if err := f.p.Commit(f.reserve(t, keyOrder(5)).Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.p.Commit(f.reserve(t, keyOrder(6)).Reservation); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		mark func() error
+		want State
+	}{
+		{func() error { return nil }, StateDispatching},
+		{func() error { return f.ledger.MarkAccepted(testSession, 6) }, StateAccepted},
+		{func() error { return f.ledger.MarkRecorded(testSession, 6) }, StateRecorded},
+	} {
+		if err := step.mark(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := f.p.Reserve(context.Background(), keyOrder(6))
+		if err != nil || res.Existing == nil || res.Existing.State != step.want {
+			t.Fatalf("resend at %s = %+v, %v; want the existing order", step.want, res, err)
+		}
+	}
+	other := keyOrder(6)
+	other.TaskHash = "resigned"
+	if _, err := f.p.Check(context.Background(), other); !errors.Is(err, registeredkey.ErrSpendCapExceeded) {
+		t.Fatalf("another version at the cap = %v, want spend cap exceeded", err)
+	}
+	if _, err := f.p.Check(context.Background(), keyOrder(7)); !errors.Is(err, registeredkey.ErrSpendCapExceeded) {
+		t.Fatalf("next key order at the cap = %v, want spend cap exceeded", err)
+	}
+}
+
 // The spend cap holds spent plus the max_fee of every in-flight order the session key signed plus
 // the new order's: with a cap of 100, a second key order of 60 is refused while the first is in
 // flight, accepted or recorded but not yet in the session's spent. A failed order frees its share.

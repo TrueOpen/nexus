@@ -144,7 +144,8 @@ type PrecheckConfig struct {
 //     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key:
 //     spent + their max_fee + max_fee <= spend_cap, where in flight is DISPATCHING (an uncommitted
 //     reservation included), ACCEPTED, or RECORDED while the session state read does not include
-//     the record yet (at or above its next_expected_sequence); wallet orders do not count;
+//     the record yet (at or above its next_expected_sequence); wallet orders do not count, nor
+//     does an exact resend's own entry;
 //  2. binding: a session bound to another Builder ends the precheck with BoundElsewhere once the
 //     order could register a takeover in the next block: head + 1 <= order_expire_height (else
 //     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a
@@ -367,10 +368,16 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	}
 	inFlight := ls.inFlight(s.NextExpectedSequence)
 	if o.SessionKey != nil {
+		// An exact resend of a key order held here is among the in-flight orders already: its own
+		// max_fee is not counted twice, so it reaches the idempotency answer below.
+		keyInFlight := inFlight.sessionKeyMaxFee
+		if e := ls.orders[o.Sequence]; e != nil && e.TaskHash == o.TaskHash && e.SessionKey && e.State.live() && o.Sequence >= s.NextExpectedSequence {
+			keyInFlight = new(big.Int).Sub(keyInFlight, new(big.Int).SetUint64(e.MaxFee))
+		}
 		err := registeredkey.CheckDispatchOrder(keyState(s), registeredkey.DispatchOrder{
 			User: o.User, Recovered: *o.SessionKey, AnchorHeight: o.SessionAnchorHeight,
 			MaxFee: fmt.Sprint(o.MaxFee), Height: head, Deadline: keyDeadline,
-			InFlight: inFlight.sessionKeyMaxFee.String(),
+			InFlight: keyInFlight.String(),
 		})
 		if err != nil {
 			return Result{}, err
