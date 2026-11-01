@@ -59,6 +59,9 @@ type Recorder interface {
 	WithdrawTakeover(ctx context.Context, sessionID string, sequence uint64)
 	// WithdrawUnsentTakeover withdraws the entry only while no transaction carries it.
 	WithdrawUnsentTakeover(sessionID string, sequence uint64) bool
+	// WithdrawTakeoverUnlessSent withdraws an unsent entry and reports whether no transaction
+	// carries one, true also when none is held (refused or unsettled).
+	WithdrawTakeoverUnlessSent(sessionID string, sequence uint64) bool
 }
 
 // Keys gates new takeovers on this Builder's own key and compensation account (recorder.Gate). A

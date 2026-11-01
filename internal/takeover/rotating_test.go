@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
@@ -79,4 +80,21 @@ func TestSubmitWhileTheKeyRotatesIsRefused(t *testing.T) {
 		t.Fatalf("pending %d, stored %d, bundles %d", e.m.Pending(), e.stored(), len(e.rec.bundles))
 	}
 	e.wantCalls()
+}
+
+// A takeover whose entry the chain refused SEQUENCE_NOT_NEXT holds no entry any more: while this
+// Builder's rotation is pending it is not sent again once the earlier sequences are recorded, but
+// ends like an unsent one.
+func TestKeyRotationEndsATakeoverAheadOfItsSequence(t *testing.T) {
+	e := newEnv(t)
+	e.rec.sent = map[string]bool{session: true}
+	e.submit(5)
+	e.keys.err = &handraise.RotationPendingError{NextNonce: 2, RegisteredHeight: 40, EffectiveHeight: 90}
+	e.rec.resolved = map[string]bool{session: true}
+	e.m.TakeoverRefused(session, 5, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT)
+	e.m.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 61})
+	e.wantCalls("held task5", "ended task5 NO_CAPACITY drop=true")
+	if len(e.rec.bundles) != 1 || e.m.Pending() != 0 || e.stored() != 0 {
+		t.Fatalf("bundles %d, pending %d, stored %d", len(e.rec.bundles), e.m.Pending(), e.stored())
+	}
 }

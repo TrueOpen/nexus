@@ -277,7 +277,8 @@ func (m *Manager) resolve(ctx context.Context, r *record, j job) {
 // bound_change_height (dropping the one sent under an older one). A compensation account below its
 // minimum ends it as TASK_FAILED: no takeover then. A pending key rotation of this Builder ends it
 // unless the chain already registered it or decided otherwise, or a transaction carries its entry
-// (endKeyRotating): a Builder whose rotation is pending takes no new order. A revoked service key
+// (endKeyRotating), also when the recorder holds no entry of it any more (refused SEQUENCE_NOT_NEXT,
+// or unsettled): a Builder whose rotation is pending takes no new order. A revoked service key
 // ends it as NO_CAPACITY under the same condition but whatever carries the entry: it cannot be
 // signed before a replacement key is current, so the user is sent elsewhere at once instead of
 // the settle being retried every block.
@@ -335,7 +336,7 @@ func (m *Manager) settle(ctx context.Context, r *record, j job) {
 		m.end(ctx, r, codeNoCapacity, true, nil)
 		return
 	}
-	if rotation != nil && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
+	if rotation != nil && m.cfg.Recorder.WithdrawTakeoverUnlessSent(r.SessionID, r.Sequence) {
 		m.endKeyRotating(ctx, r, rotation.EffectiveHeight)
 		return
 	}

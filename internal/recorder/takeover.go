@@ -109,6 +109,23 @@ func (r *Recorder) WithdrawTakeover(_ context.Context, sessionID string, sequenc
 // cannot be on chain. An entry that went out or is going out (its result may still come) is left
 // alone.
 func (r *Recorder) WithdrawUnsentTakeover(sessionID string, sequence uint64) bool {
+	withdrawn, _ := r.withdrawUnsent(sessionID, sequence)
+	return withdrawn
+}
+
+// WithdrawTakeoverUnlessSent reports whether no transaction carries the takeover entry of
+// (session, sequence), withdrawing it when it is held unsent: true also when no such entry is held
+// (never recorded, or already resolved, as one the chain refused), false only while a
+// transaction carries it, or one is being signed with it.
+func (r *Recorder) WithdrawTakeoverUnlessSent(sessionID string, sequence uint64) bool {
+	_, sent := r.withdrawUnsent(sessionID, sequence)
+	return !sent
+}
+
+// withdrawUnsent removes the takeover entry of (session, sequence) when it is held and no
+// transaction carries it or is being signed with it, and reports whether it did and whether one
+// does.
+func (r *Recorder) withdrawUnsent(sessionID string, sequence uint64) (withdrawn, sent bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
@@ -116,14 +133,14 @@ func (r *Recorder) WithdrawUnsentTakeover(sessionID string, sequence uint64) boo
 			continue
 		}
 		if e.Tx != "" || e.packing {
-			return false
+			return false, true
 		}
 		var ops []kv.WriteOp
 		r.removeLocked(e, &ops)
 		r.writeLocked(ops)
-		return true
+		return true, false
 	}
-	return false
+	return false, false
 }
 
 // takeoverLocked resolves the takeover entry e and tells the Takeovers with report. Caller holds

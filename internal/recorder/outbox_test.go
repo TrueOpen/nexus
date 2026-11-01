@@ -50,6 +50,37 @@ func TestWithdrawUnsentTakeover(t *testing.T) {
 	}
 }
 
+// WithdrawTakeoverUnlessSent reports whether no transaction carries the takeover entry, withdrawing
+// an unsent one: true for an entry not sent yet (now gone) and for no entry at all (never recorded,
+// or already resolved, as a refused one is), false only while a transaction carries it.
+func TestWithdrawTakeoverUnlessSent(t *testing.T) {
+	e := newEnv(t)
+	e.takeovers()
+	tb := takeover(t, 0xaa, 5, 50)
+	if !e.r.WithdrawTakeoverUnlessSent(tb.SessionID, 5) {
+		t.Fatal("no entry reported as carried by a transaction")
+	}
+	if err := e.r.RecordTakeover(context.Background(), tb); err != nil {
+		t.Fatal(err)
+	}
+	if !e.r.WithdrawTakeoverUnlessSent(tb.SessionID, 5) || e.r.Outbox().Entries != 0 || len(e.outboxKeys()) != 0 {
+		t.Fatalf("unsent entry not withdrawn: %+v", e.r.Outbox())
+	}
+	if err := e.r.RecordTakeover(context.Background(), tb); err != nil {
+		t.Fatal(err)
+	}
+	e.block(10)
+	if e.r.WithdrawTakeoverUnlessSent(tb.SessionID, 5) || e.r.Outbox().Entries != 1 {
+		t.Fatalf("sent entry withdrawn: %+v", e.r.Outbox())
+	}
+	msg, raw := e.lastSent()
+	e.chain.execute(raw, executed(t, msg, 11, refused(codeSequenceNotNext)))
+	e.block(11)
+	if !e.r.WithdrawTakeoverUnlessSent(tb.SessionID, 5) {
+		t.Fatal("a refused entry is still reported as carried by a transaction")
+	}
+}
+
 // A takeover entry chosen for a transaction is not withdrawn as unsent while the transaction is
 // signed: the transaction carries it whatever happens to the entry then. Once the send failed the
 // entry is unsent again and can be withdrawn.
