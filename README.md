@@ -42,7 +42,11 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    another Builder, so each session active here moves once. An exact resend of an order it holds
    is still answered with its state, and everything already under way goes on under the current
    key: tickets out are accepted, inputs delivered, records sent, outputs relayed, claims rebutted
-   and challenges answered; a held takeover goes on too. An order already taken that needs
+   and challenges answered. A held takeover whose entry no transaction carries yet ends with
+   its input dropped (task event `NO_CAPACITY`, the closed event set having no rotation code; a
+   resend is answered `NEXUS_INGRESS_BUILDER_KEY_ROTATING`), on this Builder's own
+   `SERVICE_KEY_ROTATION_REGISTERED` event or when it is judged again after a restart; one whose
+   entry went out or that the chain registered goes on. An order already taken that needs
    another round draws only from the last root signed before the registration, until that
    root's handraises expire. The pending state is read from the chain's binding on every order,
    so a restart in the window refuses as well. A Cortex that registered a rotation keeps its

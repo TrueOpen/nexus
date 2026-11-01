@@ -33,6 +33,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
@@ -237,7 +238,10 @@ func (m *Manager) draining() bool { return m.cfg.Draining != nil && m.cfg.Draini
 // EndUnsent ends, as NO_CAPACITY with their input dropped, the submitted takeovers whose entry no
 // transaction carries yet: they cannot be on chain, and during a drain the user is better sent to
 // another Builder at once. Each is judged in its own job, after the jobs queued before it.
-func (m *Manager) EndUnsent() {
+func (m *Manager) EndUnsent() { m.endUnsent(job{why: causeDrain}) }
+
+// endUnsent schedules j, a causeDrain job, on every submitted takeover.
+func (m *Manager) endUnsent(j job) {
 	m.mu.Lock()
 	var due []*record
 	for _, r := range m.records {
@@ -247,7 +251,7 @@ func (m *Manager) EndUnsent() {
 	}
 	m.mu.Unlock()
 	for _, r := range due {
-		m.schedule(r.SessionID, r.Sequence, job{why: causeDrain})
+		m.schedule(r.SessionID, r.Sequence, j)
 	}
 }
 
@@ -257,6 +261,24 @@ func (m *Manager) EndUnsent() {
 func (m *Manager) KeyRevoked() {
 	m.log.Warn("service key revoked: takeovers whose entry has not gone out end as no capacity")
 	m.EndUnsent()
+}
+
+// KeyRotating ends the submitted takeovers whose entry no transaction carries yet, as KeyRevoked
+// does: this Builder registered a service key rotation effective at height effective, and until
+// then it takes no new order. Those whose entry went out, or that the chain registered, go on.
+func (m *Manager) KeyRotating(effective uint64) {
+	m.log.Warn("service key rotation pending: takeovers whose entry has not gone out end", "effective_height", effective)
+	m.endUnsent(job{why: causeDrain, effective: effective})
+}
+
+// ObserveKeyEvent takes this Builder's own SERVICE_KEY_ROTATION_REGISTERED (KeyRotating); every
+// other service key event changes nothing here.
+func (m *Manager) ObserveKeyEvent(ev chaincli.ChainEvent) {
+	registered, ok := ev.Typed.(chaincli.ServiceKeyRotationRegistered)
+	if ok && registered.ParticipantType == sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER && registered.Operator == m.cfg.Builder &&
+		registered.EffectiveHeight != 0 {
+		m.KeyRotating(registered.EffectiveHeight)
+	}
 }
 
 // Pending counts the takeovers held as candidate, reserved ones included.
@@ -381,6 +403,11 @@ func (m *Manager) check(ctx context.Context, sessionID string, seq, maxFee uint6
 func (m *Manager) Submit(ctx context.Context, o types.Order) error {
 	if m.draining() {
 		return fmt.Errorf("%w: no takeover: %w", dispatchdraw.ErrNoCapacity, dispatcher.ErrDraining)
+	}
+	var rotation *handraise.RotationPendingError
+	if errors.As(m.cfg.Keys.CheckBuilderKey(ctx), &rotation) {
+		m.Release(o.SessionID, o.TaskHash)
+		return &inflight.BuilderKeyRotatingError{EffectiveHeight: rotation.EffectiveHeight}
 	}
 	m.mu.Lock()
 	r := m.records[o.SessionID]

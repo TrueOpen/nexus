@@ -24,6 +24,11 @@ const (
 	codeRejected   = coordinator.EvRecordRejected
 	codeTaskFailed = coordinator.EvTaskFailed
 	codeNoCapacity = coordinator.EvNoCapacity
+	// codeKeyRotating ends a held order while this Builder's own key rotation is pending. The
+	// closed task event code set has no code for it, so it is NO_CAPACITY, which the SDK handles
+	// alike; a resend of the order is answered NEXUS_INGRESS_BUILDER_KEY_ROTATING with the
+	// effective height.
+	codeKeyRotating = coordinator.EvNoCapacity
 )
 
 // cause is what a job on a takeover handles.
@@ -45,8 +50,8 @@ const (
 	// session's current bound_change_height (after a restart, or a result that could not be
 	// attributed to it).
 	causeSettle
-	// causeDrain: a drain, or a revocation of this Builder's service key, ends the takeover unless
-	// its entry went out.
+	// causeDrain: a drain, a revocation of this Builder's service key or its own pending key
+	// rotation (job.effective set) ends the takeover unless its entry went out.
 	causeDrain
 	// causeAhead: the chain refused the entry SEQUENCE_NOT_NEXT, ahead of the session's next
 	// expected sequence. Nothing was consumed: the takeover stays and its entry goes again at the
@@ -59,6 +64,9 @@ const (
 type job struct {
 	why  cause
 	code taskv1.DispatchRejectCodeV1
+	// effective is the effective height of this Builder's pending key rotation a causeDrain job
+	// ends the takeover for; 0 for a drain or a revocation.
+	effective uint64
 }
 
 // TakeoverRegistered implements recorder.Takeovers: the chain registered the takeover (or
@@ -213,6 +221,10 @@ func (m *Manager) handle(ctx context.Context, r *record, j job) {
 		m.ahead(ctx, r, j)
 	case causeDrain:
 		if m.phase(r) == phaseSubmitted && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
+			if j.effective != 0 {
+				m.endKeyRotating(ctx, r, j.effective)
+				return
+			}
 			m.log.Info("takeover ended before its entry went out (drain or revoked service key)", "session_id", r.SessionID, "order_sequence", r.Sequence)
 			m.end(ctx, r, codeNoCapacity, true, nil)
 		}
@@ -263,14 +275,17 @@ func (m *Manager) resolve(ctx context.Context, r *record, j job) {
 // settle judges a submitted entry again by Admit's rules with the current chain state and, when
 // the takeover still may register, hands the recorder its entry under the session's current
 // bound_change_height (dropping the one sent under an older one). A compensation account below its
-// minimum ends it as TASK_FAILED: no takeover then. A pending key rotation does not: the takeover
-// was admitted before it, and admitted takeovers go on. A revoked service key ends it as
-// NO_CAPACITY unless the chain already registered it or decided otherwise: its entry cannot be
+// minimum ends it as TASK_FAILED: no takeover then. A pending key rotation of this Builder ends it
+// unless the chain already registered it or decided otherwise, or a transaction carries its entry
+// (endKeyRotating): a Builder whose rotation is pending takes no new order. A revoked service key
+// ends it as NO_CAPACITY under the same condition but whatever carries the entry: it cannot be
 // signed before a replacement key is current, so the user is sent elsewhere at once instead of
 // the settle being retried every block.
 func (m *Manager) settle(ctx context.Context, r *record, j job) {
 	keyErr := m.cfg.Keys.CheckBuilderKey(ctx)
 	revoked := errors.Is(keyErr, servicekey.ErrRevoked)
+	var rotation *handraise.RotationPendingError
+	errors.As(keyErr, &rotation)
 	if keyErr != nil && !revoked && !errors.Is(keyErr, handraise.ErrBuilderRotationPending) {
 		if errors.Is(keyErr, dispatcher.ErrCompensationBelowMin) {
 			m.log.Warn("takeover dropped: no takeover while this Builder cannot record", "session_id", r.SessionID, "err", keyErr)
@@ -318,6 +333,10 @@ func (m *Manager) settle(ctx context.Context, r *record, j job) {
 		m.log.Warn("takeover ended: this Builder's service key is revoked, so its entry cannot be signed", "session_id", r.SessionID,
 			"order_sequence", r.Sequence, "err", keyErr)
 		m.end(ctx, r, codeNoCapacity, true, nil)
+		return
+	}
+	if rotation != nil && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
+		m.endKeyRotating(ctx, r, rotation.EffectiveHeight)
 		return
 	}
 	if err := inflight.CheckTakeoverFunds(inflight.Session{SessionState: state, Found: true}, r.Precheck.MaxFee); err != nil {
@@ -449,6 +468,14 @@ func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
 	m.log.Info("takeover took effect; order dispatched", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_change_height", boundChange)
 	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, outcomeActivated)
 	m.forget(r)
+}
+
+// endKeyRotating ends r, whose entry no transaction carries, while this Builder's own key rotation
+// is pending until effective, with its input dropped (codeKeyRotating).
+func (m *Manager) endKeyRotating(ctx context.Context, r *record, effective uint64) {
+	m.log.Info("takeover ended before its entry went out: "+inflight.ErrBuilderKeyRotating.Error(), "session_id", r.SessionID,
+		"order_sequence", r.Sequence, "effective_height", effective)
+	m.end(ctx, r, codeKeyRotating, true, nil)
 }
 
 // end drops r and its outbox entry, telling its task code and detail: where the session went, or

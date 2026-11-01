@@ -733,8 +733,9 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 
 // serviceKeyEvents feeds the chain's service key events to what follows them, each set once it
 // exists: the key cache drops the operator's stale keys first, this Builder's ring stops signing
-// on its own revocation, and the stream hub ends the Cortex streams whose binding key left. When
-// the ring finds its key revoked, the takeovers whose entry has not gone out end.
+// on its own revocation, the stream hub ends the Cortex streams whose binding key left, and the
+// takeovers whose entry has not gone out end once this Builder's own rotation is registered. When
+// the ring finds its key revoked, those takeovers end too.
 type serviceKeyEvents struct {
 	cache     atomic.Pointer[servicekey.Cache]
 	ring      atomic.Pointer[servicekey.Ring]
@@ -758,6 +759,9 @@ func (k *serviceKeyEvents) observe(ev chaincli.ChainEvent) {
 	}
 	if h := k.streams.Load(); h != nil {
 		h.ObserveEvent(ev)
+	}
+	if t := k.takeovers.Load(); t != nil {
+		t.ObserveKeyEvent(ev)
 	}
 }
 

@@ -772,7 +772,8 @@ func TestAdmitNeedsThisBuildersKey(t *testing.T) {
 
 // A restart judges a submitted entry again by Admit's rules before sending it again: under a
 // moved bound_change_height it is withdrawn and sent under the new one; with this Builder's key
-// rotation pending it is sent again (a takeover already registered goes on); recorded meanwhile by
+// rotation pending it ends while no transaction carries it, and is sent again once one does (a
+// takeover already registered goes on); recorded meanwhile by
 // the bound Builder it is voided; a recorder that cannot take it ends it TASK_FAILED. None of them
 // stops the start.
 func TestRestartJudgesSubmittedEntriesAgain(t *testing.T) {
@@ -823,9 +824,22 @@ func TestRestartJudgesSubmittedEntriesAgain(t *testing.T) {
 	if err := pending.m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	pending.wantCalls("held task5")
-	if len(pending.rec.bundles) != 2 || pending.stored() != 1 {
+	pending.wantCalls("held task5", "ended task5 NO_CAPACITY drop=true")
+	if len(pending.rec.bundles) != 1 || pending.stored() != 0 {
 		t.Fatalf("with the rotation pending: bundles %d, stored %d", len(pending.rec.bundles), pending.stored())
+	}
+
+	sent := newEnv(t)
+	sent.rec.sent = map[string]bool{session: true}
+	sent.submit(5)
+	sent.keys.err = &handraise.RotationPendingError{NextNonce: 2, RegisteredHeight: 40, EffectiveHeight: 90}
+	sent.open()
+	if err := sent.m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sent.wantCalls("held task5")
+	if len(sent.rec.bundles) != 2 || sent.stored() != 1 {
+		t.Fatalf("sent, with the rotation pending: bundles %d, stored %d", len(sent.rec.bundles), sent.stored())
 	}
 }
 
