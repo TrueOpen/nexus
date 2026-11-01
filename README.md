@@ -33,18 +33,23 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    `identity.next_service_keystore_password_file` (needs a dedicated `service_keystore_file`).
    Restart once so the daemon holds both keys, then submit the rotation with the operator key.
 2. While the rotation is pending the Builder signs no new handraise roots and takes no new
-   session (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY` for a session bound to it since the
-   registration, and no takeover is admitted). Its older sessions' orders below the effective
-   height can still be dispatched under the current key, but only from the last root signed
-   before the registration, and only until that root's handraises expire (their
-   `expiry_height` against the head): after that OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`,
-   and an order already taken that needs another round fails as no capacity. Most users in the
-   window therefore see `NEXUS_INGRESS_NO_CAPACITY` and go to another Builder. An order at or
-   above the effective height is answered `NEXUS_INGRESS_DISPATCH_NOT_READY` with
-   `dispatch_available_height` set to the effective height; since an order's
-   `earliest_submit_height` is at most the next block, that happens only in the block just before
-   the cutover. One taken before the registration was seen waits for the cutover. `nexus status`
-   warns when the registered key is not held locally.
+   order at all, so its current key signs no material of an order at or above the effective
+   height. OpenTask answers every order it does not already hold (the first order of a session,
+   the next sequence of a session bound to it, a resend after a failed attempt, a takeover
+   request) with `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (Unavailable), checked before any other
+   precheck, with the effective height as `dispatch_available_height` and at the end of the
+   message; the SDK treats it like `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to
+   another Builder, so each session active here moves once. An exact resend of an order it holds
+   is still answered with its state, and everything already under way goes on under the current
+   key: tickets out are accepted, inputs delivered, records sent, outputs relayed, claims rebutted
+   and challenges answered; a held takeover goes on too. An order already taken that needs
+   another round draws only from the last root signed before the registration, until that
+   root's handraises expire. The pending state is read from the chain's binding on every order,
+   so a restart in the window refuses as well. A Cortex that registered a rotation keeps its
+   stream for its tasks under way, but its standing handraise is not admitted in the roots
+   (`SERVICE_KEY_ROTATION_PENDING`) until its rotation activates. `nexus status` warns when the
+   registered key is not held locally. Rotate one BuilderSet member at a time, preferably off
+   peak; `nexus drain begin` before the registration stops new orders earlier still.
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
    roots (signed again), result headers, input chunks, record notices and record transactions
    from the new service account. Cortex streams stay up. Keep the old key configured (as either
@@ -228,6 +233,10 @@ Open items:
   `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and
   retries the same Builder. Wire has no field for the height from which dispatch is possible, so
   when it is known the error message ends with `dispatchable_height=<n>`.
+- `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (every new order refused while this Builder's key rotation
+  is pending, see Service key rotation) is not in the wire Ingress error codes yet; nexus defines
+  the text in one place (`internal/inflight/errors.go`) until wire lists it. Its height rides in
+  `dispatch_available_height`, the field wire has.
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
