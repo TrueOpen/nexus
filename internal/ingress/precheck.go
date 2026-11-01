@@ -119,6 +119,7 @@ func mapPrecheckErr(err error) error {
 	case errors.Is(err, inflight.ErrUnavailable), errors.Is(err, inflight.ErrOrderUploading):
 		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, inflight.ErrBuilderKeyRotating):
+		// A takeover admission that finds the rotation registered after refuseWhileRotating read it.
 		return mapKeyRotating(err)
 	case errors.As(err, &elsewhere):
 		detail := &nexusv1.OpenTaskResponse{BoundBuilder: &elsewhere.Builder}

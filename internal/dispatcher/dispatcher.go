@@ -526,7 +526,7 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	case errors.As(err, &rotation):
 		return &inflight.BuilderKeyRotatingError{EffectiveHeight: rotation.EffectiveHeight}
 	case errors.As(err, &revoked):
-	case errors.Is(err, handraise.ErrBuilderRotationPending), errors.Is(err, ErrCompensationBelowMin):
+	case errors.Is(err, ErrCompensationBelowMin):
 		return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
 	default:
 		return fmt.Errorf("%w: %v", inflight.ErrUnavailable, err)
