@@ -34,6 +34,8 @@ type fakePrechecker struct {
 	committed  []*inflight.Reservation
 }
 
+func (p *fakePrechecker) Holds(string, uint64, string) bool { return false }
+
 func (p *fakePrechecker) Reserve(_ context.Context, o inflight.Order) (inflight.Result, error) {
 	p.orders = append(p.orders, o)
 	if p.err != nil {

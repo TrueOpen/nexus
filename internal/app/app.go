@@ -643,6 +643,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters), ingress.WithBuilderSync(members, cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst), ingress.WithMemberReplicas(members, taskChain, cfg.Ingress.ReplicaWait()))
 		authParams.Precheck = orderPath.Precheck
 		authParams.Takeovers = orderPath.Takeovers
+		authParams.Rotation = orderPath.Keys
 	}
 	// The operator monitor: readiness, diagnostics and the drain requests in <data_dir>/ops, and the
 	// public readiness verdict and dispatch statistics on the ingress port.

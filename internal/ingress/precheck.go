@@ -36,7 +36,9 @@ type orderAdmission struct {
 // it for the order (the caller releases it if the order fails later); without takeovers it is
 // refused with NEXUS_INGRESS_SESSION_BOUND_ELSEWHERE naming that Builder. An exact resend of an
 // order held for a takeover is answered with it before the precheck runs: once the takeover took
-// effect the session is bound here, and the held order is not judged as a new one.
+// effect the session is bound here, and the held order is not judged as a new one. Right after
+// that, while this Builder's own key rotation is pending, any other order is refused
+// (refuseWhileRotating).
 func (s *service) precheckOrder(
 	ctx context.Context, order types.Order, signed *taskv1.TaskOrderV3, signer sdkauth.OrderPrecheck,
 ) (orderAdmission, error) {
@@ -59,6 +61,9 @@ func (s *service) precheckOrder(
 			return orderAdmission{Takeover: &held}, nil
 		}
 	}
+	if err := s.refuseWhileRotating(ctx, order); err != nil {
+		return orderAdmission{}, err
+	}
 	result, err := s.auth.Precheck.Reserve(ctx, o)
 	if err != nil {
 		return orderAdmission{}, mapPrecheckErr(err)
@@ -74,6 +79,28 @@ func (s *service) precheckOrder(
 		return orderAdmission{}, mapPrecheckErr(err)
 	}
 	return orderAdmission{Result: result, Takeover: &admission}, nil
+}
+
+// refuseWhileRotating is the local admission of a Builder whose own service key rotation is
+// registered and not active yet: it takes no new order, so its current key signs no material of an
+// order at or above the effective height and the user goes to another Builder. Any order it does
+// not already hold (the first order of a session, the next sequence of a session bound here, a
+// resend after a failed attempt, a takeover) is refused with NEXUS_INGRESS_BUILDER_KEY_ROTATING
+// naming the effective height, before the precheck reserves anything; an order it holds goes on
+// to the precheck, which answers it with its state. Not knowing whether a rotation is pending,
+// no new order is taken either (Unavailable).
+func (s *service) refuseWhileRotating(ctx context.Context, order types.Order) error {
+	if s.auth.Rotation == nil || s.auth.Precheck.Holds(order.SessionID, order.OrderSequence, order.TaskHash) {
+		return nil
+	}
+	effective, err := s.auth.Rotation.BuilderRotation(ctx)
+	switch {
+	case err != nil:
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("%w: this Builder's service key rotation: %v", inflight.ErrUnavailable, err))
+	case effective != 0:
+		return mapKeyRotating(&inflight.BuilderKeyRotatingError{EffectiveHeight: effective})
+	}
+	return nil
 }
 
 // mapPrecheckErr maps a precheck failure: session key verdicts as the SDK codes, a state that

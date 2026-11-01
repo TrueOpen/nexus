@@ -107,6 +107,43 @@ func TestChainServiceKeys(t *testing.T) {
 	}
 }
 
+// BuilderRotation reads this Builder's pending rotation from the chain binding on every call, so a
+// process started during the wait (a fresh ring) knows it at once and sees it end at activation.
+// A revoked current key is no rotation here, and a binding that cannot be read is an error.
+func TestBuilderRotation(t *testing.T) {
+	builder := newSigner(t, 0x01)
+	operator := newSigner(t, 0x02).Address()
+	key := servicekey.ParticipantBuilder + "/" + operator
+	resolver := fakeResolver{key: keyState(t, servicekey.ParticipantBuilder, operator, 0x01, 4)}
+	pending := resolver[key]
+	pending.PendingRotation = &chaincli.PendingServiceKeyRotation{NextAuthorizationNonce: 5, RegisteredHeight: 200, EffectiveHeight: 400}
+	resolver[key] = pending
+	ring, err := servicekey.NewRing(resolver, testPrefix, operator, nil, builder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := ChainServiceKeys{Resolver: resolver, AddressPrefix: testPrefix, Ring: ring}
+	if effective, err := keys.BuilderRotation(context.Background()); err != nil || effective != 400 {
+		t.Fatalf("BuilderRotation of a fresh ring = %d, %v; want 400", effective, err)
+	}
+	active := resolver[key]
+	active.PendingRotation = nil
+	resolver[key] = active
+	if effective, err := keys.BuilderRotation(context.Background()); err != nil || effective != 0 {
+		t.Fatalf("BuilderRotation after the activation = %d, %v", effective, err)
+	}
+	revoked := pending
+	revoked.Status = servicekey.StatusRevoked
+	resolver[key] = revoked
+	if effective, err := keys.BuilderRotation(context.Background()); err != nil || effective != 0 {
+		t.Fatalf("BuilderRotation with a revoked key = %d, %v", effective, err)
+	}
+	delete(resolver, key)
+	if _, err := keys.BuilderRotation(context.Background()); err == nil {
+		t.Fatal("BuilderRotation without a binding passed")
+	}
+}
+
 func TestRunIssuesRootsOnInterval(t *testing.T) {
 	e := newEnv(t)
 	e.cfg.HandraiseRootIntervalMs = 1

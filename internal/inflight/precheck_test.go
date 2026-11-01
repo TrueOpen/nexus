@@ -481,6 +481,48 @@ func TestPrecheckIdempotency(t *testing.T) {
 	}
 }
 
+// Holds is the local idempotency the precheck answers first: the same order (task_hash) of the
+// sequence held in any state but failed, a reservation still uploading included. Another version,
+// another sequence or a failed attempt is not held, and a restart keeps what is.
+func TestPrecheckHolds(t *testing.T) {
+	f := newFixture(t, nil)
+	if f.p.Holds(testSession, 5, "hash5") {
+		t.Fatal("an unknown order is held")
+	}
+	res := f.reserve(t, order(5))
+	if !f.p.Holds(testSession, 5, "hash5") {
+		t.Fatal("a reservation is not held")
+	}
+	if err := f.p.Commit(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	for _, mark := range []func() error{
+		func() error { return nil },
+		func() error { return f.ledger.MarkAccepted(testSession, 5) },
+		func() error { return f.ledger.MarkRecorded(testSession, 5) },
+	} {
+		if err := mark(); err != nil {
+			t.Fatal(err)
+		}
+		if !f.p.Holds(testSession, 5, "hash5") || f.p.Holds(testSession, 5, "other") || f.p.Holds(testSession, 6, "hash5") {
+			t.Fatal("held orders")
+		}
+	}
+	f.restart(t)
+	if !f.p.Holds(testSession, 5, "hash5") {
+		t.Fatal("a held order is lost on restart")
+	}
+	f.chain.set(func(s *chaincli.SessionState) { s.NextExpectedSequence = 6 })
+	f.cache.SessionKeyUpdated(testSession)
+	f.reserve(t, order(6))
+	if err := f.ledger.MarkFailed(testSession, 6); err != nil {
+		t.Fatal(err)
+	}
+	if f.p.Holds(testSession, 6, "hash6") {
+		t.Fatal("a failed attempt is held")
+	}
+}
+
 // After a failed attempt the same sequence, even a new version of the order, is a retry.
 func TestPrecheckRetryAfterFailure(t *testing.T) {
 	f := newFixture(t, nil)

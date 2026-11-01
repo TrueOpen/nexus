@@ -2,6 +2,7 @@ package handraise
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -52,4 +53,20 @@ func (k ChainServiceKeys) CheckBuilderKey(ctx context.Context) error {
 		return &RotationPendingError{NextNonce: view.Next.Nonce, RegisteredHeight: view.NextRegisteredHeight, EffectiveHeight: view.NextEffectiveHeight}
 	}
 	return nil
+}
+
+// BuilderRotation returns the effective height of this Builder's registered service key
+// replacement, 0 when none is pending, read from the chain binding (the ring refreshes it on every
+// call). A revoked current key is not a pending rotation and reads 0: what it may still do is
+// decided where it signs. It fails when the binding cannot be confirmed.
+func (k ChainServiceKeys) BuilderRotation(ctx context.Context) (uint64, error) {
+	err := k.CheckBuilderKey(ctx)
+	var rotation *RotationPendingError
+	switch {
+	case err == nil, errors.Is(err, servicekey.ErrRevoked):
+		return 0, nil
+	case errors.As(err, &rotation):
+		return rotation.EffectiveHeight, nil
+	}
+	return 0, err
 }

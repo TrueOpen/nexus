@@ -100,6 +100,18 @@ type AuthParams struct {
 	// Takeovers, when set with Precheck, takes the orders of sessions bound to another Builder
 	// (takeover.Manager): such an order registers a takeover instead of being refused.
 	Takeovers TakeoverIntake
+	// Rotation, when set with Precheck, reads this Builder's own pending service key rotation
+	// (handraise.ChainServiceKeys). While one is registered and not active, every new order, a
+	// takeover included, is refused with NEXUS_INGRESS_BUILDER_KEY_ROTATING before any other
+	// precheck; only an order this Builder already holds is answered.
+	Rotation BuilderRotation
+}
+
+// BuilderRotation reads the effective height of this Builder's registered service key
+// replacement, 0 when none is pending; handraise.ChainServiceKeys implements it from the chain
+// binding, so a restart during the wait still sees it.
+type BuilderRotation interface {
+	BuilderRotation(ctx context.Context) (uint64, error)
 }
 
 // TakeoverIntake takes the OpenTask orders of sessions bound to another Builder;
@@ -118,8 +130,10 @@ type TakeoverIntake interface {
 // implements it. Reserve enters an admitted order in the in-flight ledger right after the header
 // is validated, so concurrent orders of the session are judged with it while its input uploads;
 // Commit marks it handed over once the coordinator took the order, and Release undoes the
-// reservation when the order fails before that.
+// reservation when the order fails before that. Holds is the local idempotency alone: whether
+// this Builder already holds the same order.
 type OrderPrechecker interface {
+	Holds(sessionID string, sequence uint64, taskHash string) bool
 	Reserve(ctx context.Context, o inflight.Order) (inflight.Result, error)
 	Commit(r *inflight.Reservation) error
 	Release(r *inflight.Reservation) error

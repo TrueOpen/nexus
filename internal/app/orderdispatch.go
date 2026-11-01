@@ -52,7 +52,10 @@ type orderDispatch struct {
 	Precheck   *inflight.Prechecker
 	Dispatcher *dispatcher.Dispatcher
 	Recorder   *recorder.Recorder
-	Gate       *recorder.Gate
+	// Keys reads this Builder's own service key binding; Gate extends it with the compensation
+	// account, and OpenTask refuses new orders while it shows a pending rotation.
+	Keys handraise.ChainServiceKeys
+	Gate *recorder.Gate
 	// Takeovers takes over the sessions bound to other Builders that orders arrive for.
 	Takeovers *takeover.Manager
 	Attempts  *attempt.Book
@@ -234,6 +237,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if err != nil {
 		return nil, err
 	}
+	od.Keys = deps.Keys
 	od.Gate = recorder.NewGate(recorder.GateConfig{
 		Keys: deps.Keys, Builder: deps.BuilderAddress, MinBalance: params.record.MinCompensation, Log: deps.Log,
 		Account: func(ctx context.Context) (*hubv1.BuilderCompensationAccountState, error) {

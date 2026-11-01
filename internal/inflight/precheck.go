@@ -231,6 +231,14 @@ func (p *Prechecker) Reserve(ctx context.Context, o Order) (Result, error) {
 	return p.run(ctx, o, true)
 }
 
+// Holds reports whether this Builder holds the order (session, sequence, task_hash) already: in
+// the ledger in any state but failed, an uncommitted reservation included. It is the local
+// idempotency of step 6 alone, read before anything else; Reserve still judges such an order.
+func (p *Prechecker) Holds(sessionID string, sequence uint64, taskHash string) bool {
+	e, ok := p.cfg.Ledger.Get(sessionID, sequence)
+	return ok && e.TaskHash == taskHash && e.State != StateFailed
+}
+
 // Commit marks a reservation's order as handed to the dispatcher; see Ledger.Commit.
 func (p *Prechecker) Commit(r *Reservation) error {
 	return p.cfg.Ledger.Commit(r)
