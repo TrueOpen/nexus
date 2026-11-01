@@ -62,8 +62,8 @@ var (
 	// a chain failure: Accept refuses the handraise as not eligible, with this reason.
 	ErrInvalidSnapshot = errors.New("invalid candidate pool snapshot")
 	// ErrBuilderRotationPending means this Builder registered a service key replacement that has
-	// not activated yet. A pending Builder signs no new roots and accepts no new sessions; its
-	// current key keeps dispatching orders below the effective height (RotationPendingError).
+	// not activated yet. A pending Builder signs no new roots and takes no new order; its current
+	// key keeps serving the orders taken before (RotationPendingError).
 	ErrBuilderRotationPending = errors.New("builder service key rotation pending")
 )
 

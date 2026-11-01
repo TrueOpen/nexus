@@ -56,8 +56,8 @@ func TestCompensationGate(t *testing.T) {
 }
 
 // The gate is the dispatcher's one Keys: a key that cannot be confirmed comes first. A pending own
-// rotation still lets orders below its effective height dispatch, so the compensation account is
-// checked under it, and the rotation is reported when the account is fine.
+// rotation still lets the orders taken before it dispatch, so the compensation account is checked
+// under it, and the rotation is reported when the account is fine.
 func TestGateKeepsTheKeyCheck(t *testing.T) {
 	ctx := context.Background()
 	keys := &fakeKeys{err: errors.New("key unreadable")}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -294,6 +295,30 @@ func TestCortexKeyEventsEndTheStreamsTheyRetire(t *testing.T) {
 	h.keys.signBinding(t, binding)
 	h.open(bindingFrame(binding))
 	h.waitConn(cortexA, true)
+}
+
+// A Cortex that registered a key rotation keeps its stream until the rotation activates: the
+// Builder only stops admitting its standing handraises (in the roots it signs), while the messages
+// of tasks already dispatched to it (accepts, input requests) still go through.
+func TestCortexRotationRegistrationKeepsTheStream(t *testing.T) {
+	h := newHarness(t)
+	s := h.connect(cortexA, "1")
+	h.hub.ObserveEvent(chaincli.ChainEvent{Type: chaincli.EventHubOperational, EventCode: "SERVICE_KEY_ROTATION_REGISTERED",
+		Typed: chaincli.ServiceKeyRotationRegistered{ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_CORTEX, Operator: cortexA,
+			CurrentAuthorizationNonce: testNonce, NextAuthorizationNonce: testNonce + 1, EffectiveHeight: 400}})
+	if !h.hub.Connected(cortexA) {
+		t.Fatal("a registered rotation ended the stream")
+	}
+	for _, f := range []*nexusv1.DispatchStreamFrameV1{
+		acceptFrame(h.keys.accept(t, cortexA, "t1")), inputRequestFrame(h.keys.inputRequest(t, cortexA, "t1")),
+	} {
+		if cursor := s.send(f); s.stream.nextAck(t) != cursor {
+			t.Fatal("an in-flight task message was not acknowledged")
+		}
+	}
+	if got := h.sinks.kinds(); !slices.Equal(got, []string{"accept", "input_request"}) {
+		t.Fatalf("routed %v", got)
+	}
 }
 
 // A key event the Builder missed is caught on the next keepalive tick: a stream whose binding key

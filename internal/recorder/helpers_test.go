@@ -444,6 +444,7 @@ type env struct {
 	// book, when set, is the attempt book the recorder tells instead of attempts.
 	book     Attempts
 	gate     *Gate
+	keys     *fakeKeys
 	evidence *fakeEvidence
 	account  *accountReader
 	metrics  *opsmetrics.Registry
@@ -490,7 +491,8 @@ func (e *env) open() {
 		book = e.book
 	}
 	e.evidence = &fakeEvidence{}
-	e.gate = NewGate(GateConfig{Keys: &fakeKeys{}, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
+	e.keys = &fakeKeys{}
+	e.gate = NewGate(GateConfig{Keys: e.keys, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: servicekey.Static(e.signer, testServiceNonce), Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
 		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,

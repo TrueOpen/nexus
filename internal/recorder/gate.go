@@ -69,7 +69,7 @@ func (g *Gate) SetMinBalance(min *big.Int) {
 
 // CheckBuilderKey implements dispatcher.Keys: a key that cannot be confirmed first, then
 // dispatcher.ErrCompensationBelowMin below the minimum (an account never read is unconfirmed),
-// then a pending own rotation, under which orders below its effective height still dispatch.
+// then a pending own rotation, under which the orders taken before it still dispatch.
 func (g *Gate) CheckBuilderKey(ctx context.Context) error {
 	err := g.cfg.Keys.CheckBuilderKey(ctx)
 	if err != nil && !errors.Is(err, handraise.ErrBuilderRotationPending) {

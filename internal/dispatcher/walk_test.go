@@ -574,7 +574,8 @@ func TestOwnRotationPendingRefusesEveryNewOrder(t *testing.T) {
 }
 
 // An order taken before this Builder's rotation was registered goes on while it is pending: below
-// the effective height it is offered under the current key, accepted and handed to the recorder.
+// the effective height it is offered under the current key, accepted, its input delivered to the
+// winner and the order handed to the recorder.
 func TestOwnRotationPendingDispatchesOrdersTakenBefore(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -584,10 +585,21 @@ func TestOwnRotationPendingDispatchesOrdersTakenBefore(t *testing.T) {
 	if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7}) {
 		t.Fatalf("offers = %v", got)
 	}
-	if _, ticket, _ := e.lastOffer(); ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
+	_, ticket, hash := e.lastOffer()
+	if ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
 		t.Fatalf("ticket nonce = %d, want the current %d", ticket.GetServiceAuthorizationNonce(), testBuilderNonce)
 	}
-	e.accept()
+	accept, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, accept); err != nil {
+		t.Fatal(err)
+	}
+	request := &nexusv1InputRequest{ticket: ticket, hash: hash}
+	if err := e.d.HandleDispatchInputRequest(context.Background(), from, request.msg(from.Digest[:])); err != nil {
+		t.Fatalf("input request = %v", err)
+	}
+	if n := len(e.streams.inputResponses()); n == 0 {
+		t.Fatal("no input delivered")
+	}
 	if b := e.onlyBundle(); b.SessionID != s || b.Sequence != 0 {
 		t.Fatalf("bundle = %+v", b)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 )
@@ -286,6 +287,24 @@ func TestDeadlinePassed(t *testing.T) {
 	}
 	if len(e.tasks.rejected) != 3 || e.tasks.rejected[2].taskID != taskIDOf(0xbb, 0) {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
+	}
+}
+
+// While this Builder's own key rotation is pending the orders it dispatched before are still
+// recorded under the current key, and their winners get the RECORDED notice.
+func TestRecordsGoOnWhileTheKeyRotates(t *testing.T) {
+	e := newEnv(t)
+	e.keys.mu.Lock()
+	e.keys.err = &handraise.RotationPendingError{NextNonce: testServiceNonce + 1, RegisteredHeight: 5, EffectiveHeight: 400}
+	e.keys.mu.Unlock()
+	b := bundle(0xaa, 0, 1, 50)
+	e.record(b)
+	e.block(10)
+	msg, raw := e.lastSent()
+	e.chain.execute(raw, executed(t, msg, 11, ok()))
+	e.block(11)
+	if want := []taskReport{{taskID: b.TaskID, height: 11}}; !reflect.DeepEqual(e.tasks.recorded, want) || len(e.notices()) != 1 {
+		t.Fatalf("recorded = %v, notices %d", e.tasks.recorded, len(e.notices()))
 	}
 }
 
