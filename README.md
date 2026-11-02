@@ -32,28 +32,32 @@ and the Builder messages of tasks recorded before it. No drain is needed:
 1. Put the new service key next to the current one: `identity.next_service_keystore_file` and
    `identity.next_service_keystore_password_file` (needs a dedicated `service_keystore_file`).
    Restart once so the daemon holds both keys, then submit the rotation with the operator key.
-2. While the rotation is pending the Builder signs no new handraise roots and takes no new
-   order at all, so its current key signs no material of an order at or above the effective
-   height. OpenTask answers every order it does not already hold (the first order of a session,
-   the next sequence of a session bound to it, a resend after a failed attempt, a takeover
-   request) with `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (Unavailable), checked before any other
-   precheck, with the effective height as `dispatch_available_height` and at the end of the
-   message; the SDK treats it like `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to
-   another Builder, so each session active here moves once. An exact resend of an order it holds
-   is still answered with its state, and everything already under way goes on under the current
-   key: tickets out are accepted, inputs delivered, records sent, outputs relayed, claims rebutted
-   and challenges answered. A held takeover whose entry no transaction carries yet ends with
-   its input dropped (task event `NO_CAPACITY`, the closed event set having no rotation code; a
-   resend is answered `NEXUS_INGRESS_BUILDER_KEY_ROTATING`), on this Builder's own
-   `SERVICE_KEY_ROTATION_REGISTERED` event or when it is judged again after a restart; one whose
-   entry went out or that the chain registered goes on. An order already taken that needs
-   another round draws only from the last root signed before the registration, until that
-   root's handraises expire. The pending state is read from the chain's binding on every order,
-   so a restart in the window refuses as well. A Cortex that registered a rotation keeps its
-   stream for its tasks under way, but its standing handraise is not admitted in the roots
-   (`SERVICE_KEY_ROTATION_PENDING`) until its rotation activates. `nexus status` warns when the
-   registered key is not held locally. Rotate one BuilderSet member at a time, preferably off
-   peak; `nexus drain begin` before the registration stops new orders earlier still.
+2. While the rotation is pending the Builder takes no new order at all, so its current key signs no
+   material of an order at or above the effective height. OpenTask answers every order it does not
+   already hold (the first order of a session, the next sequence of a session bound to it, a resend
+   after a failed attempt, a takeover request) with `NEXUS_INGRESS_BUILDER_KEY_ROTATING`
+   (Unavailable), checked before any other precheck, with the effective height as
+   `dispatch_available_height` and at the end of the message; the SDK treats it like
+   `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to another Builder, so each session
+   active here moves once. An exact resend of an order it holds is still answered with its state,
+   and everything already under way goes on under the current key: tickets out are accepted, inputs
+   delivered, records sent, outputs relayed, claims rebutted and challenges answered. A held
+   takeover whose entry no transaction carries yet ends with its input dropped (task event
+   `NO_CAPACITY`, the closed event set having no rotation code; a resend is answered
+   `NEXUS_INGRESS_BUILDER_KEY_ROTATING`), on this Builder's own `SERVICE_KEY_ROTATION_REGISTERED`
+   event or when it is judged again after a restart; one whose entry went out or that the chain
+   registered goes on. Handraise roots are still signed with the current key, each with a
+   `root_height` below the effective height (the retired key still proves it after the cutover): an
+   order already taken that needs another round (a binding change voided its ticket) binds the
+   latest root as usual. Should the local height reach the effective height before the chain's
+   binding shows the cutover, no root is signed until it does (logged once as `handraise roots wait
+   until the chain shows the Builder service key cutover`). The pending state is read from the
+   chain's binding on every order, so a restart in the window refuses as well. A Cortex that
+   registered a rotation keeps its stream for its tasks under way, but its standing handraise is
+   not admitted in the roots (`SERVICE_KEY_ROTATION_PENDING`) until its rotation activates. `nexus
+   status` warns when the registered key is not held locally. Rotate one BuilderSet member at a
+   time, preferably off peak; `nexus drain begin` before the registration stops new orders earlier
+   still.
 3. At the effective height the daemon signs with the new key without a restart: tickets, records,
    roots (signed again), result headers, input chunks, record notices and record transactions
    from the new service account. Cortex streams stay up. Keep the old key configured (as either
