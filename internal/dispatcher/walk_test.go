@@ -628,6 +628,44 @@ func TestOwnRotationPendingHoldsOrdersAtTheCutover(t *testing.T) {
 	}
 }
 
+// An order taken before this Builder's rotation was registered that needs another round while
+// the rotation is pending opens it on a root signed during the wait, by the current key under its
+// nonce: its first Worker times out and the walk goes on within the round; when a binding change
+// voids the ticket out, the new round binds the latest root and goes on after the last rank. A new
+// order is still refused with NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+func TestOwnRotationPendingOpensNextRoundsOnFreshRoots(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.keys.pendBuilder(testBound+1, testESH+1)
+	_, first, _ := e.lastOffer()
+	e.clock.advance(time.Duration(first.GetAcceptDeadlineMs()-uint64(e.clock.Now().UnixMilli())) * time.Millisecond)
+	if op, second, _ := e.lastOffer(); op != op1 || second.GetDispatchRound() != 0 {
+		t.Fatalf("after the timeout: %s round %d", op, second.GetDispatchRound())
+	}
+
+	e.handraises.setRoot(0xd2, 2, op1, op3, op7) // signed during the wait
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = 60 })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: 60}})
+	op, ticket, _ := e.lastOffer()
+	fresh := fill32(0xd2)
+	if op != op3 || ticket.GetDispatchRound() != 1 || ticket.GetRank() != 2 || !bytes.Equal(ticket.GetHandraiseRootDigest(), fresh[:]) ||
+		ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
+		t.Fatalf("next round during the rotation: %s %v", op, ticket)
+	}
+	e.accept()
+	rec := checkRecordable(t, e, e.onlyBundle(), 60)
+	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:TIMEOUT", "0:1:VOIDED", "1:2:ACCEPTED"}) {
+		t.Fatalf("attempts = %v", got)
+	}
+
+	var rotating *inflight.BuilderKeyRotatingError
+	if err := e.d.Probe(context.Background(), e.order(s, 1, 1)); !errors.As(err, &rotating) || rotating.EffectiveHeight != testESH+1 {
+		t.Fatalf("probe of a new order during the rotation = %v, want BUILDER_KEY_ROTATING", err)
+	}
+}
+
 // After the cutover a round opens only on a root signed by the new key: a root of the retired key
 // cannot prove an order at or above the cutover. The order waits for the next root.
 func TestRoundWaitsForARootOfTheCurrentKey(t *testing.T) {

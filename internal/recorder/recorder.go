@@ -9,8 +9,8 @@
 // longer land) is sent with the same entry bytes in a new transaction; the chain answers an entry
 // it already admitted with its first result.
 //
-// Records keep going while this Builder's own key rotation is pending (the dispatcher issues no
-// new ticket then); only a compensation account known to be below its minimum, or a refusal of
+// Records keep going while this Builder's own key rotation is pending (the dispatcher takes no
+// new order then); only a compensation account known to be below its minimum, or a refusal of
 // the submitter itself, stops them.
 //
 // An entry is resolved only by its result in an executed transaction, a dispatch_recorded event of
