@@ -62,9 +62,15 @@ var (
 	// a chain failure: Accept refuses the handraise as not eligible, with this reason.
 	ErrInvalidSnapshot = errors.New("invalid candidate pool snapshot")
 	// ErrBuilderRotationPending means this Builder registered a service key replacement that has
-	// not activated yet. A pending Builder signs no new roots and takes no new order; its current
-	// key keeps serving the orders taken before (RotationPendingError).
+	// not activated yet. A pending Builder takes no new order; its current key keeps serving the
+	// orders taken before, and keeps signing roots below the effective height for their next
+	// rounds (RotationPendingError).
 	ErrBuilderRotationPending = errors.New("builder service key rotation pending")
+	// ErrBuilderCutoverUnseen means the root height reached the effective height of this Builder's
+	// pending rotation while the chain binding read still shows it pending: the current key is
+	// retired at that height, and the next one is not current in the read yet. No root is signed
+	// until a read shows the cutover.
+	ErrBuilderCutoverUnseen = errors.New("builder service key cutover height reached before the chain binding shows it")
 )
 
 // RotationPendingError is ErrBuilderRotationPending with the replacement's schedule: registered at

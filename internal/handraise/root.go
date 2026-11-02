@@ -72,6 +72,11 @@ func (r *IssuedRoot) Proof(index uint32) (*taskv1.HandraiseInclusionProofV1, err
 // rotated), and returns it; otherwise it returns nil.
 // root_height is the local chain height (never below the latest root's); root_version counts up
 // from 0 within one root_height.
+// While this Builder's own rotation is pending, roots are still signed by the current key: the
+// orders already dispatched open their next rounds on them. Such a root carries a root_height
+// below the effective height, so the retired key still proves it after the cutover; at or above
+// that height the current key signs none (ErrBuilderCutoverUnseen) until the chain shows the
+// replacement current.
 func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	r.issueMu.Lock()
 	defer r.issueMu.Unlock()
@@ -79,7 +84,8 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read chain height: %w", err)
 	}
-	if err := r.opts.Keys.CheckBuilderKey(ctx); err != nil {
+	var rotation *RotationPendingError
+	if err := r.opts.Keys.CheckBuilderKey(ctx); err != nil && !errors.As(err, &rotation) {
 		return nil, fmt.Errorf("check Builder service key: %w", err)
 	}
 	r.sampleRTT()
@@ -92,6 +98,10 @@ func (r *Registry) IssueRoot(ctx context.Context) (*IssuedRoot, error) {
 	last := r.latest
 	if last != nil && height < last.Root.GetRootHeight() {
 		height = last.Root.GetRootHeight()
+	}
+	if rotation != nil && height >= rotation.EffectiveHeight {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("%w: root height %d, effective height %d", ErrBuilderCutoverUnseen, height, rotation.EffectiveHeight)
 	}
 	r.invalidateLocked(unusable)
 	entries, traces := r.collectLocked(height, pending)
@@ -231,8 +241,8 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 		}
 		issued, err := r.IssueRoot(ctx)
 		if why := pauseOf(err); why != "" {
-			// Expected for the whole rotation wait or revocation; say so once instead of every
-			// interval.
+			// Expected for the whole revocation, or until the cutover is read; say so once
+			// instead of every interval.
 			if why != paused {
 				r.log.Info(why, "error", err)
 			}
@@ -252,12 +262,13 @@ func (r *Registry) Run(ctx context.Context, onRoot func(*IssuedRoot)) error {
 	}
 }
 
-// pauseOf names the expected pause an IssueRoot error is, "" for any other: a pending rotation
-// of this Builder's own key, or its revoked current key, signs no root until it ends.
+// pauseOf names the expected pause an IssueRoot error is, "" for any other: the effective height
+// of this Builder's own rotation reached before the chain read shows the cutover, or its revoked
+// current key, signs no root until it ends.
 func pauseOf(err error) string {
 	switch {
-	case errors.Is(err, ErrBuilderRotationPending):
-		return "handraise roots paused until the Builder service key rotation activates"
+	case errors.Is(err, ErrBuilderCutoverUnseen):
+		return "handraise roots wait until the chain shows the Builder service key cutover"
 	case errors.Is(err, servicekey.ErrRevoked):
 		return "handraise roots paused while this Builder's service key is revoked"
 	}

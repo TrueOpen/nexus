@@ -1,16 +1,16 @@
 package handraise
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/proto"
+	"github.com/TrueOpen/wire/dispatch"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/servicekey"
@@ -207,9 +207,12 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-// While the Builder's own key rotation is pending, IssueRoot refuses with ErrBuilderRotationPending
-// and the last root stays the latest; Run says so once and issues again once the rotation clears.
-func TestRegistryPausesRootsDuringBuilderRotation(t *testing.T) {
+// While the Builder's own key rotation is pending, roots keep being signed by the current key
+// under its nonce, with a root_height below the effective height: the orders already dispatched
+// need them for their next rounds. Run logs no pause and no failure. Once the local height reaches
+// the effective height while the chain binding read still shows the rotation pending, the current
+// key signs no root (it would be retired at that height); Run says so once, not as a failure.
+func TestRegistryKeepsSigningRootsDuringBuilderRotation(t *testing.T) {
 	e := newEnv(t)
 	e.cfg.HandraiseRootIntervalMs = 1
 	e.reg = e.open()
@@ -217,18 +220,20 @@ func TestRegistryPausesRootsDuringBuilderRotation(t *testing.T) {
 	e.reg.log = slog.New(logs)
 	c1 := e.addCortex(0x11, 1)
 	e.mustAccept(c1, e.handraise(c1, 100, 1))
-	old := e.mustIssue()
+	e.mustIssue()
 
+	const effective = 400
 	e.keys.mu.Lock()
-	e.keys.builderErr = fmt.Errorf("%w: nonce 5 effective at height 400", ErrBuilderRotationPending)
+	e.keys.builderErr = &RotationPendingError{NextNonce: testBuilderNonce + 1, RegisteredHeight: 50, EffectiveHeight: effective}
 	e.keys.mu.Unlock()
 	c2 := e.addCortex(0x12, 2)
 	e.mustAccept(c2, e.handraise(c2, 100, 1))
-	if _, err := e.reg.IssueRoot(context.Background()); !errors.Is(err, ErrBuilderRotationPending) {
-		t.Fatalf("IssueRoot during the rotation = %v, want ErrBuilderRotationPending", err)
+	root := e.mustIssue()
+	if root.Root.GetLeafCount() != 2 || root.Root.GetServiceAuthorizationNonce() != testBuilderNonce || root.Root.GetRootHeight() >= effective {
+		t.Fatalf("root during the rotation = %v", root.Root)
 	}
-	if latest, _, ok := e.reg.Latest(); !ok || !proto.Equal(latest, old.Root) {
-		t.Fatal("the latest root changed during the rotation")
+	if err := dispatch.VerifyDigestSignature(e.builder.PubKeyCompressed(), root.Digest[:], root.Root.GetBuilderServiceSignature()); err != nil {
+		t.Fatalf("root during the rotation is not signed by the current key: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -236,36 +241,99 @@ func TestRegistryPausesRootsDuringBuilderRotation(t *testing.T) {
 	roots := make(chan *IssuedRoot, 4)
 	done := make(chan error, 1)
 	go func() { done <- e.reg.Run(ctx, func(root *IssuedRoot) { roots <- root }) }()
-	const paused = "handraise roots paused until the Builder service key rotation activates"
-	waitFor(t, "the pause log", func() bool { return logs.count(paused) > 0 })
-	time.Sleep(30 * time.Millisecond) // many intervals
-	if n := logs.count(paused); n != 1 {
-		t.Fatalf("pause logged %d times, want once", n)
-	}
-	if n := logs.count("issue handraise root"); n != 0 {
-		t.Fatalf("a pending rotation was logged as a failure %d times", n)
-	}
-	select {
-	case <-roots:
-		t.Fatal("a root was issued during the rotation")
-	default:
-	}
-
-	e.keys.mu.Lock()
-	e.keys.builderErr = nil
-	e.keys.mu.Unlock()
+	c3 := e.addCortex(0x13, 3)
+	e.mustAccept(c3, e.handraise(c3, 100, 1))
 	select {
 	case root := <-roots:
-		if root.Root.GetLeafCount() != 2 {
-			t.Fatalf("root after the rotation = %v", root.Root)
+		if root.Root.GetLeafCount() != 3 || root.Root.GetServiceAuthorizationNonce() != testBuilderNonce {
+			t.Fatalf("root of Run during the rotation = %v", root.Root)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("no root after the rotation cleared")
+		t.Fatal("no root during the rotation")
+	}
+
+	latest, _ := e.reg.LatestRoot()
+	e.height.set(effective)
+	const waits = "handraise roots wait until the chain shows the Builder service key cutover"
+	waitFor(t, "the cutover wait log", func() bool { return logs.count(waits) > 0 })
+	time.Sleep(30 * time.Millisecond) // many intervals
+	if n, failed := logs.count(waits), logs.count("issue handraise root"); n != 1 || failed != 0 {
+		t.Fatalf("cutover wait logged %d times, failures %d; want once and none", n, failed)
+	}
+	if now, _ := e.reg.LatestRoot(); now != latest {
+		t.Fatalf("a root was signed by the retiring key at the effective height: %v", now.Root)
 	}
 	cancel()
 	<-done
-	if n := logs.count(paused); n != 1 {
-		t.Fatalf("pause logged %d times, want once", n)
+	if _, err := e.reg.IssueRoot(context.Background()); !errors.Is(err, ErrBuilderCutoverUnseen) {
+		t.Fatalf("IssueRoot at the effective height with the rotation still pending = %v, want ErrBuilderCutoverUnseen", err)
+	}
+}
+
+// ringKeys reads this Builder's key through a real Ring and the Cortex keys from the fakes.
+type ringKeys struct {
+	*fakeKeys
+	chain ChainServiceKeys
+}
+
+func (k ringKeys) CheckBuilderKey(ctx context.Context) error { return k.chain.CheckBuilderKey(ctx) }
+
+// Across this Builder's cutover, through the ring: below the effective height the current key
+// signs roots under its nonce while the rotation is pending; at the effective height it signs none
+// while the chain read still shows the rotation pending; once the chain shows the new key current,
+// the same leaves are signed again by it under its nonce, at a root_height at or above the
+// effective height.
+func TestRootsAcrossTheBuilderCutover(t *testing.T) {
+	e := newEnv(t)
+	oldKey, newKey := newSigner(t, 0x01), newSigner(t, 0x09)
+	operator := e.builder.Address() // the handraises are addressed to it
+	binding := servicekey.ParticipantBuilder + "/" + operator
+	const effective = 101 // the next block: the handraise signed at 100 is still live
+	resolver := fakeResolver{binding: keyState(t, servicekey.ParticipantBuilder, operator, 0x01, testBuilderNonce)}
+	pending := resolver[binding]
+	pending.PendingRotation = &chaincli.PendingServiceKeyRotation{
+		NextServicePubKey: hex.EncodeToString(newKey.PubKeyCompressed()), NextAuthorizationNonce: testBuilderNonce + 1,
+		RegisteredHeight: 40, EffectiveHeight: effective,
+	}
+	resolver[binding] = pending
+	ring, err := servicekey.NewRing(resolver, testPrefix, operator, nil, oldKey, newKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := New(Options{
+		ChainID: testChainID, BuilderAddress: operator, Config: e.cfg, Store: e.store,
+		Keys: ringKeys{e.keys, ChainServiceKeys{Resolver: resolver, AddressPrefix: testPrefix, Ring: ring}},
+		Pool: e.pool, Height: e.height, Signer: ring, Now: e.clock.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.reg = reg
+	c := e.addCortex(0x11, 1)
+	e.mustAccept(c, e.handraise(c, 100, 1))
+
+	e.height.set(effective - 1)
+	before := e.mustIssue()
+	if before.Root.GetServiceAuthorizationNonce() != testBuilderNonce || before.Root.GetRootHeight() != effective-1 ||
+		dispatch.VerifyDigestSignature(oldKey.PubKeyCompressed(), before.Digest[:], before.Root.GetBuilderServiceSignature()) != nil {
+		t.Fatalf("root before the cutover = %v", before.Root)
+	}
+
+	e.height.set(effective)
+	if root, err := e.reg.IssueRoot(context.Background()); !errors.Is(err, ErrBuilderCutoverUnseen) || root != nil {
+		t.Fatalf("IssueRoot at the effective height before the chain shows the cutover = %v, %v", root, err)
+	}
+
+	current := keyState(t, servicekey.ParticipantBuilder, operator, 0x09, testBuilderNonce+1)
+	current.Previous = &chaincli.PreviousServiceKey{
+		ServicePubKey: hex.EncodeToString(oldKey.PubKeyCompressed()), AuthorizationNonce: testBuilderNonce, RetiredHeight: effective,
+	}
+	resolver[binding] = current
+	after := e.mustIssue()
+	if !bytes.Equal(after.Root.GetRoot(), before.Root.GetRoot()) || after.Root.GetServiceAuthorizationNonce() != testBuilderNonce+1 ||
+		after.Root.GetRootHeight() < effective ||
+		dispatch.VerifyDigestSignature(newKey.PubKeyCompressed(), after.Digest[:], after.Root.GetBuilderServiceSignature()) != nil {
+		t.Fatalf("root after the cutover = %v", after.Root)
 	}
 }
 
