@@ -85,8 +85,11 @@ type GenesisState struct {
 	// uses params_meta.params_version. Both lists share the same binding schema.
 	TaskParamsVersionBindings    []*ParamsVersionBindingState `protobuf:"bytes,91,rep,name=task_params_version_bindings,json=taskParamsVersionBindings,proto3" json:"task_params_version_bindings,omitempty"`
 	SessionParamsVersionBindings []*ParamsVersionBindingState `protobuf:"bytes,92,rep,name=session_params_version_bindings,json=sessionParamsVersionBindings,proto3" json:"session_params_version_bindings,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// First acceptor facts include their signed binding/epoch context. Derived
+	// prune indexes are rebuilt and are not exported.
+	DispatchRoundAcceptors []*DispatchRoundAcceptorState `protobuf:"bytes,93,rep,name=dispatch_round_acceptors,json=dispatchRoundAcceptors,proto3" json:"dispatch_round_acceptors,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GenesisState) Reset() {
@@ -469,6 +472,13 @@ func (x *GenesisState) GetSessionParamsVersionBindings() []*ParamsVersionBinding
 	return nil
 }
 
+func (x *GenesisState) GetDispatchRoundAcceptors() []*DispatchRoundAcceptorState {
+	if x != nil {
+		return x.DispatchRoundAcceptors
+	}
+	return nil
+}
+
 // TaskParamsHistoryState retains one superseded parameter body. Version zero
 // may name the chain's initial parameter set. Heights can coincide when several
 // governance updates execute in one block; the highest version wins at that H.
@@ -604,7 +614,7 @@ var File_task_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_task_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xe3\"\n" +
+	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xc2#\n" +
 	"\fGenesisState\x12-\n" +
 	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12=\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateR\n" +
@@ -658,7 +668,8 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	" verifier_value_evidence_receipts\x18P \x03(\v2*.task.v1.VerifierValueEvidenceReceiptStateR\x1dverifierValueEvidenceReceipts\x12F\n" +
 	"\x0eparams_history\x18Z \x03(\v2\x1f.task.v1.TaskParamsHistoryStateR\rparamsHistory\x12c\n" +
 	"\x1ctask_params_version_bindings\x18[ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x19taskParamsVersionBindings\x12i\n" +
-	"\x1fsession_params_version_bindings\x18\\ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x1csessionParamsVersionBindingsJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
+	"\x1fsession_params_version_bindings\x18\\ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x1csessionParamsVersionBindings\x12]\n" +
+	"\x18dispatch_round_acceptors\x18] \x03(\v2#.task.v1.DispatchRoundAcceptorStateR\x16dispatchRoundAcceptorsJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
 	"\x16TaskParamsHistoryState\x12%\n" +
 	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12-\n" +
 	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12%\n" +
@@ -732,6 +743,7 @@ var file_task_v1_genesis_proto_goTypes = []any{
 	(*DispatchWinnerIneligibleState)(nil),            // 47: task.v1.DispatchWinnerIneligibleState
 	(*TakeoverEntryReceiptState)(nil),                // 48: task.v1.TakeoverEntryReceiptState
 	(*VerifierValueEvidenceReceiptState)(nil),        // 49: task.v1.VerifierValueEvidenceReceiptState
+	(*DispatchRoundAcceptorState)(nil),               // 50: task.v1.DispatchRoundAcceptorState
 }
 var file_task_v1_genesis_proto_depIdxs = []int32{
 	3,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
@@ -784,12 +796,13 @@ var file_task_v1_genesis_proto_depIdxs = []int32{
 	1,  // 47: task.v1.GenesisState.params_history:type_name -> task.v1.TaskParamsHistoryState
 	2,  // 48: task.v1.GenesisState.task_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
 	2,  // 49: task.v1.GenesisState.session_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
-	3,  // 50: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	50, // 50: task.v1.GenesisState.dispatch_round_acceptors:type_name -> task.v1.DispatchRoundAcceptorState
+	3,  // 51: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
+	52, // [52:52] is the sub-list for method output_type
+	52, // [52:52] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_genesis_proto_init() }

@@ -527,6 +527,14 @@ message OpenTaskRequest {
 // Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
 // use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
 // without switching Builder. Snapshot activation may occur later in the same epoch.
+// If dispatch_available_height exceeds order_expire_height, do not retry the
+// unchanged order: rebuild and re-sign the same unconsumed sequence with a later
+// expiry and fresh preflight context when retrying, without triggering takeover.
+// A pending Builder rejects all new orders, same-sequence retries, takeover
+// requests and new Sessions with NEXUS_INGRESS_BUILDER_KEY_ROTATING and
+// service_key_rotation_effective_height. Existing-order replay and dispatched
+// work continue. SDK follows NO_CAPACITY takeover routing, skips pending
+// Builders, and waits for the earliest activation if every candidate is pending.
 message OpenTaskResponse {
   string task_id = 1;
   bool accepted = 2;
@@ -541,6 +549,8 @@ message OpenTaskResponse {
   optional uint64 takeover_activation_height = 10;
   // Earliest height to retry dispatch readiness; recheck committed availability.
   optional uint64 dispatch_available_height = 11;
+  // Activation H attached to NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+  optional uint64 service_key_rotation_effective_height = 12;
 }
 
 // The upload body includes size_bytes and media_type.

@@ -131,7 +131,9 @@ func (x *MsgRecordDispatchResponse) GetBatchDigest() []byte {
 	return nil
 }
 
-// MsgClaimDispatchCompensation defines the canonical MsgClaimDispatchCompensation fields.
+// MsgClaimDispatchCompensation authenticates current submitter identity separately
+// from retained ticket/accept proofs. A retained Session and bounded sequence
+// are required; a paid sequence cannot claim again after its old receipt prunes.
 type MsgClaimDispatchCompensation struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Order            *SignedOrderV2         `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
@@ -269,7 +271,10 @@ func (x *MsgClaimDispatchCompensationResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgRebutDispatchCompensation defines the canonical MsgRebutDispatchCompensation fields.
+// MsgRebutDispatchCompensation requires the dispatching Builder's current ACTIVE
+// service address or that of any current BuilderSet member. Historical set
+// membership is not needed. Record/reject proof cutoffs use the claim's frozen
+// order and binding heights; successful rebuttal freezes each round's acceptor.
 type MsgRebutDispatchCompensation struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	DispatchTicketHash []byte                 `protobuf:"bytes,1,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`

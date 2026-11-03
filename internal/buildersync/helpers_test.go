@@ -498,7 +498,10 @@ func memberRef(op string, slot uint32) *taskv1.CandidateMemberRefV1 {
 	return &taskv1.CandidateMemberRefV1{CandidatePoolSnapshotId: fill(0x66), Slot: slot, SlotVersion: 1, OperatorAddress: op}
 }
 
-func newFixture(e *env) *fixture {
+func newFixture(e *env) *fixture { return newFixtureBound(e, testBound) }
+
+// newFixtureBound is newFixture with tickets and record committing bound_change_height bound.
+func newFixtureBound(e *env, bound uint64) *fixture {
 	t := e.t
 	f := &fixture{e: e, sessionID: fill(0xaa), sequence: 3, input: bytes.Repeat([]byte("hello, group members "), 8),
 		rejecter: newParty(t, 0x06, 0x16), user: walletAddress(t, userKey)}
@@ -541,7 +544,7 @@ func newFixture(e *env) *fixture {
 			SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash, SessionId: f.sessionID, OrderSequence: f.sequence,
 			BuilderAddress: e.d.op, ReferenceHeight: 90, CandidatePoolSnapshotId: fill(0x66), VrfEpoch: testEpoch, VrfOutput: fill(0x99),
 			RosterHash: f.rosterHash[:], HandraiseRootDigest: f.rootDigest[:], Rank: uint32(rank), Target: memberRef(target.op, members[rank].Slot),
-			AcceptDeadlineMs: 1, InputHash: inputHash[:], BoundChangeHeight: testBound, ServiceAuthorizationNonce: 1,
+			AcceptDeadlineMs: 1, InputHash: inputHash[:], BoundChangeHeight: bound, ServiceAuthorizationNonce: 1,
 		}
 		raw, hash := signWith(t, e.d.key, ticketName, ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
 		f.tickets, f.hashes = append(f.tickets, raw), append(f.hashes, hash)
@@ -557,7 +560,7 @@ func newFixture(e *env) *fixture {
 	record := &taskv1.DispatchRecordV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: f.taskHash, SessionId: f.sessionID, OrderSequence: f.sequence,
 		BuilderAddress: e.d.op, ReferenceHeight: 90, CandidatePoolSnapshotId: fill(0x66), VrfEpoch: testEpoch, VrfOutput: fill(0x99),
-		BoundChangeHeight: testBound, DispatchTicketHash: f.hashes[1][:], ServiceAuthorizationNonce: 1,
+		BoundChangeHeight: bound, DispatchTicketHash: f.hashes[1][:], ServiceAuthorizationNonce: 1,
 		Rounds: []*taskv1.DispatchRoundV1{{DispatchRound: 0, HandraiseRootDigest: f.rootDigest[:], RosterHash: f.rosterHash[:], Attempts: []*taskv1.DispatchAttemptV1{
 			{DispatchTicketHash: f.hashes[0][:], Rank: 0, Member: memberRef(f.rejecter.op, 1), Outcome: outcomeRejected, RejectDigestOrZero32: fill(0xee)},
 			{DispatchTicketHash: f.hashes[1][:], Rank: 1, Member: memberRef(e.worker.op, 3), Outcome: outcomeAccepted, RejectDigestOrZero32: make([]byte, 32)},

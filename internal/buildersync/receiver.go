@@ -332,10 +332,13 @@ func (r *Receiver) checkApplied(m *memberStream, sequence uint64, digest []byte)
 
 // verifyProof verifies a dispatch proof (root, ticket, record, accept or reject) with the wire
 // verifier, under the key generation its signed nonce selects: the current one, or the previous
-// one for an order version whose earliest_submit_height (nil when not known) is below that key's
-// retirement. A chain that cannot answer is ErrUnavailable.
-func (r *Receiver) verifyProof(ctx context.Context, name string, raw []byte, earliestSubmitHeight *uint64) error {
-	err := dispatch.VerifyDispatchProof(r.cfg.ChainID, name, raw, servicekey.ProofOptions(ctx, r.cfg.Keys, r.cfg.AddressPrefix, earliestSubmitHeight))
+// (explicitly revoked) one only when the larger of the order version's earliest_submit_height and
+// the bound_change_height of the held ticket a record, accept or reject belongs to (either nil when
+// not known) is below that key's retirement (revoke). Tickets and result headers take the binding
+// height from their own ticket, roots compare their root_height. A chain that cannot answer is
+// ErrUnavailable.
+func (r *Receiver) verifyProof(ctx context.Context, name string, raw []byte, earliestSubmitHeight, ticketBoundChangeHeight *uint64) error {
+	err := dispatch.VerifyDispatchProof(r.cfg.ChainID, name, raw, servicekey.ProofOptions(ctx, r.cfg.Keys, r.cfg.AddressPrefix, earliestSubmitHeight, ticketBoundChangeHeight))
 	if errors.Is(err, servicekey.ErrAuthority) {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
@@ -529,7 +532,7 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	if err != nil {
 		return err
 	}
-	if err := r.verifyProof(ctx, rootName, rootRaw, &esh); err != nil {
+	if err := r.verifyProof(ctx, rootName, rootRaw, &esh, nil); err != nil {
 		return fmt.Errorf("handraise root is not signed by the sender: %w", err)
 	}
 	if m.Submit == nil {
@@ -666,6 +669,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 	if target == "" {
 		return errors.New("ticket names no target")
 	}
+	bound := ticket.GetBoundChangeHeight()
 	var rejectRaw []byte
 	if reject := a.GetReject(); reject != nil {
 		if a.GetOutcome() != taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_REJECTED {
@@ -683,7 +687,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 		// dropped rather than the order's sync stopped: the attempt stays REJECTED, without the
 		// reject a rebuttal needs. Only a chain that cannot be read leaves the batch to be sent
 		// again.
-		switch err := r.verifyProof(ctx, rejectName, rejectRaw, m.submitOf(ticket.GetTaskHash())); {
+		switch err := r.verifyProof(ctx, rejectName, rejectRaw, m.submitOf(ticket.GetTaskHash()), &bound); {
 		case errors.Is(err, ErrUnavailable):
 			return fmt.Errorf("reject signer: %w", err)
 		case err != nil:
@@ -713,7 +717,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 		// refused, while one whose signer has no resolvable key any more (it never will again) is
 		// kept marked unverified rather than stop the order's sync for good. A late accept that
 		// does not verify is dropped, as a reject is.
-		switch err := r.verifyProof(ctx, acceptName, *x.raw, m.submitOf(ticket.GetTaskHash())); {
+		switch err := r.verifyProof(ctx, acceptName, *x.raw, m.submitOf(ticket.GetTaskHash()), &bound); {
 		case err == nil:
 		case errors.Is(err, ErrUnavailable):
 			return fmt.Errorf("accept signer: %w", err)
@@ -769,7 +773,7 @@ func (r *Receiver) checkTicket(ctx context.Context, m *memberStream, raw []byte,
 	if err != nil {
 		return [32]byte{}, err
 	}
-	if err := r.verifyProof(ctx, ticketName, raw, m.submitOf(t.GetTaskHash())); err != nil {
+	if err := r.verifyProof(ctx, ticketName, raw, m.submitOf(t.GetTaskHash()), nil); err != nil {
 		return [32]byte{}, fmt.Errorf("ticket is not signed by the sender: %w", err)
 	}
 	return hash, nil
@@ -786,9 +790,6 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 		hex.EncodeToString(record.GetSessionId()) != m.SessionID || record.GetOrderSequence() != m.Sequence {
 		return errors.New("record is not the sender's for this order")
 	}
-	if err := r.verifyProof(ctx, recordName, recordRaw, m.submitOf(record.GetTaskHash())); err != nil {
-		return fmt.Errorf("record is not signed by the sender: %w", err)
-	}
 	o, err := r.copyOf(m, hex.EncodeToString(record.GetTaskId()), record.GetVrfEpoch())
 	if err != nil {
 		return err
@@ -796,11 +797,41 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 	if o == nil {
 		return errors.New("record of an order version not held")
 	}
+	// The record proves under the binding of the tickets it lists, as held here, never under its
+	// own signed bound_change_height.
+	bound, err := recordBinding(o, record)
+	if err != nil {
+		return err
+	}
+	if err := r.verifyProof(ctx, recordName, recordRaw, m.submitOf(record.GetTaskHash()), &bound); err != nil {
+		return fmt.Errorf("record is not signed by the sender: %w", err)
+	}
 	if hex.EncodeToString(record.GetTaskHash()) != o.TaskHash {
 		return errors.New("record's task_hash is not its rounds'")
 	}
 	o.Record = recordRaw
 	return r.put(o, m)
+}
+
+// recordBinding is the largest bound_change_height of the held tickets a record lists; every
+// ticket it lists must be held, since the attempts of an order are synced before its record.
+func recordBinding(o *dispatchevidence.Order, record *taskv1.DispatchRecordV1) (uint64, error) {
+	var bound uint64
+	listed := false
+	for _, round := range record.GetRounds() {
+		for _, a := range round.GetAttempts() {
+			held, ok := o.Attempt(a.GetDispatchTicketHash())
+			var ticket taskv1.DispatchTicketV1
+			if !ok || proto.Unmarshal(held.Ticket, &ticket) != nil {
+				return 0, fmt.Errorf("record lists ticket %x, not held", a.GetDispatchTicketHash())
+			}
+			bound, listed = max(bound, ticket.GetBoundChangeHeight()), true
+		}
+	}
+	if !listed {
+		return 0, errors.New("record lists no ticket")
+	}
+	return bound, nil
 }
 
 // applyOrder takes the user's order once the chain recorded it: the chain's record must name the
@@ -858,7 +889,7 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv
 	// The header is the winner ticket's Builder's (the sender's, checked above) dispatch proof,
 	// relayed with its original bytes: its signed nonce selects the key generation, the previous
 	// one only for an order below that key's retirement.
-	if err := r.verifyProof(ctx, resultHeaderName, headerRaw, &esh); err != nil {
+	if err := r.verifyProof(ctx, resultHeaderName, headerRaw, &esh, nil); err != nil {
 		if errors.Is(err, ErrUnavailable) {
 			return fmt.Errorf("result header signer: %w", err)
 		}
@@ -869,7 +900,8 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv
 		return err
 	}
 	acceptUnverified := false
-	switch err := r.verifyProof(ctx, acceptName, acceptRaw, &esh); {
+	winnerBound := header.GetWinnerTicket().GetBoundChangeHeight()
+	switch err := r.verifyProof(ctx, acceptName, acceptRaw, &esh, &winnerBound); {
 	case err == nil:
 	case errors.Is(err, ErrUnavailable):
 		return fmt.Errorf("result header's accept signer: %w", err)

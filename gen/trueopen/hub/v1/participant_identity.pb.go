@@ -221,8 +221,11 @@ type CortexNodeState struct {
 	PreviousServicePubkey             []byte  `protobuf:"bytes,13,opt,name=previous_service_pubkey,json=previousServicePubkey,proto3,oneof" json:"previous_service_pubkey,omitempty"`
 	PreviousServiceAuthorizationNonce *uint64 `protobuf:"varint,14,opt,name=previous_service_authorization_nonce,json=previousServiceAuthorizationNonce,proto3,oneof" json:"previous_service_authorization_nonce,omitempty"`
 	PreviousRetiredHeight             *uint64 `protobuf:"varint,15,opt,name=previous_retired_height,json=previousRetiredHeight,proto3,oneof" json:"previous_retired_height,omitempty"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
+	// Only explicit emergency revoke sets this cutoff; terminal-state revocation
+	// alone does not. Rotation folds it into previous_retired_height and clears it.
+	RevokedHeight *uint64 `protobuf:"varint,16,opt,name=revoked_height,json=revokedHeight,proto3,oneof" json:"revoked_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CortexNodeState) Reset() {
@@ -356,6 +359,13 @@ func (x *CortexNodeState) GetPreviousServiceAuthorizationNonce() uint64 {
 func (x *CortexNodeState) GetPreviousRetiredHeight() uint64 {
 	if x != nil && x.PreviousRetiredHeight != nil {
 		return *x.PreviousRetiredHeight
+	}
+	return 0
+}
+
+func (x *CortexNodeState) GetRevokedHeight() uint64 {
+	if x != nil && x.RevokedHeight != nil {
+		return *x.RevokedHeight
 	}
 	return 0
 }
@@ -732,7 +742,7 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x0ftls_pubkey_hash\x18\x04 \x01(\fH\x00R\rtlsPubkeyHash\x88\x01\x01B\x12\n" +
 	"\x10_tls_pubkey_hash\"N\n" +
 	"\x13ServiceDescriptorV1\x127\n" +
-	"\tendpoints\x18\x01 \x03(\v2\x19.hub.v1.ServiceEndpointV1R\tendpoints\"\xdf\a\n" +
+	"\tendpoints\x18\x01 \x03(\v2\x19.hub.v1.ServiceEndpointV1R\tendpoints\"\x9e\b\n" +
 	"\x0fCortexNodeState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x126\n" +
@@ -749,10 +759,12 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"!pending_evidence_submission_count\x18\f \x01(\rR\x1ependingEvidenceSubmissionCount\x12;\n" +
 	"\x17previous_service_pubkey\x18\r \x01(\fH\x00R\x15previousServicePubkey\x88\x01\x01\x12T\n" +
 	"$previous_service_authorization_nonce\x18\x0e \x01(\x04H\x01R!previousServiceAuthorizationNonce\x88\x01\x01\x12;\n" +
-	"\x17previous_retired_height\x18\x0f \x01(\x04H\x02R\x15previousRetiredHeight\x88\x01\x01B\x1a\n" +
+	"\x17previous_retired_height\x18\x0f \x01(\x04H\x02R\x15previousRetiredHeight\x88\x01\x01\x12*\n" +
+	"\x0erevoked_height\x18\x10 \x01(\x04H\x03R\rrevokedHeight\x88\x01\x01B\x1a\n" +
 	"\x18_previous_service_pubkeyB'\n" +
 	"%_previous_service_authorization_nonceB\x1a\n" +
-	"\x18_previous_retired_height\"\x8c\x01\n" +
+	"\x18_previous_retired_heightB\x11\n" +
+	"\x0f_revoked_height\"\x8c\x01\n" +
 	"\x1fCurrentServiceAddressIndexState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12>\n" +
 	"\x1bservice_authorization_nonce\x18\x02 \x01(\x04R\x19serviceAuthorizationNonce\"\xe9\x02\n" +

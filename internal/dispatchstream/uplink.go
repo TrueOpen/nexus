@@ -175,15 +175,15 @@ func (h *Hub) verifyUplink(ctx context.Context, operator string, c uplinkClaims)
 }
 
 // verifyAnswer verifies an accept or reject with the wire dispatch proof verifier, under the key
-// its signed nonce selects for the answered ticket's order.
+// its signed nonce selects for the answered ticket's order and binding.
 func (h *Hub) verifyAnswer(ctx context.Context, c uplinkClaims, raw []byte) error {
-	var esh *uint64
+	var esh, bound *uint64
 	if sink := h.sinks.Load().Dispatch; sink != nil {
-		if height, ok := sink.OrderEarliestSubmitHeight(c.ticket); ok {
-			esh = &height
+		if height, binding, ok := sink.TicketProofContext(c.ticket); ok {
+			esh, bound = &height, &binding
 		}
 	}
-	err := dispatch.VerifyDispatchProof(h.cfg.ChainID, c.name, raw, h.keys.ProofOptions(ctx, esh))
+	err := dispatch.VerifyDispatchProof(h.cfg.ChainID, c.name, raw, h.keys.ProofOptions(ctx, esh, bound))
 	switch {
 	case err == nil:
 		return nil

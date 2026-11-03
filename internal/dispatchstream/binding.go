@@ -48,7 +48,7 @@ func (h *Hub) verifyBinding(ctx context.Context, frame *nexusv1.DispatchStreamFr
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode: %v", ErrBindingInvalid, err)
 	}
-	if err := dispatch.VerifyDispatchStreamBinding(h.cfg.ChainID, h.cfg.BuilderOperator, raw, h.keys.ProofOptions(ctx, nil)); err != nil {
+	if err := dispatch.VerifyDispatchStreamBinding(h.cfg.ChainID, h.cfg.BuilderOperator, raw, h.keys.ProofOptions(ctx, nil, nil)); err != nil {
 		if errors.Is(err, ErrTransient) {
 			return nil, err
 		}

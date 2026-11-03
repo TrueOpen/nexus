@@ -546,6 +546,33 @@ func TestReceiverTakesPreviousKeyMaterialOfOrdersBeforeTheCutover(t *testing.T) 
 	}
 }
 
+// A Worker's reject signed with its previous key proves only when its ticket's bound_change_height
+// is below the retirement too: for a ticket bound at the cutover it is dropped although the order's
+// earliest_submit_height is below it, and the rest of the order applies.
+func TestReceiverDropsPreviousKeyRejectOfATicketBoundAtTheCutover(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		bound uint64
+		kept  bool
+	}{{"ticket bound before the cutover", testESH, true}, {"ticket bound at the cutover", testESH + 1, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.fx = newFixtureBound(e, tc.bound)
+			f := e.fx
+			e.keys.rotate("CORTEX", f.rejecter, newSigner(t, 0x22), testESH+1)
+			e.s.OrderChanged(f.accepted())
+			e.sync()
+			c := e.copyOf()
+			if c == nil || len(c.Record) == 0 || len(c.Accept) == 0 || len(c.Rounds[0].Attempts) != 2 {
+				t.Fatalf("copy = %+v", c)
+			}
+			if kept := len(c.Rounds[0].Attempts[0].Reject) != 0; kept != tc.kept {
+				t.Fatalf("previous-key reject kept %v, want %v", kept, tc.kept)
+			}
+		})
+	}
+}
+
 // A winner later voided (a binding change) leaves no accept in the copy.
 func TestVoidedWinnerDropsTheAccept(t *testing.T) {
 	e := newEnv(t)

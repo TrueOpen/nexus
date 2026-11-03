@@ -2409,8 +2409,10 @@ type CurrentServiceKeyViewV1 struct {
 	PreviousServicePubkey             []byte  `protobuf:"bytes,10,opt,name=previous_service_pubkey,json=previousServicePubkey,proto3,oneof" json:"previous_service_pubkey,omitempty"`
 	PreviousServiceAuthorizationNonce *uint64 `protobuf:"varint,11,opt,name=previous_service_authorization_nonce,json=previousServiceAuthorizationNonce,proto3,oneof" json:"previous_service_authorization_nonce,omitempty"`
 	PreviousRetiredHeight             *uint64 `protobuf:"varint,12,opt,name=previous_retired_height,json=previousRetiredHeight,proto3,oneof" json:"previous_retired_height,omitempty"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
+	// Explicit current-key revoke cutoff, with presence matching its binding.
+	RevokedHeight *uint64 `protobuf:"varint,13,opt,name=revoked_height,json=revokedHeight,proto3,oneof" json:"revoked_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CurrentServiceKeyViewV1) Reset() {
@@ -2534,6 +2536,13 @@ func (x *CurrentServiceKeyViewV1) GetPreviousServiceAuthorizationNonce() uint64 
 func (x *CurrentServiceKeyViewV1) GetPreviousRetiredHeight() uint64 {
 	if x != nil && x.PreviousRetiredHeight != nil {
 		return *x.PreviousRetiredHeight
+	}
+	return 0
+}
+
+func (x *CurrentServiceKeyViewV1) GetRevokedHeight() uint64 {
+	if x != nil && x.RevokedHeight != nil {
+		return *x.RevokedHeight
 	}
 	return 0
 }
@@ -2740,7 +2749,7 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x04page\x18\x02 \x01(\v2\x1d.shared.v1.QueryPageRequestV1R\x04page\"\x94\x01\n" +
 	"!QueryCandidatePoolMembersResponse\x12;\n" +
 	"\amembers\x18\x01 \x03(\v2!.hub.v1.CandidatePoolMemberViewV1R\amembers\x122\n" +
-	"\x04page\x18\x02 \x01(\v2\x1e.shared.v1.QueryPageResponseV1R\x04page\"\xbd\a\n" +
+	"\x04page\x18\x02 \x01(\v2\x1e.shared.v1.QueryPageResponseV1R\x04page\"\xfc\a\n" +
 	"\x17CurrentServiceKeyViewV1\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12'\n" +
@@ -2754,12 +2763,14 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x17previous_service_pubkey\x18\n" +
 	" \x01(\fH\x02R\x15previousServicePubkey\x88\x01\x01\x12T\n" +
 	"$previous_service_authorization_nonce\x18\v \x01(\x04H\x03R!previousServiceAuthorizationNonce\x88\x01\x01\x12;\n" +
-	"\x17previous_retired_height\x18\f \x01(\x04H\x04R\x15previousRetiredHeight\x88\x01\x01B\x14\n" +
+	"\x17previous_retired_height\x18\f \x01(\x04H\x04R\x15previousRetiredHeight\x88\x01\x01\x12*\n" +
+	"\x0erevoked_height\x18\r \x01(\x04H\x05R\rrevokedHeight\x88\x01\x01B\x14\n" +
 	"\x12participant_statusB\x13\n" +
 	"\x11_pending_rotationB\x1a\n" +
 	"\x18_previous_service_pubkeyB'\n" +
 	"%_previous_service_authorization_nonceB\x1a\n" +
-	"\x18_previous_retired_height\"\x81\x01\n" +
+	"\x18_previous_retired_heightB\x11\n" +
+	"\x0f_revoked_height\"\x81\x01\n" +
 	"\x16ServiceLifecycleViewV1\x120\n" +
 	"\x04node\x18\x01 \x01(\v2\x17.hub.v1.CortexNodeStateH\x00R\x04node\x88\x01\x01\x12,\n" +
 	"\x04bond\x18\x02 \x01(\v2\x18.hub.v1.ServiceBondStateR\x04bondB\a\n" +

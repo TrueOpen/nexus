@@ -31,9 +31,44 @@ type rotationVectors struct {
 	ProofCases []struct {
 		Name                  string `json:"name"`
 		EarliestSubmitHeight  uint64 `json:"earliest_submit_height"`
+		BoundChangeHeight     uint64 `json:"bound_change_height"`
 		PreviousRetiredHeight uint64 `json:"previous_retired_height"`
 		Allowed               bool   `json:"allowed"`
 	} `json:"proof_cases"`
+	RootProofCases []struct {
+		Name                 string  `json:"name"`
+		RootHeight           uint64  `json:"root_height"`
+		EarliestSubmitHeight *uint64 `json:"earliest_submit_height"`
+		CutoffHeight         uint64  `json:"cutoff_height"`
+		Allowed              bool    `json:"allowed"`
+	} `json:"root_proof_cases"`
+	RecordProofContextCases []struct {
+		Name                    string  `json:"name"`
+		EarliestSubmitHeight    uint64  `json:"earliest_submit_height"`
+		BoundChangeHeight       *uint64 `json:"bound_change_height"`
+		RecordBoundChangeHeight uint64  `json:"record_bound_change_height"`
+		CutoffHeight            uint64  `json:"cutoff_height"`
+		Allowed                 bool    `json:"allowed"`
+	} `json:"record_proof_context_cases"`
+}
+
+func readRotationVectors(t *testing.T) rotationVectors {
+	t.Helper()
+	var vectors rotationVectors
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/service_key_rotation_v1.json"), &vectors); err != nil {
+		t.Fatal(err)
+	}
+	return vectors
+}
+
+// previousBinding is a resolver whose operator's current key (nonce 5) replaced previous (nonce 4)
+// at retired.
+func previousBinding(t *testing.T, participantType, operator string, previous, current signer.Signer, retired uint64) *fakeResolver {
+	t.Helper()
+	state := activeState(participantType, operator, current)
+	state.AuthorizationNonce = 5
+	state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(previous.PubKeyCompressed()), AuthorizationNonce: 4, RetiredHeight: retired}
+	return &fakeResolver{states: map[string]chaincli.ServiceKeyState{participantType + "|" + operator: state}}
 }
 
 // signedAccept is a DispatchAcceptV1 of operator signed by key under nonce.
@@ -64,13 +99,11 @@ func signedAccept(t *testing.T, operator string, key signer.Signer, nonce uint64
 }
 
 // Wire's cutover vectors: a key registered in the last block of an epoch is retired at the second
-// epoch start after it; material it signed proves an order only when the order's
-// earliest_submit_height is below that height, while the current key proves any order.
+// epoch start after it; material it signed proves a ticket only when the larger of the order's
+// earliest_submit_height and the ticket's bound_change_height is below that height, while the
+// current key proves any order.
 func TestProofKeysFollowTheCutoverVectors(t *testing.T) {
-	var vectors rotationVectors
-	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/shared/service_key_rotation_v1.json"), &vectors); err != nil {
-		t.Fatal(err)
-	}
+	vectors := readRotationVectors(t)
 	var retired uint64
 	for _, s := range vectors.Schedules {
 		if s.Name == "last_block" {
@@ -82,10 +115,7 @@ func TestProofKeysFollowTheCutoverVectors(t *testing.T) {
 	}
 	operator := testSigner(t, 9).Address()
 	previous, current := testSigner(t, 1), testSigner(t, 2)
-	state := activeState(ParticipantCortex, operator, current)
-	state.AuthorizationNonce = 5
-	state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(previous.PubKeyCompressed()), AuthorizationNonce: 4, RetiredHeight: retired}
-	resolver := &fakeResolver{states: map[string]chaincli.ServiceKeyState{ParticipantCortex + "|" + operator: state}}
+	resolver := previousBinding(t, ParticipantCortex, operator, previous, current, retired)
 	oldAccept, newAccept := signedAccept(t, operator, previous, 4), signedAccept(t, operator, current, 5)
 	if len(vectors.ProofCases) == 0 {
 		t.Fatal("no proof cases")
@@ -94,18 +124,71 @@ func TestProofKeysFollowTheCutoverVectors(t *testing.T) {
 		if c.PreviousRetiredHeight != retired {
 			t.Fatalf("%s: previous_retired_height %d, want %d", c.Name, c.PreviousRetiredHeight, retired)
 		}
-		esh := c.EarliestSubmitHeight
-		err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh))
+		esh, bound := c.EarliestSubmitHeight, c.BoundChangeHeight
+		err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh, &bound))
 		if (err == nil) != c.Allowed {
-			t.Fatalf("%s: previous-key accept at esh %d = %v, allowed %v", c.Name, esh, err, c.Allowed)
+			t.Fatalf("%s: previous-key accept at esh %d, binding %d = %v, allowed %v", c.Name, esh, bound, err, c.Allowed)
 		}
-		if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", newAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh)); err != nil {
+		if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", newAccept, ProofOptions(context.Background(), resolver, testPrefix, &esh, &bound)); err != nil {
 			t.Fatalf("%s: current-key accept at esh %d = %v", c.Name, esh, err)
 		}
 	}
-	// Without the order's height only the current key proves.
-	if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, ProofOptions(context.Background(), resolver, testPrefix, nil)); err == nil {
-		t.Fatal("a previous-key accept proved without its order height")
+	// Without the order's height, or without its ticket's binding height, only the current key
+	// proves an accept.
+	esh, bound := uint64(100), uint64(100)
+	for _, opts := range []dispatch.ProofKeyOptions{
+		ProofOptions(context.Background(), resolver, testPrefix, nil, &bound),
+		ProofOptions(context.Background(), resolver, testPrefix, &esh, nil),
+	} {
+		if err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.DispatchAcceptV1", oldAccept, opts); err == nil {
+			t.Fatal("a previous-key accept proved without its full order context")
+		}
+	}
+}
+
+// Wire's root proof cases: a handraise root signed by a previous key proves only below the
+// retirement by its own root_height, whatever order it is checked for.
+func TestProofKeysFollowTheRootVectors(t *testing.T) {
+	vectors := readRotationVectors(t)
+	if len(vectors.RootProofCases) == 0 {
+		t.Fatal("no root proof cases")
+	}
+	operator := testSigner(t, 9).Address()
+	previous, current := testSigner(t, 1), testSigner(t, 2)
+	for _, c := range vectors.RootProofCases {
+		resolver := previousBinding(t, ParticipantBuilder, operator, previous, current, c.CutoffHeight)
+		root := &taskv1.SignedHandraiseRootV1{ChainId: proofChainID, BuilderAddress: operator, RootHeight: c.RootHeight, RootVersion: 1,
+			LeafCount: 1, Root: bytes.Repeat([]byte{7}, 32), ServiceAuthorizationNonce: 4}
+		raw := signRetained(t, previous, "task.v1.SignedHandraiseRootV1", root, func(s []byte) { root.BuilderServiceSignature = s })
+		err := dispatch.VerifyDispatchProof(proofChainID, "task.v1.SignedHandraiseRootV1", raw, ProofOptions(context.Background(), resolver, testPrefix, c.EarliestSubmitHeight, nil))
+		if (err == nil) != c.Allowed {
+			t.Fatalf("%s: previous-key root at height %d = %v, allowed %v", c.Name, c.RootHeight, err, c.Allowed)
+		}
+	}
+}
+
+// Wire's record proof context cases: a previous-key record is checked against the frozen ticket
+// (or claim) binding height passed by the caller, never its own signed bound_change_height, and
+// a missing frozen binding height refuses it.
+func TestProofKeysFollowTheRecordContextVectors(t *testing.T) {
+	vectors := readRotationVectors(t)
+	if len(vectors.RecordProofContextCases) == 0 {
+		t.Fatal("no record proof context cases")
+	}
+	var base taskv1.DispatchRecordV1
+	vectorMessage(t, "task_v1_dispatchrecordv1", &base)
+	operator := testSigner(t, 9).Address()
+	previous, current := testSigner(t, 1), testSigner(t, 2)
+	for _, c := range vectors.RecordProofContextCases {
+		resolver := previousBinding(t, ParticipantBuilder, operator, previous, current, c.CutoffHeight)
+		record := proto.Clone(&base).(*taskv1.DispatchRecordV1)
+		record.BuilderAddress, record.BoundChangeHeight, record.ServiceAuthorizationNonce = operator, c.RecordBoundChangeHeight, 4
+		raw := signRetained(t, previous, "task.v1.DispatchRecordV1", record, func(s []byte) { record.BuilderServiceSignature = s })
+		esh := c.EarliestSubmitHeight
+		err := dispatch.VerifyDispatchProof(record.GetChainId(), "task.v1.DispatchRecordV1", raw, ProofOptions(context.Background(), resolver, testPrefix, &esh, c.BoundChangeHeight))
+		if (err == nil) != c.Allowed {
+			t.Fatalf("%s: previous-key record = %v, allowed %v", c.Name, err, c.Allowed)
+		}
 	}
 }
 
@@ -166,7 +249,8 @@ func TestProofKeysResolveGenerations(t *testing.T) {
 // retainedCase is one of wire's retained_message_cases: a retained Builder message signed under
 // signed_nonce for a ticket of ticket_nonce, against a binding whose current generation is
 // current_nonce (current_status) and whose previous one is previous_nonce, retired at
-// previous_retired_height; earliest_submit_height is the order's (absent: not known).
+// previous_retired_height, its ticket committing bound_change_height; earliest_submit_height is the
+// order's (absent: not known), revoked_height the current key's explicit emergency-revoke cutoff.
 type retainedCase struct {
 	Name                  string  `json:"name"`
 	SignedNonce           uint64  `json:"signed_nonce"`
@@ -175,8 +259,29 @@ type retainedCase struct {
 	CurrentStatus         string  `json:"current_status"`
 	PreviousNonce         uint64  `json:"previous_nonce"`
 	EarliestSubmitHeight  *uint64 `json:"earliest_submit_height"`
+	BoundChangeHeight     uint64  `json:"bound_change_height"`
 	PreviousRetiredHeight uint64  `json:"previous_retired_height"`
+	RevokedHeight         uint64  `json:"revoked_height"`
 	Allowed               bool    `json:"allowed"`
+}
+
+// vectorMessage decodes the protobuf bytes of wire's dispatch vector name into m.
+func vectorMessage(t *testing.T, name string, m proto.Message) {
+	t.Helper()
+	v := wirefixture.Load(t, "task/dispatch_v1.json").Vector(t, name, 0)
+	var sv struct {
+		ProtobufHex string `json:"protobuf_hex"`
+	}
+	if err := json.Unmarshal(v.Raw, &sv); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := hex.DecodeString(sv.ProtobufHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proto.Unmarshal(raw, m); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // signRetained signs m under name with key and returns its signed bytes; sign sets the signature.
@@ -204,9 +309,10 @@ func signRetained(t *testing.T, key signer.Signer, name string, m proto.Message,
 }
 
 // Wire's retained message cases: a result header, input response, revoke or record notice keeps
-// the nonce it was signed under across a cutover and verifies under the current key (even when
-// revoked) or the previous one for an order below its retirement, never under a generation older
-// than its ticket's, an unknown one, nonce 0, or previous without the order's height. The Builder
+// the nonce it was signed under across a cutover and verifies under the current key, or the
+// previous one (an explicitly revoked current key) only when the larger of the order's height and
+// its ticket's binding height is below the retirement (the revoke), never under a generation older
+// than its ticket's, an unknown one, nonce 0, or a bounded key without the order's height. The Builder
 // verifies the synced result header (VerifyDispatchProof) and the ticket-bound messages
 // (VerifyTicketBoundDispatchProof) through ProofOptions.
 func TestProofKeysFollowTheRetainedMessageVectors(t *testing.T) {
@@ -219,18 +325,8 @@ func TestProofKeysFollowTheRetainedMessageVectors(t *testing.T) {
 	if len(vectors.Cases) == 0 {
 		t.Fatal("no retained message cases")
 	}
-	v := wirefixture.Load(t, "task/dispatch_v1.json").Vector(t, "nexus_v1_dispatchresultheaderv1", 0)
-	var sv struct {
-		ProtobufHex string `json:"protobuf_hex"`
-	}
-	if err := json.Unmarshal(v.Raw, &sv); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := hex.DecodeString(sv.ProtobufHex)
 	var header nexusv1.DispatchResultHeaderV1
-	if err := proto.Unmarshal(raw, &header); err != nil {
-		t.Fatal(err)
-	}
+	vectorMessage(t, "nexus_v1_dispatchresultheaderv1", &header)
 	chainID := header.GetWinnerTicket().GetChainId()
 	operator := testSigner(t, 9).Address()
 	previous, current, unknown := testSigner(t, 1), testSigner(t, 2), testSigner(t, 3)
@@ -239,6 +335,7 @@ func TestProofKeysFollowTheRetainedMessageVectors(t *testing.T) {
 			state := activeState(ParticipantBuilder, operator, current)
 			state.AuthorizationNonce = c.CurrentNonce
 			state.Status = c.CurrentStatus
+			state.RevokedHeight = c.RevokedHeight
 			state.Previous = &chaincli.PreviousServiceKey{ServicePubKey: hex.EncodeToString(previous.PubKeyCompressed()),
 				AuthorizationNonce: c.PreviousNonce, RetiredHeight: c.PreviousRetiredHeight}
 			resolver := &fakeResolver{states: map[string]chaincli.ServiceKeyState{ParticipantBuilder + "|" + operator: state}}
@@ -250,13 +347,14 @@ func TestProofKeysFollowTheRetainedMessageVectors(t *testing.T) {
 				key = previous
 			}
 			ticket := proto.Clone(header.GetWinnerTicket()).(*taskv1.DispatchTicketV1)
-			ticket.BuilderAddress, ticket.ServiceAuthorizationNonce = operator, c.TicketNonce
+			ticket.BuilderAddress, ticket.ServiceAuthorizationNonce, ticket.BoundChangeHeight = operator, c.TicketNonce, c.BoundChangeHeight
 			ticketRaw := signRetained(t, previous, "task.v1.DispatchTicketV1", ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
 			ticketHash, err := dispatch.SigningDigest("task.v1.DispatchTicketV1", ticketRaw)
 			if err != nil {
 				t.Fatal(err)
 			}
-			opts := ProofOptions(context.Background(), resolver, testPrefix, c.EarliestSubmitHeight)
+			// Both verifiers take the binding height from the actual ticket.
+			opts := ProofOptions(context.Background(), resolver, testPrefix, c.EarliestSubmitHeight, nil)
 
 			h := proto.Clone(&header).(*nexusv1.DispatchResultHeaderV1)
 			h.WinnerTicket, h.ServiceAuthorizationNonce = ticket, c.SignedNonce

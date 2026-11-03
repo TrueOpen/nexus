@@ -1249,6 +1249,14 @@ func (*OpenTaskRequest_Chunk) isOpenTaskRequest_Frame() {}
 // Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
 // use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
 // without switching Builder. Snapshot activation may occur later in the same epoch.
+// If dispatch_available_height exceeds order_expire_height, do not retry the
+// unchanged order: rebuild and re-sign the same unconsumed sequence with a later
+// expiry and fresh preflight context when retrying, without triggering takeover.
+// A pending Builder rejects all new orders, same-sequence retries, takeover
+// requests and new Sessions with NEXUS_INGRESS_BUILDER_KEY_ROTATING and
+// service_key_rotation_effective_height. Existing-order replay and dispatched
+// work continue. SDK follows NO_CAPACITY takeover routing, skips pending
+// Builders, and waits for the earliest activation if every candidate is pending.
 type OpenTaskResponse struct {
 	state                    protoimpl.MessageState        `protogen:"open.v1"`
 	TaskId                   string                        `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1263,8 +1271,10 @@ type OpenTaskResponse struct {
 	TakeoverActivationHeight *uint64                       `protobuf:"varint,10,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
 	// Earliest height to retry dispatch readiness; recheck committed availability.
 	DispatchAvailableHeight *uint64 `protobuf:"varint,11,opt,name=dispatch_available_height,json=dispatchAvailableHeight,proto3,oneof" json:"dispatch_available_height,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Activation H attached to NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+	ServiceKeyRotationEffectiveHeight *uint64 `protobuf:"varint,12,opt,name=service_key_rotation_effective_height,json=serviceKeyRotationEffectiveHeight,proto3,oneof" json:"service_key_rotation_effective_height,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *OpenTaskResponse) Reset() {
@@ -1370,6 +1380,13 @@ func (x *OpenTaskResponse) GetTakeoverActivationHeight() uint64 {
 func (x *OpenTaskResponse) GetDispatchAvailableHeight() uint64 {
 	if x != nil && x.DispatchAvailableHeight != nil {
 		return *x.DispatchAvailableHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetServiceKeyRotationEffectiveHeight() uint64 {
+	if x != nil && x.ServiceKeyRotationEffectiveHeight != nil {
+		return *x.ServiceKeyRotationEffectiveHeight
 	}
 	return 0
 }
@@ -4339,7 +4356,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x0fOpenTaskRequest\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x18.nexus.v1.OpenTaskHeaderH\x00R\x06header\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\a\n" +
-	"\x05frame\"\xb5\x05\n" +
+	"\x05frame\"\xb6\x06\n" +
 	"\x10OpenTaskResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x16\n" +
@@ -4353,11 +4370,13 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\rbound_builder\x18\t \x01(\tH\x01R\fboundBuilder\x88\x01\x01\x12A\n" +
 	"\x1atakeover_activation_height\x18\n" +
 	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01\x12?\n" +
-	"\x19dispatch_available_height\x18\v \x01(\x04H\x03R\x17dispatchAvailableHeight\x88\x01\x01B\x12\n" +
+	"\x19dispatch_available_height\x18\v \x01(\x04H\x03R\x17dispatchAvailableHeight\x88\x01\x01\x12U\n" +
+	"%service_key_rotation_effective_height\x18\f \x01(\x04H\x04R!serviceKeyRotationEffectiveHeight\x88\x01\x01B\x12\n" +
 	"\x10_dispatch_resultB\x10\n" +
 	"\x0e_bound_builderB\x1d\n" +
 	"\x1b_takeover_activation_heightB\x1c\n" +
-	"\x1a_dispatch_available_height\"\xe0\x01\n" +
+	"\x1a_dispatch_available_heightB(\n" +
+	"&_service_key_rotation_effective_height\"\xe0\x01\n" +
 	"\x1eUploadTaskResultObjectHeaderV1\x12<\n" +
 	"\n" +
 	"object_ref\x18\x01 \x01(\v2\x1d.nexus.v1.TaskDataObjectRefV1R\tobjectRef\x12\x1d\n" +

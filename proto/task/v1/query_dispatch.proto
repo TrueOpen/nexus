@@ -25,6 +25,8 @@ message QueryDispatchRecordResponse {
   DispatchRecordState record = 1;
 }
 // QueryDispatchCompensationClaimRequest defines the canonical QueryDispatchCompensationClaimRequest fields.
+// QueryDispatchCompensationClaimRequest resolves the ticket through the derived
+// index. A dismissed ticket replaced by another claim returns NotFound.
 message QueryDispatchCompensationClaimRequest {
   bytes dispatch_ticket_hash = 1;
 }

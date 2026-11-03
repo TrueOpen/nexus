@@ -13,15 +13,15 @@ import (
 )
 
 // StatusRevoked is the status of a current binding that grants no live permission; it still
-// proves facts of its own generation.
+// proves facts of its own generation, below its explicit revoke height when it has one.
 const StatusRevoked = "REVOKED"
 
 // ProofKeys returns the wire proof-key lookup over the chain bindings: a signed nonce selects the
 // current generation (ACTIVE or REVOKED) or the one previous generation the last cutover retained;
 // nonce 0, which only the nonce-free Builder sync request uses, selects the current one. An unknown
 // generation fails with ErrUnavailable, a chain that cannot answer with ErrAuthority. Resolution
-// grants no live permission: the wire verifiers refuse previous keys outside their order window
-// and require current ACTIVE authority where live traffic needs it.
+// grants no live permission: the wire verifiers refuse previous and explicitly revoked keys outside
+// their order window and require current ACTIVE authority where live traffic needs it.
 func ProofKeys(ctx context.Context, resolver Resolver, addressPrefix string) func(dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 	return func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		var participantType string
@@ -38,10 +38,16 @@ func ProofKeys(ctx context.Context, resolver Resolver, addressPrefix string) fun
 }
 
 // ProofOptions are the wire ProofKeyOptions over ProofKeys. earliestSubmitHeight is the
-// earliest_submit_height of the signed order (or accepted record) the proof belongs to; nil when
-// it is not known, which leaves only the current generation able to prove.
-func ProofOptions(ctx context.Context, resolver Resolver, addressPrefix string, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	return dispatch.ProofKeyOptions{LookupProofKey: ProofKeys(ctx, resolver, addressPrefix), OrderEarliestSubmitHeight: earliestSubmitHeight}
+// earliest_submit_height of the signed order (or accepted record, or the claim's frozen original
+// order) the proof belongs to; ticketBoundChangeHeight the bound_change_height of the ticket a
+// record, accept or reject answers, read from that verified ticket, accepted state or frozen claim,
+// never from the record's own signed field. A key with a cutoff (previous, or an explicitly revoked
+// current one) proves only when the larger of the two is below it; either one nil leaves only keys
+// without a cutoff able to prove. Tickets and ticket-bound messages take the binding height from
+// the actual ticket, handraise roots compare their own root_height.
+func ProofOptions(ctx context.Context, resolver Resolver, addressPrefix string, earliestSubmitHeight, ticketBoundChangeHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{LookupProofKey: ProofKeys(ctx, resolver, addressPrefix),
+		OrderEarliestSubmitHeight: earliestSubmitHeight, TicketBoundChangeHeight: ticketBoundChangeHeight}
 }
 
 func proofKey(ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string, nonce uint64) (dispatch.ProofKeyBinding, error) {
@@ -71,7 +77,8 @@ func proofKey(ctx context.Context, resolver Resolver, addressPrefix, participant
 		if err != nil || state.AuthorizationNonce == 0 || !derivesAddress(addressPrefix, publicKey, state.ServiceAddress) {
 			return dispatch.ProofKeyBinding{}, fmt.Errorf("malformed %s binding: %w", participantType, ErrUnavailable)
 		}
-		return dispatch.ProofKeyBinding{PublicKey: publicKey, ServiceAuthorizationNonce: state.AuthorizationNonce, Status: status}, nil
+		return dispatch.ProofKeyBinding{PublicKey: publicKey, ServiceAuthorizationNonce: state.AuthorizationNonce, Status: status,
+			RevokedHeight: state.RevokedHeight}, nil
 	}
 	if p := state.Previous; p != nil && nonce == p.AuthorizationNonce {
 		publicKey, err := decodePubKey(p.ServicePubKey)

@@ -333,6 +333,8 @@ message CurrentServiceKeyViewV1 {
   optional bytes previous_service_pubkey = 10;
   optional uint64 previous_service_authorization_nonce = 11;
   optional uint64 previous_retired_height = 12;
+  // Explicit current-key revoke cutoff, with presence matching its binding.
+  optional uint64 revoked_height = 13;
 }
 
 // ServiceLifecycleViewV1 joins the identity and bond authorities.

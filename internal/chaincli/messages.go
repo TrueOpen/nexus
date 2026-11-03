@@ -409,6 +409,10 @@ type ServiceKeyState struct {
 	AuthorizationNonce uint64 `json:"authorization_nonce"`
 	UpdatedHeight      uint64 `json:"updated_height"`
 	Status             string `json:"status"`
+	// RevokedHeight is the explicit emergency-revoke cutoff of a REVOKED current key, 0 when the
+	// key is ACTIVE or was revoked without one (terminal state): material it signed then proves
+	// only for an order context below this height.
+	RevokedHeight uint64 `json:"revoked_height,omitempty"`
 	// PendingRotation is a registered replacement key waiting for its activation epoch; nil when
 	// there is none. The fields above stay the current binding until it activates.
 	PendingRotation *PendingServiceKeyRotation `json:"pending_rotation,omitempty"`

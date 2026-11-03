@@ -37,6 +37,8 @@ message SessionParamsV1 {
   uint32 max_order_sequences_per_active_session = 1;
   uint64 session_idle_ttl_blocks = 2;
   uint64 session_close_ttl_blocks = 3;
+  // At least record_deadline_blocks + dispatch_compensation_claim_window_blocks
+  // + dispatch_compensation_rebuttal_blocks. Existing Sessions keep their version.
   uint64 session_order_retention_blocks = 4;
   uint32 max_session_history_prune_items_per_block = 5;
   uint64 session_terminal_summary_retention_blocks = 6;

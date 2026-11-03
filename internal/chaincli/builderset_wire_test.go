@@ -87,7 +87,8 @@ func TestBuilderSetViewV1FieldsAreFrozen(t *testing.T) {
 // BuilderState must no longer carry active_term (the root-cause field of a past startup failure),
 // nor an admission status: the admission state lives on the governance side in
 // BuilderAdmissionState, and BuilderState only carries identity + current service key + descriptor
-// version + the three pending counters + the one previous proof generation.
+// version + the three pending counters + the one previous proof generation + the explicit
+// emergency-revoke cutoff.
 func TestBuilderStateHasNoActiveTermAndCarriesServiceKey(t *testing.T) {
 	desc := (&hubv1.BuilderState{}).ProtoReflect().Descriptor()
 	for _, name := range []string{"active_term", "status", "enrolled_height", "last_active_height", "jail_until_height"} {
@@ -110,6 +111,7 @@ func TestBuilderStateHasNoActiveTermAndCarriesServiceKey(t *testing.T) {
 		{number: 12, name: "previous_service_pubkey", kind: protoreflect.BytesKind, optional: true},
 		{number: 13, name: "previous_service_authorization_nonce", kind: protoreflect.Uint64Kind, optional: true},
 		{number: 14, name: "previous_retired_height", kind: protoreflect.Uint64Kind, optional: true},
+		{number: 15, name: "revoked_height", kind: protoreflect.Uint64Kind, optional: true},
 	})
 	if got := string(desc.Fields().ByNumber(5).Enum().FullName()); got != "hub.v1.ServiceKeyStatus" {
 		t.Fatalf("current_service_key_status enum = %q, want hub.v1.ServiceKeyStatus", got)

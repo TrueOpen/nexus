@@ -24,7 +24,9 @@ message MsgRecordDispatchResponse {
   repeated BatchItemResultV1 results = 1;
   bytes batch_digest = 2;
 }
-// MsgClaimDispatchCompensation defines the canonical MsgClaimDispatchCompensation fields.
+// MsgClaimDispatchCompensation authenticates current submitter identity separately
+// from retained ticket/accept proofs. A retained Session and bounded sequence
+// are required; a paid sequence cannot claim again after its old receipt prunes.
 message MsgClaimDispatchCompensation {
   SignedOrderV2 order = 1;
   DispatchTicketV1 ticket = 2;
@@ -38,7 +40,10 @@ message MsgClaimDispatchCompensationResponse {
   uint64 rebuttal_deadline_height = 3;
   shared.v1.MutationStatusV1 status = 4;
 }
-// MsgRebutDispatchCompensation defines the canonical MsgRebutDispatchCompensation fields.
+// MsgRebutDispatchCompensation requires the dispatching Builder's current ACTIVE
+// service address or that of any current BuilderSet member. Historical set
+// membership is not needed. Record/reject proof cutoffs use the claim's frozen
+// order and binding heights; successful rebuttal freezes each round's acceptor.
 message MsgRebutDispatchCompensation {
   bytes dispatch_ticket_hash = 1;
   string responder_address = 2;

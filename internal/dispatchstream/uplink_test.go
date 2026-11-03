@@ -188,27 +188,30 @@ func TestUplinkRefusesUnverifiedMessages(t *testing.T) {
 	}
 }
 
-// After a Cortex's cutover its accepts and rejects signed with the retired key still prove an
-// order whose earliest_submit_height is below the retirement height; later orders, and tickets
-// whose order is unknown, need the current key.
+// After a Cortex's cutover its accepts and rejects signed with the retired key still prove a
+// ticket whose order's earliest_submit_height and own bound_change_height are both below the
+// retirement height; later orders, tickets bound at or after the cutover even for an earlier
+// order, and tickets whose order is unknown, need the current key.
 func TestUplinkAcceptsPreviousKeyAnswersOfOrdersBeforeTheCutover(t *testing.T) {
 	h := newHarness(t)
 	old := testAccount("old|" + cortexA)
 	h.keys.previous[cortexA] = previousKey{key: old, nonce: testNonce - 1, retired: 120}
-	h.sinks.heights = map[string]uint64{string(hash32("ticket|before")): 119, string(hash32("ticket|at")): 120, string(hash32("ticket|rbefore")): 119}
+	h.sinks.heights = map[string][2]uint64{string(hash32("ticket|before")): {119, 110}, string(hash32("ticket|at")): {120, 110},
+		string(hash32("ticket|rebound")): {119, 120}, string(hash32("ticket|rbefore")): {119, 110}}
 	byOld := func(m proto.Message, name string, setNonce func(), set func([]byte)) {
 		setNonce()
 		sign(t, old, name, m, set)
 	}
 	before, at, unknown := h.keys.accept(t, cortexA, "before"), h.keys.accept(t, cortexA, "at"), h.keys.accept(t, cortexA, "unknown")
-	for _, m := range []*taskv1.DispatchAcceptV1{before, at, unknown} {
+	rebound := h.keys.accept(t, cortexA, "rebound")
+	for _, m := range []*taskv1.DispatchAcceptV1{before, at, unknown, rebound} {
 		byOld(m, "task.v1.DispatchAcceptV1", func() { m.ServiceAuthorizationNonce = testNonce - 1 }, func(s []byte) { m.ServiceSignature = s })
 	}
 	reject := h.keys.reject(t, cortexA, "rbefore")
 	byOld(reject, "task.v1.DispatchRejectV1", func() { reject.ServiceAuthorizationNonce = testNonce - 1 }, func(s []byte) { reject.ServiceSignature = s })
 
 	s := h.connect(cortexA, "1")
-	for _, f := range []*nexusv1.DispatchStreamFrameV1{acceptFrame(before), acceptFrame(at), acceptFrame(unknown), rejectFrame(reject),
+	for _, f := range []*nexusv1.DispatchStreamFrameV1{acceptFrame(before), acceptFrame(at), acceptFrame(unknown), acceptFrame(rebound), rejectFrame(reject),
 		acceptFrame(h.keys.accept(t, cortexA, "at"))} {
 		cursor := s.send(f)
 		if got := s.stream.nextAck(t); got != cursor {

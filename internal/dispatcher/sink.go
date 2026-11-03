@@ -21,16 +21,27 @@ import (
 // the key its nonce selects for the answered ticket's order before it arrives here.
 var _ dispatchstream.DispatchSink = (*Dispatcher)(nil)
 
-// OrderEarliestSubmitHeight implements dispatchstream.DispatchSink: the earliest_submit_height of
-// the signed order a ticket of this Builder was issued for.
-func (d *Dispatcher) OrderEarliestSubmitHeight(ticketHash []byte) (uint64, bool) {
+// TicketProofContext implements dispatchstream.DispatchSink: the earliest_submit_height of the
+// signed order a ticket of this Builder was issued for, and the bound_change_height the ticket
+// commits.
+func (d *Dispatcher) TicketProofContext(ticketHash []byte) (earliestSubmitHeight, boundChangeHeight uint64, ok bool) {
 	d.mu.Lock()
 	o := d.tickets[string(ticketHash)]
 	d.mu.Unlock()
 	if o == nil {
-		return 0, false
+		return 0, 0, false
 	}
-	return o.signed.GetOrder().GetEarliestSubmitHeight(), true
+	o.mu.Lock()
+	var raw []byte
+	if a := o.st.attemptByHash(ticketHash); a != nil {
+		raw = a.Ticket
+	}
+	o.mu.Unlock()
+	var ticket taskv1.DispatchTicketV1
+	if raw == nil || proto.Unmarshal(raw, &ticket) != nil {
+		return 0, 0, false
+	}
+	return o.signed.GetOrder().GetEarliestSubmitHeight(), ticket.GetBoundChangeHeight(), true
 }
 
 // answered finds the ticket an accept or reject answers and checks the answer names that ticket's

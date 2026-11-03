@@ -371,6 +371,7 @@ message EventServiceKeyRotated {
   string operator = 2;
   string old_service_address = 3;
   string new_service_address = 4;
+  // Nonce of the newly activated key that just became current.
   uint64 authorization_nonce = 5;
 }
 
@@ -379,6 +380,7 @@ message EventServiceKeyRevoked {
   shared.v1.ParticipantType participant_type = 1;
   string operator = 2;
   string revoked_service_address = 3;
+  // Nonce of the key identified by revoked_service_address that was revoked.
   uint64 authorization_nonce = 4;
   ServiceKeyRevocationReason reason = 5;
 }

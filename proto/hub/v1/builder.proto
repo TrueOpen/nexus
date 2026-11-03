@@ -94,6 +94,9 @@ message BuilderState {
   optional bytes previous_service_pubkey = 12;
   optional uint64 previous_service_authorization_nonce = 13;
   optional uint64 previous_retired_height = 14;
+  // Explicit emergency-revoke height, present only for a REVOKED current key.
+  // On rotation, clip previous_retired_height to this height and clear it.
+  optional uint64 revoked_height = 15;
 }
 
 // BuilderAdmissionState is the governance-owned admission projection for one

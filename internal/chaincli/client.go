@@ -641,6 +641,12 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 		AuthorizationNonce: b.GetServiceAuthorizationNonce(),
 		Status:             currentServiceKeyStatus(b),
 	}
+	if revoked := b.RevokedHeight; revoked != nil {
+		if *revoked == 0 || state.Status != "REVOKED" {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: revoked_height %d on a %s binding: %w", *revoked, state.Status, ErrMalformedBinding)
+		}
+		state.RevokedHeight = *revoked
+	}
 	if pending := b.GetPendingRotation(); pending != nil {
 		if pending.GetParticipantType() != b.GetParticipantType() || pending.GetOperatorAddress() != b.GetOperatorAddress() ||
 			pending.GetCurrentServiceAuthorizationNonce() != b.GetServiceAuthorizationNonce() ||

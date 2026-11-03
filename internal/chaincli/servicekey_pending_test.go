@@ -148,3 +148,35 @@ func TestQueryCurrentServiceKeyRefusesMalformedPreviousGeneration(t *testing.T) 
 		})
 	}
 }
+
+// An explicit emergency revoke's cutoff is reported with the REVOKED current binding; on an
+// ACTIVE binding, or as zero, it is a malformed answer.
+func TestQueryCurrentServiceKeyMapsRevokedHeight(t *testing.T) {
+	revoked := func(height uint64) *hubv1.CurrentServiceKeyViewV1 {
+		view := withPrevious(builderKeyView(nil))
+		view.ParticipantStatus = &hubv1.CurrentServiceKeyViewV1_BuilderServiceKeyStatus{
+			BuilderServiceKeyStatus: hubv1.ServiceKeyStatus_SERVICE_KEY_STATUS_REVOKED,
+		}
+		view.RevokedHeight = &height
+		return view
+	}
+	got, err := queryCurrentKey(t, revoked(140))
+	if err != nil || got.Status != "REVOKED" || got.RevokedHeight != 140 {
+		t.Fatalf("revoked binding = %+v, %v", got, err)
+	}
+	// Terminal-state revocation without the field invents no cutoff.
+	view := revoked(140)
+	view.RevokedHeight = nil
+	if got, err := queryCurrentKey(t, view); err != nil || got.Status != "REVOKED" || got.RevokedHeight != 0 {
+		t.Fatalf("revoked binding without a cutoff = %+v, %v", got, err)
+	}
+	if got, err := queryCurrentKey(t, revoked(0)); !errors.Is(err, ErrMalformedBinding) {
+		t.Fatalf("zero revoke height = %+v, %v; want ErrMalformedBinding", got, err)
+	}
+	active := builderKeyView(nil)
+	height := uint64(140)
+	active.RevokedHeight = &height
+	if got, err := queryCurrentKey(t, active); !errors.Is(err, ErrMalformedBinding) {
+		t.Fatalf("revoke height on an ACTIVE binding = %+v, %v; want ErrMalformedBinding", got, err)
+	}
+}

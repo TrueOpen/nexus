@@ -32,8 +32,8 @@ func (v vectorKeys) CurrentCortexKey(_ context.Context, operator string) (Cortex
 	return v.key, nil
 }
 
-func (v vectorKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+func (v vectorKeys) ProofOptions(_ context.Context, earliestSubmitHeight, ticketBoundChangeHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, TicketBoundChangeHeight: ticketBoundChangeHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		if s.OperatorAddress != v.operator {
 			return dispatch.ProofKeyBinding{}, errors.New("unknown operator")
 		}

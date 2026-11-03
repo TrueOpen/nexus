@@ -24,10 +24,11 @@ type CortexKey struct {
 type CortexKeys interface {
 	CurrentCortexKey(ctx context.Context, operator string) (CortexKey, error)
 	// ProofOptions resolves proof keys by signed nonce for the wire dispatch proof verifier: the
-	// current generation, or the previous one for an order whose earliest_submit_height (nil when
-	// unknown) is below its retirement. A lookup failure wraps ErrTransient when the chain could
-	// not answer.
-	ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions
+	// current generation, or the previous (explicitly revoked) one only when the larger of the
+	// order's earliest_submit_height and the answered ticket's bound_change_height (either nil
+	// when unknown) is below its retirement (revoke). A lookup failure wraps ErrTransient when the
+	// chain could not answer.
+	ProofOptions(ctx context.Context, earliestSubmitHeight, ticketBoundChangeHeight *uint64) dispatch.ProofKeyOptions
 }
 
 // ServiceKeyLookup reads the current CORTEX key from the chain through servicekey.Current, which
@@ -54,8 +55,8 @@ func (l ServiceKeyLookup) CurrentCortexKey(ctx context.Context, operator string)
 }
 
 // ProofOptions implements CortexKeys through servicekey.ProofOptions.
-func (l ServiceKeyLookup) ProofOptions(ctx context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	opts := servicekey.ProofOptions(ctx, l.Resolver, l.AddressPrefix, earliestSubmitHeight)
+func (l ServiceKeyLookup) ProofOptions(ctx context.Context, earliestSubmitHeight, ticketBoundChangeHeight *uint64) dispatch.ProofKeyOptions {
+	opts := servicekey.ProofOptions(ctx, l.Resolver, l.AddressPrefix, earliestSubmitHeight, ticketBoundChangeHeight)
 	lookup := opts.LookupProofKey
 	opts.LookupProofKey = func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		key, err := lookup(s)

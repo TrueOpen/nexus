@@ -232,11 +232,11 @@ func TestTicketsAndRecordsSignTheBuilderNonce(t *testing.T) {
 		t.Fatalf("ticket nonce = %d, want %d", ticket.GetServiceAuthorizationNonce(), testBuilderNonce)
 	}
 	hash := digestOf(t, ticketName, ticket)
-	if esh, ok := e.d.OrderEarliestSubmitHeight(hash[:]); !ok || esh != testESH {
-		t.Fatalf("order height of the ticket = %d, %v; want %d", esh, ok, testESH)
+	if esh, bound, ok := e.d.TicketProofContext(hash[:]); !ok || esh != testESH || bound != ticket.GetBoundChangeHeight() || bound == 0 {
+		t.Fatalf("proof context of the ticket = %d, %d, %v; want %d, %d", esh, bound, ok, testESH, ticket.GetBoundChangeHeight())
 	}
-	if _, ok := e.d.OrderEarliestSubmitHeight(bytes.Repeat([]byte{9}, 32)); ok {
-		t.Fatal("an unknown ticket has an order height")
+	if _, _, ok := e.d.TicketProofContext(bytes.Repeat([]byte{9}, 32)); ok {
+		t.Fatal("an unknown ticket has a proof context")
 	}
 	e.accept()
 	if rec := e.onlyBundle().Entry.GetRecord(); rec.GetServiceAuthorizationNonce() != testBuilderNonce {

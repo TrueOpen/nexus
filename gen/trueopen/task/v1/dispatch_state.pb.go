@@ -424,7 +424,9 @@ func (x *TakeoverEntryReceiptState) GetOrderExpireHeight() uint64 {
 	return 0
 }
 
-// DispatchCompensationClaimState defines the canonical DispatchCompensationClaimState fields.
+// DispatchCompensationClaimState is keyed by (session_id, order_sequence).
+// A derived ticket index serves replay, rebuttal and Query. Replacing a
+// DISMISSED claim atomically removes the old ticket and prune indexes.
 type DispatchCompensationClaimState struct {
 	state                  protoimpl.MessageState            `protogen:"open.v1"`
 	DispatchTicketHash     []byte                            `protobuf:"bytes,1,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
@@ -445,11 +447,14 @@ type DispatchCompensationClaimState struct {
 	ClaimWindowCloseHeight uint64                            `protobuf:"varint,16,opt,name=claim_window_close_height,json=claimWindowCloseHeight,proto3" json:"claim_window_close_height,omitempty"`
 	// Frozen from the claim's verified original order, including unrecorded orders.
 	// Positive and strictly below claimed_height; retained unchanged through
-	// resolution, Query and Genesis. Previous record/reject keys each compare
-	// this value with their own retirement height, never another ticket's record.
+	// resolution, Query and Genesis. Record/reject proofs each compare the maximum
+	// of this height and bound_change_height with their own key's cutoff.
 	EarliestSubmitHeight uint64 `protobuf:"varint,17,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Frozen from the signed ticket; never read from a later live Session.
+	// Retained unchanged with earliest_submit_height through Query and Genesis.
+	BoundChangeHeight uint64 `protobuf:"varint,18,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *DispatchCompensationClaimState) Reset() {
@@ -601,6 +606,119 @@ func (x *DispatchCompensationClaimState) GetEarliestSubmitHeight() uint64 {
 	return 0
 }
 
+func (x *DispatchCompensationClaimState) GetBoundChangeHeight() uint64 {
+	if x != nil {
+		return x.BoundChangeHeight
+	}
+	return 0
+}
+
+// DispatchRoundAcceptorState freezes the first accepted or voided ticket from
+// a successful compensation rebuttal. Its key is (session_id, order_sequence,
+// builder_address, bound_change_height, vrf_epoch, dispatch_round). Binding and
+// epoch come from the signed record, never registration-time live state; both
+// can reset round numbers. Genesis exports this primary and rebuilds its prune
+// index at registered_height + dispatch_record_retention_blocks.
+type DispatchRoundAcceptorState struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	SessionId          []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence      uint64                 `protobuf:"varint,2,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	BuilderAddress     string                 `protobuf:"bytes,3,opt,name=builder_address,json=builderAddress,proto3" json:"builder_address,omitempty"`
+	BoundChangeHeight  uint64                 `protobuf:"varint,4,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
+	VrfEpoch           uint64                 `protobuf:"varint,5,opt,name=vrf_epoch,json=vrfEpoch,proto3" json:"vrf_epoch,omitempty"`
+	DispatchRound      uint32                 `protobuf:"varint,6,opt,name=dispatch_round,json=dispatchRound,proto3" json:"dispatch_round,omitempty"`
+	DispatchTicketHash []byte                 `protobuf:"bytes,7,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	RegisteredHeight   uint64                 `protobuf:"varint,8,opt,name=registered_height,json=registeredHeight,proto3" json:"registered_height,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DispatchRoundAcceptorState) Reset() {
+	*x = DispatchRoundAcceptorState{}
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DispatchRoundAcceptorState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DispatchRoundAcceptorState) ProtoMessage() {}
+
+func (x *DispatchRoundAcceptorState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DispatchRoundAcceptorState.ProtoReflect.Descriptor instead.
+func (*DispatchRoundAcceptorState) Descriptor() ([]byte, []int) {
+	return file_task_v1_dispatch_state_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DispatchRoundAcceptorState) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *DispatchRoundAcceptorState) GetOrderSequence() uint64 {
+	if x != nil {
+		return x.OrderSequence
+	}
+	return 0
+}
+
+func (x *DispatchRoundAcceptorState) GetBuilderAddress() string {
+	if x != nil {
+		return x.BuilderAddress
+	}
+	return ""
+}
+
+func (x *DispatchRoundAcceptorState) GetBoundChangeHeight() uint64 {
+	if x != nil {
+		return x.BoundChangeHeight
+	}
+	return 0
+}
+
+func (x *DispatchRoundAcceptorState) GetVrfEpoch() uint64 {
+	if x != nil {
+		return x.VrfEpoch
+	}
+	return 0
+}
+
+func (x *DispatchRoundAcceptorState) GetDispatchRound() uint32 {
+	if x != nil {
+		return x.DispatchRound
+	}
+	return 0
+}
+
+func (x *DispatchRoundAcceptorState) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+func (x *DispatchRoundAcceptorState) GetRegisteredHeight() uint64 {
+	if x != nil {
+		return x.RegisteredHeight
+	}
+	return 0
+}
+
 // DispatchWinnerIneligibleState defines the canonical DispatchWinnerIneligibleState fields.
 type DispatchWinnerIneligibleState struct {
 	state                  protoimpl.MessageState           `protogen:"open.v1"`
@@ -616,7 +734,7 @@ type DispatchWinnerIneligibleState struct {
 
 func (x *DispatchWinnerIneligibleState) Reset() {
 	*x = DispatchWinnerIneligibleState{}
-	mi := &file_task_v1_dispatch_state_proto_msgTypes[4]
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +746,7 @@ func (x *DispatchWinnerIneligibleState) String() string {
 func (*DispatchWinnerIneligibleState) ProtoMessage() {}
 
 func (x *DispatchWinnerIneligibleState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_dispatch_state_proto_msgTypes[4]
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +759,7 @@ func (x *DispatchWinnerIneligibleState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchWinnerIneligibleState.ProtoReflect.Descriptor instead.
 func (*DispatchWinnerIneligibleState) Descriptor() ([]byte, []int) {
-	return file_task_v1_dispatch_state_proto_rawDescGZIP(), []int{4}
+	return file_task_v1_dispatch_state_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DispatchWinnerIneligibleState) GetDispatchTicketHash() []byte {
@@ -710,7 +828,7 @@ type DispatchChallengeState struct {
 
 func (x *DispatchChallengeState) Reset() {
 	*x = DispatchChallengeState{}
-	mi := &file_task_v1_dispatch_state_proto_msgTypes[5]
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -722,7 +840,7 @@ func (x *DispatchChallengeState) String() string {
 func (*DispatchChallengeState) ProtoMessage() {}
 
 func (x *DispatchChallengeState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_dispatch_state_proto_msgTypes[5]
+	mi := &file_task_v1_dispatch_state_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -735,7 +853,7 @@ func (x *DispatchChallengeState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchChallengeState.ProtoReflect.Descriptor instead.
 func (*DispatchChallengeState) Descriptor() ([]byte, []int) {
-	return file_task_v1_dispatch_state_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_dispatch_state_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DispatchChallengeState) GetChallengeId() []byte {
@@ -890,7 +1008,7 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"#bound_change_height_at_registration\x18\x06 \x01(\x04R\x1fboundChangeHeightAtRegistration\x12+\n" +
 	"\x11registered_height\x18\a \x01(\x04R\x10registeredHeight\x12+\n" +
 	"\x11activation_height\x18\b \x01(\x04R\x10activationHeight\x12.\n" +
-	"\x13order_expire_height\x18\t \x01(\x04R\x11orderExpireHeight\"\xfa\x06\n" +
+	"\x13order_expire_height\x18\t \x01(\x04R\x11orderExpireHeight\"\xaa\a\n" +
 	"\x1eDispatchCompensationClaimState\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12\x1d\n" +
@@ -911,9 +1029,20 @@ const file_task_v1_dispatch_state_proto_rawDesc = "" +
 	"\x14rebutted_by_or_empty\x18\x0e \x01(\tH\x00R\x11rebuttedByOrEmpty\x88\x01\x01\x12,\n" +
 	"\x0fresolved_height\x18\x0f \x01(\x04H\x01R\x0eresolvedHeight\x88\x01\x01\x129\n" +
 	"\x19claim_window_close_height\x18\x10 \x01(\x04R\x16claimWindowCloseHeight\x124\n" +
-	"\x16earliest_submit_height\x18\x11 \x01(\x04R\x14earliestSubmitHeightB\x17\n" +
+	"\x16earliest_submit_height\x18\x11 \x01(\x04R\x14earliestSubmitHeight\x12.\n" +
+	"\x13bound_change_height\x18\x12 \x01(\x04R\x11boundChangeHeightB\x17\n" +
 	"\x15_rebutted_by_or_emptyB\x12\n" +
-	"\x10_resolved_height\"\xc9\x02\n" +
+	"\x10_resolved_height\"\xde\x02\n" +
+	"\x1aDispatchRoundAcceptorState\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
+	"\x0eorder_sequence\x18\x02 \x01(\x04R\rorderSequence\x12'\n" +
+	"\x0fbuilder_address\x18\x03 \x01(\tR\x0ebuilderAddress\x12.\n" +
+	"\x13bound_change_height\x18\x04 \x01(\x04R\x11boundChangeHeight\x12\x1b\n" +
+	"\tvrf_epoch\x18\x05 \x01(\x04R\bvrfEpoch\x12%\n" +
+	"\x0edispatch_round\x18\x06 \x01(\rR\rdispatchRound\x120\n" +
+	"\x14dispatch_ticket_hash\x18\a \x01(\fR\x12dispatchTicketHash\x12+\n" +
+	"\x11registered_height\x18\b \x01(\x04R\x10registeredHeight\"\xc9\x02\n" +
 	"\x1dDispatchWinnerIneligibleState\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x126\n" +
@@ -959,35 +1088,36 @@ func file_task_v1_dispatch_state_proto_rawDescGZIP() []byte {
 	return file_task_v1_dispatch_state_proto_rawDescData
 }
 
-var file_task_v1_dispatch_state_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_task_v1_dispatch_state_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_task_v1_dispatch_state_proto_goTypes = []any{
 	(*DispatchStickySnapshotV1)(nil),       // 0: task.v1.DispatchStickySnapshotV1
 	(*DispatchRecordState)(nil),            // 1: task.v1.DispatchRecordState
 	(*TakeoverEntryReceiptState)(nil),      // 2: task.v1.TakeoverEntryReceiptState
 	(*DispatchCompensationClaimState)(nil), // 3: task.v1.DispatchCompensationClaimState
-	(*DispatchWinnerIneligibleState)(nil),  // 4: task.v1.DispatchWinnerIneligibleState
-	(*DispatchChallengeState)(nil),         // 5: task.v1.DispatchChallengeState
-	(DispatchRandomnessSchemeV1)(0),        // 6: task.v1.DispatchRandomnessSchemeV1
-	(*DispatchRoundV1)(nil),                // 7: task.v1.DispatchRoundV1
-	(*CandidateMemberRefV1)(nil),           // 8: task.v1.CandidateMemberRefV1
-	(*v1.Amount)(nil),                      // 9: shared.v1.Amount
-	(DispatchCompensationClaimStatusV1)(0), // 10: task.v1.DispatchCompensationClaimStatusV1
-	(DispatchWinnerIneligibleReasonV1)(0),  // 11: task.v1.DispatchWinnerIneligibleReasonV1
-	(v1.DispatchChallengeKindV1)(0),        // 12: shared.v1.DispatchChallengeKindV1
-	(DispatchChallengeStatusV1)(0),         // 13: task.v1.DispatchChallengeStatusV1
+	(*DispatchRoundAcceptorState)(nil),     // 4: task.v1.DispatchRoundAcceptorState
+	(*DispatchWinnerIneligibleState)(nil),  // 5: task.v1.DispatchWinnerIneligibleState
+	(*DispatchChallengeState)(nil),         // 6: task.v1.DispatchChallengeState
+	(DispatchRandomnessSchemeV1)(0),        // 7: task.v1.DispatchRandomnessSchemeV1
+	(*DispatchRoundV1)(nil),                // 8: task.v1.DispatchRoundV1
+	(*CandidateMemberRefV1)(nil),           // 9: task.v1.CandidateMemberRefV1
+	(*v1.Amount)(nil),                      // 10: shared.v1.Amount
+	(DispatchCompensationClaimStatusV1)(0), // 11: task.v1.DispatchCompensationClaimStatusV1
+	(DispatchWinnerIneligibleReasonV1)(0),  // 12: task.v1.DispatchWinnerIneligibleReasonV1
+	(v1.DispatchChallengeKindV1)(0),        // 13: shared.v1.DispatchChallengeKindV1
+	(DispatchChallengeStatusV1)(0),         // 14: task.v1.DispatchChallengeStatusV1
 }
 var file_task_v1_dispatch_state_proto_depIdxs = []int32{
-	6,  // 0: task.v1.DispatchRecordState.randomness_scheme:type_name -> task.v1.DispatchRandomnessSchemeV1
-	7,  // 1: task.v1.DispatchRecordState.rounds:type_name -> task.v1.DispatchRoundV1
+	7,  // 0: task.v1.DispatchRecordState.randomness_scheme:type_name -> task.v1.DispatchRandomnessSchemeV1
+	8,  // 1: task.v1.DispatchRecordState.rounds:type_name -> task.v1.DispatchRoundV1
 	0,  // 2: task.v1.DispatchRecordState.sticky_snapshot:type_name -> task.v1.DispatchStickySnapshotV1
-	8,  // 3: task.v1.DispatchRecordState.winner:type_name -> task.v1.CandidateMemberRefV1
-	9,  // 4: task.v1.DispatchCompensationClaimState.amount:type_name -> shared.v1.Amount
-	10, // 5: task.v1.DispatchCompensationClaimState.status:type_name -> task.v1.DispatchCompensationClaimStatusV1
-	9,  // 6: task.v1.DispatchCompensationClaimState.paid_amount:type_name -> shared.v1.Amount
-	9,  // 7: task.v1.DispatchCompensationClaimState.unfilled_amount:type_name -> shared.v1.Amount
-	11, // 8: task.v1.DispatchWinnerIneligibleState.reason:type_name -> task.v1.DispatchWinnerIneligibleReasonV1
-	12, // 9: task.v1.DispatchChallengeState.kind:type_name -> shared.v1.DispatchChallengeKindV1
-	13, // 10: task.v1.DispatchChallengeState.status:type_name -> task.v1.DispatchChallengeStatusV1
+	9,  // 3: task.v1.DispatchRecordState.winner:type_name -> task.v1.CandidateMemberRefV1
+	10, // 4: task.v1.DispatchCompensationClaimState.amount:type_name -> shared.v1.Amount
+	11, // 5: task.v1.DispatchCompensationClaimState.status:type_name -> task.v1.DispatchCompensationClaimStatusV1
+	10, // 6: task.v1.DispatchCompensationClaimState.paid_amount:type_name -> shared.v1.Amount
+	10, // 7: task.v1.DispatchCompensationClaimState.unfilled_amount:type_name -> shared.v1.Amount
+	12, // 8: task.v1.DispatchWinnerIneligibleState.reason:type_name -> task.v1.DispatchWinnerIneligibleReasonV1
+	13, // 9: task.v1.DispatchChallengeState.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	14, // 10: task.v1.DispatchChallengeState.status:type_name -> task.v1.DispatchChallengeStatusV1
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
@@ -1004,14 +1134,14 @@ func file_task_v1_dispatch_state_proto_init() {
 	file_task_v1_open_verify_proto_init()
 	file_task_v1_dispatch_state_proto_msgTypes[0].OneofWrappers = []any{}
 	file_task_v1_dispatch_state_proto_msgTypes[3].OneofWrappers = []any{}
-	file_task_v1_dispatch_state_proto_msgTypes[5].OneofWrappers = []any{}
+	file_task_v1_dispatch_state_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_dispatch_state_proto_rawDesc), len(file_task_v1_dispatch_state_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

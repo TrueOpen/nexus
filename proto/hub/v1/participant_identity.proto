@@ -58,6 +58,9 @@ message CortexNodeState {
   optional bytes previous_service_pubkey = 13;
   optional uint64 previous_service_authorization_nonce = 14;
   optional uint64 previous_retired_height = 15;
+  // Only explicit emergency revoke sets this cutoff; terminal-state revocation
+  // alone does not. Rotation folds it into previous_retired_height and clears it.
+  optional uint64 revoked_height = 16;
 }
 
 // CurrentServiceAddressIndexState is the rebuildable reverse-index value for

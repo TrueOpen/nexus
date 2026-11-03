@@ -67,8 +67,8 @@ func newTestKeys() *testKeys {
 
 // ProofOptions resolves the current generation (REVOKED when revoked), or the previous one of a
 // cutover, by nonce.
-func (k *testKeys) ProofOptions(_ context.Context, earliestSubmitHeight *uint64) dispatch.ProofKeyOptions {
-	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
+func (k *testKeys) ProofOptions(_ context.Context, earliestSubmitHeight, ticketBoundChangeHeight *uint64) dispatch.ProofKeyOptions {
+	return dispatch.ProofKeyOptions{OrderEarliestSubmitHeight: earliestSubmitHeight, TicketBoundChangeHeight: ticketBoundChangeHeight, LookupProofKey: func(s dispatch.ServiceProofSigner) (dispatch.ProofKeyBinding, error) {
 		k.mu.Lock()
 		revoked := k.revoked[s.OperatorAddress]
 		p, ok := k.previous[s.OperatorAddress]
@@ -445,15 +445,16 @@ type recordingSinks struct {
 	origins   []Origin
 	err       error
 	operators []string
-	// heights are the earliest_submit_height of the orders of known tickets.
-	heights map[string]uint64
+	// heights are the earliest_submit_height of the orders of known tickets and the
+	// bound_change_height the tickets commit.
+	heights map[string][2]uint64
 }
 
-func (r *recordingSinks) OrderEarliestSubmitHeight(ticketHash []byte) (uint64, bool) {
+func (r *recordingSinks) TicketProofContext(ticketHash []byte) (uint64, uint64, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h, ok := r.heights[string(ticketHash)]
-	return h, ok
+	return h[0], h[1], ok
 }
 
 func (r *recordingSinks) record(kind string, from Origin, operator string) error {

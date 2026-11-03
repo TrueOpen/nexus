@@ -58,7 +58,9 @@ message TakeoverEntryReceiptState {
   // Expiry is retained so the receipt prune index can be rebuilt on import.
   uint64 order_expire_height = 9;
 }
-// DispatchCompensationClaimState defines the canonical DispatchCompensationClaimState fields.
+// DispatchCompensationClaimState is keyed by (session_id, order_sequence).
+// A derived ticket index serves replay, rebuttal and Query. Replacing a
+// DISMISSED claim atomically removes the old ticket and prune indexes.
 message DispatchCompensationClaimState {
   bytes dispatch_ticket_hash = 1;
   bytes task_id = 2;
@@ -78,9 +80,29 @@ message DispatchCompensationClaimState {
   uint64 claim_window_close_height = 16;
   // Frozen from the claim's verified original order, including unrecorded orders.
   // Positive and strictly below claimed_height; retained unchanged through
-  // resolution, Query and Genesis. Previous record/reject keys each compare
-  // this value with their own retirement height, never another ticket's record.
+  // resolution, Query and Genesis. Record/reject proofs each compare the maximum
+  // of this height and bound_change_height with their own key's cutoff.
   uint64 earliest_submit_height = 17;
+  // Frozen from the signed ticket; never read from a later live Session.
+  // Retained unchanged with earliest_submit_height through Query and Genesis.
+  uint64 bound_change_height = 18;
+}
+
+// DispatchRoundAcceptorState freezes the first accepted or voided ticket from
+// a successful compensation rebuttal. Its key is (session_id, order_sequence,
+// builder_address, bound_change_height, vrf_epoch, dispatch_round). Binding and
+// epoch come from the signed record, never registration-time live state; both
+// can reset round numbers. Genesis exports this primary and rebuilds its prune
+// index at registered_height + dispatch_record_retention_blocks.
+message DispatchRoundAcceptorState {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  string builder_address = 3;
+  uint64 bound_change_height = 4;
+  uint64 vrf_epoch = 5;
+  uint32 dispatch_round = 6;
+  bytes dispatch_ticket_hash = 7;
+  uint64 registered_height = 8;
 }
 // DispatchWinnerIneligibleState defines the canonical DispatchWinnerIneligibleState fields.
 message DispatchWinnerIneligibleState {

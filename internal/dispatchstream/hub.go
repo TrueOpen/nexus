@@ -125,10 +125,11 @@ type HandraiseSink interface {
 // request may be served (only after a verified accept of that ticket, whose signing digest the
 // request's dispatch_accept_digest must equal) is the sink's decision.
 type DispatchSink interface {
-	// OrderEarliestSubmitHeight is the earliest_submit_height of the signed order a ticket of this
-	// Builder belongs to; false for a ticket it does not know. It decides whether an answer signed
-	// with a Cortex's previous key can prove that order.
-	OrderEarliestSubmitHeight(ticketHash []byte) (uint64, bool)
+	// TicketProofContext is the earliest_submit_height of the signed order a ticket of this
+	// Builder belongs to and the bound_change_height the ticket commits; false for a ticket it does
+	// not know. Their maximum decides whether an answer signed with a Cortex's previous (or
+	// explicitly revoked) key can prove the ticket's order.
+	TicketProofContext(ticketHash []byte) (earliestSubmitHeight, boundChangeHeight uint64, ok bool)
 	HandleDispatchAccept(ctx context.Context, from Origin, m *taskv1.DispatchAcceptV1) error
 	HandleDispatchReject(ctx context.Context, from Origin, m *taskv1.DispatchRejectV1) error
 	HandleDispatchInputRequest(ctx context.Context, from Origin, m *nexusv1.DispatchInputRequestV1) error

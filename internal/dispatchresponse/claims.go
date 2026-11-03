@@ -126,8 +126,9 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 // must show the attempt with the same outcome, and a REJECTED attempt goes with the Worker's own
 // reject of that ticket. Anything else is never sent: a rebuttal states a fact against a Worker.
 // No key is picked here: the chain verifies the record and the reject each under the generation
-// its own nonce selects, a previous one only when the claim's frozen earliest_submit_height (its
-// original order's) is below that key's retirement.
+// its own nonce selects, a previous (or explicitly revoked) one only when the larger of the claim's
+// frozen earliest_submit_height and bound_change_height (its original order's and ticket's) is
+// below that key's cutoff.
 func rebuttal(responder string, ev *dispatchevidence.Order, a *dispatchevidence.Attempt, claim *taskv1.DispatchCompensationClaimState) (*taskv1.MsgRebutDispatchCompensation, error) {
 	if !a.Rebuttable() {
 		return nil, fmt.Errorf("attempt is %s, sent %v", a.Outcome, a.Sent)

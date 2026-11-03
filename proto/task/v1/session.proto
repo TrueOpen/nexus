@@ -138,6 +138,10 @@ message StreamState {
   uint32 sticky_run_count = 23;
   optional PendingSessionKeyChangeV1 pending_session_key_change = 24;
   optional PendingTakeoverV1 pending_takeover = 25;
+  // Positive exactly for CLOSED, set once on entry into that state. A closed
+  // Session accepts a claim only for max(ticket bound height, order ESH) below
+  // this height, until history compaction removes the StreamState.
+  uint64 closed_height = 26;
 }
 
 // OrderSequenceState records how one order sequence was used (this contract, key =
@@ -153,12 +157,19 @@ message OrderSequenceState {
   uint64 cancelled_height = 6;
 
   uint64 cancel_effective_height = 7;
+  // Set atomically on compensation PAID, including a zero actual payment.
+  // Never cleared by cancellation, admission or settlement. An unconsumed
+  // sequence uses UNUSED to retain this marker until Session compaction.
+  bool compensation_paid = 8;
 }
 
 // SessionHistoryPruneCursorState folds order history after a session closed
 // (key = session_id). rolling_sequence_root advances by
 // TRUEOPEN_SESSION_SEQUENCE_ROOT_V1; visited_count counts every visited row,
-// including already collapsed or missing ones. No DONE row is persisted.
+// including already collapsed or missing ones. After final next, it scans
+// through final next + max_pending_per_session to delete UNUSED paid markers
+// and gaps without changing the root or outcome counts. Genesis accepts a
+// cursor anywhere in that full range. No DONE row is persisted.
 // SessionHistoryPruneCursorState defines the SessionHistoryPruneCursorState wire type.
 message SessionHistoryPruneCursorState {
   bytes session_id = 1;
