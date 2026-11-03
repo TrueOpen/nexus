@@ -1,7 +1,9 @@
 package dispatcher
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -21,6 +23,7 @@ type Evidence interface {
 // its record, a failed one with a record without a winner. Evidence that cannot be built is
 // logged and the state is stored alone. Caller holds the order's lock.
 func (d *Dispatcher) saveWithEvidence(st *orderState) error {
+	d.fillWindows(st)
 	op, err := saveStateOp(st)
 	if err != nil {
 		return err
@@ -116,6 +119,7 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 	if len(st.Rounds) == 0 || st.Epoch == nil {
 		return nil, nil
 	}
+	d.fillWindows(st)
 	signed, err := st.signedOrder()
 	if err != nil {
 		return nil, err
@@ -190,4 +194,19 @@ func (d *Dispatcher) BoundRoots() map[[32]byte]bool {
 		o.mu.Unlock()
 	}
 	return out
+}
+
+// windowsReadTimeout bounds the session read of fillWindows, which runs under the order's lock.
+const windowsReadTimeout = 2 * time.Second
+
+// fillWindows reads the windows the order's session froze into st when they are not known yet: a
+// read that failed when the order was taken is tried again whenever its evidence is built. Caller
+// holds the order's lock.
+func (d *Dispatcher) fillWindows(st *orderState) {
+	if st.Windows != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), windowsReadTimeout)
+	defer cancel()
+	st.Windows = d.sessionWindows(ctx, st.SessionID)
 }

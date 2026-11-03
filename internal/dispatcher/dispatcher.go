@@ -502,8 +502,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 }
 
 // sessionWindows are the evidence windows of the params the session froze, from the session state
-// the precheck just read; nil, with a warning, when it cannot be read: the evidence then follows
-// the current params alone.
+// the precheck just read; nil, with a warning, when it cannot be read: the evidence follows the
+// current params alone until a later read (fillWindows) succeeds.
 func (d *Dispatcher) sessionWindows(ctx context.Context, sessionID string) *dispatchevidence.Params {
 	s, _, err := d.cfg.Sessions.Lookup(ctx, sessionID)
 	if err != nil || !s.Found || s.FrozenDispatch == nil {

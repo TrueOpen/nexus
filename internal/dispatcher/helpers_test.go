@@ -478,11 +478,17 @@ type env struct {
 type fakeChain struct {
 	mu       sync.Mutex
 	sessions map[string]chaincli.SessionState
+	// failReads fails that many next reads as an unreachable chain.
+	failReads int
 }
 
 func (c *fakeChain) read(_ context.Context, sessionID string) (chaincli.SessionState, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.failReads > 0 {
+		c.failReads--
+		return chaincli.SessionState{}, errors.New("chain unreachable")
+	}
 	s, ok := c.sessions[sessionID]
 	if !ok {
 		return chaincli.SessionState{}, chaincli.ErrNotFound

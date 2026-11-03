@@ -69,6 +69,42 @@ func TestEvidenceNamesTheSessionsFrozenWindows(t *testing.T) {
 	}
 }
 
+// Windows the session read could not give when the order was taken are read again when its
+// evidence is written, and kept with the order from then on.
+func TestEvidenceWindowsAreReadAgainAfterAFailedRead(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 240, DispatchCompensationClaimWindowBlocks: 70}
+	e.chain.update(s, func(st *chaincli.SessionState) { st.FrozenDispatch = frozen })
+	o := e.order(s, 0, 1)
+	e.chain.mu.Lock()
+	e.chain.failReads = 1 // the read when the order is taken
+	e.chain.mu.Unlock()
+	e.dispatch(o)
+	if w, ok := e.windowsOf(s, 0); !ok || w != nil {
+		t.Fatal("windows known after a failed read")
+	}
+	_, hash := e.accept()
+	ev, _ := e.evidenceOf(hash)
+	if want := dispatchevidence.ParamsFromChain(frozen); ev.Windows == nil || *ev.Windows != want {
+		t.Fatalf("evidence windows = %+v, want %+v", ev.Windows, want)
+	}
+	if w, ok := e.windowsOf(s, 0); ok && w == nil {
+		t.Fatal("windows read again are not kept with the order")
+	}
+}
+
+// windowsOf returns the windows the dispatcher keeps with a live order.
+func (e *env) windowsOf(sessionID string, sequence uint64) (*dispatchevidence.Params, bool) {
+	o := e.d.get(stateKey(sessionID, sequence))
+	if o == nil {
+		return nil, false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.st.Windows, true
+}
+
 // An order that ends without a winner keeps its evidence: every ticket as signed and whether it
 // reached its target, the rejects as received, the round's roster and root, and a record with no
 // winner signed by this Builder that lists every attempt with its outcome.
