@@ -62,7 +62,7 @@ func (r *Responder) handleChallenge(ctx context.Context, head uint64, it item) {
 	}
 	it.Deadline = ch.GetProofDeadlineHeight()
 	r.extendTask(ch.GetTaskId(), it.Deadline)
-	if !r.holdsOwnTask(ch.GetTaskId()) && !memberTurn(head, ch.GetOpenedHeight(), it.Deadline) {
+	if !r.holdsOwnTask(ch.GetTaskId()) && !r.memberTurnOf(&it, head, ch.GetOpenedHeight()) {
 		r.update(challengePrefix, r.challenges, &it)
 		return
 	}

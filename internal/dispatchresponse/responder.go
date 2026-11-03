@@ -171,6 +171,9 @@ type item struct {
 	// HeldRevoked is set once the answer was refused because this Builder's service key is
 	// revoked (counted once), until an answer goes out.
 	HeldRevoked bool `json:"held_revoked,omitempty"`
+	// NoOpenedHeight is set once the chain's claim or challenge was found without an opened height
+	// (logged once).
+	NoOpenedHeight bool `json:"no_opened_height,omitempty"`
 }
 
 // Keys of the open items in kv.NSDispatchEvidence.

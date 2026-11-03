@@ -90,6 +90,27 @@ func TestMemberTurnIsHalfTheWindowTheChainOpened(t *testing.T) {
 	}
 }
 
+// A claim without claimed_height spans its whole deadline as its window: the member answers from
+// half the deadline on (only an extra answer's gas), and the missing height is logged once.
+func TestMemberTurnWithoutAnOpenedHeight(t *testing.T) {
+	e := newEnv(t)
+	e.put(memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeRejected}, {op: op1, sent: true, outcome: outcomeTimeout}})))
+	e.memberClaim(ticketHash(0, 0), op7, 160)
+	e.setClaim(ticketHash(0, 0), func(c *taskv1.DispatchCompensationClaimState) { c.ClaimedHeight = 0 })
+	e.block(79)
+	e.block(79)
+	if got := e.rebuts(); len(got) != 0 {
+		t.Fatalf("member rebutted before half the deadline: %v", got)
+	}
+	e.block(80)
+	if got := e.rebuts(); len(got) != 1 {
+		t.Fatalf("rebuttals from half the deadline on = %v", got)
+	}
+	if n := e.logs.count(noOpenedHeightLog); n != 1 {
+		t.Fatalf("missing opened height logged %d times, want once", n)
+	}
+}
+
 // Only the dispatching Builder or a member of the current BuilderSet may rebut: a member that left
 // the current set, or that does not know it, sends nothing, and rebuts once it is in the set again
 // within the window. The dispatching Builder rebuts its own claims whatever the set.

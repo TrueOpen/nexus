@@ -83,7 +83,7 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 	if err := r.cfg.Evidence.Extend(ev.Key(), it.Deadline); err != nil {
 		r.log.Warn("evidence of an open claim not extended", "ticket", ticket, "err", err)
 	}
-	if ev.Builder != "" && !memberTurn(head, claim.GetClaimedHeight(), it.Deadline) {
+	if ev.Builder != "" && !r.memberTurnOf(&it, head, claim.GetClaimedHeight()) {
 		r.update(claimPrefix, r.claims, &it)
 		return
 	}
@@ -227,14 +227,30 @@ func (r *Responder) currentMember(it *item, ticket string) bool {
 // memberTurn reports whether a group member answers at head a claim or challenge the chain opened
 // at opened with its answer due by deadline: in the second half of that window. The first half is
 // the dispatching Builder's, so the group does not pay for the same answer twice. The window is the
-// one the chain opened under the session's frozen params, never one of the current params; an
-// opened height not below the deadline leaves no first half.
+// one the chain opened under the session's frozen params, never one of the current params. An
+// opened height at or past the deadline gives a zero window: the member's turn would start only at
+// the deadline itself, when the item is already closed, so it never answers. An opened height of
+// zero (not reported) makes the whole deadline the window: the member answers from half the
+// deadline on, at worst paying for an answer the dispatching Builder also sends.
 func memberTurn(head, opened, deadline uint64) bool {
 	var window uint64
 	if opened < deadline {
 		window = deadline - opened
 	}
 	return head+window/2 >= deadline
+}
+
+// noOpenedHeightLog is logged once per item whose claim or challenge reports no opened height.
+const noOpenedHeightLog = "claim or challenge reports no opened height; members answer from half its deadline on"
+
+// memberTurnOf is memberTurn of an item opened at opened, warning once when the chain reported no
+// opened height.
+func (r *Responder) memberTurnOf(it *item, head, opened uint64) bool {
+	if opened == 0 && !it.NoOpenedHeight {
+		r.log.Warn(noOpenedHeightLog, "id", hex.EncodeToString(it.ID), "deadline", it.Deadline)
+		it.NoOpenedHeight = true
+	}
+	return memberTurn(head, opened, it.Deadline)
 }
 
 // holdsCopyOf reports whether this Builder holds builder's evidence of a ticket as a member of
