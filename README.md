@@ -210,6 +210,13 @@ that raises the local state version, back up `data_dir`: going back to the older
 possible by restoring that backup. Only a reset of the chain (a different block
 at height 1) moves the local state aside.
 
+Deploy note for the Phase 1 builds: the dispatch evidence key now includes the binding generation
+(`bound_change_height`), and members file synced rounds per generation; the local state version is
+not raised for it. Evidence written by an earlier Phase 1 build would no longer be found by ticket,
+so claims on those tickets would go unrebutted and be paid. A fresh genesis moves the old state
+aside by itself; to run this version against a chain an earlier Phase 1 build already used, stop
+nexus, move `data_dir` aside (keep it as a backup) and start with an empty one.
+
 ## Interface alignment
 
 `IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; they follow the
