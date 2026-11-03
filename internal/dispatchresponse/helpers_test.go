@@ -17,6 +17,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
 
 const (
@@ -386,7 +387,27 @@ type env struct {
 	roots    *fakeRoots
 	live     map[[32]byte]bool
 	logs     *messageCounter
+	set      *fakeBuilderSet
 	r        *Responder
+}
+
+// fakeBuilderSet answers a fixed current BuilderSet; known false when none was read.
+type fakeBuilderSet struct {
+	mu       sync.Mutex
+	snapshot taskgroup.Snapshot
+	known    bool
+}
+
+func (f *fakeBuilderSet) CurrentBuilderSet() (taskgroup.Snapshot, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snapshot, f.known
+}
+
+func (f *fakeBuilderSet) set(known bool, members ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshot.Members, f.known = members, known
 }
 
 func newEnv(t *testing.T) *env {
@@ -396,6 +417,7 @@ func newEnv(t *testing.T) *env {
 		chain: &fakeChain{claims: map[string]*taskv1.DispatchCompensationClaimState{}, challenges: map[string]*taskv1.DispatchChallengeState{},
 			records: map[string]*taskv1.DispatchRecordState{}, txResults: map[string]chaincli.TxResult{}},
 		tx: &fakeTx{}, roots: &fakeRoots{}, live: map[[32]byte]bool{}, logs: &messageCounter{},
+		set: &fakeBuilderSet{snapshot: taskgroup.Snapshot{ID: "set-1", Members: []string{other, self}}, known: true},
 	}
 	e.evidence = dispatchevidence.New(e.store, testParams)
 	e.open()
@@ -408,7 +430,7 @@ func (e *env) open() {
 	var err error
 	e.r, err = New(Config{
 		ChainID: testChainID, Builder: self, Responder: func() string { return responder }, Store: e.store, Evidence: e.evidence,
-		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live },
+		Chain: e.chain, Tx: e.tx, Roots: e.roots, LiveRoots: func() map[[32]byte]bool { return e.live }, BuilderSet: e.set,
 		GasBase: testGasBase, GasPerByte: testGasPerByte, Log: slog.New(e.logs),
 	})
 	if err != nil {

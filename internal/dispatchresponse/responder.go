@@ -6,8 +6,9 @@
 // reject goes with the record), timed out or was revoked; every other claim is owed and left to be
 // paid. As a member of another Builder's Task Builders group this Builder does the same from the
 // copy of that Builder's evidence synced to it, in the second half of the window, so the
-// dispatching Builder answers first; a ROSTER_UNAVAILABLE challenge is answered from a copy the
-// same way. A SKIP challenge on this Builder's record is answered with the Worker's reject stored for
+// dispatching Builder answers first, and only while it is in the current BuilderSet (the chain
+// takes a rebuttal from the dispatching Builder or a current member only); a ROSTER_UNAVAILABLE
+// challenge is answered from a copy the same way, under the order's frozen Task Builders group. A SKIP challenge on this Builder's record is answered with the Worker's reject stored for
 // the challenged ticket, a ROSTER_UNAVAILABLE challenge with the stored roster of the challenged
 // round whose roster_hash the chain's record holds. OMISSION, DRAW and DOUBLE_DISPATCH challenges
 // have no answer; they are logged and counted.
@@ -37,6 +38,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 )
 
 const (
@@ -99,6 +101,9 @@ type Config struct {
 	// returns the roots orders still dispatching bind (dispatcher.BoundRoots), kept as well.
 	Roots     Roots
 	LiveRoots func() map[[32]byte]bool
+	// BuilderSet is the current BuilderSet: a claim on another Builder's ticket may be rebutted only
+	// by a member of it.
+	BuilderSet taskgroup.Source
 	// GasBase and GasPerByte give an answer its gas limit: GasBase plus GasPerByte for each
 	// encoded byte of the Msg (dispatch.answer_gas_base, answer_gas_per_byte).
 	GasBase, GasPerByte uint64
@@ -160,6 +165,9 @@ type item struct {
 	// once a synced copy was found without its record yet (logged once).
 	Missing       bool `json:"missing,omitempty"`
 	RecordMissing bool `json:"record_missing,omitempty"`
+	// NotMember is set once a member's rebuttal was held because this Builder is not in the
+	// current BuilderSet (logged once), until it is again.
+	NotMember bool `json:"not_member,omitempty"`
 	// HeldRevoked is set once the answer was refused because this Builder's service key is
 	// revoked (counted once), until an answer goes out.
 	HeldRevoked bool `json:"held_revoked,omitempty"`
@@ -176,8 +184,8 @@ func New(cfg Config) (*Responder, error) {
 	switch {
 	case cfg.ChainID == "" || cfg.Builder == "" || cfg.Responder == nil || cfg.Store == nil || cfg.Evidence == nil:
 		return nil, fmt.Errorf("dispatch responder needs the chain id, Builder and service addresses, store and evidence")
-	case cfg.Chain == nil || cfg.Tx == nil:
-		return nil, fmt.Errorf("dispatch responder needs the chain and a submitter")
+	case cfg.Chain == nil || cfg.Tx == nil || cfg.BuilderSet == nil:
+		return nil, fmt.Errorf("dispatch responder needs the chain, a submitter and the current BuilderSet")
 	case cfg.GasBase == 0 || cfg.GasPerByte == 0:
 		return nil, fmt.Errorf("dispatch responder needs the answer gas base and per-byte gas")
 	}

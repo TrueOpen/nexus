@@ -84,7 +84,7 @@ func syncedMember(t *testing.T) (*env, *dispatchresponse.Responder, *answerChain
 	tx := &answerTx{}
 	r, err := dispatchresponse.New(dispatchresponse.Config{
 		ChainID: testChainID, Builder: e.m.op, Responder: e.m.key.Address, Store: e.member.store, Evidence: e.member.evidence,
-		Chain: chain, Tx: tx, GasBase: 1, GasPerByte: 1,
+		Chain: chain, Tx: tx, BuilderSet: e.groups, GasBase: 1, GasPerByte: 1,
 	})
 	if err != nil {
 		t.Fatal(err)

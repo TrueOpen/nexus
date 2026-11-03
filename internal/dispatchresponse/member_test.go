@@ -56,6 +56,46 @@ func TestMemberRebutsAClaimFromItsSyncedCopy(t *testing.T) {
 	}
 }
 
+// Only the dispatching Builder or a member of the current BuilderSet may rebut: a member that left
+// the current set, or that does not know it, sends nothing, and rebuts once it is in the set again
+// within the window. The dispatching Builder rebuts its own claims whatever the set.
+func TestMemberRebutsOnlyInTheCurrentBuilderSet(t *testing.T) {
+	e := newEnv(t)
+	e.put(memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}})))
+	e.memberClaim(ticketHash(0, 0), op7, 160)
+	e.set.set(true, other, op1)
+	e.block(155)
+	e.block(156)
+	if got := e.rebuts(); len(got) != 0 {
+		t.Fatalf("a member outside the current BuilderSet rebutted: %v", got)
+	}
+	if e.logs.count("compensation claim on a synced copy not rebutted: this Builder is not in the current BuilderSet") != 1 {
+		t.Fatal("leaving the set is not logged once")
+	}
+	e.set.set(false)
+	e.block(157)
+	if got := e.rebuts(); len(got) != 0 {
+		t.Fatalf("a member without a known BuilderSet rebutted: %v", got)
+	}
+	if len(e.r.openClaims()) != 1 {
+		t.Fatal("the claim was dropped while the set is not known")
+	}
+	e.set.set(true, other, self)
+	e.block(158)
+	if got := e.rebuts(); len(got) != 1 {
+		t.Fatalf("rebuttals back in the set = %v", got)
+	}
+
+	own := newEnv(t)
+	own.set.set(true, other)
+	own.put(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeTimeout}}))
+	own.claim(ticketHash(0, 0), op7, 160)
+	own.block(151)
+	if got := own.rebuts(); len(got) != 1 {
+		t.Fatalf("the dispatching Builder outside the set did not rebut: %v", got)
+	}
+}
+
 // A claim the dispatching Builder already rebutted is settled on chain: the member closes it.
 func TestMemberLeavesASettledClaim(t *testing.T) {
 	e := newEnv(t)

@@ -381,6 +381,14 @@ below 10s; and at most half the time left to the request's own deadline); then t
 retryable `Unavailable` (`NEXUS_OUTPUT_REPLICA_NOT_READY`), and the SDK retries or falls back to
 `FetchTaskData(OUTPUT)`.
 
+From its synced copy a member rebuts a compensation claim on the dispatching Builder's ticket in
+the second half of the rebuttal window, but only while it is a member of the current BuilderSet:
+the chain takes a rebuttal only from the dispatching Builder or a current member. Outside the
+current set (logged once per claim as `compensation claim on a synced copy not rebutted: this
+Builder is not in the current BuilderSet`) nothing is sent, and the claim is looked at again each
+block until its window closes. A `ROSTER_UNAVAILABLE` challenge is answered from the copy under the
+order's frozen Task Builders group, whatever the current set.
+
 A member that later reports fewer items than were deleted has lost its data directory. It is logged
 once as an error ("group member holds fewer of an order's sync items ...") and counted as an alarm,
 and it cannot stand in for this Builder on that order; the other members still can. Nothing else is

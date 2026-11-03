@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"slices"
 
 	"google.golang.org/protobuf/proto"
 
@@ -103,6 +104,10 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 		r.close(claimPrefix, r.claims, it.ID)
 		return
 	}
+	if ev.Builder != "" && !r.currentMember(&it, ticket) {
+		r.update(claimPrefix, r.claims, &it)
+		return
+	}
 	res, err := r.cfg.Tx.SubmitRebutDispatchCompensation(ctx, msg, r.gas(msg, &it))
 	if r.held(&it, err) {
 		r.update(claimPrefix, r.claims, &it)
@@ -196,6 +201,27 @@ func dispatcherOf(ev *dispatchevidence.Order, self string) string {
 		return ev.Builder
 	}
 	return self
+}
+
+// currentMember reports whether this Builder is in the current BuilderSet, which a member's
+// rebuttal needs: the chain refuses one from a Builder outside it, whatever group froze the
+// order. Outside it, or without a known set, nothing is sent and the claim is looked at again
+// next block (the set may change within the window); leaving the set is logged once per claim.
+func (r *Responder) currentMember(it *item, ticket string) bool {
+	set, ok := r.cfg.BuilderSet.CurrentBuilderSet()
+	switch {
+	case !ok:
+		return false
+	case !slices.Contains(set.Members, r.cfg.Builder):
+		if !it.NotMember {
+			r.log.Warn("compensation claim on a synced copy not rebutted: this Builder is not in the current BuilderSet", "ticket", ticket,
+				"builder_set", set.ID, "rebuttal_deadline", it.Deadline)
+			it.NotMember = true
+		}
+		return false
+	}
+	it.NotMember = false
+	return true
 }
 
 // memberTurn reports whether a group member answers at head a claim or challenge whose answer is
