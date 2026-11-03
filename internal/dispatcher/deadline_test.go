@@ -127,7 +127,7 @@ func TestParamsFromChainTakeRecordDeadlineBlocks(t *testing.T) {
 }
 
 // A binding change of this Builder that arrives once the head passed the deadline of the old
-// bound_change_height opens the new round against the new one: the order is not failed.
+// bound_change_height restarts the rounds against the new one: the order is not failed.
 func TestBindingEventPastTheOldDeadline(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -141,14 +141,14 @@ func TestBindingEventPastTheOldDeadline(t *testing.T) {
 		t.Fatalf("failed = %v", got)
 	}
 	_, ticket, _ := e.lastOffer()
-	if ticket.GetDispatchRound() != 1 || ticket.GetBoundChangeHeight() != bound {
+	if ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != bound {
 		t.Fatalf("ticket = %v", ticket)
 	}
 }
 
 // The new bound_change_height is stored with the voided round: an order that could not step at
 // the event (its Builder key rotation pending) and resumes after a restart, with the head past the
-// old deadline, opens its new round instead of failing.
+// old deadline, restarts its rounds instead of failing.
 func TestBindingChangeSurvivesARestartPastTheOldDeadline(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -180,7 +180,7 @@ func TestBindingChangeSurvivesARestartPastTheOldDeadline(t *testing.T) {
 	if len(e.streams.offers()) <= offers {
 		t.Fatal("no ticket of the new round")
 	}
-	if _, ticket, _ := e.lastOffer(); ticket.GetDispatchRound() != 1 || ticket.GetBoundChangeHeight() != bound {
+	if _, ticket, _ := e.lastOffer(); ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != bound {
 		t.Fatalf("ticket = %v", ticket)
 	}
 }

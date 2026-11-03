@@ -378,3 +378,36 @@ func TestMemberCopyIsKeptApartFromOwnEvidence(t *testing.T) {
 		t.Fatalf("copy by ticket = %v %v %v", got, found, err)
 	}
 }
+
+// A takeover back to the same Builder in the same epoch restarts the order's rounds from 0 under a
+// new bound_change_height: that generation's evidence is kept apart from the earlier one, whose
+// tickets still resolve to it.
+func TestBindingGenerationsAreKeptApart(t *testing.T) {
+	s := New(kv.NewMemStore(), testParams)
+	first := testOrder(t)
+	first.BoundChangeHeight = 90
+	second := testOrder(t)
+	second.BoundChangeHeight = 120
+	second.Rounds = second.Rounds[:1]
+	for j := range second.Rounds[0].Attempts {
+		second.Rounds[0].Attempts[j].Hash = fill(byte(0x60 + j))
+	}
+	if first.Key() == second.Key() {
+		t.Fatal("two binding generations share a key")
+	}
+	for _, o := range []*Order{first, second} {
+		if err := s.Put(o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orders, err := s.ByTask(first.TaskID)
+	if err != nil || len(orders) != 2 {
+		t.Fatalf("orders of the task = %d, %v", len(orders), err)
+	}
+	for hash, want := range map[byte]uint64{0x10: 90, 0x12: 90, 0x60: 120} {
+		got, a, found, err := s.ByTicket(fill(hash))
+		if err != nil || !found || got.BoundChangeHeight != want || a.Hash[0] != hash {
+			t.Fatalf("ticket %x = %+v, %v, %v", hash, got, found, err)
+		}
+	}
+}

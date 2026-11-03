@@ -70,8 +70,8 @@ type Round struct {
 	Attempts   []Attempt `json:"attempts"`
 }
 
-// Order is the evidence of one version of an order in one epoch: the tickets of one task_id under
-// one VRF output.
+// Order is the evidence of one version of an order in one epoch and binding generation: the tickets
+// of one task_id under one VRF output and one bound_change_height.
 type Order struct {
 	// Builder is the order's dispatching Builder when this Builder holds the evidence as another
 	// member of the order's Task Builders group, synced from it; empty for this Builder's own orders.
@@ -81,6 +81,10 @@ type Order struct {
 	TaskID    string `json:"task_id"`
 	TaskHash  string `json:"task_hash"`
 	Epoch     uint64 `json:"epoch"`
+	// BoundChangeHeight is the session's bound_change_height every ticket of the evidence commits.
+	// A takeover that changes the binding, also one back to the same Builder, restarts the order's
+	// rounds from 0 under the new height: each binding generation is evidence of its own.
+	BoundChangeHeight uint64 `json:"bound_change_height"`
 	// SignedOrder is the SignedOrderV2 offered with the tickets.
 	SignedOrder []byte `json:"signed_order"`
 	// DeadlineBase is the largest max(earliest_submit_height, bound_change_height) a ticket of the
@@ -103,10 +107,11 @@ type Order struct {
 	RetainUntil uint64 `json:"retain_until"`
 }
 
-// Key identifies the evidence: one per (session, sequence, task_id, epoch), and per dispatching
-// Builder for a member's copy, which stays apart from this Builder's own evidence of the order.
+// Key identifies the evidence: one per (session, sequence, task_id, epoch, bound_change_height),
+// and per dispatching Builder for a member's copy, which stays apart from this Builder's own
+// evidence of the order.
 func (o *Order) Key() string {
-	key := fmt.Sprintf("%s/%020d/%s/%020d", o.SessionID, o.Sequence, o.TaskID, o.Epoch)
+	key := fmt.Sprintf("%s/%020d/%s/%020d/%020d", o.SessionID, o.Sequence, o.TaskID, o.Epoch, o.BoundChangeHeight)
 	if o.Builder != "" {
 		key += "@" + o.Builder
 	}

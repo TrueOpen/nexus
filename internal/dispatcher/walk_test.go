@@ -498,20 +498,26 @@ func TestStickyPredictionWithAZeroWindowWaitsForTheHead(t *testing.T) {
 }
 
 // A change of the session's bound_change_height voids the ticket out and an accepted, unrecorded
-// winner; each time a new round commits the new height and continues after the last rank.
-func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
+// winner, and stores them as the evidence of the binding generation that ended; each time the
+// order restarts from round 0 and rank 0 committing the new height, and its record shows only the
+// rounds of its own generation.
+func TestBindingChangeVoidsAndRestartsTheRounds(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
 	o := e.order(s, 0, 1)
 	e.dispatch(o)
+	_, _, voided := e.lastOffer()
 	rebind := func(height uint64) {
 		e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = height })
 		e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: height}})
 	}
 	rebind(60)
 	op, ticket, _ := e.lastOffer()
-	if op != op1 || ticket.GetDispatchRound() != 1 || ticket.GetRank() != 1 || ticket.GetBoundChangeHeight() != 60 {
+	if op != op7 || ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != 60 {
 		t.Fatalf("after the first change: %s %v", op, ticket)
+	}
+	if ev, a := e.evidenceOf(voided); ev.BoundChangeHeight != testBound || a.Outcome != outcomeVoided || len(ev.Record) == 0 {
+		t.Fatalf("evidence of the first generation = %+v, attempt %+v", ev, a)
 	}
 	_, firstWin := e.accept()
 	rebind(70)
@@ -524,8 +530,11 @@ func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
 	if a, ok := e.attempts.Current(o.TaskID); ok {
 		t.Fatalf("voided winner is still the task's attempt: %+v", a)
 	}
+	if ev, a := e.evidenceOf(firstWin); ev.BoundChangeHeight != 60 || a.Outcome != outcomeVoided || len(ev.Rounds) != 1 {
+		t.Fatalf("evidence of the second generation = %+v, attempt %+v", ev, a)
+	}
 	op, ticket, _ = e.lastOffer()
-	if op != op3 || ticket.GetDispatchRound() != 2 || ticket.GetBoundChangeHeight() != 70 {
+	if op != op7 || ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != 70 {
 		t.Fatalf("after the second change: %s %v", op, ticket)
 	}
 	_, secondWin := e.accept()
@@ -534,7 +543,7 @@ func TestBindingChangeVoidsAndOpensANewRound(t *testing.T) {
 	}
 	bundles := e.recorder.recorded()
 	rec := checkRecordable(t, e, bundles[len(bundles)-1], 70)
-	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:VOIDED", "1:1:VOIDED", "2:2:ACCEPTED"}) {
+	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:ACCEPTED"}) {
 		t.Fatalf("attempts = %v", got)
 	}
 	// Bound to another Builder, the session's orders fail, the accepted one included.
@@ -631,8 +640,8 @@ func TestOwnRotationPendingHoldsOrdersAtTheCutover(t *testing.T) {
 // An order taken before this Builder's rotation was registered that needs another round while
 // the rotation is pending opens it on a root signed during the wait, by the current key under its
 // nonce: its first Worker times out and the walk goes on within the round; when a binding change
-// voids the ticket out, the new round binds the latest root and goes on after the last rank. A new
-// order is still refused with NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+// voids the ticket out, the restarted round 0 binds the latest root. A new order is still refused
+// with NEXUS_INGRESS_BUILDER_KEY_ROTATING.
 func TestOwnRotationPendingOpensNextRoundsOnFreshRoots(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
@@ -650,13 +659,13 @@ func TestOwnRotationPendingOpensNextRoundsOnFreshRoots(t *testing.T) {
 	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: 60}})
 	op, ticket, _ := e.lastOffer()
 	fresh := fill32(0xd2)
-	if op != op3 || ticket.GetDispatchRound() != 1 || ticket.GetRank() != 2 || !bytes.Equal(ticket.GetHandraiseRootDigest(), fresh[:]) ||
+	if op != op7 || ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || !bytes.Equal(ticket.GetHandraiseRootDigest(), fresh[:]) ||
 		ticket.GetServiceAuthorizationNonce() != testBuilderNonce {
-		t.Fatalf("next round during the rotation: %s %v", op, ticket)
+		t.Fatalf("restarted round during the rotation: %s %v", op, ticket)
 	}
 	e.accept()
 	rec := checkRecordable(t, e, e.onlyBundle(), 60)
-	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:TIMEOUT", "0:1:VOIDED", "1:2:ACCEPTED"}) {
+	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:ACCEPTED"}) {
 		t.Fatalf("attempts = %v", got)
 	}
 
@@ -761,6 +770,54 @@ func TestOrderForTheNextHeightIsDispatchedAtOnce(t *testing.T) {
 	}
 	e.accept()
 	checkRecordable(t, e, e.onlyBundle(), testBound)
+}
+
+// An order taken over by another Builder and taken back in the same epoch is a new binding
+// generation: the retried order restarts at round 0 and rank 0 committing the new
+// bound_change_height, and its evidence stays apart from the first generation's, whose round 0
+// is still retrievable by its tickets.
+func TestTakeoverBackRestartsTheRoundsInTheSameEpoch(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, _, rejected := e.lastOffer()
+	e.reject()
+	_, _, out := e.lastOffer()
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundBuilder, st.BoundChangeHeight = op1, testBound+10 })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: op1, BoundChangeHeight: testBound + 10}})
+	if e.ledgerState(o) != inflight.StateFailed {
+		t.Fatal("the order taken over did not fail")
+	}
+	const back = testBound + 20
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundBuilder, st.BoundChangeHeight = e.builder, back })
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: back}})
+	retry := e.order(s, 0, 2)
+	e.dispatch(retry)
+	op, ticket, hash := e.lastOffer()
+	if op != op7 || ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != back {
+		t.Fatalf("ticket after the takeover back: %s %v", op, ticket)
+	}
+	e.accept()
+	rec := checkRecordable(t, e, e.onlyBundle(), back)
+	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:ACCEPTED"}) {
+		t.Fatalf("attempts = %v", got)
+	}
+	old, a := e.evidenceOf(rejected)
+	if old.BoundChangeHeight != testBound || a.Outcome != outcomeRejected || len(old.Rounds) != 1 || old.Rounds[0].Number != 0 {
+		t.Fatalf("first generation evidence = %+v", old)
+	}
+	if _, voided := e.evidenceOf(out); voided.Outcome != outcomeVoided {
+		t.Fatalf("ticket out at the takeover = %+v", voided)
+	}
+	current, _ := e.evidenceOf(hash)
+	if current.BoundChangeHeight != back || current.Key() == old.Key() || len(current.Rounds) != 1 || current.Rounds[0].Number != 0 {
+		t.Fatalf("second generation evidence = %+v", current)
+	}
+	orders, err := e.evidence.ByTask(o.TaskID)
+	if err != nil || len(orders) != 2 {
+		t.Fatalf("evidence of the task = %d, %v", len(orders), err)
+	}
 }
 
 // A retry of a failed sequence in the same epoch is a new round: it binds the latest root and

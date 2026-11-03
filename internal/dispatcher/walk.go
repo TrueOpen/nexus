@@ -328,9 +328,18 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.parked = true
 		return false, done{}
 	}
-	// Stickiness is decided against the roster round 0 binds. Until round 0 holds a ticket (a first
-	// ticket not issued, or a restart with the draw stored but no round) it is decided again.
+	// bound_change_height only grows; a binding event may have been seen before the session read.
+	bound := max(st.BoundChangeHeight, session.BoundChangeHeight)
+	// A new epoch, or a binding generation other than the stored rounds' (a takeover took effect,
+	// also one back to this Builder), restarts the order: its order, roster, rounds and counts
+	// start from scratch under the same VRF output. The earlier generation's evidence was stored
+	// when it ended (the order failed, or the binding change voided its tickets). Stickiness is
+	// decided against the roster round 0 binds. Until round 0 holds a ticket (a first ticket not
+	// issued, or a restart with the draw stored but no round) it is decided again.
 	fresh := o.draw == nil || st.Epoch == nil || st.Epoch.Number != draw.Epoch.Number || len(st.Rounds) == 0
+	if stored, ok := roundsBinding(st); !ok || stored != bound {
+		fresh = true
+	}
 	var sticky *taskv1.DispatchStickySnapshotV1
 	if fresh {
 		var wait bool
@@ -368,9 +377,24 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 		o.draw = ord
 	}
 	o.roster, o.rosterRound = roster, nextRound(st)
-	// bound_change_height only grows; a binding event may have been seen before the session read.
-	st.BoundChangeHeight, st.NewRound = max(st.BoundChangeHeight, session.BoundChangeHeight), false
+	st.BoundChangeHeight, st.NewRound = bound, false
 	return true, done{}
+}
+
+// roundsBinding is the bound_change_height the stored rounds' tickets commit: every round of an
+// order belongs to one binding generation. False without a stored ticket, or one that does not
+// decode.
+func roundsBinding(st *orderState) (uint64, bool) {
+	for _, r := range st.Rounds {
+		for _, a := range r.Attempts {
+			var ticket taskv1.DispatchTicketV1
+			if proto.Unmarshal(a.Ticket, &ticket) != nil {
+				return 0, false
+			}
+			return ticket.GetBoundChangeHeight(), true
+		}
+	}
+	return 0, false
 }
 
 func nextRound(st *orderState) uint32 {
@@ -598,7 +622,8 @@ func (d *Dispatcher) fail(o *order, reason error) done {
 
 // onBound applies a binding change of a session. Bound to another Builder, its orders fail; bound
 // here at a new bound_change_height, the tickets of the current round, out or accepted but not
-// recorded, are VOIDED and the next ticket opens a new round committing the new height.
+// recorded, are VOIDED and stored as the evidence of the generation that ended, and the order
+// restarts from round 0 committing the new height.
 func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, boundChangeHeight uint64) {
 	for _, o := range d.sessionOrders(sessionID) {
 		o.mu.Lock()
@@ -642,13 +667,14 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			failed := d.fail(o, fmt.Errorf("%w: bound to %s", ErrBoundElsewhere, builder))
 			out.failed = failed.failed
 		} else {
-			// The new height is taken now, not only when the new round opens: the step below (and
-			// one after a restart) judges the record deadline with it.
+			// The new height is taken now, not only when the order restarts: the step below (and
+			// one after a restart) judges the record deadline with it. The voided generation's
+			// evidence is written with it: the restart drops its rounds from the state.
 			st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
-			if err := d.save(st); err != nil {
+			if err := d.saveWithEvidence(st); err != nil {
 				d.log.Error("voided tickets not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}
-			d.log.Info("binding changed; tickets voided, new round", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", boundChangeHeight)
+			d.log.Info("binding changed; tickets voided, rounds restart", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", boundChangeHeight)
 			stepOut := d.step(ctx, o)
 			out.accepted, out.failed = stepOut.accepted, stepOut.failed
 		}

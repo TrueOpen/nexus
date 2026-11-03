@@ -139,6 +139,7 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 			if round.RosterHash == nil {
 				round.RosterHash = ticket.GetRosterHash()
 			}
+			ev.BoundChangeHeight = ticket.GetBoundChangeHeight()
 			ev.DeadlineBase = max(ev.DeadlineBase, ticket.GetBoundChangeHeight())
 			round.Attempts = append(round.Attempts, dispatchevidence.Attempt{
 				Ticket: a.Ticket, Hash: a.Hash, Rank: a.Rank, Operator: a.Operator, Sent: a.Sent, Outcome: a.Outcome,
