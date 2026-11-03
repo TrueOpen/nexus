@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -70,6 +71,9 @@ type orderDispatch struct {
 	// Drain is the operator's optional drain: it stops new orders, tickets and takeovers.
 	Drain  *drain.Controller
 	params func(context.Context) (orderParams, error)
+	// readSession reads a session from the chain, without the session cache, which would follow
+	// the events of every session another Builder syncs an order of.
+	readSession func(ctx context.Context, sessionID string) (chaincli.SessionState, error)
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -191,7 +195,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if deps.Attempts == nil {
 		return nil, fmt.Errorf("order dispatch needs the attempt book")
 	}
-	od := &orderDispatch{log: deps.Log, Attempts: deps.Attempts}
+	od := &orderDispatch{log: deps.Log, Attempts: deps.Attempts, readSession: deps.TaskChain.QuerySession}
 	od.params = func(ctx context.Context) (orderParams, error) {
 		dispatch, err := deps.TaskChain.QueryDispatchParams(ctx)
 		if err != nil {
@@ -435,9 +439,27 @@ func syncPending(out []buildersync.Outstanding) []drain.SyncPending {
 	return pending
 }
 
-// evidenceRetention is the last height an order's evidence is kept at under the current params.
+// evidenceRetention is the last height an order's evidence is kept at under the current params and
+// the windows its session froze, when it names them.
 func (od *orderDispatch) evidenceRetention(o *dispatchevidence.Order) uint64 {
 	return od.Evidence.Params().KeepUntil(o)
+}
+
+// sessionWindows are the evidence windows of the params a session froze, read from the chain for a
+// member copy (buildersync.ReceiverConfig.SessionWindows); nil, nil once the chain no longer holds
+// the session.
+func (od *orderDispatch) sessionWindows(ctx context.Context, sessionID string) (*dispatchevidence.Params, error) {
+	s, err := od.readSession(ctx, sessionID)
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case s.FrozenDispatch == nil:
+		return nil, nil
+	}
+	w := dispatchevidence.ParamsFromChain(s.FrozenDispatch)
+	return &w, nil
 }
 
 // syncedAttempts is the attempt book the recorder marks; an attempt it marks RECORDED is also
@@ -460,7 +482,7 @@ func (od *orderDispatch) newMembers(deps membersDeps) (*buildersync.Receiver, er
 	return buildersync.NewReceiver(buildersync.ReceiverConfig{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, AddressPrefix: deps.AddressPrefix, Keys: deps.Keys, Groups: deps.Groups,
 		Store: deps.Store, Evidence: od.Evidence, Inputs: buildersync.StoredInputs{Store: deps.Data}, Outputs: deps.Data,
-		OutputConfig: deps.OutputConfig, Publish: deps.Publish, Chain: deps.Chain, Retention: od.evidenceRetention,
+		OutputConfig: deps.OutputConfig, Publish: deps.Publish, Chain: deps.Chain, Retention: od.evidenceRetention, SessionWindows: od.sessionWindows,
 		MaxInputBytes: deps.MaxInputBytes, FeeDenom: deps.FeeDenom, SessionKeys: deps.SessionKeys, Log: od.log,
 	})
 }

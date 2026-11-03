@@ -72,8 +72,13 @@ type ReceiverConfig struct {
 	Publish func(taskdata.ObjectKey, taskdata.OutputFrame)
 	Chain   RecordReader
 	// Retention is the last height a copy of an order's evidence is kept at
-	// (dispatchevidence.Params.RetainUntil); the member's sync stream and stored input follow it.
+	// (dispatchevidence.Params.KeepUntil); the member's sync stream and stored input follow it.
 	Retention func(*dispatchevidence.Order) uint64
+	// SessionWindows reads the claim, rebuttal and challenge windows of the params a session froze,
+	// which a copy is kept through (dispatchevidence.Order.Windows); nil, nil when the session has
+	// none to read. A copy whose session cannot be read follows the current params until its next
+	// change reads it again. nil keeps every copy by the current params.
+	SessionWindows func(ctx context.Context, sessionID string) (*dispatchevidence.Params, error)
 	// MaxInputBytes bounds an order version's input.
 	MaxInputBytes uint64
 	// FeeDenom is the chain's business_denom, the feeDenom of the order signing domain: with it a
@@ -465,8 +470,16 @@ func (r *Receiver) copyOf(m *memberStream, taskID string, epoch, boundChangeHeig
 	return nil, nil
 }
 
-// put stores the copy o with m (and extra) in one write.
-func (r *Receiver) put(o *dispatchevidence.Order, m *memberStream, extra ...kv.WriteOp) error {
+// put stores the copy o with m (and extra) in one write, with the windows its session froze when
+// they are not known yet and can be read.
+func (r *Receiver) put(ctx context.Context, o *dispatchevidence.Order, m *memberStream, extra ...kv.WriteOp) error {
+	if o.Windows == nil && r.cfg.SessionWindows != nil {
+		w, err := r.cfg.SessionWindows(ctx, m.SessionID)
+		if err != nil {
+			r.log.Warn("session's frozen params not read; the copy follows the current windows until its next change", "order", m.key(), "err", err)
+		}
+		o.Windows = w
+	}
 	m.ExpireHeight = max(m.ExpireHeight, r.cfg.Retention(o))
 	ops, err := memberOps(m)
 	if err != nil {
@@ -564,7 +577,7 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
 	m.TaskID, m.User = taskID, round.GetUserAddress()
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + taskID, Val: []byte(m.key())}
-	return r.put(o, m, index)
+	return r.put(ctx, o, m, index)
 }
 
 // roundOf returns the copy and round a ticket binds: the round held under the ticket's full scope
@@ -772,7 +785,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 		slices.SortFunc(round.Attempts, func(x, y dispatchevidence.Attempt) int { return int(x.Rank) - int(y.Rank) })
 	}
 	o.DeadlineBase = max(o.DeadlineBase, ticket.GetBoundChangeHeight())
-	return r.put(o, m)
+	return r.put(ctx, o, m)
 }
 
 // checkTicket checks a ticket is the sender's, for this order on this chain, and returns its
@@ -828,7 +841,7 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 		return errors.New("record's task_hash is not its rounds'")
 	}
 	o.Record = recordRaw
-	return r.put(o, m)
+	return r.put(ctx, o, m)
 }
 
 // recordBinding is the largest bound_change_height of the held tickets a record lists; every
@@ -958,7 +971,7 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv
 		Worker: held.Operator, Header: headerRaw, User: order.GetUserAddress(),
 	}
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + ev.TaskID, Val: []byte(m.key())}
-	return r.put(ev, m, index)
+	return r.put(ctx, ev, m, index)
 }
 
 // checkUserOrder checks a synced SignedOrderV2 is the order the winner's tickets were issued for

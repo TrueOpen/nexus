@@ -687,6 +687,48 @@ func TestTicketOfAnotherBindingThanItsRoundIsRefused(t *testing.T) {
 	}
 }
 
+// A member keeps its copy through the windows the order's session froze, which the claims on it
+// run on, when they are longer than the current ones. A session that cannot be read leaves the
+// current params' retention for that write and is read again at the copy's next change.
+func TestMemberCopyIsKeptThroughTheSessionsFrozenWindows(t *testing.T) {
+	e := newEnv(t)
+	frozen := evidenceParams
+	frozen.ClaimWindowBlocks = 90
+	var reads int
+	e.member.r.cfg.SessionWindows = func(_ context.Context, sessionID string) (*dispatchevidence.Params, error) {
+		reads++
+		if sessionID != e.fx.sessionHex() {
+			t.Errorf("session %s read", sessionID)
+		}
+		if reads == 1 {
+			return nil, errors.New("chain unreachable")
+		}
+		return &frozen, nil
+	}
+	e.s.OrderChanged(e.fx.view) // the round alone: the session is not read
+	e.sync()
+	c := e.copyOf()
+	if current := evidenceParams.RetainUntil(c); c.Windows != nil || c.RetainUntil != current {
+		t.Fatalf("copy after an unreadable session = windows %+v, kept until %d, want %d", c.Windows, c.RetainUntil, current)
+	}
+	e.s.OrderChanged(e.fx.issued())
+	e.sync()
+	c = e.copyOf()
+	want := frozen.RetainUntil(c)
+	if c.Windows == nil || *c.Windows != frozen || c.RetainUntil != want || want <= evidenceParams.RetainUntil(c) {
+		t.Fatalf("copy = windows %+v, kept until %d, want %d", c.Windows, c.RetainUntil, want)
+	}
+	m, found, err := e.member.r.loadMember(memberKey(e.d.op, e.fx.sessionHex(), e.fx.sequence))
+	if err != nil || !found || m.ExpireHeight != want {
+		t.Fatalf("sync stream kept until %d, want %d (%v, %v)", m.ExpireHeight, want, found, err)
+	}
+	e.s.OrderChanged(e.fx.rejectedThenOut())
+	e.sync()
+	if reads != 2 {
+		t.Fatalf("session read %d times, want 2: known windows are not read again", reads)
+	}
+}
+
 // A winner later voided (a binding change) leaves no accept in the copy.
 func TestVoidedWinnerDropsTheAccept(t *testing.T) {
 	e := newEnv(t)

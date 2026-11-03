@@ -400,7 +400,7 @@ func (e *env) newMember(p party) *member {
 			defer m.pubMu.Unlock()
 			m.published = append(m.published, f)
 		},
-		Chain: e.records, Retention: evidenceParams.RetainUntil, MaxInputBytes: 4096, FeeDenom: testFeeDenom, SessionKeys: &e.sessions,
+		Chain: e.records, Retention: evidenceParams.KeepUntil, MaxInputBytes: 4096, FeeDenom: testFeeDenom, SessionKeys: &e.sessions,
 	})
 	if err != nil {
 		e.t.Fatal(err)
