@@ -357,6 +357,7 @@ func TestRoleEventToChainEventDecodesOutcomes(t *testing.T) {
 	envelope := func(code sharedv1.ProtocolEventCodeV1, payload *taskv1.TaskProtocolEventPayloadV1) *taskv1.TaskEvent {
 		return &taskv1.TaskEvent{Cursor: "o1", ChainHeight: 400, Code: code, Payload: payload}
 	}
+	pruned := taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_COMPENSATION_RECORD_PRUNED
 	cases := []struct {
 		event *taskv1.TaskEvent
 		want  TypedEvent
@@ -374,6 +375,14 @@ func TestRoleEventToChainEventDecodesOutcomes(t *testing.T) {
 					Builder: testBuilder, Worker: "trueopen1worker", Responder: testBuilder},
 			}}),
 			DispatchCompensationRebutted{TicketHash: mustHash32("a2"), TaskID: testTaskIDHex, Builder: testBuilder, Worker: "trueopen1worker", Responder: testBuilder}},
+		// An automatic exclusion names its reason and has no proven attempt outcome.
+		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_REBUTTED,
+			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DispatchCompensationRebutted{
+				DispatchCompensationRebutted: &taskv1.EventDispatchCompensationRebutted{DispatchTicketHash: mustHash32("a2"), TaskId: testTaskIDBytes,
+					Builder: testBuilder, Worker: "trueopen1worker", DismissalReason: &pruned},
+			}}),
+			DispatchCompensationRebutted{TicketHash: mustHash32("a2"), TaskID: testTaskIDHex, Builder: testBuilder, Worker: "trueopen1worker",
+				DismissalReason: pruned}},
 		{envelope(sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_RESOLVED,
 			&taskv1.TaskProtocolEventPayloadV1{TypedEvent: &taskv1.TaskProtocolEventPayloadV1_DispatchChallengeResolved{
 				DispatchChallengeResolved: &taskv1.EventDispatchChallengeResolved{ChallengeId: mustHash32("c1"), TaskId: testTaskIDBytes},

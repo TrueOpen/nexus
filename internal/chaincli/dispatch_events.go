@@ -91,7 +91,10 @@ type DispatchCompensationPaid struct {
 	UnfilledAmount string
 }
 
-// DispatchCompensationRebutted: a rebuttal dismissed the claim.
+// DispatchCompensationRebutted: a rebuttal dismissed the claim, or the chain excluded it on its
+// own. AttemptOutcome is the proven attempt of an explicit signed rebuttal; an automatic exclusion
+// has none (UNSPECIFIED) and names its DismissalReason (COMPENSATION_RECORD_PRUNED or
+// COMPENSATION_NOT_CLAIMABLE), UNSPECIFIED for an explicit rebuttal. Either way the claim is over.
 type DispatchCompensationRebutted struct {
 	TicketHash          []byte
 	TaskID              string
@@ -100,6 +103,7 @@ type DispatchCompensationRebutted struct {
 	Responder           string
 	AttemptOutcome      taskv1.DispatchAttemptOutcomeV1
 	WorkerFaultRecorded bool
+	DismissalReason     taskv1.DispatchRejectCodeV1
 }
 
 // DispatchChallengeOpened: a dispatch challenge was opened against a recorded task.
@@ -318,7 +322,7 @@ func typedTaskEvent(payload *taskv1.TaskProtocolEventPayloadV1) (TypedEvent, err
 		return DispatchCompensationRebutted{
 			TicketHash: bytes.Clone(e.GetDispatchTicketHash()), TaskID: hex.EncodeToString(e.GetTaskId()),
 			Builder: e.GetBuilder(), Worker: e.GetWorker(), Responder: e.GetResponder(),
-			AttemptOutcome: e.GetAttemptOutcome(), WorkerFaultRecorded: e.GetWorkerFaultRecorded(),
+			AttemptOutcome: e.GetAttemptOutcome(), WorkerFaultRecorded: e.GetWorkerFaultRecorded(), DismissalReason: e.GetDismissalReason(),
 		}, nil
 	case *taskv1.TaskProtocolEventPayloadV1_DispatchChallengeOpened:
 		e := p.DispatchChallengeOpened

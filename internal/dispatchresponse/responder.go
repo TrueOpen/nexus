@@ -310,7 +310,7 @@ func (r *Responder) HandleChainEvent(ev chaincli.ChainEvent) {
 	case chaincli.DispatchCompensationRebutted:
 		if t.Builder == r.cfg.Builder {
 			r.log.Info("compensation claim rebutted", "ticket", hex.EncodeToString(t.TicketHash), "task_id", t.TaskID,
-				"responder", t.Responder, "outcome", t.AttemptOutcome, "worker_fault", t.WorkerFaultRecorded)
+				"responder", t.Responder, "outcome", t.AttemptOutcome, "worker_fault", t.WorkerFaultRecorded, "dismissal_reason", t.DismissalReason)
 			r.close(claimPrefix, r.claims, t.TicketHash)
 		}
 	case chaincli.DispatchChallengeOpened:
