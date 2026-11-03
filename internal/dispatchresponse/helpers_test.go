@@ -465,11 +465,15 @@ func (e *env) setClaim(hash []byte, f func(*taskv1.DispatchCompensationClaimStat
 	f(e.chain.claims[string(hash)])
 }
 
-// challenge opens a challenge on chain and delivers its event.
+// challenge opens a challenge on chain and delivers its event. A state without opened_height
+// opened a response window of testParams.ChallengeResponseBlocks before its proof deadline.
 func (e *env) challenge(id byte, state *taskv1.DispatchChallengeState) []byte {
 	e.t.Helper()
 	cid := fill(id)
 	state.ChallengeId, state.TaskId = cid, testTask
+	if state.OpenedHeight == 0 && state.GetProofDeadlineHeight() > testParams.ChallengeResponseBlocks {
+		state.OpenedHeight = state.GetProofDeadlineHeight() - testParams.ChallengeResponseBlocks
+	}
 	e.chain.mu.Lock()
 	e.chain.challenges[string(cid)] = state
 	e.chain.mu.Unlock()

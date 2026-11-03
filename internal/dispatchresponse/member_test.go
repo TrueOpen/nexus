@@ -26,7 +26,7 @@ func (e *env) memberClaim(hash []byte, worker string, deadline uint64) {
 	e.chain.mu.Lock()
 	e.chain.claims[string(hash)] = &taskv1.DispatchCompensationClaimState{
 		DispatchTicketHash: hash, TaskId: testTask, SessionId: testSession, OrderSequence: 3, BuilderAddress: other,
-		WorkerOperatorAddress: worker, Status: statusPending, RebuttalDeadlineHeight: deadline,
+		WorkerOperatorAddress: worker, Status: statusPending, ClaimedHeight: deadline - testParams.RebuttalBlocks, RebuttalDeadlineHeight: deadline,
 	}
 	e.chain.mu.Unlock()
 	e.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventBuilderRole, Height: int64(deadline - testParams.RebuttalBlocks), Typed: chaincli.DispatchCompensationClaimed{
@@ -53,6 +53,40 @@ func TestMemberRebutsAClaimFromItsSyncedCopy(t *testing.T) {
 	var rec taskv1.DispatchRecordV1
 	if err := proto.Unmarshal(o.Record, &rec); err != nil || !proto.Equal(got[0].GetRecord(), &rec) {
 		t.Fatal("member rebuttal does not carry the dispatching Builder's record")
+	}
+}
+
+// The halves of a window are those of the claim's or challenge's own window as the chain opened it
+// (claimed_height to rebuttal_deadline_height, opened_height to proof_deadline_height): the
+// session's frozen windows, whatever the current params say.
+func TestMemberTurnIsHalfTheWindowTheChainOpened(t *testing.T) {
+	e := newEnv(t)
+	e.put(memberCopy(evidenceOrder(t, false, []attemptSpec{{op: op7, sent: true, outcome: outcomeRejected}, {op: op1, sent: true, outcome: outcomeTimeout}})))
+	e.memberClaim(ticketHash(0, 0), op7, 160)
+	e.setClaim(ticketHash(0, 0), func(c *taskv1.DispatchCompensationClaimState) { c.ClaimedHeight = 120 }) // a 40-block window
+	e.block(139)
+	if got := e.rebuts(); len(got) != 0 {
+		t.Fatalf("member rebutted in the dispatching Builder's half of the window: %v", got)
+	}
+	e.block(140)
+	if got := e.rebuts(); len(got) != 1 {
+		t.Fatalf("rebuttals in the member's half of the 40-block window = %v", got)
+	}
+
+	e = newEnv(t)
+	o := memberCopy(recordedOrder(t))
+	e.put(o)
+	e.chainRecord(o)
+	e.challenge(0xc2, &taskv1.DispatchChallengeState{
+		Kind: kindRoster, BuilderAddress: other, DispatchRound: u32(1), OpenedHeight: 105, ProofDeadlineHeight: u64(125), Status: awaitingRoster,
+	})
+	e.block(114)
+	if got := e.responds(); len(got) != 0 {
+		t.Fatalf("member answered in the dispatching Builder's half of the window: %v", got)
+	}
+	e.block(115)
+	if got := e.responds(); len(got) != 1 {
+		t.Fatalf("responses in the member's half of the 20-block window = %v", got)
 	}
 }
 

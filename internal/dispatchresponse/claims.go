@@ -83,7 +83,7 @@ func (r *Responder) handleClaim(ctx context.Context, head uint64, it item) {
 	if err := r.cfg.Evidence.Extend(ev.Key(), it.Deadline); err != nil {
 		r.log.Warn("evidence of an open claim not extended", "ticket", ticket, "err", err)
 	}
-	if ev.Builder != "" && !memberTurn(head, it.Deadline, r.cfg.Evidence.Params().RebuttalBlocks) {
+	if ev.Builder != "" && !memberTurn(head, claim.GetClaimedHeight(), it.Deadline) {
 		r.update(claimPrefix, r.claims, &it)
 		return
 	}
@@ -224,10 +224,16 @@ func (r *Responder) currentMember(it *item, ticket string) bool {
 	return true
 }
 
-// memberTurn reports whether a group member answers at head a claim or challenge whose answer is
-// due by deadline after a window of the given length: in the second half of the window. The first
-// half is the dispatching Builder's, so the group does not pay for the same answer twice.
-func memberTurn(head, deadline, window uint64) bool {
+// memberTurn reports whether a group member answers at head a claim or challenge the chain opened
+// at opened with its answer due by deadline: in the second half of that window. The first half is
+// the dispatching Builder's, so the group does not pay for the same answer twice. The window is the
+// one the chain opened under the session's frozen params, never one of the current params; an
+// opened height not below the deadline leaves no first half.
+func memberTurn(head, opened, deadline uint64) bool {
+	var window uint64
+	if opened < deadline {
+		window = deadline - opened
+	}
 	return head+window/2 >= deadline
 }
 
