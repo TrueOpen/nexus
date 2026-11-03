@@ -104,6 +104,10 @@ type orderState struct {
 	NewRound bool         `json:"new_round,omitempty"`
 	Rounds   []roundState `json:"rounds,omitempty"`
 
+	// Windows are the claim, rebuttal and challenge windows of the params the session froze, as
+	// read when the order was taken; its evidence is kept through them.
+	Windows *dispatchevidence.Params `json:"windows,omitempty"`
+
 	// Accept is the winner's signed DispatchAcceptV1 as received, AcceptDigest its
 	// dispatch_accept_digest; Record the signed DispatchRecordV1 built from it.
 	Accept       []byte `json:"accept,omitempty"`

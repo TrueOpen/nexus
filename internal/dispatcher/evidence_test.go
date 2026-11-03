@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 )
 
@@ -47,6 +48,25 @@ func recordAttempt(rec *taskv1.DispatchRecordV1, hash [32]byte) *taskv1.Dispatch
 		}
 	}
 	return nil
+}
+
+// The evidence of an order names the windows its session froze, so the store keeps it through
+// them whatever the current params say.
+func TestEvidenceNamesTheSessionsFrozenWindows(t *testing.T) {
+	e := newEnv(t)
+	s := e.session(0xaa, 0)
+	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 240, DispatchCompensationClaimWindowBlocks: 70,
+		DispatchCompensationRebuttalBlocks: 9, DispatchChallengeWindowBlocks: 40, DispatchChallengeResponseBlocks: 4, DispatchEvidenceRetentionBlocks: 5}
+	e.chain.update(s, func(st *chaincli.SessionState) { st.FrozenDispatch = frozen })
+	e.dispatch(e.order(s, 0, 1))
+	_, hash := e.accept()
+	ev, _ := e.evidenceOf(hash)
+	if want := dispatchevidence.ParamsFromChain(frozen); ev.Windows == nil || *ev.Windows != want {
+		t.Fatalf("evidence windows = %+v, want %+v", ev.Windows, want)
+	}
+	if want := uint64(testDeadline + 70 + 9 + 5); ev.RetainUntil != want {
+		t.Fatalf("RetainUntil = %d, want %d", ev.RetainUntil, want)
+	}
 }
 
 // An order that ends without a winner keeps its evidence: every ticket as signed and whether it

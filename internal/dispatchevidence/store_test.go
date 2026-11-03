@@ -146,6 +146,46 @@ func TestRecordedRetention(t *testing.T) {
 	}
 }
 
+// Evidence that names the windows its session froze is kept through them as well as through the
+// current ones: a governance change that shortens the windows does not shorten the session's.
+func TestRetentionCoversTheSessionsFrozenWindows(t *testing.T) {
+	s := New(kv.NewMemStore(), testParams)
+	o := testOrder(t)
+	frozen := testParams
+	frozen.ClaimWindowBlocks = 80
+	o.Windows = &frozen
+	if err := s.Put(o); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _, _ := s.ByTicket(fill(0x10))
+	if want := uint64(100 + 20 + 80 + 10 + 100); got.RetainUntil != want {
+		t.Fatalf("RetainUntil = %d, want %d", got.RetainUntil, want)
+	}
+	// Frozen windows shorter than the current ones keep the current retention.
+	s = New(kv.NewMemStore(), testParams)
+	o = testOrder(t)
+	frozen.ClaimWindowBlocks = 1
+	o.Windows = &frozen
+	if err := s.Put(o); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _, _ = s.ByTicket(fill(0x10)); got.RetainUntil != 100+20+30+10+100 {
+		t.Fatalf("RetainUntil = %d", got.RetainUntil)
+	}
+	if err := s.MarkRecorded(fill(0x10), 115); err != nil {
+		t.Fatal(err)
+	}
+	frozen.ChallengeWindowBlocks = 90
+	o.Windows = &frozen
+	o.Recorded, o.RecordedHeight = true, 115
+	if err := s.Put(o); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _, _ = s.ByTicket(fill(0x10)); got.RetainUntil != 115+90+5+100 {
+		t.Fatalf("recorded RetainUntil = %d", got.RetainUntil)
+	}
+}
+
 // Putting the order again replaces it, never shortens its retention and moves its indexes.
 func TestPutReplaces(t *testing.T) {
 	store := kv.NewMemStore()

@@ -437,7 +437,7 @@ func syncPending(out []buildersync.Outstanding) []drain.SyncPending {
 
 // evidenceRetention is the last height an order's evidence is kept at under the current params.
 func (od *orderDispatch) evidenceRetention(o *dispatchevidence.Order) uint64 {
-	return od.Evidence.Params().RetainUntil(o)
+	return od.Evidence.Params().KeepUntil(o)
 }
 
 // syncedAttempts is the attempt book the recorder marks; an attempt it marks RECORDED is also

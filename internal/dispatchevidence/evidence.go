@@ -103,6 +103,10 @@ type Order struct {
 	// Recorded is set once the chain admitted the record at RecordedHeight.
 	Recorded       bool   `json:"recorded,omitempty"`
 	RecordedHeight uint64 `json:"recorded_height,omitempty"`
+	// Windows are the windows of the params the order's session froze, when known (this
+	// Builder's own orders): the evidence is kept through them as well as through the current
+	// ones.
+	Windows *Params `json:"windows,omitempty"`
 	// RetainUntil is the last height the evidence is kept at; the store sets it.
 	RetainUntil uint64 `json:"retain_until"`
 }
@@ -167,11 +171,22 @@ func ParamsFromChain(d *taskv1.DispatchParamsV1) Params {
 // the last block of its claim window was rebutted: deadline base + record_deadline_blocks + claim
 // window + rebuttal blocks. A recorded order is also kept until a challenge opened on the last
 // block of its challenge window was answered. dispatch_evidence_retention_blocks is added to
-// both, a margin for parameter changes and late reads.
+// both, a margin for parameter changes and late reads. The store also keeps o through o.Windows
+// (KeepUntil).
 func (p Params) RetainUntil(o *Order) uint64 {
 	until := o.DeadlineBase + p.RecordDeadlineBlocks + p.ClaimWindowBlocks + p.RebuttalBlocks
 	if o.Recorded {
 		until = max(until, o.RecordedHeight+p.ChallengeWindowBlocks+p.ChallengeResponseBlocks)
 	}
 	return until + p.RetentionBlocks
+}
+
+// KeepUntil is the last height o must be kept at under the current params p and the windows its
+// session froze, when it names them.
+func (p Params) KeepUntil(o *Order) uint64 {
+	until := p.RetainUntil(o)
+	if o.Windows != nil {
+		until = max(until, o.Windows.RetainUntil(o))
+	}
+	return until
 }

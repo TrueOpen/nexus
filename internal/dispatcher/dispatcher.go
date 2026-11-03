@@ -37,6 +37,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -446,6 +447,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	if !ok || entry.TaskHash != o.TaskHash || entry.State != inflight.StateDispatching {
 		return fmt.Errorf("%w: session %s sequence %d", ErrNotReserved, o.SessionID, o.OrderSequence)
 	}
+	windows := d.sessionWindows(ctx, o.SessionID)
 	key := stateKey(o.SessionID, o.OrderSequence)
 	existing := d.get(key)
 	if existing != nil {
@@ -463,6 +465,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		st.TaskID, st.TaskHash, st.SignedOrder = o.TaskID, o.TaskHash, o.SignedOrder
 		st.Phase, st.FailReason, st.NewRound = phaseDispatching, "", true
 		st.Accept, st.AcceptDigest, st.Record = nil, nil, nil
+		st.Windows = windows
 		if err := saveState(d.cfg.Store, st); err != nil {
 			existing.st = prev
 			existing.mu.Unlock()
@@ -477,7 +480,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	} else {
 		st := &orderState{
 			SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
-			SignedOrder: o.SignedOrder, Phase: phaseDispatching,
+			SignedOrder: o.SignedOrder, Phase: phaseDispatching, Windows: windows,
 		}
 		if err := saveState(d.cfg.Store, st); err != nil {
 			return err
@@ -496,6 +499,19 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	}
 	d.kick(key)
 	return nil
+}
+
+// sessionWindows are the evidence windows of the params the session froze, from the session state
+// the precheck just read; nil, with a warning, when it cannot be read: the evidence then follows
+// the current params alone.
+func (d *Dispatcher) sessionWindows(ctx context.Context, sessionID string) *dispatchevidence.Params {
+	s, _, err := d.cfg.Sessions.Lookup(ctx, sessionID)
+	if err != nil || !s.Found || s.FrozenDispatch == nil {
+		d.log.Warn("session's frozen params not read; the order's evidence follows the current windows", "session_id", sessionID, "err", err)
+		return nil
+	}
+	w := dispatchevidence.ParamsFromChain(s.FrozenDispatch)
+	return &w
 }
 
 // Probe refuses, before the input of a new order is stored, an order no Worker can take now: this

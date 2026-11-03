@@ -124,7 +124,7 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 	ev := &dispatchevidence.Order{
 		SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, TaskHash: st.TaskHash, Epoch: st.Epoch.Number,
 		SignedOrder: st.SignedOrder, DeadlineBase: esh, Accept: st.Accept, Record: st.Record,
-		Recorded: recordedHeight > 0 && len(st.Record) > 0, RecordedHeight: recordedHeight,
+		Recorded: recordedHeight > 0 && len(st.Record) > 0, RecordedHeight: recordedHeight, Windows: st.Windows,
 	}
 	if !ev.Recorded {
 		ev.RecordedHeight = 0

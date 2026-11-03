@@ -72,7 +72,7 @@ func (s *Store) putLocked(old *Order, found bool, o *Order, extra ...kv.WriteOp)
 	if found && old.Recorded {
 		o.Recorded, o.RecordedHeight = true, max(o.RecordedHeight, old.RecordedHeight)
 	}
-	o.RetainUntil = s.params.Load().RetainUntil(o)
+	o.RetainUntil = s.params.Load().KeepUntil(o)
 	if found {
 		o.RetainUntil = max(o.RetainUntil, old.RetainUntil)
 	} else {
