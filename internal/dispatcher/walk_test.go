@@ -772,6 +772,63 @@ func TestOrderForTheNextHeightIsDispatchedAtOnce(t *testing.T) {
 	checkRecordable(t, e, e.onlyBundle(), testBound)
 }
 
+// A binding change the session read shows before its event ends the binding generation where
+// the next round opens, as the event would: the tickets of the stored rounds are stored and synced
+// as evidence before the order restarts at round 0 under the new height, and the late event finds
+// the order at its height already and changes nothing.
+func TestBindingChangeReadBeforeItsEventKeepsTheEndedGeneration(t *testing.T) {
+	e := withSync(newEnv(t))
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	_, _, rejected := e.lastOffer()
+	signer := e.signer.(*revocable)
+	signer.revoked.Store(true) // the next ticket cannot be signed: no ticket is out
+	e.reject()
+	signer.revoked.Store(false)
+	const bound = testBound + 10
+	e.chain.update(s, func(st *chaincli.SessionState) { st.BoundChangeHeight = bound }) // no event yet
+	// The next ticket opens a new round, as one whose first ticket could not be stored does.
+	key := stateKey(s, 0)
+	held := e.d.get(key)
+	held.mu.Lock()
+	held.rosterRound++
+	held.mu.Unlock()
+	e.syncer.reset()
+	e.d.kick(key)
+
+	ev, a := e.evidenceOf(rejected)
+	if ev.BoundChangeHeight != testBound || a.Outcome != outcomeRejected || len(ev.Record) == 0 {
+		t.Fatalf("evidence of the ended generation = %+v, attempt %+v", ev, a)
+	}
+	synced := false
+	e.syncer.mu.Lock()
+	for _, v := range e.syncer.views {
+		synced = synced || v.BoundChangeHeight == testBound && len(v.Record) != 0
+	}
+	e.syncer.mu.Unlock()
+	if !synced {
+		t.Fatal("the ended generation's evidence did not reach the group sync")
+	}
+	op, ticket, hash := e.lastOffer()
+	if op != op7 || ticket.GetDispatchRound() != 0 || ticket.GetRank() != 0 || ticket.GetBoundChangeHeight() != bound {
+		t.Fatalf("ticket after the restart: %s %v", op, ticket)
+	}
+	offers := len(e.streams.offers())
+	e.d.HandleChainEvent(chaincli.ChainEvent{Typed: chaincli.SessionBuilderBound{SessionID: s, NewBuilder: e.builder, BoundChangeHeight: bound}})
+	if len(e.streams.offers()) != offers || len(e.recorder.withdrawn) != 0 {
+		t.Fatalf("the late event changed the order: %d offers, withdrawn %x", len(e.streams.offers()), e.recorder.withdrawn)
+	}
+	if _, out := e.evidenceOf(rejected); out.Outcome != outcomeRejected {
+		t.Fatalf("ended generation after the late event = %+v", out)
+	}
+	e.accept()
+	rec := checkRecordable(t, e, e.onlyBundle(), bound)
+	if got := outcomes(rec); !reflect.DeepEqual(got, []string{"0:0:ACCEPTED"}) || !bytes.Equal(rec.GetDispatchTicketHash(), hash[:]) {
+		t.Fatalf("attempts = %v", got)
+	}
+}
+
 // An order taken over by another Builder and taken back in the same epoch is a new binding
 // generation: the retried order restarts at round 0 and rank 0 committing the new
 // bound_change_height, and its evidence stays apart from the first generation's, whose round 0

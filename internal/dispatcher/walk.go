@@ -330,6 +330,17 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	}
 	// bound_change_height only grows; a binding event may have been seen before the session read.
 	bound := max(st.BoundChangeHeight, session.BoundChangeHeight)
+	if stored, ok := roundsBinding(st); ok && stored != bound && !st.NewRound {
+		// The session read shows a binding change before its event (which onBound then skips, the
+		// order holding its height already): the generation ends here as onBound would end it,
+		// stored with its evidence before the restart below drops its rounds.
+		if err := d.endGeneration(ctx, o, bound); err != nil {
+			d.log.Error("order waits: tickets of the ended binding generation not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+			o.parked = true
+			return false, done{}
+		}
+		d.log.Info("binding changed before its event; tickets voided, rounds restart", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", bound)
+	}
 	// A new epoch, or a binding generation other than the stored rounds' (a takeover took effect,
 	// also one back to this Builder), restarts the order: its order, roster, rounds and counts
 	// start from scratch under the same VRF output. The earlier generation's evidence was stored
@@ -646,32 +657,12 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 		}
 		var out done
 		out.session, out.sequence, out.taskID = st.SessionID, st.Sequence, st.TaskID
-		if a := st.pending(); a != nil {
-			a.Outcome = outcomeVoided
-			if o.timer != nil {
-				o.timer.Stop()
-			}
-		}
-		if w := st.winner(); w != nil && st.Phase == phaseAccepted {
-			// Withdrawn before anything of the new state is written: after a crash in between the
-			// Recorder must not still send an entry the stored state no longer stands behind.
-			d.cfg.Recorder.Withdraw(ctx, st.SessionID, st.Sequence, [32]byte(w.Hash))
-			d.cfg.Attempts.Voided(st.TaskID, [32]byte(w.Hash))
-			w.Outcome = outcomeVoided
-			st.Phase, st.Accept, st.AcceptDigest, st.Record = phaseDispatching, nil, nil, nil
-			if err := d.cfg.Ledger.MarkDispatching(st.SessionID, st.Sequence); err != nil {
-				d.log.Error("voided accept not written to the ledger", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
-			}
-		}
 		if builder != d.cfg.Builder {
+			d.voidGeneration(ctx, o)
 			failed := d.fail(o, fmt.Errorf("%w: bound to %s", ErrBoundElsewhere, builder))
 			out.failed = failed.failed
 		} else {
-			// The new height is taken now, not only when the order restarts: the step below (and
-			// one after a restart) judges the record deadline with it. The voided generation's
-			// evidence is written with it: the restart drops its rounds from the state.
-			st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
-			if err := d.saveWithEvidence(st); err != nil {
+			if err := d.endGeneration(ctx, o, boundChangeHeight); err != nil {
 				d.log.Error("voided tickets not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 			}
 			d.log.Info("binding changed; tickets voided, rounds restart", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", boundChangeHeight)
@@ -681,6 +672,43 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 		o.mu.Unlock()
 		d.finish(ctx, out)
 	}
+}
+
+// voidGeneration voids the undecided tickets of the order's binding generation: the ticket out,
+// and an accepted, unrecorded winner, which is withdrawn from the Recorder and the attempt book.
+// Caller holds o.mu.
+func (d *Dispatcher) voidGeneration(ctx context.Context, o *order) {
+	st := o.st
+	if a := st.pending(); a != nil {
+		a.Outcome = outcomeVoided
+		if o.timer != nil {
+			o.timer.Stop()
+		}
+	}
+	if w := st.winner(); w != nil && st.Phase == phaseAccepted {
+		// Withdrawn before anything of the new state is written: after a crash in between the
+		// Recorder must not still send an entry the stored state no longer stands behind.
+		d.cfg.Recorder.Withdraw(ctx, st.SessionID, st.Sequence, [32]byte(w.Hash))
+		d.cfg.Attempts.Voided(st.TaskID, [32]byte(w.Hash))
+		w.Outcome = outcomeVoided
+		st.Phase, st.Accept, st.AcceptDigest, st.Record = phaseDispatching, nil, nil, nil
+		if err := d.cfg.Ledger.MarkDispatching(st.SessionID, st.Sequence); err != nil {
+			d.log.Error("voided accept not written to the ledger", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
+		}
+	}
+}
+
+// endGeneration ends the order's binding generation at a new bound_change_height of this
+// Builder: its undecided tickets are voided and it is stored, and handed to the group sync, as
+// evidence (with a record without a winner) together with the new height, so the restart from
+// round 0 that follows loses none of its tickets. The new height is taken now, not only when the
+// order restarts: the next step (and one after a restart) judges the record deadline with it.
+// Caller holds o.mu.
+func (d *Dispatcher) endGeneration(ctx context.Context, o *order, boundChangeHeight uint64) error {
+	d.voidGeneration(ctx, o)
+	st := o.st
+	st.NewRound, st.BoundChangeHeight = true, max(st.BoundChangeHeight, boundChangeHeight)
+	return d.saveWithEvidence(st)
 }
 
 func mustHex(s string) []byte {
