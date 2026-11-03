@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "912911f3e91c5acca0292d2dca63891b061636938a00fc0fb7f7a4c706d1a5a7"
+	const want = "a3639f5a186fe97a41ea7d84fb3339e2b4fe95e3792be82cdf30de0a1a3f43ad"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -393,6 +393,15 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "task.v1.InferReceiptState", number: 20, absent: true},
 		{message: "task.v1.VerifierAssignmentState", number: 9, name: "selected_verifiers", kind: protoreflect.MessageKind},
 		{message: "task.v1.VerifierAssignmentState", number: 15, absent: true},
+		// The Session-frozen order lifetime, and the frozen body a session read returns with its version.
+		{message: "task.v1.DispatchParamsV1", number: 23, name: "max_order_lifetime_blocks", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.DispatchParamsV1", number: 24, absent: true},
+		{message: "task.v1.QuerySessionResponse", number: 2, name: "params", kind: protoreflect.MessageKind},
+		{message: "task.v1.QuerySessionResponse", number: 3, name: "params_version", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.QuerySessionResponse", number: 4, absent: true},
+		// An automatic compensation exclusion names its reason; its attempt outcome stays UNSPECIFIED.
+		{message: "task.v1.EventDispatchCompensationRebutted", number: 8, name: "dismissal_reason", kind: protoreflect.EnumKind},
+		{message: "task.v1.EventDispatchCompensationRebutted", number: 9, absent: true},
 	}
 
 	for _, test := range tests {

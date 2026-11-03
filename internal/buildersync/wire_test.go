@@ -27,7 +27,8 @@ import (
 )
 
 // syncVectors are wire's Builder sync transport vectors: a full batch, a Fin-only retry, a round
-// only and an unfinished record with a ZERO32 winner ticket.
+// only, an unfinished record with a ZERO32 winner ticket, and the round-only facts again under a
+// returned binding generation.
 type syncVectors struct {
 	ChainID  string `json:"chain_id"`
 	Sender   string `json:"sender_operator_address"`
@@ -49,8 +50,8 @@ func readSyncVectors(t *testing.T) syncVectors {
 	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/builder_sync_v1.json"), &v); err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Vectors) != 4 {
-		t.Fatalf("builder sync vectors = %d, want 4", len(v.Vectors))
+	if len(v.Vectors) != 5 {
+		t.Fatalf("builder sync vectors = %d, want 5", len(v.Vectors))
 	}
 	return v
 }

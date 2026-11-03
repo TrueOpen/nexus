@@ -660,16 +660,21 @@ func (x *EventDispatchCompensationPaid) GetUnfilledAmount() *v1.Amount {
 
 // EventDispatchCompensationRebutted records the committed transition; exact replay emits nothing.
 type EventDispatchCompensationRebutted struct {
-	state               protoimpl.MessageState   `protogen:"open.v1"`
-	DispatchTicketHash  []byte                   `protobuf:"bytes,1,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
-	TaskId              []byte                   `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Builder             string                   `protobuf:"bytes,3,opt,name=builder,proto3" json:"builder,omitempty"`
-	Worker              string                   `protobuf:"bytes,4,opt,name=worker,proto3" json:"worker,omitempty"`
-	Responder           string                   `protobuf:"bytes,5,opt,name=responder,proto3" json:"responder,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	DispatchTicketHash []byte                 `protobuf:"bytes,1,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	TaskId             []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Builder            string                 `protobuf:"bytes,3,opt,name=builder,proto3" json:"builder,omitempty"`
+	Worker             string                 `protobuf:"bytes,4,opt,name=worker,proto3" json:"worker,omitempty"`
+	Responder          string                 `protobuf:"bytes,5,opt,name=responder,proto3" json:"responder,omitempty"`
+	// Proven signed attempt for an explicit rebuttal; UNSPECIFIED for automatic
+	// maturity exclusions that have no such signed attempt.
 	AttemptOutcome      DispatchAttemptOutcomeV1 `protobuf:"varint,6,opt,name=attempt_outcome,json=attemptOutcome,proto3,enum=task.v1.DispatchAttemptOutcomeV1" json:"attempt_outcome,omitempty"`
 	WorkerFaultRecorded bool                     `protobuf:"varint,7,opt,name=worker_fault_recorded,json=workerFaultRecorded,proto3" json:"worker_fault_recorded,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Automatic exclusion: COMPENSATION_RECORD_PRUNED or
+	// COMPENSATION_NOT_CLAIMABLE. Absent for an explicit signed rebuttal.
+	DismissalReason *DispatchRejectCodeV1 `protobuf:"varint,8,opt,name=dismissal_reason,json=dismissalReason,proto3,enum=task.v1.DispatchRejectCodeV1,oneof" json:"dismissal_reason,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *EventDispatchCompensationRebutted) Reset() {
@@ -749,6 +754,13 @@ func (x *EventDispatchCompensationRebutted) GetWorkerFaultRecorded() bool {
 		return x.WorkerFaultRecorded
 	}
 	return false
+}
+
+func (x *EventDispatchCompensationRebutted) GetDismissalReason() DispatchRejectCodeV1 {
+	if x != nil && x.DismissalReason != nil {
+		return *x.DismissalReason
+	}
+	return DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED
 }
 
 // EventDispatchChallengeOpened records the committed transition; exact replay emits nothing.
@@ -1387,7 +1399,7 @@ const file_task_v1_dispatch_event_proto_rawDesc = "" +
 	"\x06amount\x18\x05 \x01(\v2\x11.shared.v1.AmountR\x06amount\x122\n" +
 	"\vpaid_amount\x18\x06 \x01(\v2\x11.shared.v1.AmountR\n" +
 	"paidAmount\x12:\n" +
-	"\x0funfilled_amount\x18\a \x01(\v2\x11.shared.v1.AmountR\x0eunfilledAmount\"\xbe\x02\n" +
+	"\x0funfilled_amount\x18\a \x01(\v2\x11.shared.v1.AmountR\x0eunfilledAmount\"\xa2\x03\n" +
 	"!EventDispatchCompensationRebutted\x120\n" +
 	"\x14dispatch_ticket_hash\x18\x01 \x01(\fR\x12dispatchTicketHash\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12\x18\n" +
@@ -1395,7 +1407,9 @@ const file_task_v1_dispatch_event_proto_rawDesc = "" +
 	"\x06worker\x18\x04 \x01(\tR\x06worker\x12\x1c\n" +
 	"\tresponder\x18\x05 \x01(\tR\tresponder\x12J\n" +
 	"\x0fattempt_outcome\x18\x06 \x01(\x0e2!.task.v1.DispatchAttemptOutcomeV1R\x0eattemptOutcome\x122\n" +
-	"\x15worker_fault_recorded\x18\a \x01(\bR\x13workerFaultRecorded\"\xf4\x01\n" +
+	"\x15worker_fault_recorded\x18\a \x01(\bR\x13workerFaultRecorded\x12M\n" +
+	"\x10dismissal_reason\x18\b \x01(\x0e2\x1d.task.v1.DispatchRejectCodeV1H\x00R\x0fdismissalReason\x88\x01\x01B\x13\n" +
+	"\x11_dismissal_reason\"\xf4\x01\n" +
 	"\x1cEventDispatchChallengeOpened\x12!\n" +
 	"\fchallenge_id\x18\x01 \x01(\fR\vchallengeId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x126\n" +
@@ -1492,10 +1506,11 @@ var file_task_v1_dispatch_event_proto_goTypes = []any{
 	(*EventOrderCancelRequested)(nil),         // 16: task.v1.EventOrderCancelRequested
 	(*v1.Amount)(nil),                         // 17: shared.v1.Amount
 	(DispatchAttemptOutcomeV1)(0),             // 18: task.v1.DispatchAttemptOutcomeV1
-	(v1.DispatchChallengeKindV1)(0),           // 19: shared.v1.DispatchChallengeKindV1
-	(DispatchChallengeStatusV1)(0),            // 20: task.v1.DispatchChallengeStatusV1
-	(SessionWithdrawKindV1)(0),                // 21: task.v1.SessionWithdrawKindV1
-	(SessionKeyChangeKindV1)(0),               // 22: task.v1.SessionKeyChangeKindV1
+	(DispatchRejectCodeV1)(0),                 // 19: task.v1.DispatchRejectCodeV1
+	(v1.DispatchChallengeKindV1)(0),           // 20: shared.v1.DispatchChallengeKindV1
+	(DispatchChallengeStatusV1)(0),            // 21: task.v1.DispatchChallengeStatusV1
+	(SessionWithdrawKindV1)(0),                // 22: task.v1.SessionWithdrawKindV1
+	(SessionKeyChangeKindV1)(0),               // 23: task.v1.SessionKeyChangeKindV1
 }
 var file_task_v1_dispatch_event_proto_depIdxs = []int32{
 	17, // 0: task.v1.EventDispatchRecorded.reserved_amount:type_name -> shared.v1.Amount
@@ -1506,26 +1521,27 @@ var file_task_v1_dispatch_event_proto_depIdxs = []int32{
 	17, // 5: task.v1.EventDispatchCompensationPaid.paid_amount:type_name -> shared.v1.Amount
 	17, // 6: task.v1.EventDispatchCompensationPaid.unfilled_amount:type_name -> shared.v1.Amount
 	18, // 7: task.v1.EventDispatchCompensationRebutted.attempt_outcome:type_name -> task.v1.DispatchAttemptOutcomeV1
-	19, // 8: task.v1.EventDispatchChallengeOpened.kind:type_name -> shared.v1.DispatchChallengeKindV1
-	19, // 9: task.v1.EventDispatchChallengeResolved.kind:type_name -> shared.v1.DispatchChallengeKindV1
-	20, // 10: task.v1.EventDispatchChallengeResolved.outcome:type_name -> task.v1.DispatchChallengeStatusV1
-	19, // 11: task.v1.EventBuilderDispatchFaultRecorded.kind:type_name -> shared.v1.DispatchChallengeKindV1
-	17, // 12: task.v1.EventBuilderDispatchFaultRecorded.penalty_amount:type_name -> shared.v1.Amount
-	17, // 13: task.v1.EventBuilderDispatchFaultRecorded.unfilled_amount:type_name -> shared.v1.Amount
-	17, // 14: task.v1.EventBuilderDispatchFaultRecorded.compensated_amount:type_name -> shared.v1.Amount
-	17, // 15: task.v1.EventSessionDeposited.amount:type_name -> shared.v1.Amount
-	17, // 16: task.v1.EventSessionDeposited.balance:type_name -> shared.v1.Amount
-	21, // 17: task.v1.EventSessionWithdrawRequested.kind:type_name -> task.v1.SessionWithdrawKindV1
-	17, // 18: task.v1.EventSessionWithdrawRequested.amount:type_name -> shared.v1.Amount
-	21, // 19: task.v1.EventSessionWithdrawEffective.kind:type_name -> task.v1.SessionWithdrawKindV1
-	17, // 20: task.v1.EventSessionWithdrawEffective.paid_amount:type_name -> shared.v1.Amount
-	17, // 21: task.v1.EventSessionWithdrawEffective.remaining_balance:type_name -> shared.v1.Amount
-	22, // 22: task.v1.EventSessionKeyChangeRequested.kind:type_name -> task.v1.SessionKeyChangeKindV1
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	19, // 8: task.v1.EventDispatchCompensationRebutted.dismissal_reason:type_name -> task.v1.DispatchRejectCodeV1
+	20, // 9: task.v1.EventDispatchChallengeOpened.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	20, // 10: task.v1.EventDispatchChallengeResolved.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	21, // 11: task.v1.EventDispatchChallengeResolved.outcome:type_name -> task.v1.DispatchChallengeStatusV1
+	20, // 12: task.v1.EventBuilderDispatchFaultRecorded.kind:type_name -> shared.v1.DispatchChallengeKindV1
+	17, // 13: task.v1.EventBuilderDispatchFaultRecorded.penalty_amount:type_name -> shared.v1.Amount
+	17, // 14: task.v1.EventBuilderDispatchFaultRecorded.unfilled_amount:type_name -> shared.v1.Amount
+	17, // 15: task.v1.EventBuilderDispatchFaultRecorded.compensated_amount:type_name -> shared.v1.Amount
+	17, // 16: task.v1.EventSessionDeposited.amount:type_name -> shared.v1.Amount
+	17, // 17: task.v1.EventSessionDeposited.balance:type_name -> shared.v1.Amount
+	22, // 18: task.v1.EventSessionWithdrawRequested.kind:type_name -> task.v1.SessionWithdrawKindV1
+	17, // 19: task.v1.EventSessionWithdrawRequested.amount:type_name -> shared.v1.Amount
+	22, // 20: task.v1.EventSessionWithdrawEffective.kind:type_name -> task.v1.SessionWithdrawKindV1
+	17, // 21: task.v1.EventSessionWithdrawEffective.paid_amount:type_name -> shared.v1.Amount
+	17, // 22: task.v1.EventSessionWithdrawEffective.remaining_balance:type_name -> shared.v1.Amount
+	23, // 23: task.v1.EventSessionKeyChangeRequested.kind:type_name -> task.v1.SessionKeyChangeKindV1
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_dispatch_event_proto_init() }
@@ -1536,6 +1552,7 @@ func file_task_v1_dispatch_event_proto_init() {
 	file_task_v1_dispatch_proto_init()
 	file_task_v1_session_proto_init()
 	file_task_v1_dispatch_event_proto_msgTypes[1].OneofWrappers = []any{}
+	file_task_v1_dispatch_event_proto_msgTypes[6].OneofWrappers = []any{}
 	file_task_v1_dispatch_event_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

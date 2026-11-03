@@ -438,6 +438,9 @@ func (*BuilderSyncItemV1_Order) isBuilderSyncItemV1_Item() {}
 
 // BuilderSyncRoundV1 supplies the committed roster/root preimages before input
 // replication. Every nested task/session/order scope must agree with the batch.
+// Receivers key rounds by (task_id, bound_change_height, vrf_epoch,
+// dispatch_round), even before any ticket arrives. A binding change, including
+// returning to the same Builder, restarts round numbering within the same epoch.
 type BuilderSyncRoundV1 struct {
 	state                protoimpl.MessageState    `protogen:"open.v1"`
 	TaskId               []byte                    `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -449,8 +452,12 @@ type BuilderSyncRoundV1 struct {
 	HandraiseRoot        *v1.SignedHandraiseRootV1 `protobuf:"bytes,7,opt,name=handraise_root,json=handraiseRoot,proto3" json:"handraise_root,omitempty"`
 	EarliestSubmitHeight uint64                    `protobuf:"varint,8,opt,name=earliest_submit_height,json=earliestSubmitHeight,proto3" json:"earliest_submit_height,omitempty"`
 	UserAddress          string                    `protobuf:"bytes,9,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The signed binding height shared by every ticket belonging to this round.
+	// Receivers verify equality with those tickets, including across sync batches;
+	// neither the live Session binding nor an identical roster/root substitutes it.
+	BoundChangeHeight uint64 `protobuf:"varint,10,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *BuilderSyncRoundV1) Reset() {
@@ -544,6 +551,13 @@ func (x *BuilderSyncRoundV1) GetUserAddress() string {
 		return x.UserAddress
 	}
 	return ""
+}
+
+func (x *BuilderSyncRoundV1) GetBoundChangeHeight() uint64 {
+	if x != nil {
+		return x.BoundChangeHeight
+	}
+	return 0
 }
 
 // BuilderSyncInputChunkV1 supplies a byte range of one version's whole input.
@@ -936,7 +950,7 @@ const file_nexus_v1_builder_sync_proto_rawDesc = "" +
 	"\aattempt\x18\x04 \x01(\v2\x1e.nexus.v1.BuilderSyncAttemptV1H\x00R\aattempt\x127\n" +
 	"\x06record\x18\x05 \x01(\v2\x1d.nexus.v1.BuilderSyncRecordV1H\x00R\x06record\x124\n" +
 	"\x05order\x18\x06 \x01(\v2\x1c.nexus.v1.BuilderSyncOrderV1H\x00R\x05orderB\x06\n" +
-	"\x04item\"\x82\x03\n" +
+	"\x04item\"\xb2\x03\n" +
 	"\x12BuilderSyncRoundV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x02 \x01(\fR\btaskHash\x12\x1b\n" +
@@ -947,7 +961,9 @@ const file_nexus_v1_builder_sync_proto_rawDesc = "" +
 	"rosterHash\x12E\n" +
 	"\x0ehandraise_root\x18\a \x01(\v2\x1e.task.v1.SignedHandraiseRootV1R\rhandraiseRoot\x124\n" +
 	"\x16earliest_submit_height\x18\b \x01(\x04R\x14earliestSubmitHeight\x12!\n" +
-	"\fuser_address\x18\t \x01(\tR\vuserAddress\"\xca\x01\n" +
+	"\fuser_address\x18\t \x01(\tR\vuserAddress\x12.\n" +
+	"\x13bound_change_height\x18\n" +
+	" \x01(\x04R\x11boundChangeHeight\"\xca\x01\n" +
 	"\x17BuilderSyncInputChunkV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\fR\btaskHash\x12\x1d\n" +
 	"\n" +

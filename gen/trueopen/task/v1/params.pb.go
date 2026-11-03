@@ -230,8 +230,8 @@ type SessionParamsV1 struct {
 	MaxOrderSequencesPerActiveSession uint32                 `protobuf:"varint,1,opt,name=max_order_sequences_per_active_session,json=maxOrderSequencesPerActiveSession,proto3" json:"max_order_sequences_per_active_session,omitempty"`
 	SessionIdleTtlBlocks              uint64                 `protobuf:"varint,2,opt,name=session_idle_ttl_blocks,json=sessionIdleTtlBlocks,proto3" json:"session_idle_ttl_blocks,omitempty"`
 	SessionCloseTtlBlocks             uint64                 `protobuf:"varint,3,opt,name=session_close_ttl_blocks,json=sessionCloseTtlBlocks,proto3" json:"session_close_ttl_blocks,omitempty"`
-	// At least record_deadline_blocks + dispatch_compensation_claim_window_blocks
-	// + dispatch_compensation_rebuttal_blocks. Existing Sessions keep their version.
+	// At least record_deadline_blocks plus the larger of (claim + rebuttal) and
+	// (dispatch challenge + response). Existing Sessions keep their version.
 	SessionOrderRetentionBlocks                 uint64 `protobuf:"varint,4,opt,name=session_order_retention_blocks,json=sessionOrderRetentionBlocks,proto3" json:"session_order_retention_blocks,omitempty"`
 	MaxSessionHistoryPruneItemsPerBlock         uint32 `protobuf:"varint,5,opt,name=max_session_history_prune_items_per_block,json=maxSessionHistoryPruneItemsPerBlock,proto3" json:"max_session_history_prune_items_per_block,omitempty"`
 	SessionTerminalSummaryRetentionBlocks       uint64 `protobuf:"varint,6,opt,name=session_terminal_summary_retention_blocks,json=sessionTerminalSummaryRetentionBlocks,proto3" json:"session_terminal_summary_retention_blocks,omitempty"`
@@ -1370,32 +1370,39 @@ func (x *ChallengeParamsV1) GetMaxRoundEffectItemsPerBlock() uint32 {
 
 // DispatchParamsV1 defines the canonical DispatchParamsV1 fields.
 type DispatchParamsV1 struct {
-	state                                 protoimpl.MessageState       `protogen:"open.v1"`
-	RecordDeadlineBlocks                  uint64                       `protobuf:"varint,1,opt,name=record_deadline_blocks,json=recordDeadlineBlocks,proto3" json:"record_deadline_blocks,omitempty"`
-	MaxDispatchEntriesPerRecord           uint32                       `protobuf:"varint,2,opt,name=max_dispatch_entries_per_record,json=maxDispatchEntriesPerRecord,proto3" json:"max_dispatch_entries_per_record,omitempty"`
-	MaxDispatchRecordBytes                uint64                       `protobuf:"varint,3,opt,name=max_dispatch_record_bytes,json=maxDispatchRecordBytes,proto3" json:"max_dispatch_record_bytes,omitempty"`
-	MaxSkips                              uint32                       `protobuf:"varint,4,opt,name=max_skips,json=maxSkips,proto3" json:"max_skips,omitempty"`
-	StickyWindowBlocks                    uint64                       `protobuf:"varint,5,opt,name=sticky_window_blocks,json=stickyWindowBlocks,proto3" json:"sticky_window_blocks,omitempty"`
-	StickyMaxOrders                       uint32                       `protobuf:"varint,6,opt,name=sticky_max_orders,json=stickyMaxOrders,proto3" json:"sticky_max_orders,omitempty"`
-	DispatchCompensationClaimWindowBlocks uint64                       `protobuf:"varint,7,opt,name=dispatch_compensation_claim_window_blocks,json=dispatchCompensationClaimWindowBlocks,proto3" json:"dispatch_compensation_claim_window_blocks,omitempty"`
-	DispatchCompensationRebuttalBlocks    uint64                       `protobuf:"varint,8,opt,name=dispatch_compensation_rebuttal_blocks,json=dispatchCompensationRebuttalBlocks,proto3" json:"dispatch_compensation_rebuttal_blocks,omitempty"`
-	DispatchChallengeWindowBlocks         uint64                       `protobuf:"varint,9,opt,name=dispatch_challenge_window_blocks,json=dispatchChallengeWindowBlocks,proto3" json:"dispatch_challenge_window_blocks,omitempty"`
-	DispatchChallengeResponseBlocks       uint64                       `protobuf:"varint,10,opt,name=dispatch_challenge_response_blocks,json=dispatchChallengeResponseBlocks,proto3" json:"dispatch_challenge_response_blocks,omitempty"`
-	DispatchRecordRetentionBlocks         uint64                       `protobuf:"varint,11,opt,name=dispatch_record_retention_blocks,json=dispatchRecordRetentionBlocks,proto3" json:"dispatch_record_retention_blocks,omitempty"`
-	MaxDispatchRosterBytes                uint64                       `protobuf:"varint,12,opt,name=max_dispatch_roster_bytes,json=maxDispatchRosterBytes,proto3" json:"max_dispatch_roster_bytes,omitempty"`
-	MaxPendingPerSession                  uint32                       `protobuf:"varint,13,opt,name=max_pending_per_session,json=maxPendingPerSession,proto3" json:"max_pending_per_session,omitempty"`
-	BuilderMaxInflightPerSession          uint32                       `protobuf:"varint,14,opt,name=builder_max_inflight_per_session,json=builderMaxInflightPerSession,proto3" json:"builder_max_inflight_per_session,omitempty"`
-	OrderFreshnessMarginBlocks            uint64                       `protobuf:"varint,15,opt,name=order_freshness_margin_blocks,json=orderFreshnessMarginBlocks,proto3" json:"order_freshness_margin_blocks,omitempty"`
-	MaxPrerecordOutputTokens              uint64                       `protobuf:"varint,16,opt,name=max_prerecord_output_tokens,json=maxPrerecordOutputTokens,proto3" json:"max_prerecord_output_tokens,omitempty"`
-	PrefillCompensationByModelTier        []*PrefillCompensationV1     `protobuf:"bytes,17,rep,name=prefill_compensation_by_model_tier,json=prefillCompensationByModelTier,proto3" json:"prefill_compensation_by_model_tier,omitempty"`
-	DispatchFaultPenaltyByKind            []*DispatchFaultPenaltyV1    `protobuf:"bytes,18,rep,name=dispatch_fault_penalty_by_kind,json=dispatchFaultPenaltyByKind,proto3" json:"dispatch_fault_penalty_by_kind,omitempty"`
-	DispatchChallengeGasCapByKind         []*DispatchChallengeGasCapV1 `protobuf:"bytes,19,rep,name=dispatch_challenge_gas_cap_by_kind,json=dispatchChallengeGasCapByKind,proto3" json:"dispatch_challenge_gas_cap_by_kind,omitempty"`
-	BuilderCompensationAccountMinBalance  *v1.Amount                   `protobuf:"bytes,20,opt,name=builder_compensation_account_min_balance,json=builderCompensationAccountMinBalance,proto3" json:"builder_compensation_account_min_balance,omitempty"`
-	DispatchEvidenceRetentionBlocks       uint64                       `protobuf:"varint,21,opt,name=dispatch_evidence_retention_blocks,json=dispatchEvidenceRetentionBlocks,proto3" json:"dispatch_evidence_retention_blocks,omitempty"`
+	state                                 protoimpl.MessageState `protogen:"open.v1"`
+	RecordDeadlineBlocks                  uint64                 `protobuf:"varint,1,opt,name=record_deadline_blocks,json=recordDeadlineBlocks,proto3" json:"record_deadline_blocks,omitempty"`
+	MaxDispatchEntriesPerRecord           uint32                 `protobuf:"varint,2,opt,name=max_dispatch_entries_per_record,json=maxDispatchEntriesPerRecord,proto3" json:"max_dispatch_entries_per_record,omitempty"`
+	MaxDispatchRecordBytes                uint64                 `protobuf:"varint,3,opt,name=max_dispatch_record_bytes,json=maxDispatchRecordBytes,proto3" json:"max_dispatch_record_bytes,omitempty"`
+	MaxSkips                              uint32                 `protobuf:"varint,4,opt,name=max_skips,json=maxSkips,proto3" json:"max_skips,omitempty"`
+	StickyWindowBlocks                    uint64                 `protobuf:"varint,5,opt,name=sticky_window_blocks,json=stickyWindowBlocks,proto3" json:"sticky_window_blocks,omitempty"`
+	StickyMaxOrders                       uint32                 `protobuf:"varint,6,opt,name=sticky_max_orders,json=stickyMaxOrders,proto3" json:"sticky_max_orders,omitempty"`
+	DispatchCompensationClaimWindowBlocks uint64                 `protobuf:"varint,7,opt,name=dispatch_compensation_claim_window_blocks,json=dispatchCompensationClaimWindowBlocks,proto3" json:"dispatch_compensation_claim_window_blocks,omitempty"`
+	DispatchCompensationRebuttalBlocks    uint64                 `protobuf:"varint,8,opt,name=dispatch_compensation_rebuttal_blocks,json=dispatchCompensationRebuttalBlocks,proto3" json:"dispatch_compensation_rebuttal_blocks,omitempty"`
+	DispatchChallengeWindowBlocks         uint64                 `protobuf:"varint,9,opt,name=dispatch_challenge_window_blocks,json=dispatchChallengeWindowBlocks,proto3" json:"dispatch_challenge_window_blocks,omitempty"`
+	DispatchChallengeResponseBlocks       uint64                 `protobuf:"varint,10,opt,name=dispatch_challenge_response_blocks,json=dispatchChallengeResponseBlocks,proto3" json:"dispatch_challenge_response_blocks,omitempty"`
+	// Exceeds the sum of the protocol hard claim, rebuttal, challenge and response
+	// windows, preserving all consumers through terminal resolution.
+	DispatchRecordRetentionBlocks  uint64                    `protobuf:"varint,11,opt,name=dispatch_record_retention_blocks,json=dispatchRecordRetentionBlocks,proto3" json:"dispatch_record_retention_blocks,omitempty"`
+	MaxDispatchRosterBytes         uint64                    `protobuf:"varint,12,opt,name=max_dispatch_roster_bytes,json=maxDispatchRosterBytes,proto3" json:"max_dispatch_roster_bytes,omitempty"`
+	MaxPendingPerSession           uint32                    `protobuf:"varint,13,opt,name=max_pending_per_session,json=maxPendingPerSession,proto3" json:"max_pending_per_session,omitempty"`
+	BuilderMaxInflightPerSession   uint32                    `protobuf:"varint,14,opt,name=builder_max_inflight_per_session,json=builderMaxInflightPerSession,proto3" json:"builder_max_inflight_per_session,omitempty"`
+	OrderFreshnessMarginBlocks     uint64                    `protobuf:"varint,15,opt,name=order_freshness_margin_blocks,json=orderFreshnessMarginBlocks,proto3" json:"order_freshness_margin_blocks,omitempty"`
+	MaxPrerecordOutputTokens       uint64                    `protobuf:"varint,16,opt,name=max_prerecord_output_tokens,json=maxPrerecordOutputTokens,proto3" json:"max_prerecord_output_tokens,omitempty"`
+	PrefillCompensationByModelTier []*PrefillCompensationV1  `protobuf:"bytes,17,rep,name=prefill_compensation_by_model_tier,json=prefillCompensationByModelTier,proto3" json:"prefill_compensation_by_model_tier,omitempty"`
+	DispatchFaultPenaltyByKind     []*DispatchFaultPenaltyV1 `protobuf:"bytes,18,rep,name=dispatch_fault_penalty_by_kind,json=dispatchFaultPenaltyByKind,proto3" json:"dispatch_fault_penalty_by_kind,omitempty"`
+	// Exactly one positive cap per challenge kind, including DOUBLE_DISPATCH.
+	DispatchChallengeGasCapByKind        []*DispatchChallengeGasCapV1 `protobuf:"bytes,19,rep,name=dispatch_challenge_gas_cap_by_kind,json=dispatchChallengeGasCapByKind,proto3" json:"dispatch_challenge_gas_cap_by_kind,omitempty"`
+	BuilderCompensationAccountMinBalance *v1.Amount                   `protobuf:"bytes,20,opt,name=builder_compensation_account_min_balance,json=builderCompensationAccountMinBalance,proto3" json:"builder_compensation_account_min_balance,omitempty"`
+	DispatchEvidenceRetentionBlocks      uint64                       `protobuf:"varint,21,opt,name=dispatch_evidence_retention_blocks,json=dispatchEvidenceRetentionBlocks,proto3" json:"dispatch_evidence_retention_blocks,omitempty"`
 	// ServiceBond slash for a Worker signing both rejection and acceptance; 0..10000.
 	WorkerDispatchContradictionSlashBps uint32 `protobuf:"varint,22,opt,name=worker_dispatch_contradiction_slash_bps,json=workerDispatchContradictionSlashBps,proto3" json:"worker_dispatch_contradiction_slash_bps,omitempty"`
-	unknownFields                       protoimpl.UnknownFields
-	sizeCache                           protoimpl.SizeCache
+	// Maximum order_expire_height - earliest_submit_height at order admission,
+	// including takeover registration. Positive and at most 240 blocks in V1;
+	// the Session freezes this policy. Compensation does not reauthorize orders.
+	MaxOrderLifetimeBlocks uint64 `protobuf:"varint,23,opt,name=max_order_lifetime_blocks,json=maxOrderLifetimeBlocks,proto3" json:"max_order_lifetime_blocks,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *DispatchParamsV1) Reset() {
@@ -1578,6 +1585,13 @@ func (x *DispatchParamsV1) GetDispatchEvidenceRetentionBlocks() uint64 {
 func (x *DispatchParamsV1) GetWorkerDispatchContradictionSlashBps() uint32 {
 	if x != nil {
 		return x.WorkerDispatchContradictionSlashBps
+	}
+	return 0
+}
+
+func (x *DispatchParamsV1) GetMaxOrderLifetimeBlocks() uint64 {
+	if x != nil {
+		return x.MaxOrderLifetimeBlocks
 	}
 	return 0
 }
@@ -1873,7 +1887,7 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\x14commit_window_blocks\x18\n" +
 	" \x01(\x04R\x12commitWindowBlocks\x120\n" +
 	"\x14reveal_window_blocks\x18\v \x01(\x04R\x12revealWindowBlocks\x12E\n" +
-	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlock\"\xda\f\n" +
+	" max_round_effect_items_per_block\x18\f \x01(\rR\x1bmaxRoundEffectItemsPerBlock\"\x95\r\n" +
 	"\x10DispatchParamsV1\x124\n" +
 	"\x16record_deadline_blocks\x18\x01 \x01(\x04R\x14recordDeadlineBlocks\x12D\n" +
 	"\x1fmax_dispatch_entries_per_record\x18\x02 \x01(\rR\x1bmaxDispatchEntriesPerRecord\x129\n" +
@@ -1897,7 +1911,8 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\"dispatch_challenge_gas_cap_by_kind\x18\x13 \x03(\v2\".task.v1.DispatchChallengeGasCapV1R\x1ddispatchChallengeGasCapByKind\x12i\n" +
 	"(builder_compensation_account_min_balance\x18\x14 \x01(\v2\x11.shared.v1.AmountR$builderCompensationAccountMinBalance\x12K\n" +
 	"\"dispatch_evidence_retention_blocks\x18\x15 \x01(\x04R\x1fdispatchEvidenceRetentionBlocks\x12T\n" +
-	"'worker_dispatch_contradiction_slash_bps\x18\x16 \x01(\rR#workerDispatchContradictionSlashBps\"g\n" +
+	"'worker_dispatch_contradiction_slash_bps\x18\x16 \x01(\rR#workerDispatchContradictionSlashBps\x129\n" +
+	"\x19max_order_lifetime_blocks\x18\x17 \x01(\x04R\x16maxOrderLifetimeBlocks\"g\n" +
 	"\x15PrefillCompensationV1\x12#\n" +
 	"\rresource_tier\x18\x01 \x01(\rR\fresourceTier\x12)\n" +
 	"\x06amount\x18\x02 \x01(\v2\x11.shared.v1.AmountR\x06amount\"{\n" +
