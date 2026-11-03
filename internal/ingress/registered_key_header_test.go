@@ -9,12 +9,14 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/TrueOpen/wire/dispatch"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
@@ -32,6 +34,7 @@ type registeredKeyFile struct {
 	} `json:"account"`
 	SessionKey struct {
 		AddressBytes string `json:"address_bytes"`
+		PrivateKey   string `json:"private_key"`
 	} `json:"session_key"`
 	WrongKey struct {
 		PrivateKey string `json:"private_key"`
@@ -172,6 +175,42 @@ func (h *registeredKeyHeader) setOrderSignature(t *testing.T, signature []byte) 
 		t.Fatal(err)
 	}
 	h.header.OrderEnvelope = raw
+}
+
+// withinLifetime makes the vector order one a session admits: its order_expire_height is moved to
+// the longest V1 order lifetime after its earliest_submit_height (the vector's 1000 blocks are
+// past it), and the order and the request envelope over the new body are signed again by the
+// registered key.
+func (h *registeredKeyHeader) withinLifetime(t *testing.T) {
+	t.Helper()
+	order := wirefixture.TaskOrderV3(t, h.file.OrderPayload)
+	order.OrderExpireHeight = order.GetEarliestSubmitHeight() + dispatch.MaxOrderLifetimeBlocksV1
+	digest, err := nodecontract.TaskOrderDigestV3(order, h.file.DelegatedOrder.Message.FeeDenom, h.file.DelegatedOrder.SignatureChainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := proto.Marshal(&taskv1.SignedOrderV2{
+		Order: order, SignatureScheme: "eip712", UserSignature: signDigest65(t, h.file.SessionKey.PrivateKey, digest[:]),
+		SignatureChainId: h.file.DelegatedOrder.SignatureChainID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.header.OrderEnvelope = raw
+	taskHash, err := nodecontract.TaskOrderHashV3(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.body, err = sdkauth.OpenTaskBody(taskHash, h.header.GetSessionId(), h.header.GetOrderSequence(), h.header.GetUserAddress(),
+		h.header.GetInputSizeBytes(), h.header.GetInputHash(), h.header.GetInputMediaType(), h.header.GetIdempotencyKey()); err != nil {
+		t.Fatal(err)
+	}
+	h.header.RequestEnvelope.BodyDigest = h.body[:]
+	request, err := sdkauth.RequestDigest(envelopeFromPB(h.header.GetRequestEnvelope()), h.body, [32]byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.header.RequestEnvelope.Signature = signDigest65(t, h.file.SessionKey.PrivateKey, request[:])
 }
 
 // signEnvelopeWithWallet re-signs the request envelope with the account's wallet key.

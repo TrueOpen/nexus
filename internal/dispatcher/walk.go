@@ -49,7 +49,7 @@ func (d *Dispatcher) liveRecordDeadline(ctx context.Context, o *order) (uint64, 
 	if !ok {
 		return 0, false
 	}
-	deadline := d.recordDeadline(o, entry.Deadline)
+	deadline := d.recordDeadline(o, entry)
 	if s, _, err := d.cfg.Sessions.Lookup(ctx, o.st.SessionID); err == nil && s.Found {
 		if t := s.PendingTakeover; t != nil && t.CandidateBuilder != d.cfg.Builder && t.ActivationHeight > 0 {
 			deadline = min(deadline, t.ActivationHeight)

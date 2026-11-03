@@ -11,10 +11,12 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -172,6 +174,7 @@ func TestOpenTaskAnswersAnExistingOrder(t *testing.T) {
 // the key's in-flight orders.
 func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 	h := newRegisteredKeyHeader(t)
+	h.withinLifetime(t)
 	h.signEnvelopeWithWallet(t)
 	sessionID := h.header.GetSessionId()[2:]
 	key := *h.keys.state.Key
@@ -184,7 +187,7 @@ func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 	// Sequence 6 in flight, signed by the key with max_fee 1: 1000000 + 1 + 150000 > 1150000.
 	if _, err := p.Reserve(context.Background(), inflight.Order{
 		SessionID: sessionID, Sequence: 6, TaskID: "t6", TaskHash: hex.EncodeToString([]byte{6}), User: h.file.Account.Bech32,
-		MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 2000, SessionAnchorHeight: 990, SessionKey: &key,
+		MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 1200, SessionAnchorHeight: 990, SessionKey: &key,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -199,9 +202,13 @@ func TestOpenTaskHeaderPrecheckCountsInFlightKeyOrders(t *testing.T) {
 }
 
 // newPrechecker is the real precheck over a session in the given state, at head 1000, for
-// Builder trueopen1builder.
+// Builder trueopen1builder. A state without frozen dispatch params gets record_deadline_blocks 50
+// and the longest order lifetime.
 func newPrechecker(t *testing.T, state chaincli.SessionState) (*inflight.Prechecker, *inflight.Ledger) {
 	t.Helper()
+	if state.FrozenDispatch == nil {
+		state.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 50, MaxOrderLifetimeBlocks: dispatch.MaxOrderLifetimeBlocksV1}
+	}
 	ledger, err := inflight.NewLedger(kv.NewMemStore())
 	if err != nil {
 		t.Fatal(err)
@@ -216,7 +223,7 @@ func newPrechecker(t *testing.T, state chaincli.SessionState) (*inflight.Prechec
 	}
 	p, err := inflight.NewPrechecker(inflight.PrecheckConfig{
 		Builder: "trueopen1builder", Sessions: cache, Ledger: ledger,
-		Params: inflight.Params{RecordDeadlineBlocks: 50, OrderFreshnessMarginBlocks: 10, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4},
+		Params: inflight.Params{OrderFreshnessMarginBlocks: 10, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,6 +254,7 @@ func TestOpenTaskReservesThenReleasesOnFailure(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			h := newRegisteredKeyHeader(t)
+			h.withinLifetime(t)
 			h.signEnvelopeWithWallet(t)
 			sessionID := h.header.GetSessionId()[2:]
 			key := *h.keys.state.Key

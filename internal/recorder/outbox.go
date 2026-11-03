@@ -32,9 +32,11 @@ type entry struct {
 	// Recorder.deadlineLocked.
 	Deadline uint64 `json:"deadline"`
 	// EarliestSubmit and BoundChange are the order's earliest_submit_height and the winner
-	// ticket's bound_change_height, the base of the record deadline.
+	// ticket's bound_change_height, the base of the record deadline; DeadlineBlocks the
+	// record_deadline_blocks the session froze.
 	EarliestSubmit uint64 `json:"earliest_submit_height"`
 	BoundChange    uint64 `json:"bound_change_height"`
+	DeadlineBlocks uint64 `json:"deadline_blocks,omitempty"`
 	// OrderExpire is the order's order_expire_height, past which no deadline moves.
 	OrderExpire uint64 `json:"order_expire_height,omitempty"`
 	// Entry is the DispatchRecordEntryV1 as handed over; it is never built again.

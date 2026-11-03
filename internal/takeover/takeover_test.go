@@ -223,7 +223,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(),
 		chain: &fakeChain{state: chaincli.SessionState{
 			Owner: "owner", NextExpectedSequence: 5, Balance: "1000", FrozenTotal: "100", PendingWithdrawAmount: "0",
-			BoundBuilder: bound, BoundChangeHeight: 40,
+			BoundBuilder: bound, BoundChangeHeight: 40, FrozenDispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 240},
 		}, records: map[uint64]*taskv1.DispatchRecordState{}},
 		rec: &fakeRecorder{}, precheck: &fakePrecheck{}, tasks: &fakeTasks{}, keys: &fakeKeys{},
 	}
@@ -349,6 +349,12 @@ func TestAdmitChecksSequenceAndFunds(t *testing.T) {
 		{"record unreadable", func(e *env) { e.chain.recordErr = errors.New("down") }, 5, inflight.ErrUnavailable},
 		{"session unreadable", func(e *env) { e.chain.stateErr = errors.New("down") }, 5, inflight.ErrUnavailable},
 		{"bound here meanwhile", func(e *env) { e.bindHere(60) }, 5, inflight.ErrUnavailable},
+		// Expiry 200 is 170 blocks after earliest_submit_height 30.
+		{"lifetime past the session's", func(e *env) {
+			e.chain.set(func(s *chaincli.SessionState) {
+				s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 169}
+			})
+		}, 5, inflight.ErrOrderExpired},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

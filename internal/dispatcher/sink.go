@@ -146,7 +146,7 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	d.orderLeft(st, "accepted")
 	out := done{session: st.SessionID, sequence: st.Sequence, taskID: st.TaskID, worker: a.Operator, ticket: [32]byte(a.Hash)}
 	if entry, ok := d.cfg.Ledger.Get(st.SessionID, st.Sequence); ok {
-		out.accepted, err = d.bundle(st, d.recordDeadline(o, entry.Deadline))
+		out.accepted, err = d.bundle(st, entry, d.recordDeadline(o, entry))
 	} else {
 		err = errors.New("ledger entry missing")
 	}

@@ -18,7 +18,7 @@ import (
 
 var testKey = [20]byte{0xaa}
 
-var testParams = Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4}
+var testParams = Params{OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4}
 
 type precheckFixture struct {
 	chain  *fakeChain
@@ -162,7 +162,7 @@ func TestPrecheckErrorCodes(t *testing.T) {
 			}
 		}, order: func(o *Order) { o.Sequence = 8 }, want: ErrInflightLimit},
 		{name: "max pending limit", setup: func(t *testing.T, f *precheckFixture) {
-			setParams(t, f, Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 1})
+			setParams(t, f, Params{OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 1})
 			f.reserve(t, order(5))
 		}, order: func(o *Order) { o.Sequence = 6 }, want: ErrInflightLimit},
 		{name: "close registered", state: func(s *chaincli.SessionState) {
@@ -215,15 +215,15 @@ func setParams(t testing.TB, f *precheckFixture, params Params) {
 // order: a missing param must not lift the bound.
 func TestPrecheckZeroInflightLimitRefuses(t *testing.T) {
 	for _, params := range []Params{
-		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 4},
-		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3},
+		{OrderFreshnessMarginBlocks: 5, MaxPendingPerSession: 4},
+		{OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 3},
 	} {
 		f := newFixture(t, nil)
 		if err := f.p.SetParams(params); err == nil {
 			t.Fatalf("SetParams(%+v) accepted a zero in-flight limit", params)
 		}
 		if _, err := ParamsFromChain(&taskv1.DispatchParamsV1{
-			RecordDeadlineBlocks: params.RecordDeadlineBlocks, OrderFreshnessMarginBlocks: params.OrderFreshnessMarginBlocks,
+			RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: params.OrderFreshnessMarginBlocks,
 			BuilderMaxInflightPerSession: params.BuilderMaxInflightPerSession, MaxPendingPerSession: params.MaxPendingPerSession,
 		}); err == nil {
 			t.Fatalf("ParamsFromChain accepted a zero in-flight limit: %+v", params)
@@ -235,25 +235,57 @@ func TestPrecheckZeroInflightLimitRefuses(t *testing.T) {
 	}
 }
 
-// The freshness margin must stay below record_deadline_blocks: an order admitted at the margin
-// would otherwise already be past its record deadline.
-func TestPrecheckSetParamsChecksTheFreshnessMargin(t *testing.T) {
-	f := newFixture(t, nil)
-	for _, params := range []Params{
-		{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 20, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4},
-		{OrderFreshnessMarginBlocks: 0, BuilderMaxInflightPerSession: 3, MaxPendingPerSession: 4},
-	} {
-		if err := f.p.SetParams(params); err == nil {
-			t.Fatalf("SetParams(%+v) accepted", params)
+// The record deadline runs on the record_deadline_blocks the session froze, not the current
+// params: the ledger entry keeps them, so the dispatcher and the Recorder move the deadline with a
+// binding change by the same blocks. An order whose deadline is already behind the head (the
+// session's deadline shorter than the freshness margin) is stale.
+func TestPrecheckRecordDeadlineIsTheSessionsFrozen(t *testing.T) {
+	f := newFixture(t, func(s *chaincli.SessionState) {
+		s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30, MaxOrderLifetimeBlocks: 120}
+	})
+	res := f.reserve(t, order(5)) // earliest_submit_height 100
+	if res.Deadline != 130 {
+		t.Fatalf("deadline = %d, want 130", res.Deadline)
+	}
+	if e, ok := f.ledger.Get(testSession, 5); !ok || e.Deadline != 130 || e.DeadlineBlocks != 30 {
+		t.Fatalf("ledger entry = %+v, %v", e, ok)
+	}
+
+	f = newFixture(t, func(s *chaincli.SessionState) {
+		s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 3, MaxOrderLifetimeBlocks: 120}
+	})
+	o := order(5)
+	o.EarliestSubmitHeight = 97 // fresh within the margin of 5, but its deadline 100 is the head
+	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderStale) {
+		t.Fatalf("order past its record deadline = %v", err)
+	}
+	o.EarliestSubmitHeight = 98
+	if res, err := f.p.Check(context.Background(), o); err != nil || res.Deadline != 101 {
+		t.Fatalf("order recordable in the next block = %+v, %v", res, err)
+	}
+}
+
+// order_expire_height - earliest_submit_height must be within the max_order_lifetime_blocks the
+// session froze, for an order bound here and for a takeover registration alike.
+func TestPrecheckOrderLifetimeIsTheSessionsFrozen(t *testing.T) {
+	for _, bound := range []string{"builder", "other"} {
+		f := newFixture(t, func(s *chaincli.SessionState) {
+			s.BoundBuilder = bound
+			s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 50}
+		})
+		o := order(5) // earliest_submit_height 100
+		o.ExpireHeight = 150
+		if _, err := f.p.Check(context.Background(), o); err != nil {
+			t.Fatalf("bound to %s: expiry at the lifetime = %v", bound, err)
 		}
-	}
-	if res, err := f.p.Check(context.Background(), order(5)); err != nil || res.Deadline != 120 {
-		t.Fatalf("Check after refused params = %+v, %v", res, err)
-	}
-	bad := testParams
-	bad.OrderFreshnessMarginBlocks = bad.RecordDeadlineBlocks
-	if _, err := NewPrechecker(PrecheckConfig{Builder: "builder", Params: bad, Sessions: f.cache, Ledger: f.ledger}); err == nil {
-		t.Fatal("NewPrechecker accepted a freshness margin at record_deadline_blocks")
+		o.ExpireHeight = 151
+		if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+			t.Fatalf("bound to %s: expiry past the lifetime = %v", bound, err)
+		}
+		o.ExpireHeight, o.EarliestSubmitHeight = 150, 0
+		if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+			t.Fatalf("bound to %s: zero earliest_submit_height = %v", bound, err)
+		}
 	}
 }
 
@@ -277,7 +309,7 @@ func TestPrecheckTakeoverPendingCarriesTheCandidate(t *testing.T) {
 func TestPrecheckBoundElsewhere(t *testing.T) {
 	f := newFixture(t, func(s *chaincli.SessionState) { s.BoundBuilder = "other"; s.BoundChangeHeight = 110 })
 	o := order(5)
-	o.EarliestSubmitHeight = 50 // stale for a bound session
+	o.EarliestSubmitHeight, o.ExpireHeight = 50, 170 // stale for a bound session
 	res, err := f.p.Reserve(context.Background(), o)
 	if err != nil || res.Binding != BoundElsewhere || res.Session.BoundBuilder != "other" || res.Deadline != 130 {
 		t.Fatalf("Reserve = %+v, %v", res, err)
@@ -329,7 +361,7 @@ func TestPrecheckBoundElsewhereChecksTheRegistration(t *testing.T) {
 func TestPrecheckTakeoverOrderSkipsFreshness(t *testing.T) {
 	f := newFixture(t, func(s *chaincli.SessionState) { s.BoundChangeHeight = 98 })
 	o := order(5)
-	o.EarliestSubmitHeight = 60
+	o.EarliestSubmitHeight, o.ExpireHeight = 60, 180
 	if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderStale) {
 		t.Fatalf("stale order = %v", err)
 	}
@@ -348,7 +380,7 @@ func TestPrecheckTakeoverOrderSkipsFreshness(t *testing.T) {
 		t.Fatalf("resend of the takeover order = %+v, %v", res, err)
 	}
 	other := order(5)
-	other.EarliestSubmitHeight, other.TaskHash = 60, "another"
+	other.EarliestSubmitHeight, other.ExpireHeight, other.TaskHash = 60, 180, "another"
 	if _, err := f.p.Check(context.Background(), other); !errors.Is(err, ErrOrderStale) {
 		t.Fatalf("another stale version = %v", err)
 	}
@@ -572,7 +604,7 @@ func TestPrecheckRetriesAHoleInTheMiddle(t *testing.T) {
 	if err := f.ledger.MarkFailed(testSession, 6); err != nil {
 		t.Fatal(err)
 	}
-	setParams(t, f, Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4})
+	setParams(t, f, Params{OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 4, MaxPendingPerSession: 4})
 	if _, err := f.p.Check(context.Background(), order(8)); !errors.Is(err, ErrOrderSequenceConflict) {
 		t.Fatalf("8 while 6 is a hole = %v, want sequence conflict", err)
 	}

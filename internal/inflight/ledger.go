@@ -68,9 +68,12 @@ type Entry struct {
 	// MaxFee to the key's spent amount.
 	SessionKey bool `json:"session_key"`
 	// Deadline is the last height the dispatch entry can be recorded at:
-	// max(earliest_submit_height, bound_change_height) + record_deadline_blocks.
-	Deadline uint64 `json:"deadline"`
-	State    State  `json:"state"`
+	// max(earliest_submit_height, bound_change_height) + record_deadline_blocks, with the
+	// record_deadline_blocks the session froze, kept as DeadlineBlocks: a binding change moves the
+	// deadline by the same blocks.
+	Deadline       uint64 `json:"deadline"`
+	DeadlineBlocks uint64 `json:"deadline_blocks,omitempty"`
+	State          State  `json:"state"`
 	// Committed is set once the order reached the dispatcher (Ledger.Commit, or any state change
 	// the dispatcher makes). Until then the entry is a reservation whose input is still being
 	// uploaded: an exact resend is told to retry, not that the order is accepted, and a restart

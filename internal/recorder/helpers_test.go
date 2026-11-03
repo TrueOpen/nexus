@@ -84,7 +84,7 @@ func bundle(session byte, seq uint64, ticket byte, deadline uint64) *dispatcher.
 			ServiceAuthorizationNonce: testTicketNonce},
 		Accept: &taskv1.DispatchAcceptV1{SchemaVersion: 1, ChainId: testChainID, TaskId: taskID, TaskHash: fill(0x70 + ticket), DispatchTicketHash: fill(ticket), Member: member},
 	}
-	return &dispatcher.Bundle{SessionID: sessionHex(session), Sequence: seq, TaskID: taskIDOf(session, seq), Deadline: deadline, Entry: entry}
+	return &dispatcher.Bundle{SessionID: sessionHex(session), Sequence: seq, TaskID: taskIDOf(session, seq), Deadline: deadline, DeadlineBlocks: 10, Entry: entry}
 }
 
 func objectID(t *testing.T, b *dispatcher.Bundle) [32]byte {
@@ -462,7 +462,7 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(), signer: s,
 		chain: &fakeChain{txs: map[[32]byte]chaincli.TxResult{}, records: map[orderKey]*taskv1.DispatchRecordState{}},
 		tx:    &fakeSubmitter{}, account: &accountReader{balance: "1000"},
-		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100), RecordDeadlineBlocks: 10},
+		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100)},
 	}
 	e.open()
 	return e

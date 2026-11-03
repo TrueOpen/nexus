@@ -257,6 +257,13 @@ Open items:
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
+- The precheck judges an order with the parameters its session froze, as the chain returns them
+  with the session: `order_expire_height - earliest_submit_height` must be within the session's
+  `max_order_lifetime_blocks` (1..240 blocks), also for an order that registers a takeover, else
+  `NEXUS_INGRESS_ORDER_EXPIRED`; the record deadline is `max(earliest_submit_height,
+  bound_change_height)` plus the session's `record_deadline_blocks`, kept with the order, so a
+  governance change of the current params moves no deadline. An order whose deadline is not after
+  the head is `NEXUS_INGRESS_ORDER_STALE`.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the SDK-facing name of the
   field is `challenge_close` without a fixed unit; the rename waits for that decision.
 - Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->

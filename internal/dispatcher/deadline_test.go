@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -16,7 +18,7 @@ import (
 )
 
 // The record deadline is the Recorder's: max(the deadline handed over, max(earliest_submit_height,
-// bound_change_height) + record_deadline_blocks with the current params), but never past
+// bound_change_height) + the session's record_deadline_blocks), but never past
 // order_expire_height, the last height the Keeper admits the order at (none when zero).
 func TestEffectiveRecordDeadline(t *testing.T) {
 	for _, tc := range []struct {
@@ -24,13 +26,13 @@ func TestEffectiveRecordDeadline(t *testing.T) {
 		stored, esh, bound, blocks, expire, want uint64
 	}{
 		{"as handed over", 120, 100, 0, 20, 1000, 120},
-		{"params raised", 120, 100, 0, 40, 1000, 140},
-		{"params lowered", 120, 100, 0, 5, 1000, 120},
+		{"longer blocks", 120, 100, 0, 40, 1000, 140},
+		{"shorter blocks", 120, 100, 0, 5, 1000, 120},
 		{"bound later than esh", 120, 100, 130, 20, 1000, 150},
 		{"bound earlier than esh", 120, 100, 90, 20, 1000, 120},
 		{"order_expire_height is still recordable", 120, 100, 0, 20, 120, 120},
 		{"moved deadline stops at order_expire_height", 120, 100, 130, 20, 140, 140},
-		{"raised params stop at order_expire_height", 120, 100, 0, 40, 125, 125},
+		{"longer blocks stop at order_expire_height", 120, 100, 0, 40, 125, 125},
 		{"no order_expire_height", 120, 100, 130, 20, 0, 150},
 	} {
 		if got := EffectiveRecordDeadline(tc.stored, tc.esh, tc.bound, tc.blocks, tc.expire); got != tc.want {
@@ -39,36 +41,33 @@ func TestEffectiveRecordDeadline(t *testing.T) {
 	}
 }
 
-// Raised record_deadline_blocks move the deadline the dispatcher reports and accepts against, as
-// they move the Recorder's: an accept past the deadline handed over but before the new one is
-// taken. Lowered params never pull the deadline in.
-func TestRecordDeadlineFollowsTheParams(t *testing.T) {
+// The record deadline runs on the record_deadline_blocks the session froze: a params change on
+// chain moves neither the deadline the dispatcher reports nor the one it accepts against or hands
+// to the Recorder.
+func TestRecordDeadlineIsTheSessionsFrozen(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
+	e.chain.update(s, func(st *chaincli.SessionState) {
+		st.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 40, MaxOrderLifetimeBlocks: dispatch.MaxOrderLifetimeBlocksV1}
+	})
 	e.dispatch(e.order(s, 0, 1))
 	_, ticket, hash := e.lastOffer()
-	if d, ok := e.d.RecordDeadline(s, 0); !ok || d != testDeadline {
+	if d, ok := e.d.RecordDeadline(s, 0); !ok || d != testESH+40 {
 		t.Fatalf("record deadline = %d, %v", d, ok)
 	}
-	lowered := e.params
-	lowered.RecordDeadlineBlocks = 5
-	e.d.SetParams(lowered)
-	if d, _ := e.d.RecordDeadline(s, 0); d != testDeadline {
-		t.Fatalf("record deadline after lowered params = %d", d)
-	}
-	raised := e.params
-	raised.RecordDeadlineBlocks = 40
-	e.d.SetParams(raised)
+	changed := e.params
+	changed.MaxSkips++
+	e.d.SetParams(changed)
 	if d, _ := e.d.RecordDeadline(s, 0); d != testESH+40 {
-		t.Fatalf("record deadline after raised params = %d", d)
+		t.Fatalf("record deadline after a params change = %d", d)
 	}
 	e.sessions.ObserveHeight(testDeadline + 1)
 	m, from := e.acceptMsg(ticket, hash)
 	if err := e.d.HandleDispatchAccept(context.Background(), from, m); err != nil {
-		t.Fatalf("accept before the raised deadline = %v", err)
+		t.Fatalf("accept before the session's deadline = %v", err)
 	}
 	b := e.recorder.recorded()
-	if len(b) != 1 || b[0].Deadline != testESH+40 {
+	if len(b) != 1 || b[0].Deadline != testESH+40 || b[0].DeadlineBlocks != 40 {
 		t.Fatalf("bundles = %+v", b)
 	}
 }
@@ -115,14 +114,6 @@ func TestBindingChangeMovesTheRecordDeadline(t *testing.T) {
 	m, from = e2.acceptMsg(t2, h2)
 	if err := e2.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
 		t.Fatalf("accept past the moved deadline = %v", err)
-	}
-}
-
-func TestParamsFromChainTakeRecordDeadlineBlocks(t *testing.T) {
-	p, err := ParamsFromChain(&taskv1.DispatchParamsV1{MaxDispatchRosterBytes: 1, RecordDeadlineBlocks: 33},
-		&taskv1.CandidateWeightParamsV1{MaxWeightedDrawAttemptsPerSelection: 1})
-	if err != nil || p.RecordDeadlineBlocks != 33 {
-		t.Fatalf("params = %+v, %v", p, err)
 	}
 }
 

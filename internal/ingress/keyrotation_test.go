@@ -32,6 +32,7 @@ func (f *fakeRotation) BuilderRotation(context.Context) (uint64, error) {
 func rotationHeader(t *testing.T, bound, next uint64) (*registeredKeyHeader, *inflight.Prechecker, *inflight.Ledger) {
 	t.Helper()
 	h := newRegisteredKeyHeader(t)
+	h.withinLifetime(t)
 	key := *h.keys.state.Key
 	p, ledger := newPrechecker(t, chaincli.SessionState{
 		Owner: h.file.Account.Bech32, Key: key[:], ExpiryHeight: 1100, SetHeight: 980, SpendCap: "1150000", Spent: "1000000",
@@ -70,7 +71,7 @@ func TestOpenTaskHeaderRefusesNewOrdersWhileTheKeyRotates(t *testing.T) {
 		sessionID := h.header.GetSessionId()[2:]
 		res, err := p.Reserve(context.Background(), inflight.Order{
 			SessionID: sessionID, Sequence: 6, TaskID: "t6", TaskHash: hex.EncodeToString([]byte{6}), User: h.file.Account.Bech32,
-			MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 2000,
+			MaxFee: 1, EarliestSubmitHeight: 1000, ExpireHeight: 1200,
 		})
 		if err != nil {
 			t.Fatal(err)

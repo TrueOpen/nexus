@@ -509,8 +509,7 @@ func newEnv(t *testing.T) *env {
 		observer:   &fakeObserver{}, recorder: &fakeRecorder{},
 		clock:  &fakeClock{now: time.UnixMilli(1_800_000_000_000)},
 		signer: &revocable{Signer: servicekey.Static(newTestSigner(t, 0x01), testBuilderNonce)},
-		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64,
-			RecordDeadlineBlocks: 20},
+		params: Params{MaxSkips: testMaxSkips, Sticky: dispatchdraw.StickyParams{MaxOrders: 3, WindowBlocks: 50}, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64},
 	}
 	e.builder = newTestSigner(t, 0x09).Address()
 	e.handraises.setRoot(0xd1, 2, op1, op3, op7)
@@ -536,7 +535,7 @@ func (e *env) open(store kv.Store) {
 	e.sessions.ObserveHeight(testESH)
 	e.precheck, err = inflight.NewPrechecker(inflight.PrecheckConfig{
 		Builder: e.builder, Sessions: e.sessions, Ledger: e.ledger,
-		Params: inflight.Params{RecordDeadlineBlocks: 20, OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 8, MaxPendingPerSession: 8},
+		Params: inflight.Params{OrderFreshnessMarginBlocks: 5, BuilderMaxInflightPerSession: 8, MaxPendingPerSession: 8},
 	})
 	if err != nil {
 		e.t.Fatal(err)
@@ -570,6 +569,7 @@ func (e *env) session(id byte, next uint64) string {
 		*s = chaincli.SessionState{
 			SessionID: sessionID, Owner: testUser, NextExpectedSequence: next, Balance: "1000000", FrozenTotal: "0",
 			PendingWithdrawAmount: "0", BoundBuilder: e.builder, BoundChangeHeight: testBound, SpendCap: "0", Spent: "0",
+			FrozenDispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: dispatch.MaxOrderLifetimeBlocksV1},
 		}
 	})
 	return sessionID
@@ -590,7 +590,7 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 		Order: &taskv1.TaskOrderV3{
 			ChainId: testChainID, UserAddress: testUser, SessionId: sid, OrderSequence: seq,
 			ModelId: testModel[:], ProfileVersion: 1, InputHash: inputHash[:], EarliestSubmitHeight: esh,
-			OrderExpireHeight: 10_000,
+			OrderExpireHeight: esh + dispatch.MaxOrderLifetimeBlocksV1,
 		},
 		UserSignature: bytes.Repeat([]byte{version}, 65),
 	}
@@ -606,7 +606,7 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 	e.inputs.data[o.TaskHash] = []byte("hello world")
 	res, err := e.precheck.Reserve(context.Background(), inflight.Order{
 		SessionID: sessionID, Sequence: seq, TaskID: taskID, TaskHash: o.TaskHash, User: testUser, MaxFee: 10,
-		EarliestSubmitHeight: esh, ExpireHeight: 10_000, Takeover: e.takeoverOrders,
+		EarliestSubmitHeight: esh, ExpireHeight: esh + dispatch.MaxOrderLifetimeBlocksV1, Takeover: e.takeoverOrders,
 	})
 	if err != nil {
 		e.t.Fatalf("reserve %s/%d: %v", sessionID, seq, err)

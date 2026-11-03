@@ -8,15 +8,17 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/registeredkey"
 )
 
-// Params are the task dispatch params the precheck reads.
+// Params are the task dispatch params the precheck reads. The record deadline and the order
+// lifetime are not among them: they are the session's frozen params (SessionState.FrozenDispatch).
 type Params struct {
-	RecordDeadlineBlocks       uint64
 	OrderFreshnessMarginBlocks uint64
 	// BuilderMaxInflightPerSession and MaxPendingPerSession bound a session's in-flight orders;
 	// zero admits none (a missing param never lifts the bound).
@@ -24,14 +26,8 @@ type Params struct {
 	MaxPendingPerSession         uint32
 }
 
-// validate checks that the freshness margin is below record_deadline_blocks, otherwise an order
-// could be admitted after its record deadline, and that both in-flight limits are set: a zero
-// limit would admit no order.
+// validate checks that both in-flight limits are set: a zero limit would admit no order.
 func (p Params) validate() error {
-	if p.RecordDeadlineBlocks == 0 || p.OrderFreshnessMarginBlocks >= p.RecordDeadlineBlocks {
-		return fmt.Errorf("dispatch params: order_freshness_margin_blocks %d must be below record_deadline_blocks %d",
-			p.OrderFreshnessMarginBlocks, p.RecordDeadlineBlocks)
-	}
 	if p.BuilderMaxInflightPerSession == 0 || p.MaxPendingPerSession == 0 {
 		return fmt.Errorf("dispatch params: builder_max_inflight_per_session %d and max_pending_per_session %d must be set",
 			p.BuilderMaxInflightPerSession, p.MaxPendingPerSession)
@@ -39,11 +35,9 @@ func (p Params) validate() error {
 	return nil
 }
 
-// ParamsFromChain takes the precheck params from task params dispatch. The freshness margin must
-// be below record_deadline_blocks, otherwise an order could be admitted after its record deadline.
+// ParamsFromChain takes the precheck params from task params dispatch.
 func ParamsFromChain(p *taskv1.DispatchParamsV1) (Params, error) {
 	out := Params{
-		RecordDeadlineBlocks:         p.GetRecordDeadlineBlocks(),
 		OrderFreshnessMarginBlocks:   p.GetOrderFreshnessMarginBlocks(),
 		BuilderMaxInflightPerSession: p.GetBuilderMaxInflightPerSession(),
 		MaxPendingPerSession:         p.GetMaxPendingPerSession(),
@@ -94,8 +88,9 @@ type Result struct {
 	Session Session
 	// Head is the height the order was judged at.
 	Head uint64
-	// Deadline is max(earliest_submit_height, bound_change_height) + record_deadline_blocks: the
-	// last height the order's dispatch entry can be recorded at.
+	// Deadline is max(earliest_submit_height, bound_change_height) + record_deadline_blocks, with
+	// the session's frozen record_deadline_blocks: the last height the order's dispatch entry can be
+	// recorded at.
 	Deadline uint64
 	// Existing is set when this Builder already dispatches, dispatched or recorded the same order
 	// (same task_hash): it is not dispatched again, the caller answers with its state.
@@ -140,7 +135,10 @@ type PrecheckConfig struct {
 // The checks run in this order and the first failure is the answer:
 //
 //  1. session: known, owned by the order user (else the registered key error ErrKeyInvalid), not
-//     closed (ErrSessionClosing); an order signed by the session key passes
+//     closed (ErrSessionClosing); the order's lifetime order_expire_height -
+//     earliest_submit_height within the max_order_lifetime_blocks the session froze
+//     (dispatch.ValidateOrderLifetime, else ErrOrderExpired), which the chain checks at admission
+//     and at a takeover registration alike; an order signed by the session key passes
 //     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key:
 //     spent + their max_fee + max_fee <= spend_cap, where in flight is DISPATCHING (an uncommitted
 //     reservation included), ACCEPTED, or RECORDED while the session state read does not include
@@ -151,12 +149,12 @@ type PrecheckConfig struct {
 //     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a
 //     registered key valid at head + 1;
 //  3. expiry: the order must stay recordable until its record deadline D = max(
-//     earliest_submit_height, bound_change_height) + record_deadline_blocks; an order is valid up
-//     to and including order_expire_height, so D <= order_expire_height (and head + 1 <=
-//     order_expire_height), else ErrOrderExpired;
+//     earliest_submit_height, bound_change_height) + record_deadline_blocks, with the session's
+//     frozen record_deadline_blocks; an order is valid up to and including order_expire_height, so
+//     D <= order_expire_height (and head + 1 <= order_expire_height), else ErrOrderExpired;
 //  4. freshness, except for a takeover order: earliest_submit_height >= head -
-//     order_freshness_margin_blocks (ErrOrderStale) and <= head + 1 (ErrOrderFuture, returned only
-//     after the head was read from the chain again);
+//     order_freshness_margin_blocks and D >= head + 1 (ErrOrderStale), and earliest_submit_height
+//     <= head + 1 (ErrOrderFuture, returned only after the head was read from the chain again);
 //  5. a registered takeover of the session: *TakeoverPendingError;
 //  6. local idempotency by (session_id, order_sequence): the same order dispatching, accepted or
 //     recorded is Result.Existing, also below the chain's next expected sequence (recorded before
@@ -199,9 +197,8 @@ func NewPrechecker(cfg PrecheckConfig) (*Prechecker, error) {
 	return &Prechecker{cfg: cfg, params: cfg.Params}, nil
 }
 
-// SetParams replaces the params, after a params change on chain. Params whose freshness margin is
-// not below record_deadline_blocks, or with a zero in-flight limit, are refused and the current
-// ones kept.
+// SetParams replaces the params, after a params change on chain. Params with a zero in-flight
+// limit are refused and the current ones kept.
 func (p *Prechecker) SetParams(params Params) error {
 	if err := params.validate(); err != nil {
 		return err
@@ -317,7 +314,8 @@ func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params P
 	}
 	entry := Entry{
 		Sequence: o.Sequence, TaskID: o.TaskID, TaskHash: o.TaskHash, MaxFee: o.MaxFee,
-		SessionKey: o.SessionKey != nil, Deadline: res.Deadline, State: StateDispatching, Takeover: o.Takeover,
+		SessionKey: o.SessionKey != nil, Deadline: res.Deadline, DeadlineBlocks: session.FrozenDispatch.GetRecordDeadlineBlocks(),
+		State: StateDispatching, Takeover: o.Takeover,
 	}
 	op, err := putOp(o.SessionID, entry)
 	if err != nil {
@@ -357,8 +355,12 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	if s.Closed {
 		return Result{}, fmt.Errorf("%w: session %s is closed", ErrSessionClosing, o.SessionID)
 	}
+	if err := dispatch.ValidateOrderLifetime(o.EarliestSubmitHeight, o.ExpireHeight, s.FrozenDispatch.GetMaxOrderLifetimeBlocks()); err != nil {
+		return Result{}, fmt.Errorf("%w: %v (earliest_submit_height %d, order_expire_height %d, session lifetime %d blocks)",
+			ErrOrderExpired, err, o.EarliestSubmitHeight, o.ExpireHeight, s.FrozenDispatch.GetMaxOrderLifetimeBlocks())
+	}
 	res := Result{Binding: BoundHere, Session: s, Head: head,
-		Deadline: saturatingAdd(max(o.EarliestSubmitHeight, s.BoundChangeHeight), params.RecordDeadlineBlocks)}
+		Deadline: saturatingAdd(max(o.EarliestSubmitHeight, s.BoundChangeHeight), s.FrozenDispatch.GetRecordDeadlineBlocks())}
 	bound := s.BoundBuilder == p.cfg.Builder
 	// A takeover entry is judged when it registers, in the next block; the order is judged again
 	// in full before it is dispatched once the takeover took effect.
@@ -407,6 +409,11 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	if !takeover && head > params.OrderFreshnessMarginBlocks && o.EarliestSubmitHeight < head-params.OrderFreshnessMarginBlocks {
 		return Result{}, fmt.Errorf("%w: earliest_submit_height %d is more than %d blocks below the head %d",
 			ErrOrderStale, o.EarliestSubmitHeight, params.OrderFreshnessMarginBlocks, head)
+	}
+	// The margin is a current param and the record deadline the session's: a deadline the margin
+	// passes is checked for itself.
+	if !takeover && res.Deadline <= head {
+		return Result{}, fmt.Errorf("%w: the record deadline %d is not after the head %d", ErrOrderStale, res.Deadline, head)
 	}
 	if o.EarliestSubmitHeight > head+1 {
 		return Result{}, fmt.Errorf("%w: earliest_submit_height %d is above the head %d plus one",

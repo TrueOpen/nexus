@@ -11,9 +11,11 @@ import (
 // Precheck failures. The text is the Ingress error code; none of them creates a task or uses the
 // order's sequence. Session key failures are registeredkey errors (sdkauth.OrderKeyErr maps them).
 var (
-	// ErrOrderExpired: the order may expire before its record deadline.
+	// ErrOrderExpired: the order may expire before its record deadline, or its expiry is outside
+	// the order lifetime its session froze.
 	ErrOrderExpired = errors.New("NEXUS_INGRESS_ORDER_EXPIRED")
-	// ErrOrderStale: earliest_submit_height is more than order_freshness_margin_blocks below the head.
+	// ErrOrderStale: earliest_submit_height is more than order_freshness_margin_blocks below the
+	// head, or the order's record deadline is not after the head.
 	ErrOrderStale = errors.New("NEXUS_INGRESS_ORDER_STALE")
 	// ErrOrderFuture: earliest_submit_height is more than one block above the head.
 	ErrOrderFuture = errors.New("NEXUS_INGRESS_ORDER_FUTURE")

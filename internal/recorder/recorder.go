@@ -54,15 +54,12 @@ type Params struct {
 	MaxBytes uint64
 	// MinCompensation is builder_compensation_account_min_balance.
 	MinCompensation *big.Int
-	// RecordDeadlineBlocks is record_deadline_blocks.
-	RecordDeadlineBlocks uint64
 }
 
 // ParamsFromChain takes the Recorder's params from task params dispatch.
 func ParamsFromChain(d *taskv1.DispatchParamsV1) (Params, error) {
 	p := Params{
 		MaxEntries: d.GetMaxDispatchEntriesPerRecord(), MaxBytes: d.GetMaxDispatchRecordBytes(), MinCompensation: new(big.Int),
-		RecordDeadlineBlocks: d.GetRecordDeadlineBlocks(),
 	}
 	if p.MaxEntries == 0 || p.MaxBytes == 0 {
 		return Params{}, fmt.Errorf("dispatch params: max_dispatch_entries_per_record %d and max_dispatch_record_bytes %d must be set", p.MaxEntries, p.MaxBytes)
@@ -280,6 +277,7 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		Worker:      b.Entry.GetAccept().GetMember().GetOperatorAddress(), Deadline: b.Deadline, Entry: raw,
 		EarliestSubmit: b.Entry.GetSignedOrder().GetOrder().GetEarliestSubmitHeight(),
 		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
+		DeadlineBlocks: b.DeadlineBlocks,
 		OrderExpire:    b.Entry.GetSignedOrder().GetOrder().GetOrderExpireHeight(),
 	}
 	r.mu.Lock()
@@ -419,14 +417,14 @@ func (r *Recorder) pruneWithdrawn(height uint64) {
 }
 
 // deadlineLocked is the last height e can be recorded at: max(earliest_submit_height,
-// bound_change_height) + record_deadline_blocks with the current params, never earlier than the
-// deadline handed over and never past order_expire_height. The dispatcher decides with the same formula. A takeover entry has only the
-// deadline handed over.
+// bound_change_height) + the record_deadline_blocks its session froze, never earlier than the
+// deadline handed over and never past order_expire_height. The dispatcher decides with the same
+// formula. A takeover entry has only the deadline handed over.
 func (r *Recorder) deadlineLocked(e *entry) uint64 {
 	if e.Takeover {
 		return e.Deadline
 	}
-	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, r.params.Load().RecordDeadlineBlocks, e.OrderExpire)
+	return dispatcher.EffectiveRecordDeadline(e.Deadline, e.EarliestSubmit, e.BoundChange, e.DeadlineBlocks, e.OrderExpire)
 }
 
 func (r *Recorder) entryOp(e *entry) kv.WriteOp {

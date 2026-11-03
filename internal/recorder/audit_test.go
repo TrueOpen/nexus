@@ -132,12 +132,14 @@ func TestNoopTakesTheRecordedHeight(t *testing.T) {
 }
 
 // The record deadline is recomputed from the entry (max of earliest_submit_height and the winner
-// ticket's bound_change_height, plus the current record_deadline_blocks) and never shortened.
+// ticket's bound_change_height, plus the record_deadline_blocks its session froze, as handed over)
+// and never shortened.
 func TestDeadlineIsRecomputedFromTheEntry(t *testing.T) {
 	e := newEnv(t)
 	longer := bundle(0xaa, 0, 1, 20)
 	longer.Entry.SignedOrder.Order.EarliestSubmitHeight = 15
-	longer.Entry.WinnerTicket.BoundChangeHeight = 25 // 25 + 10 = 35
+	longer.Entry.WinnerTicket.BoundChangeHeight = 25 // 25 + 12 = 37
+	longer.DeadlineBlocks = 12
 	shorter := bundle(0xbb, 0, 2, 30)
 	shorter.Entry.SignedOrder.Order.EarliestSubmitHeight = 5 // 5 + 10 = 15: the stored 30 stays
 	e.record(longer, shorter)
@@ -149,7 +151,11 @@ func TestDeadlineIsRecomputedFromTheEntry(t *testing.T) {
 	if want := []taskReport{{taskID: shorter.TaskID, code: codeLate}}; !reflect.DeepEqual(e.tasks.rejected, want) {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
 	}
-	e.block(36)
+	e.block(37)
+	if len(e.tasks.rejected) != 1 {
+		t.Fatalf("rejected at the session's deadline = %v", e.tasks.rejected)
+	}
+	e.block(38)
 	if len(e.tasks.rejected) != 2 || e.tasks.rejected[1].taskID != longer.TaskID {
 		t.Fatalf("rejected = %v", e.tasks.rejected)
 	}

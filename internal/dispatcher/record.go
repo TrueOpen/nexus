@@ -6,6 +6,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/inflight"
 )
 
 // buildRecord is the unsigned DispatchRecordV1 of an accepted order. The fields the chain compares
@@ -71,8 +72,9 @@ func buildRecord(chainID, builder string, st *orderState, winner *taskv1.Dispatc
 	return r, nil
 }
 
-// bundle is the dispatch entry of an accepted order from its stored bytes.
-func (d *Dispatcher) bundle(st *orderState, deadline uint64) (*Bundle, error) {
+// bundle is the dispatch entry of an accepted order from its stored bytes, with its record deadline
+// and the session's record_deadline_blocks from its ledger entry e.
+func (d *Dispatcher) bundle(st *orderState, e inflight.Entry, deadline uint64) (*Bundle, error) {
 	w := st.winner()
 	if w == nil || len(st.Accept) == 0 || len(st.Record) == 0 {
 		return nil, fmt.Errorf("order has no complete accept")
@@ -91,5 +93,5 @@ func (d *Dispatcher) bundle(st *orderState, deadline uint64) (*Bundle, error) {
 			return nil, fmt.Errorf("stored dispatch entry part: %w", err)
 		}
 	}
-	return &Bundle{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Deadline: deadline, Entry: entry}, nil
+	return &Bundle{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Deadline: deadline, DeadlineBlocks: e.DeadlineBlocks, Entry: entry}, nil
 }

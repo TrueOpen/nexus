@@ -81,6 +81,7 @@ func baseSessionState() chaincli.SessionState {
 	return chaincli.SessionState{
 		Owner: "owner", NextExpectedSequence: 5, Balance: "1000", FrozenTotal: "100",
 		PendingWithdrawAmount: "0", BoundBuilder: "builder", BoundChangeHeight: 10, SpendCap: "0", Spent: "0",
+		FrozenDispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 120},
 	}
 }
 

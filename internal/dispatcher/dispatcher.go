@@ -89,19 +89,15 @@ type Params struct {
 	MaxRosterBytes uint64
 	// MaxDrawAttempts is max_weighted_draw_attempts_per_selection.
 	MaxDrawAttempts uint32
-	// RecordDeadlineBlocks is record_deadline_blocks; with it the record deadline follows the
-	// current params as the Recorder's does (EffectiveRecordDeadline).
-	RecordDeadlineBlocks uint64
 }
 
 // ParamsFromChain takes the walk's params from task params dispatch and weights.
 func ParamsFromChain(dispatch *taskv1.DispatchParamsV1, weights *taskv1.CandidateWeightParamsV1) (Params, error) {
 	p := Params{
-		MaxSkips:             dispatch.GetMaxSkips(),
-		Sticky:               dispatchdraw.StickyParams{MaxOrders: dispatch.GetStickyMaxOrders(), WindowBlocks: dispatch.GetStickyWindowBlocks()},
-		MaxRosterBytes:       dispatch.GetMaxDispatchRosterBytes(),
-		MaxDrawAttempts:      weights.GetMaxWeightedDrawAttemptsPerSelection(),
-		RecordDeadlineBlocks: dispatch.GetRecordDeadlineBlocks(),
+		MaxSkips:        dispatch.GetMaxSkips(),
+		Sticky:          dispatchdraw.StickyParams{MaxOrders: dispatch.GetStickyMaxOrders(), WindowBlocks: dispatch.GetStickyWindowBlocks()},
+		MaxRosterBytes:  dispatch.GetMaxDispatchRosterBytes(),
+		MaxDrawAttempts: weights.GetMaxWeightedDrawAttemptsPerSelection(),
 	}
 	if p.MaxRosterBytes == 0 || p.MaxDrawAttempts == 0 {
 		return Params{}, fmt.Errorf("dispatch params: max_dispatch_roster_bytes %d and max_weighted_draw_attempts_per_selection %d must be set",
@@ -167,9 +163,11 @@ type Bundle struct {
 	SessionID string
 	Sequence  uint64
 	TaskID    string
-	// Deadline is the last height the entry can be recorded at.
-	Deadline uint64
-	Entry    *taskv1.DispatchEntryV1
+	// Deadline is the last height the entry can be recorded at; DeadlineBlocks the
+	// record_deadline_blocks the session froze, with which the Recorder moves it on a binding change.
+	Deadline       uint64
+	DeadlineBlocks uint64
+	Entry          *taskv1.DispatchEntryV1
 }
 
 // Recorder records accepted orders on chain.
@@ -651,7 +649,7 @@ func (d *Dispatcher) Suspend(ctx context.Context, sessionID string, from uint64,
 }
 
 // RecordDeadline returns the last height the order of (session, sequence) can be recorded at: the
-// in-flight ledger's deadline moved by the current params and binding as the Recorder moves it.
+// in-flight ledger's deadline moved by the binding as the Recorder moves it.
 func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, bool) {
 	e, ok := d.cfg.Ledger.Get(sessionID, sequence)
 	if !ok {
@@ -663,15 +661,15 @@ func (d *Dispatcher) RecordDeadline(sessionID string, sequence uint64) (uint64, 
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return d.recordDeadline(o, e.Deadline), true
+	return d.recordDeadline(o, e), true
 }
 
 // EffectiveRecordDeadline is the last height an entry can be recorded at:
-// max(earliest_submit_height, bound_change_height) + record_deadline_blocks with the current
-// params, never earlier than the deadline handed over (stored), and never past orderExpire, the
-// order's order_expire_height (the last height the Keeper admits it at; zero bounds nothing). The
-// Recorder and the dispatcher both decide with it, so an entry one of them still takes the other
-// does not give up on.
+// max(earliest_submit_height, bound_change_height) + record_deadline_blocks, the blocks the
+// session froze, never earlier than the deadline handed over (stored), and never past orderExpire,
+// the order's order_expire_height (the last height the Keeper admits it at; zero bounds nothing).
+// The Recorder and the dispatcher both decide with it, so an entry one of them still takes the
+// other does not give up on.
 func EffectiveRecordDeadline(stored, earliestSubmit, boundChange, deadlineBlocks, orderExpire uint64) uint64 {
 	deadline := max(stored, max(earliestSubmit, boundChange)+deadlineBlocks)
 	if orderExpire != 0 {
@@ -680,11 +678,11 @@ func EffectiveRecordDeadline(stored, earliestSubmit, boundChange, deadlineBlocks
 	return deadline
 }
 
-// recordDeadline is the order's EffectiveRecordDeadline: its bound_change_height is the current
-// round's, the one its winner ticket commits. Caller holds o.mu.
-func (d *Dispatcher) recordDeadline(o *order, stored uint64) uint64 {
-	return EffectiveRecordDeadline(stored, o.signed.GetOrder().GetEarliestSubmitHeight(), o.st.BoundChangeHeight,
-		d.params.Load().RecordDeadlineBlocks, o.signed.GetOrder().GetOrderExpireHeight())
+// recordDeadline is the order's EffectiveRecordDeadline from its ledger entry e: its
+// bound_change_height is the current round's, the one its winner ticket commits. Caller holds o.mu.
+func (d *Dispatcher) recordDeadline(o *order, e inflight.Entry) uint64 {
+	return EffectiveRecordDeadline(e.Deadline, o.signed.GetOrder().GetEarliestSubmitHeight(), o.st.BoundChangeHeight,
+		e.DeadlineBlocks, o.signed.GetOrder().GetOrderExpireHeight())
 }
 
 func cloneState(s *orderState) *orderState {
