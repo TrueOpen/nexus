@@ -49,8 +49,8 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    event or when it is judged again after a restart; one whose entry went out or that the chain
    registered goes on. Handraise roots are still signed with the current key, each with a
    `root_height` below the effective height (the retired key still proves it after the cutover): an
-   order already taken that needs another round (a binding change voided its ticket) binds the
-   latest root as usual. Should the local height reach the effective height before the chain's
+   order already taken that needs another round (a retry, or a binding change that voided its
+   ticket and restarts its rounds from 0) binds the latest root as usual. Should the local height reach the effective height before the chain's
    binding shows the cutover, no root is signed until it does (logged once as `handraise roots wait
    until the chain shows the Builder service key cutover`). The pending state is read from the
    chain's binding on every order, so a restart in the window refuses as well. A Cortex that
@@ -371,6 +371,14 @@ group over `BuilderSyncService` on the ingress port (batches signed with the Bui
 API key; limited per source address by `ingress.builder_sync_requests_per_second` and
 `ingress.builder_sync_burst`, defaults 1000 and 2000). The dispatching side keeps an outbox per order
 and deletes the items every member applied.
+
+An order's rounds are numbered from 0 within one epoch and one binding generation: a retry of the
+same sequence opens the next round, while a new epoch or a takeover that changes the session's
+`bound_change_height` (also one back to this Builder) restarts the order, its rounds, ranks and
+skip count from 0 under the same VRF output, with stickiness decided again. Each generation's
+evidence is kept apart (keyed by epoch and `bound_change_height`), on the dispatching Builder and in
+each member's copy; a synced round names no binding, so a member files it under the generation its
+first ticket commits.
 
 A member serves `SubscribeOutput` / `ResumeOutput` of an order (from its replica) once the chain
 has recorded the order with the member in its Task Builders group, which it confirms with the

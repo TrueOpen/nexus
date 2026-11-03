@@ -573,6 +573,45 @@ func TestReceiverDropsPreviousKeyRejectOfATicketBoundAtTheCutover(t *testing.T) 
 	}
 }
 
+// A takeover back to D in the same epoch restarts D's rounds from 0 under a new
+// bound_change_height: the member keeps that generation's copy apart from the first one, its round
+// 0 next to the first generation's round 0 although both bind the same roster and root.
+func TestTakeoverBackSyncsANewGenerationOfRounds(t *testing.T) {
+	e := newEnv(t)
+	first := e.fx
+	e.s.OrderChanged(first.rejectedThenOut())
+	e.sync()
+	voided := first.rejectedThenOut()
+	voided.Rounds[0].Attempts[1].Outcome = taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED
+	e.s.OrderChanged(voided)
+	second := newFixtureBound(e, testBound+20)
+	e.s.OrderChanged(second.issued())
+	e.sync()
+	orders, err := e.member.evidence.ByTask(first.taskHex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := map[uint64]int{}
+	for _, o := range orders {
+		if o.Builder != e.d.op || len(o.Rounds) != 1 || o.Rounds[0].Number != 0 {
+			t.Fatalf("copy = %+v", o)
+		}
+		attempts[o.BoundChangeHeight] = len(o.Rounds[0].Attempts)
+	}
+	if len(orders) != 2 || attempts[testBound] != 2 || attempts[testBound+20] != 1 {
+		t.Fatalf("copies by binding = %v", attempts)
+	}
+	for hash, want := range map[[32]byte]uint64{first.hashes[1]: testBound, second.hashes[0]: testBound + 20} {
+		if o, _, found, err := e.member.evidence.ByTicket(hash[:]); err != nil || !found || o.BoundChangeHeight != want {
+			t.Fatalf("copy of ticket %x = %+v, %v, %v", hash[:4], o, found, err)
+		}
+	}
+	m, found, err := e.member.r.loadMember(memberKey(e.d.op, first.sessionHex(), first.sequence))
+	if err != nil || !found || len(m.Rounds) != 0 {
+		t.Fatalf("rounds still waiting for a ticket = %+v, %v, %v", m, found, err)
+	}
+}
+
 // A winner later voided (a binding change) leaves no accept in the copy.
 func TestVoidedWinnerDropsTheAccept(t *testing.T) {
 	e := newEnv(t)

@@ -2,6 +2,7 @@ package buildersync
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -451,18 +452,43 @@ func (r *Receiver) apply(ctx context.Context, m *memberStream, item *nexusv1.Bui
 	return next, nil
 }
 
-// copyOf finds this Builder's copy of the sender's evidence of an order version in an epoch.
-func (r *Receiver) copyOf(m *memberStream, taskID string, epoch uint64) (*dispatchevidence.Order, error) {
+// copies are the sender's copies of a task in an epoch, one per binding generation.
+func (r *Receiver) copies(m *memberStream, taskID string, epoch uint64) ([]*dispatchevidence.Order, error) {
 	orders, err := r.cfg.Evidence.ByTask(taskID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: evidence: %v", ErrUnavailable, err)
 	}
+	var out []*dispatchevidence.Order
 	for _, o := range orders {
 		if o.Builder == m.Sender && o.SessionID == m.SessionID && o.Sequence == m.Sequence && o.Epoch == epoch {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
+// copyOf is the sender's copy of a task in an epoch and binding generation; nil when not held.
+func (r *Receiver) copyOf(m *memberStream, taskID string, epoch, boundChangeHeight uint64) (*dispatchevidence.Order, error) {
+	orders, err := r.copies(m, taskID, epoch)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range orders {
+		if o.BoundChangeHeight == boundChangeHeight {
 			return o, nil
 		}
 	}
 	return nil, nil
+}
+
+// latestCopy is the sender's copy of a task in an epoch with the latest binding generation; nil
+// when none is held.
+func (r *Receiver) latestCopy(m *memberStream, taskID string, epoch uint64) (*dispatchevidence.Order, error) {
+	orders, err := r.copies(m, taskID, epoch)
+	if err != nil || len(orders) == 0 {
+		return nil, err
+	}
+	return slices.MaxFunc(orders, func(a, b *dispatchevidence.Order) int { return cmp.Compare(a.BoundChangeHeight, b.BoundChangeHeight) }), nil
 }
 
 // put stores the copy o with m (and extra) in one write.
@@ -540,26 +566,76 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	}
 	m.Submit[taskHash] = esh
 	candidate.RootDigest, candidate.SignedRoot = rootDigest[:], rootRaw
-	o, err := r.copyOf(m, taskID, round.GetVrfEpoch())
+	// A round names no bound_change_height: it waits in the stream until its first ticket names the
+	// binding generation whose copy it joins (takeRound). A round number the latest generation
+	// already holds starts a new one (a takeover back to the sender in the same epoch restarts the
+	// rounds from 0); any other round continues the latest and carries its task_hash.
+	latest, err := r.latestCopy(m, taskID, round.GetVrfEpoch())
 	if err != nil {
 		return err
 	}
-	if o == nil {
-		o = &dispatchevidence.Order{Builder: m.Sender, SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Epoch: round.GetVrfEpoch()}
+	if latest != nil && latest.TaskHash != taskHash {
+		if _, held := latest.Round(candidate.Number); !held {
+			return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, latest.TaskHash)
+		}
 	}
-	if _, held := o.Round(candidate.Number); held {
+	pending := pendingRound{TaskID: taskID, TaskHash: taskHash, Epoch: round.GetVrfEpoch(), Round: candidate}
+	if slices.ContainsFunc(m.Rounds, pending.same) {
 		return fmt.Errorf("round %d is held already", candidate.Number)
 	}
-	if o.TaskHash != "" && o.TaskHash != taskHash {
-		return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
-	}
-	o.TaskHash = taskHash
-	o.DeadlineBase = max(o.DeadlineBase, round.GetEarliestSubmitHeight())
-	o.Rounds = append(o.Rounds, candidate)
-	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
+	m.Rounds = append(m.Rounds, pending)
 	m.TaskID, m.User = taskID, round.GetUserAddress()
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + taskID, Val: []byte(m.key())}
-	return r.put(o, m, index)
+	return r.store(m, index)
+}
+
+// takeRound returns the copy and round a ticket binds: the round held in the copy of the ticket's
+// binding generation, or the round waiting in the stream with the ticket's number, roster_hash and
+// root, which then joins that copy (created for the first ticket of a generation). The copy is not
+// stored here.
+func (r *Receiver) takeRound(m *memberStream, ticket *taskv1.DispatchTicketV1) (*dispatchevidence.Order, *dispatchevidence.Round, error) {
+	taskID, taskHash, number := hex.EncodeToString(ticket.GetTaskId()), hex.EncodeToString(ticket.GetTaskHash()), ticket.GetDispatchRound()
+	o, err := r.copyOf(m, taskID, ticket.GetVrfEpoch(), ticket.GetBoundChangeHeight())
+	if err != nil {
+		return nil, nil, err
+	}
+	if o != nil {
+		if round, held := o.Round(number); held {
+			if !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
+				return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", number)
+			}
+			if taskHash != o.TaskHash {
+				return nil, nil, errors.New("ticket's task_hash is not its round's")
+			}
+			return o, round, nil
+		}
+	}
+	i := slices.IndexFunc(m.Rounds, func(p pendingRound) bool {
+		return p.TaskID == taskID && p.Epoch == ticket.GetVrfEpoch() && p.Round.Number == number &&
+			bytes.Equal(p.Round.RosterHash, ticket.GetRosterHash()) && bytes.Equal(p.Round.RootDigest, ticket.GetHandraiseRootDigest())
+	})
+	switch {
+	case i < 0 && o == nil:
+		return nil, nil, errors.New("ticket of a round not held")
+	case i < 0:
+		return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", number)
+	case m.Rounds[i].TaskHash != taskHash:
+		return nil, nil, errors.New("ticket's task_hash is not its round's")
+	}
+	if o == nil {
+		o = &dispatchevidence.Order{Builder: m.Sender, SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Epoch: ticket.GetVrfEpoch(),
+			BoundChangeHeight: ticket.GetBoundChangeHeight()}
+	}
+	if o.TaskHash != "" && o.TaskHash != taskHash {
+		return nil, nil, fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
+	}
+	o.TaskHash = taskHash
+	o.DeadlineBase = max(o.DeadlineBase, m.Submit[taskHash])
+	o.Rounds = append(o.Rounds, m.Rounds[i].Round)
+	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
+	m.Rounds = slices.Delete(m.Rounds, i, i+1)
+	round, _ := o.Round(number)
+	return o, round, nil
 }
 
 // applyInput takes a piece of an order version's input; once whole, the input must hash to its
@@ -648,19 +724,9 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 	if err != nil {
 		return err
 	}
-	o, err := r.copyOf(m, hex.EncodeToString(ticket.GetTaskId()), ticket.GetVrfEpoch())
+	o, round, err := r.takeRound(m, ticket)
 	if err != nil {
 		return err
-	}
-	if o == nil {
-		return errors.New("ticket of a round not held")
-	}
-	if hex.EncodeToString(ticket.GetTaskHash()) != o.TaskHash {
-		return errors.New("ticket's task_hash is not its round's")
-	}
-	round, held := o.Round(ticket.GetDispatchRound())
-	if !held || !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
-		return fmt.Errorf("ticket's round %d is not held with its roster_hash and root", ticket.GetDispatchRound())
 	}
 	if input := m.Inputs[hex.EncodeToString(ticket.GetTaskHash())]; input != nil && !bytes.Equal(input.InputHash, ticket.GetInputHash()) {
 		return errors.New("ticket's input_hash is not the synced input's")
@@ -790,7 +856,9 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 		hex.EncodeToString(record.GetSessionId()) != m.SessionID || record.GetOrderSequence() != m.Sequence {
 		return errors.New("record is not the sender's for this order")
 	}
-	o, err := r.copyOf(m, hex.EncodeToString(record.GetTaskId()), record.GetVrfEpoch())
+	// The record's own bound_change_height only finds the copy of its generation; the tickets it
+	// lists must be held there.
+	o, err := r.copyOf(m, hex.EncodeToString(record.GetTaskId()), record.GetVrfEpoch(), record.GetBoundChangeHeight())
 	if err != nil {
 		return err
 	}

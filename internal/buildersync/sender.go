@@ -187,8 +187,8 @@ type outStream struct {
 	// Lost marks the members that hold fewer items than every member acknowledged (they lost
 	// their store): the outbox cannot catch them up, and nothing more is sent to them.
 	Lost map[string]bool `json:"lost,omitempty"`
-	// Rounds (task/epoch/round), Inputs (task_hash), Attempts (ticket hash -> item digest) and
-	// Record (record digest) are what was turned into items.
+	// Rounds (task/epoch/bound_change_height/round), Inputs (task_hash), Attempts (ticket hash ->
+	// item digest) and Record (record digest) are what was turned into items.
 	Rounds   map[string]bool   `json:"rounds,omitempty"`
 	Inputs   map[string]bool   `json:"inputs,omitempty"`
 	Attempts map[string]string `json:"attempts,omitempty"`
@@ -668,7 +668,7 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 	}
 	var items []*nexusv1.BuilderSyncItemV1
 	for _, r := range view.Rounds {
-		roundKey := fmt.Sprintf("%s/%d/%d", view.TaskID, view.Epoch, r.Number)
+		roundKey := fmt.Sprintf("%s/%d/%d/%d", view.TaskID, view.Epoch, view.BoundChangeHeight, r.Number)
 		if !st.Rounds[roundKey] {
 			if len(r.RootDigest) != 32 {
 				return nil, fmt.Errorf("round %d binds no handraise root", r.Number)

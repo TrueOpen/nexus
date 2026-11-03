@@ -569,7 +569,7 @@ func newFixtureBound(e *env, bound uint64) *fixture {
 	f.record, _ = signWith(t, e.d.key, recordName, record, func(s []byte) { record.BuilderServiceSignature = s })
 	f.view = &dispatchevidence.Order{
 		SessionID: hex.EncodeToString(f.sessionID), Sequence: f.sequence, TaskID: hex.EncodeToString(f.taskID), TaskHash: hex.EncodeToString(f.taskHash),
-		Epoch: testEpoch, SignedOrder: f.signed, DeadlineBase: testESH,
+		Epoch: testEpoch, BoundChangeHeight: bound, SignedOrder: f.signed, DeadlineBase: testESH,
 		Rounds: []dispatchevidence.Round{{Number: 0, RootDigest: f.rootDigest[:], Roster: f.roster, RosterHash: f.rosterHash[:]}},
 	}
 	return f
