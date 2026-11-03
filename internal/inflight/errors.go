@@ -42,8 +42,8 @@ var (
 	// ErrTaskTerminal: another version of an order the chain already admitted.
 	ErrTaskTerminal = errors.New("NEXUS_INGRESS_TASK_TERMINAL")
 	// ErrBuilderKeyRotating: this Builder registered a service key rotation that is not active
-	// yet, and takes no new order until it is; see BuilderKeyRotatingError. The wire Ingress error
-	// registry does not list this code yet: once it does, only this text follows it.
+	// yet, and takes no new order, retry, takeover or Session until it is; see
+	// BuilderKeyRotatingError.
 	ErrBuilderKeyRotating = errors.New("NEXUS_INGRESS_BUILDER_KEY_ROTATING")
 	// ErrOrderUploading: the same order is reserved and its input is still being uploaded on
 	// another stream; retry. It is the task data's retryable not-ready code: until the first

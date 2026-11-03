@@ -37,9 +37,10 @@ and the Builder messages of tasks recorded before it. No drain is needed:
    already hold (the first order of a session, the next sequence of a session bound to it, a resend
    after a failed attempt, a takeover request) with `NEXUS_INGRESS_BUILDER_KEY_ROTATING`
    (Unavailable), checked before any other precheck, with the effective height as
-   `dispatch_available_height` and at the end of the message; the SDK treats it like
-   `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to another Builder, so each session
-   active here moves once. An exact resend of an order it holds is still answered with its state,
+   `service_key_rotation_effective_height` and at the end of the message; the SDK treats it like
+   `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to another Builder (skipping pending
+   Builders, and waiting for the earliest activation when every candidate is pending), so each
+   session active here moves once. An exact resend of an order it holds is still answered with its state,
    and everything already under way goes on under the current key: tickets out are accepted, inputs
    delivered, records sent, outputs relayed, claims rebutted and challenges answered. A held
    takeover whose entry no transaction carries yet ends with its input dropped (task event
@@ -243,9 +244,9 @@ Open items:
   `OpenTaskResponse` detail's `dispatch_available_height`, and the message ends with
   `dispatchable_height=<n>`.
 - `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (every new order refused while this Builder's key rotation
-  is pending, see Service key rotation) is not in the wire Ingress error codes yet; nexus defines
-  the text in one place (`internal/inflight/errors.go`) until wire lists it. Its height rides in
-  `dispatch_available_height`, the field wire has.
+  is pending, see Service key rotation) is `Unavailable` and carries the activation height as the
+  `OpenTaskResponse` detail's `service_key_rotation_effective_height`; the message ends with
+  `effective_height=<n>`.
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.

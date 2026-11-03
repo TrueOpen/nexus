@@ -42,12 +42,12 @@ func rotationHeader(t *testing.T, bound, next uint64) (*registeredKeyHeader, *in
 }
 
 // wantRotating checks a refusal is Unavailable NEXUS_INGRESS_BUILDER_KEY_ROTATING carrying the
-// effective height as dispatch_available_height.
+// effective height as service_key_rotation_effective_height, and no dispatch_available_height.
 func wantRotating(t *testing.T, err error, effective uint64) {
 	t.Helper()
 	wantConnectErr(t, err, connect.CodeUnavailable, "NEXUS_INGRESS_BUILDER_KEY_ROTATING")
-	if d := openTaskDetail(t, err); d.GetDispatchAvailableHeight() != effective {
-		t.Fatalf("detail = %v, want dispatch_available_height %d", d, effective)
+	if d := openTaskDetail(t, err); d.ServiceKeyRotationEffectiveHeight == nil || d.GetServiceKeyRotationEffectiveHeight() != effective || d.DispatchAvailableHeight != nil {
+		t.Fatalf("detail = %v, want service_key_rotation_effective_height %d alone", d, effective)
 	}
 }
 

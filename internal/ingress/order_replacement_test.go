@@ -130,9 +130,9 @@ func TestMapOrderErrNotReadyCarriesTheAvailableHeight(t *testing.T) {
 }
 
 // BUILDER_KEY_ROTATING, from the probe or a takeover's admission, is Unavailable and carries the
-// rotation's effective height as the OpenTaskResponse detail's dispatch_available_height (from it
-// this Builder takes new orders again), next to the text suffix. The SDK sends the order to
-// another Builder as for NO_CAPACITY.
+// rotation's effective height as the OpenTaskResponse detail's service_key_rotation_effective_height
+// (from it this Builder takes new orders again), next to the text suffix. The SDK sends the order
+// to another Builder as for NO_CAPACITY.
 func TestMapOrderErrBuilderKeyRotatingCarriesTheEffectiveHeight(t *testing.T) {
 	rotating := fmt.Errorf("probe: %w", &inflight.BuilderKeyRotatingError{EffectiveHeight: 640})
 	for name, err := range map[string]error{"order": mapOrderErr(rotating), "precheck": mapPrecheckErr(rotating)} {
@@ -140,7 +140,7 @@ func TestMapOrderErrBuilderKeyRotatingCarriesTheEffectiveHeight(t *testing.T) {
 			!strings.HasSuffix(connectMessage(err), "effective_height=640") {
 			t.Fatalf("%s: %v (code %v)", name, err, connect.CodeOf(err))
 		}
-		if d := openTaskDetail(t, err); d.DispatchAvailableHeight == nil || d.GetDispatchAvailableHeight() != 640 {
+		if d := openTaskDetail(t, err); d.ServiceKeyRotationEffectiveHeight == nil || d.GetServiceKeyRotationEffectiveHeight() != 640 || d.DispatchAvailableHeight != nil {
 			t.Fatalf("%s: detail = %v", name, d)
 		}
 	}

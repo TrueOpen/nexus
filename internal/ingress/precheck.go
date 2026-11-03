@@ -139,16 +139,17 @@ func mapPrecheckErr(err error) error {
 }
 
 // mapKeyRotating maps NEXUS_INGRESS_BUILDER_KEY_ROTATING: Unavailable, with the rotation's
-// effective height, from which this Builder takes new orders again, as the OpenTaskResponse
-// detail's dispatch_available_height (the message ends with it too). The SDK handles it as
-// NO_CAPACITY: the order goes to another Builder by takeover, and orders already in flight here
-// are followed here to their end.
+// activation height, from which this Builder takes new orders again, as the OpenTaskResponse
+// detail's service_key_rotation_effective_height (the message ends with it too). The SDK handles
+// it as NO_CAPACITY: the order goes to another Builder by takeover, a pending Builder is skipped
+// (waiting for the earliest activation when every candidate is pending), and orders already in
+// flight here are followed here to their end.
 func mapKeyRotating(err error) error {
 	ce := connect.NewError(connect.CodeUnavailable, err)
 	var rotating *inflight.BuilderKeyRotatingError
 	if errors.As(err, &rotating) && rotating.EffectiveHeight != 0 {
 		height := rotating.EffectiveHeight
-		return withOpenTaskDetail(ce, &nexusv1.OpenTaskResponse{DispatchAvailableHeight: &height})
+		return withOpenTaskDetail(ce, &nexusv1.OpenTaskResponse{ServiceKeyRotationEffectiveHeight: &height})
 	}
 	return ce
 }

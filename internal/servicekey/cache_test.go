@@ -81,7 +81,7 @@ func TestCacheServesWithinTTLAndDropsOnRotation(t *testing.T) {
 }
 
 // Registering a replacement leaves the current key in force but changes what the binding allows
-// (a pending Builder issues no new roots), so it drops the operator's entries like an activation.
+// (a pending Builder takes no new order), so it drops the operator's entries like an activation.
 func TestCacheDropsOnRotationRegistration(t *testing.T) {
 	resolver := &countingResolver{nonce: 1}
 	cache := NewCache(resolver, time.Minute)
