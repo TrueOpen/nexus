@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"github.com/TrueOpen/wire/dispatch"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -50,6 +51,12 @@ type SessionState struct {
 	// PendingKeyChange and PendingTakeover are nil when nothing is pending.
 	PendingKeyChange *PendingSessionKeyChange
 	PendingTakeover  *PendingTakeover
+	// FrozenDispatch is the dispatch half of the parameter body the session froze, at
+	// ParamsVersion: the record deadline, order lifetime and compensation and challenge windows of
+	// its orders. Governance changes to the current params do not move it, and current params never
+	// stand in for it. Shared, read only.
+	FrozenDispatch *taskv1.DispatchParamsV1
+	ParamsVersion  uint64
 }
 
 // PendingSessionKeyChange is a delayed SET or CLEAR of the session key.
@@ -104,7 +111,32 @@ func (c *client) QuerySession(ctx context.Context, sessionID string) (SessionSta
 	if err != nil {
 		return SessionState{}, applicationQueryError("session", err)
 	}
-	return sessionStateFromPB(id, resp.Msg.GetSession())
+	state, err := sessionStateFromPB(id, resp.Msg.GetSession())
+	if err != nil {
+		return SessionState{}, err
+	}
+	if state.FrozenDispatch, err = frozenDispatchFromPB(resp.Msg.GetParams()); err != nil {
+		return SessionState{}, err
+	}
+	state.ParamsVersion = resp.Msg.GetParamsVersion()
+	return state, nil
+}
+
+// frozenDispatchFromPB reads the dispatch params a session froze. A body without a record deadline
+// or with an order lifetime outside 1..dispatch.MaxOrderLifetimeBlocksV1 is refused: the session's
+// orders could not be judged with it.
+func frozenDispatchFromPB(params *taskv1.TaskParamsV1) (*taskv1.DispatchParamsV1, error) {
+	d := params.GetDispatch()
+	switch {
+	case d == nil:
+		return nil, fmt.Errorf("query session: response has no frozen dispatch params")
+	case d.GetRecordDeadlineBlocks() == 0:
+		return nil, fmt.Errorf("query session: frozen dispatch.record_deadline_blocks is zero")
+	case d.GetMaxOrderLifetimeBlocks() == 0 || d.GetMaxOrderLifetimeBlocks() > dispatch.MaxOrderLifetimeBlocksV1:
+		return nil, fmt.Errorf("query session: frozen dispatch.max_order_lifetime_blocks %d is not in 1..%d",
+			d.GetMaxOrderLifetimeBlocks(), dispatch.MaxOrderLifetimeBlocksV1)
+	}
+	return d, nil
 }
 
 func sessionStateFromPB(id []byte, s *taskv1.StreamState) (SessionState, error) {

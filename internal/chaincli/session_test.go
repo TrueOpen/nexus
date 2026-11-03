@@ -2,6 +2,7 @@ package chaincli
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -132,6 +133,37 @@ func TestSessionStateFromPBReadsPhase1Fields(t *testing.T) {
 		bad := proto.Clone(pb).(*taskv1.StreamState)
 		edit(bad)
 		if _, err := sessionStateFromPB(id, bad); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+}
+
+// A session read carries the parameter body the session froze, with its version: the record
+// deadline and order lifetime of its orders, whatever the current params say. A response without a
+// usable body is an error, never filled in from current params.
+func TestQuerySessionReadsTheFrozenPolicy(t *testing.T) {
+	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30, MaxOrderLifetimeBlocks: 120, DispatchCompensationRebuttalBlocks: 12}
+	state := &taskv1.StreamState{SessionId: testSessionIDBytes, OwnerUserAddress: "trueopen1owner", Status: taskv1.SessionStatus_SESSION_STATUS_ACTIVE}
+	query := &dispatchTaskQuery{session: &taskv1.QuerySessionResponse{Session: state, Params: &taskv1.TaskParamsV1{Dispatch: frozen}, ParamsVersion: 0}}
+	c := &client{taskQuery: query}
+	got, err := c.QuerySession(context.Background(), testSessionIDHex)
+	if err != nil || got.ParamsVersion != 0 || !proto.Equal(got.FrozenDispatch, frozen) {
+		t.Fatalf("session = %+v, %v", got, err)
+	}
+	query.session.ParamsVersion = 4
+	if got, err := c.QuerySession(context.Background(), testSessionIDHex); err != nil || got.ParamsVersion != 4 {
+		t.Fatalf("session at version 4 = %+v, %v", got, err)
+	}
+
+	for name, params := range map[string]*taskv1.TaskParamsV1{
+		"no body":               nil,
+		"no dispatch":           {},
+		"no record deadline":    {Dispatch: &taskv1.DispatchParamsV1{MaxOrderLifetimeBlocks: 120}},
+		"no order lifetime":     {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30}},
+		"order lifetime of 241": {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30, MaxOrderLifetimeBlocks: 241}},
+	} {
+		c := &client{taskQuery: &dispatchTaskQuery{session: &taskv1.QuerySessionResponse{Session: state, Params: params}}}
+		if _, err := c.QuerySession(context.Background(), testSessionIDHex); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
