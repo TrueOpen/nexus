@@ -1,16 +1,13 @@
 package buildersync
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/TrueOpen/nexus/internal/attempt"
-	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 )
 
@@ -43,29 +40,11 @@ type memberStream struct {
 	Recorded       bool          `json:"recorded,omitempty"`
 	RecordedHeight uint64        `json:"recorded_height,omitempty"`
 	Winner         *memberWinner `json:"winner,omitempty"`
-	// Rounds are the rounds synced whose first ticket has not come yet. A round names no
-	// bound_change_height, so it joins the copy of its binding generation with that ticket.
-	Rounds []pendingRound `json:"rounds,omitempty"`
 	// ExpireHeight is the last height the stream is kept at: the retention of its evidence.
 	ExpireHeight uint64 `json:"expire_height"`
 	// appliedDigest is the digest of the item being applied, stored with the stream under its
 	// sequence.
 	appliedDigest []byte
-}
-
-// pendingRound is a synced round waiting for its first ticket.
-type pendingRound struct {
-	TaskID   string                 `json:"task_id"`
-	TaskHash string                 `json:"task_hash"`
-	Epoch    uint64                 `json:"epoch"`
-	Round    dispatchevidence.Round `json:"round"`
-}
-
-// same reports whether q is the same round as p: one task, epoch and number, committing the same
-// roster and root.
-func (p pendingRound) same(q pendingRound) bool {
-	return p.TaskID == q.TaskID && p.Epoch == q.Epoch && p.Round.Number == q.Round.Number &&
-		bytes.Equal(p.Round.RosterHash, q.Round.RosterHash) && bytes.Equal(p.Round.RootDigest, q.Round.RootDigest)
 }
 
 // memberInput is an order version's input: the pieces received so far, until it is whole and
@@ -146,7 +125,6 @@ func (m *memberStream) clone() *memberStream {
 		next.Winner = &w
 	}
 	next.Submit = maps.Clone(m.Submit)
-	next.Rounds = slices.Clone(m.Rounds)
 	return &next
 }
 

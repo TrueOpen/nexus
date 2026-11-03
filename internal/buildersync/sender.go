@@ -684,7 +684,7 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 			items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Round{Round: &nexusv1.BuilderSyncRoundV1{
 				TaskId: taskID, TaskHash: taskHash, VrfEpoch: view.Epoch, DispatchRound: r.Number,
 				Roster: &roster, RosterHash: r.RosterHash, HandraiseRoot: root, EarliestSubmitHeight: order.GetEarliestSubmitHeight(),
-				UserAddress: order.GetUserAddress(),
+				UserAddress: order.GetUserAddress(), BoundChangeHeight: view.BoundChangeHeight,
 			}}})
 			st.Rounds[roundKey] = true
 			if !st.Inputs[view.TaskHash] {

@@ -384,8 +384,9 @@ same sequence opens the next round, while a new epoch or a takeover that changes
 `bound_change_height` (also one back to this Builder) restarts the order, its rounds, ranks and
 skip count from 0 under the same VRF output, with stickiness decided again. Each generation's
 evidence is kept apart (keyed by epoch and `bound_change_height`), on the dispatching Builder and in
-each member's copy; a synced round names no binding, so a member files it under the generation its
-first ticket commits.
+each member's copy. A synced round signs its `bound_change_height`, so a member files it under its
+generation as it arrives, and refuses a ticket whose task, binding, epoch and round are not a held
+round's, also when the round came in an earlier batch.
 
 A member serves `SubscribeOutput` / `ResumeOutput` of an order (from its replica) once the chain
 has recorded the order with the member in its Task Builders group, which it confirms with the

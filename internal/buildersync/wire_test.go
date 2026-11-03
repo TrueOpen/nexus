@@ -20,9 +20,11 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
@@ -416,5 +418,79 @@ func TestRateLimitedMemberIsRetriedShortly(t *testing.T) {
 	st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
 	if st.Acked[e.m.op] != st.Last || e.s.retries[key] != nil {
 		t.Fatalf("after the rate limit: acked %d of %d, retry %+v", st.Acked[e.m.op], st.Last, e.s.retries[key])
+	}
+}
+
+// wire's round_only and round_returned_binding vectors carry the same Task, epoch, round, root and
+// roster under two binding generations. A member applying both holds two rounds, one per
+// generation, before any ticket arrives.
+func TestReceiverHoldsTheReturnedBindingVectorApart(t *testing.T) {
+	v := readSyncVectors(t)
+	request := func(name string) *nexusv1.SyncRequest {
+		for _, row := range v.Vectors {
+			if row.Name == name {
+				var req nexusv1.SyncRequest
+				if err := proto.Unmarshal(unhex(t, row.Protobuf), &req); err != nil {
+					t.Fatal(err)
+				}
+				return &req
+			}
+		}
+		t.Fatalf("no vector %s", name)
+		return nil
+	}
+	only, returned := request("builder_sync_round_only"), request("builder_sync_round_returned_binding")
+	if len(only.GetBatch().GetItems()) != 1 || len(returned.GetBatch().GetItems()) != 1 {
+		t.Fatal("the round vectors should hold one round item each")
+	}
+	first, again := only.GetBatch().GetItems()[0].GetRound(), returned.GetBatch().GetItems()[0].GetRound()
+	if first.GetBoundChangeHeight() == again.GetBoundChangeHeight() {
+		t.Fatal("the round vectors name one binding generation")
+	}
+	same := proto.Clone(again).(*nexusv1.BuilderSyncRoundV1)
+	same.BoundChangeHeight = first.GetBoundChangeHeight()
+	if !proto.Equal(same, first) {
+		t.Fatal("the round vectors differ in more than the binding generation")
+	}
+
+	batch := only.GetBatch()
+	store := kv.NewMemStore()
+	evidence := dispatchevidence.New(store, evidenceParams)
+	keys := &fakeKeys{keys: map[string]signer.Signer{}}
+	keys.set("BUILDER", party{op: v.Sender, key: vectorKey(t)})
+	r, err := NewReceiver(ReceiverConfig{
+		ChainID: v.ChainID, Builder: v.Receiver, AddressPrefix: prefix, Keys: keys, Store: store, Evidence: evidence,
+		Groups: &fakeGroups{snapshot: taskgroup.Snapshot{ID: batch.GetBuilderSetId(), Hash: [32]byte(batch.GetBuilderSetHash()), Members: []string{v.Sender, v.Receiver}}},
+		Inputs: StoredInputs{}, Outputs: nopReplicas{}, Chain: &fakeRecords{}, Retention: evidenceParams.RetainUntil, MaxInputBytes: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := r.Sync(context.Background(), mustMarshal(t, only)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("round_only = %v, %v", resp, err)
+	}
+	// The returned generation's round follows on the same order stream, as the next item.
+	next := proto.Clone(returned.GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+	next.Items[0].Sequence = batch.GetItems()[0].GetSequence() + 1
+	signed, err := SignRequest(vectorKey(t), next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := r.Sync(context.Background(), mustMarshal(t, signed)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("round_returned_binding = %v, %v", resp, err)
+	}
+	orders, err := evidence.ByTask(hex.EncodeToString(first.GetTaskId()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounds := map[uint64]bool{}
+	for _, o := range orders {
+		if len(o.Rounds) != 1 || o.Rounds[0].Number != first.GetDispatchRound() {
+			t.Fatalf("copy = %+v", o)
+		}
+		bounds[o.BoundChangeHeight] = true
+	}
+	if len(orders) != 2 || !bounds[first.GetBoundChangeHeight()] || !bounds[again.GetBoundChangeHeight()] {
+		t.Fatalf("copies by binding = %v", bounds)
 	}
 }

@@ -606,9 +606,84 @@ func TestTakeoverBackSyncsANewGenerationOfRounds(t *testing.T) {
 			t.Fatalf("copy of ticket %x = %+v, %v, %v", hash[:4], o, found, err)
 		}
 	}
-	m, found, err := e.member.r.loadMember(memberKey(e.d.op, first.sessionHex(), first.sequence))
-	if err != nil || !found || len(m.Rounds) != 0 {
-		t.Fatalf("rounds still waiting for a ticket = %+v, %v, %v", m, found, err)
+}
+
+// A round item names its binding generation: a return to D in the same epoch with the same round
+// number, roster and root is a second round, held apart from the first before any ticket names it.
+func TestReturnedBindingKeepsIdenticalRoundsApartBeforeAnyTicket(t *testing.T) {
+	e := newEnv(t)
+	first := e.fx
+	e.s.OrderChanged(first.view)
+	e.sync()
+	second := newFixtureBound(e, testBound+20)
+	if second.rootDigest != first.rootDigest || second.rosterHash != first.rosterHash {
+		t.Fatal("the two generations should commit the same root and roster")
+	}
+	e.s.OrderChanged(second.view)
+	e.sync()
+	var sent []uint64
+	for _, req := range e.peers.requests[e.m.op] {
+		for _, item := range req.GetBatch().GetItems() {
+			if round := item.GetRound(); round != nil {
+				sent = append(sent, round.GetBoundChangeHeight())
+			}
+		}
+	}
+	if len(sent) != 2 || sent[0] != testBound || sent[1] != testBound+20 {
+		t.Fatalf("round items name bound_change_height %v", sent)
+	}
+	orders, err := e.member.evidence.ByTask(first.taskHex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounds := map[uint64]bool{}
+	for _, o := range orders {
+		if o.Builder != e.d.op || len(o.Rounds) != 1 || o.Rounds[0].Number != 0 || len(o.Rounds[0].Attempts) != 0 ||
+			!bytes.Equal(o.Rounds[0].RootDigest, first.rootDigest[:]) {
+			t.Fatalf("copy = %+v", o)
+		}
+		bounds[o.BoundChangeHeight] = true
+	}
+	if len(orders) != 2 || !bounds[testBound] || !bounds[testBound+20] {
+		t.Fatalf("copies by binding = %v", bounds)
+	}
+}
+
+// Every ticket must name its round's binding generation, also when the round came in an earlier
+// batch: a ticket of another generation is refused, though its round number, roster and root match.
+func TestTicketOfAnotherBindingThanItsRoundIsRefused(t *testing.T) {
+	e := newEnv(t)
+	batch := e.firstBatch()
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("first batch = %v, %v", resp, err)
+	}
+	other := newFixtureBound(e, testBound+20)
+	var ticket taskv1.DispatchTicketV1
+	if err := proto.Unmarshal(other.tickets[1], &ticket); err != nil {
+		t.Fatal(err)
+	}
+	next := proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
+	next.Items = []*nexusv1.BuilderSyncItemV1{{Sequence: batch.Items[len(batch.Items)-1].GetSequence() + 1,
+		Item: &nexusv1.BuilderSyncItemV1_Attempt{Attempt: &nexusv1.BuilderSyncAttemptV1{Ticket: &ticket, Sent: true}}}}
+	resp, err := e.member.r.Sync(context.Background(), e.signed(next))
+	if err != nil || !strings.Contains(resp.GetRefused(), "round not held") {
+		t.Fatalf("ticket of another binding = %v, %v", resp, err)
+	}
+	if c := e.copyOf(); c == nil || c.BoundChangeHeight != testBound || len(c.Rounds[0].Attempts) != 1 {
+		t.Fatalf("copy = %+v", c)
+	}
+
+	// Within one batch as well.
+	e = newEnv(t)
+	batch = e.firstBatch()
+	for _, item := range batch.Items {
+		if a := item.GetAttempt(); a != nil {
+			a.Ticket.BoundChangeHeight = testBound + 20
+			signWith(t, e.d.key, ticketName, a.Ticket, func(s []byte) { a.Ticket.BuilderServiceSignature = s })
+		}
+	}
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || !strings.Contains(resp.GetRefused(), "round not held") {
+		t.Fatalf("ticket of another binding in the round's batch = %v, %v", resp, err)
 	}
 }
 

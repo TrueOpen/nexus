@@ -2,7 +2,6 @@ package buildersync
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -452,43 +451,18 @@ func (r *Receiver) apply(ctx context.Context, m *memberStream, item *nexusv1.Bui
 	return next, nil
 }
 
-// copies are the sender's copies of a task in an epoch, one per binding generation.
-func (r *Receiver) copies(m *memberStream, taskID string, epoch uint64) ([]*dispatchevidence.Order, error) {
+// copyOf is the sender's copy of a task in an epoch and binding generation; nil when not held.
+func (r *Receiver) copyOf(m *memberStream, taskID string, epoch, boundChangeHeight uint64) (*dispatchevidence.Order, error) {
 	orders, err := r.cfg.Evidence.ByTask(taskID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: evidence: %v", ErrUnavailable, err)
 	}
-	var out []*dispatchevidence.Order
 	for _, o := range orders {
-		if o.Builder == m.Sender && o.SessionID == m.SessionID && o.Sequence == m.Sequence && o.Epoch == epoch {
-			out = append(out, o)
-		}
-	}
-	return out, nil
-}
-
-// copyOf is the sender's copy of a task in an epoch and binding generation; nil when not held.
-func (r *Receiver) copyOf(m *memberStream, taskID string, epoch, boundChangeHeight uint64) (*dispatchevidence.Order, error) {
-	orders, err := r.copies(m, taskID, epoch)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range orders {
-		if o.BoundChangeHeight == boundChangeHeight {
+		if o.Builder == m.Sender && o.SessionID == m.SessionID && o.Sequence == m.Sequence && o.Epoch == epoch && o.BoundChangeHeight == boundChangeHeight {
 			return o, nil
 		}
 	}
 	return nil, nil
-}
-
-// latestCopy is the sender's copy of a task in an epoch with the latest binding generation; nil
-// when none is held.
-func (r *Receiver) latestCopy(m *memberStream, taskID string, epoch uint64) (*dispatchevidence.Order, error) {
-	orders, err := r.copies(m, taskID, epoch)
-	if err != nil || len(orders) == 0 {
-		return nil, err
-	}
-	return slices.MaxFunc(orders, func(a, b *dispatchevidence.Order) int { return cmp.Compare(a.BoundChangeHeight, b.BoundChangeHeight) }), nil
 }
 
 // put stores the copy o with m (and extra) in one write.
@@ -566,75 +540,51 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	}
 	m.Submit[taskHash] = esh
 	candidate.RootDigest, candidate.SignedRoot = rootDigest[:], rootRaw
-	// A round names no bound_change_height: it waits in the stream until its first ticket names the
-	// binding generation whose copy it joins (takeRound). A round number the latest generation
-	// already holds starts a new one (a takeover back to the sender in the same epoch restarts the
-	// rounds from 0); any other round continues the latest and carries its task_hash.
-	latest, err := r.latestCopy(m, taskID, round.GetVrfEpoch())
+	// Rounds are kept by task, binding generation, epoch and round number, all named by the round
+	// itself: a takeover, also one back to the sender, restarts the round numbers within the epoch
+	// under a new bound_change_height, so its rounds are held apart from the earlier generation's
+	// even with the same root and roster.
+	o, err := r.copyOf(m, taskID, round.GetVrfEpoch(), round.GetBoundChangeHeight())
 	if err != nil {
 		return err
 	}
-	if latest != nil && latest.TaskHash != taskHash {
-		if _, held := latest.Round(candidate.Number); !held {
-			return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, latest.TaskHash)
-		}
+	if o == nil {
+		o = &dispatchevidence.Order{Builder: m.Sender, SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Epoch: round.GetVrfEpoch(),
+			BoundChangeHeight: round.GetBoundChangeHeight()}
 	}
-	pending := pendingRound{TaskID: taskID, TaskHash: taskHash, Epoch: round.GetVrfEpoch(), Round: candidate}
-	if slices.ContainsFunc(m.Rounds, pending.same) {
+	if _, held := o.Round(candidate.Number); held {
 		return fmt.Errorf("round %d is held already", candidate.Number)
 	}
-	m.Rounds = append(m.Rounds, pending)
+	if o.TaskHash != "" && o.TaskHash != taskHash {
+		return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
+	}
+	o.TaskHash = taskHash
+	o.DeadlineBase = max(o.DeadlineBase, esh, round.GetBoundChangeHeight())
+	o.Rounds = append(o.Rounds, candidate)
+	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
 	m.TaskID, m.User = taskID, round.GetUserAddress()
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + taskID, Val: []byte(m.key())}
-	return r.store(m, index)
+	return r.put(o, m, index)
 }
 
-// takeRound returns the copy and round a ticket binds: the round held in the copy of the ticket's
-// binding generation, or the round waiting in the stream with the ticket's number, roster_hash and
-// root, which then joins that copy (created for the first ticket of a generation). The copy is not
-// stored here.
-func (r *Receiver) takeRound(m *memberStream, ticket *taskv1.DispatchTicketV1) (*dispatchevidence.Order, *dispatchevidence.Round, error) {
-	taskID, taskHash, number := hex.EncodeToString(ticket.GetTaskId()), hex.EncodeToString(ticket.GetTaskHash()), ticket.GetDispatchRound()
-	o, err := r.copyOf(m, taskID, ticket.GetVrfEpoch(), ticket.GetBoundChangeHeight())
+// roundOf returns the copy and round a ticket binds: the round held under the ticket's full scope
+// (task, bound_change_height, epoch and round number) with its roster_hash, root and task_hash. A
+// ticket is never matched to a round of another binding generation.
+func (r *Receiver) roundOf(m *memberStream, ticket *taskv1.DispatchTicketV1) (*dispatchevidence.Order, *dispatchevidence.Round, error) {
+	o, err := r.copyOf(m, hex.EncodeToString(ticket.GetTaskId()), ticket.GetVrfEpoch(), ticket.GetBoundChangeHeight())
 	if err != nil {
 		return nil, nil, err
 	}
-	if o != nil {
-		if round, held := o.Round(number); held {
-			if !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
-				return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", number)
-			}
-			if taskHash != o.TaskHash {
-				return nil, nil, errors.New("ticket's task_hash is not its round's")
-			}
-			return o, round, nil
-		}
-	}
-	i := slices.IndexFunc(m.Rounds, func(p pendingRound) bool {
-		return p.TaskID == taskID && p.Epoch == ticket.GetVrfEpoch() && p.Round.Number == number &&
-			bytes.Equal(p.Round.RosterHash, ticket.GetRosterHash()) && bytes.Equal(p.Round.RootDigest, ticket.GetHandraiseRootDigest())
-	})
-	switch {
-	case i < 0 && o == nil:
+	if o == nil {
 		return nil, nil, errors.New("ticket of a round not held")
-	case i < 0:
-		return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", number)
-	case m.Rounds[i].TaskHash != taskHash:
+	}
+	if hex.EncodeToString(ticket.GetTaskHash()) != o.TaskHash {
 		return nil, nil, errors.New("ticket's task_hash is not its round's")
 	}
-	if o == nil {
-		o = &dispatchevidence.Order{Builder: m.Sender, SessionID: m.SessionID, Sequence: m.Sequence, TaskID: taskID, Epoch: ticket.GetVrfEpoch(),
-			BoundChangeHeight: ticket.GetBoundChangeHeight()}
+	round, held := o.Round(ticket.GetDispatchRound())
+	if !held || !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
+		return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", ticket.GetDispatchRound())
 	}
-	if o.TaskHash != "" && o.TaskHash != taskHash {
-		return nil, nil, fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
-	}
-	o.TaskHash = taskHash
-	o.DeadlineBase = max(o.DeadlineBase, m.Submit[taskHash])
-	o.Rounds = append(o.Rounds, m.Rounds[i].Round)
-	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
-	m.Rounds = slices.Delete(m.Rounds, i, i+1)
-	round, _ := o.Round(number)
 	return o, round, nil
 }
 
@@ -724,7 +674,7 @@ func (r *Receiver) applyAttempt(ctx context.Context, m *memberStream, a *nexusv1
 	if err != nil {
 		return err
 	}
-	o, round, err := r.takeRound(m, ticket)
+	o, round, err := r.roundOf(m, ticket)
 	if err != nil {
 		return err
 	}
