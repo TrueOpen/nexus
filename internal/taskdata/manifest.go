@@ -506,7 +506,7 @@ func matchManifestToRef(manifest EvidenceBundleManifest, ref ObjectRef) error {
 // EvidenceKindUnspecified, which belongs to no producer.
 func evidenceKindNamed(name string) EvidenceKind {
 	for _, kind := range []EvidenceKind{
-		EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindWorkerTokenOpening,
+		EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindWorkerTokenOpening, EvidenceKindWorkerAnchorOpening,
 	} {
 		if kind.String() == name {
 			return kind
