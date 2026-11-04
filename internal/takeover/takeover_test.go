@@ -373,9 +373,6 @@ func TestAdmitChecksSequenceAndFunds(t *testing.T) {
 	}
 }
 
-// One takeover per session: while the order uploads its resend is told to retry; once
-// submitted it is the existing order; any other order of the session waits for it. Release drops
-// only an unsubmitted reservation.
 // The chain registers a takeover only for an order whose expiry follows earliest_submit_height
 // strictly and by at least the record_deadline_blocks the session froze.
 func TestAdmitChecksTheOrderLifetime(t *testing.T) {
@@ -405,6 +402,9 @@ func TestAdmitChecksTheOrderLifetime(t *testing.T) {
 	}
 }
 
+// One takeover per session: while the order uploads its resend is told to retry; once
+// submitted it is the existing order; any other order of the session waits for it. Release drops
+// only an unsubmitted reservation.
 func TestOneTakeoverPerSession(t *testing.T) {
 	e := newEnv(t)
 	o, pre := takeoverOrder(5, 1)
