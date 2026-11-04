@@ -156,15 +156,28 @@ func TestQuerySessionReadsTheFrozenPolicy(t *testing.T) {
 	}
 
 	for name, params := range map[string]*taskv1.TaskParamsV1{
-		"no body":               nil,
-		"no dispatch":           {},
-		"no record deadline":    {Dispatch: &taskv1.DispatchParamsV1{MaxOrderLifetimeBlocks: 120}},
-		"no order lifetime":     {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30}},
-		"order lifetime of 241": {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30, MaxOrderLifetimeBlocks: 241}},
+		"no body":                nil,
+		"no dispatch":            {},
+		"no record deadline":     {Dispatch: &taskv1.DispatchParamsV1{MaxOrderLifetimeBlocks: 120}},
+		"no order lifetime":      {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30}},
+		"order lifetime of 7201": {Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 30, MaxOrderLifetimeBlocks: 7201}},
 	} {
 		c := &client{taskQuery: &dispatchTaskQuery{session: &taskv1.QuerySessionResponse{Session: state, Params: params}}}
 		if _, err := c.QuerySession(context.Background(), testSessionIDHex); err == nil {
 			t.Fatalf("%s: accepted", name)
+		}
+	}
+}
+
+// Any frozen order lifetime in 1..7200 is a usable session policy: the protocol ceiling and a
+// shorter policy a session froze earlier alike.
+func TestQuerySessionAcceptsFrozenLifetimesUpToTheProtocolCeiling(t *testing.T) {
+	state := &taskv1.StreamState{SessionId: testSessionIDBytes, OwnerUserAddress: "trueopen1owner", Status: taskv1.SessionStatus_SESSION_STATUS_ACTIVE}
+	for _, lifetime := range []uint64{1, 240, 7200} {
+		frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 1, MaxOrderLifetimeBlocks: lifetime}
+		c := &client{taskQuery: &dispatchTaskQuery{session: &taskv1.QuerySessionResponse{Session: state, Params: &taskv1.TaskParamsV1{Dispatch: frozen}}}}
+		if got, err := c.QuerySession(context.Background(), testSessionIDHex); err != nil || got.FrozenDispatch.GetMaxOrderLifetimeBlocks() != lifetime {
+			t.Fatalf("lifetime %d: session = %+v, %v", lifetime, got, err)
 		}
 	}
 }

@@ -1398,7 +1398,7 @@ type DispatchParamsV1 struct {
 	// ServiceBond slash for a Worker signing both rejection and acceptance; 0..10000.
 	WorkerDispatchContradictionSlashBps uint32 `protobuf:"varint,22,opt,name=worker_dispatch_contradiction_slash_bps,json=workerDispatchContradictionSlashBps,proto3" json:"worker_dispatch_contradiction_slash_bps,omitempty"`
 	// Maximum order_expire_height - earliest_submit_height at order admission,
-	// including takeover registration. Positive and at most 240 blocks in V1;
+	// including takeover registration. Positive and at most 7200 blocks in V1;
 	// the Session freezes this policy. Compensation does not reauthorize orders.
 	MaxOrderLifetimeBlocks uint64 `protobuf:"varint,23,opt,name=max_order_lifetime_blocks,json=maxOrderLifetimeBlocks,proto3" json:"max_order_lifetime_blocks,omitempty"`
 	unknownFields          protoimpl.UnknownFields

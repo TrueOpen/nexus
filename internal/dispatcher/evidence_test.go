@@ -55,7 +55,7 @@ func recordAttempt(rec *taskv1.DispatchRecordV1, hash [32]byte) *taskv1.Dispatch
 func TestEvidenceNamesTheSessionsFrozenWindows(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
-	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 240, DispatchCompensationClaimWindowBlocks: 70,
+	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: dispatch.MaxOrderLifetimeBlocksV1, DispatchCompensationClaimWindowBlocks: 70,
 		DispatchCompensationRebuttalBlocks: 9, DispatchChallengeWindowBlocks: 40, DispatchChallengeResponseBlocks: 4, DispatchEvidenceRetentionBlocks: 5}
 	e.chain.update(s, func(st *chaincli.SessionState) { st.FrozenDispatch = frozen })
 	e.dispatch(e.order(s, 0, 1))
@@ -74,7 +74,7 @@ func TestEvidenceNamesTheSessionsFrozenWindows(t *testing.T) {
 func TestEvidenceWindowsAreReadAgainAfterAFailedRead(t *testing.T) {
 	e := newEnv(t)
 	s := e.session(0xaa, 0)
-	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 240, DispatchCompensationClaimWindowBlocks: 70}
+	frozen := &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: dispatch.MaxOrderLifetimeBlocksV1, DispatchCompensationClaimWindowBlocks: 70}
 	e.chain.update(s, func(st *chaincli.SessionState) { st.FrozenDispatch = frozen })
 	o := e.order(s, 0, 1)
 	e.chain.mu.Lock()

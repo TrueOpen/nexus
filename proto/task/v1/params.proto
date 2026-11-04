@@ -216,7 +216,7 @@ message DispatchParamsV1 {
   // ServiceBond slash for a Worker signing both rejection and acceptance; 0..10000.
   uint32 worker_dispatch_contradiction_slash_bps = 22;
   // Maximum order_expire_height - earliest_submit_height at order admission,
-  // including takeover registration. Positive and at most 240 blocks in V1;
+  // including takeover registration. Positive and at most 7200 blocks in V1;
   // the Session freezes this policy. Compensation does not reauthorize orders.
   uint64 max_order_lifetime_blocks = 23;
 }
