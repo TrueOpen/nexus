@@ -73,6 +73,8 @@ const (
 	// EvidenceCleanupIndex bounded cursor; kind_priority 110.
 	// DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP DeadlineKindV1 = 13
+	// DEADLINE_KIND_V1_ANCHOR_VERDICT: settlement is held until the anchor audit verdict is final (ADR-0040 v4).
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_VERDICT DeadlineKindV1 = 14
 )
 
 // Enum value maps for DeadlineKindV1.
@@ -91,6 +93,7 @@ var (
 		11: "DEADLINE_KIND_V1_VERIFY_FINAL",
 		12: "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE",
 		13: "DEADLINE_KIND_V1_EVIDENCE_CLEANUP",
+		14: "DEADLINE_KIND_V1_ANCHOR_VERDICT",
 	}
 	DeadlineKindV1_value = map[string]int32{
 		"DEADLINE_KIND_V1_UNSPECIFIED":            0,
@@ -106,6 +109,7 @@ var (
 		"DEADLINE_KIND_V1_VERIFY_FINAL":           11,
 		"DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE": 12,
 		"DEADLINE_KIND_V1_EVIDENCE_CLEANUP":       13,
+		"DEADLINE_KIND_V1_ANCHOR_VERDICT":         14,
 	}
 )
 
@@ -715,7 +719,7 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x18MsgSweepDeadlineResponse\x12\x18\n" +
 	"\avisited\x18\x01 \x01(\rR\avisited\x12\x1a\n" +
 	"\badvanced\x18\x02 \x01(\rR\badvanced\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xf9\x03\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\x9e\x04\n" +
 	"\x0eDeadlineKindV1\x12 \n" +
 	"\x1cDEADLINE_KIND_V1_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEADLINE_KIND_V1_TASK_FINALITY\x10\x01\x12$\n" +
@@ -730,7 +734,8 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x12!\n" +
 	"\x1dDEADLINE_KIND_V1_VERIFY_FINAL\x10\v\x12+\n" +
 	"'DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE\x10\f\x12%\n" +
-	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r*\xe5\x04\n" +
+	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r\x12#\n" +
+	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x0e*\xe5\x04\n" +
 	"\x16DeadlineTransitionCode\x12(\n" +
 	"$DEADLINE_TRANSITION_CODE_UNSPECIFIED\x10\x00\x123\n" +
 	"/DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE\x10\x01\x123\n" +

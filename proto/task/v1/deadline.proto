@@ -68,6 +68,8 @@ enum DeadlineKindV1 {
   // EvidenceCleanupIndex bounded cursor; kind_priority 110.
   // DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
   DEADLINE_KIND_V1_EVIDENCE_CLEANUP = 13;
+  // DEADLINE_KIND_V1_ANCHOR_VERDICT: settlement is held until the anchor audit verdict is final (ADR-0040 v4).
+  DEADLINE_KIND_V1_ANCHOR_VERDICT = 14;
 }
 
 // DeadlineTransitionCode is the closed transition reason carried by event
