@@ -261,7 +261,7 @@ Open items:
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
 - The precheck judges an order with the parameters its session froze, as the chain returns them
   with the session: `order_expire_height - earliest_submit_height` must be positive, within the
-  session's `max_order_lifetime_blocks` (1..240 blocks) and at least its `record_deadline_blocks`,
+  session's `max_order_lifetime_blocks` (1..7200 blocks) and at least its `record_deadline_blocks`,
   also for an order that registers a takeover, else `NEXUS_INGRESS_ORDER_EXPIRED`; the record
   deadline is `max(earliest_submit_height, bound_change_height)` plus the session's
   `record_deadline_blocks`, kept with the order, so a governance change of the current params
