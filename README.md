@@ -16,7 +16,9 @@ Integration notes live in `docs/`; the protocol wire (proto, domain registry and
 nexus start      # start the service
 nexus version    # version
 nexus keys create-keystore  # convert a hex private key into an encrypted keystore
+nexus keys create-vrf-key    # generate a new encrypted Builder VRF key file
 nexus builder register       # ensure the Builder record and descriptor on the Hub match local config
+nexus builder register-vrf-key  # ensure the Hub holds this Builder's VRF key (see "Builder VRF key")
 nexus drain begin|end|status # optionally stop new work on the running Builder (see below)
 nexus status     # readiness, diagnostics, drain and metrics as the running daemon last wrote them
 nexus --help     # help
@@ -618,6 +620,50 @@ nexus builder register
 Phase 0's BuilderBond is fixed at zero and creates no bonded stake record (staking and slashing protocol); the wire has no
 Builder bond / unbond messages, so there are no add-stake or unbond commands; admission is fixed by governance/genesis.
 Builder commands print `authority_mode` and `authority_chain_id` so the target chain can be confirmed before and after an operation.
+
+### Builder VRF key
+
+Direct dispatch proves each order's randomness with the Builder VRF key (Ed25519, kept apart from
+the account and service keys). The chain verifies those proofs with the key it holds for the
+order's epoch, so the key has to be registered on the Hub; genesis carries no Builder VRF key.
+
+1. Generate a key file (the Ed25519 Cosmos keystore armor, mode `0600`, never overwritten):
+
+   ```bash
+   nexus keys create-vrf-key --output ./vrf-1.keystore --password-file ./vrf.pass
+   # vrf_key_file: ./vrf-1.keystore
+   # vrf_pubkey: <64 hex>
+   ```
+
+   `--password-file` follows the rules of `identity.vrf_key_password_file` (not readable by group
+   or others, trailing newline trimmed, not empty); without it the passphrase is read twice via
+   hidden terminal input. The default output is `./vrf.keystore`.
+2. Configure it: `identity.vrf_key_files: [./vrf-1.keystore]` and
+   `identity.vrf_key_password_file: ./vrf.pass` (env `NEXUS_VRF_KEY_FILES`, comma separated, and
+   `NEXUS_VRF_KEY_PASSWORD_FILE`). One passphrase file serves every listed key.
+3. Register it, after `nexus builder register`, with the Builder operator account (the same
+   signer `builder register` uses):
+
+   ```bash
+   nexus builder register-vrf-key            # registers the last entry of identity.vrf_key_files
+   nexus builder register-vrf-key --key-file ./vrf-2.keystore
+   ```
+
+   It sends `MsgRegisterVrfKey{vrf_pubkey, vrf_key_pop, vrf_authorization_nonce, operator_address,
+   participant_type=BUILDER}` with the next authorization nonce and waits for the block result, then
+   prints `vrf_key_status`, the chain's `active_vrf_pubkey` / `active_from_epoch`,
+   `pending_vrf_pubkey` / `pending_from_epoch` and `vrf_authorization_nonce`. A key the chain already
+   holds, active or pending, is not sent again, so re-running it is safe. The chain keeps one
+   pending key at a time: while another key is pending the command refuses until it is active.
+
+A registered key becomes active at the start of the next epoch, never in the current one.
+`nexus start` can run right after registering: until the key is active the `direct_dispatch`
+readiness check fails with "no active builder VRF key for the epoch" and orders are not drawn.
+
+Rotation: create a new key file and append it to `identity.vrf_key_files` (the last entry is the
+newest), restart so the daemon holds it, then run `nexus builder register-vrf-key`. Keep the older
+files listed: the chain verifies an order with the key active in the order's epoch, so an old key
+stays needed until no unexpired order of the epochs it was active in remains.
 
 ## Cross-language output stream harness
 
