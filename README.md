@@ -658,7 +658,14 @@ order's epoch, so the key has to be registered on the Hub; genesis carries no Bu
 
 A registered key becomes active at the start of the next epoch, never in the current one.
 `nexus start` can run right after registering: until the key is active the `direct_dispatch`
-readiness check fails with "no active builder VRF key for the epoch" and orders are not drawn.
+readiness check fails with "no active builder VRF key for the epoch", and new orders are refused
+before their input is stored. While the key is pending, `OpenTask` answers
+`NEXUS_INGRESS_DISPATCH_NOT_READY`, with the first height of the epoch the key becomes active in
+as `dispatch_available_height` (also `dispatchable_height=<n>` in the message) while that epoch is
+still ahead, so the client waits and retries this Builder. Without any registered key, or when none of
+`identity.vrf_key_files` is the key the chain holds (active or pending), new orders get
+`NEXUS_INGRESS_NO_CAPACITY` and the client goes to another Builder. The chain is read for this at
+most once per block.
 
 Rotation: create a new key file and append it to `identity.vrf_key_files` (the last entry is the
 newest), restart so the daemon holds it, then run `nexus builder register-vrf-key`. Keep the older
