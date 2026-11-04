@@ -24,7 +24,8 @@ type CandidatePoolMemberKey struct {
 }
 
 // VrfKey is an operator's registered VRF public keys (hub.v1.Query/VrfKey). PendingPubKey is nil
-// and PendingFromEpoch zero when no next-epoch key is registered.
+// and PendingFromEpoch zero when no next-epoch key is registered. ActivePubKey is nil while a first
+// registration is still pending (it activates at the next epoch).
 type VrfKey struct {
 	ActivePubKey       []byte // 32-byte ed25519 public key
 	ActiveFromEpoch    uint64
@@ -200,11 +201,11 @@ func (c *client) QueryVrfKey(ctx context.Context, participantType, operator stri
 		return VrfKey{}, applicationQueryError("vrf key", err)
 	}
 	msg := resp.Msg
-	if len(msg.GetActiveVrfPubkey()) == 0 {
+	if len(msg.GetActiveVrfPubkey()) == 0 && msg.PendingVrfPubkey == nil {
 		return VrfKey{}, fmt.Errorf("query vrf key: %w", ErrNotFound)
 	}
-	if len(msg.GetActiveVrfPubkey()) != ed25519.PublicKeySize {
-		return VrfKey{}, fmt.Errorf("query vrf key: active_vrf_pubkey is %d bytes, want %d", len(msg.GetActiveVrfPubkey()), ed25519.PublicKeySize)
+	if n := len(msg.GetActiveVrfPubkey()); n != 0 && n != ed25519.PublicKeySize {
+		return VrfKey{}, fmt.Errorf("query vrf key: active_vrf_pubkey is %d bytes, want %d", n, ed25519.PublicKeySize)
 	}
 	key := VrfKey{
 		ActivePubKey:       bytes.Clone(msg.GetActiveVrfPubkey()),

@@ -344,6 +344,9 @@ func (k *ChainVRFKeys) BuilderVRFKey(ctx context.Context, epoch uint64) ([]byte,
 	if err != nil {
 		return nil, err
 	}
+	if len(keys.ActivePubKey) == 0 {
+		return nil, fmt.Errorf("builder %s has only a pending key (from epoch %d): %w", k.builder, keys.PendingFromEpoch, ErrNoVRFKey)
+	}
 	if epoch < keys.ActiveFromEpoch {
 		return nil, fmt.Errorf("epoch %d precedes the active key (from epoch %d) and its key was not seen: %w",
 			epoch, keys.ActiveFromEpoch, ErrNoVRFKey)

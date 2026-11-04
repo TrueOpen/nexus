@@ -599,3 +599,18 @@ func TestChainEpochsReadANotReadyEpochAgainOncePerBlock(t *testing.T) {
 		t.Fatalf("after the TTL: %v, beacon reads %v", err, chain.beaconAsk)
 	}
 }
+
+// A first registration leaves only a pending key until its epoch begins: until then there is no
+// key to dispatch with, and nothing is remembered.
+func TestChainVRFKeysAnswerNoKeyWhileTheFirstKeyIsPending(t *testing.T) {
+	a := vrfPub(1)
+	chain := &vrfChain{key: chaincli.VrfKey{PendingPubKey: a, PendingFromEpoch: 6, AuthorizationNonce: 1}}
+	keys := newTestChainVRFKeys(t, chain, kv.NewMemStore())
+	if _, err := keys.BuilderVRFKey(context.Background(), 5); !errors.Is(err, ErrNoVRFKey) {
+		t.Fatalf("pending first key: err = %v", err)
+	}
+	chain.key = chaincli.VrfKey{ActivePubKey: a, ActiveFromEpoch: 6, AuthorizationNonce: 1}
+	if got, err := keys.BuilderVRFKey(context.Background(), 6); err != nil || !bytes.Equal(got, a) {
+		t.Fatalf("epoch 6 after activation = %x, %v", got, err)
+	}
+}

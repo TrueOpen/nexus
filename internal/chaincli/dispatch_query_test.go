@@ -434,6 +434,23 @@ func TestQueryVrfKeySendsParticipantType(t *testing.T) {
 	}
 }
 
+// A first registration has only a pending key until its epoch begins; the row is still read, with
+// no active key, so the registering operator sees its pending key and nonce.
+func TestQueryVrfKeyReadsAPendingFirstKey(t *testing.T) {
+	pending := bytes.Repeat([]byte{0x02}, 32)
+	pendingEpoch := uint64(8)
+	c := &client{hubQuery: &dispatchHubQuery{vrf: &hubv1.QueryVrfKeyResponse{
+		PendingVrfPubkey: pending, PendingFromEpoch: &pendingEpoch, VrfAuthorizationNonce: 1,
+	}}}
+	got, err := c.QueryVrfKey(context.Background(), "BUILDER", "trueopen1builder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActivePubKey != nil || !bytes.Equal(got.PendingPubKey, pending) || got.PendingFromEpoch != 8 || got.AuthorizationNonce != 1 {
+		t.Fatalf("key = %+v", got)
+	}
+}
+
 func TestQueryBeacon(t *testing.T) {
 	beacon := &hubv1.BeaconState{Height: 100, RandomnessHex: "ab", Verified: true, BlockHash: mustHash32("f1")}
 	c := &client{hubQuery: &dispatchHubQuery{beacon: &hubv1.QueryBeaconResponse{Beacon: beacon}}}
