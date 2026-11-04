@@ -3,6 +3,7 @@ package taskdata
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -19,7 +20,12 @@ import (
 var workerBundleArtifactIDs = map[EvidenceKind][]string{
 	EvidenceKindWorkerTokenOpening: {"generated_token_ids", artifactGenerationParams, "input_token_ids"},
 	EvidenceKindWorkerValueOpening: {"worker_values"},
+	// WORKER_ANCHOR_OPENING (ADR-0040): the engine's AnchorCommitV1 document, bound by its byte hash.
+	EvidenceKindWorkerAnchorOpening: {artifactAnchorCommit},
 }
+
+// artifactAnchorCommit is the C-level bundle's single artifact.
+const artifactAnchorCommit = "anchor_commit"
 
 // artifactGenerationParams holds the canonical generation-parameter JSON of the order. The token
 // commitment binds it only through generation_params_digest, so it is not counted in the
@@ -151,6 +157,21 @@ func (s *Service) verifyWorkerCommitment(
 			WorkerValueRoot:              root[:],
 			WorkerValuesEncodedSizeBytes: values.size,
 		}.Digest()
+	case EvidenceKindWorkerAnchorOpening:
+		anchor := artifacts[artifactAnchorCommit]
+		hash, herr := s.storedSHA256(ctx, anchor.ref, anchor.size)
+		if herr != nil {
+			return herr
+		}
+		digest, err = nodecontract.WorkerAnchorCommitmentV1{
+			ChainID:               receipt.ChainID,
+			TaskID:                decoded["task_id"],
+			AcceptedTaskHash:      decoded["task_hash"],
+			WorkerOperatorAddress: receipt.WorkerOperatorAddress,
+			EvidenceSchemaHash:    decoded["evidence_schema_hash"],
+			AnchorCommitHash:      hash[:],
+			AnchorCommitSizeBytes: anchor.size,
+		}.Digest()
 	default:
 		return fmt.Errorf("%w: evidence_kind %d is not a Worker bundle", ErrMalformed, kind)
 	}
@@ -260,4 +281,24 @@ func (s *Service) storedWorkerValuesRoot(
 		return [32]byte{}, fmt.Errorf("%w: worker_values artifact: %v", ErrHashMismatch, err)
 	}
 	return root, nil
+}
+
+// storedSHA256 streams a stored artifact of exactly size bytes through SHA-256.
+func (s *Service) storedSHA256(ctx context.Context, ref ObjectRef, size uint64) ([32]byte, error) {
+	reader, err := s.store.OpenStored(ctx, ref)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer reader.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(reader, int64(size)+1))
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("%w: read artifact: %v", ErrStorage, err)
+	}
+	if uint64(n) != size {
+		return [32]byte{}, fmt.Errorf("%w: artifact is %d bytes, manifest says %d", ErrHashMismatch, n, size)
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out, nil
 }
