@@ -136,14 +136,14 @@ type PrecheckConfig struct {
 //
 //  1. session: known, owned by the order user (else the registered key error ErrKeyInvalid), not
 //     closed (ErrSessionClosing); the order's lifetime order_expire_height -
-//     earliest_submit_height within the max_order_lifetime_blocks the session froze
-//     (dispatch.ValidateOrderLifetime, else ErrOrderExpired), which the chain checks at admission
-//     and at a takeover registration alike; an order signed by the session key passes
-//     registeredkey.CheckDispatchOrder with this Builder's in-flight orders signed by the key:
-//     spent + their max_fee + max_fee <= spend_cap, where in flight is DISPATCHING (an uncommitted
-//     reservation included), ACCEPTED, or RECORDED while the session state read does not include
-//     the record yet (at or above its next_expected_sequence); wallet orders do not count, nor
-//     does an exact resend's own entry;
+//     earliest_submit_height positive, within the max_order_lifetime_blocks the session froze and
+//     at least its record_deadline_blocks (CheckOrderLifetime, else ErrOrderExpired), which the
+//     chain checks at admission and at a takeover registration alike; an order signed by the
+//     session key passes registeredkey.CheckDispatchOrder with this Builder's in-flight orders
+//     signed by the key: spent + their max_fee + max_fee <= spend_cap, where in flight is
+//     DISPATCHING (an uncommitted reservation included), ACCEPTED, or RECORDED while the session
+//     state read does not include the record yet (at or above its next_expected_sequence); wallet
+//     orders do not count, nor does an exact resend's own entry;
 //  2. binding: a session bound to another Builder ends the precheck with BoundElsewhere once the
 //     order could register a takeover in the next block: head + 1 <= order_expire_height (else
 //     ErrOrderExpired) and earliest_submit_height <= head + 1 (else ErrOrderFuture), with a
@@ -355,9 +355,8 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 	if s.Closed {
 		return Result{}, fmt.Errorf("%w: session %s is closed", ErrSessionClosing, o.SessionID)
 	}
-	if err := dispatch.ValidateOrderLifetime(o.EarliestSubmitHeight, o.ExpireHeight, s.FrozenDispatch.GetMaxOrderLifetimeBlocks()); err != nil {
-		return Result{}, fmt.Errorf("%w: %v (earliest_submit_height %d, order_expire_height %d, session lifetime %d blocks)",
-			ErrOrderExpired, err, o.EarliestSubmitHeight, o.ExpireHeight, s.FrozenDispatch.GetMaxOrderLifetimeBlocks())
+	if err := CheckOrderLifetime(o.EarliestSubmitHeight, o.ExpireHeight, s.FrozenDispatch); err != nil {
+		return Result{}, err
 	}
 	res := Result{Binding: BoundHere, Session: s, Head: head,
 		Deadline: saturatingAdd(max(o.EarliestSubmitHeight, s.BoundChangeHeight), s.FrozenDispatch.GetRecordDeadlineBlocks())}
@@ -473,6 +472,23 @@ func (p *Prechecker) evaluate(o Order, s Session, head uint64, params Params, ls
 			ErrSessionBalanceInsufficient, available, inFlight.count, o.MaxFee)
 	}
 	return res, nil
+}
+
+// CheckOrderLifetime is the chain's lifetime check of an order against the dispatch params its
+// session froze, the same at admission and at a takeover registration: order_expire_height
+// strictly after earliest_submit_height and at most max_order_lifetime_blocks after it
+// (dispatch.ValidateOrderLifetime), and at least record_deadline_blocks after it, so the order
+// covers its recording span. A failure is ErrOrderExpired.
+func CheckOrderLifetime(earliest, expiry uint64, frozen *taskv1.DispatchParamsV1) error {
+	if err := dispatch.ValidateOrderLifetime(earliest, expiry, frozen.GetMaxOrderLifetimeBlocks()); err != nil {
+		return fmt.Errorf("%w: %v (earliest_submit_height %d, order_expire_height %d, session lifetime %d blocks)",
+			ErrOrderExpired, err, earliest, expiry, frozen.GetMaxOrderLifetimeBlocks())
+	}
+	if expiry-earliest < frozen.GetRecordDeadlineBlocks() {
+		return fmt.Errorf("%w: order lifetime %d blocks does not cover the session's record_deadline_blocks %d",
+			ErrOrderExpired, expiry-earliest, frozen.GetRecordDeadlineBlocks())
+	}
+	return nil
 }
 
 // CheckTakeoverFunds is the funds check of a takeover order against the session state s: no close

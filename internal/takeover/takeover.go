@@ -31,7 +31,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -307,8 +306,8 @@ func (m *Manager) Pending() int {
 //     inflight.ErrUnavailable;
 //   - the session state read from the chain: a registered takeover is a TakeoverPendingError
 //     naming its candidate; a sequence other than the chain's next is ErrOrderSequenceConflict;
-//     an expiry outside the order lifetime the session froze is inflight.ErrOrderExpired; funds
-//     are inflight.CheckTakeoverFunds.
+//     an expiry outside the order lifetime the session froze is inflight.ErrOrderExpired
+//     (inflight.CheckOrderLifetime); funds are inflight.CheckTakeoverFunds.
 //
 // A chain that cannot be read is inflight.ErrUnavailable, never a verdict.
 func (m *Manager) Admit(ctx context.Context, o types.Order, pre inflight.Order) (Admission, error) {
@@ -398,8 +397,8 @@ func (m *Manager) check(ctx context.Context, pre inflight.Order) (uint64, error)
 		return 0, fmt.Errorf("%w: sequence %d is not the chain's next sequence %d", inflight.ErrOrderSequenceConflict, seq, state.NextExpectedSequence)
 	}
 	// The chain registers the takeover only for an order within the lifetime the session froze.
-	if err := dispatch.ValidateOrderLifetime(pre.EarliestSubmitHeight, pre.ExpireHeight, state.FrozenDispatch.GetMaxOrderLifetimeBlocks()); err != nil {
-		return 0, fmt.Errorf("%w: %v", inflight.ErrOrderExpired, err)
+	if err := inflight.CheckOrderLifetime(pre.EarliestSubmitHeight, pre.ExpireHeight, state.FrozenDispatch); err != nil {
+		return 0, err
 	}
 	if err := inflight.CheckTakeoverFunds(inflight.Session{SessionState: state, Found: true}, pre.MaxFee); err != nil {
 		return 0, err

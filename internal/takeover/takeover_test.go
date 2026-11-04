@@ -376,6 +376,35 @@ func TestAdmitChecksSequenceAndFunds(t *testing.T) {
 // One takeover per session: while the order uploads its resend is told to retry; once
 // submitted it is the existing order; any other order of the session waits for it. Release drops
 // only an unsubmitted reservation.
+// The chain registers a takeover only for an order whose expiry follows earliest_submit_height
+// strictly and by at least the record_deadline_blocks the session froze.
+func TestAdmitChecksTheOrderLifetime(t *testing.T) {
+	// Expiry 200 is 170 blocks after earliest_submit_height 30.
+	cases := []struct {
+		name           string
+		recordDeadline uint64
+		expiry         uint64
+		want           error
+	}{
+		{"expiry at earliest_submit_height", 0, 30, inflight.ErrOrderExpired},
+		{"lifetime one block short of the recording span", 171, expiresAt, inflight.ErrOrderExpired},
+		{"lifetime of the recording span", 170, expiresAt, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.chain.set(func(s *chaincli.SessionState) {
+				s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: tc.recordDeadline, MaxOrderLifetimeBlocks: 240}
+			})
+			o, pre := takeoverOrder(5, 1)
+			pre.ExpireHeight = tc.expiry
+			if _, err := e.m.Admit(context.Background(), o, pre); !errors.Is(err, tc.want) {
+				t.Fatalf("Admit = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestOneTakeoverPerSession(t *testing.T) {
 	e := newEnv(t)
 	o, pre := takeoverOrder(5, 1)

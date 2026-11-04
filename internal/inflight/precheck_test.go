@@ -289,6 +289,29 @@ func TestPrecheckOrderLifetimeIsTheSessionsFrozen(t *testing.T) {
 	}
 }
 
+// order_expire_height must follow earliest_submit_height strictly and by at least the
+// record_deadline_blocks the session froze, for an order bound here and for a takeover
+// registration alike: the chain refuses an order whose lifetime does not cover its recording span.
+func TestPrecheckOrderLifetimeCoversTheRecordingSpan(t *testing.T) {
+	for _, bound := range []string{"builder", "other"} {
+		f := newFixture(t, func(s *chaincli.SessionState) {
+			s.BoundBuilder = bound
+			s.FrozenDispatch = &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 20, MaxOrderLifetimeBlocks: 50}
+		})
+		o := order(5) // earliest_submit_height 100, the head
+		for _, expiry := range []uint64{100, 119} {
+			o.ExpireHeight = expiry
+			if _, err := f.p.Check(context.Background(), o); !errors.Is(err, ErrOrderExpired) {
+				t.Fatalf("bound to %s: expiry %d = %v, want %v", bound, expiry, err, ErrOrderExpired)
+			}
+		}
+		o.ExpireHeight = 120
+		if _, err := f.p.Check(context.Background(), o); err != nil {
+			t.Fatalf("bound to %s: lifetime of the recording span = %v", bound, err)
+		}
+	}
+}
+
 func withKey(o *Order) {
 	key := testKey
 	o.SessionKey = &key
@@ -333,7 +356,8 @@ func TestPrecheckBoundElsewhereChecksTheRegistration(t *testing.T) {
 		s.BoundBuilder, s.BoundChangeHeight, s.ExpiryHeight = "other", 110, 101
 	})
 	o := keyOrder(5)
-	o.ExpireHeight = 102 // before the bound Builder's deadline 130, valid at 101
+	// The lifetime from earliest_submit_height 80 covers the session's record_deadline_blocks 20.
+	o.EarliestSubmitHeight, o.ExpireHeight = 80, 102 // before the bound Builder's deadline 130, valid at 101
 	if res, err := f.p.Check(context.Background(), o); err != nil || res.Binding != BoundElsewhere {
 		t.Fatalf("Check = %+v, %v", res, err)
 	}
