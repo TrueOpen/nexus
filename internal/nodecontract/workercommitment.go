@@ -14,17 +14,20 @@ import (
 const (
 	DomainWorkerTokenCommitmentV1 = "TRUEOPEN_WORKER_TOKEN_COMMITMENT_V1"
 	DomainWorkerValueCommitmentV3 = "TRUEOPEN_WORKER_VALUE_COMMITMENT_V3"
-	DomainWorkerValueLeafV1       = "TRUEOPEN_PREFILL_WORKER_VALUE_LEAF_V1"
-	DomainWorkerValueRootV1       = "TRUEOPEN_PREFILL_WORKER_VALUE_ROOT_V1"
-	DomainInputTokenIDsV1         = "TRUEOPEN_INPUT_TOKEN_IDS_V1"
-	DomainGeneratedTokenIDsV1     = "TRUEOPEN_GENERATED_TOKEN_IDS_V1"
+	// DomainWorkerAnchorCommitmentV1 is the C-level anchor commitment (ADR-0040).
+	DomainWorkerAnchorCommitmentV1 = "TRUEOPEN_WORKER_ANCHOR_COMMITMENT_V1"
+	DomainWorkerValueLeafV1        = "TRUEOPEN_PREFILL_WORKER_VALUE_LEAF_V1"
+	DomainWorkerValueRootV1        = "TRUEOPEN_PREFILL_WORKER_VALUE_ROOT_V1"
+	DomainInputTokenIDsV1          = "TRUEOPEN_INPUT_TOKEN_IDS_V1"
+	DomainGeneratedTokenIDsV1      = "TRUEOPEN_GENERATED_TOKEN_IDS_V1"
 )
 
 // Schema versions of the two Worker commitments and of a Worker value leaf.
 const (
-	WorkerTokenCommitmentSchemaV1 = 1
-	WorkerValueCommitmentSchemaV3 = 3
-	WorkerValueLeafVersionV1      = 1
+	WorkerTokenCommitmentSchemaV1  = 1
+	WorkerValueCommitmentSchemaV3  = 3
+	WorkerAnchorCommitmentSchemaV1 = 1
+	WorkerValueLeafVersionV1       = 1
 )
 
 // MaxTokenIDCountV1 is the absolute token-id count bound: floor((33,554,432 - 4) / 4), the 32 MiB
@@ -202,4 +205,51 @@ func canonicalHash32Fields(fields []hash32Field) ([][]byte, error) {
 		out = append(out, field)
 	}
 	return out, nil
+}
+
+// WorkerAnchorCommitmentV1 is the input of the WORKER_ANCHOR_OPENING commitment (ADR-0040): the
+// task scope plus the SHA-256 and exact size of the engine's anchor_commit artifact.
+type WorkerAnchorCommitmentV1 struct {
+	ChainID               string
+	TaskID                []byte
+	AcceptedTaskHash      []byte
+	WorkerOperatorAddress string
+	EvidenceSchemaHash    []byte
+	AnchorCommitHash      []byte
+	AnchorCommitSizeBytes uint64
+}
+
+// Digest is H_FIELDS_V1(TRUEOPEN_WORKER_ANCHOR_COMMITMENT_V1, ...) over the 8 fields in schema
+// order, i.e. the receipt's WORKER_ANCHOR_OPENING evidence_hash_or_root.
+func (c WorkerAnchorCommitmentV1) Digest() ([32]byte, error) {
+	chain, err := CanonicalUTF8Field("chain_id", c.ChainID)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	worker, err := CanonicalOperatorAddressBytes("worker_operator_address", c.WorkerOperatorAddress)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	hashes, err := canonicalHash32Fields([]hash32Field{
+		{"task_id", c.TaskID},
+		{"accepted_task_hash", c.AcceptedTaskHash},
+		{"evidence_schema_hash", c.EvidenceSchemaHash},
+		{"anchor_commit_hash", c.AnchorCommitHash},
+	})
+	if err != nil {
+		return [32]byte{}, err
+	}
+	if c.AnchorCommitSizeBytes == 0 {
+		return [32]byte{}, fmt.Errorf("anchor_commit_size_bytes must be positive")
+	}
+	return CanonicalHashBytes(DomainWorkerAnchorCommitmentV1,
+		Uint32BE(WorkerAnchorCommitmentSchemaV1),
+		chain,
+		hashes[0], // task_id
+		hashes[1], // accepted_task_hash
+		worker,
+		hashes[2], // evidence_schema_hash
+		hashes[3], // anchor_commit_hash
+		Uint64BE(c.AnchorCommitSizeBytes),
+	), nil
 }
