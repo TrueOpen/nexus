@@ -207,10 +207,13 @@ func ValidatePlaintextInferReceiptV3(receipt *taskv1.InferReceiptV3) error {
 		return fmt.Errorf("generated_token_count %d exceeds %d", receipt.GetGeneratedTokenCount(), MaxTokenIDCountV1)
 	}
 	commitments := receipt.GetRequiredEvidenceCommitments()
-	if len(commitments) != 2 ||
+	// ADR-0040: a Profile may additionally require the C-level anchor commitment,
+	// which always follows the two v0.3.0 commitments.
+	if (len(commitments) != 2 && len(commitments) != 3) ||
 		commitments[0].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING ||
-		commitments[1].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING {
-		return fmt.Errorf("required_evidence_commitments must be exactly WORKER_VALUE_OPENING then WORKER_TOKEN_OPENING")
+		commitments[1].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING ||
+		(len(commitments) == 3 && commitments[2].GetEvidenceKind() != sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_ANCHOR_OPENING) {
+		return fmt.Errorf("required_evidence_commitments must be WORKER_VALUE_OPENING then WORKER_TOKEN_OPENING, optionally then WORKER_ANCHOR_OPENING")
 	}
 	for _, field := range []struct {
 		name  string
@@ -299,7 +302,8 @@ func canonicalEvidenceKind(kind sharedv1.EvidenceKind) (uint32, error) {
 	case sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_VALUE_OPENING,
 		sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING,
 		sharedv1.EvidenceKind_EVIDENCE_KIND_VERIFIER_VALUE_OPENING,
-		sharedv1.EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING:
+		sharedv1.EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING,
+		sharedv1.EvidenceKind_EVIDENCE_KIND_WORKER_ANCHOR_OPENING:
 		return uint32(kind), nil
 	case sharedv1.EvidenceKind_EVIDENCE_KIND_UNSPECIFIED:
 		return 0, fmt.Errorf("evidence_kind must not be EVIDENCE_KIND_UNSPECIFIED")
