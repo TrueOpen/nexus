@@ -214,11 +214,11 @@ func newDirectDispatch(d *directDispatch, deps directDispatchDeps) error {
 	if err != nil {
 		return err
 	}
-	vrf, err := dispatchdraw.NewVRFKeys(keys, dispatchdraw.NewChainVRFKeys(deps.Chain, deps.Store, deps.ChainID, deps.BuilderAddress))
+	height := dispatchFloor{chain: deps.Height, head: &d.head}
+	vrf, err := dispatchdraw.NewVRFKeys(keys, dispatchdraw.NewChainVRFKeys(deps.Chain, deps.Store, deps.ChainID, deps.BuilderAddress, height.LatestHeight))
 	if err != nil {
 		return err
 	}
-	height := dispatchFloor{chain: deps.Height, head: &d.head}
 	epochs := dispatchdraw.NewChainEpochs(deps.Chain, height.LatestHeight)
 	pools := dispatchdraw.NewPoolCache(deps.ChainID, dispatchdraw.ChainPools{Chain: deps.Chain})
 	drawer, err := dispatchdraw.NewDrawer(deps.ChainID, epochs, vrf, pools)

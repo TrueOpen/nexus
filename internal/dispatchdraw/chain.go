@@ -183,6 +183,15 @@ func (s *ChainEpochs) readSeed(ctx context.Context, number, length, earliestSubm
 	return source, nil
 }
 
+// StartHeight implements EpochSource.
+func (s *ChainEpochs) StartHeight(ctx context.Context, epoch uint64) (uint64, error) {
+	length, err := s.epochLength(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return epoch * length, nil
+}
+
 // CurrentEpoch returns the epoch containing height, for readiness checks.
 func (s *ChainEpochs) CurrentEpoch(ctx context.Context, height uint64) (uint64, error) {
 	length, err := s.epochLength(ctx)
@@ -314,21 +323,34 @@ const vrfEpochKeyPrefix = "builder_vrf_epoch/"
 // available to its unexpired orders, and a draw does not read the chain for an epoch it already
 // knows. Callers ask only for epochs that have begun, whose active key a later registration cannot
 // change (a registration takes effect from the next epoch at the earliest).
+//
+// An epoch with no active key is answered from the last read until the chain head advances, so
+// orders offered while the key is pending cost at most one chain read per block.
 type ChainVRFKeys struct {
 	chain   VRFKeyChain
 	store   kv.Store
 	chainID string
 	builder string
+	// head reads the chain head; nil keeps no answer without a key.
+	head func(context.Context) (uint64, error)
 
 	mu     sync.Mutex
 	loaded bool
 	known  map[uint64][]byte
+	// misses keeps, per epoch, the last "no key" answer and the head it was read at.
+	misses map[uint64]vrfMiss
+}
+
+type vrfMiss struct {
+	err  error
+	head uint64
 }
 
 // NewChainVRFKeys reads builder's BUILDER VRF keys through chain and remembers the key of each
-// epoch in store (nil keeps them in memory only).
-func NewChainVRFKeys(chain VRFKeyChain, store kv.Store, chainID, builder string) *ChainVRFKeys {
-	return &ChainVRFKeys{chain: chain, store: store, chainID: chainID, builder: builder}
+// epoch in store (nil keeps them in memory only). head, when set, reads the chain head: an answer
+// without a key stands until the head advances.
+func NewChainVRFKeys(chain VRFKeyChain, store kv.Store, chainID, builder string, head func(context.Context) (uint64, error)) *ChainVRFKeys {
+	return &ChainVRFKeys{chain: chain, store: store, chainID: chainID, builder: builder, head: head, misses: map[uint64]vrfMiss{}}
 }
 
 // BuilderVRFKey implements VRFKeyRegistry.
@@ -337,6 +359,42 @@ func (k *ChainVRFKeys) BuilderVRFKey(ctx context.Context, epoch uint64) ([]byte,
 	if err != nil || ok {
 		return key, err
 	}
+	head, headKnown := uint64(0), false
+	if k.head != nil {
+		if h, err := k.head(ctx); err == nil {
+			head, headKnown = h, true
+		}
+	}
+	if headKnown {
+		k.mu.Lock()
+		miss, missed := k.misses[epoch]
+		k.mu.Unlock()
+		if missed && miss.head == head {
+			return nil, miss.err
+		}
+	}
+	key, err = k.read(ctx, epoch)
+	if headKnown && errors.Is(err, ErrNoVRFKey) {
+		k.keepMiss(epoch, vrfMiss{err: err, head: head})
+	}
+	return key, err
+}
+
+// keepMiss keeps miss for epoch and forgets the misses of epochs beyond maxRememberedEpochs before
+// it.
+func (k *ChainVRFKeys) keepMiss(epoch uint64, miss vrfMiss) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.misses[epoch] = miss
+	for e := range k.misses {
+		if e+maxRememberedEpochs <= epoch {
+			delete(k.misses, e)
+		}
+	}
+}
+
+// read reads the key of epoch from the chain.
+func (k *ChainVRFKeys) read(ctx context.Context, epoch uint64) ([]byte, error) {
 	keys, err := k.chain.QueryVrfKey(ctx, "BUILDER", k.builder)
 	if errors.Is(err, chaincli.ErrNotFound) {
 		return nil, fmt.Errorf("builder %s: %w", k.builder, ErrNoVRFKey)
@@ -345,7 +403,10 @@ func (k *ChainVRFKeys) BuilderVRFKey(ctx context.Context, epoch uint64) ([]byte,
 		return nil, err
 	}
 	if len(keys.ActivePubKey) == 0 {
-		return nil, fmt.Errorf("builder %s has only a pending key (from epoch %d): %w", k.builder, keys.PendingFromEpoch, ErrNoVRFKey)
+		if len(keys.PendingPubKey) == 0 {
+			return nil, fmt.Errorf("builder %s has no active or pending key: %w", k.builder, ErrNoVRFKey)
+		}
+		return nil, fmt.Errorf("builder %s: %w", k.builder, &PendingVRFKeyError{FromEpoch: keys.PendingFromEpoch, PubKey: bytes.Clone(keys.PendingPubKey)})
 	}
 	if epoch < keys.ActiveFromEpoch {
 		return nil, fmt.Errorf("epoch %d precedes the active key (from epoch %d) and its key was not seen: %w",

@@ -2,6 +2,7 @@ package dispatchdraw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -27,6 +28,30 @@ func NewDrawer(chainID string, epochs EpochSource, keys *VRFKeys, pools *PoolCac
 // yet fails with a *NotReadyError.
 func (d *Drawer) EpochOf(ctx context.Context, earliestSubmitHeight uint64) (Epoch, error) {
 	return d.epochs.EpochOf(ctx, earliestSubmitHeight)
+}
+
+// Ready reports whether orders of ep can be dispatched with this Builder's VRF key
+// (VRFKeys.Ready). While the chain holds only a pending key that a local key matches, it is a
+// *NotReadyError: dispatchable from the first height of the pending key's epoch when that epoch is
+// still ahead, with no known height once it has begun and the activation is not visible yet.
+// Without any key the error wraps ErrNoVRFKey, without a matching local key ErrVRFKeyMismatch; any
+// other error is a failed chain read.
+func (d *Drawer) Ready(ctx context.Context, ep Epoch) error {
+	err := d.keys.Ready(ctx, ep.Number)
+	var pending *PendingVRFKeyError
+	if !errors.As(err, &pending) {
+		return err
+	}
+	notReady := &NotReadyError{Epoch: ep.Number, Reason: fmt.Sprintf(
+		"this Builder's VRF key is pending and becomes active from epoch %d", pending.FromEpoch)}
+	if pending.FromEpoch > ep.Number {
+		start, err := d.epochs.StartHeight(ctx, pending.FromEpoch)
+		if err != nil {
+			return fmt.Errorf("first height of epoch %d: %w", pending.FromEpoch, err)
+		}
+		notReady.DispatchableHeight = start
+	}
+	return notReady
 }
 
 // Draw is the randomness context and full-pool order of one order, shared by all its tickets.

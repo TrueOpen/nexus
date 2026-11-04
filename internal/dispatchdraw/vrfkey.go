@@ -21,11 +21,25 @@ var (
 	ErrVRFKeyMismatch = errors.New("local VRF keys do not include the chain's registered builder VRF key")
 )
 
+// PendingVRFKeyError is ErrNoVRFKey while the chain holds only a pending Builder VRF key: PubKey
+// becomes active from FromEpoch, unless its activation is postponed.
+type PendingVRFKeyError struct {
+	FromEpoch uint64
+	PubKey    []byte
+}
+
+func (e *PendingVRFKeyError) Error() string {
+	return fmt.Sprintf("only a pending key (from epoch %d): %v", e.FromEpoch, ErrNoVRFKey)
+}
+
+func (e *PendingVRFKeyError) Unwrap() error { return ErrNoVRFKey }
+
 // VRFKeyRegistry reads this Builder's registered VRF public keys from the chain.
 type VRFKeyRegistry interface {
 	// BuilderVRFKey returns the 32-byte VRF public key registered for this Builder and active in
-	// epoch. When the chain has no active key for that epoch the error wraps ErrNoVRFKey; any
-	// other error means the chain could not be read.
+	// epoch. When the chain has no active key for that epoch the error wraps ErrNoVRFKey, as a
+	// *PendingVRFKeyError when it holds only a pending key; any other error means the chain could
+	// not be read.
 	BuilderVRFKey(ctx context.Context, epoch uint64) ([]byte, error)
 }
 
@@ -86,10 +100,25 @@ func (k *VRFKeys) PublicKeyFor(ctx context.Context, epoch uint64) (ed25519.Publi
 }
 
 // Ready reports whether orders of epoch can be dispatched: the chain has an active Builder VRF key
-// for it and a local key matches it. Workload readiness checks the current epoch.
+// for it and a local key matches it. Workload readiness checks the current epoch. While the chain
+// holds only a pending key the error is that *PendingVRFKeyError when a local key matches the
+// pending key, and ErrVRFKeyMismatch when none does.
 func (k *VRFKeys) Ready(ctx context.Context, epoch uint64) error {
 	_, err := k.KeyFor(ctx, epoch)
+	var pending *PendingVRFKeyError
+	if errors.As(err, &pending) && !k.holds(pending.PubKey) {
+		return fmt.Errorf("epoch %d: pending key %x: %w", epoch, pending.PubKey, ErrVRFKeyMismatch)
+	}
 	return err
+}
+
+func (k *VRFKeys) holds(pub []byte) bool {
+	for _, key := range k.keys {
+		if bytes.Equal(key.Public().(ed25519.PublicKey), pub) {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadVRFKeys reads VRF key files (Ed25519 in the Cosmos keystore armor) sharing the passphrase in

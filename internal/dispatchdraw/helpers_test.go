@@ -117,9 +117,18 @@ func registryFor(epochKeys map[uint64]ed25519.PrivateKey) *fakeRegistry {
 	return r
 }
 
-// fakeEpochs answers EpochOf from a fixed table keyed by earliest_submit_height.
+// fakeEpochs answers EpochOf from a fixed table keyed by earliest_submit_height; epochs are
+// length heights long.
 type fakeEpochs struct {
 	byHeight map[uint64]Epoch
+	length   uint64
+}
+
+func (e *fakeEpochs) StartHeight(_ context.Context, epoch uint64) (uint64, error) {
+	if e.length == 0 {
+		return 0, fmt.Errorf("no epoch length")
+	}
+	return epoch * e.length, nil
 }
 
 func (e *fakeEpochs) EpochOf(_ context.Context, height uint64) (Epoch, error) {

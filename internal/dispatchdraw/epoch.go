@@ -62,4 +62,6 @@ type EpochSource interface {
 	// EpochOf returns the epoch containing an order's signed earliest_submit_height; an epoch that
 	// cannot dispatch yet fails with a *NotReadyError.
 	EpochOf(ctx context.Context, earliestSubmitHeight uint64) (Epoch, error)
+	// StartHeight returns the first height of epoch.
+	StartHeight(ctx context.Context, epoch uint64) (uint64, error)
 }

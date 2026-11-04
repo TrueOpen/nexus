@@ -434,7 +434,7 @@ func vrfPub(seed byte) []byte { return []byte(testKey(seed).Public().(ed25519.Pu
 
 func newTestChainVRFKeys(t *testing.T, chain VRFKeyChain, store kv.Store) *ChainVRFKeys {
 	t.Helper()
-	return NewChainVRFKeys(chain, store, vectorChainID, "builder1")
+	return NewChainVRFKeys(chain, store, vectorChainID, "builder1", nil)
 }
 
 // The key of an epoch is the chain's active key; an older epoch keeps the key seen for it after
@@ -606,11 +606,87 @@ func TestChainVRFKeysAnswerNoKeyWhileTheFirstKeyIsPending(t *testing.T) {
 	a := vrfPub(1)
 	chain := &vrfChain{key: chaincli.VrfKey{PendingPubKey: a, PendingFromEpoch: 6, AuthorizationNonce: 1}}
 	keys := newTestChainVRFKeys(t, chain, kv.NewMemStore())
-	if _, err := keys.BuilderVRFKey(context.Background(), 5); !errors.Is(err, ErrNoVRFKey) {
-		t.Fatalf("pending first key: err = %v", err)
+	_, err := keys.BuilderVRFKey(context.Background(), 5)
+	var pending *PendingVRFKeyError
+	if !errors.Is(err, ErrNoVRFKey) || !errors.As(err, &pending) || pending.FromEpoch != 6 || !bytes.Equal(pending.PubKey, a) {
+		t.Fatalf("pending first key: err = %v, want the pending key from epoch 6", err)
 	}
 	chain.key = chaincli.VrfKey{ActivePubKey: a, ActiveFromEpoch: 6, AuthorizationNonce: 1}
 	if got, err := keys.BuilderVRFKey(context.Background(), 6); err != nil || !bytes.Equal(got, a) {
 		t.Fatalf("epoch 6 after activation = %x, %v", got, err)
+	}
+}
+
+// Without a chain row there is no key and nothing pending.
+func TestChainVRFKeysAnswerNoKeyWithoutARow(t *testing.T) {
+	keys := newTestChainVRFKeys(t, &vrfChain{err: chaincli.ErrNotFound}, kv.NewMemStore())
+	_, err := keys.BuilderVRFKey(context.Background(), 5)
+	var pending *PendingVRFKeyError
+	if !errors.Is(err, ErrNoVRFKey) || errors.As(err, &pending) {
+		t.Fatalf("no row: err = %v, want no key and nothing pending", err)
+	}
+}
+
+// An epoch without an active key is read again at most once per block: every order the Builder
+// is offered while its key is pending asks for it. Without a head, or with a head that cannot be
+// read, nothing is kept; a failed read is never kept.
+func TestChainVRFKeysReadAMissAgainOncePerBlock(t *testing.T) {
+	a := vrfPub(1)
+	chain := &vrfChain{key: chaincli.VrfKey{PendingPubKey: a, PendingFromEpoch: 6}}
+	head := uint64(500)
+	var headErr error
+	keys := NewChainVRFKeys(chain, kv.NewMemStore(), vectorChainID, "builder1", func(context.Context) (uint64, error) { return head, headErr })
+	ask := func(wantReads int) {
+		t.Helper()
+		for range 3 {
+			if _, err := keys.BuilderVRFKey(context.Background(), 5); !errors.Is(err, ErrNoVRFKey) {
+				t.Fatalf("head %d: %v", head, err)
+			}
+		}
+		if chain.reads != wantReads {
+			t.Fatalf("head %d: chain reads = %d, want %d", head, chain.reads, wantReads)
+		}
+	}
+	ask(1)
+	head++
+	ask(2)
+	headErr = errors.New("node unreachable")
+	ask(5)
+	headErr = nil
+
+	chain.err = errors.New("unreachable")
+	head++
+	for range 2 {
+		if _, err := keys.BuilderVRFKey(context.Background(), 5); err == nil || errors.Is(err, ErrNoVRFKey) {
+			t.Fatalf("a failed read: err = %v", err)
+		}
+	}
+	if chain.reads != 7 {
+		t.Fatalf("chain reads = %d after two failed reads, want 7", chain.reads)
+	}
+
+	// The key becomes active: the next block reads it.
+	chain.err, chain.key = nil, chaincli.VrfKey{ActivePubKey: a, ActiveFromEpoch: 5}
+	head++
+	if got, err := keys.BuilderVRFKey(context.Background(), 5); err != nil || !bytes.Equal(got, a) {
+		t.Fatalf("active key, next block = %x, %v", got, err)
+	}
+
+	unkept := newTestChainVRFKeys(t, &vrfChain{key: chaincli.VrfKey{PendingPubKey: a, PendingFromEpoch: 6}}, kv.NewMemStore())
+	for range 2 {
+		if _, err := unkept.BuilderVRFKey(context.Background(), 5); !errors.Is(err, ErrNoVRFKey) {
+			t.Fatal(err)
+		}
+	}
+	if n := unkept.chain.(*vrfChain).reads; n != 2 {
+		t.Fatalf("chain reads without a head = %d, want 2", n)
+	}
+}
+
+// The first height of an epoch is epoch × epoch_length_blocks.
+func TestChainEpochsStartHeight(t *testing.T) {
+	epochs := NewChainEpochs(&epochChain{length: 100}, nil)
+	if h, err := epochs.StartHeight(context.Background(), 7); err != nil || h != 700 {
+		t.Fatalf("start of epoch 7 = %d, %v", h, err)
 	}
 }
