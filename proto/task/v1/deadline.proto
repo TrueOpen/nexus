@@ -76,6 +76,9 @@ enum DeadlineKindV1 {
   DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL = 16;
   // TAKEOVER_ACTIVATION is an EndBlock-only deadline.
   DEADLINE_KIND_V1_TAKEOVER_ACTIVATION = 17;
+  // Settlement is held until the anchor audit verdict is final (ADR-0040 v4);
+  // kind_priority 41. Values 14-17 belong to the Phase 1 dispatch contract.
+  DEADLINE_KIND_V1_ANCHOR_VERDICT = 18;
 }
 
 // DeadlineTransitionCode is the closed transition reason carried by event
