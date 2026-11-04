@@ -275,6 +275,16 @@ type fakeDrawer struct {
 	calls int
 	// epochErr fails EpochOf.
 	epochErr error
+	// readyErr fails Ready; readyAsked are the epochs Ready was asked for.
+	readyErr   error
+	readyAsked []dispatchdraw.Epoch
+}
+
+func (d *fakeDrawer) Ready(_ context.Context, ep dispatchdraw.Epoch) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.readyAsked = append(d.readyAsked, ep)
+	return d.readyErr
 }
 
 func (d *fakeDrawer) EpochOf(context.Context, uint64) (dispatchdraw.Epoch, error) {

@@ -126,6 +126,10 @@ type Drawer interface {
 	// EpochOf resolves the epoch of an order's earliest_submit_height; an epoch that cannot
 	// dispatch yet fails with a *dispatchdraw.NotReadyError.
 	EpochOf(ctx context.Context, earliestSubmitHeight uint64) (dispatchdraw.Epoch, error)
+	// Ready reports whether orders of ep can be dispatched with this Builder's VRF key: a
+	// *dispatchdraw.NotReadyError while the key is pending, dispatchdraw.ErrNoVRFKey or
+	// dispatchdraw.ErrVRFKeyMismatch without a usable key, any other error a failed chain read.
+	Ready(ctx context.Context, ep dispatchdraw.Epoch) error
 	Draw(ctx context.Context, sessionID [32]byte, sequence, earliestSubmitHeight uint64, profile dispatchdraw.Profile, maxAttempts uint32) (*dispatchdraw.Draw, error)
 }
 
@@ -521,9 +525,9 @@ func (d *Dispatcher) sessionWindows(ctx context.Context, sessionID string) *disp
 // order at all, so its old key signs no material of an order at or above that height and the user
 // goes to another Builder), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
 // the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
-// Builder's current service key is revoked (revokedKey), or the latest handraise root holds no
-// admitted, unexpired handraise with a free slot for the order's profile. The walk decides the
-// rest.
+// Builder's current service key is revoked (revokedKey), its Builder VRF key cannot prove the
+// order's epoch (vrfKeyNotReady), or the latest handraise root holds no admitted, unexpired
+// handraise with a free slot for the order's profile. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -555,6 +559,9 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if revoked != nil {
 		return revokedKey(epoch.Number, revoked)
 	}
+	if err := d.cfg.Drawer.Ready(ctx, epoch); err != nil {
+		return vrfKeyNotReady(err)
+	}
 	root, ok := d.cfg.Handraises.LatestRoot()
 	if !ok {
 		return fmt.Errorf("%w: no handraise root yet", dispatchdraw.ErrNoCapacity)
@@ -579,6 +586,22 @@ func revokedKey(epoch uint64, revoked *servicekey.RevokedError) error {
 	}
 	return &dispatchdraw.NotReadyError{Epoch: epoch, DispatchableHeight: revoked.NextEffectiveHeight,
 		Reason: "this Builder's service key is revoked and its replacement becomes current first"}
+}
+
+// vrfKeyNotReady is Probe's answer while this Builder's VRF key cannot prove the order's epoch: an
+// accepted order would only wait in the walk until its record deadline. While the key is pending
+// the order is DISPATCH_NOT_READY until the height the key becomes active; without a key, or
+// without a local key the chain registered, it is NO_CAPACITY and the user goes to another
+// Builder. A key that could not be read leaves the order unavailable.
+func vrfKeyNotReady(err error) error {
+	switch {
+	case errors.Is(err, dispatchdraw.ErrDispatchNotReady):
+		return err
+	case errors.Is(err, dispatchdraw.ErrNoVRFKey), errors.Is(err, dispatchdraw.ErrVRFKeyMismatch):
+		return fmt.Errorf("%w: %v", dispatchdraw.ErrNoCapacity, err)
+	default:
+		return fmt.Errorf("%w: builder VRF key: %v", inflight.ErrUnavailable, err)
+	}
 }
 
 func servesOrder(h *taskv1.StandingHandraiseV1, o *taskv1.TaskOrderV3) bool {
