@@ -130,3 +130,27 @@ func TestNewVRFKeysRejectsBadKeys(t *testing.T) {
 		t.Fatal("duplicate key must be rejected")
 	}
 }
+
+// The VRF key password file follows the key file rules: private to its owner, trailing CR/LF
+// trimmed, and not empty.
+func TestReadVRFKeyPassword(t *testing.T) {
+	dir := t.TempDir()
+	good := writeFile(t, dir, "vrf.pass", []byte("secret\r\n"), 0o600)
+	got, err := ReadVRFKeyPassword(good)
+	if err != nil || string(got) != "secret" {
+		t.Fatalf("password = %q, %v", got, err)
+	}
+	for name, path := range map[string]string{
+		"empty":          writeFile(t, dir, "empty.pass", []byte("\r\n"), 0o600),
+		"group readable": writeFile(t, dir, "loose.pass", []byte("secret"), 0o640),
+		"missing":        dir + "/missing.pass",
+		"directory":      dir,
+		"no path":        " ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ReadVRFKeyPassword(path); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}

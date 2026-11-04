@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/signer"
 )
 
@@ -40,6 +44,7 @@ func newKeysCmdWithDeps(deps keysCommandDeps) *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(newCreateKeystoreCmd(deps))
+	cmd.AddCommand(newCreateVRFKeyCmd(deps))
 	return cmd
 }
 
@@ -77,6 +82,47 @@ func newCreateKeystoreCmd(deps keysCommandDeps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&privateKeyFile, "private-key-file", "", "file containing a 32-byte hex private key; omit for hidden terminal input")
 	cmd.Flags().StringVar(&output, "output", "builder.keystore", "new keystore output path")
+	return cmd
+}
+
+func newCreateVRFKeyCmd(deps keysCommandDeps) *cobra.Command {
+	var passwordFile, output string
+	cmd := &cobra.Command{
+		Use:           "create-vrf-key",
+		Short:         "Generate a new Builder VRF key (Ed25519) as an encrypted key file for identity.vrf_key_files",
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var password []byte
+			var err error
+			if strings.TrimSpace(passwordFile) == "" {
+				password, err = readConfirmedPassword(cmd, deps.readSecret)
+			} else {
+				// Same rules as identity.vrf_key_password_file, so the file can be reused there.
+				password, err = dispatchdraw.ReadVRFKeyPassword(passwordFile)
+			}
+			if err != nil {
+				return err
+			}
+			_, key, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				return fmt.Errorf("generate VRF key: %w", err)
+			}
+			armored, err := signer.EncryptEd25519KeystoreArmor(key, password)
+			if err != nil {
+				return err
+			}
+			if err := deps.writeFile(output, armored); err != nil {
+				return fmt.Errorf("write VRF key file %q: %w", output, err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "vrf_key_file: %s\nvrf_pubkey: %s\n",
+				output, hex.EncodeToString(key.Public().(ed25519.PublicKey)))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&passwordFile, "password-file", "", "VRF key password file (mode 0600, as identity.vrf_key_password_file); omit for hidden terminal input")
+	cmd.Flags().StringVar(&output, "output", "vrf.keystore", "new VRF key file output path")
 	return cmd
 }
 

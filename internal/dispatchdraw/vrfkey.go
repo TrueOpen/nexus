@@ -98,13 +98,9 @@ func LoadVRFKeys(files []string, passwordFile string) ([]ed25519.PrivateKey, err
 	if len(files) == 0 || strings.TrimSpace(passwordFile) == "" {
 		return nil, fmt.Errorf("VRF keys need at least one key file and a password file")
 	}
-	raw, err := readPrivateFile(passwordFile)
+	passphrase, err := ReadVRFKeyPassword(passwordFile)
 	if err != nil {
-		return nil, fmt.Errorf("VRF key password file: %w", err)
-	}
-	passphrase := []byte(strings.TrimRight(string(raw), "\r\n"))
-	if len(passphrase) == 0 {
-		return nil, fmt.Errorf("VRF key password file %s is empty", passwordFile)
+		return nil, err
 	}
 	keys := make([]ed25519.PrivateKey, 0, len(files))
 	for _, file := range files {
@@ -124,6 +120,23 @@ func LoadVRFKeys(files []string, passwordFile string) ([]ed25519.PrivateKey, err
 		keys = append(keys, key)
 	}
 	return keys, nil
+}
+
+// ReadVRFKeyPassword reads the VRF key passphrase from passwordFile, which group and others may not
+// access; trailing CR/LF are trimmed and the passphrase must not be empty.
+func ReadVRFKeyPassword(passwordFile string) ([]byte, error) {
+	if strings.TrimSpace(passwordFile) == "" {
+		return nil, fmt.Errorf("VRF key password file is required")
+	}
+	raw, err := readPrivateFile(passwordFile)
+	if err != nil {
+		return nil, fmt.Errorf("VRF key password file: %w", err)
+	}
+	passphrase := []byte(strings.TrimRight(string(raw), "\r\n"))
+	if len(passphrase) == 0 {
+		return nil, fmt.Errorf("VRF key password file %s is empty", passwordFile)
+	}
+	return passphrase, nil
 }
 
 // readPrivateFile reads a regular file that group and others cannot access (mode 0600 or 0400).
