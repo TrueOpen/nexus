@@ -91,7 +91,12 @@ func (h *Hub) transport(s *session, frame *nexusv1.DispatchStreamFrameV1) {
 // then uplink frames and keepalives; each keepalive tick also checks that the binding's key is
 // still the Cortex's current one. It returns ErrBindingInvalid for a refused binding, io.EOF
 // style errors from the transport, or the reason the hub ended the stream.
-func (h *Hub) Serve(ctx context.Context, stream FrameStream) error {
+//
+// Once bound, Serve returns only after its sender stopped writing to stream: an HTTP/2 handler's
+// stream may not be written after the handler returned. A write in progress is waited for, so the
+// transport must bound each write. The receive goroutine may still be inside stream.Receive when
+// Serve returns; it only reads, and the end of the call unblocks it.
+func (h *Hub) Serve(ctx context.Context, stream FrameStream) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	frames := make(chan *nexusv1.DispatchStreamFrameV1)
@@ -133,10 +138,17 @@ func (h *Hub) Serve(ctx context.Context, stream FrameStream) error {
 	if err != nil {
 		return err
 	}
-	defer h.unbind(s)
-
 	sendErr := make(chan error, 1)
-	go func() { sendErr <- h.sendLoop(s) }()
+	sendDone := make(chan struct{})
+	go func() {
+		defer close(sendDone)
+		sendErr <- h.sendLoop(s)
+	}()
+	defer func() {
+		s.end(err)
+		h.unbind(s)
+		<-sendDone
+	}()
 	ticks, stopTicks := h.keepaliveTicks(h.cfg.KeepaliveInterval)
 	defer stopTicks()
 	for {
