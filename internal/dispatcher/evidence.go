@@ -135,7 +135,7 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 		ev.RecordedHeight = 0
 	}
 	for _, r := range st.Rounds {
-		round := dispatchevidence.Round{Number: r.Number, RootDigest: r.RootDigest, Roster: r.Roster}
+		round := dispatchevidence.Round{Number: r.Number, EarliestSubmitHeight: r.EarliestSubmitHeight, RootDigest: r.RootDigest, Roster: r.Roster}
 		for _, a := range r.Attempts {
 			var ticket taskv1.DispatchTicketV1
 			if err := proto.Unmarshal(a.Ticket, &ticket); err != nil {

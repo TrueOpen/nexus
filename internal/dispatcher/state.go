@@ -61,10 +61,14 @@ func (a *attemptState) rebuttable() bool { return dispatchevidence.Rebuttable(a.
 // roundState is one dispatch round: the handraise root its tickets bind, its frozen roster and
 // its attempts. A round is stored once its first ticket is issued.
 type roundState struct {
-	Number     uint32         `json:"number"`
-	RootDigest []byte         `json:"root_digest"`
-	Roster     []byte         `json:"roster"` // DispatchRosterV1
-	Attempts   []attemptState `json:"attempts"`
+	Number uint32 `json:"number"`
+	// EarliestSubmitHeight is the earliest_submit_height of the order version the round's first
+	// ticket was issued for: a re-signed retry continues the rounds of a failed version under a
+	// later one. 0 in state stored before rounds recorded it.
+	EarliestSubmitHeight uint64         `json:"earliest_submit_height,omitempty"`
+	RootDigest           []byte         `json:"root_digest"`
+	Roster               []byte         `json:"roster"` // DispatchRosterV1
+	Attempts             []attemptState `json:"attempts"`
 }
 
 // epochState is the randomness context shared by every ticket of the order.

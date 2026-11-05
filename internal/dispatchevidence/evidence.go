@@ -65,8 +65,12 @@ type Round struct {
 	// order whose dispatch failed (same task_id, new task_hash) continues its rounds, so the rounds
 	// of one Order may name different versions. Empty in evidence written before rounds named
 	// their version: the round is then Order.TaskHash's.
-	TaskHash   string `json:"task_hash,omitempty"`
-	RootDigest []byte `json:"root_digest"`
+	TaskHash string `json:"task_hash,omitempty"`
+	// EarliestSubmitHeight is the earliest_submit_height of the round's version, which chose the
+	// key generation its root and tickets were signed under. 0 in evidence written before rounds
+	// named it: the height is then the order's (Order.SignedOrder).
+	EarliestSubmitHeight uint64 `json:"earliest_submit_height,omitempty"`
+	RootDigest           []byte `json:"root_digest"`
 	// SignedRoot is the SignedHandraiseRootV1 of RootDigest as synced, in a group member's copy;
 	// the dispatching Builder finds its own roots in its handraise registry instead.
 	SignedRoot []byte    `json:"signed_root,omitempty"`

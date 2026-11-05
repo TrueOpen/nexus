@@ -465,7 +465,8 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		if err != nil {
 			return false, err
 		}
-		newRound = &roundState{Number: o.rosterRound, RootDigest: append([]byte(nil), o.roster.RootDigest[:]...), Roster: rosterRaw}
+		newRound = &roundState{Number: o.rosterRound, EarliestSubmitHeight: o.signed.GetOrder().GetEarliestSubmitHeight(),
+			RootDigest: append([]byte(nil), o.roster.RootDigest[:]...), Roster: rosterRaw}
 	}
 	now := d.clock.Now()
 	deadlineMs := uint64(now.UnixMilli()) + timeoutMs

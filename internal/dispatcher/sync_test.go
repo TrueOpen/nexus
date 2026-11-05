@@ -129,6 +129,24 @@ func TestRetryRoundsNameTheirVersion(t *testing.T) {
 	}
 }
 
+// Each round of the evidence also names the earliest_submit_height of its version, recorded when
+// its first ticket was issued: the group verifies the round's root and tickets under the key
+// generation that height selects, and the earlier version's rounds may reach it only after the
+// retry (a later height) took over the order's evidence.
+func TestRetryRoundsNameTheirVersionsSubmitHeight(t *testing.T) {
+	e := withSync(newEnv(t))
+	s := failFirstVersion(e)
+	retry := e.orderAt(s, 0, 2, testESH+1)
+	e.dispatch(retry)
+	v := e.syncer.last(t)
+	if len(v.Rounds) != 2 || v.TaskHash != retry.TaskHash {
+		t.Fatalf("view of the retry = %+v", v)
+	}
+	if v.Rounds[0].EarliestSubmitHeight != testESH || v.Rounds[1].EarliestSubmitHeight != testESH+1 {
+		t.Fatalf("round heights = %d, %d; want %d, %d", v.Rounds[0].EarliestSubmitHeight, v.Rounds[1].EarliestSubmitHeight, testESH, testESH+1)
+	}
+}
+
 // A retry that fails before its first ticket shows only the earlier version's attempts: its record
 // without a winner names that version's task_hash, the version every ticket it lists was issued
 // for.

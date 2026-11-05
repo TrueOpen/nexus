@@ -666,12 +666,19 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 	for _, r := range view.Rounds {
 		roundKey := fmt.Sprintf("%s/%d/%d/%d", view.TaskID, view.Epoch, view.BoundChangeHeight, r.Number)
 		if !st.Rounds[roundKey] {
-			// A round names the version of its own tickets: a re-signed retry of a failed order
-			// continues the earlier version's rounds under a new task_hash.
+			// A round names the version of its own tickets and that version's
+			// earliest_submit_height, which chose the key generation its root and tickets were
+			// signed under: a re-signed retry of a failed order continues the earlier version's
+			// rounds under a new task_hash and height, and the earlier rounds may be queued only
+			// after it. Evidence that does not name a round's height is the order's.
 			version := view.RoundTaskHash(&r)
 			taskHash, err := hex.DecodeString(version)
 			if err != nil || len(taskHash) != 32 {
 				return nil, fmt.Errorf("task hash of round %d: %q", r.Number, version)
+			}
+			esh := r.EarliestSubmitHeight
+			if esh == 0 {
+				esh = order.GetEarliestSubmitHeight()
 			}
 			if len(r.RootDigest) != 32 {
 				return nil, fmt.Errorf("round %d binds no handraise root", r.Number)
@@ -686,7 +693,7 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 			}
 			items = append(items, &nexusv1.BuilderSyncItemV1{Item: &nexusv1.BuilderSyncItemV1_Round{Round: &nexusv1.BuilderSyncRoundV1{
 				TaskId: taskID, TaskHash: taskHash, VrfEpoch: view.Epoch, DispatchRound: r.Number,
-				Roster: &roster, RosterHash: r.RosterHash, HandraiseRoot: root, EarliestSubmitHeight: order.GetEarliestSubmitHeight(),
+				Roster: &roster, RosterHash: r.RosterHash, HandraiseRoot: root, EarliestSubmitHeight: esh,
 				UserAddress: order.GetUserAddress(), BoundChangeHeight: view.BoundChangeHeight,
 			}}})
 			st.Rounds[roundKey] = true

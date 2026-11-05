@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -231,5 +233,112 @@ func TestRecordOrTicketOfAnotherVersionThanItsRoundsIsRefused(t *testing.T) {
 	e.sync()
 	if c := e.copyOf(); c == nil || len(c.Rounds) != 2 || len(c.Rounds[1].Attempts) != 0 {
 		t.Fatalf("copy took a ticket of another version than its round: %+v", c)
+	}
+}
+
+// roundTicket is D's ticket of the fixture order's version taskHash (with its input inputHash) in
+// round number at rank, to target.
+func (e *env) roundTicket(taskHash, inputHash []byte, number, rank uint32, target party, slot uint32) dispatchevidence.Attempt {
+	f := e.fx
+	ticket := &taskv1.DispatchTicketV1{
+		SchemaVersion: 1, ChainId: testChainID, TaskId: f.taskID, TaskHash: taskHash, SessionId: f.sessionID, OrderSequence: f.sequence,
+		BuilderAddress: e.d.op, ReferenceHeight: 90, CandidatePoolSnapshotId: fill(0x66), VrfEpoch: testEpoch, VrfOutput: fill(0x99),
+		RosterHash: f.rosterHash[:], HandraiseRootDigest: f.rootDigest[:], DispatchRound: number, Rank: rank, Target: memberRef(target.op, slot),
+		AcceptDeadlineMs: 1, InputHash: inputHash, BoundChangeHeight: testBound, ServiceAuthorizationNonce: 1,
+	}
+	raw, hash := signWith(e.t, e.d.key, ticketName, ticket, func(s []byte) { ticket.BuilderServiceSignature = s })
+	return dispatchevidence.Attempt{Ticket: raw, Hash: hash[:], Rank: rank, Operator: target.op, Sent: true, Outcome: outcomeOut}
+}
+
+// retryAfterTwoRounds is D's evidence of the fixture order once its first version failed after
+// two rounds (each round's only ticket timed out) and the user's re-signed retry (a later
+// earliest_submit_height) opened round 2. Each round names its version and that version's
+// earliest_submit_height, as the dispatcher records them when the round's first ticket is issued.
+func (r *retried) retryAfterTwoRounds(e *env) *dispatchevidence.Order {
+	f := e.fx
+	v1 := hex.EncodeToString(f.taskHash)
+	first := e.roundTicket(f.taskHash, f.order.GetInputHash(), 0, 0, f.rejecter, 1)
+	second := e.roundTicket(f.taskHash, f.order.GetInputHash(), 1, 1, e.worker, 3)
+	first.Outcome, second.Outcome = outcomeTimeout, outcomeTimeout
+	retry := e.roundTicket(r.taskHash, r.order.GetInputHash(), 2, 0, f.rejecter, 1)
+	round := func(number uint32, version string, esh uint64, a dispatchevidence.Attempt) dispatchevidence.Round {
+		return dispatchevidence.Round{Number: number, TaskHash: version, EarliestSubmitHeight: esh, RootDigest: f.rootDigest[:], Roster: f.roster,
+			RosterHash: f.rosterHash[:], Attempts: []dispatchevidence.Attempt{a}}
+	}
+	return &dispatchevidence.Order{
+		SessionID: f.sessionHex(), Sequence: f.sequence, TaskID: f.taskHex(), TaskHash: hex.EncodeToString(r.taskHash),
+		Epoch: testEpoch, BoundChangeHeight: testBound, SignedOrder: r.signed, DeadlineBase: r.order.GetEarliestSubmitHeight(),
+		Rounds: []dispatchevidence.Round{
+			round(0, v1, testESH, first), round(1, v1, testESH, second),
+			round(2, hex.EncodeToString(r.taskHash), r.order.GetEarliestSubmitHeight(), retry),
+		},
+	}
+}
+
+// roundHeights is the earliest_submit_height of every round item D sent to operator, by round.
+func (e *env) roundHeights(operator string) map[uint32]uint64 {
+	heights := map[uint32]uint64{}
+	for _, req := range e.peers.requests[operator] {
+		for _, item := range req.GetBatch().GetItems() {
+			if round := item.GetRound(); round != nil {
+				heights[round.GetDispatchRound()] = round.GetEarliestSubmitHeight()
+			}
+		}
+	}
+	return heights
+}
+
+// A round names the earliest_submit_height of its own version, also when it is queued only after
+// the re-signed retry (later earliest_submit_height) took over the order's evidence: a member that
+// holds the failed version's first round takes its next one, and one that held none keeps every
+// round under its version's height (the key generation their signatures were made under).
+func TestRetryRoundItemsNameTheirVersionsSubmitHeight(t *testing.T) {
+	e := newEnv(t)
+	r := newRetried(e)
+	full := r.retryAfterTwoRounds(e)
+	firstRound := cloneView(e.fx.view)
+	firstRound.Rounds = []dispatchevidence.Round{full.Rounds[0]}
+	firstRound.Rounds[0].Attempts = []dispatchevidence.Attempt{e.roundTicket(e.fx.taskHash, e.fx.order.GetInputHash(), 0, 0, e.fx.rejecter, 1)}
+	e.s.OrderChanged(firstRound)
+	e.sync()
+	e.caughtUp()
+
+	// M goes away; the first version's round 1 is not queued (its root is not readable yet), and
+	// the retry's change is queued first.
+	e.peers.setFail(e.m.op, errors.New("M restarts"))
+	secondRound := cloneView(firstRound)
+	secondRound.Rounds = full.Rounds[:2]
+	root := e.roots[e.fx.rootDigest]
+	delete(e.roots, e.fx.rootDigest)
+	e.s.OrderChanged(secondRound)
+	e.sync()
+	e.roots[e.fx.rootDigest] = root
+	e.s.OrderChanged(full)
+	e.sync()
+
+	e.peers.setFail(e.m.op, nil)
+	e.clock.advance(time.Minute)
+	e.sync()
+	e.caughtUp()
+	retryESH := r.order.GetEarliestSubmitHeight()
+	if h := e.roundHeights(e.m.op); h[0] != testESH || h[1] != testESH || h[2] != retryESH {
+		t.Fatalf("round items name earliest_submit_height %v", h)
+	}
+	if c := e.copyOf(); c == nil || len(c.Rounds) != 3 {
+		t.Fatalf("copy = %+v", c)
+	}
+
+	// A member that held none of the order's rounds gets them all after the retry.
+	e = newEnv(t)
+	r = newRetried(e)
+	e.s.OrderChanged(r.retryAfterTwoRounds(e))
+	e.sync()
+	e.caughtUp()
+	if h := e.roundHeights(e.m.op); h[0] != testESH || h[1] != testESH || h[2] != retryESH {
+		t.Fatalf("round items name earliest_submit_height %v", h)
+	}
+	m, found, err := e.member.r.loadMember(memberKey(e.d.op, e.fx.sessionHex(), e.fx.sequence))
+	if err != nil || !found || m.Submit[e.fx.view.TaskHash] != testESH || m.Submit[hex.EncodeToString(r.taskHash)] != retryESH {
+		t.Fatalf("member's heights by version = %v (%v, %v)", m.Submit, found, err)
 	}
 }
