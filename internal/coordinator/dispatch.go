@@ -165,15 +165,15 @@ func (c *Coordinator) CheckOrder(ctx context.Context, o types.Order) error {
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil {
 		return fmt.Errorf("check order: signed order does not decode: %w", err)
 	}
-	if err := c.checkBuilderSet(ctx, signed.GetOrder()); err != nil {
-		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-		return err
+	err := c.checkBuilderSet(ctx, signed.GetOrder())
+	if err == nil {
+		err = c.dispatcher.Probe(ctx, o)
 	}
-	if err := c.dispatcher.Probe(ctx, o); err != nil {
-		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID, "err", err)
-		return err
+	if err != nil {
+		c.log.Info("order refused before input upload", "session_id", o.SessionID, "task_id", o.TaskID,
+			"model_id", hex.EncodeToString(signed.GetOrder().GetModelId()), "profile_version", signed.GetOrder().GetProfileVersion(), "err", err)
 	}
-	return nil
+	return err
 }
 
 const (

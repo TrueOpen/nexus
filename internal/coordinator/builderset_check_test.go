@@ -1,8 +1,10 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -42,6 +44,36 @@ func TestCheckOrderRefusesAStaleBuilderSet(t *testing.T) {
 	seedTestBuilderSet(c)
 	if err := c.CheckOrder(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
 		t.Fatalf("an order of the current snapshot reaches the dispatcher: %v", err)
+	}
+}
+
+// Each refusal before input upload is logged with the model and profile the order asked for, so a
+// NO_CAPACITY can be told apart from a model mismatch without the client's request.
+func TestCheckOrderLogsTheOrdersProfile(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	var buf bytes.Buffer
+	c.log = slog.New(slog.NewTextHandler(&buf, nil))
+	c.SetDispatcher(&fakeDispatcher{probeErr: dispatchdraw.ErrNoCapacity})
+	o := testPlaceholderOrder("session-1", "task-1")
+	want := "model_id=" + testModelIDHex + " profile_version=2"
+
+	c.active.Update(2, []types.BuilderRef{{Address: testBuilderSelf, Rank: 1}}, builderSetRef{
+		ID: "term-2", Hash: testBuilderSetRef.Hash,
+	})
+	if err := c.CheckOrder(context.Background(), o); !errors.Is(err, taskgroup.ErrBuilderSetStale) {
+		t.Fatalf("an order of a replaced snapshot: %v", err)
+	}
+	if line := buf.String(); !strings.Contains(line, "order refused before input upload") || !strings.Contains(line, want) {
+		t.Fatalf("stale refusal log = %q, want %q", line, want)
+	}
+
+	buf.Reset()
+	seedTestBuilderSet(c)
+	if err := c.CheckOrder(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
+		t.Fatalf("probe refusal: %v", err)
+	}
+	if line := buf.String(); !strings.Contains(line, "order refused before input upload") || !strings.Contains(line, want) {
+		t.Fatalf("probe refusal log = %q, want %q", line, want)
 	}
 }
 

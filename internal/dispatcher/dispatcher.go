@@ -566,14 +566,36 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if !ok {
 		return fmt.Errorf("%w: no handraise root yet", dispatchdraw.ErrNoCapacity)
 	}
-	head := d.cfg.Sessions.Head()
+	return probeRoot(root, signed.GetOrder(), d.cfg.Sessions.Head())
+}
+
+// probeRoot accepts an order the root holds an admitted handraise for that serves its profile, has
+// a free slot and is unexpired at head. Otherwise the NO_CAPACITY answer counts the root's leaves
+// passing each of these conditions in turn, so the first count of zero names the missing one.
+func probeRoot(root *handraise.IssuedRoot, o *taskv1.TaskOrderV3, head uint64) error {
+	var admitted, serving, free int
 	for _, leaf := range root.Leaves {
 		h := leaf.GetHandraise()
-		if leaf.GetAdmitted() && h.GetFreeSlotCount() > 0 && h.GetExpiryHeight() >= head && servesOrder(h, signed.GetOrder()) {
+		if !leaf.GetAdmitted() {
+			continue
+		}
+		admitted++
+		if !servesOrder(h, o) {
+			continue
+		}
+		serving++
+		if h.GetFreeSlotCount() == 0 {
+			continue
+		}
+		free++
+		if h.GetExpiryHeight() >= head {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity)
+	return fmt.Errorf("%w: no admitted handraise for model %x profile %d: root %d has %d leaves, %d admitted, "+
+		"%d serving the profile, %d of those with a free slot, 0 of those unexpired at head %d",
+		dispatchdraw.ErrNoCapacity, o.GetModelId(), o.GetProfileVersion(), root.Root.GetRootHeight(),
+		len(root.Leaves), admitted, serving, free, head)
 }
 
 // revokedKey is Probe's answer while this Builder's current service key is revoked: the key
