@@ -153,6 +153,8 @@ type service struct {
 	dispatchStream dispatchStreamServer
 	// dispatchRosters serves GetDispatchRoster (nil = Unimplemented).
 	dispatchRosters DispatchRosters
+	// supportRelay serves SubmitModelSupportConfirmation (nil = Unimplemented).
+	supportRelay SupportRelay
 	// memberReplicas holds the tasks this Builder keeps as a Task Builders group member (nil =
 	// none); taskRecords confirms from the chain which tasks are recorded with this Builder in
 	// their group, and replicaWait bounds the wait for a replica of one to catch up.

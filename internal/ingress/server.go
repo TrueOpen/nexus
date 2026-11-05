@@ -108,6 +108,7 @@ type Server struct {
 	outputStream         *outputStreamRuntime
 	dispatchStream       dispatchStreamServer
 	dispatchRosters      DispatchRosters
+	supportRelay         SupportRelay
 	memberReplicas       MemberReplicas
 	taskBuilders         TaskBuilders
 	replicaWait          time.Duration
@@ -228,6 +229,9 @@ func (s *Server) handler() http.Handler {
 	}
 	if s.dispatchStream != nil {
 		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))
+	}
+	if s.supportRelay != nil {
+		serviceOptions = append(serviceOptions, withSupportRelay(s.supportRelay))
 	}
 	if s.memberReplicas != nil {
 		serviceOptions = append(serviceOptions, withMemberReplicas(s.memberReplicas, s.taskBuilders, s.replicaWait))
