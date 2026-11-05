@@ -10,8 +10,9 @@ import (
 // DispatchConfig holds the off-chain parameters of direct dispatch: standing handraises, handraise
 // roots, accept timeouts and the local admission rules. They are not chain parameters, but every
 // Builder of a network must use the same handraise timing and accept timeout tiers, because Cortex
-// nodes keep one handraise schedule for all Builders they stream to. The defaults are placeholders
-// until the network calibrates them.
+// nodes keep one handraise schedule for all Builders they stream to. The handraise timing defaults
+// match the shipped Cortex configuration; all defaults are placeholders until the network
+// calibrates them.
 type DispatchConfig struct {
 	// HandraiseHeartbeatMs is how often a Cortex node re-signs an unchanged standing handraise.
 	HandraiseHeartbeatMs uint64 `yaml:"handraise_heartbeat_ms"`
@@ -66,9 +67,9 @@ type RTTTierConfig struct {
 
 func defaultDispatch() DispatchConfig {
 	return DispatchConfig{
-		HandraiseHeartbeatMs:         2000,
-		HandraiseTTLMs:               6000,
-		HandraiseMinChangeIntervalMs: 200,
+		HandraiseHeartbeatMs:         10000,
+		HandraiseTTLMs:               30000,
+		HandraiseMinChangeIntervalMs: 500,
 		HandraiseRootIntervalMs:      500,
 		AcceptTimeoutMsByRTTTier: []RTTTierConfig{
 			{MaxRTTMs: 50, AcceptTimeoutMs: 300},

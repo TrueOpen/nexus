@@ -104,14 +104,15 @@ task_data:
 
 # Direct dispatch: standing handraises from Cortex nodes, signed handraise roots and local
 # admission. These are off-chain parameters; the handraise timing and the accept timeout tiers must
-# be the same on every Builder of a network. The values below are placeholders until calibrated.
+# be the same on every Builder of a network, and the handraise timing the same as the Cortex nodes'
+# (the values below match the shipped Cortex configuration). They are placeholders until calibrated.
 dispatch:
   # A Cortex node re-signs an unchanged standing handraise this often.
-  handraise_heartbeat_ms: 2000
+  handraise_heartbeat_ms: 10000
   # A standing handraise not re-signed within this time leaves the roster; must exceed the heartbeat.
-  handraise_ttl_ms: 6000
+  handraise_ttl_ms: 30000
   # Minimum spacing of re-signs caused by a state change (free slots, profiles).
-  handraise_min_change_interval_ms: 200
+  handraise_min_change_interval_ms: 500
   # This Builder signs a new handraise root this often.
   handraise_root_interval_ms: 500
   # How far above this Builder's chain height a handraise's issued_height may be (this Builder

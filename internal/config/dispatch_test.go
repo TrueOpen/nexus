@@ -9,7 +9,7 @@ import (
 
 func TestDispatchDefaultsAreValid(t *testing.T) {
 	got := defaults().Dispatch
-	if got.HandraiseHeartbeatMs != 2000 || got.HandraiseTTLMs != 6000 || got.HandraiseMinChangeIntervalMs != 200 ||
+	if got.HandraiseHeartbeatMs != 10000 || got.HandraiseTTLMs != 30000 || got.HandraiseMinChangeIntervalMs != 500 ||
 		got.HandraiseRootIntervalMs != 500 || got.BuilderRTTAdmitMs != 300 || got.GPURejectRateThreshold != 0.5 ||
 		got.GPURejectRateSuspensionBlocks != 720 || got.BuilderTimeoutRateThreshold != 0.2 ||
 		len(got.AcceptTimeoutMsByRTTTier) != 3 || got.GPURejectRateMinSamples != 10 || got.HandraiseIssuedHeightToleranceBlocks != 3 ||
@@ -111,7 +111,7 @@ func TestLoadFileDispatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nexus.yaml")
 	body := strings.Join([]string{
 		"dispatch:",
-		"  handraise_ttl_ms: 9000",
+		"  handraise_ttl_ms: 39000",
 		"  builder_rtt_admit_ms: 0",
 		"  accept_timeout_ms_by_rtt_tier:",
 		"    - max_rtt_ms: 80",
@@ -128,7 +128,7 @@ func TestLoadFileDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := cfg.Dispatch
-	if got.HandraiseTTLMs != 9000 || got.BuilderRTTAdmitMs != 0 || got.HandraiseHeartbeatMs != 2000 ||
+	if got.HandraiseTTLMs != 39000 || got.BuilderRTTAdmitMs != 0 || got.HandraiseHeartbeatMs != 10000 ||
 		len(got.AcceptTimeoutMsByRTTTier) != 2 || got.AcceptTimeoutMsByRTTTier[1] != (RTTTierConfig{MaxRTTMs: 200, AcceptTimeoutMs: 800}) {
 		t.Fatalf("dispatch yaml = %+v", got)
 	}

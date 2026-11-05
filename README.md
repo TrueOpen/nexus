@@ -348,6 +348,9 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_BUILDER_BOND_AMOUNT` | (empty) | Initial Builder bond amount, sent as uint64 to `MsgBondBuilder.amount` |
 | `NEXUS_BUILDER_MONIKER` | (empty) | Forms the canonical metadata together with the P2P hint, written to the Registry as SHA-256 |
 | `NEXUS_BUILDER_P2P_HINT` | (empty) | P2P access hint in the Builder metadata |
+| `NEXUS_DISPATCH_HANDRAISE_HEARTBEAT_MS` | `10000` | How often a Cortex node re-signs an unchanged standing handraise; must match the Cortex nodes' `handraise.heartbeat_ms` |
+| `NEXUS_DISPATCH_HANDRAISE_TTL_MS` | `30000` | A standing handraise not re-signed within this time leaves the roster; must exceed the heartbeat and match the Cortex nodes' `handraise.ttl_ms` |
+| `NEXUS_DISPATCH_HANDRAISE_MIN_CHANGE_INTERVAL_MS` | `500` | Minimum spacing of re-signs caused by a state change, not above the heartbeat; must match the Cortex nodes' `handraise.min_change_interval_ms` |
 
 ## Output delivery
 
