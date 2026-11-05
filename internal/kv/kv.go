@@ -116,6 +116,9 @@ const (
 	// NSOps holds operator state: the optional drain (package drain) and the
 	// readiness write probe.
 	NSOps Namespace = "ops"
+	// NSSupportRelay holds the Cortex model support confirmations this Builder accepted to relay
+	// and has not seen settled on chain yet; key = chain id/epoch/operator (package supportrelay).
+	NSSupportRelay Namespace = "support_relay"
 )
 
 type Store interface {
