@@ -146,6 +146,28 @@ dispatch:
   answer_gas_base: 300000
   answer_gas_per_byte: 30
 
+# IngressAPI.SubmitModelSupportConfirmation: Cortex nodes hand this Builder their service-key-signed
+# model support confirmations (one per operator and epoch); the Builder account batches them into
+# MsgBatchConfirmModelSupport and pays the gas. Needs the account signer (identity keystore); without
+# it, or with enabled: false, the RPC is Unimplemented. Accepted confirmations are kept in data_dir
+# until the chain holds their DailySupport row or they can no longer be included.
+support_relay:
+  enabled: true
+  # Longest wait of an accepted confirmation before it is batched.
+  flush_interval: 5s
+  # This many held confirmations start a batch at once.
+  flush_items: 64
+  # Held confirmations beyond this are refused with RESOURCE_EXHAUSTED.
+  max_queued: 4096
+  # A confirmation must stay includable (before its expiry and its epoch's end) for this many blocks
+  # above the current height to be accepted or sent.
+  inclusion_margin_blocks: 3
+  # Gas limit of a batch: gas_base plus gas_per_confirmation per confirmation plus gas_per_model per
+  # model id. A batch that runs out of gas is split; a single confirmation is retried with more (up to 4x).
+  gas_base: 200000
+  gas_per_confirmation: 100000
+  gas_per_model: 50000
+
 # Production security switch: dev (default, behavior unchanged) | production.
 # production rejects: non-loopback plaintext chain/hub grpc_addr;
 # private_key_hex / private_key / keystore_password / service_keystore_password in identity;

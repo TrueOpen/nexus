@@ -659,6 +659,20 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	ingressOpts = append(ingressOpts,
 		ingress.WithRoute("GET "+ops.ReadinessPath, monitor.ReadinessHandler()),
 		ingress.WithRoute("GET "+ops.PublicStatsPath, monitor.PublicStatsHandler()))
+	// Cortex model support confirmations are relayed by the Builder account on the Hub chain.
+	supportRelay, err := newSupportRelay(log, cfg.SupportRelay, cfg.Chain.TxConfirm, authority, cfg.Identity.Bech32Prefix,
+		store, registrationChain, sg, taskSubmitter)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("support relay: %w", err)
+	}
+	if supportRelay != nil {
+		ingressOpts = append(ingressOpts, ingress.WithSupportRelay(supportRelay))
+		log.Info("model support relay enabled", "flush_interval", cfg.SupportRelay.FlushInterval,
+			"flush_items", cfg.SupportRelay.FlushItems, "max_queued", cfg.SupportRelay.MaxQueued)
+	} else {
+		log.Warn("model support relay NOT served (support_relay.enabled is false or no account signer)")
+	}
 	ing, err := ingress.New(log, cfg.Ingress, authParams, coord, ingressOpts...)
 	if err != nil {
 		_ = store.Close()
@@ -689,6 +703,10 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if orderPath != nil {
 		// Orders resume before streams are served, so the answers replayed to them find their tickets.
 		modules = insertBefore(modules, "dispatch-stream", module{"order-dispatch", orderPath.Start, orderPath.Stop})
+	}
+	if supportRelay != nil {
+		// Held confirmations resume batching before ingress takes new ones.
+		modules = insertBefore(modules, "ingress", module{"support-relay", supportRelay.Start, supportRelay.Stop})
 	}
 	// A drain request left while the daemon was down is taken before the order path resumes its
 	// orders (which would otherwise issue tickets) and before ingress takes new ones.

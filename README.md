@@ -282,6 +282,37 @@ Open items:
 - `OutputStreamHeaderV2` is verified and kept but not replayed: `SubscribeOutputResponse` has no
   header frame.
 
+## Model support relay
+
+`IngressAPI.SubmitModelSupportConfirmation` lets a Cortex node whose key cannot sign Cosmos
+transactions keep its model support fresh: it sends its service-key-signed
+`hub.v1.ModelSupportConfirmationV1` (protobuf bytes) for the current epoch, and this Builder batches
+it into `MsgBatchConfirmModelSupport`, signed and paid for by the Builder account. It needs the
+account signer and `support_relay.enabled` (default on); otherwise the RPC is `Unimplemented`.
+
+- Before accepting, the confirmation is decoded strictly (no unknown or repeated singular fields,
+  canonical values) and checked against live chain state: the current epoch, a registered Cortex
+  operator, its current ACTIVE service key and binding nonce as read from the chain (never a key
+  the caller presents, never a previous one), the signature over the
+  `TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1` digest, the expiry window, `inclusion_margin_blocks`
+  before its expiry and its epoch's end, a service bond that can still refresh (jailed can;
+  unbonding, exited and tombstoned cannot) and the Hub batch limits. Stale model support is no
+  obstacle: refreshing it is the point.
+- Errors: `INVALID_ARGUMENT` malformed, `UNAUTHENTICATED` bad signature, `FAILED_PRECONDITION` stale
+  epoch/key/nonce/expiry or no refresh eligibility, `ALREADY_EXISTS` other material for the
+  operator and epoch (queued here or accepted on chain), `RESOURCE_EXHAUSTED` Hub limits or a full
+  queue (`max_queued`), `UNAVAILABLE` chain state not readable. An error acknowledges nothing.
+- `relay_accepted=true` with `idempotent=false` means newly queued; `idempotent=true` means the same
+  digest and signature was already queued or is accepted on chain. Neither is an on-chain refresh:
+  the caller watches `DailySupport` and its `ModelSupport` rows.
+- Accepted confirmations are kept in `data_dir` across restarts. Every `flush_interval` (default 5s),
+  or once `flush_items` are held, they are rechecked, sorted by operator address bytes and sent in
+  batches within the Hub's confirmation, item and byte limits. A confirmation leaves the queue only
+  once the chain holds its `DailySupport` row, or once it can no longer be included (epoch ended,
+  expiry passed, key or nonce changed, eligibility lost) and a read made after that found no row,
+  never while a sent transaction could still land it. A batch the Hub refuses is split until the
+  failing confirmation stands alone; that one is dropped.
+
 ## Configuration (environment variables)
 
 The recommended way is to copy the example YAML and start. `nexus start` automatically loads
@@ -351,6 +382,11 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_DISPATCH_HANDRAISE_HEARTBEAT_MS` | `10000` | How often a Cortex node re-signs an unchanged standing handraise; must match the Cortex nodes' `handraise.heartbeat_ms` |
 | `NEXUS_DISPATCH_HANDRAISE_TTL_MS` | `30000` | A standing handraise not re-signed within this time leaves the roster; must exceed the heartbeat and match the Cortex nodes' `handraise.ttl_ms` |
 | `NEXUS_DISPATCH_HANDRAISE_MIN_CHANGE_INTERVAL_MS` | `500` | Minimum spacing of re-signs caused by a state change, not above the heartbeat; must match the Cortex nodes' `handraise.min_change_interval_ms` |
+| `NEXUS_SUPPORT_RELAY_ENABLED` | `true` | Serve `SubmitModelSupportConfirmation` (needs the account signer) |
+| `NEXUS_SUPPORT_RELAY_FLUSH_INTERVAL` | `5s` | Longest wait of an accepted support confirmation before it is batched |
+| `NEXUS_SUPPORT_RELAY_FLUSH_ITEMS` | `64` | Held support confirmations that start a batch at once |
+| `NEXUS_SUPPORT_RELAY_MAX_QUEUED` | `4096` | Held support confirmations beyond which new ones are refused |
+| `NEXUS_SUPPORT_RELAY_INCLUSION_MARGIN_BLOCKS` | `3` | Blocks a support confirmation must stay includable to be accepted or sent |
 
 ## Output delivery
 
@@ -755,6 +791,7 @@ internal/outputdelivery PREPARED/READY, subscribe, ACK, TTL and restart recovery
 internal/coordinator orchestration core: verify and settle stages (InferReceipt / OpenVerify / Settle) + CortexLink downlink
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
 internal/relay       custody of the selected Worker's signed InferReceipt (never payload blobs), written through to kv
+internal/supportrelay Cortex model support confirmations: validation, persistent queue, MsgBatchConfirmModelSupport batches
 internal/kv          local persistence (Pebble)
 internal/drain       service key rotation drain: stops new work, reports what remains
 internal/ops         readiness, diagnostics, public dispatch statistics, operator files under <data_dir>/ops
