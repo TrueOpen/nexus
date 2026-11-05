@@ -13,7 +13,7 @@ require (
 	connectrpc.com/grpcreflect v1.3.0
 	cosmossdk.io/api v0.9.2
 	github.com/TrueOpen/nexus/gen/trueopen v0.0.0-00010101000000-000000000000
-	github.com/TrueOpen/wire v0.5.1
+	github.com/TrueOpen/wire v0.6.0-anchor.1
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/cosmos/btcutil v1.0.5
 	github.com/cosmos/cosmos-sdk v0.53.6
@@ -117,3 +117,5 @@ require (
 	google.golang.org/grpc v1.79.3 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/TrueOpen/wire => github.com/yuqi19880516-ship-it/wire v0.6.0-anchor.1
