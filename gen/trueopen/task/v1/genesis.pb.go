@@ -88,8 +88,13 @@ type GenesisState struct {
 	// First acceptor facts include their signed binding/epoch context. Derived
 	// prune indexes are rebuilt and are not exported.
 	DispatchRoundAcceptors []*DispatchRoundAcceptorState `protobuf:"bytes,93,rep,name=dispatch_round_acceptors,json=dispatchRoundAcceptors,proto3" json:"dispatch_round_acceptors,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Anchor audits, validator votes and vote delegations (ADR-0040). Fields
+	// 74-93 belong to the Phase 1 dispatch contract; the anchor tables start at 94.
+	AnchorAudits         []*AnchorAuditState         `protobuf:"bytes,94,rep,name=anchor_audits,json=anchorAudits,proto3" json:"anchor_audits,omitempty"`
+	AnchorValidatorVotes []*AnchorValidatorVoteState `protobuf:"bytes,95,rep,name=anchor_validator_votes,json=anchorValidatorVotes,proto3" json:"anchor_validator_votes,omitempty"`
+	AnchorVoteKeys       []*AnchorVoteKeyState       `protobuf:"bytes,96,rep,name=anchor_vote_keys,json=anchorVoteKeys,proto3" json:"anchor_vote_keys,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *GenesisState) Reset() {
@@ -479,6 +484,27 @@ func (x *GenesisState) GetDispatchRoundAcceptors() []*DispatchRoundAcceptorState
 	return nil
 }
 
+func (x *GenesisState) GetAnchorAudits() []*AnchorAuditState {
+	if x != nil {
+		return x.AnchorAudits
+	}
+	return nil
+}
+
+func (x *GenesisState) GetAnchorValidatorVotes() []*AnchorValidatorVoteState {
+	if x != nil {
+		return x.AnchorValidatorVotes
+	}
+	return nil
+}
+
+func (x *GenesisState) GetAnchorVoteKeys() []*AnchorVoteKeyState {
+	if x != nil {
+		return x.AnchorVoteKeys
+	}
+	return nil
+}
+
 // TaskParamsHistoryState retains one superseded parameter body. Version zero
 // may name the chain's initial parameter set. Heights can coincide when several
 // governance updates execute in one block; the highest version wins at that H.
@@ -614,7 +640,7 @@ var File_task_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_task_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xc2#\n" +
+	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x14task/v1/anchor.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xa2%\n" +
 	"\fGenesisState\x12-\n" +
 	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12=\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateR\n" +
@@ -669,7 +695,10 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	"\x0eparams_history\x18Z \x03(\v2\x1f.task.v1.TaskParamsHistoryStateR\rparamsHistory\x12c\n" +
 	"\x1ctask_params_version_bindings\x18[ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x19taskParamsVersionBindings\x12i\n" +
 	"\x1fsession_params_version_bindings\x18\\ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x1csessionParamsVersionBindings\x12]\n" +
-	"\x18dispatch_round_acceptors\x18] \x03(\v2#.task.v1.DispatchRoundAcceptorStateR\x16dispatchRoundAcceptorsJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
+	"\x18dispatch_round_acceptors\x18] \x03(\v2#.task.v1.DispatchRoundAcceptorStateR\x16dispatchRoundAcceptors\x12>\n" +
+	"\ranchor_audits\x18^ \x03(\v2\x19.task.v1.AnchorAuditStateR\fanchorAudits\x12W\n" +
+	"\x16anchor_validator_votes\x18_ \x03(\v2!.task.v1.AnchorValidatorVoteStateR\x14anchorValidatorVotes\x12E\n" +
+	"\x10anchor_vote_keys\x18` \x03(\v2\x1b.task.v1.AnchorVoteKeyStateR\x0eanchorVoteKeysJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
 	"\x16TaskParamsHistoryState\x12%\n" +
 	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12-\n" +
 	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12%\n" +
@@ -744,6 +773,9 @@ var file_task_v1_genesis_proto_goTypes = []any{
 	(*TakeoverEntryReceiptState)(nil),                // 48: task.v1.TakeoverEntryReceiptState
 	(*VerifierValueEvidenceReceiptState)(nil),        // 49: task.v1.VerifierValueEvidenceReceiptState
 	(*DispatchRoundAcceptorState)(nil),               // 50: task.v1.DispatchRoundAcceptorState
+	(*AnchorAuditState)(nil),                         // 51: task.v1.AnchorAuditState
+	(*AnchorValidatorVoteState)(nil),                 // 52: task.v1.AnchorValidatorVoteState
+	(*AnchorVoteKeyState)(nil),                       // 53: task.v1.AnchorVoteKeyState
 }
 var file_task_v1_genesis_proto_depIdxs = []int32{
 	3,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
@@ -797,12 +829,15 @@ var file_task_v1_genesis_proto_depIdxs = []int32{
 	2,  // 48: task.v1.GenesisState.task_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
 	2,  // 49: task.v1.GenesisState.session_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
 	50, // 50: task.v1.GenesisState.dispatch_round_acceptors:type_name -> task.v1.DispatchRoundAcceptorState
-	3,  // 51: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
-	52, // [52:52] is the sub-list for method output_type
-	52, // [52:52] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	51, // 51: task.v1.GenesisState.anchor_audits:type_name -> task.v1.AnchorAuditState
+	52, // 52: task.v1.GenesisState.anchor_validator_votes:type_name -> task.v1.AnchorValidatorVoteState
+	53, // 53: task.v1.GenesisState.anchor_vote_keys:type_name -> task.v1.AnchorVoteKeyState
+	3,  // 54: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_genesis_proto_init() }
@@ -810,6 +845,7 @@ func file_task_v1_genesis_proto_init() {
 	if File_task_v1_genesis_proto != nil {
 		return
 	}
+	file_task_v1_anchor_proto_init()
 	file_task_v1_assignment_proto_init()
 	file_task_v1_challenge_proto_init()
 	file_task_v1_cleanup_proto_init()

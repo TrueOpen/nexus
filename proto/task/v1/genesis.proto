@@ -1,6 +1,7 @@
 syntax = "proto3";
 package task.v1;
 
+import "task/v1/anchor.proto";
 import "task/v1/assignment.proto";
 import "task/v1/challenge.proto";
 import "task/v1/cleanup.proto";
@@ -96,6 +97,11 @@ message GenesisState {
   // First acceptor facts include their signed binding/epoch context. Derived
   // prune indexes are rebuilt and are not exported.
   repeated DispatchRoundAcceptorState dispatch_round_acceptors = 93;
+  // Anchor audits, validator votes and vote delegations (ADR-0040). Fields
+  // 74-93 belong to the Phase 1 dispatch contract; the anchor tables start at 94.
+  repeated AnchorAuditState anchor_audits = 94;
+  repeated AnchorValidatorVoteState anchor_validator_votes = 95;
+  repeated AnchorVoteKeyState anchor_vote_keys = 96;
 }
 
 // TaskParamsHistoryState retains one superseded parameter body. Version zero

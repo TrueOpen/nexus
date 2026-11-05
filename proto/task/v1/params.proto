@@ -103,6 +103,21 @@ message VerificationParamsV1 {
   uint32 worker_infer_timeout_slash_bps = 1;
   uint32 result_reveal_missing_slash_bps = 4;
   uint32 builder_fault_slash_bps = 5;
+  // Basis points of the slashable bond D (fixed at sampling) taken when the
+  // validators REJECT the Worker's anchor proof (ADR-0040 v6). Zero disables it.
+  uint32 anchor_reject_slash_bps = 7;
+  // Validator voting window after the proof deadline (ADR-0040 v6). Must be > 0.
+  uint64 anchor_verdict_window_blocks = 8;
+  // Floor of the per-task audit probability in basis points.
+  uint32 anchor_audit_min_rate_bps = 9;
+  // Risk margin k (basis points) in s = k*R / (D + k*R); 10000 = 1x.
+  uint32 anchor_audit_risk_margin_bps = 10;
+  // Blocks after sampling within which the Worker must record its opening. Must be > 0.
+  uint64 anchor_open_window_blocks = 11;
+  // Blocks after the opening deadline within which the Worker must record its proof. Must be > 0.
+  uint64 anchor_proof_window_blocks = 12;
+  // Basis points of D taken when the Worker never opened or never proved by the deadline.
+  uint32 anchor_timeout_slash_bps = 13;
 }
 
 // EvidenceLimitParamsV1 bounds evidence payloads and supported version catalogs.

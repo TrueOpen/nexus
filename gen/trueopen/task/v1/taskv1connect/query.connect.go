@@ -47,6 +47,15 @@ const (
 	QueryTaskBuildersProcedure = "/task.v1.Query/TaskBuilders"
 	// QueryInferReceiptProcedure is the fully-qualified name of the Query's InferReceipt RPC.
 	QueryInferReceiptProcedure = "/task.v1.Query/InferReceipt"
+	// QueryAnchorAuditProcedure is the fully-qualified name of the Query's AnchorAudit RPC.
+	QueryAnchorAuditProcedure = "/task.v1.Query/AnchorAudit"
+	// QueryAnchorVotesProcedure is the fully-qualified name of the Query's AnchorVotes RPC.
+	QueryAnchorVotesProcedure = "/task.v1.Query/AnchorVotes"
+	// QueryAnchorAuditsPendingProcedure is the fully-qualified name of the Query's AnchorAuditsPending
+	// RPC.
+	QueryAnchorAuditsPendingProcedure = "/task.v1.Query/AnchorAuditsPending"
+	// QueryAnchorVoteKeyProcedure is the fully-qualified name of the Query's AnchorVoteKey RPC.
+	QueryAnchorVoteKeyProcedure = "/task.v1.Query/AnchorVoteKey"
 	// QueryWorkerEvidenceProcedure is the fully-qualified name of the Query's WorkerEvidence RPC.
 	QueryWorkerEvidenceProcedure = "/task.v1.Query/WorkerEvidence"
 	// QueryVerifierValueEvidenceProcedure is the fully-qualified name of the Query's
@@ -135,6 +144,14 @@ type QueryClient interface {
 	TaskBuilders(context.Context, *connect.Request[v1.QueryTaskBuildersRequest]) (*connect.Response[v1.QueryTaskBuildersResponse], error)
 	// InferReceipt returns one task's accepted inference receipt.
 	InferReceipt(context.Context, *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error)
+	// AnchorAudit returns the anchor commitment audit record of one task (ADR-0040).
+	AnchorAudit(context.Context, *connect.Request[v1.QueryAnchorAuditRequest]) (*connect.Response[v1.QueryAnchorAuditResponse], error)
+	// AnchorVotes returns the validator votes and tally of one task's anchor audit (ADR-0040 v4).
+	AnchorVotes(context.Context, *connect.Request[v1.QueryAnchorVotesRequest]) (*connect.Response[v1.QueryAnchorVotesResponse], error)
+	// AnchorAuditsPending pages over sampled, selected audits awaiting a final verdict (ADR-0040 v6).
+	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
+	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
+	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -244,6 +261,30 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryInferReceiptProcedure,
 			connect.WithSchema(queryMethods.ByName("InferReceipt")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorAudit: connect.NewClient[v1.QueryAnchorAuditRequest, v1.QueryAnchorAuditResponse](
+			httpClient,
+			baseURL+QueryAnchorAuditProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorAudit")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorVotes: connect.NewClient[v1.QueryAnchorVotesRequest, v1.QueryAnchorVotesResponse](
+			httpClient,
+			baseURL+QueryAnchorVotesProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorVotes")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorAuditsPending: connect.NewClient[v1.QueryAnchorAuditsPendingRequest, v1.QueryAnchorAuditsPendingResponse](
+			httpClient,
+			baseURL+QueryAnchorAuditsPendingProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorAuditsPending")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorVoteKey: connect.NewClient[v1.QueryAnchorVoteKeyRequest, v1.QueryAnchorVoteKeyResponse](
+			httpClient,
+			baseURL+QueryAnchorVoteKeyProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
 			connect.WithClientOptions(opts...),
 		),
 		workerEvidence: connect.NewClient[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse](
@@ -420,6 +461,10 @@ type queryClient struct {
 	taskBudget                          *connect.Client[v1.QueryTaskBudgetRequest, v1.QueryTaskBudgetResponse]
 	taskBuilders                        *connect.Client[v1.QueryTaskBuildersRequest, v1.QueryTaskBuildersResponse]
 	inferReceipt                        *connect.Client[v1.QueryInferReceiptRequest, v1.QueryInferReceiptResponse]
+	anchorAudit                         *connect.Client[v1.QueryAnchorAuditRequest, v1.QueryAnchorAuditResponse]
+	anchorVotes                         *connect.Client[v1.QueryAnchorVotesRequest, v1.QueryAnchorVotesResponse]
+	anchorAuditsPending                 *connect.Client[v1.QueryAnchorAuditsPendingRequest, v1.QueryAnchorAuditsPendingResponse]
+	anchorVoteKey                       *connect.Client[v1.QueryAnchorVoteKeyRequest, v1.QueryAnchorVoteKeyResponse]
 	workerEvidence                      *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
 	verifierValueEvidence               *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
 	verifierCandidateWindow             *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
@@ -482,6 +527,26 @@ func (c *queryClient) TaskBuilders(ctx context.Context, req *connect.Request[v1.
 // InferReceipt calls task.v1.Query.InferReceipt.
 func (c *queryClient) InferReceipt(ctx context.Context, req *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error) {
 	return c.inferReceipt.CallUnary(ctx, req)
+}
+
+// AnchorAudit calls task.v1.Query.AnchorAudit.
+func (c *queryClient) AnchorAudit(ctx context.Context, req *connect.Request[v1.QueryAnchorAuditRequest]) (*connect.Response[v1.QueryAnchorAuditResponse], error) {
+	return c.anchorAudit.CallUnary(ctx, req)
+}
+
+// AnchorVotes calls task.v1.Query.AnchorVotes.
+func (c *queryClient) AnchorVotes(ctx context.Context, req *connect.Request[v1.QueryAnchorVotesRequest]) (*connect.Response[v1.QueryAnchorVotesResponse], error) {
+	return c.anchorVotes.CallUnary(ctx, req)
+}
+
+// AnchorAuditsPending calls task.v1.Query.AnchorAuditsPending.
+func (c *queryClient) AnchorAuditsPending(ctx context.Context, req *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error) {
+	return c.anchorAuditsPending.CallUnary(ctx, req)
+}
+
+// AnchorVoteKey calls task.v1.Query.AnchorVoteKey.
+func (c *queryClient) AnchorVoteKey(ctx context.Context, req *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
+	return c.anchorVoteKey.CallUnary(ctx, req)
 }
 
 // WorkerEvidence calls task.v1.Query.WorkerEvidence.
@@ -640,6 +705,14 @@ type QueryHandler interface {
 	TaskBuilders(context.Context, *connect.Request[v1.QueryTaskBuildersRequest]) (*connect.Response[v1.QueryTaskBuildersResponse], error)
 	// InferReceipt returns one task's accepted inference receipt.
 	InferReceipt(context.Context, *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error)
+	// AnchorAudit returns the anchor commitment audit record of one task (ADR-0040).
+	AnchorAudit(context.Context, *connect.Request[v1.QueryAnchorAuditRequest]) (*connect.Response[v1.QueryAnchorAuditResponse], error)
+	// AnchorVotes returns the validator votes and tally of one task's anchor audit (ADR-0040 v4).
+	AnchorVotes(context.Context, *connect.Request[v1.QueryAnchorVotesRequest]) (*connect.Response[v1.QueryAnchorVotesResponse], error)
+	// AnchorAuditsPending pages over sampled, selected audits awaiting a final verdict (ADR-0040 v6).
+	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
+	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
+	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -745,6 +818,30 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryInferReceiptProcedure,
 		svc.InferReceipt,
 		connect.WithSchema(queryMethods.ByName("InferReceipt")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorAuditHandler := connect.NewUnaryHandler(
+		QueryAnchorAuditProcedure,
+		svc.AnchorAudit,
+		connect.WithSchema(queryMethods.ByName("AnchorAudit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorVotesHandler := connect.NewUnaryHandler(
+		QueryAnchorVotesProcedure,
+		svc.AnchorVotes,
+		connect.WithSchema(queryMethods.ByName("AnchorVotes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorAuditsPendingHandler := connect.NewUnaryHandler(
+		QueryAnchorAuditsPendingProcedure,
+		svc.AnchorAuditsPending,
+		connect.WithSchema(queryMethods.ByName("AnchorAuditsPending")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorVoteKeyHandler := connect.NewUnaryHandler(
+		QueryAnchorVoteKeyProcedure,
+		svc.AnchorVoteKey,
+		connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryWorkerEvidenceHandler := connect.NewUnaryHandler(
@@ -925,6 +1022,14 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryTaskBuildersHandler.ServeHTTP(w, r)
 		case QueryInferReceiptProcedure:
 			queryInferReceiptHandler.ServeHTTP(w, r)
+		case QueryAnchorAuditProcedure:
+			queryAnchorAuditHandler.ServeHTTP(w, r)
+		case QueryAnchorVotesProcedure:
+			queryAnchorVotesHandler.ServeHTTP(w, r)
+		case QueryAnchorAuditsPendingProcedure:
+			queryAnchorAuditsPendingHandler.ServeHTTP(w, r)
+		case QueryAnchorVoteKeyProcedure:
+			queryAnchorVoteKeyHandler.ServeHTTP(w, r)
 		case QueryWorkerEvidenceProcedure:
 			queryWorkerEvidenceHandler.ServeHTTP(w, r)
 		case QueryVerifierValueEvidenceProcedure:
@@ -1014,6 +1119,22 @@ func (UnimplementedQueryHandler) TaskBuilders(context.Context, *connect.Request[
 
 func (UnimplementedQueryHandler) InferReceipt(context.Context, *connect.Request[v1.QueryInferReceiptRequest]) (*connect.Response[v1.QueryInferReceiptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.InferReceipt is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorAudit(context.Context, *connect.Request[v1.QueryAnchorAuditRequest]) (*connect.Response[v1.QueryAnchorAuditResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorAudit is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorVotes(context.Context, *connect.Request[v1.QueryAnchorVotesRequest]) (*connect.Response[v1.QueryAnchorVotesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorVotes is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorAuditsPending is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorVoteKey is not implemented"))
 }
 
 func (UnimplementedQueryHandler) WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error) {
