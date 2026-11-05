@@ -56,8 +56,8 @@ func (d *deadlineRecorder) log(event string) {
 }
 
 // Every frame the hub sends to a Cortex is written under a deadline, so a Cortex that stops
-// reading cannot hold the handler (and the hub's wait for its sender) forever; the end of the call
-// is written without one.
+// reading cannot hold the handler (and the hub's wait for its sender) forever. The end of the call,
+// written after the hub returns, is under a deadline too, which is not cleared.
 func TestDispatchStreamFrameWritesCarryADeadline(t *testing.T) {
 	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{}, AuthParams{Chain: testUserChain},
 		&fakeHandler{}, WithDispatchStream(echoServer{}))
@@ -85,13 +85,15 @@ func TestDispatchStreamFrameWritesCarryADeadline(t *testing.T) {
 	after := time.Now()
 
 	events := strings.Join(recorder.events, " ")
-	if !strings.HasSuffix(events, "set write clear write") {
-		t.Fatalf("response events = %q, want the echoed frame written between set and clear, then the end of the call", events)
+	if !strings.HasSuffix(events, "set write clear set write") {
+		t.Fatalf("response events = %q, want the echoed frame written between set and clear, then the end of the call after a set", events)
 	}
-	if len(recorder.deadlines) != 1 {
-		t.Fatalf("deadlines = %v, want one per frame", recorder.deadlines)
+	if len(recorder.deadlines) != 2 {
+		t.Fatalf("deadlines = %v, want one per frame and one for the end of the call", recorder.deadlines)
 	}
-	if d := recorder.deadlines[0]; d.Before(before.Add(dispatchStreamWriteTimeout)) || d.After(after.Add(dispatchStreamWriteTimeout)) {
-		t.Fatalf("deadline %v is not %s after the write", d, dispatchStreamWriteTimeout)
+	for _, d := range recorder.deadlines {
+		if d.Before(before.Add(dispatchStreamWriteTimeout)) || d.After(after.Add(dispatchStreamWriteTimeout)) {
+			t.Fatalf("deadline %v is not %s after the write", d, dispatchStreamWriteTimeout)
+		}
 	}
 }

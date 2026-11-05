@@ -14,10 +14,11 @@ import (
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 )
 
-// dispatchStreamWriteTimeout bounds the write of one frame to a Cortex. Nothing else does: an
-// HTTP/2 write the peer's flow control holds back waits until the stream or the connection closes,
-// and the request context does not end it. A Cortex that leaves a frame unread this long stopped
-// reading; the deadline resets the stream, the write fails and the hub ends the stream.
+// dispatchStreamWriteTimeout bounds the write of one frame to a Cortex, and of the end of the call
+// after the hub returns. Nothing else does: an HTTP/2 write the peer's flow control holds back
+// waits until the stream or the connection closes, and the request context does not end it. A
+// Cortex that leaves a frame unread this long stopped reading; the deadline resets the stream, the
+// write fails and the hub ends the stream.
 const dispatchStreamWriteTimeout = 10 * time.Second
 
 type responseControllerKey struct{}
@@ -89,7 +90,13 @@ func serveDispatchStream(ctx context.Context, server dispatchStreamServer, bidi 
 	if rc, ok := ctx.Value(responseControllerKey{}).(*http.ResponseController); ok && rc.SetWriteDeadline(time.Time{}) == nil {
 		stream.setWriteDeadline = rc.SetWriteDeadline
 	}
-	return mapDispatchStreamErr(server.Serve(ctx, stream))
+	err := server.Serve(ctx, stream)
+	if stream.setWriteDeadline != nil {
+		// Connect writes the end of the call after the handler returns; it is bounded like a frame
+		// and the deadline stays, as nothing is written after it.
+		_ = stream.setWriteDeadline(time.Now().Add(dispatchStreamWriteTimeout))
+	}
+	return mapDispatchStreamErr(err)
 }
 
 // mapDispatchStreamErr turns the reason a stream ended into a Connect status. A Cortex that closed
