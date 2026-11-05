@@ -520,7 +520,8 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	if err != nil {
 		return err
 	}
-	candidate := dispatchevidence.Round{Number: round.GetDispatchRound(), Roster: rosterRaw, RosterHash: round.GetRosterHash()}
+	taskHash := hex.EncodeToString(round.GetTaskHash())
+	candidate := dispatchevidence.Round{Number: round.GetDispatchRound(), TaskHash: taskHash, Roster: rosterRaw, RosterHash: round.GetRosterHash()}
 	check := &dispatchevidence.Order{Rounds: []dispatchevidence.Round{candidate}}
 	if _, ok := check.RosterFor(r.cfg.ChainID, candidate.Number, candidate.RosterHash); !ok {
 		return errors.New("roster does not hash to roster_hash")
@@ -528,7 +529,6 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	if !bytes.Equal(round.GetRoster().GetTaskId(), round.GetTaskId()) {
 		return errors.New("roster is not the task's")
 	}
-	taskHash := hex.EncodeToString(round.GetTaskHash())
 	esh := round.GetEarliestSubmitHeight()
 	if held, ok := m.Submit[taskHash]; ok && held != esh {
 		return fmt.Errorf("round names earliest_submit_height %d, the order version's earlier rounds %d", esh, held)
@@ -568,21 +568,25 @@ func (r *Receiver) applyRound(ctx context.Context, m *memberStream, round *nexus
 	if _, held := o.Round(candidate.Number); held {
 		return fmt.Errorf("round %d is held already", candidate.Number)
 	}
-	if o.TaskHash != "" && o.TaskHash != taskHash {
-		return fmt.Errorf("round names task_hash %s, the task's earlier rounds %s", taskHash, o.TaskHash)
+	// Each round keeps the order version its round item names: a re-signed retry of a failed
+	// order (same task_id, new task_hash) continues the rounds in the same epoch and binding
+	// generation. A round held before rounds named their version is its copy's version.
+	for i := range o.Rounds {
+		o.Rounds[i].TaskHash = o.RoundTaskHash(&o.Rounds[i])
 	}
-	o.TaskHash = taskHash
 	o.DeadlineBase = max(o.DeadlineBase, esh, round.GetBoundChangeHeight())
 	o.Rounds = append(o.Rounds, candidate)
 	slices.SortFunc(o.Rounds, func(a, b dispatchevidence.Round) int { return int(a.Number) - int(b.Number) })
+	o.TaskHash = o.Rounds[len(o.Rounds)-1].TaskHash
 	m.TaskID, m.User = taskID, round.GetUserAddress()
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + taskID, Val: []byte(m.key())}
 	return r.put(ctx, o, m, index)
 }
 
 // roundOf returns the copy and round a ticket binds: the round held under the ticket's full scope
-// (task, bound_change_height, epoch and round number) with its roster_hash, root and task_hash. A
-// ticket is never matched to a round of another binding generation.
+// (task, bound_change_height, epoch and round number) with its roster_hash, root and the order
+// version (task_hash) the round named. A ticket is never matched to a round of another binding
+// generation or version.
 func (r *Receiver) roundOf(m *memberStream, ticket *taskv1.DispatchTicketV1) (*dispatchevidence.Order, *dispatchevidence.Round, error) {
 	o, err := r.copyOf(m, hex.EncodeToString(ticket.GetTaskId()), ticket.GetVrfEpoch(), ticket.GetBoundChangeHeight())
 	if err != nil {
@@ -591,12 +595,12 @@ func (r *Receiver) roundOf(m *memberStream, ticket *taskv1.DispatchTicketV1) (*d
 	if o == nil {
 		return nil, nil, errors.New("ticket of a round not held")
 	}
-	if hex.EncodeToString(ticket.GetTaskHash()) != o.TaskHash {
-		return nil, nil, errors.New("ticket's task_hash is not its round's")
-	}
 	round, held := o.Round(ticket.GetDispatchRound())
 	if !held || !bytes.Equal(round.RosterHash, ticket.GetRosterHash()) || !bytes.Equal(round.RootDigest, ticket.GetHandraiseRootDigest()) {
 		return nil, nil, fmt.Errorf("ticket's round %d is not held with its roster_hash and root", ticket.GetDispatchRound())
+	}
+	if hex.EncodeToString(ticket.GetTaskHash()) != o.RoundTaskHash(round) {
+		return nil, nil, errors.New("ticket's task_hash is not its round's")
 	}
 	return o, round, nil
 }
@@ -837,11 +841,25 @@ func (r *Receiver) applyRecord(ctx context.Context, m *memberStream, rec *nexusv
 	if err := r.verifyProof(ctx, recordName, recordRaw, m.submitOf(record.GetTaskHash()), &bound); err != nil {
 		return fmt.Errorf("record is not signed by the sender: %w", err)
 	}
-	if hex.EncodeToString(record.GetTaskHash()) != o.TaskHash {
+	if !recordVersionHeld(o, record) {
 		return errors.New("record's task_hash is not its rounds'")
 	}
 	o.Record = recordRaw
 	return r.put(ctx, o, m)
+}
+
+// recordVersionHeld reports whether a record names the order version (task_hash) of one of the
+// held rounds it lists. Its rounds may name different versions: a re-signed retry of a failed
+// order continues the earlier version's rounds, and its record lists them all under the retry's
+// task_hash.
+func recordVersionHeld(o *dispatchevidence.Order, record *taskv1.DispatchRecordV1) bool {
+	taskHash := hex.EncodeToString(record.GetTaskHash())
+	for _, listed := range record.GetRounds() {
+		if round, held := o.Round(listed.GetDispatchRound()); held && o.RoundTaskHash(round) == taskHash {
+			return true
+		}
+	}
+	return false
 }
 
 // recordBinding is the largest bound_change_height of the held tickets a record lists; every
@@ -903,14 +921,17 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv
 	if !found || ev.Builder != m.Sender || ev.SessionID != m.SessionID || ev.Sequence != m.Sequence {
 		return errors.New("result header's winner is not a ticket of the order held here")
 	}
-	if err := r.checkUserOrder(ctx, m, signed, ev.TaskHash); err != nil {
+	// The winner ticket names the order version recorded; the copy's rounds may also hold an
+	// earlier version's (a re-signed retry continues them).
+	taskHash := hex.EncodeToString(header.GetWinnerTicket().GetTaskHash())
+	if err := r.checkUserOrder(ctx, m, signed, taskHash); err != nil {
 		return err
 	}
 	// The rounds named the order version's earliest_submit_height, which chose the key generation
 	// their material was verified under; the signed order (its task_hash, checked above) is the
 	// authority for it.
 	esh := order.GetEarliestSubmitHeight()
-	named, ok := m.Submit[ev.TaskHash]
+	named, ok := m.Submit[taskHash]
 	switch {
 	case !ok:
 		return errors.New("no round of the recorded order version is held here")
@@ -967,7 +988,7 @@ func (r *Receiver) applyOrder(ctx context.Context, m *memberStream, item *nexusv
 	ev.DeadlineBase = max(ev.DeadlineBase, order.GetEarliestSubmitHeight())
 	m.Recorded, m.RecordedHeight = true, record.GetRecordedHeight()
 	m.Winner = &memberWinner{
-		TaskHash: ev.TaskHash, TicketHash: winnerHash[:], Ticket: held.Ticket, Accept: acceptRaw, AcceptDigest: acceptDigest[:],
+		TaskHash: taskHash, TicketHash: winnerHash[:], Ticket: held.Ticket, Accept: acceptRaw, AcceptDigest: acceptDigest[:],
 		Worker: held.Operator, Header: headerRaw, User: order.GetUserAddress(),
 	}
 	index := kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + ev.TaskID, Val: []byte(m.key())}

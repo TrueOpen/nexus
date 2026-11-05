@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -142,6 +143,7 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 			}
 			if round.RosterHash == nil {
 				round.RosterHash = ticket.GetRosterHash()
+				round.TaskHash = hex.EncodeToString(ticket.GetTaskHash())
 			}
 			ev.BoundChangeHeight = ticket.GetBoundChangeHeight()
 			ev.DeadlineBase = max(ev.DeadlineBase, ticket.GetBoundChangeHeight())
@@ -157,7 +159,8 @@ func (d *Dispatcher) evidenceView(st *orderState, recordedHeight uint64) (*dispa
 
 // recordWithoutWinner signs the record of an order that has no winner. It is refused while an
 // attempt is still out or ACCEPTED: this Builder never signs a record that shows an attempt it
-// has not decided, or a second winner.
+// has not decided, or a second winner. The record names the version of its last ticket: a
+// re-signed retry that failed before its first ticket shows only the earlier version's attempts.
 func (d *Dispatcher) recordWithoutWinner(st *orderState, last *taskv1.DispatchTicketV1) ([]byte, error) {
 	for _, r := range st.Rounds {
 		for _, a := range r.Attempts {
@@ -170,6 +173,7 @@ func (d *Dispatcher) recordWithoutWinner(st *orderState, last *taskv1.DispatchTi
 	if err != nil {
 		return nil, err
 	}
+	record.TaskHash = append([]byte(nil), last.GetTaskHash()...)
 	raw, _, err := signRecord(d.cfg.Signer.Key(), record)
 	return raw, err
 }

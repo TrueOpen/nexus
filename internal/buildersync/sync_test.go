@@ -1094,9 +1094,10 @@ func TestFailedChangeIsAppliedAgain(t *testing.T) {
 	}
 }
 
-// A later round of a task held already must carry the task_hash the copy holds: it never
-// replaces it.
-func TestLaterRoundKeepsTheTaskHash(t *testing.T) {
+// A later round of a task held already may name another task_hash: a re-signed retry of a failed
+// order continues its rounds under a new version. Each round keeps its own version and the copy
+// names the latest round's.
+func TestLaterRoundKeepsItsOwnTaskHash(t *testing.T) {
 	e := newEnv(t)
 	batch := e.firstBatch()
 	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" {
@@ -1110,11 +1111,13 @@ func TestLaterRoundKeepsTheTaskHash(t *testing.T) {
 	round.GetRound().TaskHash = fill(0x02)
 	next.Items = []*nexusv1.BuilderSyncItemV1{round}
 	resp, err := e.member.r.Sync(context.Background(), e.signed(next))
-	if err != nil || !strings.Contains(resp.GetRefused(), "task_hash") {
+	if err != nil || resp.GetRefused() != "" {
 		t.Fatalf("round with another task_hash = %v, %v", resp, err)
 	}
-	if c := e.copyOf(); c == nil || c.TaskHash != hex.EncodeToString(e.fx.taskHash) {
-		t.Fatalf("copy task_hash = %+v", c)
+	c := e.copyOf()
+	if c == nil || len(c.Rounds) != 2 || c.TaskHash != hexOf(fill(0x02)) ||
+		c.RoundTaskHash(&c.Rounds[0]) != hex.EncodeToString(e.fx.taskHash) || c.RoundTaskHash(&c.Rounds[1]) != hexOf(fill(0x02)) {
+		t.Fatalf("copy = %+v", c)
 	}
 }
 

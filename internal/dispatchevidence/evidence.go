@@ -60,7 +60,12 @@ func (a *Attempt) Rebuttable() bool { return Rebuttable(a.Sent, a.Outcome) }
 // Round is one dispatch round: its roster as sent (DispatchRosterV1), the roster_hash its tickets
 // commit, the handraise root they bind and its attempts in rank order.
 type Round struct {
-	Number     uint32 `json:"number"`
+	Number uint32 `json:"number"`
+	// TaskHash is the order version the round's tickets were issued for. A re-signed retry of an
+	// order whose dispatch failed (same task_id, new task_hash) continues its rounds, so the rounds
+	// of one Order may name different versions. Empty in evidence written before rounds named
+	// their version: the round is then Order.TaskHash's.
+	TaskHash   string `json:"task_hash,omitempty"`
 	RootDigest []byte `json:"root_digest"`
 	// SignedRoot is the SignedHandraiseRootV1 of RootDigest as synced, in a group member's copy;
 	// the dispatching Builder finds its own roots in its handraise registry instead.
@@ -70,8 +75,9 @@ type Round struct {
 	Attempts   []Attempt `json:"attempts"`
 }
 
-// Order is the evidence of one version of an order in one epoch and binding generation: the tickets
-// of one task_id under one VRF output and one bound_change_height.
+// Order is the evidence of an order in one epoch and binding generation: the tickets of one task_id
+// under one VRF output and one bound_change_height. TaskHash and SignedOrder are the latest
+// version's; each round names the version of its own tickets (Round.TaskHash).
 type Order struct {
 	// Builder is the order's dispatching Builder when this Builder holds the evidence as another
 	// member of the order's Task Builders group, synced from it; empty for this Builder's own orders.
@@ -132,6 +138,14 @@ func (o *Order) Attempt(hash []byte) (*Attempt, bool) {
 		}
 	}
 	return nil, false
+}
+
+// RoundTaskHash is the order version of round r of o.
+func (o *Order) RoundTaskHash(r *Round) string {
+	if r.TaskHash != "" {
+		return r.TaskHash
+	}
+	return o.TaskHash
 }
 
 // Round finds a round by number.

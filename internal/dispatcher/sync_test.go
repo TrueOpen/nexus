@@ -2,13 +2,16 @@ package dispatcher
 
 import (
 	"bytes"
+	"encoding/hex"
 	"sync"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
+	"github.com/TrueOpen/nexus/internal/inflight"
 )
 
 type fakeSync struct {
@@ -89,5 +92,63 @@ func TestRestartHandsHeldOrdersToTheSync(t *testing.T) {
 	e.restart()
 	if v := e.syncer.last(t); len(v.Rounds) != 1 || len(v.Rounds[0].Attempts) != 2 {
 		t.Fatalf("view after the restart = %+v", v)
+	}
+}
+
+// failFirstVersion dispatches version 1 of sequence 0 and fails it on the first reject (no skip
+// left), as an order whose dispatch failed before the client re-signs it.
+func failFirstVersion(e *env) string {
+	e.t.Helper()
+	e.d.SetParams(Params{MaxSkips: 0, Sticky: e.params.Sticky, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64})
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.reject()
+	if e.ledgerState(o) != inflight.StateFailed {
+		e.t.Fatal("first version not failed")
+	}
+	e.d.SetParams(e.params)
+	return s
+}
+
+// A re-signed retry (same task_id, new task_hash) continues the order's rounds: each round of the
+// evidence names the version whose tickets it holds, so the group can hold the earlier version's
+// rounds next to the retry's.
+func TestRetryRoundsNameTheirVersion(t *testing.T) {
+	e := withSync(newEnv(t))
+	s := failFirstVersion(e)
+	retry := e.order(s, 0, 2)
+	e.dispatch(retry)
+	v := e.syncer.last(t)
+	if len(v.Rounds) != 2 || v.TaskHash != retry.TaskHash {
+		t.Fatalf("view of the retry = %+v", v)
+	}
+	first := hex.EncodeToString(bytes.Repeat([]byte{1, 0}, 16))
+	if v.Rounds[0].TaskHash != first || v.Rounds[1].TaskHash != retry.TaskHash {
+		t.Fatalf("round versions = %q, %q; want %q, %q", v.Rounds[0].TaskHash, v.Rounds[1].TaskHash, first, retry.TaskHash)
+	}
+}
+
+// A retry that fails before its first ticket shows only the earlier version's attempts: its record
+// without a winner names that version's task_hash, the version every ticket it lists was issued
+// for.
+func TestRetryFailedBeforeItsFirstTicketKeepsTheEarlierVersionsRecord(t *testing.T) {
+	e := withSync(newEnv(t))
+	s := failFirstVersion(e)
+	e.drawer.mu.Lock()
+	e.drawer.err = dispatchdraw.ErrNoCapacity
+	e.drawer.mu.Unlock()
+	retry := e.order(s, 0, 2)
+	e.dispatch(retry)
+	if e.ledgerState(retry) != inflight.StateFailed {
+		t.Fatal("retry not failed")
+	}
+	v := e.syncer.last(t)
+	var rec taskv1.DispatchRecordV1
+	if err := proto.Unmarshal(v.Record, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if want := bytes.Repeat([]byte{1, 0}, 16); !bytes.Equal(rec.GetTaskHash(), want) {
+		t.Fatalf("record task_hash = %x, want the earlier version's %x", rec.GetTaskHash(), want)
 	}
 }

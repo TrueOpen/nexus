@@ -650,8 +650,8 @@ func (s *Sender) orderSnapshot(ctx context.Context, order *taskv1.TaskOrderV3) (
 }
 
 // diff returns the items of what view shows that st has not turned into items yet, and marks it
-// in st: a round (with the version's input the first time) before its attempts, an attempt
-// whenever it changed, the record whenever it changed.
+// in st: a round (with the current version's input after its first round) before its attempts,
+// an attempt whenever it changed, the record whenever it changed.
 func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence.Order) ([]*nexusv1.BuilderSyncItemV1, error) {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(view.SignedOrder, &signed); err != nil {
@@ -662,14 +662,17 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 	if err != nil {
 		return nil, fmt.Errorf("task id: %w", err)
 	}
-	taskHash, err := hex.DecodeString(view.TaskHash)
-	if err != nil {
-		return nil, fmt.Errorf("task hash: %w", err)
-	}
 	var items []*nexusv1.BuilderSyncItemV1
 	for _, r := range view.Rounds {
 		roundKey := fmt.Sprintf("%s/%d/%d/%d", view.TaskID, view.Epoch, view.BoundChangeHeight, r.Number)
 		if !st.Rounds[roundKey] {
+			// A round names the version of its own tickets: a re-signed retry of a failed order
+			// continues the earlier version's rounds under a new task_hash.
+			version := view.RoundTaskHash(&r)
+			taskHash, err := hex.DecodeString(version)
+			if err != nil || len(taskHash) != 32 {
+				return nil, fmt.Errorf("task hash of round %d: %q", r.Number, version)
+			}
 			if len(r.RootDigest) != 32 {
 				return nil, fmt.Errorf("round %d binds no handraise root", r.Number)
 			}
@@ -687,7 +690,9 @@ func (s *Sender) diff(ctx context.Context, st *outStream, view *dispatchevidence
 				UserAddress: order.GetUserAddress(), BoundChangeHeight: view.BoundChangeHeight,
 			}}})
 			st.Rounds[roundKey] = true
-			if !st.Inputs[view.TaskHash] {
+			// The input goes with the first round of the current version. An earlier version's
+			// input is no longer the task's stored input and is not sent.
+			if version == view.TaskHash && !st.Inputs[view.TaskHash] {
 				chunks, err := s.inputItems(ctx, view, order)
 				if err != nil {
 					return nil, err
