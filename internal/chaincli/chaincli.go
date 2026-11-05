@@ -130,6 +130,16 @@ type Client interface {
 	// QueryBusinessDenom reads hub params phase0.business_denom.
 	QueryBusinessDenom(ctx context.Context) (string, error)
 
+	// --- Model support relay queries (model_support.go) ---
+	// QuerySupportParams reads the epoch length, the service material expiry window and the
+	// support batch limits from one Hub params read.
+	QuerySupportParams(ctx context.Context) (SupportParams, error)
+	// QueryDailySupport reads the chain-accepted support confirmation of (operator, epoch);
+	// ErrNotFound when there is none.
+	QueryDailySupport(ctx context.Context, operator string, epoch uint64) (*hubv1.DailySupportState, error)
+	// QueryServiceBond reads an operator's service bond; ErrNotFound when there is none.
+	QueryServiceBond(ctx context.Context, operator string) (*hubv1.ServiceBondState, error)
+
 	// --- Phase 1 dispatch queries (dispatch_query.go, pool_query.go) ---
 	// QueryDispatchRecordByOrder reads the dispatch record admitted for (session_id, order_sequence).
 	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
