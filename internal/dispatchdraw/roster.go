@@ -49,32 +49,19 @@ func (r *Roster) Contains(m dispatch.RosterMember) bool {
 // is already a not-admitted leaf; one whose rotation was registered after that root stays in the
 // roster, and the dispatcher gives it a ticket that times out unsent when the rotation takes effect
 // at or below the order's earliest_submit_height (it is offered as usual otherwise). No root or no
-// member is ErrNoCapacity; a roster whose protobuf text exceeds maxBytes is ErrRosterTooLarge.
+// member is ErrNoCapacity (saying how far the root's leaves got through these conditions and how
+// the pool was built); a roster whose protobuf text exceeds maxBytes is ErrRosterTooLarge.
 func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, pool *Pool, height, maxBytes uint64) (*Roster, error) {
 	if maxBytes == 0 {
 		return nil, fmt.Errorf("max_dispatch_roster_bytes must be positive")
 	}
-	if root == nil {
-		return nil, ErrNoCapacity
+	members, err := rosterMembers(root, pool, height)
+	if err != nil {
+		return nil, err
 	}
-	r := &Roster{RootDigest: root.Digest, bySlot: map[uint32]dispatch.RosterMember{}}
-	for _, leaf := range root.Leaves {
-		h := leaf.GetHandraise()
-		if !leaf.GetAdmitted() || h.GetFreeSlotCount() == 0 || h.GetExpiryHeight() < height || !servesProfile(h, pool.Profile) {
-			continue
-		}
-		m, ok := pool.Member(h.GetMember().GetOperatorAddress())
-		if !ok {
-			continue
-		}
-		if _, dup := r.bySlot[m.Slot]; dup {
-			continue
-		}
+	r := &Roster{RootDigest: root.Digest, bySlot: make(map[uint32]dispatch.RosterMember, len(members)), members: members}
+	for _, m := range members {
 		r.bySlot[m.Slot] = m
-		r.members = append(r.members, m)
-	}
-	if len(r.members) == 0 {
-		return nil, ErrNoCapacity
 	}
 	sort.Slice(r.members, func(i, j int) bool { return r.members[i].Slot < r.members[j].Slot })
 
@@ -91,12 +78,57 @@ func BuildRoster(chainID string, taskID [32]byte, root *handraise.IssuedRoot, po
 	if size := uint64(proto.Size(r.Msg)); size > maxBytes {
 		return nil, fmt.Errorf("%w: %d > %d bytes", ErrRosterTooLarge, size, maxBytes)
 	}
-	var err error
 	r.Hash, err = dispatch.RosterDigest(chainID, taskID, ep.ReferenceHeight, ep.SnapshotID, r.members)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch roster hash: %w", err)
 	}
 	return r, nil
+}
+
+// CheckRoster reports whether a round of an order of pool's profile opened from root at height
+// would have a member: nil when it would, otherwise the NO_CAPACITY answer BuildRoster gives.
+func CheckRoster(root *handraise.IssuedRoot, pool *Pool, height uint64) error {
+	_, err := rosterMembers(root, pool, height)
+	return err
+}
+
+// rosterMembers returns the roster members BuildRoster takes from root, one per slot, in leaf
+// order. Without any it is ErrNoCapacity counting the root's leaves passing each roster condition
+// in turn, so the first count of zero names the missing one, with the pool's Summary.
+func rosterMembers(root *handraise.IssuedRoot, pool *Pool, height uint64) ([]dispatch.RosterMember, error) {
+	if root == nil {
+		return nil, fmt.Errorf("%w: no handraise root", ErrNoCapacity)
+	}
+	var members []dispatch.RosterMember
+	seen := map[uint32]bool{}
+	var admitted, serving, open int
+	for _, leaf := range root.Leaves {
+		h := leaf.GetHandraise()
+		if !leaf.GetAdmitted() {
+			continue
+		}
+		admitted++
+		if !servesProfile(h, pool.Profile) {
+			continue
+		}
+		serving++
+		if h.GetFreeSlotCount() == 0 || h.GetExpiryHeight() < height {
+			continue
+		}
+		open++
+		m, ok := pool.Member(h.GetMember().GetOperatorAddress())
+		if !ok || seen[m.Slot] {
+			continue
+		}
+		seen[m.Slot] = true
+		members = append(members, m)
+	}
+	if len(members) == 0 {
+		return nil, fmt.Errorf("%w: empty dispatch roster: root %d has %d leaves, %d admitted, %d serving the profile, "+
+			"%d of those with a free slot and unexpired at height %d, 0 of those in the pool; %s",
+			ErrNoCapacity, root.Root.GetRootHeight(), len(root.Leaves), admitted, serving, open, height, pool.Summary())
+	}
+	return members, nil
 }
 
 func servesProfile(h *taskv1.StandingHandraiseV1, p Profile) bool {

@@ -54,6 +54,12 @@ func (d *Drawer) Ready(ctx context.Context, ep Epoch) error {
 	return notReady
 }
 
+// CachedPool returns the dispatch pool of profile at ep when a draw already read it
+// (PoolCache.Cached).
+func (d *Drawer) CachedPool(ep Epoch, profile Profile) (*Pool, bool) {
+	return d.pools.Cached(ep, profile)
+}
+
 // Draw is the randomness context and full-pool order of one order, shared by all its tickets.
 type Draw struct {
 	Epoch Epoch

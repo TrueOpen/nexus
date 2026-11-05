@@ -2,6 +2,7 @@ package dispatchdraw
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -90,15 +91,33 @@ func TestRosterMembersComeFromThePool(t *testing.T) {
 	}
 }
 
+// An empty roster is NO_CAPACITY saying how far the root's leaves got through the roster
+// conditions (admitted, serving the profile, a free slot and unexpired, operator in the pool) and
+// how the pool was built; CheckRoster gives the same answer without building the roster.
 func TestEmptyRosterIsNoCapacity(t *testing.T) {
 	pool := vectorPool(t)
-	if _, err := BuildRoster(vectorChainID, vectorTaskID, nil, pool, 150, 1<<20); !errors.Is(err, ErrNoCapacity) {
+	if _, err := BuildRoster(vectorChainID, vectorTaskID, nil, pool, 150, 1<<20); !errors.Is(err, ErrNoCapacity) ||
+		err.Error() != "NEXUS_INGRESS_NO_CAPACITY: no handraise root" {
 		t.Fatalf("no root yet: %v", err)
 	}
-	root := issuedRoot(leaf(vectorOp7, 7, true, 0, 200, vectorProfile))
+	root := issuedRoot(
+		leaf(vectorOp7, 7, true, 0, 200, vectorProfile),
+		leaf(vectorOp3, 3, false, 1, 200, vectorProfile),
+		leaf(vectorOp1, 1, true, 1, 200, Profile{ModelID: otherModel, Version: 1}),
+		leaf("trueopen1notinpool", 9, true, 1, 200, vectorProfile),
+	)
 	_, err := BuildRoster(vectorChainID, vectorTaskID, root, pool, 150, 1<<20)
-	if !errors.Is(err, ErrNoCapacity) || err.Error() != "NEXUS_INGRESS_NO_CAPACITY" {
-		t.Fatalf("empty roster: %v", err)
+	want := fmt.Sprintf("%v: empty dispatch roster: root 99 has 4 leaves, 3 admitted, 2 serving the profile, "+
+		"1 of those with a free slot and unexpired at height 150, 0 of those in the pool; "+
+		"pool of model %x profile 1 at epoch 1: 3 of 3 snapshot members", ErrNoCapacity, vectorModel[:])
+	if !errors.Is(err, ErrNoCapacity) || err.Error() != want {
+		t.Fatalf("empty roster = %q\nwant           %q", err, want)
+	}
+	if err := CheckRoster(root, pool, 150); err == nil || err.Error() != want {
+		t.Fatalf("CheckRoster = %v", err)
+	}
+	if err := CheckRoster(issuedRoot(leaf(vectorOp7, 7, true, 1, 200, vectorProfile)), pool, 150); err != nil {
+		t.Fatalf("CheckRoster of a root with a roster member = %v", err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -249,5 +250,28 @@ func TestEmptyPoolCannotBeDrawn(t *testing.T) {
 	}
 	if _, err := pool.Draw(vectorChainID, fill32(1), 64); !errors.Is(err, ErrNoCapacity) {
 		t.Fatalf("draw of an empty pool: %v", err)
+	}
+}
+
+// An empty pool's NO_CAPACITY answer says how the pool was built from its snapshot: how many
+// members the snapshot lists and why each was left out, naming for a member the chain gave no
+// candidate_weight the pool condition its frozen inputs fail, when they show one.
+func TestEmptyPoolSaysWhyMembersAreLeftOut(t *testing.T) {
+	src := vectorPoolSource()
+	zero := uint64(0)
+	low := src.members[0].views[vectorProfile]
+	low.CandidateWeight, low.WeightInputs.AvailableBond = &zero, amount("499")
+	jailed := src.members[1].views[vectorProfile]
+	jailed.CandidateWeight, jailed.WeightInputs.CandidateJailFactorPpm = &zero, 0
+	src.members[2].views[vectorProfile].WeightInputs.Unbonding = true
+	pool, err := BuildPool(context.Background(), vectorChainID, src, vectorEpoch, vectorProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Draw(vectorChainID, fill32(1), 64)
+	want := fmt.Sprintf("%v: empty dispatch pool of model %x profile 1 at epoch 1: 0 of 3 snapshot members (left out: "+
+		"1 unbonding, 1 zero candidate_weight: available bond below min stake, 1 zero candidate_weight: jailed)", ErrNoCapacity, vectorModel[:])
+	if !errors.Is(err, ErrNoCapacity) || err.Error() != want {
+		t.Fatalf("draw of an empty pool = %q\nwant                  %q", err, want)
 	}
 }

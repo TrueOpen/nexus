@@ -131,6 +131,9 @@ type Drawer interface {
 	// dispatchdraw.ErrVRFKeyMismatch without a usable key, any other error a failed chain read.
 	Ready(ctx context.Context, ep dispatchdraw.Epoch) error
 	Draw(ctx context.Context, sessionID [32]byte, sequence, earliestSubmitHeight uint64, profile dispatchdraw.Profile, maxAttempts uint32) (*dispatchdraw.Draw, error)
+	// CachedPool returns the dispatch pool of profile at ep when an earlier draw already read it,
+	// without reading the chain.
+	CachedPool(ep dispatchdraw.Epoch, profile dispatchdraw.Profile) (*dispatchdraw.Pool, bool)
 }
 
 // Sessions reads session states and the head (inflight.SessionCache).
@@ -526,8 +529,11 @@ func (d *Dispatcher) sessionWindows(ctx context.Context, sessionID string) *disp
 // goes to another Builder), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
 // the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
 // Builder's current service key is revoked (revokedKey), its Builder VRF key cannot prove the
-// order's epoch (vrfKeyNotReady), or the latest handraise root holds no admitted, unexpired
-// handraise with a free slot for the order's profile. The walk decides the rest.
+// order's epoch (vrfKeyNotReady), the latest handraise root holds no admitted, unexpired
+// handraise with a free slot for the order's profile, or, when an earlier order of the epoch
+// already read the order's pool, no such handraise is a pool member's (the roster would be
+// empty). The pool is not read for Probe: building it reads every snapshot member from the
+// chain. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -566,7 +572,18 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if !ok {
 		return fmt.Errorf("%w: no handraise root yet", dispatchdraw.ErrNoCapacity)
 	}
-	return probeRoot(root, signed.GetOrder(), d.cfg.Sessions.Head())
+	head := d.cfg.Sessions.Head()
+	if err := probeRoot(root, signed.GetOrder(), head); err != nil {
+		return err
+	}
+	model := signed.GetOrder().GetModelId()
+	if len(model) != 32 {
+		return nil
+	}
+	if pool, ok := d.cfg.Drawer.CachedPool(epoch, dispatchdraw.Profile{ModelID: [32]byte(model), Version: signed.GetOrder().GetProfileVersion()}); ok {
+		return dispatchdraw.CheckRoster(root, pool, head)
+	}
+	return nil
 }
 
 // probeRoot accepts an order the root holds an admitted handraise for that serves its profile, has

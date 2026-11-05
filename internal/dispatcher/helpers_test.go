@@ -283,6 +283,14 @@ type fakeDrawer struct {
 	// readyErr fails Ready; readyAsked are the epochs Ready was asked for.
 	readyErr   error
 	readyAsked []dispatchdraw.Epoch
+	// cached is the pool CachedPool holds, nil for none.
+	cached *dispatchdraw.Pool
+}
+
+func (d *fakeDrawer) CachedPool(_ dispatchdraw.Epoch, profile dispatchdraw.Profile) (*dispatchdraw.Pool, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.cached, d.cached != nil && profile == testProfile
 }
 
 func (d *fakeDrawer) Ready(_ context.Context, ep dispatchdraw.Epoch) error {
