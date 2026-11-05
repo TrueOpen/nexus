@@ -1,6 +1,7 @@
 syntax = "proto3";
 package task.v1;
 
+import "task/v1/anchor.proto";
 import "task/v1/assignment.proto";
 import "task/v1/challenge.proto";
 import "task/v1/cleanup.proto";
@@ -74,4 +75,8 @@ message GenesisState {
   repeated TaskSettlementState task_settlements = 71;
   repeated SettlementFactsRetainedState settlement_facts_retained = 72;
   repeated WorkerEvidenceReceiptState worker_evidence_receipts = 73;
+  // Anchor audits, validator votes and vote delegations (ADR-0040).
+  repeated AnchorAuditState anchor_audits = 74;
+  repeated AnchorValidatorVoteState anchor_validator_votes = 75;
+  repeated AnchorVoteKeyState anchor_vote_keys = 76;
 }

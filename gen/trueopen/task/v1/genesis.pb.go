@@ -73,8 +73,12 @@ type GenesisState struct {
 	TaskSettlements                 []*TaskSettlementState                 `protobuf:"bytes,71,rep,name=task_settlements,json=taskSettlements,proto3" json:"task_settlements,omitempty"`
 	SettlementFactsRetained         []*SettlementFactsRetainedState        `protobuf:"bytes,72,rep,name=settlement_facts_retained,json=settlementFactsRetained,proto3" json:"settlement_facts_retained,omitempty"`
 	WorkerEvidenceReceipts          []*WorkerEvidenceReceiptState          `protobuf:"bytes,73,rep,name=worker_evidence_receipts,json=workerEvidenceReceipts,proto3" json:"worker_evidence_receipts,omitempty"`
-	unknownFields                   protoimpl.UnknownFields
-	sizeCache                       protoimpl.SizeCache
+	// Anchor audits, validator votes and vote delegations (ADR-0040).
+	AnchorAudits         []*AnchorAuditState         `protobuf:"bytes,74,rep,name=anchor_audits,json=anchorAudits,proto3" json:"anchor_audits,omitempty"`
+	AnchorValidatorVotes []*AnchorValidatorVoteState `protobuf:"bytes,75,rep,name=anchor_validator_votes,json=anchorValidatorVotes,proto3" json:"anchor_validator_votes,omitempty"`
+	AnchorVoteKeys       []*AnchorVoteKeyState       `protobuf:"bytes,76,rep,name=anchor_vote_keys,json=anchorVoteKeys,proto3" json:"anchor_vote_keys,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *GenesisState) Reset() {
@@ -401,11 +405,32 @@ func (x *GenesisState) GetWorkerEvidenceReceipts() []*WorkerEvidenceReceiptState
 	return nil
 }
 
+func (x *GenesisState) GetAnchorAudits() []*AnchorAuditState {
+	if x != nil {
+		return x.AnchorAudits
+	}
+	return nil
+}
+
+func (x *GenesisState) GetAnchorValidatorVotes() []*AnchorValidatorVoteState {
+	if x != nil {
+		return x.AnchorValidatorVotes
+	}
+	return nil
+}
+
+func (x *GenesisState) GetAnchorVoteKeys() []*AnchorVoteKeyState {
+	if x != nil {
+		return x.AnchorVoteKeys
+	}
+	return nil
+}
+
 var File_task_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_task_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\"\xcf\x1c\n" +
+	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x14task/v1/anchor.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\"\xaf\x1e\n" +
 	"\fGenesisState\x12-\n" +
 	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12=\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateR\n" +
@@ -451,7 +476,10 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	"\x10verifier_payouts\x18F \x03(\v2\x1c.task.v1.VerifierPayoutStateR\x0fverifierPayouts\x12G\n" +
 	"\x10task_settlements\x18G \x03(\v2\x1c.task.v1.TaskSettlementStateR\x0ftaskSettlements\x12a\n" +
 	"\x19settlement_facts_retained\x18H \x03(\v2%.task.v1.SettlementFactsRetainedStateR\x17settlementFactsRetained\x12]\n" +
-	"\x18worker_evidence_receipts\x18I \x03(\v2#.task.v1.WorkerEvidenceReceiptStateR\x16workerEvidenceReceiptsB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x18worker_evidence_receipts\x18I \x03(\v2#.task.v1.WorkerEvidenceReceiptStateR\x16workerEvidenceReceipts\x12>\n" +
+	"\ranchor_audits\x18J \x03(\v2\x19.task.v1.AnchorAuditStateR\fanchorAudits\x12W\n" +
+	"\x16anchor_validator_votes\x18K \x03(\v2!.task.v1.AnchorValidatorVoteStateR\x14anchorValidatorVotes\x12E\n" +
+	"\x10anchor_vote_keys\x18L \x03(\v2\x1b.task.v1.AnchorVoteKeyStateR\x0eanchorVoteKeysB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_genesis_proto_rawDescOnce sync.Once
@@ -510,6 +538,9 @@ var file_task_v1_genesis_proto_goTypes = []any{
 	(*TaskSettlementState)(nil),                      // 40: task.v1.TaskSettlementState
 	(*SettlementFactsRetainedState)(nil),             // 41: task.v1.SettlementFactsRetainedState
 	(*WorkerEvidenceReceiptState)(nil),               // 42: task.v1.WorkerEvidenceReceiptState
+	(*AnchorAuditState)(nil),                         // 43: task.v1.AnchorAuditState
+	(*AnchorValidatorVoteState)(nil),                 // 44: task.v1.AnchorValidatorVoteState
+	(*AnchorVoteKeyState)(nil),                       // 45: task.v1.AnchorVoteKeyState
 }
 var file_task_v1_genesis_proto_depIdxs = []int32{
 	1,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
@@ -554,11 +585,14 @@ var file_task_v1_genesis_proto_depIdxs = []int32{
 	40, // 39: task.v1.GenesisState.task_settlements:type_name -> task.v1.TaskSettlementState
 	41, // 40: task.v1.GenesisState.settlement_facts_retained:type_name -> task.v1.SettlementFactsRetainedState
 	42, // 41: task.v1.GenesisState.worker_evidence_receipts:type_name -> task.v1.WorkerEvidenceReceiptState
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	43, // 42: task.v1.GenesisState.anchor_audits:type_name -> task.v1.AnchorAuditState
+	44, // 43: task.v1.GenesisState.anchor_validator_votes:type_name -> task.v1.AnchorValidatorVoteState
+	45, // 44: task.v1.GenesisState.anchor_vote_keys:type_name -> task.v1.AnchorVoteKeyState
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_genesis_proto_init() }
@@ -566,6 +600,7 @@ func file_task_v1_genesis_proto_init() {
 	if File_task_v1_genesis_proto != nil {
 		return
 	}
+	file_task_v1_anchor_proto_init()
 	file_task_v1_assignment_proto_init()
 	file_task_v1_challenge_proto_init()
 	file_task_v1_cleanup_proto_init()

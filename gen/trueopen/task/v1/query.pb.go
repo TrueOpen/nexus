@@ -24,7 +24,7 @@ var File_task_v1_query_proto protoreflect.FileDescriptor
 
 const file_task_v1_query_proto_rawDesc = "" +
 	"\n" +
-	"\x13task/v1/query.proto\x12\atask.v1\x1a\x1btask/v1/query_session.proto\x1a$task/v1/query_settlement_build.proto\x1a\x18task/v1/query_task.proto2\xd4\x15\n" +
+	"\x13task/v1/query.proto\x12\atask.v1\x1a\x14task/v1/anchor.proto\x1a\x1btask/v1/query_session.proto\x1a$task/v1/query_settlement_build.proto\x1a\x18task/v1/query_task.proto2\xc2\x18\n" +
 	"\x05Query\x12K\n" +
 	"\x06Params\x12\x1f.task.v1.QueryTaskParamsRequest\x1a .task.v1.QueryTaskParamsResponse\x12=\n" +
 	"\x04Task\x12\x19.task.v1.QueryTaskRequest\x1a\x1a.task.v1.QueryTaskResponse\x12L\n" +
@@ -34,7 +34,11 @@ const file_task_v1_query_proto_rawDesc = "" +
 	"\n" +
 	"TaskBudget\x12\x1f.task.v1.QueryTaskBudgetRequest\x1a .task.v1.QueryTaskBudgetResponse\x12U\n" +
 	"\fTaskBuilders\x12!.task.v1.QueryTaskBuildersRequest\x1a\".task.v1.QueryTaskBuildersResponse\x12U\n" +
-	"\fInferReceipt\x12!.task.v1.QueryInferReceiptRequest\x1a\".task.v1.QueryInferReceiptResponse\x12[\n" +
+	"\fInferReceipt\x12!.task.v1.QueryInferReceiptRequest\x1a\".task.v1.QueryInferReceiptResponse\x12R\n" +
+	"\vAnchorAudit\x12 .task.v1.QueryAnchorAuditRequest\x1a!.task.v1.QueryAnchorAuditResponse\x12R\n" +
+	"\vAnchorVotes\x12 .task.v1.QueryAnchorVotesRequest\x1a!.task.v1.QueryAnchorVotesResponse\x12j\n" +
+	"\x13AnchorAuditsPending\x12(.task.v1.QueryAnchorAuditsPendingRequest\x1a).task.v1.QueryAnchorAuditsPendingResponse\x12X\n" +
+	"\rAnchorVoteKey\x12\".task.v1.QueryAnchorVoteKeyRequest\x1a#.task.v1.QueryAnchorVoteKeyResponse\x12[\n" +
 	"\x0eWorkerEvidence\x12#.task.v1.QueryWorkerEvidenceRequest\x1a$.task.v1.QueryWorkerEvidenceResponse\x12p\n" +
 	"\x15VerifierValueEvidence\x12*.task.v1.QueryVerifierValueEvidenceRequest\x1a+.task.v1.QueryVerifierValueEvidenceResponse\x12v\n" +
 	"\x17VerifierCandidateWindow\x12,.task.v1.QueryVerifierCandidateWindowRequest\x1a-.task.v1.QueryVerifierCandidateWindowResponse\x12g\n" +
@@ -67,56 +71,64 @@ var file_task_v1_query_proto_goTypes = []any{
 	(*QueryTaskBudgetRequest)(nil),               // 5: task.v1.QueryTaskBudgetRequest
 	(*QueryTaskBuildersRequest)(nil),             // 6: task.v1.QueryTaskBuildersRequest
 	(*QueryInferReceiptRequest)(nil),             // 7: task.v1.QueryInferReceiptRequest
-	(*QueryWorkerEvidenceRequest)(nil),           // 8: task.v1.QueryWorkerEvidenceRequest
-	(*QueryVerifierValueEvidenceRequest)(nil),    // 9: task.v1.QueryVerifierValueEvidenceRequest
-	(*QueryVerifierCandidateWindowRequest)(nil),  // 10: task.v1.QueryVerifierCandidateWindowRequest
-	(*QueryVerifierAssignmentRequest)(nil),       // 11: task.v1.QueryVerifierAssignmentRequest
-	(*QueryVerifyCommitRequest)(nil),             // 12: task.v1.QueryVerifyCommitRequest
-	(*QueryResultReceiptRequest)(nil),            // 13: task.v1.QueryResultReceiptRequest
-	(*QueryDataUnavailableReportsRequest)(nil),   // 14: task.v1.QueryDataUnavailableReportsRequest
-	(*QueryBuilderDataUnavailableRequest)(nil),   // 15: task.v1.QueryBuilderDataUnavailableRequest
-	(*QuerySettlementFactsRequest)(nil),          // 16: task.v1.QuerySettlementFactsRequest
-	(*QuerySettlementRequest)(nil),               // 17: task.v1.QuerySettlementRequest
-	(*QueryVerificationRoundRequest)(nil),        // 18: task.v1.QueryVerificationRoundRequest
-	(*QueryTaskGasReimbursementsRequest)(nil),    // 19: task.v1.QueryTaskGasReimbursementsRequest
-	(*QueryTaskFailureClassRequest)(nil),         // 20: task.v1.QueryTaskFailureClassRequest
-	(*QueryEvidenceCleanupRequest)(nil),          // 21: task.v1.QueryEvidenceCleanupRequest
-	(*QueryEpochTaskSummaryRequest)(nil),         // 22: task.v1.QueryEpochTaskSummaryRequest
-	(*QuerySessionRequest)(nil),                  // 23: task.v1.QuerySessionRequest
-	(*QuerySessionNonceRequest)(nil),             // 24: task.v1.QuerySessionNonceRequest
-	(*QuerySessionsByOwnerRequest)(nil),          // 25: task.v1.QuerySessionsByOwnerRequest
-	(*QuerySessionTerminalSummaryRequest)(nil),   // 26: task.v1.QuerySessionTerminalSummaryRequest
-	(*QueryOrderSequenceRequest)(nil),            // 27: task.v1.QueryOrderSequenceRequest
-	(*QueryRoleActiveTasksRequest)(nil),          // 28: task.v1.QueryRoleActiveTasksRequest
-	(*QueryTaskParamsResponse)(nil),              // 29: task.v1.QueryTaskParamsResponse
-	(*QueryTaskResponse)(nil),                    // 30: task.v1.QueryTaskResponse
-	(*QueryTaskStageResponse)(nil),               // 31: task.v1.QueryTaskStageResponse
-	(*QueryTaskAssignmentResponse)(nil),          // 32: task.v1.QueryTaskAssignmentResponse
-	(*QueryAssignmentRandomnessResponse)(nil),    // 33: task.v1.QueryAssignmentRandomnessResponse
-	(*QueryTaskBudgetResponse)(nil),              // 34: task.v1.QueryTaskBudgetResponse
-	(*QueryTaskBuildersResponse)(nil),            // 35: task.v1.QueryTaskBuildersResponse
-	(*QueryInferReceiptResponse)(nil),            // 36: task.v1.QueryInferReceiptResponse
-	(*QueryWorkerEvidenceResponse)(nil),          // 37: task.v1.QueryWorkerEvidenceResponse
-	(*QueryVerifierValueEvidenceResponse)(nil),   // 38: task.v1.QueryVerifierValueEvidenceResponse
-	(*QueryVerifierCandidateWindowResponse)(nil), // 39: task.v1.QueryVerifierCandidateWindowResponse
-	(*QueryVerifierAssignmentResponse)(nil),      // 40: task.v1.QueryVerifierAssignmentResponse
-	(*QueryVerifyCommitResponse)(nil),            // 41: task.v1.QueryVerifyCommitResponse
-	(*QueryResultReceiptResponse)(nil),           // 42: task.v1.QueryResultReceiptResponse
-	(*QueryDataUnavailableReportsResponse)(nil),  // 43: task.v1.QueryDataUnavailableReportsResponse
-	(*QueryBuilderDataUnavailableResponse)(nil),  // 44: task.v1.QueryBuilderDataUnavailableResponse
-	(*QuerySettlementFactsResponse)(nil),         // 45: task.v1.QuerySettlementFactsResponse
-	(*QuerySettlementResponse)(nil),              // 46: task.v1.QuerySettlementResponse
-	(*QueryVerificationRoundResponse)(nil),       // 47: task.v1.QueryVerificationRoundResponse
-	(*QueryTaskGasReimbursementsResponse)(nil),   // 48: task.v1.QueryTaskGasReimbursementsResponse
-	(*QueryTaskFailureClassResponse)(nil),        // 49: task.v1.QueryTaskFailureClassResponse
-	(*QueryEvidenceCleanupResponse)(nil),         // 50: task.v1.QueryEvidenceCleanupResponse
-	(*QueryEpochTaskSummaryResponse)(nil),        // 51: task.v1.QueryEpochTaskSummaryResponse
-	(*QuerySessionResponse)(nil),                 // 52: task.v1.QuerySessionResponse
-	(*QuerySessionNonceResponse)(nil),            // 53: task.v1.QuerySessionNonceResponse
-	(*QuerySessionsByOwnerResponse)(nil),         // 54: task.v1.QuerySessionsByOwnerResponse
-	(*QuerySessionTerminalSummaryResponse)(nil),  // 55: task.v1.QuerySessionTerminalSummaryResponse
-	(*QueryOrderSequenceResponse)(nil),           // 56: task.v1.QueryOrderSequenceResponse
-	(*QueryRoleActiveTasksResponse)(nil),         // 57: task.v1.QueryRoleActiveTasksResponse
+	(*QueryAnchorAuditRequest)(nil),              // 8: task.v1.QueryAnchorAuditRequest
+	(*QueryAnchorVotesRequest)(nil),              // 9: task.v1.QueryAnchorVotesRequest
+	(*QueryAnchorAuditsPendingRequest)(nil),      // 10: task.v1.QueryAnchorAuditsPendingRequest
+	(*QueryAnchorVoteKeyRequest)(nil),            // 11: task.v1.QueryAnchorVoteKeyRequest
+	(*QueryWorkerEvidenceRequest)(nil),           // 12: task.v1.QueryWorkerEvidenceRequest
+	(*QueryVerifierValueEvidenceRequest)(nil),    // 13: task.v1.QueryVerifierValueEvidenceRequest
+	(*QueryVerifierCandidateWindowRequest)(nil),  // 14: task.v1.QueryVerifierCandidateWindowRequest
+	(*QueryVerifierAssignmentRequest)(nil),       // 15: task.v1.QueryVerifierAssignmentRequest
+	(*QueryVerifyCommitRequest)(nil),             // 16: task.v1.QueryVerifyCommitRequest
+	(*QueryResultReceiptRequest)(nil),            // 17: task.v1.QueryResultReceiptRequest
+	(*QueryDataUnavailableReportsRequest)(nil),   // 18: task.v1.QueryDataUnavailableReportsRequest
+	(*QueryBuilderDataUnavailableRequest)(nil),   // 19: task.v1.QueryBuilderDataUnavailableRequest
+	(*QuerySettlementFactsRequest)(nil),          // 20: task.v1.QuerySettlementFactsRequest
+	(*QuerySettlementRequest)(nil),               // 21: task.v1.QuerySettlementRequest
+	(*QueryVerificationRoundRequest)(nil),        // 22: task.v1.QueryVerificationRoundRequest
+	(*QueryTaskGasReimbursementsRequest)(nil),    // 23: task.v1.QueryTaskGasReimbursementsRequest
+	(*QueryTaskFailureClassRequest)(nil),         // 24: task.v1.QueryTaskFailureClassRequest
+	(*QueryEvidenceCleanupRequest)(nil),          // 25: task.v1.QueryEvidenceCleanupRequest
+	(*QueryEpochTaskSummaryRequest)(nil),         // 26: task.v1.QueryEpochTaskSummaryRequest
+	(*QuerySessionRequest)(nil),                  // 27: task.v1.QuerySessionRequest
+	(*QuerySessionNonceRequest)(nil),             // 28: task.v1.QuerySessionNonceRequest
+	(*QuerySessionsByOwnerRequest)(nil),          // 29: task.v1.QuerySessionsByOwnerRequest
+	(*QuerySessionTerminalSummaryRequest)(nil),   // 30: task.v1.QuerySessionTerminalSummaryRequest
+	(*QueryOrderSequenceRequest)(nil),            // 31: task.v1.QueryOrderSequenceRequest
+	(*QueryRoleActiveTasksRequest)(nil),          // 32: task.v1.QueryRoleActiveTasksRequest
+	(*QueryTaskParamsResponse)(nil),              // 33: task.v1.QueryTaskParamsResponse
+	(*QueryTaskResponse)(nil),                    // 34: task.v1.QueryTaskResponse
+	(*QueryTaskStageResponse)(nil),               // 35: task.v1.QueryTaskStageResponse
+	(*QueryTaskAssignmentResponse)(nil),          // 36: task.v1.QueryTaskAssignmentResponse
+	(*QueryAssignmentRandomnessResponse)(nil),    // 37: task.v1.QueryAssignmentRandomnessResponse
+	(*QueryTaskBudgetResponse)(nil),              // 38: task.v1.QueryTaskBudgetResponse
+	(*QueryTaskBuildersResponse)(nil),            // 39: task.v1.QueryTaskBuildersResponse
+	(*QueryInferReceiptResponse)(nil),            // 40: task.v1.QueryInferReceiptResponse
+	(*QueryAnchorAuditResponse)(nil),             // 41: task.v1.QueryAnchorAuditResponse
+	(*QueryAnchorVotesResponse)(nil),             // 42: task.v1.QueryAnchorVotesResponse
+	(*QueryAnchorAuditsPendingResponse)(nil),     // 43: task.v1.QueryAnchorAuditsPendingResponse
+	(*QueryAnchorVoteKeyResponse)(nil),           // 44: task.v1.QueryAnchorVoteKeyResponse
+	(*QueryWorkerEvidenceResponse)(nil),          // 45: task.v1.QueryWorkerEvidenceResponse
+	(*QueryVerifierValueEvidenceResponse)(nil),   // 46: task.v1.QueryVerifierValueEvidenceResponse
+	(*QueryVerifierCandidateWindowResponse)(nil), // 47: task.v1.QueryVerifierCandidateWindowResponse
+	(*QueryVerifierAssignmentResponse)(nil),      // 48: task.v1.QueryVerifierAssignmentResponse
+	(*QueryVerifyCommitResponse)(nil),            // 49: task.v1.QueryVerifyCommitResponse
+	(*QueryResultReceiptResponse)(nil),           // 50: task.v1.QueryResultReceiptResponse
+	(*QueryDataUnavailableReportsResponse)(nil),  // 51: task.v1.QueryDataUnavailableReportsResponse
+	(*QueryBuilderDataUnavailableResponse)(nil),  // 52: task.v1.QueryBuilderDataUnavailableResponse
+	(*QuerySettlementFactsResponse)(nil),         // 53: task.v1.QuerySettlementFactsResponse
+	(*QuerySettlementResponse)(nil),              // 54: task.v1.QuerySettlementResponse
+	(*QueryVerificationRoundResponse)(nil),       // 55: task.v1.QueryVerificationRoundResponse
+	(*QueryTaskGasReimbursementsResponse)(nil),   // 56: task.v1.QueryTaskGasReimbursementsResponse
+	(*QueryTaskFailureClassResponse)(nil),        // 57: task.v1.QueryTaskFailureClassResponse
+	(*QueryEvidenceCleanupResponse)(nil),         // 58: task.v1.QueryEvidenceCleanupResponse
+	(*QueryEpochTaskSummaryResponse)(nil),        // 59: task.v1.QueryEpochTaskSummaryResponse
+	(*QuerySessionResponse)(nil),                 // 60: task.v1.QuerySessionResponse
+	(*QuerySessionNonceResponse)(nil),            // 61: task.v1.QuerySessionNonceResponse
+	(*QuerySessionsByOwnerResponse)(nil),         // 62: task.v1.QuerySessionsByOwnerResponse
+	(*QuerySessionTerminalSummaryResponse)(nil),  // 63: task.v1.QuerySessionTerminalSummaryResponse
+	(*QueryOrderSequenceResponse)(nil),           // 64: task.v1.QueryOrderSequenceResponse
+	(*QueryRoleActiveTasksResponse)(nil),         // 65: task.v1.QueryRoleActiveTasksResponse
 }
 var file_task_v1_query_proto_depIdxs = []int32{
 	0,  // 0: task.v1.Query.Params:input_type -> task.v1.QueryTaskParamsRequest
@@ -127,58 +139,66 @@ var file_task_v1_query_proto_depIdxs = []int32{
 	5,  // 5: task.v1.Query.TaskBudget:input_type -> task.v1.QueryTaskBudgetRequest
 	6,  // 6: task.v1.Query.TaskBuilders:input_type -> task.v1.QueryTaskBuildersRequest
 	7,  // 7: task.v1.Query.InferReceipt:input_type -> task.v1.QueryInferReceiptRequest
-	8,  // 8: task.v1.Query.WorkerEvidence:input_type -> task.v1.QueryWorkerEvidenceRequest
-	9,  // 9: task.v1.Query.VerifierValueEvidence:input_type -> task.v1.QueryVerifierValueEvidenceRequest
-	10, // 10: task.v1.Query.VerifierCandidateWindow:input_type -> task.v1.QueryVerifierCandidateWindowRequest
-	11, // 11: task.v1.Query.VerifierAssignment:input_type -> task.v1.QueryVerifierAssignmentRequest
-	12, // 12: task.v1.Query.VerifyCommit:input_type -> task.v1.QueryVerifyCommitRequest
-	13, // 13: task.v1.Query.ResultReceipt:input_type -> task.v1.QueryResultReceiptRequest
-	14, // 14: task.v1.Query.DataUnavailableReports:input_type -> task.v1.QueryDataUnavailableReportsRequest
-	15, // 15: task.v1.Query.BuilderDataUnavailable:input_type -> task.v1.QueryBuilderDataUnavailableRequest
-	16, // 16: task.v1.Query.SettlementFacts:input_type -> task.v1.QuerySettlementFactsRequest
-	17, // 17: task.v1.Query.Settlement:input_type -> task.v1.QuerySettlementRequest
-	18, // 18: task.v1.Query.VerificationRound:input_type -> task.v1.QueryVerificationRoundRequest
-	19, // 19: task.v1.Query.TaskGasReimbursements:input_type -> task.v1.QueryTaskGasReimbursementsRequest
-	20, // 20: task.v1.Query.TaskFailureClass:input_type -> task.v1.QueryTaskFailureClassRequest
-	21, // 21: task.v1.Query.EvidenceCleanup:input_type -> task.v1.QueryEvidenceCleanupRequest
-	22, // 22: task.v1.Query.EpochTaskSummary:input_type -> task.v1.QueryEpochTaskSummaryRequest
-	23, // 23: task.v1.Query.Session:input_type -> task.v1.QuerySessionRequest
-	24, // 24: task.v1.Query.SessionNonce:input_type -> task.v1.QuerySessionNonceRequest
-	25, // 25: task.v1.Query.SessionsByOwner:input_type -> task.v1.QuerySessionsByOwnerRequest
-	26, // 26: task.v1.Query.SessionTerminalSummary:input_type -> task.v1.QuerySessionTerminalSummaryRequest
-	27, // 27: task.v1.Query.OrderSequence:input_type -> task.v1.QueryOrderSequenceRequest
-	28, // 28: task.v1.Query.RoleActiveTasks:input_type -> task.v1.QueryRoleActiveTasksRequest
-	29, // 29: task.v1.Query.Params:output_type -> task.v1.QueryTaskParamsResponse
-	30, // 30: task.v1.Query.Task:output_type -> task.v1.QueryTaskResponse
-	31, // 31: task.v1.Query.TaskStage:output_type -> task.v1.QueryTaskStageResponse
-	32, // 32: task.v1.Query.TaskAssignment:output_type -> task.v1.QueryTaskAssignmentResponse
-	33, // 33: task.v1.Query.AssignmentRandomness:output_type -> task.v1.QueryAssignmentRandomnessResponse
-	34, // 34: task.v1.Query.TaskBudget:output_type -> task.v1.QueryTaskBudgetResponse
-	35, // 35: task.v1.Query.TaskBuilders:output_type -> task.v1.QueryTaskBuildersResponse
-	36, // 36: task.v1.Query.InferReceipt:output_type -> task.v1.QueryInferReceiptResponse
-	37, // 37: task.v1.Query.WorkerEvidence:output_type -> task.v1.QueryWorkerEvidenceResponse
-	38, // 38: task.v1.Query.VerifierValueEvidence:output_type -> task.v1.QueryVerifierValueEvidenceResponse
-	39, // 39: task.v1.Query.VerifierCandidateWindow:output_type -> task.v1.QueryVerifierCandidateWindowResponse
-	40, // 40: task.v1.Query.VerifierAssignment:output_type -> task.v1.QueryVerifierAssignmentResponse
-	41, // 41: task.v1.Query.VerifyCommit:output_type -> task.v1.QueryVerifyCommitResponse
-	42, // 42: task.v1.Query.ResultReceipt:output_type -> task.v1.QueryResultReceiptResponse
-	43, // 43: task.v1.Query.DataUnavailableReports:output_type -> task.v1.QueryDataUnavailableReportsResponse
-	44, // 44: task.v1.Query.BuilderDataUnavailable:output_type -> task.v1.QueryBuilderDataUnavailableResponse
-	45, // 45: task.v1.Query.SettlementFacts:output_type -> task.v1.QuerySettlementFactsResponse
-	46, // 46: task.v1.Query.Settlement:output_type -> task.v1.QuerySettlementResponse
-	47, // 47: task.v1.Query.VerificationRound:output_type -> task.v1.QueryVerificationRoundResponse
-	48, // 48: task.v1.Query.TaskGasReimbursements:output_type -> task.v1.QueryTaskGasReimbursementsResponse
-	49, // 49: task.v1.Query.TaskFailureClass:output_type -> task.v1.QueryTaskFailureClassResponse
-	50, // 50: task.v1.Query.EvidenceCleanup:output_type -> task.v1.QueryEvidenceCleanupResponse
-	51, // 51: task.v1.Query.EpochTaskSummary:output_type -> task.v1.QueryEpochTaskSummaryResponse
-	52, // 52: task.v1.Query.Session:output_type -> task.v1.QuerySessionResponse
-	53, // 53: task.v1.Query.SessionNonce:output_type -> task.v1.QuerySessionNonceResponse
-	54, // 54: task.v1.Query.SessionsByOwner:output_type -> task.v1.QuerySessionsByOwnerResponse
-	55, // 55: task.v1.Query.SessionTerminalSummary:output_type -> task.v1.QuerySessionTerminalSummaryResponse
-	56, // 56: task.v1.Query.OrderSequence:output_type -> task.v1.QueryOrderSequenceResponse
-	57, // 57: task.v1.Query.RoleActiveTasks:output_type -> task.v1.QueryRoleActiveTasksResponse
-	29, // [29:58] is the sub-list for method output_type
-	0,  // [0:29] is the sub-list for method input_type
+	8,  // 8: task.v1.Query.AnchorAudit:input_type -> task.v1.QueryAnchorAuditRequest
+	9,  // 9: task.v1.Query.AnchorVotes:input_type -> task.v1.QueryAnchorVotesRequest
+	10, // 10: task.v1.Query.AnchorAuditsPending:input_type -> task.v1.QueryAnchorAuditsPendingRequest
+	11, // 11: task.v1.Query.AnchorVoteKey:input_type -> task.v1.QueryAnchorVoteKeyRequest
+	12, // 12: task.v1.Query.WorkerEvidence:input_type -> task.v1.QueryWorkerEvidenceRequest
+	13, // 13: task.v1.Query.VerifierValueEvidence:input_type -> task.v1.QueryVerifierValueEvidenceRequest
+	14, // 14: task.v1.Query.VerifierCandidateWindow:input_type -> task.v1.QueryVerifierCandidateWindowRequest
+	15, // 15: task.v1.Query.VerifierAssignment:input_type -> task.v1.QueryVerifierAssignmentRequest
+	16, // 16: task.v1.Query.VerifyCommit:input_type -> task.v1.QueryVerifyCommitRequest
+	17, // 17: task.v1.Query.ResultReceipt:input_type -> task.v1.QueryResultReceiptRequest
+	18, // 18: task.v1.Query.DataUnavailableReports:input_type -> task.v1.QueryDataUnavailableReportsRequest
+	19, // 19: task.v1.Query.BuilderDataUnavailable:input_type -> task.v1.QueryBuilderDataUnavailableRequest
+	20, // 20: task.v1.Query.SettlementFacts:input_type -> task.v1.QuerySettlementFactsRequest
+	21, // 21: task.v1.Query.Settlement:input_type -> task.v1.QuerySettlementRequest
+	22, // 22: task.v1.Query.VerificationRound:input_type -> task.v1.QueryVerificationRoundRequest
+	23, // 23: task.v1.Query.TaskGasReimbursements:input_type -> task.v1.QueryTaskGasReimbursementsRequest
+	24, // 24: task.v1.Query.TaskFailureClass:input_type -> task.v1.QueryTaskFailureClassRequest
+	25, // 25: task.v1.Query.EvidenceCleanup:input_type -> task.v1.QueryEvidenceCleanupRequest
+	26, // 26: task.v1.Query.EpochTaskSummary:input_type -> task.v1.QueryEpochTaskSummaryRequest
+	27, // 27: task.v1.Query.Session:input_type -> task.v1.QuerySessionRequest
+	28, // 28: task.v1.Query.SessionNonce:input_type -> task.v1.QuerySessionNonceRequest
+	29, // 29: task.v1.Query.SessionsByOwner:input_type -> task.v1.QuerySessionsByOwnerRequest
+	30, // 30: task.v1.Query.SessionTerminalSummary:input_type -> task.v1.QuerySessionTerminalSummaryRequest
+	31, // 31: task.v1.Query.OrderSequence:input_type -> task.v1.QueryOrderSequenceRequest
+	32, // 32: task.v1.Query.RoleActiveTasks:input_type -> task.v1.QueryRoleActiveTasksRequest
+	33, // 33: task.v1.Query.Params:output_type -> task.v1.QueryTaskParamsResponse
+	34, // 34: task.v1.Query.Task:output_type -> task.v1.QueryTaskResponse
+	35, // 35: task.v1.Query.TaskStage:output_type -> task.v1.QueryTaskStageResponse
+	36, // 36: task.v1.Query.TaskAssignment:output_type -> task.v1.QueryTaskAssignmentResponse
+	37, // 37: task.v1.Query.AssignmentRandomness:output_type -> task.v1.QueryAssignmentRandomnessResponse
+	38, // 38: task.v1.Query.TaskBudget:output_type -> task.v1.QueryTaskBudgetResponse
+	39, // 39: task.v1.Query.TaskBuilders:output_type -> task.v1.QueryTaskBuildersResponse
+	40, // 40: task.v1.Query.InferReceipt:output_type -> task.v1.QueryInferReceiptResponse
+	41, // 41: task.v1.Query.AnchorAudit:output_type -> task.v1.QueryAnchorAuditResponse
+	42, // 42: task.v1.Query.AnchorVotes:output_type -> task.v1.QueryAnchorVotesResponse
+	43, // 43: task.v1.Query.AnchorAuditsPending:output_type -> task.v1.QueryAnchorAuditsPendingResponse
+	44, // 44: task.v1.Query.AnchorVoteKey:output_type -> task.v1.QueryAnchorVoteKeyResponse
+	45, // 45: task.v1.Query.WorkerEvidence:output_type -> task.v1.QueryWorkerEvidenceResponse
+	46, // 46: task.v1.Query.VerifierValueEvidence:output_type -> task.v1.QueryVerifierValueEvidenceResponse
+	47, // 47: task.v1.Query.VerifierCandidateWindow:output_type -> task.v1.QueryVerifierCandidateWindowResponse
+	48, // 48: task.v1.Query.VerifierAssignment:output_type -> task.v1.QueryVerifierAssignmentResponse
+	49, // 49: task.v1.Query.VerifyCommit:output_type -> task.v1.QueryVerifyCommitResponse
+	50, // 50: task.v1.Query.ResultReceipt:output_type -> task.v1.QueryResultReceiptResponse
+	51, // 51: task.v1.Query.DataUnavailableReports:output_type -> task.v1.QueryDataUnavailableReportsResponse
+	52, // 52: task.v1.Query.BuilderDataUnavailable:output_type -> task.v1.QueryBuilderDataUnavailableResponse
+	53, // 53: task.v1.Query.SettlementFacts:output_type -> task.v1.QuerySettlementFactsResponse
+	54, // 54: task.v1.Query.Settlement:output_type -> task.v1.QuerySettlementResponse
+	55, // 55: task.v1.Query.VerificationRound:output_type -> task.v1.QueryVerificationRoundResponse
+	56, // 56: task.v1.Query.TaskGasReimbursements:output_type -> task.v1.QueryTaskGasReimbursementsResponse
+	57, // 57: task.v1.Query.TaskFailureClass:output_type -> task.v1.QueryTaskFailureClassResponse
+	58, // 58: task.v1.Query.EvidenceCleanup:output_type -> task.v1.QueryEvidenceCleanupResponse
+	59, // 59: task.v1.Query.EpochTaskSummary:output_type -> task.v1.QueryEpochTaskSummaryResponse
+	60, // 60: task.v1.Query.Session:output_type -> task.v1.QuerySessionResponse
+	61, // 61: task.v1.Query.SessionNonce:output_type -> task.v1.QuerySessionNonceResponse
+	62, // 62: task.v1.Query.SessionsByOwner:output_type -> task.v1.QuerySessionsByOwnerResponse
+	63, // 63: task.v1.Query.SessionTerminalSummary:output_type -> task.v1.QuerySessionTerminalSummaryResponse
+	64, // 64: task.v1.Query.OrderSequence:output_type -> task.v1.QueryOrderSequenceResponse
+	65, // 65: task.v1.Query.RoleActiveTasks:output_type -> task.v1.QueryRoleActiveTasksResponse
+	33, // [33:66] is the sub-list for method output_type
+	0,  // [0:33] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -189,6 +209,7 @@ func file_task_v1_query_proto_init() {
 	if File_task_v1_query_proto != nil {
 		return
 	}
+	file_task_v1_anchor_proto_init()
 	file_task_v1_query_session_proto_init()
 	file_task_v1_query_settlement_build_proto_init()
 	file_task_v1_query_task_proto_init()

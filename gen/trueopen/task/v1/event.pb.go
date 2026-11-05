@@ -2754,11 +2754,105 @@ func (x *EventSessionKeyUpdated) GetSetHeight() uint64 {
 	return 0
 }
 
+// EventAnchorVerdictFinalized is emitted when an anchor audit verdict becomes
+// final (ADR-0040 v4): by validator vote, or by the verdict deadline.
+type EventAnchorVerdictFinalized struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Verdict       AnchorVerdictV1        `protobuf:"varint,2,opt,name=verdict,proto3,enum=task.v1.AnchorVerdictV1" json:"verdict,omitempty"`
+	Source        AnchorResultSourceV1   `protobuf:"varint,3,opt,name=source,proto3,enum=task.v1.AnchorResultSourceV1" json:"source,omitempty"`
+	PassPower     uint64                 `protobuf:"varint,4,opt,name=pass_power,json=passPower,proto3" json:"pass_power,omitempty"`
+	RejectPower   uint64                 `protobuf:"varint,5,opt,name=reject_power,json=rejectPower,proto3" json:"reject_power,omitempty"`
+	TotalPower    uint64                 `protobuf:"varint,6,opt,name=total_power,json=totalPower,proto3" json:"total_power,omitempty"`
+	Reason        string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventAnchorVerdictFinalized) Reset() {
+	*x = EventAnchorVerdictFinalized{}
+	mi := &file_task_v1_event_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventAnchorVerdictFinalized) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventAnchorVerdictFinalized) ProtoMessage() {}
+
+func (x *EventAnchorVerdictFinalized) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_event_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventAnchorVerdictFinalized.ProtoReflect.Descriptor instead.
+func (*EventAnchorVerdictFinalized) Descriptor() ([]byte, []int) {
+	return file_task_v1_event_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *EventAnchorVerdictFinalized) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *EventAnchorVerdictFinalized) GetVerdict() AnchorVerdictV1 {
+	if x != nil {
+		return x.Verdict
+	}
+	return AnchorVerdictV1_ANCHOR_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *EventAnchorVerdictFinalized) GetSource() AnchorResultSourceV1 {
+	if x != nil {
+		return x.Source
+	}
+	return AnchorResultSourceV1_ANCHOR_RESULT_SOURCE_V1_UNSPECIFIED
+}
+
+func (x *EventAnchorVerdictFinalized) GetPassPower() uint64 {
+	if x != nil {
+		return x.PassPower
+	}
+	return 0
+}
+
+func (x *EventAnchorVerdictFinalized) GetRejectPower() uint64 {
+	if x != nil {
+		return x.RejectPower
+	}
+	return 0
+}
+
+func (x *EventAnchorVerdictFinalized) GetTotalPower() uint64 {
+	if x != nil {
+		return x.TotalPower
+	}
+	return 0
+}
+
+func (x *EventAnchorVerdictFinalized) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_task_v1_event_proto protoreflect.FileDescriptor
 
 const file_task_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x13task/v1/event.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x16task/v1/deadline.proto\x1a\x18task/v1/settlement.proto\"`\n" +
+	"\x13task/v1/event.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x16task/v1/deadline.proto\x1a\x18task/v1/settlement.proto\x1a\x14task/v1/anchor.proto\"`\n" +
 	"\x13EventSessionCreated\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x14\n" +
@@ -2999,7 +3093,17 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\x05spent\x18\x06 \x01(\v2\x11.shared.v1.AmountR\x05spent\x12\x1d\n" +
 	"\n" +
 	"set_height\x18\a \x01(\x04R\tsetHeightB\x17\n" +
-	"\x15_session_key_or_empty*\x8a\x01\n" +
+	"\x15_session_key_or_empty\"\x9c\x02\n" +
+	"\x1bEventAnchorVerdictFinalized\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x122\n" +
+	"\averdict\x18\x02 \x01(\x0e2\x18.task.v1.AnchorVerdictV1R\averdict\x125\n" +
+	"\x06source\x18\x03 \x01(\x0e2\x1d.task.v1.AnchorResultSourceV1R\x06source\x12\x1d\n" +
+	"\n" +
+	"pass_power\x18\x04 \x01(\x04R\tpassPower\x12!\n" +
+	"\freject_power\x18\x05 \x01(\x04R\vrejectPower\x12\x1f\n" +
+	"\vtotal_power\x18\x06 \x01(\x04R\n" +
+	"totalPower\x12\x16\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason*\x8a\x01\n" +
 	"\x12RevealPhaseTrigger\x12$\n" +
 	" REVEAL_PHASE_TRIGGER_UNSPECIFIED\x10\x00\x12$\n" +
 	" REVEAL_PHASE_TRIGGER_ALL_COMMITS\x10\x01\x12(\n" +
@@ -3018,7 +3122,7 @@ func file_task_v1_event_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_task_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_task_v1_event_proto_goTypes = []any{
 	(RevealPhaseTrigger)(0),                   // 0: task.v1.RevealPhaseTrigger
 	(*EventSessionCreated)(nil),               // 1: task.v1.EventSessionCreated
@@ -3047,38 +3151,41 @@ var file_task_v1_event_proto_goTypes = []any{
 	(*EventTaskParamsUpdated)(nil),            // 24: task.v1.EventTaskParamsUpdated
 	(*TaskProtocolEventPayloadV1)(nil),        // 25: task.v1.TaskProtocolEventPayloadV1
 	(*EventSessionKeyUpdated)(nil),            // 26: task.v1.EventSessionKeyUpdated
-	(TaskFailureClass)(0),                     // 27: task.v1.TaskFailureClass
-	(v1.FailureClassificationSource)(0),       // 28: shared.v1.FailureClassificationSource
-	(*v1.Amount)(nil),                         // 29: shared.v1.Amount
-	(TaskVerdict)(0),                          // 30: task.v1.TaskVerdict
-	(DeadlineKindV1)(0),                       // 31: task.v1.DeadlineKindV1
-	(DeadlineTransitionCode)(0),               // 32: task.v1.DeadlineTransitionCode
-	(AssignmentFailureReason)(0),              // 33: task.v1.AssignmentFailureReason
-	(v1.RoundOutcomeV1)(0),                    // 34: shared.v1.RoundOutcomeV1
-	(TaskReimbursementKindV1)(0),              // 35: task.v1.TaskReimbursementKindV1
+	(*EventAnchorVerdictFinalized)(nil),       // 27: task.v1.EventAnchorVerdictFinalized
+	(TaskFailureClass)(0),                     // 28: task.v1.TaskFailureClass
+	(v1.FailureClassificationSource)(0),       // 29: shared.v1.FailureClassificationSource
+	(*v1.Amount)(nil),                         // 30: shared.v1.Amount
+	(TaskVerdict)(0),                          // 31: task.v1.TaskVerdict
+	(DeadlineKindV1)(0),                       // 32: task.v1.DeadlineKindV1
+	(DeadlineTransitionCode)(0),               // 33: task.v1.DeadlineTransitionCode
+	(AssignmentFailureReason)(0),              // 34: task.v1.AssignmentFailureReason
+	(v1.RoundOutcomeV1)(0),                    // 35: shared.v1.RoundOutcomeV1
+	(TaskReimbursementKindV1)(0),              // 36: task.v1.TaskReimbursementKindV1
+	(AnchorVerdictV1)(0),                      // 37: task.v1.AnchorVerdictV1
+	(AnchorResultSourceV1)(0),                 // 38: task.v1.AnchorResultSourceV1
 }
 var file_task_v1_event_proto_depIdxs = []int32{
 	0,  // 0: task.v1.EventRevealPhaseStarted.trigger:type_name -> task.v1.RevealPhaseTrigger
-	27, // 1: task.v1.EventTaskFailureClassUpdated.failure_class:type_name -> task.v1.TaskFailureClass
-	28, // 2: task.v1.EventTaskFailureClassUpdated.classification_source:type_name -> shared.v1.FailureClassificationSource
-	29, // 3: task.v1.EventWorkerAssignmentFinalized.reserved_amount:type_name -> shared.v1.Amount
-	30, // 4: task.v1.EventTaskSettled.verdict:type_name -> task.v1.TaskVerdict
-	27, // 5: task.v1.EventTaskSettled.failure_class:type_name -> task.v1.TaskFailureClass
-	31, // 6: task.v1.EventDeadlineSwept.deadline_kind:type_name -> task.v1.DeadlineKindV1
-	32, // 7: task.v1.EventDeadlineSwept.transition_code:type_name -> task.v1.DeadlineTransitionCode
-	27, // 8: task.v1.EventDeadlineSwept.failure_class:type_name -> task.v1.TaskFailureClass
-	33, // 9: task.v1.EventAssignmentFailed.reason:type_name -> task.v1.AssignmentFailureReason
-	29, // 10: task.v1.EventAssignmentFailed.refund_amount:type_name -> shared.v1.Amount
-	27, // 11: task.v1.EventWorkerTimeout.failure_class:type_name -> task.v1.TaskFailureClass
-	29, // 12: task.v1.EventWorkerTimeout.refund_amount:type_name -> shared.v1.Amount
-	27, // 13: task.v1.EventVerifyOpenTimeout.failure_class:type_name -> task.v1.TaskFailureClass
-	29, // 14: task.v1.EventVerifyOpenTimeout.refund_amount:type_name -> shared.v1.Amount
-	29, // 15: task.v1.EventChallengeRoundOpened.bond:type_name -> shared.v1.Amount
-	29, // 16: task.v1.EventChallengeRoundOpened.verifier_budget:type_name -> shared.v1.Amount
-	34, // 17: task.v1.EventVerificationRoundClosed.round_outcome:type_name -> shared.v1.RoundOutcomeV1
-	30, // 18: task.v1.EventVerificationRoundClosed.verdict:type_name -> task.v1.TaskVerdict
-	35, // 19: task.v1.EventTaskGasReimbursementRecorded.reimbursement_kind:type_name -> task.v1.TaskReimbursementKindV1
-	29, // 20: task.v1.EventTaskGasReimbursementRecorded.reimbursed_amount:type_name -> shared.v1.Amount
+	28, // 1: task.v1.EventTaskFailureClassUpdated.failure_class:type_name -> task.v1.TaskFailureClass
+	29, // 2: task.v1.EventTaskFailureClassUpdated.classification_source:type_name -> shared.v1.FailureClassificationSource
+	30, // 3: task.v1.EventWorkerAssignmentFinalized.reserved_amount:type_name -> shared.v1.Amount
+	31, // 4: task.v1.EventTaskSettled.verdict:type_name -> task.v1.TaskVerdict
+	28, // 5: task.v1.EventTaskSettled.failure_class:type_name -> task.v1.TaskFailureClass
+	32, // 6: task.v1.EventDeadlineSwept.deadline_kind:type_name -> task.v1.DeadlineKindV1
+	33, // 7: task.v1.EventDeadlineSwept.transition_code:type_name -> task.v1.DeadlineTransitionCode
+	28, // 8: task.v1.EventDeadlineSwept.failure_class:type_name -> task.v1.TaskFailureClass
+	34, // 9: task.v1.EventAssignmentFailed.reason:type_name -> task.v1.AssignmentFailureReason
+	30, // 10: task.v1.EventAssignmentFailed.refund_amount:type_name -> shared.v1.Amount
+	28, // 11: task.v1.EventWorkerTimeout.failure_class:type_name -> task.v1.TaskFailureClass
+	30, // 12: task.v1.EventWorkerTimeout.refund_amount:type_name -> shared.v1.Amount
+	28, // 13: task.v1.EventVerifyOpenTimeout.failure_class:type_name -> task.v1.TaskFailureClass
+	30, // 14: task.v1.EventVerifyOpenTimeout.refund_amount:type_name -> shared.v1.Amount
+	30, // 15: task.v1.EventChallengeRoundOpened.bond:type_name -> shared.v1.Amount
+	30, // 16: task.v1.EventChallengeRoundOpened.verifier_budget:type_name -> shared.v1.Amount
+	35, // 17: task.v1.EventVerificationRoundClosed.round_outcome:type_name -> shared.v1.RoundOutcomeV1
+	31, // 18: task.v1.EventVerificationRoundClosed.verdict:type_name -> task.v1.TaskVerdict
+	36, // 19: task.v1.EventTaskGasReimbursementRecorded.reimbursement_kind:type_name -> task.v1.TaskReimbursementKindV1
+	30, // 20: task.v1.EventTaskGasReimbursementRecorded.reimbursed_amount:type_name -> shared.v1.Amount
 	1,  // 21: task.v1.TaskProtocolEventPayloadV1.session_created:type_name -> task.v1.EventSessionCreated
 	2,  // 22: task.v1.TaskProtocolEventPayloadV1.order_cancelled:type_name -> task.v1.EventOrderCancelled
 	3,  // 23: task.v1.TaskProtocolEventPayloadV1.reveal_phase_started:type_name -> task.v1.EventRevealPhaseStarted
@@ -3104,13 +3211,15 @@ var file_task_v1_event_proto_depIdxs = []int32{
 	23, // 43: task.v1.TaskProtocolEventPayloadV1.verifier_handraises_accepted:type_name -> task.v1.EventVerifierHandraisesAccepted
 	26, // 44: task.v1.TaskProtocolEventPayloadV1.session_key_updated:type_name -> task.v1.EventSessionKeyUpdated
 	24, // 45: task.v1.TaskProtocolEventPayloadV1.task_params_updated:type_name -> task.v1.EventTaskParamsUpdated
-	29, // 46: task.v1.EventSessionKeyUpdated.spend_cap:type_name -> shared.v1.Amount
-	29, // 47: task.v1.EventSessionKeyUpdated.spent:type_name -> shared.v1.Amount
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	30, // 46: task.v1.EventSessionKeyUpdated.spend_cap:type_name -> shared.v1.Amount
+	30, // 47: task.v1.EventSessionKeyUpdated.spent:type_name -> shared.v1.Amount
+	37, // 48: task.v1.EventAnchorVerdictFinalized.verdict:type_name -> task.v1.AnchorVerdictV1
+	38, // 49: task.v1.EventAnchorVerdictFinalized.source:type_name -> task.v1.AnchorResultSourceV1
+	50, // [50:50] is the sub-list for method output_type
+	50, // [50:50] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_event_proto_init() }
@@ -3121,6 +3230,7 @@ func file_task_v1_event_proto_init() {
 	file_task_v1_assignment_proto_init()
 	file_task_v1_deadline_proto_init()
 	file_task_v1_settlement_proto_init()
+	file_task_v1_anchor_proto_init()
 	file_task_v1_event_proto_msgTypes[3].OneofWrappers = []any{}
 	file_task_v1_event_proto_msgTypes[4].OneofWrappers = []any{}
 	file_task_v1_event_proto_msgTypes[13].OneofWrappers = []any{}
@@ -3159,7 +3269,7 @@ func file_task_v1_event_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_event_proto_rawDesc), len(file_task_v1_event_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -70,11 +70,11 @@ const (
 	// Window in which the funded second verification round may be opened.
 	// DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE DeadlineKindV1 = 12
+	// Settlement is held until the anchor audit verdict is final (ADR-0040 v4).
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_VERDICT DeadlineKindV1 = 14
 	// EvidenceCleanupIndex bounded cursor; kind_priority 110.
 	// DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP DeadlineKindV1 = 13
-	// DEADLINE_KIND_V1_ANCHOR_VERDICT: settlement is held until the anchor audit verdict is final (ADR-0040 v4).
-	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_VERDICT DeadlineKindV1 = 14
 )
 
 // Enum value maps for DeadlineKindV1.
@@ -92,8 +92,8 @@ var (
 		10: "DEADLINE_KIND_V1_SESSION_LIFECYCLE",
 		11: "DEADLINE_KIND_V1_VERIFY_FINAL",
 		12: "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE",
-		13: "DEADLINE_KIND_V1_EVIDENCE_CLEANUP",
 		14: "DEADLINE_KIND_V1_ANCHOR_VERDICT",
+		13: "DEADLINE_KIND_V1_EVIDENCE_CLEANUP",
 	}
 	DeadlineKindV1_value = map[string]int32{
 		"DEADLINE_KIND_V1_UNSPECIFIED":            0,
@@ -108,8 +108,8 @@ var (
 		"DEADLINE_KIND_V1_SESSION_LIFECYCLE":      10,
 		"DEADLINE_KIND_V1_VERIFY_FINAL":           11,
 		"DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE": 12,
-		"DEADLINE_KIND_V1_EVIDENCE_CLEANUP":       13,
 		"DEADLINE_KIND_V1_ANCHOR_VERDICT":         14,
+		"DEADLINE_KIND_V1_EVIDENCE_CLEANUP":       13,
 	}
 )
 
@@ -733,9 +733,9 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\"DEADLINE_KIND_V1_SESSION_LIFECYCLE\x10\n" +
 	"\x12!\n" +
 	"\x1dDEADLINE_KIND_V1_VERIFY_FINAL\x10\v\x12+\n" +
-	"'DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE\x10\f\x12%\n" +
-	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r\x12#\n" +
-	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x0e*\xe5\x04\n" +
+	"'DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE\x10\f\x12#\n" +
+	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x0e\x12%\n" +
+	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r*\xe5\x04\n" +
 	"\x16DeadlineTransitionCode\x12(\n" +
 	"$DEADLINE_TRANSITION_CODE_UNSPECIFIED\x10\x00\x123\n" +
 	"/DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE\x10\x01\x123\n" +
