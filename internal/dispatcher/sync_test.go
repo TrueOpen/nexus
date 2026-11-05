@@ -147,6 +147,33 @@ func TestRetryRoundsNameTheirVersionsSubmitHeight(t *testing.T) {
 	}
 }
 
+// A late answer to a ticket of the failed version is verified under that version's
+// earliest_submit_height, the height its round names, not the retry's; a round stored before
+// rounds named it takes the order's.
+func TestEarlierVersionsTicketKeepsItsSubmitHeight(t *testing.T) {
+	e := withSync(newEnv(t))
+	s := failFirstVersion(e)
+	retry := e.orderAt(s, 0, 2, testESH+1)
+	e.dispatch(retry)
+	v := e.syncer.last(t)
+	first, second := v.Rounds[0].Attempts[0].Hash, v.Rounds[1].Attempts[0].Hash
+	if esh, _, ok := e.d.TicketProofContext(first); !ok || esh != testESH {
+		t.Fatalf("proof context of the failed version's ticket = %d, %v; want %d", esh, ok, testESH)
+	}
+	if esh, _, ok := e.d.TicketProofContext(second); !ok || esh != testESH+1 {
+		t.Fatalf("proof context of the retry's ticket = %d, %v; want %d", esh, ok, testESH+1)
+	}
+	e.d.mu.Lock()
+	o := e.d.tickets[string(first)]
+	e.d.mu.Unlock()
+	o.mu.Lock()
+	o.st.Rounds[0].EarliestSubmitHeight = 0
+	o.mu.Unlock()
+	if esh, _, ok := e.d.TicketProofContext(first); !ok || esh != testESH+1 {
+		t.Fatalf("proof context of a ticket in a round without its height = %d, %v; want the order's %d", esh, ok, testESH+1)
+	}
+}
+
 // A retry that fails before its first ticket shows only the earlier version's attempts: its record
 // without a winner names that version's task_hash, the version every ticket it lists was issued
 // for.

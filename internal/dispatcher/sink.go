@@ -23,7 +23,10 @@ var _ dispatchstream.DispatchSink = (*Dispatcher)(nil)
 
 // TicketProofContext implements dispatchstream.DispatchSink: the earliest_submit_height of the
 // signed order a ticket of this Builder was issued for, and the bound_change_height the ticket
-// commits.
+// commits. The height is the one the ticket's round names: a re-signed retry continues the rounds
+// of a failed version under a later height, and an answer to the failed version's ticket is signed
+// under the key generation of that version's. A round stored before rounds named it takes the
+// order's.
 func (d *Dispatcher) TicketProofContext(ticketHash []byte) (earliestSubmitHeight, boundChangeHeight uint64, ok bool) {
 	d.mu.Lock()
 	o := d.tickets[string(ticketHash)]
@@ -33,15 +36,23 @@ func (d *Dispatcher) TicketProofContext(ticketHash []byte) (earliestSubmitHeight
 	}
 	o.mu.Lock()
 	var raw []byte
-	if a := o.st.attemptByHash(ticketHash); a != nil {
-		raw = a.Ticket
+	esh := o.signed.GetOrder().GetEarliestSubmitHeight()
+	for _, r := range o.st.Rounds {
+		for _, a := range r.Attempts {
+			if string(a.Hash) == string(ticketHash) {
+				raw = a.Ticket
+				if r.EarliestSubmitHeight != 0 {
+					esh = r.EarliestSubmitHeight
+				}
+			}
+		}
 	}
 	o.mu.Unlock()
 	var ticket taskv1.DispatchTicketV1
 	if raw == nil || proto.Unmarshal(raw, &ticket) != nil {
 		return 0, 0, false
 	}
-	return o.signed.GetOrder().GetEarliestSubmitHeight(), ticket.GetBoundChangeHeight(), true
+	return esh, ticket.GetBoundChangeHeight(), true
 }
 
 // answered finds the ticket an accept or reject answers and checks the answer names that ticket's
