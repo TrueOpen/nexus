@@ -86,8 +86,11 @@ func TestDeleteObjectClearsItsOwnIndex(t *testing.T) {
 	}
 }
 
-// Two READY versions of one INPUT must not happen; if they do, the index is not repointed.
-func TestReadyInputDoesNotRepointIndexOfAnotherReadyVersion(t *testing.T) {
+// A re-signed retry of an order whose dispatch failed (same task_id, new task_hash) is the only
+// way a second INPUT version turns READY: the dispatcher refused every other version before its
+// input was marked READY. The retried version takes the index, so its Worker is served its own
+// input; the earlier version stays stored until its retention ends.
+func TestReadyRetriedInputTakesTheIndex(t *testing.T) {
 	var logs bytes.Buffer
 	store, _, _ := newTestStore(t, testStoreConfig())
 	store.log = slog.New(slog.NewTextHandler(&logs, nil))
@@ -96,15 +99,26 @@ func TestReadyInputDoesNotRepointIndexOfAnotherReadyVersion(t *testing.T) {
 	if _, err := store.MarkReady(context.Background(), first.Key); err != nil {
 		t.Fatal(err)
 	}
-	second := prepareObject(t, store, otherVersion([]byte("12345678")), []byte("12345678"))
-	if _, err := store.MarkReady(context.Background(), second.Key); err != nil {
+	retried := prepareObject(t, store, otherVersion([]byte("12345678")), []byte("12345678"))
+	if _, err := store.MarkReady(context.Background(), retried.Key); err != nil {
 		t.Fatal(err)
 	}
-	if ref, found := resolvedInput(t, store); !found || ref != first.Key {
-		t.Fatalf("index = %#v, %t; want the first READY version", ref, found)
+	if ref, found := resolvedInput(t, store); !found || ref != retried.Key {
+		t.Fatalf("index = %#v, %t; want the retried version", ref, found)
 	}
-	if !strings.Contains(logs.String(), "task input index names another READY version") {
-		t.Fatalf("missing invariant log: %s", logs.String())
+	if strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("retry logged an error: %s", logs.String())
+	}
+	if metadata, err := store.Metadata(context.Background(), first.Key); err != nil || metadata.State != StateReady {
+		t.Fatalf("earlier version = %+v, %v; want it kept READY", metadata, err)
+	}
+	// A repeated MarkReady of the earlier version only repairs a missing index: it does not take
+	// the index back.
+	if _, err := store.MarkReady(context.Background(), first.Key); err != nil {
+		t.Fatal(err)
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != retried.Key {
+		t.Fatalf("index after a repeated MarkReady of the earlier version = %#v, %t", ref, found)
 	}
 }
 

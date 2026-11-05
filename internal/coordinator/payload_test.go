@@ -89,10 +89,10 @@ func TestTerminalTaskRemovesItsInputVersion(t *testing.T) {
 	other := order
 	other.TaskHash = strings.Repeat("6f", 32)
 	other = withPayload(t, other, []byte("other input"))
-	// The other version becomes READY first and keeps the index (the store refuses to repoint an
-	// index that names a READY object), so only a delete by version can find the tracked one.
-	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
+	// The other version becomes READY last and takes the index (the version turning READY last is
+	// indexed), so only a delete by version can find the tracked one.
 	tracked := stageOrderInput(t, taskStore, order, []byte("tracked input"), true)
+	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
 	if ref, err := taskStore.ResolveObject(context.Background(), order.SessionID, order.TaskID, taskdata.ObjectKindInput); err != nil || ref != otherKey {
 		t.Fatalf("index = %#v, %v; want the other version", ref, err)
 	}

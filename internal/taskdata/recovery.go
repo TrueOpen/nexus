@@ -82,7 +82,7 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 				return err
 			}
 			if record.Metadata.Key.Kind == ObjectKindInput {
-				if err := s.indexInput(record.Metadata.Key); err != nil {
+				if err := s.indexInput(record.Metadata.Key, true); err != nil {
 					return err
 				}
 			}
@@ -181,7 +181,7 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 				return err
 			}
 			if record.Metadata.Key.Kind == ObjectKindInput {
-				if err := s.indexInput(record.Metadata.Key); err != nil {
+				if err := s.indexInput(record.Metadata.Key, true); err != nil {
 					return err
 				}
 			}
