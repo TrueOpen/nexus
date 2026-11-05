@@ -76,6 +76,9 @@ const (
 	// IngressAPISubmitVerifyResultProcedure is the fully-qualified name of the IngressAPI's
 	// SubmitVerifyResult RPC.
 	IngressAPISubmitVerifyResultProcedure = "/nexus.v1.IngressAPI/SubmitVerifyResult"
+	// IngressAPISubmitModelSupportConfirmationProcedure is the fully-qualified name of the IngressAPI's
+	// SubmitModelSupportConfirmation RPC.
+	IngressAPISubmitModelSupportConfirmationProcedure = "/nexus.v1.IngressAPI/SubmitModelSupportConfirmation"
 	// IngressAPIDispatchStreamProcedure is the fully-qualified name of the IngressAPI's DispatchStream
 	// RPC.
 	IngressAPIDispatchStreamProcedure = "/nexus.v1.IngressAPI/DispatchStream"
@@ -118,6 +121,9 @@ type IngressAPIClient interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
+	// SubmitModelSupportConfirmation queues a Cortex-signed support refresh for
+	// fee-paid batching. Acceptance is not proof of an on-chain refresh.
+	SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error)
 	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
 	DispatchStream(context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
 	// ResumeOutput resumes one authenticated output attempt.
@@ -227,6 +233,12 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 			connect.WithClientOptions(opts...),
 		),
+		submitModelSupportConfirmation: connect.NewClient[v1.SubmitModelSupportConfirmationRequest, v1.SubmitModelSupportConfirmationResponse](
+			httpClient,
+			baseURL+IngressAPISubmitModelSupportConfirmationProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("SubmitModelSupportConfirmation")),
+			connect.WithClientOptions(opts...),
+		),
 		dispatchStream: connect.NewClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse](
 			httpClient,
 			baseURL+IngressAPIDispatchStreamProcedure,
@@ -250,24 +262,25 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // ingressAPIClient implements IngressAPIClient.
 type ingressAPIClient struct {
-	openTask                 *connect.Client[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	subscribeOutput          *connect.Client[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse]
-	ackOutput                *connect.Client[v1.AckOutputRequest, v1.AckOutputResponse]
-	getTaskStatus            *connect.Client[v1.GetTaskStatusRequest, v1.GetTaskStatusResponse]
-	getTaskEvents            *connect.Client[v1.GetTaskEventsRequest, v1.GetTaskEventsResponse]
-	prepareChallenge         *connect.Client[v1.PrepareChallengeRequest, v1.PrepareChallengeResponse]
-	uploadTaskResultObject   *connect.Client[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
-	uploadTaskOutputStream   *connect.Client[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]
-	getTaskDataMetadata      *connect.Client[v1.GetTaskDataMetadataRequest, v1.GetTaskDataMetadataResponse]
-	fetchTaskData            *connect.Client[v1.FetchTaskDataRequest, v1.FetchTaskDataResponse]
-	finalizeTaskResult       *connect.Client[v1.FinalizeTaskResultRequest, v1.FinalizeTaskResultResponse]
-	finalizeVerifierEvidence *connect.Client[v1.FinalizeVerifierEvidenceRequest, v1.FinalizeVerifierEvidenceResponse]
-	submitInferReceipt       *connect.Client[v1.SubmitInferReceiptRequest, v1.SubmitInferReceiptResponse]
-	submitVerifyCommit       *connect.Client[v1.SubmitVerifyCommitRequest, v1.SubmitVerifyCommitResponse]
-	submitVerifyResult       *connect.Client[v1.SubmitVerifyResultRequest, v1.SubmitVerifyResultResponse]
-	dispatchStream           *connect.Client[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
-	resumeOutput             *connect.Client[v1.ResumeOutputRequest, v1.ResumeOutputResponse]
-	getDispatchRoster        *connect.Client[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse]
+	openTask                       *connect.Client[v1.OpenTaskRequest, v1.OpenTaskResponse]
+	subscribeOutput                *connect.Client[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse]
+	ackOutput                      *connect.Client[v1.AckOutputRequest, v1.AckOutputResponse]
+	getTaskStatus                  *connect.Client[v1.GetTaskStatusRequest, v1.GetTaskStatusResponse]
+	getTaskEvents                  *connect.Client[v1.GetTaskEventsRequest, v1.GetTaskEventsResponse]
+	prepareChallenge               *connect.Client[v1.PrepareChallengeRequest, v1.PrepareChallengeResponse]
+	uploadTaskResultObject         *connect.Client[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
+	uploadTaskOutputStream         *connect.Client[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]
+	getTaskDataMetadata            *connect.Client[v1.GetTaskDataMetadataRequest, v1.GetTaskDataMetadataResponse]
+	fetchTaskData                  *connect.Client[v1.FetchTaskDataRequest, v1.FetchTaskDataResponse]
+	finalizeTaskResult             *connect.Client[v1.FinalizeTaskResultRequest, v1.FinalizeTaskResultResponse]
+	finalizeVerifierEvidence       *connect.Client[v1.FinalizeVerifierEvidenceRequest, v1.FinalizeVerifierEvidenceResponse]
+	submitInferReceipt             *connect.Client[v1.SubmitInferReceiptRequest, v1.SubmitInferReceiptResponse]
+	submitVerifyCommit             *connect.Client[v1.SubmitVerifyCommitRequest, v1.SubmitVerifyCommitResponse]
+	submitVerifyResult             *connect.Client[v1.SubmitVerifyResultRequest, v1.SubmitVerifyResultResponse]
+	submitModelSupportConfirmation *connect.Client[v1.SubmitModelSupportConfirmationRequest, v1.SubmitModelSupportConfirmationResponse]
+	dispatchStream                 *connect.Client[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
+	resumeOutput                   *connect.Client[v1.ResumeOutputRequest, v1.ResumeOutputResponse]
+	getDispatchRoster              *connect.Client[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse]
 }
 
 // OpenTask calls nexus.v1.IngressAPI.OpenTask.
@@ -345,6 +358,11 @@ func (c *ingressAPIClient) SubmitVerifyResult(ctx context.Context, req *connect.
 	return c.submitVerifyResult.CallUnary(ctx, req)
 }
 
+// SubmitModelSupportConfirmation calls nexus.v1.IngressAPI.SubmitModelSupportConfirmation.
+func (c *ingressAPIClient) SubmitModelSupportConfirmation(ctx context.Context, req *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error) {
+	return c.submitModelSupportConfirmation.CallUnary(ctx, req)
+}
+
 // DispatchStream calls nexus.v1.IngressAPI.DispatchStream.
 func (c *ingressAPIClient) DispatchStream(ctx context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse] {
 	return c.dispatchStream.CallBidiStream(ctx)
@@ -392,6 +410,9 @@ type IngressAPIHandler interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
+	// SubmitModelSupportConfirmation queues a Cortex-signed support refresh for
+	// fee-paid batching. Acceptance is not proof of an on-chain refresh.
+	SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error)
 	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
 	DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error
 	// ResumeOutput resumes one authenticated output attempt.
@@ -497,6 +518,12 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 		connect.WithHandlerOptions(opts...),
 	)
+	ingressAPISubmitModelSupportConfirmationHandler := connect.NewUnaryHandler(
+		IngressAPISubmitModelSupportConfirmationProcedure,
+		svc.SubmitModelSupportConfirmation,
+		connect.WithSchema(ingressAPIMethods.ByName("SubmitModelSupportConfirmation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	ingressAPIDispatchStreamHandler := connect.NewBidiStreamHandler(
 		IngressAPIDispatchStreamProcedure,
 		svc.DispatchStream,
@@ -547,6 +574,8 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 			ingressAPISubmitVerifyCommitHandler.ServeHTTP(w, r)
 		case IngressAPISubmitVerifyResultProcedure:
 			ingressAPISubmitVerifyResultHandler.ServeHTTP(w, r)
+		case IngressAPISubmitModelSupportConfirmationProcedure:
+			ingressAPISubmitModelSupportConfirmationHandler.ServeHTTP(w, r)
 		case IngressAPIDispatchStreamProcedure:
 			ingressAPIDispatchStreamHandler.ServeHTTP(w, r)
 		case IngressAPIResumeOutputProcedure:
@@ -620,6 +649,10 @@ func (UnimplementedIngressAPIHandler) SubmitVerifyCommit(context.Context, *conne
 
 func (UnimplementedIngressAPIHandler) SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitVerifyResult is not implemented"))
+}
+
+func (UnimplementedIngressAPIHandler) SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitModelSupportConfirmation is not implemented"))
 }
 
 func (UnimplementedIngressAPIHandler) DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error {

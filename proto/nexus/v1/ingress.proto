@@ -47,6 +47,9 @@ service IngressAPI {
   rpc SubmitVerifyCommit(SubmitVerifyCommitRequest) returns (SubmitVerifyCommitResponse);
   // SubmitVerifyResult executes the SubmitVerifyResult operation.
   rpc SubmitVerifyResult(SubmitVerifyResultRequest) returns (SubmitVerifyResultResponse);
+  // SubmitModelSupportConfirmation queues a Cortex-signed support refresh for
+  // fee-paid batching. Acceptance is not proof of an on-chain refresh.
+  rpc SubmitModelSupportConfirmation(SubmitModelSupportConfirmationRequest) returns (SubmitModelSupportConfirmationResponse);
 
   // DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
   rpc DispatchStream(stream DispatchStreamRequest) returns (stream DispatchStreamResponse);
@@ -804,6 +807,39 @@ message SubmitVerifyResultResponse {
   string result_receipt_signing_digest = 2;
   string result_payload_hash = 3;
   bool idempotent = 4;
+}
+
+// SubmitModelSupportConfirmationRequest carries the existing Hub material
+// without importing the Hub module or defining a second confirmation schema.
+// The service signature authenticates this request; no wallet, SDK request
+// envelope, Task, standing handraise or active dispatch stream is required.
+// Receivers validate against the current chain and recheck before broadcasting.
+// See docs/MODEL_SUPPORT_RELAY.md for batching, replay and recovery rules.
+message SubmitModelSupportConfirmationRequest {
+  // The current chain epoch, not a UTC day. It enters the existing
+  // TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1 digest along with the decoded fields.
+  uint64 epoch_index = 1;
+  // Required protobuf binary of exactly one hub.v1.ModelSupportConfirmationV1,
+  // defined in hub/v1/msg_registry.proto. JSON, Any and the outer batch Tx are
+  // not accepted. Decode and validate the original fields; do not sign or hash
+  // these serialization bytes as the confirmation digest. Equivalent protobuf
+  // encodings have the same semantic identity. The original service_signature
+  // is preserved when batching into MsgBatchConfirmModelSupport.
+  bytes confirmation = 2;
+}
+
+// SubmitModelSupportConfirmationResponse acknowledges local relay acceptance.
+// Only a successful RPC with relay_accepted=true acknowledges a queued or
+// already chain-accepted confirmation. Errors acknowledge nothing; callers may
+// retry the identical signed material while its epoch, key and expiry are valid.
+message SubmitModelSupportConfirmationResponse {
+  bool relay_accepted = 1;
+  // The existing confirmation signing digest, as 0x plus 64 lowercase hex digits;
+  // never SHA-256(confirmation), a Tx hash or a batch digest.
+  string confirmation_signing_digest = 2;
+  // True only if the same decoded signed material was already queued or
+  // chain-accepted. Different material for the same operator/epoch conflicts.
+  bool idempotent = 3;
 }
 
 // SubscribeOutputRequest defines the SubscribeOutputRequest wire type.

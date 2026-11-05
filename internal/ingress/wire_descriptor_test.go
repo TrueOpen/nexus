@@ -14,7 +14,7 @@ import (
 // new wire release means re-running the mirror and updating this value.
 func TestNexusWireDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("nexus/v1/")
-	const want = "9a57cf608f7b76d9cb6728140628e266b179342d5506a31e3765f9761956d7a0"
+	const want = "1c34312662b403f6cdc03a29cc7057c759720b2fe1b94c3f27d1316e9acc8d83"
 	if got != want {
 		t.Fatalf("nexus.v1 descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
