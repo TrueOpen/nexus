@@ -14,8 +14,10 @@ import (
 )
 
 // currentPoolTTL is how long ChainPool reuses the current candidate pool pointer. The pointer
-// moves once per epoch; a handraise checked against the previous pool for this long after the
-// boundary names the old snapshot and is refused once the pointer is read again.
+// moves once per epoch. A handraise naming another snapshot than the cached one reads the pointer
+// again at once, so one naming the new snapshot is not refused after the boundary; one naming the
+// old snapshot is accepted for at most this long after the boundary and refused once the pointer
+// is read again.
 const currentPoolTTL = 2 * time.Second
 
 // PoolQuerier is the chain reads ChainPool makes.
@@ -57,7 +59,7 @@ func NewChainPool(chain PoolQuerier) *ChainPool {
 // the dispatch pool decides; the member-wide inference_capable summary is not read. No current
 // pool is not eligible.
 func (p *ChainPool) IsEligibleMember(ctx context.Context, member *taskv1.CandidateMemberRefV1) (bool, error) {
-	snapshot, err := p.currentSnapshot(ctx)
+	snapshot, err := p.currentSnapshot(ctx, member.GetCandidatePoolSnapshotId())
 	if errors.Is(err, chaincli.ErrNotFound) {
 		return false, nil
 	}
@@ -85,8 +87,10 @@ func (p *ChainPool) IsEligibleMember(ctx context.Context, member *taskv1.Candida
 }
 
 // HasFreshSupport implements CandidatePool with the current snapshot's frozen support of profile.
+// It names no snapshot of its own: the registry asks it after IsEligibleMember, which has already
+// read the pointer again for a handraise naming another snapshot.
 func (p *ChainPool) HasFreshSupport(ctx context.Context, operator string, profile *taskv1.DispatchProfileV1) (bool, error) {
-	snapshot, err := p.currentSnapshot(ctx)
+	snapshot, err := p.currentSnapshot(ctx, nil)
 	if errors.Is(err, chaincli.ErrNotFound) {
 		return false, nil
 	}
@@ -100,11 +104,11 @@ func (p *ChainPool) HasFreshSupport(ctx context.Context, operator string, profil
 	return view.GetInPool() && view.GetProfileSupportFresh(), nil
 }
 
-// currentSnapshot returns the current pool's snapshot id, read again after currentPoolTTL. A new
-// snapshot drops every cached member view.
-func (p *ChainPool) currentSnapshot(ctx context.Context) ([]byte, error) {
+// currentSnapshot returns the current pool's snapshot id, read again after currentPoolTTL or, when
+// want is set and is not the cached id, at once. A new snapshot drops every cached member view.
+func (p *ChainPool) currentSnapshot(ctx context.Context, want []byte) ([]byte, error) {
 	p.mu.Lock()
-	if p.current != nil && p.now().Sub(p.currentAt) < currentPoolTTL {
+	if p.current != nil && p.now().Sub(p.currentAt) < currentPoolTTL && (want == nil || bytes.Equal(p.current, want)) {
 		snapshot := p.current
 		p.mu.Unlock()
 		return snapshot, nil

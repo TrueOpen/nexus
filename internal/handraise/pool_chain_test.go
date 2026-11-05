@@ -120,3 +120,58 @@ func TestChainPoolChecksTheCurrentSnapshot(t *testing.T) {
 		t.Fatal("a failed read was taken as a verdict")
 	}
 }
+
+// A handraise naming a snapshot other than the cached current one reads the current pool again at
+// once instead of waiting for currentPoolTTL: right after an epoch boundary a handraise naming the
+// new snapshot is eligible, and one naming the old snapshot is then refused. A handraise naming the
+// cached snapshot reads nothing.
+func TestChainPoolReadsTheCurrentPoolAgainOnAnotherSnapshot(t *testing.T) {
+	next := bytes.Repeat([]byte{0x54}, 32)
+	chain := &poolChain{
+		current: &hubv1.CandidatePoolSnapshotViewV1{Epoch: 3, SnapshotId: testSnapshot},
+		views: map[string]*hubv1.CandidatePoolSnapshotMemberViewV1{
+			"op1/": {InPool: true, Slot: 4, SlotVersion: 1, WeightInputs: eligibleInputs()},
+		},
+	}
+	now := time.Unix(1_800_000_000, 0)
+	pool := NewChainPool(chain)
+	pool.now = func() time.Time { return now }
+	member := func(snapshot []byte) *taskv1.CandidateMemberRefV1 {
+		return &taskv1.CandidateMemberRefV1{CandidatePoolSnapshotId: snapshot, Slot: 4, SlotVersion: 1, OperatorAddress: "op1"}
+	}
+	eligible := func(snapshot []byte) bool {
+		t.Helper()
+		got, err := pool.IsEligibleMember(context.Background(), member(snapshot))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if !eligible(testSnapshot) {
+		t.Fatal("current snapshot not eligible")
+	}
+	hits := chain.currentHits
+	if !eligible(testSnapshot) || chain.currentHits != hits {
+		t.Fatalf("the cached snapshot read the pool %d times", chain.currentHits-hits)
+	}
+
+	// The chain moves to the next snapshot well within the TTL.
+	now = now.Add(currentPoolTTL / 4)
+	chain.current = &hubv1.CandidatePoolSnapshotViewV1{Epoch: 4, SnapshotId: next}
+	if !eligible(next) {
+		t.Fatal("a handraise naming the new snapshot waited for the TTL")
+	}
+	if chain.currentHits != hits+1 {
+		t.Fatalf("pool reads = %d, want one", chain.currentHits-hits)
+	}
+	if eligible(testSnapshot) {
+		t.Fatal("a handraise naming the old snapshot is eligible after the move")
+	}
+	if eligible(bytes.Repeat([]byte{9}, 32)) {
+		t.Fatal("a handraise naming an unknown snapshot is eligible")
+	}
+	hits = chain.currentHits
+	if !eligible(next) || chain.currentHits != hits {
+		t.Fatalf("the cached new snapshot read the pool %d times", chain.currentHits-hits)
+	}
+}
