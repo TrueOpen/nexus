@@ -5,12 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/dispatchstream"
 )
+
+// dispatchStreamWriteTimeout bounds the write of one frame to a Cortex. Nothing else does: an
+// HTTP/2 write the peer's flow control holds back waits until the stream or the connection closes,
+// and the request context does not end it. A Cortex that leaves a frame unread this long stopped
+// reading; the deadline resets the stream, the write fails and the hub ends the stream.
+const dispatchStreamWriteTimeout = 10 * time.Second
+
+type responseControllerKey struct{}
+
+// withResponseController gives the DispatchStream handler the controller of its HTTP response,
+// which Connect does not expose, so that each frame write can carry a deadline.
+func withResponseController(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), responseControllerKey{}, http.NewResponseController(w))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // dispatchStreamServer runs one Cortex dispatch stream; *dispatchstream.Hub implements it.
 type dispatchStreamServer interface {
@@ -40,7 +59,11 @@ type bidiStream interface {
 	Send(*nexusv1.DispatchStreamResponse) error
 }
 
-type frameStream struct{ bidi bidiStream }
+type frameStream struct {
+	bidi bidiStream
+	// setWriteDeadline is the response's write deadline; nil when the response has none.
+	setWriteDeadline func(time.Time) error
+}
 
 func (f frameStream) Receive() (*nexusv1.DispatchStreamFrameV1, error) {
 	req, err := f.bidi.Receive()
@@ -54,11 +77,19 @@ func (f frameStream) Receive() (*nexusv1.DispatchStreamFrameV1, error) {
 }
 
 func (f frameStream) Send(frame *nexusv1.DispatchStreamFrameV1) error {
+	if f.setWriteDeadline != nil {
+		_ = f.setWriteDeadline(time.Now().Add(dispatchStreamWriteTimeout))
+		defer func() { _ = f.setWriteDeadline(time.Time{}) }()
+	}
 	return f.bidi.Send(&nexusv1.DispatchStreamResponse{Frame: frame})
 }
 
 func serveDispatchStream(ctx context.Context, server dispatchStreamServer, bidi bidiStream) error {
-	return mapDispatchStreamErr(server.Serve(ctx, frameStream{bidi: bidi}))
+	stream := frameStream{bidi: bidi}
+	if rc, ok := ctx.Value(responseControllerKey{}).(*http.ResponseController); ok && rc.SetWriteDeadline(time.Time{}) == nil {
+		stream.setWriteDeadline = rc.SetWriteDeadline
+	}
+	return mapDispatchStreamErr(server.Serve(ctx, stream))
 }
 
 // mapDispatchStreamErr turns the reason a stream ended into a Connect status. A Cortex that closed

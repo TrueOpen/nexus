@@ -236,7 +236,7 @@ func (s *Server) handler() http.Handler {
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)
 	// The request body of a dispatch stream is the whole uplink of a long-lived connection, so it
 	// keeps only the per-message limit and never the cumulative body cap.
-	streamHandler := legacyHandler
+	streamHandler := withResponseController(legacyHandler)
 	if s.httpMaxBytes > 0 {
 		legacyHandler = http.MaxBytesHandler(legacyHandler, s.httpMaxBytes)
 	}
