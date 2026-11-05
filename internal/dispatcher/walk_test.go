@@ -362,6 +362,38 @@ func TestTimeoutsPerRTTTier(t *testing.T) {
 	}
 }
 
+// The accept window is the candidate's: the ticket's accept_deadline_ms is stamped after the chain
+// read of the candidate's Cortex key, so the read's latency does not shorten it, and the ticket
+// times out exactly at its deadline, however long queueing the offer took.
+func TestAcceptDeadlineIsStampedAfterTheCortexKeyRead(t *testing.T) {
+	e := newEnv(t)
+	e.streams.rtt[op7] = 30 * time.Millisecond // tier 1: 300 ms
+	shift := func(d time.Duration) func() {
+		return func() {
+			e.clock.mu.Lock()
+			e.clock.now = e.clock.now.Add(d)
+			e.clock.mu.Unlock()
+		}
+	}
+	e.keys.onCortexRotation = shift(65 * time.Millisecond)
+	e.streams.onSend = shift(20 * time.Millisecond)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	_, first, _ := e.lastOffer()
+	if want := uint64(e.clock.Now().UnixMilli()) - 20 + 300; first.GetAcceptDeadlineMs() != want {
+		t.Fatalf("deadline = %d, want the read's end plus 300 ms, %d", first.GetAcceptDeadlineMs(), want)
+	}
+	e.keys.onCortexRotation, e.streams.onSend = nil, nil
+	e.clock.advance(279 * time.Millisecond)
+	if n := len(e.streams.offers()); n != 1 {
+		t.Fatal("timed out before the deadline")
+	}
+	e.clock.advance(time.Millisecond)
+	if n := len(e.streams.offers()); n != 2 {
+		t.Fatal("not timed out at the deadline")
+	}
+}
+
 // An accept arriving after its ticket's deadline is DISPATCH_TICKET_CLOSED: the ticket timed out
 // and the walk went on. An accept of a ticket that is no longer out is closed too.
 func TestLateAcceptIsTicketClosed(t *testing.T) {

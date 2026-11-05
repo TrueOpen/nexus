@@ -434,6 +434,12 @@ func (d *Dispatcher) cortexPending(ctx context.Context, operator string, esh uin
 // must have an attempt. A rotation pending when the round's root was signed already kept the
 // member out of the roster (a not-admitted leaf); this covers one registered since. It reports
 // whether a ticket went out. Caller holds o.mu.
+//
+// The accept window is the candidate's: accept_deadline_ms is stamped after everything that does
+// not need it (the reachability check with its chain read of the Cortex key, the round's roster),
+// so only signing the ticket, storing the order's state with it and handing the offer to the
+// stream come out of the window; the ticket times out at that deadline. The order's evidence goes
+// to the group sync after the offer.
 func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Candidate) (bool, error) {
 	st := o.st
 	operator := cand.Member.OperatorAddress
@@ -445,13 +451,6 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		rttMs = ^uint64(0)
 	}
 	tier, timeoutMs := d.cfg.Dispatch.AcceptTimeoutTier(rttMs)
-	now := d.clock.Now()
-	deadlineMs := uint64(now.UnixMilli()) + timeoutMs
-	ticket := d.ticket(o, cand, deadlineMs)
-	raw, hash, err := signTicket(d.cfg.Signer.Key(), ticket)
-	if err != nil {
-		return false, err
-	}
 	skip := ""
 	switch {
 	case !d.cfg.Streams.Connected(operator):
@@ -460,13 +459,24 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		skip = opsmetrics.SkipRotationPending
 	}
 	reachable := skip == ""
-	prev := cloneState(st)
+	var newRound *roundState
 	if len(st.Rounds) == 0 || st.Rounds[len(st.Rounds)-1].Number != o.rosterRound {
 		rosterRaw, err := marshal(o.roster.Msg)
 		if err != nil {
 			return false, err
 		}
-		st.Rounds = append(st.Rounds, roundState{Number: o.rosterRound, RootDigest: append([]byte(nil), o.roster.RootDigest[:]...), Roster: rosterRaw})
+		newRound = &roundState{Number: o.rosterRound, RootDigest: append([]byte(nil), o.roster.RootDigest[:]...), Roster: rosterRaw}
+	}
+	now := d.clock.Now()
+	deadlineMs := uint64(now.UnixMilli()) + timeoutMs
+	ticket := d.ticket(o, cand, deadlineMs)
+	raw, hash, err := signTicket(d.cfg.Signer.Key(), ticket)
+	if err != nil {
+		return false, err
+	}
+	prev := cloneState(st)
+	if newRound != nil {
+		st.Rounds = append(st.Rounds, *newRound)
 	}
 	round := &st.Rounds[len(st.Rounds)-1]
 	a := attemptState{Ticket: raw, Hash: append([]byte(nil), hash[:]...), Rank: cand.Rank, Operator: operator, DeadlineMs: deadlineMs, Tier: tier, Sent: reachable}
@@ -476,13 +486,14 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	}
 	round.Attempts = append(round.Attempts, a)
 	st.Cursor = cand.Rank + 1
-	if err := d.save(st); err != nil {
+	if err := saveState(d.cfg.Store, st); err != nil {
 		*st = *prev
 		return false, err
 	}
 	d.indexTicket(o, hash)
 	o.ticketAt = now
 	if !reachable {
+		d.syncOrder(st)
 		d.cfg.Metrics.Inc(opsmetrics.CounterSkips, skip)
 		d.cfg.Metrics.WorkerOutcome(operator, tier, opsmetrics.OutcomeUnsent)
 		d.log.Info("dispatch member unreachable; ticket timed out unsent", "session_id", st.SessionID, "order_sequence", st.Sequence, "rank", cand.Rank, "operator", operator)
@@ -496,7 +507,9 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		d.timeoutLocked(o, a, false)
 		return false, nil
 	}
-	d.armTimer(o, hash, time.Duration(timeoutMs)*time.Millisecond)
+	// The ticket times out at its deadline, not a full window after the offer was queued.
+	d.armTimer(o, hash, time.UnixMilli(int64(deadlineMs)).Sub(d.clock.Now()))
+	d.syncOrder(st)
 	return true, nil
 }
 

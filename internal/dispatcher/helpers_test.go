@@ -157,6 +157,8 @@ type fakeStreams struct {
 	rtt          map[string]time.Duration
 	sent         []sent
 	sendErr      error
+	// onSend runs on every send, as the time queueing a frame takes.
+	onSend func()
 }
 
 func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
@@ -167,6 +169,9 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 	}
 	if s.disconnected[operator] {
 		return dispatchstream.ErrNotConnected
+	}
+	if s.onSend != nil {
+		s.onSend()
 	}
 	s.sent = append(s.sent, sent{operator, proto.Clone(frame).(*nexusv1.DispatchStreamFrameV1)})
 	return nil
@@ -320,6 +325,8 @@ type fakeKeys struct {
 	builderErr error
 	// cortexEffective is the effective height of each operator's pending CORTEX rotation.
 	cortexEffective map[string]uint64
+	// onCortexRotation runs on every CORTEX rotation read, as the chain read's latency.
+	onCortexRotation func()
 }
 
 func (k *fakeKeys) CheckBuilderKey(context.Context) error {
@@ -331,6 +338,9 @@ func (k *fakeKeys) CheckBuilderKey(context.Context) error {
 func (k *fakeKeys) CortexRotation(_ context.Context, operator string) (uint64, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if k.onCortexRotation != nil {
+		k.onCortexRotation()
+	}
 	return k.cortexEffective[operator], nil
 }
 
