@@ -1,11 +1,11 @@
 package taskdata
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,17 +144,50 @@ func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver) 
 	}
 }
 
+// Sweep promotes or drops quarantined objects, applies the retention decision of every READY
+// object, reclaims expired tombstones and removes what is no longer referenced.
+//
+// The resolver may read the chain, so it never runs under the maintenance lock: the metadata is
+// read once without it, each decision is resolved on its own, and then applied under a short
+// exclusive lock only if the record still has the exact bytes the decision was made for. A record
+// that changed or went away meanwhile is left as it is for the next sweep.
 func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResolver) error {
 	if height == 0 || resolver == nil {
 		return fmt.Errorf("%w: cleanup height and resolver required", ErrMalformed)
 	}
-	s.maintenance.Lock()
-	defer s.maintenance.Unlock()
-	records, err := s.loadMetadataRecords()
+	started := time.Now()
+	var stats sweepStats
+	err := s.sweep(ctx, height, resolver, &stats)
+	if elapsed := time.Since(started); elapsed > slowSweep || stats.acted() {
+		s.log.Info("task data sweep", "height", height, "duration_ms", elapsed.Milliseconds(),
+			"records", stats.scanned, "promoted", stats.promoted, "dropped", stats.dropped,
+			"retention_updated", stats.updated, "deleted", stats.deleted, "changed_during_sweep", stats.changed,
+			"tombstones_stamped", stats.stamped, "tombstones_reclaimed", stats.reclaimed, "blobs_removed", stats.blobs)
+	}
+	return err
+}
+
+// slowSweep is the duration above which a sweep that changed nothing is still logged.
+const slowSweep = time.Second
+
+// sweepStats counts what one Sweep did.
+type sweepStats struct {
+	scanned, promoted, dropped, updated, deleted, changed int
+	stamped, reclaimed, blobs                             int
+}
+
+func (st sweepStats) acted() bool {
+	return st.promoted+st.dropped+st.updated+st.deleted+st.changed+st.stamped+st.reclaimed+st.blobs > 0
+}
+
+func (s *Store) sweep(ctx context.Context, height uint64, resolver RecoveryResolver, stats *sweepStats) error {
+	snapshot, err := s.loadMetadataEntries()
 	if err != nil {
 		return err
 	}
-	for key, record := range records {
+	stats.scanned = len(snapshot)
+	for key, entry := range snapshot {
+		record, raw := entry.record, entry.raw
 		if record.Metadata.State == StateQuarantined {
 			var accepted bool
 			var err error
@@ -168,24 +201,42 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 			}
 			if !accepted {
 				if record.Metadata.Key.Kind == ObjectKindInput {
-					s.unindex(record.Metadata.Key)
-					if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
-						return fmt.Errorf("%w: delete rejected quarantined input: %v", ErrStorage, err)
+					applied, err := s.applyIfUnchanged(key, raw, func() error {
+						s.unindex(record.Metadata.Key)
+						if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
+							return fmt.Errorf("%w: delete rejected quarantined input: %v", ErrStorage, err)
+						}
+						return nil
+					})
+					if err != nil {
+						return err
 					}
-					delete(records, key)
+					stats.count(applied, &stats.dropped)
 				}
 				continue
 			}
 			record.Metadata.State = StateReady
-			if err := s.persistMetadataRecord(key, record); err != nil {
-				return err
+			promoted, err := json.Marshal(record)
+			if err != nil {
+				return fmt.Errorf("%w: encode metadata: %v", ErrStorage, err)
 			}
-			if record.Metadata.Key.Kind == ObjectKindInput {
-				if err := s.indexInput(record.Metadata.Key, true); err != nil {
+			applied, err := s.applyIfUnchanged(key, raw, func() error {
+				if err := s.persistMetadataRecord(key, record); err != nil {
 					return err
 				}
+				if record.Metadata.Key.Kind == ObjectKindInput {
+					return s.indexInput(record.Metadata.Key, true)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
-			records[key] = record
+			stats.count(applied, &stats.promoted)
+			if !applied {
+				continue
+			}
+			raw = promoted
 		}
 		if record.Metadata.State != StateReady {
 			continue
@@ -205,29 +256,78 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 			record.Metadata.RetainUntilHeight = decision.RetainUntilHeight
 		}
 		if !decision.Delete {
-			if err := s.persistMetadataRecord(key, record); err != nil {
+			updated, err := json.Marshal(record)
+			if err != nil {
+				return fmt.Errorf("%w: encode metadata: %v", ErrStorage, err)
+			}
+			if bytes.Equal(updated, raw) {
+				continue
+			}
+			applied, err := s.applyIfUnchanged(key, raw, func() error {
+				return s.persistMetadataRecord(key, record)
+			})
+			if err != nil {
 				return err
 			}
-			records[key] = record
+			stats.count(applied, &stats.updated)
 			continue
 		}
 		record.Metadata.RetainUntilHeight = decision.RetainUntilHeight
-		if err := s.persistTombstone(record.Metadata, height); err != nil {
+		applied, err := s.applyIfUnchanged(key, raw, func() error {
+			if err := s.persistTombstone(record.Metadata, height); err != nil {
+				return err
+			}
+			s.unindex(record.Metadata.Key)
+			if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
+				return fmt.Errorf("%w: delete task data metadata: %v", ErrStorage, err)
+			}
+			return nil
+		})
+		if err != nil {
 			return err
 		}
-		s.unindex(record.Metadata.Key)
-		if err := s.backend.Delete(kv.NSTaskDataMetadata, key); err != nil {
-			return fmt.Errorf("%w: delete task data metadata: %v", ErrStorage, err)
-		}
-		delete(records, key)
+		stats.count(applied, &stats.deleted)
 	}
-	if err := s.reclaimTombstones(height); err != nil {
+	s.maintenance.RLock()
+	stats.stamped, stats.reclaimed, err = s.reclaimTombstones(height)
+	s.maintenance.RUnlock()
+	if err != nil {
 		return err
 	}
-	if err := s.pruneFetchReceiptsLocked(records); err != nil {
+	// Both the receipt pruning and the blob collection need the records as they are now, not the
+	// snapshot above: an object uploaded during the sweep keeps its receipts and its blob.
+	watch := s.watchBlobs()
+	defer s.unwatchBlobs(watch)
+	records, err := s.pruneFetchReceipts()
+	if err != nil {
 		return err
 	}
-	return s.removeUnreferencedBlobs(records)
+	stats.blobs, err = s.collectBlobs(watch, records, nil)
+	return err
+}
+
+// count adds an applied change to counter, or a skipped one to changed.
+func (st *sweepStats) count(applied bool, counter *int) {
+	if applied {
+		*counter++
+	} else {
+		st.changed++
+	}
+}
+
+// applyIfUnchanged runs apply under the exclusive maintenance lock, only when the metadata stored
+// under key still has the bytes snapshot read; it reports whether apply ran.
+func (s *Store) applyIfUnchanged(key string, snapshot []byte, apply func() error) (bool, error) {
+	s.maintenance.Lock()
+	defer s.maintenance.Unlock()
+	current, found, err := s.backend.GetWithError(kv.NSTaskDataMetadata, key)
+	if err != nil {
+		return false, fmt.Errorf("%w: read metadata: %v", ErrStorage, err)
+	}
+	if !found || !bytes.Equal(current, snapshot) {
+		return false, nil
+	}
+	return true, apply()
 }
 
 // reclaimTombstones stamps tombstones that have no deletion height yet and removes those whose
@@ -236,8 +336,9 @@ func (s *Store) Sweep(ctx context.Context, height uint64, resolver RecoveryResol
 // and keeps answering it as deleted; retain_until_height is the order's expiry for an INPUT and
 // the signed retention lease otherwise, so no upload of the key can be authorized once a
 // tombstone is reclaimed (OpenTask refuses an expired order). A retention of 0 stamps but never
-// reclaims. Caller holds the exclusive maintenance lock.
-func (s *Store) reclaimTombstones(height uint64) error {
+// reclaims. It returns how many tombstones it stamped and reclaimed. Caller holds the maintenance
+// lock, at least for reading: the only other tombstone writer, DeleteObject, holds it exclusively.
+func (s *Store) reclaimTombstones(height uint64) (int, int, error) {
 	window := s.cfg.TombstoneRetentionBlocks
 	stamps := map[string]tombstoneRecord{}
 	var reclaim []string
@@ -258,7 +359,7 @@ func (s *Store) reclaimTombstones(height uint64) error {
 		}
 		return len(stamps)+len(reclaim) < tombstoneSweepBatch
 	}); err != nil {
-		return fmt.Errorf("%w: scan tombstones: %v", ErrStorage, err)
+		return 0, 0, fmt.Errorf("%w: scan tombstones: %v", ErrStorage, err)
 	}
 	for key, record := range stamps {
 		raw, err := json.Marshal(record)
@@ -266,18 +367,15 @@ func (s *Store) reclaimTombstones(height uint64) error {
 			err = s.backend.Set(kv.NSTaskDataTombstone, key, raw)
 		}
 		if err != nil {
-			return fmt.Errorf("%w: stamp tombstone: %v", ErrStorage, err)
+			return 0, 0, fmt.Errorf("%w: stamp tombstone: %v", ErrStorage, err)
 		}
 	}
 	for _, key := range reclaim {
 		if err := s.backend.Delete(kv.NSTaskDataTombstone, key); err != nil {
-			return fmt.Errorf("%w: reclaim tombstone: %v", ErrStorage, err)
+			return len(stamps), 0, fmt.Errorf("%w: reclaim tombstone: %v", ErrStorage, err)
 		}
 	}
-	if len(stamps)+len(reclaim) > 0 {
-		s.log.Debug("task data tombstones swept", "height", height, "stamped", len(stamps), "reclaimed", len(reclaim))
-	}
-	return nil
+	return len(stamps), len(reclaim), nil
 }
 
 // tombstoneExpired reports height >= max(deleted_at_height, retain_until_height) + window; a sum
@@ -377,8 +475,26 @@ func (s *Store) recoverReservations() error {
 	return nil
 }
 
+// metadataEntry is a metadata record with the exact bytes it is stored as.
+type metadataEntry struct {
+	record metadataRecord
+	raw    []byte
+}
+
 func (s *Store) loadMetadataRecords() (map[string]metadataRecord, error) {
-	records := make(map[string]metadataRecord)
+	entries, err := s.loadMetadataEntries()
+	if err != nil {
+		return nil, err
+	}
+	records := make(map[string]metadataRecord, len(entries))
+	for key, entry := range entries {
+		records[key] = entry.record
+	}
+	return records, nil
+}
+
+func (s *Store) loadMetadataEntries() (map[string]metadataEntry, error) {
+	entries := make(map[string]metadataEntry)
 	var decodeErr error
 	if err := s.backend.Scan(kv.NSTaskDataMetadata, func(key string, raw []byte) bool {
 		var record metadataRecord
@@ -390,7 +506,7 @@ func (s *Store) loadMetadataRecords() (map[string]metadataRecord, error) {
 			decodeErr = fmt.Errorf("%w: invalid metadata identity %q", ErrStorage, key)
 			return false
 		}
-		records[key] = record
+		entries[key] = metadataEntry{record: record, raw: raw}
 		return true
 	}); err != nil {
 		return nil, fmt.Errorf("%w: scan metadata: %v", ErrStorage, err)
@@ -398,7 +514,7 @@ func (s *Store) loadMetadataRecords() (map[string]metadataRecord, error) {
 	if decodeErr != nil {
 		return nil, decodeErr
 	}
-	return records, nil
+	return entries, nil
 }
 
 func (s *Store) persistMetadataRecord(key string, record metadataRecord) error {
@@ -412,30 +528,17 @@ func (s *Store) persistMetadataRecord(key string, record metadataRecord) error {
 	return nil
 }
 
+// removeUnreferencedBlobs removes every blob no record names. Caller holds the exclusive
+// maintenance lock and records are all the metadata records.
 func (s *Store) removeUnreferencedBlobs(records map[string]metadataRecord) error {
-	referenced := make(map[string]struct{}, len(records))
-	for _, record := range records {
-		referenced[record.BlobHash] = struct{}{}
-	}
-	root := filepath.Join(s.root, "blobs", "sha256")
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		name := entry.Name()
-		if !canonicalSHA256(name) || path != s.blobPath(name) {
-			return fmt.Errorf("unexpected blob path %q", path)
-		}
-		if _, ok := referenced[name]; ok {
-			return nil
-		}
-		return os.Remove(path)
-	})
+	unreferenced, err := s.unreferencedBlobFiles(referencedBlobs(records))
 	if err != nil {
-		return fmt.Errorf("%w: reconcile blobs: %v", ErrStorage, err)
+		return err
+	}
+	for _, hash := range unreferenced {
+		if err := os.Remove(s.blobPath(hash)); err != nil {
+			return fmt.Errorf("%w: reconcile blobs: %v", ErrStorage, err)
+		}
 	}
 	return nil
 }

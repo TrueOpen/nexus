@@ -93,6 +93,10 @@ type Store struct {
 	outputStreams map[string]*OutputStream
 	// fetchReceiptMu serializes the read-modify-write of fetch receipt indexes.
 	fetchReceiptMu sync.Mutex
+	// blobWatches are the blob collections running without the exclusive maintenance lock; a
+	// metadata write that references a blob reports it to each (see noteBlobReferenced).
+	blobWatchMu sync.Mutex
+	blobWatches map[*blobWatch]struct{}
 }
 
 func (s *Store) ChunkSize() uint64 { return s.cfg.ChunkSizeBytes }
@@ -400,6 +404,8 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 	raw, err := json.Marshal(record)
 	if err == nil {
 		err = u.store.backend.Set(kv.NSTaskDataMetadata, objectKeyString(u.header.Key), raw)
+		// Reported even when the index write below fails: the metadata naming the blob is stored.
+		u.store.noteBlobReferenced(blobHash)
 	}
 	if err == nil && u.header.Key.Kind != ObjectKindInput {
 		// The index shares the metadata's source of truth: it is written only after the metadata

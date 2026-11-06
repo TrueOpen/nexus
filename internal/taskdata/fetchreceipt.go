@@ -221,11 +221,22 @@ func (s *Store) FetchReceipts(_ context.Context, sessionID, taskID string) ([]Fe
 	return sets, nil
 }
 
-// pruneFetchReceiptsLocked runs at the end of a retention sweep, under the maintenance lock. The
-// receipts of a task live exactly as long as its INPUT: once no INPUT of that task is left in
-// the store, whether it was deleted in this sweep or an earlier one, every receipt of the task
-// is removed.
-func (s *Store) pruneFetchReceiptsLocked(records map[string]metadataRecord) error {
+// pruneFetchReceipts runs at the end of a retention sweep. The receipts of a task live exactly as
+// long as its INPUT: once no INPUT of that task is left in the store, whether it was deleted in
+// this sweep or an earlier one, every receipt of the task is removed. The metadata is read after
+// fetchReceiptMu is taken, so a receipt recorded for an INPUT stored meanwhile is never pruned;
+// it returns those records.
+func (s *Store) pruneFetchReceipts() (map[string]metadataRecord, error) {
+	s.fetchReceiptMu.Lock()
+	defer s.fetchReceiptMu.Unlock()
+	records, err := s.loadMetadataRecords()
+	if err != nil {
+		return nil, err
+	}
+	return records, s.pruneFetchReceiptsOf(records)
+}
+
+func (s *Store) pruneFetchReceiptsOf(records map[string]metadataRecord) error {
 	withInput := make(map[string]struct{})
 	for _, record := range records {
 		if record.Metadata.Key.Kind == ObjectKindInput {

@@ -659,6 +659,7 @@ func (st *OutputStream) Finish(ctx context.Context, fin OutputFin) (Metadata, er
 	); err != nil {
 		return Metadata{}, st.failLocked(fmt.Errorf("%w: persist stream metadata: %v", ErrStorage, err))
 	}
+	st.store.noteBlobReferenced(contentHash)
 	st.record = sealed
 	if st.attach != nil {
 		_ = st.attach.Sync()
