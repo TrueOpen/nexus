@@ -47,12 +47,14 @@ const (
 	testUser      = "trueopen1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xu"
 	testMaxSkips  = 2
 	testRosterCap = 1 << 20
+	// testEpochLength is epoch_length_blocks: testEpoch starts at its first multiple.
+	testEpochLength = 90
 )
 
 var (
 	testSnapshot = fill32(0x66)
 	testModel    = fill32(0x77)
-	testEpoch    = dispatchdraw.Epoch{Number: 1, ReferenceHeight: 90, Seed: fill32(0x5e), SnapshotID: testSnapshot}
+	testEpoch    = dispatchdraw.Epoch{Number: 1, ReferenceHeight: testEpochLength, Seed: fill32(0x5e), SnapshotID: testSnapshot}
 	testProfile  = dispatchdraw.Profile{ModelID: testModel, Version: 1}
 	poolMembers  = []dispatch.RosterMember{
 		{Slot: 1, SlotVersion: 1, OperatorAddress: op1, CandidateWeight: 1},
@@ -285,6 +287,17 @@ type fakeDrawer struct {
 	readyAsked []dispatchdraw.Epoch
 	// cached is the pool CachedPool holds, nil for none.
 	cached *dispatchdraw.Pool
+	// startErr fails StartHeight.
+	startErr error
+}
+
+func (d *fakeDrawer) StartHeight(_ context.Context, epoch uint64) (uint64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.startErr != nil {
+		return 0, d.startErr
+	}
+	return epoch * testEpochLength, nil
 }
 
 func (d *fakeDrawer) CachedPool(_ dispatchdraw.Epoch, profile dispatchdraw.Profile) (*dispatchdraw.Pool, bool) {

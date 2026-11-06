@@ -129,6 +129,25 @@ func TestMapOrderErrNotReadyCarriesTheAvailableHeight(t *testing.T) {
 	}
 }
 
+// NO_CAPACITY refusing a retry whose draw is exhausted in its epoch stays FailedPrecondition and
+// carries the first height of the next epoch as the OpenTaskResponse detail's
+// dispatch_available_height: a retry re-signed from it is drawn afresh.
+func TestMapOrderErrExhaustedRetryCarriesTheRetryHeight(t *testing.T) {
+	err := mapOrderErr(fmt.Errorf("probe: %w", &dispatchdraw.EpochExhaustedError{Epoch: 3, RetryHeight: 400, Reason: "no member left"}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(connectMessage(err), "NEXUS_INGRESS_NO_CAPACITY: epoch 3") ||
+		!strings.HasSuffix(connectMessage(err), "dispatchable_height=400") {
+		t.Fatalf("mapOrderErr = %v (code %v)", err, connect.CodeOf(err))
+	}
+	if d := openTaskDetail(t, err); d.DispatchAvailableHeight == nil || d.GetDispatchAvailableHeight() != 400 {
+		t.Fatalf("detail = %v", d)
+	}
+	var ce *connect.Error
+	err = mapOrderErr(&dispatchdraw.EpochExhaustedError{Epoch: 3, Reason: "no member left"})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || errors.As(err, &ce) && len(ce.Details()) != 0 {
+		t.Fatalf("an exhausted answer without a height = %v", err)
+	}
+}
+
 // BUILDER_KEY_ROTATING, from the probe or a takeover's admission, is Unavailable and carries the
 // rotation's effective height as the OpenTaskResponse detail's service_key_rotation_effective_height
 // (from it this Builder takes new orders again), next to the text suffix. The SDK sends the order

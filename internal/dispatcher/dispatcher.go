@@ -11,7 +11,9 @@
 //
 // Rejects and timeouts count against max_skips; past it the order fails as NO_CAPACITY without
 // using its sequence. A retry of a failed sequence in the same epoch is a new round that binds the
-// latest root and continues the order where it stopped. A change of the session's
+// latest root and continues the order where it stopped; one whose earlier attempts already used up
+// the order's members or max_skips is refused before its input is stored, naming the first height
+// of the next epoch, from which a re-signed retry is drawn afresh. A change of the session's
 // bound_change_height voids the tickets of the current round, accepted or not, and starts a new
 // round. While this Builder's own service key rotation is pending no ticket is issued.
 //
@@ -134,6 +136,8 @@ type Drawer interface {
 	// CachedPool returns the dispatch pool of profile at ep when an earlier draw already read it,
 	// without reading the chain.
 	CachedPool(ep dispatchdraw.Epoch, profile dispatchdraw.Profile) (*dispatchdraw.Pool, bool)
+	// StartHeight returns the first height of epoch.
+	StartHeight(ctx context.Context, epoch uint64) (uint64, error)
 }
 
 // Sessions reads session states and the head (inflight.SessionCache).
@@ -529,11 +533,12 @@ func (d *Dispatcher) sessionWindows(ctx context.Context, sessionID string) *disp
 // goes to another Builder), the order's epoch cannot dispatch yet (dispatchdraw.ErrDispatchNotReady:
 // the user retries this Builder later, so it is checked before any NO_CAPACITY answer), this
 // Builder's current service key is revoked (revokedKey), its Builder VRF key cannot prove the
-// order's epoch (vrfKeyNotReady), the latest handraise root holds no admitted, unexpired
-// handraise with a free slot for the order's profile, or, when an earlier order of the epoch
-// already read the order's pool, no such handraise is a pool member's (the roster would be
-// empty). The pool is not read for Probe: building it reads every snapshot member from the
-// chain. The walk decides the rest.
+// order's epoch (vrfKeyNotReady), the order retries a failed sequence whose earlier attempts in
+// the same epoch and binding generation used up its members or max_skips (exhaustedRetry), the
+// latest handraise root holds no admitted, unexpired handraise with a free slot for the order's
+// profile, or, when an earlier order of the epoch already read the order's pool, no such
+// handraise is a pool member's (the roster would be empty). The pool is not read for Probe:
+// building it reads every snapshot member from the chain. The walk decides the rest.
 func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if d.draining() {
 		return fmt.Errorf("%w: %w", dispatchdraw.ErrNoCapacity, ErrDraining)
@@ -568,6 +573,9 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 	if err := d.cfg.Drawer.Ready(ctx, epoch); err != nil {
 		return vrfKeyNotReady(err)
 	}
+	if err := d.exhaustedRetry(ctx, o, epoch); err != nil {
+		return err
+	}
 	root, ok := d.cfg.Handraises.LatestRoot()
 	if !ok {
 		return fmt.Errorf("%w: no handraise root yet", dispatchdraw.ErrNoCapacity)
@@ -584,6 +592,48 @@ func (d *Dispatcher) Probe(ctx context.Context, o types.Order) error {
 		return dispatchdraw.CheckRoster(root, pool, head)
 	}
 	return nil
+}
+
+// exhaustedRetry is Probe's answer to a retry of a failed sequence that is certain to fail at
+// once: a retry in the epoch and binding generation of the earlier attempts continues their
+// cursor and skip count, so once the cursor passed the order's last member, or the skips
+// max_skips, no member is left before the next epoch draws the order afresh
+// (*dispatchdraw.EpochExhaustedError naming that epoch's first height). A retry in another epoch,
+// of a session bound elsewhere (a takeover) or since bound again, or whose session cannot be
+// read, is left to the walk.
+func (d *Dispatcher) exhaustedRetry(ctx context.Context, o types.Order, epoch dispatchdraw.Epoch) error {
+	prev := d.get(stateKey(o.SessionID, o.OrderSequence))
+	if prev == nil {
+		return nil
+	}
+	prev.mu.Lock()
+	st := prev.st
+	failed := st.Phase == phaseFailed && st.Epoch != nil && st.Epoch.Number == epoch.Number
+	binding, stored := roundsBinding(st)
+	bound, members, cursor, skips := st.BoundChangeHeight, uint64(len(st.Members)), uint64(st.Cursor), st.Skips
+	prev.mu.Unlock()
+	if !failed || !stored {
+		return nil
+	}
+	session, _, err := d.cfg.Sessions.Lookup(ctx, o.SessionID)
+	if err != nil || !session.Found || session.BoundBuilder != d.cfg.Builder || max(bound, session.BoundChangeHeight) != binding {
+		return nil
+	}
+	exhausted := &dispatchdraw.EpochExhaustedError{Epoch: epoch.Number}
+	switch maxSkips := d.params.Load().MaxSkips; {
+	case skips > maxSkips:
+		exhausted.Reason = fmt.Sprintf("the earlier attempts of the sequence took %d skips, past max_skips %d", skips, maxSkips)
+	case cursor >= members:
+		exhausted.Reason = fmt.Sprintf("no member of the order is left after rank %d of %d", cursor, members)
+	default:
+		return nil
+	}
+	if next, err := d.cfg.Drawer.StartHeight(ctx, epoch.Number+1); err == nil {
+		exhausted.RetryHeight = next
+	} else {
+		d.log.Warn("first height of the next epoch unreadable; the retry is refused without it", "session_id", o.SessionID, "order_sequence", o.OrderSequence, "err", err)
+	}
+	return exhausted
 }
 
 // probeRoot accepts an order the root holds an admitted handraise for that serves its profile, has
