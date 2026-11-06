@@ -47,10 +47,12 @@ type session struct {
 	keepaliveMu sync.Mutex
 	// probe is the value of the outstanding local keepalive (0 when none), sent at probeSentAt and
 	// unanswered for probeTicks keepalive ticks; lastProbe is the latest value sent, lastPeerProbe
-	// the latest peer probe echoed.
+	// the latest peer probe echoed. probeFrame is the probe's frame until the sender writes it:
+	// probeSentAt is when it was queued until then.
 	probe, lastProbe, lastPeerProbe uint64
 	probeSentAt                     time.Time
 	probeTicks                      int
+	probeFrame                      *nexusv1.DispatchStreamFrameV1
 }
 
 func newSession(operator string, streamNonce []byte, bindingNonce uint64, stream FrameStream) *session {
@@ -266,6 +268,9 @@ func (h *Hub) sendLoop(s *session) error {
 				return nil
 			default:
 			}
+			if frame.GetKeepalive() != nil {
+				h.probeWriting(s, frame)
+			}
 			if err := s.stream.Send(frame); err != nil {
 				return err
 			}
@@ -346,11 +351,22 @@ func (h *Hub) keepalive(s *session) error {
 	if s.probe <= s.lastProbe {
 		s.probe = s.lastProbe + 2 // lastProbe is odd
 	}
-	s.lastProbe, s.probeSentAt, s.probeTicks = s.probe, now, 0
-	h.transport(s, &nexusv1.DispatchStreamFrameV1{
+	s.probeFrame = &nexusv1.DispatchStreamFrameV1{
 		Message: &nexusv1.DispatchStreamFrameV1_Keepalive{Keepalive: &nexusv1.StreamKeepaliveV1{SentAtMs: s.probe}},
-	})
+	}
+	s.lastProbe, s.probeSentAt, s.probeTicks = s.probe, now, 0
+	h.transport(s, s.probeFrame)
 	return nil
+}
+
+// probeWriting runs on the sender just before it writes a keepalive frame: when the frame is the
+// outstanding probe, its round trip starts now, not when it was queued behind earlier frames.
+func (h *Hub) probeWriting(s *session, frame *nexusv1.DispatchStreamFrameV1) {
+	s.keepaliveMu.Lock()
+	if frame == s.probeFrame {
+		s.probeSentAt, s.probeFrame = h.now(), nil
+	}
+	s.keepaliveMu.Unlock()
 }
 
 // receiveKeepalive answers frame on the receive goroutine when it is a well-formed keepalive of s
@@ -373,7 +389,7 @@ func (h *Hub) keepaliveReceived(s *session, value uint64) {
 	s.keepaliveMu.Lock()
 	defer s.keepaliveMu.Unlock()
 	if s.probe != 0 && value == s.probe {
-		s.probe = 0
+		s.probe, s.probeFrame = 0, nil
 		sample := max(h.now().Sub(s.probeSentAt), time.Millisecond)
 		h.mu.Lock()
 		if s.srtt == 0 {

@@ -75,3 +75,51 @@ func TestKeepaliveIsMeasuredWhileAHandlerIsBusy(t *testing.T) {
 		t.Fatalf("RTT = %v after the handler finished, want 40ms", got)
 	}
 }
+
+// gatedStream lets each Send through only when the test releases it, like a write stalled behind
+// earlier frames.
+type gatedStream struct {
+	*memStream
+	entered chan struct{}
+	gate    chan struct{}
+}
+
+func (g *gatedStream) Send(f *nexusv1.DispatchStreamFrameV1) error {
+	g.entered <- struct{}{}
+	<-g.gate
+	return g.memStream.Send(f)
+}
+
+// A probe queued behind a slow write is timed from when it is written, not from when it was queued.
+func TestKeepaliveProbeIsTimedFromItsWrite(t *testing.T) {
+	h := newHarness(t)
+	stream := &gatedStream{memStream: newMemStream(), entered: make(chan struct{}, 8), gate: make(chan struct{})}
+	nonce := hash32("stream|gated")
+	stream.in <- bindingFrame(h.keys.binding(t, cortexA, nonce))
+	s := &served{stream: stream.memStream, nonce: nonce, result: make(chan error, 1)}
+	go func() { s.result <- h.hub.Serve(context.Background(), stream) }()
+	h.waitConn(cortexA, true)
+
+	if err := h.hub.Send(context.Background(), cortexA, offer("slow")); err != nil {
+		t.Fatal(err)
+	}
+	<-stream.entered
+	// The second tick is taken only once the first one queued its probe.
+	h.ticks <- time.Time{}
+	h.ticks <- time.Time{}
+	h.clock.advance(300 * time.Millisecond)
+	stream.gate <- struct{}{}
+	if got := offerLabelOf(t, s.stream.next(t)); got != "slow" {
+		t.Fatalf("first frame = %s, want the offer", got)
+	}
+	<-stream.entered
+	stream.gate <- struct{}{}
+	probe := s.stream.next(t).GetKeepalive().GetSentAtMs()
+	if probe == 0 {
+		t.Fatal("second frame is not a probe")
+	}
+	h.clock.advance(20 * time.Millisecond)
+	s.stream.in <- keepaliveFrame(s, probe)
+	waitRTT(t, h, 20*time.Millisecond)
+	close(stream.gate)
+}
