@@ -85,3 +85,26 @@ func TestDrawerReadyWithTheBuilderVRFKey(t *testing.T) {
 		t.Fatalf("epoch length unreadable: err = %v, want a failed read", err)
 	}
 }
+
+// Drawer.StartHeight is the epoch source's first height of an epoch; an exhausted retry names the
+// next epoch's with it, and its answer is NO_CAPACITY.
+func TestDrawerStartHeightAndExhaustedAnswer(t *testing.T) {
+	keys, err := NewVRFKeys([]ed25519.PrivateKey{testKey(1)}, registryFor(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewDrawer(vectorChainID, &fakeEpochs{length: 100}, keys, NewPoolCache(vectorChainID, vectorPoolSource()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, err := d.StartHeight(context.Background(), 6); err != nil || h != 600 {
+		t.Fatalf("start of epoch 6 = %d, %v", h, err)
+	}
+	err = fmt.Errorf("probe: %w", &EpochExhaustedError{Epoch: 5, RetryHeight: 600, Reason: "no member left"})
+	if !errors.Is(err, ErrNoCapacity) || err.Error() != "probe: NEXUS_INGRESS_NO_CAPACITY: epoch 5: no member left; dispatchable_height=600" {
+		t.Fatalf("exhausted = %v", err)
+	}
+	if got := (&EpochExhaustedError{Epoch: 5, Reason: "no member left"}).Error(); got != "NEXUS_INGRESS_NO_CAPACITY: epoch 5: no member left" {
+		t.Fatalf("exhausted without a height = %q", got)
+	}
+}

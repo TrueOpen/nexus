@@ -21,6 +21,29 @@ import (
 // ingress status code.
 var ErrNoCapacity = errors.New("NEXUS_INGRESS_NO_CAPACITY")
 
+// EpochExhaustedError is the NO_CAPACITY answer to a retry of a failed order sequence that cannot
+// dispatch before the next epoch: within one epoch and binding generation a retry continues the
+// earlier attempts' cursor and skip count, and they already passed the order's last member or
+// max_skips. RetryHeight, when known (non-zero), is the first height of the next epoch: a retry
+// re-signed with an earliest_submit_height at or above it is drawn afresh. OpenTask answers it
+// as the OpenTaskResponse detail's dispatch_available_height, and the message ends with
+// "dispatchable_height=<n>" as well.
+type EpochExhaustedError struct {
+	Epoch       uint64
+	RetryHeight uint64
+	Reason      string
+}
+
+func (e *EpochExhaustedError) Error() string {
+	msg := fmt.Sprintf("%v: epoch %d: %s", ErrNoCapacity, e.Epoch, e.Reason)
+	if e.RetryHeight != 0 {
+		msg += fmt.Sprintf("; dispatchable_height=%d", e.RetryHeight)
+	}
+	return msg
+}
+
+func (e *EpochExhaustedError) Unwrap() error { return ErrNoCapacity }
+
 // ErrInvalidSnapshot means a candidate pool snapshot lists an in-pool member without the frozen
 // weight inputs every member must carry. No pool is built from it and nothing is read from live
 // state instead; orders of the epoch have no capacity, so it wraps ErrNoCapacity.

@@ -54,6 +54,11 @@ func (d *Drawer) Ready(ctx context.Context, ep Epoch) error {
 	return notReady
 }
 
+// StartHeight returns the first height of epoch (EpochSource.StartHeight).
+func (d *Drawer) StartHeight(ctx context.Context, epoch uint64) (uint64, error) {
+	return d.epochs.StartHeight(ctx, epoch)
+}
+
 // CachedPool returns the dispatch pool of profile at ep when a draw already read it
 // (PoolCache.Cached).
 func (d *Drawer) CachedPool(ep Epoch, profile Profile) (*Pool, bool) {
