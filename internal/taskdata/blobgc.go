@@ -51,6 +51,20 @@ func (s *Store) watched(watch *blobWatch, hash string) bool {
 	return ok
 }
 
+// collectBlob removes the blob hash names when no metadata record references it, without holding
+// the exclusive maintenance lock for the metadata scan. Every other unreferenced blob is left to
+// the next Sweep.
+func (s *Store) collectBlob(hash string) error {
+	watch := s.watchBlobs()
+	defer s.unwatchBlobs(watch)
+	records, err := s.loadMetadataRecords()
+	if err != nil {
+		return err
+	}
+	_, err = s.collectBlobs(watch, records, []string{hash})
+	return err
+}
+
 func referencedBlobs(records map[string]metadataRecord) map[string]struct{} {
 	referenced := make(map[string]struct{}, len(records))
 	for _, record := range records {

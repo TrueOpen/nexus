@@ -6,10 +6,14 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/TrueOpen/nexus/internal/kv"
 )
 
 // blockingRetentionResolver answers Retention with decision, after signalling entered and waiting
@@ -67,7 +71,7 @@ func within(t *testing.T, what string, fn func() error) {
 			t.Fatalf("%s: %v", what, err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatalf("%s blocked behind the sweep's chain reads", what)
+		t.Fatalf("%s blocked behind a maintenance section", what)
 	}
 }
 
@@ -188,5 +192,77 @@ func TestSweepLogsOnlyWhenItActs(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("sweep log %q lacks %q", line, want)
 		}
+	}
+}
+
+// pausingScanStore pauses the first metadata scan after it is armed, once the scan has read its
+// records, until resume is closed.
+type pausingScanStore struct {
+	kv.Store
+	armed   atomic.Bool
+	scanned chan struct{}
+	resume  chan struct{}
+}
+
+func (s *pausingScanStore) Scan(namespace kv.Namespace, fn func(string, []byte) bool) error {
+	err := s.Store.Scan(namespace, fn)
+	if namespace == kv.NSTaskDataMetadata && s.armed.CompareAndSwap(true, false) {
+		close(s.scanned)
+		<-s.resume
+	}
+	return err
+}
+
+// Removing an object collects its blob without the exclusive lock; an upload of the same bytes
+// that lands after the collection read the metadata keeps the blob.
+func TestRemovedObjectBlobKeptForUploadDuringCollection(t *testing.T) {
+	for name, remove := range map[string]func(*Store, ObjectKey) error{
+		"rollback": func(store *Store, key ObjectKey) error { return store.RollbackPrepared(context.Background(), key) },
+		"delete":   func(store *Store, key ObjectKey) error { return store.DeleteObject(context.Background(), key) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			backend := &pausingScanStore{Store: kv.NewMemStore(), scanned: make(chan struct{}), resume: make(chan struct{})}
+			store, err := NewStore(nil, filepath.Join(t.TempDir(), "objects"), backend, testStoreConfig(),
+				WithDiskUsage(func(string) (uint64, uint64, error) { return 1 << 30, 0, nil }))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := []byte("abcdefgh")
+			removed := prepareObject(t, store, testHeader(body), body)
+
+			backend.armed.Store(true)
+			done := make(chan error, 1)
+			go func() { done <- remove(store, removed.Key) }()
+			var once sync.Once
+			resume := func() { once.Do(func() { close(backend.resume) }) }
+			t.Cleanup(resume)
+			select {
+			case <-backend.scanned:
+			case err := <-done:
+				t.Fatalf("removal returned without reading the metadata: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("removal never read the metadata")
+			}
+			header := testHeader(body)
+			header.Key.TaskID = testOtherTaskID
+			var kept Metadata
+			within(t, "upload of the same bytes", func() error {
+				var err error
+				kept, err = uploadObject(store, header, body)
+				return err
+			})
+			resume()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.MarkReady(context.Background(), kept.Key); err != nil {
+				t.Fatal(err)
+			}
+			reader, err := store.OpenRange(context.Background(), kept.Key, 0, 0)
+			if err != nil {
+				t.Fatalf("blob of the upload made during collection: %v", err)
+			}
+			_ = reader.Close()
+		})
 	}
 }
