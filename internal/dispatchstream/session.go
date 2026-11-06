@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -13,8 +14,16 @@ import (
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 )
 
+// receiveQueue bounds the frames received and not yet handled on one stream. Keepalives skip the
+// queue, so it only absorbs the business frames and acks a Cortex sends while one uplink message is
+// being handled: a few at a time in practice. Beyond it the receive goroutine waits, which holds
+// the Cortex back through transport flow control, and memory stays bounded by this many frames of
+// the read limit per stream.
+const receiveQueue = 32
+
 // session is one bound stream. queue, wake, nextCursor and srtt are guarded by Hub.mu; lastUplink
-// and the keepalive state belong to the Serve goroutine.
+// belongs to the Serve goroutine. The keepalive state is guarded by keepaliveMu, taken before
+// Hub.mu: the Serve goroutine probes and the receive goroutine takes the answers.
 type session struct {
 	operator    string
 	streamNonce []byte
@@ -34,6 +43,8 @@ type session struct {
 
 	// owned by the Serve goroutine
 	lastUplink uint64 // cursor of the last business frame received; the next must be lastUplink+1
+
+	keepaliveMu sync.Mutex
 	// probe is the value of the outstanding local keepalive (0 when none), sent at probeSentAt and
 	// unanswered for probeTicks keepalive ticks; lastProbe is the latest value sent, lastPeerProbe
 	// the latest peer probe echoed.
@@ -99,14 +110,21 @@ func (h *Hub) transport(s *session, frame *nexusv1.DispatchStreamFrameV1) {
 func (h *Hub) Serve(ctx context.Context, stream FrameStream) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	frames := make(chan *nexusv1.DispatchStreamFrameV1)
+	// The receive goroutine answers keepalives itself, so a round trip is timed when the frame
+	// arrives, however long the loop below spends on an uplink message (a standing handraise reads
+	// the chain). Other frames queue in order for the loop; a full queue stops receiving.
+	frames := make(chan *nexusv1.DispatchStreamFrameV1, receiveQueue)
 	recvErr := make(chan error, 1)
+	var bound atomic.Pointer[session]
 	go func() {
 		for {
 			frame, err := stream.Receive()
 			if err != nil {
 				recvErr <- err
 				return
+			}
+			if s := bound.Load(); s != nil && h.receiveKeepalive(s, frame) {
+				continue
 			}
 			select {
 			case frames <- frame:
@@ -138,6 +156,7 @@ func (h *Hub) Serve(ctx context.Context, stream FrameStream) (err error) {
 	if err != nil {
 		return err
 	}
+	bound.Store(s)
 	sendErr := make(chan error, 1)
 	sendDone := make(chan struct{})
 	go func() {
@@ -313,6 +332,8 @@ func (h *Hub) handleFrame(ctx context.Context, s *session, frame *nexusv1.Dispat
 // so the values sent always increase. A Builder probes with odd values and a Cortex with even ones,
 // so a Cortex probe from the same millisecond is never taken for our probe's echo.
 func (h *Hub) keepalive(s *session) error {
+	s.keepaliveMu.Lock()
+	defer s.keepaliveMu.Unlock()
 	if s.probe != 0 {
 		s.probeTicks++
 		if s.probeTicks >= h.cfg.KeepaliveMisses {
@@ -332,11 +353,25 @@ func (h *Hub) keepalive(s *session) error {
 	return nil
 }
 
+// receiveKeepalive answers frame on the receive goroutine when it is a well-formed keepalive of s
+// and reports whether it did. Anything else, a malformed keepalive included, is left to
+// handleFrame.
+func (h *Hub) receiveKeepalive(s *session, frame *nexusv1.DispatchStreamFrameV1) bool {
+	m, ok := frame.GetMessage().(*nexusv1.DispatchStreamFrameV1_Keepalive)
+	if !ok || frame.GetCursor() != 0 || !bytes.Equal(frame.GetStreamNonce(), s.streamNonce) {
+		return false
+	}
+	h.keepaliveReceived(s, m.Keepalive.GetSentAtMs())
+	return true
+}
+
 // keepaliveReceived handles a peer keepalive. The value of the outstanding probe is its echo: it
 // measures the round trip, clears the probe and is not answered. Any other value is a peer probe,
 // echoed back unchanged once; a value not above the latest peer probe echoed is a repeat and is
 // dropped. Both sides probing at once therefore never bounce keepalives back and forth.
 func (h *Hub) keepaliveReceived(s *session, value uint64) {
+	s.keepaliveMu.Lock()
+	defer s.keepaliveMu.Unlock()
 	if s.probe != 0 && value == s.probe {
 		s.probe = 0
 		sample := max(h.now().Sub(s.probeSentAt), time.Millisecond)
