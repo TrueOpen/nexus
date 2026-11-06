@@ -93,6 +93,10 @@ type Store struct {
 	outputStreams map[string]*OutputStream
 	// fetchReceiptMu serializes the read-modify-write of fetch receipt indexes.
 	fetchReceiptMu sync.Mutex
+	// blobWatches are the blob collections running without the exclusive maintenance lock; a
+	// metadata write that references a blob reports it to each (see noteBlobReferenced).
+	blobWatchMu sync.Mutex
+	blobWatches map[*blobWatch]struct{}
 }
 
 func (s *Store) ChunkSize() uint64 { return s.cfg.ChunkSizeBytes }
@@ -400,6 +404,8 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 	raw, err := json.Marshal(record)
 	if err == nil {
 		err = u.store.backend.Set(kv.NSTaskDataMetadata, objectKeyString(u.header.Key), raw)
+		// Reported even when the index write below fails: the metadata naming the blob is stored.
+		u.store.noteBlobReferenced(blobHash)
 	}
 	if err == nil && u.header.Key.Kind != ObjectKindInput {
 		// The index shares the metadata's source of truth: it is written only after the metadata
@@ -588,55 +594,66 @@ func stateRank(state State) int {
 // RollbackPrepared removes only a PREPARED logical reference. READY objects
 // are never removed by a failed idempotent OpenTask retry.
 func (s *Store) RollbackPrepared(_ context.Context, key ObjectKey) error {
+	blob, err := s.rollbackPrepared(key)
+	if err != nil || blob == "" {
+		return err
+	}
+	return s.collectBlob(blob)
+}
+
+// rollbackPrepared removes the PREPARED metadata of key and returns the blob it named, or "" when
+// nothing was removed.
+func (s *Store) rollbackPrepared(key ObjectKey) (string, error) {
 	encoded := objectKeyString(key)
 	s.maintenance.Lock()
 	defer s.maintenance.Unlock()
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	record, found, err := s.metadataRecord(encoded)
 	if err != nil {
-		s.mu.Unlock()
-		return err
+		return "", err
 	}
 	if !found || record.Metadata.State == StateReady {
-		s.mu.Unlock()
-		return nil
+		return "", nil
 	}
 	if record.Metadata.State != StatePrepared {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: object is not prepared", ErrConflict)
+		return "", fmt.Errorf("%w: object is not prepared", ErrConflict)
 	}
 	// The index is deleted along with the object, but only when it names this object: a refused
 	// version must not drop the index of the version that is kept.
 	s.unindex(key)
 	if err := s.backend.Delete(kv.NSTaskDataMetadata, encoded); err != nil {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: delete prepared metadata: %v", ErrStorage, err)
+		return "", fmt.Errorf("%w: delete prepared metadata: %v", ErrStorage, err)
 	}
-	s.mu.Unlock()
-	records, err := s.loadMetadataRecords()
-	if err != nil {
-		return err
-	}
-	return s.removeUnreferencedBlobs(records)
+	return record.BlobHash, nil
 }
 
 func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 	if _, err := validateObjectKey(key); err != nil {
 		return err
 	}
+	blob, err := s.deleteObject(key)
+	if err != nil || blob == "" {
+		return err
+	}
+	return s.collectBlob(blob)
+}
+
+// deleteObject tombstones key, removes its metadata and output stream, and returns the blob the
+// metadata named, or "" when there was none.
+func (s *Store) deleteObject(key ObjectKey) (string, error) {
 	encoded := objectKeyString(key)
 	s.maintenance.Lock()
 	defer s.maintenance.Unlock()
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	record, metadataFound, err := s.metadataRecord(encoded)
 	if err != nil {
-		s.mu.Unlock()
-		return err
+		return "", err
 	}
 	tombstone, tombstoneFound, err := s.tombstoneRecord(encoded)
 	if err != nil {
-		s.mu.Unlock()
-		return err
+		return "", err
 	}
 	var source Metadata
 	switch {
@@ -658,8 +675,7 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 	}
 	if !tombstoneFound {
 		if err := s.persistTombstone(source, 0); err != nil {
-			s.mu.Unlock()
-			return err
+			return "", err
 		}
 	}
 	if metadataFound {
@@ -668,8 +684,7 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 		// another object is left alone.
 		s.unindex(key)
 		if err := s.backend.Delete(kv.NSTaskDataMetadata, encoded); err != nil {
-			s.mu.Unlock()
-			return fmt.Errorf("%w: delete metadata: %v", ErrStorage, err)
+			return "", fmt.Errorf("%w: delete metadata: %v", ErrStorage, err)
 		}
 	}
 	// The chunk records of a streamed OUTPUT are cleaned up together with the object.
@@ -679,15 +694,12 @@ func (s *Store) DeleteObject(_ context.Context, key ObjectKey) error {
 	// A stream's progress and chunk records live under the stream key (which has no content_hash),
 	// which is not the same key as the object metadata.
 	if err := s.deleteOutputStreamLocked(streamKeyString(key)); err != nil {
-		s.mu.Unlock()
-		return err
+		return "", err
 	}
-	s.mu.Unlock()
-	records, err := s.loadMetadataRecords()
-	if err != nil {
-		return err
+	if !metadataFound {
+		return "", nil
 	}
-	return s.removeUnreferencedBlobs(records)
+	return record.BlobHash, nil
 }
 
 func (s *Store) Metadata(_ context.Context, key ObjectKey) (Metadata, error) {
