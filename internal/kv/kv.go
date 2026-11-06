@@ -19,7 +19,6 @@ const (
 	NSCustodyTTL      Namespace = "custody_ttl"
 	NSReward          Namespace = "reward"
 	NSCapability      Namespace = "capability"
-	NSBusCursor       Namespace = "bus_cursor"
 	NSBuilderReg      Namespace = "builder_registration"
 	NSOutputDelivery  Namespace = "output_delivery"
 	NSOutputTombstone Namespace = "output_tombstone"
@@ -55,10 +54,71 @@ const (
 	NSTaskDataFetchReceiptIndex Namespace = "task_data_fetch_receipt_index"
 	// NSOutputAck is the user's local delivery progress for a streaming OUTPUT (task, last_seq); it is not a consensus fact.
 	NSOutputAck Namespace = "output_ack"
-	NSBusReplay Namespace = "bus_replay"
-	NSBusOutbox Namespace = "bus_outbox"
 	// NSLocalSchema holds the version of the local state layout, see package localschema.
 	NSLocalSchema Namespace = "local_schema"
+	// NSHandraise holds the direct dispatch handraise registry: the current standing handraise of
+	// each Cortex operator, reject-rate suspensions, the RTT admission threshold history and the
+	// pointer to the latest issued handraise root.
+	NSHandraise Namespace = "handraise"
+	// NSHandraiseRoot holds every issued signed handraise root with its leaves, as the bytes that
+	// were signed and sent; key = zero-padded root_height/root_version. A root is never re-signed.
+	NSHandraiseRoot Namespace = "handraise_root"
+	// NSHandraiseRootDigest is the handraise_root_digest -> NSHandraiseRoot key index used to
+	// look up a root named by a ticket or a challenge.
+	NSHandraiseRootDigest Namespace = "handraise_root_digest"
+	// NSStreamSession holds the Cortex dispatch stream state: the StoreOnce marker of every stream
+	// binding and the Builder-signed downlink messages a Cortex has not acknowledged yet, as the
+	// exact bytes first sent (package dispatchstream).
+	NSStreamSession Namespace = "stream_session"
+	// NSInflight holds the in-flight order ledger: per session, the orders this Builder dispatched
+	// whose dispatch entry the chain has not admitted yet, the suspension mark and the pending order
+	// cancellations (package inflight).
+	NSInflight Namespace = "inflight"
+	// NSDispatch holds the dispatch state of every order this Builder dispatches: the round, cursor
+	// and skip count, every ticket as the exact signed bytes offered, the rejects and the accept
+	// received (package dispatcher).
+	NSDispatch Namespace = "dispatch"
+	// NSRecordOutbox holds the dispatch entries waiting for their record on chain, as the exact
+	// entry bytes, and every signed record transaction before it is broadcast (package recorder).
+	NSRecordOutbox Namespace = "record_outbox"
+	// NSTakeover holds the takeovers this Builder registers as candidate, one per session: the
+	// order held for each, its registration and activation height (package takeover).
+	NSTakeover Namespace = "takeover"
+	// NSDispatchAttempt holds the winning dispatch attempt of each task this Builder dispatched:
+	// the winner ticket, the accept, the record status and the signed result header at that
+	// status; key = task_id (package attempt).
+	NSDispatchAttempt Namespace = "dispatch_attempt"
+	// NSDispatchAttemptVoided holds the PENDING attempts a binding change voided: the chain may
+	// still admit one whose withdrawal came too late, and it is then the task's attempt again;
+	// key = task_id|ticket_hash hex (package attempt).
+	NSDispatchAttemptVoided Namespace = "dispatch_attempt_voided"
+	// NSReceiptStaging holds the InferReceipt a winner submitted before its dispatch entry was
+	// recorded; it is relayed once the record is admitted and dropped if it is refused; key =
+	// session_id|task_id (package coordinator).
+	NSReceiptStaging Namespace = "receipt_staging"
+	// NSDispatchEvidence holds the evidence of every dispatched order until its claim and challenge
+	// windows close: rosters, tickets, answers and the signed record as exact bytes, with indexes
+	// by ticket, task and handraise root, and the open claims and challenges being answered
+	// (packages dispatchevidence and dispatchresponse).
+	NSDispatchEvidence Namespace = "dispatch_evidence"
+	// NSDispatchEvidencePrune orders NSDispatchEvidence by the height its evidence may be pruned
+	// at; key = zero-padded height/evidence key.
+	NSDispatchEvidencePrune Namespace = "dispatch_evidence_prune"
+	// NSBuilderSyncOutbox holds what the dispatching Builder still has to sync to the other members
+	// of each order's Task Builders group: per order, the sync stream with each member's progress,
+	// and the items not every member acknowledged yet, as the exact bytes sent (package
+	// buildersync).
+	NSBuilderSyncOutbox Namespace = "builder_sync_outbox"
+	// NSBuilderSyncMember holds, per order synced to this Builder as a group member, how far the
+	// sync stream was applied, the recorded winner and the input pieces not assembled yet
+	// (package buildersync).
+	NSBuilderSyncMember Namespace = "builder_sync_member"
+	// NSOps holds operator state: the optional drain (package drain) and the
+	// readiness write probe.
+	NSOps Namespace = "ops"
+	// NSSupportRelay holds the Cortex model support confirmations this Builder accepted to relay
+	// and has not seen settled on chain yet; key = chain id/epoch/operator (package supportrelay).
+	NSSupportRelay Namespace = "support_relay"
 )
 
 type Store interface {

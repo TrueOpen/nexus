@@ -90,6 +90,13 @@ message BuilderState {
   uint32 active_task_liability_count = 9;
   uint32 pending_stage_duty_count = 10;
   uint32 pending_evidence_submission_count = 11;
+  // Present together; one previous generation for old proofs, never live authority.
+  optional bytes previous_service_pubkey = 12;
+  optional uint64 previous_service_authorization_nonce = 13;
+  optional uint64 previous_retired_height = 14;
+  // Explicit emergency-revoke height, present only for a REVOKED current key.
+  // On rotation, clip previous_retired_height to this height and clear it.
+  optional uint64 revoked_height = 15;
 }
 
 // BuilderAdmissionState is the governance-owned admission projection for one

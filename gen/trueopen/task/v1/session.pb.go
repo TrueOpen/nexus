@@ -150,7 +150,7 @@ func (SessionLifecycleAction) EnumDescriptor() ([]byte, []int) {
 
 // OrderSequenceStatus is the per-sequence audit status of this contract.
 //
-// The five nonzero values are frozen in sequence lifecycle order.
+// Statuses distinguish retained sequence outcomes and pending cancellation.
 // OrderSequenceStatus defines the OrderSequenceStatus wire type.
 type OrderSequenceStatus int32
 
@@ -161,7 +161,7 @@ const (
 	// Reserved sequence that no task has consumed yet.
 	// ORDER_SEQUENCE_STATUS_UNUSED identifies the corresponding protocol value.
 	OrderSequenceStatus_ORDER_SEQUENCE_STATUS_UNUSED OrderSequenceStatus = 1
-	// Consumed by an accepted first Worker proposal.
+	// Consumed by an accepted dispatch entry.
 	// ORDER_SEQUENCE_STATUS_CONSUMED identifies the corresponding protocol value.
 	OrderSequenceStatus_ORDER_SEQUENCE_STATUS_CONSUMED OrderSequenceStatus = 2
 	// Skipped by MsgCancelOrder; no funds moved.
@@ -173,6 +173,8 @@ const (
 	// Task reached a settled terminal state.
 	// ORDER_SEQUENCE_STATUS_SETTLED identifies the corresponding protocol value.
 	OrderSequenceStatus_ORDER_SEQUENCE_STATUS_SETTLED OrderSequenceStatus = 5
+	// Cancellation is registered but not yet effective.
+	OrderSequenceStatus_ORDER_SEQUENCE_STATUS_CANCEL_PENDING OrderSequenceStatus = 6
 )
 
 // Enum value maps for OrderSequenceStatus.
@@ -184,14 +186,16 @@ var (
 		3: "ORDER_SEQUENCE_STATUS_CANCELLED",
 		4: "ORDER_SEQUENCE_STATUS_REFUNDED",
 		5: "ORDER_SEQUENCE_STATUS_SETTLED",
+		6: "ORDER_SEQUENCE_STATUS_CANCEL_PENDING",
 	}
 	OrderSequenceStatus_value = map[string]int32{
-		"ORDER_SEQUENCE_STATUS_UNSPECIFIED": 0,
-		"ORDER_SEQUENCE_STATUS_UNUSED":      1,
-		"ORDER_SEQUENCE_STATUS_CONSUMED":    2,
-		"ORDER_SEQUENCE_STATUS_CANCELLED":   3,
-		"ORDER_SEQUENCE_STATUS_REFUNDED":    4,
-		"ORDER_SEQUENCE_STATUS_SETTLED":     5,
+		"ORDER_SEQUENCE_STATUS_UNSPECIFIED":    0,
+		"ORDER_SEQUENCE_STATUS_UNUSED":         1,
+		"ORDER_SEQUENCE_STATUS_CONSUMED":       2,
+		"ORDER_SEQUENCE_STATUS_CANCELLED":      3,
+		"ORDER_SEQUENCE_STATUS_REFUNDED":       4,
+		"ORDER_SEQUENCE_STATUS_SETTLED":        5,
+		"ORDER_SEQUENCE_STATUS_CANCEL_PENDING": 6,
 	}
 )
 
@@ -281,6 +285,116 @@ func (TaskBudgetStatus) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_session_proto_rawDescGZIP(), []int{3}
 }
 
+// SessionWithdrawKindV1 is the closed SessionWithdrawKindV1 registry.
+type SessionWithdrawKindV1 int32
+
+const (
+	// UNSPECIFIED is the unspecified value.
+	SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_UNSPECIFIED SessionWithdrawKindV1 = 0
+	// NONE is the none value.
+	SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_NONE SessionWithdrawKindV1 = 1
+	// AMOUNT is the amount value.
+	SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_AMOUNT SessionWithdrawKindV1 = 2
+	// CLOSE is the close value.
+	SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_CLOSE SessionWithdrawKindV1 = 3
+)
+
+// Enum value maps for SessionWithdrawKindV1.
+var (
+	SessionWithdrawKindV1_name = map[int32]string{
+		0: "SESSION_WITHDRAW_KIND_V1_UNSPECIFIED",
+		1: "SESSION_WITHDRAW_KIND_V1_NONE",
+		2: "SESSION_WITHDRAW_KIND_V1_AMOUNT",
+		3: "SESSION_WITHDRAW_KIND_V1_CLOSE",
+	}
+	SessionWithdrawKindV1_value = map[string]int32{
+		"SESSION_WITHDRAW_KIND_V1_UNSPECIFIED": 0,
+		"SESSION_WITHDRAW_KIND_V1_NONE":        1,
+		"SESSION_WITHDRAW_KIND_V1_AMOUNT":      2,
+		"SESSION_WITHDRAW_KIND_V1_CLOSE":       3,
+	}
+)
+
+func (x SessionWithdrawKindV1) Enum() *SessionWithdrawKindV1 {
+	p := new(SessionWithdrawKindV1)
+	*p = x
+	return p
+}
+
+func (x SessionWithdrawKindV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionWithdrawKindV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_session_proto_enumTypes[4].Descriptor()
+}
+
+func (SessionWithdrawKindV1) Type() protoreflect.EnumType {
+	return &file_task_v1_session_proto_enumTypes[4]
+}
+
+func (x SessionWithdrawKindV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionWithdrawKindV1.Descriptor instead.
+func (SessionWithdrawKindV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{4}
+}
+
+// SessionKeyChangeKindV1 is the closed SessionKeyChangeKindV1 registry.
+type SessionKeyChangeKindV1 int32
+
+const (
+	// UNSPECIFIED is the unspecified value.
+	SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED SessionKeyChangeKindV1 = 0
+	// SET is the set value.
+	SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET SessionKeyChangeKindV1 = 1
+	// CLEAR is the clear value.
+	SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_CLEAR SessionKeyChangeKindV1 = 2
+)
+
+// Enum value maps for SessionKeyChangeKindV1.
+var (
+	SessionKeyChangeKindV1_name = map[int32]string{
+		0: "SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED",
+		1: "SESSION_KEY_CHANGE_KIND_V1_SET",
+		2: "SESSION_KEY_CHANGE_KIND_V1_CLEAR",
+	}
+	SessionKeyChangeKindV1_value = map[string]int32{
+		"SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED": 0,
+		"SESSION_KEY_CHANGE_KIND_V1_SET":         1,
+		"SESSION_KEY_CHANGE_KIND_V1_CLEAR":       2,
+	}
+)
+
+func (x SessionKeyChangeKindV1) Enum() *SessionKeyChangeKindV1 {
+	p := new(SessionKeyChangeKindV1)
+	*p = x
+	return p
+}
+
+func (x SessionKeyChangeKindV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SessionKeyChangeKindV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_session_proto_enumTypes[5].Descriptor()
+}
+
+func (SessionKeyChangeKindV1) Type() protoreflect.EnumType {
+	return &file_task_v1_session_proto_enumTypes[5]
+}
+
+func (x SessionKeyChangeKindV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SessionKeyChangeKindV1.Descriptor instead.
+func (SessionKeyChangeKindV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{5}
+}
+
 // SessionNonceState is the per-user session counter (key = user_address).
 // It is retained long term so session_id is never reused.
 // SessionNonceState defines the SessionNonceState wire type.
@@ -338,10 +452,9 @@ func (x *SessionNonceState) GetNextSessionNonce() uint64 {
 
 // StreamState is one session: sequence counter, owner, in-flight count and
 // optional delegated signing authorization
-// (key = session_id). Model A: a session never holds a balance; the
-// abandoned SessionEscrowState double ledger is deleted, and funds live in the
-// user account and the escrow module account with TaskBudgetState as the only
-// per-task ledger.
+// (key = session_id). Balance includes frozen Task reservations in the escrow
+// module account. Admission freezes funds from this ledger; settlement charges
+// actual spend and makes the remainder available in this same session.
 // StreamState defines the StreamState wire type.
 type StreamState struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
@@ -362,12 +475,31 @@ type StreamState struct {
 	// renewal, clearing or refunds. Wallet orders do not increment it.
 	SessionKeySpent *v1.Amount `protobuf:"bytes,10,opt,name=session_key_spent,json=sessionKeySpent,proto3" json:"session_key_spent,omitempty"`
 	// First registration, different-key replacement or SET after CLEAR records
-	// the execution height; same-key renewal/cap changes preserve it. Zero when
+	// the effective height; initial creation is immediate. Same-key renewal/cap
+	// changes preserve it. Zero when
 	// no key is registered. A delegated order's signed anchor height must be at
 	// least this height, preventing signatures from a revoked grant reviving.
-	SessionKeySetHeight uint64 `protobuf:"varint,11,opt,name=session_key_set_height,json=sessionKeySetHeight,proto3" json:"session_key_set_height,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	SessionKeySetHeight            uint64                     `protobuf:"varint,11,opt,name=session_key_set_height,json=sessionKeySetHeight,proto3" json:"session_key_set_height,omitempty"`
+	Balance                        *v1.Amount                 `protobuf:"bytes,12,opt,name=balance,proto3" json:"balance,omitempty"`
+	FrozenTotal                    *v1.Amount                 `protobuf:"bytes,13,opt,name=frozen_total,json=frozenTotal,proto3" json:"frozen_total,omitempty"`
+	PendingWithdrawKind            SessionWithdrawKindV1      `protobuf:"varint,14,opt,name=pending_withdraw_kind,json=pendingWithdrawKind,proto3,enum=task.v1.SessionWithdrawKindV1" json:"pending_withdraw_kind,omitempty"`
+	PendingWithdrawAmount          *v1.Amount                 `protobuf:"bytes,15,opt,name=pending_withdraw_amount,json=pendingWithdrawAmount,proto3" json:"pending_withdraw_amount,omitempty"`
+	PendingWithdrawEffectiveHeight uint64                     `protobuf:"varint,16,opt,name=pending_withdraw_effective_height,json=pendingWithdrawEffectiveHeight,proto3" json:"pending_withdraw_effective_height,omitempty"`
+	BoundBuilder                   string                     `protobuf:"bytes,17,opt,name=bound_builder,json=boundBuilder,proto3" json:"bound_builder,omitempty"`
+	BoundChangeHeight              uint64                     `protobuf:"varint,18,opt,name=bound_change_height,json=boundChangeHeight,proto3" json:"bound_change_height,omitempty"`
+	LastRecordHeight               uint64                     `protobuf:"varint,19,opt,name=last_record_height,json=lastRecordHeight,proto3" json:"last_record_height,omitempty"`
+	LastRecordWinner               *string                    `protobuf:"bytes,20,opt,name=last_record_winner,json=lastRecordWinner,proto3,oneof" json:"last_record_winner,omitempty"`
+	StickyAnchorSequence           uint64                     `protobuf:"varint,21,opt,name=sticky_anchor_sequence,json=stickyAnchorSequence,proto3" json:"sticky_anchor_sequence,omitempty"`
+	StickyAnchorHeight             uint64                     `protobuf:"varint,22,opt,name=sticky_anchor_height,json=stickyAnchorHeight,proto3" json:"sticky_anchor_height,omitempty"`
+	StickyRunCount                 uint32                     `protobuf:"varint,23,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
+	PendingSessionKeyChange        *PendingSessionKeyChangeV1 `protobuf:"bytes,24,opt,name=pending_session_key_change,json=pendingSessionKeyChange,proto3,oneof" json:"pending_session_key_change,omitempty"`
+	PendingTakeover                *PendingTakeoverV1         `protobuf:"bytes,25,opt,name=pending_takeover,json=pendingTakeover,proto3,oneof" json:"pending_takeover,omitempty"`
+	// Positive exactly for CLOSED, set once on entry into that state. A closed
+	// Session accepts a claim only for max(ticket bound height, order ESH) below
+	// this height, until history compaction removes the StreamState.
+	ClosedHeight  uint64 `protobuf:"varint,26,opt,name=closed_height,json=closedHeight,proto3" json:"closed_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamState) Reset() {
@@ -477,20 +609,130 @@ func (x *StreamState) GetSessionKeySetHeight() uint64 {
 	return 0
 }
 
+func (x *StreamState) GetBalance() *v1.Amount {
+	if x != nil {
+		return x.Balance
+	}
+	return nil
+}
+
+func (x *StreamState) GetFrozenTotal() *v1.Amount {
+	if x != nil {
+		return x.FrozenTotal
+	}
+	return nil
+}
+
+func (x *StreamState) GetPendingWithdrawKind() SessionWithdrawKindV1 {
+	if x != nil {
+		return x.PendingWithdrawKind
+	}
+	return SessionWithdrawKindV1_SESSION_WITHDRAW_KIND_V1_UNSPECIFIED
+}
+
+func (x *StreamState) GetPendingWithdrawAmount() *v1.Amount {
+	if x != nil {
+		return x.PendingWithdrawAmount
+	}
+	return nil
+}
+
+func (x *StreamState) GetPendingWithdrawEffectiveHeight() uint64 {
+	if x != nil {
+		return x.PendingWithdrawEffectiveHeight
+	}
+	return 0
+}
+
+func (x *StreamState) GetBoundBuilder() string {
+	if x != nil {
+		return x.BoundBuilder
+	}
+	return ""
+}
+
+func (x *StreamState) GetBoundChangeHeight() uint64 {
+	if x != nil {
+		return x.BoundChangeHeight
+	}
+	return 0
+}
+
+func (x *StreamState) GetLastRecordHeight() uint64 {
+	if x != nil {
+		return x.LastRecordHeight
+	}
+	return 0
+}
+
+func (x *StreamState) GetLastRecordWinner() string {
+	if x != nil && x.LastRecordWinner != nil {
+		return *x.LastRecordWinner
+	}
+	return ""
+}
+
+func (x *StreamState) GetStickyAnchorSequence() uint64 {
+	if x != nil {
+		return x.StickyAnchorSequence
+	}
+	return 0
+}
+
+func (x *StreamState) GetStickyAnchorHeight() uint64 {
+	if x != nil {
+		return x.StickyAnchorHeight
+	}
+	return 0
+}
+
+func (x *StreamState) GetStickyRunCount() uint32 {
+	if x != nil {
+		return x.StickyRunCount
+	}
+	return 0
+}
+
+func (x *StreamState) GetPendingSessionKeyChange() *PendingSessionKeyChangeV1 {
+	if x != nil {
+		return x.PendingSessionKeyChange
+	}
+	return nil
+}
+
+func (x *StreamState) GetPendingTakeover() *PendingTakeoverV1 {
+	if x != nil {
+		return x.PendingTakeover
+	}
+	return nil
+}
+
+func (x *StreamState) GetClosedHeight() uint64 {
+	if x != nil {
+		return x.ClosedHeight
+	}
+	return 0
+}
+
 // OrderSequenceState records how one order sequence was used (this contract, key =
 // (session_id, order_sequence)). StreamState.next_expected_sequence stays the
 // only authority for the next acceptable sequence.
 // OrderSequenceState defines the OrderSequenceState wire type.
 type OrderSequenceState struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence   uint64                 `protobuf:"varint,2,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	Status          OrderSequenceStatus    `protobuf:"varint,3,opt,name=status,proto3,enum=task.v1.OrderSequenceStatus" json:"status,omitempty"`
-	TaskId          []byte                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ConsumedHeight  uint64                 `protobuf:"varint,5,opt,name=consumed_height,json=consumedHeight,proto3" json:"consumed_height,omitempty"`
-	CancelledHeight uint64                 `protobuf:"varint,6,opt,name=cancelled_height,json=cancelledHeight,proto3" json:"cancelled_height,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	SessionId             []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrderSequence         uint64                 `protobuf:"varint,2,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	Status                OrderSequenceStatus    `protobuf:"varint,3,opt,name=status,proto3,enum=task.v1.OrderSequenceStatus" json:"status,omitempty"`
+	TaskId                []byte                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	ConsumedHeight        uint64                 `protobuf:"varint,5,opt,name=consumed_height,json=consumedHeight,proto3" json:"consumed_height,omitempty"`
+	CancelledHeight       uint64                 `protobuf:"varint,6,opt,name=cancelled_height,json=cancelledHeight,proto3" json:"cancelled_height,omitempty"`
+	CancelEffectiveHeight uint64                 `protobuf:"varint,7,opt,name=cancel_effective_height,json=cancelEffectiveHeight,proto3" json:"cancel_effective_height,omitempty"`
+	// Set atomically on compensation PAID, including a zero actual payment.
+	// Never cleared by cancellation, admission or settlement. An unconsumed
+	// sequence uses UNUSED to retain this marker until Session compaction.
+	CompensationPaid bool `protobuf:"varint,8,opt,name=compensation_paid,json=compensationPaid,proto3" json:"compensation_paid,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *OrderSequenceState) Reset() {
@@ -565,10 +807,27 @@ func (x *OrderSequenceState) GetCancelledHeight() uint64 {
 	return 0
 }
 
+func (x *OrderSequenceState) GetCancelEffectiveHeight() uint64 {
+	if x != nil {
+		return x.CancelEffectiveHeight
+	}
+	return 0
+}
+
+func (x *OrderSequenceState) GetCompensationPaid() bool {
+	if x != nil {
+		return x.CompensationPaid
+	}
+	return false
+}
+
 // SessionHistoryPruneCursorState folds order history after a session closed
 // (key = session_id). rolling_sequence_root advances by
 // TRUEOPEN_SESSION_SEQUENCE_ROOT_V1; visited_count counts every visited row,
-// including already collapsed or missing ones. No DONE row is persisted.
+// including already collapsed or missing ones. After final next, it scans
+// through final next + max_pending_per_session to delete UNUSED paid markers
+// and gaps without changing the root or outcome counts. Genesis accepts a
+// cursor anywhere in that full range. No DONE row is persisted.
 // SessionHistoryPruneCursorState defines the SessionHistoryPruneCursorState wire type.
 type SessionHistoryPruneCursorState struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -1040,6 +1299,248 @@ func (x *TaskBudgetState) GetBudgetStatus() TaskBudgetStatus {
 	return TaskBudgetStatus_TASK_BUDGET_STATUS_UNSPECIFIED
 }
 
+// SessionKeyGrantV1 registers a delegated order/request signer for one session.
+// The raw20 address must be nonzero and different from the owner's address.
+// At registration/renewal, current_height < expiry_height <= current_height +
+// the current effective max_session_key_blocks (checked addition). The limit
+// is not resolved through the session's pinned historical parameter version.
+// A canonical zero spend_cap (atomic_units = "0") is unlimited; otherwise it
+// bounds cumulative admitted max_fee, not actual spend or a prepaid balance.
+type SessionKeyGrantV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionKey    []byte                 `protobuf:"bytes,1,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"`
+	ExpiryHeight  uint64                 `protobuf:"varint,2,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
+	SpendCap      *v1.Amount             `protobuf:"bytes,3,opt,name=spend_cap,json=spendCap,proto3" json:"spend_cap,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionKeyGrantV1) Reset() {
+	*x = SessionKeyGrantV1{}
+	mi := &file_task_v1_session_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionKeyGrantV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionKeyGrantV1) ProtoMessage() {}
+
+func (x *SessionKeyGrantV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_session_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionKeyGrantV1.ProtoReflect.Descriptor instead.
+func (*SessionKeyGrantV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SessionKeyGrantV1) GetSessionKey() []byte {
+	if x != nil {
+		return x.SessionKey
+	}
+	return nil
+}
+
+func (x *SessionKeyGrantV1) GetExpiryHeight() uint64 {
+	if x != nil {
+		return x.ExpiryHeight
+	}
+	return 0
+}
+
+func (x *SessionKeyGrantV1) GetSpendCap() *v1.Amount {
+	if x != nil {
+		return x.SpendCap
+	}
+	return nil
+}
+
+// ClearSessionKeyV1 registers delayed revocation.
+type ClearSessionKeyV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearSessionKeyV1) Reset() {
+	*x = ClearSessionKeyV1{}
+	mi := &file_task_v1_session_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearSessionKeyV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearSessionKeyV1) ProtoMessage() {}
+
+func (x *ClearSessionKeyV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_session_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearSessionKeyV1.ProtoReflect.Descriptor instead.
+func (*ClearSessionKeyV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{8}
+}
+
+// PendingTakeoverV1 defines the canonical PendingTakeoverV1 fields.
+type PendingTakeoverV1 struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	CandidateBuilder string                 `protobuf:"bytes,1,opt,name=candidate_builder,json=candidateBuilder,proto3" json:"candidate_builder,omitempty"`
+	OrderSequence    uint64                 `protobuf:"varint,2,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
+	OrderTaskHash    []byte                 `protobuf:"bytes,3,opt,name=order_task_hash,json=orderTaskHash,proto3" json:"order_task_hash,omitempty"`
+	RegisteredHeight uint64                 `protobuf:"varint,4,opt,name=registered_height,json=registeredHeight,proto3" json:"registered_height,omitempty"`
+	ActivationHeight uint64                 `protobuf:"varint,5,opt,name=activation_height,json=activationHeight,proto3" json:"activation_height,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PendingTakeoverV1) Reset() {
+	*x = PendingTakeoverV1{}
+	mi := &file_task_v1_session_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingTakeoverV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingTakeoverV1) ProtoMessage() {}
+
+func (x *PendingTakeoverV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_session_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingTakeoverV1.ProtoReflect.Descriptor instead.
+func (*PendingTakeoverV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PendingTakeoverV1) GetCandidateBuilder() string {
+	if x != nil {
+		return x.CandidateBuilder
+	}
+	return ""
+}
+
+func (x *PendingTakeoverV1) GetOrderSequence() uint64 {
+	if x != nil {
+		return x.OrderSequence
+	}
+	return 0
+}
+
+func (x *PendingTakeoverV1) GetOrderTaskHash() []byte {
+	if x != nil {
+		return x.OrderTaskHash
+	}
+	return nil
+}
+
+func (x *PendingTakeoverV1) GetRegisteredHeight() uint64 {
+	if x != nil {
+		return x.RegisteredHeight
+	}
+	return 0
+}
+
+func (x *PendingTakeoverV1) GetActivationHeight() uint64 {
+	if x != nil {
+		return x.ActivationHeight
+	}
+	return 0
+}
+
+// PendingSessionKeyChangeV1 defines the canonical PendingSessionKeyChangeV1 fields.
+type PendingSessionKeyChangeV1 struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Kind            SessionKeyChangeKindV1 `protobuf:"varint,1,opt,name=kind,proto3,enum=task.v1.SessionKeyChangeKindV1" json:"kind,omitempty"`
+	Grant           *SessionKeyGrantV1     `protobuf:"bytes,2,opt,name=grant,proto3,oneof" json:"grant,omitempty"`
+	EffectiveHeight uint64                 `protobuf:"varint,3,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PendingSessionKeyChangeV1) Reset() {
+	*x = PendingSessionKeyChangeV1{}
+	mi := &file_task_v1_session_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingSessionKeyChangeV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingSessionKeyChangeV1) ProtoMessage() {}
+
+func (x *PendingSessionKeyChangeV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_session_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingSessionKeyChangeV1.ProtoReflect.Descriptor instead.
+func (*PendingSessionKeyChangeV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_session_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PendingSessionKeyChangeV1) GetKind() SessionKeyChangeKindV1 {
+	if x != nil {
+		return x.Kind
+	}
+	return SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED
+}
+
+func (x *PendingSessionKeyChangeV1) GetGrant() *SessionKeyGrantV1 {
+	if x != nil {
+		return x.Grant
+	}
+	return nil
+}
+
+func (x *PendingSessionKeyChangeV1) GetEffectiveHeight() uint64 {
+	if x != nil {
+		return x.EffectiveHeight
+	}
+	return 0
+}
+
 var File_task_v1_session_proto protoreflect.FileDescriptor
 
 const file_task_v1_session_proto_rawDesc = "" +
@@ -1047,7 +1548,7 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x15task/v1/session.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\"d\n" +
 	"\x11SessionNonceState\x12!\n" +
 	"\fuser_address\x18\x01 \x01(\tR\vuserAddress\x12,\n" +
-	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\xc7\x04\n" +
+	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\xfe\v\n" +
 	"\vStreamState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12,\n" +
@@ -1062,8 +1563,26 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x15session_key_spend_cap\x18\t \x01(\v2\x11.shared.v1.AmountR\x12sessionKeySpendCap\x12=\n" +
 	"\x11session_key_spent\x18\n" +
 	" \x01(\v2\x11.shared.v1.AmountR\x0fsessionKeySpent\x123\n" +
-	"\x16session_key_set_height\x18\v \x01(\x04R\x13sessionKeySetHeightB\x0e\n" +
-	"\f_session_key\"\xfd\x01\n" +
+	"\x16session_key_set_height\x18\v \x01(\x04R\x13sessionKeySetHeight\x12+\n" +
+	"\abalance\x18\f \x01(\v2\x11.shared.v1.AmountR\abalance\x124\n" +
+	"\ffrozen_total\x18\r \x01(\v2\x11.shared.v1.AmountR\vfrozenTotal\x12R\n" +
+	"\x15pending_withdraw_kind\x18\x0e \x01(\x0e2\x1e.task.v1.SessionWithdrawKindV1R\x13pendingWithdrawKind\x12I\n" +
+	"\x17pending_withdraw_amount\x18\x0f \x01(\v2\x11.shared.v1.AmountR\x15pendingWithdrawAmount\x12I\n" +
+	"!pending_withdraw_effective_height\x18\x10 \x01(\x04R\x1ependingWithdrawEffectiveHeight\x12#\n" +
+	"\rbound_builder\x18\x11 \x01(\tR\fboundBuilder\x12.\n" +
+	"\x13bound_change_height\x18\x12 \x01(\x04R\x11boundChangeHeight\x12,\n" +
+	"\x12last_record_height\x18\x13 \x01(\x04R\x10lastRecordHeight\x121\n" +
+	"\x12last_record_winner\x18\x14 \x01(\tH\x01R\x10lastRecordWinner\x88\x01\x01\x124\n" +
+	"\x16sticky_anchor_sequence\x18\x15 \x01(\x04R\x14stickyAnchorSequence\x120\n" +
+	"\x14sticky_anchor_height\x18\x16 \x01(\x04R\x12stickyAnchorHeight\x12(\n" +
+	"\x10sticky_run_count\x18\x17 \x01(\rR\x0estickyRunCount\x12d\n" +
+	"\x1apending_session_key_change\x18\x18 \x01(\v2\".task.v1.PendingSessionKeyChangeV1H\x02R\x17pendingSessionKeyChange\x88\x01\x01\x12J\n" +
+	"\x10pending_takeover\x18\x19 \x01(\v2\x1a.task.v1.PendingTakeoverV1H\x03R\x0fpendingTakeover\x88\x01\x01\x12#\n" +
+	"\rclosed_height\x18\x1a \x01(\x04R\fclosedHeightB\x0e\n" +
+	"\f_session_keyB\x15\n" +
+	"\x13_last_record_winnerB\x1d\n" +
+	"\x1b_pending_session_key_changeB\x13\n" +
+	"\x11_pending_takeover\"\xe2\x02\n" +
 	"\x12OrderSequenceState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12%\n" +
@@ -1071,7 +1590,9 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x06status\x18\x03 \x01(\x0e2\x1c.task.v1.OrderSequenceStatusR\x06status\x12\x17\n" +
 	"\atask_id\x18\x04 \x01(\fR\x06taskId\x12'\n" +
 	"\x0fconsumed_height\x18\x05 \x01(\x04R\x0econsumedHeight\x12)\n" +
-	"\x10cancelled_height\x18\x06 \x01(\x04R\x0fcancelledHeight\"\xe4\x02\n" +
+	"\x10cancelled_height\x18\x06 \x01(\x04R\x0fcancelledHeight\x126\n" +
+	"\x17cancel_effective_height\x18\a \x01(\x04R\x15cancelEffectiveHeight\x12+\n" +
+	"\x11compensation_paid\x18\b \x01(\bR\x10compensationPaid\"\xe4\x02\n" +
 	"\x1eSessionHistoryPruneCursorState\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12.\n" +
@@ -1120,7 +1641,24 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"#max_reimbursement_per_task_snapshot\x18\x0f \x01(\v2\x11.shared.v1.AmountR\x1fmaxReimbursementPerTaskSnapshot\x126\n" +
 	"\x17gas_reimbursement_count\x18\x10 \x01(\rR\x15gasReimbursementCount\x12C\n" +
 	"\x14gas_reimbursed_total\x18\x11 \x01(\v2\x11.shared.v1.AmountR\x12gasReimbursedTotal\x12>\n" +
-	"\rbudget_status\x18\x12 \x01(\x0e2\x19.task.v1.TaskBudgetStatusR\fbudgetStatus*~\n" +
+	"\rbudget_status\x18\x12 \x01(\x0e2\x19.task.v1.TaskBudgetStatusR\fbudgetStatus\"\x89\x01\n" +
+	"\x11SessionKeyGrantV1\x12\x1f\n" +
+	"\vsession_key\x18\x01 \x01(\fR\n" +
+	"sessionKey\x12#\n" +
+	"\rexpiry_height\x18\x02 \x01(\x04R\fexpiryHeight\x12.\n" +
+	"\tspend_cap\x18\x03 \x01(\v2\x11.shared.v1.AmountR\bspendCap\"\x13\n" +
+	"\x11ClearSessionKeyV1\"\xe9\x01\n" +
+	"\x11PendingTakeoverV1\x12+\n" +
+	"\x11candidate_builder\x18\x01 \x01(\tR\x10candidateBuilder\x12%\n" +
+	"\x0eorder_sequence\x18\x02 \x01(\x04R\rorderSequence\x12&\n" +
+	"\x0forder_task_hash\x18\x03 \x01(\fR\rorderTaskHash\x12+\n" +
+	"\x11registered_height\x18\x04 \x01(\x04R\x10registeredHeight\x12+\n" +
+	"\x11activation_height\x18\x05 \x01(\x04R\x10activationHeight\"\xbc\x01\n" +
+	"\x19PendingSessionKeyChangeV1\x123\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x1f.task.v1.SessionKeyChangeKindV1R\x04kind\x125\n" +
+	"\x05grant\x18\x02 \x01(\v2\x1a.task.v1.SessionKeyGrantV1H\x00R\x05grant\x88\x01\x01\x12)\n" +
+	"\x10effective_height\x18\x03 \x01(\x04R\x0feffectiveHeightB\b\n" +
+	"\x06_grant*~\n" +
 	"\rSessionStatus\x12\x1e\n" +
 	"\x1aSESSION_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15SESSION_STATUS_ACTIVE\x10\x01\x12\x17\n" +
@@ -1129,18 +1667,28 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x16SessionLifecycleAction\x12(\n" +
 	"$SESSION_LIFECYCLE_ACTION_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"SESSION_LIFECYCLE_ACTION_MARK_IDLE\x10\x01\x12\"\n" +
-	"\x1eSESSION_LIFECYCLE_ACTION_CLOSE\x10\x02*\xee\x01\n" +
+	"\x1eSESSION_LIFECYCLE_ACTION_CLOSE\x10\x02*\x98\x02\n" +
 	"\x13OrderSequenceStatus\x12%\n" +
 	"!ORDER_SEQUENCE_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cORDER_SEQUENCE_STATUS_UNUSED\x10\x01\x12\"\n" +
 	"\x1eORDER_SEQUENCE_STATUS_CONSUMED\x10\x02\x12#\n" +
 	"\x1fORDER_SEQUENCE_STATUS_CANCELLED\x10\x03\x12\"\n" +
 	"\x1eORDER_SEQUENCE_STATUS_REFUNDED\x10\x04\x12!\n" +
-	"\x1dORDER_SEQUENCE_STATUS_SETTLED\x10\x05*y\n" +
+	"\x1dORDER_SEQUENCE_STATUS_SETTLED\x10\x05\x12(\n" +
+	"$ORDER_SEQUENCE_STATUS_CANCEL_PENDING\x10\x06*y\n" +
 	"\x10TaskBudgetStatus\x12\"\n" +
 	"\x1eTASK_BUDGET_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bTASK_BUDGET_STATUS_RESERVED\x10\x01\x12 \n" +
-	"\x1cTASK_BUDGET_STATUS_FINALIZED\x10\x02B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x1cTASK_BUDGET_STATUS_FINALIZED\x10\x02*\xad\x01\n" +
+	"\x15SessionWithdrawKindV1\x12(\n" +
+	"$SESSION_WITHDRAW_KIND_V1_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dSESSION_WITHDRAW_KIND_V1_NONE\x10\x01\x12#\n" +
+	"\x1fSESSION_WITHDRAW_KIND_V1_AMOUNT\x10\x02\x12\"\n" +
+	"\x1eSESSION_WITHDRAW_KIND_V1_CLOSE\x10\x03*\x8e\x01\n" +
+	"\x16SessionKeyChangeKindV1\x12*\n" +
+	"&SESSION_KEY_CHANGE_KIND_V1_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eSESSION_KEY_CHANGE_KIND_V1_SET\x10\x01\x12$\n" +
+	" SESSION_KEY_CHANGE_KIND_V1_CLEAR\x10\x02B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_session_proto_rawDescOnce sync.Once
@@ -1154,43 +1702,58 @@ func file_task_v1_session_proto_rawDescGZIP() []byte {
 	return file_task_v1_session_proto_rawDescData
 }
 
-var file_task_v1_session_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_task_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_task_v1_session_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_task_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_task_v1_session_proto_goTypes = []any{
 	(SessionStatus)(0),                     // 0: task.v1.SessionStatus
 	(SessionLifecycleAction)(0),            // 1: task.v1.SessionLifecycleAction
 	(OrderSequenceStatus)(0),               // 2: task.v1.OrderSequenceStatus
 	(TaskBudgetStatus)(0),                  // 3: task.v1.TaskBudgetStatus
-	(*SessionNonceState)(nil),              // 4: task.v1.SessionNonceState
-	(*StreamState)(nil),                    // 5: task.v1.StreamState
-	(*OrderSequenceState)(nil),             // 6: task.v1.OrderSequenceState
-	(*SessionHistoryPruneCursorState)(nil), // 7: task.v1.SessionHistoryPruneCursorState
-	(*SessionTerminalSummaryState)(nil),    // 8: task.v1.SessionTerminalSummaryState
-	(*FeePerGasRateV1)(nil),                // 9: task.v1.FeePerGasRateV1
-	(*TaskBudgetState)(nil),                // 10: task.v1.TaskBudgetState
-	(*v1.Amount)(nil),                      // 11: shared.v1.Amount
+	(SessionWithdrawKindV1)(0),             // 4: task.v1.SessionWithdrawKindV1
+	(SessionKeyChangeKindV1)(0),            // 5: task.v1.SessionKeyChangeKindV1
+	(*SessionNonceState)(nil),              // 6: task.v1.SessionNonceState
+	(*StreamState)(nil),                    // 7: task.v1.StreamState
+	(*OrderSequenceState)(nil),             // 8: task.v1.OrderSequenceState
+	(*SessionHistoryPruneCursorState)(nil), // 9: task.v1.SessionHistoryPruneCursorState
+	(*SessionTerminalSummaryState)(nil),    // 10: task.v1.SessionTerminalSummaryState
+	(*FeePerGasRateV1)(nil),                // 11: task.v1.FeePerGasRateV1
+	(*TaskBudgetState)(nil),                // 12: task.v1.TaskBudgetState
+	(*SessionKeyGrantV1)(nil),              // 13: task.v1.SessionKeyGrantV1
+	(*ClearSessionKeyV1)(nil),              // 14: task.v1.ClearSessionKeyV1
+	(*PendingTakeoverV1)(nil),              // 15: task.v1.PendingTakeoverV1
+	(*PendingSessionKeyChangeV1)(nil),      // 16: task.v1.PendingSessionKeyChangeV1
+	(*v1.Amount)(nil),                      // 17: shared.v1.Amount
 }
 var file_task_v1_session_proto_depIdxs = []int32{
 	0,  // 0: task.v1.StreamState.status:type_name -> task.v1.SessionStatus
-	11, // 1: task.v1.StreamState.session_key_spend_cap:type_name -> shared.v1.Amount
-	11, // 2: task.v1.StreamState.session_key_spent:type_name -> shared.v1.Amount
-	2,  // 3: task.v1.OrderSequenceState.status:type_name -> task.v1.OrderSequenceStatus
-	11, // 4: task.v1.TaskBudgetState.original_reserved_amount:type_name -> shared.v1.Amount
-	11, // 5: task.v1.TaskBudgetState.reserved_amount:type_name -> shared.v1.Amount
-	11, // 6: task.v1.TaskBudgetState.tx_fee_reserve_remaining:type_name -> shared.v1.Amount
-	11, // 7: task.v1.TaskBudgetState.price_bid:type_name -> shared.v1.Amount
-	11, // 8: task.v1.TaskBudgetState.worker_max:type_name -> shared.v1.Amount
-	11, // 9: task.v1.TaskBudgetState.verify_max:type_name -> shared.v1.Amount
-	9,  // 10: task.v1.TaskBudgetState.max_reimbursable_fee_per_gas_snapshot:type_name -> task.v1.FeePerGasRateV1
-	11, // 11: task.v1.TaskBudgetState.max_reimbursement_per_tx_snapshot:type_name -> shared.v1.Amount
-	11, // 12: task.v1.TaskBudgetState.max_reimbursement_per_task_snapshot:type_name -> shared.v1.Amount
-	11, // 13: task.v1.TaskBudgetState.gas_reimbursed_total:type_name -> shared.v1.Amount
-	3,  // 14: task.v1.TaskBudgetState.budget_status:type_name -> task.v1.TaskBudgetStatus
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	17, // 1: task.v1.StreamState.session_key_spend_cap:type_name -> shared.v1.Amount
+	17, // 2: task.v1.StreamState.session_key_spent:type_name -> shared.v1.Amount
+	17, // 3: task.v1.StreamState.balance:type_name -> shared.v1.Amount
+	17, // 4: task.v1.StreamState.frozen_total:type_name -> shared.v1.Amount
+	4,  // 5: task.v1.StreamState.pending_withdraw_kind:type_name -> task.v1.SessionWithdrawKindV1
+	17, // 6: task.v1.StreamState.pending_withdraw_amount:type_name -> shared.v1.Amount
+	16, // 7: task.v1.StreamState.pending_session_key_change:type_name -> task.v1.PendingSessionKeyChangeV1
+	15, // 8: task.v1.StreamState.pending_takeover:type_name -> task.v1.PendingTakeoverV1
+	2,  // 9: task.v1.OrderSequenceState.status:type_name -> task.v1.OrderSequenceStatus
+	17, // 10: task.v1.TaskBudgetState.original_reserved_amount:type_name -> shared.v1.Amount
+	17, // 11: task.v1.TaskBudgetState.reserved_amount:type_name -> shared.v1.Amount
+	17, // 12: task.v1.TaskBudgetState.tx_fee_reserve_remaining:type_name -> shared.v1.Amount
+	17, // 13: task.v1.TaskBudgetState.price_bid:type_name -> shared.v1.Amount
+	17, // 14: task.v1.TaskBudgetState.worker_max:type_name -> shared.v1.Amount
+	17, // 15: task.v1.TaskBudgetState.verify_max:type_name -> shared.v1.Amount
+	11, // 16: task.v1.TaskBudgetState.max_reimbursable_fee_per_gas_snapshot:type_name -> task.v1.FeePerGasRateV1
+	17, // 17: task.v1.TaskBudgetState.max_reimbursement_per_tx_snapshot:type_name -> shared.v1.Amount
+	17, // 18: task.v1.TaskBudgetState.max_reimbursement_per_task_snapshot:type_name -> shared.v1.Amount
+	17, // 19: task.v1.TaskBudgetState.gas_reimbursed_total:type_name -> shared.v1.Amount
+	3,  // 20: task.v1.TaskBudgetState.budget_status:type_name -> task.v1.TaskBudgetStatus
+	17, // 21: task.v1.SessionKeyGrantV1.spend_cap:type_name -> shared.v1.Amount
+	5,  // 22: task.v1.PendingSessionKeyChangeV1.kind:type_name -> task.v1.SessionKeyChangeKindV1
+	13, // 23: task.v1.PendingSessionKeyChangeV1.grant:type_name -> task.v1.SessionKeyGrantV1
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_session_proto_init() }
@@ -1199,13 +1762,14 @@ func file_task_v1_session_proto_init() {
 		return
 	}
 	file_task_v1_session_proto_msgTypes[1].OneofWrappers = []any{}
+	file_task_v1_session_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_session_proto_rawDesc), len(file_task_v1_session_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   7,
+			NumEnums:      6,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -10,7 +10,6 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -33,7 +32,6 @@ import (
 //     Verifying.
 func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	fake := &fakeSubmitter{}
 
 	workerService, err := signer.NewFromHex(testKeyHex, "trueopen")
@@ -42,9 +40,9 @@ func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 	}
 	winner := workerService.Address()
 
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	enableTestBusEnvelopes(c)
+	_, link := enableTestBuilderMessages(c)
 	c.submit = fake
 	c.SetResultReadiness(&fakeResultReadiness{ready: true})
 
@@ -52,25 +50,16 @@ func TestOpenVerifyWaitsForChainAcceptedReceipt(t *testing.T) {
 		session = "sess-open-verify-after-chain"
 		task    = "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 	)
-	openVerify, verifySelect := &captured{}, &captured{}
-	mustSub(t, bus, msgbus.SubjectVerifyOpen(task), openVerify)
-	mustSub(t, bus, msgbus.SubjectVerifierAssignment(task), verifySelect)
+	openVerify, verifySelect := openVerifyCounter{link: link}, assignmentCounter{link: link}
 
 	outputHashSum := sha256.Sum256([]byte("canonical output"))
 	outputHash := outputHashSum[:]
 
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}},
-		Height:      100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: winner, AssignSeed: []byte("assign-seed"), Height: 101,
-	})
+	recordTestWinner(c, session, task, winner, 101)
 
 	receipt := testInferReceipt(session, task, winner, outputHash)
 	digest, err := nodecontract.InferReceiptSigningDigestFromSubmission(receipt)

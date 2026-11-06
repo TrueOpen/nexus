@@ -42,6 +42,13 @@ message QuerySessionRequest {
 // QuerySessionResponse defines the QuerySessionResponse wire type.
 message QuerySessionResponse {
   StreamState session = 1;
+  // Parameters frozen for this Session's lifecycle, including recording and
+  // compensation clocks and order lifetime. New Task execution policies and
+  // explicitly current registration checks still use their own current policy.
+  // A missing historical body must not be replaced with current parameters.
+  TaskParamsV1 params = 2;
+  // The Session's parameter version; initial version 0 is valid.
+  uint64 params_version = 3;
 }
 
 // QuerySessionsByOwnerRequest lists the owner's active sessions.

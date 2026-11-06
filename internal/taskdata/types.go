@@ -28,6 +28,12 @@ var (
 	// ErrRetentionExpired is a stored object deleted when its retention ran out; unlike
 	// NEXUS_DATA_EXPIRED (the request expired, sign again) it is final.
 	ErrRetentionExpired = errors.New("DATA_EXPIRED")
+	// ErrAttemptStale refuses output of a dispatch attempt that is not the task's live one: an
+	// older ticket of a re-dispatched order, or an attempt whose record the chain refused.
+	ErrAttemptStale = errors.New("NEXUS_INGRESS_ATTEMPT_STALE")
+	// ErrReceiptDispatchMismatch is a receipt whose dispatch_ticket_hash is not the ticket of its
+	// sealed output stream or the task's winner ticket (FailedPrecondition).
+	ErrReceiptDispatchMismatch = errors.New("RECEIPT_DISPATCH_MISMATCH")
 	// ErrOrderExpired is an OpenTask whose signed order is past its order_expire_height: the chain
 	// no longer admits it, so the input is not stored.
 	ErrOrderExpired = errors.New("NEXUS_INGRESS_ORDER_EXPIRED")
@@ -155,6 +161,8 @@ type SignedInferReceipt struct {
 	WorkerTokenKeyCommitment string
 	WorkerValueKeyCommitment string
 	CiphertextOutputRoot     string
+	// DispatchTicketHash is the receipt's dispatch attempt, lowercase hex.
+	DispatchTicketHash string
 }
 
 // EvidenceCommitment is one entry of required_evidence_commitments[].

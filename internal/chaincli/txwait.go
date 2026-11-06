@@ -106,3 +106,6 @@ func TruncateRawLog(raw string) string {
 	}
 	return raw[:cut]
 }
+
+// IsOutOfGas reports whether an executed transaction failed for lack of gas (cosmos-sdk code 11).
+func IsOutOfGas(res TxResult) bool { return res.Codespace == "sdk" && res.Code == 11 }

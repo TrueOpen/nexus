@@ -35,15 +35,15 @@ const (
 // are not accepted as fields. One canonical report per (task, round, verifier); an
 // identical repeat is a noop and the bitmap can never be rewritten.
 // MsgReportDataUnavailable defines the MsgReportDataUnavailable wire type.
-// DataUnavailableReasonV1 reserves the report reason for the later evidence window.
+// DataUnavailableReasonV1 distinguishes Builder unavailability and invalid Worker evidence.
 type DataUnavailableReasonV1 int32
 
 const (
-	// No reason is selected by the pre-upgrade report contract.
+	// Unspecified legacy A-level report reason; not valid for B-level reports.
 	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_UNSPECIFIED DataUnavailableReasonV1 = 0
 	// The required Builder data set was unavailable before commit deadline.
 	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_BUILDER_UNAVAILABLE DataUnavailableReasonV1 = 1
-	// Reserved for the later Worker evidence-invalid report flow.
+	// Active from Phase 1 genesis for the bounded Worker evidence-invalid flow.
 	DataUnavailableReasonV1_DATA_UNAVAILABLE_REASON_V1_WORKER_EVIDENCE_INVALID DataUnavailableReasonV1 = 2
 )
 
@@ -91,9 +91,11 @@ func (DataUnavailableReasonV1) EnumDescriptor() ([]byte, []int) {
 // BatchItemResultV1 is the per-item result of a batch submission.
 // object_id only echoes the item's existing
 // authoritative business primary key, which is commit_key for both the commit and
-// the result batch; it introduces no new ID or hash semantics. Batches are
+// the result batch. MsgRecordDispatch uses its dispatch/takeover entry digest,
+// as defined on MsgRecordDispatchResponse. Verification batches are
 // all-or-nothing: structural and business failures reject the whole batch, so
-// MUTATION_STATUS_V1_REJECTED does not exist. Exact replay items return NOOP.
+// Verification batches never return REJECTED. Dispatch batches admit items
+// independently and return REJECTED with reject_code. Exact replay returns NOOP.
 //
 //	batch_digest = H_FIELDS_V1("TRUEOPEN_BATCH_RESULT_V1",
 //	  chain_id, batch_kind, item_count, repeated(object_id, status))
@@ -104,6 +106,7 @@ type BatchItemResultV1 struct {
 	ItemIndex     uint32                 `protobuf:"varint,1,opt,name=item_index,json=itemIndex,proto3" json:"item_index,omitempty"`
 	ObjectId      []byte                 `protobuf:"bytes,2,opt,name=object_id,json=objectId,proto3" json:"object_id,omitempty"`
 	Status        v1.MutationStatusV1    `protobuf:"varint,3,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	RejectCode    DispatchRejectCodeV1   `protobuf:"varint,4,opt,name=reject_code,json=rejectCode,proto3,enum=task.v1.DispatchRejectCodeV1" json:"reject_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -157,6 +160,13 @@ func (x *BatchItemResultV1) GetStatus() v1.MutationStatusV1 {
 		return x.Status
 	}
 	return v1.MutationStatusV1(0)
+}
+
+func (x *BatchItemResultV1) GetRejectCode() DispatchRejectCodeV1 {
+	if x != nil {
+		return x.RejectCode
+	}
+	return DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_UNSPECIFIED
 }
 
 // MsgSubmitInferReceipt accepts the selected worker's signed InferReceipt.
@@ -426,9 +436,8 @@ func (x *MsgSubmitWorkerEvidenceResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
-// MsgSubmitVerifierValueEvidence is registered but NOT_SUPPORTED before the
-// separately defined value-evidence activation. The handler returns
-// ERR_NOT_ACTIVATED without decoding evidence or writing state.
+// MsgSubmitVerifierValueEvidence admits bounded value-contradiction proofs from
+// fresh Phase 1 genesis. Task authority and evidence windows remain mandatory.
 type MsgSubmitVerifierValueEvidence struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	EvidenceBytes    []byte                 `protobuf:"bytes,1,opt,name=evidence_bytes,json=evidenceBytes,proto3" json:"evidence_bytes,omitempty"`
@@ -481,14 +490,18 @@ func (x *MsgSubmitVerifierValueEvidence) GetSubmitterAddress() string {
 	return ""
 }
 
-// MsgSubmitVerifierValueEvidenceResponse is reserved for an activated receipt.
+// MsgSubmitVerifierValueEvidenceResponse returns the accepted proof identity.
 type MsgSubmitVerifierValueEvidenceResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	EvidenceDigest []byte                 `protobuf:"bytes,1,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
-	FaultId        []byte                 `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
-	Status         v1.MutationStatusV1    `protobuf:"varint,3,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	EvidenceDigest        []byte                 `protobuf:"bytes,1,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
+	FaultId               []byte                 `protobuf:"bytes,2,opt,name=fault_id,json=faultId,proto3" json:"fault_id,omitempty"`
+	Status                v1.MutationStatusV1    `protobuf:"varint,3,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	TaskId                []byte                 `protobuf:"bytes,4,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	VerifyRound           uint32                 `protobuf:"varint,5,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
+	TargetOperatorAddress string                 `protobuf:"bytes,6,opt,name=target_operator_address,json=targetOperatorAddress,proto3" json:"target_operator_address,omitempty"`
+	FaultedDuty           v1.Duty                `protobuf:"varint,7,opt,name=faulted_duty,json=faultedDuty,proto3,enum=shared.v1.Duty" json:"faulted_duty,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *MsgSubmitVerifierValueEvidenceResponse) Reset() {
@@ -540,6 +553,34 @@ func (x *MsgSubmitVerifierValueEvidenceResponse) GetStatus() v1.MutationStatusV1
 		return x.Status
 	}
 	return v1.MutationStatusV1(0)
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetVerifyRound() uint32 {
+	if x != nil {
+		return x.VerifyRound
+	}
+	return 0
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetTargetOperatorAddress() string {
+	if x != nil {
+		return x.TargetOperatorAddress
+	}
+	return ""
+}
+
+func (x *MsgSubmitVerifierValueEvidenceResponse) GetFaultedDuty() v1.Duty {
+	if x != nil {
+		return x.FaultedDuty
+	}
+	return v1.Duty(0)
 }
 
 // MsgSubmitVerifierHandraises submits verifier-signed handraises for one task
@@ -1314,12 +1355,14 @@ var File_task_v1_msg_verification_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\n" +
-	"\x1etask/v1/msg_verification.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/result.proto\"\x84\x01\n" +
+	"\x1etask/v1/msg_verification.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/dispatch.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/result.proto\"\xc4\x01\n" +
 	"\x11BatchItemResultV1\x12\x1d\n" +
 	"\n" +
 	"item_index\x18\x01 \x01(\rR\titemIndex\x12\x1b\n" +
 	"\tobject_id\x18\x02 \x01(\fR\bobjectId\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"w\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x12>\n" +
+	"\vreject_code\x18\x04 \x01(\x0e2\x1d.task.v1.DispatchRejectCodeV1R\n" +
+	"rejectCode\"w\n" +
 	"\x15MsgSubmitInferReceipt\x121\n" +
 	"\areceipt\x18\x01 \x01(\v2\x17.task.v1.InferReceiptV3R\areceipt\x12+\n" +
 	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xda\x01\n" +
@@ -1339,11 +1382,15 @@ const file_task_v1_msg_verification_proto_rawDesc = "" +
 	"\x06status\x18\x05 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"t\n" +
 	"\x1eMsgSubmitVerifierValueEvidence\x12%\n" +
 	"\x0eevidence_bytes\x18\x01 \x01(\fR\revidenceBytes\x12+\n" +
-	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xa1\x01\n" +
+	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"\xc9\x02\n" +
 	"&MsgSubmitVerifierValueEvidenceResponse\x12'\n" +
 	"\x0fevidence_digest\x18\x01 \x01(\fR\x0eevidenceDigest\x12\x19\n" +
 	"\bfault_id\x18\x02 \x01(\fR\afaultId\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xa1\x01\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x12\x17\n" +
+	"\atask_id\x18\x04 \x01(\fR\x06taskId\x12!\n" +
+	"\fverify_round\x18\x05 \x01(\rR\vverifyRound\x126\n" +
+	"\x17target_operator_address\x18\x06 \x01(\tR\x15targetOperatorAddress\x122\n" +
+	"\ffaulted_duty\x18\a \x01(\x0e2\x0f.shared.v1.DutyR\vfaultedDuty\"\xa1\x01\n" +
 	"\x1bMsgSubmitVerifierHandraises\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12<\n" +
 	"\n" +
@@ -1435,35 +1482,39 @@ var file_task_v1_msg_verification_proto_goTypes = []any{
 	(*MsgBatchSubmitVerifyResult)(nil),             // 18: task.v1.MsgBatchSubmitVerifyResult
 	(*MsgBatchSubmitVerifyResultResponse)(nil),     // 19: task.v1.MsgBatchSubmitVerifyResultResponse
 	(v1.MutationStatusV1)(0),                       // 20: shared.v1.MutationStatusV1
-	(*InferReceiptV3)(nil),                         // 21: task.v1.InferReceiptV3
-	(*VerifierHandraiseV1)(nil),                    // 22: task.v1.VerifierHandraiseV1
-	(v1.EvidenceKind)(0),                           // 23: shared.v1.EvidenceKind
-	(*VerifyCommitV1)(nil),                         // 24: task.v1.VerifyCommitV1
-	(*ResultReceiptV3)(nil),                        // 25: task.v1.ResultReceiptV3
+	(DispatchRejectCodeV1)(0),                      // 21: task.v1.DispatchRejectCodeV1
+	(*InferReceiptV3)(nil),                         // 22: task.v1.InferReceiptV3
+	(v1.Duty)(0),                                   // 23: shared.v1.Duty
+	(*VerifierHandraiseV1)(nil),                    // 24: task.v1.VerifierHandraiseV1
+	(v1.EvidenceKind)(0),                           // 25: shared.v1.EvidenceKind
+	(*VerifyCommitV1)(nil),                         // 26: task.v1.VerifyCommitV1
+	(*ResultReceiptV3)(nil),                        // 27: task.v1.ResultReceiptV3
 }
 var file_task_v1_msg_verification_proto_depIdxs = []int32{
 	20, // 0: task.v1.BatchItemResultV1.status:type_name -> shared.v1.MutationStatusV1
-	21, // 1: task.v1.MsgSubmitInferReceipt.receipt:type_name -> task.v1.InferReceiptV3
-	20, // 2: task.v1.MsgSubmitInferReceiptResponse.status:type_name -> shared.v1.MutationStatusV1
-	20, // 3: task.v1.MsgSubmitWorkerEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
-	20, // 4: task.v1.MsgSubmitVerifierValueEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
-	22, // 5: task.v1.MsgSubmitVerifierHandraises.handraises:type_name -> task.v1.VerifierHandraiseV1
-	23, // 6: task.v1.MsgReportDataUnavailable.evidence_kind:type_name -> shared.v1.EvidenceKind
-	0,  // 7: task.v1.MsgReportDataUnavailable.reason:type_name -> task.v1.DataUnavailableReasonV1
-	20, // 8: task.v1.MsgReportDataUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
-	24, // 9: task.v1.MsgSubmitVerifyCommit.commit:type_name -> task.v1.VerifyCommitV1
-	20, // 10: task.v1.MsgSubmitVerifyCommitResponse.status:type_name -> shared.v1.MutationStatusV1
-	24, // 11: task.v1.MsgBatchSubmitVerifyCommit.commits:type_name -> task.v1.VerifyCommitV1
-	1,  // 12: task.v1.MsgBatchSubmitVerifyCommitResponse.results:type_name -> task.v1.BatchItemResultV1
-	25, // 13: task.v1.MsgSubmitVerifyResult.receipt:type_name -> task.v1.ResultReceiptV3
-	20, // 14: task.v1.MsgSubmitVerifyResultResponse.status:type_name -> shared.v1.MutationStatusV1
-	25, // 15: task.v1.MsgBatchSubmitVerifyResult.receipts:type_name -> task.v1.ResultReceiptV3
-	1,  // 16: task.v1.MsgBatchSubmitVerifyResultResponse.results:type_name -> task.v1.BatchItemResultV1
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	21, // 1: task.v1.BatchItemResultV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
+	22, // 2: task.v1.MsgSubmitInferReceipt.receipt:type_name -> task.v1.InferReceiptV3
+	20, // 3: task.v1.MsgSubmitInferReceiptResponse.status:type_name -> shared.v1.MutationStatusV1
+	20, // 4: task.v1.MsgSubmitWorkerEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
+	20, // 5: task.v1.MsgSubmitVerifierValueEvidenceResponse.status:type_name -> shared.v1.MutationStatusV1
+	23, // 6: task.v1.MsgSubmitVerifierValueEvidenceResponse.faulted_duty:type_name -> shared.v1.Duty
+	24, // 7: task.v1.MsgSubmitVerifierHandraises.handraises:type_name -> task.v1.VerifierHandraiseV1
+	25, // 8: task.v1.MsgReportDataUnavailable.evidence_kind:type_name -> shared.v1.EvidenceKind
+	0,  // 9: task.v1.MsgReportDataUnavailable.reason:type_name -> task.v1.DataUnavailableReasonV1
+	20, // 10: task.v1.MsgReportDataUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
+	26, // 11: task.v1.MsgSubmitVerifyCommit.commit:type_name -> task.v1.VerifyCommitV1
+	20, // 12: task.v1.MsgSubmitVerifyCommitResponse.status:type_name -> shared.v1.MutationStatusV1
+	26, // 13: task.v1.MsgBatchSubmitVerifyCommit.commits:type_name -> task.v1.VerifyCommitV1
+	1,  // 14: task.v1.MsgBatchSubmitVerifyCommitResponse.results:type_name -> task.v1.BatchItemResultV1
+	27, // 15: task.v1.MsgSubmitVerifyResult.receipt:type_name -> task.v1.ResultReceiptV3
+	20, // 16: task.v1.MsgSubmitVerifyResultResponse.status:type_name -> shared.v1.MutationStatusV1
+	27, // 17: task.v1.MsgBatchSubmitVerifyResult.receipts:type_name -> task.v1.ResultReceiptV3
+	1,  // 18: task.v1.MsgBatchSubmitVerifyResultResponse.results:type_name -> task.v1.BatchItemResultV1
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_verification_proto_init() }
@@ -1472,6 +1523,7 @@ func file_task_v1_msg_verification_proto_init() {
 		return
 	}
 	file_task_v1_commit_proto_init()
+	file_task_v1_dispatch_proto_init()
 	file_task_v1_evidence_proto_init()
 	file_task_v1_infer_receipt_proto_init()
 	file_task_v1_open_verify_proto_init()

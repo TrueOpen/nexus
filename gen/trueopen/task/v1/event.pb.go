@@ -399,196 +399,6 @@ func (x *EventTaskFailureClassUpdated) GetFreezeSignalEligible() bool {
 	return false
 }
 
-// EventWorkerHandraisesAccepted is event code 10, emitted once per proposal that
-// added at least one candidate and committed.
-// EventWorkerHandraisesAccepted defines the EventWorkerHandraisesAccepted wire type.
-type EventWorkerHandraisesAccepted struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId          []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	OrderSequence   uint64                 `protobuf:"varint,3,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	ProposalDigest  []byte                 `protobuf:"bytes,4,opt,name=proposal_digest,json=proposalDigest,proto3" json:"proposal_digest,omitempty"`
-	AddedBitmapHash []byte                 `protobuf:"bytes,5,opt,name=added_bitmap_hash,json=addedBitmapHash,proto3" json:"added_bitmap_hash,omitempty"`
-	BuilderOrEmpty  *string                `protobuf:"bytes,6,opt,name=builder_or_empty,json=builderOrEmpty,proto3,oneof" json:"builder_or_empty,omitempty"`
-	UnionCount      uint32                 `protobuf:"varint,7,opt,name=union_count,json=unionCount,proto3" json:"union_count,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *EventWorkerHandraisesAccepted) Reset() {
-	*x = EventWorkerHandraisesAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *EventWorkerHandraisesAccepted) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*EventWorkerHandraisesAccepted) ProtoMessage() {}
-
-func (x *EventWorkerHandraisesAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use EventWorkerHandraisesAccepted.ProtoReflect.Descriptor instead.
-func (*EventWorkerHandraisesAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *EventWorkerHandraisesAccepted) GetSessionId() []byte {
-	if x != nil {
-		return x.SessionId
-	}
-	return nil
-}
-
-func (x *EventWorkerHandraisesAccepted) GetTaskId() []byte {
-	if x != nil {
-		return x.TaskId
-	}
-	return nil
-}
-
-func (x *EventWorkerHandraisesAccepted) GetOrderSequence() uint64 {
-	if x != nil {
-		return x.OrderSequence
-	}
-	return 0
-}
-
-func (x *EventWorkerHandraisesAccepted) GetProposalDigest() []byte {
-	if x != nil {
-		return x.ProposalDigest
-	}
-	return nil
-}
-
-func (x *EventWorkerHandraisesAccepted) GetAddedBitmapHash() []byte {
-	if x != nil {
-		return x.AddedBitmapHash
-	}
-	return nil
-}
-
-func (x *EventWorkerHandraisesAccepted) GetBuilderOrEmpty() string {
-	if x != nil && x.BuilderOrEmpty != nil {
-		return *x.BuilderOrEmpty
-	}
-	return ""
-}
-
-func (x *EventWorkerHandraisesAccepted) GetUnionCount() uint32 {
-	if x != nil {
-		return x.UnionCount
-	}
-	return 0
-}
-
-// EventWorkerAssignmentFinalized is event code 11, emitted once when the winner
-// and its task liability commit in the same transaction.
-// EventWorkerAssignmentFinalized defines the EventWorkerAssignmentFinalized wire type.
-type EventWorkerAssignmentFinalized struct {
-	state                      protoimpl.MessageState `protogen:"open.v1"`
-	SessionId                  []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId                     []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	WinnerWorker               string                 `protobuf:"bytes,3,opt,name=winner_worker,json=winnerWorker,proto3" json:"winner_worker,omitempty"`
-	AssignmentCandidateSetHash []byte                 `protobuf:"bytes,4,opt,name=assignment_candidate_set_hash,json=assignmentCandidateSetHash,proto3" json:"assignment_candidate_set_hash,omitempty"`
-	RandomnessHeight           uint64                 `protobuf:"varint,5,opt,name=randomness_height,json=randomnessHeight,proto3" json:"randomness_height,omitempty"`
-	ReservedAmount             *v1.Amount             `protobuf:"bytes,6,opt,name=reserved_amount,json=reservedAmount,proto3" json:"reserved_amount,omitempty"`
-	InferDeadline              uint64                 `protobuf:"varint,7,opt,name=infer_deadline,json=inferDeadline,proto3" json:"infer_deadline,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
-}
-
-func (x *EventWorkerAssignmentFinalized) Reset() {
-	*x = EventWorkerAssignmentFinalized{}
-	mi := &file_task_v1_event_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *EventWorkerAssignmentFinalized) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*EventWorkerAssignmentFinalized) ProtoMessage() {}
-
-func (x *EventWorkerAssignmentFinalized) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use EventWorkerAssignmentFinalized.ProtoReflect.Descriptor instead.
-func (*EventWorkerAssignmentFinalized) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *EventWorkerAssignmentFinalized) GetSessionId() []byte {
-	if x != nil {
-		return x.SessionId
-	}
-	return nil
-}
-
-func (x *EventWorkerAssignmentFinalized) GetTaskId() []byte {
-	if x != nil {
-		return x.TaskId
-	}
-	return nil
-}
-
-func (x *EventWorkerAssignmentFinalized) GetWinnerWorker() string {
-	if x != nil {
-		return x.WinnerWorker
-	}
-	return ""
-}
-
-func (x *EventWorkerAssignmentFinalized) GetAssignmentCandidateSetHash() []byte {
-	if x != nil {
-		return x.AssignmentCandidateSetHash
-	}
-	return nil
-}
-
-func (x *EventWorkerAssignmentFinalized) GetRandomnessHeight() uint64 {
-	if x != nil {
-		return x.RandomnessHeight
-	}
-	return 0
-}
-
-func (x *EventWorkerAssignmentFinalized) GetReservedAmount() *v1.Amount {
-	if x != nil {
-		return x.ReservedAmount
-	}
-	return nil
-}
-
-func (x *EventWorkerAssignmentFinalized) GetInferDeadline() uint64 {
-	if x != nil {
-		return x.InferDeadline
-	}
-	return 0
-}
-
 // EventInferReceiptAccepted is event code 12, emitted once when the receipt is
 // first accepted and the verifier window build index is written.
 // EventInferReceiptAccepted defines the EventInferReceiptAccepted wire type.
@@ -608,7 +418,7 @@ type EventInferReceiptAccepted struct {
 
 func (x *EventInferReceiptAccepted) Reset() {
 	*x = EventInferReceiptAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[6]
+	mi := &file_task_v1_event_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -620,7 +430,7 @@ func (x *EventInferReceiptAccepted) String() string {
 func (*EventInferReceiptAccepted) ProtoMessage() {}
 
 func (x *EventInferReceiptAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[6]
+	mi := &file_task_v1_event_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -633,7 +443,7 @@ func (x *EventInferReceiptAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventInferReceiptAccepted.ProtoReflect.Descriptor instead.
 func (*EventInferReceiptAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *EventInferReceiptAccepted) GetSessionId() []byte {
@@ -711,7 +521,7 @@ type EventVerifierAssignmentFinalized struct {
 
 func (x *EventVerifierAssignmentFinalized) Reset() {
 	*x = EventVerifierAssignmentFinalized{}
-	mi := &file_task_v1_event_proto_msgTypes[7]
+	mi := &file_task_v1_event_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -723,7 +533,7 @@ func (x *EventVerifierAssignmentFinalized) String() string {
 func (*EventVerifierAssignmentFinalized) ProtoMessage() {}
 
 func (x *EventVerifierAssignmentFinalized) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[7]
+	mi := &file_task_v1_event_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -736,7 +546,7 @@ func (x *EventVerifierAssignmentFinalized) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventVerifierAssignmentFinalized.ProtoReflect.Descriptor instead.
 func (*EventVerifierAssignmentFinalized) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *EventVerifierAssignmentFinalized) GetSessionId() []byte {
@@ -812,7 +622,7 @@ type EventDataUnavailableReported struct {
 
 func (x *EventDataUnavailableReported) Reset() {
 	*x = EventDataUnavailableReported{}
-	mi := &file_task_v1_event_proto_msgTypes[8]
+	mi := &file_task_v1_event_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -824,7 +634,7 @@ func (x *EventDataUnavailableReported) String() string {
 func (*EventDataUnavailableReported) ProtoMessage() {}
 
 func (x *EventDataUnavailableReported) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[8]
+	mi := &file_task_v1_event_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -837,7 +647,7 @@ func (x *EventDataUnavailableReported) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventDataUnavailableReported.ProtoReflect.Descriptor instead.
 func (*EventDataUnavailableReported) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *EventDataUnavailableReported) GetSessionId() []byte {
@@ -900,7 +710,7 @@ type EventBuilderDataUnavailable struct {
 
 func (x *EventBuilderDataUnavailable) Reset() {
 	*x = EventBuilderDataUnavailable{}
-	mi := &file_task_v1_event_proto_msgTypes[9]
+	mi := &file_task_v1_event_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -912,7 +722,7 @@ func (x *EventBuilderDataUnavailable) String() string {
 func (*EventBuilderDataUnavailable) ProtoMessage() {}
 
 func (x *EventBuilderDataUnavailable) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[9]
+	mi := &file_task_v1_event_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -925,7 +735,7 @@ func (x *EventBuilderDataUnavailable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventBuilderDataUnavailable.ProtoReflect.Descriptor instead.
 func (*EventBuilderDataUnavailable) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *EventBuilderDataUnavailable) GetSessionId() []byte {
@@ -994,7 +804,7 @@ type EventCommitAccepted struct {
 
 func (x *EventCommitAccepted) Reset() {
 	*x = EventCommitAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[10]
+	mi := &file_task_v1_event_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1006,7 +816,7 @@ func (x *EventCommitAccepted) String() string {
 func (*EventCommitAccepted) ProtoMessage() {}
 
 func (x *EventCommitAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[10]
+	mi := &file_task_v1_event_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1019,7 +829,7 @@ func (x *EventCommitAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventCommitAccepted.ProtoReflect.Descriptor instead.
 func (*EventCommitAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{10}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EventCommitAccepted) GetSessionId() []byte {
@@ -1080,7 +890,7 @@ type EventResultAccepted struct {
 
 func (x *EventResultAccepted) Reset() {
 	*x = EventResultAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[11]
+	mi := &file_task_v1_event_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +902,7 @@ func (x *EventResultAccepted) String() string {
 func (*EventResultAccepted) ProtoMessage() {}
 
 func (x *EventResultAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[11]
+	mi := &file_task_v1_event_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +915,7 @@ func (x *EventResultAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventResultAccepted.ProtoReflect.Descriptor instead.
 func (*EventResultAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{11}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *EventResultAccepted) GetSessionId() []byte {
@@ -1171,7 +981,7 @@ type EventTaskSettled struct {
 
 func (x *EventTaskSettled) Reset() {
 	*x = EventTaskSettled{}
-	mi := &file_task_v1_event_proto_msgTypes[12]
+	mi := &file_task_v1_event_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1183,7 +993,7 @@ func (x *EventTaskSettled) String() string {
 func (*EventTaskSettled) ProtoMessage() {}
 
 func (x *EventTaskSettled) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[12]
+	mi := &file_task_v1_event_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1196,7 +1006,7 @@ func (x *EventTaskSettled) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTaskSettled.ProtoReflect.Descriptor instead.
 func (*EventTaskSettled) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{12}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EventTaskSettled) GetSessionId() []byte {
@@ -1301,7 +1111,7 @@ type EventDeadlineSwept struct {
 
 func (x *EventDeadlineSwept) Reset() {
 	*x = EventDeadlineSwept{}
-	mi := &file_task_v1_event_proto_msgTypes[13]
+	mi := &file_task_v1_event_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1313,7 +1123,7 @@ func (x *EventDeadlineSwept) String() string {
 func (*EventDeadlineSwept) ProtoMessage() {}
 
 func (x *EventDeadlineSwept) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[13]
+	mi := &file_task_v1_event_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1326,7 +1136,7 @@ func (x *EventDeadlineSwept) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventDeadlineSwept.ProtoReflect.Descriptor instead.
 func (*EventDeadlineSwept) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{13}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EventDeadlineSwept) GetSessionId() []byte {
@@ -1364,77 +1174,6 @@ func (x *EventDeadlineSwept) GetFailureClass() TaskFailureClass {
 	return TaskFailureClass_TASK_FAILURE_CLASS_UNSPECIFIED
 }
 
-// EventAssignmentFailed is event code 22, emitted once when the assignment
-// failure and its refund commit together.
-// EventAssignmentFailed defines the EventAssignmentFailed wire type.
-type EventAssignmentFailed struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	SessionId     []byte                  `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId        []byte                  `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Reason        AssignmentFailureReason `protobuf:"varint,3,opt,name=reason,proto3,enum=task.v1.AssignmentFailureReason" json:"reason,omitempty"`
-	RefundAmount  *v1.Amount              `protobuf:"bytes,4,opt,name=refund_amount,json=refundAmount,proto3" json:"refund_amount,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *EventAssignmentFailed) Reset() {
-	*x = EventAssignmentFailed{}
-	mi := &file_task_v1_event_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *EventAssignmentFailed) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*EventAssignmentFailed) ProtoMessage() {}
-
-func (x *EventAssignmentFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use EventAssignmentFailed.ProtoReflect.Descriptor instead.
-func (*EventAssignmentFailed) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *EventAssignmentFailed) GetSessionId() []byte {
-	if x != nil {
-		return x.SessionId
-	}
-	return nil
-}
-
-func (x *EventAssignmentFailed) GetTaskId() []byte {
-	if x != nil {
-		return x.TaskId
-	}
-	return nil
-}
-
-func (x *EventAssignmentFailed) GetReason() AssignmentFailureReason {
-	if x != nil {
-		return x.Reason
-	}
-	return AssignmentFailureReason_ASSIGNMENT_FAILURE_REASON_UNSPECIFIED
-}
-
-func (x *EventAssignmentFailed) GetRefundAmount() *v1.Amount {
-	if x != nil {
-		return x.RefundAmount
-	}
-	return nil
-}
-
 // EventWorkerTimeout is event code 23, emitted once when the inference deadline
 // first closes the Task.
 // EventWorkerTimeout defines the EventWorkerTimeout wire type.
@@ -1451,7 +1190,7 @@ type EventWorkerTimeout struct {
 
 func (x *EventWorkerTimeout) Reset() {
 	*x = EventWorkerTimeout{}
-	mi := &file_task_v1_event_proto_msgTypes[15]
+	mi := &file_task_v1_event_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1463,7 +1202,7 @@ func (x *EventWorkerTimeout) String() string {
 func (*EventWorkerTimeout) ProtoMessage() {}
 
 func (x *EventWorkerTimeout) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[15]
+	mi := &file_task_v1_event_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1476,7 +1215,7 @@ func (x *EventWorkerTimeout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventWorkerTimeout.ProtoReflect.Descriptor instead.
 func (*EventWorkerTimeout) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{15}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *EventWorkerTimeout) GetSessionId() []byte {
@@ -1530,7 +1269,7 @@ type EventVerifyOpenTimeout struct {
 
 func (x *EventVerifyOpenTimeout) Reset() {
 	*x = EventVerifyOpenTimeout{}
-	mi := &file_task_v1_event_proto_msgTypes[16]
+	mi := &file_task_v1_event_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1542,7 +1281,7 @@ func (x *EventVerifyOpenTimeout) String() string {
 func (*EventVerifyOpenTimeout) ProtoMessage() {}
 
 func (x *EventVerifyOpenTimeout) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[16]
+	mi := &file_task_v1_event_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1555,7 +1294,7 @@ func (x *EventVerifyOpenTimeout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventVerifyOpenTimeout.ProtoReflect.Descriptor instead.
 func (*EventVerifyOpenTimeout) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{16}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EventVerifyOpenTimeout) GetSessionId() []byte {
@@ -1609,7 +1348,7 @@ type EventCommitDeadlineClosed struct {
 
 func (x *EventCommitDeadlineClosed) Reset() {
 	*x = EventCommitDeadlineClosed{}
-	mi := &file_task_v1_event_proto_msgTypes[17]
+	mi := &file_task_v1_event_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1621,7 +1360,7 @@ func (x *EventCommitDeadlineClosed) String() string {
 func (*EventCommitDeadlineClosed) ProtoMessage() {}
 
 func (x *EventCommitDeadlineClosed) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[17]
+	mi := &file_task_v1_event_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1634,7 +1373,7 @@ func (x *EventCommitDeadlineClosed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventCommitDeadlineClosed.ProtoReflect.Descriptor instead.
 func (*EventCommitDeadlineClosed) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{17}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EventCommitDeadlineClosed) GetSessionId() []byte {
@@ -1688,7 +1427,7 @@ type EventChallengeRoundOpened struct {
 
 func (x *EventChallengeRoundOpened) Reset() {
 	*x = EventChallengeRoundOpened{}
-	mi := &file_task_v1_event_proto_msgTypes[18]
+	mi := &file_task_v1_event_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1700,7 +1439,7 @@ func (x *EventChallengeRoundOpened) String() string {
 func (*EventChallengeRoundOpened) ProtoMessage() {}
 
 func (x *EventChallengeRoundOpened) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[18]
+	mi := &file_task_v1_event_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1713,7 +1452,7 @@ func (x *EventChallengeRoundOpened) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventChallengeRoundOpened.ProtoReflect.Descriptor instead.
 func (*EventChallengeRoundOpened) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{18}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EventChallengeRoundOpened) GetTaskId() []byte {
@@ -1786,7 +1525,7 @@ type EventVerificationRoundClosed struct {
 
 func (x *EventVerificationRoundClosed) Reset() {
 	*x = EventVerificationRoundClosed{}
-	mi := &file_task_v1_event_proto_msgTypes[19]
+	mi := &file_task_v1_event_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1798,7 +1537,7 @@ func (x *EventVerificationRoundClosed) String() string {
 func (*EventVerificationRoundClosed) ProtoMessage() {}
 
 func (x *EventVerificationRoundClosed) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[19]
+	mi := &file_task_v1_event_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1811,7 +1550,7 @@ func (x *EventVerificationRoundClosed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventVerificationRoundClosed.ProtoReflect.Descriptor instead.
 func (*EventVerificationRoundClosed) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{19}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *EventVerificationRoundClosed) GetTaskId() []byte {
@@ -1879,7 +1618,7 @@ type EventTaskGasReimbursementRecorded struct {
 
 func (x *EventTaskGasReimbursementRecorded) Reset() {
 	*x = EventTaskGasReimbursementRecorded{}
-	mi := &file_task_v1_event_proto_msgTypes[20]
+	mi := &file_task_v1_event_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1891,7 +1630,7 @@ func (x *EventTaskGasReimbursementRecorded) String() string {
 func (*EventTaskGasReimbursementRecorded) ProtoMessage() {}
 
 func (x *EventTaskGasReimbursementRecorded) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[20]
+	mi := &file_task_v1_event_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1904,7 +1643,7 @@ func (x *EventTaskGasReimbursementRecorded) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use EventTaskGasReimbursementRecorded.ProtoReflect.Descriptor instead.
 func (*EventTaskGasReimbursementRecorded) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{20}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *EventTaskGasReimbursementRecorded) GetTaskId() []byte {
@@ -1973,7 +1712,7 @@ type EventWorkerEvidenceAccepted struct {
 
 func (x *EventWorkerEvidenceAccepted) Reset() {
 	*x = EventWorkerEvidenceAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[21]
+	mi := &file_task_v1_event_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1985,7 +1724,7 @@ func (x *EventWorkerEvidenceAccepted) String() string {
 func (*EventWorkerEvidenceAccepted) ProtoMessage() {}
 
 func (x *EventWorkerEvidenceAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[21]
+	mi := &file_task_v1_event_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1998,7 +1737,7 @@ func (x *EventWorkerEvidenceAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventWorkerEvidenceAccepted.ProtoReflect.Descriptor instead.
 func (*EventWorkerEvidenceAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{21}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *EventWorkerEvidenceAccepted) GetTaskId() []byte {
@@ -2061,7 +1800,7 @@ type EventVerifierHandraisesAccepted struct {
 
 func (x *EventVerifierHandraisesAccepted) Reset() {
 	*x = EventVerifierHandraisesAccepted{}
-	mi := &file_task_v1_event_proto_msgTypes[22]
+	mi := &file_task_v1_event_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2073,7 +1812,7 @@ func (x *EventVerifierHandraisesAccepted) String() string {
 func (*EventVerifierHandraisesAccepted) ProtoMessage() {}
 
 func (x *EventVerifierHandraisesAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[22]
+	mi := &file_task_v1_event_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2086,7 +1825,7 @@ func (x *EventVerifierHandraisesAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventVerifierHandraisesAccepted.ProtoReflect.Descriptor instead.
 func (*EventVerifierHandraisesAccepted) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{22}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *EventVerifierHandraisesAccepted) GetTaskId() []byte {
@@ -2145,7 +1884,7 @@ type EventTaskParamsUpdated struct {
 
 func (x *EventTaskParamsUpdated) Reset() {
 	*x = EventTaskParamsUpdated{}
-	mi := &file_task_v1_event_proto_msgTypes[23]
+	mi := &file_task_v1_event_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2157,7 +1896,7 @@ func (x *EventTaskParamsUpdated) String() string {
 func (*EventTaskParamsUpdated) ProtoMessage() {}
 
 func (x *EventTaskParamsUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[23]
+	mi := &file_task_v1_event_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2170,7 +1909,7 @@ func (x *EventTaskParamsUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventTaskParamsUpdated.ProtoReflect.Descriptor instead.
 func (*EventTaskParamsUpdated) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{23}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EventTaskParamsUpdated) GetOldVersion() uint64 {
@@ -2209,8 +1948,6 @@ type TaskProtocolEventPayloadV1 struct {
 	//	*TaskProtocolEventPayloadV1_OrderCancelled
 	//	*TaskProtocolEventPayloadV1_RevealPhaseStarted
 	//	*TaskProtocolEventPayloadV1_TaskFailureClassUpdated
-	//	*TaskProtocolEventPayloadV1_WorkerHandraisesAccepted
-	//	*TaskProtocolEventPayloadV1_WorkerAssignmentFinalized
 	//	*TaskProtocolEventPayloadV1_InferReceiptAccepted
 	//	*TaskProtocolEventPayloadV1_VerifierAssignmentFinalized
 	//	*TaskProtocolEventPayloadV1_DataUnavailableReported
@@ -2219,7 +1956,6 @@ type TaskProtocolEventPayloadV1 struct {
 	//	*TaskProtocolEventPayloadV1_ResultAccepted
 	//	*TaskProtocolEventPayloadV1_TaskSettled
 	//	*TaskProtocolEventPayloadV1_DeadlineSwept
-	//	*TaskProtocolEventPayloadV1_AssignmentFailed
 	//	*TaskProtocolEventPayloadV1_WorkerTimeout
 	//	*TaskProtocolEventPayloadV1_VerifyOpenTimeout
 	//	*TaskProtocolEventPayloadV1_CommitDeadlineClosed
@@ -2227,9 +1963,25 @@ type TaskProtocolEventPayloadV1 struct {
 	//	*TaskProtocolEventPayloadV1_VerificationRoundClosed
 	//	*TaskProtocolEventPayloadV1_TaskGasReimbursementRecorded
 	//	*TaskProtocolEventPayloadV1_WorkerEvidenceAccepted
+	//	*TaskProtocolEventPayloadV1_VerifierValueEvidenceAccepted
 	//	*TaskProtocolEventPayloadV1_VerifierHandraisesAccepted
 	//	*TaskProtocolEventPayloadV1_SessionKeyUpdated
 	//	*TaskProtocolEventPayloadV1_TaskParamsUpdated
+	//	*TaskProtocolEventPayloadV1_DispatchRecorded
+	//	*TaskProtocolEventPayloadV1_SessionBuilderBound
+	//	*TaskProtocolEventPayloadV1_SessionTakeoverRegistered
+	//	*TaskProtocolEventPayloadV1_SessionTakeoverVoided
+	//	*TaskProtocolEventPayloadV1_DispatchCompensationClaimed
+	//	*TaskProtocolEventPayloadV1_DispatchCompensationPaid
+	//	*TaskProtocolEventPayloadV1_DispatchCompensationRebutted
+	//	*TaskProtocolEventPayloadV1_DispatchChallengeOpened
+	//	*TaskProtocolEventPayloadV1_DispatchChallengeResolved
+	//	*TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded
+	//	*TaskProtocolEventPayloadV1_SessionDeposited
+	//	*TaskProtocolEventPayloadV1_SessionWithdrawRequested
+	//	*TaskProtocolEventPayloadV1_SessionWithdrawEffective
+	//	*TaskProtocolEventPayloadV1_SessionKeyChangeRequested
+	//	*TaskProtocolEventPayloadV1_OrderCancelRequested
 	TypedEvent    isTaskProtocolEventPayloadV1_TypedEvent `protobuf_oneof:"typed_event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2237,7 +1989,7 @@ type TaskProtocolEventPayloadV1 struct {
 
 func (x *TaskProtocolEventPayloadV1) Reset() {
 	*x = TaskProtocolEventPayloadV1{}
-	mi := &file_task_v1_event_proto_msgTypes[24]
+	mi := &file_task_v1_event_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2249,7 +2001,7 @@ func (x *TaskProtocolEventPayloadV1) String() string {
 func (*TaskProtocolEventPayloadV1) ProtoMessage() {}
 
 func (x *TaskProtocolEventPayloadV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[24]
+	mi := &file_task_v1_event_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2262,7 +2014,7 @@ func (x *TaskProtocolEventPayloadV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskProtocolEventPayloadV1.ProtoReflect.Descriptor instead.
 func (*TaskProtocolEventPayloadV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{24}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *TaskProtocolEventPayloadV1) GetTypedEvent() isTaskProtocolEventPayloadV1_TypedEvent {
@@ -2303,24 +2055,6 @@ func (x *TaskProtocolEventPayloadV1) GetTaskFailureClassUpdated() *EventTaskFail
 	if x != nil {
 		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_TaskFailureClassUpdated); ok {
 			return x.TaskFailureClassUpdated
-		}
-	}
-	return nil
-}
-
-func (x *TaskProtocolEventPayloadV1) GetWorkerHandraisesAccepted() *EventWorkerHandraisesAccepted {
-	if x != nil {
-		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_WorkerHandraisesAccepted); ok {
-			return x.WorkerHandraisesAccepted
-		}
-	}
-	return nil
-}
-
-func (x *TaskProtocolEventPayloadV1) GetWorkerAssignmentFinalized() *EventWorkerAssignmentFinalized {
-	if x != nil {
-		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_WorkerAssignmentFinalized); ok {
-			return x.WorkerAssignmentFinalized
 		}
 	}
 	return nil
@@ -2398,15 +2132,6 @@ func (x *TaskProtocolEventPayloadV1) GetDeadlineSwept() *EventDeadlineSwept {
 	return nil
 }
 
-func (x *TaskProtocolEventPayloadV1) GetAssignmentFailed() *EventAssignmentFailed {
-	if x != nil {
-		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_AssignmentFailed); ok {
-			return x.AssignmentFailed
-		}
-	}
-	return nil
-}
-
 func (x *TaskProtocolEventPayloadV1) GetWorkerTimeout() *EventWorkerTimeout {
 	if x != nil {
 		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_WorkerTimeout); ok {
@@ -2470,6 +2195,15 @@ func (x *TaskProtocolEventPayloadV1) GetWorkerEvidenceAccepted() *EventWorkerEvi
 	return nil
 }
 
+func (x *TaskProtocolEventPayloadV1) GetVerifierValueEvidenceAccepted() *EventVerifierValueEvidenceAccepted {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_VerifierValueEvidenceAccepted); ok {
+			return x.VerifierValueEvidenceAccepted
+		}
+	}
+	return nil
+}
+
 func (x *TaskProtocolEventPayloadV1) GetVerifierHandraisesAccepted() *EventVerifierHandraisesAccepted {
 	if x != nil {
 		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_VerifierHandraisesAccepted); ok {
@@ -2497,6 +2231,141 @@ func (x *TaskProtocolEventPayloadV1) GetTaskParamsUpdated() *EventTaskParamsUpda
 	return nil
 }
 
+func (x *TaskProtocolEventPayloadV1) GetDispatchRecorded() *EventDispatchRecorded {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchRecorded); ok {
+			return x.DispatchRecorded
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionBuilderBound() *EventSessionBuilderBound {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionBuilderBound); ok {
+			return x.SessionBuilderBound
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionTakeoverRegistered() *EventSessionTakeoverRegistered {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionTakeoverRegistered); ok {
+			return x.SessionTakeoverRegistered
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionTakeoverVoided() *EventSessionTakeoverVoided {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionTakeoverVoided); ok {
+			return x.SessionTakeoverVoided
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetDispatchCompensationClaimed() *EventDispatchCompensationClaimed {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchCompensationClaimed); ok {
+			return x.DispatchCompensationClaimed
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetDispatchCompensationPaid() *EventDispatchCompensationPaid {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchCompensationPaid); ok {
+			return x.DispatchCompensationPaid
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetDispatchCompensationRebutted() *EventDispatchCompensationRebutted {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchCompensationRebutted); ok {
+			return x.DispatchCompensationRebutted
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetDispatchChallengeOpened() *EventDispatchChallengeOpened {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchChallengeOpened); ok {
+			return x.DispatchChallengeOpened
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetDispatchChallengeResolved() *EventDispatchChallengeResolved {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_DispatchChallengeResolved); ok {
+			return x.DispatchChallengeResolved
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetBuilderDispatchFaultRecorded() *EventBuilderDispatchFaultRecorded {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded); ok {
+			return x.BuilderDispatchFaultRecorded
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionDeposited() *EventSessionDeposited {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionDeposited); ok {
+			return x.SessionDeposited
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionWithdrawRequested() *EventSessionWithdrawRequested {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionWithdrawRequested); ok {
+			return x.SessionWithdrawRequested
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionWithdrawEffective() *EventSessionWithdrawEffective {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionWithdrawEffective); ok {
+			return x.SessionWithdrawEffective
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetSessionKeyChangeRequested() *EventSessionKeyChangeRequested {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_SessionKeyChangeRequested); ok {
+			return x.SessionKeyChangeRequested
+		}
+	}
+	return nil
+}
+
+func (x *TaskProtocolEventPayloadV1) GetOrderCancelRequested() *EventOrderCancelRequested {
+	if x != nil {
+		if x, ok := x.TypedEvent.(*TaskProtocolEventPayloadV1_OrderCancelRequested); ok {
+			return x.OrderCancelRequested
+		}
+	}
+	return nil
+}
+
 type isTaskProtocolEventPayloadV1_TypedEvent interface {
 	isTaskProtocolEventPayloadV1_TypedEvent()
 }
@@ -2515,14 +2384,6 @@ type TaskProtocolEventPayloadV1_RevealPhaseStarted struct {
 
 type TaskProtocolEventPayloadV1_TaskFailureClassUpdated struct {
 	TaskFailureClassUpdated *EventTaskFailureClassUpdated `protobuf:"bytes,9,opt,name=task_failure_class_updated,json=taskFailureClassUpdated,proto3,oneof"`
-}
-
-type TaskProtocolEventPayloadV1_WorkerHandraisesAccepted struct {
-	WorkerHandraisesAccepted *EventWorkerHandraisesAccepted `protobuf:"bytes,10,opt,name=worker_handraises_accepted,json=workerHandraisesAccepted,proto3,oneof"`
-}
-
-type TaskProtocolEventPayloadV1_WorkerAssignmentFinalized struct {
-	WorkerAssignmentFinalized *EventWorkerAssignmentFinalized `protobuf:"bytes,11,opt,name=worker_assignment_finalized,json=workerAssignmentFinalized,proto3,oneof"`
 }
 
 type TaskProtocolEventPayloadV1_InferReceiptAccepted struct {
@@ -2557,10 +2418,6 @@ type TaskProtocolEventPayloadV1_DeadlineSwept struct {
 	DeadlineSwept *EventDeadlineSwept `protobuf:"bytes,20,opt,name=deadline_swept,json=deadlineSwept,proto3,oneof"`
 }
 
-type TaskProtocolEventPayloadV1_AssignmentFailed struct {
-	AssignmentFailed *EventAssignmentFailed `protobuf:"bytes,22,opt,name=assignment_failed,json=assignmentFailed,proto3,oneof"`
-}
-
 type TaskProtocolEventPayloadV1_WorkerTimeout struct {
 	WorkerTimeout *EventWorkerTimeout `protobuf:"bytes,23,opt,name=worker_timeout,json=workerTimeout,proto3,oneof"`
 }
@@ -2589,6 +2446,10 @@ type TaskProtocolEventPayloadV1_WorkerEvidenceAccepted struct {
 	WorkerEvidenceAccepted *EventWorkerEvidenceAccepted `protobuf:"bytes,29,opt,name=worker_evidence_accepted,json=workerEvidenceAccepted,proto3,oneof"`
 }
 
+type TaskProtocolEventPayloadV1_VerifierValueEvidenceAccepted struct {
+	VerifierValueEvidenceAccepted *EventVerifierValueEvidenceAccepted `protobuf:"bytes,30,opt,name=verifier_value_evidence_accepted,json=verifierValueEvidenceAccepted,proto3,oneof"`
+}
+
 type TaskProtocolEventPayloadV1_VerifierHandraisesAccepted struct {
 	VerifierHandraisesAccepted *EventVerifierHandraisesAccepted `protobuf:"bytes,34,opt,name=verifier_handraises_accepted,json=verifierHandraisesAccepted,proto3,oneof"`
 }
@@ -2601,6 +2462,66 @@ type TaskProtocolEventPayloadV1_TaskParamsUpdated struct {
 	TaskParamsUpdated *EventTaskParamsUpdated `protobuf:"bytes,111,opt,name=task_params_updated,json=taskParamsUpdated,proto3,oneof"`
 }
 
+type TaskProtocolEventPayloadV1_DispatchRecorded struct {
+	DispatchRecorded *EventDispatchRecorded `protobuf:"bytes,128,opt,name=dispatch_recorded,json=dispatchRecorded,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionBuilderBound struct {
+	SessionBuilderBound *EventSessionBuilderBound `protobuf:"bytes,129,opt,name=session_builder_bound,json=sessionBuilderBound,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionTakeoverRegistered struct {
+	SessionTakeoverRegistered *EventSessionTakeoverRegistered `protobuf:"bytes,130,opt,name=session_takeover_registered,json=sessionTakeoverRegistered,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionTakeoverVoided struct {
+	SessionTakeoverVoided *EventSessionTakeoverVoided `protobuf:"bytes,131,opt,name=session_takeover_voided,json=sessionTakeoverVoided,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_DispatchCompensationClaimed struct {
+	DispatchCompensationClaimed *EventDispatchCompensationClaimed `protobuf:"bytes,132,opt,name=dispatch_compensation_claimed,json=dispatchCompensationClaimed,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_DispatchCompensationPaid struct {
+	DispatchCompensationPaid *EventDispatchCompensationPaid `protobuf:"bytes,133,opt,name=dispatch_compensation_paid,json=dispatchCompensationPaid,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_DispatchCompensationRebutted struct {
+	DispatchCompensationRebutted *EventDispatchCompensationRebutted `protobuf:"bytes,134,opt,name=dispatch_compensation_rebutted,json=dispatchCompensationRebutted,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_DispatchChallengeOpened struct {
+	DispatchChallengeOpened *EventDispatchChallengeOpened `protobuf:"bytes,135,opt,name=dispatch_challenge_opened,json=dispatchChallengeOpened,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_DispatchChallengeResolved struct {
+	DispatchChallengeResolved *EventDispatchChallengeResolved `protobuf:"bytes,136,opt,name=dispatch_challenge_resolved,json=dispatchChallengeResolved,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded struct {
+	BuilderDispatchFaultRecorded *EventBuilderDispatchFaultRecorded `protobuf:"bytes,137,opt,name=builder_dispatch_fault_recorded,json=builderDispatchFaultRecorded,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionDeposited struct {
+	SessionDeposited *EventSessionDeposited `protobuf:"bytes,138,opt,name=session_deposited,json=sessionDeposited,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionWithdrawRequested struct {
+	SessionWithdrawRequested *EventSessionWithdrawRequested `protobuf:"bytes,139,opt,name=session_withdraw_requested,json=sessionWithdrawRequested,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionWithdrawEffective struct {
+	SessionWithdrawEffective *EventSessionWithdrawEffective `protobuf:"bytes,140,opt,name=session_withdraw_effective,json=sessionWithdrawEffective,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_SessionKeyChangeRequested struct {
+	SessionKeyChangeRequested *EventSessionKeyChangeRequested `protobuf:"bytes,141,opt,name=session_key_change_requested,json=sessionKeyChangeRequested,proto3,oneof"`
+}
+
+type TaskProtocolEventPayloadV1_OrderCancelRequested struct {
+	OrderCancelRequested *EventOrderCancelRequested `protobuf:"bytes,142,opt,name=order_cancel_requested,json=orderCancelRequested,proto3,oneof"`
+}
+
 func (*TaskProtocolEventPayloadV1_SessionCreated) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
 func (*TaskProtocolEventPayloadV1_OrderCancelled) isTaskProtocolEventPayloadV1_TypedEvent() {}
@@ -2608,12 +2529,6 @@ func (*TaskProtocolEventPayloadV1_OrderCancelled) isTaskProtocolEventPayloadV1_T
 func (*TaskProtocolEventPayloadV1_RevealPhaseStarted) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
 func (*TaskProtocolEventPayloadV1_TaskFailureClassUpdated) isTaskProtocolEventPayloadV1_TypedEvent() {
-}
-
-func (*TaskProtocolEventPayloadV1_WorkerHandraisesAccepted) isTaskProtocolEventPayloadV1_TypedEvent() {
-}
-
-func (*TaskProtocolEventPayloadV1_WorkerAssignmentFinalized) isTaskProtocolEventPayloadV1_TypedEvent() {
 }
 
 func (*TaskProtocolEventPayloadV1_InferReceiptAccepted) isTaskProtocolEventPayloadV1_TypedEvent() {}
@@ -2634,8 +2549,6 @@ func (*TaskProtocolEventPayloadV1_TaskSettled) isTaskProtocolEventPayloadV1_Type
 
 func (*TaskProtocolEventPayloadV1_DeadlineSwept) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
-func (*TaskProtocolEventPayloadV1_AssignmentFailed) isTaskProtocolEventPayloadV1_TypedEvent() {}
-
 func (*TaskProtocolEventPayloadV1_WorkerTimeout) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
 func (*TaskProtocolEventPayloadV1_VerifyOpenTimeout) isTaskProtocolEventPayloadV1_TypedEvent() {}
@@ -2652,12 +2565,55 @@ func (*TaskProtocolEventPayloadV1_TaskGasReimbursementRecorded) isTaskProtocolEv
 
 func (*TaskProtocolEventPayloadV1_WorkerEvidenceAccepted) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
+func (*TaskProtocolEventPayloadV1_VerifierValueEvidenceAccepted) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
 func (*TaskProtocolEventPayloadV1_VerifierHandraisesAccepted) isTaskProtocolEventPayloadV1_TypedEvent() {
 }
 
 func (*TaskProtocolEventPayloadV1_SessionKeyUpdated) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
 func (*TaskProtocolEventPayloadV1_TaskParamsUpdated) isTaskProtocolEventPayloadV1_TypedEvent() {}
+
+func (*TaskProtocolEventPayloadV1_DispatchRecorded) isTaskProtocolEventPayloadV1_TypedEvent() {}
+
+func (*TaskProtocolEventPayloadV1_SessionBuilderBound) isTaskProtocolEventPayloadV1_TypedEvent() {}
+
+func (*TaskProtocolEventPayloadV1_SessionTakeoverRegistered) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_SessionTakeoverVoided) isTaskProtocolEventPayloadV1_TypedEvent() {}
+
+func (*TaskProtocolEventPayloadV1_DispatchCompensationClaimed) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_DispatchCompensationPaid) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_DispatchCompensationRebutted) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_DispatchChallengeOpened) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_DispatchChallengeResolved) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_SessionDeposited) isTaskProtocolEventPayloadV1_TypedEvent() {}
+
+func (*TaskProtocolEventPayloadV1_SessionWithdrawRequested) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_SessionWithdrawEffective) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_SessionKeyChangeRequested) isTaskProtocolEventPayloadV1_TypedEvent() {
+}
+
+func (*TaskProtocolEventPayloadV1_OrderCancelRequested) isTaskProtocolEventPayloadV1_TypedEvent() {}
 
 // EventSessionKeyUpdated is event code 106, emitted on registration or an
 // actual SET/CLEAR change, never NOOP. CLEAR omits the key and zeroes expiry,
@@ -2677,7 +2633,7 @@ type EventSessionKeyUpdated struct {
 
 func (x *EventSessionKeyUpdated) Reset() {
 	*x = EventSessionKeyUpdated{}
-	mi := &file_task_v1_event_proto_msgTypes[25]
+	mi := &file_task_v1_event_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2689,7 +2645,7 @@ func (x *EventSessionKeyUpdated) String() string {
 func (*EventSessionKeyUpdated) ProtoMessage() {}
 
 func (x *EventSessionKeyUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_event_proto_msgTypes[25]
+	mi := &file_task_v1_event_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2702,7 +2658,7 @@ func (x *EventSessionKeyUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventSessionKeyUpdated.ProtoReflect.Descriptor instead.
 func (*EventSessionKeyUpdated) Descriptor() ([]byte, []int) {
-	return file_task_v1_event_proto_rawDescGZIP(), []int{25}
+	return file_task_v1_event_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *EventSessionKeyUpdated) GetSessionId() []byte {
@@ -2758,7 +2714,7 @@ var File_task_v1_event_proto protoreflect.FileDescriptor
 
 const file_task_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x13task/v1/event.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x16task/v1/deadline.proto\x1a\x18task/v1/settlement.proto\"`\n" +
+	"\x13task/v1/event.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x16task/v1/deadline.proto\x1a\x1ctask/v1/dispatch_event.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/value_evidence.proto\"`\n" +
 	"\x13EventSessionCreated\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x14\n" +
@@ -2786,27 +2742,7 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\x15classification_source\x18\x06 \x01(\x0e2&.shared.v1.FailureClassificationSourceR\x14classificationSource\x12'\n" +
 	"\x0fevidence_digest\x18\a \x01(\fR\x0eevidenceDigest\x124\n" +
 	"\x16freeze_signal_eligible\x18\b \x01(\bR\x14freezeSignalEligibleB\x19\n" +
-	"\x17_settlement_id_or_empty\"\xb8\x02\n" +
-	"\x1dEventWorkerHandraisesAccepted\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12%\n" +
-	"\x0eorder_sequence\x18\x03 \x01(\x04R\rorderSequence\x12'\n" +
-	"\x0fproposal_digest\x18\x04 \x01(\fR\x0eproposalDigest\x12*\n" +
-	"\x11added_bitmap_hash\x18\x05 \x01(\fR\x0faddedBitmapHash\x12-\n" +
-	"\x10builder_or_empty\x18\x06 \x01(\tH\x00R\x0ebuilderOrEmpty\x88\x01\x01\x12\x1f\n" +
-	"\vunion_count\x18\a \x01(\rR\n" +
-	"unionCountB\x13\n" +
-	"\x11_builder_or_empty\"\xd0\x02\n" +
-	"\x1eEventWorkerAssignmentFinalized\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12#\n" +
-	"\rwinner_worker\x18\x03 \x01(\tR\fwinnerWorker\x12A\n" +
-	"\x1dassignment_candidate_set_hash\x18\x04 \x01(\fR\x1aassignmentCandidateSetHash\x12+\n" +
-	"\x11randomness_height\x18\x05 \x01(\x04R\x10randomnessHeight\x12:\n" +
-	"\x0freserved_amount\x18\x06 \x01(\v2\x11.shared.v1.AmountR\x0ereservedAmount\x12%\n" +
-	"\x0einfer_deadline\x18\a \x01(\x04R\rinferDeadline\"\xe5\x02\n" +
+	"\x17_settlement_id_or_empty\"\xe5\x02\n" +
 	"\x19EventInferReceiptAccepted\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
@@ -2885,13 +2821,7 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\rfailure_class\x18\x05 \x01(\x0e2\x19.task.v1.TaskFailureClassR\ffailureClassB\r\n" +
 	"\v_session_idB\n" +
 	"\n" +
-	"\b_task_id\"\xc1\x01\n" +
-	"\x15EventAssignmentFailed\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\fR\x06taskId\x128\n" +
-	"\x06reason\x18\x03 \x01(\x0e2 .task.v1.AssignmentFailureReasonR\x06reason\x126\n" +
-	"\rrefund_amount\x18\x04 \x01(\v2\x11.shared.v1.AmountR\frefundAmount\"\xdc\x01\n" +
+	"\b_task_id\"\xdc\x01\n" +
 	"\x12EventWorkerTimeout\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
@@ -2960,15 +2890,12 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\vnew_version\x18\x02 \x01(\x04R\n" +
 	"newVersion\x12\x1f\n" +
 	"\vparams_hash\x18\x03 \x01(\fR\n" +
-	"paramsHash\"\xe8\x11\n" +
+	"paramsHash\"\x96\x1d\n" +
 	"\x1aTaskProtocolEventPayloadV1\x12G\n" +
 	"\x0fsession_created\x18\x01 \x01(\v2\x1c.task.v1.EventSessionCreatedH\x00R\x0esessionCreated\x12G\n" +
 	"\x0forder_cancelled\x18\x02 \x01(\v2\x1c.task.v1.EventOrderCancelledH\x00R\x0eorderCancelled\x12T\n" +
 	"\x14reveal_phase_started\x18\b \x01(\v2 .task.v1.EventRevealPhaseStartedH\x00R\x12revealPhaseStarted\x12d\n" +
-	"\x1atask_failure_class_updated\x18\t \x01(\v2%.task.v1.EventTaskFailureClassUpdatedH\x00R\x17taskFailureClassUpdated\x12f\n" +
-	"\x1aworker_handraises_accepted\x18\n" +
-	" \x01(\v2&.task.v1.EventWorkerHandraisesAcceptedH\x00R\x18workerHandraisesAccepted\x12i\n" +
-	"\x1bworker_assignment_finalized\x18\v \x01(\v2'.task.v1.EventWorkerAssignmentFinalizedH\x00R\x19workerAssignmentFinalized\x12Z\n" +
+	"\x1atask_failure_class_updated\x18\t \x01(\v2%.task.v1.EventTaskFailureClassUpdatedH\x00R\x17taskFailureClassUpdated\x12Z\n" +
 	"\x16infer_receipt_accepted\x18\f \x01(\v2\".task.v1.EventInferReceiptAcceptedH\x00R\x14inferReceiptAccepted\x12o\n" +
 	"\x1dverifier_assignment_finalized\x18\r \x01(\v2).task.v1.EventVerifierAssignmentFinalizedH\x00R\x1bverifierAssignmentFinalized\x12c\n" +
 	"\x19data_unavailable_reported\x18\x0e \x01(\v2%.task.v1.EventDataUnavailableReportedH\x00R\x17dataUnavailableReported\x12`\n" +
@@ -2976,19 +2903,35 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\x0fcommit_accepted\x18\x10 \x01(\v2\x1c.task.v1.EventCommitAcceptedH\x00R\x0ecommitAccepted\x12G\n" +
 	"\x0fresult_accepted\x18\x11 \x01(\v2\x1c.task.v1.EventResultAcceptedH\x00R\x0eresultAccepted\x12>\n" +
 	"\ftask_settled\x18\x13 \x01(\v2\x19.task.v1.EventTaskSettledH\x00R\vtaskSettled\x12D\n" +
-	"\x0edeadline_swept\x18\x14 \x01(\v2\x1b.task.v1.EventDeadlineSweptH\x00R\rdeadlineSwept\x12M\n" +
-	"\x11assignment_failed\x18\x16 \x01(\v2\x1e.task.v1.EventAssignmentFailedH\x00R\x10assignmentFailed\x12D\n" +
+	"\x0edeadline_swept\x18\x14 \x01(\v2\x1b.task.v1.EventDeadlineSweptH\x00R\rdeadlineSwept\x12D\n" +
 	"\x0eworker_timeout\x18\x17 \x01(\v2\x1b.task.v1.EventWorkerTimeoutH\x00R\rworkerTimeout\x12Q\n" +
 	"\x13verify_open_timeout\x18\x18 \x01(\v2\x1f.task.v1.EventVerifyOpenTimeoutH\x00R\x11verifyOpenTimeout\x12Z\n" +
 	"\x16commit_deadline_closed\x18\x19 \x01(\v2\".task.v1.EventCommitDeadlineClosedH\x00R\x14commitDeadlineClosed\x12Z\n" +
 	"\x16challenge_round_opened\x18\x1a \x01(\v2\".task.v1.EventChallengeRoundOpenedH\x00R\x14challengeRoundOpened\x12c\n" +
 	"\x19verification_round_closed\x18\x1b \x01(\v2%.task.v1.EventVerificationRoundClosedH\x00R\x17verificationRoundClosed\x12s\n" +
 	"\x1ftask_gas_reimbursement_recorded\x18\x1c \x01(\v2*.task.v1.EventTaskGasReimbursementRecordedH\x00R\x1ctaskGasReimbursementRecorded\x12`\n" +
-	"\x18worker_evidence_accepted\x18\x1d \x01(\v2$.task.v1.EventWorkerEvidenceAcceptedH\x00R\x16workerEvidenceAccepted\x12l\n" +
+	"\x18worker_evidence_accepted\x18\x1d \x01(\v2$.task.v1.EventWorkerEvidenceAcceptedH\x00R\x16workerEvidenceAccepted\x12v\n" +
+	" verifier_value_evidence_accepted\x18\x1e \x01(\v2+.task.v1.EventVerifierValueEvidenceAcceptedH\x00R\x1dverifierValueEvidenceAccepted\x12l\n" +
 	"\x1cverifier_handraises_accepted\x18\" \x01(\v2(.task.v1.EventVerifierHandraisesAcceptedH\x00R\x1averifierHandraisesAccepted\x12Q\n" +
 	"\x13session_key_updated\x18j \x01(\v2\x1f.task.v1.EventSessionKeyUpdatedH\x00R\x11sessionKeyUpdated\x12Q\n" +
-	"\x13task_params_updated\x18o \x01(\v2\x1f.task.v1.EventTaskParamsUpdatedH\x00R\x11taskParamsUpdatedB\r\n" +
-	"\vtyped_event\"\xb9\x02\n" +
+	"\x13task_params_updated\x18o \x01(\v2\x1f.task.v1.EventTaskParamsUpdatedH\x00R\x11taskParamsUpdated\x12N\n" +
+	"\x11dispatch_recorded\x18\x80\x01 \x01(\v2\x1e.task.v1.EventDispatchRecordedH\x00R\x10dispatchRecorded\x12X\n" +
+	"\x15session_builder_bound\x18\x81\x01 \x01(\v2!.task.v1.EventSessionBuilderBoundH\x00R\x13sessionBuilderBound\x12j\n" +
+	"\x1bsession_takeover_registered\x18\x82\x01 \x01(\v2'.task.v1.EventSessionTakeoverRegisteredH\x00R\x19sessionTakeoverRegistered\x12^\n" +
+	"\x17session_takeover_voided\x18\x83\x01 \x01(\v2#.task.v1.EventSessionTakeoverVoidedH\x00R\x15sessionTakeoverVoided\x12p\n" +
+	"\x1ddispatch_compensation_claimed\x18\x84\x01 \x01(\v2).task.v1.EventDispatchCompensationClaimedH\x00R\x1bdispatchCompensationClaimed\x12g\n" +
+	"\x1adispatch_compensation_paid\x18\x85\x01 \x01(\v2&.task.v1.EventDispatchCompensationPaidH\x00R\x18dispatchCompensationPaid\x12s\n" +
+	"\x1edispatch_compensation_rebutted\x18\x86\x01 \x01(\v2*.task.v1.EventDispatchCompensationRebuttedH\x00R\x1cdispatchCompensationRebutted\x12d\n" +
+	"\x19dispatch_challenge_opened\x18\x87\x01 \x01(\v2%.task.v1.EventDispatchChallengeOpenedH\x00R\x17dispatchChallengeOpened\x12j\n" +
+	"\x1bdispatch_challenge_resolved\x18\x88\x01 \x01(\v2'.task.v1.EventDispatchChallengeResolvedH\x00R\x19dispatchChallengeResolved\x12t\n" +
+	"\x1fbuilder_dispatch_fault_recorded\x18\x89\x01 \x01(\v2*.task.v1.EventBuilderDispatchFaultRecordedH\x00R\x1cbuilderDispatchFaultRecorded\x12N\n" +
+	"\x11session_deposited\x18\x8a\x01 \x01(\v2\x1e.task.v1.EventSessionDepositedH\x00R\x10sessionDeposited\x12g\n" +
+	"\x1asession_withdraw_requested\x18\x8b\x01 \x01(\v2&.task.v1.EventSessionWithdrawRequestedH\x00R\x18sessionWithdrawRequested\x12g\n" +
+	"\x1asession_withdraw_effective\x18\x8c\x01 \x01(\v2&.task.v1.EventSessionWithdrawEffectiveH\x00R\x18sessionWithdrawEffective\x12k\n" +
+	"\x1csession_key_change_requested\x18\x8d\x01 \x01(\v2'.task.v1.EventSessionKeyChangeRequestedH\x00R\x19sessionKeyChangeRequested\x12[\n" +
+	"\x16order_cancel_requested\x18\x8e\x01 \x01(\v2\".task.v1.EventOrderCancelRequestedH\x00R\x14orderCancelRequestedB\r\n" +
+	"\vtyped_eventJ\x04\b\n" +
+	"\x10\vJ\x04\b\v\x10\fJ\x04\b\x16\x10\x17R\x1aworker_handraises_acceptedR\x1bworker_assignment_finalizedR\x11assignment_failed\"\xb9\x02\n" +
 	"\x16EventSessionKeyUpdated\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x14\n" +
@@ -3018,99 +2961,121 @@ func file_task_v1_event_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_event_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_task_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_task_v1_event_proto_goTypes = []any{
-	(RevealPhaseTrigger)(0),                   // 0: task.v1.RevealPhaseTrigger
-	(*EventSessionCreated)(nil),               // 1: task.v1.EventSessionCreated
-	(*EventOrderCancelled)(nil),               // 2: task.v1.EventOrderCancelled
-	(*EventRevealPhaseStarted)(nil),           // 3: task.v1.EventRevealPhaseStarted
-	(*EventTaskFailureClassUpdated)(nil),      // 4: task.v1.EventTaskFailureClassUpdated
-	(*EventWorkerHandraisesAccepted)(nil),     // 5: task.v1.EventWorkerHandraisesAccepted
-	(*EventWorkerAssignmentFinalized)(nil),    // 6: task.v1.EventWorkerAssignmentFinalized
-	(*EventInferReceiptAccepted)(nil),         // 7: task.v1.EventInferReceiptAccepted
-	(*EventVerifierAssignmentFinalized)(nil),  // 8: task.v1.EventVerifierAssignmentFinalized
-	(*EventDataUnavailableReported)(nil),      // 9: task.v1.EventDataUnavailableReported
-	(*EventBuilderDataUnavailable)(nil),       // 10: task.v1.EventBuilderDataUnavailable
-	(*EventCommitAccepted)(nil),               // 11: task.v1.EventCommitAccepted
-	(*EventResultAccepted)(nil),               // 12: task.v1.EventResultAccepted
-	(*EventTaskSettled)(nil),                  // 13: task.v1.EventTaskSettled
-	(*EventDeadlineSwept)(nil),                // 14: task.v1.EventDeadlineSwept
-	(*EventAssignmentFailed)(nil),             // 15: task.v1.EventAssignmentFailed
-	(*EventWorkerTimeout)(nil),                // 16: task.v1.EventWorkerTimeout
-	(*EventVerifyOpenTimeout)(nil),            // 17: task.v1.EventVerifyOpenTimeout
-	(*EventCommitDeadlineClosed)(nil),         // 18: task.v1.EventCommitDeadlineClosed
-	(*EventChallengeRoundOpened)(nil),         // 19: task.v1.EventChallengeRoundOpened
-	(*EventVerificationRoundClosed)(nil),      // 20: task.v1.EventVerificationRoundClosed
-	(*EventTaskGasReimbursementRecorded)(nil), // 21: task.v1.EventTaskGasReimbursementRecorded
-	(*EventWorkerEvidenceAccepted)(nil),       // 22: task.v1.EventWorkerEvidenceAccepted
-	(*EventVerifierHandraisesAccepted)(nil),   // 23: task.v1.EventVerifierHandraisesAccepted
-	(*EventTaskParamsUpdated)(nil),            // 24: task.v1.EventTaskParamsUpdated
-	(*TaskProtocolEventPayloadV1)(nil),        // 25: task.v1.TaskProtocolEventPayloadV1
-	(*EventSessionKeyUpdated)(nil),            // 26: task.v1.EventSessionKeyUpdated
-	(TaskFailureClass)(0),                     // 27: task.v1.TaskFailureClass
-	(v1.FailureClassificationSource)(0),       // 28: shared.v1.FailureClassificationSource
-	(*v1.Amount)(nil),                         // 29: shared.v1.Amount
-	(TaskVerdict)(0),                          // 30: task.v1.TaskVerdict
-	(DeadlineKindV1)(0),                       // 31: task.v1.DeadlineKindV1
-	(DeadlineTransitionCode)(0),               // 32: task.v1.DeadlineTransitionCode
-	(AssignmentFailureReason)(0),              // 33: task.v1.AssignmentFailureReason
-	(v1.RoundOutcomeV1)(0),                    // 34: shared.v1.RoundOutcomeV1
-	(TaskReimbursementKindV1)(0),              // 35: task.v1.TaskReimbursementKindV1
+	(RevealPhaseTrigger)(0),                    // 0: task.v1.RevealPhaseTrigger
+	(*EventSessionCreated)(nil),                // 1: task.v1.EventSessionCreated
+	(*EventOrderCancelled)(nil),                // 2: task.v1.EventOrderCancelled
+	(*EventRevealPhaseStarted)(nil),            // 3: task.v1.EventRevealPhaseStarted
+	(*EventTaskFailureClassUpdated)(nil),       // 4: task.v1.EventTaskFailureClassUpdated
+	(*EventInferReceiptAccepted)(nil),          // 5: task.v1.EventInferReceiptAccepted
+	(*EventVerifierAssignmentFinalized)(nil),   // 6: task.v1.EventVerifierAssignmentFinalized
+	(*EventDataUnavailableReported)(nil),       // 7: task.v1.EventDataUnavailableReported
+	(*EventBuilderDataUnavailable)(nil),        // 8: task.v1.EventBuilderDataUnavailable
+	(*EventCommitAccepted)(nil),                // 9: task.v1.EventCommitAccepted
+	(*EventResultAccepted)(nil),                // 10: task.v1.EventResultAccepted
+	(*EventTaskSettled)(nil),                   // 11: task.v1.EventTaskSettled
+	(*EventDeadlineSwept)(nil),                 // 12: task.v1.EventDeadlineSwept
+	(*EventWorkerTimeout)(nil),                 // 13: task.v1.EventWorkerTimeout
+	(*EventVerifyOpenTimeout)(nil),             // 14: task.v1.EventVerifyOpenTimeout
+	(*EventCommitDeadlineClosed)(nil),          // 15: task.v1.EventCommitDeadlineClosed
+	(*EventChallengeRoundOpened)(nil),          // 16: task.v1.EventChallengeRoundOpened
+	(*EventVerificationRoundClosed)(nil),       // 17: task.v1.EventVerificationRoundClosed
+	(*EventTaskGasReimbursementRecorded)(nil),  // 18: task.v1.EventTaskGasReimbursementRecorded
+	(*EventWorkerEvidenceAccepted)(nil),        // 19: task.v1.EventWorkerEvidenceAccepted
+	(*EventVerifierHandraisesAccepted)(nil),    // 20: task.v1.EventVerifierHandraisesAccepted
+	(*EventTaskParamsUpdated)(nil),             // 21: task.v1.EventTaskParamsUpdated
+	(*TaskProtocolEventPayloadV1)(nil),         // 22: task.v1.TaskProtocolEventPayloadV1
+	(*EventSessionKeyUpdated)(nil),             // 23: task.v1.EventSessionKeyUpdated
+	(TaskFailureClass)(0),                      // 24: task.v1.TaskFailureClass
+	(v1.FailureClassificationSource)(0),        // 25: shared.v1.FailureClassificationSource
+	(TaskVerdict)(0),                           // 26: task.v1.TaskVerdict
+	(DeadlineKindV1)(0),                        // 27: task.v1.DeadlineKindV1
+	(DeadlineTransitionCode)(0),                // 28: task.v1.DeadlineTransitionCode
+	(*v1.Amount)(nil),                          // 29: shared.v1.Amount
+	(v1.RoundOutcomeV1)(0),                     // 30: shared.v1.RoundOutcomeV1
+	(TaskReimbursementKindV1)(0),               // 31: task.v1.TaskReimbursementKindV1
+	(*EventVerifierValueEvidenceAccepted)(nil), // 32: task.v1.EventVerifierValueEvidenceAccepted
+	(*EventDispatchRecorded)(nil),              // 33: task.v1.EventDispatchRecorded
+	(*EventSessionBuilderBound)(nil),           // 34: task.v1.EventSessionBuilderBound
+	(*EventSessionTakeoverRegistered)(nil),     // 35: task.v1.EventSessionTakeoverRegistered
+	(*EventSessionTakeoverVoided)(nil),         // 36: task.v1.EventSessionTakeoverVoided
+	(*EventDispatchCompensationClaimed)(nil),   // 37: task.v1.EventDispatchCompensationClaimed
+	(*EventDispatchCompensationPaid)(nil),      // 38: task.v1.EventDispatchCompensationPaid
+	(*EventDispatchCompensationRebutted)(nil),  // 39: task.v1.EventDispatchCompensationRebutted
+	(*EventDispatchChallengeOpened)(nil),       // 40: task.v1.EventDispatchChallengeOpened
+	(*EventDispatchChallengeResolved)(nil),     // 41: task.v1.EventDispatchChallengeResolved
+	(*EventBuilderDispatchFaultRecorded)(nil),  // 42: task.v1.EventBuilderDispatchFaultRecorded
+	(*EventSessionDeposited)(nil),              // 43: task.v1.EventSessionDeposited
+	(*EventSessionWithdrawRequested)(nil),      // 44: task.v1.EventSessionWithdrawRequested
+	(*EventSessionWithdrawEffective)(nil),      // 45: task.v1.EventSessionWithdrawEffective
+	(*EventSessionKeyChangeRequested)(nil),     // 46: task.v1.EventSessionKeyChangeRequested
+	(*EventOrderCancelRequested)(nil),          // 47: task.v1.EventOrderCancelRequested
 }
 var file_task_v1_event_proto_depIdxs = []int32{
 	0,  // 0: task.v1.EventRevealPhaseStarted.trigger:type_name -> task.v1.RevealPhaseTrigger
-	27, // 1: task.v1.EventTaskFailureClassUpdated.failure_class:type_name -> task.v1.TaskFailureClass
-	28, // 2: task.v1.EventTaskFailureClassUpdated.classification_source:type_name -> shared.v1.FailureClassificationSource
-	29, // 3: task.v1.EventWorkerAssignmentFinalized.reserved_amount:type_name -> shared.v1.Amount
-	30, // 4: task.v1.EventTaskSettled.verdict:type_name -> task.v1.TaskVerdict
-	27, // 5: task.v1.EventTaskSettled.failure_class:type_name -> task.v1.TaskFailureClass
-	31, // 6: task.v1.EventDeadlineSwept.deadline_kind:type_name -> task.v1.DeadlineKindV1
-	32, // 7: task.v1.EventDeadlineSwept.transition_code:type_name -> task.v1.DeadlineTransitionCode
-	27, // 8: task.v1.EventDeadlineSwept.failure_class:type_name -> task.v1.TaskFailureClass
-	33, // 9: task.v1.EventAssignmentFailed.reason:type_name -> task.v1.AssignmentFailureReason
-	29, // 10: task.v1.EventAssignmentFailed.refund_amount:type_name -> shared.v1.Amount
-	27, // 11: task.v1.EventWorkerTimeout.failure_class:type_name -> task.v1.TaskFailureClass
-	29, // 12: task.v1.EventWorkerTimeout.refund_amount:type_name -> shared.v1.Amount
-	27, // 13: task.v1.EventVerifyOpenTimeout.failure_class:type_name -> task.v1.TaskFailureClass
-	29, // 14: task.v1.EventVerifyOpenTimeout.refund_amount:type_name -> shared.v1.Amount
-	29, // 15: task.v1.EventChallengeRoundOpened.bond:type_name -> shared.v1.Amount
-	29, // 16: task.v1.EventChallengeRoundOpened.verifier_budget:type_name -> shared.v1.Amount
-	34, // 17: task.v1.EventVerificationRoundClosed.round_outcome:type_name -> shared.v1.RoundOutcomeV1
-	30, // 18: task.v1.EventVerificationRoundClosed.verdict:type_name -> task.v1.TaskVerdict
-	35, // 19: task.v1.EventTaskGasReimbursementRecorded.reimbursement_kind:type_name -> task.v1.TaskReimbursementKindV1
-	29, // 20: task.v1.EventTaskGasReimbursementRecorded.reimbursed_amount:type_name -> shared.v1.Amount
-	1,  // 21: task.v1.TaskProtocolEventPayloadV1.session_created:type_name -> task.v1.EventSessionCreated
-	2,  // 22: task.v1.TaskProtocolEventPayloadV1.order_cancelled:type_name -> task.v1.EventOrderCancelled
-	3,  // 23: task.v1.TaskProtocolEventPayloadV1.reveal_phase_started:type_name -> task.v1.EventRevealPhaseStarted
-	4,  // 24: task.v1.TaskProtocolEventPayloadV1.task_failure_class_updated:type_name -> task.v1.EventTaskFailureClassUpdated
-	5,  // 25: task.v1.TaskProtocolEventPayloadV1.worker_handraises_accepted:type_name -> task.v1.EventWorkerHandraisesAccepted
-	6,  // 26: task.v1.TaskProtocolEventPayloadV1.worker_assignment_finalized:type_name -> task.v1.EventWorkerAssignmentFinalized
-	7,  // 27: task.v1.TaskProtocolEventPayloadV1.infer_receipt_accepted:type_name -> task.v1.EventInferReceiptAccepted
-	8,  // 28: task.v1.TaskProtocolEventPayloadV1.verifier_assignment_finalized:type_name -> task.v1.EventVerifierAssignmentFinalized
-	9,  // 29: task.v1.TaskProtocolEventPayloadV1.data_unavailable_reported:type_name -> task.v1.EventDataUnavailableReported
-	10, // 30: task.v1.TaskProtocolEventPayloadV1.builder_data_unavailable:type_name -> task.v1.EventBuilderDataUnavailable
-	11, // 31: task.v1.TaskProtocolEventPayloadV1.commit_accepted:type_name -> task.v1.EventCommitAccepted
-	12, // 32: task.v1.TaskProtocolEventPayloadV1.result_accepted:type_name -> task.v1.EventResultAccepted
-	13, // 33: task.v1.TaskProtocolEventPayloadV1.task_settled:type_name -> task.v1.EventTaskSettled
-	14, // 34: task.v1.TaskProtocolEventPayloadV1.deadline_swept:type_name -> task.v1.EventDeadlineSwept
-	15, // 35: task.v1.TaskProtocolEventPayloadV1.assignment_failed:type_name -> task.v1.EventAssignmentFailed
-	16, // 36: task.v1.TaskProtocolEventPayloadV1.worker_timeout:type_name -> task.v1.EventWorkerTimeout
-	17, // 37: task.v1.TaskProtocolEventPayloadV1.verify_open_timeout:type_name -> task.v1.EventVerifyOpenTimeout
-	18, // 38: task.v1.TaskProtocolEventPayloadV1.commit_deadline_closed:type_name -> task.v1.EventCommitDeadlineClosed
-	19, // 39: task.v1.TaskProtocolEventPayloadV1.challenge_round_opened:type_name -> task.v1.EventChallengeRoundOpened
-	20, // 40: task.v1.TaskProtocolEventPayloadV1.verification_round_closed:type_name -> task.v1.EventVerificationRoundClosed
-	21, // 41: task.v1.TaskProtocolEventPayloadV1.task_gas_reimbursement_recorded:type_name -> task.v1.EventTaskGasReimbursementRecorded
-	22, // 42: task.v1.TaskProtocolEventPayloadV1.worker_evidence_accepted:type_name -> task.v1.EventWorkerEvidenceAccepted
-	23, // 43: task.v1.TaskProtocolEventPayloadV1.verifier_handraises_accepted:type_name -> task.v1.EventVerifierHandraisesAccepted
-	26, // 44: task.v1.TaskProtocolEventPayloadV1.session_key_updated:type_name -> task.v1.EventSessionKeyUpdated
-	24, // 45: task.v1.TaskProtocolEventPayloadV1.task_params_updated:type_name -> task.v1.EventTaskParamsUpdated
-	29, // 46: task.v1.EventSessionKeyUpdated.spend_cap:type_name -> shared.v1.Amount
-	29, // 47: task.v1.EventSessionKeyUpdated.spent:type_name -> shared.v1.Amount
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	24, // 1: task.v1.EventTaskFailureClassUpdated.failure_class:type_name -> task.v1.TaskFailureClass
+	25, // 2: task.v1.EventTaskFailureClassUpdated.classification_source:type_name -> shared.v1.FailureClassificationSource
+	26, // 3: task.v1.EventTaskSettled.verdict:type_name -> task.v1.TaskVerdict
+	24, // 4: task.v1.EventTaskSettled.failure_class:type_name -> task.v1.TaskFailureClass
+	27, // 5: task.v1.EventDeadlineSwept.deadline_kind:type_name -> task.v1.DeadlineKindV1
+	28, // 6: task.v1.EventDeadlineSwept.transition_code:type_name -> task.v1.DeadlineTransitionCode
+	24, // 7: task.v1.EventDeadlineSwept.failure_class:type_name -> task.v1.TaskFailureClass
+	24, // 8: task.v1.EventWorkerTimeout.failure_class:type_name -> task.v1.TaskFailureClass
+	29, // 9: task.v1.EventWorkerTimeout.refund_amount:type_name -> shared.v1.Amount
+	24, // 10: task.v1.EventVerifyOpenTimeout.failure_class:type_name -> task.v1.TaskFailureClass
+	29, // 11: task.v1.EventVerifyOpenTimeout.refund_amount:type_name -> shared.v1.Amount
+	29, // 12: task.v1.EventChallengeRoundOpened.bond:type_name -> shared.v1.Amount
+	29, // 13: task.v1.EventChallengeRoundOpened.verifier_budget:type_name -> shared.v1.Amount
+	30, // 14: task.v1.EventVerificationRoundClosed.round_outcome:type_name -> shared.v1.RoundOutcomeV1
+	26, // 15: task.v1.EventVerificationRoundClosed.verdict:type_name -> task.v1.TaskVerdict
+	31, // 16: task.v1.EventTaskGasReimbursementRecorded.reimbursement_kind:type_name -> task.v1.TaskReimbursementKindV1
+	29, // 17: task.v1.EventTaskGasReimbursementRecorded.reimbursed_amount:type_name -> shared.v1.Amount
+	1,  // 18: task.v1.TaskProtocolEventPayloadV1.session_created:type_name -> task.v1.EventSessionCreated
+	2,  // 19: task.v1.TaskProtocolEventPayloadV1.order_cancelled:type_name -> task.v1.EventOrderCancelled
+	3,  // 20: task.v1.TaskProtocolEventPayloadV1.reveal_phase_started:type_name -> task.v1.EventRevealPhaseStarted
+	4,  // 21: task.v1.TaskProtocolEventPayloadV1.task_failure_class_updated:type_name -> task.v1.EventTaskFailureClassUpdated
+	5,  // 22: task.v1.TaskProtocolEventPayloadV1.infer_receipt_accepted:type_name -> task.v1.EventInferReceiptAccepted
+	6,  // 23: task.v1.TaskProtocolEventPayloadV1.verifier_assignment_finalized:type_name -> task.v1.EventVerifierAssignmentFinalized
+	7,  // 24: task.v1.TaskProtocolEventPayloadV1.data_unavailable_reported:type_name -> task.v1.EventDataUnavailableReported
+	8,  // 25: task.v1.TaskProtocolEventPayloadV1.builder_data_unavailable:type_name -> task.v1.EventBuilderDataUnavailable
+	9,  // 26: task.v1.TaskProtocolEventPayloadV1.commit_accepted:type_name -> task.v1.EventCommitAccepted
+	10, // 27: task.v1.TaskProtocolEventPayloadV1.result_accepted:type_name -> task.v1.EventResultAccepted
+	11, // 28: task.v1.TaskProtocolEventPayloadV1.task_settled:type_name -> task.v1.EventTaskSettled
+	12, // 29: task.v1.TaskProtocolEventPayloadV1.deadline_swept:type_name -> task.v1.EventDeadlineSwept
+	13, // 30: task.v1.TaskProtocolEventPayloadV1.worker_timeout:type_name -> task.v1.EventWorkerTimeout
+	14, // 31: task.v1.TaskProtocolEventPayloadV1.verify_open_timeout:type_name -> task.v1.EventVerifyOpenTimeout
+	15, // 32: task.v1.TaskProtocolEventPayloadV1.commit_deadline_closed:type_name -> task.v1.EventCommitDeadlineClosed
+	16, // 33: task.v1.TaskProtocolEventPayloadV1.challenge_round_opened:type_name -> task.v1.EventChallengeRoundOpened
+	17, // 34: task.v1.TaskProtocolEventPayloadV1.verification_round_closed:type_name -> task.v1.EventVerificationRoundClosed
+	18, // 35: task.v1.TaskProtocolEventPayloadV1.task_gas_reimbursement_recorded:type_name -> task.v1.EventTaskGasReimbursementRecorded
+	19, // 36: task.v1.TaskProtocolEventPayloadV1.worker_evidence_accepted:type_name -> task.v1.EventWorkerEvidenceAccepted
+	32, // 37: task.v1.TaskProtocolEventPayloadV1.verifier_value_evidence_accepted:type_name -> task.v1.EventVerifierValueEvidenceAccepted
+	20, // 38: task.v1.TaskProtocolEventPayloadV1.verifier_handraises_accepted:type_name -> task.v1.EventVerifierHandraisesAccepted
+	23, // 39: task.v1.TaskProtocolEventPayloadV1.session_key_updated:type_name -> task.v1.EventSessionKeyUpdated
+	21, // 40: task.v1.TaskProtocolEventPayloadV1.task_params_updated:type_name -> task.v1.EventTaskParamsUpdated
+	33, // 41: task.v1.TaskProtocolEventPayloadV1.dispatch_recorded:type_name -> task.v1.EventDispatchRecorded
+	34, // 42: task.v1.TaskProtocolEventPayloadV1.session_builder_bound:type_name -> task.v1.EventSessionBuilderBound
+	35, // 43: task.v1.TaskProtocolEventPayloadV1.session_takeover_registered:type_name -> task.v1.EventSessionTakeoverRegistered
+	36, // 44: task.v1.TaskProtocolEventPayloadV1.session_takeover_voided:type_name -> task.v1.EventSessionTakeoverVoided
+	37, // 45: task.v1.TaskProtocolEventPayloadV1.dispatch_compensation_claimed:type_name -> task.v1.EventDispatchCompensationClaimed
+	38, // 46: task.v1.TaskProtocolEventPayloadV1.dispatch_compensation_paid:type_name -> task.v1.EventDispatchCompensationPaid
+	39, // 47: task.v1.TaskProtocolEventPayloadV1.dispatch_compensation_rebutted:type_name -> task.v1.EventDispatchCompensationRebutted
+	40, // 48: task.v1.TaskProtocolEventPayloadV1.dispatch_challenge_opened:type_name -> task.v1.EventDispatchChallengeOpened
+	41, // 49: task.v1.TaskProtocolEventPayloadV1.dispatch_challenge_resolved:type_name -> task.v1.EventDispatchChallengeResolved
+	42, // 50: task.v1.TaskProtocolEventPayloadV1.builder_dispatch_fault_recorded:type_name -> task.v1.EventBuilderDispatchFaultRecorded
+	43, // 51: task.v1.TaskProtocolEventPayloadV1.session_deposited:type_name -> task.v1.EventSessionDeposited
+	44, // 52: task.v1.TaskProtocolEventPayloadV1.session_withdraw_requested:type_name -> task.v1.EventSessionWithdrawRequested
+	45, // 53: task.v1.TaskProtocolEventPayloadV1.session_withdraw_effective:type_name -> task.v1.EventSessionWithdrawEffective
+	46, // 54: task.v1.TaskProtocolEventPayloadV1.session_key_change_requested:type_name -> task.v1.EventSessionKeyChangeRequested
+	47, // 55: task.v1.TaskProtocolEventPayloadV1.order_cancel_requested:type_name -> task.v1.EventOrderCancelRequested
+	29, // 56: task.v1.EventSessionKeyUpdated.spend_cap:type_name -> shared.v1.Amount
+	29, // 57: task.v1.EventSessionKeyUpdated.spent:type_name -> shared.v1.Amount
+	58, // [58:58] is the sub-list for method output_type
+	58, // [58:58] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_event_proto_init() }
@@ -3120,18 +3085,17 @@ func file_task_v1_event_proto_init() {
 	}
 	file_task_v1_assignment_proto_init()
 	file_task_v1_deadline_proto_init()
+	file_task_v1_dispatch_event_proto_init()
 	file_task_v1_settlement_proto_init()
+	file_task_v1_value_evidence_proto_init()
 	file_task_v1_event_proto_msgTypes[3].OneofWrappers = []any{}
-	file_task_v1_event_proto_msgTypes[4].OneofWrappers = []any{}
-	file_task_v1_event_proto_msgTypes[13].OneofWrappers = []any{}
-	file_task_v1_event_proto_msgTypes[19].OneofWrappers = []any{}
-	file_task_v1_event_proto_msgTypes[24].OneofWrappers = []any{
+	file_task_v1_event_proto_msgTypes[11].OneofWrappers = []any{}
+	file_task_v1_event_proto_msgTypes[16].OneofWrappers = []any{}
+	file_task_v1_event_proto_msgTypes[21].OneofWrappers = []any{
 		(*TaskProtocolEventPayloadV1_SessionCreated)(nil),
 		(*TaskProtocolEventPayloadV1_OrderCancelled)(nil),
 		(*TaskProtocolEventPayloadV1_RevealPhaseStarted)(nil),
 		(*TaskProtocolEventPayloadV1_TaskFailureClassUpdated)(nil),
-		(*TaskProtocolEventPayloadV1_WorkerHandraisesAccepted)(nil),
-		(*TaskProtocolEventPayloadV1_WorkerAssignmentFinalized)(nil),
 		(*TaskProtocolEventPayloadV1_InferReceiptAccepted)(nil),
 		(*TaskProtocolEventPayloadV1_VerifierAssignmentFinalized)(nil),
 		(*TaskProtocolEventPayloadV1_DataUnavailableReported)(nil),
@@ -3140,7 +3104,6 @@ func file_task_v1_event_proto_init() {
 		(*TaskProtocolEventPayloadV1_ResultAccepted)(nil),
 		(*TaskProtocolEventPayloadV1_TaskSettled)(nil),
 		(*TaskProtocolEventPayloadV1_DeadlineSwept)(nil),
-		(*TaskProtocolEventPayloadV1_AssignmentFailed)(nil),
 		(*TaskProtocolEventPayloadV1_WorkerTimeout)(nil),
 		(*TaskProtocolEventPayloadV1_VerifyOpenTimeout)(nil),
 		(*TaskProtocolEventPayloadV1_CommitDeadlineClosed)(nil),
@@ -3148,18 +3111,34 @@ func file_task_v1_event_proto_init() {
 		(*TaskProtocolEventPayloadV1_VerificationRoundClosed)(nil),
 		(*TaskProtocolEventPayloadV1_TaskGasReimbursementRecorded)(nil),
 		(*TaskProtocolEventPayloadV1_WorkerEvidenceAccepted)(nil),
+		(*TaskProtocolEventPayloadV1_VerifierValueEvidenceAccepted)(nil),
 		(*TaskProtocolEventPayloadV1_VerifierHandraisesAccepted)(nil),
 		(*TaskProtocolEventPayloadV1_SessionKeyUpdated)(nil),
 		(*TaskProtocolEventPayloadV1_TaskParamsUpdated)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchRecorded)(nil),
+		(*TaskProtocolEventPayloadV1_SessionBuilderBound)(nil),
+		(*TaskProtocolEventPayloadV1_SessionTakeoverRegistered)(nil),
+		(*TaskProtocolEventPayloadV1_SessionTakeoverVoided)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchCompensationClaimed)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchCompensationPaid)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchCompensationRebutted)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchChallengeOpened)(nil),
+		(*TaskProtocolEventPayloadV1_DispatchChallengeResolved)(nil),
+		(*TaskProtocolEventPayloadV1_BuilderDispatchFaultRecorded)(nil),
+		(*TaskProtocolEventPayloadV1_SessionDeposited)(nil),
+		(*TaskProtocolEventPayloadV1_SessionWithdrawRequested)(nil),
+		(*TaskProtocolEventPayloadV1_SessionWithdrawEffective)(nil),
+		(*TaskProtocolEventPayloadV1_SessionKeyChangeRequested)(nil),
+		(*TaskProtocolEventPayloadV1_OrderCancelRequested)(nil),
 	}
-	file_task_v1_event_proto_msgTypes[25].OneofWrappers = []any{}
+	file_task_v1_event_proto_msgTypes[22].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_event_proto_rawDesc), len(file_task_v1_event_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   26,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

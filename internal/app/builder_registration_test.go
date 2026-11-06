@@ -1,12 +1,8 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -15,17 +11,11 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
-	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/builderreg"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
-	"github.com/TrueOpen/nexus/internal/coordinator"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
-	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // End-to-end run of the builder-registration module: MsgRegisterBuilder really is broadcast carrying the three
@@ -134,193 +124,6 @@ func TestChainEventOptions(t *testing.T) {
 	if len(hub.task) != 2 || len(hub.hub) != 2 || !hub.protocolOnHub {
 		t.Fatalf("hub event options = %+v", hub)
 	}
-}
-
-func TestStage1AdmissionOptionSkippedWithoutSigner(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	chain := chaincli.NewStub(log, config.ChainConfig{})
-	coord := coordinator.New(
-		log,
-		msgbus.NewStub(log, nil),
-		chain,
-		relay.NewMem(log),
-		kv.NewMemStore(),
-		"",
-		"task-chain-1",
-		stage1AdmissionOption(nil, nil, "task-chain-1"),
-	)
-
-	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: "task-1", ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: appTestSignedOrderBytes(t)}); err != nil {
-		t.Fatalf("unsigned development order: %v", err)
-	}
-}
-
-// stage1AnchorHeight is the session_anchor_height of the signed order; admission reads the BuilderSet there.
-const stage1AnchorHeight = uint64(1234)
-
-func TestStage1AdmissionOptionUsesSignerAndTaskChain(t *testing.T) {
-	const (
-		taskChainID = "task-chain-1"
-		termID      = uint64(7)
-	)
-	sg := appTestSigner(t)
-	builders := []string{sg.Address()}
-	for index := 1; index <= 3; index++ {
-		builder, err := signer.NewFromHex(fmt.Sprintf("%064x", index), "trueopen")
-		if err != nil {
-			t.Fatal(err)
-		}
-		builders = append(builders, builder.Address())
-	}
-	const setHash = "7c1d3e5a9b2f4068d1c3e5a7b9f20416d8c3e5a7b9f20416d8c3e5a7b9f20416"
-	anchorHash := bytes.Repeat([]byte{0x42}, 32)
-	sessionID, sequence, taskID := taskOutsideSelection(t, taskChainID, setHash, anchorHash, sg.Address(), builders)
-	registry := &stage1Registry{
-		anchorHash:      anchorHash,
-		builder:         chaincli.BuilderState{Address: sg.Address(), ServiceKeyStatus: "ACTIVE", CurrentDescriptorVersion: 1},
-		buildersPerTask: 3,
-		set: chaincli.BuilderSet{
-			Epoch: termID, BuilderSetID: "7", SetHash: setHash,
-			ActiveBuilderCount: uint32(len(builders)), BodyStatus: "ACTIVE",
-			Members: appBuilderRefs(builders...),
-		},
-	}
-	var logs bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logs, nil))
-	chain := chaincli.NewStub(log, config.ChainConfig{})
-	coord := coordinator.New(
-		log,
-		msgbus.NewStub(log, nil),
-		chain,
-		relay.NewMem(log),
-		kv.NewMemStore(),
-		sg.Address(),
-		taskChainID,
-		stage1AdmissionOption(sg, registry, taskChainID),
-	)
-
-	if err := coord.OnOrder(context.Background(), types.Order{TaskHash: "f8a56f8bfe3164e9945e062e842293979f5a8d09a4c81bef81f26c7c4cd947d2", SessionID: "session-1", TaskID: taskID, ModelID: "model-1", PayloadCID: "cid-1", SignedOrder: stage1SignedOrderBytes(t, taskChainID, sessionID, sequence, anchorHash, "7", setHash)}); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	if registry.address != sg.Address() || registry.queriedHeight != stage1AnchorHeight {
-		t.Fatalf("registry query address=%q height=%d", registry.address, registry.queriedHeight)
-	}
-	if !strings.Contains(logs.String(), "code="+coordinator.ErrNotSelectedBuilder.Error()) {
-		t.Fatalf("stage1 warning log=%q", logs.String())
-	}
-}
-
-// appTestSignedOrderBytes gives the admission cases a minimal proto SignedOrderV2: the broadcast gate in onOrder
-// only requires it to be non-empty and decodable (content validity is decided by the Keeper and the broadcast receivers).
-func appTestSignedOrderBytes(t *testing.T) []byte {
-	t.Helper()
-	raw, err := proto.Marshal(&taskv1.SignedOrderV2{SignatureScheme: "eip712"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-// stage1SignedOrderBytes is a SignedOrderV2 carrying the fields admission ranks the BuilderSet under.
-func stage1SignedOrderBytes(t *testing.T, chainID string, sessionID []byte, sequence uint64, anchorHash []byte, setID, setHash string) []byte {
-	t.Helper()
-	rawSetHash, err := hex.DecodeString(setHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := proto.Marshal(&taskv1.SignedOrderV2{
-		Order: &taskv1.TaskOrderV3{
-			ChainId: chainID, SessionId: sessionID, OrderSequence: sequence,
-			SessionAnchorHeight: stage1AnchorHeight, SessionAnchorBlockHash: anchorHash,
-			BuilderSetId: setID, BuilderSetHash: rawSetHash,
-		},
-		SignatureScheme: "eip712",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-// taskOutsideSelection returns a session, an order sequence and the task_id they derive, for a task
-// whose selection leaves self out.
-func taskOutsideSelection(t *testing.T, chainID, setHash string, anchorHash []byte, self string, builders []string) ([]byte, uint64, string) {
-	t.Helper()
-	rawSetHash, err := hex.DecodeString(setHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessionID := sha256.Sum256([]byte("session-stage1"))
-	for sequence := 1; sequence <= 100; sequence++ {
-		taskIDRaw, err := nodecontract.DeriveTaskIDFromRawSession(sessionID[:], uint64(sequence))
-		if err != nil {
-			t.Fatal(err)
-		}
-		seed, err := nodecontract.TaskBuilderSeed(chainID, taskIDRaw[:], rawSetHash, anchorHash)
-		if err != nil {
-			t.Fatal(err)
-		}
-		selected, err := nodecontract.SelectTaskBuilders(seed, builders, 3)
-		if err != nil {
-			t.Fatal(err)
-		}
-		inSelection := false
-		for _, address := range selected {
-			inSelection = inSelection || address == self
-		}
-		if !inSelection {
-			return sessionID[:], uint64(sequence), hex.EncodeToString(taskIDRaw[:])
-		}
-	}
-	t.Fatal("could not find task outside selection")
-	return nil, 0, ""
-}
-
-func appBuilderRefs(addresses ...string) []types.BuilderRef {
-	refs := make([]types.BuilderRef, 0, len(addresses))
-	for index, address := range addresses {
-		refs = append(refs, types.BuilderRef{Address: address, Rank: index + 1})
-	}
-	return refs
-}
-
-type stage1Registry struct {
-	anchorHash      []byte
-	address         string
-	queriedHeight   uint64
-	builder         chaincli.BuilderState
-	set             chaincli.BuilderSet
-	buildersPerTask uint32
-}
-
-func (r *stage1Registry) QueryBuilder(_ context.Context, address string) (chaincli.BuilderState, error) {
-	r.address = address
-	return r.builder, nil
-}
-
-// The latest block sits right above the order's anchor, well inside the freshness window.
-func (r *stage1Registry) LatestHeight(context.Context) (uint64, error) {
-	return stage1AnchorHeight + 1, nil
-}
-
-func (r *stage1Registry) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
-	return 100, nil
-}
-
-func (r *stage1Registry) BlockHash(_ context.Context, height int64) ([]byte, error) {
-	if uint64(height) != stage1AnchorHeight {
-		return nil, errors.New("no block recorded at that height")
-	}
-	return r.anchorHash, nil
-}
-
-func (r *stage1Registry) QueryBuilderSetAtHeight(_ context.Context, height uint64) (chaincli.BuilderSet, error) {
-	r.queriedHeight = height
-	return r.set, nil
-}
-
-func (r *stage1Registry) QueryBuildersPerTask(context.Context) (uint32, error) {
-	return r.buildersPerTask, nil
 }
 
 func appTestSigner(t *testing.T) signer.Signer {

@@ -76,7 +76,6 @@ func TestTaskDataRootUsesDedicatedDataDirectory(t *testing.T) {
 func TestNewCreatesTaskDataStoreAndOrdersRecoveryBeforeIngress(t *testing.T) {
 	cfg := config.Load()
 	cfg.DataDir = t.TempDir()
-	cfg.NATS.Servers = nil
 	cfg.Identity = config.IdentityConfig{Bech32Prefix: "trueopen"}
 	created, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"github.com/TrueOpen/wire/dispatch"
 
 	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -14,7 +15,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 )
 
-// SessionState is the part of a session's StreamState that governs its registered signing key.
+// SessionState is a session's StreamState: its registered signing key, its prefunded balance and
+// pending withdrawal, the Builder it is bound to, and the sticky dispatch context.
 type SessionState struct {
 	SessionID string // lowercase hex, no 0x
 	Owner     string // canonical bech32 owner_user_address
@@ -25,6 +27,56 @@ type SessionState struct {
 	SetHeight    uint64
 	SpendCap     string // decimal atomic units; "0" is unlimited
 	Spent        string // decimal atomic units
+
+	// NextExpectedSequence is the only authority for the next acceptable order sequence.
+	NextExpectedSequence uint64
+	OpenPendingCount     uint32
+	// Balance and FrozenTotal are decimal atomic units. Admission freezes max_fee from
+	// Balance - FrozenTotal; a pending withdrawal is not subtracted on chain.
+	Balance                        string
+	FrozenTotal                    string
+	PendingWithdrawKind            taskv1.SessionWithdrawKindV1
+	PendingWithdrawAmount          string // decimal atomic units
+	PendingWithdrawEffectiveHeight uint64
+	// BoundBuilder is the only Builder whose dispatch records the chain admits for the session;
+	// BoundChangeHeight changes on every binding and is signed into each ticket and record.
+	BoundBuilder      string
+	BoundChangeHeight uint64
+	LastRecordHeight  uint64
+	// LastRecordWinner is empty when the session has no recorded winner yet.
+	LastRecordWinner     string
+	StickyAnchorSequence uint64
+	StickyAnchorHeight   uint64
+	StickyRunCount       uint32
+	// PendingKeyChange and PendingTakeover are nil when nothing is pending.
+	PendingKeyChange *PendingSessionKeyChange
+	PendingTakeover  *PendingTakeover
+	// FrozenDispatch is the dispatch half of the parameter body the session froze, at
+	// ParamsVersion: the record deadline, order lifetime and compensation and challenge windows of
+	// its orders. Governance changes to the current params do not move it, and current params never
+	// stand in for it. Shared, read only.
+	FrozenDispatch *taskv1.DispatchParamsV1
+	ParamsVersion  uint64
+}
+
+// PendingSessionKeyChange is a delayed SET or CLEAR of the session key.
+type PendingSessionKeyChange struct {
+	Kind taskv1.SessionKeyChangeKindV1
+	// Key, ExpiryHeight and SpendCap are the grant a SET installs; empty for CLEAR.
+	Key             []byte
+	ExpiryHeight    uint64
+	SpendCap        string // decimal atomic units; "0" is unlimited
+	EffectiveHeight uint64
+}
+
+// PendingTakeover is a registered takeover candidate that EndBlock binds at ActivationHeight
+// while OrderSequence stays unconsumed.
+type PendingTakeover struct {
+	CandidateBuilder string
+	OrderSequence    uint64
+	OrderTaskHash    []byte // 32 bytes
+	RegisteredHeight uint64
+	ActivationHeight uint64
 }
 
 // SessionStreamObserver hears about the task event streams of tracked sessions, so that cached
@@ -59,7 +111,32 @@ func (c *client) QuerySession(ctx context.Context, sessionID string) (SessionSta
 	if err != nil {
 		return SessionState{}, applicationQueryError("session", err)
 	}
-	return sessionStateFromPB(id, resp.Msg.GetSession())
+	state, err := sessionStateFromPB(id, resp.Msg.GetSession())
+	if err != nil {
+		return SessionState{}, err
+	}
+	if state.FrozenDispatch, err = frozenDispatchFromPB(resp.Msg.GetParams()); err != nil {
+		return SessionState{}, err
+	}
+	state.ParamsVersion = resp.Msg.GetParamsVersion()
+	return state, nil
+}
+
+// frozenDispatchFromPB reads the dispatch params a session froze. A body without a record deadline
+// or with an order lifetime outside 1..dispatch.MaxOrderLifetimeBlocksV1 is refused: the session's
+// orders could not be judged with it.
+func frozenDispatchFromPB(params *taskv1.TaskParamsV1) (*taskv1.DispatchParamsV1, error) {
+	d := params.GetDispatch()
+	switch {
+	case d == nil:
+		return nil, fmt.Errorf("query session: response has no frozen dispatch params")
+	case d.GetRecordDeadlineBlocks() == 0:
+		return nil, fmt.Errorf("query session: frozen dispatch.record_deadline_blocks is zero")
+	case d.GetMaxOrderLifetimeBlocks() == 0 || d.GetMaxOrderLifetimeBlocks() > dispatch.MaxOrderLifetimeBlocksV1:
+		return nil, fmt.Errorf("query session: frozen dispatch.max_order_lifetime_blocks %d is not in 1..%d",
+			d.GetMaxOrderLifetimeBlocks(), dispatch.MaxOrderLifetimeBlocksV1)
+	}
+	return d, nil
 }
 
 func sessionStateFromPB(id []byte, s *taskv1.StreamState) (SessionState, error) {
@@ -84,7 +161,61 @@ func sessionStateFromPB(id []byte, s *taskv1.StreamState) (SessionState, error) 
 		}
 		state.Key = append([]byte(nil), s.GetSessionKey()...)
 	}
+	state.NextExpectedSequence = s.GetNextExpectedSequence()
+	state.OpenPendingCount = s.GetOpenPendingCount()
+	state.Balance = s.GetBalance().GetAtomicUnits()
+	state.FrozenTotal = s.GetFrozenTotal().GetAtomicUnits()
+	state.PendingWithdrawKind = s.GetPendingWithdrawKind()
+	state.PendingWithdrawAmount = s.GetPendingWithdrawAmount().GetAtomicUnits()
+	state.PendingWithdrawEffectiveHeight = s.GetPendingWithdrawEffectiveHeight()
+	state.BoundBuilder = s.GetBoundBuilder()
+	state.BoundChangeHeight = s.GetBoundChangeHeight()
+	state.LastRecordHeight = s.GetLastRecordHeight()
+	state.LastRecordWinner = s.GetLastRecordWinner()
+	state.StickyAnchorSequence = s.GetStickyAnchorSequence()
+	state.StickyAnchorHeight = s.GetStickyAnchorHeight()
+	state.StickyRunCount = s.GetStickyRunCount()
+	if change := s.GetPendingSessionKeyChange(); change != nil {
+		pending, err := pendingKeyChangeFromPB(change)
+		if err != nil {
+			return SessionState{}, err
+		}
+		state.PendingKeyChange = pending
+	}
+	if takeover := s.GetPendingTakeover(); takeover != nil {
+		if takeover.GetCandidateBuilder() == "" || len(takeover.GetOrderTaskHash()) != 32 {
+			return SessionState{}, fmt.Errorf("query session: pending_takeover needs a candidate and a 32-byte order_task_hash")
+		}
+		state.PendingTakeover = &PendingTakeover{
+			CandidateBuilder: takeover.GetCandidateBuilder(), OrderSequence: takeover.GetOrderSequence(),
+			OrderTaskHash:    bytes.Clone(takeover.GetOrderTaskHash()),
+			RegisteredHeight: takeover.GetRegisteredHeight(), ActivationHeight: takeover.GetActivationHeight(),
+		}
+	}
 	return state, nil
+}
+
+// pendingKeyChangeFromPB reads a delayed key change: a SET carries the grant it installs, a CLEAR
+// carries none.
+func pendingKeyChangeFromPB(change *taskv1.PendingSessionKeyChangeV1) (*PendingSessionKeyChange, error) {
+	pending := &PendingSessionKeyChange{Kind: change.GetKind(), EffectiveHeight: change.GetEffectiveHeight()}
+	switch change.GetKind() {
+	case taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_SET:
+		grant := change.GetGrant()
+		if grant == nil || len(grant.GetSessionKey()) != 20 {
+			return nil, fmt.Errorf("query session: pending SET needs a grant with a 20-byte session_key")
+		}
+		pending.Key = bytes.Clone(grant.GetSessionKey())
+		pending.ExpiryHeight = grant.GetExpiryHeight()
+		pending.SpendCap = grant.GetSpendCap().GetAtomicUnits()
+	case taskv1.SessionKeyChangeKindV1_SESSION_KEY_CHANGE_KIND_V1_CLEAR:
+		if change.Grant != nil {
+			return nil, fmt.Errorf("query session: pending CLEAR carries a grant")
+		}
+	default:
+		return nil, fmt.Errorf("query session: pending key change has kind %s", change.GetKind())
+	}
+	return pending, nil
 }
 
 // QueryBusinessDenom reads hub params phase0.business_denom, the feeDenom of the order signing

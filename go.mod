@@ -13,19 +13,17 @@ require (
 	connectrpc.com/grpcreflect v1.3.0
 	cosmossdk.io/api v0.9.2
 	github.com/TrueOpen/nexus/gen/trueopen v0.0.0-00010101000000-000000000000
-	github.com/TrueOpen/wire v0.5.1
+	github.com/TrueOpen/wire v0.5.2-0.20261105094325-e365a4850d52
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/cosmos/btcutil v1.0.5
 	github.com/cosmos/cosmos-sdk v0.53.6
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
-	github.com/nats-io/jwt/v2 v2.8.2
-	github.com/nats-io/nats.go v1.52.0
-	github.com/nats-io/nkeys v0.4.16
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/crypto v0.52.0
-	golang.org/x/net v0.54.0
-	golang.org/x/sys v0.45.0
-	golang.org/x/term v0.43.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/net v0.55.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/term v0.44.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -87,8 +85,6 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a // indirect
 	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -111,7 +107,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.79.3 // indirect

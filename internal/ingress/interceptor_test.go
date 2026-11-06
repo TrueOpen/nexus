@@ -16,13 +16,13 @@ import (
 func TestLoggingInterceptorIncludesRPCErrorCause(t *testing.T) {
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
-	wantErr := connect.NewError(connect.CodeInternal, errors.New("publish open task: nats confirmation failed"))
+	wantErr := connect.NewError(connect.CodeInternal, errors.New("publish open task: store write failed"))
 	next := func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
 		return nil, wantErr
 	}
 
 	_, err := loggingInterceptor(log).WrapUnary(next)(
-		context.Background(), connect.NewRequest(&nexusv1.SubmitOrderRequest{}),
+		context.Background(), connect.NewRequest(&nexusv1.GetTaskStatusRequest{}),
 	)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("interceptor error = %v, want original error", err)
@@ -31,7 +31,7 @@ func TestLoggingInterceptorIncludesRPCErrorCause(t *testing.T) {
 	for _, want := range []string{
 		`msg=rpc`,
 		`code=internal`,
-		`err="internal: publish open task: nats confirmation failed"`,
+		`err="internal: publish open task: store write failed"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("logs missing %q:\n%s", want, got)

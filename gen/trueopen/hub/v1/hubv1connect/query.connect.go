@@ -107,6 +107,12 @@ const (
 	QueryEmergencyFreezeVotesProcedure = "/hub.v1.Query/EmergencyFreezeVotes"
 	// QueryTimeoutBucketProcedure is the fully-qualified name of the Query's TimeoutBucket RPC.
 	QueryTimeoutBucketProcedure = "/hub.v1.Query/TimeoutBucket"
+	// QueryCandidatePoolSnapshotMemberProcedure is the fully-qualified name of the Query's
+	// CandidatePoolSnapshotMember RPC.
+	QueryCandidatePoolSnapshotMemberProcedure = "/hub.v1.Query/CandidatePoolSnapshotMember"
+	// QueryBuilderCompensationAccountProcedure is the fully-qualified name of the Query's
+	// BuilderCompensationAccount RPC.
+	QueryBuilderCompensationAccountProcedure = "/hub.v1.Query/BuilderCompensationAccount"
 )
 
 // QueryClient is a client for the hub.v1.Query service.
@@ -115,7 +121,10 @@ type QueryClient interface {
 	Params(context.Context, *connect.Request[v1.QueryHubParamsRequest]) (*connect.Response[v1.QueryHubParamsResponse], error)
 	// Beacon returns one verified beacon by height.
 	Beacon(context.Context, *connect.Request[v1.QueryBeaconRequest]) (*connect.Response[v1.QueryBeaconResponse], error)
-	// VrfKey returns one validator operator's active and pending VRF key.
+	// VrfKey returns current active/pending keys for the selected participant role.
+	// This RPC has no by-epoch/history lookup. Audit consumers retain registration
+	// and cutover history or use archival state at the relevant height; an old
+	// ticket must never be verified by substituting the latest active key.
 	VrfKey(context.Context, *connect.Request[v1.QueryVrfKeyRequest]) (*connect.Response[v1.QueryVrfKeyResponse], error)
 	// BuilderSet returns one builder set selected by exactly one stable selector.
 	BuilderSet(context.Context, *connect.Request[v1.QueryBuilderSetRequest]) (*connect.Response[v1.QueryBuilderSetResponse], error)
@@ -194,6 +203,10 @@ type QueryClient interface {
 	// here from task.v1.Query with the governance writer.
 	// TimeoutBucket executes the TimeoutBucket operation.
 	TimeoutBucket(context.Context, *connect.Request[v1.QueryTimeoutBucketRequest]) (*connect.Response[v1.QueryTimeoutBucketResponse], error)
+	// CandidatePoolSnapshotMember executes the CandidatePoolSnapshotMember operation.
+	CandidatePoolSnapshotMember(context.Context, *connect.Request[v1.QueryCandidatePoolSnapshotMemberRequest]) (*connect.Response[v1.QueryCandidatePoolSnapshotMemberResponse], error)
+	// BuilderCompensationAccount executes the BuilderCompensationAccount operation.
+	BuilderCompensationAccount(context.Context, *connect.Request[v1.QueryBuilderCompensationAccountRequest]) (*connect.Response[v1.QueryBuilderCompensationAccountResponse], error)
 }
 
 // NewQueryClient constructs a client for the hub.v1.Query service. By default, it uses the Connect
@@ -411,45 +424,59 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(queryMethods.ByName("TimeoutBucket")),
 			connect.WithClientOptions(opts...),
 		),
+		candidatePoolSnapshotMember: connect.NewClient[v1.QueryCandidatePoolSnapshotMemberRequest, v1.QueryCandidatePoolSnapshotMemberResponse](
+			httpClient,
+			baseURL+QueryCandidatePoolSnapshotMemberProcedure,
+			connect.WithSchema(queryMethods.ByName("CandidatePoolSnapshotMember")),
+			connect.WithClientOptions(opts...),
+		),
+		builderCompensationAccount: connect.NewClient[v1.QueryBuilderCompensationAccountRequest, v1.QueryBuilderCompensationAccountResponse](
+			httpClient,
+			baseURL+QueryBuilderCompensationAccountProcedure,
+			connect.WithSchema(queryMethods.ByName("BuilderCompensationAccount")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // queryClient implements QueryClient.
 type queryClient struct {
-	params                *connect.Client[v1.QueryHubParamsRequest, v1.QueryHubParamsResponse]
-	beacon                *connect.Client[v1.QueryBeaconRequest, v1.QueryBeaconResponse]
-	vrfKey                *connect.Client[v1.QueryVrfKeyRequest, v1.QueryVrfKeyResponse]
-	builderSet            *connect.Client[v1.QueryBuilderSetRequest, v1.QueryBuilderSetResponse]
-	builder               *connect.Client[v1.QueryBuilderRequest, v1.QueryBuilderResponse]
-	builders              *connect.Client[v1.QueryBuildersRequest, v1.QueryBuildersResponse]
-	fault                 *connect.Client[v1.QueryFaultRequest, v1.QueryFaultResponse]
-	earnings              *connect.Client[v1.QueryEarningsRequest, v1.QueryEarningsResponse]
-	model                 *connect.Client[v1.QueryModelRequest, v1.QueryModelResponse]
-	models                *connect.Client[v1.QueryModelsRequest, v1.QueryModelsResponse]
-	profile               *connect.Client[v1.QueryProfileRequest, v1.QueryProfileResponse]
-	cortexNode            *connect.Client[v1.QueryCortexNodeRequest, v1.QueryCortexNodeResponse]
-	serviceBond           *connect.Client[v1.QueryServiceBondRequest, v1.QueryServiceBondResponse]
-	serviceUnbondings     *connect.Client[v1.QueryServiceUnbondingsRequest, v1.QueryServiceUnbondingsResponse]
-	currentServiceKey     *connect.Client[v1.QueryCurrentServiceKeyRequest, v1.QueryCurrentServiceKeyResponse]
-	serviceDescriptor     *connect.Client[v1.QueryServiceDescriptorRequest, v1.QueryServiceDescriptorResponse]
-	serviceLifecycle      *connect.Client[v1.QueryServiceLifecycleRequest, v1.QueryServiceLifecycleResponse]
-	modelCapability       *connect.Client[v1.QueryModelCapabilityRequest, v1.QueryModelCapabilityResponse]
-	modelSupport          *connect.Client[v1.QueryModelSupportRequest, v1.QueryModelSupportResponse]
-	dailySupport          *connect.Client[v1.QueryDailySupportRequest, v1.QueryDailySupportResponse]
-	currentCandidatePool  *connect.Client[v1.QueryCurrentCandidatePoolRequest, v1.QueryCurrentCandidatePoolResponse]
-	candidatePoolSnapshot *connect.Client[v1.QueryCandidatePoolSnapshotRequest, v1.QueryCandidatePoolSnapshotResponse]
-	candidatePoolMember   *connect.Client[v1.QueryCandidatePoolMemberRequest, v1.QueryCandidatePoolMemberResponse]
-	candidatePoolMembers  *connect.Client[v1.QueryCandidatePoolMembersRequest, v1.QueryCandidatePoolMembersResponse]
-	competitionEpoch      *connect.Client[v1.QueryCompetitionEpochRequest, v1.QueryCompetitionEpochResponse]
-	rewardEpochCursor     *connect.Client[v1.QueryRewardEpochCursorRequest, v1.QueryRewardEpochCursorResponse]
-	rewardEpochAudit      *connect.Client[v1.QueryRewardEpochAuditRequest, v1.QueryRewardEpochAuditResponse]
-	treasury              *connect.Client[v1.QueryTreasuryRequest, v1.QueryTreasuryResponse]
-	bridgeStatus          *connect.Client[v1.QueryBridgeStatusRequest, v1.QueryBridgeStatusResponse]
-	validatorBridgeSigner *connect.Client[v1.QueryValidatorBridgeSignerRequest, v1.QueryValidatorBridgeSignerResponse]
-	freezeSignal          *connect.Client[v1.QueryFreezeSignalRequest, v1.QueryFreezeSignalResponse]
-	freezeSignals         *connect.Client[v1.QueryFreezeSignalsRequest, v1.QueryFreezeSignalsResponse]
-	emergencyFreezeVotes  *connect.Client[v1.QueryEmergencyFreezeVotesRequest, v1.QueryEmergencyFreezeVotesResponse]
-	timeoutBucket         *connect.Client[v1.QueryTimeoutBucketRequest, v1.QueryTimeoutBucketResponse]
+	params                      *connect.Client[v1.QueryHubParamsRequest, v1.QueryHubParamsResponse]
+	beacon                      *connect.Client[v1.QueryBeaconRequest, v1.QueryBeaconResponse]
+	vrfKey                      *connect.Client[v1.QueryVrfKeyRequest, v1.QueryVrfKeyResponse]
+	builderSet                  *connect.Client[v1.QueryBuilderSetRequest, v1.QueryBuilderSetResponse]
+	builder                     *connect.Client[v1.QueryBuilderRequest, v1.QueryBuilderResponse]
+	builders                    *connect.Client[v1.QueryBuildersRequest, v1.QueryBuildersResponse]
+	fault                       *connect.Client[v1.QueryFaultRequest, v1.QueryFaultResponse]
+	earnings                    *connect.Client[v1.QueryEarningsRequest, v1.QueryEarningsResponse]
+	model                       *connect.Client[v1.QueryModelRequest, v1.QueryModelResponse]
+	models                      *connect.Client[v1.QueryModelsRequest, v1.QueryModelsResponse]
+	profile                     *connect.Client[v1.QueryProfileRequest, v1.QueryProfileResponse]
+	cortexNode                  *connect.Client[v1.QueryCortexNodeRequest, v1.QueryCortexNodeResponse]
+	serviceBond                 *connect.Client[v1.QueryServiceBondRequest, v1.QueryServiceBondResponse]
+	serviceUnbondings           *connect.Client[v1.QueryServiceUnbondingsRequest, v1.QueryServiceUnbondingsResponse]
+	currentServiceKey           *connect.Client[v1.QueryCurrentServiceKeyRequest, v1.QueryCurrentServiceKeyResponse]
+	serviceDescriptor           *connect.Client[v1.QueryServiceDescriptorRequest, v1.QueryServiceDescriptorResponse]
+	serviceLifecycle            *connect.Client[v1.QueryServiceLifecycleRequest, v1.QueryServiceLifecycleResponse]
+	modelCapability             *connect.Client[v1.QueryModelCapabilityRequest, v1.QueryModelCapabilityResponse]
+	modelSupport                *connect.Client[v1.QueryModelSupportRequest, v1.QueryModelSupportResponse]
+	dailySupport                *connect.Client[v1.QueryDailySupportRequest, v1.QueryDailySupportResponse]
+	currentCandidatePool        *connect.Client[v1.QueryCurrentCandidatePoolRequest, v1.QueryCurrentCandidatePoolResponse]
+	candidatePoolSnapshot       *connect.Client[v1.QueryCandidatePoolSnapshotRequest, v1.QueryCandidatePoolSnapshotResponse]
+	candidatePoolMember         *connect.Client[v1.QueryCandidatePoolMemberRequest, v1.QueryCandidatePoolMemberResponse]
+	candidatePoolMembers        *connect.Client[v1.QueryCandidatePoolMembersRequest, v1.QueryCandidatePoolMembersResponse]
+	competitionEpoch            *connect.Client[v1.QueryCompetitionEpochRequest, v1.QueryCompetitionEpochResponse]
+	rewardEpochCursor           *connect.Client[v1.QueryRewardEpochCursorRequest, v1.QueryRewardEpochCursorResponse]
+	rewardEpochAudit            *connect.Client[v1.QueryRewardEpochAuditRequest, v1.QueryRewardEpochAuditResponse]
+	treasury                    *connect.Client[v1.QueryTreasuryRequest, v1.QueryTreasuryResponse]
+	bridgeStatus                *connect.Client[v1.QueryBridgeStatusRequest, v1.QueryBridgeStatusResponse]
+	validatorBridgeSigner       *connect.Client[v1.QueryValidatorBridgeSignerRequest, v1.QueryValidatorBridgeSignerResponse]
+	freezeSignal                *connect.Client[v1.QueryFreezeSignalRequest, v1.QueryFreezeSignalResponse]
+	freezeSignals               *connect.Client[v1.QueryFreezeSignalsRequest, v1.QueryFreezeSignalsResponse]
+	emergencyFreezeVotes        *connect.Client[v1.QueryEmergencyFreezeVotesRequest, v1.QueryEmergencyFreezeVotesResponse]
+	timeoutBucket               *connect.Client[v1.QueryTimeoutBucketRequest, v1.QueryTimeoutBucketResponse]
+	candidatePoolSnapshotMember *connect.Client[v1.QueryCandidatePoolSnapshotMemberRequest, v1.QueryCandidatePoolSnapshotMemberResponse]
+	builderCompensationAccount  *connect.Client[v1.QueryBuilderCompensationAccountRequest, v1.QueryBuilderCompensationAccountResponse]
 }
 
 // Params calls hub.v1.Query.Params.
@@ -622,13 +649,26 @@ func (c *queryClient) TimeoutBucket(ctx context.Context, req *connect.Request[v1
 	return c.timeoutBucket.CallUnary(ctx, req)
 }
 
+// CandidatePoolSnapshotMember calls hub.v1.Query.CandidatePoolSnapshotMember.
+func (c *queryClient) CandidatePoolSnapshotMember(ctx context.Context, req *connect.Request[v1.QueryCandidatePoolSnapshotMemberRequest]) (*connect.Response[v1.QueryCandidatePoolSnapshotMemberResponse], error) {
+	return c.candidatePoolSnapshotMember.CallUnary(ctx, req)
+}
+
+// BuilderCompensationAccount calls hub.v1.Query.BuilderCompensationAccount.
+func (c *queryClient) BuilderCompensationAccount(ctx context.Context, req *connect.Request[v1.QueryBuilderCompensationAccountRequest]) (*connect.Response[v1.QueryBuilderCompensationAccountResponse], error) {
+	return c.builderCompensationAccount.CallUnary(ctx, req)
+}
+
 // QueryHandler is an implementation of the hub.v1.Query service.
 type QueryHandler interface {
 	// Params returns Hub parameters.
 	Params(context.Context, *connect.Request[v1.QueryHubParamsRequest]) (*connect.Response[v1.QueryHubParamsResponse], error)
 	// Beacon returns one verified beacon by height.
 	Beacon(context.Context, *connect.Request[v1.QueryBeaconRequest]) (*connect.Response[v1.QueryBeaconResponse], error)
-	// VrfKey returns one validator operator's active and pending VRF key.
+	// VrfKey returns current active/pending keys for the selected participant role.
+	// This RPC has no by-epoch/history lookup. Audit consumers retain registration
+	// and cutover history or use archival state at the relevant height; an old
+	// ticket must never be verified by substituting the latest active key.
 	VrfKey(context.Context, *connect.Request[v1.QueryVrfKeyRequest]) (*connect.Response[v1.QueryVrfKeyResponse], error)
 	// BuilderSet returns one builder set selected by exactly one stable selector.
 	BuilderSet(context.Context, *connect.Request[v1.QueryBuilderSetRequest]) (*connect.Response[v1.QueryBuilderSetResponse], error)
@@ -707,6 +747,10 @@ type QueryHandler interface {
 	// here from task.v1.Query with the governance writer.
 	// TimeoutBucket executes the TimeoutBucket operation.
 	TimeoutBucket(context.Context, *connect.Request[v1.QueryTimeoutBucketRequest]) (*connect.Response[v1.QueryTimeoutBucketResponse], error)
+	// CandidatePoolSnapshotMember executes the CandidatePoolSnapshotMember operation.
+	CandidatePoolSnapshotMember(context.Context, *connect.Request[v1.QueryCandidatePoolSnapshotMemberRequest]) (*connect.Response[v1.QueryCandidatePoolSnapshotMemberResponse], error)
+	// BuilderCompensationAccount executes the BuilderCompensationAccount operation.
+	BuilderCompensationAccount(context.Context, *connect.Request[v1.QueryBuilderCompensationAccountRequest]) (*connect.Response[v1.QueryBuilderCompensationAccountResponse], error)
 }
 
 // NewQueryHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -920,6 +964,18 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(queryMethods.ByName("TimeoutBucket")),
 		connect.WithHandlerOptions(opts...),
 	)
+	queryCandidatePoolSnapshotMemberHandler := connect.NewUnaryHandler(
+		QueryCandidatePoolSnapshotMemberProcedure,
+		svc.CandidatePoolSnapshotMember,
+		connect.WithSchema(queryMethods.ByName("CandidatePoolSnapshotMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryBuilderCompensationAccountHandler := connect.NewUnaryHandler(
+		QueryBuilderCompensationAccountProcedure,
+		svc.BuilderCompensationAccount,
+		connect.WithSchema(queryMethods.ByName("BuilderCompensationAccount")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/hub.v1.Query/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case QueryParamsProcedure:
@@ -990,6 +1046,10 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryEmergencyFreezeVotesHandler.ServeHTTP(w, r)
 		case QueryTimeoutBucketProcedure:
 			queryTimeoutBucketHandler.ServeHTTP(w, r)
+		case QueryCandidatePoolSnapshotMemberProcedure:
+			queryCandidatePoolSnapshotMemberHandler.ServeHTTP(w, r)
+		case QueryBuilderCompensationAccountProcedure:
+			queryBuilderCompensationAccountHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1133,4 +1193,12 @@ func (UnimplementedQueryHandler) EmergencyFreezeVotes(context.Context, *connect.
 
 func (UnimplementedQueryHandler) TimeoutBucket(context.Context, *connect.Request[v1.QueryTimeoutBucketRequest]) (*connect.Response[v1.QueryTimeoutBucketResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.TimeoutBucket is not implemented"))
+}
+
+func (UnimplementedQueryHandler) CandidatePoolSnapshotMember(context.Context, *connect.Request[v1.QueryCandidatePoolSnapshotMemberRequest]) (*connect.Response[v1.QueryCandidatePoolSnapshotMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.CandidatePoolSnapshotMember is not implemented"))
+}
+
+func (UnimplementedQueryHandler) BuilderCompensationAccount(context.Context, *connect.Request[v1.QueryBuilderCompensationAccountRequest]) (*connect.Response[v1.QueryBuilderCompensationAccountResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.BuilderCompensationAccount is not implemented"))
 }

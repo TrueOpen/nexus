@@ -24,7 +24,7 @@ var File_hub_v1_tx_proto protoreflect.FileDescriptor
 
 const file_hub_v1_tx_proto_rawDesc = "" +
 	"\n" +
-	"\x0fhub/v1/tx.proto\x12\x06hub.v1\x1a\x18hub/v1/msg_builder.proto\x1a\x1bhub/v1/msg_governance.proto\x1a\x19hub/v1/msg_identity.proto\x1a\x1ehub/v1/msg_model_profile.proto\x1a\x19hub/v1/msg_registry.proto\x1a\x18hub/v1/msg_rewards.proto\x1a\x14hub/v1/msg_vrf.proto2\x82\x0e\n" +
+	"\x0fhub/v1/tx.proto\x12\x06hub.v1\x1a\x15hub/v1/dispatch.proto\x1a\x18hub/v1/msg_builder.proto\x1a\x1bhub/v1/msg_governance.proto\x1a\x19hub/v1/msg_identity.proto\x1a\x1ehub/v1/msg_model_profile.proto\x1a\x19hub/v1/msg_registry.proto\x1a\x18hub/v1/msg_rewards.proto\x1a\x14hub/v1/msg_vrf.proto2\xed\x0e\n" +
 	"\x03Msg\x12Q\n" +
 	"\x0fUpdateHubParams\x12\x1a.hub.v1.MsgUpdateHubParams\x1a\".hub.v1.MsgUpdateHubParamsResponse\x12K\n" +
 	"\rClaimEarnings\x12\x18.hub.v1.MsgClaimEarnings\x1a .hub.v1.MsgClaimEarningsResponse\x12Q\n" +
@@ -45,7 +45,8 @@ const file_hub_v1_tx_proto_rawDesc = "" +
 	"\x12SubmitFreezeSignal\x12\x1d.hub.v1.MsgSubmitFreezeSignal\x1a%.hub.v1.MsgSubmitFreezeSignalResponse\x12]\n" +
 	"\x13EmergencyFreezeVote\x12\x1e.hub.v1.MsgEmergencyFreezeVote\x1a&.hub.v1.MsgEmergencyFreezeVoteResponse\x12]\n" +
 	"\x13UpdateTimeoutBucket\x12\x1e.hub.v1.MsgUpdateTimeoutBucket\x1a&.hub.v1.MsgUpdateTimeoutBucketResponse\x12N\n" +
-	"\x0eRunRewardEpoch\x12\x19.hub.v1.MsgRunRewardEpoch\x1a!.hub.v1.MsgRunRewardEpochResponseB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\x0eRunRewardEpoch\x12\x19.hub.v1.MsgRunRewardEpoch\x1a!.hub.v1.MsgRunRewardEpochResponse\x12i\n" +
+	"\x17FundBuilderCompensation\x12\".hub.v1.MsgFundBuilderCompensation\x1a*.hub.v1.MsgFundBuilderCompensationResponseB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var file_hub_v1_tx_proto_goTypes = []any{
 	(*MsgUpdateHubParams)(nil),                  // 0: hub.v1.MsgUpdateHubParams
@@ -68,26 +69,28 @@ var file_hub_v1_tx_proto_goTypes = []any{
 	(*MsgEmergencyFreezeVote)(nil),              // 17: hub.v1.MsgEmergencyFreezeVote
 	(*MsgUpdateTimeoutBucket)(nil),              // 18: hub.v1.MsgUpdateTimeoutBucket
 	(*MsgRunRewardEpoch)(nil),                   // 19: hub.v1.MsgRunRewardEpoch
-	(*MsgUpdateHubParamsResponse)(nil),          // 20: hub.v1.MsgUpdateHubParamsResponse
-	(*MsgClaimEarningsResponse)(nil),            // 21: hub.v1.MsgClaimEarningsResponse
-	(*MsgRegisterBuilderResponse)(nil),          // 22: hub.v1.MsgRegisterBuilderResponse
-	(*MsgRunBuilderTermResponse)(nil),           // 23: hub.v1.MsgRunBuilderTermResponse
-	(*MsgRegisterVrfKeyResponse)(nil),           // 24: hub.v1.MsgRegisterVrfKeyResponse
-	(*MsgRotateServiceKeyResponse)(nil),         // 25: hub.v1.MsgRotateServiceKeyResponse
-	(*MsgRevokeServiceKeyResponse)(nil),         // 26: hub.v1.MsgRevokeServiceKeyResponse
-	(*MsgUpdateServiceDescriptorResponse)(nil),  // 27: hub.v1.MsgUpdateServiceDescriptorResponse
-	(*MsgRegisterModelProfileResponse)(nil),     // 28: hub.v1.MsgRegisterModelProfileResponse
-	(*MsgSetModelStatusResponse)(nil),           // 29: hub.v1.MsgSetModelStatusResponse
-	(*MsgSetProfileStatusResponse)(nil),         // 30: hub.v1.MsgSetProfileStatusResponse
-	(*MsgStakeServiceResponse)(nil),             // 31: hub.v1.MsgStakeServiceResponse
-	(*MsgBeginServiceUnstakeResponse)(nil),      // 32: hub.v1.MsgBeginServiceUnstakeResponse
-	(*MsgWithdrawServiceUnbondedResponse)(nil),  // 33: hub.v1.MsgWithdrawServiceUnbondedResponse
-	(*MsgDeclareModelSupportResponse)(nil),      // 34: hub.v1.MsgDeclareModelSupportResponse
-	(*MsgBatchConfirmModelSupportResponse)(nil), // 35: hub.v1.MsgBatchConfirmModelSupportResponse
-	(*MsgSubmitFreezeSignalResponse)(nil),       // 36: hub.v1.MsgSubmitFreezeSignalResponse
-	(*MsgEmergencyFreezeVoteResponse)(nil),      // 37: hub.v1.MsgEmergencyFreezeVoteResponse
-	(*MsgUpdateTimeoutBucketResponse)(nil),      // 38: hub.v1.MsgUpdateTimeoutBucketResponse
-	(*MsgRunRewardEpochResponse)(nil),           // 39: hub.v1.MsgRunRewardEpochResponse
+	(*MsgFundBuilderCompensation)(nil),          // 20: hub.v1.MsgFundBuilderCompensation
+	(*MsgUpdateHubParamsResponse)(nil),          // 21: hub.v1.MsgUpdateHubParamsResponse
+	(*MsgClaimEarningsResponse)(nil),            // 22: hub.v1.MsgClaimEarningsResponse
+	(*MsgRegisterBuilderResponse)(nil),          // 23: hub.v1.MsgRegisterBuilderResponse
+	(*MsgRunBuilderTermResponse)(nil),           // 24: hub.v1.MsgRunBuilderTermResponse
+	(*MsgRegisterVrfKeyResponse)(nil),           // 25: hub.v1.MsgRegisterVrfKeyResponse
+	(*MsgRotateServiceKeyResponse)(nil),         // 26: hub.v1.MsgRotateServiceKeyResponse
+	(*MsgRevokeServiceKeyResponse)(nil),         // 27: hub.v1.MsgRevokeServiceKeyResponse
+	(*MsgUpdateServiceDescriptorResponse)(nil),  // 28: hub.v1.MsgUpdateServiceDescriptorResponse
+	(*MsgRegisterModelProfileResponse)(nil),     // 29: hub.v1.MsgRegisterModelProfileResponse
+	(*MsgSetModelStatusResponse)(nil),           // 30: hub.v1.MsgSetModelStatusResponse
+	(*MsgSetProfileStatusResponse)(nil),         // 31: hub.v1.MsgSetProfileStatusResponse
+	(*MsgStakeServiceResponse)(nil),             // 32: hub.v1.MsgStakeServiceResponse
+	(*MsgBeginServiceUnstakeResponse)(nil),      // 33: hub.v1.MsgBeginServiceUnstakeResponse
+	(*MsgWithdrawServiceUnbondedResponse)(nil),  // 34: hub.v1.MsgWithdrawServiceUnbondedResponse
+	(*MsgDeclareModelSupportResponse)(nil),      // 35: hub.v1.MsgDeclareModelSupportResponse
+	(*MsgBatchConfirmModelSupportResponse)(nil), // 36: hub.v1.MsgBatchConfirmModelSupportResponse
+	(*MsgSubmitFreezeSignalResponse)(nil),       // 37: hub.v1.MsgSubmitFreezeSignalResponse
+	(*MsgEmergencyFreezeVoteResponse)(nil),      // 38: hub.v1.MsgEmergencyFreezeVoteResponse
+	(*MsgUpdateTimeoutBucketResponse)(nil),      // 39: hub.v1.MsgUpdateTimeoutBucketResponse
+	(*MsgRunRewardEpochResponse)(nil),           // 40: hub.v1.MsgRunRewardEpochResponse
+	(*MsgFundBuilderCompensationResponse)(nil),  // 41: hub.v1.MsgFundBuilderCompensationResponse
 }
 var file_hub_v1_tx_proto_depIdxs = []int32{
 	0,  // 0: hub.v1.Msg.UpdateHubParams:input_type -> hub.v1.MsgUpdateHubParams
@@ -110,28 +113,30 @@ var file_hub_v1_tx_proto_depIdxs = []int32{
 	17, // 17: hub.v1.Msg.EmergencyFreezeVote:input_type -> hub.v1.MsgEmergencyFreezeVote
 	18, // 18: hub.v1.Msg.UpdateTimeoutBucket:input_type -> hub.v1.MsgUpdateTimeoutBucket
 	19, // 19: hub.v1.Msg.RunRewardEpoch:input_type -> hub.v1.MsgRunRewardEpoch
-	20, // 20: hub.v1.Msg.UpdateHubParams:output_type -> hub.v1.MsgUpdateHubParamsResponse
-	21, // 21: hub.v1.Msg.ClaimEarnings:output_type -> hub.v1.MsgClaimEarningsResponse
-	22, // 22: hub.v1.Msg.RegisterBuilder:output_type -> hub.v1.MsgRegisterBuilderResponse
-	23, // 23: hub.v1.Msg.RunBuilderTerm:output_type -> hub.v1.MsgRunBuilderTermResponse
-	24, // 24: hub.v1.Msg.RegisterVrfKey:output_type -> hub.v1.MsgRegisterVrfKeyResponse
-	25, // 25: hub.v1.Msg.RotateServiceKey:output_type -> hub.v1.MsgRotateServiceKeyResponse
-	26, // 26: hub.v1.Msg.RevokeServiceKey:output_type -> hub.v1.MsgRevokeServiceKeyResponse
-	27, // 27: hub.v1.Msg.UpdateServiceDescriptor:output_type -> hub.v1.MsgUpdateServiceDescriptorResponse
-	28, // 28: hub.v1.Msg.RegisterModelProfile:output_type -> hub.v1.MsgRegisterModelProfileResponse
-	29, // 29: hub.v1.Msg.SetModelStatus:output_type -> hub.v1.MsgSetModelStatusResponse
-	30, // 30: hub.v1.Msg.SetProfileStatus:output_type -> hub.v1.MsgSetProfileStatusResponse
-	31, // 31: hub.v1.Msg.StakeService:output_type -> hub.v1.MsgStakeServiceResponse
-	32, // 32: hub.v1.Msg.BeginServiceUnstake:output_type -> hub.v1.MsgBeginServiceUnstakeResponse
-	33, // 33: hub.v1.Msg.WithdrawServiceUnbonded:output_type -> hub.v1.MsgWithdrawServiceUnbondedResponse
-	34, // 34: hub.v1.Msg.DeclareModelSupport:output_type -> hub.v1.MsgDeclareModelSupportResponse
-	35, // 35: hub.v1.Msg.BatchConfirmModelSupport:output_type -> hub.v1.MsgBatchConfirmModelSupportResponse
-	36, // 36: hub.v1.Msg.SubmitFreezeSignal:output_type -> hub.v1.MsgSubmitFreezeSignalResponse
-	37, // 37: hub.v1.Msg.EmergencyFreezeVote:output_type -> hub.v1.MsgEmergencyFreezeVoteResponse
-	38, // 38: hub.v1.Msg.UpdateTimeoutBucket:output_type -> hub.v1.MsgUpdateTimeoutBucketResponse
-	39, // 39: hub.v1.Msg.RunRewardEpoch:output_type -> hub.v1.MsgRunRewardEpochResponse
-	20, // [20:40] is the sub-list for method output_type
-	0,  // [0:20] is the sub-list for method input_type
+	20, // 20: hub.v1.Msg.FundBuilderCompensation:input_type -> hub.v1.MsgFundBuilderCompensation
+	21, // 21: hub.v1.Msg.UpdateHubParams:output_type -> hub.v1.MsgUpdateHubParamsResponse
+	22, // 22: hub.v1.Msg.ClaimEarnings:output_type -> hub.v1.MsgClaimEarningsResponse
+	23, // 23: hub.v1.Msg.RegisterBuilder:output_type -> hub.v1.MsgRegisterBuilderResponse
+	24, // 24: hub.v1.Msg.RunBuilderTerm:output_type -> hub.v1.MsgRunBuilderTermResponse
+	25, // 25: hub.v1.Msg.RegisterVrfKey:output_type -> hub.v1.MsgRegisterVrfKeyResponse
+	26, // 26: hub.v1.Msg.RotateServiceKey:output_type -> hub.v1.MsgRotateServiceKeyResponse
+	27, // 27: hub.v1.Msg.RevokeServiceKey:output_type -> hub.v1.MsgRevokeServiceKeyResponse
+	28, // 28: hub.v1.Msg.UpdateServiceDescriptor:output_type -> hub.v1.MsgUpdateServiceDescriptorResponse
+	29, // 29: hub.v1.Msg.RegisterModelProfile:output_type -> hub.v1.MsgRegisterModelProfileResponse
+	30, // 30: hub.v1.Msg.SetModelStatus:output_type -> hub.v1.MsgSetModelStatusResponse
+	31, // 31: hub.v1.Msg.SetProfileStatus:output_type -> hub.v1.MsgSetProfileStatusResponse
+	32, // 32: hub.v1.Msg.StakeService:output_type -> hub.v1.MsgStakeServiceResponse
+	33, // 33: hub.v1.Msg.BeginServiceUnstake:output_type -> hub.v1.MsgBeginServiceUnstakeResponse
+	34, // 34: hub.v1.Msg.WithdrawServiceUnbonded:output_type -> hub.v1.MsgWithdrawServiceUnbondedResponse
+	35, // 35: hub.v1.Msg.DeclareModelSupport:output_type -> hub.v1.MsgDeclareModelSupportResponse
+	36, // 36: hub.v1.Msg.BatchConfirmModelSupport:output_type -> hub.v1.MsgBatchConfirmModelSupportResponse
+	37, // 37: hub.v1.Msg.SubmitFreezeSignal:output_type -> hub.v1.MsgSubmitFreezeSignalResponse
+	38, // 38: hub.v1.Msg.EmergencyFreezeVote:output_type -> hub.v1.MsgEmergencyFreezeVoteResponse
+	39, // 39: hub.v1.Msg.UpdateTimeoutBucket:output_type -> hub.v1.MsgUpdateTimeoutBucketResponse
+	40, // 40: hub.v1.Msg.RunRewardEpoch:output_type -> hub.v1.MsgRunRewardEpochResponse
+	41, // 41: hub.v1.Msg.FundBuilderCompensation:output_type -> hub.v1.MsgFundBuilderCompensationResponse
+	21, // [21:42] is the sub-list for method output_type
+	0,  // [0:21] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -142,6 +147,7 @@ func file_hub_v1_tx_proto_init() {
 	if File_hub_v1_tx_proto != nil {
 		return
 	}
+	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_msg_builder_proto_init()
 	file_hub_v1_msg_governance_proto_init()
 	file_hub_v1_msg_identity_proto_init()

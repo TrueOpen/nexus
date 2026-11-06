@@ -65,11 +65,13 @@ enum ProtocolEventCodeV1 {
   // PROTOCOL_EVENT_CODE_V1_TASK_FAILURE_CLASS_UPDATED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_TASK_FAILURE_CLASS_UPDATED = 9;
   // Task-domain payload; declared in task/v1/event.proto.
-  // PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED identifies the corresponding protocol value.
-  PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED = 10;
+
+  reserved 10;
+  reserved "PROTOCOL_EVENT_CODE_V1_WORKER_HANDRAISES_ACCEPTED";
   // Task-domain payload; declared in task/v1/event.proto.
-  // PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED identifies the corresponding protocol value.
-  PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED = 11;
+
+  reserved 11;
+  reserved "PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED";
   // Task-domain payload; declared in task/v1/event.proto.
   // PROTOCOL_EVENT_CODE_V1_INFER_RECEIPT_ACCEPTED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_INFER_RECEIPT_ACCEPTED = 12;
@@ -100,8 +102,9 @@ enum ProtocolEventCodeV1 {
   // PROTOCOL_EVENT_CODE_V1_REWARD_EPOCH_CLOSED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_REWARD_EPOCH_CLOSED = 21;
   // Task-domain payload; declared in task/v1/event.proto.
-  // PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED identifies the corresponding protocol value.
-  PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED = 22;
+
+  reserved 22;
+  reserved "PROTOCOL_EVENT_CODE_V1_ASSIGNMENT_FAILED";
   // Task-domain payload; declared in task/v1/event.proto.
   // PROTOCOL_EVENT_CODE_V1_WORKER_TIMEOUT identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_WORKER_TIMEOUT = 23;
@@ -245,6 +248,42 @@ enum ProtocolEventCodeV1 {
   // Hub-domain payload: one validator bridge signer rotated during cutover.
   // PROTOCOL_EVENT_CODE_V1_BRIDGE_SIGNER_ROTATED identifies the corresponding protocol value.
   PROTOCOL_EVENT_CODE_V1_BRIDGE_SIGNER_ROTATED = 127;
+  // DispatchRecorded is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_RECORDED = 128;
+  // SessionBuilderBound is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_BUILDER_BOUND = 129;
+  // SessionTakeoverRegistered is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_TAKEOVER_REGISTERED = 130;
+  // SessionTakeoverVoided is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_TAKEOVER_VOIDED = 131;
+  // DispatchCompensationClaimed is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_CLAIMED = 132;
+  // DispatchCompensationPaid is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_PAID = 133;
+  // DispatchCompensationRebutted is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_COMPENSATION_REBUTTED = 134;
+  // DispatchChallengeOpened is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_OPENED = 135;
+  // DispatchChallengeResolved is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_DISPATCH_CHALLENGE_RESOLVED = 136;
+  // BuilderDispatchFaultRecorded is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_DISPATCH_FAULT_RECORDED = 137;
+  // SessionDeposited is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_DEPOSITED = 138;
+  // SessionWithdrawRequested is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_WITHDRAW_REQUESTED = 139;
+  // SessionWithdrawEffective is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_WITHDRAW_EFFECTIVE = 140;
+  // SessionKeyChangeRequested is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_SESSION_KEY_CHANGE_REQUESTED = 141;
+  // OrderCancelRequested is a committed Task event.
+  PROTOCOL_EVENT_CODE_V1_ORDER_CANCEL_REQUESTED = 142;
+  // BuilderCompensationFunded records compensation account funding.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_COMPENSATION_FUNDED = 143;
+  // Builder VRF key registration committed.
+  PROTOCOL_EVENT_CODE_V1_BUILDER_VRF_KEY_REGISTERED = 144;
+  // Registration of a pending service key; current binding remains unchanged.
+  PROTOCOL_EVENT_CODE_V1_SERVICE_KEY_ROTATION_REGISTERED = 145;
 }
 
 // StreamCheckpoint advances a subscriber cursor even when no event matches its
@@ -297,6 +336,8 @@ enum EventRole {
 
 // EventTarget identifies one intended event recipient. Targets are routing
 // metadata only and do not grant authority.
+// Mandatory Phase 1 targets, including Task codes 132..137 and Hub code 145,
+// are defined in docs/PHASE1_CONTRACT.md under Event routing and gap recovery.
 // EventTarget defines the EventTarget wire type.
 message EventTarget {
   EventRole role = 1;

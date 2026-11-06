@@ -14,7 +14,6 @@ const SupportedVerifyRoundV1 = uint64(1)
 
 const (
 	OrderEnvelopeSchemaV1     = "trueopen-order-envelope-v1"
-	WorkerHandraiseSchemaV1   = "trueopen-worker-handraise-v1"
 	VerifierHandraiseSchemaV1 = "trueopen-verifier-handraise-v1"
 )
 
@@ -113,31 +112,6 @@ func assignmentOrderValue(maxFee, inferFeeCap, verifyFeeCap uint64) (uint64, boo
 	return value, true
 }
 
-// WorkerHandraiseV1 is the OLD string canonical-set form, feeding only the historical string field
-// AssignTx.worker_handraise_set (long since off chain); it is kept because it still does the fact
-// consistency cross-check between hand-raises. The on-chain one is
-// task.v1.WorkerHandraiseV1 (proto, field number = signing order).
-//
-// order_digest was renamed to task_hash. This field enters the canonicalStrings validation sequence and
-// the canonical set string produced by json.Marshal, so renaming it changes that string's bytes.
-// Those bytes currently enter NO consensus preimage and do NOT go on chain (SubmitAssign takes only scope /
-// handraises / submitter_address), so this rename is not a signing-rule change; should anyone wire it
-// back into the signing path later, the field order here becomes a frozen surface and must then be aligned with Node.
-// candidate_set_hash and membership_proof were removed from here: the wire dropped
-// them from the WORKER_HANDRAISE wire (membership is now looked up directly on chain by the Keeper from the
-// member 4-tuple in the snapshot bitmap and slot binding), so the source has no value to fill; the on-chain
-// assignment wire also no longer echoes worker_handraise_set (see the note in chaincli/client.go).
-// Keeping them as required fields would only make the canonical set impossible to build.
-type WorkerHandraiseV1 struct {
-	SchemaVersion         string `json:"schema_version"`
-	WorkerOperatorAddress string `json:"worker_operator_address"`
-	TaskID                string `json:"task_id"`
-	TaskHash              string `json:"task_hash"`
-	CandidateSnapshotID   string `json:"candidate_snapshot_id"`
-	ExpiryHeight          uint64 `json:"expiry_height"`
-	ServiceSignature      string `json:"service_signature"`
-}
-
 type VerifierHandraiseV1 struct {
 	SchemaVersion           string `json:"schema_version"`
 	VerifierOperatorAddress string `json:"verifier_operator_address"`
@@ -148,31 +122,6 @@ type VerifierHandraiseV1 struct {
 	MembershipProof         string `json:"membership_proof"`
 	ExpiryHeight            uint64 `json:"expiry_height"`
 	ServiceSignature        string `json:"service_signature"`
-}
-
-func CanonicalWorkerHandraiseSet(input []WorkerHandraiseV1) (string, error) {
-	if len(input) == 0 {
-		return "", fmt.Errorf("worker handraise set must not be empty")
-	}
-	handraises := append([]WorkerHandraiseV1(nil), input...)
-	sort.Slice(handraises, func(i, j int) bool { return handraises[i].WorkerOperatorAddress < handraises[j].WorkerOperatorAddress })
-	seen := make(map[string]struct{}, len(handraises))
-	for _, handraise := range handraises {
-		if handraise.SchemaVersion != WorkerHandraiseSchemaV1 || handraise.ExpiryHeight == 0 ||
-			!canonicalStrings(handraise.WorkerOperatorAddress, handraise.TaskID, handraise.TaskHash,
-				handraise.CandidateSnapshotID, handraise.ServiceSignature) {
-			return "", fmt.Errorf("worker handraise is incomplete or non-canonical")
-		}
-		if _, exists := seen[handraise.WorkerOperatorAddress]; exists {
-			return "", fmt.Errorf("duplicate worker handraise %q", handraise.WorkerOperatorAddress)
-		}
-		seen[handraise.WorkerOperatorAddress] = struct{}{}
-	}
-	encoded, err := json.Marshal(handraises)
-	if err != nil {
-		return "", fmt.Errorf("canonical worker handraise set: %w", err)
-	}
-	return string(encoded), nil
 }
 
 func CanonicalVerifierHandraiseList(input []VerifierHandraiseV1) (string, error) {

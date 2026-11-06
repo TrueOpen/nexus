@@ -5,7 +5,10 @@ Integration notes live in `docs/`; the protocol wire (proto, domain registry and
 [TrueOpen/wire](https://github.com/TrueOpen/wire) repository.
 
 > Current state: a **runnable skeleton**. Module boundaries, lifecycle and the order ingress are in place;
-> chaincli is wired to the local node for query / broadcast / subscription transport, while NATS / pebble can still run offline as stubs.
+> chaincli is wired to the local node for query / broadcast / subscription transport. Order dispatch to
+> Cortex nodes is not implemented yet: a new order is refused with `Unimplemented`
+> (`NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED`), and the Cortex dispatch stream is not served (Builder
+> messages to Cortex are signed and then dropped).
 
 ## Commands (cobra)
 
@@ -13,9 +16,120 @@ Integration notes live in `docs/`; the protocol wire (proto, domain registry and
 nexus start      # start the service
 nexus version    # version
 nexus keys create-keystore  # convert a hex private key into an encrypted keystore
+nexus keys create-vrf-key    # generate a new encrypted Builder VRF key file
 nexus builder register       # ensure the Builder record and descriptor on the Hub match local config
+nexus builder register-vrf-key  # ensure the Hub holds this Builder's VRF key (see "Builder VRF key")
+nexus drain begin|end|status # optionally stop new work on the running Builder (see below)
+nexus status     # readiness, diagnostics, drain and metrics as the running daemon last wrote them
 nexus --help     # help
 ```
+
+### Service key rotation
+
+A rotation registered in epoch E becomes current at the start of epoch E+2; nothing postpones it.
+The chain keeps the replaced key as the one previous generation: it still proves the tickets,
+roots, records and Worker answers of orders whose `earliest_submit_height` is below the cutover,
+and the Builder messages of tasks recorded before it. No drain is needed:
+
+1. Put the new service key next to the current one: `identity.next_service_keystore_file` and
+   `identity.next_service_keystore_password_file` (needs a dedicated `service_keystore_file`).
+   Restart once so the daemon holds both keys, then submit the rotation with the operator key.
+2. While the rotation is pending the Builder takes no new order at all, so its current key signs no
+   material of an order at or above the effective height. OpenTask answers every order it does not
+   already hold (the first order of a session, the next sequence of a session bound to it, a resend
+   after a failed attempt, a takeover request) with `NEXUS_INGRESS_BUILDER_KEY_ROTATING`
+   (Unavailable), checked before any other precheck, with the effective height as
+   `service_key_rotation_effective_height` and at the end of the message; the SDK treats it like
+   `NEXUS_INGRESS_NO_CAPACITY` and takes the session over to another Builder (skipping pending
+   Builders, and waiting for the earliest activation when every candidate is pending), so each
+   session active here moves once. An exact resend of an order it holds is still answered with its state,
+   and everything already under way goes on under the current key: tickets out are accepted, inputs
+   delivered, records sent, outputs relayed, claims rebutted and challenges answered. A held
+   takeover whose entry no transaction carries yet ends with its input dropped (task event
+   `NO_CAPACITY`, the closed event set having no rotation code; a resend is answered
+   `NEXUS_INGRESS_BUILDER_KEY_ROTATING`), on this Builder's own `SERVICE_KEY_ROTATION_REGISTERED`
+   event or when it is judged again after a restart; one whose entry went out or that the chain
+   registered goes on. Handraise roots are still signed with the current key, each with a
+   `root_height` below the effective height (the retired key still proves it after the cutover): an
+   order already taken that needs another round (a retry, or a binding change that voided its
+   ticket and restarts its rounds from 0) binds the latest root as usual. Should the local height reach the effective height before the chain's
+   binding shows the cutover, no root is signed until it does (logged once as `handraise roots wait
+   until the chain shows the Builder service key cutover`). The pending state is read from the
+   chain's binding on every order, so a restart in the window refuses as well. A Cortex that
+   registered a rotation keeps its stream for its tasks under way, but its standing handraise is
+   not admitted in the roots (`SERVICE_KEY_ROTATION_PENDING`) until its rotation activates. `nexus
+   status` warns when the registered key is not held locally. Rotate one BuilderSet member at a
+   time, preferably off peak; `nexus drain begin` before the registration stops new orders earlier
+   still.
+3. At the effective height the daemon signs with the new key without a restart: tickets, records,
+   roots (signed again), result headers, input chunks, record notices and record transactions
+   from the new service account. Cortex streams stay up. Keep the old key configured (as either
+   keystore) while tasks recorded before the cutover are still open: their Builder messages keep
+   its nonce. Since either slot may hold the retired key, the daemon signs nothing until it has
+   read the chain's binding: it reads it at startup and, if the chain does not answer, keeps
+   reading it in the background.
+
+An emergency revocation (`MsgRevokeServiceKey`) is different: the revoked key stops at once and no
+replacement comes with it. From this Builder's own `SERVICE_KEY_REVOKED` event (or the next read of
+its binding, at startup too) until a replacement is current, the daemon signs nothing new: no
+tickets, roots, records, result headers, input chunks, record notices, group sync requests,
+Builder messages to Cortex or transactions from the service account. What it signed before is
+never signed again: stored result headers are still served as first signed, unacknowledged stream
+messages keep their bytes for when Cortex nodes, which close their streams to a revoked Builder,
+bind again, and sync items wait for the first sync request signed after the replacement. While
+revoked:
+
+- the log says `service key revoked: nothing is signed and no order is dispatched until a
+  replacement key is current` (error) and `handraise roots paused while this Builder's service key
+  is revoked`; `/readyz` turns 503 with `builder_key` failing as `this Builder's current service
+  key is revoked (nonce N)`, followed by `no replacement is registered` or `replacement nonce M is
+  current from height H`; `nexus status` shows the `service_key` diagnostic as
+  `inactive BUILDER service key (REVOKED)`;
+- OpenTask answers `NEXUS_INGRESS_DISPATCH_NOT_READY` with `dispatch_available_height` set to the
+  replacement's effective height once one is registered, and `NEXUS_INGRESS_NO_CAPACITY` (as during
+  a drain) before that; no takeover is admitted (`NEXUS_INGRESS_NO_CAPACITY`);
+- an order still dispatching fails as no capacity instead of getting another ticket, and an
+  accept of a ticket signed before the revocation is answered `DISPATCH_TICKET_CLOSED`: the
+  attempt is `VOIDED` with the accept kept, so the GPU is left to a compensation claim;
+- held takeovers whose entry has not gone out end as `NO_CAPACITY`; those whose entry went out
+  finish on chain;
+- the service account signs no transaction, so this daemon rebuts no compensation claim and
+  answers no dispatch challenge (logged once as `rebuttals and challenge answers held`, counted in
+  the `answers_held_revoked` diagnostic). They are tried again every block and go out once a
+  replacement key is current. Until then the other members of the order's Task Builders group
+  answer in the second half of each window from the copy of the evidence synced to them; no new
+  evidence is synced while the key is revoked (sync requests need the current key), so a claim or
+  challenge whose evidence did not reach a member before the revocation, and whose window closes
+  before the replacement is current, is paid out or penalized even though this daemon holds the
+  evidence against it.
+
+That last point is why a replacement should be registered at once, as in step 1; it becomes
+current at the start of epoch E+2 like any rotation. At its effective height the daemon finds it
+current and resumes signing, dispatch and the held answers by itself, without a restart.
+
+`nexus drain begin` remains for an operator who wants a quiet Builder: it takes no new order,
+issues no ticket and admits no takeover (OpenTask answers `NEXUS_INGRESS_NO_CAPACITY`); in-flight
+orders are accepted, recorded or fail as usual, and the group sync finishes. A held takeover whose
+entry has not gone out is ended as `NO_CAPACITY` at once; one whose entry went out takes effect.
+`/readyz` turns 503. `nexus drain status` shows `DRAINING`, `DRAINED` or `ROTATION_PENDING`, what
+remains, and ends by itself once the chain shows a new key current that the daemon holds
+(`nexus drain end` ends it at any time).
+
+Messages the Builder signed before the cutover (tickets, records, roots, result headers, input
+chunks and record notices) name the key generation that signed them and are never signed again:
+stored result headers, unacknowledged stream messages and group sync items go out byte for byte
+as first signed, and still prove orders below the cutover under the retired key. New messages are
+signed with the new key; only the group sync request is signed again, with the current key, at
+every send. nexus sends no revoke yet.
+
+A Cortex stream is bound by the Cortex's current ACTIVE key and checked once, so the daemon ends
+it as soon as it sees that key rotated out or revoked (from the chain's key events, and on each
+keepalive tick in case an event was missed); the Cortex binds again under its new key.
+
+The commands talk to the daemon through `<data_dir>/ops` (a request file taken on the daemon's
+next tick, and `status.json` it rewrites every two seconds); no port is opened. The drain state
+is stored, so it survives a restart, and a request left while the daemon is down is applied at
+its next start.
 
 ## Running
 
@@ -33,6 +147,10 @@ Connect serves gRPC, gRPC-Web, HTTP/JSON and `/healthz` on a **single port `:808
 ```bash
 # Health check (plain HTTP, hit it with curl)
 curl localhost:8080/healthz                       # {"status":"ok"}
+curl localhost:8080/readyz                        # 200 {"ready":true} or 503 naming the failed checks
+curl localhost:8080/v1/dispatch/stats             # public dispatch statistics (RTT admission threshold, timeout/reject rates, skips)
+# The statistics are this Builder's local observations since its start, per Cortex operator; they
+# are not chain facts and are no basis for an SLA. They carry no per-order or per-model data.
 
 # Option 1: HTTP/JSON (Connect protocol, no grpcurl needed). Orders go through the OpenTask
 # client stream, which the SDK builds and signs; a unary JSON call shows the endpoint is up.
@@ -64,11 +182,11 @@ The Nexus API proto lives in `proto/nexus/v1/`; the Node public wire mirror live
 `gen/` (committed, so builds do not need to run buf first) and must not be edited by hand.
 
 `nexus.v1` is also a frozen package of the TrueOpen/wire release (`release/packages.json`), so
-`proto/nexus/v1/ingress.proto` must stay field-for-field identical to the wire copy while this
-repository keeps the documented version (the wire copy is comment-stripped and is therefore not
-produced by `tools/mirror_wire.py`). `internal/ingress/wire_descriptor_test.go` pins its descriptor
-fingerprint to the wire v0.5.1 definition; `internal/chaincli/node_descriptor_test.go` does the same
-for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned values together.
+`proto/nexus/v1/` must stay field-for-field identical to the wire copy; `tools/mirror_wire.py`
+mirrors it like the other packages. `internal/ingress/wire_descriptor_test.go` pins its descriptor
+fingerprint to the wire definition pinned in `go.mod`; `internal/chaincli/node_descriptor_test.go`
+does the same for the mirrored packages. A wire bump updates the proto, `gen/` and both pinned
+values together.
 
 ### Consuming the contract (`gen/trueopen` standalone module)
 
@@ -78,8 +196,9 @@ Usage and access requirements are in [gen/trueopen/README.md](gen/trueopen/READM
 
 ## Compatibility
 
-nexus is built against TrueOpen/wire `v0.5.1`. TrueOpen/node
-must pin the same release in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
+nexus is built against TrueOpen/wire commit `55d875b` (Go pseudo-version
+`v0.5.2-0.20261029040229-55d875b768e5`, see `go.mod`). TrueOpen/node must pin the same wire
+commit in `wire/pin.json`. Node, Nexus, the user SDK and Cortex share this one wire contract and must be deployed
 from matching releases; there is no compatibility layer for other signing domains, task IDs or event
 ABIs. The full wire, signatures, on-chain / local field boundaries and operating steps are in
 [`docs/node-message-integration.md`](docs/node-message-integration.md).
@@ -93,30 +212,61 @@ that raises the local state version, back up `data_dir`: going back to the older
 possible by restoring that backup. Only a reset of the chain (a different block
 at height 1) moves the local state aside.
 
+Deploy note for the Phase 1 builds: the dispatch evidence key now includes the binding generation
+(`bound_change_height`), and members file synced rounds per generation; the local state version is
+not raised for it. Evidence written by an earlier Phase 1 build would no longer be found by ticket,
+so claims on those tickets would go unrebutted and be paid. A fresh genesis moves the old state
+aside by itself; to run this version against a chain an earlier Phase 1 build already used, stop
+nexus, move `data_dir` aside (keep it as a backup) and start with an empty one.
+
 ## Interface alignment
 
-`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; together with the
-NATS layer they follow the public TrueOpen/wire definitions.
+`IngressAPI` serves the SDK (User) methods and the Worker / Verifier-side methods; they follow the
+public TrueOpen/wire definitions.
 
 Open items:
 
-- `SubmitOrder`, `FetchOutputRef` and `RefreshCredential` are retired (replaced by `OpenTask`,
-  `GetTaskDataMetadata` / `FetchTaskData`): each always returns `Unimplemented`
-  (`NEXUS_INGRESS_METHOD_RETIRED`) before the request is parsed.
-- `ConfirmOpenTask` returns `FailedPrecondition` (`NEXUS_INGRESS_CONTRACT_NOT_FROZEN`) until the
-  SDK-side field table and storage-confirmation proto are frozen.
+- `OpenTask` refuses every new order with `Unimplemented` (`NEXUS_INGRESS_DISPATCH_NOT_IMPLEMENTED`)
+  before storing its input: dispatching orders to Cortex nodes is not implemented yet. An exact retry
+  of a task this Builder already tracks or finished still succeeds.
+- `DispatchStream`, `ResumeOutput` and `GetDispatchRoster` return `Unimplemented`.
+- `SubscribeOutput` and `AckOutput` serve only the streaming OUTPUT data plane
+  (`task_data.output_stream`); without it they return `Unimplemented`.
 - Replacing a pending order is not supported yet. An `OpenTask` for a `(session_id, task_id)` this
   Builder already tracks with a different `task_hash` returns `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED`), and one for a task that already finished with a
   different `task_hash` returns `FailedPrecondition` (`NEXUS_INGRESS_TASK_TERMINAL`). The tracked
   version is kept and the refused input is not kept. An exact retry of the tracked version still
   succeeds. The caller must not retry the refused version, here or on another Builder.
+- `OpenTask` refuses an order whose `builder_set_id` / `builder_set_hash` is not the current
+  BuilderSet snapshot with `FailedPrecondition` (`NEXUS_INGRESS_BUILDER_SET_STALE`) before storing
+  its input; the SDK re-signs the same sequence against the current snapshot (no takeover). Before
+  calling an order stale this Builder reads the BuilderSet from the chain again (within 2s), in
+  case its own view is the one behind. Such a read starts at most once a second and no request waits
+  for another's: while one runs, within a second of the last, or when it fails, the answer is
+  `Unavailable` (`NEXUS_INGRESS_DISPATCH_UNAVAILABLE`), as is every new order until a current
+  snapshot is known.
+- `OpenTask` refuses an order whose epoch cannot dispatch yet (epoch 0, an epoch start beacon not
+  committed or verified yet, or an epoch candidate pool snapshot not effective yet) with
+  `Unavailable` (`NEXUS_INGRESS_DISPATCH_NOT_READY`) before storing its input; the SDK waits and
+  retries the same Builder. When the height from which dispatch is possible is known it is the
+  `OpenTaskResponse` detail's `dispatch_available_height`, and the message ends with
+  `dispatchable_height=<n>`.
+- `NEXUS_INGRESS_BUILDER_KEY_ROTATING` (every new order refused while this Builder's key rotation
+  is pending, see Service key rotation) is `Unavailable` and carries the activation height as the
+  `OpenTaskResponse` detail's `service_key_rotation_effective_height`; the message ends with
+  `effective_height=<n>`.
 - `OpenTask` refuses an order whose `order_expire_height` the current height has passed, the same
   boundary the chain applies when it admits a new task: `FailedPrecondition`
   (`NEXUS_INGRESS_ORDER_EXPIRED`), before the request nonce is used and before anything is stored.
-- Several task event codes still use Nexus names rather than the SDK-facing event names (for
-  example `ASSIGN_ACCEPTED`, `SETTLE_ACCEPTED`, and `OUTPUT_REF_RECEIVED` for the InferReceipt event), and `SAMPLE_READY`, `TASK_FAILED` and a few others
-  are not in the SDK-facing event set; renaming them is a wire-visible change pending a decision.
+- The precheck judges an order with the parameters its session froze, as the chain returns them
+  with the session: `order_expire_height - earliest_submit_height` must be positive, within the
+  session's `max_order_lifetime_blocks` (1..7200 blocks) and at least its `record_deadline_blocks`,
+  also for an order that registers a takeover, else `NEXUS_INGRESS_ORDER_EXPIRED`; the record
+  deadline is `max(earliest_submit_height, bound_change_height)` plus the session's
+  `record_deadline_blocks`, kept with the order, so a governance change of the current params
+  moves no deadline. An order whose deadline is not after
+  the head is `NEXUS_INGRESS_ORDER_STALE`.
 - `PrepareChallengeResponse.challenge_close_height` is a block height, while the SDK-facing name of the
   field is `challenge_close` without a fixed unit; the rename waits for that decision.
 - Session lifecycle sweeps (`DEADLINE_SWEPT` with `deadline_kind` `SESSION_LIFECYCLE`, i.e. ACTIVE ->
@@ -131,6 +281,37 @@ Open items:
   content hash, since wire has not registered a body domain for it; it moves to one once wire does.
 - `OutputStreamHeaderV2` is verified and kept but not replayed: `SubscribeOutputResponse` has no
   header frame.
+
+## Model support relay
+
+`IngressAPI.SubmitModelSupportConfirmation` lets a Cortex node whose key cannot sign Cosmos
+transactions keep its model support fresh: it sends its service-key-signed
+`hub.v1.ModelSupportConfirmationV1` (protobuf bytes) for the current epoch, and this Builder batches
+it into `MsgBatchConfirmModelSupport`, signed and paid for by the Builder account. It needs the
+account signer and `support_relay.enabled` (default on); otherwise the RPC is `Unimplemented`.
+
+- Before accepting, the confirmation is decoded strictly (no unknown or repeated singular fields,
+  canonical values) and checked against live chain state: the current epoch, a registered Cortex
+  operator, its current ACTIVE service key and binding nonce as read from the chain (never a key
+  the caller presents, never a previous one), the signature over the
+  `TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1` digest, the expiry window, `inclusion_margin_blocks`
+  before its expiry and its epoch's end, a service bond that can still refresh (jailed can;
+  unbonding, exited and tombstoned cannot) and the Hub batch limits. Stale model support is no
+  obstacle: refreshing it is the point.
+- Errors: `INVALID_ARGUMENT` malformed, `UNAUTHENTICATED` bad signature, `FAILED_PRECONDITION` stale
+  epoch/key/nonce/expiry or no refresh eligibility, `ALREADY_EXISTS` other material for the
+  operator and epoch (queued here or accepted on chain), `RESOURCE_EXHAUSTED` Hub limits or a full
+  queue (`max_queued`), `UNAVAILABLE` chain state not readable. An error acknowledges nothing.
+- `relay_accepted=true` with `idempotent=false` means newly queued; `idempotent=true` means the same
+  digest and signature was already queued or is accepted on chain. Neither is an on-chain refresh:
+  the caller watches `DailySupport` and its `ModelSupport` rows.
+- Accepted confirmations are kept in `data_dir` across restarts. Every `flush_interval` (default 5s),
+  or once `flush_items` are held, they are rechecked, sorted by operator address bytes and sent in
+  batches within the Hub's confirmation, item and byte limits. A confirmation leaves the queue only
+  once the chain holds its `DailySupport` row, or once it can no longer be included (epoch ended,
+  expiry passed, key or nonce changed, eligibility lost) and a read made after that found no row,
+  never while a sent transaction could still land it. A batch the Hub refuses is split until the
+  failing confirmation stands alone; that one is dropped.
 
 ## Configuration (environment variables)
 
@@ -169,6 +350,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_INGRESS_MAX_SESSION_GRANT_BLOCKS` | `17280` | Longest session grant a user may sign, in blocks past the current height; must be the same on every Builder |
 | `NEXUS_INGRESS_SESSION_KEY_CACHE_TTL_BLOCKS` | `5` | Blocks the chain state of a session's registered key is reused for (1..10) |
 | `NEXUS_INGRESS_SESSION_KEY_LOOKUPS_PER_SECOND` | `20` | Chain reads of session state allowed per second on cache misses |
+| `NEXUS_INGRESS_OUTPUT_REPLICA_WAIT` | `2s` | Longest wait of a Task Builders group member for its replica of a recorded task before `NEXUS_OUTPUT_REPLICA_NOT_READY` (below 10s) |
 | `NEXUS_API_KEYS` | (empty) | Comma-separated list of valid api-keys; empty = no check |
 | `NEXUS_IP_WHITELIST` | (empty) | Comma-separated allowed IPs/CIDRs; empty = unrestricted |
 | `NEXUS_PAYLOAD_MAX_BYTES` | `16777216` | Max bytes of a single encrypted task input; also derives the Ingress message/body limit; inputs are retained until the on-chain deadline or task terminal state |
@@ -177,7 +359,6 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_OUTPUT_PLAINTEXT_TTL` | `4h` | Hard retention cap for un-ACKed plaintext; on expiry it is forced unreadable and cleaned up |
 | `NEXUS_OUTPUT_TOMBSTONE_TTL` | `24h` | Minimum retention for ACKed / expired / no-result tombstones |
 | `NEXUS_OUTPUT_SWEEP_INTERVAL` | `1m` | Sweep interval for plaintext expiry and tombstone cleanup |
-| `NEXUS_NATS_SERVERS` | (empty) | Comma-separated NATS server list; empty = stub mode |
 | `NEXUS_CHAIN_GRPC` | `localhost:9090` | Task node gRPC; used for queries, tx broadcast, TaskEventService subscription and height polling |
 | `NEXUS_CHAIN_ID` | `trueopen-localnet-1` | Chain ID |
 | `NEXUS_HUB_ENABLED` | `false` | Enable a standalone Hub; when enabled, Builder registration, stake and unbond go only to the Hub |
@@ -197,7 +378,15 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_BUILDER_BOND_DENOM` | (empty) | Legacy compatibility; the current node's `MsgBondBuilder` does not accept a denom |
 | `NEXUS_BUILDER_BOND_AMOUNT` | (empty) | Initial Builder bond amount, sent as uint64 to `MsgBondBuilder.amount` |
 | `NEXUS_BUILDER_MONIKER` | (empty) | Forms the canonical metadata together with the P2P hint, written to the Registry as SHA-256 |
-| `NEXUS_BUILDER_P2P_HINT` | (empty) | NATS/P2P access hint in the Builder metadata |
+| `NEXUS_BUILDER_P2P_HINT` | (empty) | P2P access hint in the Builder metadata |
+| `NEXUS_DISPATCH_HANDRAISE_HEARTBEAT_MS` | `10000` | How often a Cortex node re-signs an unchanged standing handraise; must match the Cortex nodes' `handraise.heartbeat_ms` |
+| `NEXUS_DISPATCH_HANDRAISE_TTL_MS` | `30000` | A standing handraise not re-signed within this time leaves the roster; must exceed the heartbeat and match the Cortex nodes' `handraise.ttl_ms` |
+| `NEXUS_DISPATCH_HANDRAISE_MIN_CHANGE_INTERVAL_MS` | `500` | Minimum spacing of re-signs caused by a state change, not above the heartbeat; must match the Cortex nodes' `handraise.min_change_interval_ms` |
+| `NEXUS_SUPPORT_RELAY_ENABLED` | `true` | Serve `SubmitModelSupportConfirmation` (needs the account signer) |
+| `NEXUS_SUPPORT_RELAY_FLUSH_INTERVAL` | `5s` | Longest wait of an accepted support confirmation before it is batched |
+| `NEXUS_SUPPORT_RELAY_FLUSH_ITEMS` | `64` | Held support confirmations that start a batch at once |
+| `NEXUS_SUPPORT_RELAY_MAX_QUEUED` | `4096` | Held support confirmations beyond which new ones are refused |
+| `NEXUS_SUPPORT_RELAY_INCLUSION_MARGIN_BLOCKS` | `3` | Blocks a support confirmation must stay includable to be accepted or sent |
 
 ## Output delivery
 
@@ -230,6 +419,48 @@ Nexus only allows the original ordering address to subscribe and ACK. Plaintext 
 after the first ACK it is immediately removed from the read path and physical deletion is attempted, and un-ACKed data is
 force-cleaned after the default 4-hour hard TTL. A tombstone is kept for at least 24 hours by default to block replay recovery; it contains no plaintext.
 Production deployments should restrict data directory permissions, disk backup scope and operator access to the node.
+
+## Task Builders group sync
+
+Every order this Builder dispatches is synced to the other Builders of the order's Task Builders
+group over `BuilderSyncService` on the ingress port (batches signed with the Builder service key, no
+API key; limited per source address by `ingress.builder_sync_requests_per_second` and
+`ingress.builder_sync_burst`, defaults 1000 and 2000). The dispatching side keeps an outbox per order
+and deletes the items every member applied.
+
+An order's rounds are numbered from 0 within one epoch and one binding generation: a retry of the
+same sequence opens the next round, while a new epoch or a takeover that changes the session's
+`bound_change_height` (also one back to this Builder) restarts the order, its rounds, ranks and
+skip count from 0 under the same VRF output, with stickiness decided again. Each generation's
+evidence is kept apart (keyed by epoch and `bound_change_height`), on the dispatching Builder and in
+each member's copy. A synced round signs its `bound_change_height`, so a member files it under its
+generation as it arrives, and refuses a ticket whose task, binding, epoch and round are not a held
+round's, also when the round came in an earlier batch.
+
+A member serves `SubscribeOutput` / `ResumeOutput` of an order (from its replica) once the chain
+has recorded the order with the member in its Task Builders group, which it confirms with the
+chain's Task Builders query (a recorded group is cached; "not recorded" for one second). Before
+that the answer is `FailedPrecondition` (`NEXUS_INGRESS_SESSION_UNBOUND`). After it, a replica that
+has not caught up yet is waited for at most `ingress.output_replica_wait` (default 2s, must be
+below 10s; and at most half the time left to the request's own deadline); then the answer is the
+retryable `Unavailable` (`NEXUS_OUTPUT_REPLICA_NOT_READY`), and the SDK retries or falls back to
+`FetchTaskData(OUTPUT)`.
+
+From its synced copy a member rebuts a compensation claim on the dispatching Builder's ticket in
+the second half of the rebuttal window, but only while it is a member of the current BuilderSet:
+the chain takes a rebuttal only from the dispatching Builder or a current member. Outside the
+current set (logged once per claim as `compensation claim on a synced copy not rebutted: this
+Builder is not in the current BuilderSet`) nothing is sent, and the claim is looked at again each
+block until its window closes. A `ROSTER_UNAVAILABLE` challenge is answered from the copy under the
+order's frozen Task Builders group, whatever the current set.
+
+A member that later reports fewer items than were deleted has lost its data directory. It is logged
+once as an error ("group member holds fewer of an order's sync items ...") and counted as an alarm,
+and it cannot stand in for this Builder on that order; the other members still can. Nothing else is
+sent to it on that order except a probe every 10 minutes with the items still held. To clear the
+mark, restore that member's data directory from a backup taken after it held the deleted items: the
+next probe finds it caught up, logs "the mark is cleared" and syncing resumes. Without a backup no
+action is needed; the mark goes with the order's sync stream when its retention ends.
 
 ## User request signing
 
@@ -297,8 +528,8 @@ without a `SessionGrantV1`:
   `session_key_spend_cap` and within the chain's uint64 counter (else
   `SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED`). In-flight orders are not counted. A wallet order whose
   signature does not recover to its user now fails here with `SDK_AUTH_INVALID_SIGNATURE` instead of
-  on chain. The Keeper remains the final authority: if it rejects the order at admission the task
-  ends with `ASSIGN_REJECTED` and the client re-signs the same sequence.
+  on chain. The Keeper remains the final authority: if it refuses the order's dispatch entry the task
+  ends with `RECORD_REJECTED` and the client re-signs the same sequence.
 
 Session state is cached by session for `ingress.session_key_cache_ttl_blocks` blocks (1..10,
 default 5) past the height it was read at; "no such session" and "no key" are cached too. At most
@@ -326,8 +557,6 @@ Known limits:
   read and a session lookup before the request envelope is checked. Misses are bounded by
   `ingress.session_key_lookups_per_second`; when garbage orders spend that budget, genuine
   registered-key requests get `Unavailable` until it refills.
-- A Keeper rejection of the order seen while simulating the assignment (rather than in DeliverTx)
-  does not emit `ASSIGN_REJECTED` yet; the task waits for its assignment timeout.
 - Upgrade order: Nexus must run this mirror before the Node emits event 106. An older Nexus treats
   an unknown event without `task_id` as malformed and its stream for that session stalls on the
   event; this version skips such events with a warning.
@@ -335,10 +564,6 @@ Known limits:
 ## Builder registration
 
 In Hub + Task Chain mode, `chain` always means the task chain; the Coordinator's task queries, transactions and events go through that chain. With `hub.enabled=true`, the Builder's Node Registry, stake and unbond use only `hub`. The Task Chain does not accept Builder registration transactions; identity and stake state are obtained later via Hub snapshots. Incomplete Hub configuration blocks startup and does not silently fall back to the Task Chain. Without the Hub, single-chain compatibility mode is retained and an explicit warning is printed.
-
-Once an account signer is configured, Nexus performs Stage-1 validation on every new `OpenTask`. It reproduces the Task Builder selection the task chain runs when it admits the signed order: it reads this node's `ACTIVE` Builder state, the BuilderSet at the order's `session_anchor_height` (which must be the `builder_set_id` / `builder_set_hash` the user signed) and the Hub parameter `builders_per_task`, derives `TRUEOPEN_TASK_BUILDERS_V1(chain_id, task_id, builder_set_hash, session_anchor_block_hash)`, ranks every member with `TRUEOPEN_TASK_BUILDER_RANK_V1`, and takes the first `builders_per_task` in ascending rank order. The rank, and the `TRUEOPEN_SELECTED_TASK_BUILDERS_V1` digest the chain later commits for the task, are kept with the order snapshot. The result does not depend on BuilderSet return order and is pinned by wire's `task_builder_rank_v1.json` and `task_domains_v1.json` vectors. Orders that carry only the legacy JSON envelope have no session anchor and cannot be ranked.
-
-During the current integration phase an observe mode is used: when this node is in the valid set but not selected, a `WARN` is logged with the stable code `NEXUS_INGRESS_NOT_SELECTED_BUILDER`; when the Hub query fails or the Builder/BuilderSet state is missing, stale, contradictory or non-canonical, `NEXUS_INGRESS_STAGE1_UNAVAILABLE` is logged. These Stage-1 failures no longer block `OpenTask`; the payload/FSM is still created, but no unverified rank/proof is written, and the later `AssignTx` may still be rejected by the Node with the existing submit-failure log. Signature, envelope, payload integrity, authorization and other ingress checks keep their blocking semantics. Each new order needs several Builder registry chain queries (Builder, BuilderSet and Hub parameters), so production must keep the corresponding gRPC endpoint available. A dev skeleton without a signer does not perform Stage-1 validation.
 
 The Node must enable TaskEventService. Task node setting:
 
@@ -435,6 +660,57 @@ Phase 0's BuilderBond is fixed at zero and creates no bonded stake record (staki
 Builder bond / unbond messages, so there are no add-stake or unbond commands; admission is fixed by governance/genesis.
 Builder commands print `authority_mode` and `authority_chain_id` so the target chain can be confirmed before and after an operation.
 
+### Builder VRF key
+
+Direct dispatch proves each order's randomness with the Builder VRF key (Ed25519, kept apart from
+the account and service keys). The chain verifies those proofs with the key it holds for the
+order's epoch, so the key has to be registered on the Hub; genesis carries no Builder VRF key.
+
+1. Generate a key file (the Ed25519 Cosmos keystore armor, mode `0600`, never overwritten):
+
+   ```bash
+   nexus keys create-vrf-key --output ./vrf-1.keystore --password-file ./vrf.pass
+   # vrf_key_file: ./vrf-1.keystore
+   # vrf_pubkey: <64 hex>
+   ```
+
+   `--password-file` follows the rules of `identity.vrf_key_password_file` (not readable by group
+   or others, trailing newline trimmed, not empty); without it the passphrase is read twice via
+   hidden terminal input. The default output is `./vrf.keystore`.
+2. Configure it: `identity.vrf_key_files: [./vrf-1.keystore]` and
+   `identity.vrf_key_password_file: ./vrf.pass` (env `NEXUS_VRF_KEY_FILES`, comma separated, and
+   `NEXUS_VRF_KEY_PASSWORD_FILE`). One passphrase file serves every listed key.
+3. Register it, after `nexus builder register`, with the Builder operator account (the same
+   signer `builder register` uses):
+
+   ```bash
+   nexus builder register-vrf-key            # registers the last entry of identity.vrf_key_files
+   nexus builder register-vrf-key --key-file ./vrf-2.keystore
+   ```
+
+   It sends `MsgRegisterVrfKey{vrf_pubkey, vrf_key_pop, vrf_authorization_nonce, operator_address,
+   participant_type=BUILDER}` with the next authorization nonce and waits for the block result, then
+   prints `vrf_key_status`, the chain's `active_vrf_pubkey` / `active_from_epoch`,
+   `pending_vrf_pubkey` / `pending_from_epoch` and `vrf_authorization_nonce`. A key the chain already
+   holds, active or pending, is not sent again, so re-running it is safe. The chain keeps one
+   pending key at a time: while another key is pending the command refuses until it is active.
+
+A registered key becomes active at the start of the next epoch, never in the current one.
+`nexus start` can run right after registering: until the key is active the `direct_dispatch`
+readiness check fails with "no active builder VRF key for the epoch", and new orders are refused
+before their input is stored. While the key is pending, `OpenTask` answers
+`NEXUS_INGRESS_DISPATCH_NOT_READY`, with the first height of the epoch the key becomes active in
+as `dispatch_available_height` (also `dispatchable_height=<n>` in the message) while that epoch is
+still ahead, so the client waits and retries this Builder. Without any registered key, or when none of
+`identity.vrf_key_files` is the key the chain holds (active or pending), new orders get
+`NEXUS_INGRESS_NO_CAPACITY` and the client goes to another Builder. The chain is read for this at
+most once per block.
+
+Rotation: create a new key file and append it to `identity.vrf_key_files` (the last entry is the
+newest), restart so the daemon holds it, then run `nexus builder register-vrf-key`. Keep the older
+files listed: the chain verifies an order with the key active in the order's epoch, so an old key
+stays needed until no unexpired order of the epochs it was active in remains.
+
 ## Cross-language output stream harness
 
 `internal/ingress/e2e_harness_test.go` (build tag `e2eharness`, not part of `make test`) starts
@@ -498,7 +774,7 @@ Success criteria:
 - `rest_latest_block` must receive HTTP 200 with `block.header.chain_id` equal to `NEXUS_CHAIN_IT_CHAIN_ID` from the private environment, and a non-empty latest height.
 - `grpc_events` must receive one historical event with non-zero height for the sample composite key via TaskEventService `SubscribeTaskEvents`; the target node needs `NODED_TASK_EVENT_GRPC_ENABLED=true`.
 
-Without a stable `(session_id, task_id)` sample that allows continuous read-only queries, only `grpc_task` skips or fails; the gRPC/REST read-only preflight can still run on its own. A full `nexus start`, Ingress `/healthz`, end-to-end tx events, signed broadcast, test funds, remote NATS, P2P verification and any chain write are not part of this round's read-only success criteria.
+Without a stable `(session_id, task_id)` sample that allows continuous read-only queries, only `grpc_task` skips or fails; the gRPC/REST read-only preflight can still run on its own. A full `nexus start`, Ingress `/healthz`, end-to-end tx events, signed broadcast, test funds, P2P verification and any chain write are not part of this round's read-only success criteria.
 
 ## Module layout
 
@@ -512,11 +788,14 @@ internal/logging     slog + lumberjack (text/json, file rotation + gzip)
 internal/middleware  transport-agnostic auth / whitelist pure functions (reused by Connect interceptors)
 internal/ingress     Connect IngressAPI (:8080, gRPC+gRPC-Web+HTTP/JSON) + interceptors + /healthz
 internal/outputdelivery PREPARED/READY, subscribe, ACK, TTL and restart recovery for final plaintext
-internal/coordinator orchestration core: three on-chain stages (Assign / OpenVerify / Settle) + commit-reveal
-internal/msgbus      NATS client (core + JetStream) + BusEnvelopeV1 sign/verify rules
+internal/coordinator orchestration core: verify and settle stages (InferReceipt / OpenVerify / Settle) + CortexLink downlink
 internal/chaincli    node interaction (gRPC query/broadcast + resumable TaskEventService subscription + standalone height polling)
-internal/relay       credential relay (keys + references, never payload blobs), written through to kv
+internal/relay       custody of the selected Worker's signed InferReceipt (never payload blobs), written through to kv
+internal/supportrelay Cortex model support confirmations: validation, persistent queue, MsgBatchConfirmModelSupport batches
 internal/kv          local persistence (Pebble)
+internal/drain       service key rotation drain: stops new work, reports what remains
+internal/ops         readiness, diagnostics, public dispatch statistics, operator files under <data_dir>/ops
+internal/opsmetrics  in-process stage timings, skips and Worker outcomes of the order path
 internal/localschema version and migrations of the local state layout
 internal/types       shared cross-module types
 ```

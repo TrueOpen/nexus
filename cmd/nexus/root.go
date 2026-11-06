@@ -84,7 +84,7 @@ func newRootCmd() *cobra.Command {
 	pf.StringVar(&flagLogFile, "log-file", "", "log file path; enables rotation+gzip (overrides NEXUS_LOG_FILE)")
 	root.Flags().BoolVar(&flagVersion, "version", false, "print version information and exit")
 
-	root.AddCommand(newStartCmd(), newVersionCmd(), newBuilderCmd(), newKeysCmd(), newTLSCmd(), newNATSAuthCmd())
+	root.AddCommand(newStartCmd(), newVersionCmd(), newBuilderCmd(), newKeysCmd(), newTLSCmd(), newDrainCmd(), newStatusCmd())
 	return root
 }
 

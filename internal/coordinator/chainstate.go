@@ -38,18 +38,21 @@ type reconcileRequest struct {
 	retryAttempt uint
 }
 
+// settleSelectionStage names the settlement stage of a stored Builder selection.
+const settleSelectionStage = "SETTLE"
+
 // settleSelectionFromTaskBuilders converts the frozen Task Builder selection into the locally stored settlement order:
 // order is rank.
 func settleSelectionFromTaskBuilders(key chaincli.TaskKey, selection chaincli.TaskBuilderSelectionState) chaincli.StageBuilderSelectionState {
 	return chaincli.StageBuilderSelectionState{
-		SessionID: key.SessionID, TaskID: key.TaskID, Stage: prepareStageSettle,
+		SessionID: key.SessionID, TaskID: key.TaskID, Stage: settleSelectionStage,
 		SelectedBuilders: append([]string(nil), selection.SelectedBuilders...),
 		SelectedHeight:   selection.CreatedHeight,
 	}
 }
 
 func validateSettleSelection(key chaincli.TaskKey, selection chaincli.StageBuilderSelectionState) error {
-	if selection.SessionID != key.SessionID || selection.TaskID != key.TaskID || selection.Stage != prepareStageSettle {
+	if selection.SessionID != key.SessionID || selection.TaskID != key.TaskID || selection.Stage != settleSelectionStage {
 		return fmt.Errorf("settle selection scope mismatch")
 	}
 	if len(selection.SelectedBuilders) == 0 {
@@ -423,9 +426,14 @@ func (c *Coordinator) reconcileLoop() {
 					c.scheduleReconcileRetry(request)
 					continue
 				}
-			} else if c.payloads != nil {
-				if err := c.payloads.Sweep(context.Background(), height); err != nil {
-					c.log.Error("payload reconciliation sweep failed", "height", height, "err", err)
+			} else {
+				if c.payloads != nil {
+					if err := c.payloads.Sweep(context.Background(), height); err != nil {
+						c.log.Error("payload reconciliation sweep failed", "height", height, "err", err)
+					}
+				}
+				if c.attempts != nil {
+					c.attempts.Sweep(height)
 				}
 			}
 			keys := c.activeTaskKeys(request)

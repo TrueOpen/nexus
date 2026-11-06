@@ -3,7 +3,7 @@
 //
 // On the IngressAPI a Hash32 carried as a string is "0x" followed by exactly 64 lowercase hex
 // characters, 66 characters in all; a bare 64-character string, uppercase hex and "0X" are
-// rejected. Inside nexus (task keys, stores, NATS subjects, chain queries) the same value stays 64
+// rejected. Inside nexus (task keys, stores, chain queries) the same value stays 64
 // lowercase hex characters without the prefix, so conversion happens only where a request is read
 // or a response is written.
 package hash32text

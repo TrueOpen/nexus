@@ -51,8 +51,25 @@ type Resolver interface {
 // verifies: the status is ACTIVE, the lookup domain and operator are consistent, ServicePubKey is 33-byte lowercase hex,
 // and the address derived from that pubkey equals state.ServiceAddress.
 //
-// Only the current key is queried, with no historical-key fallback: an old key becomes invalid the moment it is rotated.
+// Only the current key is returned: live requests and streams need it. Proofs of a retired
+// generation go through ProofKeys, which also resolves the one previous key a cutover retained.
 func Current(
+	ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string,
+) ([]byte, chaincli.ServiceKeyState, error) {
+	publicKey, state, err := binding(ctx, resolver, addressPrefix, participantType, operator)
+	if err != nil {
+		return nil, chaincli.ServiceKeyState{}, err
+	}
+	if state.Status != StatusActive {
+		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("inactive %s service key (%s): %w", participantType, state.Status, ErrUnavailable)
+	}
+	return publicKey, state, nil
+}
+
+// binding is Current without the ACTIVE requirement: the current binding of a known status
+// (ACTIVE or REVOKED), consistent and self-verifying. A REVOKED binding grants nothing live; it
+// only names the generation that signed what came before.
+func binding(
 	ctx context.Context, resolver Resolver, addressPrefix, participantType, operator string,
 ) ([]byte, chaincli.ServiceKeyState, error) {
 	if resolver == nil {
@@ -60,12 +77,13 @@ func Current(
 	}
 	state, err := resolver.QueryCurrentServiceKey(ctx, participantType, operator)
 	if err != nil {
-		if errors.Is(err, chaincli.ErrNotFound) {
-			return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w", participantType, ErrUnavailable)
+		if errors.Is(err, chaincli.ErrNotFound) || errors.Is(err, chaincli.ErrMalformedBinding) {
+			return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w: %w", participantType, err, ErrUnavailable)
 		}
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("current %s service key: %w", participantType, ErrAuthority)
 	}
-	if state.ParticipantType != participantType || state.OperatorAddress != operator || state.Status != StatusActive {
+	if state.ParticipantType != participantType || state.OperatorAddress != operator ||
+		state.Status != StatusActive && state.Status != StatusRevoked {
 		return nil, chaincli.ServiceKeyState{}, fmt.Errorf("inactive or mismatched %s service key: %w", participantType, ErrUnavailable)
 	}
 	publicKey, err := hex.DecodeString(state.ServicePubKey)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -44,7 +43,7 @@ func (f *fakeResultReadiness) set(ready bool) {
 
 // newDataReadyFixture is a verifier proposal fixture whose data plane answers "not ready" until the
 // test says otherwise, with OPEN_VERIFY captured.
-func newDataReadyFixture(t *testing.T, name string) (*verifierProposalFixture, *fakeResultReadiness, *captured) {
+func newDataReadyFixture(t *testing.T, name string) (*verifierProposalFixture, *fakeResultReadiness, openVerifyCounter) {
 	t.Helper()
 	fx := newVerifierProposalFixture(t, name)
 	readiness := &fakeResultReadiness{receiptHash: hex.EncodeToString(fx.receipt)}
@@ -53,9 +52,7 @@ func newDataReadyFixture(t *testing.T, name string) (*verifierProposalFixture, *
 	fx.fsm.resultReadiness = readiness
 	fx.fsm.dataReady = false
 	fx.fsm.mu.Unlock()
-	openVerify := &captured{}
-	mustSub(t, fx.bus, msgbus.SubjectVerifyOpen(fx.task), openVerify)
-	return fx, readiness, openVerify
+	return fx, readiness, openVerifyCounter{link: fx.link}
 }
 
 func (fx *verifierProposalFixture) chainAcceptsReceipt(t *testing.T, height int64) {

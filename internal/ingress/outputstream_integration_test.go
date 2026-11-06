@@ -79,19 +79,22 @@ func streamServiceKey(participantType, operator string, sg signer.Signer) chainc
 	}
 }
 
+// testDispatchTicket is the dispatch_ticket_hash the test Worker's output stream is bound to.
+var testDispatchTicket = bytes.Repeat([]byte{0x7d}, 32)
+
 // signDigestRaw64 reproduces the Worker's direct-digest signature over the frozen digest (R||S, low-S).
 // signedStreamHeader fills the plaintext declaration of an OutputStreamHeaderV2 and signs it with the
 // Worker service key keyHex, as a Cortex Worker does before opening its output stream.
 func signedStreamHeader(t *testing.T, keyHex string, header *nexusv1.OutputStreamHeaderV2) *nexusv1.OutputStreamHeaderV2 {
 	t.Helper()
-	header.Attempt, header.StreamInstance = 0, 1
+	header.DispatchTicketHash, header.StreamInstance = testDispatchTicket, 1
 	header.OutputKeyCommitment, header.KeyPackageHash = make([]byte, 32), make([]byte, 32)
 	taskHash, ok := hash32text.Decode(header.GetTaskHash())
 	if !ok {
 		t.Fatalf("header task_hash %q is not an IngressAPI Hash32", header.GetTaskHash())
 	}
 	digest, err := nodecontract.OutputStreamHeader{
-		ChainID: "trueopen-localnet", TaskHash: taskHash[:], Attempt: 0, StreamInstance: 1,
+		ChainID: "trueopen-localnet", TaskHash: taskHash[:], DispatchTicketHash: header.DispatchTicketHash, StreamInstance: 1,
 		OutputKeyCommitment: header.OutputKeyCommitment, KeyPackageHash: header.KeyPackageHash,
 	}.SigningDigest()
 	if err != nil {
@@ -105,12 +108,13 @@ func signedStreamHeader(t *testing.T, keyHex string, header *nexusv1.OutputStrea
 // direct-digest.
 func signedFin(t *testing.T, keyHex string, taskHash []byte, finalSeq uint64, root []byte, reason taskv1.FinishReasonV1) *nexusv1.OutputFinV1 {
 	t.Helper()
-	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", taskHash, finalSeq, root, uint32(reason))
+	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", taskHash, testDispatchTicket, finalSeq, root, uint32(reason))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &nexusv1.OutputFinV1{
 		FinalSeq: finalSeq, OutputMmrRoot: root, FinishReason: reason, WorkerSignature: signDigestRaw64(t, keyHex, digest[:]),
+		DispatchTicketHash: testDispatchTicket,
 	}
 }
 
@@ -214,9 +218,16 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 		"BUILDER|" + integrationBuilderAddress: streamServiceKey("BUILDER", integrationBuilderAddress, builderService),
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
+	session := testSessionID("session-stream")
+	taskID := mustDeriveTaskID(t, session, 1)
+	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
+	// The Worker's accept of testDispatchTicket is held and its record admitted: the stream is
+	// authorized by it and delivered uncapped.
+	attempts := recordedAttempt(t, session, taskID, hex.EncodeToString(taskHash[:]), worker.Address(), testDispatchTicket)
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
+		Attempts: attempts,
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +239,7 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	options := []Option{WithPayloadMaxBytes(16), WithReadMaxBytes(16), WithTaskDataService(dataService)}
 	if enabled {
 		dataService.SetOutputStreamConfig(taskdata.OutputStreamConfig{MaxLeaves: 8, MinFrameBytes: 2, MaxFrameBytes: 16, MaxAttachmentBytes: 8})
-		options = append(options, WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend))
+		options = append(options, WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend, attempts))
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
@@ -244,9 +255,6 @@ func newStreamFixture(t *testing.T, enabled bool) *streamFixture {
 	httpServer.EnableHTTP2 = true
 	httpServer.StartTLS()
 	t.Cleanup(httpServer.Close)
-	session := testSessionID("session-stream")
-	taskID := mustDeriveTaskID(t, session, 1)
-	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
 	authority.task = chaincli.OnChainTask{
 		SessionID: session, TaskID: taskID, State: types.Assigned,
 		Assignment: chaincli.TaskAssignmentState{
@@ -306,10 +314,14 @@ func (f *streamFixture) subscribeAsync(t *testing.T, ctx context.Context, sg sig
 	return out
 }
 
+// collectFrames reads a subscription's output frames; the dispatch result headers that lead it
+// carry no frame and are left out.
 func collectFrames(stream *connect.ServerStreamForClient[nexusv1.SubscribeOutputResponse]) ([]*nexusv1.SubscribeOutputResponse, error) {
 	var frames []*nexusv1.SubscribeOutputResponse
 	for stream.Receive() {
-		frames = append(frames, stream.Msg())
+		if stream.Msg().GetFrame() != nil {
+			frames = append(frames, stream.Msg())
+		}
 	}
 	return frames, stream.Err()
 }
@@ -317,12 +329,12 @@ func collectFrames(stream *connect.ServerStreamForClient[nexusv1.SubscribeOutput
 func (f *streamFixture) sendChunk(t *testing.T, up *connect.BidiStreamForClient[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse], acc *mmr.Accumulator, seq uint64, text string) {
 	t.Helper()
 	root := acc.Append([]byte(text))
-	digest, err := nodecontract.OutputChunkSigningDigest("trueopen-localnet", f.taskHash, seq, root[:])
+	digest, err := nodecontract.OutputChunkSigningDigest("trueopen-localnet", f.taskHash, testDispatchTicket, seq, root[:])
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Chunk{Chunk: &nexusv1.OutputChunkV1{
-		Seq: seq, Text: []byte(text), MmrRoot: root[:], WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]),
+		Seq: seq, Text: []byte(text), MmrRoot: root[:], WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]), DispatchTicketHash: testDispatchTicket,
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +570,7 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 
 	up := openStream("nonce-bad-signature-0001")
 	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Chunk{Chunk: &nexusv1.OutputChunkV1{
-		Seq: 0, Text: []byte("abcd"), MmrRoot: root[:], WorkerSignature: make([]byte, 64),
+		Seq: 0, Text: []byte("abcd"), MmrRoot: root[:], WorkerSignature: make([]byte, 64), DispatchTicketHash: testDispatchTicket,
 	}}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("bad signature error = %v", err)
@@ -566,9 +578,9 @@ func TestOutputStreamRejectsBadChunks(t *testing.T) {
 
 	up = openStream("nonce-bad-root-000001")
 	wrong := sha256.Sum256([]byte("x"))
-	digest, _ := nodecontract.OutputChunkSigningDigest("trueopen-localnet", f.taskHash, 0, wrong[:])
+	digest, _ := nodecontract.OutputChunkSigningDigest("trueopen-localnet", f.taskHash, testDispatchTicket, 0, wrong[:])
 	_ = up.Send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Chunk{Chunk: &nexusv1.OutputChunkV1{
-		Seq: 0, Text: []byte("abcd"), MmrRoot: wrong[:], WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]),
+		Seq: 0, Text: []byte("abcd"), MmrRoot: wrong[:], WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]), DispatchTicketHash: testDispatchTicket,
 	}}})
 	if _, err := up.Receive(); connect.CodeOf(err) != connect.CodeDataLoss {
 		t.Fatalf("bad root error = %v", err)
@@ -641,7 +653,7 @@ func TestOutputStreamRequiresWorkerSignedHeaderAndFin(t *testing.T) {
 		t.Fatalf("unsigned header: %v", err)
 	}
 	for name, edit := range map[string]func(*nexusv1.OutputStreamHeaderV2){
-		"attempt 1":             func(h *nexusv1.OutputStreamHeaderV2) { h.Attempt = 1 },
+		"short dispatch ticket": func(h *nexusv1.OutputStreamHeaderV2) { h.DispatchTicketHash = make([]byte, 31) },
 		"recipient key present": func(h *nexusv1.OutputStreamHeaderV2) { h.UserRecipientPubkey = bytes.Repeat([]byte{4}, 65) },
 		"empty key commitment":  func(h *nexusv1.OutputStreamHeaderV2) { h.OutputKeyCommitment = nil },
 		// The header's Hash32 strings must be "0x" + 64 lowercase hex: bare or "0X" is malformed.

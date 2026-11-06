@@ -22,7 +22,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MsgRotateServiceKey replaces the current service key binding of one stable operator (10.0c1).
+// MsgRotateServiceKey registers one operator-authorized pending replacement.
+// Current address/key/nonce stay unchanged until the fixed E+2 epoch start.
+// Previous-generation evidence and the hard-limit interval gate another
+// registration; pending admission rules are local Builder policy.
 type MsgRotateServiceKey struct {
 	state                                    protoimpl.MessageState `protogen:"open.v1"`
 	ParticipantType                          v1.ParticipantType     `protobuf:"varint,1,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
@@ -99,13 +102,14 @@ func (x *MsgRotateServiceKey) GetOperatorAddress() string {
 	return ""
 }
 
-// MsgRotateServiceKeyResponse returns the new service address and authorization nonce.
+// MsgRotateServiceKeyResponse returns the proposed binding, not live permission.
 type MsgRotateServiceKeyResponse struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	OperatorAddress   string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	NewServiceAddress string                 `protobuf:"bytes,2,opt,name=new_service_address,json=newServiceAddress,proto3" json:"new_service_address,omitempty"`
-	NewNonce          uint64                 `protobuf:"varint,3,opt,name=new_nonce,json=newNonce,proto3" json:"new_nonce,omitempty"`
-	Status            v1.MutationStatusV1    `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	state             protoimpl.MessageState          `protogen:"open.v1"`
+	OperatorAddress   string                          `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	NewServiceAddress string                          `protobuf:"bytes,2,opt,name=new_service_address,json=newServiceAddress,proto3" json:"new_service_address,omitempty"`
+	NewNonce          uint64                          `protobuf:"varint,3,opt,name=new_nonce,json=newNonce,proto3" json:"new_nonce,omitempty"`
+	Status            v1.MutationStatusV1             `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	PendingRotation   *PendingServiceKeyRotationState `protobuf:"bytes,5,opt,name=pending_rotation,json=pendingRotation,proto3" json:"pending_rotation,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -166,6 +170,13 @@ func (x *MsgRotateServiceKeyResponse) GetStatus() v1.MutationStatusV1 {
 		return x.Status
 	}
 	return v1.MutationStatusV1(0)
+}
+
+func (x *MsgRotateServiceKeyResponse) GetPendingRotation() *PendingServiceKeyRotationState {
+	if x != nil {
+		return x.PendingRotation
+	}
+	return nil
 }
 
 // MsgRevokeServiceKey immediately revokes the current service key binding (9.6a).
@@ -449,12 +460,13 @@ const file_hub_v1_msg_identity_proto_rawDesc = "" +
 	"\x12new_service_pubkey\x18\x02 \x01(\fR\x10newServicePubkey\x12^\n" +
 	",expected_current_service_authorization_nonce\x18\x03 \x01(\x04R(expectedCurrentServiceAuthorizationNonce\x121\n" +
 	"\x15new_service_key_proof\x18\x04 \x01(\fR\x12newServiceKeyProof\x12)\n" +
-	"\x10operator_address\x18\x05 \x01(\tR\x0foperatorAddress\"\xca\x01\n" +
+	"\x10operator_address\x18\x05 \x01(\tR\x0foperatorAddress\"\x9d\x02\n" +
 	"\x1bMsgRotateServiceKeyResponse\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12.\n" +
 	"\x13new_service_address\x18\x02 \x01(\tR\x11newServiceAddress\x12\x1b\n" +
 	"\tnew_nonce\x18\x03 \x01(\x04R\bnewNonce\x123\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xac\x02\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x12Q\n" +
+	"\x10pending_rotation\x18\x05 \x01(\v2&.hub.v1.PendingServiceKeyRotationStateR\x0fpendingRotation\"\xac\x02\n" +
 	"\x13MsgRevokeServiceKey\x12E\n" +
 	"\x10participant_type\x18\x01 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\x12^\n" +
 	",expected_current_service_authorization_nonce\x18\x02 \x01(\x04R(expectedCurrentServiceAuthorizationNonce\x12C\n" +
@@ -500,23 +512,25 @@ var file_hub_v1_msg_identity_proto_goTypes = []any{
 	(*MsgUpdateServiceDescriptorResponse)(nil), // 5: hub.v1.MsgUpdateServiceDescriptorResponse
 	(v1.ParticipantType)(0),                    // 6: shared.v1.ParticipantType
 	(v1.MutationStatusV1)(0),                   // 7: shared.v1.MutationStatusV1
-	(ServiceKeyRevocationReason)(0),            // 8: hub.v1.ServiceKeyRevocationReason
-	(*ServiceDescriptorV1)(nil),                // 9: hub.v1.ServiceDescriptorV1
+	(*PendingServiceKeyRotationState)(nil),     // 8: hub.v1.PendingServiceKeyRotationState
+	(ServiceKeyRevocationReason)(0),            // 9: hub.v1.ServiceKeyRevocationReason
+	(*ServiceDescriptorV1)(nil),                // 10: hub.v1.ServiceDescriptorV1
 }
 var file_hub_v1_msg_identity_proto_depIdxs = []int32{
-	6, // 0: hub.v1.MsgRotateServiceKey.participant_type:type_name -> shared.v1.ParticipantType
-	7, // 1: hub.v1.MsgRotateServiceKeyResponse.status:type_name -> shared.v1.MutationStatusV1
-	6, // 2: hub.v1.MsgRevokeServiceKey.participant_type:type_name -> shared.v1.ParticipantType
-	8, // 3: hub.v1.MsgRevokeServiceKey.reason_code:type_name -> hub.v1.ServiceKeyRevocationReason
-	7, // 4: hub.v1.MsgRevokeServiceKeyResponse.status:type_name -> shared.v1.MutationStatusV1
-	6, // 5: hub.v1.MsgUpdateServiceDescriptor.participant_type:type_name -> shared.v1.ParticipantType
-	9, // 6: hub.v1.MsgUpdateServiceDescriptor.descriptor:type_name -> hub.v1.ServiceDescriptorV1
-	7, // 7: hub.v1.MsgUpdateServiceDescriptorResponse.status:type_name -> shared.v1.MutationStatusV1
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	6,  // 0: hub.v1.MsgRotateServiceKey.participant_type:type_name -> shared.v1.ParticipantType
+	7,  // 1: hub.v1.MsgRotateServiceKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	8,  // 2: hub.v1.MsgRotateServiceKeyResponse.pending_rotation:type_name -> hub.v1.PendingServiceKeyRotationState
+	6,  // 3: hub.v1.MsgRevokeServiceKey.participant_type:type_name -> shared.v1.ParticipantType
+	9,  // 4: hub.v1.MsgRevokeServiceKey.reason_code:type_name -> hub.v1.ServiceKeyRevocationReason
+	7,  // 5: hub.v1.MsgRevokeServiceKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	6,  // 6: hub.v1.MsgUpdateServiceDescriptor.participant_type:type_name -> shared.v1.ParticipantType
+	10, // 7: hub.v1.MsgUpdateServiceDescriptor.descriptor:type_name -> hub.v1.ServiceDescriptorV1
+	7,  // 8: hub.v1.MsgUpdateServiceDescriptorResponse.status:type_name -> shared.v1.MutationStatusV1
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_msg_identity_proto_init() }

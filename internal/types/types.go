@@ -15,6 +15,12 @@ var (
 	ErrInvalidArgument = errors.New("invalid argument")
 	// ErrFailedPrecondition: the request itself is valid, but the task's current phase does not accept it (FAILED_PRECONDITION).
 	ErrFailedPrecondition = errors.New("failed precondition")
+	// ErrReceiptDispatchMismatch is a receipt whose dispatch_ticket_hash is not the task's winner
+	// ticket held here (FailedPrecondition).
+	ErrReceiptDispatchMismatch = errors.New("RECEIPT_DISPATCH_MISMATCH")
+	// ErrUnavailable is a request this Builder cannot judge yet; the same request may be sent
+	// again (Unavailable).
+	ErrUnavailable = errors.New("unavailable")
 	// ErrChainStateUnavailable: authoritative chain height or task facts are temporarily unavailable.
 	ErrChainStateUnavailable = errors.New("authoritative chain state unavailable")
 )
@@ -23,8 +29,8 @@ var (
 type TaskState int
 
 const (
-	Pending   TaskState = iota // waiting for hand-raise
-	Assigned                   // AssignTx included in a block, winner decided
+	Pending   TaskState = iota // accepted locally, the task is not on chain yet
+	Assigned                   // the task is on chain with its Worker, inference in progress
 	Verifying                  // OpenVerify included in a block, commit-reveal in progress
 	Settled                    // SettleTx included in a block, challenge window open
 	Closed                     // challenge window closed, escrow released
@@ -129,8 +135,7 @@ func (a AccessLevel) String() string {
 
 // types.Stage / types.ParseStage have been removed. Their only consumer was the swept_stage attr of the
 // deadline sweep event, and the chain replaced that attr with DeadlineKindV1 +
-// DeadlineTransitionCode (see chaincli.SweepDeadlineAccepted). The three-stage coordination vocabulary
-// between off-chain Builders still lives in msgbus.BusStage and is unrelated to this type.
+// DeadlineTransitionCode (see chaincli.SweepDeadlineAccepted).
 
 // TaskVerdict is computed by the chain (not self-reported by Verifiers).
 type TaskVerdict int
@@ -158,7 +163,7 @@ type Order struct {
 	ProfileVersion uint32
 	TaskType       string
 	PayloadCID     string // content-addressed reference to the encrypted input, not the blob itself
-	Payload        []byte `json:"-"` // encrypted input body; exists only during the Ingress -> Coordinator hand-off, never enters task snapshots/NATS
+	Payload        []byte `json:"-"` // encrypted input body; exists only during the Ingress -> Coordinator hand-off, never enters task snapshots
 	User           string // on-chain address of the ordering user (SDK envelope signer_address; empty = envelope not enabled)
 	Deadline       int64
 	PriceHint      string
@@ -172,14 +177,12 @@ type Order struct {
 	// an order with an empty task_hash is never broadcast (taskfsm.onOrder).
 	//
 	// It replaces the old OrderDigest (= sha256(order_envelope)). Never write any "envelope
-	// byte digest" into this field: that is a transport-layer concern; if needed it is called payload_digest
-	// and lives in BusEnvelopeV1 field 20.
+	// byte digest" into this field: that is a transport-layer concern.
 	TaskHash        string
 	SignatureScheme string
 	UserSignature   string
 	// SignedOrder is the proto-encoded task.v1.SignedOrderV2 submitted directly by the SDK
-	// It is the only legitimate carrier for the first-proposal scope branch of
-	// MsgSubmitWorkerHandraises: the user signed the TaskOrderV3 inside it, so Nexus may only forward it
+	// The user signed the TaskOrderV3 inside it, so Nexus may only forward it
 	// verbatim and cannot derive it from the legacy JSON order_envelope (the legacy envelope lacks chain_id /
 	// session_anchor_* / builder_set_* / generation_params, and its signature coverage differs).
 	// Empty = the SDK is still sending the legacy JSON envelope, in which case only the ExistingTaskRefV1
@@ -201,8 +204,6 @@ type Order struct {
 	InferTimeoutBlocks      uint64
 	ReferenceBucketKey      string
 	TimeoutBucketKey        string
-	Stage1BuilderRank       uint64
-	Stage1SelectionProof    string
 }
 
 // TaskPayload is the encrypted input that Nexus holds temporarily and returns under per-task authorization.
@@ -259,6 +260,9 @@ type InferReceiptSubmission struct {
 	WorkerTokenKeyCommitment []byte
 	WorkerValueKeyCommitment []byte
 	CiphertextOutputRoot     []byte
+	// DispatchTicketHash (field 19) names the dispatch attempt that produced the output; it must
+	// equal the ticket of the output stream header.
+	DispatchTicketHash []byte
 }
 
 // EvidenceCommitment is a single entry of required_evidence_commitments[].
@@ -339,25 +343,36 @@ type TaskStatus struct {
 // Used only for UX hints and reconnect recovery; on-chain state is authoritative via chain query.
 type TaskEvent struct {
 	Seq         uint64 // monotonically increasing within a task; its string form is the cursor
-	EventCode   string // stable event code (ORDER_RECEIVED / ASSIGNMENT_FINALIZED / ...)
+	EventCode   string // stable event code (ORDER_RECEIVED / DISPATCH_ACCEPTED / ...)
 	State       string // coarse TaskState after the event
 	TaskPhase   string // fine-grained TaskPhase after the event
 	ChainHeight int64  // set when the event comes from chain, otherwise 0
 	TS          int64  // record time (Unix milliseconds)
+	// Detail carries the event's routing and rejection facts (GetTaskEventsResponse detail); nil
+	// when the event has none.
+	Detail *TaskEventDetail `json:",omitempty"`
 }
 
-// Credential is the fetch credential CredentialV1: bound to task/recipient/usage/
-// validity period and issued by the Builder; refresh exchanges the old credential + held credential record for a new one.
-type Credential struct {
-	ID          string // = hex(sha256(SignBytes)), generated at issue time
-	SessionID   string
-	TaskID      string
-	Recipient   string // target recipient address
-	Usage       string // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-	AccessLevel AccessLevel
-	ValidUntil  int64  // Unix milliseconds (switches to chain-height binding once the chain supports it)
-	Issuer      string // issuing Builder address
-	IssuerSig   []byte // Builder signature (empty when no signer is configured = dev mode)
+// TaskEventDetail is what an event tells the SDK so it can recover without resending its order.
+// TAKEOVER_PENDING names this Builder as candidate with the activation height and
+// TAKEOVER_RECORDED as bound Builder. TAKEOVER_VOIDED names where the session went when known:
+// the Builder that recorded the order with its task, the candidate of another registered
+// takeover with its activation height, or the Builder the session is bound to. DISPATCH_ACCEPTED
+// names the ticket and its Worker, RECORD_REJECTED the ticket when there is one and the nonzero
+// rejection category: the chain's code, RECORD_LATE past the record deadline, or CONFLICT for an
+// order failed because an earlier one of its session was refused (its sequence was not consumed;
+// the same sequence is resent). Empty fields are absent.
+type TaskEventDetail struct {
+	BoundBuilder     string `json:",omitempty"`
+	RecordingBuilder string `json:",omitempty"`
+	// RecordedTaskID and DispatchTicketHash are lowercase hex.
+	RecordedTaskID           string `json:",omitempty"`
+	CandidateBuilder         string `json:",omitempty"`
+	TakeoverActivationHeight uint64 `json:",omitempty"`
+	DispatchTicketHash       string `json:",omitempty"`
+	// RejectCode is a task.v1.DispatchRejectCodeV1 value.
+	RejectCode            int32  `json:",omitempty"`
+	WorkerOperatorAddress string `json:",omitempty"`
 }
 
 // ChallengePlan is returned by PrepareChallenge: it only helps the SDK organize its challenge inputs and submits no verdict.

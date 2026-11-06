@@ -1,0 +1,551 @@
+package takeover
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatcher"
+	"github.com/TrueOpen/nexus/internal/handraise"
+	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/servicekey"
+	"github.com/TrueOpen/nexus/internal/types"
+	"google.golang.org/protobuf/proto"
+)
+
+// Event codes the held order's task ends or moves with.
+const (
+	codeVoided     = coordinator.EvTakeoverVoided
+	codeExpired    = coordinator.EvOrderExpired
+	codeRejected   = coordinator.EvRecordRejected
+	codeTaskFailed = coordinator.EvTaskFailed
+	codeNoCapacity = coordinator.EvNoCapacity
+	// codeKeyRotating ends a held order while this Builder's own key rotation is pending. The
+	// closed task event code set has no code for it, so it is NO_CAPACITY, which the SDK handles
+	// alike; a resend of the order is answered NEXUS_INGRESS_BUILDER_KEY_ROTATING with the
+	// effective height.
+	codeKeyRotating = coordinator.EvNoCapacity
+)
+
+// cause is what a job on a takeover handles.
+type cause uint8
+
+const (
+	// causeCheck: an event, a block or a restart asks for the session state; a submitted entry
+	// waits for its result.
+	causeCheck cause = iota + 1
+	// causeRegistered: the entry's result says the chain registered it.
+	causeRegistered
+	// causeRefused: the chain refused the entry with job.code.
+	causeRefused
+	// causeLapsed: the entry got no result before the order expired.
+	causeLapsed
+	// causeVoided: the chain voided this Builder's registration.
+	causeVoided
+	// causeSettle: a submitted entry is judged again by Admit's rules and sent again under the
+	// session's current bound_change_height (after a restart, or a result that could not be
+	// attributed to it).
+	causeSettle
+	// causeDrain: a drain, a revocation of this Builder's service key or its own pending key
+	// rotation (job.effective set) ends the takeover unless its entry went out.
+	causeDrain
+	// causeAhead: the chain refused the entry SEQUENCE_NOT_NEXT, ahead of the session's next
+	// expected sequence. Nothing was consumed: the takeover stays and its entry goes again at the
+	// same sequence once the earlier sequences are recorded.
+	causeAhead
+)
+
+// job is one thing to handle on a takeover. The jobs of a takeover run one at a time, in order,
+// in the background, so a job may read the chain without holding any lock of the Manager.
+type job struct {
+	why  cause
+	code taskv1.DispatchRejectCodeV1
+	// effective is the effective height of this Builder's pending key rotation a causeDrain job
+	// ends the takeover for; 0 for a drain or a revocation.
+	effective uint64
+}
+
+// TakeoverRegistered implements recorder.Takeovers: the chain registered the takeover (or
+// answered its replay); the session state gives the activation height.
+func (m *Manager) TakeoverRegistered(sessionID string, sequence, _ uint64) {
+	m.schedule(sessionID, sequence, job{why: causeRegistered})
+}
+
+// TakeoverRefused implements recorder.Takeovers. Refused because the sequence is consumed (the
+// bound Builder recorded it, or it was cancelled) or because another takeover is registered, the
+// takeover is voided: the order and its input are dropped and the task records where the session
+// went. Refused SEQUENCE_NOT_NEXT, it waits for the earlier sequences (causeAhead). Any other
+// refusal ends the task as RECORD_REJECTED.
+func (m *Manager) TakeoverRefused(sessionID string, sequence uint64, code taskv1.DispatchRejectCodeV1) {
+	m.schedule(sessionID, sequence, job{why: causeRefused, code: code})
+}
+
+// TakeoverLapsed implements recorder.Takeovers: the entry got no result before the order
+// expired; the session state tells whether it registered.
+func (m *Manager) TakeoverLapsed(sessionID string, sequence uint64) {
+	m.schedule(sessionID, sequence, job{why: causeLapsed})
+}
+
+// TakeoverUnsettled implements recorder.Takeovers: the entry's result could not be attributed
+// and the entry was dropped; it is judged again with the chain and sent again if it still may.
+func (m *Manager) TakeoverUnsettled(sessionID string, sequence uint64) {
+	m.schedule(sessionID, sequence, job{why: causeSettle})
+}
+
+// HandleChainEvent follows the head and the takeover events of the held sessions. The caller
+// feeds it every task chain event.
+func (m *Manager) HandleChainEvent(ev chaincli.ChainEvent) {
+	if ev.Height > 0 {
+		for {
+			head := m.head.Load()
+			if uint64(ev.Height) <= head || m.head.CompareAndSwap(head, uint64(ev.Height)) {
+				break
+			}
+		}
+	}
+	if ev.Type == chaincli.EventNewBlock {
+		m.onBlock()
+		return
+	}
+	switch t := ev.Typed.(type) {
+	case chaincli.SessionTakeoverRegistered:
+		if t.CandidateBuilder == m.cfg.Builder {
+			m.registered(t.SessionID, t.OrderSequence, t.ActivationHeight)
+		}
+	case chaincli.SessionBuilderBound:
+		// Bound here, the takeover took effect; bound to another Builder, it never will.
+		if r := m.lookup(t.SessionID); r != nil {
+			m.schedule(t.SessionID, r.Sequence, job{why: causeCheck})
+		}
+	case chaincli.SessionTakeoverVoided:
+		if t.CandidateBuilder == m.cfg.Builder {
+			m.log.Info("takeover voided", "session_id", t.SessionID, "order_sequence", t.OrderSequence, "reason", t.Reason)
+			m.schedule(t.SessionID, t.OrderSequence, job{why: causeVoided})
+		}
+	}
+}
+
+// onBlock runs again the jobs a chain read left without a verdict, and checks the registered
+// takeovers whose activation height the head reached (their binding event may have been missed).
+func (m *Manager) onBlock() {
+	head := m.head.Load()
+	type due struct {
+		session string
+		seq     uint64
+		job     job
+	}
+	var dues []due
+	m.mu.Lock()
+	for _, r := range m.records {
+		switch {
+		case r.Phase == phaseReserved:
+		case len(r.retries) > 0:
+			for _, j := range r.retries {
+				dues = append(dues, due{r.SessionID, r.Sequence, j})
+			}
+			r.retries = nil
+		case r.Phase == phaseRegistered && r.ActivationHeight != 0 && r.ActivationHeight <= head:
+			dues = append(dues, due{r.SessionID, r.Sequence, job{why: causeCheck}})
+		}
+	}
+	m.mu.Unlock()
+	for _, d := range dues {
+		m.schedule(d.session, d.seq, d.job)
+	}
+}
+
+// schedule queues j on the session's takeover of seq and starts its jobs unless they run. A check
+// already queued is not queued twice.
+func (m *Manager) schedule(sessionID string, seq uint64, j job) {
+	m.mu.Lock()
+	r := m.records[sessionID]
+	if r == nil || r.Phase == phaseReserved || r.Sequence != seq {
+		m.mu.Unlock()
+		return
+	}
+	for _, queued := range r.jobs {
+		if (j.why == causeCheck || j.why == causeDrain) && queued.why == j.why {
+			m.mu.Unlock()
+			return
+		}
+	}
+	r.jobs = append(r.jobs, j)
+	start := !r.running
+	r.running = true
+	m.mu.Unlock()
+	if start {
+		m.later(func() { m.run(r) })
+	}
+}
+
+// run handles r's jobs one at a time, each within jobTimeout, until none is left or r is dropped.
+func (m *Manager) run(r *record) {
+	for {
+		m.mu.Lock()
+		if m.records[r.SessionID] != r || len(r.jobs) == 0 {
+			r.running, r.jobs = false, nil
+			m.mu.Unlock()
+			return
+		}
+		j := r.jobs[0]
+		r.jobs = r.jobs[1:]
+		m.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
+		m.handle(ctx, r, j)
+		cancel()
+	}
+}
+
+func (m *Manager) handle(ctx context.Context, r *record, j job) {
+	switch j.why {
+	case causeRefused:
+		m.log.Info("takeover entry refused", "session_id", r.SessionID, "order_sequence", r.Sequence, "reject_code", j.code)
+		switch j.code {
+		case taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_SEQUENCE_CONSUMED,
+			taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_TAKEOVER_PENDING:
+			m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
+		case taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_SEQUENCE_NOT_NEXT:
+			m.retryNextBlock(r, job{why: causeAhead})
+		default:
+			m.end(ctx, r, codeRejected, false, &types.TaskEventDetail{RejectCode: coordinator.RejectCategory(j.code)})
+		}
+	case causeVoided:
+		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, nil))
+	case causeSettle:
+		m.settle(ctx, r, j)
+	case causeAhead:
+		m.ahead(ctx, r, j)
+	case causeDrain:
+		if m.phase(r) == phaseSubmitted && m.cfg.Recorder.WithdrawUnsentTakeover(r.SessionID, r.Sequence) {
+			if j.effective != 0 {
+				m.endKeyRotating(ctx, r, j.effective)
+				return
+			}
+			m.log.Info("takeover ended before its entry went out (drain or revoked service key)", "session_id", r.SessionID, "order_sequence", r.Sequence)
+			m.end(ctx, r, codeNoCapacity, true, nil)
+		}
+	default:
+		m.resolve(ctx, r, j)
+	}
+}
+
+// resolve reads the session and acts on it. Closed (the chain no longer has it), the takeover is
+// voided. Bound here, the takeover took effect and the order is dispatched. A takeover of this
+// Builder for the sequence registered, it waits for the activation height. Neither: a submitted
+// entry waits for its result, or, lapsed, never registered before the order expired
+// (ORDER_EXPIRED: the session stays with its Builder, and a re-signed resend registers a takeover
+// again); a registered takeover was voided, once a second read confirms it (a node read may trail
+// the registration). A read without a verdict is tried again at the next block.
+func (m *Manager) resolve(ctx context.Context, r *record, j job) {
+	if j.why == causeRegistered && m.phase(r) == phaseSubmitted {
+		m.setPhase(r, phaseRegistered)
+	}
+	state, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		m.log.Info("held session is closed; takeover voided", "session_id", r.SessionID)
+		m.end(ctx, r, codeVoided, true, nil)
+		return
+	case err != nil:
+		m.log.Warn("held session not read; tried again at the next block", "session_id", r.SessionID, "err", err)
+		m.retryNextBlock(r, j)
+		return
+	}
+	switch t := state.PendingTakeover; {
+	case state.BoundBuilder == m.cfg.Builder:
+		m.activate(ctx, r, state.BoundChangeHeight)
+	case t != nil && t.CandidateBuilder == m.cfg.Builder && t.OrderSequence == r.Sequence:
+		m.registered(r.SessionID, r.Sequence, t.ActivationHeight)
+	case m.phase(r) == phaseSubmitted && j.why == causeLapsed:
+		m.end(ctx, r, codeExpired, false, nil)
+	case m.phase(r) == phaseSubmitted:
+		// Not registered yet: the entry's result decides.
+	case m.miss(r) < 2:
+		m.retryNextBlock(r, job{why: causeCheck})
+	default:
+		m.log.Info("takeover will not take effect", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_builder", state.BoundBuilder)
+		m.end(ctx, r, codeVoided, true, m.elsewhere(ctx, r, &state))
+	}
+}
+
+// settle judges a submitted entry again by Admit's rules with the current chain state and, when
+// the takeover still may register, hands the recorder its entry under the session's current
+// bound_change_height (dropping the one sent under an older one). A compensation account below its
+// minimum ends it as TASK_FAILED: no takeover then. A pending key rotation of this Builder ends it
+// unless the chain already registered it or decided otherwise, or a transaction carries its entry
+// (endKeyRotating), also when the recorder holds no entry of it any more (refused SEQUENCE_NOT_NEXT,
+// or unsettled): a Builder whose rotation is pending takes no new order. A revoked service key
+// ends it as NO_CAPACITY under the same condition but whatever carries the entry: it cannot be
+// signed before a replacement key is current, so the user is sent elsewhere at once instead of
+// the settle being retried every block.
+func (m *Manager) settle(ctx context.Context, r *record, j job) {
+	keyErr := m.cfg.Keys.CheckBuilderKey(ctx)
+	revoked := errors.Is(keyErr, servicekey.ErrRevoked)
+	var rotation *handraise.RotationPendingError
+	errors.As(keyErr, &rotation)
+	if keyErr != nil && !revoked && !errors.Is(keyErr, handraise.ErrBuilderRotationPending) {
+		if errors.Is(keyErr, dispatcher.ErrCompensationBelowMin) {
+			m.log.Warn("takeover dropped: no takeover while this Builder cannot record", "session_id", r.SessionID, "err", keyErr)
+			m.end(ctx, r, codeTaskFailed, false, nil)
+			return
+		}
+		m.retryNextBlock(r, j)
+		return
+	}
+	state, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		m.end(ctx, r, codeVoided, true, nil)
+		return
+	case err != nil:
+		m.retryNextBlock(r, j)
+		return
+	}
+	switch t := state.PendingTakeover; {
+	case state.BoundBuilder == m.cfg.Builder:
+		m.activate(ctx, r, state.BoundChangeHeight)
+		return
+	case t != nil && t.CandidateBuilder == m.cfg.Builder && t.OrderSequence == r.Sequence:
+		m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
+		m.registered(r.SessionID, r.Sequence, t.ActivationHeight)
+		return
+	case t != nil:
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{CandidateBuilder: t.CandidateBuilder, TakeoverActivationHeight: t.ActivationHeight})
+		return
+	}
+	rec, err := m.cfg.Chain.QueryDispatchRecordByOrder(ctx, r.SessionID, r.Sequence)
+	switch {
+	case err == nil:
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{RecordingBuilder: rec.GetBuilderAddress(), RecordedTaskID: hex.EncodeToString(rec.GetTaskId())})
+		return
+	case !errors.Is(err, chaincli.ErrNotFound):
+		m.retryNextBlock(r, j)
+		return
+	}
+	if r.Sequence != state.NextExpectedSequence {
+		m.end(ctx, r, codeVoided, true, &types.TaskEventDetail{BoundBuilder: state.BoundBuilder})
+		return
+	}
+	if revoked {
+		m.log.Warn("takeover ended: this Builder's service key is revoked, so its entry cannot be signed", "session_id", r.SessionID,
+			"order_sequence", r.Sequence, "err", keyErr)
+		m.end(ctx, r, codeNoCapacity, true, nil)
+		return
+	}
+	if rotation != nil && m.cfg.Recorder.WithdrawTakeoverUnlessSent(r.SessionID, r.Sequence) {
+		m.endKeyRotating(ctx, r, rotation.EffectiveHeight)
+		return
+	}
+	if err := inflight.CheckTakeoverFunds(inflight.Session{SessionState: state, Found: true}, r.Precheck.MaxFee); err != nil {
+		m.log.Info("takeover dropped", "session_id", r.SessionID, "err", err)
+		m.end(ctx, r, codeTaskFailed, false, nil)
+		return
+	}
+	if state.BoundChangeHeight != m.boundChange(r) {
+		m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
+		m.setBoundChange(r, state.BoundChangeHeight)
+	}
+	if err := m.submitEntry(ctx, r); err != nil {
+		m.log.Error("takeover entry not handed to the recorder", "session_id", r.SessionID, "err", err)
+		m.end(ctx, r, codeTaskFailed, false, nil)
+	}
+}
+
+// ahead waits, once per block, for the session's next expected sequence to reach the takeover's,
+// then judges and sends its entry again (settle). The order expiring first ends it ORDER_EXPIRED;
+// the client re-signs the sequence.
+func (m *Manager) ahead(ctx context.Context, r *record, j job) {
+	var signed taskv1.SignedOrderV2
+	if err := proto.Unmarshal(r.Order.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
+		m.end(ctx, r, codeTaskFailed, false, nil)
+		return
+	}
+	if m.head.Load() > signed.GetOrder().GetOrderExpireHeight() {
+		m.end(ctx, r, codeExpired, false, nil)
+		return
+	}
+	state, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
+	switch {
+	case errors.Is(err, chaincli.ErrNotFound):
+		m.end(ctx, r, codeVoided, true, nil)
+	case err != nil, r.Sequence > state.NextExpectedSequence:
+		m.retryNextBlock(r, j)
+	default:
+		m.settle(ctx, r, job{why: causeSettle})
+	}
+}
+
+// elsewhere finds where the session went when r ends: the Builder that recorded the order with
+// its task, else the candidate of another registered takeover, else the Builder it is bound to.
+// state is the session state when already read. Nil when the chain cannot tell.
+func (m *Manager) elsewhere(ctx context.Context, r *record, state *chaincli.SessionState) *types.TaskEventDetail {
+	if rec, err := m.cfg.Chain.QueryDispatchRecordByOrder(ctx, r.SessionID, r.Sequence); err == nil {
+		return &types.TaskEventDetail{RecordingBuilder: rec.GetBuilderAddress(), RecordedTaskID: hex.EncodeToString(rec.GetTaskId())}
+	}
+	if state == nil {
+		s, err := m.cfg.Chain.QuerySession(ctx, r.SessionID)
+		if err != nil {
+			return nil
+		}
+		state = &s
+	}
+	if t := state.PendingTakeover; t != nil && t.CandidateBuilder != m.cfg.Builder {
+		return &types.TaskEventDetail{CandidateBuilder: t.CandidateBuilder, TakeoverActivationHeight: t.ActivationHeight}
+	}
+	if state.BoundBuilder != "" && state.BoundBuilder != m.cfg.Builder {
+		return &types.TaskEventDetail{BoundBuilder: state.BoundBuilder}
+	}
+	return nil
+}
+
+// registered records the activation height of this Builder's registered takeover of the
+// session's sequence.
+func (m *Manager) registered(sessionID string, seq, activation uint64) {
+	m.mu.Lock()
+	r := m.records[sessionID]
+	if r == nil || r.Phase == phaseReserved || r.Sequence != seq {
+		m.mu.Unlock()
+		return
+	}
+	r.misses = 0
+	if r.Phase == phaseRegistered && r.ActivationHeight == activation {
+		m.mu.Unlock()
+		return
+	}
+	r.Phase, r.ActivationHeight = phaseRegistered, activation
+	if err := m.saveLocked(r); err != nil {
+		m.log.Error("takeover registration not written", "session_id", sessionID, "err", err)
+	}
+	taskID := r.TaskID
+	m.mu.Unlock()
+	m.log.Info("takeover registered", "session_id", sessionID, "order_sequence", seq, "activation_height", activation)
+	m.cfg.Tasks.TakeoverRegistered(sessionID, taskID, activation)
+}
+
+// activate dispatches the held order once the session is bound here (at boundChange): it is
+// prechecked again without freshness, which reserves it in the in-flight ledger, and handed to
+// the dispatcher on its task. An order that can no longer be recorded before it expires ends as
+// ORDER_EXPIRED (the session is here now: the SDK resends it re-signed); one the precheck refuses
+// otherwise as TASK_FAILED. A precheck without a verdict (state unreadable, or the cached state
+// not bound here yet) is tried again at the next block.
+func (m *Manager) activate(ctx context.Context, r *record, boundChange uint64) {
+	m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
+	pre := r.Precheck
+	pre.Takeover = true
+	res, err := m.cfg.Precheck.Reserve(ctx, pre)
+	switch {
+	case errors.Is(err, inflight.ErrUnavailable), errors.Is(err, inflight.ErrOrderUploading),
+		err == nil && res.Binding != inflight.BoundHere:
+		m.log.Info("taken over order not prechecked yet; tried again at the next block", "session_id", r.SessionID, "err", err)
+		m.retryNextBlock(r, job{why: causeCheck})
+		return
+	case err != nil:
+		m.cfg.Tasks.TakeoverActivated(r.SessionID, r.TaskID, boundChange)
+		code := codeTaskFailed
+		if errors.Is(err, inflight.ErrOrderExpired) {
+			code = codeExpired
+		}
+		m.log.Info("taken over order not dispatched", "session_id", r.SessionID, "order_sequence", r.Sequence, "err", err)
+		m.end(ctx, r, code, false, nil)
+		return
+	}
+	if res.Existing == nil {
+		m.cfg.Tasks.TakeoverActivated(r.SessionID, r.TaskID, boundChange)
+		if err := m.cfg.Tasks.OnOrder(ctx, r.Order); err != nil {
+			if res.Reservation != nil {
+				if relErr := m.cfg.Precheck.Release(res.Reservation); relErr != nil {
+					m.log.Error("release in-flight reservation", "session_id", r.SessionID, "err", relErr)
+				}
+			}
+			m.log.Error("taken over order not dispatched", "session_id", r.SessionID, "order_sequence", r.Sequence, "err", err)
+			m.end(ctx, r, codeTaskFailed, false, nil)
+			return
+		}
+	}
+	m.log.Info("takeover took effect; order dispatched", "session_id", r.SessionID, "order_sequence", r.Sequence, "bound_change_height", boundChange)
+	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, outcomeActivated)
+	m.forget(r)
+}
+
+// endKeyRotating ends r, whose entry no transaction carries, while this Builder's own key rotation
+// is pending until effective, with its input dropped (codeKeyRotating).
+func (m *Manager) endKeyRotating(ctx context.Context, r *record, effective uint64) {
+	m.log.Info("takeover ended before its entry went out: "+inflight.ErrBuilderKeyRotating.Error(), "session_id", r.SessionID,
+		"order_sequence", r.Sequence, "effective_height", effective)
+	m.end(ctx, r, codeKeyRotating, true, nil)
+}
+
+// end drops r and its outbox entry, telling its task code and detail: where the session went, or
+// why the takeover entry was refused.
+func (m *Manager) end(ctx context.Context, r *record, code string, dropInput bool, detail *types.TaskEventDetail) {
+	m.forget(r)
+	m.cfg.Metrics.Inc(opsmetrics.CounterTakeoverOutcomes, code)
+	m.cfg.Recorder.WithdrawTakeover(ctx, r.SessionID, r.Sequence)
+	m.cfg.Tasks.TakeoverEnded(r.SessionID, r.TaskID, code, m.head.Load(), dropInput, detail)
+}
+
+func (m *Manager) lookup(sessionID string) *record {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r := m.records[sessionID]; r != nil && r.Phase != phaseReserved {
+		return r
+	}
+	return nil
+}
+
+// retryNextBlock runs j again at the next block, besides any other job retried then.
+func (m *Manager) retryNextBlock(r *record, j job) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, queued := range r.retries {
+		if queued == j {
+			return
+		}
+	}
+	r.retries = append(r.retries, j)
+}
+
+// miss counts a read that shows a registered takeover neither pending nor taken effect; a read
+// at the head of the last counted one does not count again.
+func (m *Manager) miss(r *record) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if head := m.head.Load(); r.misses == 0 || head > r.missHead {
+		r.misses, r.missHead = r.misses+1, head
+	}
+	return r.misses
+}
+
+func (m *Manager) phase(r *record) phase {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return r.Phase
+}
+
+func (m *Manager) boundChange(r *record) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return r.BoundChangeHeight
+}
+
+func (m *Manager) setPhase(r *record, p phase) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.Phase = p
+	if err := m.saveLocked(r); err != nil {
+		m.log.Error("takeover phase not written", "session_id", r.SessionID, "err", err)
+	}
+}
+
+func (m *Manager) setBoundChange(r *record, height uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.BoundChangeHeight = height
+	if err := m.saveLocked(r); err != nil {
+		m.log.Error("takeover binding generation not written", "session_id", r.SessionID, "err", err)
+	}
+}

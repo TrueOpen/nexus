@@ -42,15 +42,10 @@ func TestBuilderWithoutReceiptUsesChainAcceptedHashes(t *testing.T) {
 		receipt:        chaincli.AcceptedInferReceipt{OutputHash: outputSum[:], InferReceiptHash: receiptSum[:]},
 	}
 	c, _ := newTestCoordinator(t, WithTaskQuerier(query))
-	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
 		t.Fatal(err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}}, Height: 100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: winner, Height: 101})
+	recordTestWinner(c, session, task, winner, 101)
 	fsm, ok := c.getFSM(session, task)
 	if !ok {
 		t.Fatal("task FSM was not created")
@@ -136,10 +131,10 @@ func TestAcceptedReceiptQueryFailureRetries(t *testing.T) {
 	)
 	query := &acceptedReceiptFake{chainFactsFake: &chainFactsFake{height: 150}, err: errors.New("unavailable")}
 	c, _ := newTestCoordinator(t, WithTaskQuerier(query))
-	if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, testUserAddress)); err != nil {
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
 		t.Fatal(err)
 	}
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "trueopen1winner", Height: 101})
+	recordTestWinner(c, session, task, "trueopen1winner", 101)
 	fsm, _ := c.getFSM(session, task)
 	onChain := chaincli.OnChainTask{SessionID: session, TaskID: task, State: types.Verifying, Winner: "trueopen1winner", ReceiptAccepted: true}
 	c.applyAuthoritativeTask(fsm, onChain, 150)

@@ -11,6 +11,9 @@ import (
 
 	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
+	"github.com/TrueOpen/nexus/internal/inflight"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
@@ -21,17 +24,22 @@ var orderVersionRefusals = []struct {
 }{
 	{
 		name:    "replacement",
-		err:     fmt.Errorf("%w: tracked task_hash aa", coordinator.ErrOrderReplacementUnsupported),
+		err:     fmt.Errorf("%w: sequence 3 is being dispatched with task_hash aa", inflight.ErrOrderReplacementUnsupported),
 		message: "NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED",
 	},
 	{
-		name:    "terminal",
-		err:     fmt.Errorf("%w: terminal task_hash aa", coordinator.ErrTaskTerminal),
-		message: "NEXUS_INGRESS_TASK_TERMINAL",
+		name:    "no capacity",
+		err:     fmt.Errorf("%w: no admitted handraise for the order's profile", dispatchdraw.ErrNoCapacity),
+		message: "NEXUS_INGRESS_NO_CAPACITY",
+	},
+	{
+		name:    "builder set stale",
+		err:     fmt.Errorf("%w: order names BuilderSet \"term-1\", current is \"term-2\"", taskgroup.ErrBuilderSetStale),
+		message: "NEXUS_INGRESS_BUILDER_SET_STALE",
 	},
 }
 
-// A version the coordinator refuses is rejected before BeginInput, so nothing is stored and the
+// An order the coordinator refuses is rejected before BeginInput, so nothing is stored and the
 // stored version's input index is untouched. The client's remaining chunks are drained, so the
 // SDK receives the code instead of blocking on Send.
 func TestOpenTaskRefusesOrderVersionBeforeStoringInput(t *testing.T) {
@@ -68,8 +76,7 @@ func TestOpenTaskRefusesOrderVersionBeforeStoringInput(t *testing.T) {
 	}
 }
 
-// OnOrder repeats the check after the upload (a concurrent OpenTask may have created the task in
-// between); its refusal maps to the same code and rolls the prepared input back.
+// A refusal of OnOrder after the upload maps to the same code and rolls the prepared input back.
 func TestOpenTaskMapsOrderVersionRefusalFromOnOrder(t *testing.T) {
 	user := mustSigner(t, testKeyHex)
 	for index, tt := range orderVersionRefusals {
@@ -99,6 +106,44 @@ func TestMapOrderErrVersionRefusals(t *testing.T) {
 			t.Errorf("%s: mapOrderErr = %v (code %v)", tt.name, err, connect.CodeOf(err))
 		}
 	}
+	for _, err := range []error{coordinator.ErrDispatchUnavailable, inflight.ErrUnavailable} {
+		if got := mapOrderErr(err); connect.CodeOf(got) != connect.CodeUnavailable {
+			t.Errorf("mapOrderErr(%v) = %v", err, got)
+		}
+	}
+}
+
+// DISPATCH_NOT_READY is Unavailable and carries the height to retry at as a typed OpenTaskResponse
+// detail (dispatch_available_height), next to the text suffix.
+func TestMapOrderErrNotReadyCarriesTheAvailableHeight(t *testing.T) {
+	err := mapOrderErr(fmt.Errorf("probe: %w", &dispatchdraw.NotReadyError{Epoch: 3, DispatchableHeight: 120, Reason: "snapshot not effective"}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasSuffix(connectMessage(err), "dispatchable_height=120") {
+		t.Fatalf("mapOrderErr = %v (code %v)", err, connect.CodeOf(err))
+	}
+	if d := openTaskDetail(t, err); d.DispatchAvailableHeight == nil || d.GetDispatchAvailableHeight() != 120 {
+		t.Fatalf("detail = %v", d)
+	}
+	var ce *connect.Error
+	if errors.As(mapOrderErr(&dispatchdraw.NotReadyError{Epoch: 3, Reason: "no beacon"}), &ce) && len(ce.Details()) != 0 {
+		t.Fatal("a not-ready answer without a height carries a detail")
+	}
+}
+
+// BUILDER_KEY_ROTATING, from the probe or a takeover's admission, is Unavailable and carries the
+// rotation's effective height as the OpenTaskResponse detail's service_key_rotation_effective_height
+// (from it this Builder takes new orders again), next to the text suffix. The SDK sends the order
+// to another Builder as for NO_CAPACITY.
+func TestMapOrderErrBuilderKeyRotatingCarriesTheEffectiveHeight(t *testing.T) {
+	rotating := fmt.Errorf("probe: %w", &inflight.BuilderKeyRotatingError{EffectiveHeight: 640})
+	for name, err := range map[string]error{"order": mapOrderErr(rotating), "precheck": mapPrecheckErr(rotating)} {
+		if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasPrefix(connectMessage(err), "probe: NEXUS_INGRESS_BUILDER_KEY_ROTATING:") ||
+			!strings.HasSuffix(connectMessage(err), "effective_height=640") {
+			t.Fatalf("%s: %v (code %v)", name, err, connect.CodeOf(err))
+		}
+		if d := openTaskDetail(t, err); d.ServiceKeyRotationEffectiveHeight == nil || d.GetServiceKeyRotationEffectiveHeight() != 640 || d.DispatchAvailableHeight != nil {
+			t.Fatalf("%s: detail = %v", name, d)
+		}
+	}
 }
 
 func connectMessage(err error) string {
@@ -107,4 +152,33 @@ func connectMessage(err error) string {
 		return connectErr.Message()
 	}
 	return err.Error()
+}
+
+// An order whose epoch cannot dispatch yet is refused before its input is stored as the
+// retryable NEXUS_INGRESS_DISPATCH_NOT_READY (Unavailable), with the height from which dispatch is
+// possible as the OpenTaskResponse detail and at the end of its message.
+func TestOpenTaskRefusesAnEpochNotReady(t *testing.T) {
+	user := mustSigner(t, testKeyHex)
+	api := &fakeTaskDataAPI{chunkSize: 64}
+	handler := &fakeHandler{}
+	handler.checkOrder = func(context.Context, types.Order) error {
+		return &dispatchdraw.NotReadyError{Epoch: 8, DispatchableHeight: 812, Reason: "snapshot not effective"}
+	}
+	client := newTaskDataClientWithHandler(t, handler, api, AuthParams{Chain: testUserChain,
+		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	header := openTaskHeader(t, user, testSessionID("session-not-ready"), 5, []byte("input"))
+	stream := client.OpenTask(context.Background())
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Header{Header: header}})
+	_ = stream.Send(&nexusv1.OpenTaskRequest{Frame: &nexusv1.OpenTaskRequest_Chunk{Chunk: []byte("input")}})
+	_, err := stream.CloseAndReceive()
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.HasPrefix(connectMessage(err), "NEXUS_INGRESS_DISPATCH_NOT_READY:") ||
+		!strings.HasSuffix(connectMessage(err), "dispatchable_height=812") {
+		t.Fatalf("OpenTask error=%v code=%v, want Unavailable DISPATCH_NOT_READY with the height", err, connect.CodeOf(err))
+	}
+	if d := openTaskDetail(t, err); d.GetDispatchAvailableHeight() != 812 {
+		t.Fatalf("detail = %v, want dispatch_available_height 812", d)
+	}
+	if api.inputUpload != nil {
+		t.Fatal("an order not ready was stored")
+	}
 }

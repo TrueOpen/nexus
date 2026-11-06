@@ -154,7 +154,7 @@ type RoleFaultState struct {
 	TaskId               []byte                         `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	OperatorAddress      string                         `protobuf:"bytes,3,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
 	Duty                 v1.Duty                        `protobuf:"varint,4,opt,name=duty,proto3,enum=shared.v1.Duty" json:"duty,omitempty"`
-	FaultClass           FaultKind                      `protobuf:"varint,5,opt,name=fault_class,json=faultClass,proto3,enum=hub.v1.FaultKind" json:"fault_class,omitempty"`
+	FaultClass           v1.FaultKind                   `protobuf:"varint,5,opt,name=fault_class,json=faultClass,proto3,enum=shared.v1.FaultKind" json:"fault_class,omitempty"`
 	ClassificationSource v1.FailureClassificationSource `protobuf:"varint,6,opt,name=classification_source,json=classificationSource,proto3,enum=shared.v1.FailureClassificationSource" json:"classification_source,omitempty"`
 	EvidenceDigest       []byte                         `protobuf:"bytes,7,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
 	JailDelta            uint32                         `protobuf:"varint,8,opt,name=jail_delta,json=jailDelta,proto3" json:"jail_delta,omitempty"`
@@ -223,11 +223,11 @@ func (x *RoleFaultState) GetDuty() v1.Duty {
 	return v1.Duty(0)
 }
 
-func (x *RoleFaultState) GetFaultClass() FaultKind {
+func (x *RoleFaultState) GetFaultClass() v1.FaultKind {
 	if x != nil {
 		return x.FaultClass
 	}
-	return FaultKind_FAULT_KIND_UNSPECIFIED
+	return v1.FaultKind(0)
 }
 
 func (x *RoleFaultState) GetClassificationSource() v1.FailureClassificationSource {
@@ -462,13 +462,13 @@ var File_hub_v1_fault_proto protoreflect.FileDescriptor
 
 const file_hub_v1_fault_proto_rawDesc = "" +
 	"\n" +
-	"\x12hub/v1/fault.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\"\x8b\x04\n" +
+	"\x12hub/v1/fault.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\"\x8e\x04\n" +
 	"\x0eRoleFaultState\x12\x19\n" +
 	"\bfault_id\x18\x01 \x01(\fR\afaultId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12)\n" +
 	"\x10operator_address\x18\x03 \x01(\tR\x0foperatorAddress\x12#\n" +
-	"\x04duty\x18\x04 \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x122\n" +
-	"\vfault_class\x18\x05 \x01(\x0e2\x11.hub.v1.FaultKindR\n" +
+	"\x04duty\x18\x04 \x01(\x0e2\x0f.shared.v1.DutyR\x04duty\x125\n" +
+	"\vfault_class\x18\x05 \x01(\x0e2\x14.shared.v1.FaultKindR\n" +
 	"faultClass\x12[\n" +
 	"\x15classification_source\x18\x06 \x01(\x0e2&.shared.v1.FailureClassificationSourceR\x14classificationSource\x12'\n" +
 	"\x0fevidence_digest\x18\a \x01(\fR\x0eevidenceDigest\x12\x1d\n" +
@@ -531,14 +531,14 @@ var file_hub_v1_fault_proto_goTypes = []any{
 	(*RoleFaultState)(nil),              // 2: hub.v1.RoleFaultState
 	(*SlashSummaryState)(nil),           // 3: hub.v1.SlashSummaryState
 	(v1.Duty)(0),                        // 4: shared.v1.Duty
-	(FaultKind)(0),                      // 5: hub.v1.FaultKind
+	(v1.FaultKind)(0),                   // 5: shared.v1.FaultKind
 	(v1.FailureClassificationSource)(0), // 6: shared.v1.FailureClassificationSource
 	(RoleFaultStatus)(0),                // 7: hub.v1.RoleFaultStatus
 	(*v1.Amount)(nil),                   // 8: shared.v1.Amount
 }
 var file_hub_v1_fault_proto_depIdxs = []int32{
 	4,  // 0: hub.v1.RoleFaultState.duty:type_name -> shared.v1.Duty
-	5,  // 1: hub.v1.RoleFaultState.fault_class:type_name -> hub.v1.FaultKind
+	5,  // 1: hub.v1.RoleFaultState.fault_class:type_name -> shared.v1.FaultKind
 	6,  // 2: hub.v1.RoleFaultState.classification_source:type_name -> shared.v1.FailureClassificationSource
 	7,  // 3: hub.v1.RoleFaultState.status:type_name -> hub.v1.RoleFaultStatus
 	0,  // 4: hub.v1.SlashSummaryState.source_kind:type_name -> hub.v1.SlashSourceKind

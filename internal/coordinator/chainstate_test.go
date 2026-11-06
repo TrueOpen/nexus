@@ -132,7 +132,7 @@ func TestReconcileWithoutSettlementFactsWhenChainHasNone(t *testing.T) {
 				},
 			}
 			c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
-			if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+			if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 				t.Fatal(err)
 			}
 			if got := c.reconcileTask("session-1", "task-1", 0, "test", nil); got != test.observed {
@@ -227,7 +227,7 @@ func TestResyncAndGapTriggersAreSerializedAndCoalesced(t *testing.T) {
 		},
 	}}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -249,7 +249,7 @@ func TestGlobalReconciliationDoesNotAdvanceCursorPastQueryFailure(t *testing.T) 
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
 	c.reconcileRetryBase = 100 * time.Millisecond
 	c.reconcileRetryMax = 100 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -276,7 +276,7 @@ func TestGlobalReconciliationRetriesHeightFailure(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -304,7 +304,7 @@ func TestGlobalReconciliationRetriesWholeScopeBeforeAdvancingCursor(t *testing.T
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
 	c.reconcileRetryBase = time.Millisecond
 	c.reconcileRetryMax = 5 * time.Millisecond
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -324,7 +324,7 @@ func TestPeriodicReconciliationAtTenthBlock(t *testing.T) {
 		taskKey("session-1", "task-1"): {SessionID: "session-1", TaskID: "task-1", State: types.Pending},
 	}}
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	c.startReconcileWorker()
@@ -333,97 +333,6 @@ func TestPeriodicReconciliationAtTenthBlock(t *testing.T) {
 		c.OnChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: height})
 	}
 	eventually(t, func() bool { return facts.calls() == 1 })
-}
-
-func TestReconcilePendingAbandonsDeliverTxRejectionWithoutTerminalMarker(t *testing.T) {
-	sessionID, taskID := "session-assign-rejected", testTaskID("task-assign-rejected")
-	txHash := []byte{0x0a, 0x0b}
-	facts := &chainFactsFake{
-		height:   1001,
-		taskErr:  chaincli.ErrNotFound,
-		txResult: chaincli.TxResult{TxHash: txHash, Height: 99, Code: 7, RawLog: "session not found"},
-	}
-	submit := &fakeSubmitter{assignResult: chaincli.TxResult{TxHash: txHash}}
-	c, _ := newTestCoordinator(t,
-		WithHeightQuerier(facts),
-		WithTaskQuerier(facts),
-		WithTxQuerier(facts),
-	)
-	c.submit = submit
-	order := testCurrentOrder(sessionID, taskID, testUserAddress)
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatal(err)
-	}
-	fsm, ok := c.getFSM(sessionID, taskID)
-	if !ok {
-		t.Fatal("task FSM was not created")
-	}
-	for _, worker := range []string{"worker-1", "worker-2", "worker-3"} {
-		fsm.onWorkerHandraise(testWorkerHandraise(sessionID, taskID, worker))
-	}
-	if string(fsm.assignTxHash) != string(txHash) {
-		t.Fatalf("assign tx hash = %x, want %x", fsm.assignTxHash, txHash)
-	}
-
-	c.reconcileTask(sessionID, taskID, 1001, "test", nil)
-	facts.mu.Lock()
-	txCalls, queriedHash := facts.txCalls, append([]byte(nil), facts.txHash...)
-	facts.mu.Unlock()
-	if txCalls != 1 || !bytes.Equal(queriedHash, txHash) {
-		t.Fatalf("QueryTx calls=%d hash=%x, want 1/%x", txCalls, queriedHash, txHash)
-	}
-	if _, ok := c.getFSM(sessionID, taskID); ok {
-		t.Fatal("DeliverTx-rejected task remains active")
-	}
-	if _, terminal := c.terminalTasks[taskKey(sessionID, taskID)]; terminal {
-		t.Fatal("pre-chain rejection wrote a terminal marker")
-	}
-	if _, ok := c.kv.Get(kv.NSTask, taskKey(sessionID, taskID)); ok {
-		t.Fatal("pre-chain rejection retained the task snapshot")
-	}
-	events := c.journalFor(taskKey(sessionID, taskID)).snapshot()
-	if len(events) == 0 || events[len(events)-1].EventCode != EvAssignRejected {
-		t.Fatalf("last event = %+v, want %s", events, EvAssignRejected)
-	}
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("resubmit after pre-chain rejection: %v", err)
-	}
-	if _, ok := c.getFSM(sessionID, taskID); !ok {
-		t.Fatal("same session sequence could not be resubmitted")
-	}
-}
-
-func TestAssignTxHashPersistsAcrossRecovery(t *testing.T) {
-	sessionID, taskID := "session-assign-recovery", testTaskID("task-assign-recovery")
-	txHash := []byte{0x0c, 0x0d}
-	submit := &fakeSubmitter{assignResult: chaincli.TxResult{TxHash: txHash}}
-	c, _ := newTestCoordinator(t)
-	c.submit = submit
-	order := testCurrentOrder(sessionID, taskID, testUserAddress)
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatal(err)
-	}
-	fsm, _ := c.getFSM(sessionID, taskID)
-	for _, worker := range []string{"worker-1", "worker-2", "worker-3"} {
-		fsm.onWorkerHandraise(testWorkerHandraise(sessionID, taskID, worker))
-	}
-	raw, ok := c.kv.Get(kv.NSTask, taskKey(sessionID, taskID))
-	if !ok {
-		t.Fatal("assign snapshot was not persisted")
-	}
-	var snapshot taskSnapshot
-	if err := json.Unmarshal(raw, &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if string(snapshot.AssignTxHash) != string(txHash) {
-		t.Fatalf("snapshot tx hash = %x, want %x", snapshot.AssignTxHash, txHash)
-	}
-
-	restored := c.newFSM(order)
-	restored.restoreFrom(snapshot)
-	if string(restored.assignTxHash) != string(txHash) || !restored.assignSubmitted {
-		t.Fatalf("restored assign state: hash=%x submitted=%v", restored.assignTxHash, restored.assignSubmitted)
-	}
 }
 
 func TestReconcileExpiresPendingAfterOrderDeadline(t *testing.T) {
@@ -436,7 +345,7 @@ func TestReconcileExpiresPendingAfterOrderDeadline(t *testing.T) {
 	order := testCurrentOrder(sessionID, taskID, testUserAddress)
 	order.DeadlineHeight = 1000
 	order.Deadline = 1000
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.refreshChainHeight(context.Background()); err != nil {
@@ -457,7 +366,7 @@ func TestReconcileExpiresPendingAfterOrderDeadline(t *testing.T) {
 	if len(events) == 0 || events[len(events)-1].EventCode != EvAssignTimeout {
 		t.Fatalf("last event = %+v, want %s", events, EvAssignTimeout)
 	}
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatalf("resubmit after assign timeout: %v", err)
 	}
 	if _, ok := c.getFSM(sessionID, taskID); !ok {
@@ -498,7 +407,7 @@ func TestPendingTaskNotFoundBeforeDeadlineIsDebugNoise(t *testing.T) {
 	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
 	var logs bytes.Buffer
 	c.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	if err := c.OnOrder(context.Background(), testCurrentOrder(sessionID, taskID, testUserAddress)); err != nil {
+	if err := trackTestOrder(c, testCurrentOrder(sessionID, taskID, testUserAddress)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.refreshChainHeight(context.Background()); err != nil {
@@ -645,7 +554,7 @@ func TestReconcileSettleSelectionAppliesFrozenOrder(t *testing.T) {
 	}
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
-	if fsm.settleSelection.Stage != prepareStageSettle || fsm.settleSelection.SelectedHeight != 200 ||
+	if fsm.settleSelection.Stage != settleSelectionStage || fsm.settleSelection.SelectedHeight != 200 ||
 		len(fsm.settleSelection.SelectedBuilders) != 2 || fsm.settleSelection.SelectedBuilders[0] != testBuilderSelf {
 		t.Fatalf("selection=%+v", fsm.settleSelection)
 	}

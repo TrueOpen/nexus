@@ -35,7 +35,7 @@ func TestProfileVersionWireTypesMatchNode(t *testing.T) {
 		{"hub previous profile", (&hubv1.ProfileState{}).ProtoReflect().Descriptor().Fields().ByName("previous_profile_version")},
 		{"hub profile request", (&hubv1.QueryProfileRequest{}).ProtoReflect().Descriptor().Fields().ByName("profile_version")},
 		{"task core", (&taskv1.TaskCoreState{}).ProtoReflect().Descriptor().Fields().ByName("profile_version")},
-		{"task assignment view", (&taskv1.WorkerHandraiseV1{}).ProtoReflect().Descriptor().Fields().ByName("profile_version")},
+		{"verifier handraise", (&taskv1.VerifierHandraiseV1{}).ProtoReflect().Descriptor().Fields().ByName("profile_version")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -246,10 +246,10 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 				TaskPhase: taskv1.TaskPhase_TASK_PHASE_VERIFIER_ASSIGNED,
 			},
 			Assignment: &taskv1.TaskAssignmentViewV1{
-				TaskId: testTaskIDBytes, AssignAcceptHeight: 44, AssignmentRandomnessHeight: 45,
+				TaskId:              testTaskIDBytes,
 				WinnerConfirmHeight: proto.Uint64(46), InferDeadlineHeight: proto.Uint64(50),
-				CandidatePoolSnapshotId: mustHash32("66"), AssignmentCandidateSetHash: mustHash32("77"),
-				WinnerWorker: proto.String("worker-1"),
+				CandidatePoolSnapshotId: mustHash32("66"),
+				WinnerWorker:            proto.String("worker-1"),
 			},
 			// The bundle is split per round into round1 / round2; Phase 0 reads only round1.
 			Round1VerifierAssignment: &taskv1.VerifierAssignmentState{
@@ -257,7 +257,7 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 				SelectedVerifiers: []*taskv1.SelectedVerifierV1{
 					{OperatorAddress: "verifier-1", Slot: 1},
 					{OperatorAddress: "verifier-2", Slot: 2},
-					{OperatorAddress: "verifier-3", Slot: 3},
+					{OperatorAddress: "verifier-3", Slot: 3, SlotVersion: 4},
 				},
 				CommitDeadlineHeight: 60, RevealDeadlineHeight: 80, VerifyDeadlineHeight: 90,
 			},
@@ -284,11 +284,15 @@ func TestQueryTaskUsesTaskIDAndMapsActiveBundle(t *testing.T) {
 	if len(got.Verifiers) != 3 || got.Verifiers[2] != "verifier-3" {
 		t.Fatalf("verifiers=%v", got.Verifiers)
 	}
+	if len(got.SelectedVerifiers) != 3 || got.SelectedVerifiers[2] != (SelectedVerifier{Operator: "verifier-3", Slot: 3, SlotVersion: 4}) ||
+		len(got.VerifierRounds) != 1 || got.VerifierRounds[0].Selected[1] != (SelectedVerifier{Operator: "verifier-2", Slot: 2}) {
+		t.Fatalf("selected verifiers=%+v rounds=%+v", got.SelectedVerifiers, got.VerifierRounds)
+	}
 	if got.Deadlines.Commit != 60 || got.Deadlines.Reveal != 80 || got.Deadlines.Verify != 90 {
 		t.Fatalf("deadlines=%+v", got.Deadlines)
 	}
 	if got.Assignment.OrderSequence != 7 || got.Assignment.ModelID != testModelIDHex ||
-		got.Assignment.AssignAcceptHeight != 44 || got.Assignment.WinnerConfirmHeight != 46 {
+		got.Assignment.WinnerConfirmHeight != 46 {
 		t.Fatalf("assignment view=%+v", got.Assignment)
 	}
 	// Facts that disappeared from the QueryTask response must be zero; no substituting other fields.
@@ -331,8 +335,10 @@ func TestQueryTaskMapsBothVerifierRounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []VerifierRound{
-		{VerifyRound: 1, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, CommitDeadlineHeight: 60, RevealDeadlineHeight: 70},
-		{VerifyRound: 2, Verifiers: []string{"challenger-1", "challenger-2"}, CommitDeadlineHeight: 120},
+		{VerifyRound: 1, Verifiers: []string{"verifier-1", "verifier-2", "verifier-3"}, CommitDeadlineHeight: 60, RevealDeadlineHeight: 70,
+			Selected: []SelectedVerifier{{Operator: "verifier-1", Slot: 1}, {Operator: "verifier-2", Slot: 2}, {Operator: "verifier-3", Slot: 3}}},
+		{VerifyRound: 2, Verifiers: []string{"challenger-1", "challenger-2"}, CommitDeadlineHeight: 120,
+			Selected: []SelectedVerifier{{Operator: "challenger-1", Slot: 1}, {Operator: "challenger-2", Slot: 2}}},
 	}
 	if !reflect.DeepEqual(got.VerifierRounds, want) {
 		t.Fatalf("verifier rounds = %+v, want %+v", got.VerifierRounds, want)
@@ -370,7 +376,7 @@ func TestQueryTaskRejectsMismatchedScope(t *testing.T) {
 		Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
 			Core: &taskv1.TaskCoreState{
 				TaskId: testTaskIDBytes, SessionId: testOtherIDBytes,
-				TaskPhase: taskv1.TaskPhase_TASK_PHASE_WORKER_ASSIGNED,
+				TaskPhase: taskv1.TaskPhase_TASK_PHASE_INFER_PENDING,
 			},
 		}},
 	}}}
@@ -549,21 +555,6 @@ func TestQuerySettlementBuilderGraceBlocksReadsHubParams(t *testing.T) {
 	fake.params.Params.Builder.SettlementBuilderGraceBlocks = 0
 	if _, err := c.QuerySettlementBuilderGraceBlocks(context.Background()); err == nil {
 		t.Fatal("zero grace must be refused")
-	}
-}
-
-func TestQueryBuildersPerTaskReadsHubParams(t *testing.T) {
-	fake := &recordHubQuery{params: &hubv1.QueryHubParamsResponse{Params: &hubv1.HubParamsV2{
-		Builder: &hubv1.BuilderParamsV1{BuildersPerTask: 3},
-	}}}
-	c := &client{hubQuery: fake}
-	got, err := c.QueryBuildersPerTask(context.Background())
-	if err != nil || got != 3 {
-		t.Fatalf("builders_per_task=%d err=%v", got, err)
-	}
-	fake.params.Params.Builder.BuildersPerTask = 0
-	if _, err := c.QueryBuildersPerTask(context.Background()); err == nil {
-		t.Fatal("zero builders_per_task must be refused")
 	}
 }
 
@@ -1144,22 +1135,6 @@ func TestQueryMaxVerifyRoundReadsTaskParams(t *testing.T) {
 	c = &client{taskQuery: &recordTaskQuery{params: params(0)}}
 	if _, err := c.QueryMaxVerifyRound(context.Background()); err == nil {
 		t.Fatal("zero max_verify_round accepted")
-	}
-}
-
-func TestQueryAnchorFreshnessWindowBlocksReadsTaskParams(t *testing.T) {
-	params := func(window uint64) *taskv1.QueryTaskParamsResponse {
-		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
-			Session: &taskv1.SessionParamsV1{AnchorFreshnessWindowBlocks: window},
-		}}
-	}
-	c := &client{taskQuery: &recordTaskQuery{params: params(120)}}
-	if got, err := c.QueryAnchorFreshnessWindowBlocks(context.Background()); err != nil || got != 120 {
-		t.Fatalf("anchor freshness window = %d, %v", got, err)
-	}
-	c = &client{taskQuery: &recordTaskQuery{params: params(0)}}
-	if _, err := c.QueryAnchorFreshnessWindowBlocks(context.Background()); err == nil {
-		t.Fatal("zero anchor_freshness_window_blocks accepted")
 	}
 }
 

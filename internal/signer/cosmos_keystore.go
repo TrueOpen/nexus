@@ -30,6 +30,16 @@ const (
 var cosmosPrivKeySecp256k1Prefix = aminoPrefix("tendermint/PrivKeySecp256k1")
 
 func decryptCosmosSecp256k1Armor(data, passphrase []byte) ([]byte, error) {
+	plain, err := decryptCosmosArmor(data, passphrase, cosmosSecp256k1Algo)
+	if err != nil {
+		return nil, err
+	}
+	return secp256k1SecretFromAmino(plain)
+}
+
+// decryptCosmosArmor decrypts a Cosmos private key armor of key type algo and returns the amino
+// encoded key. A missing type header means secp256k1, as in the Cosmos SDK.
+func decryptCosmosArmor(data, passphrase []byte, algo string) ([]byte, error) {
 	block, err := armor.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("signer: decode cosmos keystore armor: %w", err)
@@ -38,23 +48,19 @@ func decryptCosmosSecp256k1Armor(data, passphrase []byte) ([]byte, error) {
 		return nil, fmt.Errorf("signer: unsupported cosmos armor type %q", block.Type)
 	}
 
-	algo := armorHeader(block.Header, "type")
-	if algo == "" {
-		algo = cosmosSecp256k1Algo
+	got := armorHeader(block.Header, "type")
+	if got == "" {
+		got = cosmosSecp256k1Algo
 	}
-	if algo != cosmosSecp256k1Algo {
-		return nil, fmt.Errorf("signer: unsupported cosmos key type %q", algo)
+	if got != algo {
+		return nil, fmt.Errorf("signer: unsupported cosmos key type %q, want %q", got, algo)
 	}
 
 	encBytes, err := io.ReadAll(block.Body)
 	if err != nil {
 		return nil, fmt.Errorf("signer: read cosmos keystore body: %w", err)
 	}
-	plain, err := decryptCosmosPrivKeyBytes(block.Header, encBytes, passphrase)
-	if err != nil {
-		return nil, err
-	}
-	return secp256k1SecretFromAmino(plain)
+	return decryptCosmosPrivKeyBytes(block.Header, encBytes, passphrase)
 }
 
 func decryptCosmosPrivKeyBytes(header map[string]string, encBytes, passphrase []byte) ([]byte, error) {

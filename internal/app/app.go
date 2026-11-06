@@ -9,24 +9,31 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/builderreg"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/chainreset"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchstream"
+	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/identity"
 	"github.com/TrueOpen/nexus/internal/ingress"
 	"github.com/TrueOpen/nexus/internal/ingresstls"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/ops"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/outputdelivery"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
+	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -58,12 +65,13 @@ func (l outputRecoveryLifecycle) Start(ctx context.Context) error {
 	return nil
 }
 
-func runtimeModules(taskData, rl, coord, outputs, ing lifecycle) []module {
+func runtimeModules(taskData, rl, coord, outputs, streams, ing lifecycle) []module {
 	return []module{
 		{"task-data", taskData.Start, taskData.Stop},
 		{"relay", rl.Start, rl.Stop},
 		{"coordinator", coord.Start, coord.Stop},
 		{"output-delivery", outputs.Start, outputs.Stop},
+		{"dispatch-stream", streams.Start, streams.Stop},
 		{"ingress", ing.Start, ing.Stop},
 	}
 }
@@ -168,6 +176,8 @@ type App struct {
 	kv               kv.Store
 	modules          []module
 	beginIngressStop func(context.Context) error
+	// dispatch is nil when direct dispatch is not configured.
+	dispatch *directDispatch
 }
 
 type chainEventOptions struct {
@@ -195,7 +205,7 @@ func newChainEventOptions(store kv.Store, mode config.AuthorityMode) chainEventO
 	return options
 }
 
-// New wires up every module (dependency order: bus -> chain -> builder-registration -> relay -> coordinator -> ingress).
+// New wires up every module (dependency order: chain -> builder-registration -> relay -> coordinator -> ingress).
 func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		return nil, err
@@ -231,13 +241,6 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	// With NATS servers configured, use the real bus; otherwise fall back to the stub (offline / unit tests).
-	var bus msgbus.Bus
-	if len(cfg.NATS.Servers) > 0 {
-		bus = msgbus.NewNATS(log, cfg.NATS)
-	} else {
-		bus = msgbus.NewStub(log, cfg.NATS.Servers)
-	}
 	authority, err := cfg.BuilderAuthority()
 	if err != nil {
 		_ = store.Close()
@@ -251,7 +254,35 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("registered session keys: %w", err)
 	}
-	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(sessionKeys.cache))
+	// The order path (in-flight ledger, session cache, dispatcher) follows the same session
+	// streams and the task chain's events once it is built.
+	orders := &orderEvents{keys: sessionKeys.cache}
+	eventOptions.task = append(eventOptions.task, chaincli.WithSessionStreamObserver(orders), chaincli.WithEventObserver(orders.observe))
+	eventOptions.hub = append(eventOptions.hub, chaincli.WithEventObserver(orders.observeHub))
+	// Current service keys are read on every stream message, handraise and Builder signature; the
+	// cache keeps them briefly and the SERVICE_KEY_ROTATED event, on whichever client carries the
+	// protocol stream, drops a rotated key at once.
+	// The same events stop this Builder's ring from signing when its own key is revoked, and end a
+	// Cortex stream whose binding key the Cortex rotated out or had revoked.
+	keyEvents := &serviceKeyEvents{}
+	eventOptions.task = append(eventOptions.task, chaincli.WithEventObserver(keyEvents.observe))
+	eventOptions.hub = append(eventOptions.hub, chaincli.WithEventObserver(keyEvents.observe))
+	sg, err := identity.LoadSigner(cfg.Identity)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("identity: %w", err)
+	}
+	selfAddr, err := identity.ResolveBuilderAddress(cfg.Identity, sg)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if sg != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
+		// A dispatching Builder follows the events addressed to it as Builder: compensation claims
+		// on its tickets, dispatch challenges on its records and how they ended. The stream resumes
+		// from its stored cursor.
+		eventOptions.task = append(eventOptions.task, chaincli.WithBuilderRoleEvents(selfAddr))
+	}
 	taskChain := chaincli.New(log, cfg.Chain, eventOptions.task...) // Task Chain: source of truth for task queries, txs and events.
 	sessionKeys.chain = taskChain
 	registrationChain := taskChain
@@ -263,6 +294,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		log.Warn("builder registration using single-chain compatibility mode",
 			"authority_chain_id", authority.Chain.ChainID)
 	}
+	keyCache := servicekey.NewCache(registrationChain, servicekey.DefaultCacheTTL)
+	keyEvents.cache.Store(keyCache)
 	rl := relay.NewKV(log, store) // the credential store is written through to disk so restart recovery still holds the credentials
 	taskStore, err := taskdata.NewStore(log, taskDataRoot(cfg.DataDir), store, taskdata.Config{
 		InlineMaxBytes: cfg.TaskData.InlineMaxBytes, ChunkSizeBytes: cfg.TaskData.ChunkSizeBytes,
@@ -314,41 +347,48 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if chainResetMonitor != nil {
 		coordOpts = append(coordOpts, coordinator.WithChainResetWatch(chainResetMonitor))
 	}
-	sg, err := identity.LoadSigner(cfg.Identity)
-	if err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("identity: %w", err)
-	}
-	selfAddr, err := identity.ResolveBuilderAddress(cfg.Identity, sg)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
 	var registrationModule *module
 	var serviceSG signer.Signer
+	// serviceRing is serviceSG: it signs with whichever local service key the chain holds current.
+	var serviceRing *servicekey.Ring
+	var taskSubmitter coordinator.Submitter
+	// metrics are the order path's stage timings, skips and Worker outcomes, for the operator
+	// status and the public statistics.
+	metrics := opsmetrics.New()
 	ingressOpts := []ingress.Option{
+		ingress.WithMetrics(metrics),
 		ingress.WithPayloadMaxBytes(inlinePayloadMax(cfg.PayloadStorage.MaxBytes, cfg.TaskData.InlineMaxBytes)),
 		ingress.WithReadMaxBytes(cfg.TaskData.ChunkSizeBytes),
-	}
-	if strings.TrimSpace(cfg.NATS.SentinelFile) != "" {
-		// The AUTH account sentinel JWT (public, non-secret data) is distributed to Cortex by the ingress; see GET /v1/nats/sentinel.
-		ingressOpts = append(ingressOpts, ingress.WithNATSSentinelFile(cfg.NATS.SentinelFile))
-	}
-	if len(cfg.NATS.AdvertiseServers) > 0 {
-		// The NATS address and certificate go to Cortex with the sentinel.
-		ingressOpts = append(ingressOpts, ingress.WithNATSAdvertise(cfg.NATS.AdvertiseServers, cfg.NATS.CAFile))
 	}
 	if tlsMaterial.Enabled() {
 		ingressOpts = append(ingressOpts, ingress.WithTLS(tlsMaterial.Certificate))
 	}
 	if sg != nil {
 		log.Info("tx signing enabled", "address", sg.Address())
-		var sharedServiceKey bool
-		serviceSG, sharedServiceKey, err = identity.LoadServiceSigner(cfg.Identity, sg)
+		serviceKey, sharedServiceKey, err := identity.LoadServiceSigner(cfg.Identity, sg)
 		if err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("identity: %w", err)
 		}
+		keys := []signer.Signer{serviceKey}
+		nextKey, err := identity.LoadNextServiceSigner(cfg.Identity)
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("identity: %w", err)
+		}
+		if nextKey != nil {
+			keys = append(keys, nextKey)
+			log.Info("second service key loaded; the chain binding decides which key signs", "address", nextKey.Address())
+		}
+		// At a cutover the chain makes the registered replacement current; the ring signs new
+		// messages with it from its next read. Cortex streams stay up: what was signed before
+		// keeps its own nonce. A revoked current key signs nothing until a replacement is current.
+		if serviceRing, err = servicekey.NewRing(keyCache, cfg.Identity.Bech32Prefix, selfAddr, logServiceKeySwitch(log, keyEvents.revoked), keys...); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("identity: %w", err)
+		}
+		keyEvents.ring.Store(serviceRing)
+		serviceSG = serviceRing
 		if sharedServiceKey {
 			log.Warn("builder account and service signatures share one key; configure identity.service_keystore_file for key separation")
 		}
@@ -368,34 +408,105 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			}
 			ingressOpts = append(ingressOpts, ingress.WithBuilderDescriptor(descriptorBody))
 		}
+		taskSubmitter = coordinator.NewSignedSubmitter(log, taskChain, registrationChain, sg, serviceSG, cfg.Chain)
 		coordOpts = append(coordOpts,
-			coordinator.WithSubmitter(coordinator.NewSignedSubmitter(log, taskChain, registrationChain, sg, serviceSG, cfg.Chain)),
+			coordinator.WithSubmitter(taskSubmitter),
 			coordinator.WithIdentitySigner(sg),
 			coordinator.WithBuilderRegistry(registrationChain),
-			coordinator.WithBuilderSelectionQuerier(taskChain),              // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
-			stage1AdmissionOption(sg, registrationChain, cfg.Chain.ChainID)) // Hub is authoritative for the active BuilderSet.
-		registrationModule = newBuilderRegistrationModule(log, store, registrationChain, sg, serviceSG, cfg.Identity, authority, tlsMaterial.PubKeyHash)
+			coordinator.WithBuilderSelectionQuerier(taskChain)) // settlement ordering reads task TaskBuilders; the grace block count reads Hub params
+		// The registration proof is made by the configured service key itself: it is what a new
+		// Builder registers, and the ring signs nothing before it read a binding.
+		registrationModule = newBuilderRegistrationModule(log, store, registrationChain, sg, serviceKey, cfg.Identity, authority, tlsMaterial.PubKeyHash)
 	} else {
-		log.Warn("tx signing NOT configured (NEXUS_KEYSTORE_FILE or NEXUS_PRIVATE_KEY_FILE/PRIVATE_KEY/HEX); task transactions are disabled and credentials are unsigned (dev only)")
+		log.Warn("tx signing NOT configured (NEXUS_KEYSTORE_FILE or NEXUS_PRIVATE_KEY_FILE/PRIVATE_KEY/HEX); task transactions are disabled (dev only)")
 	}
 
 	// A Profile is model registration data on the Hub side (QueryProfile goes through hubQuery), so this takes
 	// registrationChain rather than taskChain.
 	taskAuthority := newTaskDataAuthority(taskChain, registrationChain, registrationChain)
 	if serviceSG != nil {
-		// The signing/verification port of BusEnvelopeV1: outbound frames are signed with the current
-		// service key's private key, inbound frames are verified against the on-chain current binding looked up by (participant_type, operator).
-		// No service key configured means not a single task-control frame can be sent or received -- this is fail-closed,
-		// not a degradation: the bus protocol does not allow "fall back to unsigned after verification fails".
-		coordOpts = append(coordOpts,
-			coordinator.WithServiceKey(serviceSG, taskAuthority, cfg.Identity.Bech32Prefix))
+		// Builder messages to Cortex (OpenVerify, VerifierAssignmentNotify) are signed under the
+		// nonce each task froze when the chain recorded it, with the local key of that generation.
+		// Without a service key no Builder message is signed or sent: there is no unsigned fallback.
+		coordOpts = append(coordOpts, coordinator.WithServiceKey(serviceRing))
 	} else {
-		log.Warn("service key NOT configured; NATS task-control frames cannot be signed or verified " +
-			"(the bus protocol does not allow unsigned envelopes, so the coordinator emits no trueopen.* frames)")
+		log.Warn("service key NOT configured; Builder messages to Cortex cannot be signed, so none are sent")
 	}
 
-	coord := coordinator.New(log, bus, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
+	// Cortex nodes connect to the IngressAPI DispatchStream; the hub verifies every stream and
+	// message against the Cortex's current service key (kept with the other service keys on the
+	// registration chain), carries the coordinator's Verifier messages and the standing
+	// handraises, and gives every (re)bound stream the latest handraise root.
+	dispatch := &directDispatch{log: log}
+	streams, err := dispatchstream.New(log, dispatchstream.Config{ChainID: cfg.Chain.ChainID, BuilderOperator: selfAddr},
+		dispatchstream.ServiceKeyLookup{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix}, store,
+		dispatchstream.WithConnectionObserver(dispatch.onConnection), dispatchstream.WithReplayFilter(keepOnReplayAt(time.Now)))
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("dispatch stream: %w", err)
+	}
+	keyEvents.streams.Store(streams)
+	coordOpts = append(coordOpts, coordinator.WithCortexLink(streams))
+	coord := coordinator.New(log, taskChain, rl, store, selfAddr, cfg.Chain.ChainID, coordOpts...)
+	sinks := dispatchstream.Sinks{Verifier: coord}
+	var dispatchModule *module
+	var orderPath *orderDispatch
+	// attempts holds the winning attempt of every order this Builder dispatched; the output data
+	// plane authorizes and gates by it. It needs the service key that signs the result headers.
+	var attempts *attempt.Book
+	if serviceSG != nil {
+		if attempts, err = attempt.New(store, serviceRing, log); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("dispatch attempts: %w", err)
+		}
+		coord.SetAttempts(attempts)
+		// A terminal or dropped task's attempt (its signed header) is kept as long as a deleted
+		// object's tombstone.
+		coord.SetAttemptRetention(cfg.TaskData.TombstoneRetentionBlocks)
+	}
+	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
+		// Standing handraises and roots are judged on the task chain's height, never below the
+		// dispatcher's head; the Hub reads (pool, beacon, VRF keys, epoch length) go to the
+		// registration chain.
+		if err := newDirectDispatch(dispatch, directDispatchDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix,
+			Config: cfg.Dispatch, VRFKeyFiles: cfg.Identity.VRFKeyFiles, VRFKeyPassword: cfg.Identity.VRFKeyPasswordFile,
+			Store: store, Chain: registrationChain, Keys: keyCache, Height: newCachedHeight(taskChain.LatestHeight),
+			Signer: serviceRing, Streams: streams, Groups: coord,
+		}); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("direct dispatch: %w", err)
+		}
+		sinks.Handraise = dispatch
+		dispatchModule = &module{"handraise-roots", dispatch.Start, dispatch.Stop}
+		paramsCtx, cancelParams := context.WithTimeout(context.Background(), 30*time.Second)
+		orderPath, err = newOrderDispatch(paramsCtx, orderDispatchDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, Config: cfg.Dispatch, InputChunkBytes: cfg.TaskData.ChunkSizeBytes,
+			Signer: serviceRing, Store: store, TaskChain: taskChain, HubChain: registrationChain, Direct: dispatch,
+			Records: coordinator.NewRecordSubmitter(log, taskChain, serviceSG, cfg.Chain, taskSubmitter),
+			Keys:    handraise.ChainServiceKeys{Resolver: keyCache, AddressPrefix: cfg.Identity.Bech32Prefix, Ring: serviceRing},
+			Inputs:  taskStore, Observer: coord, Tasks: coord, Held: coord, Attempts: attempts, Metrics: metrics, Log: log,
+		})
+		cancelParams()
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("order dispatch: %w", err)
+		}
+		dispatch.SetDispatchHead(orderPath.Sessions.Head)
+		coord.SetDispatcher(orderPath.Dispatcher)
+		sinks.Dispatch = orderPath.Dispatcher
+		orders.order.Store(orderPath)
+		keyEvents.takeovers.Store(orderPath.Takeovers)
+	} else {
+		log.Warn("direct dispatch NOT configured (needs the service key and identity.vrf_key_files); standing handraises are dropped")
+	}
+	streams.SetSinks(sinks)
+	ingressOpts = append(ingressOpts, ingress.WithDispatchStream(streams))
 	var taskAuthorizer *taskdata.Authorizer
+	// The output limits and fan-out, when streaming output is on; a group member writes its output
+	// replicas under the same limits and hands their frames to the same subscribers.
+	var outputConfig taskdata.OutputStreamConfig
+	var outputFanout *taskdata.OutputDispatcher
 	// User request verification reads the current height (session grant windows) and the key each
 	// account holds on chain; found keys are cached, since an account's key never changes.
 	userChain := sdkauth.NewCachedChain(taskChain.LatestHeight, taskChain.AccountPubKey,
@@ -445,7 +556,8 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				Chain: userChain, MaxBlocks: sessionGrantBlocks,
 				SessionKeys: sessionKeys.cache, LocalTask: localTaskRecord(coord.TaskOwner),
 			},
-			Log: log,
+			Attempts: attempts,
+			Log:      log,
 		}, store, taskAuthority, serviceSG)
 		if err != nil {
 			_ = store.Close()
@@ -476,12 +588,14 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 				_ = store.Close()
 				return nil, err
 			}
-			taskService.SetOutputStreamConfig(taskdata.OutputStreamConfig{
+			outputConfig = taskdata.OutputStreamConfig{
 				MaxLeaves: stream.MaxOutputMMRLeaves, MinFrameBytes: stream.MinFrameBytes,
 				MaxFrameBytes: cfg.TaskData.ChunkSizeBytes, MaxAttachmentBytes: stream.MaxAttachmentBytes,
-			})
+			}
+			taskService.SetOutputStreamConfig(outputConfig)
 			dispatcher := taskdata.NewOutputDispatcher(int(stream.SubscriberBufferFrames))
-			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store))
+			outputFanout = dispatcher
+			ingressOpts = append(ingressOpts, ingress.WithOutputStream(taskService, dispatcher, store, attempts))
 			log.Info("streaming output enabled",
 				"max_output_mmr_leaves", stream.MaxOutputMMRLeaves, "min_frame_bytes", stream.MinFrameBytes,
 				"max_frame_bytes", cfg.TaskData.ChunkSizeBytes, "subscriber_buffer_frames", stream.SubscriberBufferFrames)
@@ -500,7 +614,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	}
 	outputs.SetPreparedResolver(coord.HasAcceptedOutput)
 	outputs.SetTaskTerminal(coord.IsTaskTerminal)
-	ing, err := ingress.New(log, cfg.Ingress, ingress.AuthParams{
+	authParams := ingress.AuthParams{
 		ChainID:               cfg.Chain.ChainID,
 		BuilderAddress:        selfAddr,
 		Bech32Prefix:          cfg.Identity.Bech32Prefix,
@@ -510,14 +624,62 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		MaxSessionGrantBlocks: sessionGrantBlocks,
 		SessionKeys:           sessionKeys.cache,
 		FeeDenom:              feeDenom,
-	}, coord, ingressOpts...)
+	}
+	if orderPath != nil {
+		var publish func(taskdata.ObjectKey, taskdata.OutputFrame)
+		if outputFanout != nil {
+			publish = outputFanout.Publish
+		}
+		members, err := orderPath.newMembers(membersDeps{
+			ChainID: cfg.Chain.ChainID, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix, Keys: keyCache, Groups: coord,
+			Store: store, Data: taskStore, OutputConfig: outputConfig, Publish: publish, Chain: taskChain, MaxInputBytes: cfg.TaskData.MaxBlobBytes,
+			FeeDenom: feeDenom, SessionKeys: sessionKeys.cache,
+		})
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("builder sync: %w", err)
+		}
+		orderPath.Members = members
+		ingressOpts = append(ingressOpts, ingress.WithDispatchRosters(orderPath.Rosters), ingress.WithBuilderSync(members, cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst), ingress.WithMemberReplicas(members, taskChain, cfg.Ingress.ReplicaWait()))
+		authParams.Precheck = orderPath.Precheck
+		authParams.Takeovers = orderPath.Takeovers
+		authParams.Rotation = orderPath.Keys
+	}
+	// The operator monitor: readiness, diagnostics and the drain requests in <data_dir>/ops, and the
+	// public readiness verdict and dispatch statistics on the ingress port.
+	var directForOps *directDispatch
+	if orderPath != nil {
+		directForOps = dispatch
+	}
+	monitor := newOpsMonitor(opsDeps{
+		DataDir: cfg.DataDir, BuilderAddress: selfAddr, AddressPrefix: cfg.Identity.Bech32Prefix, Dispatch: cfg.Dispatch,
+		Store: store, Height: taskChain.LatestHeight, Keys: keyCache, Streams: streams, Metrics: metrics,
+		Direct: directForOps, Orders: orderPath, Log: log,
+	})
+	ingressOpts = append(ingressOpts,
+		ingress.WithRoute("GET "+ops.ReadinessPath, monitor.ReadinessHandler()),
+		ingress.WithRoute("GET "+ops.PublicStatsPath, monitor.PublicStatsHandler()))
+	// Cortex model support confirmations are relayed by the Builder account on the Hub chain.
+	supportRelay, err := newSupportRelay(log, cfg.SupportRelay, cfg.Chain.TxConfirm, authority, cfg.Identity.Bech32Prefix,
+		store, registrationChain, sg, taskSubmitter)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("support relay: %w", err)
+	}
+	if supportRelay != nil {
+		ingressOpts = append(ingressOpts, ingress.WithSupportRelay(supportRelay))
+		log.Info("model support relay enabled", "flush_interval", cfg.SupportRelay.FlushInterval,
+			"flush_items", cfg.SupportRelay.FlushItems, "max_queued", cfg.SupportRelay.MaxQueued)
+	} else {
+		log.Warn("model support relay NOT served (support_relay.enabled is false or no account signer)")
+	}
+	ing, err := ingress.New(log, cfg.Ingress, authParams, coord, ingressOpts...)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("ingress: %w", err)
 	}
 
 	modules := []module{
-		{"msgbus", bus.Start, bus.Stop},
 		{"task-chaincli", taskChain.Start, taskChain.Stop},
 	}
 	if hubChain != nil {
@@ -526,17 +688,55 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if registrationModule != nil {
 		modules = append(modules, *registrationModule)
 	}
+	if serviceRing != nil {
+		modules = append(modules, serviceKeyModule(log, serviceRing))
+	}
 	outputModule := outputRecoveryLifecycle{
 		lifecycle: outputs,
 		complete:  coord.CompleteOutputRecovery,
 	}
-	modules = append(modules, runtimeModules(taskDataModule, rl, coord, outputModule, ing)...)
+	modules = append(modules, runtimeModules(taskDataModule, rl, coord, outputModule, streams, ing)...)
+	if dispatchModule != nil {
+		// Roots are issued once the coordinator follows the chain, and before streams are served.
+		modules = insertBefore(modules, "dispatch-stream", *dispatchModule)
+	}
+	if orderPath != nil {
+		// Orders resume before streams are served, so the answers replayed to them find their tickets.
+		modules = insertBefore(modules, "dispatch-stream", module{"order-dispatch", orderPath.Start, orderPath.Stop})
+	}
+	if supportRelay != nil {
+		// Held confirmations resume batching before ingress takes new ones.
+		modules = insertBefore(modules, "ingress", module{"support-relay", supportRelay.Start, supportRelay.Stop})
+	}
+	// A drain request left while the daemon was down is taken before the order path resumes its
+	// orders (which would otherwise issue tickets) and before ingress takes new ones.
+	opsBefore := "ingress"
+	if orderPath != nil {
+		opsBefore = "order-dispatch"
+	}
+	modules = insertBefore(modules, opsBefore, module{"ops", monitor.Start, monitor.Stop})
 
-	return &App{
+	app := &App{
 		cfg: cfg, log: log, kv: store, modules: modules,
 		beginIngressStop: ing.BeginStop,
 		chainReset:       chainResetMonitor,
-	}, nil
+	}
+	if dispatchModule != nil {
+		app.dispatch = dispatch
+	}
+	return app, nil
+}
+
+// insertBefore returns modules with m placed just before the module named name, or at the end.
+func insertBefore(modules []module, name string, m module) []module {
+	for i, current := range modules {
+		if current.name == name {
+			out := append([]module(nil), modules[:i]...)
+			out = append(out, m)
+			return append(out, modules[i:]...)
+		}
+	}
+	return append(modules, m)
 }
 
 func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
@@ -549,11 +749,106 @@ func inlinePayloadMax(legacyMax int, inlineMax uint64) int {
 	return legacyMax
 }
 
-func stage1AdmissionOption(accountSigner signer.Signer, registry coordinator.AdmissionRegistry, taskChainID string) coordinator.Option {
-	if accountSigner == nil {
-		return coordinator.WithOrderAdmission(nil)
+// serviceKeyEvents feeds the chain's service key events to what follows them, each set once it
+// exists: the key cache drops the operator's stale keys first, this Builder's ring stops signing
+// on its own revocation, the stream hub ends the Cortex streams whose binding key left, and the
+// takeovers whose entry has not gone out end once this Builder's own rotation is registered. When
+// the ring finds its key revoked, those takeovers end too.
+type serviceKeyEvents struct {
+	cache     atomic.Pointer[servicekey.Cache]
+	ring      atomic.Pointer[servicekey.Ring]
+	streams   atomic.Pointer[dispatchstream.Hub]
+	takeovers atomic.Pointer[takeover.Manager]
+}
+
+// revoked runs when this Builder's ring finds its current key revoked.
+func (k *serviceKeyEvents) revoked() {
+	if t := k.takeovers.Load(); t != nil {
+		t.KeyRevoked()
 	}
-	return coordinator.WithOrderAdmission(coordinator.NewHubStage1Admission(registry, accountSigner.Address(), taskChainID))
+}
+
+func (k *serviceKeyEvents) observe(ev chaincli.ChainEvent) {
+	if c := k.cache.Load(); c != nil {
+		c.ObserveEvent(ev)
+	}
+	if r := k.ring.Load(); r != nil {
+		r.ObserveEvent(ev)
+	}
+	if h := k.streams.Load(); h != nil {
+		h.ObserveEvent(ev)
+	}
+	if t := k.takeovers.Load(); t != nil {
+		t.ObserveKeyEvent(ev)
+	}
+}
+
+// logServiceKeySwitch is the ring's onSwitch: it logs a cutover, a revocation of the current key
+// (and runs onRevoked, when set) and the replacement that ends one.
+func logServiceKeySwitch(log *slog.Logger, onRevoked func()) func(old, current servicekey.Key) {
+	return func(old, current servicekey.Key) {
+		switch {
+		case current.Revoked:
+			log.Error("service key revoked: nothing is signed and no order is dispatched until a replacement key is current",
+				"nonce", current.Nonce, "service_address", current.Signer.Address())
+			if onRevoked != nil {
+				onRevoked()
+			}
+		case old.Revoked:
+			log.Info("service key replacement current: signing and dispatch resume", "old_nonce", old.Nonce, "nonce", current.Nonce,
+				"service_address", current.Signer.Address())
+		default:
+			log.Info("service key cutover: signing with the new current key", "old_nonce", old.Nonce, "nonce", current.Nonce,
+				"service_address", current.Signer.Address())
+		}
+	}
+}
+
+// serviceKeyStartupWait bounds the startup read of the service key binding; serviceKeyRetry is
+// how often it is read again after that until it succeeds.
+var (
+	serviceKeyStartupWait = 15 * time.Second
+	serviceKeyRetry       = 5 * time.Second
+)
+
+// serviceKeyModule reads the BUILDER service key binding before anything is served: the ring
+// signs nothing before its first read. A chain that does not answer in time does not stop the
+// start; the binding is read again in the background until it does, and nothing is signed until
+// then. A revoked current key does not stop the start either: nothing is signed until the ring
+// finds a replacement current, which the root registry's periodic key check reads.
+func serviceKeyModule(log *slog.Logger, ring *servicekey.Ring) module {
+	var cancel context.CancelFunc = func() {}
+	done := make(chan struct{})
+	close(done)
+	start := func(ctx context.Context) error {
+		waitCtx, stop := context.WithTimeout(ctx, serviceKeyStartupWait)
+		err := ring.Await(waitCtx, serviceKeyRetry)
+		stop()
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, servicekey.ErrRevoked) {
+			log.Error("service key revoked: nothing is signed and no order is dispatched until a replacement key is current", "err", err)
+			return nil
+		}
+		log.Warn("service key binding not read; nothing is signed until it is", "err", err)
+		var bg context.Context
+		bg, cancel = context.WithCancel(context.Background())
+		done = make(chan struct{})
+		go func(done chan struct{}) {
+			defer close(done)
+			if err := ring.Await(bg, serviceKeyRetry); err == nil {
+				log.Info("service key binding read; signing enabled", "nonce", ring.Key().Nonce)
+			}
+		}(done)
+		return nil
+	}
+	stop := func(context.Context) error {
+		cancel()
+		<-done
+		return nil
+	}
+	return module{name: "service-key", start: start, stop: stop}
 }
 
 func newBuilderRegistrationModule(
@@ -619,7 +914,7 @@ func stopRuntimeModules(
 			onError("ingress-drain", err)
 		}
 	}
-	stopped := make(map[string]bool, 2)
+	stopped := make(map[string]bool, 3)
 	stopNamed := func(name string) {
 		for index := len(modules) - 1; index >= 0; index-- {
 			if modules[index].name != name {
@@ -632,8 +927,9 @@ func stopRuntimeModules(
 			return
 		}
 	}
-	// Wake long-lived output streams before waiting for graceful HTTP shutdown.
+	// Wake long-lived output and Cortex dispatch streams before waiting for graceful HTTP shutdown.
 	stopNamed("output-delivery")
+	stopNamed("dispatch-stream")
 	stopNamed("ingress")
 	for index := len(modules) - 1; index >= 0; index-- {
 		current := modules[index]

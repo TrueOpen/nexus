@@ -530,9 +530,10 @@ func (s *Store) advanceState(key ObjectKey, target State, mutate func(*Metadata)
 	}
 	current := record.Metadata.State
 	if stateRank(current) >= stateRank(target) && stateRank(current) > 0 {
-		// A repeated MarkReady also repairs an INPUT index whose write failed the first time.
+		// A repeated MarkReady also repairs an INPUT index whose write failed the first time; it
+		// never takes the index from another READY version.
 		if current == StateReady && key.Kind == ObjectKindInput {
-			if err := s.indexInput(key); err != nil {
+			if err := s.indexInput(key, false); err != nil {
 				return Metadata{}, err
 			}
 		}
@@ -556,7 +557,7 @@ func (s *Store) advanceState(key ObjectKey, target State, mutate func(*Metadata)
 	var indexErr error
 	if target == StateReady && key.Kind == ObjectKindInput {
 		var indexOp *kv.WriteOp
-		if indexOp, indexErr = s.inputIndexOp(key); indexErr == nil && indexOp != nil {
+		if indexOp, indexErr = s.inputIndexOp(key, true); indexErr == nil && indexOp != nil {
 			ops = append(ops, *indexOp)
 		}
 	}
@@ -912,13 +913,16 @@ func objectIndexKey(sessionID, taskID string, kind ObjectKind) string {
 	return sessionID + "|" + taskID + "|" + kind.String()
 }
 
-// indexInput points the (session, task, INPUT) index at key when that INPUT becomes READY. Once
-// OpenTask refuses other versions, only one INPUT version of a task reaches READY, so an index that
-// already names another READY object is a broken invariant: it is kept and logged, never silently
-// repointed. An index naming a missing or not-READY object is replaced. Callers hold s.mu or the
-// exclusive maintenance lock.
-func (s *Store) indexInput(key ObjectKey) error {
-	op, err := s.inputIndexOp(key)
+// indexInput points the (session, task, INPUT) index at key. An INPUT version is marked READY
+// only once the dispatcher took its order: another version of an order still being dispatched,
+// accepted or recorded is refused before its input turns READY. A second version of a task turns
+// READY only as the re-signed retry of an order whose dispatch failed (same task_id, new
+// task_hash), and the retry is the version dispatched from then on, so an INPUT turning READY
+// (takeOver) takes the index from any other version; the earlier version stays stored until its
+// retention ends. A repair of a READY version's index (not takeOver) replaces only an index naming
+// a missing or not-READY object. Callers hold s.mu or the exclusive maintenance lock.
+func (s *Store) indexInput(key ObjectKey, takeOver bool) error {
+	op, err := s.inputIndexOp(key, takeOver)
 	if err != nil || op == nil {
 		return err
 	}
@@ -929,7 +933,7 @@ func (s *Store) indexInput(key ObjectKey) error {
 }
 
 // inputIndexOp is the index write indexInput would make, or nil when the index must stay as it is.
-func (s *Store) inputIndexOp(key ObjectKey) (*kv.WriteOp, error) {
+func (s *Store) inputIndexOp(key ObjectKey, takeOver bool) (*kv.WriteOp, error) {
 	indexKey := objectIndexKey(key.SessionID, key.TaskID, ObjectKindInput)
 	current, found, err := s.indexedRef(indexKey)
 	if err != nil {
@@ -938,17 +942,19 @@ func (s *Store) inputIndexOp(key ObjectKey) (*kv.WriteOp, error) {
 	if found && current == key {
 		return nil, nil
 	}
-	if found {
+	if found && !takeOver {
 		record, ok, err := s.metadataRecord(objectKeyString(current))
 		if err != nil {
 			return nil, err
 		}
 		if ok && record.Metadata.State == StateReady {
-			s.log.Error("task input index names another READY version; keeping it",
-				"session_id", key.SessionID, "task_id", key.TaskID,
-				"indexed_task_hash", current.TaskHash, "ready_task_hash", key.TaskHash)
 			return nil, nil
 		}
+	}
+	if found && takeOver && current.TaskHash != key.TaskHash {
+		s.log.Info("task input index moves to the retried order version",
+			"session_id", key.SessionID, "task_id", key.TaskID,
+			"previous_task_hash", current.TaskHash, "task_hash", key.TaskHash)
 	}
 	raw, err := json.Marshal(key)
 	if err != nil {
@@ -987,8 +993,9 @@ func (s *Store) indexedRef(indexKey string) (ObjectRef, bool, error) {
 	return ref, true, nil
 }
 
-// ResolveObject recovers the full object ref from (session, task, kind). A Task has only one INPUT,
-// so this key is unambiguous; not found is ErrNotFound, with no guessing.
+// ResolveObject recovers the full object ref from (session, task, kind). For an INPUT it is the
+// version of the task being dispatched (the last one to turn READY, see indexInput); not found is
+// ErrNotFound, with no guessing.
 func (s *Store) ResolveObject(_ context.Context, sessionID, taskID string, kind ObjectKind) (ObjectRef, error) {
 	ref, found, err := s.indexedRef(objectIndexKey(sessionID, taskID, kind))
 	if err != nil {
@@ -1043,7 +1050,8 @@ func sameReceipt(left, right *SignedInferReceipt) bool {
 		left.OutputKeyCommitment == right.OutputKeyCommitment &&
 		left.WorkerTokenKeyCommitment == right.WorkerTokenKeyCommitment &&
 		left.WorkerValueKeyCommitment == right.WorkerValueKeyCommitment &&
-		left.CiphertextOutputRoot == right.CiphertextOutputRoot
+		left.CiphertextOutputRoot == right.CiphertextOutputRoot &&
+		left.DispatchTicketHash == right.DispatchTicketHash
 }
 
 func cloneMetadata(metadata Metadata) Metadata {

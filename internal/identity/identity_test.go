@@ -147,3 +147,42 @@ func makeCosmosArmor(t *testing.T, keyHex, passphrase string) string {
 	}
 	return buf.String()
 }
+
+// The registered replacement service key is loaded from its own keystore and password file; it
+// needs a dedicated service key next to it, and is optional.
+func TestLoadNextServiceSigner(t *testing.T) {
+	none, err := LoadNextServiceSigner(config.IdentityConfig{Bech32Prefix: "trueopen"})
+	if err != nil || none != nil {
+		t.Fatalf("without a next key = %v, %v", none, err)
+	}
+	dir := t.TempDir()
+	raw := bytes.Repeat([]byte{0x42}, 32)
+	armor, err := signer.EncryptKeystoreArmor(raw, []byte("next-pass"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile, passFile := filepath.Join(dir, "next.armor"), filepath.Join(dir, "next.pass")
+	if err := os.WriteFile(keyFile, armor, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passFile, []byte("next-pass\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.IdentityConfig{Bech32Prefix: "trueopen", ServiceKeystoreFile: filepath.Join(dir, "service.armor"),
+		NextServiceKeystoreFile: keyFile, NextServiceKeystorePasswordFile: passFile}
+	got, err := LoadNextServiceSigner(cfg)
+	want, _ := signer.NewFromBytes(raw, "trueopen")
+	if err != nil || got == nil || got.Address() != want.Address() {
+		t.Fatalf("next key = %v, %v", got, err)
+	}
+	shared := cfg
+	shared.ServiceKeystoreFile = ""
+	if _, err := LoadNextServiceSigner(shared); err == nil || !strings.Contains(err.Error(), "service_keystore_file") {
+		t.Fatalf("next key without a dedicated service key = %v", err)
+	}
+	noPass := cfg
+	noPass.NextServiceKeystorePasswordFile = ""
+	if _, err := LoadNextServiceSigner(noPass); err == nil || !strings.Contains(err.Error(), "password") {
+		t.Fatalf("next key without a password file = %v", err)
+	}
+}

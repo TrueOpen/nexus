@@ -128,7 +128,6 @@ type TaskTerminalSummaryState struct {
 	TaskType                            v1.TaskType             `protobuf:"varint,13,opt,name=task_type,json=taskType,proto3,enum=shared.v1.TaskType" json:"task_type,omitempty"`
 	CandidatePoolSnapshotId             []byte                  `protobuf:"bytes,14,opt,name=candidate_pool_snapshot_id,json=candidatePoolSnapshotId,proto3" json:"candidate_pool_snapshot_id,omitempty"`
 	CandidatePoolHash                   []byte                  `protobuf:"bytes,15,opt,name=candidate_pool_hash,json=candidatePoolHash,proto3" json:"candidate_pool_hash,omitempty"`
-	AssignmentCandidateSetHash          []byte                  `protobuf:"bytes,16,opt,name=assignment_candidate_set_hash,json=assignmentCandidateSetHash,proto3" json:"assignment_candidate_set_hash,omitempty"`
 	CandidatePoolRefReleased            bool                    `protobuf:"varint,17,opt,name=candidate_pool_ref_released,json=candidatePoolRefReleased,proto3" json:"candidate_pool_ref_released,omitempty"`
 	WinnerWorker                        *string                 `protobuf:"bytes,18,opt,name=winner_worker,json=winnerWorker,proto3,oneof" json:"winner_worker,omitempty"`
 	Round1SelectedVerifiersHashOrZero32 []byte                  `protobuf:"bytes,19,opt,name=round1_selected_verifiers_hash_or_zero32,json=round1SelectedVerifiersHashOrZero32,proto3" json:"round1_selected_verifiers_hash_or_zero32,omitempty"`
@@ -158,8 +157,10 @@ type TaskTerminalSummaryState struct {
 	CreatedHeight                       uint64                  `protobuf:"varint,43,opt,name=created_height,json=createdHeight,proto3" json:"created_height,omitempty"`
 	CompactedHeight                     uint64                  `protobuf:"varint,44,opt,name=compacted_height,json=compactedHeight,proto3" json:"compacted_height,omitempty"`
 	SummaryHash                         []byte                  `protobuf:"bytes,45,opt,name=summary_hash,json=summaryHash,proto3" json:"summary_hash,omitempty"`
-	unknownFields                       protoimpl.UnknownFields
-	sizeCache                           protoimpl.SizeCache
+	// Retained admission commitment distinguishes a pruned record from no admission.
+	DispatchRecordHash []byte `protobuf:"bytes,46,opt,name=dispatch_record_hash,json=dispatchRecordHash,proto3" json:"dispatch_record_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *TaskTerminalSummaryState) Reset() {
@@ -293,13 +294,6 @@ func (x *TaskTerminalSummaryState) GetCandidatePoolSnapshotId() []byte {
 func (x *TaskTerminalSummaryState) GetCandidatePoolHash() []byte {
 	if x != nil {
 		return x.CandidatePoolHash
-	}
-	return nil
-}
-
-func (x *TaskTerminalSummaryState) GetAssignmentCandidateSetHash() []byte {
-	if x != nil {
-		return x.AssignmentCandidateSetHash
 	}
 	return nil
 }
@@ -507,6 +501,13 @@ func (x *TaskTerminalSummaryState) GetSummaryHash() []byte {
 	return nil
 }
 
+func (x *TaskTerminalSummaryState) GetDispatchRecordHash() []byte {
+	if x != nil {
+		return x.DispatchRecordHash
+	}
+	return nil
+}
+
 // TaskCleanupCursorState is the single restart-safe cursor for one Task.
 type TaskCleanupCursorState struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -641,7 +642,7 @@ var File_task_v1_cleanup_proto protoreflect.FileDescriptor
 
 const file_task_v1_cleanup_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/cleanup.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/model_profile.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x18task/v1/settlement.proto\"\xb0\x13\n" +
+	"\x15task/v1/cleanup.proto\x12\atask.v1\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/model_profile.proto\x1a\x1fshared/v1/round_economics.proto\x1a\x18task/v1/assignment.proto\x1a\x18task/v1/settlement.proto\"\xc4\x13\n" +
 	"\x18TaskTerminalSummaryState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1d\n" +
 	"\n" +
@@ -659,8 +660,7 @@ const file_task_v1_cleanup_proto_rawDesc = "" +
 	"\x0fprofile_version\x18\f \x01(\rR\x0eprofileVersion\x120\n" +
 	"\ttask_type\x18\r \x01(\x0e2\x13.shared.v1.TaskTypeR\btaskType\x12;\n" +
 	"\x1acandidate_pool_snapshot_id\x18\x0e \x01(\fR\x17candidatePoolSnapshotId\x12.\n" +
-	"\x13candidate_pool_hash\x18\x0f \x01(\fR\x11candidatePoolHash\x12A\n" +
-	"\x1dassignment_candidate_set_hash\x18\x10 \x01(\fR\x1aassignmentCandidateSetHash\x12=\n" +
+	"\x13candidate_pool_hash\x18\x0f \x01(\fR\x11candidatePoolHash\x12=\n" +
 	"\x1bcandidate_pool_ref_released\x18\x11 \x01(\bR\x18candidatePoolRefReleased\x12(\n" +
 	"\rwinner_worker\x18\x12 \x01(\tH\x00R\fwinnerWorker\x88\x01\x01\x12U\n" +
 	"(round1_selected_verifiers_hash_or_zero32\x18\x13 \x01(\fR#round1SelectedVerifiersHashOrZero32\x12U\n" +
@@ -689,9 +689,10 @@ const file_task_v1_cleanup_proto_rawDesc = "" +
 	"\x12fault_summary_hash\x18* \x01(\fR\x10faultSummaryHash\x12%\n" +
 	"\x0ecreated_height\x18+ \x01(\x04R\rcreatedHeight\x12)\n" +
 	"\x10compacted_height\x18, \x01(\x04R\x0fcompactedHeight\x12!\n" +
-	"\fsummary_hash\x18- \x01(\fR\vsummaryHashB\x10\n" +
+	"\fsummary_hash\x18- \x01(\fR\vsummaryHash\x120\n" +
+	"\x14dispatch_record_hash\x18. \x01(\fR\x12dispatchRecordHashB\x10\n" +
 	"\x0e_winner_workerB\x11\n" +
-	"\x0f_round2_outcome\"\xda\x01\n" +
+	"\x0f_round2_outcomeJ\x04\b\x10\x10\x11R\x1dassignment_candidate_set_hash\"\xda\x01\n" +
 	"\x16TaskCleanupCursorState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12/\n" +
 	"\x05phase\x18\x02 \x01(\x0e2\x19.task.v1.TaskCleanupPhaseR\x05phase\x12,\n" +

@@ -7,7 +7,10 @@ import "shared/v1/common.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
-// MsgRotateServiceKey replaces the current service key binding of one stable operator (10.0c1).
+// MsgRotateServiceKey registers one operator-authorized pending replacement.
+// Current address/key/nonce stay unchanged until the fixed E+2 epoch start.
+// Previous-generation evidence and the hard-limit interval gate another
+// registration; pending admission rules are local Builder policy.
 message MsgRotateServiceKey {
   shared.v1.ParticipantType participant_type = 1;
   bytes new_service_pubkey = 2;
@@ -16,12 +19,13 @@ message MsgRotateServiceKey {
   string operator_address = 5;
 }
 
-// MsgRotateServiceKeyResponse returns the new service address and authorization nonce.
+// MsgRotateServiceKeyResponse returns the proposed binding, not live permission.
 message MsgRotateServiceKeyResponse {
   string operator_address = 1;
   string new_service_address = 2;
   uint64 new_nonce = 3;
   shared.v1.MutationStatusV1 status = 4;
+  PendingServiceKeyRotationState pending_rotation = 5;
 }
 
 // MsgRevokeServiceKey immediately revokes the current service key binding (9.6a).

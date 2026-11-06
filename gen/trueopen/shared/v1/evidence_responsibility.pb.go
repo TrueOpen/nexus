@@ -482,6 +482,109 @@ func (x *BuilderObjectiveEvidenceReceiptV2) GetStatus() MutationStatusV1 {
 	return MutationStatusV1_MUTATION_STATUS_V1_UNSPECIFIED
 }
 
+// VerifierValueEvidenceFactV1 carries only Task-validated attribution to Hub.
+// Raw leaves, signatures and paths never enter the Hub Store. Fault class must
+// match duty: VERIFIER_VALUE_MISMATCH/VERIFIER or WORKER_VALUES_INVALID/WORKER.
+type VerifierValueEvidenceFactV1 struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	SessionId             []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId                []byte                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	VerifyRound           uint32                 `protobuf:"varint,3,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
+	TargetOperatorAddress string                 `protobuf:"bytes,4,opt,name=target_operator_address,json=targetOperatorAddress,proto3" json:"target_operator_address,omitempty"`
+	FaultedDuty           Duty                   `protobuf:"varint,5,opt,name=faulted_duty,json=faultedDuty,proto3,enum=shared.v1.Duty" json:"faulted_duty,omitempty"`
+	FaultClass            FaultKind              `protobuf:"varint,6,opt,name=fault_class,json=faultClass,proto3,enum=shared.v1.FaultKind" json:"fault_class,omitempty"`
+	EvidenceDigest        []byte                 `protobuf:"bytes,7,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
+	FrozenSlashBps        uint32                 `protobuf:"varint,8,opt,name=frozen_slash_bps,json=frozenSlashBps,proto3" json:"frozen_slash_bps,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *VerifierValueEvidenceFactV1) Reset() {
+	*x = VerifierValueEvidenceFactV1{}
+	mi := &file_shared_v1_evidence_responsibility_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifierValueEvidenceFactV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifierValueEvidenceFactV1) ProtoMessage() {}
+
+func (x *VerifierValueEvidenceFactV1) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_v1_evidence_responsibility_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifierValueEvidenceFactV1.ProtoReflect.Descriptor instead.
+func (*VerifierValueEvidenceFactV1) Descriptor() ([]byte, []int) {
+	return file_shared_v1_evidence_responsibility_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *VerifierValueEvidenceFactV1) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *VerifierValueEvidenceFactV1) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *VerifierValueEvidenceFactV1) GetVerifyRound() uint32 {
+	if x != nil {
+		return x.VerifyRound
+	}
+	return 0
+}
+
+func (x *VerifierValueEvidenceFactV1) GetTargetOperatorAddress() string {
+	if x != nil {
+		return x.TargetOperatorAddress
+	}
+	return ""
+}
+
+func (x *VerifierValueEvidenceFactV1) GetFaultedDuty() Duty {
+	if x != nil {
+		return x.FaultedDuty
+	}
+	return Duty_DUTY_UNSPECIFIED
+}
+
+func (x *VerifierValueEvidenceFactV1) GetFaultClass() FaultKind {
+	if x != nil {
+		return x.FaultClass
+	}
+	return FaultKind_FAULT_KIND_UNSPECIFIED
+}
+
+func (x *VerifierValueEvidenceFactV1) GetEvidenceDigest() []byte {
+	if x != nil {
+		return x.EvidenceDigest
+	}
+	return nil
+}
+
+func (x *VerifierValueEvidenceFactV1) GetFrozenSlashBps() uint32 {
+	if x != nil {
+		return x.FrozenSlashBps
+	}
+	return 0
+}
+
 var File_shared_v1_evidence_responsibility_proto protoreflect.FileDescriptor
 
 const file_shared_v1_evidence_responsibility_proto_rawDesc = "" +
@@ -520,7 +623,18 @@ const file_shared_v1_evidence_responsibility_proto_rawDesc = "" +
 	"evidenceId\x12\x1e\n" +
 	"\bfault_id\x18\x02 \x01(\fH\x00R\afaultId\x88\x01\x01\x123\n" +
 	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB\v\n" +
-	"\t_fault_idB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
+	"\t_fault_id\"\xee\x02\n" +
+	"\x1bVerifierValueEvidenceFactV1\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\fR\x06taskId\x12!\n" +
+	"\fverify_round\x18\x03 \x01(\rR\vverifyRound\x126\n" +
+	"\x17target_operator_address\x18\x04 \x01(\tR\x15targetOperatorAddress\x122\n" +
+	"\ffaulted_duty\x18\x05 \x01(\x0e2\x0f.shared.v1.DutyR\vfaultedDuty\x125\n" +
+	"\vfault_class\x18\x06 \x01(\x0e2\x14.shared.v1.FaultKindR\n" +
+	"faultClass\x12'\n" +
+	"\x0fevidence_digest\x18\a \x01(\fR\x0eevidenceDigest\x12(\n" +
+	"\x10frozen_slash_bps\x18\b \x01(\rR\x0efrozenSlashBpsB;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
 
 var (
 	file_shared_v1_evidence_responsibility_proto_rawDescOnce sync.Once
@@ -534,25 +648,30 @@ func file_shared_v1_evidence_responsibility_proto_rawDescGZIP() []byte {
 	return file_shared_v1_evidence_responsibility_proto_rawDescData
 }
 
-var file_shared_v1_evidence_responsibility_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_shared_v1_evidence_responsibility_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_shared_v1_evidence_responsibility_proto_goTypes = []any{
 	(*BuilderObjectiveEvidenceFactV2)(nil),              // 0: shared.v1.BuilderObjectiveEvidenceFactV2
 	(*WorkerObjectiveEvidenceFactV1)(nil),               // 1: shared.v1.WorkerObjectiveEvidenceFactV1
 	(*BusObjectiveEvidenceResponsibilityV1)(nil),        // 2: shared.v1.BusObjectiveEvidenceResponsibilityV1
 	(*BusObjectiveEvidenceResponsibilityReceiptV1)(nil), // 3: shared.v1.BusObjectiveEvidenceResponsibilityReceiptV1
 	(*BuilderObjectiveEvidenceReceiptV2)(nil),           // 4: shared.v1.BuilderObjectiveEvidenceReceiptV2
-	(BuilderEvidenceKind)(0),                            // 5: shared.v1.BuilderEvidenceKind
-	(MutationStatusV1)(0),                               // 6: shared.v1.MutationStatusV1
+	(*VerifierValueEvidenceFactV1)(nil),                 // 5: shared.v1.VerifierValueEvidenceFactV1
+	(BuilderEvidenceKind)(0),                            // 6: shared.v1.BuilderEvidenceKind
+	(MutationStatusV1)(0),                               // 7: shared.v1.MutationStatusV1
+	(Duty)(0),                                           // 8: shared.v1.Duty
+	(FaultKind)(0),                                      // 9: shared.v1.FaultKind
 }
 var file_shared_v1_evidence_responsibility_proto_depIdxs = []int32{
-	5, // 0: shared.v1.BuilderObjectiveEvidenceFactV2.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
-	6, // 1: shared.v1.BusObjectiveEvidenceResponsibilityReceiptV1.status:type_name -> shared.v1.MutationStatusV1
-	6, // 2: shared.v1.BuilderObjectiveEvidenceReceiptV2.status:type_name -> shared.v1.MutationStatusV1
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	6, // 0: shared.v1.BuilderObjectiveEvidenceFactV2.evidence_kind:type_name -> shared.v1.BuilderEvidenceKind
+	7, // 1: shared.v1.BusObjectiveEvidenceResponsibilityReceiptV1.status:type_name -> shared.v1.MutationStatusV1
+	7, // 2: shared.v1.BuilderObjectiveEvidenceReceiptV2.status:type_name -> shared.v1.MutationStatusV1
+	8, // 3: shared.v1.VerifierValueEvidenceFactV1.faulted_duty:type_name -> shared.v1.Duty
+	9, // 4: shared.v1.VerifierValueEvidenceFactV1.fault_class:type_name -> shared.v1.FaultKind
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_shared_v1_evidence_responsibility_proto_init() }
@@ -568,7 +687,7 @@ func file_shared_v1_evidence_responsibility_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shared_v1_evidence_responsibility_proto_rawDesc), len(file_shared_v1_evidence_responsibility_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

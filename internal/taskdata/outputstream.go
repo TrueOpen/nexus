@@ -71,6 +71,13 @@ type OutputChunk struct {
 	WorkerSignature     []byte
 	Attachment          []byte
 	AttachmentSignature []byte
+	// DispatchTicketHash is the dispatch attempt the Worker signed the frame for; it equals the
+	// stream header's ticket.
+	DispatchTicketHash []byte
+	// CumulativeGeneratedTokens is the Worker's count of tokens generated through this chunk,
+	// non-decreasing over the attempt. It decides how much output is forwarded before the record;
+	// the Builder does not count tokens itself.
+	CumulativeGeneratedTokens uint64
 }
 
 // OutputFin is the closing frame of a stream (wire OutputFinV1). FinishReason and WorkerSignature
@@ -81,6 +88,9 @@ type OutputFin struct {
 	OutputMMRRoot   []byte
 	FinishReason    uint32
 	WorkerSignature []byte
+	// DispatchTicketHash is the dispatch attempt the Worker signed the Fin for; it equals the stream
+	// header's ticket.
+	DispatchTicketHash []byte
 }
 
 // OutputFrame is one frame forwarded to subscribers: either a Chunk or a Fin, never both.
@@ -110,6 +120,8 @@ type outputFrameRecord struct {
 	Length              uint32 `json:"length"`
 	Root                string `json:"root"`
 	Signature           []byte `json:"signature"`
+	DispatchTicketHash  []byte `json:"dispatch_ticket_hash,omitempty"`
+	CumulativeTokens    uint64 `json:"cumulative_generated_tokens,omitempty"`
 	AttachmentOffset    uint64 `json:"attachment_offset,omitempty"`
 	AttachmentLength    uint32 `json:"attachment_length,omitempty"`
 	AttachmentSignature []byte `json:"attachment_signature,omitempty"`
@@ -128,6 +140,8 @@ type outputStreamRecord struct {
 	LeafCount      uint64    `json:"leaf_count"`
 	Peaks          []string  `json:"peaks"`
 	LastFrameShort bool      `json:"last_frame_short"`
+	// LastTokens is the cumulative_generated_tokens of the last chunk.
+	LastTokens uint64 `json:"last_tokens,omitempty"`
 	// ContentHash is filled in at Fin (= the MMR root, i.e. output_hash): once finalized the object
 	// is located by its full object ref.
 	ContentHash string `json:"content_hash,omitempty"`
@@ -135,6 +149,7 @@ type outputStreamRecord struct {
 	// The Worker's Fin fields as received, kept for byte-identical replay to subscribers.
 	FinishReason       uint32 `json:"finish_reason,omitempty"`
 	FinWorkerSignature []byte `json:"fin_worker_signature,omitempty"`
+	FinDispatchTicket  []byte `json:"fin_dispatch_ticket_hash,omitempty"`
 	// Header is the Worker-signed stream declaration of the latest verified open. It is kept, not
 	// replayed: subscriptions have no header frame yet.
 	Header *OutputStreamHeaderRecord `json:"header,omitempty"`
@@ -142,7 +157,7 @@ type outputStreamRecord struct {
 
 // OutputStreamHeaderRecord is the signed part of OutputStreamHeaderV2 as received.
 type OutputStreamHeaderRecord struct {
-	Attempt             uint32 `json:"attempt"`
+	DispatchTicketHash  []byte `json:"dispatch_ticket_hash"`
 	StreamInstance      uint32 `json:"stream_instance"`
 	UserRecipientPubkey []byte `json:"user_recipient_pubkey,omitempty"`
 	OutputKeyCommitment []byte `json:"output_key_commitment"`
@@ -245,7 +260,14 @@ func (s *Store) admitStreamLocked(pending uint64) error {
 // stream. If the same Task already has an in-progress stream: the new stream takes over, any later
 // operation on the old one returns ErrConflict, and the chunks it already received are not
 // rewritten.
-func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig) (*OutputStream, OutputStreamProgress, error) {
+func (s *Store) OpenOutputStream(ctx context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig) (*OutputStream, OutputStreamProgress, error) {
+	return s.openOutputStream(ctx, key, uploader, cfg, nil)
+}
+
+// openOutputStream opens the stream for a verified header. A stream stored for another dispatch
+// attempt (a different header ticket) is dropped first: the frames of two attempts are signed for
+// different tickets and must never share one MMR.
+func (s *Store) openOutputStream(_ context.Context, key ObjectKey, uploader string, cfg OutputStreamConfig, header *OutputStreamHeaderRecord) (*OutputStream, OutputStreamProgress, error) {
 	// A stream in transfer is located by (task_hash, session_id, task_id): content_hash can only be
 	// computed at Fin, so a full object ref cannot be required here.
 	if err := validateStreamKey(key); err != nil {
@@ -271,6 +293,15 @@ func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader stri
 	record, found, err := s.outputStreamRecord(encoded)
 	if err != nil {
 		return nil, OutputStreamProgress{}, err
+	}
+	if found && header != nil && (record.Header == nil || !bytes.Equal(record.Header.DispatchTicketHash, header.DispatchTicketHash)) {
+		// The stored stream is another dispatch attempt's. The caller authorized this header's
+		// ticket as the task's live attempt, so the stored one was never recorded and its frames
+		// will never be delivered: drop them rather than mix two attempts in one MMR.
+		if err := s.retireOutputStreamLocked(encoded, record); err != nil {
+			return nil, OutputStreamProgress{}, err
+		}
+		found = false
 	}
 	if found && record.Sealed {
 		acc, err := record.accumulator()
@@ -348,6 +379,10 @@ func (s *Store) OpenOutputStream(_ context.Context, key ObjectKey, uploader stri
 			return nil, OutputStreamProgress{}, err
 		}
 	}
+	if header != nil {
+		recorded := *header
+		stream.record.Header = &recorded
+	}
 	s.outputStreams[encoded] = stream
 	return stream, stream.record.progress(stream.acc.Root()), nil
 }
@@ -423,13 +458,6 @@ func (st *OutputStream) Progress() OutputStreamProgress { return st.record.progr
 // Key returns the object key of this stream.
 func (st *OutputStream) Key() ObjectKey { return st.key }
 
-// recordHeader keeps the verified stream declaration; it is persisted with the next frame.
-func (st *OutputStream) recordHeader(header OutputStreamHeaderRecord) {
-	st.store.mu.Lock()
-	defer st.store.mu.Unlock()
-	st.record.Header = &header
-}
-
 func (st *OutputStream) usable() error {
 	if st.superseded {
 		return fmt.Errorf("%w: output stream superseded by a newer connection", ErrConflict)
@@ -456,6 +484,9 @@ func (st *OutputStream) Append(_ context.Context, chunk OutputChunk) (mmr.Hash, 
 	switch {
 	case chunk.Seq != expected:
 		return mmr.Hash{}, st.fail(fmt.Errorf("%w: chunk seq %d, expected %d", ErrMalformed, chunk.Seq, expected))
+	case st.record.Received && chunk.CumulativeGeneratedTokens < st.record.LastTokens:
+		return mmr.Hash{}, st.fail(fmt.Errorf("%w: cumulative_generated_tokens %d below the previous %d", ErrMalformed,
+			chunk.CumulativeGeneratedTokens, st.record.LastTokens))
 	case st.record.LastFrameShort:
 		return mmr.Hash{}, st.fail(fmt.Errorf("%w: only fin may follow a short chunk", ErrMalformed))
 	case len(chunk.MMRRoot) != sha256.Size:
@@ -485,7 +516,9 @@ func (st *OutputStream) Append(_ context.Context, chunk OutputChunk) (mmr.Hash, 
 	}
 	frame := outputFrameRecord{
 		Seq: chunk.Seq, Offset: st.record.TotalBytes, Length: uint32(len(chunk.Text)), Root: hex.EncodeToString(root[:]),
-		Signature: append([]byte(nil), chunk.WorkerSignature...),
+		Signature:          append([]byte(nil), chunk.WorkerSignature...),
+		DispatchTicketHash: append([]byte(nil), chunk.DispatchTicketHash...),
+		CumulativeTokens:   chunk.CumulativeGeneratedTokens,
 	}
 	next := st.record
 	if len(chunk.Attachment) > 0 {
@@ -500,7 +533,7 @@ func (st *OutputStream) Append(_ context.Context, chunk OutputChunk) (mmr.Hash, 
 		frame.AttachmentSignature = append([]byte(nil), chunk.AttachmentSignature...)
 		next.AttachBytes += uint64(len(chunk.Attachment))
 	}
-	next.Received, next.LastSeq = true, chunk.Seq
+	next.Received, next.LastSeq, next.LastTokens = true, chunk.Seq, chunk.CumulativeGeneratedTokens
 	next.TotalBytes += uint64(len(chunk.Text))
 	next.LeafCount++
 	next.LastFrameShort = uint64(len(chunk.Text)) < st.cfg.MinFrameBytes
@@ -607,6 +640,7 @@ func (st *OutputStream) Finish(ctx context.Context, fin OutputFin) (Metadata, er
 	sealed.ContentHash = rootHex
 	sealed.FinishReason = fin.FinishReason
 	sealed.FinWorkerSignature = append([]byte(nil), fin.WorkerSignature...)
+	sealed.FinDispatchTicket = append([]byte(nil), fin.DispatchTicketHash...)
 	progress, err := json.Marshal(sealed)
 	if err != nil {
 		return Metadata{}, st.failLocked(fmt.Errorf("%w: encode output stream: %v", ErrStorage, err))
@@ -726,7 +760,8 @@ func (s *Store) SealedOutputFin(_ context.Context, key ObjectKey) (OutputFin, bo
 	}
 	return OutputFin{
 		FinalSeq: record.LeafCount - 1, OutputMMRRoot: root, FinishReason: record.FinishReason,
-		WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+		WorkerSignature:    append([]byte(nil), record.FinWorkerSignature...),
+		DispatchTicketHash: append([]byte(nil), record.FinDispatchTicket...),
 	}, true, nil
 }
 
@@ -745,6 +780,12 @@ func (s *Store) SealedOutputFinishReason(_ context.Context, key ObjectKey) (uint
 // from the spool (in progress) or the blob (sealed), and the attachment from the .attach file of the
 // same name.
 func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64) ([]OutputFrame, error) {
+	return s.outputFrames(key, afterSeq, 0)
+}
+
+// outputFrames is OutputFrames stopping once the chunk text read reaches maxBytes (0: no limit),
+// with at least one chunk; the Fin is appended only when every chunk after afterSeq was read.
+func (s *Store) outputFrames(key ObjectKey, afterSeq *uint64, maxBytes int) ([]OutputFrame, error) {
 	s.maintenance.RLock()
 	defer s.maintenance.RUnlock()
 	encoded := streamKeyString(key)
@@ -781,11 +822,13 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		}
 		defer attach.Close()
 	}
-	frames := make([]OutputFrame, 0, record.LeafCount+1)
-	for seq := uint64(0); seq < record.LeafCount; seq++ {
-		if afterSeq != nil && seq <= *afterSeq {
-			continue
-		}
+	start := uint64(0)
+	if afterSeq != nil {
+		start = *afterSeq + 1
+	}
+	frames := make([]OutputFrame, 0, min(record.LeafCount-min(start, record.LeafCount), 1024)+1)
+	size, complete := 0, true
+	for seq := start; seq < record.LeafCount; seq++ {
 		frame, found, err := s.outputFrameRecord(encoded, seq)
 		if err != nil {
 			return nil, err
@@ -793,6 +836,11 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		if !found {
 			return nil, fmt.Errorf("%w: output frame %d missing", ErrStorage, seq)
 		}
+		if maxBytes > 0 && len(frames) > 0 && size+int(frame.Length) > maxBytes {
+			complete = false
+			break
+		}
+		size += int(frame.Length)
 		text, err := readSection(file, frame.Offset, uint64(frame.Length))
 		if err != nil {
 			return nil, fmt.Errorf("%w: read stream chunk %d: %v", ErrStorage, seq, err)
@@ -803,8 +851,10 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		}
 		chunk := &OutputChunk{
 			Seq: seq, Text: text, MMRRoot: root,
-			WorkerSignature:     append([]byte(nil), frame.Signature...),
-			AttachmentSignature: append([]byte(nil), frame.AttachmentSignature...),
+			WorkerSignature:           append([]byte(nil), frame.Signature...),
+			AttachmentSignature:       append([]byte(nil), frame.AttachmentSignature...),
+			DispatchTicketHash:        append([]byte(nil), frame.DispatchTicketHash...),
+			CumulativeGeneratedTokens: frame.CumulativeTokens,
 		}
 		if frame.AttachmentLength > 0 {
 			chunk.Attachment, err = readSection(attach, frame.AttachmentOffset, uint64(frame.AttachmentLength))
@@ -814,7 +864,7 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		}
 		frames = append(frames, OutputFrame{Chunk: chunk})
 	}
-	if record.Sealed && record.Received {
+	if record.Sealed && record.Received && complete {
 		acc, err := record.accumulator()
 		if err != nil {
 			return nil, err
@@ -823,6 +873,7 @@ func (s *Store) OutputFrames(_ context.Context, key ObjectKey, afterSeq *uint64)
 		frames = append(frames, OutputFrame{Fin: &OutputFin{
 			FinalSeq: record.LastSeq, OutputMMRRoot: root[:],
 			FinishReason: record.FinishReason, WorkerSignature: append([]byte(nil), record.FinWorkerSignature...),
+			DispatchTicketHash: append([]byte(nil), record.FinDispatchTicket...),
 		}})
 	}
 	return frames, nil
@@ -970,6 +1021,52 @@ func (s *Store) recoverOutputStreams() error {
 	s.outputStreams = make(map[string]*OutputStream)
 	s.mu.Unlock()
 	return nil
+}
+
+// RetireOutputStream drops the OUTPUT stream of (session, task) whose header names ticket: the
+// stream of an attempt whose record the chain refused, once its task is dropped. A stream of
+// another ticket, or none, is left as it is.
+func (s *Store) RetireOutputStream(_ context.Context, sessionID, taskID string, ticket []byte) error {
+	encoded := streamKeyString(ObjectKey{SessionID: sessionID, TaskID: taskID, Kind: ObjectKindOutput})
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, found, err := s.outputStreamRecord(encoded)
+	if err != nil || !found || record.Header == nil || !bytes.Equal(record.Header.DispatchTicketHash, ticket) {
+		return err
+	}
+	return s.retireOutputStreamLocked(encoded, record)
+}
+
+// retireOutputStreamLocked drops the stream of a dispatch attempt that was never recorded: its
+// progress, frame records and spool files and, when it was sealed, its STORED OUTPUT metadata and
+// index. An OUTPUT already finalized belongs to a recorded attempt and is never dropped. No
+// tombstone is written: the object was not deleted on the chain's behalf, and the next attempt's
+// stream reuses the stream key. The blob of a sealed stream is reclaimed with the other
+// unreferenced blobs. Callers hold s.mu.
+func (s *Store) retireOutputStreamLocked(encoded string, record outputStreamRecord) error {
+	if active, ok := s.outputStreams[encoded]; ok {
+		active.supersedeLocked()
+	}
+	if record.Sealed {
+		objectKey := record.Key
+		objectKey.ContentHash = record.ContentHash
+		meta, found, err := s.metadataRecord(objectKeyString(objectKey))
+		if err != nil {
+			return err
+		}
+		if found && meta.Metadata.State != StateStored {
+			return fmt.Errorf("%w: OUTPUT of another dispatch attempt is %s", ErrConflict, meta.Metadata.State)
+		}
+		if found {
+			s.unindex(objectKey)
+			if err := s.backend.Delete(kv.NSTaskDataMetadata, objectKeyString(objectKey)); err != nil {
+				return fmt.Errorf("%w: delete retired output metadata: %v", ErrStorage, err)
+			}
+		}
+	}
+	return s.deleteOutputStreamLocked(encoded)
 }
 
 // deleteOutputStreamLocked cleans up the progress, all chunk records and the stream files together

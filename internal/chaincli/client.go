@@ -57,8 +57,12 @@ type client struct {
 	taskEvents  taskv1connect.TaskEventServiceClient
 	hubEvents   hubv1connect.HubEventServiceClient
 	cursorStore eventCursorStore
+	// poolEpochs is created on first use, after the options set the store.
+	poolEpochsOnce sync.Once
+	poolEpochs     *poolEpochTable
 
-	events chan ChainEvent
+	events    chan ChainEvent
+	observers []func(ChainEvent)
 
 	sessionMu            sync.Mutex
 	sessions             map[string]*sessionSubscription
@@ -67,6 +71,8 @@ type client struct {
 	heightCancel         context.CancelFunc
 	protocolEvents       bool
 	protocolCancel       context.CancelFunc
+	roleOperator         string
+	roleCancel           context.CancelFunc
 	sessionObserver      SessionStreamObserver
 
 	stopOnce sync.Once
@@ -134,6 +140,7 @@ func (c *client) Start(_ context.Context) error {
 		}
 		c.startHeightEventsLocked()
 		c.startProtocolEventsLocked()
+		c.startRoleEventsLocked()
 	}
 	c.sessionMu.Unlock()
 	return nil
@@ -158,6 +165,10 @@ func (c *client) Stop(_ context.Context) error {
 		if c.protocolCancel != nil {
 			c.protocolCancel()
 			c.protocolCancel = nil
+		}
+		if c.roleCancel != nil {
+			c.roleCancel()
+			c.roleCancel = nil
 		}
 		c.sessionMu.Unlock()
 		stopped = true
@@ -322,20 +333,6 @@ func (c *client) QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64,
 	return grace, nil
 }
 
-// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task, the number of Builders the
-// task Keeper selects for each task. Zero is refused: the Keeper cannot admit an order under it.
-func (c *client) QueryBuildersPerTask(ctx context.Context) (uint32, error) {
-	resp, err := c.hubQuery.Params(ctx, connect.NewRequest(&hubv1.QueryHubParamsRequest{}))
-	if err != nil {
-		return 0, applicationQueryError("hub params", err)
-	}
-	count := resp.Msg.GetParams().GetBuilder().GetBuildersPerTask()
-	if count == 0 {
-		return 0, fmt.Errorf("query hub params: builders_per_task is zero")
-	}
-	return count, nil
-}
-
 // defaultEpochLengthBlocks is the Hub's epoch length when epoch.epoch_length_blocks is zero
 // (node x/hub/keeper/epoch_runtime.go normalizedEpochLengthBlocks, types.DefaultEpochLengthBlocks).
 const defaultEpochLengthBlocks uint64 = 60_480
@@ -405,21 +402,6 @@ func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
 		return 0, fmt.Errorf("query task params: challenge.max_verify_round is zero")
 	}
 	return limit, nil
-}
-
-// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks. The
-// chain admits a signed order only while its session anchor is below the executing height and at
-// most this many blocks behind it. Zero is refused: no anchor could satisfy it.
-func (c *client) QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error) {
-	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
-	if err != nil {
-		return 0, applicationQueryError("task params", err)
-	}
-	window := resp.Msg.GetParams().GetSession().GetAnchorFreshnessWindowBlocks()
-	if window == 0 {
-		return 0, fmt.Errorf("query task params: session.anchor_freshness_window_blocks is zero")
-	}
-	return window, nil
 }
 
 // QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
@@ -659,7 +641,61 @@ func (c *client) QueryCurrentServiceKey(ctx context.Context, participantType, op
 		AuthorizationNonce: b.GetServiceAuthorizationNonce(),
 		Status:             currentServiceKeyStatus(b),
 	}
+	if revoked := b.RevokedHeight; revoked != nil {
+		if *revoked == 0 || state.Status != "REVOKED" {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: revoked_height %d on a %s binding: %w", *revoked, state.Status, ErrMalformedBinding)
+		}
+		state.RevokedHeight = *revoked
+	}
+	if pending := b.GetPendingRotation(); pending != nil {
+		if pending.GetParticipantType() != b.GetParticipantType() || pending.GetOperatorAddress() != b.GetOperatorAddress() ||
+			pending.GetCurrentServiceAuthorizationNonce() != b.GetServiceAuthorizationNonce() ||
+			pending.GetNextServiceAuthorizationNonce() <= b.GetServiceAuthorizationNonce() {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation does not match the current binding: %w", ErrMalformedBinding)
+		}
+		if len(pending.GetNewServicePubkey()) != 33 {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation new_service_pubkey is %d bytes, want 33: %w",
+				len(pending.GetNewServicePubkey()), ErrMalformedBinding)
+		}
+		// The next key activates at a later epoch start than the registration.
+		if pending.GetEffectiveHeight() <= pending.GetRegisteredHeight() {
+			return ServiceKeyState{}, fmt.Errorf("query current service key: pending rotation effective height %d is not after its registration %d: %w",
+				pending.GetEffectiveHeight(), pending.GetRegisteredHeight(), ErrMalformedBinding)
+		}
+		state.PendingRotation = &PendingServiceKeyRotation{
+			NextServicePubKey:      hex.EncodeToString(pending.GetNewServicePubkey()),
+			NextAuthorizationNonce: pending.GetNextServiceAuthorizationNonce(),
+			RegisteredHeight:       pending.GetRegisteredHeight(),
+			EffectiveHeight:        pending.GetEffectiveHeight(),
+		}
+	}
+	previous, err := previousServiceKey(b)
+	if err != nil {
+		return ServiceKeyState{}, fmt.Errorf("query current service key: %w: %w", err, ErrMalformedBinding)
+	}
+	state.Previous = previous
 	return state, nil
+}
+
+// previousServiceKey reads the retained previous generation of a binding: its three fields are
+// present together, the key is 33 bytes and differs from the current one, the nonce is positive
+// and older than the current one, and the retirement height is positive.
+func previousServiceKey(b *hubv1.CurrentServiceKeyViewV1) (*PreviousServiceKey, error) {
+	pub, nonce, retired := b.PreviousServicePubkey, b.PreviousServiceAuthorizationNonce, b.PreviousRetiredHeight
+	if pub == nil && nonce == nil && retired == nil {
+		return nil, nil
+	}
+	switch {
+	case pub == nil || nonce == nil || retired == nil:
+		return nil, fmt.Errorf("previous service key fields are not present together")
+	case len(pub) != 33 || bytes.Equal(pub, b.GetServicePubkey()):
+		return nil, fmt.Errorf("previous_service_pubkey must be a 33-byte key other than the current one")
+	case *nonce == 0 || *nonce >= b.GetServiceAuthorizationNonce():
+		return nil, fmt.Errorf("previous_service_authorization_nonce %d is not below the current %d", *nonce, b.GetServiceAuthorizationNonce())
+	case *retired == 0:
+		return nil, fmt.Errorf("previous_retired_height must be positive")
+	}
+	return &PreviousServiceKey{ServicePubKey: hex.EncodeToString(pub), AuthorizationNonce: *nonce, RetiredHeight: *retired}, nil
 }
 
 // currentServiceKeyStatus reads the status only from the oneof branch matching
@@ -1028,11 +1064,8 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		// envelope fields were removed from the assignment wire (Keeper-derived or carried
 		// by other Queries); only facts that actually exist on the new wire are filled here.
 		result.Assignment.CandidateSnapshotID = hex.EncodeToString(assignment.GetCandidatePoolSnapshotId())
-		result.Assignment.CandidateSetHash = hex.EncodeToString(assignment.GetAssignmentCandidateSetHash())
 		result.Assignment.SelectedWorkerOperatorAddress = assignment.GetWinnerWorker()
 		result.Assignment.InferDeadlineHeight = assignment.GetInferDeadlineHeight()
-		result.Assignment.AssignAcceptHeight = assignment.GetAssignAcceptHeight()
-		result.Assignment.AssignmentRandomnessHeight = assignment.GetAssignmentRandomnessHeight()
 		result.Assignment.WinnerConfirmHeight = assignment.GetWinnerConfirmHeight()
 	}
 
@@ -1070,6 +1103,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		for _, verifier := range verification.GetSelectedVerifiers() {
 			if address := verifier.GetOperatorAddress(); address != "" {
 				round.Verifiers = append(round.Verifiers, address)
+				round.Selected = append(round.Selected, selectedVerifier(verifier))
 			}
 		}
 		result.VerifierRounds = append(result.VerifierRounds, round)
@@ -1079,6 +1113,7 @@ func (c *client) mapTask(ctx context.Context, key TaskKey, response *taskv1.Quer
 		for _, verifier := range verification.GetSelectedVerifiers() {
 			if address := verifier.GetOperatorAddress(); address != "" {
 				result.Verifiers = append(result.Verifiers, address)
+				result.SelectedVerifiers = append(result.SelectedVerifiers, selectedVerifier(verifier))
 			}
 		}
 		// VerificationSampleSeed / WorkerRevealDeadlineHeight /
@@ -1216,9 +1251,7 @@ func mapTaskVerdict(verdict taskv1.TaskVerdict) types.TaskVerdict {
 // VERIFY_FAILED string states were replaced by this enum.
 func mapTaskPhase(phase taskv1.TaskPhase) (types.TaskState, error) {
 	switch phase {
-	case taskv1.TaskPhase_TASK_PHASE_WORKER_ASSIGNMENT_PENDING:
-		return types.Pending, nil
-	case taskv1.TaskPhase_TASK_PHASE_WORKER_ASSIGNED:
+	case taskv1.TaskPhase_TASK_PHASE_INFER_PENDING:
 		return types.Assigned, nil
 	case taskv1.TaskPhase_TASK_PHASE_RECEIPT_COMMITTED,
 		taskv1.TaskPhase_TASK_PHASE_VERIFIER_ASSIGNED,
@@ -1368,4 +1401,8 @@ func newGRPCTransport(base string) *http2.Transport {
 			return d.DialContext(ctx, network, addr)
 		},
 	}
+}
+
+func selectedVerifier(v *taskv1.SelectedVerifierV1) SelectedVerifier {
+	return SelectedVerifier{Operator: v.GetOperatorAddress(), Slot: v.GetSlot(), SlotVersion: v.GetSlotVersion()}
 }

@@ -35,10 +35,9 @@ message ServiceDescriptorV1 {
   repeated ServiceEndpointV1 endpoints = 1;
 }
 
-// CortexNodeState is the single stable Cortex identity row. Fields 10-12
-// are the three online-responsibility counters that the wire API /
-// this contract require MsgRotateServiceKey to see at zero; they replace the previous
-// string-keyed TASK_LIABILITY_* responsibility rows.
+// CortexNodeState is the single stable Cortex identity row. Fields 10-12 track
+// accepted online responsibilities. Rotation can be registered while they are
+// nonzero; only previous-generation evidence duties gate another registration.
 // CortexNodeState defines the CortexNodeState wire type.
 message CortexNodeState {
   uint32 schema_version = 1;
@@ -54,6 +53,14 @@ message CortexNodeState {
   uint32 active_task_liability_count = 10;
   uint32 pending_stage_duty_count = 11;
   uint32 pending_evidence_submission_count = 12;
+  // The three previous fields are present together, for proof verification only.
+  // They grant no live identity or reverse-address-index entry.
+  optional bytes previous_service_pubkey = 13;
+  optional uint64 previous_service_authorization_nonce = 14;
+  optional uint64 previous_retired_height = 15;
+  // Only explicit emergency revoke sets this cutoff; terminal-state revocation
+  // alone does not. Rotation folds it into previous_retired_height and clears it.
+  optional uint64 revoked_height = 16;
 }
 
 // CurrentServiceAddressIndexState is the rebuildable reverse-index value for
@@ -93,8 +100,27 @@ message ServiceKeyResponsibilityState {
   bytes session_id = 5;
   bytes task_id = 6;
   uint64 created_height = 7;
-  // Service-key generation that acquired this responsibility. It distinguishes
+  // Frozen actual service generation, never a reserved pending-next nonce.
+  // Previous-generation evidence duties gate another registration; current
+  // group duties and liability do not block registration. It distinguishes
   // an exact acquire replay from the same responsibility ID presented under a
   // different key generation; it is deliberately not part of the ID itself.
   uint64 service_authorization_nonce = 8;
+}
+
+// PendingServiceKeyRotationState is at most one replacement per role/operator.
+// Registration in epoch E activates at epoch E+2, independently of material
+// counts or ordinary queue budgets. Rebuild activation/address indexes from
+// these primaries; the binding retains only one previous proof key.
+message PendingServiceKeyRotationState {
+  shared.v1.ParticipantType participant_type = 1;
+  string operator_address = 2;
+  uint64 current_service_authorization_nonce = 3;
+  bytes new_service_pubkey = 4;
+  uint64 next_service_authorization_nonce = 5;
+  uint64 registered_height = 6;
+  // Fixed E+2 epoch start; install atomically before business transactions there.
+  uint64 effective_height = 7;
+  reserved 8;
+  reserved "old_material_close_height";
 }

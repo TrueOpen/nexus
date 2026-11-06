@@ -108,24 +108,24 @@ func TestMarkReadyWritesMetadataWhenTheIndexDecisionFails(t *testing.T) {
 	}
 }
 
-// When another READY version is already indexed, only the metadata is written and the index keeps
-// naming the indexed version.
-func TestMarkReadyKeepsTheIndexOfAnotherReadyVersion(t *testing.T) {
+// The retried version of a task turning READY moves the index from the earlier READY version in
+// the same batch as its metadata.
+func TestMarkReadyOfARetriedVersionMovesTheIndexInOneBatch(t *testing.T) {
 	store, _, _ := newTestStore(t, testStoreConfig())
 	body := []byte("abcdefgh")
-	tracked := prepareObject(t, store, testHeader(body), body)
-	if _, err := store.MarkReady(context.Background(), tracked.Key); err != nil {
+	earlier := prepareObject(t, store, testHeader(body), body)
+	if _, err := store.MarkReady(context.Background(), earlier.Key); err != nil {
 		t.Fatal(err)
 	}
-	other := prepareObject(t, store, otherVersion([]byte("12345678")), []byte("12345678"))
+	retried := prepareObject(t, store, otherVersion([]byte("12345678")), []byte("12345678"))
 	recorder := recordStoreWrites(store)
-	if _, err := store.MarkReady(context.Background(), other.Key); err != nil {
+	if _, err := store.MarkReady(context.Background(), retried.Key); err != nil {
 		t.Fatal(err)
 	}
-	if got := batchNamespaces(recorder.lastBatch(t)); len(got) != 1 || got[0] != kv.NSTaskDataMetadata {
-		t.Fatalf("batch = %v, want the metadata alone", got)
+	if got := batchNamespaces(recorder.lastBatch(t)); len(got) != 2 || got[0] != kv.NSTaskDataMetadata || got[1] != kv.NSTaskDataObjectIndex {
+		t.Fatalf("batch = %v, want metadata then index", got)
 	}
-	if ref, found := resolvedInput(t, store); !found || ref != tracked.Key {
-		t.Fatalf("index = %#v, %t; want the tracked version", ref, found)
+	if ref, found := resolvedInput(t, store); !found || ref != retried.Key {
+		t.Fatalf("index = %#v, %t; want the retried version", ref, found)
 	}
 }

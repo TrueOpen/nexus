@@ -1,7 +1,6 @@
 package coordinator
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,7 +40,7 @@ func TestHasAcceptedOrderNamesTheAcceptedVersion(t *testing.T) {
 		}
 	}
 	check("before OnOrder", map[*taskdata.ObjectKey]bool{&key: false})
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatal(err)
 	}
 	check("tracked", map[*taskdata.ObjectKey]bool{&key: true, &otherTask: false, &otherInput: false})
@@ -80,97 +79,6 @@ func TestHasTerminatedOrderRequiresDurableTerminalMarker(t *testing.T) {
 	}
 }
 
-func TestOnOrderStage1AdmissionFailureIsObserveOnly(t *testing.T) {
-	tests := []struct {
-		name    string
-		err     error
-		code    string
-		errText string
-	}{
-		{name: "builder not selected", err: ErrNotSelectedBuilder, code: ErrNotSelectedBuilder.Error(), errText: ErrNotSelectedBuilder.Error()},
-		{name: "authority unavailable", err: ErrAdmissionUnavailable, code: ErrAdmissionUnavailable.Error(), errText: ErrAdmissionUnavailable.Error()},
-		{name: "unknown validation failure", err: errors.New("unexpected validation failure"), code: "NEXUS_INGRESS_STAGE1_VALIDATION_FAILED", errText: "unexpected validation failure"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			policy := &fakeOrderAdmission{err: tt.err}
-			c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
-			var logs bytes.Buffer
-			c.log = slog.New(slog.NewTextHandler(&logs, nil))
-			order := taskPayloadOrder(t, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b", testUserAddress, []byte("encrypted input"), 100)
-
-			if err := c.OnOrder(context.Background(), order); err != nil {
-				t.Fatalf("OnOrder: %v", err)
-			}
-			if policy.calls != 1 {
-				t.Fatalf("admission calls=%d want=1", policy.calls)
-			}
-			fsm, exists := c.getFSM(order.SessionID, order.TaskID)
-			if !exists {
-				t.Fatal("task was not created after observed admission failure")
-			}
-			if fsm.order.Stage1BuilderRank != 0 || fsm.order.Stage1SelectionProof != "" {
-				t.Fatalf("unverified selection was retained: rank=%d proof=%q", fsm.order.Stage1BuilderRank, fsm.order.Stage1SelectionProof)
-			}
-			if _, exists := c.kv.Get(kv.NSTask, taskKey(order.SessionID, order.TaskID)); !exists {
-				t.Fatal("task snapshot was not written after observed admission failure")
-			}
-			for _, want := range []string{"stage1 order admission failed", "session_id=" + order.SessionID, "task_id=" + order.TaskID, "code=" + tt.code, tt.errText} {
-				if !strings.Contains(logs.String(), want) {
-					t.Fatalf("warning log %q does not contain %q", logs.String(), want)
-				}
-			}
-		})
-	}
-}
-
-func TestOnOrderStage1AdmissionAllowsNormalPath(t *testing.T) {
-	policy := &fakeOrderAdmission{result: OrderAdmissionResult{TermID: 7, Rank: 2, Proof: strings.Repeat("ab", 32)}}
-	c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
-	order := testPlaceholderOrder("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b")
-
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	if policy.calls != 1 {
-		t.Fatalf("admission calls=%d want=1", policy.calls)
-	}
-	fsm, exists := c.getFSM(order.SessionID, order.TaskID)
-	if !exists {
-		t.Fatal("task was not created after admission accepted")
-	}
-	if fsm.order.Stage1BuilderRank != 2 || fsm.order.Stage1SelectionProof != policy.result.Proof {
-		t.Fatalf("admitted selection was not retained: rank=%d proof=%q", fsm.order.Stage1BuilderRank, fsm.order.Stage1SelectionProof)
-	}
-}
-
-func TestOnOrderCarriesStage1SelectionIntoAssign(t *testing.T) {
-	proof := strings.Repeat("ab", 32)
-	policy := &fakeOrderAdmission{result: OrderAdmissionResult{TermID: 7, Rank: 2, Proof: proof}}
-	c, _ := newTestCoordinator(t, WithOrderAdmission(policy))
-	order := testCurrentOrder("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a", testTaskID("2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"), testUserAddress)
-
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
-	}
-	fsm, ok := c.getFSM(order.SessionID, order.TaskID)
-	if !ok {
-		t.Fatal("task was not created")
-	}
-	for _, worker := range []string{"worker-1", "worker-2", "worker-3"} {
-		fsm.onWorkerHandraise(testWorkerHandraise(order.SessionID, order.TaskID, worker))
-	}
-	sub := c.submit.(*fakeSubmitter)
-	sub.mu.Lock()
-	defer sub.mu.Unlock()
-	if len(sub.assign) != 1 {
-		t.Fatalf("assign submissions=%d want=1", len(sub.assign))
-	}
-	if sub.assign[0].BuilderRank != 2 || sub.assign[0].BuilderSelectionProof != proof {
-		t.Fatalf("assign selection rank/proof=%d/%q want=2/%q", sub.assign[0].BuilderRank, sub.assign[0].BuilderSelectionProof, proof)
-	}
-}
-
 // A task's INPUT is removed by the version its order names, even when the INPUT index points at
 // another version of the same task.
 func TestTerminalTaskRemovesItsInputVersion(t *testing.T) {
@@ -181,15 +89,15 @@ func TestTerminalTaskRemovesItsInputVersion(t *testing.T) {
 	other := order
 	other.TaskHash = strings.Repeat("6f", 32)
 	other = withPayload(t, other, []byte("other input"))
-	// The other version becomes READY first and keeps the index (the store refuses to repoint an
-	// index that names a READY object), so only a delete by version can find the tracked one.
-	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
+	// The other version becomes READY last and takes the index (the version turning READY last is
+	// indexed), so only a delete by version can find the tracked one.
 	tracked := stageOrderInput(t, taskStore, order, []byte("tracked input"), true)
+	otherKey := stageOrderInput(t, taskStore, other, []byte("other input"), true)
 	if ref, err := taskStore.ResolveObject(context.Background(), order.SessionID, order.TaskID, taskdata.ObjectKindInput); err != nil || ref != otherKey {
 		t.Fatalf("index = %#v, %v; want the other version", ref, err)
 	}
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, order); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
@@ -209,8 +117,8 @@ func TestRecoveryRemovesInputForTerminalSnapshot(t *testing.T) {
 	c.payloads = payloads
 	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
 	input := stageOrderInput(t, taskStore, order, []byte("encrypted input"), true)
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, order); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 
 	fsm, _ := c.getFSM(order.SessionID, order.TaskID)
@@ -245,8 +153,8 @@ func TestTerminalPayloadDeleteFailureIsRetriedFromCleanupIntent(t *testing.T) {
 	_, payloads := newCoordinatorTaskData(t, faults)
 	c.payloads = payloads
 	order := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("encrypted input"), 100)
-	if err := c.OnOrder(context.Background(), order); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, order); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
 	c.OnSweepDeadlineAccepted(chaincli.SweepDeadlineAccepted{
 		SessionID: order.SessionID, TaskID: order.TaskID, TransitionCode: taskv1.DeadlineTransitionCode_DEADLINE_TRANSITION_CODE_ASSIGNMENT_FAILED, Height: 50,
@@ -363,17 +271,6 @@ func inputDeleted(t *testing.T, taskStore *taskdata.Store, key taskdata.ObjectKe
 		t.Fatal(err)
 	}
 	return metadata.RetentionStatus == taskdata.RetentionDeleted
-}
-
-type fakeOrderAdmission struct {
-	calls  int
-	result OrderAdmissionResult
-	err    error
-}
-
-func (a *fakeOrderAdmission) AdmitOrder(context.Context, types.Order) (OrderAdmissionResult, error) {
-	a.calls++
-	return a.result, a.err
 }
 
 func taskPayloadOrder(t *testing.T, sessionID, taskID, user string, payload []byte, deadline uint64) types.Order {

@@ -18,7 +18,7 @@ message RoleFaultState {
   bytes task_id = 2;
   string operator_address = 3;
   shared.v1.Duty duty = 4;
-  FaultKind fault_class = 5;
+  shared.v1.FaultKind fault_class = 5;
   shared.v1.FailureClassificationSource classification_source = 6;
   bytes evidence_digest = 7;
   uint32 jail_delta = 8;

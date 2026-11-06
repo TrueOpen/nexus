@@ -35,9 +35,6 @@ const (
 const (
 	// IngressAPIOpenTaskProcedure is the fully-qualified name of the IngressAPI's OpenTask RPC.
 	IngressAPIOpenTaskProcedure = "/nexus.v1.IngressAPI/OpenTask"
-	// IngressAPIConfirmOpenTaskProcedure is the fully-qualified name of the IngressAPI's
-	// ConfirmOpenTask RPC.
-	IngressAPIConfirmOpenTaskProcedure = "/nexus.v1.IngressAPI/ConfirmOpenTask"
 	// IngressAPISubscribeOutputProcedure is the fully-qualified name of the IngressAPI's
 	// SubscribeOutput RPC.
 	IngressAPISubscribeOutputProcedure = "/nexus.v1.IngressAPI/SubscribeOutput"
@@ -79,120 +76,60 @@ const (
 	// IngressAPISubmitVerifyResultProcedure is the fully-qualified name of the IngressAPI's
 	// SubmitVerifyResult RPC.
 	IngressAPISubmitVerifyResultProcedure = "/nexus.v1.IngressAPI/SubmitVerifyResult"
-	// IngressAPISubmitOrderProcedure is the fully-qualified name of the IngressAPI's SubmitOrder RPC.
-	IngressAPISubmitOrderProcedure = "/nexus.v1.IngressAPI/SubmitOrder"
-	// IngressAPIFetchOutputRefProcedure is the fully-qualified name of the IngressAPI's FetchOutputRef
+	// IngressAPISubmitModelSupportConfirmationProcedure is the fully-qualified name of the IngressAPI's
+	// SubmitModelSupportConfirmation RPC.
+	IngressAPISubmitModelSupportConfirmationProcedure = "/nexus.v1.IngressAPI/SubmitModelSupportConfirmation"
+	// IngressAPIDispatchStreamProcedure is the fully-qualified name of the IngressAPI's DispatchStream
 	// RPC.
-	IngressAPIFetchOutputRefProcedure = "/nexus.v1.IngressAPI/FetchOutputRef"
-	// IngressAPIRefreshCredentialProcedure is the fully-qualified name of the IngressAPI's
-	// RefreshCredential RPC.
-	IngressAPIRefreshCredentialProcedure = "/nexus.v1.IngressAPI/RefreshCredential"
+	IngressAPIDispatchStreamProcedure = "/nexus.v1.IngressAPI/DispatchStream"
+	// IngressAPIResumeOutputProcedure is the fully-qualified name of the IngressAPI's ResumeOutput RPC.
+	IngressAPIResumeOutputProcedure = "/nexus.v1.IngressAPI/ResumeOutput"
+	// IngressAPIGetDispatchRosterProcedure is the fully-qualified name of the IngressAPI's
+	// GetDispatchRoster RPC.
+	IngressAPIGetDispatchRosterProcedure = "/nexus.v1.IngressAPI/GetDispatchRoster"
 )
 
 // IngressAPIClient is a client for the nexus.v1.IngressAPI service.
 type IngressAPIClient interface {
-	// The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
-	// after the input is fully received, input_hash / input_size_bytes are verified, the bytes
-	// are persisted and the storage confirmation is signed.
+	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	// Records the cross-Builder input storage confirmations collected by the SDK, for
-	// reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
-	// the V1 baseline does not require calling it.
-	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// The user SDK subscribes to the signed OUTPUT frame stream. The Builder
-	// forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
-	// the User verifies each frame's signature and recomputes the root itself.
+	// SubscribeOutput binds delivery to an optional dispatch attempt commitment.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest]) (*connect.ServerStreamForClient[v1.SubscribeOutputResponse], error)
-	// Only records local delivery progress (task, last_seq); takes no part in settlement /
-	// retention / fault attribution.
+	// AckOutput executes the AckOutput operation.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
-	// Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
-	// signature required.
+	// GetTaskStatus executes the GetTaskStatus operation.
 	GetTaskStatus(context.Context, *connect.Request[v1.GetTaskStatusRequest]) (*connect.Response[v1.GetTaskStatusResponse], error)
-	// Historical events after the cursor plus live events.
+	// GetTaskEvents executes the GetTaskEvents operation.
 	GetTaskEvents(context.Context, *connect.Request[v1.GetTaskEventsRequest]) (*connect.ServerStreamForClient[v1.GetTaskEventsResponse], error)
-	// Returns the challenge plan; submits no transaction.
+	// PrepareChallenge executes the PrepareChallenge operation.
 	PrepareChallenge(context.Context, *connect.Request[v1.PrepareChallengeRequest]) (*connect.Response[v1.PrepareChallengeResponse], error)
-	// Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
-	// Only the first-frame header is signed; the following chunks must in the end exactly
-	// satisfy the signed content_hash and size_bytes.
-	// accepted only means this object is STORED, not that the whole Task Result is complete.
+	// UploadTaskResultObject executes the UploadTaskResultObject operation.
 	UploadTaskResultObject(context.Context) *connect.ClientStreamForClient[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
-	// The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
-	// InferReceipt.
-	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
-	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, in that field order (see the
-	// wire output_chunk vectors).
-	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
-	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
-	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
-	// per frame; the Builder replies only on Header and Fin.
-	//
-	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
-	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. The Worker must distinguish
-	// "own cause" from "external cause" -- resending the former yields the same result however
-	// many times, resending the latter may succeed -- and the two call for opposite responses,
-	// so this mapping is a contract shared by both sides, not a Builder implementation detail.
-	//
-	//	Own cause (the same Builder must not receive the same frame again; matching rejections
-	//	from three Builders stop sending):
-	//	  PermissionDenied   sender is not the Task's winner_worker, or service key signature fails
-	//	  InvalidArgument    seq is not the expected next one (first frame must be 0), Chunk before
-	//	                     Header, frame after Fin, a non-final frame shorter than the per-frame
-	//	                     minimum byte count, attachment signature without an attachment
-	//	  DataLoss           the root the Builder computes after appending the leaf differs from
-	//	                     the frame's mmr_root
-	//	  ResourceExhausted  a single message exceeds the frame limit plus attachment limit, or the
-	//	                     cumulative bytes / leaf count exceed their limits
-	//	  FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
-	//	  DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
-	//
-	//	External cause (may resend Header and resume):
-	//	  Unavailable        transport interrupted, Builder process or storage unavailable
-	//	  AlreadyExists      an object already exists for this key or the stream is finalized.
-	//	                     Resend Header to get the progress reply first, then decide: if the
-	//	                     root in the progress equals your own root at the same chunk, resume;
-	//	                     otherwise switch to another Builder
-	//
-	// Before resuming, the mmr_root in the progress reply must equal your own root at the same
-	// chunk; if not, received chunks must not be overwritten. Builder-side idempotency is
-	// guaranteed by "a newly arrived Header takes over the Task's write stream; received chunks
-	// are never rewritten".
+	// UploadTaskOutputStream executes the UploadTaskOutputStream operation.
 	UploadTaskOutputStream(context.Context) *connect.BidiStreamForClient[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]
-	// Queries the boundary metadata of a single object; returns no content, locator or download
-	// authorization, and is not a prerequisite for Fetch.
+	// GetTaskDataMetadata executes the GetTaskDataMetadata operation.
 	GetTaskDataMetadata(context.Context, *connect.Request[v1.GetTaskDataMetadataRequest]) (*connect.Response[v1.GetTaskDataMetadataResponse], error)
-	// Streams bytes by object ref and optional range. Permission comes from the on-chain role assignment:
-	// every range is re-authorized against the Task/round assignment at the current pinned
-	// height; no pre-signed download credential is used.
+	// FetchTaskData executes the FetchTaskData operation.
 	FetchTaskData(context.Context, *connect.Request[v1.FetchTaskDataRequest]) (*connect.ServerStreamForClient[v1.FetchTaskDataResponse], error)
-	// Atomically publishes the OUTPUT and the Worker evidence bundle and returns the two Builder
-	// storage confirmations. On success the OUTPUT, the manifest, the artifacts it references and
-	// the TaskData state switch to READY/FROZEN together.
+	// FinalizeTaskResult executes the FinalizeTaskResult operation.
 	FinalizeTaskResult(context.Context, *connect.Request[v1.FinalizeTaskResultRequest]) (*connect.Response[v1.FinalizeTaskResultResponse], error)
-	// Atomically publishes the Verifier evidence bundle of that producer/round.
-	// Only that bundle is switched; the readiness of the Worker OUTPUT or the Worker evidence is
-	// unchanged, and it does not mean the on-chain Result is accepted.
+	// FinalizeVerifierEvidence executes the FinalizeVerifierEvidence operation.
 	FinalizeVerifierEvidence(context.Context, *connect.Request[v1.FinalizeVerifierEvidenceRequest]) (*connect.Response[v1.FinalizeVerifierEvidenceResponse], error)
-	// Relays a Worker-signed InferReceipt. accepted does not mean accepted on chain.
+	// SubmitInferReceipt executes the SubmitInferReceipt operation.
 	SubmitInferReceipt(context.Context, *connect.Request[v1.SubmitInferReceiptRequest]) (*connect.Response[v1.SubmitInferReceiptResponse], error)
-	// Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
+	// SubmitVerifyCommit executes the SubmitVerifyCommit operation.
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
-	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
+	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Replaced by OpenTask (client stream).
-	//
-	// Deprecated: do not use.
-	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Replaced by GetTaskDataMetadata + FetchTaskData.
-	//
-	// Deprecated: do not use.
-	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Replaced by GetTaskDataMetadata + FetchTaskData; there are no standalone download credentials.
-	//
-	// Deprecated: do not use.
-	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
+	// SubmitModelSupportConfirmation queues a Cortex-signed support refresh for
+	// fee-paid batching. Acceptance is not proof of an on-chain refresh.
+	SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error)
+	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
+	DispatchStream(context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
+	// ResumeOutput resumes one authenticated output attempt.
+	ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest]) (*connect.ServerStreamForClient[v1.ResumeOutputResponse], error)
+	// GetDispatchRoster returns every round's roster and its bound signed root.
+	GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error)
 }
 
 // NewIngressAPIClient constructs a client for the nexus.v1.IngressAPI service. By default, it uses
@@ -210,12 +147,6 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+IngressAPIOpenTaskProcedure,
 			connect.WithSchema(ingressAPIMethods.ByName("OpenTask")),
-			connect.WithClientOptions(opts...),
-		),
-		confirmOpenTask: connect.NewClient[v1.ConfirmOpenTaskRequest, v1.ConfirmOpenTaskResponse](
-			httpClient,
-			baseURL+IngressAPIConfirmOpenTaskProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("ConfirmOpenTask")),
 			connect.WithClientOptions(opts...),
 		),
 		subscribeOutput: connect.NewClient[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse](
@@ -302,22 +233,28 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 			connect.WithClientOptions(opts...),
 		),
-		submitOrder: connect.NewClient[v1.SubmitOrderRequest, v1.SubmitOrderResponse](
+		submitModelSupportConfirmation: connect.NewClient[v1.SubmitModelSupportConfirmationRequest, v1.SubmitModelSupportConfirmationResponse](
 			httpClient,
-			baseURL+IngressAPISubmitOrderProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("SubmitOrder")),
+			baseURL+IngressAPISubmitModelSupportConfirmationProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("SubmitModelSupportConfirmation")),
 			connect.WithClientOptions(opts...),
 		),
-		fetchOutputRef: connect.NewClient[v1.FetchOutputRefRequest, v1.FetchOutputRefResponse](
+		dispatchStream: connect.NewClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse](
 			httpClient,
-			baseURL+IngressAPIFetchOutputRefProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("FetchOutputRef")),
+			baseURL+IngressAPIDispatchStreamProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("DispatchStream")),
 			connect.WithClientOptions(opts...),
 		),
-		refreshCredential: connect.NewClient[v1.RefreshCredentialRequest, v1.RefreshCredentialResponse](
+		resumeOutput: connect.NewClient[v1.ResumeOutputRequest, v1.ResumeOutputResponse](
 			httpClient,
-			baseURL+IngressAPIRefreshCredentialProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("RefreshCredential")),
+			baseURL+IngressAPIResumeOutputProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("ResumeOutput")),
+			connect.WithClientOptions(opts...),
+		),
+		getDispatchRoster: connect.NewClient[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse](
+			httpClient,
+			baseURL+IngressAPIGetDispatchRosterProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("GetDispatchRoster")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -325,35 +262,30 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // ingressAPIClient implements IngressAPIClient.
 type ingressAPIClient struct {
-	openTask                 *connect.Client[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	confirmOpenTask          *connect.Client[v1.ConfirmOpenTaskRequest, v1.ConfirmOpenTaskResponse]
-	subscribeOutput          *connect.Client[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse]
-	ackOutput                *connect.Client[v1.AckOutputRequest, v1.AckOutputResponse]
-	getTaskStatus            *connect.Client[v1.GetTaskStatusRequest, v1.GetTaskStatusResponse]
-	getTaskEvents            *connect.Client[v1.GetTaskEventsRequest, v1.GetTaskEventsResponse]
-	prepareChallenge         *connect.Client[v1.PrepareChallengeRequest, v1.PrepareChallengeResponse]
-	uploadTaskResultObject   *connect.Client[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
-	uploadTaskOutputStream   *connect.Client[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]
-	getTaskDataMetadata      *connect.Client[v1.GetTaskDataMetadataRequest, v1.GetTaskDataMetadataResponse]
-	fetchTaskData            *connect.Client[v1.FetchTaskDataRequest, v1.FetchTaskDataResponse]
-	finalizeTaskResult       *connect.Client[v1.FinalizeTaskResultRequest, v1.FinalizeTaskResultResponse]
-	finalizeVerifierEvidence *connect.Client[v1.FinalizeVerifierEvidenceRequest, v1.FinalizeVerifierEvidenceResponse]
-	submitInferReceipt       *connect.Client[v1.SubmitInferReceiptRequest, v1.SubmitInferReceiptResponse]
-	submitVerifyCommit       *connect.Client[v1.SubmitVerifyCommitRequest, v1.SubmitVerifyCommitResponse]
-	submitVerifyResult       *connect.Client[v1.SubmitVerifyResultRequest, v1.SubmitVerifyResultResponse]
-	submitOrder              *connect.Client[v1.SubmitOrderRequest, v1.SubmitOrderResponse]
-	fetchOutputRef           *connect.Client[v1.FetchOutputRefRequest, v1.FetchOutputRefResponse]
-	refreshCredential        *connect.Client[v1.RefreshCredentialRequest, v1.RefreshCredentialResponse]
+	openTask                       *connect.Client[v1.OpenTaskRequest, v1.OpenTaskResponse]
+	subscribeOutput                *connect.Client[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse]
+	ackOutput                      *connect.Client[v1.AckOutputRequest, v1.AckOutputResponse]
+	getTaskStatus                  *connect.Client[v1.GetTaskStatusRequest, v1.GetTaskStatusResponse]
+	getTaskEvents                  *connect.Client[v1.GetTaskEventsRequest, v1.GetTaskEventsResponse]
+	prepareChallenge               *connect.Client[v1.PrepareChallengeRequest, v1.PrepareChallengeResponse]
+	uploadTaskResultObject         *connect.Client[v1.UploadTaskResultObjectRequest, v1.UploadTaskResultObjectResponse]
+	uploadTaskOutputStream         *connect.Client[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]
+	getTaskDataMetadata            *connect.Client[v1.GetTaskDataMetadataRequest, v1.GetTaskDataMetadataResponse]
+	fetchTaskData                  *connect.Client[v1.FetchTaskDataRequest, v1.FetchTaskDataResponse]
+	finalizeTaskResult             *connect.Client[v1.FinalizeTaskResultRequest, v1.FinalizeTaskResultResponse]
+	finalizeVerifierEvidence       *connect.Client[v1.FinalizeVerifierEvidenceRequest, v1.FinalizeVerifierEvidenceResponse]
+	submitInferReceipt             *connect.Client[v1.SubmitInferReceiptRequest, v1.SubmitInferReceiptResponse]
+	submitVerifyCommit             *connect.Client[v1.SubmitVerifyCommitRequest, v1.SubmitVerifyCommitResponse]
+	submitVerifyResult             *connect.Client[v1.SubmitVerifyResultRequest, v1.SubmitVerifyResultResponse]
+	submitModelSupportConfirmation *connect.Client[v1.SubmitModelSupportConfirmationRequest, v1.SubmitModelSupportConfirmationResponse]
+	dispatchStream                 *connect.Client[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
+	resumeOutput                   *connect.Client[v1.ResumeOutputRequest, v1.ResumeOutputResponse]
+	getDispatchRoster              *connect.Client[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse]
 }
 
 // OpenTask calls nexus.v1.IngressAPI.OpenTask.
 func (c *ingressAPIClient) OpenTask(ctx context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse] {
 	return c.openTask.CallClientStream(ctx)
-}
-
-// ConfirmOpenTask calls nexus.v1.IngressAPI.ConfirmOpenTask.
-func (c *ingressAPIClient) ConfirmOpenTask(ctx context.Context, req *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error) {
-	return c.confirmOpenTask.CallUnary(ctx, req)
 }
 
 // SubscribeOutput calls nexus.v1.IngressAPI.SubscribeOutput.
@@ -426,131 +358,67 @@ func (c *ingressAPIClient) SubmitVerifyResult(ctx context.Context, req *connect.
 	return c.submitVerifyResult.CallUnary(ctx, req)
 }
 
-// SubmitOrder calls nexus.v1.IngressAPI.SubmitOrder.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) SubmitOrder(ctx context.Context, req *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error) {
-	return c.submitOrder.CallUnary(ctx, req)
+// SubmitModelSupportConfirmation calls nexus.v1.IngressAPI.SubmitModelSupportConfirmation.
+func (c *ingressAPIClient) SubmitModelSupportConfirmation(ctx context.Context, req *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error) {
+	return c.submitModelSupportConfirmation.CallUnary(ctx, req)
 }
 
-// FetchOutputRef calls nexus.v1.IngressAPI.FetchOutputRef.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) FetchOutputRef(ctx context.Context, req *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error) {
-	return c.fetchOutputRef.CallUnary(ctx, req)
+// DispatchStream calls nexus.v1.IngressAPI.DispatchStream.
+func (c *ingressAPIClient) DispatchStream(ctx context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse] {
+	return c.dispatchStream.CallBidiStream(ctx)
 }
 
-// RefreshCredential calls nexus.v1.IngressAPI.RefreshCredential.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) RefreshCredential(ctx context.Context, req *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error) {
-	return c.refreshCredential.CallUnary(ctx, req)
+// ResumeOutput calls nexus.v1.IngressAPI.ResumeOutput.
+func (c *ingressAPIClient) ResumeOutput(ctx context.Context, req *connect.Request[v1.ResumeOutputRequest]) (*connect.ServerStreamForClient[v1.ResumeOutputResponse], error) {
+	return c.resumeOutput.CallServerStream(ctx, req)
+}
+
+// GetDispatchRoster calls nexus.v1.IngressAPI.GetDispatchRoster.
+func (c *ingressAPIClient) GetDispatchRoster(ctx context.Context, req *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error) {
+	return c.getDispatchRoster.CallUnary(ctx, req)
 }
 
 // IngressAPIHandler is an implementation of the nexus.v1.IngressAPI service.
 type IngressAPIHandler interface {
-	// The SDK streams the SignedOrder and the plaintext INPUT; accepted is returned only
-	// after the input is fully received, input_hash / input_size_bytes are verified, the bytes
-	// are persisted and the storage confirmation is signed.
+	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error)
-	// Records the cross-Builder input storage confirmations collected by the SDK, for
-	// reconciliation / recovery / evidence. Not a prerequisite for Open Task to progress;
-	// the V1 baseline does not require calling it.
-	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// The user SDK subscribes to the signed OUTPUT frame stream. The Builder
-	// forwards Worker-signed frames verbatim, replaying stored frames first and then live ones;
-	// the User verifies each frame's signature and recomputes the root itself.
+	// SubscribeOutput binds delivery to an optional dispatch attempt commitment.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error
-	// Only records local delivery progress (task, last_seq); takes no part in settlement /
-	// retention / fault attribution.
+	// AckOutput executes the AckOutput operation.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
-	// Task status query: returns the local FSM snapshot, not on-chain authority; no application-level
-	// signature required.
+	// GetTaskStatus executes the GetTaskStatus operation.
 	GetTaskStatus(context.Context, *connect.Request[v1.GetTaskStatusRequest]) (*connect.Response[v1.GetTaskStatusResponse], error)
-	// Historical events after the cursor plus live events.
+	// GetTaskEvents executes the GetTaskEvents operation.
 	GetTaskEvents(context.Context, *connect.Request[v1.GetTaskEventsRequest], *connect.ServerStream[v1.GetTaskEventsResponse]) error
-	// Returns the challenge plan; submits no transaction.
+	// PrepareChallenge executes the PrepareChallenge operation.
 	PrepareChallenge(context.Context, *connect.Request[v1.PrepareChallengeRequest]) (*connect.Response[v1.PrepareChallengeResponse], error)
-	// Uploads a single OUTPUT / EVIDENCE_MANIFEST / EVIDENCE_ARTIFACT object.
-	// Only the first-frame header is signed; the following chunks must in the end exactly
-	// satisfy the signed content_hash and size_bytes.
-	// accepted only means this object is STORED, not that the whole Task Result is complete.
+	// UploadTaskResultObject executes the UploadTaskResultObject operation.
 	UploadTaskResultObject(context.Context, *connect.ClientStream[v1.UploadTaskResultObjectRequest]) (*connect.Response[v1.UploadTaskResultObjectResponse], error)
-	// The selected Worker uploads OUTPUT frame by frame while generating, without waiting for the
-	// InferReceipt.
-	// Each frame carries the Worker's service key signature over (chain_id, task_hash, seq,
-	// mmr_root); the digest domain is TRUEOPEN_OUTPUT_CHUNK_V1, in that field order (see the
-	// wire output_chunk vectors).
-	// The Builder verifies each frame's signature, computes the leaf itself and appends to its
-	// own MMR copy; once it passes, the frame is forwarded to subscribers and persisted at once.
-	// The frame is not modified and no Builder signature is added. Chunks are not acknowledged
-	// per frame; the Builder replies only on Header and Fin.
-	//
-	// Any error closes the stream; the rejection reason is carried by the gRPC status code with
-	// no separate reason field: two sources of error truth on one stream will diverge sooner or
-	// later. The Worker must distinguish
-	// "own cause" from "external cause" -- resending the former yields the same result however
-	// many times, resending the latter may succeed -- and the two call for opposite responses,
-	// so this mapping is a contract shared by both sides, not a Builder implementation detail.
-	//
-	//	Own cause (the same Builder must not receive the same frame again; matching rejections
-	//	from three Builders stop sending):
-	//	  PermissionDenied   sender is not the Task's winner_worker, or service key signature fails
-	//	  InvalidArgument    seq is not the expected next one (first frame must be 0), Chunk before
-	//	                     Header, frame after Fin, a non-final frame shorter than the per-frame
-	//	                     minimum byte count, attachment signature without an attachment
-	//	  DataLoss           the root the Builder computes after appending the leaf differs from
-	//	                     the frame's mmr_root
-	//	  ResourceExhausted  a single message exceeds the frame limit plus attachment limit, or the
-	//	                     cumulative bytes / leaf count exceed their limits
-	//	  FailedPrecondition the receipt's output_hash differs from the Builder's computed final root
-	//	  DeadlineExceeded   the task is not in ASSIGNED / VERIFYING
-	//
-	//	External cause (may resend Header and resume):
-	//	  Unavailable        transport interrupted, Builder process or storage unavailable
-	//	  AlreadyExists      an object already exists for this key or the stream is finalized.
-	//	                     Resend Header to get the progress reply first, then decide: if the
-	//	                     root in the progress equals your own root at the same chunk, resume;
-	//	                     otherwise switch to another Builder
-	//
-	// Before resuming, the mmr_root in the progress reply must equal your own root at the same
-	// chunk; if not, received chunks must not be overwritten. Builder-side idempotency is
-	// guaranteed by "a newly arrived Header takes over the Task's write stream; received chunks
-	// are never rewritten".
+	// UploadTaskOutputStream executes the UploadTaskOutputStream operation.
 	UploadTaskOutputStream(context.Context, *connect.BidiStream[v1.UploadTaskOutputStreamRequest, v1.UploadTaskOutputStreamResponse]) error
-	// Queries the boundary metadata of a single object; returns no content, locator or download
-	// authorization, and is not a prerequisite for Fetch.
+	// GetTaskDataMetadata executes the GetTaskDataMetadata operation.
 	GetTaskDataMetadata(context.Context, *connect.Request[v1.GetTaskDataMetadataRequest]) (*connect.Response[v1.GetTaskDataMetadataResponse], error)
-	// Streams bytes by object ref and optional range. Permission comes from the on-chain role assignment:
-	// every range is re-authorized against the Task/round assignment at the current pinned
-	// height; no pre-signed download credential is used.
+	// FetchTaskData executes the FetchTaskData operation.
 	FetchTaskData(context.Context, *connect.Request[v1.FetchTaskDataRequest], *connect.ServerStream[v1.FetchTaskDataResponse]) error
-	// Atomically publishes the OUTPUT and the Worker evidence bundle and returns the two Builder
-	// storage confirmations. On success the OUTPUT, the manifest, the artifacts it references and
-	// the TaskData state switch to READY/FROZEN together.
+	// FinalizeTaskResult executes the FinalizeTaskResult operation.
 	FinalizeTaskResult(context.Context, *connect.Request[v1.FinalizeTaskResultRequest]) (*connect.Response[v1.FinalizeTaskResultResponse], error)
-	// Atomically publishes the Verifier evidence bundle of that producer/round.
-	// Only that bundle is switched; the readiness of the Worker OUTPUT or the Worker evidence is
-	// unchanged, and it does not mean the on-chain Result is accepted.
+	// FinalizeVerifierEvidence executes the FinalizeVerifierEvidence operation.
 	FinalizeVerifierEvidence(context.Context, *connect.Request[v1.FinalizeVerifierEvidenceRequest]) (*connect.Response[v1.FinalizeVerifierEvidenceResponse], error)
-	// Relays a Worker-signed InferReceipt. accepted does not mean accepted on chain.
+	// SubmitInferReceipt executes the SubmitInferReceipt operation.
 	SubmitInferReceipt(context.Context, *connect.Request[v1.SubmitInferReceiptRequest]) (*connect.Response[v1.SubmitInferReceiptResponse], error)
-	// Relays a Verifier-signed VerifyCommit. accepted does not mean accepted on chain.
+	// SubmitVerifyCommit executes the SubmitVerifyCommit operation.
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
-	// Relays a Verifier-signed ResultReceiptV3. accepted does not mean accepted on chain.
+	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// Replaced by OpenTask (client stream).
-	//
-	// Deprecated: do not use.
-	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// Replaced by GetTaskDataMetadata + FetchTaskData.
-	//
-	// Deprecated: do not use.
-	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// Replaced by GetTaskDataMetadata + FetchTaskData; there are no standalone download credentials.
-	//
-	// Deprecated: do not use.
-	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
+	// SubmitModelSupportConfirmation queues a Cortex-signed support refresh for
+	// fee-paid batching. Acceptance is not proof of an on-chain refresh.
+	SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error)
+	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
+	DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error
+	// ResumeOutput resumes one authenticated output attempt.
+	ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest], *connect.ServerStream[v1.ResumeOutputResponse]) error
+	// GetDispatchRoster returns every round's roster and its bound signed root.
+	GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error)
 }
 
 // NewIngressAPIHandler builds an HTTP handler from the service implementation. It returns the path
@@ -564,12 +432,6 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 		IngressAPIOpenTaskProcedure,
 		svc.OpenTask,
 		connect.WithSchema(ingressAPIMethods.ByName("OpenTask")),
-		connect.WithHandlerOptions(opts...),
-	)
-	ingressAPIConfirmOpenTaskHandler := connect.NewUnaryHandler(
-		IngressAPIConfirmOpenTaskProcedure,
-		svc.ConfirmOpenTask,
-		connect.WithSchema(ingressAPIMethods.ByName("ConfirmOpenTask")),
 		connect.WithHandlerOptions(opts...),
 	)
 	ingressAPISubscribeOutputHandler := connect.NewServerStreamHandler(
@@ -656,30 +518,34 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPISubmitOrderHandler := connect.NewUnaryHandler(
-		IngressAPISubmitOrderProcedure,
-		svc.SubmitOrder,
-		connect.WithSchema(ingressAPIMethods.ByName("SubmitOrder")),
+	ingressAPISubmitModelSupportConfirmationHandler := connect.NewUnaryHandler(
+		IngressAPISubmitModelSupportConfirmationProcedure,
+		svc.SubmitModelSupportConfirmation,
+		connect.WithSchema(ingressAPIMethods.ByName("SubmitModelSupportConfirmation")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPIFetchOutputRefHandler := connect.NewUnaryHandler(
-		IngressAPIFetchOutputRefProcedure,
-		svc.FetchOutputRef,
-		connect.WithSchema(ingressAPIMethods.ByName("FetchOutputRef")),
+	ingressAPIDispatchStreamHandler := connect.NewBidiStreamHandler(
+		IngressAPIDispatchStreamProcedure,
+		svc.DispatchStream,
+		connect.WithSchema(ingressAPIMethods.ByName("DispatchStream")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPIRefreshCredentialHandler := connect.NewUnaryHandler(
-		IngressAPIRefreshCredentialProcedure,
-		svc.RefreshCredential,
-		connect.WithSchema(ingressAPIMethods.ByName("RefreshCredential")),
+	ingressAPIResumeOutputHandler := connect.NewServerStreamHandler(
+		IngressAPIResumeOutputProcedure,
+		svc.ResumeOutput,
+		connect.WithSchema(ingressAPIMethods.ByName("ResumeOutput")),
+		connect.WithHandlerOptions(opts...),
+	)
+	ingressAPIGetDispatchRosterHandler := connect.NewUnaryHandler(
+		IngressAPIGetDispatchRosterProcedure,
+		svc.GetDispatchRoster,
+		connect.WithSchema(ingressAPIMethods.ByName("GetDispatchRoster")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/nexus.v1.IngressAPI/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case IngressAPIOpenTaskProcedure:
 			ingressAPIOpenTaskHandler.ServeHTTP(w, r)
-		case IngressAPIConfirmOpenTaskProcedure:
-			ingressAPIConfirmOpenTaskHandler.ServeHTTP(w, r)
 		case IngressAPISubscribeOutputProcedure:
 			ingressAPISubscribeOutputHandler.ServeHTTP(w, r)
 		case IngressAPIAckOutputProcedure:
@@ -708,12 +574,14 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 			ingressAPISubmitVerifyCommitHandler.ServeHTTP(w, r)
 		case IngressAPISubmitVerifyResultProcedure:
 			ingressAPISubmitVerifyResultHandler.ServeHTTP(w, r)
-		case IngressAPISubmitOrderProcedure:
-			ingressAPISubmitOrderHandler.ServeHTTP(w, r)
-		case IngressAPIFetchOutputRefProcedure:
-			ingressAPIFetchOutputRefHandler.ServeHTTP(w, r)
-		case IngressAPIRefreshCredentialProcedure:
-			ingressAPIRefreshCredentialHandler.ServeHTTP(w, r)
+		case IngressAPISubmitModelSupportConfirmationProcedure:
+			ingressAPISubmitModelSupportConfirmationHandler.ServeHTTP(w, r)
+		case IngressAPIDispatchStreamProcedure:
+			ingressAPIDispatchStreamHandler.ServeHTTP(w, r)
+		case IngressAPIResumeOutputProcedure:
+			ingressAPIResumeOutputHandler.ServeHTTP(w, r)
+		case IngressAPIGetDispatchRosterProcedure:
+			ingressAPIGetDispatchRosterHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -725,10 +593,6 @@ type UnimplementedIngressAPIHandler struct{}
 
 func (UnimplementedIngressAPIHandler) OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.OpenTask is not implemented"))
-}
-
-func (UnimplementedIngressAPIHandler) ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.ConfirmOpenTask is not implemented"))
 }
 
 func (UnimplementedIngressAPIHandler) SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error {
@@ -787,14 +651,18 @@ func (UnimplementedIngressAPIHandler) SubmitVerifyResult(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitVerifyResult is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitOrder is not implemented"))
+func (UnimplementedIngressAPIHandler) SubmitModelSupportConfirmation(context.Context, *connect.Request[v1.SubmitModelSupportConfirmationRequest]) (*connect.Response[v1.SubmitModelSupportConfirmationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitModelSupportConfirmation is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.FetchOutputRef is not implemented"))
+func (UnimplementedIngressAPIHandler) DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.DispatchStream is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.RefreshCredential is not implemented"))
+func (UnimplementedIngressAPIHandler) ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest], *connect.ServerStream[v1.ResumeOutputResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.ResumeOutput is not implemented"))
+}
+
+func (UnimplementedIngressAPIHandler) GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.GetDispatchRoster is not implemented"))
 }

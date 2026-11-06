@@ -181,7 +181,7 @@ func TestTaskEventToChainEventKeepsUnknownCodeQueryFirst(t *testing.T) {
 func TestTaskEventToChainEventRejectsCodePayloadMismatch(t *testing.T) {
 	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
 		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes, TaskId: testTaskIDBytes,
-		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED,
 		Payload: &taskv1.TaskProtocolEventPayloadV1{
 			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_CommitAccepted{
 				CommitAccepted: &taskv1.EventCommitAccepted{SessionId: testSessionIDBytes, TaskId: testTaskIDBytes},
@@ -196,10 +196,10 @@ func TestTaskEventToChainEventRejectsCodePayloadMismatch(t *testing.T) {
 func TestTaskEventToChainEventRejectsPayloadIdentityMismatch(t *testing.T) {
 	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
 		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes, TaskId: testTaskIDBytes,
-		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED,
 		Payload: &taskv1.TaskProtocolEventPayloadV1{
-			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_WorkerAssignmentFinalized{
-				WorkerAssignmentFinalized: &taskv1.EventWorkerAssignmentFinalized{
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_VerifierAssignmentFinalized{
+				VerifierAssignmentFinalized: &taskv1.EventVerifierAssignmentFinalized{
 					SessionId: testOtherIDBytes, TaskId: testTaskIDBytes,
 				},
 			},
@@ -292,10 +292,10 @@ func TestTaskEventToChainEventRejectsTaskDeadlineSweepWithoutTaskID(t *testing.T
 func TestTaskEventToChainEventStillRejectsMissingTaskIDOnTaskScopedEvent(t *testing.T) {
 	_, err := taskEventToChainEvent(&taskv1.TaskEvent{
 		Cursor: "opaque", ChainHeight: 1, SessionId: testSessionIDBytes,
-		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED,
+		Code: sharedv1.ProtocolEventCodeV1_PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED,
 		Payload: &taskv1.TaskProtocolEventPayloadV1{
-			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_WorkerAssignmentFinalized{
-				WorkerAssignmentFinalized: &taskv1.EventWorkerAssignmentFinalized{SessionId: testSessionIDBytes},
+			TypedEvent: &taskv1.TaskProtocolEventPayloadV1_VerifierAssignmentFinalized{
+				VerifierAssignmentFinalized: &taskv1.EventVerifierAssignmentFinalized{SessionId: testSessionIDBytes},
 			},
 		},
 	})

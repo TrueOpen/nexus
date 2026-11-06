@@ -23,22 +23,19 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// TaskDataObjectKind is the closed set of Task data objects. INPUT / OUTPUT keep the values
-// of the old DataKind; the former generic EVIDENCE=3 narrows to MANIFEST=3, ARTIFACT takes
-// the new value 4.
+// TaskDataObjectKind defines the TaskDataObjectKind wire type.
 type TaskDataObjectKind int32
 
 const (
-	// Unspecified; rejected when it appears in a request.
+	// TASK_DATA_OBJECT_KIND_UNSPECIFIED identifies the corresponding protocol value.
 	TaskDataObjectKind_TASK_DATA_OBJECT_KIND_UNSPECIFIED TaskDataObjectKind = 0
-	// User input, uploaded only via the OpenTask client stream.
+	// TASK_DATA_OBJECT_KIND_INPUT identifies the corresponding protocol value.
 	TaskDataObjectKind_TASK_DATA_OBJECT_KIND_INPUT TaskDataObjectKind = 1
-	// Worker output, uploadable only by the selected Worker.
+	// TASK_DATA_OBJECT_KIND_OUTPUT identifies the corresponding protocol value.
 	TaskDataObjectKind_TASK_DATA_OBJECT_KIND_OUTPUT TaskDataObjectKind = 2
-	// The manifest object of an evidence bundle; its exact bytes are the preimage of the bundle hash.
+	// TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST identifies the corresponding protocol value.
 	TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST TaskDataObjectKind = 3
-	// A single artifact referenced by the manifest; no media_type is provided, the codec is
-	// defined by the evidence schema.
+	// TASK_DATA_OBJECT_KIND_EVIDENCE_ARTIFACT identifies the corresponding protocol value.
 	TaskDataObjectKind_TASK_DATA_OBJECT_KIND_EVIDENCE_ARTIFACT TaskDataObjectKind = 4
 )
 
@@ -87,20 +84,15 @@ func (TaskDataObjectKind) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{0}
 }
 
-// TaskDataObjectReadinessV1 is the visibility stage of a single object: STORED only once the
-// bytes are persisted and hash/size are verified, READY only via the atomic switch on Finalize.
-//
-// The _V1_ prefix in value names is required by buf lint ENUM_VALUE_PREFIX, consistent with the
-// other V1 enums in this repo; values and semantics are otherwise unchanged. The same applies to
-// the three enums below.
+// TaskDataObjectReadinessV1 defines the TaskDataObjectReadinessV1 wire type.
 type TaskDataObjectReadinessV1 int32
 
 const (
-	// Unspecified; treated as a broken invariant when it appears in a response.
+	// TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED identifies the corresponding protocol value.
 	TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_UNSPECIFIED TaskDataObjectReadinessV1 = 0
-	// Bytes persisted and hash and size verified, but the owning bundle is not yet finalized.
+	// TASK_DATA_OBJECT_READINESS_V1_STORED identifies the corresponding protocol value.
 	TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED TaskDataObjectReadinessV1 = 1
-	// The owning bundle has been atomically switched to readable.
+	// TASK_DATA_OBJECT_READINESS_V1_READY identifies the corresponding protocol value.
 	TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_READY TaskDataObjectReadinessV1 = 2
 )
 
@@ -145,17 +137,17 @@ func (TaskDataObjectReadinessV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{1}
 }
 
-// TaskDataReadinessV1 is the stage of the whole Task data set.
+// TaskDataReadinessV1 defines the TaskDataReadinessV1 wire type.
 type TaskDataReadinessV1 int32
 
 const (
-	// Unspecified; treated as a broken invariant when it appears in a response.
+	// TASK_DATA_READINESS_V1_UNSPECIFIED identifies the corresponding protocol value.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_UNSPECIFIED TaskDataReadinessV1 = 0
-	// INPUT is ready and can be served to authorized Workers and Verifiers.
+	// TASK_DATA_READINESS_V1_INPUT_READY identifies the corresponding protocol value.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_INPUT_READY TaskDataReadinessV1 = 1
-	// Result objects are being STORED one by one, not yet finalized.
+	// TASK_DATA_READINESS_V1_RESULT_STAGING identifies the corresponding protocol value.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_RESULT_STAGING TaskDataReadinessV1 = 2
-	// Both OUTPUT and Worker evidence are READY.
+	// TASK_DATA_READINESS_V1_READY identifies the corresponding protocol value.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_READY TaskDataReadinessV1 = 3
 	// OUTPUT is frozen, but one or both required Worker bundles are still pending.
 	TaskDataReadinessV1_TASK_DATA_READINESS_V1_OUTPUT_FROZEN TaskDataReadinessV1 = 4
@@ -210,15 +202,15 @@ func (TaskDataReadinessV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{2}
 }
 
-// EvidenceProducerKindV1 identifies the producer of an evidence bundle.
+// EvidenceProducerKindV1 defines the EvidenceProducerKindV1 wire type.
 type EvidenceProducerKindV1 int32
 
 const (
-	// Non-evidence objects always use this value.
+	// EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
 	EvidenceProducerKindV1_EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED EvidenceProducerKindV1 = 0
-	// The selected Worker's bundle, always verify_round=1.
+	// EVIDENCE_PRODUCER_KIND_V1_WORKER identifies the corresponding protocol value.
 	EvidenceProducerKindV1_EVIDENCE_PRODUCER_KIND_V1_WORKER EvidenceProducerKindV1 = 1
-	// The bundle of a selected Verifier of some round; verify_round is 1 or 2.
+	// EVIDENCE_PRODUCER_KIND_V1_VERIFIER identifies the corresponding protocol value.
 	EvidenceProducerKindV1_EVIDENCE_PRODUCER_KIND_V1_VERIFIER EvidenceProducerKindV1 = 2
 )
 
@@ -263,16 +255,15 @@ func (EvidenceProducerKindV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{3}
 }
 
-// TaskDataRequesterKindV1 alone determines the signature verification path of
-// TaskDataRequestAuthV1. Never sniff by signature length, and never trust a caller-supplied public key.
+// TaskDataRequesterKindV1 defines the TaskDataRequesterKindV1 wire type.
 type TaskDataRequesterKindV1 int32
 
 const (
-	// Unspecified; rejected when it appears in a request.
+	// TASK_DATA_REQUESTER_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
 	TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_UNSPECIFIED TaskDataRequesterKindV1 = 0
-	// The original ordering user, via EIP-712 v4 typed data; signature is exactly 65 bytes.
+	// TASK_DATA_REQUESTER_KIND_V1_USER identifies the corresponding protocol value.
 	TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_USER TaskDataRequesterKindV1 = 1
-	// Cortex service key, via the TRUEOPEN_TASK_DATA_REQUEST_V1 direct digest; signature is exactly 64 bytes.
+	// TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE identifies the corresponding protocol value.
 	TaskDataRequesterKindV1_TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE TaskDataRequesterKindV1 = 2
 )
 
@@ -317,78 +308,19 @@ func (TaskDataRequesterKindV1) EnumDescriptor() ([]byte, []int) {
 	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{4}
 }
 
-// AccessLevel is the fetch authorization level.
-type AccessLevel int32
-
-const (
-	// Fetch the canonical output package + commitments (for candidate Verifier checks before
-	// hand-raise); no sealed key is given.
-	AccessLevel_ACCESS_LEVEL_PACKAGE_UNSPECIFIED AccessLevel = 0
-	// Fetch the sealed key (the ordering user / the selected Verifier chosen by verify-select).
-	AccessLevel_ACCESS_LEVEL_SEALED_KEY AccessLevel = 1
-)
-
-// Enum value maps for AccessLevel.
-var (
-	AccessLevel_name = map[int32]string{
-		0: "ACCESS_LEVEL_PACKAGE_UNSPECIFIED",
-		1: "ACCESS_LEVEL_SEALED_KEY",
-	}
-	AccessLevel_value = map[string]int32{
-		"ACCESS_LEVEL_PACKAGE_UNSPECIFIED": 0,
-		"ACCESS_LEVEL_SEALED_KEY":          1,
-	}
-)
-
-func (x AccessLevel) Enum() *AccessLevel {
-	p := new(AccessLevel)
-	*p = x
-	return p
-}
-
-func (x AccessLevel) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (AccessLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_nexus_v1_ingress_proto_enumTypes[5].Descriptor()
-}
-
-func (AccessLevel) Type() protoreflect.EnumType {
-	return &file_nexus_v1_ingress_proto_enumTypes[5]
-}
-
-func (x AccessLevel) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use AccessLevel.Descriptor instead.
-func (AccessLevel) EnumDescriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{5}
-}
-
-// TaskDataObjectRefV1 is the only way to address a Task data object.
-//
-// When entering a body digest, use the canonical projection: the eight fields in the order of
-// this table; Hash32 is 0x followed by 64 lowercase hex characters
-// on the transport and must be decoded to raw32 before entering the preimage.
-// Non-evidence objects always have evidence_producer_kind=UNSPECIFIED, verify_round=0 and
-// producer_operator absent.
+// Non-evidence objects use verify_round=0 and no producer_operator.
+// TaskDataObjectRefV1 defines the TaskDataObjectRefV1 wire type.
 type TaskDataObjectRefV1 struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	TaskHash   string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	SessionId  string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId     string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ObjectKind TaskDataObjectKind     `protobuf:"varint,4,opt,name=object_kind,json=objectKind,proto3,enum=nexus.v1.TaskDataObjectKind" json:"object_kind,omitempty"`
-	// INPUT/OUTPUT use the content hash; EVIDENCE_MANIFEST uses the bundle hash of the
-	// corresponding Worker commitment or Verifier receipt; EVIDENCE_ARTIFACT uses the artifact
-	// hash from the manifest.
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TaskHash             string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
+	SessionId            string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId               string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	ObjectKind           TaskDataObjectKind     `protobuf:"varint,4,opt,name=object_kind,json=objectKind,proto3,enum=nexus.v1.TaskDataObjectKind" json:"object_kind,omitempty"`
 	ContentHash          string                 `protobuf:"bytes,5,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
 	EvidenceProducerKind EvidenceProducerKindV1 `protobuf:"varint,6,opt,name=evidence_producer_kind,json=evidenceProducerKind,proto3,enum=nexus.v1.EvidenceProducerKindV1" json:"evidence_producer_kind,omitempty"`
 	VerifyRound          uint32                 `protobuf:"varint,7,opt,name=verify_round,json=verifyRound,proto3" json:"verify_round,omitempty"`
 	ProducerOperator     *string                `protobuf:"bytes,8,opt,name=producer_operator,json=producerOperator,proto3,oneof" json:"producer_operator,omitempty"`
-	// Required for evidence objects: it tells the Worker token bundle from the Worker value
-	// bundle of the same round. UNSPECIFIED for INPUT and OUTPUT.
+	// Required for evidence objects; UNSPECIFIED for INPUT and OUTPUT.
 	EvidenceKind  v1.EvidenceKind `protobuf:"varint,9,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -487,29 +419,31 @@ func (x *TaskDataObjectRefV1) GetEvidenceKind() v1.EvidenceKind {
 	return v1.EvidenceKind(0)
 }
 
-// TaskDataObjectMetadataV1 is the boundary metadata of a single object; it contains no local
-// path or locator.
+// TaskDataObjectMetadataV1 defines the TaskDataObjectMetadataV1 wire type.
 type TaskDataObjectMetadataV1 struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	ObjectRef *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
-	SizeBytes uint64                 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
-	// Optional transport hint only, usable for INPUT/OUTPUT. It is not part of the content hash,
-	// signature or model verification semantics; EVIDENCE_ARTIFACT must leave it empty, its codec
-	// is defined solely by the evidence schema.
-	MediaType string                    `protobuf:"bytes,3,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
-	Readiness TaskDataObjectReadinessV1 `protobuf:"varint,4,opt,name=readiness,proto3,enum=nexus.v1.TaskDataObjectReadinessV1" json:"readiness,omitempty"`
-	// OUTPUT chunk boundaries, the byte length of each chunk in order. Verifiers split
-	// leaves from it to rebuild the MMR and check output_hash and output_leaf_count. Returned only
-	// for READY OUTPUT objects; not part of the receipt.
-	ChunkLengths []uint32 `protobuf:"varint,5,rep,packed,name=chunk_lengths,json=chunkLengths,proto3" json:"chunk_lengths,omitempty"`
-	// OUTPUT leaf count, i.e. the chunk count, >= 1. An empty output is one leaf of
-	// length 0, not an empty tree.
-	OutputLeafCount uint64 `protobuf:"varint,6,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
-	// The Worker-signed terminal frame of this object's output stream, byte-identical to the one
-	// the Builder received and replays on subscription, so a caller that fetches OUTPUT without
-	// subscribing can still tell a finished generation from one cut off by its budget. Present
-	// only for OUTPUT objects that have been stored; the caller verifies the signature against the
-	// Worker's service key and compares output_mmr_root with the receipt.
+	state           protoimpl.MessageState    `protogen:"open.v1"`
+	ObjectRef       *TaskDataObjectRefV1      `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
+	SizeBytes       uint64                    `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	MediaType       string                    `protobuf:"bytes,3,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	Readiness       TaskDataObjectReadinessV1 `protobuf:"varint,4,opt,name=readiness,proto3,enum=nexus.v1.TaskDataObjectReadinessV1" json:"readiness,omitempty"`
+	ChunkLengths    []uint32                  `protobuf:"varint,5,rep,packed,name=chunk_lengths,json=chunkLengths,proto3" json:"chunk_lengths,omitempty"`
+	OutputLeafCount uint64                    `protobuf:"varint,6,opt,name=output_leaf_count,json=outputLeafCount,proto3" json:"output_leaf_count,omitempty"`
+	// fin is the Worker-signed terminal frame of this object's output stream,
+	// byte-identical to the one the Builder received and replays on subscription.
+	//
+	// It is here so that whether a caller can tell "the model finished" from "the
+	// budget cut it off" does not depend on which retrieval path they chose.
+	// Before this, finish_reason existed only on the subscription's terminal
+	// frame, so a non-streaming fetch returned text with no way to know whether
+	// it was complete, and retrieval is meant to be a transport detail rather
+	// than something that changes which facts are obtainable.
+	//
+	// Present only for OUTPUT objects that have reached STORED; absent for INPUT
+	// and EVIDENCE, which have no output stream, and absent before the stream is
+	// terminated. The signature is the Worker's over TRUEOPEN_OUTPUT_FIN_V1 and
+	// is what makes this a fact the caller can check rather than a Builder
+	// assertion: verify it against the Worker's current service key and compare
+	// output_mmr_root with the receipt before trusting finish_reason.
 	Fin           *OutputFinV1 `protobuf:"bytes,7,opt,name=fin,proto3,oneof" json:"fin,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -594,11 +528,10 @@ func (x *TaskDataObjectMetadataV1) GetFin() *OutputFinV1 {
 	return nil
 }
 
-// EvidenceBundleSummaryV1 is returned only when querying an EVIDENCE_MANIFEST; artifact details
-// must be taken from the verified manifest and are not stuffed into this response.
+// EvidenceBundleSummaryV1 defines the EvidenceBundleSummaryV1 wire type.
 type EvidenceBundleSummaryV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Digest of the exact manifest bytes; not the on-chain typed commitment.
+	// Digest of exact manifest bytes; not the on-chain typed commitment.
 	EvidenceManifestHash   string `protobuf:"bytes,1,opt,name=evidence_manifest_hash,json=evidenceManifestHash,proto3" json:"evidence_manifest_hash,omitempty"`
 	EvidenceSchemaHash     string `protobuf:"bytes,2,opt,name=evidence_schema_hash,json=evidenceSchemaHash,proto3" json:"evidence_schema_hash,omitempty"`
 	ArtifactCount          uint32 `protobuf:"varint,3,opt,name=artifact_count,json=artifactCount,proto3" json:"artifact_count,omitempty"`
@@ -673,8 +606,7 @@ func (x *EvidenceBundleSummaryV1) GetManifestSizeBytes() uint64 {
 	return 0
 }
 
-// ByteRangeV1 is the optional segment of FetchTaskData. When present, length must be greater
-// than 0 and offset+length must neither overflow nor exceed the object size.
+// ByteRangeV1 defines the ByteRangeV1 wire type.
 type ByteRangeV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Offset        uint64                 `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
@@ -727,12 +659,6 @@ func (x *ByteRangeV1) GetLength() uint64 {
 	return 0
 }
 
-// BuilderStorageConfirmationV1 is the storage confirmation shared by INPUT, OUTPUT and complete
-// evidence bundles. Object differences are expressed only
-// by object_ref; there is no separate, highly repetitive confirmation type per object kind.
-//
-// The single signing digest (service_signature itself is not included):
-//
 //	builder_storage_confirmation_digest =
 //	  H_FIELDS_V1("TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2",
 //	    u32_be(schema_version), utf8(chain_id),
@@ -740,26 +666,10 @@ func (x *ByteRangeV1) GetLength() uint64 {
 //	    u64_be(service_authorization_nonce), canonical TaskDataObjectRefV1,
 //	    u64_be(size_bytes), u64_be(artifact_total_size_bytes),
 //	    u64_be(retention_until_height))
-//	service_signature = SignRaw64(current Builder service key, digest above)
 //
-// At signing time the nonce must equal the Builder operator's current ACTIVE service binding
-// and be non-zero; the receiver verifies immediately and stores the service identity verified
-// at that time. Later key rotation neither invalidates verified confirmations nor authorizes
-// the old key to sign new ones. retention_until_height is the retention lower bound promised at
-// signing time; later extension of the retention window does not require re-signing.
-//
-// Closed-set semantics by object_kind:
-//
-//	INPUT / OUTPUT           content_hash is input_hash / output_hash;
-//	                         producer_kind=UNSPECIFIED, verify_round=0,
-//	                         producer_operator absent, artifact_total_size_bytes=0.
-//	EVIDENCE_MANIFEST        content_hash is evidence_bundle_hash; producer_kind is WORKER or
-//	                         VERIFIER; verify_round and producer_operator must match the
-//	                         authoritative role assignment of that Task/round; size_bytes is the
-//	                         exact manifest byte size; artifact_total_size_bytes is the checked
-//	                         sum of all artifact sizes in the manifest.
-//	EVIDENCE_ARTIFACT        no standalone confirmation is signed; it is committed only by the
-//	                         owning manifest hash and the bundle confirmation.
+// Non-evidence objects use producer_kind=UNSPECIFIED, verify_round=0,
+// no producer_operator, and artifact_total_size_bytes=0.
+// BuilderStorageConfirmationV1 defines the BuilderStorageConfirmationV1 wire type.
 type BuilderStorageConfirmationV1 struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion             uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -770,7 +680,7 @@ type BuilderStorageConfirmationV1 struct {
 	SizeBytes                 uint64                 `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	ArtifactTotalSizeBytes    uint64                 `protobuf:"varint,7,opt,name=artifact_total_size_bytes,json=artifactTotalSizeBytes,proto3" json:"artifact_total_size_bytes,omitempty"`
 	RetentionUntilHeight      uint64                 `protobuf:"varint,8,opt,name=retention_until_height,json=retentionUntilHeight,proto3" json:"retention_until_height,omitempty"`
-	// compact low-S raw64.
+	// Compact low-S raw64 signature.
 	ServiceSignature []byte `protobuf:"bytes,9,opt,name=service_signature,json=serviceSignature,proto3" json:"service_signature,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -869,54 +779,103 @@ func (x *BuilderStorageConfirmationV1) GetServiceSignature() []byte {
 	return nil
 }
 
-// TaskDataRequestAuthV1 authenticates Task data-plane upload, finalize, metadata and fetch
-// requests. It replaces neither the Task receipt signature nor the on-chain role check.
+// TaskDataRequestAuthV1 authenticates one Task data request: upload,
+// finalize, metadata and fetch. requester_kind alone selects the verifier, and
+// no caller-supplied public key is ever trusted.
 //
-// The field order is the ordered preimage of TRUEOPEN_TASK_DATA_REQUEST_V1 (fields 1..10; the
-// signature itself is not included) and also the typed field order of the USER path's EIP-712
-// TaskDataRequest.
+// CORTEX_SERVICE signs H_FIELDS_V1("TRUEOPEN_TASK_DATA_REQUEST_V1", fields 1-10)
+// with its current service key: exactly 64 bytes R||S, low S. It must carry the
+// nonzero nonce of its ACTIVE service binding in field 8 and must not carry
+// session_grant.
 //
-// requester_kind alone determines the verification path:
+// USER signs EIP-712 typed data and supplies exactly 65 bytes R||S||V, V in
+// {27, 28}, low S. The domain is
 //
-//	USER            EIP-712 v4, domain "TrueOpen Task Data Request" version "2",
-//	                chainId = signature_chain_id (chosen by the signer, 1..MaxInt64),
-//	                signature exactly 65 bytes R||S||V, V in {27,28}, low-S;
-//	                service_authorization_nonce must be 0;
-//	                personal_sign, eth_sign and raw64 are rejected.
-//	CORTEX_SERVICE  direct digest H_FIELDS_V1("TRUEOPEN_TASK_DATA_REQUEST_V1", fields 1..10),
-//	                signature exactly 64 bytes compact low-S R||S;
-//	                signature_chain_id must be 0 and enters neither the preimage nor the replay key;
-//	                nonce must equal the non-zero nonce of the operator's current ACTIVE service binding.
+//	EIP712Domain(string name,string version,uint256 chainId)
+//	name = "TrueOpen Task Data Request", version = "2", chainId = signature_chain_id
 //
-// Neither path carries a caller pubkey, service address, endpoint or session/task copy, and both
-// re-verify the Task/round role assignment at the same pinned committed height -- the signature
-// only proves the request identity and grants no read/write permission beyond the
-// authoritative state.
+// and the primary type is
+//
+//	TaskDataRequest(uint32 schemaVersion,string chainId,
+//	  string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,
+//	  uint32 requesterKind,string requesterAddress,
+//	  uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight,
+//	  bytes32 sessionGrantHash)
+//
+// (one line in the real encodeType, with no spaces after the commas). Typed
+// fields 1-10 project fields 1-10: the two addresses as canonical Bech32 text,
+// body_digest and request_nonce as raw 32 bytes. sessionGrantHash is 32 zero
+// bytes without session_grant and hashStruct(SessionGrant) with it. signing
+// digest = keccak256(0x19 || 0x01 || domain_separator || hash_struct). The
+// chainId string must match the current chain; the domain chainId is the
+// request's signature_chain_id, chosen by the signer (see SDKRequestEnvelopeV2).
+// Domain version "1" (no sessionGrantHash) is not accepted. A USER request
+// carries service_authorization_nonce 0 and a signature_chain_id in
+// 1..MaxInt64; a CORTEX_SERVICE request carries signature_chain_id 0, which
+// enters neither its preimage nor its replay key.
+//
+// Without session_grant the recovered address must equal requester_address,
+// or the current registered key of the session from this Builder's local Task
+// record (missing record rejects). The registered-key branch uses the owner,
+// status, expiry, method and cache rules of SDKRequestEnvelopeV2, with
+// requester_address in place of signer_address. It allows only OUTPUT
+// GetTaskDataMetadata/FetchTaskData. Invalid state/key maps to
+// DATA_ACCESS_INVALID_SIGNATURE, expiry to DATA_ACCESS_SESSION_GRANT_EXPIRED,
+// and disallowed method/object to DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED.
+// With session_grant the grant is verified as described on SessionGrantV1, with
+// requester_address in place of signer_address, the signature must recover to
+// session_key, rpc_method must be GetTaskDataMetadata or FetchTaskData, and the
+// object reference must have object_kind OUTPUT.
+//
+// A USER request is checked in the five steps of SDKRequestEnvelopeV2 and
+// stops at the first failure:
+//  1. Format, including signature_chain_id (and the grant's) in 1..MaxInt64
+//     -> NEXUS_INGRESS_MALFORMED.
+//  2. With a grant, an rpc_method or object outside the session-allowed set ->
+//     DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED.
+//  3. The grant -> DATA_ACCESS_SESSION_GRANT_INVALID or
+//     DATA_ACCESS_SESSION_GRANT_EXPIRED.
+//  4. The request signature, over the digest the verifier rebuilds with its
+//     own chain_id (typed chainId) and the request's signature_chain_id
+//     (domain chainId) -> DATA_ACCESS_INVALID_SIGNATURE. The
+//     chain_id field must also equal the verifier's own chain_id; a mismatch
+//     is rejected here with DATA_ACCESS_INVALID_SIGNATURE even though it could
+//     be detected earlier, never as a format error. This covers a wrong
+//     derived grant hash, a tampered signature_chain_id, a chainId
+//     string of another chain and a version 1 signature. On the no-grant
+//     wallet branch it also covers the account check: requester_address
+//     must be an existing account holding an eth_secp256k1 public key equal to
+//     the recovered one. A stored key never changes, so a verifier may cache it
+//     by address, but a cache miss it cannot fill is a rejection. On the
+//     registered-key branch use the state/key, expiry and allowlist errors
+//     above instead of comparing the session key with the owner's public key.
+//  5. In order: builder_operator_address other than this Builder ->
+//     DATA_ACCESS_DENIED; expiry_height outside
+//     current_height <= expiry_height <= current_height + max_service_material_expiry_blocks,
+//     with checked addition -> NEXUS_DATA_EXPIRED, and an unavailable chain
+//     height is a rejection; replay; then a caller without the Task duty ->
+//     DATA_ACCESS_DENIED.
+//
+// NEXUS_DATA_EXPIRED means the request itself expired and must be signed
+// again; it is not the retention-expired DATA_EXPIRED of a stored object. The
+// replay key uses the verifier's own chain_id.
 type TaskDataRequestAuthV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
-	ChainId       string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	// Must equal the Builder operator bound to the current TLS endpoint at the same query height.
-	BuilderOperatorAddress string `protobuf:"bytes,3,opt,name=builder_operator_address,json=builderOperatorAddress,proto3" json:"builder_operator_address,omitempty"`
-	// Must equal, byte for byte, the ASCII "/nexus.v1.IngressAPI/<Method>" actually called.
-	RpcMethod string `protobuf:"bytes,4,opt,name=rpc_method,json=rpcMethod,proto3" json:"rpc_method,omitempty"`
-	// Digest under one of the five task data body domains.
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	SchemaVersion          uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId                string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	BuilderOperatorAddress string                 `protobuf:"bytes,3,opt,name=builder_operator_address,json=builderOperatorAddress,proto3" json:"builder_operator_address,omitempty"`
+	// Exactly the ASCII procedure called, /nexus.v1.IngressAPI/<Method>.
+	RpcMethod                 string                  `protobuf:"bytes,4,opt,name=rpc_method,json=rpcMethod,proto3" json:"rpc_method,omitempty"`
 	BodyDigest                string                  `protobuf:"bytes,5,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`
 	RequesterKind             TaskDataRequesterKindV1 `protobuf:"varint,6,opt,name=requester_kind,json=requesterKind,proto3,enum=nexus.v1.TaskDataRequesterKindV1" json:"requester_kind,omitempty"`
 	RequesterAddress          string                  `protobuf:"bytes,7,opt,name=requester_address,json=requesterAddress,proto3" json:"requester_address,omitempty"`
 	ServiceAuthorizationNonce uint64                  `protobuf:"varint,8,opt,name=service_authorization_nonce,json=serviceAuthorizationNonce,proto3" json:"service_authorization_nonce,omitempty"`
-	// 32 raw bytes from a CSPRNG.
-	RequestNonce []byte `protobuf:"bytes,9,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`
-	// current_height <= expiry_height <= current_height + max_service_material_expiry_blocks;
-	// the addition must be checked; never mix in Unix time or guess the unit from the magnitude.
+	RequestNonce              []byte                  `protobuf:"bytes,9,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`
+	// current_height <= expiry_height <= current_height + max_service_material_expiry_blocks.
 	ExpiryHeight uint64 `protobuf:"varint,10,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	// USER: 65 bytes R||S||V; CORTEX_SERVICE: 64 bytes R||S.
+	// USER: 65 bytes R||S||V over the EIP-712 digest. CORTEX_SERVICE: 64 bytes R||S.
 	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
-	// USER only: a wallet-signed grant that lets a short-lived session key sign this request.
-	// Allowed only for GetTaskDataMetadata and FetchTaskData of an OUTPUT object. Absent permits
-	// the wallet, or the key registered on the session of this Builder's local Task record (same
-	// closed set; no local record, a CLOSED session or another key -> DATA_ACCESS_INVALID_SIGNATURE,
-	// past its expiry -> DATA_ACCESS_SESSION_GRANT_EXPIRED).
+	// USER only. Absent permits the wallet or the session's registered key.
 	SessionGrant *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
 	// USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
 	SignatureChainId uint64 `protobuf:"varint,13,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
@@ -1045,324 +1004,55 @@ func (x *TaskDataRequestAuthV1) GetSignatureChainId() uint64 {
 	return 0
 }
 
-// SessionGrantV1 lets a short-lived, client-generated session key sign a closed set of User
-// requests after one wallet prompt: OpenTask, SubscribeOutput, AckOutput, GetTaskEvents and
-// PrepareChallenge on SDKRequestEnvelopeV2, and GetTaskDataMetadata and FetchTaskData of an OUTPUT
-// object on TaskDataRequestAuthV1. Every other request must be signed by the wallet directly and is
-// rejected when it carries a grant. For OpenTask, user must also equal the SignedOrder user,
-// otherwise SDK_AUTH_SESSION_GRANT_INVALID. The grant does not authorize the order: that is
-// signed by the wallet or by a key registered on the session's StreamState.
+// OpenTaskHeader opens a Task. request_envelope is signed by the user's wallet
+// directly, recovering to user_address, or by a session key under a grant whose
+// user is user_address, or the session's registered key. user_address must
+// equal the SignedOrder user. That
+// account must already hold its public key on chain (the user has submitted
+// MsgCreateSession); otherwise the
+// request is rejected with SDK_AUTH_INVALID_SIGNATURE. The order itself is
+// authorized only by the SignedOrder EIP-712 wallet or registered-key signature, which the Keeper
+// verifies; there is no outer order signature.
 //
-// user_signature is 65 bytes R||S||V over the EIP-712 SessionGrant digest in the
-// "TrueOpen SDK Request" domain whose chainId is the grant's own signature_chain_id, chosen by the
-// wallet when it signed; a grant and the requests under it may use different signature_chain_id
-// values. It must recover to user, an existing account whose stored public
-// key it matches. The grant is valid while
-// current_height <= expiry_height <= current_height + max_session_grant_blocks; there is no
-// revocation, and the grant may be reused until it expires. The request signature is compared
-// only with session_key.
-type SessionGrantV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChainId       string                 `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
-	User          string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`                               // canonical bech32 address of the granting user
-	SessionKey    []byte                 `protobuf:"bytes,3,opt,name=session_key,json=sessionKey,proto3" json:"session_key,omitempty"` // raw 20-byte address of the session key
-	ExpiryHeight  uint64                 `protobuf:"varint,4,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	GrantNonce    []byte                 `protobuf:"bytes,5,opt,name=grant_nonce,json=grantNonce,proto3" json:"grant_nonce,omitempty"`          // 32 bytes from a CSPRNG
-	UserSignature []byte                 `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"` // 65 bytes R||S||V
-	// EIP-712 domain chainId of user_signature, 1..MaxInt64. Not in the typed data.
-	SignatureChainId uint64 `protobuf:"varint,7,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *SessionGrantV1) Reset() {
-	*x = SessionGrantV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SessionGrantV1) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SessionGrantV1) ProtoMessage() {}
-
-func (x *SessionGrantV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SessionGrantV1.ProtoReflect.Descriptor instead.
-func (*SessionGrantV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *SessionGrantV1) GetChainId() string {
-	if x != nil {
-		return x.ChainId
-	}
-	return ""
-}
-
-func (x *SessionGrantV1) GetUser() string {
-	if x != nil {
-		return x.User
-	}
-	return ""
-}
-
-func (x *SessionGrantV1) GetSessionKey() []byte {
-	if x != nil {
-		return x.SessionKey
-	}
-	return nil
-}
-
-func (x *SessionGrantV1) GetExpiryHeight() uint64 {
-	if x != nil {
-		return x.ExpiryHeight
-	}
-	return 0
-}
-
-func (x *SessionGrantV1) GetGrantNonce() []byte {
-	if x != nil {
-		return x.GrantNonce
-	}
-	return nil
-}
-
-func (x *SessionGrantV1) GetUserSignature() []byte {
-	if x != nil {
-		return x.UserSignature
-	}
-	return nil
-}
-
-func (x *SessionGrantV1) GetSignatureChainId() uint64 {
-	if x != nil {
-		return x.SignatureChainId
-	}
-	return 0
-}
-
-// SDKRequestEnvelopeV2 is the signed envelope of User-side SDK requests, used by OpenTask /
-// ConfirmOpenTask / SubscribeOutput / AckOutput / GetTaskEvents / PrepareChallenge.
-// Task data-plane methods do not use it; they use TaskDataRequestAuthV1 instead.
+// expiry_height_or_time on request_envelope must be a chain height (below
+// 10^12); a Unix millisecond value is rejected at the format step with
+// NEXUS_INGRESS_MALFORMED. The height must satisfy
+// current_height <= expiry <= current_height + request_ttl_blocks, with checked
+// addition. request_ttl_blocks is Builder configuration with a default of 20
+// blocks. Outside the window the request is rejected with SDK_AUTH_EXPIRED; a
+// Builder that cannot read the current chain height rejects the request.
 //
-// signature is 65 bytes R||S||V (V in {27, 28}, low S) over the EIP-712 SDKRequest digest in the
-// "TrueOpen SDK Request" domain (chainId = signature_chain_id):
-//
-//	SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,
-//	           bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)
-//
-// The verifier recovers the signer; signer_address must equal the recovered address (the granting
-// user when session_grant is set), or, without a grant, the recovered address must be the key
-// registered on the StreamState of session_id (registered-key branch below). request_domain, signer_address, signature and the deprecated
-// signer_pubkey are not signed. body_digest is the H_FIELDS_V1 digest of the method's
-// TRUEOPEN_SDK_BODY_*_V1 domain.
-// signature_chain_id is chosen by the signer (a browser wallet uses its active network) and must
-// be in 1..MaxInt64. It isolates nothing: cross-chain isolation comes only from the typed chainId
-// string, which the verifier takes from its own chain. The same request signed under another
-// signature_chain_id has the same replay key.
-// Replay key: request_domain \x00 chain_id \x00 signer_address \x00 hex(request_nonce)
-//
-// Registered-key branch (no grant, recovered address is not signer_address), checked in order:
-// the session exists, is not CLOSED, its owner is signer_address and its current key is the
-// recovered address, else SDK_AUTH_INVALID_SIGNATURE; current_height <= session_key_expiry_height,
-// else SDK_AUTH_SESSION_GRANT_EXPIRED; the method is in the session set, else
-// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED. sessionGrantHash is 32 zero bytes, and requests never
-// consume spend_cap. Chain state may be cached for a few blocks, invalidated by session_key_updated.
-type SDKRequestEnvelopeV2 struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	RequestDomain      string                 `protobuf:"bytes,1,opt,name=request_domain,json=requestDomain,proto3" json:"request_domain,omitempty"`                     // fixed "TRUEOPEN_SDK_REQUEST_V2"
-	ChainId            string                 `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`                                       // prevents cross-chain replay
-	Method             string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`                                                        // bare IngressAPI method name
-	Endpoint           string                 `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`                                                    // "/nexus.v1.IngressAPI/<Method>", <Method> equal to method
-	SessionId          string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                 // 0x followed by 64 lowercase hex
-	TaskId             string                 `protobuf:"bytes,6,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`                                          // 0x followed by 64 lowercase hex
-	RequestNonce       []byte                 `protobuf:"bytes,7,opt,name=request_nonce,json=requestNonce,proto3" json:"request_nonce,omitempty"`                        // exactly 32 bytes
-	ExpiryHeightOrTime int64                  `protobuf:"varint,8,opt,name=expiry_height_or_time,json=expiryHeightOrTime,proto3" json:"expiry_height_or_time,omitempty"` // expiry height or Unix milliseconds; must be > 0
-	BodyDigest         []byte                 `protobuf:"bytes,9,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`                              // 32 bytes, see above
-	SignerAddress      string                 `protobuf:"bytes,10,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`                    // on-chain address of the SDK user
-	Signature          []byte                 `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`                                                 // 65 bytes R||S||V over the SDKRequest digest
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	SignerPubkey []byte          `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"` // ignored
-	SessionGrant *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"` // optional; absent = the user's wallet or the session's registered key
-	// EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data and not in the replay key.
-	SignatureChainId uint64 `protobuf:"varint,14,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *SDKRequestEnvelopeV2) Reset() {
-	*x = SDKRequestEnvelopeV2{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SDKRequestEnvelopeV2) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SDKRequestEnvelopeV2) ProtoMessage() {}
-
-func (x *SDKRequestEnvelopeV2) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SDKRequestEnvelopeV2.ProtoReflect.Descriptor instead.
-func (*SDKRequestEnvelopeV2) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *SDKRequestEnvelopeV2) GetRequestDomain() string {
-	if x != nil {
-		return x.RequestDomain
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetChainId() string {
-	if x != nil {
-		return x.ChainId
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetMethod() string {
-	if x != nil {
-		return x.Method
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetEndpoint() string {
-	if x != nil {
-		return x.Endpoint
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetRequestNonce() []byte {
-	if x != nil {
-		return x.RequestNonce
-	}
-	return nil
-}
-
-func (x *SDKRequestEnvelopeV2) GetExpiryHeightOrTime() int64 {
-	if x != nil {
-		return x.ExpiryHeightOrTime
-	}
-	return 0
-}
-
-func (x *SDKRequestEnvelopeV2) GetBodyDigest() []byte {
-	if x != nil {
-		return x.BodyDigest
-	}
-	return nil
-}
-
-func (x *SDKRequestEnvelopeV2) GetSignerAddress() string {
-	if x != nil {
-		return x.SignerAddress
-	}
-	return ""
-}
-
-func (x *SDKRequestEnvelopeV2) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SDKRequestEnvelopeV2) GetSignerPubkey() []byte {
-	if x != nil {
-		return x.SignerPubkey
-	}
-	return nil
-}
-
-func (x *SDKRequestEnvelopeV2) GetSessionGrant() *SessionGrantV1 {
-	if x != nil {
-		return x.SessionGrant
-	}
-	return nil
-}
-
-func (x *SDKRequestEnvelopeV2) GetSignatureChainId() uint64 {
-	if x != nil {
-		return x.SignatureChainId
-	}
-	return 0
-}
-
-// OpenTaskHeader is the first frame of OpenTask. order_envelope carries the SignedOrderV2
-// protobuf bytes; the order is authorized only by its EIP-712 signature, made by the user's
-// wallet or by the key registered on the session, which the chain verifies. There is no outer
-// order signature: signature and signature_scheme must be empty.
-// The request envelope is signed by the order user's wallet, by a session key under a grant
-// whose user equals the SignedOrder user, or by the session's registered key.
-// An order signed by the registered key is prechecked against the latest chain state before the
-// input is stored: the current key and signed session_anchor_height >= session_key_set_height
-// (else SDK_AUTH_INVALID_SIGNATURE), its expiry (else SDK_AUTH_SESSION_GRANT_EXPIRED), and a
-// nonzero spend_cap against the committed spent plus max_fee (else
-// SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED). The Keeper remains the final authority.
+// body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_OPEN_TASK_V1", task_hash,
+// session_id, order_sequence, user_address, input_size_bytes, input_hash,
+// input_media_type, idempotency_key), where task_hash is recomputed from the
+// SignedOrderV2 in order_envelope and never taken from the caller. The
+// order_envelope bytes do not enter the body. The envelope task_id must equal
+// TRUEOPEN_TASK_ID_V1(session_id, order_sequence).
 type OpenTaskHeader struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderEnvelope []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
-	PayloadRef    string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"` // must equal "nexus://sha256/" || lowercase_hex(input_hash), without 0x
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	Signature       []byte                `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The complete signed SignedOrderV2 as protobuf bytes; the older JSON order
+	// envelope is not accepted.
+	OrderEnvelope []byte `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`
+	// Must equal "nexus://sha256/" || lowercase_hex(input_hash). It is derived
+	// from the signed input_hash, checked here, and enters no preimage.
+	PayloadRef      string                `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"`
 	RequestEnvelope *SDKRequestEnvelopeV2 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	SessionId       string                `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	OrderSequence   uint64                `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	UserAddress     string                `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	SignatureScheme string `protobuf:"bytes,8,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
-	InputSizeBytes  uint64 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
-	InputHash       string `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
-	InputMediaType  string `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
-	// Required: the User keeps it unchanged across retries. A retry under the same key returns the
-	// first result only when task_hash, input_hash and input_size_bytes are all equal, and is
-	// rejected otherwise. The SignedOrder signature metadata (signature_scheme, user_signature,
-	// signature_chain_id) is not compared: a retry re-signed under another wallet network is the
-	// same request, its signature is verified on its own and the stored SignedOrder is kept.
+	// Canonical lowercase Bech32 with the chain's account prefix, trueopen,
+	// decoding to exactly 20 bytes; anything else is NEXUS_INGRESS_MALFORMED at
+	// the format step. Must equal the SignedOrder user.
+	UserAddress    string `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
+	InputSizeBytes uint64 `protobuf:"varint,9,opt,name=input_size_bytes,json=inputSizeBytes,proto3" json:"input_size_bytes,omitempty"`
+	InputHash      string `protobuf:"bytes,10,opt,name=input_hash,json=inputHash,proto3" json:"input_hash,omitempty"`
+	InputMediaType string `protobuf:"bytes,11,opt,name=input_media_type,json=inputMediaType,proto3" json:"input_media_type,omitempty"`
+	// Exact-retry key of one logical OpenTask. A retry under the same key returns
+	// the first result only when task_hash, input_hash and input_size_bytes are
+	// all equal, and is rejected otherwise. The SignedOrder signature metadata
+	// (signature_scheme, user_signature, signature_chain_id) is not compared: a
+	// retry re-signed under another wallet network is the same request, but its
+	// signature is verified on its own and the stored SignedOrder is kept. A
+	// replacement (RBF) version must use a new key.
 	IdempotencyKey string `protobuf:"bytes,12,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1370,7 +1060,7 @@ type OpenTaskHeader struct {
 
 func (x *OpenTaskHeader) Reset() {
 	*x = OpenTaskHeader{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1382,7 +1072,7 @@ func (x *OpenTaskHeader) String() string {
 func (*OpenTaskHeader) ProtoMessage() {}
 
 func (x *OpenTaskHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1395,7 +1085,7 @@ func (x *OpenTaskHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskHeader.ProtoReflect.Descriptor instead.
 func (*OpenTaskHeader) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{8}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *OpenTaskHeader) GetOrderEnvelope() []byte {
@@ -1410,14 +1100,6 @@ func (x *OpenTaskHeader) GetPayloadRef() string {
 		return x.PayloadRef
 	}
 	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *OpenTaskHeader) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
 }
 
 func (x *OpenTaskHeader) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
@@ -1444,14 +1126,6 @@ func (x *OpenTaskHeader) GetOrderSequence() uint64 {
 func (x *OpenTaskHeader) GetUserAddress() string {
 	if x != nil {
 		return x.UserAddress
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *OpenTaskHeader) GetSignatureScheme() string {
-	if x != nil {
-		return x.SignatureScheme
 	}
 	return ""
 }
@@ -1484,10 +1158,10 @@ func (x *OpenTaskHeader) GetIdempotencyKey() string {
 	return ""
 }
 
-// OpenTask client stream frame: header first, then input chunks.
+// OpenTaskRequest defines the OpenTaskRequest wire type.
 type OpenTaskRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Frame content: header or data chunk.
+	// frame selects one supported variant.
 	//
 	// Types that are valid to be assigned to Frame:
 	//
@@ -1500,7 +1174,7 @@ type OpenTaskRequest struct {
 
 func (x *OpenTaskRequest) Reset() {
 	*x = OpenTaskRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1512,7 +1186,7 @@ func (x *OpenTaskRequest) String() string {
 func (*OpenTaskRequest) ProtoMessage() {}
 
 func (x *OpenTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1525,7 +1199,7 @@ func (x *OpenTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskRequest.ProtoReflect.Descriptor instead.
 func (*OpenTaskRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{9}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *OpenTaskRequest) GetFrame() isOpenTaskRequest_Frame {
@@ -1569,23 +1243,43 @@ func (*OpenTaskRequest_Header) isOpenTaskRequest_Frame() {}
 
 func (*OpenTaskRequest_Chunk) isOpenTaskRequest_Frame() {}
 
-// OpenTask acceptance response; accepted only means this Builder accepted it, not accepted on chain.
-// When accepted=true, fields 5 and 6 must be present; when false, field 6 must be absent.
+// OpenTaskResponse is also the typed gRPC error detail for binding/takeover
+// routing. SESSION_BOUND_ELSEWHERE supplies bound_builder and task_id;
+// TAKEOVER_PENDING additionally supplies takeover_activation_height.
+// Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
+// use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
+// without switching Builder. Snapshot activation may occur later in the same epoch.
+// If dispatch_available_height exceeds order_expire_height, do not retry the
+// unchanged order: rebuild and re-sign the same unconsumed sequence with a later
+// expiry and fresh preflight context when retrying, without triggering takeover.
+// A pending Builder rejects all new orders, same-sequence retries, takeover
+// requests and new Sessions with NEXUS_INGRESS_BUILDER_KEY_ROTATING and
+// service_key_rotation_effective_height. Existing-order replay and dispatched
+// work continue. SDK follows NO_CAPACITY takeover routing, skips pending
+// Builders, and waits for the earliest activation if every candidate is pending.
 type OpenTaskResponse struct {
-	state             protoimpl.MessageState        `protogen:"open.v1"`
-	TaskId            string                        `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Accepted          bool                          `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Reason            string                        `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
-	SessionId         string                        `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	InputMetadata     *TaskDataObjectMetadataV1     `protobuf:"bytes,5,opt,name=input_metadata,json=inputMetadata,proto3" json:"input_metadata,omitempty"`
-	InputConfirmation *BuilderStorageConfirmationV1 `protobuf:"bytes,6,opt,name=input_confirmation,json=inputConfirmation,proto3" json:"input_confirmation,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                    protoimpl.MessageState        `protogen:"open.v1"`
+	TaskId                   string                        `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Accepted                 bool                          `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Reason                   string                        `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	SessionId                string                        `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	InputMetadata            *TaskDataObjectMetadataV1     `protobuf:"bytes,5,opt,name=input_metadata,json=inputMetadata,proto3" json:"input_metadata,omitempty"`
+	InputConfirmation        *BuilderStorageConfirmationV1 `protobuf:"bytes,6,opt,name=input_confirmation,json=inputConfirmation,proto3" json:"input_confirmation,omitempty"`
+	Status                   OpenTaskStatusV1              `protobuf:"varint,7,opt,name=status,proto3,enum=nexus.v1.OpenTaskStatusV1" json:"status,omitempty"`
+	DispatchResult           *DispatchResultHeaderV1       `protobuf:"bytes,8,opt,name=dispatch_result,json=dispatchResult,proto3,oneof" json:"dispatch_result,omitempty"`
+	BoundBuilder             *string                       `protobuf:"bytes,9,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
+	TakeoverActivationHeight *uint64                       `protobuf:"varint,10,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
+	// Earliest height to retry dispatch readiness; recheck committed availability.
+	DispatchAvailableHeight *uint64 `protobuf:"varint,11,opt,name=dispatch_available_height,json=dispatchAvailableHeight,proto3,oneof" json:"dispatch_available_height,omitempty"`
+	// Activation H attached to NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+	ServiceKeyRotationEffectiveHeight *uint64 `protobuf:"varint,12,opt,name=service_key_rotation_effective_height,json=serviceKeyRotationEffectiveHeight,proto3,oneof" json:"service_key_rotation_effective_height,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *OpenTaskResponse) Reset() {
 	*x = OpenTaskResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1597,7 +1291,7 @@ func (x *OpenTaskResponse) String() string {
 func (*OpenTaskResponse) ProtoMessage() {}
 
 func (x *OpenTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1610,7 +1304,7 @@ func (x *OpenTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTaskResponse.ProtoReflect.Descriptor instead.
 func (*OpenTaskResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{10}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OpenTaskResponse) GetTaskId() string {
@@ -1655,133 +1349,50 @@ func (x *OpenTaskResponse) GetInputConfirmation() *BuilderStorageConfirmationV1 
 	return nil
 }
 
-// ConfirmOpenTaskRequest.
-type ConfirmOpenTaskRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	// Strictly ascending and unique by Builder operator raw bytes, and all must reference the
-	// same INPUT object ref. Confirmations for an old RBF task_hash do not count toward the new version.
-	InputConfirmations []*BuilderStorageConfirmationV1 `protobuf:"bytes,4,rep,name=input_confirmations,json=inputConfirmations,proto3" json:"input_confirmations,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
-}
-
-func (x *ConfirmOpenTaskRequest) Reset() {
-	*x = ConfirmOpenTaskRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConfirmOpenTaskRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConfirmOpenTaskRequest) ProtoMessage() {}
-
-func (x *ConfirmOpenTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
+func (x *OpenTaskResponse) GetStatus() OpenTaskStatusV1 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.Status
 	}
-	return mi.MessageOf(x)
+	return OpenTaskStatusV1_OPEN_TASK_STATUS_V1_UNSPECIFIED
 }
 
-// Deprecated: Use ConfirmOpenTaskRequest.ProtoReflect.Descriptor instead.
-func (*ConfirmOpenTaskRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *ConfirmOpenTaskRequest) GetSessionId() string {
+func (x *OpenTaskResponse) GetDispatchResult() *DispatchResultHeaderV1 {
 	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *ConfirmOpenTaskRequest) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *ConfirmOpenTaskRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
-	if x != nil {
-		return x.RequestEnvelope
+		return x.DispatchResult
 	}
 	return nil
 }
 
-func (x *ConfirmOpenTaskRequest) GetInputConfirmations() []*BuilderStorageConfirmationV1 {
-	if x != nil {
-		return x.InputConfirmations
-	}
-	return nil
-}
-
-// ConfirmOpenTask response.
-type ConfirmOpenTaskResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Recorded      bool                   `protobuf:"varint,1,opt,name=recorded,proto3" json:"recorded,omitempty"`
-	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ConfirmOpenTaskResponse) Reset() {
-	*x = ConfirmOpenTaskResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ConfirmOpenTaskResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ConfirmOpenTaskResponse) ProtoMessage() {}
-
-func (x *ConfirmOpenTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ConfirmOpenTaskResponse.ProtoReflect.Descriptor instead.
-func (*ConfirmOpenTaskResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *ConfirmOpenTaskResponse) GetRecorded() bool {
-	if x != nil {
-		return x.Recorded
-	}
-	return false
-}
-
-func (x *ConfirmOpenTaskResponse) GetReason() string {
-	if x != nil {
-		return x.Reason
+func (x *OpenTaskResponse) GetBoundBuilder() string {
+	if x != nil && x.BoundBuilder != nil {
+		return *x.BoundBuilder
 	}
 	return ""
 }
 
-// UploadTaskResultObjectHeaderV1 is the first upload frame and the only signed part.
-// Its body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2(canonical object_ref,
-// size_bytes, media_type).
+func (x *OpenTaskResponse) GetTakeoverActivationHeight() uint64 {
+	if x != nil && x.TakeoverActivationHeight != nil {
+		return *x.TakeoverActivationHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetDispatchAvailableHeight() uint64 {
+	if x != nil && x.DispatchAvailableHeight != nil {
+		return *x.DispatchAvailableHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetServiceKeyRotationEffectiveHeight() uint64 {
+	if x != nil && x.ServiceKeyRotationEffectiveHeight != nil {
+		return *x.ServiceKeyRotationEffectiveHeight
+	}
+	return 0
+}
+
+// The upload body includes size_bytes and media_type.
+// UploadTaskResultObjectHeaderV1 defines the UploadTaskResultObjectHeaderV1 wire type.
 type UploadTaskResultObjectHeaderV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ObjectRef     *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
@@ -1794,7 +1405,7 @@ type UploadTaskResultObjectHeaderV1 struct {
 
 func (x *UploadTaskResultObjectHeaderV1) Reset() {
 	*x = UploadTaskResultObjectHeaderV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1806,7 +1417,7 @@ func (x *UploadTaskResultObjectHeaderV1) String() string {
 func (*UploadTaskResultObjectHeaderV1) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectHeaderV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1819,7 +1430,7 @@ func (x *UploadTaskResultObjectHeaderV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectHeaderV1.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectHeaderV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{13}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UploadTaskResultObjectHeaderV1) GetObjectRef() *TaskDataObjectRefV1 {
@@ -1850,10 +1461,10 @@ func (x *UploadTaskResultObjectHeaderV1) GetRequestAuth() *TaskDataRequestAuthV1
 	return nil
 }
 
-// UploadTaskResultObject client stream frame: header first, then data chunks.
+// UploadTaskResultObjectRequest defines the UploadTaskResultObjectRequest wire type.
 type UploadTaskResultObjectRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Frame content: header or data chunk.
+	// frame selects one supported variant.
 	//
 	// Types that are valid to be assigned to Frame:
 	//
@@ -1866,7 +1477,7 @@ type UploadTaskResultObjectRequest struct {
 
 func (x *UploadTaskResultObjectRequest) Reset() {
 	*x = UploadTaskResultObjectRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1878,7 +1489,7 @@ func (x *UploadTaskResultObjectRequest) String() string {
 func (*UploadTaskResultObjectRequest) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1891,7 +1502,7 @@ func (x *UploadTaskResultObjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectRequest.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{14}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UploadTaskResultObjectRequest) GetFrame() isUploadTaskResultObjectRequest_Frame {
@@ -1935,8 +1546,7 @@ func (*UploadTaskResultObjectRequest_Header) isUploadTaskResultObjectRequest_Fra
 
 func (*UploadTaskResultObjectRequest_Chunk) isUploadTaskResultObjectRequest_Frame() {}
 
-// UploadTaskResultObject response. It only proves the single object is fully saved as STORED;
-// it neither proves the whole Task Result is complete nor issues the final StorageConfirmation.
+// UploadTaskResultObjectResponse defines the UploadTaskResultObjectResponse wire type.
 type UploadTaskResultObjectResponse struct {
 	state         protoimpl.MessageState    `protogen:"open.v1"`
 	Accepted      bool                      `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
@@ -1948,7 +1558,7 @@ type UploadTaskResultObjectResponse struct {
 
 func (x *UploadTaskResultObjectResponse) Reset() {
 	*x = UploadTaskResultObjectResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1960,7 +1570,7 @@ func (x *UploadTaskResultObjectResponse) String() string {
 func (*UploadTaskResultObjectResponse) ProtoMessage() {}
 
 func (x *UploadTaskResultObjectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1973,7 +1583,7 @@ func (x *UploadTaskResultObjectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskResultObjectResponse.ProtoReflect.Descriptor instead.
 func (*UploadTaskResultObjectResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{15}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UploadTaskResultObjectResponse) GetAccepted() bool {
@@ -1997,42 +1607,33 @@ func (x *UploadTaskResultObjectResponse) GetMetadata() *TaskDataObjectMetadataV1
 	return nil
 }
 
-// First frame of UploadTaskOutputStream: opens an OUTPUT stream.
-//
-// Carries neither a receipt nor a starting chunk index -- the starting point is given by the
-// Builder's OutputStreamProgressV1 reply. On disconnect, resend this frame to reconnect.
-// request_auth.rpc_method is "/nexus.v1.IngressAPI/UploadTaskOutputStream"; its body
-// domain is not yet in the closed set of five task data body domains and will be registered
-// here once it is defined.
-//
-// worker_signature binds the stream declaration to the selected Worker's service key,
-// independently of the upload request authorization; it signs
-// H_FIELDS_V1("TRUEOPEN_OUTPUT_STREAM_HEADER_V1", chain_id, task_hash, attempt,
-// stream_instance, user_recipient_pubkey, output_key_commitment, key_package_hash).
+// OutputStreamHeaderV2 binds the plaintext stream declaration to the selected
+// Worker's service key, independently of the upload request authorization.
+// worker_signature signs H_FIELDS_V1("TRUEOPEN_OUTPUT_STREAM_HEADER_V1",
+// chain_id, task_hash, dispatch_ticket_hash, stream_instance, user_recipient_pubkey,
+// output_key_commitment, key_package_hash).
 type OutputStreamHeaderV2 struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Routing and verification copy; must equal the on-chain accepted_task_hash.
-	TaskHash    string                 `protobuf:"bytes,3,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
-	RequestAuth *TaskDataRequestAuthV1 `protobuf:"bytes,4,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
-	// Plaintext streams use attempt 0 and stream_instance 1.
-	Attempt        uint32 `protobuf:"varint,5,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	StreamInstance uint32 `protobuf:"varint,6,opt,name=stream_instance,json=streamInstance,proto3" json:"stream_instance,omitempty"`
-	// Empty for plaintext streams.
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SessionId      string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId         string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	TaskHash       string                 `protobuf:"bytes,3,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
+	RequestAuth    *TaskDataRequestAuthV1 `protobuf:"bytes,4,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"` // The plaintext stream uses stream_instance 1 and a ticket-bound attempt.
+	StreamInstance uint32                 `protobuf:"varint,6,opt,name=stream_instance,json=streamInstance,proto3" json:"stream_instance,omitempty"`
+	// Phase 0 requires this field to be empty.
 	UserRecipientPubkey []byte `protobuf:"bytes,7,opt,name=user_recipient_pubkey,json=userRecipientPubkey,proto3" json:"user_recipient_pubkey,omitempty"`
-	// 32 zero bytes for plaintext streams.
+	// Phase 0 requires these commitments to be 32 zero bytes.
 	OutputKeyCommitment []byte `protobuf:"bytes,8,opt,name=output_key_commitment,json=outputKeyCommitment,proto3" json:"output_key_commitment,omitempty"`
 	KeyPackageHash      []byte `protobuf:"bytes,9,opt,name=key_package_hash,json=keyPackageHash,proto3" json:"key_package_hash,omitempty"`
 	// Raw64 R||S low-S signature over the header declaration.
-	WorkerSignature []byte `protobuf:"bytes,10,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	WorkerSignature    []byte `protobuf:"bytes,10,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
+	DispatchTicketHash []byte `protobuf:"bytes,11,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *OutputStreamHeaderV2) Reset() {
 	*x = OutputStreamHeaderV2{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2044,7 +1645,7 @@ func (x *OutputStreamHeaderV2) String() string {
 func (*OutputStreamHeaderV2) ProtoMessage() {}
 
 func (x *OutputStreamHeaderV2) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2057,7 +1658,7 @@ func (x *OutputStreamHeaderV2) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamHeaderV2.ProtoReflect.Descriptor instead.
 func (*OutputStreamHeaderV2) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{16}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *OutputStreamHeaderV2) GetSessionId() string {
@@ -2086,13 +1687,6 @@ func (x *OutputStreamHeaderV2) GetRequestAuth() *TaskDataRequestAuthV1 {
 		return x.RequestAuth
 	}
 	return nil
-}
-
-func (x *OutputStreamHeaderV2) GetAttempt() uint32 {
-	if x != nil {
-		return x.Attempt
-	}
-	return 0
 }
 
 func (x *OutputStreamHeaderV2) GetStreamInstance() uint32 {
@@ -2130,32 +1724,39 @@ func (x *OutputStreamHeaderV2) GetWorkerSignature() []byte {
 	return nil
 }
 
-// One chunk of OUTPUT text and its cumulative commitment.
-//
-// The same message is used both for Worker->Builder upload and Builder->User forwarding: the
-// Builder forwards it verbatim, without modifying the frame or adding its own signature.
+func (x *OutputStreamHeaderV2) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+// OutputChunkV1 defines the OutputChunkV1 wire type.
 type OutputChunkV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Leaf index; the first frame must be 0, each following frame adds 1.
-	Seq uint64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
-	// UTF-8 bytes of this chunk's TEXT component. It is exactly one MMR leaf.
-	Text []byte `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// Cumulative MMR root after appending this leaf, i.e. the root over the first seq + 1 leaves.
-	MmrRoot []byte `protobuf:"bytes,3,opt,name=mmr_root,json=mmrRoot,proto3" json:"mmr_root,omitempty"`
-	// Worker service key raw64 signature (R||S, low-S) over the TRUEOPEN_OUTPUT_CHUNK_V1 digest.
-	WorkerSignature []byte `protobuf:"bytes,4,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Seq             uint64                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	Text            []byte                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	MmrRoot         []byte                 `protobuf:"bytes,3,opt,name=mmr_root,json=mmrRoot,proto3" json:"mmr_root,omitempty"`
+	WorkerSignature []byte                 `protobuf:"bytes,4,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
 	// Phase 0 requires this field to be empty; any non-empty value fails closed.
 	// A future activation requires a new domain, limits, vectors and Wire release.
 	Attachment []byte `protobuf:"bytes,5,opt,name=attachment,proto3" json:"attachment,omitempty"`
 	// Phase 0 requires this field to be empty together with attachment.
 	AttachmentSignature []byte `protobuf:"bytes,6,opt,name=attachment_signature,json=attachmentSignature,proto3" json:"attachment_signature,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Cumulative generated tokens through this chunk; non-decreasing across the attempt.
+	// Used for the pre-record forwarding cap, never counted again by the Builder.
+	CumulativeGeneratedTokens uint64 `protobuf:"varint,7,opt,name=cumulative_generated_tokens,json=cumulativeGeneratedTokens,proto3" json:"cumulative_generated_tokens,omitempty"`
+	// Must equal the stream header's ticket. The Worker signs
+	// H_FIELDS_V1("TRUEOPEN_OUTPUT_CHUNK_V1", chain_id, task_hash,
+	// dispatch_ticket_hash, seq, mmr_root). Attempts of one order cannot mix.
+	DispatchTicketHash []byte `protobuf:"bytes,8,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *OutputChunkV1) Reset() {
 	*x = OutputChunkV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2167,7 +1768,7 @@ func (x *OutputChunkV1) String() string {
 func (*OutputChunkV1) ProtoMessage() {}
 
 func (x *OutputChunkV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2180,7 +1781,7 @@ func (x *OutputChunkV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputChunkV1.ProtoReflect.Descriptor instead.
 func (*OutputChunkV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{17}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *OutputChunkV1) GetSeq() uint64 {
@@ -2225,28 +1826,38 @@ func (x *OutputChunkV1) GetAttachmentSignature() []byte {
 	return nil
 }
 
-// Closing frame of an OUTPUT stream.
-//
-// The authoritative commitment to the final root is InferReceipt.output_hash; output_mmr_root
-// here only lets the receiver detect early that it disagrees with the Worker. Since wire v0.1.1
-// the frame is Worker-authenticated: worker_signature covers the TRUEOPEN_OUTPUT_FIN_V1 digest
-// (H_FIELDS_V1 over chain_id, task_hash, uint64_be(final_seq), output_mmr_root,
-// uint32_be(finish_reason)), so finish_reason is part of the signed preimage.
+func (x *OutputChunkV1) GetCumulativeGeneratedTokens() uint64 {
+	if x != nil {
+		return x.CumulativeGeneratedTokens
+	}
+	return 0
+}
+
+func (x *OutputChunkV1) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+// OutputFinV1 defines the OutputFinV1 wire type.
 type OutputFinV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FinalSeq      uint64                 `protobuf:"varint,1,opt,name=final_seq,json=finalSeq,proto3" json:"final_seq,omitempty"`
-	OutputMmrRoot []byte                 `protobuf:"bytes,2,opt,name=output_mmr_root,json=outputMmrRoot,proto3" json:"output_mmr_root,omitempty"`
-	// Why the stream ended; participates in the TRUEOPEN_OUTPUT_FIN_V1 preimage.
-	FinishReason v11.FinishReasonV1 `protobuf:"varint,3,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
-	// Worker service key raw64 signature (R||S, low-S) over the TRUEOPEN_OUTPUT_FIN_V1 digest.
-	WorkerSignature []byte `protobuf:"bytes,4,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FinalSeq        uint64                 `protobuf:"varint,1,opt,name=final_seq,json=finalSeq,proto3" json:"final_seq,omitempty"`
+	OutputMmrRoot   []byte                 `protobuf:"bytes,2,opt,name=output_mmr_root,json=outputMmrRoot,proto3" json:"output_mmr_root,omitempty"`
+	FinishReason    v11.FinishReasonV1     `protobuf:"varint,3,opt,name=finish_reason,json=finishReason,proto3,enum=task.v1.FinishReasonV1" json:"finish_reason,omitempty"`
+	WorkerSignature []byte                 `protobuf:"bytes,4,opt,name=worker_signature,json=workerSignature,proto3" json:"worker_signature,omitempty"`
+	// Must equal the stream header and accepted receipt's ticket. The Worker signs
+	// H_FIELDS_V1("TRUEOPEN_OUTPUT_FIN_V1", chain_id, task_hash,
+	// dispatch_ticket_hash, final_seq, output_mmr_root, finish_reason).
+	DispatchTicketHash []byte `protobuf:"bytes,5,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3" json:"dispatch_ticket_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *OutputFinV1) Reset() {
 	*x = OutputFinV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2258,7 +1869,7 @@ func (x *OutputFinV1) String() string {
 func (*OutputFinV1) ProtoMessage() {}
 
 func (x *OutputFinV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2271,7 +1882,7 @@ func (x *OutputFinV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputFinV1.ProtoReflect.Descriptor instead.
 func (*OutputFinV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{18}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *OutputFinV1) GetFinalSeq() uint64 {
@@ -2302,10 +1913,17 @@ func (x *OutputFinV1) GetWorkerSignature() []byte {
 	return nil
 }
 
-// Upstream frame of UploadTaskOutputStream: one Header, then consecutive Chunks, finally Fin.
+func (x *OutputFinV1) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+// UploadTaskOutputStreamRequest defines the UploadTaskOutputStreamRequest wire type.
 type UploadTaskOutputStreamRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exactly one of three frame kinds. No Chunk is accepted before Header, and no frame after Fin.
+	// frame selects one supported variant.
 	//
 	// Types that are valid to be assigned to Frame:
 	//
@@ -2319,7 +1937,7 @@ type UploadTaskOutputStreamRequest struct {
 
 func (x *UploadTaskOutputStreamRequest) Reset() {
 	*x = UploadTaskOutputStreamRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2331,7 +1949,7 @@ func (x *UploadTaskOutputStreamRequest) String() string {
 func (*UploadTaskOutputStreamRequest) ProtoMessage() {}
 
 func (x *UploadTaskOutputStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2344,7 +1962,7 @@ func (x *UploadTaskOutputStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskOutputStreamRequest.ProtoReflect.Descriptor instead.
 func (*UploadTaskOutputStreamRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{19}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UploadTaskOutputStreamRequest) GetFrame() isUploadTaskOutputStreamRequest_Frame {
@@ -2403,26 +2021,19 @@ func (*UploadTaskOutputStreamRequest_Chunk) isUploadTaskOutputStreamRequest_Fram
 
 func (*UploadTaskOutputStreamRequest_Fin) isUploadTaskOutputStreamRequest_Frame() {}
 
-// Progress the Builder replies after receiving Header: the Worker decides from which chunk to resume.
+// OutputStreamProgressV1 defines the OutputStreamProgressV1 wire type.
 type OutputStreamProgressV1 struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Index of the last chunk the Builder has received. Absent means none received; the Worker
-	// starts from seq = 0.
-	LastSeq *uint64 `protobuf:"varint,1,opt,name=last_seq,json=lastSeq,proto3,oneof" json:"last_seq,omitempty"`
-	// The current root computed by the Builder. The Worker must check it equals its own root at
-	// the same chunk before resuming; if not, switch to another Builder and never overwrite
-	// received chunks.
-	MmrRoot []byte `protobuf:"bytes,2,opt,name=mmr_root,json=mmrRoot,proto3" json:"mmr_root,omitempty"`
-	// Whether the previous chunk was already shorter than the per-frame minimum byte count.
-	// When true, the stream can only receive the final frame.
-	LastFrameShort bool `protobuf:"varint,3,opt,name=last_frame_short,json=lastFrameShort,proto3" json:"last_frame_short,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	LastSeq        *uint64                `protobuf:"varint,1,opt,name=last_seq,json=lastSeq,proto3,oneof" json:"last_seq,omitempty"`
+	MmrRoot        []byte                 `protobuf:"bytes,2,opt,name=mmr_root,json=mmrRoot,proto3" json:"mmr_root,omitempty"`
+	LastFrameShort bool                   `protobuf:"varint,3,opt,name=last_frame_short,json=lastFrameShort,proto3" json:"last_frame_short,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *OutputStreamProgressV1) Reset() {
 	*x = OutputStreamProgressV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2434,7 +2045,7 @@ func (x *OutputStreamProgressV1) String() string {
 func (*OutputStreamProgressV1) ProtoMessage() {}
 
 func (x *OutputStreamProgressV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2447,7 +2058,7 @@ func (x *OutputStreamProgressV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamProgressV1.ProtoReflect.Descriptor instead.
 func (*OutputStreamProgressV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{20}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *OutputStreamProgressV1) GetLastSeq() uint64 {
@@ -2471,22 +2082,20 @@ func (x *OutputStreamProgressV1) GetLastFrameShort() bool {
 	return false
 }
 
-// Result the Builder replies after receiving Fin.
+// OutputStreamResultV1 defines the OutputStreamResultV1 wire type.
 type OutputStreamResultV1 struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Accepted bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	LastSeq  uint64                 `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
-	// The final root computed by the Builder, i.e. the object's output_hash.
-	OutputMmrRoot []byte `protobuf:"bytes,3,opt,name=output_mmr_root,json=outputMmrRoot,proto3" json:"output_mmr_root,omitempty"`
-	// Leaf count, i.e. chunk count, written to TaskDataObjectMetadataV1.output_leaf_count.
-	LeafCount     uint64 `protobuf:"varint,4,opt,name=leaf_count,json=leafCount,proto3" json:"leaf_count,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	LastSeq       uint64                 `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	OutputMmrRoot []byte                 `protobuf:"bytes,3,opt,name=output_mmr_root,json=outputMmrRoot,proto3" json:"output_mmr_root,omitempty"`
+	LeafCount     uint64                 `protobuf:"varint,4,opt,name=leaf_count,json=leafCount,proto3" json:"leaf_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OutputStreamResultV1) Reset() {
 	*x = OutputStreamResultV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2498,7 +2107,7 @@ func (x *OutputStreamResultV1) String() string {
 func (*OutputStreamResultV1) ProtoMessage() {}
 
 func (x *OutputStreamResultV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2511,7 +2120,7 @@ func (x *OutputStreamResultV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputStreamResultV1.ProtoReflect.Descriptor instead.
 func (*OutputStreamResultV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{21}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *OutputStreamResultV1) GetAccepted() bool {
@@ -2542,11 +2151,10 @@ func (x *OutputStreamResultV1) GetLeafCount() uint64 {
 	return 0
 }
 
-// Downstream frame of UploadTaskOutputStream: the Builder replies only on Header and Fin;
-// Chunks are not acknowledged per frame; any error closes the stream.
+// UploadTaskOutputStreamResponse defines the UploadTaskOutputStreamResponse wire type.
 type UploadTaskOutputStreamResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Exactly one of two replies.
+	// reply selects one supported variant.
 	//
 	// Types that are valid to be assigned to Reply:
 	//
@@ -2559,7 +2167,7 @@ type UploadTaskOutputStreamResponse struct {
 
 func (x *UploadTaskOutputStreamResponse) Reset() {
 	*x = UploadTaskOutputStreamResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2571,7 +2179,7 @@ func (x *UploadTaskOutputStreamResponse) String() string {
 func (*UploadTaskOutputStreamResponse) ProtoMessage() {}
 
 func (x *UploadTaskOutputStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2584,7 +2192,7 @@ func (x *UploadTaskOutputStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTaskOutputStreamResponse.ProtoReflect.Descriptor instead.
 func (*UploadTaskOutputStreamResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{22}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UploadTaskOutputStreamResponse) GetReply() isUploadTaskOutputStreamResponse_Reply {
@@ -2628,8 +2236,8 @@ func (*UploadTaskOutputStreamResponse_Progress) isUploadTaskOutputStreamResponse
 
 func (*UploadTaskOutputStreamResponse_Result) isUploadTaskOutputStreamResponse_Reply() {}
 
-// GetTaskDataMetadataRequest queries one object at a time; it does not enumerate the whole Task.
-// The body digest is TRUEOPEN_TASK_DATA_METADATA_BODY_V2(canonical object_ref).
+// GetTaskDataMetadataRequest defines the GetTaskDataMetadataRequest wire type.
+// A USER request_auth may carry a session grant only for an OUTPUT object.
 type GetTaskDataMetadataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ObjectRef     *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
@@ -2640,7 +2248,7 @@ type GetTaskDataMetadataRequest struct {
 
 func (x *GetTaskDataMetadataRequest) Reset() {
 	*x = GetTaskDataMetadataRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2652,7 +2260,7 @@ func (x *GetTaskDataMetadataRequest) String() string {
 func (*GetTaskDataMetadataRequest) ProtoMessage() {}
 
 func (x *GetTaskDataMetadataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2665,7 +2273,7 @@ func (x *GetTaskDataMetadataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskDataMetadataRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskDataMetadataRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{23}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetTaskDataMetadataRequest) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2682,23 +2290,20 @@ func (x *GetTaskDataMetadataRequest) GetRequestAuth() *TaskDataRequestAuthV1 {
 	return nil
 }
 
-// GetTaskDataMetadataResponse returns boundary metadata only; no content, Builder-internal
-// locator or download authorization.
+// GetTaskDataMetadataResponse defines the GetTaskDataMetadataResponse wire type.
 type GetTaskDataMetadataResponse struct {
-	state    protoimpl.MessageState    `protogen:"open.v1"`
-	Metadata *TaskDataObjectMetadataV1 `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Returned only when querying an EVIDENCE_MANIFEST.
-	EvidenceBundle *EvidenceBundleSummaryV1 `protobuf:"bytes,2,opt,name=evidence_bundle,json=evidenceBundle,proto3" json:"evidence_bundle,omitempty"`
-	// Convenience copy; the caller must compare it against the on-chain accepted receipt before trusting it.
-	InferReceipt      *v11.InferReceiptV3 `protobuf:"bytes,3,opt,name=infer_receipt,json=inferReceipt,proto3" json:"infer_receipt,omitempty"`
-	RetainUntilHeight uint64              `protobuf:"varint,4,opt,name=retain_until_height,json=retainUntilHeight,proto3" json:"retain_until_height,omitempty"`
+	state             protoimpl.MessageState    `protogen:"open.v1"`
+	Metadata          *TaskDataObjectMetadataV1 `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	EvidenceBundle    *EvidenceBundleSummaryV1  `protobuf:"bytes,2,opt,name=evidence_bundle,json=evidenceBundle,proto3" json:"evidence_bundle,omitempty"`
+	InferReceipt      *v11.InferReceiptV3       `protobuf:"bytes,3,opt,name=infer_receipt,json=inferReceipt,proto3" json:"infer_receipt,omitempty"`
+	RetainUntilHeight uint64                    `protobuf:"varint,4,opt,name=retain_until_height,json=retainUntilHeight,proto3" json:"retain_until_height,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetTaskDataMetadataResponse) Reset() {
 	*x = GetTaskDataMetadataResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2710,7 +2315,7 @@ func (x *GetTaskDataMetadataResponse) String() string {
 func (*GetTaskDataMetadataResponse) ProtoMessage() {}
 
 func (x *GetTaskDataMetadataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2723,7 +2328,7 @@ func (x *GetTaskDataMetadataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskDataMetadataResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskDataMetadataResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{24}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetTaskDataMetadataResponse) GetMetadata() *TaskDataObjectMetadataV1 {
@@ -2754,10 +2359,8 @@ func (x *GetTaskDataMetadataResponse) GetRetainUntilHeight() uint64 {
 	return 0
 }
 
-// FetchTaskDataRequest fetches bytes by object ref and optional range.
-// The body digest is TRUEOPEN_TASK_DATA_FETCH_BODY_V2(canonical object_ref, optional range).
-// A full read must be signed with range absent; it must not be rewritten as a present range
-// with both offset/length zero.
+// FetchTaskDataRequest defines the FetchTaskDataRequest wire type.
+// A USER request_auth may carry a session grant only for an OUTPUT object.
 type FetchTaskDataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ObjectRef     *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
@@ -2769,7 +2372,7 @@ type FetchTaskDataRequest struct {
 
 func (x *FetchTaskDataRequest) Reset() {
 	*x = FetchTaskDataRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2781,7 +2384,7 @@ func (x *FetchTaskDataRequest) String() string {
 func (*FetchTaskDataRequest) ProtoMessage() {}
 
 func (x *FetchTaskDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2794,7 +2397,7 @@ func (x *FetchTaskDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataRequest.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{25}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FetchTaskDataRequest) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2818,23 +2421,20 @@ func (x *FetchTaskDataRequest) GetRequestAuth() *TaskDataRequestAuthV1 {
 	return nil
 }
 
-// First frame of FetchTaskData: binds the object ref, total size, optional media type and the
-// range actually served. media_type is empty for EVIDENCE_ARTIFACT.
+// FetchTaskDataHeaderV1 defines the FetchTaskDataHeaderV1 wire type.
 type FetchTaskDataHeaderV1 struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ObjectRef      *TaskDataObjectRefV1   `protobuf:"bytes,1,opt,name=object_ref,json=objectRef,proto3" json:"object_ref,omitempty"`
 	TotalSizeBytes uint64                 `protobuf:"varint,2,opt,name=total_size_bytes,json=totalSizeBytes,proto3" json:"total_size_bytes,omitempty"`
 	MediaType      string                 `protobuf:"bytes,3,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
-	// Echoes the range actually served; when the request range is absent it is offset=0,
-	// length=total_size_bytes.
-	ServedRange   *ByteRangeV1 `protobuf:"bytes,4,opt,name=served_range,json=servedRange,proto3" json:"served_range,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ServedRange    *ByteRangeV1           `protobuf:"bytes,4,opt,name=served_range,json=servedRange,proto3" json:"served_range,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FetchTaskDataHeaderV1) Reset() {
 	*x = FetchTaskDataHeaderV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2846,7 +2446,7 @@ func (x *FetchTaskDataHeaderV1) String() string {
 func (*FetchTaskDataHeaderV1) ProtoMessage() {}
 
 func (x *FetchTaskDataHeaderV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2859,7 +2459,7 @@ func (x *FetchTaskDataHeaderV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataHeaderV1.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataHeaderV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{26}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FetchTaskDataHeaderV1) GetObjectRef() *TaskDataObjectRefV1 {
@@ -2890,8 +2490,7 @@ func (x *FetchTaskDataHeaderV1) GetServedRange() *ByteRangeV1 {
 	return nil
 }
 
-// Data frame of FetchTaskData: offset is the absolute byte offset from the start of the whole
-// object, frames are contiguous, and the last frame has eof=true.
+// FetchTaskDataChunkV1 defines the FetchTaskDataChunkV1 wire type.
 type FetchTaskDataChunkV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Offset        uint64                 `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
@@ -2903,7 +2502,7 @@ type FetchTaskDataChunkV1 struct {
 
 func (x *FetchTaskDataChunkV1) Reset() {
 	*x = FetchTaskDataChunkV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2915,7 +2514,7 @@ func (x *FetchTaskDataChunkV1) String() string {
 func (*FetchTaskDataChunkV1) ProtoMessage() {}
 
 func (x *FetchTaskDataChunkV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2928,7 +2527,7 @@ func (x *FetchTaskDataChunkV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataChunkV1.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataChunkV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{27}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FetchTaskDataChunkV1) GetOffset() uint64 {
@@ -2952,10 +2551,10 @@ func (x *FetchTaskDataChunkV1) GetEof() bool {
 	return false
 }
 
-// FetchTaskData server stream frame: the first frame must be header, followed by chunks.
+// FetchTaskDataResponse defines the FetchTaskDataResponse wire type.
 type FetchTaskDataResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Frame content: header or data chunk.
+	// frame selects one supported variant.
 	//
 	// Types that are valid to be assigned to Frame:
 	//
@@ -2968,7 +2567,7 @@ type FetchTaskDataResponse struct {
 
 func (x *FetchTaskDataResponse) Reset() {
 	*x = FetchTaskDataResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2980,7 +2579,7 @@ func (x *FetchTaskDataResponse) String() string {
 func (*FetchTaskDataResponse) ProtoMessage() {}
 
 func (x *FetchTaskDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2993,7 +2592,7 @@ func (x *FetchTaskDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchTaskDataResponse.ProtoReflect.Descriptor instead.
 func (*FetchTaskDataResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{28}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *FetchTaskDataResponse) GetFrame() isFetchTaskDataResponse_Frame {
@@ -3037,17 +2636,8 @@ func (*FetchTaskDataResponse_Header) isFetchTaskDataResponse_Frame() {}
 
 func (*FetchTaskDataResponse_Chunk) isFetchTaskDataResponse_Frame() {}
 
-// FinalizeTaskResultRequest is initiated by the selected Worker. Before accepting, Nexus must
-// check: the requester is the current selected Worker; the receipt signature, Task identity and
-// Worker identity are valid; the OUTPUT is STORED and its hash/size match the receipt; the
-// manifest is STORED and parses strictly; the bundle hash and size computed over the exact
-// manifest bytes both match the receipt; all artifacts referenced by the manifest are STORED
-// with matching hash/size; manifest.evidence_schema_hash matches the locked Verification
-// Profile; when an accepted receipt already exists on chain, the local one must match it.
-// Nexus does not interpret artifact IDs, parse model evidence semantics or recompute
-// model-internal roots.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2(task_hash, session_id,
-// task_id, infer_receipt_hash, SHA256(receipt.service_signature), evidence_kind).
+// The finalize body binds task_id, infer_receipt_hash, and SHA256(receipt.service_signature).
+// FinalizeTaskResultRequest defines the FinalizeTaskResultRequest wire type.
 type FinalizeTaskResultRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	TaskHash    string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
@@ -3055,7 +2645,7 @@ type FinalizeTaskResultRequest struct {
 	TaskId      string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Receipt     *v11.InferReceiptV3    `protobuf:"bytes,4,opt,name=receipt,proto3" json:"receipt,omitempty"`
 	RequestAuth *TaskDataRequestAuthV1 `protobuf:"bytes,5,opt,name=request_auth,json=requestAuth,proto3" json:"request_auth,omitempty"`
-	// Selects exactly one Worker bundle: WORKER_TOKEN_OPENING or WORKER_VALUE_OPENING.
+	// Selects exactly one Worker A-level or B-level evidence bundle.
 	EvidenceKind  v1.EvidenceKind `protobuf:"varint,6,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3063,7 +2653,7 @@ type FinalizeTaskResultRequest struct {
 
 func (x *FinalizeTaskResultRequest) Reset() {
 	*x = FinalizeTaskResultRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3075,7 +2665,7 @@ func (x *FinalizeTaskResultRequest) String() string {
 func (*FinalizeTaskResultRequest) ProtoMessage() {}
 
 func (x *FinalizeTaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3088,7 +2678,7 @@ func (x *FinalizeTaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeTaskResultRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeTaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{29}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FinalizeTaskResultRequest) GetTaskHash() string {
@@ -3133,17 +2723,12 @@ func (x *FinalizeTaskResultRequest) GetEvidenceKind() v1.EvidenceKind {
 	return v1.EvidenceKind(0)
 }
 
-// FinalizeTaskResult response. The confirmation must be present when accepted and absent on
-// failure; an exact replay returns the originally persisted bytes and signature without re-signing.
+// FinalizeTaskResultResponse defines the FinalizeTaskResultResponse wire type.
 type FinalizeTaskResultResponse struct {
-	state              protoimpl.MessageState        `protogen:"open.v1"`
-	Accepted           bool                          `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Idempotent         bool                          `protobuf:"varint,2,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
-	OutputConfirmation *BuilderStorageConfirmationV1 `protobuf:"bytes,3,opt,name=output_confirmation,json=outputConfirmation,proto3" json:"output_confirmation,omitempty"`
-	// Nexus signs a confirmation for the OUTPUT and for each complete Worker evidence bundle
-	// separately, not for individual artifacts within a bundle. This field is ordered by the
-	// evidence_kind of the corresponding required_evidence_commitments[] ascending, with exactly
-	// the same count.
+	state                       protoimpl.MessageState          `protogen:"open.v1"`
+	Accepted                    bool                            `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Idempotent                  bool                            `protobuf:"varint,2,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
+	OutputConfirmation          *BuilderStorageConfirmationV1   `protobuf:"bytes,3,opt,name=output_confirmation,json=outputConfirmation,proto3" json:"output_confirmation,omitempty"`
 	EvidenceBundleConfirmations []*BuilderStorageConfirmationV1 `protobuf:"bytes,4,rep,name=evidence_bundle_confirmations,json=evidenceBundleConfirmations,proto3" json:"evidence_bundle_confirmations,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
@@ -3151,7 +2736,7 @@ type FinalizeTaskResultResponse struct {
 
 func (x *FinalizeTaskResultResponse) Reset() {
 	*x = FinalizeTaskResultResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3163,7 +2748,7 @@ func (x *FinalizeTaskResultResponse) String() string {
 func (*FinalizeTaskResultResponse) ProtoMessage() {}
 
 func (x *FinalizeTaskResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3176,7 +2761,7 @@ func (x *FinalizeTaskResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeTaskResultResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeTaskResultResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{30}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *FinalizeTaskResultResponse) GetAccepted() bool {
@@ -3207,13 +2792,10 @@ func (x *FinalizeTaskResultResponse) GetEvidenceBundleConfirmations() []*Builder
 	return nil
 }
 
-// FinalizeVerifierEvidenceRequest is initiated by a selected Verifier of some round. Nexus must
-// confirm the requester/producer is the selected Verifier of that round, that the
-// ResultReceiptV3's task_hash / verify_round / verifier_evidence_bundle_hash / manifest size
-// fully match the manifest, and that all artifacts are STORED with correct hash/size.
-// The body digest is TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2(task_hash, session_id,
+// task_hash / verify_round / verifier_evidence_bundle_hash / manifest size and manifest
 // task_id, verify_round, verifier_operator, result_receipt_signing_digest,
-// SHA256(receipt.service_signature)).
+// The verifier finalize body binds SHA256(receipt.service_signature).
+// FinalizeVerifierEvidenceRequest defines the FinalizeVerifierEvidenceRequest wire type.
 type FinalizeVerifierEvidenceRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	TaskHash         string                 `protobuf:"bytes,1,opt,name=task_hash,json=taskHash,proto3" json:"task_hash,omitempty"`
@@ -3229,7 +2811,7 @@ type FinalizeVerifierEvidenceRequest struct {
 
 func (x *FinalizeVerifierEvidenceRequest) Reset() {
 	*x = FinalizeVerifierEvidenceRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3241,7 +2823,7 @@ func (x *FinalizeVerifierEvidenceRequest) String() string {
 func (*FinalizeVerifierEvidenceRequest) ProtoMessage() {}
 
 func (x *FinalizeVerifierEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3254,7 +2836,7 @@ func (x *FinalizeVerifierEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeVerifierEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeVerifierEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{31}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *FinalizeVerifierEvidenceRequest) GetTaskHash() string {
@@ -3306,8 +2888,7 @@ func (x *FinalizeVerifierEvidenceRequest) GetRequestAuth() *TaskDataRequestAuthV
 	return nil
 }
 
-// FinalizeVerifierEvidence response. Only the bundle of that producer/round is switched; the
-// readiness of the Worker OUTPUT or the Worker evidence is unchanged.
+// FinalizeVerifierEvidenceResponse defines the FinalizeVerifierEvidenceResponse wire type.
 type FinalizeVerifierEvidenceResponse struct {
 	state                      protoimpl.MessageState        `protogen:"open.v1"`
 	Accepted                   bool                          `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
@@ -3319,7 +2900,7 @@ type FinalizeVerifierEvidenceResponse struct {
 
 func (x *FinalizeVerifierEvidenceResponse) Reset() {
 	*x = FinalizeVerifierEvidenceResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3331,7 +2912,7 @@ func (x *FinalizeVerifierEvidenceResponse) String() string {
 func (*FinalizeVerifierEvidenceResponse) ProtoMessage() {}
 
 func (x *FinalizeVerifierEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3344,7 +2925,7 @@ func (x *FinalizeVerifierEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeVerifierEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeVerifierEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{32}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *FinalizeVerifierEvidenceResponse) GetAccepted() bool {
@@ -3368,8 +2949,7 @@ func (x *FinalizeVerifierEvidenceResponse) GetEvidenceBundleConfirmation() *Buil
 	return nil
 }
 
-// SubmitInferReceiptRequest carries only the authoritative message itself. Nexus derives the
-// task/round/operator locator from it and accepts no duplicate copies of locator or hash.
+// SubmitInferReceiptRequest defines the SubmitInferReceiptRequest wire type.
 type SubmitInferReceiptRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Receipt       *v11.InferReceiptV3    `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
@@ -3379,7 +2959,7 @@ type SubmitInferReceiptRequest struct {
 
 func (x *SubmitInferReceiptRequest) Reset() {
 	*x = SubmitInferReceiptRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3391,7 +2971,7 @@ func (x *SubmitInferReceiptRequest) String() string {
 func (*SubmitInferReceiptRequest) ProtoMessage() {}
 
 func (x *SubmitInferReceiptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3404,7 +2984,7 @@ func (x *SubmitInferReceiptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitInferReceiptRequest.ProtoReflect.Descriptor instead.
 func (*SubmitInferReceiptRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{33}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SubmitInferReceiptRequest) GetReceipt() *v11.InferReceiptV3 {
@@ -3414,8 +2994,7 @@ func (x *SubmitInferReceiptRequest) GetReceipt() *v11.InferReceiptV3 {
 	return nil
 }
 
-// SubmitInferReceipt response: by accepting, the Builder commits to relaying it; it
-// does not mean accepted on chain.
+// SubmitInferReceiptResponse defines the SubmitInferReceiptResponse wire type.
 type SubmitInferReceiptResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RelayAccepted    bool                   `protobuf:"varint,1,opt,name=relay_accepted,json=relayAccepted,proto3" json:"relay_accepted,omitempty"`
@@ -3427,7 +3006,7 @@ type SubmitInferReceiptResponse struct {
 
 func (x *SubmitInferReceiptResponse) Reset() {
 	*x = SubmitInferReceiptResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3439,7 +3018,7 @@ func (x *SubmitInferReceiptResponse) String() string {
 func (*SubmitInferReceiptResponse) ProtoMessage() {}
 
 func (x *SubmitInferReceiptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3452,7 +3031,7 @@ func (x *SubmitInferReceiptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitInferReceiptResponse.ProtoReflect.Descriptor instead.
 func (*SubmitInferReceiptResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{34}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SubmitInferReceiptResponse) GetRelayAccepted() bool {
@@ -3476,7 +3055,7 @@ func (x *SubmitInferReceiptResponse) GetIdempotent() bool {
 	return false
 }
 
-// SubmitVerifyCommitRequest carries only the authoritative message itself.
+// SubmitVerifyCommitRequest defines the SubmitVerifyCommitRequest wire type.
 type SubmitVerifyCommitRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Commit        *v11.VerifyCommitV1    `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
@@ -3486,7 +3065,7 @@ type SubmitVerifyCommitRequest struct {
 
 func (x *SubmitVerifyCommitRequest) Reset() {
 	*x = SubmitVerifyCommitRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3498,7 +3077,7 @@ func (x *SubmitVerifyCommitRequest) String() string {
 func (*SubmitVerifyCommitRequest) ProtoMessage() {}
 
 func (x *SubmitVerifyCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3511,7 +3090,7 @@ func (x *SubmitVerifyCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyCommitRequest.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyCommitRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{35}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SubmitVerifyCommitRequest) GetCommit() *v11.VerifyCommitV1 {
@@ -3521,7 +3100,7 @@ func (x *SubmitVerifyCommitRequest) GetCommit() *v11.VerifyCommitV1 {
 	return nil
 }
 
-// SubmitVerifyCommit response.
+// SubmitVerifyCommitResponse defines the SubmitVerifyCommitResponse wire type.
 type SubmitVerifyCommitResponse struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	RelayAccepted             bool                   `protobuf:"varint,1,opt,name=relay_accepted,json=relayAccepted,proto3" json:"relay_accepted,omitempty"`
@@ -3534,7 +3113,7 @@ type SubmitVerifyCommitResponse struct {
 
 func (x *SubmitVerifyCommitResponse) Reset() {
 	*x = SubmitVerifyCommitResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3546,7 +3125,7 @@ func (x *SubmitVerifyCommitResponse) String() string {
 func (*SubmitVerifyCommitResponse) ProtoMessage() {}
 
 func (x *SubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3559,7 +3138,7 @@ func (x *SubmitVerifyCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyCommitResponse.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyCommitResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{36}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SubmitVerifyCommitResponse) GetRelayAccepted() bool {
@@ -3590,7 +3169,7 @@ func (x *SubmitVerifyCommitResponse) GetIdempotent() bool {
 	return false
 }
 
-// SubmitVerifyResultRequest carries only the authoritative message itself.
+// SubmitVerifyResultRequest defines the SubmitVerifyResultRequest wire type.
 type SubmitVerifyResultRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Receipt       *v11.ResultReceiptV3   `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
@@ -3600,7 +3179,7 @@ type SubmitVerifyResultRequest struct {
 
 func (x *SubmitVerifyResultRequest) Reset() {
 	*x = SubmitVerifyResultRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3612,7 +3191,7 @@ func (x *SubmitVerifyResultRequest) String() string {
 func (*SubmitVerifyResultRequest) ProtoMessage() {}
 
 func (x *SubmitVerifyResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3625,7 +3204,7 @@ func (x *SubmitVerifyResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyResultRequest.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyResultRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{37}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SubmitVerifyResultRequest) GetReceipt() *v11.ResultReceiptV3 {
@@ -3635,7 +3214,7 @@ func (x *SubmitVerifyResultRequest) GetReceipt() *v11.ResultReceiptV3 {
 	return nil
 }
 
-// SubmitVerifyResult response.
+// SubmitVerifyResultResponse defines the SubmitVerifyResultResponse wire type.
 type SubmitVerifyResultResponse struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
 	RelayAccepted              bool                   `protobuf:"varint,1,opt,name=relay_accepted,json=relayAccepted,proto3" json:"relay_accepted,omitempty"`
@@ -3648,7 +3227,7 @@ type SubmitVerifyResultResponse struct {
 
 func (x *SubmitVerifyResultResponse) Reset() {
 	*x = SubmitVerifyResultResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3660,7 +3239,7 @@ func (x *SubmitVerifyResultResponse) String() string {
 func (*SubmitVerifyResultResponse) ProtoMessage() {}
 
 func (x *SubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3673,7 +3252,7 @@ func (x *SubmitVerifyResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitVerifyResultResponse.ProtoReflect.Descriptor instead.
 func (*SubmitVerifyResultResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{38}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SubmitVerifyResultResponse) GetRelayAccepted() bool {
@@ -3704,38 +3283,43 @@ func (x *SubmitVerifyResultResponse) GetIdempotent() bool {
 	return false
 }
 
-// CredentialV1 fetch credential: bound to task/recipient/usage/expiry, issued
-// by the Builder. Referenced only by the deprecated FetchOutputRef / RefreshCredential.
-type CredentialV1 struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CredentialId  string                 `protobuf:"bytes,1,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"` // = "0x" + hex(sha256(sign_bytes)); no current implementation
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId        string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Recipient     string                 `protobuf:"bytes,4,opt,name=recipient,proto3" json:"recipient,omitempty"` // target recipient address
-	Usage         string                 `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`         // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-	AccessLevel   AccessLevel            `protobuf:"varint,6,opt,name=access_level,json=accessLevel,proto3,enum=nexus.v1.AccessLevel" json:"access_level,omitempty"`
-	ValidUntil    int64                  `protobuf:"varint,7,opt,name=valid_until,json=validUntil,proto3" json:"valid_until,omitempty"` // Unix milliseconds (chain-height binding pending chain-side support)
-	Issuer        string                 `protobuf:"bytes,8,opt,name=issuer,proto3" json:"issuer,omitempty"`                            // issuing Builder address
-	IssuerSig     []byte                 `protobuf:"bytes,9,opt,name=issuer_sig,json=issuerSig,proto3" json:"issuer_sig,omitempty"`     // Builder signature (may be empty in dev mode)
+// SubmitModelSupportConfirmationRequest carries the existing Hub material
+// without importing the Hub module or defining a second confirmation schema.
+// The service signature authenticates this request; no wallet, SDK request
+// envelope, Task, standing handraise or active dispatch stream is required.
+// Receivers validate against the current chain and recheck before broadcasting.
+// See docs/MODEL_SUPPORT_RELAY.md for batching, replay and recovery rules.
+type SubmitModelSupportConfirmationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The current chain epoch, not a UTC day. It enters the existing
+	// TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1 digest along with the decoded fields.
+	EpochIndex uint64 `protobuf:"varint,1,opt,name=epoch_index,json=epochIndex,proto3" json:"epoch_index,omitempty"`
+	// Required protobuf binary of exactly one hub.v1.ModelSupportConfirmationV1,
+	// defined in hub/v1/msg_registry.proto. JSON, Any and the outer batch Tx are
+	// not accepted. Decode and validate the original fields; do not sign or hash
+	// these serialization bytes as the confirmation digest. Equivalent protobuf
+	// encodings have the same semantic identity. The original service_signature
+	// is preserved when batching into MsgBatchConfirmModelSupport.
+	Confirmation  []byte `protobuf:"bytes,2,opt,name=confirmation,proto3" json:"confirmation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CredentialV1) Reset() {
-	*x = CredentialV1{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
+func (x *SubmitModelSupportConfirmationRequest) Reset() {
+	*x = SubmitModelSupportConfirmationRequest{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CredentialV1) String() string {
+func (x *SubmitModelSupportConfirmationRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CredentialV1) ProtoMessage() {}
+func (*SubmitModelSupportConfirmationRequest) ProtoMessage() {}
 
-func (x *CredentialV1) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
+func (x *SubmitModelSupportConfirmationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3746,209 +3330,57 @@ func (x *CredentialV1) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CredentialV1.ProtoReflect.Descriptor instead.
-func (*CredentialV1) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{39}
+// Deprecated: Use SubmitModelSupportConfirmationRequest.ProtoReflect.Descriptor instead.
+func (*SubmitModelSupportConfirmationRequest) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{35}
 }
 
-func (x *CredentialV1) GetCredentialId() string {
+func (x *SubmitModelSupportConfirmationRequest) GetEpochIndex() uint64 {
 	if x != nil {
-		return x.CredentialId
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetRecipient() string {
-	if x != nil {
-		return x.Recipient
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetUsage() string {
-	if x != nil {
-		return x.Usage
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetAccessLevel() AccessLevel {
-	if x != nil {
-		return x.AccessLevel
-	}
-	return AccessLevel_ACCESS_LEVEL_PACKAGE_UNSPECIFIED
-}
-
-func (x *CredentialV1) GetValidUntil() int64 {
-	if x != nil {
-		return x.ValidUntil
+		return x.EpochIndex
 	}
 	return 0
 }
 
-func (x *CredentialV1) GetIssuer() string {
+func (x *SubmitModelSupportConfirmationRequest) GetConfirmation() []byte {
 	if x != nil {
-		return x.Issuer
-	}
-	return ""
-}
-
-func (x *CredentialV1) GetIssuerSig() []byte {
-	if x != nil {
-		return x.IssuerSig
+		return x.Confirmation
 	}
 	return nil
 }
 
-// SubmitOrder request (legacy JSON-envelope order path, kept for compatibility).
-type SubmitOrderRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	OrderEnvelope   []byte                 `protobuf:"bytes,1,opt,name=order_envelope,json=orderEnvelope,proto3" json:"order_envelope,omitempty"`       // signed order (contains model_id/price/timeout/nonce)
-	PayloadRef      string                 `protobuf:"bytes,2,opt,name=payload_ref,json=payloadRef,proto3" json:"payload_ref,omitempty"`                // nexus://sha256/<hex>; must match the payload content
-	Signature       []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`                                    // user signature
-	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"` // request signature envelope (required; may be absent in lenient mode)
-	SessionId       string                 `protobuf:"bytes,5,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrderSequence   uint64                 `protobuf:"varint,6,opt,name=order_sequence,json=orderSequence,proto3" json:"order_sequence,omitempty"`
-	UserAddress     string                 `protobuf:"bytes,7,opt,name=user_address,json=userAddress,proto3" json:"user_address,omitempty"`
-	SignatureScheme string                 `protobuf:"bytes,8,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
-	Payload         []byte                 `protobuf:"bytes,9,opt,name=payload,proto3" json:"payload,omitempty"` // encrypted input body; its sha256 must match both payload_ref and the order's payload_hash
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *SubmitOrderRequest) Reset() {
-	*x = SubmitOrderRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SubmitOrderRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SubmitOrderRequest) ProtoMessage() {}
-
-func (x *SubmitOrderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SubmitOrderRequest.ProtoReflect.Descriptor instead.
-func (*SubmitOrderRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{40}
-}
-
-func (x *SubmitOrderRequest) GetOrderEnvelope() []byte {
-	if x != nil {
-		return x.OrderEnvelope
-	}
-	return nil
-}
-
-func (x *SubmitOrderRequest) GetPayloadRef() string {
-	if x != nil {
-		return x.PayloadRef
-	}
-	return ""
-}
-
-func (x *SubmitOrderRequest) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
-}
-
-func (x *SubmitOrderRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
-	if x != nil {
-		return x.RequestEnvelope
-	}
-	return nil
-}
-
-func (x *SubmitOrderRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *SubmitOrderRequest) GetOrderSequence() uint64 {
-	if x != nil {
-		return x.OrderSequence
-	}
-	return 0
-}
-
-func (x *SubmitOrderRequest) GetUserAddress() string {
-	if x != nil {
-		return x.UserAddress
-	}
-	return ""
-}
-
-func (x *SubmitOrderRequest) GetSignatureScheme() string {
-	if x != nil {
-		return x.SignatureScheme
-	}
-	return ""
-}
-
-func (x *SubmitOrderRequest) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
-// SubmitOrder acceptance response.
-type SubmitOrderResponse struct {
+// SubmitModelSupportConfirmationResponse acknowledges local relay acceptance.
+// Only a successful RPC with relay_accepted=true acknowledges a queued or
+// already chain-accepted confirmation. Errors acknowledge nothing; callers may
+// retry the identical signed material while its epoch, key and expiry are valid.
+type SubmitModelSupportConfirmationResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Accepted      bool                   `protobuf:"varint,2,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
-	SessionId     string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // session identifier (generated on chain as session_id=hash(user,nonce); composite key)
+	RelayAccepted bool                   `protobuf:"varint,1,opt,name=relay_accepted,json=relayAccepted,proto3" json:"relay_accepted,omitempty"`
+	// The existing confirmation signing digest, as 0x plus 64 lowercase hex digits;
+	// never SHA-256(confirmation), a Tx hash or a batch digest.
+	ConfirmationSigningDigest string `protobuf:"bytes,2,opt,name=confirmation_signing_digest,json=confirmationSigningDigest,proto3" json:"confirmation_signing_digest,omitempty"`
+	// True only if the same decoded signed material was already queued or
+	// chain-accepted. Different material for the same operator/epoch conflicts.
+	Idempotent    bool `protobuf:"varint,3,opt,name=idempotent,proto3" json:"idempotent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SubmitOrderResponse) Reset() {
-	*x = SubmitOrderResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+func (x *SubmitModelSupportConfirmationResponse) Reset() {
+	*x = SubmitModelSupportConfirmationResponse{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SubmitOrderResponse) String() string {
+func (x *SubmitModelSupportConfirmationResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SubmitOrderResponse) ProtoMessage() {}
+func (*SubmitModelSupportConfirmationResponse) ProtoMessage() {}
 
-func (x *SubmitOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+func (x *SubmitModelSupportConfirmationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3959,204 +3391,56 @@ func (x *SubmitOrderResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SubmitOrderResponse.ProtoReflect.Descriptor instead.
-func (*SubmitOrderResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
+// Deprecated: Use SubmitModelSupportConfirmationResponse.ProtoReflect.Descriptor instead.
+func (*SubmitModelSupportConfirmationResponse) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{36}
 }
 
-func (x *SubmitOrderResponse) GetTaskId() string {
+func (x *SubmitModelSupportConfirmationResponse) GetRelayAccepted() bool {
 	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *SubmitOrderResponse) GetAccepted() bool {
-	if x != nil {
-		return x.Accepted
+		return x.RelayAccepted
 	}
 	return false
 }
 
-func (x *SubmitOrderResponse) GetReason() string {
+func (x *SubmitModelSupportConfirmationResponse) GetConfirmationSigningDigest() string {
 	if x != nil {
-		return x.Reason
+		return x.ConfirmationSigningDigest
 	}
 	return ""
 }
 
-func (x *SubmitOrderResponse) GetSessionId() string {
+func (x *SubmitModelSupportConfirmationResponse) GetIdempotent() bool {
 	if x != nil {
-		return x.SessionId
+		return x.Idempotent
 	}
-	return ""
+	return false
 }
 
-// FetchOutputRef request (RESERVED: the output reference object has been removed).
-type FetchOutputRefRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	TaskId          string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Requester       string                 `protobuf:"bytes,2,opt,name=requester,proto3" json:"requester,omitempty"` // requester identity (SDK user / candidate Verifier / selected Verifier)
-	Signature       []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
-	SessionId       string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`                                  // session identifier (composite key)
-	AccessLevel     AccessLevel            `protobuf:"varint,5,opt,name=access_level,json=accessLevel,proto3,enum=nexus.v1.AccessLevel" json:"access_level,omitempty"` // fetch authorization level (default PACKAGE: no sealed key)
-	Usage           string                 `protobuf:"bytes,6,opt,name=usage,proto3" json:"usage,omitempty"`                                                           // SDK_DELIVERY / VERIFIER_FETCH / CHALLENGE_EVIDENCE / WATCHER_AUDIT
-	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`                // for SDK users; Verifiers use the role signature (signature)
-	RequesterPubkey []byte                 `protobuf:"bytes,8,opt,name=requester_pubkey,json=requesterPubkey,proto3" json:"requester_pubkey,omitempty"`                // compressed public key for the role-signature path; check bech32(pubkey)==requester
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *FetchOutputRefRequest) Reset() {
-	*x = FetchOutputRefRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FetchOutputRefRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FetchOutputRefRequest) ProtoMessage() {}
-
-func (x *FetchOutputRefRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FetchOutputRefRequest.ProtoReflect.Descriptor instead.
-func (*FetchOutputRefRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
-}
-
-func (x *FetchOutputRefRequest) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *FetchOutputRefRequest) GetRequester() string {
-	if x != nil {
-		return x.Requester
-	}
-	return ""
-}
-
-func (x *FetchOutputRefRequest) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
-}
-
-func (x *FetchOutputRefRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *FetchOutputRefRequest) GetAccessLevel() AccessLevel {
-	if x != nil {
-		return x.AccessLevel
-	}
-	return AccessLevel_ACCESS_LEVEL_PACKAGE_UNSPECIFIED
-}
-
-func (x *FetchOutputRefRequest) GetUsage() string {
-	if x != nil {
-		return x.Usage
-	}
-	return ""
-}
-
-func (x *FetchOutputRefRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
-	if x != nil {
-		return x.RequestEnvelope
-	}
-	return nil
-}
-
-func (x *FetchOutputRefRequest) GetRequesterPubkey() []byte {
-	if x != nil {
-		return x.RequesterPubkey
-	}
-	return nil
-}
-
-// FetchOutputRef response (RESERVED).
-type FetchOutputRefResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Credential    *CredentialV1          `protobuf:"bytes,2,opt,name=credential,proto3" json:"credential,omitempty"` // fetch credential bound to task/recipient/usage/expiry
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FetchOutputRefResponse) Reset() {
-	*x = FetchOutputRefResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FetchOutputRefResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FetchOutputRefResponse) ProtoMessage() {}
-
-func (x *FetchOutputRefResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FetchOutputRefResponse.ProtoReflect.Descriptor instead.
-func (*FetchOutputRefResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
-}
-
-func (x *FetchOutputRefResponse) GetCredential() *CredentialV1 {
-	if x != nil {
-		return x.Credential
-	}
-	return nil
-}
-
-// SubscribeOutputRequest.
-// BodyDigest = BodyDigest(session_id, task_id), frozen and consistent with the implementation.
+// SubscribeOutputRequest defines the SubscribeOutputRequest wire type.
+// A stale ticket also terminates an ongoing subscription and rejects old-ticket
+// uploads with NEXUS_INGRESS_ATTEMPT_STALE. A chain-recorded Task Builders member
+// waits boundedly for its replica, then returns NEXUS_OUTPUT_REPLICA_NOT_READY;
+// retry or use FetchTaskData(OUTPUT), never SESSION_UNBOUND for a recorded member.
+// RECORD_REJECTED and NEXUS_OUTPUT_STREAM_STOPPED terminate unusable attempts.
+// body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1", session_id,
+// task_id, OPTIONAL_V1(resume_after_seq), OPTIONAL_V1(dispatch_ticket_hash)).
+// Unset is absent, and a set zero is present zero.
+// A session key may sign this request.
 type SubscribeOutputRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	// Resume point; only frames with seq greater than this value are replayed. Leave
-	// unset on the first subscription to start from seq = 0. After a disconnect, resubscribe to
-	// any Task Builder with the last locally verified chunk index to resume. Explicit presence
-	// since wire v0.2.0: 0 means "chunk 0 verified, replay from seq 1", not "from the beginning".
-	ResumeAfterSeq *uint64 `protobuf:"varint,4,opt,name=resume_after_seq,json=resumeAfterSeq,proto3,oneof" json:"resume_after_seq,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	SessionId          string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId             string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	RequestEnvelope    *SDKRequestEnvelopeV2  `protobuf:"bytes,3,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	ResumeAfterSeq     *uint64                `protobuf:"varint,4,opt,name=resume_after_seq,json=resumeAfterSeq,proto3,oneof" json:"resume_after_seq,omitempty"`
+	DispatchTicketHash []byte                 `protobuf:"bytes,5,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3,oneof" json:"dispatch_ticket_hash,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SubscribeOutputRequest) Reset() {
 	*x = SubscribeOutputRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4168,7 +3452,7 @@ func (x *SubscribeOutputRequest) String() string {
 func (*SubscribeOutputRequest) ProtoMessage() {}
 
 func (x *SubscribeOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4181,7 +3465,7 @@ func (x *SubscribeOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeOutputRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeOutputRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SubscribeOutputRequest) GetSessionId() string {
@@ -4212,45 +3496,31 @@ func (x *SubscribeOutputRequest) GetResumeAfterSeq() uint64 {
 	return 0
 }
 
-// SubscribeOutputResponse is the forwarded stream of Worker-signed frames.
-//
-// The Builder forwards OutputChunkV1 / OutputFinV1 verbatim, without modifying frames, adding
-// its own signature or waiting for the receipt.
-// The User checks each frame itself: seq is contiguous, the recomputed root after appending the
-// leaf equals the frame's mmr_root, and the Worker signature verifies; after Fin, wait for the
-// on-chain receipt and only mark confirmed once receipt.output_hash equals the local final root.
-// Fields 1-7 are the pre-chunking whole-plaintext delivery; deprecated, new implementations
-// neither set nor read them.
+func (x *SubscribeOutputRequest) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+// SubscribeOutputResponse defines the SubscribeOutputResponse wire type.
 type SubscribeOutputResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	OutputId string `protobuf:"bytes,1,opt,name=output_id,json=outputId,proto3" json:"output_id,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	TaskId string `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	OutputText string `protobuf:"bytes,4,opt,name=output_text,json=outputText,proto3" json:"output_text,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	OutputHash []byte `protobuf:"bytes,5,opt,name=output_hash,json=outputHash,proto3" json:"output_hash,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	CreatedAt int64 `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	ExpiresAt int64 `protobuf:"varint,7,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	// Exactly one of two forwarded frames.
+	// frame selects one supported variant.
 	//
 	// Types that are valid to be assigned to Frame:
 	//
 	//	*SubscribeOutputResponse_Chunk
 	//	*SubscribeOutputResponse_Fin
-	Frame         isSubscribeOutputResponse_Frame `protobuf_oneof:"frame"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Frame          isSubscribeOutputResponse_Frame `protobuf_oneof:"frame"`
+	DispatchResult *DispatchResultHeaderV1         `protobuf:"bytes,10,opt,name=dispatch_result,json=dispatchResult,proto3,oneof" json:"dispatch_result,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SubscribeOutputResponse) Reset() {
 	*x = SubscribeOutputResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4262,7 +3532,7 @@ func (x *SubscribeOutputResponse) String() string {
 func (*SubscribeOutputResponse) ProtoMessage() {}
 
 func (x *SubscribeOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4275,63 +3545,7 @@ func (x *SubscribeOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeOutputResponse.ProtoReflect.Descriptor instead.
 func (*SubscribeOutputResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetOutputId() string {
-	if x != nil {
-		return x.OutputId
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetOutputText() string {
-	if x != nil {
-		return x.OutputText
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetOutputHash() []byte {
-	if x != nil {
-		return x.OutputHash
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetCreatedAt() int64 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *SubscribeOutputResponse) GetExpiresAt() int64 {
-	if x != nil {
-		return x.ExpiresAt
-	}
-	return 0
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SubscribeOutputResponse) GetFrame() isSubscribeOutputResponse_Frame {
@@ -4359,6 +3573,13 @@ func (x *SubscribeOutputResponse) GetFin() *OutputFinV1 {
 	return nil
 }
 
+func (x *SubscribeOutputResponse) GetDispatchResult() *DispatchResultHeaderV1 {
+	if x != nil {
+		return x.DispatchResult
+	}
+	return nil
+}
+
 type isSubscribeOutputResponse_Frame interface {
 	isSubscribeOutputResponse_Frame()
 }
@@ -4375,27 +3596,24 @@ func (*SubscribeOutputResponse_Chunk) isSubscribeOutputResponse_Frame() {}
 
 func (*SubscribeOutputResponse_Fin) isSubscribeOutputResponse_Frame() {}
 
-// AckOutputRequest.
-//
-// With the streaming OUTPUT frames the delivery progress is just (task, last_seq); stream_id or output_hash is no
-// longer needed. This RPC only records local delivery progress; it is not an on-chain fact, nor
-// an input to settlement, challenge, fault attribution or deletion permission.
+// Acknowledgement uses the frozen output stream identity and sequence.
+// AckOutputRequest defines the AckOutputRequest wire type.
+// body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1", session_id,
+// task_id, last_seq). A session key
+// may sign this request.
 type AckOutputRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId    string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-	OutputId        string                `protobuf:"bytes,3,opt,name=output_id,json=outputId,proto3" json:"output_id,omitempty"`
-	RequestEnvelope *SDKRequestEnvelopeV2 `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	// Index of the last chunk the User has verified locally.
-	LastSeq       uint64 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
+	LastSeq         uint64                 `protobuf:"varint,5,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AckOutputRequest) Reset() {
 	*x = AckOutputRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4407,7 +3625,7 @@ func (x *AckOutputRequest) String() string {
 func (*AckOutputRequest) ProtoMessage() {}
 
 func (x *AckOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4420,7 +3638,7 @@ func (x *AckOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckOutputRequest.ProtoReflect.Descriptor instead.
 func (*AckOutputRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *AckOutputRequest) GetSessionId() string {
@@ -4433,14 +3651,6 @@ func (x *AckOutputRequest) GetSessionId() string {
 func (x *AckOutputRequest) GetTaskId() string {
 	if x != nil {
 		return x.TaskId
-	}
-	return ""
-}
-
-// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
-func (x *AckOutputRequest) GetOutputId() string {
-	if x != nil {
-		return x.OutputId
 	}
 	return ""
 }
@@ -4459,7 +3669,7 @@ func (x *AckOutputRequest) GetLastSeq() uint64 {
 	return 0
 }
 
-// AckOutput response.
+// AckOutputResponse defines the AckOutputResponse wire type.
 type AckOutputResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Acked         bool                   `protobuf:"varint,1,opt,name=acked,proto3" json:"acked,omitempty"`
@@ -4471,7 +3681,7 @@ type AckOutputResponse struct {
 
 func (x *AckOutputResponse) Reset() {
 	*x = AckOutputResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4483,7 +3693,7 @@ func (x *AckOutputResponse) String() string {
 func (*AckOutputResponse) ProtoMessage() {}
 
 func (x *AckOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4496,7 +3706,7 @@ func (x *AckOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AckOutputResponse.ProtoReflect.Descriptor instead.
 func (*AckOutputResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{47}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AckOutputResponse) GetAcked() bool {
@@ -4520,13 +3730,17 @@ func (x *AckOutputResponse) GetAckedAt() int64 {
 	return 0
 }
 
-// GetTaskEventsRequest.
-// The BodyDigest order session_id, task_id, from_cursor is frozen and consistent with the implementation.
+// GetTaskEventsRequest defines the GetTaskEventsRequest wire type.
+// body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1", session_id,
+// task_id, OPTIONAL_V1(from_cursor as uint64)). An empty from_cursor is absent;
+// otherwise it must be unsigned decimal without leading zeros and at most
+// 2^64-1 ("0" is valid) and is present, and anything else is rejected. A session
+// key may sign this request.
 type GetTaskEventsRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SessionId       string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId          string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	FromCursor      string                 `protobuf:"bytes,3,opt,name=from_cursor,json=fromCursor,proto3" json:"from_cursor,omitempty"` // resume cursor after disconnect (last received cursor; empty = from the beginning)
+	FromCursor      string                 `protobuf:"bytes,3,opt,name=from_cursor,json=fromCursor,proto3" json:"from_cursor,omitempty"`
 	RequestEnvelope *SDKRequestEnvelopeV2  `protobuf:"bytes,4,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -4534,7 +3748,7 @@ type GetTaskEventsRequest struct {
 
 func (x *GetTaskEventsRequest) Reset() {
 	*x = GetTaskEventsRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4546,7 +3760,7 @@ func (x *GetTaskEventsRequest) String() string {
 func (*GetTaskEventsRequest) ProtoMessage() {}
 
 func (x *GetTaskEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4559,7 +3773,7 @@ func (x *GetTaskEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskEventsRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{48}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetTaskEventsRequest) GetSessionId() string {
@@ -4590,30 +3804,32 @@ func (x *GetTaskEventsRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	return nil
 }
 
-// GetTaskEventsResponse: at most 256 events per task, events may be dropped when
-// the channel is full, replay from the cursor on reconnect.
+// GetTaskEventsResponse reports Nexus lifecycle events, separate from the Node
+// ProtocolEventCodeV1 registry. The closed event_code set is:
 //
-// Full set of stable event_code values:
+//	ORDER_RECEIVED, DISPATCH_ACCEPTED, NO_CAPACITY, DISPATCH_RECORDED, RECORD_REJECTED,
+//	TAKEOVER_PENDING, TAKEOVER_RECORDED, TAKEOVER_VOIDED,
+//	TASK_FAILED, ORDER_EXPIRED, ASSIGN_TIMEOUT, OPEN_VERIFY_ACCEPTED, SAMPLE_READY,
+//	WORKER_REVEAL_ACCEPTED, FULL_RESULT_REVEAL_ACCEPTED, SETTLE_ACCEPTED,
+//	OUTPUT_REF_RECEIVED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED.
 //
-//	ORDER_RECEIVED, WORKER_HANDRAISES_ACCEPTED, WORKER_ASSIGNMENT_FINALIZED,
-//	OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
-//	TASK_SETTLED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED
-//
-// The old names OUTPUT_REF_RECEIVED / FULL_RESULT_REVEAL_ACCEPTED are not kept as aliases.
+// Acceptance/receipt events describe observed progress, never replacement chain
+// authority. In particular OUTPUT_REF_RECEIVED is the Worker's signed receipt.
 type GetTaskEventsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cursor        string                 `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`                               // resumable cursor (decimal, increasing per task)
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`                                 // TaskState coarse state
-	TaskPhase     string                 `protobuf:"bytes,3,opt,name=task_phase,json=taskPhase,proto3" json:"task_phase,omitempty"`        // fine-grained TaskPhase
-	EventCode     string                 `protobuf:"bytes,4,opt,name=event_code,json=eventCode,proto3" json:"event_code,omitempty"`        // stable event code
-	ChainHeight   int64                  `protobuf:"varint,5,opt,name=chain_height,json=chainHeight,proto3" json:"chain_height,omitempty"` // set when the event comes from chain; 0 for local events
+	Cursor        string                 `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	TaskPhase     string                 `protobuf:"bytes,3,opt,name=task_phase,json=taskPhase,proto3" json:"task_phase,omitempty"`
+	EventCode     string                 `protobuf:"bytes,4,opt,name=event_code,json=eventCode,proto3" json:"event_code,omitempty"`
+	ChainHeight   int64                  `protobuf:"varint,5,opt,name=chain_height,json=chainHeight,proto3" json:"chain_height,omitempty"`
+	Detail        *TaskEventDetailV1     `protobuf:"bytes,6,opt,name=detail,proto3,oneof" json:"detail,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTaskEventsResponse) Reset() {
 	*x = GetTaskEventsResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4625,7 +3841,7 @@ func (x *GetTaskEventsResponse) String() string {
 func (*GetTaskEventsResponse) ProtoMessage() {}
 
 func (x *GetTaskEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4638,7 +3854,7 @@ func (x *GetTaskEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskEventsResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{49}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetTaskEventsResponse) GetCursor() string {
@@ -4676,35 +3892,61 @@ func (x *GetTaskEventsResponse) GetChainHeight() int64 {
 	return 0
 }
 
-// RefreshCredential request: refreshes a fetch credential.
-type RefreshCredentialRequest struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Credential          *CredentialV1          `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"` // original credential (stateless check: signature + credential still held)
-	SessionId           string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	TaskId              string                 `protobuf:"bytes,3,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Recipient           string                 `protobuf:"bytes,4,opt,name=recipient,proto3" json:"recipient,omitempty"`                                                   // target recipient (must match the original credential)
-	Usage               string                 `protobuf:"bytes,5,opt,name=usage,proto3" json:"usage,omitempty"`                                                           // fetch usage (must match the original credential)
-	RequestedValidUntil int64                  `protobuf:"varint,6,opt,name=requested_valid_until,json=requestedValidUntil,proto3" json:"requested_valid_until,omitempty"` // requested extension time (Unix milliseconds; clamped to the upper bound)
-	RequestEnvelope     *SDKRequestEnvelopeV2  `protobuf:"bytes,7,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+func (x *GetTaskEventsResponse) GetDetail() *TaskEventDetailV1 {
+	if x != nil {
+		return x.Detail
+	}
+	return nil
 }
 
-func (x *RefreshCredentialRequest) Reset() {
-	*x = RefreshCredentialRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
+// TaskEventDetailV1 carries event-local routing and rejection facts so the SDK
+// can recover without resubmitting OpenTask. Addresses identify stable operators.
+// TAKEOVER_PENDING supplies candidate + activation height; TAKEOVER_RECORDED
+// supplies bound_builder. TAKEOVER_VOIDED supplies what voided it: recording
+// supplies the recording Builder + recorded task ID; another takeover that
+// registered first supplies that takeover's candidate_builder +
+// takeover_activation_height; a Session bound to another Builder supplies
+// bound_builder; cancellation/closure need no destination.
+// DISPATCH_ACCEPTED supplies the ticket and worker_operator_address.
+// RECORD_REJECTED supplies a nonzero reject_code and the rejected entry's ticket
+// when one exists. dispatch_ticket_hash is absent when no ticket exists: a
+// rejected takeover entry, or an order that missed its record deadline before
+// any Worker accepted. A missed record deadline uses RECORD_LATE. When one entry
+// is rejected, later sequences of the same Session are rejected with it; those
+// sequences were not consumed, so they use CONFLICT, never SEQUENCE_CONSUMED,
+// and the client resends an order at the same sequence. An order ahead of the
+// Session's next expected sequence uses SEQUENCE_NOT_NEXT and is likewise
+// resent at the same sequence once the earlier sequences are recorded; only
+// SEQUENCE_CONSUMED means the sequence must not be reused.
+type TaskEventDetailV1 struct {
+	state                    protoimpl.MessageState    `protogen:"open.v1"`
+	BoundBuilder             *string                   `protobuf:"bytes,1,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
+	RecordingBuilder         *string                   `protobuf:"bytes,2,opt,name=recording_builder,json=recordingBuilder,proto3,oneof" json:"recording_builder,omitempty"`
+	RecordedTaskId           []byte                    `protobuf:"bytes,3,opt,name=recorded_task_id,json=recordedTaskId,proto3,oneof" json:"recorded_task_id,omitempty"`
+	CandidateBuilder         *string                   `protobuf:"bytes,4,opt,name=candidate_builder,json=candidateBuilder,proto3,oneof" json:"candidate_builder,omitempty"`
+	TakeoverActivationHeight *uint64                   `protobuf:"varint,5,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
+	DispatchTicketHash       []byte                    `protobuf:"bytes,6,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3,oneof" json:"dispatch_ticket_hash,omitempty"`
+	RejectCode               *v11.DispatchRejectCodeV1 `protobuf:"varint,7,opt,name=reject_code,json=rejectCode,proto3,enum=task.v1.DispatchRejectCodeV1,oneof" json:"reject_code,omitempty"`
+	WorkerOperatorAddress    *string                   `protobuf:"bytes,8,opt,name=worker_operator_address,json=workerOperatorAddress,proto3,oneof" json:"worker_operator_address,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *TaskEventDetailV1) Reset() {
+	*x = TaskEventDetailV1{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RefreshCredentialRequest) String() string {
+func (x *TaskEventDetailV1) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RefreshCredentialRequest) ProtoMessage() {}
+func (*TaskEventDetailV1) ProtoMessage() {}
 
-func (x *RefreshCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[50]
+func (x *TaskEventDetailV1) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4715,113 +3957,78 @@ func (x *RefreshCredentialRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RefreshCredentialRequest.ProtoReflect.Descriptor instead.
-func (*RefreshCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{50}
+// Deprecated: Use TaskEventDetailV1.ProtoReflect.Descriptor instead.
+func (*TaskEventDetailV1) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
 }
 
-func (x *RefreshCredentialRequest) GetCredential() *CredentialV1 {
+func (x *TaskEventDetailV1) GetBoundBuilder() string {
+	if x != nil && x.BoundBuilder != nil {
+		return *x.BoundBuilder
+	}
+	return ""
+}
+
+func (x *TaskEventDetailV1) GetRecordingBuilder() string {
+	if x != nil && x.RecordingBuilder != nil {
+		return *x.RecordingBuilder
+	}
+	return ""
+}
+
+func (x *TaskEventDetailV1) GetRecordedTaskId() []byte {
 	if x != nil {
-		return x.Credential
+		return x.RecordedTaskId
 	}
 	return nil
 }
 
-func (x *RefreshCredentialRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
+func (x *TaskEventDetailV1) GetCandidateBuilder() string {
+	if x != nil && x.CandidateBuilder != nil {
+		return *x.CandidateBuilder
 	}
 	return ""
 }
 
-func (x *RefreshCredentialRequest) GetTaskId() string {
-	if x != nil {
-		return x.TaskId
-	}
-	return ""
-}
-
-func (x *RefreshCredentialRequest) GetRecipient() string {
-	if x != nil {
-		return x.Recipient
-	}
-	return ""
-}
-
-func (x *RefreshCredentialRequest) GetUsage() string {
-	if x != nil {
-		return x.Usage
-	}
-	return ""
-}
-
-func (x *RefreshCredentialRequest) GetRequestedValidUntil() int64 {
-	if x != nil {
-		return x.RequestedValidUntil
+func (x *TaskEventDetailV1) GetTakeoverActivationHeight() uint64 {
+	if x != nil && x.TakeoverActivationHeight != nil {
+		return *x.TakeoverActivationHeight
 	}
 	return 0
 }
 
-func (x *RefreshCredentialRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
+func (x *TaskEventDetailV1) GetDispatchTicketHash() []byte {
 	if x != nil {
-		return x.RequestEnvelope
+		return x.DispatchTicketHash
 	}
 	return nil
 }
 
-// RefreshCredential response: the new fetch credential.
-type RefreshCredentialResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Credential    *CredentialV1          `protobuf:"bytes,1,opt,name=credential,proto3" json:"credential,omitempty"` // new credential
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RefreshCredentialResponse) Reset() {
-	*x = RefreshCredentialResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RefreshCredentialResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RefreshCredentialResponse) ProtoMessage() {}
-
-func (x *RefreshCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[51]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+func (x *TaskEventDetailV1) GetRejectCode() v11.DispatchRejectCodeV1 {
+	if x != nil && x.RejectCode != nil {
+		return *x.RejectCode
 	}
-	return mi.MessageOf(x)
+	return v11.DispatchRejectCodeV1(0)
 }
 
-// Deprecated: Use RefreshCredentialResponse.ProtoReflect.Descriptor instead.
-func (*RefreshCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{51}
-}
-
-func (x *RefreshCredentialResponse) GetCredential() *CredentialV1 {
-	if x != nil {
-		return x.Credential
+func (x *TaskEventDetailV1) GetWorkerOperatorAddress() string {
+	if x != nil && x.WorkerOperatorAddress != nil {
+		return *x.WorkerOperatorAddress
 	}
-	return nil
+	return ""
 }
 
-// PrepareChallengeRequest. The BodyDigest order
-// session_id, task_id, challenge_kind, local_evidence_digest is frozen and consistent with the implementation.
+// PrepareChallengeRequest defines the PrepareChallengeRequest wire type.
+// body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1", session_id,
+// task_id, challenge_kind, OPTIONAL_V1(local_evidence_digest)). An empty
+// local_evidence_digest is absent; otherwise it must be exactly 32 bytes and is
+// present, and any other length is rejected. A session key may sign this request.
 type PrepareChallengeRequest struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	SessionId           string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	TaskId              string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	ChallengeKind       string                 `protobuf:"bytes,3,opt,name=challenge_kind,json=challengeKind,proto3" json:"challenge_kind,omitempty"`                     // the challenge kind planned to be submitted
-	LocalEvidenceDigest []byte                 `protobuf:"bytes,4,opt,name=local_evidence_digest,json=localEvidenceDigest,proto3" json:"local_evidence_digest,omitempty"` // evidence digest already computed locally by the SDK (optional)
+	ChallengeKind       string                 `protobuf:"bytes,3,opt,name=challenge_kind,json=challengeKind,proto3" json:"challenge_kind,omitempty"`
+	LocalEvidenceDigest []byte                 `protobuf:"bytes,4,opt,name=local_evidence_digest,json=localEvidenceDigest,proto3" json:"local_evidence_digest,omitempty"`
 	RequestEnvelope     *SDKRequestEnvelopeV2  `protobuf:"bytes,5,opt,name=request_envelope,json=requestEnvelope,proto3" json:"request_envelope,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -4829,7 +4036,7 @@ type PrepareChallengeRequest struct {
 
 func (x *PrepareChallengeRequest) Reset() {
 	*x = PrepareChallengeRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4841,7 +4048,7 @@ func (x *PrepareChallengeRequest) String() string {
 func (*PrepareChallengeRequest) ProtoMessage() {}
 
 func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[52]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4854,7 +4061,7 @@ func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeRequest.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{52}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *PrepareChallengeRequest) GetSessionId() string {
@@ -4892,24 +4099,21 @@ func (x *PrepareChallengeRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	return nil
 }
 
-// PrepareChallenge response.
+// PrepareChallengeResponse defines the PrepareChallengeResponse wire type.
 type PrepareChallengeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ChallengeOpen bool                   `protobuf:"varint,1,opt,name=challenge_open,json=challengeOpen,proto3" json:"challenge_open,omitempty"`
-	// Elsewhere this field is called challenge_close; the unit (block
-	// height vs Unix ms) is still to be unified. Here it is named by block height and typed
-	// uint64; the rename will be handled together with the unit decision.
-	ChallengeCloseHeight uint64   `protobuf:"varint,2,opt,name=challenge_close_height,json=challengeCloseHeight,proto3" json:"challenge_close_height,omitempty"` // last block height at which a new challenge can still be opened
-	RequiredEvidence     []string `protobuf:"bytes,3,rep,name=required_evidence,json=requiredEvidence,proto3" json:"required_evidence,omitempty"`                // suggested evidence categories to collect/request
-	EstimatedBond        *Coin    `protobuf:"bytes,4,opt,name=estimated_bond,json=estimatedBond,proto3" json:"estimated_bond,omitempty"`                         // estimated challenge bond
-	EstimatedGas         uint64   `protobuf:"varint,5,opt,name=estimated_gas,json=estimatedGas,proto3" json:"estimated_gas,omitempty"`                           // estimated gas
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	ChallengeOpen        bool                   `protobuf:"varint,1,opt,name=challenge_open,json=challengeOpen,proto3" json:"challenge_open,omitempty"`
+	ChallengeCloseHeight uint64                 `protobuf:"varint,2,opt,name=challenge_close_height,json=challengeCloseHeight,proto3" json:"challenge_close_height,omitempty"`
+	RequiredEvidence     []string               `protobuf:"bytes,3,rep,name=required_evidence,json=requiredEvidence,proto3" json:"required_evidence,omitempty"`
+	EstimatedBond        *Coin                  `protobuf:"bytes,4,opt,name=estimated_bond,json=estimatedBond,proto3" json:"estimated_bond,omitempty"`
+	EstimatedGas         uint64                 `protobuf:"varint,5,opt,name=estimated_gas,json=estimatedGas,proto3" json:"estimated_gas,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PrepareChallengeResponse) Reset() {
 	*x = PrepareChallengeResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4921,7 +4125,7 @@ func (x *PrepareChallengeResponse) String() string {
 func (*PrepareChallengeResponse) ProtoMessage() {}
 
 func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[53]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4934,7 +4138,7 @@ func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeResponse.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{53}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *PrepareChallengeResponse) GetChallengeOpen() bool {
@@ -4972,7 +4176,7 @@ func (x *PrepareChallengeResponse) GetEstimatedGas() uint64 {
 	return 0
 }
 
-// Amount: denom plus the quantity in atomic units as a decimal string.
+// Coin defines the Coin wire type.
 type Coin struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Denom         string                 `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty"`
@@ -4983,7 +4187,7 @@ type Coin struct {
 
 func (x *Coin) Reset() {
 	*x = Coin{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4995,7 +4199,7 @@ func (x *Coin) String() string {
 func (*Coin) ProtoMessage() {}
 
 func (x *Coin) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[54]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5008,7 +4212,7 @@ func (x *Coin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Coin.ProtoReflect.Descriptor instead.
 func (*Coin) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{54}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *Coin) GetDenom() string {
@@ -5025,18 +4229,18 @@ func (x *Coin) GetAmount() string {
 	return ""
 }
 
-// GetTaskStatus request: queries local task status by session_id and task_id.
+// GetTaskStatusRequest defines the GetTaskStatusRequest wire type.
 type GetTaskStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // session identifier (composite key)
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTaskStatusRequest) Reset() {
 	*x = GetTaskStatusRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5048,7 +4252,7 @@ func (x *GetTaskStatusRequest) String() string {
 func (*GetTaskStatusRequest) ProtoMessage() {}
 
 func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[55]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5061,7 +4265,7 @@ func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{55}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GetTaskStatusRequest) GetTaskId() string {
@@ -5078,24 +4282,21 @@ func (x *GetTaskStatusRequest) GetSessionId() string {
 	return ""
 }
 
-// GetTaskStatusResponse: local FSM snapshot, not on-chain authority.
-// stage / set_id / updated_at are reserved in the proto and not populated by the implementation.
-//
-// State values: PENDING / WORKER_ASSIGNED / VERIFYING / SETTLED / CLOSED / FAILED.
+// GetTaskStatusResponse defines the GetTaskStatusResponse wire type.
 type GetTaskStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	State         string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`                           // TaskState coarse state
-	Stage         string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`                           // Stage (reserved, not populated)
-	SetId         string                 `protobuf:"bytes,3,opt,name=set_id,json=setId,proto3" json:"set_id,omitempty"`              // reserved, not populated
-	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"` // unix ms (reserved, not populated)
-	TaskPhase     string                 `protobuf:"bytes,5,opt,name=task_phase,json=taskPhase,proto3" json:"task_phase,omitempty"`  // fine-grained TaskPhase
+	State         string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	Stage         string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
+	SetId         string                 `protobuf:"bytes,3,opt,name=set_id,json=setId,proto3" json:"set_id,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	TaskPhase     string                 `protobuf:"bytes,5,opt,name=task_phase,json=taskPhase,proto3" json:"task_phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetTaskStatusResponse) Reset() {
 	*x = GetTaskStatusResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[56]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5107,7 +4308,7 @@ func (x *GetTaskStatusResponse) String() string {
 func (*GetTaskStatusResponse) ProtoMessage() {}
 
 func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[56]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5120,7 +4321,7 @@ func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{56}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetTaskStatusResponse) GetState() string {
@@ -5158,11 +4359,56 @@ func (x *GetTaskStatusResponse) GetTaskPhase() string {
 	return ""
 }
 
+// ResumeOutputResponse reuses the single output stream frame contract.
+type ResumeOutputResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Frame         *SubscribeOutputResponse `protobuf:"bytes,1,opt,name=frame,proto3" json:"frame,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResumeOutputResponse) Reset() {
+	*x = ResumeOutputResponse{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResumeOutputResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResumeOutputResponse) ProtoMessage() {}
+
+func (x *ResumeOutputResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResumeOutputResponse.ProtoReflect.Descriptor instead.
+func (*ResumeOutputResponse) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *ResumeOutputResponse) GetFrame() *SubscribeOutputResponse {
+	if x != nil {
+		return x.Frame
+	}
+	return nil
+}
+
 var File_nexus_v1_ingress_proto protoreflect.FileDescriptor
 
 const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
-	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
+	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x17nexus/v1/dispatch.proto\x1a\x17nexus/v1/sdk_auth.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/dispatch.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
 	"\x13TaskDataObjectRefV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\tR\btaskHash\x12\x1d\n" +
 	"\n" +
@@ -5225,56 +4471,26 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	" \x01(\x04R\fexpiryHeight\x12\x1c\n" +
 	"\tsignature\x18\v \x01(\fR\tsignature\x12=\n" +
 	"\rsession_grant\x18\f \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\x12,\n" +
-	"\x12signature_chain_id\x18\r \x01(\x04R\x10signatureChainId\"\xfb\x01\n" +
-	"\x0eSessionGrantV1\x12\x19\n" +
-	"\bchain_id\x18\x01 \x01(\tR\achainId\x12\x12\n" +
-	"\x04user\x18\x02 \x01(\tR\x04user\x12\x1f\n" +
-	"\vsession_key\x18\x03 \x01(\fR\n" +
-	"sessionKey\x12#\n" +
-	"\rexpiry_height\x18\x04 \x01(\x04R\fexpiryHeight\x12\x1f\n" +
-	"\vgrant_nonce\x18\x05 \x01(\fR\n" +
-	"grantNonce\x12%\n" +
-	"\x0euser_signature\x18\x06 \x01(\fR\ruserSignature\x12,\n" +
-	"\x12signature_chain_id\x18\a \x01(\x04R\x10signatureChainId\"\x98\x04\n" +
-	"\x14SDKRequestEnvelopeV2\x12%\n" +
-	"\x0erequest_domain\x18\x01 \x01(\tR\rrequestDomain\x12\x19\n" +
-	"\bchain_id\x18\x02 \x01(\tR\achainId\x12\x16\n" +
-	"\x06method\x18\x03 \x01(\tR\x06method\x12\x1a\n" +
-	"\bendpoint\x18\x04 \x01(\tR\bendpoint\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x06 \x01(\tR\x06taskId\x12#\n" +
-	"\rrequest_nonce\x18\a \x01(\fR\frequestNonce\x121\n" +
-	"\x15expiry_height_or_time\x18\b \x01(\x03R\x12expiryHeightOrTime\x12\x1f\n" +
-	"\vbody_digest\x18\t \x01(\fR\n" +
-	"bodyDigest\x12%\n" +
-	"\x0esigner_address\x18\n" +
-	" \x01(\tR\rsignerAddress\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\x12'\n" +
-	"\rsigner_pubkey\x18\f \x01(\fB\x02\x18\x01R\fsignerPubkey\x12=\n" +
-	"\rsession_grant\x18\r \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\x12,\n" +
-	"\x12signature_chain_id\x18\x0e \x01(\x04R\x10signatureChainId\"\xf9\x03\n" +
+	"\x12signature_chain_id\x18\r \x01(\x04R\x10signatureChainId\"\xd1\x03\n" +
 	"\x0eOpenTaskHeader\x12%\n" +
 	"\x0eorder_envelope\x18\x01 \x01(\fR\rorderEnvelope\x12\x1f\n" +
 	"\vpayload_ref\x18\x02 \x01(\tR\n" +
-	"payloadRef\x12 \n" +
-	"\tsignature\x18\x03 \x01(\fB\x02\x18\x01R\tsignature\x12I\n" +
+	"payloadRef\x12I\n" +
 	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x05 \x01(\tR\tsessionId\x12%\n" +
 	"\x0eorder_sequence\x18\x06 \x01(\x04R\rorderSequence\x12!\n" +
-	"\fuser_address\x18\a \x01(\tR\vuserAddress\x12-\n" +
-	"\x10signature_scheme\x18\b \x01(\tB\x02\x18\x01R\x0fsignatureScheme\x12(\n" +
+	"\fuser_address\x18\a \x01(\tR\vuserAddress\x12(\n" +
 	"\x10input_size_bytes\x18\t \x01(\x04R\x0einputSizeBytes\x12\x1d\n" +
 	"\n" +
 	"input_hash\x18\n" +
 	" \x01(\tR\tinputHash\x12(\n" +
 	"\x10input_media_type\x18\v \x01(\tR\x0einputMediaType\x12'\n" +
-	"\x0fidempotency_key\x18\f \x01(\tR\x0eidempotencyKey\"f\n" +
+	"\x0fidempotency_key\x18\f \x01(\tR\x0eidempotencyKeyJ\x04\b\x03\x10\x04J\x04\b\b\x10\tR\tsignatureR\x10signature_scheme\"f\n" +
 	"\x0fOpenTaskRequest\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x18.nexus.v1.OpenTaskHeaderH\x00R\x06header\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\a\n" +
-	"\x05frame\"\xa0\x02\n" +
+	"\x05frame\"\xb6\x06\n" +
 	"\x10OpenTaskResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x16\n" +
@@ -5282,16 +4498,19 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x04 \x01(\tR\tsessionId\x12I\n" +
 	"\x0einput_metadata\x18\x05 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\rinputMetadata\x12U\n" +
-	"\x12input_confirmation\x18\x06 \x01(\v2&.nexus.v1.BuilderStorageConfirmationV1R\x11inputConfirmation\"\xf4\x01\n" +
-	"\x16ConfirmOpenTaskRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
-	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12W\n" +
-	"\x13input_confirmations\x18\x04 \x03(\v2&.nexus.v1.BuilderStorageConfirmationV1R\x12inputConfirmations\"M\n" +
-	"\x17ConfirmOpenTaskResponse\x12\x1a\n" +
-	"\brecorded\x18\x01 \x01(\bR\brecorded\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xe0\x01\n" +
+	"\x12input_confirmation\x18\x06 \x01(\v2&.nexus.v1.BuilderStorageConfirmationV1R\x11inputConfirmation\x122\n" +
+	"\x06status\x18\a \x01(\x0e2\x1a.nexus.v1.OpenTaskStatusV1R\x06status\x12N\n" +
+	"\x0fdispatch_result\x18\b \x01(\v2 .nexus.v1.DispatchResultHeaderV1H\x00R\x0edispatchResult\x88\x01\x01\x12(\n" +
+	"\rbound_builder\x18\t \x01(\tH\x01R\fboundBuilder\x88\x01\x01\x12A\n" +
+	"\x1atakeover_activation_height\x18\n" +
+	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01\x12?\n" +
+	"\x19dispatch_available_height\x18\v \x01(\x04H\x03R\x17dispatchAvailableHeight\x88\x01\x01\x12U\n" +
+	"%service_key_rotation_effective_height\x18\f \x01(\x04H\x04R!serviceKeyRotationEffectiveHeight\x88\x01\x01B\x12\n" +
+	"\x10_dispatch_resultB\x10\n" +
+	"\x0e_bound_builderB\x1d\n" +
+	"\x1b_takeover_activation_heightB\x1c\n" +
+	"\x1a_dispatch_available_heightB(\n" +
+	"&_service_key_rotation_effective_height\"\xe0\x01\n" +
 	"\x1eUploadTaskResultObjectHeaderV1\x12<\n" +
 	"\n" +
 	"object_ref\x18\x01 \x01(\v2\x1d.nexus.v1.TaskDataObjectRefV1R\tobjectRef\x12\x1d\n" +
@@ -5309,20 +4528,20 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"idempotent\x18\x02 \x01(\bR\n" +
 	"idempotent\x12>\n" +
-	"\bmetadata\x18\x03 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\bmetadata\"\xaf\x03\n" +
+	"\bmetadata\x18\x03 \x01(\v2\".nexus.v1.TaskDataObjectMetadataV1R\bmetadata\"\xd6\x03\n" +
 	"\x14OutputStreamHeaderV2\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x03 \x01(\tR\btaskHash\x12B\n" +
-	"\frequest_auth\x18\x04 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\x12\x18\n" +
-	"\aattempt\x18\x05 \x01(\rR\aattempt\x12'\n" +
+	"\frequest_auth\x18\x04 \x01(\v2\x1f.nexus.v1.TaskDataRequestAuthV1R\vrequestAuth\x12'\n" +
 	"\x0fstream_instance\x18\x06 \x01(\rR\x0estreamInstance\x122\n" +
 	"\x15user_recipient_pubkey\x18\a \x01(\fR\x13userRecipientPubkey\x122\n" +
 	"\x15output_key_commitment\x18\b \x01(\fR\x13outputKeyCommitment\x12(\n" +
 	"\x10key_package_hash\x18\t \x01(\fR\x0ekeyPackageHash\x12)\n" +
 	"\x10worker_signature\x18\n" +
-	" \x01(\fR\x0fworkerSignature\"\xce\x01\n" +
+	" \x01(\fR\x0fworkerSignature\x120\n" +
+	"\x14dispatch_ticket_hash\x18\v \x01(\fR\x12dispatchTicketHashJ\x04\b\x05\x10\x06R\aattempt\"\xc0\x02\n" +
 	"\rOutputChunkV1\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\fR\x04text\x12\x19\n" +
@@ -5331,12 +4550,15 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"attachment\x18\x05 \x01(\fR\n" +
 	"attachment\x121\n" +
-	"\x14attachment_signature\x18\x06 \x01(\fR\x13attachmentSignature\"\xbb\x01\n" +
+	"\x14attachment_signature\x18\x06 \x01(\fR\x13attachmentSignature\x12>\n" +
+	"\x1bcumulative_generated_tokens\x18\a \x01(\x04R\x19cumulativeGeneratedTokens\x120\n" +
+	"\x14dispatch_ticket_hash\x18\b \x01(\fR\x12dispatchTicketHash\"\xed\x01\n" +
 	"\vOutputFinV1\x12\x1b\n" +
 	"\tfinal_seq\x18\x01 \x01(\x04R\bfinalSeq\x12&\n" +
 	"\x0foutput_mmr_root\x18\x02 \x01(\fR\routputMmrRoot\x12<\n" +
 	"\rfinish_reason\x18\x03 \x01(\x0e2\x17.task.v1.FinishReasonV1R\ffinishReason\x12)\n" +
-	"\x10worker_signature\x18\x04 \x01(\fR\x0fworkerSignature\"\xbe\x01\n" +
+	"\x10worker_signature\x18\x04 \x01(\fR\x0fworkerSignature\x120\n" +
+	"\x14dispatch_ticket_hash\x18\x05 \x01(\fR\x12dispatchTicketHash\"\xbe\x01\n" +
 	"\x1dUploadTaskOutputStreamRequest\x128\n" +
 	"\x06header\x18\x01 \x01(\v2\x1e.nexus.v1.OutputStreamHeaderV2H\x00R\x06header\x12/\n" +
 	"\x05chunk\x18\x02 \x01(\v2\x17.nexus.v1.OutputChunkV1H\x00R\x05chunk\x12)\n" +
@@ -5443,83 +4665,42 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x13result_payload_hash\x18\x03 \x01(\tR\x11resultPayloadHash\x12\x1e\n" +
 	"\n" +
 	"idempotent\x18\x04 \x01(\bR\n" +
-	"idempotent\"\xb1\x02\n" +
-	"\fCredentialV1\x12#\n" +
-	"\rcredential_id\x18\x01 \x01(\tR\fcredentialId\x12\x1d\n" +
+	"idempotent\"l\n" +
+	"%SubmitModelSupportConfirmationRequest\x12\x1f\n" +
+	"\vepoch_index\x18\x01 \x01(\x04R\n" +
+	"epochIndex\x12\"\n" +
+	"\fconfirmation\x18\x02 \x01(\fR\fconfirmation\"\xaf\x01\n" +
+	"&SubmitModelSupportConfirmationResponse\x12%\n" +
+	"\x0erelay_accepted\x18\x01 \x01(\bR\rrelayAccepted\x12>\n" +
+	"\x1bconfirmation_signing_digest\x18\x02 \x01(\tR\x19confirmationSigningDigest\x12\x1e\n" +
 	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x03 \x01(\tR\x06taskId\x12\x1c\n" +
-	"\trecipient\x18\x04 \x01(\tR\trecipient\x12\x14\n" +
-	"\x05usage\x18\x05 \x01(\tR\x05usage\x128\n" +
-	"\faccess_level\x18\x06 \x01(\x0e2\x15.nexus.v1.AccessLevelR\vaccessLevel\x12\x1f\n" +
-	"\vvalid_until\x18\a \x01(\x03R\n" +
-	"validUntil\x12\x16\n" +
-	"\x06issuer\x18\b \x01(\tR\x06issuer\x12\x1d\n" +
-	"\n" +
-	"issuer_sig\x18\t \x01(\fR\tissuerSig\"\xf3\x02\n" +
-	"\x12SubmitOrderRequest\x12%\n" +
-	"\x0eorder_envelope\x18\x01 \x01(\fR\rorderEnvelope\x12\x1f\n" +
-	"\vpayload_ref\x18\x02 \x01(\tR\n" +
-	"payloadRef\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x05 \x01(\tR\tsessionId\x12%\n" +
-	"\x0eorder_sequence\x18\x06 \x01(\x04R\rorderSequence\x12!\n" +
-	"\fuser_address\x18\a \x01(\tR\vuserAddress\x12)\n" +
-	"\x10signature_scheme\x18\b \x01(\tR\x0fsignatureScheme\x12\x18\n" +
-	"\apayload\x18\t \x01(\fR\apayload\"\x81\x01\n" +
-	"\x13SubmitOrderResponse\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1a\n" +
-	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x04 \x01(\tR\tsessionId\"\xd1\x02\n" +
-	"\x15FetchOutputRefRequest\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1c\n" +
-	"\trequester\x18\x02 \x01(\tR\trequester\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x04 \x01(\tR\tsessionId\x128\n" +
-	"\faccess_level\x18\x05 \x01(\x0e2\x15.nexus.v1.AccessLevelR\vaccessLevel\x12\x14\n" +
-	"\x05usage\x18\x06 \x01(\tR\x05usage\x12I\n" +
-	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12)\n" +
-	"\x10requester_pubkey\x18\b \x01(\fR\x0frequesterPubkey\"b\n" +
-	"\x16FetchOutputRefResponse\x126\n" +
-	"\n" +
-	"credential\x18\x02 \x01(\v2\x16.nexus.v1.CredentialV1R\n" +
-	"credentialJ\x04\b\x01\x10\x02R\n" +
-	"output_ref\"\xdf\x01\n" +
+	"idempotent\x18\x03 \x01(\bR\n" +
+	"idempotent\"\xaf\x02\n" +
 	"\x16SubscribeOutputRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
 	"\x10request_envelope\x18\x03 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12-\n" +
-	"\x10resume_after_seq\x18\x04 \x01(\x04H\x00R\x0eresumeAfterSeq\x88\x01\x01B\x13\n" +
-	"\x11_resume_after_seq\"\xef\x02\n" +
-	"\x17SubscribeOutputResponse\x12\x1f\n" +
-	"\toutput_id\x18\x01 \x01(\tB\x02\x18\x01R\boutputId\x12!\n" +
-	"\n" +
-	"session_id\x18\x02 \x01(\tB\x02\x18\x01R\tsessionId\x12\x1b\n" +
-	"\atask_id\x18\x03 \x01(\tB\x02\x18\x01R\x06taskId\x12#\n" +
-	"\voutput_text\x18\x04 \x01(\tB\x02\x18\x01R\n" +
-	"outputText\x12#\n" +
-	"\voutput_hash\x18\x05 \x01(\fB\x02\x18\x01R\n" +
-	"outputHash\x12!\n" +
-	"\n" +
-	"created_at\x18\x06 \x01(\x03B\x02\x18\x01R\tcreatedAt\x12!\n" +
-	"\n" +
-	"expires_at\x18\a \x01(\x03B\x02\x18\x01R\texpiresAt\x12/\n" +
+	"\x10resume_after_seq\x18\x04 \x01(\x04H\x00R\x0eresumeAfterSeq\x88\x01\x01\x125\n" +
+	"\x14dispatch_ticket_hash\x18\x05 \x01(\fH\x01R\x12dispatchTicketHash\x88\x01\x01B\x13\n" +
+	"\x11_resume_after_seqB\x17\n" +
+	"\x15_dispatch_ticket_hash\"\xde\x02\n" +
+	"\x17SubscribeOutputResponse\x12/\n" +
 	"\x05chunk\x18\b \x01(\v2\x17.nexus.v1.OutputChunkV1H\x00R\x05chunk\x12)\n" +
-	"\x03fin\x18\t \x01(\v2\x15.nexus.v1.OutputFinV1H\x00R\x03finB\a\n" +
-	"\x05frame\"\xd1\x01\n" +
+	"\x03fin\x18\t \x01(\v2\x15.nexus.v1.OutputFinV1H\x00R\x03fin\x12N\n" +
+	"\x0fdispatch_result\x18\n" +
+	" \x01(\v2 .nexus.v1.DispatchResultHeaderV1H\x01R\x0edispatchResult\x88\x01\x01B\a\n" +
+	"\x05frameB\x12\n" +
+	"\x10_dispatch_resultJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\toutput_idR\n" +
+	"session_idR\atask_idR\voutput_textR\voutput_hashR\n" +
+	"created_atR\n" +
+	"expires_at\"\xc1\x01\n" +
 	"\x10AckOutputRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +
-	"\toutput_id\x18\x03 \x01(\tB\x02\x18\x01R\boutputId\x12I\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12I\n" +
 	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\x12\x19\n" +
-	"\blast_seq\x18\x05 \x01(\x04R\alastSeq\"i\n" +
+	"\blast_seq\x18\x05 \x01(\x04R\alastSeqJ\x04\b\x03\x10\x04R\toutput_id\"i\n" +
 	"\x11AckOutputResponse\x12\x14\n" +
 	"\x05acked\x18\x01 \x01(\bR\x05acked\x12#\n" +
 	"\ralready_acked\x18\x02 \x01(\bR\falreadyAcked\x12\x19\n" +
@@ -5530,7 +4711,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +
 	"\vfrom_cursor\x18\x03 \x01(\tR\n" +
 	"fromCursor\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\xa6\x01\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\xeb\x01\n" +
 	"\x15GetTaskEventsResponse\x12\x16\n" +
 	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1d\n" +
@@ -5538,23 +4719,27 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"task_phase\x18\x03 \x01(\tR\ttaskPhase\x12\x1d\n" +
 	"\n" +
 	"event_code\x18\x04 \x01(\tR\teventCode\x12!\n" +
-	"\fchain_height\x18\x05 \x01(\x03R\vchainHeight\"\xbd\x02\n" +
-	"\x18RefreshCredentialRequest\x126\n" +
-	"\n" +
-	"credential\x18\x01 \x01(\v2\x16.nexus.v1.CredentialV1R\n" +
-	"credential\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x17\n" +
-	"\atask_id\x18\x03 \x01(\tR\x06taskId\x12\x1c\n" +
-	"\trecipient\x18\x04 \x01(\tR\trecipient\x12\x14\n" +
-	"\x05usage\x18\x05 \x01(\tR\x05usage\x122\n" +
-	"\x15requested_valid_until\x18\x06 \x01(\x03R\x13requestedValidUntil\x12I\n" +
-	"\x10request_envelope\x18\a \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"e\n" +
-	"\x19RefreshCredentialResponse\x126\n" +
-	"\n" +
-	"credential\x18\x01 \x01(\v2\x16.nexus.v1.CredentialV1R\n" +
-	"credentialJ\x04\b\x02\x10\x03R\n" +
-	"output_ref\"\xf7\x01\n" +
+	"\fchain_height\x18\x05 \x01(\x03R\vchainHeight\x128\n" +
+	"\x06detail\x18\x06 \x01(\v2\x1b.nexus.v1.TaskEventDetailV1H\x00R\x06detail\x88\x01\x01B\t\n" +
+	"\a_detail\"\x83\x05\n" +
+	"\x11TaskEventDetailV1\x12(\n" +
+	"\rbound_builder\x18\x01 \x01(\tH\x00R\fboundBuilder\x88\x01\x01\x120\n" +
+	"\x11recording_builder\x18\x02 \x01(\tH\x01R\x10recordingBuilder\x88\x01\x01\x12-\n" +
+	"\x10recorded_task_id\x18\x03 \x01(\fH\x02R\x0erecordedTaskId\x88\x01\x01\x120\n" +
+	"\x11candidate_builder\x18\x04 \x01(\tH\x03R\x10candidateBuilder\x88\x01\x01\x12A\n" +
+	"\x1atakeover_activation_height\x18\x05 \x01(\x04H\x04R\x18takeoverActivationHeight\x88\x01\x01\x125\n" +
+	"\x14dispatch_ticket_hash\x18\x06 \x01(\fH\x05R\x12dispatchTicketHash\x88\x01\x01\x12C\n" +
+	"\vreject_code\x18\a \x01(\x0e2\x1d.task.v1.DispatchRejectCodeV1H\x06R\n" +
+	"rejectCode\x88\x01\x01\x12;\n" +
+	"\x17worker_operator_address\x18\b \x01(\tH\aR\x15workerOperatorAddress\x88\x01\x01B\x10\n" +
+	"\x0e_bound_builderB\x14\n" +
+	"\x12_recording_builderB\x13\n" +
+	"\x11_recorded_task_idB\x14\n" +
+	"\x12_candidate_builderB\x1d\n" +
+	"\x1b_takeover_activation_heightB\x17\n" +
+	"\x15_dispatch_ticket_hashB\x0e\n" +
+	"\f_reject_codeB\x1a\n" +
+	"\x18_worker_operator_address\"\xf7\x01\n" +
 	"\x17PrepareChallengeRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
@@ -5582,7 +4767,9 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\x12\x1d\n" +
 	"\n" +
-	"task_phase\x18\x05 \x01(\tR\ttaskPhase*\xd8\x01\n" +
+	"task_phase\x18\x05 \x01(\tR\ttaskPhase\"O\n" +
+	"\x14ResumeOutputResponse\x127\n" +
+	"\x05frame\x18\x01 \x01(\v2!.nexus.v1.SubscribeOutputResponseR\x05frame*\xd8\x01\n" +
 	"\x12TaskDataObjectKind\x12%\n" +
 	"!TASK_DATA_OBJECT_KIND_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bTASK_DATA_OBJECT_KIND_INPUT\x10\x01\x12 \n" +
@@ -5607,14 +4794,10 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x17TaskDataRequesterKindV1\x12+\n" +
 	"'TASK_DATA_REQUESTER_KIND_V1_UNSPECIFIED\x10\x00\x12$\n" +
 	" TASK_DATA_REQUESTER_KIND_V1_USER\x10\x01\x12.\n" +
-	"*TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE\x10\x02*P\n" +
-	"\vAccessLevel\x12$\n" +
-	" ACCESS_LEVEL_PACKAGE_UNSPECIFIED\x10\x00\x12\x1b\n" +
-	"\x17ACCESS_LEVEL_SEALED_KEY\x10\x012\xe7\r\n" +
+	"*TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE\x10\x022\x8f\x0e\n" +
 	"\n" +
 	"IngressAPI\x12C\n" +
-	"\bOpenTask\x12\x19.nexus.v1.OpenTaskRequest\x1a\x1a.nexus.v1.OpenTaskResponse(\x01\x12V\n" +
-	"\x0fConfirmOpenTask\x12 .nexus.v1.ConfirmOpenTaskRequest\x1a!.nexus.v1.ConfirmOpenTaskResponse\x12X\n" +
+	"\bOpenTask\x12\x19.nexus.v1.OpenTaskRequest\x1a\x1a.nexus.v1.OpenTaskResponse(\x01\x12X\n" +
 	"\x0fSubscribeOutput\x12 .nexus.v1.SubscribeOutputRequest\x1a!.nexus.v1.SubscribeOutputResponse0\x01\x12D\n" +
 	"\tAckOutput\x12\x1a.nexus.v1.AckOutputRequest\x1a\x1b.nexus.v1.AckOutputResponse\x12P\n" +
 	"\rGetTaskStatus\x12\x1e.nexus.v1.GetTaskStatusRequest\x1a\x1f.nexus.v1.GetTaskStatusResponse\x12R\n" +
@@ -5628,10 +4811,11 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x18FinalizeVerifierEvidence\x12).nexus.v1.FinalizeVerifierEvidenceRequest\x1a*.nexus.v1.FinalizeVerifierEvidenceResponse\x12_\n" +
 	"\x12SubmitInferReceipt\x12#.nexus.v1.SubmitInferReceiptRequest\x1a$.nexus.v1.SubmitInferReceiptResponse\x12_\n" +
 	"\x12SubmitVerifyCommit\x12#.nexus.v1.SubmitVerifyCommitRequest\x1a$.nexus.v1.SubmitVerifyCommitResponse\x12_\n" +
-	"\x12SubmitVerifyResult\x12#.nexus.v1.SubmitVerifyResultRequest\x1a$.nexus.v1.SubmitVerifyResultResponse\x12O\n" +
-	"\vSubmitOrder\x12\x1c.nexus.v1.SubmitOrderRequest\x1a\x1d.nexus.v1.SubmitOrderResponse\"\x03\x88\x02\x01\x12X\n" +
-	"\x0eFetchOutputRef\x12\x1f.nexus.v1.FetchOutputRefRequest\x1a .nexus.v1.FetchOutputRefResponse\"\x03\x88\x02\x01\x12a\n" +
-	"\x11RefreshCredential\x12\".nexus.v1.RefreshCredentialRequest\x1a#.nexus.v1.RefreshCredentialResponse\"\x03\x88\x02\x01B9Z7github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1b\x06proto3"
+	"\x12SubmitVerifyResult\x12#.nexus.v1.SubmitVerifyResultRequest\x1a$.nexus.v1.SubmitVerifyResultResponse\x12\x83\x01\n" +
+	"\x1eSubmitModelSupportConfirmation\x12/.nexus.v1.SubmitModelSupportConfirmationRequest\x1a0.nexus.v1.SubmitModelSupportConfirmationResponse\x12W\n" +
+	"\x0eDispatchStream\x12\x1f.nexus.v1.DispatchStreamRequest\x1a .nexus.v1.DispatchStreamResponse(\x010\x01\x12O\n" +
+	"\fResumeOutput\x12\x1d.nexus.v1.ResumeOutputRequest\x1a\x1e.nexus.v1.ResumeOutputResponse0\x01\x12\\\n" +
+	"\x11GetDispatchRoster\x12\".nexus.v1.GetDispatchRosterRequest\x1a#.nexus.v1.GetDispatchRosterResponseB9Z7github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1b\x06proto3"
 
 var (
 	file_nexus_v1_ingress_proto_rawDescOnce sync.Once
@@ -5645,187 +4829,184 @@ func file_nexus_v1_ingress_proto_rawDescGZIP() []byte {
 	return file_nexus_v1_ingress_proto_rawDescData
 }
 
-var file_nexus_v1_ingress_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
+var file_nexus_v1_ingress_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_nexus_v1_ingress_proto_goTypes = []any{
-	(TaskDataObjectKind)(0),                  // 0: nexus.v1.TaskDataObjectKind
-	(TaskDataObjectReadinessV1)(0),           // 1: nexus.v1.TaskDataObjectReadinessV1
-	(TaskDataReadinessV1)(0),                 // 2: nexus.v1.TaskDataReadinessV1
-	(EvidenceProducerKindV1)(0),              // 3: nexus.v1.EvidenceProducerKindV1
-	(TaskDataRequesterKindV1)(0),             // 4: nexus.v1.TaskDataRequesterKindV1
-	(AccessLevel)(0),                         // 5: nexus.v1.AccessLevel
-	(*TaskDataObjectRefV1)(nil),              // 6: nexus.v1.TaskDataObjectRefV1
-	(*TaskDataObjectMetadataV1)(nil),         // 7: nexus.v1.TaskDataObjectMetadataV1
-	(*EvidenceBundleSummaryV1)(nil),          // 8: nexus.v1.EvidenceBundleSummaryV1
-	(*ByteRangeV1)(nil),                      // 9: nexus.v1.ByteRangeV1
-	(*BuilderStorageConfirmationV1)(nil),     // 10: nexus.v1.BuilderStorageConfirmationV1
-	(*TaskDataRequestAuthV1)(nil),            // 11: nexus.v1.TaskDataRequestAuthV1
-	(*SessionGrantV1)(nil),                   // 12: nexus.v1.SessionGrantV1
-	(*SDKRequestEnvelopeV2)(nil),             // 13: nexus.v1.SDKRequestEnvelopeV2
-	(*OpenTaskHeader)(nil),                   // 14: nexus.v1.OpenTaskHeader
-	(*OpenTaskRequest)(nil),                  // 15: nexus.v1.OpenTaskRequest
-	(*OpenTaskResponse)(nil),                 // 16: nexus.v1.OpenTaskResponse
-	(*ConfirmOpenTaskRequest)(nil),           // 17: nexus.v1.ConfirmOpenTaskRequest
-	(*ConfirmOpenTaskResponse)(nil),          // 18: nexus.v1.ConfirmOpenTaskResponse
-	(*UploadTaskResultObjectHeaderV1)(nil),   // 19: nexus.v1.UploadTaskResultObjectHeaderV1
-	(*UploadTaskResultObjectRequest)(nil),    // 20: nexus.v1.UploadTaskResultObjectRequest
-	(*UploadTaskResultObjectResponse)(nil),   // 21: nexus.v1.UploadTaskResultObjectResponse
-	(*OutputStreamHeaderV2)(nil),             // 22: nexus.v1.OutputStreamHeaderV2
-	(*OutputChunkV1)(nil),                    // 23: nexus.v1.OutputChunkV1
-	(*OutputFinV1)(nil),                      // 24: nexus.v1.OutputFinV1
-	(*UploadTaskOutputStreamRequest)(nil),    // 25: nexus.v1.UploadTaskOutputStreamRequest
-	(*OutputStreamProgressV1)(nil),           // 26: nexus.v1.OutputStreamProgressV1
-	(*OutputStreamResultV1)(nil),             // 27: nexus.v1.OutputStreamResultV1
-	(*UploadTaskOutputStreamResponse)(nil),   // 28: nexus.v1.UploadTaskOutputStreamResponse
-	(*GetTaskDataMetadataRequest)(nil),       // 29: nexus.v1.GetTaskDataMetadataRequest
-	(*GetTaskDataMetadataResponse)(nil),      // 30: nexus.v1.GetTaskDataMetadataResponse
-	(*FetchTaskDataRequest)(nil),             // 31: nexus.v1.FetchTaskDataRequest
-	(*FetchTaskDataHeaderV1)(nil),            // 32: nexus.v1.FetchTaskDataHeaderV1
-	(*FetchTaskDataChunkV1)(nil),             // 33: nexus.v1.FetchTaskDataChunkV1
-	(*FetchTaskDataResponse)(nil),            // 34: nexus.v1.FetchTaskDataResponse
-	(*FinalizeTaskResultRequest)(nil),        // 35: nexus.v1.FinalizeTaskResultRequest
-	(*FinalizeTaskResultResponse)(nil),       // 36: nexus.v1.FinalizeTaskResultResponse
-	(*FinalizeVerifierEvidenceRequest)(nil),  // 37: nexus.v1.FinalizeVerifierEvidenceRequest
-	(*FinalizeVerifierEvidenceResponse)(nil), // 38: nexus.v1.FinalizeVerifierEvidenceResponse
-	(*SubmitInferReceiptRequest)(nil),        // 39: nexus.v1.SubmitInferReceiptRequest
-	(*SubmitInferReceiptResponse)(nil),       // 40: nexus.v1.SubmitInferReceiptResponse
-	(*SubmitVerifyCommitRequest)(nil),        // 41: nexus.v1.SubmitVerifyCommitRequest
-	(*SubmitVerifyCommitResponse)(nil),       // 42: nexus.v1.SubmitVerifyCommitResponse
-	(*SubmitVerifyResultRequest)(nil),        // 43: nexus.v1.SubmitVerifyResultRequest
-	(*SubmitVerifyResultResponse)(nil),       // 44: nexus.v1.SubmitVerifyResultResponse
-	(*CredentialV1)(nil),                     // 45: nexus.v1.CredentialV1
-	(*SubmitOrderRequest)(nil),               // 46: nexus.v1.SubmitOrderRequest
-	(*SubmitOrderResponse)(nil),              // 47: nexus.v1.SubmitOrderResponse
-	(*FetchOutputRefRequest)(nil),            // 48: nexus.v1.FetchOutputRefRequest
-	(*FetchOutputRefResponse)(nil),           // 49: nexus.v1.FetchOutputRefResponse
-	(*SubscribeOutputRequest)(nil),           // 50: nexus.v1.SubscribeOutputRequest
-	(*SubscribeOutputResponse)(nil),          // 51: nexus.v1.SubscribeOutputResponse
-	(*AckOutputRequest)(nil),                 // 52: nexus.v1.AckOutputRequest
-	(*AckOutputResponse)(nil),                // 53: nexus.v1.AckOutputResponse
-	(*GetTaskEventsRequest)(nil),             // 54: nexus.v1.GetTaskEventsRequest
-	(*GetTaskEventsResponse)(nil),            // 55: nexus.v1.GetTaskEventsResponse
-	(*RefreshCredentialRequest)(nil),         // 56: nexus.v1.RefreshCredentialRequest
-	(*RefreshCredentialResponse)(nil),        // 57: nexus.v1.RefreshCredentialResponse
-	(*PrepareChallengeRequest)(nil),          // 58: nexus.v1.PrepareChallengeRequest
-	(*PrepareChallengeResponse)(nil),         // 59: nexus.v1.PrepareChallengeResponse
-	(*Coin)(nil),                             // 60: nexus.v1.Coin
-	(*GetTaskStatusRequest)(nil),             // 61: nexus.v1.GetTaskStatusRequest
-	(*GetTaskStatusResponse)(nil),            // 62: nexus.v1.GetTaskStatusResponse
-	(v1.EvidenceKind)(0),                     // 63: shared.v1.EvidenceKind
-	(v11.FinishReasonV1)(0),                  // 64: task.v1.FinishReasonV1
-	(*v11.InferReceiptV3)(nil),               // 65: task.v1.InferReceiptV3
-	(*v11.ResultReceiptV3)(nil),              // 66: task.v1.ResultReceiptV3
-	(*v11.VerifyCommitV1)(nil),               // 67: task.v1.VerifyCommitV1
+	(TaskDataObjectKind)(0),                        // 0: nexus.v1.TaskDataObjectKind
+	(TaskDataObjectReadinessV1)(0),                 // 1: nexus.v1.TaskDataObjectReadinessV1
+	(TaskDataReadinessV1)(0),                       // 2: nexus.v1.TaskDataReadinessV1
+	(EvidenceProducerKindV1)(0),                    // 3: nexus.v1.EvidenceProducerKindV1
+	(TaskDataRequesterKindV1)(0),                   // 4: nexus.v1.TaskDataRequesterKindV1
+	(*TaskDataObjectRefV1)(nil),                    // 5: nexus.v1.TaskDataObjectRefV1
+	(*TaskDataObjectMetadataV1)(nil),               // 6: nexus.v1.TaskDataObjectMetadataV1
+	(*EvidenceBundleSummaryV1)(nil),                // 7: nexus.v1.EvidenceBundleSummaryV1
+	(*ByteRangeV1)(nil),                            // 8: nexus.v1.ByteRangeV1
+	(*BuilderStorageConfirmationV1)(nil),           // 9: nexus.v1.BuilderStorageConfirmationV1
+	(*TaskDataRequestAuthV1)(nil),                  // 10: nexus.v1.TaskDataRequestAuthV1
+	(*OpenTaskHeader)(nil),                         // 11: nexus.v1.OpenTaskHeader
+	(*OpenTaskRequest)(nil),                        // 12: nexus.v1.OpenTaskRequest
+	(*OpenTaskResponse)(nil),                       // 13: nexus.v1.OpenTaskResponse
+	(*UploadTaskResultObjectHeaderV1)(nil),         // 14: nexus.v1.UploadTaskResultObjectHeaderV1
+	(*UploadTaskResultObjectRequest)(nil),          // 15: nexus.v1.UploadTaskResultObjectRequest
+	(*UploadTaskResultObjectResponse)(nil),         // 16: nexus.v1.UploadTaskResultObjectResponse
+	(*OutputStreamHeaderV2)(nil),                   // 17: nexus.v1.OutputStreamHeaderV2
+	(*OutputChunkV1)(nil),                          // 18: nexus.v1.OutputChunkV1
+	(*OutputFinV1)(nil),                            // 19: nexus.v1.OutputFinV1
+	(*UploadTaskOutputStreamRequest)(nil),          // 20: nexus.v1.UploadTaskOutputStreamRequest
+	(*OutputStreamProgressV1)(nil),                 // 21: nexus.v1.OutputStreamProgressV1
+	(*OutputStreamResultV1)(nil),                   // 22: nexus.v1.OutputStreamResultV1
+	(*UploadTaskOutputStreamResponse)(nil),         // 23: nexus.v1.UploadTaskOutputStreamResponse
+	(*GetTaskDataMetadataRequest)(nil),             // 24: nexus.v1.GetTaskDataMetadataRequest
+	(*GetTaskDataMetadataResponse)(nil),            // 25: nexus.v1.GetTaskDataMetadataResponse
+	(*FetchTaskDataRequest)(nil),                   // 26: nexus.v1.FetchTaskDataRequest
+	(*FetchTaskDataHeaderV1)(nil),                  // 27: nexus.v1.FetchTaskDataHeaderV1
+	(*FetchTaskDataChunkV1)(nil),                   // 28: nexus.v1.FetchTaskDataChunkV1
+	(*FetchTaskDataResponse)(nil),                  // 29: nexus.v1.FetchTaskDataResponse
+	(*FinalizeTaskResultRequest)(nil),              // 30: nexus.v1.FinalizeTaskResultRequest
+	(*FinalizeTaskResultResponse)(nil),             // 31: nexus.v1.FinalizeTaskResultResponse
+	(*FinalizeVerifierEvidenceRequest)(nil),        // 32: nexus.v1.FinalizeVerifierEvidenceRequest
+	(*FinalizeVerifierEvidenceResponse)(nil),       // 33: nexus.v1.FinalizeVerifierEvidenceResponse
+	(*SubmitInferReceiptRequest)(nil),              // 34: nexus.v1.SubmitInferReceiptRequest
+	(*SubmitInferReceiptResponse)(nil),             // 35: nexus.v1.SubmitInferReceiptResponse
+	(*SubmitVerifyCommitRequest)(nil),              // 36: nexus.v1.SubmitVerifyCommitRequest
+	(*SubmitVerifyCommitResponse)(nil),             // 37: nexus.v1.SubmitVerifyCommitResponse
+	(*SubmitVerifyResultRequest)(nil),              // 38: nexus.v1.SubmitVerifyResultRequest
+	(*SubmitVerifyResultResponse)(nil),             // 39: nexus.v1.SubmitVerifyResultResponse
+	(*SubmitModelSupportConfirmationRequest)(nil),  // 40: nexus.v1.SubmitModelSupportConfirmationRequest
+	(*SubmitModelSupportConfirmationResponse)(nil), // 41: nexus.v1.SubmitModelSupportConfirmationResponse
+	(*SubscribeOutputRequest)(nil),                 // 42: nexus.v1.SubscribeOutputRequest
+	(*SubscribeOutputResponse)(nil),                // 43: nexus.v1.SubscribeOutputResponse
+	(*AckOutputRequest)(nil),                       // 44: nexus.v1.AckOutputRequest
+	(*AckOutputResponse)(nil),                      // 45: nexus.v1.AckOutputResponse
+	(*GetTaskEventsRequest)(nil),                   // 46: nexus.v1.GetTaskEventsRequest
+	(*GetTaskEventsResponse)(nil),                  // 47: nexus.v1.GetTaskEventsResponse
+	(*TaskEventDetailV1)(nil),                      // 48: nexus.v1.TaskEventDetailV1
+	(*PrepareChallengeRequest)(nil),                // 49: nexus.v1.PrepareChallengeRequest
+	(*PrepareChallengeResponse)(nil),               // 50: nexus.v1.PrepareChallengeResponse
+	(*Coin)(nil),                                   // 51: nexus.v1.Coin
+	(*GetTaskStatusRequest)(nil),                   // 52: nexus.v1.GetTaskStatusRequest
+	(*GetTaskStatusResponse)(nil),                  // 53: nexus.v1.GetTaskStatusResponse
+	(*ResumeOutputResponse)(nil),                   // 54: nexus.v1.ResumeOutputResponse
+	(v1.EvidenceKind)(0),                           // 55: shared.v1.EvidenceKind
+	(*SessionGrantV1)(nil),                         // 56: nexus.v1.SessionGrantV1
+	(*SDKRequestEnvelopeV2)(nil),                   // 57: nexus.v1.SDKRequestEnvelopeV2
+	(OpenTaskStatusV1)(0),                          // 58: nexus.v1.OpenTaskStatusV1
+	(*DispatchResultHeaderV1)(nil),                 // 59: nexus.v1.DispatchResultHeaderV1
+	(v11.FinishReasonV1)(0),                        // 60: task.v1.FinishReasonV1
+	(*v11.InferReceiptV3)(nil),                     // 61: task.v1.InferReceiptV3
+	(*v11.ResultReceiptV3)(nil),                    // 62: task.v1.ResultReceiptV3
+	(*v11.VerifyCommitV1)(nil),                     // 63: task.v1.VerifyCommitV1
+	(v11.DispatchRejectCodeV1)(0),                  // 64: task.v1.DispatchRejectCodeV1
+	(*DispatchStreamRequest)(nil),                  // 65: nexus.v1.DispatchStreamRequest
+	(*ResumeOutputRequest)(nil),                    // 66: nexus.v1.ResumeOutputRequest
+	(*GetDispatchRosterRequest)(nil),               // 67: nexus.v1.GetDispatchRosterRequest
+	(*DispatchStreamResponse)(nil),                 // 68: nexus.v1.DispatchStreamResponse
+	(*GetDispatchRosterResponse)(nil),              // 69: nexus.v1.GetDispatchRosterResponse
 }
 var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	0,  // 0: nexus.v1.TaskDataObjectRefV1.object_kind:type_name -> nexus.v1.TaskDataObjectKind
 	3,  // 1: nexus.v1.TaskDataObjectRefV1.evidence_producer_kind:type_name -> nexus.v1.EvidenceProducerKindV1
-	63, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
-	6,  // 3: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	55, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
+	5,  // 3: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	1,  // 4: nexus.v1.TaskDataObjectMetadataV1.readiness:type_name -> nexus.v1.TaskDataObjectReadinessV1
-	24, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
-	6,  // 6: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	19, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
+	5,  // 6: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	4,  // 7: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
-	12, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
-	12, // 9: nexus.v1.SDKRequestEnvelopeV2.session_grant:type_name -> nexus.v1.SessionGrantV1
-	13, // 10: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	14, // 11: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
-	7,  // 12: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	10, // 13: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	13, // 14: nexus.v1.ConfirmOpenTaskRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	10, // 15: nexus.v1.ConfirmOpenTaskRequest.input_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	6,  // 16: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 17: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	19, // 18: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
-	7,  // 19: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	11, // 20: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	64, // 21: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
-	22, // 22: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
-	23, // 23: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
-	24, // 24: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
-	26, // 25: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
-	27, // 26: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
-	6,  // 27: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	11, // 28: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	7,  // 29: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	8,  // 30: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
-	65, // 31: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
-	6,  // 32: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 33: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
-	11, // 34: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	6,  // 35: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	9,  // 36: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
-	32, // 37: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
-	33, // 38: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
-	65, // 39: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
-	11, // 40: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	63, // 41: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
-	10, // 42: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	10, // 43: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	66, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	11, // 45: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	10, // 46: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	65, // 47: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
-	67, // 48: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
-	66, // 49: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	5,  // 50: nexus.v1.CredentialV1.access_level:type_name -> nexus.v1.AccessLevel
-	13, // 51: nexus.v1.SubmitOrderRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	5,  // 52: nexus.v1.FetchOutputRefRequest.access_level:type_name -> nexus.v1.AccessLevel
-	13, // 53: nexus.v1.FetchOutputRefRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	45, // 54: nexus.v1.FetchOutputRefResponse.credential:type_name -> nexus.v1.CredentialV1
-	13, // 55: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	23, // 56: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
-	24, // 57: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
-	13, // 58: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	13, // 59: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	45, // 60: nexus.v1.RefreshCredentialRequest.credential:type_name -> nexus.v1.CredentialV1
-	13, // 61: nexus.v1.RefreshCredentialRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	45, // 62: nexus.v1.RefreshCredentialResponse.credential:type_name -> nexus.v1.CredentialV1
-	13, // 63: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	60, // 64: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
-	15, // 65: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
-	17, // 66: nexus.v1.IngressAPI.ConfirmOpenTask:input_type -> nexus.v1.ConfirmOpenTaskRequest
-	50, // 67: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
-	52, // 68: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
-	61, // 69: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
-	54, // 70: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
-	58, // 71: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
-	20, // 72: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
-	25, // 73: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
-	29, // 74: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
-	31, // 75: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
-	35, // 76: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
-	37, // 77: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
-	39, // 78: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
-	41, // 79: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
-	43, // 80: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
-	46, // 81: nexus.v1.IngressAPI.SubmitOrder:input_type -> nexus.v1.SubmitOrderRequest
-	48, // 82: nexus.v1.IngressAPI.FetchOutputRef:input_type -> nexus.v1.FetchOutputRefRequest
-	56, // 83: nexus.v1.IngressAPI.RefreshCredential:input_type -> nexus.v1.RefreshCredentialRequest
-	16, // 84: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
-	18, // 85: nexus.v1.IngressAPI.ConfirmOpenTask:output_type -> nexus.v1.ConfirmOpenTaskResponse
-	51, // 86: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
-	53, // 87: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
-	62, // 88: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
-	55, // 89: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
-	59, // 90: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
-	21, // 91: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
-	28, // 92: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
-	30, // 93: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
-	34, // 94: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
-	36, // 95: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
-	38, // 96: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
-	40, // 97: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
-	42, // 98: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
-	44, // 99: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
-	47, // 100: nexus.v1.IngressAPI.SubmitOrder:output_type -> nexus.v1.SubmitOrderResponse
-	49, // 101: nexus.v1.IngressAPI.FetchOutputRef:output_type -> nexus.v1.FetchOutputRefResponse
-	57, // 102: nexus.v1.IngressAPI.RefreshCredential:output_type -> nexus.v1.RefreshCredentialResponse
-	84, // [84:103] is the sub-list for method output_type
-	65, // [65:84] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	56, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
+	57, // 9: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	11, // 10: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
+	6,  // 11: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	9,  // 12: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	58, // 13: nexus.v1.OpenTaskResponse.status:type_name -> nexus.v1.OpenTaskStatusV1
+	59, // 14: nexus.v1.OpenTaskResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	5,  // 15: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	10, // 16: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	14, // 17: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
+	6,  // 18: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	10, // 19: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	60, // 20: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	17, // 21: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
+	18, // 22: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
+	19, // 23: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
+	21, // 24: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
+	22, // 25: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
+	5,  // 26: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	10, // 27: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	6,  // 28: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	7,  // 29: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
+	61, // 30: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
+	5,  // 31: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	8,  // 32: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
+	10, // 33: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	5,  // 34: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	8,  // 35: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
+	27, // 36: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
+	28, // 37: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
+	61, // 38: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
+	10, // 39: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	55, // 40: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
+	9,  // 41: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	9,  // 42: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	62, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	10, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	9,  // 45: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	61, // 46: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
+	63, // 47: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
+	62, // 48: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	57, // 49: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	18, // 50: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
+	19, // 51: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
+	59, // 52: nexus.v1.SubscribeOutputResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	57, // 53: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	57, // 54: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	48, // 55: nexus.v1.GetTaskEventsResponse.detail:type_name -> nexus.v1.TaskEventDetailV1
+	64, // 56: nexus.v1.TaskEventDetailV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
+	57, // 57: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	51, // 58: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
+	43, // 59: nexus.v1.ResumeOutputResponse.frame:type_name -> nexus.v1.SubscribeOutputResponse
+	12, // 60: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
+	42, // 61: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
+	44, // 62: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
+	52, // 63: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
+	46, // 64: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
+	49, // 65: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
+	15, // 66: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
+	20, // 67: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
+	24, // 68: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
+	26, // 69: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
+	30, // 70: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
+	32, // 71: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
+	34, // 72: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
+	36, // 73: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
+	38, // 74: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
+	40, // 75: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:input_type -> nexus.v1.SubmitModelSupportConfirmationRequest
+	65, // 76: nexus.v1.IngressAPI.DispatchStream:input_type -> nexus.v1.DispatchStreamRequest
+	66, // 77: nexus.v1.IngressAPI.ResumeOutput:input_type -> nexus.v1.ResumeOutputRequest
+	67, // 78: nexus.v1.IngressAPI.GetDispatchRoster:input_type -> nexus.v1.GetDispatchRosterRequest
+	13, // 79: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
+	43, // 80: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
+	45, // 81: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
+	53, // 82: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
+	47, // 83: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
+	50, // 84: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
+	16, // 85: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
+	23, // 86: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
+	25, // 87: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
+	29, // 88: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
+	31, // 89: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
+	33, // 90: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
+	35, // 91: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
+	37, // 92: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
+	39, // 93: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
+	41, // 94: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:output_type -> nexus.v1.SubmitModelSupportConfirmationResponse
+	68, // 95: nexus.v1.IngressAPI.DispatchStream:output_type -> nexus.v1.DispatchStreamResponse
+	54, // 96: nexus.v1.IngressAPI.ResumeOutput:output_type -> nexus.v1.ResumeOutputResponse
+	69, // 97: nexus.v1.IngressAPI.GetDispatchRoster:output_type -> nexus.v1.GetDispatchRosterResponse
+	79, // [79:98] is the sub-list for method output_type
+	60, // [60:79] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_ingress_proto_init() }
@@ -5833,43 +5014,48 @@ func file_nexus_v1_ingress_proto_init() {
 	if File_nexus_v1_ingress_proto != nil {
 		return
 	}
+	file_nexus_v1_dispatch_proto_init()
+	file_nexus_v1_sdk_auth_proto_init()
 	file_nexus_v1_ingress_proto_msgTypes[0].OneofWrappers = []any{}
 	file_nexus_v1_ingress_proto_msgTypes[1].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[9].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[7].OneofWrappers = []any{
 		(*OpenTaskRequest_Header)(nil),
 		(*OpenTaskRequest_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[14].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[8].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[10].OneofWrappers = []any{
 		(*UploadTaskResultObjectRequest_Header)(nil),
 		(*UploadTaskResultObjectRequest_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[19].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[15].OneofWrappers = []any{
 		(*UploadTaskOutputStreamRequest_Header)(nil),
 		(*UploadTaskOutputStreamRequest_Chunk)(nil),
 		(*UploadTaskOutputStreamRequest_Fin)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[20].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[22].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[16].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[18].OneofWrappers = []any{
 		(*UploadTaskOutputStreamResponse_Progress)(nil),
 		(*UploadTaskOutputStreamResponse_Result)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[25].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[28].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[21].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[24].OneofWrappers = []any{
 		(*FetchTaskDataResponse_Header)(nil),
 		(*FetchTaskDataResponse_Chunk)(nil),
 	}
-	file_nexus_v1_ingress_proto_msgTypes[44].OneofWrappers = []any{}
-	file_nexus_v1_ingress_proto_msgTypes[45].OneofWrappers = []any{
+	file_nexus_v1_ingress_proto_msgTypes[37].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[38].OneofWrappers = []any{
 		(*SubscribeOutputResponse_Chunk)(nil),
 		(*SubscribeOutputResponse_Fin)(nil),
 	}
+	file_nexus_v1_ingress_proto_msgTypes[42].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[43].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nexus_v1_ingress_proto_rawDesc), len(file_nexus_v1_ingress_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   57,
+			NumEnums:      5,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

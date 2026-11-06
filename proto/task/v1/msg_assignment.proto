@@ -131,7 +131,9 @@ message TaskOrderV3 {
   DeadlinePolicyV1 deadline_policy = 20;
   uint64 timeout_bucket_version = 21;
   uint64 session_anchor_height = 22;
-  bytes session_anchor_block_hash = 23;
+
+  reserved 23;
+  reserved "session_anchor_block_hash";
   string builder_set_id = 24;
   bytes builder_set_hash = 25;
   PayloadModeV1 payload_mode = 26;
@@ -186,70 +188,4 @@ message SignedOrderV2 {
 message ExistingTaskRefV1 {
   bytes task_id = 1;
   bytes task_hash = 2;
-}
-
-// WorkerHandraiseScopeV1 is the exactly-one proposal scope of this contract. The first
-// proposal must carry signed_order; any later proposal must carry existing_task.
-// Both filled or both empty is rejected.
-// WorkerHandraiseScopeV1 defines the WorkerHandraiseScopeV1 wire type.
-message WorkerHandraiseScopeV1 {
-  // Exactly one branch must be present.
-  // scope selects one supported variant.
-  oneof scope {
-    SignedOrderV2 signed_order = 1;
-    ExistingTaskRefV1 existing_task = 2;
-  }
-}
-
-// WorkerHandraiseV1 is one Cortex-signed Worker handraise (the wire API). Its
-// `member` field uses the single module-wide CandidateMemberRefV1, declared in
-// task/v1/open_verify.proto. The
-// signing digest is H_FIELDS_V1("TRUEOPEN_WORKER_HANDRAISE_V1", all fields except
-// service_signature) in exactly this field order. service_authorization_nonce
-// must equal the operator's current service binding nonce; it is not a
-// per-message counter. Raw handraises are never persisted.
-//
-// schema_version is 1: this contract writes `schema_version: uint32 = 1` literally for this
-// wire. Handraise schema versions are independent of receipt versions.
-// WorkerHandraiseV1 defines the WorkerHandraiseV1 wire type.
-message WorkerHandraiseV1 {
-  // Always 1; this contract pins it literally.
-  uint32 schema_version = 1;
-  string chain_id = 2;
-  bytes task_id = 3;
-  bytes task_hash = 4;
-  bytes model_id = 5;
-  uint32 profile_version = 6;
-  CandidateMemberRefV1 member = 7;
-  shared.v1.Duty duty = 8;
-  uint64 service_authorization_nonce = 9;
-  uint64 expiry_height = 10;
-  bytes service_signature = 11;
-  // Reserved recipient key: empty in plaintext Phase 0.
-  bytes recipient_pubkey = 12;
-}
-
-// MsgSubmitWorkerHandraises accepts the order plus Worker handraises and ORs the
-// legal bits into the authoritative stage union (the wire API).
-// submitter_address is the Cosmos signer only: it pays gas, never enters the
-// proposal digest or any frozen candidate fact. Builder operator, BuilderSet,
-// Task Builders, pool hash, candidate weights, legal-set hash and deadlines are
-// all Keeper-derived and must not appear as request copies.
-// MsgSubmitWorkerHandraises defines the MsgSubmitWorkerHandraises wire type.
-message MsgSubmitWorkerHandraises {
-  WorkerHandraiseScopeV1 scope = 1;
-  repeated WorkerHandraiseV1 handraises = 2;
-  string submitter_address = 3;
-}
-
-// MsgSubmitWorkerHandraisesResponse reports the Keeper-derived proposal receipt
-//. added_member_count is the number of 0->1 bits in this proposal and is
-// 0 for an exact replay noop; union_count is the committed authoritative count.
-// MsgSubmitWorkerHandraisesResponse defines the MsgSubmitWorkerHandraisesResponse wire type.
-message MsgSubmitWorkerHandraisesResponse {
-  bytes task_id = 1;
-  bytes proposal_digest = 2;
-  uint32 added_member_count = 3;
-  uint32 union_count = 4;
-  TaskCandidateStageStatusV1 stage_status = 5;
 }

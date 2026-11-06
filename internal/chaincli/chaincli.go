@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"sync"
 
+	hubv1 "github.com/TrueOpen/nexus/gen/trueopen/hub/v1"
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/config"
 )
 
@@ -24,6 +26,11 @@ var ErrInvalidTaskKey = errors.New("chaincli: invalid task key")
 // ErrNotFound is returned when an application Query has no state for its key.
 var ErrNotFound = errors.New("chaincli: state not found")
 
+// ErrMalformedBinding means the chain answered a service key binding that breaks its own rules
+// (a pending rotation or previous generation that does not fit the current binding). Asking
+// again gets the same answer: it is no outage.
+var ErrMalformedBinding = errors.New("chaincli: malformed service key binding")
+
 // ChainEvent combines TaskEventService notifications and monotonic height polls.
 type ChainEvent struct {
 	Type             string
@@ -33,6 +40,8 @@ type ChainEvent struct {
 	Height           int64
 	Attrs            map[string]string
 	TaskNotification bool
+	// Typed is the decoded Phase 1 payload (dispatch_events.go); nil for every other event.
+	Typed TypedEvent
 }
 
 // TxResult is the broadcast result.
@@ -44,6 +53,9 @@ type TxResult struct {
 	Codespace string
 	Height    int64
 	RawLog    string
+	// Data is the executed transaction's TxMsgData (hex-decoded TxResponse.data); only a QueryTx
+	// result has it. DecodeMsgResponse reads the Msg responses from it.
+	Data []byte
 }
 
 // OutputStreamLimits are the task params that decide whether an output stream is valid.
@@ -74,9 +86,8 @@ type Client interface {
 	QueryTaskBuilders(ctx context.Context, key TaskKey) (TaskBuilderSelectionState, error)
 	// QuerySettlementBuilderGraceBlocks reads the Hub parameter settlement_builder_grace_blocks.
 	QuerySettlementBuilderGraceBlocks(ctx context.Context) (uint64, error)
-	// QueryBuildersPerTask reads the Hub parameter builder.builders_per_task: how many Builders the
-	// chain selects for each task.
-	QueryBuildersPerTask(ctx context.Context) (uint32, error)
+	// QueryEpochLengthBlocks reads the Hub epoch length (epoch.epoch_length_blocks).
+	QueryEpochLengthBlocks(ctx context.Context) (uint64, error)
 	// QueryServiceMaterialExpiryBlocks reads the Hub parameter
 	// service.max_service_material_expiry_blocks: how far above the current height a Task data
 	// request's expiry_height may lie.
@@ -91,14 +102,10 @@ type Client interface {
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
 	// QueryMaxVerifyRound reads task params challenge.max_verify_round.
 	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
-	// QueryAnchorFreshnessWindowBlocks reads task params session.anchor_freshness_window_blocks: how
-	// far behind the executing block a signed order's session anchor may be.
-	QueryAnchorFreshnessWindowBlocks(ctx context.Context) (uint64, error)
 	// QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
 	// evidence.min_output_stream_frame_bytes.
 	QueryOutputStreamLimits(ctx context.Context) (OutputStreamLimits, error)
-	// BlockHash returns the hash of the block at height, the value the chain records as that
-	// height's anchor hash.
+	// BlockHash returns the hash of the block at height.
 	BlockHash(ctx context.Context, height int64) ([]byte, error)
 	// QueryTaskStage reads a task's statuses and next deadline (task.v1.Query/TaskStage).
 	QueryTaskStage(ctx context.Context, taskID string) (TaskStage, error)
@@ -123,6 +130,55 @@ type Client interface {
 	// QueryBusinessDenom reads hub params phase0.business_denom.
 	QueryBusinessDenom(ctx context.Context) (string, error)
 
+	// --- Model support relay queries (model_support.go) ---
+	// QuerySupportParams reads the epoch length, the service material expiry window and the
+	// support batch limits from one Hub params read.
+	QuerySupportParams(ctx context.Context) (SupportParams, error)
+	// QueryDailySupport reads the chain-accepted support confirmation of (operator, epoch);
+	// ErrNotFound when there is none.
+	QueryDailySupport(ctx context.Context, operator string, epoch uint64) (*hubv1.DailySupportState, error)
+	// QueryServiceBond reads an operator's service bond; ErrNotFound when there is none.
+	QueryServiceBond(ctx context.Context, operator string) (*hubv1.ServiceBondState, error)
+
+	// --- Phase 1 dispatch queries (dispatch_query.go, pool_query.go) ---
+	// QueryDispatchRecordByOrder reads the dispatch record admitted for (session_id, order_sequence).
+	QueryDispatchRecordByOrder(ctx context.Context, sessionID string, orderSequence uint64) (*taskv1.DispatchRecordState, error)
+	// QueryDispatchRecordByHash reads one dispatch record by dispatch_record_hash.
+	QueryDispatchRecordByHash(ctx context.Context, recordHash []byte) (*taskv1.DispatchRecordState, error)
+	// QueryDispatchCompensationClaim reads the compensation claim keyed by a dispatch ticket hash.
+	QueryDispatchCompensationClaim(ctx context.Context, ticketHash []byte) (*taskv1.DispatchCompensationClaimState, error)
+	// QueryDispatchWinnerIneligible reads the winner ineligibility marker of a dispatch ticket.
+	QueryDispatchWinnerIneligible(ctx context.Context, ticketHash []byte) (*taskv1.DispatchWinnerIneligibleState, error)
+	// QueryDispatchChallenge reads one dispatch challenge by challenge_id.
+	QueryDispatchChallenge(ctx context.Context, challengeID []byte) (*taskv1.DispatchChallengeState, error)
+	// QueryDispatchChallengesByBuilder reads one page of the open challenges against a Builder
+	// (dispatch_open.go).
+	QueryDispatchChallengesByBuilder(ctx context.Context, builder string, pageToken []byte) ([]*taskv1.DispatchChallengeState, []byte, error)
+	// QueryDispatchCompensationClaimsByBuilder reads one page of the claims awaiting a Builder's
+	// rebuttal.
+	QueryDispatchCompensationClaimsByBuilder(ctx context.Context, builder string, pageToken []byte) ([]*taskv1.DispatchCompensationClaimState, []byte, error)
+	// QueryDispatchParams reads task params dispatch.
+	QueryDispatchParams(ctx context.Context) (*taskv1.DispatchParamsV1, error)
+	// QueryCandidateWeightParams reads task params weights.
+	QueryCandidateWeightParams(ctx context.Context) (*taskv1.CandidateWeightParamsV1, error)
+	// QueryCandidatePoolSnapshotMember reads one operator's membership and weight in a pool snapshot.
+	QueryCandidatePoolSnapshotMember(ctx context.Context, key CandidatePoolMemberKey) (*hubv1.CandidatePoolSnapshotMemberViewV1, error)
+	// QueryCandidatePoolMembers reads one page of a pool snapshot's members in slot order.
+	QueryCandidatePoolMembers(ctx context.Context, snapshotID, pageToken []byte) ([]*hubv1.CandidatePoolMemberViewV1, []byte, error)
+	// CandidatePoolSnapshotOfEpoch returns the snapshot the protocol event stream announced as the
+	// candidate pool of epoch; ErrNotFound when none was seen.
+	CandidatePoolSnapshotOfEpoch(ctx context.Context, epoch uint64) ([]byte, error)
+	// QueryCandidatePoolSnapshot reads the header of one pool snapshot.
+	QueryCandidatePoolSnapshot(ctx context.Context, snapshotID []byte) (*hubv1.CandidatePoolSnapshotViewV1, error)
+	// QueryCurrentCandidatePool reads the ACTIVE pool snapshot the chain currently points to.
+	QueryCurrentCandidatePool(ctx context.Context) (*hubv1.CandidatePoolSnapshotViewV1, error)
+	// QueryBuilderCompensationAccount reads a Builder's compensation account.
+	QueryBuilderCompensationAccount(ctx context.Context, builder string) (*hubv1.BuilderCompensationAccountState, error)
+	// QueryVrfKey reads an operator's VRF keys in one participant domain (BUILDER, CORTEX, VALIDATOR).
+	QueryVrfKey(ctx context.Context, participantType, operator string) (VrfKey, error)
+	// QueryBeacon reads the beacon recorded at one height.
+	QueryBeacon(ctx context.Context, height uint64) (*hubv1.BeaconState, error)
+
 	// --- Broadcast signed Tx (Assign / OpenVerify / WorkerReveal / Settle / Register / Unbond) ---
 	BroadcastTx(ctx context.Context, tx []byte) (TxResult, error)
 
@@ -137,6 +193,13 @@ type Client interface {
 type TaskEventTracker interface {
 	TrackTaskEvents(TaskKey) error
 	UntrackTaskEvents(TaskKey)
+}
+
+// SessionEventTracker follows sessions for their session-level events (EventSessionScoped), for
+// example every session bound to this Builder, independently of task tracking.
+type SessionEventTracker interface {
+	TrackSessionEvents(sessionID string) error
+	UntrackSessionEvents(sessionID string)
 }
 
 type stubClient struct {
@@ -163,6 +226,11 @@ func (c *stubClient) Stop(_ context.Context) error {
 		close(c.events)
 	})
 	return nil
+}
+
+// QueryEpochLengthBlocks has no chain to read in stub mode.
+func (c *stubClient) QueryEpochLengthBlocks(context.Context) (uint64, error) {
+	return 0, ErrNotSupportedOnChain
 }
 
 // QueryBuilderSetAtHeight has no source of truth to query in stub mode: it returns ErrNotFound
@@ -226,20 +294,12 @@ func (c *stubClient) AccountPubKey(context.Context, string) ([]byte, error) {
 	return nil, ErrNotSupportedOnChain
 }
 
-func (c *stubClient) QueryBuildersPerTask(context.Context) (uint32, error) {
-	return 0, ErrNotFound
-}
-
-// QueryAnchorFreshnessWindowBlocks and BlockHash have no chain to ask in stub mode; callers fail closed.
-func (c *stubClient) QueryAnchorFreshnessWindowBlocks(context.Context) (uint64, error) {
-	return 0, ErrNotSupportedOnChain
-}
-
 // QueryOutputStreamLimits has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) QueryOutputStreamLimits(context.Context) (OutputStreamLimits, error) {
 	return OutputStreamLimits{}, ErrNotSupportedOnChain
 }
 
+// BlockHash has no chain to ask in stub mode; callers fail closed.
 func (c *stubClient) BlockHash(context.Context, int64) ([]byte, error) {
 	return nil, ErrNotSupportedOnChain
 }

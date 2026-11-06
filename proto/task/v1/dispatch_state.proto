@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/dispatch.proto";
+import "task/v1/open_verify.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// DispatchStickySnapshotV1 defines the canonical DispatchStickySnapshotV1 fields.
+message DispatchStickySnapshotV1 {
+  optional string last_record_winner = 1;
+  uint64 anchor_sequence = 2;
+  uint64 anchor_height = 3;
+  uint32 run_count = 4;
+}
+// DispatchRecordState defines the canonical DispatchRecordState fields.
+message DispatchRecordState {
+  bytes task_id = 1;
+  bytes dispatch_record_hash = 2;
+  bytes dispatch_ticket_hash = 3;
+  string builder_address = 4;
+  uint64 reference_height = 5;
+  bytes candidate_pool_snapshot_id = 6;
+  uint64 vrf_epoch = 7;
+  uint64 earliest_submit_height = 8;
+  bytes vrf_output = 9;
+  bytes vrf_proof = 10;
+  DispatchRandomnessSchemeV1 randomness_scheme = 11;
+  repeated DispatchRoundV1 rounds = 12;
+  uint32 winner_round = 13;
+  uint64 sticky_anchor_sequence = 14;
+  uint32 sticky_run_count = 15;
+  bool sticky_applied = 16;
+  DispatchStickySnapshotV1 sticky_snapshot = 17;
+  CandidateMemberRefV1 winner = 18;
+  uint64 recorded_height = 19;
+  bytes accepted_entry_digest = 20;
+  uint64 claim_window_close_height = 21;
+  reserved 22;
+  // Frozen from the accepted record for proof-key selection after cutover.
+  uint64 service_authorization_nonce = 23;
+  // Frozen record anchor; later takeovers never move old-material windows.
+  uint64 bound_change_height = 24;
+}
+// TakeoverEntryReceiptState defines the canonical TakeoverEntryReceiptState fields.
+message TakeoverEntryReceiptState {
+  bytes takeover_entry_digest = 1;
+  bytes session_id = 2;
+  uint64 order_sequence = 3;
+  bytes order_task_hash = 4;
+  string candidate_operator = 5;
+  uint64 bound_change_height_at_registration = 6;
+  uint64 registered_height = 7;
+  uint64 activation_height = 8;
+  // Expiry is retained so the receipt prune index can be rebuilt on import.
+  uint64 order_expire_height = 9;
+}
+// DispatchCompensationClaimState is keyed by (session_id, order_sequence).
+// A derived ticket index serves replay, rebuttal and Query. Replacing a
+// DISMISSED claim atomically removes the old ticket and prune indexes.
+message DispatchCompensationClaimState {
+  bytes dispatch_ticket_hash = 1;
+  bytes task_id = 2;
+  bytes session_id = 3;
+  uint64 order_sequence = 4;
+  string builder_address = 5;
+  string builder_set_id = 6;
+  string worker_operator_address = 7;
+  shared.v1.Amount amount = 8;
+  DispatchCompensationClaimStatusV1 status = 9;
+  uint64 claimed_height = 10;
+  uint64 rebuttal_deadline_height = 11;
+  shared.v1.Amount paid_amount = 12;
+  shared.v1.Amount unfilled_amount = 13;
+  optional string rebutted_by_or_empty = 14;
+  optional uint64 resolved_height = 15;
+  uint64 claim_window_close_height = 16;
+  // Frozen from the claim's verified original order, including unrecorded orders.
+  // Positive and strictly below claimed_height; retained unchanged through
+  // resolution, Query and Genesis. Record/reject proofs each compare the maximum
+  // of this height and bound_change_height with their own key's cutoff.
+  uint64 earliest_submit_height = 17;
+  // Frozen from the signed ticket; never read from a later live Session.
+  // Retained unchanged with earliest_submit_height through Query and Genesis.
+  uint64 bound_change_height = 18;
+}
+
+// DispatchRoundAcceptorState freezes the first accepted or voided ticket from
+// a successful compensation rebuttal. Its key is (session_id, order_sequence,
+// builder_address, bound_change_height, vrf_epoch, dispatch_round). Binding and
+// epoch come from the signed record, never registration-time live state; both
+// can reset round numbers. Genesis exports this primary and rebuilds its prune
+// index at registered_height + dispatch_record_retention_blocks.
+message DispatchRoundAcceptorState {
+  bytes session_id = 1;
+  uint64 order_sequence = 2;
+  string builder_address = 3;
+  uint64 bound_change_height = 4;
+  uint64 vrf_epoch = 5;
+  uint32 dispatch_round = 6;
+  bytes dispatch_ticket_hash = 7;
+  uint64 registered_height = 8;
+}
+// DispatchWinnerIneligibleState defines the canonical DispatchWinnerIneligibleState fields.
+message DispatchWinnerIneligibleState {
+  bytes dispatch_ticket_hash = 1;
+  bytes task_id = 2;
+  string worker_operator_address = 3;
+  DispatchWinnerIneligibleReasonV1 reason = 4;
+  uint64 rejected_height = 5;
+  uint64 claim_window_close_height = 6;
+}
+// DispatchChallengeState defines the canonical DispatchChallengeState fields.
+message DispatchChallengeState {
+  bytes challenge_id = 1;
+  bytes task_id = 2;
+  shared.v1.DispatchChallengeKindV1 kind = 3;
+  string challenger_address = 4;
+  string builder_address = 5;
+  optional bytes challenged_ticket_hash = 6;
+  optional uint32 dispatch_round = 7;
+  optional uint32 attempt_rank = 8;
+  optional string victim_operator_address = 9;
+  optional bytes dispatch_record_hash = 10;
+  optional uint64 proof_deadline_height = 11;
+  DispatchChallengeStatusV1 status = 12;
+  optional bytes fault_id = 13;
+  uint64 opened_height = 14;
+  optional uint64 resolved_height = 15;
+}

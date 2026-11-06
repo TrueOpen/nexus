@@ -1,0 +1,496 @@
+package buildersync
+
+import (
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/TrueOpen/wire/dispatch"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
+
+	nexusv1 "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1"
+	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/config"
+	"github.com/TrueOpen/nexus/internal/dispatchevidence"
+	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
+	"github.com/TrueOpen/nexus/internal/wirefixture"
+)
+
+// syncVectors are wire's Builder sync transport vectors: a full batch, a Fin-only retry, a round
+// only, an unfinished record with a ZERO32 winner ticket, and the round-only facts again under a
+// returned binding generation.
+type syncVectors struct {
+	ChainID  string `json:"chain_id"`
+	Sender   string `json:"sender_operator_address"`
+	Receiver string `json:"receiver_operator_address"`
+	Vectors  []struct {
+		Name       string `json:"name"`
+		Protobuf   string `json:"protobuf_hex"`
+		Equivalent string `json:"equivalent_protobuf_hex"`
+		Digest     string `json:"digest_hex"`
+		PublicKey  string `json:"public_key_hex"`
+		Signature  string `json:"signature_hex"`
+		Preimage   string `json:"preimage_hex"`
+	} `json:"vectors"`
+}
+
+func readSyncVectors(t *testing.T) syncVectors {
+	t.Helper()
+	var v syncVectors
+	if err := json.Unmarshal(wirefixture.ReadFile(t, "testdata/v1/task/builder_sync_v1.json"), &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Vectors) != 5 {
+		t.Fatalf("builder sync vectors = %d, want 5", len(v.Vectors))
+	}
+	return v
+}
+
+func unhex(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// vectorKey is the test-only service key of the vectors (0x01 repeated).
+func vectorKey(t *testing.T) signer.Signer { return newSigner(t, 0x01) }
+
+// The sender signs a batch exactly as wire's vectors do: the canonical typed batch, not its bytes.
+func TestSignRequestReproducesTheWireVectors(t *testing.T) {
+	v := readSyncVectors(t)
+	key := vectorKey(t)
+	for _, row := range v.Vectors {
+		t.Run(row.Name, func(t *testing.T) {
+			if hex.EncodeToString(key.PubKeyCompressed()) != row.PublicKey {
+				t.Fatalf("vector key = %s", row.PublicKey)
+			}
+			var req nexusv1.SyncRequest
+			if err := proto.Unmarshal(unhex(t, row.Protobuf), &req); err != nil {
+				t.Fatal(err)
+			}
+			signed, err := SignRequest(key, req.GetBatch())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hex.EncodeToString(signed.GetSenderSignature()); got != row.Signature {
+				t.Fatalf("signature = %s, want %s", got, row.Signature)
+			}
+			digest, err := dispatch.SigningDigest(requestName, mustMarshal(t, signed))
+			if err != nil || hex.EncodeToString(digest[:]) != row.Digest {
+				t.Fatalf("digest = %x, %v", digest, err)
+			}
+		})
+	}
+	var req nexusv1.SyncRequest
+	if err := proto.Unmarshal(unhex(t, v.Vectors[3].Protobuf), &req); err != nil {
+		t.Fatal(err)
+	}
+	var record []byte
+	for _, item := range req.GetBatch().GetItems() {
+		if r := item.GetRecord(); r != nil {
+			record = r.GetRecord().GetDispatchTicketHash()
+		}
+	}
+	if !bytes.Equal(record, make([]byte, 32)) {
+		t.Fatalf("unfinished record winner ticket = %x, want ZERO32", record)
+	}
+}
+
+// An applied item is kept as SHA-256 of its canonical item projection: the element of the items
+// field the batch signature commits to. The digests are equal for either encoding of a vector,
+// and the projections they hash reassemble the items field of the vector's signed preimage.
+func TestItemDigestIsTheSignedItemProjection(t *testing.T) {
+	v := readSyncVectors(t)
+	covered := 0
+	for _, row := range v.Vectors {
+		var req, equivalent nexusv1.SyncRequest
+		if err := proto.Unmarshal(unhex(t, row.Protobuf), &req); err != nil {
+			t.Fatal(err)
+		}
+		if err := proto.Unmarshal(unhex(t, row.Equivalent), &equivalent); err != nil {
+			t.Fatal(err)
+		}
+		items := req.GetBatch().GetItems()
+		if len(items) == 0 {
+			continue
+		}
+		parts := [][]byte{dispatch.Uint32(uint32(len(items)))}
+		for i, item := range items {
+			projection, err := dispatch.BuilderSyncItemCanonicalBytes(mustMarshal(t, item))
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest, err := itemDigest(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := itemDigest(equivalent.GetBatch().GetItems()[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := sum(projection); !bytes.Equal(digest, want[:]) || !bytes.Equal(again, digest) {
+				t.Fatalf("%s item %d: digest %x (equivalent %x), want SHA-256 of the projection %x", row.Name, i, digest, again, want)
+			}
+			parts = append(parts, projection)
+			covered++
+		}
+		if !bytes.Contains(unhex(t, row.Preimage), dispatch.FieldFrame(dispatch.FieldFrame(parts...))) {
+			t.Fatalf("%s: the item projections are not the signed items field", row.Name)
+		}
+	}
+	if covered == 0 {
+		t.Fatal("no vector item compared")
+	}
+}
+
+// vectorReceiver is a receiver that is the vectors' receiver, with their sender's current key.
+func vectorReceiver(t *testing.T, v syncVectors) (*Receiver, *fakeKeys) {
+	t.Helper()
+	keys := &fakeKeys{keys: map[string]signer.Signer{}}
+	keys.set("BUILDER", party{op: v.Sender, key: vectorKey(t)})
+	r, err := NewReceiver(ReceiverConfig{
+		ChainID: v.ChainID, Builder: v.Receiver, AddressPrefix: prefix, Keys: keys, Groups: &fakeGroups{}, Store: kv.NewMemStore(),
+		Evidence: nopEvidence{}, Inputs: StoredInputs{}, Outputs: nopReplicas{}, Chain: &fakeRecords{}, Retention: evidenceParams.RetainUntil,
+		MaxInputBytes: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, keys
+}
+
+// A receiver authenticates every vector in either encoding under the sender's current key, and
+// nothing else: another key, chain or receiver, or a key the chain cannot answer.
+func TestReceiverAuthenticatesTheWireVectors(t *testing.T) {
+	v := readSyncVectors(t)
+	for _, row := range v.Vectors {
+		t.Run(row.Name, func(t *testing.T) {
+			r, keys := vectorReceiver(t, v)
+			for _, encoded := range []string{row.Protobuf, row.Equivalent} {
+				if err := r.authenticate(context.Background(), v.Sender, unhex(t, encoded)); err != nil {
+					t.Fatalf("vector: %v", err)
+				}
+			}
+			keys.set("BUILDER", party{op: v.Sender, key: newSigner(t, 0x02)})
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("retired key: %v", err)
+			}
+			keys.fails = true
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("unreadable key: %v", err)
+			}
+			keys.fails = false
+			keys.set("BUILDER", party{op: v.Sender, key: vectorKey(t)})
+			r.cfg.ChainID = v.ChainID + "-other"
+			if err := r.authenticate(context.Background(), v.Sender, unhex(t, row.Protobuf)); err == nil {
+				t.Fatal("authenticated on another chain")
+			}
+		})
+	}
+}
+
+// The request bytes are checked before they are decoded: a duplicate singular field or an unknown
+// field, both of which a generated decoder would silently accept, refuses the request.
+func TestReceiverValidatesTheRawRequest(t *testing.T) {
+	e := newEnv(t)
+	raw := e.signed(e.firstBatch())
+	duplicate := protowire.AppendTag(append([]byte(nil), raw...), 2, protowire.BytesType)
+	duplicate = protowire.AppendBytes(duplicate, bytes.Repeat([]byte{1}, 64))
+	unknown := protowire.AppendTag(append([]byte(nil), raw...), 15, protowire.VarintType)
+	unknown = protowire.AppendVarint(unknown, 1)
+	for name, req := range map[string][]byte{"duplicate field": duplicate, "unknown field": unknown, "oversized": make([]byte, MaxRequestBytes+1)} {
+		if _, err := e.member.r.Sync(context.Background(), req); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if e.copyOf() != nil || len(e.keys.lookups) != 0 {
+		t.Fatal("a malformed request was looked at")
+	}
+	if resp, err := e.member.r.Sync(context.Background(), raw); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("the genuine request = %v, %v", resp, err)
+	}
+}
+
+// An item sent again must be the item applied at its sequence: an exact duplicate is skipped, a
+// different payload at an applied sequence is refused.
+func TestConflictingItemAtAnAppliedSequenceIsRefused(t *testing.T) {
+	e := newEnv(t)
+	batch := e.firstBatch()
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("first batch = %v, %v", resp, err)
+	}
+	applied := uint64(len(batch.Items))
+	if resp, err := e.member.r.Sync(context.Background(), e.signed(batch)); err != nil || resp.GetRefused() != "" || resp.GetAppliedThrough() != applied {
+		t.Fatalf("exact duplicate = %v, %v", resp, err)
+	}
+	changed := proto.Clone(batch).(*nexusv1.BuilderSyncBatchV1)
+	changed.Items[0].GetRound().EarliestSubmitHeight++
+	resp, err := e.member.r.Sync(context.Background(), e.signed(changed))
+	if err != nil || !strings.Contains(resp.GetRefused(), "conflicts") || resp.GetAppliedThrough() != applied {
+		t.Fatalf("conflicting duplicate = %v, %v", resp, err)
+	}
+}
+
+// Every batch stays within the contract's bounds: at most 128 items and output chunks, and the
+// complete request within the configured size; the member still gets everything.
+func TestBatchesStayWithinTheRequestBounds(t *testing.T) {
+	for _, limit := range []int{0, 4096} {
+		e := newEnv(t)
+		e.s.cfg.InputChunkBytes = 1
+		if limit > 0 {
+			e.s.cfg.MaxBatchBytes = limit
+		}
+		f := e.fx
+		f.putAccepted()
+		f.recordOnChain()
+		texts := make([]string, 200)
+		for i := range texts {
+			texts[i] = "token"
+		}
+		f.writeOutput(e.dData, e.worker, texts, true)
+		e.s.OrderChanged(f.accepted())
+		e.s.Recorded(f.recordedAttempt())
+		e.s.drain()
+		for range 40 {
+			e.s.deliverPeer(context.Background(), e.m.op)
+		}
+		reqs := e.peers.requests[e.m.op]
+		var fullItems, fullChunks bool
+		for i, req := range reqs {
+			items, chunks := len(req.GetBatch().GetItems()), len(req.GetBatch().GetOutput().GetChunks())
+			if n := len(e.raw(req)); n > e.s.cfg.MaxBatchBytes || items > dispatch.MaxBuilderSyncEntries || chunks > dispatch.MaxBuilderSyncEntries {
+				t.Fatalf("limit %d, request %d: %d bytes, %d items, %d chunks", limit, i, n, items, chunks)
+			}
+			fullItems = fullItems || items == dispatch.MaxBuilderSyncEntries
+			fullChunks = fullChunks || chunks == dispatch.MaxBuilderSyncEntries
+		}
+		if limit == 0 && (!fullItems || !fullChunks) {
+			t.Fatalf("no batch reached the entry bound: items %v, chunks %v", fullItems, fullChunks)
+		}
+		st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+		if st.Acked[e.m.op] != st.Last || !st.Output[e.m.op].Sealed {
+			t.Fatalf("limit %d: member progress = %d of %d, output %+v", limit, st.Acked[e.m.op], st.Last, st.Output[e.m.op])
+		}
+	}
+}
+
+// A frame or item that cannot fit the request cap even alone is never sent: the member is backed
+// off with a warning naming the cap, and nothing it holds changes.
+func TestOversizedEntriesAreNotSent(t *testing.T) {
+	t.Run("output frame", func(t *testing.T) {
+		e := newEnv(t)
+		var logs bytes.Buffer
+		e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+		f := e.fx
+		f.putAccepted()
+		f.recordOnChain()
+		e.s.OrderChanged(f.accepted())
+		e.s.Recorded(f.recordedAttempt())
+		e.sync()
+		st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+		if st.Acked[e.m.op] != st.Last {
+			t.Fatalf("items not delivered: %d of %d", st.Acked[e.m.op], st.Last)
+		}
+		sent := len(e.peers.requests[e.m.op])
+		f.writeOutput(e.dData, e.worker, []string{strings.Repeat("x", 60)}, true)
+		e.s.cfg.MaxBatchBytes = 300
+		e.clock.advance(time.Hour)
+		e.s.deliverPeer(context.Background(), e.m.op)
+		if got := len(e.peers.requests[e.m.op]); got != sent {
+			t.Fatalf("%d requests sent with a frame over the cap", got-sent)
+		}
+		if !strings.Contains(logs.String(), "larger than the builder sync request cap") {
+			t.Fatalf("no warning about the oversized frame: %s", logs.String())
+		}
+	})
+	t.Run("first item", func(t *testing.T) {
+		e := newEnv(t)
+		var logs bytes.Buffer
+		e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+		e.s.cfg.MaxBatchBytes = 300
+		e.s.OrderChanged(e.fx.issued())
+		e.sync()
+		if n := len(e.peers.requests[e.m.op]); n != 0 {
+			t.Fatalf("%d requests sent with an item over the cap", n)
+		}
+		if !strings.Contains(logs.String(), "larger than the builder sync request cap") {
+			t.Fatalf("no warning about the oversized item: %s", logs.String())
+		}
+	})
+}
+
+// The largest output chunk text the configuration admits fits one request with a full header
+// and winner ticket.
+func TestLargestConfiguredFrameFitsTheRequestCap(t *testing.T) {
+	e := newEnv(t)
+	batch := e.recordedBatch([]string{"hello, "})
+	batch.Items = nil
+	chunk := batch.Output.Chunks[0]
+	chunk.Text = make([]byte, config.MaxBuilderSyncFrameBytes)
+	chunk.CumulativeGeneratedTokens = math.MaxUint64
+	chunk.Seq = math.MaxUint64 - 1
+	batch.Output.Chunks = []*nexusv1.OutputChunkV1{chunk}
+	batch.Output.Fin = nil
+	batch.BuilderSetId = strings.Repeat("s", 256)
+	batch.OrderSequence = math.MaxUint64
+	req := &nexusv1.SyncRequest{Batch: batch, SenderSignature: make([]byte, 64)}
+	if n := proto.Size(req); n > MaxRequestBytes {
+		t.Fatalf("largest frame request = %d bytes, cap %d", n, MaxRequestBytes)
+	}
+}
+
+// An expired member stream is dropped with the digests of its applied items.
+func TestPruneDropsAppliedItemDigests(t *testing.T) {
+	e := newEnv(t)
+	e.s.OrderChanged(e.fx.issued())
+	e.sync()
+	count := func(prefix string) int {
+		n := 0
+		if err := e.member.store.Scan(kv.NSBuilderSyncMember, func(key string, _ []byte) bool {
+			if strings.HasPrefix(key, prefix) {
+				n++
+			}
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count(memberItemPrefix) == 0 || count(memberStreamPrefix) != 1 {
+		t.Fatalf("before expiry: %d digests, %d streams", count(memberItemPrefix), count(memberStreamPrefix))
+	}
+	e.member.r.HandleChainEvent(chaincli.ChainEvent{Type: chaincli.EventNewBlock, Height: 100000})
+	if count(memberItemPrefix) != 0 || count(memberStreamPrefix) != 0 {
+		t.Fatalf("after expiry: %d digests, %d streams", count(memberItemPrefix), count(memberStreamPrefix))
+	}
+}
+
+// A member that rate-limits the sync is tried again after RetryMin, never backed off like a
+// failing member nor alarmed about. Each rate-limited batch is counted apart from failures, and a
+// member rate-limiting an order for longer than AlarmAfter is warned about once. It gets
+// everything once it lets requests through.
+func TestRateLimitedMemberIsRetriedShortly(t *testing.T) {
+	e := newEnv(t)
+	var logs bytes.Buffer
+	e.s.log = slog.New(slog.NewTextHandler(&logs, nil))
+	e.s.cfg.Metrics = opsmetrics.New()
+	f := e.fx
+	e.peers.setFail(e.m.op, connect.NewError(connect.CodeResourceExhausted, errors.New("NEXUS_BUILDER_SYNC_RATE_LIMITED")))
+	e.s.OrderChanged(f.issued())
+	e.sync()
+	key := streamKey(f.sessionHex(), f.sequence) + "|" + e.m.op
+	const rounds = 300 // 150 s at RetryMin, past AlarmAfter (1 min)
+	for range rounds - 1 {
+		r := e.s.retries[key]
+		if r == nil || r.next != e.clock.Now().Add(e.s.cfg.RetryMin) {
+			t.Fatalf("retry after a rate limit = %+v", r)
+		}
+		e.clock.advance(e.s.cfg.RetryMin)
+		e.s.deliverPeer(context.Background(), e.m.op)
+	}
+	if c := e.s.Counts(); c.Alarms != 0 || c.Failures != 0 || c.RateLimited != rounds {
+		t.Fatalf("counts after %d rate-limited batches = %+v", rounds, c)
+	}
+	if got := e.s.cfg.Metrics.Snapshot().Counters[opsmetrics.CounterSyncRateLimited][e.m.op]; got != rounds {
+		t.Fatalf("rate-limited metric = %d", got)
+	}
+	if n := strings.Count(logs.String(), "rate-limited an order's sync for longer than"); n != 1 {
+		t.Fatalf("sustained rate limit warned %d times: %s", n, logs.String())
+	}
+	e.peers.setFail(e.m.op, nil)
+	e.clock.advance(e.s.cfg.RetryMin)
+	e.s.deliverPeer(context.Background(), e.m.op)
+	st := e.s.streams[streamKey(f.sessionHex(), f.sequence)]
+	if st.Acked[e.m.op] != st.Last || e.s.retries[key] != nil {
+		t.Fatalf("after the rate limit: acked %d of %d, retry %+v", st.Acked[e.m.op], st.Last, e.s.retries[key])
+	}
+}
+
+// wire's round_only and round_returned_binding vectors carry the same Task, epoch, round, root and
+// roster under two binding generations. A member applying both holds two rounds, one per
+// generation, before any ticket arrives.
+func TestReceiverHoldsTheReturnedBindingVectorApart(t *testing.T) {
+	v := readSyncVectors(t)
+	request := func(name string) *nexusv1.SyncRequest {
+		for _, row := range v.Vectors {
+			if row.Name == name {
+				var req nexusv1.SyncRequest
+				if err := proto.Unmarshal(unhex(t, row.Protobuf), &req); err != nil {
+					t.Fatal(err)
+				}
+				return &req
+			}
+		}
+		t.Fatalf("no vector %s", name)
+		return nil
+	}
+	only, returned := request("builder_sync_round_only"), request("builder_sync_round_returned_binding")
+	if len(only.GetBatch().GetItems()) != 1 || len(returned.GetBatch().GetItems()) != 1 {
+		t.Fatal("the round vectors should hold one round item each")
+	}
+	first, again := only.GetBatch().GetItems()[0].GetRound(), returned.GetBatch().GetItems()[0].GetRound()
+	if first.GetBoundChangeHeight() == again.GetBoundChangeHeight() {
+		t.Fatal("the round vectors name one binding generation")
+	}
+	same := proto.Clone(again).(*nexusv1.BuilderSyncRoundV1)
+	same.BoundChangeHeight = first.GetBoundChangeHeight()
+	if !proto.Equal(same, first) {
+		t.Fatal("the round vectors differ in more than the binding generation")
+	}
+
+	batch := only.GetBatch()
+	store := kv.NewMemStore()
+	evidence := dispatchevidence.New(store, evidenceParams)
+	keys := &fakeKeys{keys: map[string]signer.Signer{}}
+	keys.set("BUILDER", party{op: v.Sender, key: vectorKey(t)})
+	r, err := NewReceiver(ReceiverConfig{
+		ChainID: v.ChainID, Builder: v.Receiver, AddressPrefix: prefix, Keys: keys, Store: store, Evidence: evidence,
+		Groups: &fakeGroups{snapshot: taskgroup.Snapshot{ID: batch.GetBuilderSetId(), Hash: [32]byte(batch.GetBuilderSetHash()), Members: []string{v.Sender, v.Receiver}}},
+		Inputs: StoredInputs{}, Outputs: nopReplicas{}, Chain: &fakeRecords{}, Retention: evidenceParams.RetainUntil, MaxInputBytes: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := r.Sync(context.Background(), mustMarshal(t, only)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("round_only = %v, %v", resp, err)
+	}
+	// The returned generation's round follows on the same order stream, as the next item.
+	next := proto.Clone(returned.GetBatch()).(*nexusv1.BuilderSyncBatchV1)
+	next.Items[0].Sequence = batch.GetItems()[0].GetSequence() + 1
+	signed, err := SignRequest(vectorKey(t), next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := r.Sync(context.Background(), mustMarshal(t, signed)); err != nil || resp.GetRefused() != "" {
+		t.Fatalf("round_returned_binding = %v, %v", resp, err)
+	}
+	orders, err := evidence.ByTask(hex.EncodeToString(first.GetTaskId()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounds := map[uint64]bool{}
+	for _, o := range orders {
+		if len(o.Rounds) != 1 || o.Rounds[0].Number != first.GetDispatchRound() {
+			t.Fatalf("copy = %+v", o)
+		}
+		bounds[o.BoundChangeHeight] = true
+	}
+	if len(orders) != 2 || !bounds[first.GetBoundChangeHeight()] || !bounds[again.GetBoundChangeHeight()] {
+		t.Fatalf("copies by binding = %v", bounds)
+	}
+}

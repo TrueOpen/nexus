@@ -145,7 +145,6 @@ func TestNodeMessageDescriptorsMatchNodeAPI(t *testing.T) {
 		{"/hub.v1.MsgRegisterBuilder", &hubv1.MsgRegisterBuilder{}},
 		{"/hub.v1.MsgUpdateServiceDescriptor", &hubv1.MsgUpdateServiceDescriptor{}},
 		// The wire Task Msg surface.
-		{"/task.v1.MsgSubmitWorkerHandraises", &taskv1.MsgSubmitWorkerHandraises{}},
 		{"/task.v1.MsgSubmitInferReceipt", &taskv1.MsgSubmitInferReceipt{}},
 		{"/task.v1.MsgSubmitVerifierHandraises", &taskv1.MsgSubmitVerifierHandraises{}},
 		{"/task.v1.MsgReportDataUnavailable", &taskv1.MsgReportDataUnavailable{}},

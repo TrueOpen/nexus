@@ -58,9 +58,6 @@ const (
 	// Winner worker inference deadline; kind_priority 80.
 	// DEADLINE_KIND_V1_WORKER_INFER identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_WORKER_INFER DeadlineKindV1 = 8
-	// Assignment randomness expiry; kind_priority 90.
-	// DEADLINE_KIND_V1_WORKER_ASSIGNMENT identifies the corresponding protocol value.
-	DeadlineKindV1_DEADLINE_KIND_V1_WORKER_ASSIGNMENT DeadlineKindV1 = 9
 	// Session idle / close lifecycle sweep; kind_priority 100.
 	// DEADLINE_KIND_V1_SESSION_LIFECYCLE identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_SESSION_LIFECYCLE DeadlineKindV1 = 10
@@ -73,6 +70,14 @@ const (
 	// EvidenceCleanupIndex bounded cursor; kind_priority 110.
 	// DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
 	DeadlineKindV1_DEADLINE_KIND_V1_EVIDENCE_CLEANUP DeadlineKindV1 = 13
+	// Closes a Task's verifier value-evidence window; TaskDeadlineLocator, priority 30.
+	DeadlineKindV1_DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE DeadlineKindV1 = 14
+	// DISPATCH_CHALLENGE_RESPONSE is an EndBlock-only deadline.
+	DeadlineKindV1_DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE DeadlineKindV1 = 15
+	// DISPATCH_COMPENSATION_REBUTTAL is an EndBlock-only deadline.
+	DeadlineKindV1_DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL DeadlineKindV1 = 16
+	// TAKEOVER_ACTIVATION is an EndBlock-only deadline.
+	DeadlineKindV1_DEADLINE_KIND_V1_TAKEOVER_ACTIVATION DeadlineKindV1 = 17
 )
 
 // Enum value maps for DeadlineKindV1.
@@ -86,26 +91,32 @@ var (
 		6:  "DEADLINE_KIND_V1_VERIFY_COMMIT",
 		7:  "DEADLINE_KIND_V1_VERIFY_OPEN",
 		8:  "DEADLINE_KIND_V1_WORKER_INFER",
-		9:  "DEADLINE_KIND_V1_WORKER_ASSIGNMENT",
 		10: "DEADLINE_KIND_V1_SESSION_LIFECYCLE",
 		11: "DEADLINE_KIND_V1_VERIFY_FINAL",
 		12: "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE",
 		13: "DEADLINE_KIND_V1_EVIDENCE_CLEANUP",
+		14: "DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE",
+		15: "DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE",
+		16: "DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL",
+		17: "DEADLINE_KIND_V1_TAKEOVER_ACTIVATION",
 	}
 	DeadlineKindV1_value = map[string]int32{
-		"DEADLINE_KIND_V1_UNSPECIFIED":            0,
-		"DEADLINE_KIND_V1_TASK_FINALITY":          1,
-		"DEADLINE_KIND_V1_TASK_SETTLEMENT":        2,
-		"DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE":     4,
-		"DEADLINE_KIND_V1_VERIFY_REVEAL":          5,
-		"DEADLINE_KIND_V1_VERIFY_COMMIT":          6,
-		"DEADLINE_KIND_V1_VERIFY_OPEN":            7,
-		"DEADLINE_KIND_V1_WORKER_INFER":           8,
-		"DEADLINE_KIND_V1_WORKER_ASSIGNMENT":      9,
-		"DEADLINE_KIND_V1_SESSION_LIFECYCLE":      10,
-		"DEADLINE_KIND_V1_VERIFY_FINAL":           11,
-		"DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE": 12,
-		"DEADLINE_KIND_V1_EVIDENCE_CLEANUP":       13,
+		"DEADLINE_KIND_V1_UNSPECIFIED":                          0,
+		"DEADLINE_KIND_V1_TASK_FINALITY":                        1,
+		"DEADLINE_KIND_V1_TASK_SETTLEMENT":                      2,
+		"DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE":                   4,
+		"DEADLINE_KIND_V1_VERIFY_REVEAL":                        5,
+		"DEADLINE_KIND_V1_VERIFY_COMMIT":                        6,
+		"DEADLINE_KIND_V1_VERIFY_OPEN":                          7,
+		"DEADLINE_KIND_V1_WORKER_INFER":                         8,
+		"DEADLINE_KIND_V1_SESSION_LIFECYCLE":                    10,
+		"DEADLINE_KIND_V1_VERIFY_FINAL":                         11,
+		"DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE":               12,
+		"DEADLINE_KIND_V1_EVIDENCE_CLEANUP":                     13,
+		"DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE": 14,
+		"DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE":          15,
+		"DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL":       16,
+		"DEADLINE_KIND_V1_TAKEOVER_ACTIVATION":                  17,
 	}
 )
 
@@ -715,7 +726,7 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x18MsgSweepDeadlineResponse\x12\x18\n" +
 	"\avisited\x18\x01 \x01(\rR\avisited\x12\x1a\n" +
 	"\badvanced\x18\x02 \x01(\rR\badvanced\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xf9\x03\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xc7\x05\n" +
 	"\x0eDeadlineKindV1\x12 \n" +
 	"\x1cDEADLINE_KIND_V1_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEADLINE_KIND_V1_TASK_FINALITY\x10\x01\x12$\n" +
@@ -725,12 +736,15 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x1eDEADLINE_KIND_V1_VERIFY_COMMIT\x10\x06\x12 \n" +
 	"\x1cDEADLINE_KIND_V1_VERIFY_OPEN\x10\a\x12!\n" +
 	"\x1dDEADLINE_KIND_V1_WORKER_INFER\x10\b\x12&\n" +
-	"\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT\x10\t\x12&\n" +
 	"\"DEADLINE_KIND_V1_SESSION_LIFECYCLE\x10\n" +
 	"\x12!\n" +
 	"\x1dDEADLINE_KIND_V1_VERIFY_FINAL\x10\v\x12+\n" +
 	"'DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE\x10\f\x12%\n" +
-	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r*\xe5\x04\n" +
+	"!DEADLINE_KIND_V1_EVIDENCE_CLEANUP\x10\r\x129\n" +
+	"5DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE\x10\x0e\x120\n" +
+	",DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE\x10\x0f\x123\n" +
+	"/DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL\x10\x10\x12(\n" +
+	"$DEADLINE_KIND_V1_TAKEOVER_ACTIVATION\x10\x11\"\x04\b\t\x10\t*\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT*\xe5\x04\n" +
 	"\x16DeadlineTransitionCode\x12(\n" +
 	"$DEADLINE_TRANSITION_CODE_UNSPECIFIED\x10\x00\x123\n" +
 	"/DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE\x10\x01\x123\n" +

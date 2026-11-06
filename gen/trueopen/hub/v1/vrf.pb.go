@@ -7,6 +7,7 @@
 package hubv1
 
 import (
+	v1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -33,6 +34,7 @@ type VrfKeyState struct {
 	PendingFromEpoch      *uint64                `protobuf:"varint,5,opt,name=pending_from_epoch,json=pendingFromEpoch,proto3,oneof" json:"pending_from_epoch,omitempty"`
 	VrfAuthorizationNonce uint64                 `protobuf:"varint,6,opt,name=vrf_authorization_nonce,json=vrfAuthorizationNonce,proto3" json:"vrf_authorization_nonce,omitempty"`
 	RegisteredHeight      uint64                 `protobuf:"varint,7,opt,name=registered_height,json=registeredHeight,proto3" json:"registered_height,omitempty"`
+	ParticipantType       v1.ParticipantType     `protobuf:"varint,8,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -116,6 +118,13 @@ func (x *VrfKeyState) GetRegisteredHeight() uint64 {
 	return 0
 }
 
+func (x *VrfKeyState) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 // VrfKeyHistoryState retains one retired active key for beacon audit.
 type VrfKeyHistoryState struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -123,6 +132,7 @@ type VrfKeyHistoryState struct {
 	EffectiveFromEpoch uint64                 `protobuf:"varint,2,opt,name=effective_from_epoch,json=effectiveFromEpoch,proto3" json:"effective_from_epoch,omitempty"`
 	VrfPubkey          []byte                 `protobuf:"bytes,3,opt,name=vrf_pubkey,json=vrfPubkey,proto3" json:"vrf_pubkey,omitempty"`
 	RetiredAtEpoch     uint64                 `protobuf:"varint,4,opt,name=retired_at_epoch,json=retiredAtEpoch,proto3" json:"retired_at_epoch,omitempty"`
+	ParticipantType    v1.ParticipantType     `protobuf:"varint,5,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -185,11 +195,19 @@ func (x *VrfKeyHistoryState) GetRetiredAtEpoch() uint64 {
 	return 0
 }
 
+func (x *VrfKeyHistoryState) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 // VrfKeyActivationIndex schedules a pending key at an epoch boundary.
 type VrfKeyActivationIndex struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	PendingFromEpoch uint64                 `protobuf:"varint,1,opt,name=pending_from_epoch,json=pendingFromEpoch,proto3" json:"pending_from_epoch,omitempty"`
 	OperatorAddress  string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	ParticipantType  v1.ParticipantType     `protobuf:"varint,3,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -238,12 +256,20 @@ func (x *VrfKeyActivationIndex) GetOperatorAddress() string {
 	return ""
 }
 
+func (x *VrfKeyActivationIndex) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 // VrfKeyPruneIndex schedules one retired key after its audit window.
 type VrfKeyPruneIndex struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	PruneEpoch         uint64                 `protobuf:"varint,1,opt,name=prune_epoch,json=pruneEpoch,proto3" json:"prune_epoch,omitempty"`
 	OperatorAddress    string                 `protobuf:"bytes,2,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
 	EffectiveFromEpoch uint64                 `protobuf:"varint,3,opt,name=effective_from_epoch,json=effectiveFromEpoch,proto3" json:"effective_from_epoch,omitempty"`
+	ParticipantType    v1.ParticipantType     `protobuf:"varint,4,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -299,11 +325,18 @@ func (x *VrfKeyPruneIndex) GetEffectiveFromEpoch() uint64 {
 	return 0
 }
 
+func (x *VrfKeyPruneIndex) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 var File_hub_v1_vrf_proto protoreflect.FileDescriptor
 
 const file_hub_v1_vrf_proto_rawDesc = "" +
 	"\n" +
-	"\x10hub/v1/vrf.proto\x12\x06hub.v1\"\x89\x03\n" +
+	"\x10hub/v1/vrf.proto\x12\x06hub.v1\x1a\x16shared/v1/common.proto\"\xd0\x03\n" +
 	"\vVrfKeyState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12*\n" +
 	"\x11active_vrf_pubkey\x18\x02 \x01(\fR\x0factiveVrfPubkey\x12*\n" +
@@ -311,23 +344,27 @@ const file_hub_v1_vrf_proto_rawDesc = "" +
 	"\x12pending_vrf_pubkey\x18\x04 \x01(\fH\x00R\x10pendingVrfPubkey\x88\x01\x01\x121\n" +
 	"\x12pending_from_epoch\x18\x05 \x01(\x04H\x01R\x10pendingFromEpoch\x88\x01\x01\x126\n" +
 	"\x17vrf_authorization_nonce\x18\x06 \x01(\x04R\x15vrfAuthorizationNonce\x12+\n" +
-	"\x11registered_height\x18\a \x01(\x04R\x10registeredHeightB\x15\n" +
+	"\x11registered_height\x18\a \x01(\x04R\x10registeredHeight\x12E\n" +
+	"\x10participant_type\x18\b \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantTypeB\x15\n" +
 	"\x13_pending_vrf_pubkeyB\x15\n" +
-	"\x13_pending_from_epoch\"\xba\x01\n" +
+	"\x13_pending_from_epoch\"\x81\x02\n" +
 	"\x12VrfKeyHistoryState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x120\n" +
 	"\x14effective_from_epoch\x18\x02 \x01(\x04R\x12effectiveFromEpoch\x12\x1d\n" +
 	"\n" +
 	"vrf_pubkey\x18\x03 \x01(\fR\tvrfPubkey\x12(\n" +
-	"\x10retired_at_epoch\x18\x04 \x01(\x04R\x0eretiredAtEpoch\"p\n" +
+	"\x10retired_at_epoch\x18\x04 \x01(\x04R\x0eretiredAtEpoch\x12E\n" +
+	"\x10participant_type\x18\x05 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\"\xb7\x01\n" +
 	"\x15VrfKeyActivationIndex\x12,\n" +
 	"\x12pending_from_epoch\x18\x01 \x01(\x04R\x10pendingFromEpoch\x12)\n" +
-	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\"\x90\x01\n" +
+	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12E\n" +
+	"\x10participant_type\x18\x03 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\"\xd7\x01\n" +
 	"\x10VrfKeyPruneIndex\x12\x1f\n" +
 	"\vprune_epoch\x18\x01 \x01(\x04R\n" +
 	"pruneEpoch\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x120\n" +
-	"\x14effective_from_epoch\x18\x03 \x01(\x04R\x12effectiveFromEpochB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\x14effective_from_epoch\x18\x03 \x01(\x04R\x12effectiveFromEpoch\x12E\n" +
+	"\x10participant_type\x18\x04 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantTypeB5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var (
 	file_hub_v1_vrf_proto_rawDescOnce sync.Once
@@ -347,13 +384,18 @@ var file_hub_v1_vrf_proto_goTypes = []any{
 	(*VrfKeyHistoryState)(nil),    // 1: hub.v1.VrfKeyHistoryState
 	(*VrfKeyActivationIndex)(nil), // 2: hub.v1.VrfKeyActivationIndex
 	(*VrfKeyPruneIndex)(nil),      // 3: hub.v1.VrfKeyPruneIndex
+	(v1.ParticipantType)(0),       // 4: shared.v1.ParticipantType
 }
 var file_hub_v1_vrf_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4, // 0: hub.v1.VrfKeyState.participant_type:type_name -> shared.v1.ParticipantType
+	4, // 1: hub.v1.VrfKeyHistoryState.participant_type:type_name -> shared.v1.ParticipantType
+	4, // 2: hub.v1.VrfKeyActivationIndex.participant_type:type_name -> shared.v1.ParticipantType
+	4, // 3: hub.v1.VrfKeyPruneIndex.participant_type:type_name -> shared.v1.ParticipantType
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_vrf_proto_init() }

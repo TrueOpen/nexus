@@ -13,9 +13,6 @@ mirrored protos strip the gogoproto / cosmos_proto / amino / google.api annotati
 they are generator options only and do not change the wire encoding, but they would drag
 the whole Cosmos toolchain into consumers.
 
-`bus/v1` (the bus payloads between Builders and Cortex) stays in the root module
-`gen/bus` and is not part of this module.
-
 ## Streaming OUTPUT data plane
 
 `UploadTaskOutputStream`, `OutputStreamHeaderV2` / `OutputChunkV1` / `OutputFinV1`,

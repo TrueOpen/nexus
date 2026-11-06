@@ -72,9 +72,10 @@ enum TaskReimbursementKindV1 {
   // Unset; rejected.
   // TASK_REIMBURSEMENT_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
   TASK_REIMBURSEMENT_KIND_V1_UNSPECIFIED = 0;
-  // Gas for a Worker handraise submission.
-  // TASK_REIMBURSEMENT_KIND_V1_WORKER_HANDRAISE identifies the corresponding protocol value.
-  TASK_REIMBURSEMENT_KIND_V1_WORKER_HANDRAISE = 1;
+  reserved 1;
+  reserved "TASK_REIMBURSEMENT_KIND_V1_WORKER_HANDRAISE";
+  // Gas for an accepted dispatch record entry.
+  TASK_REIMBURSEMENT_KIND_V1_DISPATCH_RECORD = 7;
   // Gas for an infer receipt submission.
   // TASK_REIMBURSEMENT_KIND_V1_INFER_RECEIPT identifies the corresponding protocol value.
   TASK_REIMBURSEMENT_KIND_V1_INFER_RECEIPT = 2;

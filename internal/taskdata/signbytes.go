@@ -255,12 +255,13 @@ func receiptSubmission(receipt SignedInferReceipt) (types.InferReceiptSubmission
 	if err != nil {
 		return types.InferReceiptSubmission{}, err
 	}
-	var keys [4][]byte
+	var keys [5][]byte
 	for i, field := range []struct{ name, value string }{
 		{"output_key_commitment", receipt.OutputKeyCommitment},
 		{"worker_token_key_commitment", receipt.WorkerTokenKeyCommitment},
 		{"worker_value_key_commitment", receipt.WorkerValueKeyCommitment},
 		{"ciphertext_output_root", receipt.CiphertextOutputRoot},
+		{"dispatch_ticket_hash", receipt.DispatchTicketHash},
 	} {
 		raw, err := hex.DecodeString(field.value)
 		if err != nil || hex.EncodeToString(raw) != field.value {
@@ -278,6 +279,7 @@ func receiptSubmission(receipt SignedInferReceipt) (types.InferReceiptSubmission
 		GeneratedTokenCount: receipt.GeneratedTokenCount, OutputLeafCount: receipt.OutputLeafCount,
 		OutputKeyCommitment: keys[0], WorkerTokenKeyCommitment: keys[1],
 		WorkerValueKeyCommitment: keys[2], CiphertextOutputRoot: keys[3],
+		DispatchTicketHash: keys[4],
 	}, nil
 }
 

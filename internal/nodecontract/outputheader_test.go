@@ -16,7 +16,7 @@ func wireOutputStreamHeader(t *testing.T) (OutputStreamHeader, wirefixture.Vecto
 	return OutputStreamHeader{
 		ChainID:             f("chain_id").UTF8,
 		TaskHash:            f("task_hash").Bytes(t),
-		Attempt:             uint32(f("attempt").Uint64(t)),
+		DispatchTicketHash:  f("dispatch_ticket_hash").Bytes(t),
 		StreamInstance:      uint32(f("stream_instance").Uint64(t)),
 		UserRecipientPubkey: f("user_recipient_pubkey").Bytes(t),
 		OutputKeyCommitment: f("output_key_commitment").Bytes(t),
@@ -44,18 +44,31 @@ func TestOutputStreamHeaderMatchesWireVector(t *testing.T) {
 	}
 	signature, _ := hex.DecodeString(sig.Hex)
 	pub, _ := hex.DecodeString(sig.Pubkey)
-	if len(pub) != 33 || !signer.VerifyDigestSig(pub, digest[:], signature) {
-		t.Fatal("the wire header signature must verify under the service key the vector names")
-	}
 	if err := header.ValidatePlaintext(); err != nil {
 		t.Fatalf("the wire plaintext header must pass admission: %v", err)
+	}
+	if len(pub) != 33 {
+		t.Fatalf("service pubkey length = %d", len(pub))
+	}
+	if !signer.VerifyDigestSig(pub, digest[:], signature) {
+		t.Fatal("wire vector signature does not verify under the ticket-bound digest")
+	}
+	// The signature binds the ticket: the same header naming another ticket does not verify.
+	other := header
+	other.DispatchTicketHash = repeatByte(0x77, 32)
+	otherDigest, err := other.SigningDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signer.VerifyDigestSig(pub, otherDigest[:], signature) {
+		t.Fatal("wire vector signature verifies for another dispatch_ticket_hash")
 	}
 }
 
 // TestOutputStreamHeaderRejectedCases covers the wire rejected_cases.
 func TestOutputStreamHeaderRejectedCases(t *testing.T) {
 	cases := map[string]func(*OutputStreamHeader){
-		"attempt != 0":                   func(h *OutputStreamHeader) { h.Attempt = 1 },
+		"missing dispatch_ticket_hash":   func(h *OutputStreamHeader) { h.DispatchTicketHash = nil },
 		"stream_instance != 1":           func(h *OutputStreamHeader) { h.StreamInstance = 2 },
 		"nonempty user_recipient_pubkey": func(h *OutputStreamHeader) { h.UserRecipientPubkey = repeatByte(4, 65) },
 		"nonzero output_key_commitment":  func(h *OutputStreamHeader) { h.OutputKeyCommitment = repeatByte(1, 32) },

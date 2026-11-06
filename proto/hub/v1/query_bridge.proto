@@ -3,12 +3,15 @@ package hub.v1;
 
 import "hub/v1/bridge.proto";
 import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
 // QueryVrfKeyRequest selects the proposer-VRF key of one stable operator.
 message QueryVrfKeyRequest {
   string operator_address = 1;
+  // Zero selects Validator; Builder selectors explicitly use BUILDER.
+  shared.v1.ParticipantType participant_type = 2;
 }
 
 // QueryVrfKeyResponse returns the active key and optional next-epoch key.

@@ -56,6 +56,8 @@ message InferReceiptV3 {
   bytes worker_token_key_commitment = 16;
   bytes worker_value_key_commitment = 17;
   bytes ciphertext_output_root = 18;
+
+  bytes dispatch_ticket_hash = 19;
 }
 
 // evidence_commitments_hash is the Keeper-derived commitment over

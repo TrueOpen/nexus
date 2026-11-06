@@ -26,6 +26,8 @@ const (
 type QueryVrfKeyRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	// Zero selects Validator; Builder selectors explicitly use BUILDER.
+	ParticipantType v1.ParticipantType `protobuf:"varint,2,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -65,6 +67,13 @@ func (x *QueryVrfKeyRequest) GetOperatorAddress() string {
 		return x.OperatorAddress
 	}
 	return ""
+}
+
+func (x *QueryVrfKeyRequest) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
 }
 
 // QueryVrfKeyResponse returns the active key and optional next-epoch key.
@@ -818,9 +827,10 @@ var File_hub_v1_query_bridge_proto protoreflect.FileDescriptor
 
 const file_hub_v1_query_bridge_proto_rawDesc = "" +
 	"\n" +
-	"\x19hub/v1/query_bridge.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x16shared/v1/amount.proto\"?\n" +
+	"\x19hub/v1/query_bridge.proto\x12\x06hub.v1\x1a\x13hub/v1/bridge.proto\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\"\x86\x01\n" +
 	"\x12QueryVrfKeyRequest\x12)\n" +
-	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\"\xb9\x02\n" +
+	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12E\n" +
+	"\x10participant_type\x18\x02 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType\"\xb9\x02\n" +
 	"\x13QueryVrfKeyResponse\x12*\n" +
 	"\x11active_vrf_pubkey\x18\x01 \x01(\fR\x0factiveVrfPubkey\x12*\n" +
 	"\x11active_from_epoch\x18\x02 \x01(\x04R\x0factiveFromEpoch\x121\n" +
@@ -930,31 +940,33 @@ var file_hub_v1_query_bridge_proto_goTypes = []any{
 	(*QueryValidatorBridgeSignerResponse)(nil), // 5: hub.v1.QueryValidatorBridgeSignerResponse
 	(*ValidatorBridgeSignerViewV1)(nil),        // 6: hub.v1.ValidatorBridgeSignerViewV1
 	(*BridgeStatusViewV1)(nil),                 // 7: hub.v1.BridgeStatusViewV1
-	(BridgeLifecycleV1)(0),                     // 8: hub.v1.BridgeLifecycleV1
-	(*v1.Amount)(nil),                          // 9: shared.v1.Amount
-	(BridgeBootstrapModeV1)(0),                 // 10: hub.v1.BridgeBootstrapModeV1
+	(v1.ParticipantType)(0),                    // 8: shared.v1.ParticipantType
+	(BridgeLifecycleV1)(0),                     // 9: hub.v1.BridgeLifecycleV1
+	(*v1.Amount)(nil),                          // 10: shared.v1.Amount
+	(BridgeBootstrapModeV1)(0),                 // 11: hub.v1.BridgeBootstrapModeV1
 }
 var file_hub_v1_query_bridge_proto_depIdxs = []int32{
-	7,  // 0: hub.v1.QueryBridgeStatusResponse.status:type_name -> hub.v1.BridgeStatusViewV1
-	6,  // 1: hub.v1.QueryValidatorBridgeSignerResponse.signer:type_name -> hub.v1.ValidatorBridgeSignerViewV1
-	8,  // 2: hub.v1.BridgeStatusViewV1.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
-	9,  // 3: hub.v1.BridgeStatusViewV1.active_inbound_limit_per_epoch:type_name -> shared.v1.Amount
-	9,  // 4: hub.v1.BridgeStatusViewV1.active_outbound_limit_per_epoch:type_name -> shared.v1.Amount
-	9,  // 5: hub.v1.BridgeStatusViewV1.pending_inbound_limit_per_epoch:type_name -> shared.v1.Amount
-	9,  // 6: hub.v1.BridgeStatusViewV1.pending_outbound_limit_per_epoch:type_name -> shared.v1.Amount
-	9,  // 7: hub.v1.BridgeStatusViewV1.current_inbound_used:type_name -> shared.v1.Amount
-	9,  // 8: hub.v1.BridgeStatusViewV1.current_outbound_used:type_name -> shared.v1.Amount
-	9,  // 9: hub.v1.BridgeStatusViewV1.genesis_allocated:type_name -> shared.v1.Amount
-	9,  // 10: hub.v1.BridgeStatusViewV1.cumulative_bridge_minted:type_name -> shared.v1.Amount
-	9,  // 11: hub.v1.BridgeStatusViewV1.cumulative_bridge_burned:type_name -> shared.v1.Amount
-	9,  // 12: hub.v1.BridgeStatusViewV1.current_bank_supply:type_name -> shared.v1.Amount
-	10, // 13: hub.v1.BridgeStatusViewV1.bootstrap_mode:type_name -> hub.v1.BridgeBootstrapModeV1
-	9,  // 14: hub.v1.BridgeStatusViewV1.bootstrap_amount:type_name -> shared.v1.Amount
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	8,  // 0: hub.v1.QueryVrfKeyRequest.participant_type:type_name -> shared.v1.ParticipantType
+	7,  // 1: hub.v1.QueryBridgeStatusResponse.status:type_name -> hub.v1.BridgeStatusViewV1
+	6,  // 2: hub.v1.QueryValidatorBridgeSignerResponse.signer:type_name -> hub.v1.ValidatorBridgeSignerViewV1
+	9,  // 3: hub.v1.BridgeStatusViewV1.lifecycle:type_name -> hub.v1.BridgeLifecycleV1
+	10, // 4: hub.v1.BridgeStatusViewV1.active_inbound_limit_per_epoch:type_name -> shared.v1.Amount
+	10, // 5: hub.v1.BridgeStatusViewV1.active_outbound_limit_per_epoch:type_name -> shared.v1.Amount
+	10, // 6: hub.v1.BridgeStatusViewV1.pending_inbound_limit_per_epoch:type_name -> shared.v1.Amount
+	10, // 7: hub.v1.BridgeStatusViewV1.pending_outbound_limit_per_epoch:type_name -> shared.v1.Amount
+	10, // 8: hub.v1.BridgeStatusViewV1.current_inbound_used:type_name -> shared.v1.Amount
+	10, // 9: hub.v1.BridgeStatusViewV1.current_outbound_used:type_name -> shared.v1.Amount
+	10, // 10: hub.v1.BridgeStatusViewV1.genesis_allocated:type_name -> shared.v1.Amount
+	10, // 11: hub.v1.BridgeStatusViewV1.cumulative_bridge_minted:type_name -> shared.v1.Amount
+	10, // 12: hub.v1.BridgeStatusViewV1.cumulative_bridge_burned:type_name -> shared.v1.Amount
+	10, // 13: hub.v1.BridgeStatusViewV1.current_bank_supply:type_name -> shared.v1.Amount
+	11, // 14: hub.v1.BridgeStatusViewV1.bootstrap_mode:type_name -> hub.v1.BridgeBootstrapModeV1
+	10, // 15: hub.v1.BridgeStatusViewV1.bootstrap_amount:type_name -> shared.v1.Amount
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_query_bridge_proto_init() }

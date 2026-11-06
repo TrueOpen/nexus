@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,12 +19,12 @@ import (
 	"connectrpc.com/grpcreflect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/middleware"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
@@ -102,15 +101,20 @@ type Server struct {
 	apiKeys              map[string]struct{}
 	whitelist            []*net.IPNet
 	builderDescriptor    []byte
-	natsSentinelFile     string
-	natsAdvertiseServers []string
-	natsAdvertiseCAFile  string
-	natsSentinel         []byte
 	readMaxBytes         int
 	taskDataReadMaxBytes int
 	httpMaxBytes         int64
 	taskData             taskDataAPI
 	outputStream         *outputStreamRuntime
+	dispatchStream       dispatchStreamServer
+	dispatchRosters      DispatchRosters
+	supportRelay         SupportRelay
+	memberReplicas       MemberReplicas
+	taskBuilders         TaskBuilders
+	replicaWait          time.Duration
+	builderSync          builderSyncService
+	metrics              *opsmetrics.Registry
+	routes               []route
 
 	tlsCertificate *tls.Certificate
 
@@ -149,9 +153,6 @@ func New(log *slog.Logger, cfg config.IngressConfig, auth AuthParams, h Handler,
 }
 
 func (s *Server) Start(_ context.Context) error {
-	if err := s.loadNATSSentinel(); err != nil {
-		return err
-	}
 	handler := s.handler()
 
 	s.log.Info("ingress middleware",
@@ -216,37 +217,55 @@ func (s *Server) handler() http.Handler {
 	if s.readMaxBytes > 0 {
 		legacyHandlerOptions = append(legacyHandlerOptions, connect.WithReadMaxBytes(s.readMaxBytes))
 	}
-	serviceOptions := []serviceOption{withServiceLogger(s.log)}
+	serviceOptions := []serviceOption{withServiceLogger(s.log), withServiceMetrics(s.metrics)}
 	if s.taskData != nil {
 		serviceOptions = append(serviceOptions, withTaskDataAPI(s.taskData))
 	}
 	if s.outputStream != nil {
 		serviceOptions = append(serviceOptions, withOutputStream(s.outputStream))
 	}
+	if s.dispatchRosters != nil {
+		serviceOptions = append(serviceOptions, withDispatchRosters(s.dispatchRosters))
+	}
+	if s.dispatchStream != nil {
+		serviceOptions = append(serviceOptions, withDispatchStreamServer(s.dispatchStream))
+	}
+	if s.supportRelay != nil {
+		serviceOptions = append(serviceOptions, withSupportRelay(s.supportRelay))
+	}
+	if s.memberReplicas != nil {
+		serviceOptions = append(serviceOptions, withMemberReplicas(s.memberReplicas, s.taskBuilders, s.replicaWait))
+	}
 	service := newService(s.h, s.auth, serviceOptions...)
 	path, legacyHandler := nexusv1connect.NewIngressAPIHandler(service, legacyHandlerOptions...)
+	// The request body of a dispatch stream is the whole uplink of a long-lived connection, so it
+	// keeps only the per-message limit and never the cumulative body cap.
+	streamHandler := withResponseController(legacyHandler)
 	if s.httpMaxBytes > 0 {
 		legacyHandler = http.MaxBytesHandler(legacyHandler, s.httpMaxBytes)
 	}
-	handler := legacyHandler
+	var taskDataHandler http.Handler
 	if s.taskDataReadMaxBytes > 0 {
 		taskDataHandlerOptions := append(append([]connect.HandlerOption(nil), baseHandlerOptions...), connect.WithReadMaxBytes(s.taskDataReadMaxBytes))
-		_, taskDataHandler := nexusv1connect.NewIngressAPIHandler(service, taskDataHandlerOptions...)
-		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isTaskDataProcedure(r.URL.Path) {
-				taskDataHandler.ServeHTTP(w, r)
-				return
-			}
-			legacyHandler.ServeHTTP(w, r)
-		})
+		_, taskDataHandler = nexusv1connect.NewIngressAPIHandler(service, taskDataHandlerOptions...)
 	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == nexusv1connect.IngressAPIDispatchStreamProcedure:
+			streamHandler.ServeHTTP(w, r)
+		case taskDataHandler != nil && isTaskDataProcedure(r.URL.Path):
+			taskDataHandler.ServeHTTP(w, r)
+		default:
+			legacyHandler.ServeHTTP(w, r)
+		}
+	})
 	mux.Handle(path, handler)
-	for _, procedure := range []string{
-		nexusv1connect.IngressAPISubmitOrderProcedure,
-		nexusv1connect.IngressAPIFetchOutputRefProcedure,
-		nexusv1connect.IngressAPIRefreshCredentialProcedure,
-	} {
-		mux.Handle(procedure, http.MaxBytesHandler(retiredHandler(procedure, baseHandlerOptions), retiredMaxBodyBytes))
+	if s.builderSync.sync != nil {
+		// Builder-to-Builder sync is authenticated by each batch's signature, not by the SDK API key
+		// or the IP allowlist.
+		syncPath, syncHandler := s.builderSync.handler(
+			connect.WithInterceptors(loggingInterceptor(s.log)), connect.WithReadMaxBytes(builderSyncReadMaxBytes))
+		mux.Handle(syncPath, http.MaxBytesHandler(syncHandler, 2*builderSyncReadMaxBytes))
 	}
 
 	// gRPC reflection (grpcurl debugging)
@@ -259,10 +278,11 @@ func (s *Server) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// NATS sentinel: like /healthz, plain HTTP on the same port, bypassing the Connect interceptors (public, non-secret data)
-	mux.Handle("GET "+NATSSentinelPath, s.natsSentinelHandler())
 	if len(s.builderDescriptor) > 0 {
 		mux.Handle(nodecontract.BuilderDescriptorPath, nodecontract.DescriptorHandler(s.builderDescriptor))
+	}
+	for _, r := range s.routes {
+		mux.Handle(r.pattern, r.handler)
 	}
 	return mux
 }
@@ -309,31 +329,3 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	return nil
 }
-
-// retiredMaxBodyBytes caps the body a retired procedure reads: it decodes nothing, so a request
-// larger than this is refused (ResourceExhausted) instead of being buffered.
-const retiredMaxBodyBytes = 64 << 10
-
-// retiredHandler answers a retired procedure with Unimplemented / NEXUS_INGRESS_METHOD_RETIRED before
-// the request is parsed: its codecs accept any bytes and decode nothing, so even a body that is not a
-// valid message gets the retired answer rather than a decoding error.
-func retiredHandler(procedure string, options []connect.HandlerOption) http.Handler {
-	method := procedure[strings.LastIndex(procedure, "/")+1:]
-	options = append(append([]connect.HandlerOption(nil), options...),
-		connect.WithCodec(discardCodec{name: "proto"}), connect.WithCodec(discardCodec{name: "json"}),
-		connect.WithReadMaxBytes(retiredMaxBodyBytes))
-	return connect.NewUnaryHandler(procedure,
-		func(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[emptypb.Empty], error) {
-			return nil, errMethodRetired(method)
-		}, options...)
-}
-
-// discardCodec reads nothing from a request body; it never marshals, since a retired procedure only
-// returns an error.
-type discardCodec struct{ name string }
-
-func (c discardCodec) Name() string { return c.name }
-func (discardCodec) Marshal(any) ([]byte, error) {
-	return nil, errors.New("retired procedure returns no message")
-}
-func (discardCodec) Unmarshal([]byte, any) error { return nil }

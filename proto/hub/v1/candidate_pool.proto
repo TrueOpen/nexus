@@ -1,6 +1,7 @@
 syntax = "proto3";
 package hub.v1;
 
+import "hub/v1/dispatch.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
 
@@ -193,6 +194,12 @@ message CandidatePoolSnapshotState {
   uint64 expires_height = 14;
   uint32 task_ref_count = 15;
   uint64 pruned_height = 16;
+  // Frozen together on activation; their sum must equal 1,000,000.
+  // Queries and dispatch challenges use these values, never current Task params.
+  // READY headers leave both unset. Retained activated headers preserve them
+  // through expiry and pruning. These are scoring facts, not pool-hash inputs.
+  uint32 worker_stake_weight_ppm = 17;
+  uint32 worker_performance_weight_ppm = 18;
 }
 
 // CandidatePoolActiveSegmentState is one fixed-width bitmap segment of an epoch
@@ -218,6 +225,8 @@ message CandidatePoolMemberState {
   uint64 slot_version = 3;
   string operator_address = 4;
   bytes binding_hash = 5;
+
+  CandidateWeightInputsV1 weight_inputs = 6;
 }
 
 // CandidatePoolBuildCursorState is the bounded automatic build cursor (this contract,
@@ -288,6 +297,9 @@ message CandidatePoolSnapshotViewV1 {
   uint64 effective_height = 10;
   uint64 expires_height = 11;
   optional uint64 pruned_height = 12;
+  // The epoch header's immutable Worker scoring policy; both zero before activation.
+  uint32 worker_stake_weight_ppm = 13;
+  uint32 worker_performance_weight_ppm = 14;
 }
 
 // CandidatePoolMemberViewV1 is the Query-only verifiable join of one member row

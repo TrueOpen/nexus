@@ -25,7 +25,7 @@ func TestReceiptDigestBindsV2Fields(t *testing.T) {
 			EncodedSizeBytes: 145,
 		}},
 		ExpiryHeight: 1200, ServiceSignature: strings.Repeat("0", 128),
-		GeneratedTokenCount: 128, OutputLeafCount: 5,
+		GeneratedTokenCount: 128, OutputLeafCount: 5, DispatchTicketHash: strings.Repeat("6", 64),
 	}
 	want, err := receiptDigest(base)
 	if err != nil {

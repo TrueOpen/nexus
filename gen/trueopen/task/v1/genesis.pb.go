@@ -35,13 +35,12 @@ type GenesisState struct {
 	SessionHistoryPruneCursors []*SessionHistoryPruneCursorState `protobuf:"bytes,15,rep,name=session_history_prune_cursors,json=sessionHistoryPruneCursors,proto3" json:"session_history_prune_cursors,omitempty"`
 	SessionTerminalSummaries   []*SessionTerminalSummaryState    `protobuf:"bytes,16,rep,name=session_terminal_summaries,json=sessionTerminalSummaries,proto3" json:"session_terminal_summaries,omitempty"`
 	// TaskCoreState is the only primary of the six Task sub-states.
-	TaskCores               []*TaskCoreState               `protobuf:"bytes,19,rep,name=task_cores,json=taskCores,proto3" json:"task_cores,omitempty"`
-	TaskAssignments         []*TaskAssignmentState         `protobuf:"bytes,21,rep,name=task_assignments,json=taskAssignments,proto3" json:"task_assignments,omitempty"`
-	AssignmentCandidateSets []*AssignmentCandidateSetState `protobuf:"bytes,22,rep,name=assignment_candidate_sets,json=assignmentCandidateSets,proto3" json:"assignment_candidate_sets,omitempty"`
-	InferReceipts           []*InferReceiptState           `protobuf:"bytes,24,rep,name=infer_receipts,json=inferReceipts,proto3" json:"infer_receipts,omitempty"`
-	VerifierAssignments     []*VerifierAssignmentState     `protobuf:"bytes,26,rep,name=verifier_assignments,json=verifierAssignments,proto3" json:"verifier_assignments,omitempty"`
-	Commits                 []*CommitState                 `protobuf:"bytes,27,rep,name=commits,proto3" json:"commits,omitempty"`
-	ResultReceipts          []*ResultReceiptState          `protobuf:"bytes,28,rep,name=result_receipts,json=resultReceipts,proto3" json:"result_receipts,omitempty"`
+	TaskCores           []*TaskCoreState           `protobuf:"bytes,19,rep,name=task_cores,json=taskCores,proto3" json:"task_cores,omitempty"`
+	TaskAssignments     []*TaskAssignmentState     `protobuf:"bytes,21,rep,name=task_assignments,json=taskAssignments,proto3" json:"task_assignments,omitempty"`
+	InferReceipts       []*InferReceiptState       `protobuf:"bytes,24,rep,name=infer_receipts,json=inferReceipts,proto3" json:"infer_receipts,omitempty"`
+	VerifierAssignments []*VerifierAssignmentState `protobuf:"bytes,26,rep,name=verifier_assignments,json=verifierAssignments,proto3" json:"verifier_assignments,omitempty"`
+	Commits             []*CommitState             `protobuf:"bytes,27,rep,name=commits,proto3" json:"commits,omitempty"`
+	ResultReceipts      []*ResultReceiptState      `protobuf:"bytes,28,rep,name=result_receipts,json=resultReceipts,proto3" json:"result_receipts,omitempty"`
 	// Handraise / candidate freeze rows.
 	TaskCandidateFacts              []*TaskCandidateFactState              `protobuf:"bytes,32,rep,name=task_candidate_facts,json=taskCandidateFacts,proto3" json:"task_candidate_facts,omitempty"`
 	BuilderStageProposals           []*BuilderStageProposalState           `protobuf:"bytes,33,rep,name=builder_stage_proposals,json=builderStageProposals,proto3" json:"builder_stage_proposals,omitempty"`
@@ -73,8 +72,24 @@ type GenesisState struct {
 	TaskSettlements                 []*TaskSettlementState                 `protobuf:"bytes,71,rep,name=task_settlements,json=taskSettlements,proto3" json:"task_settlements,omitempty"`
 	SettlementFactsRetained         []*SettlementFactsRetainedState        `protobuf:"bytes,72,rep,name=settlement_facts_retained,json=settlementFactsRetained,proto3" json:"settlement_facts_retained,omitempty"`
 	WorkerEvidenceReceipts          []*WorkerEvidenceReceiptState          `protobuf:"bytes,73,rep,name=worker_evidence_receipts,json=workerEvidenceReceipts,proto3" json:"worker_evidence_receipts,omitempty"`
-	unknownFields                   protoimpl.UnknownFields
-	sizeCache                       protoimpl.SizeCache
+	DispatchRecords                 []*DispatchRecordState                 `protobuf:"bytes,74,rep,name=dispatch_records,json=dispatchRecords,proto3" json:"dispatch_records,omitempty"`
+	DispatchCompensationClaims      []*DispatchCompensationClaimState      `protobuf:"bytes,75,rep,name=dispatch_compensation_claims,json=dispatchCompensationClaims,proto3" json:"dispatch_compensation_claims,omitempty"`
+	DispatchChallenges              []*DispatchChallengeState              `protobuf:"bytes,76,rep,name=dispatch_challenges,json=dispatchChallenges,proto3" json:"dispatch_challenges,omitempty"`
+	DispatchWinnerIneligible        []*DispatchWinnerIneligibleState       `protobuf:"bytes,78,rep,name=dispatch_winner_ineligible,json=dispatchWinnerIneligible,proto3" json:"dispatch_winner_ineligible,omitempty"`
+	TakeoverEntryReceipts           []*TakeoverEntryReceiptState           `protobuf:"bytes,79,rep,name=takeover_entry_receipts,json=takeoverEntryReceipts,proto3" json:"takeover_entry_receipts,omitempty"`
+	VerifierValueEvidenceReceipts   []*VerifierValueEvidenceReceiptState   `protobuf:"bytes,80,rep,name=verifier_value_evidence_receipts,json=verifierValueEvidenceReceipts,proto3" json:"verifier_value_evidence_receipts,omitempty"`
+	// Current Params are stored once above. Historical bodies preserve governed
+	// behavior across export/import and support epoch-reference policy lookup.
+	ParamsHistory []*TaskParamsHistoryState `protobuf:"bytes,90,rep,name=params_history,json=paramsHistory,proto3" json:"params_history,omitempty"`
+	// Only non-current version overrides are exported. An omitted live object
+	// uses params_meta.params_version. Both lists share the same binding schema.
+	TaskParamsVersionBindings    []*ParamsVersionBindingState `protobuf:"bytes,91,rep,name=task_params_version_bindings,json=taskParamsVersionBindings,proto3" json:"task_params_version_bindings,omitempty"`
+	SessionParamsVersionBindings []*ParamsVersionBindingState `protobuf:"bytes,92,rep,name=session_params_version_bindings,json=sessionParamsVersionBindings,proto3" json:"session_params_version_bindings,omitempty"`
+	// First acceptor facts include their signed binding/epoch context. Derived
+	// prune indexes are rebuilt and are not exported.
+	DispatchRoundAcceptors []*DispatchRoundAcceptorState `protobuf:"bytes,93,rep,name=dispatch_round_acceptors,json=dispatchRoundAcceptors,proto3" json:"dispatch_round_acceptors,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GenesisState) Reset() {
@@ -173,13 +188,6 @@ func (x *GenesisState) GetTaskCores() []*TaskCoreState {
 func (x *GenesisState) GetTaskAssignments() []*TaskAssignmentState {
 	if x != nil {
 		return x.TaskAssignments
-	}
-	return nil
-}
-
-func (x *GenesisState) GetAssignmentCandidateSets() []*AssignmentCandidateSetState {
-	if x != nil {
-		return x.AssignmentCandidateSets
 	}
 	return nil
 }
@@ -401,11 +409,212 @@ func (x *GenesisState) GetWorkerEvidenceReceipts() []*WorkerEvidenceReceiptState
 	return nil
 }
 
+func (x *GenesisState) GetDispatchRecords() []*DispatchRecordState {
+	if x != nil {
+		return x.DispatchRecords
+	}
+	return nil
+}
+
+func (x *GenesisState) GetDispatchCompensationClaims() []*DispatchCompensationClaimState {
+	if x != nil {
+		return x.DispatchCompensationClaims
+	}
+	return nil
+}
+
+func (x *GenesisState) GetDispatchChallenges() []*DispatchChallengeState {
+	if x != nil {
+		return x.DispatchChallenges
+	}
+	return nil
+}
+
+func (x *GenesisState) GetDispatchWinnerIneligible() []*DispatchWinnerIneligibleState {
+	if x != nil {
+		return x.DispatchWinnerIneligible
+	}
+	return nil
+}
+
+func (x *GenesisState) GetTakeoverEntryReceipts() []*TakeoverEntryReceiptState {
+	if x != nil {
+		return x.TakeoverEntryReceipts
+	}
+	return nil
+}
+
+func (x *GenesisState) GetVerifierValueEvidenceReceipts() []*VerifierValueEvidenceReceiptState {
+	if x != nil {
+		return x.VerifierValueEvidenceReceipts
+	}
+	return nil
+}
+
+func (x *GenesisState) GetParamsHistory() []*TaskParamsHistoryState {
+	if x != nil {
+		return x.ParamsHistory
+	}
+	return nil
+}
+
+func (x *GenesisState) GetTaskParamsVersionBindings() []*ParamsVersionBindingState {
+	if x != nil {
+		return x.TaskParamsVersionBindings
+	}
+	return nil
+}
+
+func (x *GenesisState) GetSessionParamsVersionBindings() []*ParamsVersionBindingState {
+	if x != nil {
+		return x.SessionParamsVersionBindings
+	}
+	return nil
+}
+
+func (x *GenesisState) GetDispatchRoundAcceptors() []*DispatchRoundAcceptorState {
+	if x != nil {
+		return x.DispatchRoundAcceptors
+	}
+	return nil
+}
+
+// TaskParamsHistoryState retains one superseded parameter body. Version zero
+// may name the chain's initial parameter set. Heights can coincide when several
+// governance updates execute in one block; the highest version wins at that H.
+// updated_height <= superseded_height, and params_version is below current.
+// Refcounts, height lookup and prune indexes are rebuilt from these primaries.
+// A zero-reference body remains through its supersession epoch: earliest
+// prune = EpochStart(epoch(superseded_height)+1)+1. Referenced
+// bodies outlive that floor; all retirement uses bounded shared block budgets.
+type TaskParamsHistoryState struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ParamsVersion    uint64                 `protobuf:"varint,1,opt,name=params_version,json=paramsVersion,proto3" json:"params_version,omitempty"`
+	Params           *TaskParamsV1          `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
+	UpdatedHeight    uint64                 `protobuf:"varint,3,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
+	SupersededHeight uint64                 `protobuf:"varint,4,opt,name=superseded_height,json=supersededHeight,proto3" json:"superseded_height,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *TaskParamsHistoryState) Reset() {
+	*x = TaskParamsHistoryState{}
+	mi := &file_task_v1_genesis_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskParamsHistoryState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskParamsHistoryState) ProtoMessage() {}
+
+func (x *TaskParamsHistoryState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_genesis_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskParamsHistoryState.ProtoReflect.Descriptor instead.
+func (*TaskParamsHistoryState) Descriptor() ([]byte, []int) {
+	return file_task_v1_genesis_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TaskParamsHistoryState) GetParamsVersion() uint64 {
+	if x != nil {
+		return x.ParamsVersion
+	}
+	return 0
+}
+
+func (x *TaskParamsHistoryState) GetParams() *TaskParamsV1 {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *TaskParamsHistoryState) GetUpdatedHeight() uint64 {
+	if x != nil {
+		return x.UpdatedHeight
+	}
+	return 0
+}
+
+func (x *TaskParamsHistoryState) GetSupersededHeight() uint64 {
+	if x != nil {
+		return x.SupersededHeight
+	}
+	return 0
+}
+
+// ParamsVersionBindingState is a non-current override. The containing Genesis
+// list distinguishes Task from Session. Imports reject duplicate/unknown object
+// IDs, current-version overrides and versions without a retained history body.
+type ParamsVersionBindingState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ObjectId      []byte                 `protobuf:"bytes,1,opt,name=object_id,json=objectId,proto3" json:"object_id,omitempty"`
+	ParamsVersion uint64                 `protobuf:"varint,2,opt,name=params_version,json=paramsVersion,proto3" json:"params_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ParamsVersionBindingState) Reset() {
+	*x = ParamsVersionBindingState{}
+	mi := &file_task_v1_genesis_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ParamsVersionBindingState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ParamsVersionBindingState) ProtoMessage() {}
+
+func (x *ParamsVersionBindingState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_genesis_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ParamsVersionBindingState.ProtoReflect.Descriptor instead.
+func (*ParamsVersionBindingState) Descriptor() ([]byte, []int) {
+	return file_task_v1_genesis_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ParamsVersionBindingState) GetObjectId() []byte {
+	if x != nil {
+		return x.ObjectId
+	}
+	return nil
+}
+
+func (x *ParamsVersionBindingState) GetParamsVersion() uint64 {
+	if x != nil {
+		return x.ParamsVersion
+	}
+	return 0
+}
+
 var File_task_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_task_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\"\xcf\x1c\n" +
+	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xc2#\n" +
 	"\fGenesisState\x12-\n" +
 	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12=\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateR\n" +
@@ -419,8 +628,7 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	"\x1asession_terminal_summaries\x18\x10 \x03(\v2$.task.v1.SessionTerminalSummaryStateR\x18sessionTerminalSummaries\x125\n" +
 	"\n" +
 	"task_cores\x18\x13 \x03(\v2\x16.task.v1.TaskCoreStateR\ttaskCores\x12G\n" +
-	"\x10task_assignments\x18\x15 \x03(\v2\x1c.task.v1.TaskAssignmentStateR\x0ftaskAssignments\x12`\n" +
-	"\x19assignment_candidate_sets\x18\x16 \x03(\v2$.task.v1.AssignmentCandidateSetStateR\x17assignmentCandidateSets\x12A\n" +
+	"\x10task_assignments\x18\x15 \x03(\v2\x1c.task.v1.TaskAssignmentStateR\x0ftaskAssignments\x12A\n" +
 	"\x0einfer_receipts\x18\x18 \x03(\v2\x1a.task.v1.InferReceiptStateR\rinferReceipts\x12S\n" +
 	"\x14verifier_assignments\x18\x1a \x03(\v2 .task.v1.VerifierAssignmentStateR\x13verifierAssignments\x12.\n" +
 	"\acommits\x18\x1b \x03(\v2\x14.task.v1.CommitStateR\acommits\x12D\n" +
@@ -451,7 +659,25 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	"\x10verifier_payouts\x18F \x03(\v2\x1c.task.v1.VerifierPayoutStateR\x0fverifierPayouts\x12G\n" +
 	"\x10task_settlements\x18G \x03(\v2\x1c.task.v1.TaskSettlementStateR\x0ftaskSettlements\x12a\n" +
 	"\x19settlement_facts_retained\x18H \x03(\v2%.task.v1.SettlementFactsRetainedStateR\x17settlementFactsRetained\x12]\n" +
-	"\x18worker_evidence_receipts\x18I \x03(\v2#.task.v1.WorkerEvidenceReceiptStateR\x16workerEvidenceReceiptsB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"\x18worker_evidence_receipts\x18I \x03(\v2#.task.v1.WorkerEvidenceReceiptStateR\x16workerEvidenceReceipts\x12G\n" +
+	"\x10dispatch_records\x18J \x03(\v2\x1c.task.v1.DispatchRecordStateR\x0fdispatchRecords\x12i\n" +
+	"\x1cdispatch_compensation_claims\x18K \x03(\v2'.task.v1.DispatchCompensationClaimStateR\x1adispatchCompensationClaims\x12P\n" +
+	"\x13dispatch_challenges\x18L \x03(\v2\x1f.task.v1.DispatchChallengeStateR\x12dispatchChallenges\x12d\n" +
+	"\x1adispatch_winner_ineligible\x18N \x03(\v2&.task.v1.DispatchWinnerIneligibleStateR\x18dispatchWinnerIneligible\x12Z\n" +
+	"\x17takeover_entry_receipts\x18O \x03(\v2\".task.v1.TakeoverEntryReceiptStateR\x15takeoverEntryReceipts\x12s\n" +
+	" verifier_value_evidence_receipts\x18P \x03(\v2*.task.v1.VerifierValueEvidenceReceiptStateR\x1dverifierValueEvidenceReceipts\x12F\n" +
+	"\x0eparams_history\x18Z \x03(\v2\x1f.task.v1.TaskParamsHistoryStateR\rparamsHistory\x12c\n" +
+	"\x1ctask_params_version_bindings\x18[ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x19taskParamsVersionBindings\x12i\n" +
+	"\x1fsession_params_version_bindings\x18\\ \x03(\v2\".task.v1.ParamsVersionBindingStateR\x1csessionParamsVersionBindings\x12]\n" +
+	"\x18dispatch_round_acceptors\x18] \x03(\v2#.task.v1.DispatchRoundAcceptorStateR\x16dispatchRoundAcceptorsJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
+	"\x16TaskParamsHistoryState\x12%\n" +
+	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12-\n" +
+	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12%\n" +
+	"\x0eupdated_height\x18\x03 \x01(\x04R\rupdatedHeight\x12+\n" +
+	"\x11superseded_height\x18\x04 \x01(\x04R\x10supersededHeight\"_\n" +
+	"\x19ParamsVersionBindingState\x12\x1b\n" +
+	"\tobject_id\x18\x01 \x01(\fR\bobjectId\x12%\n" +
+	"\x0eparams_version\x18\x02 \x01(\x04R\rparamsVersionB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_genesis_proto_rawDescOnce sync.Once
@@ -465,100 +691,118 @@ func file_task_v1_genesis_proto_rawDescGZIP() []byte {
 	return file_task_v1_genesis_proto_rawDescData
 }
 
-var file_task_v1_genesis_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_task_v1_genesis_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_task_v1_genesis_proto_goTypes = []any{
 	(*GenesisState)(nil),                             // 0: task.v1.GenesisState
-	(*TaskParamsV1)(nil),                             // 1: task.v1.TaskParamsV1
-	(*TaskParamsMetaState)(nil),                      // 2: task.v1.TaskParamsMetaState
-	(*SessionNonceState)(nil),                        // 3: task.v1.SessionNonceState
-	(*StreamState)(nil),                              // 4: task.v1.StreamState
-	(*OrderSequenceState)(nil),                       // 5: task.v1.OrderSequenceState
-	(*TaskBudgetState)(nil),                          // 6: task.v1.TaskBudgetState
-	(*SessionHistoryPruneCursorState)(nil),           // 7: task.v1.SessionHistoryPruneCursorState
-	(*SessionTerminalSummaryState)(nil),              // 8: task.v1.SessionTerminalSummaryState
-	(*TaskCoreState)(nil),                            // 9: task.v1.TaskCoreState
-	(*TaskAssignmentState)(nil),                      // 10: task.v1.TaskAssignmentState
-	(*AssignmentCandidateSetState)(nil),              // 11: task.v1.AssignmentCandidateSetState
-	(*InferReceiptState)(nil),                        // 12: task.v1.InferReceiptState
-	(*VerifierAssignmentState)(nil),                  // 13: task.v1.VerifierAssignmentState
-	(*CommitState)(nil),                              // 14: task.v1.CommitState
-	(*ResultReceiptState)(nil),                       // 15: task.v1.ResultReceiptState
-	(*TaskCandidateFactState)(nil),                   // 16: task.v1.TaskCandidateFactState
-	(*BuilderStageProposalState)(nil),                // 17: task.v1.BuilderStageProposalState
-	(*TaskStageHandraiseUnionState)(nil),             // 18: task.v1.TaskStageHandraiseUnionState
-	(*TaskStageHandraiseUnionSegmentState)(nil),      // 19: task.v1.TaskStageHandraiseUnionSegmentState
-	(*TaskCandidateFinalizeCursorState)(nil),         // 20: task.v1.TaskCandidateFinalizeCursorState
-	(*TaskBuilderSelectionState)(nil),                // 21: task.v1.TaskBuilderSelectionState
-	(*VerifierCandidateWindowState)(nil),             // 22: task.v1.VerifierCandidateWindowState
-	(*VerifierCandidateEligibilitySegmentState)(nil), // 23: task.v1.VerifierCandidateEligibilitySegmentState
-	(*VerifierCandidateWindowMemberState)(nil),       // 24: task.v1.VerifierCandidateWindowMemberState
-	(*DataUnavailableReportState)(nil),               // 25: task.v1.DataUnavailableReportState
-	(*BuilderDataUnavailableAggregateState)(nil),     // 26: task.v1.BuilderDataUnavailableAggregateState
-	(*TaskFailureClassState)(nil),                    // 27: task.v1.TaskFailureClassState
-	(*TaskBucketRefState)(nil),                       // 28: task.v1.TaskBucketRefState
-	(*TaskCleanupCursorState)(nil),                   // 29: task.v1.TaskCleanupCursorState
-	(*TaskTerminalSummaryState)(nil),                 // 30: task.v1.TaskTerminalSummaryState
-	(*EpochTaskSummaryCursorState)(nil),              // 31: task.v1.EpochTaskSummaryCursorState
-	(*EpochTaskSummaryReceiptState)(nil),             // 32: task.v1.EpochTaskSummaryReceiptState
-	(*TaskGasReimbursementV1)(nil),                   // 33: task.v1.TaskGasReimbursementV1
-	(*VerificationRoundState)(nil),                   // 34: task.v1.VerificationRoundState
-	(*RoundFundingState)(nil),                        // 35: task.v1.RoundFundingState
-	(*RoundEconomicEffectState)(nil),                 // 36: task.v1.RoundEconomicEffectState
-	(*RoundEconomicEffectApplyCursorState)(nil),      // 37: task.v1.RoundEconomicEffectApplyCursorState
-	(*TaskRoundSummaryState)(nil),                    // 38: task.v1.TaskRoundSummaryState
-	(*VerifierPayoutState)(nil),                      // 39: task.v1.VerifierPayoutState
-	(*TaskSettlementState)(nil),                      // 40: task.v1.TaskSettlementState
-	(*SettlementFactsRetainedState)(nil),             // 41: task.v1.SettlementFactsRetainedState
-	(*WorkerEvidenceReceiptState)(nil),               // 42: task.v1.WorkerEvidenceReceiptState
+	(*TaskParamsHistoryState)(nil),                   // 1: task.v1.TaskParamsHistoryState
+	(*ParamsVersionBindingState)(nil),                // 2: task.v1.ParamsVersionBindingState
+	(*TaskParamsV1)(nil),                             // 3: task.v1.TaskParamsV1
+	(*TaskParamsMetaState)(nil),                      // 4: task.v1.TaskParamsMetaState
+	(*SessionNonceState)(nil),                        // 5: task.v1.SessionNonceState
+	(*StreamState)(nil),                              // 6: task.v1.StreamState
+	(*OrderSequenceState)(nil),                       // 7: task.v1.OrderSequenceState
+	(*TaskBudgetState)(nil),                          // 8: task.v1.TaskBudgetState
+	(*SessionHistoryPruneCursorState)(nil),           // 9: task.v1.SessionHistoryPruneCursorState
+	(*SessionTerminalSummaryState)(nil),              // 10: task.v1.SessionTerminalSummaryState
+	(*TaskCoreState)(nil),                            // 11: task.v1.TaskCoreState
+	(*TaskAssignmentState)(nil),                      // 12: task.v1.TaskAssignmentState
+	(*InferReceiptState)(nil),                        // 13: task.v1.InferReceiptState
+	(*VerifierAssignmentState)(nil),                  // 14: task.v1.VerifierAssignmentState
+	(*CommitState)(nil),                              // 15: task.v1.CommitState
+	(*ResultReceiptState)(nil),                       // 16: task.v1.ResultReceiptState
+	(*TaskCandidateFactState)(nil),                   // 17: task.v1.TaskCandidateFactState
+	(*BuilderStageProposalState)(nil),                // 18: task.v1.BuilderStageProposalState
+	(*TaskStageHandraiseUnionState)(nil),             // 19: task.v1.TaskStageHandraiseUnionState
+	(*TaskStageHandraiseUnionSegmentState)(nil),      // 20: task.v1.TaskStageHandraiseUnionSegmentState
+	(*TaskCandidateFinalizeCursorState)(nil),         // 21: task.v1.TaskCandidateFinalizeCursorState
+	(*TaskBuilderSelectionState)(nil),                // 22: task.v1.TaskBuilderSelectionState
+	(*VerifierCandidateWindowState)(nil),             // 23: task.v1.VerifierCandidateWindowState
+	(*VerifierCandidateEligibilitySegmentState)(nil), // 24: task.v1.VerifierCandidateEligibilitySegmentState
+	(*VerifierCandidateWindowMemberState)(nil),       // 25: task.v1.VerifierCandidateWindowMemberState
+	(*DataUnavailableReportState)(nil),               // 26: task.v1.DataUnavailableReportState
+	(*BuilderDataUnavailableAggregateState)(nil),     // 27: task.v1.BuilderDataUnavailableAggregateState
+	(*TaskFailureClassState)(nil),                    // 28: task.v1.TaskFailureClassState
+	(*TaskBucketRefState)(nil),                       // 29: task.v1.TaskBucketRefState
+	(*TaskCleanupCursorState)(nil),                   // 30: task.v1.TaskCleanupCursorState
+	(*TaskTerminalSummaryState)(nil),                 // 31: task.v1.TaskTerminalSummaryState
+	(*EpochTaskSummaryCursorState)(nil),              // 32: task.v1.EpochTaskSummaryCursorState
+	(*EpochTaskSummaryReceiptState)(nil),             // 33: task.v1.EpochTaskSummaryReceiptState
+	(*TaskGasReimbursementV1)(nil),                   // 34: task.v1.TaskGasReimbursementV1
+	(*VerificationRoundState)(nil),                   // 35: task.v1.VerificationRoundState
+	(*RoundFundingState)(nil),                        // 36: task.v1.RoundFundingState
+	(*RoundEconomicEffectState)(nil),                 // 37: task.v1.RoundEconomicEffectState
+	(*RoundEconomicEffectApplyCursorState)(nil),      // 38: task.v1.RoundEconomicEffectApplyCursorState
+	(*TaskRoundSummaryState)(nil),                    // 39: task.v1.TaskRoundSummaryState
+	(*VerifierPayoutState)(nil),                      // 40: task.v1.VerifierPayoutState
+	(*TaskSettlementState)(nil),                      // 41: task.v1.TaskSettlementState
+	(*SettlementFactsRetainedState)(nil),             // 42: task.v1.SettlementFactsRetainedState
+	(*WorkerEvidenceReceiptState)(nil),               // 43: task.v1.WorkerEvidenceReceiptState
+	(*DispatchRecordState)(nil),                      // 44: task.v1.DispatchRecordState
+	(*DispatchCompensationClaimState)(nil),           // 45: task.v1.DispatchCompensationClaimState
+	(*DispatchChallengeState)(nil),                   // 46: task.v1.DispatchChallengeState
+	(*DispatchWinnerIneligibleState)(nil),            // 47: task.v1.DispatchWinnerIneligibleState
+	(*TakeoverEntryReceiptState)(nil),                // 48: task.v1.TakeoverEntryReceiptState
+	(*VerifierValueEvidenceReceiptState)(nil),        // 49: task.v1.VerifierValueEvidenceReceiptState
+	(*DispatchRoundAcceptorState)(nil),               // 50: task.v1.DispatchRoundAcceptorState
 }
 var file_task_v1_genesis_proto_depIdxs = []int32{
-	1,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
-	2,  // 1: task.v1.GenesisState.params_meta:type_name -> task.v1.TaskParamsMetaState
-	3,  // 2: task.v1.GenesisState.session_nonces:type_name -> task.v1.SessionNonceState
-	4,  // 3: task.v1.GenesisState.streams:type_name -> task.v1.StreamState
-	5,  // 4: task.v1.GenesisState.order_sequences:type_name -> task.v1.OrderSequenceState
-	6,  // 5: task.v1.GenesisState.task_budgets:type_name -> task.v1.TaskBudgetState
-	7,  // 6: task.v1.GenesisState.session_history_prune_cursors:type_name -> task.v1.SessionHistoryPruneCursorState
-	8,  // 7: task.v1.GenesisState.session_terminal_summaries:type_name -> task.v1.SessionTerminalSummaryState
-	9,  // 8: task.v1.GenesisState.task_cores:type_name -> task.v1.TaskCoreState
-	10, // 9: task.v1.GenesisState.task_assignments:type_name -> task.v1.TaskAssignmentState
-	11, // 10: task.v1.GenesisState.assignment_candidate_sets:type_name -> task.v1.AssignmentCandidateSetState
-	12, // 11: task.v1.GenesisState.infer_receipts:type_name -> task.v1.InferReceiptState
-	13, // 12: task.v1.GenesisState.verifier_assignments:type_name -> task.v1.VerifierAssignmentState
-	14, // 13: task.v1.GenesisState.commits:type_name -> task.v1.CommitState
-	15, // 14: task.v1.GenesisState.result_receipts:type_name -> task.v1.ResultReceiptState
-	16, // 15: task.v1.GenesisState.task_candidate_facts:type_name -> task.v1.TaskCandidateFactState
-	17, // 16: task.v1.GenesisState.builder_stage_proposals:type_name -> task.v1.BuilderStageProposalState
-	18, // 17: task.v1.GenesisState.task_stage_handraise_unions:type_name -> task.v1.TaskStageHandraiseUnionState
-	19, // 18: task.v1.GenesisState.task_stage_handraise_union_segments:type_name -> task.v1.TaskStageHandraiseUnionSegmentState
-	20, // 19: task.v1.GenesisState.task_candidate_finalize_cursors:type_name -> task.v1.TaskCandidateFinalizeCursorState
-	21, // 20: task.v1.GenesisState.task_builder_selections:type_name -> task.v1.TaskBuilderSelectionState
-	22, // 21: task.v1.GenesisState.verifier_candidate_windows:type_name -> task.v1.VerifierCandidateWindowState
-	23, // 22: task.v1.GenesisState.verifier_candidate_eligibility_segments:type_name -> task.v1.VerifierCandidateEligibilitySegmentState
-	24, // 23: task.v1.GenesisState.verifier_candidate_window_members:type_name -> task.v1.VerifierCandidateWindowMemberState
-	25, // 24: task.v1.GenesisState.data_unavailable_reports:type_name -> task.v1.DataUnavailableReportState
-	26, // 25: task.v1.GenesisState.builder_data_unavailable_aggregates:type_name -> task.v1.BuilderDataUnavailableAggregateState
-	27, // 26: task.v1.GenesisState.task_failure_classes:type_name -> task.v1.TaskFailureClassState
-	28, // 27: task.v1.GenesisState.task_bucket_refs:type_name -> task.v1.TaskBucketRefState
-	29, // 28: task.v1.GenesisState.task_cleanup_cursors:type_name -> task.v1.TaskCleanupCursorState
-	30, // 29: task.v1.GenesisState.task_terminal_summaries:type_name -> task.v1.TaskTerminalSummaryState
-	31, // 30: task.v1.GenesisState.epoch_task_summary_cursors:type_name -> task.v1.EpochTaskSummaryCursorState
-	32, // 31: task.v1.GenesisState.epoch_task_summary_receipts:type_name -> task.v1.EpochTaskSummaryReceiptState
-	33, // 32: task.v1.GenesisState.task_gas_reimbursements:type_name -> task.v1.TaskGasReimbursementV1
-	34, // 33: task.v1.GenesisState.verification_rounds:type_name -> task.v1.VerificationRoundState
-	35, // 34: task.v1.GenesisState.round_fundings:type_name -> task.v1.RoundFundingState
-	36, // 35: task.v1.GenesisState.round_economic_effects:type_name -> task.v1.RoundEconomicEffectState
-	37, // 36: task.v1.GenesisState.round_economic_effect_apply_cursors:type_name -> task.v1.RoundEconomicEffectApplyCursorState
-	38, // 37: task.v1.GenesisState.task_round_summaries:type_name -> task.v1.TaskRoundSummaryState
-	39, // 38: task.v1.GenesisState.verifier_payouts:type_name -> task.v1.VerifierPayoutState
-	40, // 39: task.v1.GenesisState.task_settlements:type_name -> task.v1.TaskSettlementState
-	41, // 40: task.v1.GenesisState.settlement_facts_retained:type_name -> task.v1.SettlementFactsRetainedState
-	42, // 41: task.v1.GenesisState.worker_evidence_receipts:type_name -> task.v1.WorkerEvidenceReceiptState
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	3,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
+	4,  // 1: task.v1.GenesisState.params_meta:type_name -> task.v1.TaskParamsMetaState
+	5,  // 2: task.v1.GenesisState.session_nonces:type_name -> task.v1.SessionNonceState
+	6,  // 3: task.v1.GenesisState.streams:type_name -> task.v1.StreamState
+	7,  // 4: task.v1.GenesisState.order_sequences:type_name -> task.v1.OrderSequenceState
+	8,  // 5: task.v1.GenesisState.task_budgets:type_name -> task.v1.TaskBudgetState
+	9,  // 6: task.v1.GenesisState.session_history_prune_cursors:type_name -> task.v1.SessionHistoryPruneCursorState
+	10, // 7: task.v1.GenesisState.session_terminal_summaries:type_name -> task.v1.SessionTerminalSummaryState
+	11, // 8: task.v1.GenesisState.task_cores:type_name -> task.v1.TaskCoreState
+	12, // 9: task.v1.GenesisState.task_assignments:type_name -> task.v1.TaskAssignmentState
+	13, // 10: task.v1.GenesisState.infer_receipts:type_name -> task.v1.InferReceiptState
+	14, // 11: task.v1.GenesisState.verifier_assignments:type_name -> task.v1.VerifierAssignmentState
+	15, // 12: task.v1.GenesisState.commits:type_name -> task.v1.CommitState
+	16, // 13: task.v1.GenesisState.result_receipts:type_name -> task.v1.ResultReceiptState
+	17, // 14: task.v1.GenesisState.task_candidate_facts:type_name -> task.v1.TaskCandidateFactState
+	18, // 15: task.v1.GenesisState.builder_stage_proposals:type_name -> task.v1.BuilderStageProposalState
+	19, // 16: task.v1.GenesisState.task_stage_handraise_unions:type_name -> task.v1.TaskStageHandraiseUnionState
+	20, // 17: task.v1.GenesisState.task_stage_handraise_union_segments:type_name -> task.v1.TaskStageHandraiseUnionSegmentState
+	21, // 18: task.v1.GenesisState.task_candidate_finalize_cursors:type_name -> task.v1.TaskCandidateFinalizeCursorState
+	22, // 19: task.v1.GenesisState.task_builder_selections:type_name -> task.v1.TaskBuilderSelectionState
+	23, // 20: task.v1.GenesisState.verifier_candidate_windows:type_name -> task.v1.VerifierCandidateWindowState
+	24, // 21: task.v1.GenesisState.verifier_candidate_eligibility_segments:type_name -> task.v1.VerifierCandidateEligibilitySegmentState
+	25, // 22: task.v1.GenesisState.verifier_candidate_window_members:type_name -> task.v1.VerifierCandidateWindowMemberState
+	26, // 23: task.v1.GenesisState.data_unavailable_reports:type_name -> task.v1.DataUnavailableReportState
+	27, // 24: task.v1.GenesisState.builder_data_unavailable_aggregates:type_name -> task.v1.BuilderDataUnavailableAggregateState
+	28, // 25: task.v1.GenesisState.task_failure_classes:type_name -> task.v1.TaskFailureClassState
+	29, // 26: task.v1.GenesisState.task_bucket_refs:type_name -> task.v1.TaskBucketRefState
+	30, // 27: task.v1.GenesisState.task_cleanup_cursors:type_name -> task.v1.TaskCleanupCursorState
+	31, // 28: task.v1.GenesisState.task_terminal_summaries:type_name -> task.v1.TaskTerminalSummaryState
+	32, // 29: task.v1.GenesisState.epoch_task_summary_cursors:type_name -> task.v1.EpochTaskSummaryCursorState
+	33, // 30: task.v1.GenesisState.epoch_task_summary_receipts:type_name -> task.v1.EpochTaskSummaryReceiptState
+	34, // 31: task.v1.GenesisState.task_gas_reimbursements:type_name -> task.v1.TaskGasReimbursementV1
+	35, // 32: task.v1.GenesisState.verification_rounds:type_name -> task.v1.VerificationRoundState
+	36, // 33: task.v1.GenesisState.round_fundings:type_name -> task.v1.RoundFundingState
+	37, // 34: task.v1.GenesisState.round_economic_effects:type_name -> task.v1.RoundEconomicEffectState
+	38, // 35: task.v1.GenesisState.round_economic_effect_apply_cursors:type_name -> task.v1.RoundEconomicEffectApplyCursorState
+	39, // 36: task.v1.GenesisState.task_round_summaries:type_name -> task.v1.TaskRoundSummaryState
+	40, // 37: task.v1.GenesisState.verifier_payouts:type_name -> task.v1.VerifierPayoutState
+	41, // 38: task.v1.GenesisState.task_settlements:type_name -> task.v1.TaskSettlementState
+	42, // 39: task.v1.GenesisState.settlement_facts_retained:type_name -> task.v1.SettlementFactsRetainedState
+	43, // 40: task.v1.GenesisState.worker_evidence_receipts:type_name -> task.v1.WorkerEvidenceReceiptState
+	44, // 41: task.v1.GenesisState.dispatch_records:type_name -> task.v1.DispatchRecordState
+	45, // 42: task.v1.GenesisState.dispatch_compensation_claims:type_name -> task.v1.DispatchCompensationClaimState
+	46, // 43: task.v1.GenesisState.dispatch_challenges:type_name -> task.v1.DispatchChallengeState
+	47, // 44: task.v1.GenesisState.dispatch_winner_ineligible:type_name -> task.v1.DispatchWinnerIneligibleState
+	48, // 45: task.v1.GenesisState.takeover_entry_receipts:type_name -> task.v1.TakeoverEntryReceiptState
+	49, // 46: task.v1.GenesisState.verifier_value_evidence_receipts:type_name -> task.v1.VerifierValueEvidenceReceiptState
+	1,  // 47: task.v1.GenesisState.params_history:type_name -> task.v1.TaskParamsHistoryState
+	2,  // 48: task.v1.GenesisState.task_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
+	2,  // 49: task.v1.GenesisState.session_params_version_bindings:type_name -> task.v1.ParamsVersionBindingState
+	50, // 50: task.v1.GenesisState.dispatch_round_acceptors:type_name -> task.v1.DispatchRoundAcceptorState
+	3,  // 51: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
+	52, // [52:52] is the sub-list for method output_type
+	52, // [52:52] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_genesis_proto_init() }
@@ -570,6 +814,7 @@ func file_task_v1_genesis_proto_init() {
 	file_task_v1_challenge_proto_init()
 	file_task_v1_cleanup_proto_init()
 	file_task_v1_commit_proto_init()
+	file_task_v1_dispatch_state_proto_init()
 	file_task_v1_epoch_summary_proto_init()
 	file_task_v1_evidence_proto_init()
 	file_task_v1_infer_receipt_proto_init()
@@ -579,13 +824,14 @@ func file_task_v1_genesis_proto_init() {
 	file_task_v1_session_proto_init()
 	file_task_v1_settlement_proto_init()
 	file_task_v1_timeout_bucket_proto_init()
+	file_task_v1_value_evidence_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_genesis_proto_rawDesc), len(file_task_v1_genesis_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

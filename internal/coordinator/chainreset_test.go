@@ -67,7 +67,7 @@ func assignedTaskMissingFromChain(t *testing.T, opts ...Option) (*Coordinator, *
 	c, _ := newTestCoordinator(t, append([]Option{WithHeightQuerier(facts), WithTaskQuerier(facts)}, opts...)...)
 	var logs bytes.Buffer
 	c.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	if err := c.OnOrder(context.Background(), testPlaceholderOrder("session-1", "task-1")); err != nil {
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
 		t.Fatal(err)
 	}
 	fsm, ok := c.getFSM("session-1", "task-1")

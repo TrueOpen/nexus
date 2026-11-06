@@ -3,128 +3,131 @@ package coordinator
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/types"
 )
 
-func TestOnOrderRefusesReplacementVersion(t *testing.T) {
+type fakeDispatcher struct {
+	mu         sync.Mutex
+	probeErr   error
+	dispatchEr error
+	dispatched []types.Order
+	// deadlines are the record deadlines by order sequence.
+	deadlines map[uint64]uint64
+}
+
+func (f *fakeDispatcher) RecordDeadline(_ string, sequence uint64) (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.deadlines[sequence]
+	return d, ok
+}
+
+func (f *fakeDispatcher) Probe(context.Context, types.Order) error { return f.probeErr }
+
+func (f *fakeDispatcher) Dispatch(_ context.Context, o types.Order) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dispatchEr != nil {
+		return f.dispatchEr
+	}
+	f.dispatched = append(f.dispatched, o)
+	return nil
+}
+
+func eventCodes(c *Coordinator, sessionID, taskID string) []string {
+	var out []string
+	for _, ev := range c.journalFor(taskKey(sessionID, taskID)).snapshot() {
+		out = append(out, ev.EventCode)
+	}
+	return out
+}
+
+// Without direct dispatch every order is refused before and after its input upload.
+func TestOrdersNeedADispatcher(t *testing.T) {
 	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
-	ctx := context.Background()
-	first := testPlaceholderOrder("session-1", "task-1")
-	replacement := first
-	replacement.TaskHash = strings.Repeat("b", 64)
-
-	if err := c.OnOrder(ctx, first); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.CheckOrder(ctx, replacement); !errors.Is(err, ErrOrderReplacementUnsupported) {
-		t.Fatalf("CheckOrder(replacement) = %v, want ErrOrderReplacementUnsupported", err)
-	}
-	if err := c.OnOrder(ctx, replacement); !errors.Is(err, ErrOrderReplacementUnsupported) {
-		t.Fatalf("OnOrder(replacement) = %v, want ErrOrderReplacementUnsupported", err)
-	}
-	fsm, ok := c.getFSM(first.SessionID, first.TaskID)
-	if !ok {
-		t.Fatal("tracked task disappeared")
-	}
-	if fsm.order.TaskHash != first.TaskHash {
-		t.Fatalf("tracked task_hash = %s, want %s", fsm.order.TaskHash, first.TaskHash)
-	}
-	// An exact retry of the tracked version is still accepted.
-	if err := c.CheckOrder(ctx, first); err != nil {
-		t.Fatalf("CheckOrder(retry) = %v", err)
-	}
-	if err := c.OnOrder(ctx, first); err != nil {
-		t.Fatalf("OnOrder(retry) = %v", err)
-	}
-	// An unknown task is not refused.
-	if err := c.CheckOrder(ctx, testPlaceholderOrder("session-1", "task-2")); err != nil {
-		t.Fatalf("CheckOrder(new task) = %v", err)
-	}
-}
-
-func TestOnOrderTerminalTaskRefusesOtherVersion(t *testing.T) {
-	store := kv.NewMemStore()
-	c, _ := newTaskTrackingCoordinator(t, store)
-	ctx := context.Background()
-	first := testPlaceholderOrder("session-1", "task-1")
-	replacement := first
-	replacement.TaskHash = strings.Repeat("b", 64)
-	key := taskKey(first.SessionID, first.TaskID)
-
-	if err := c.OnOrder(ctx, first); err != nil {
-		t.Fatal(err)
-	}
-	c.removeTask(key)
-	raw, found, err := store.GetWithError(kv.NSTerminalTask, key)
-	if err != nil || !found {
-		t.Fatalf("terminal marker: found=%v err=%v", found, err)
-	}
-	var record terminalTaskRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		t.Fatal(err)
-	}
-	if record.TaskHash != first.TaskHash {
-		t.Fatalf("terminal marker task_hash = %q, want %q", record.TaskHash, first.TaskHash)
-	}
-
-	check := func(stage string) {
-		t.Helper()
-		if err := c.CheckOrder(ctx, replacement); !errors.Is(err, ErrTaskTerminal) {
-			t.Fatalf("%s: CheckOrder(other version) = %v, want ErrTaskTerminal", stage, err)
-		}
-		if err := c.OnOrder(ctx, replacement); !errors.Is(err, ErrTaskTerminal) {
-			t.Fatalf("%s: OnOrder(other version) = %v, want ErrTaskTerminal", stage, err)
-		}
-		if err := c.CheckOrder(ctx, first); err != nil {
-			t.Fatalf("%s: CheckOrder(retry) = %v", stage, err)
-		}
-		if err := c.OnOrder(ctx, first); err != nil {
-			t.Fatalf("%s: OnOrder(retry) = %v", stage, err)
-		}
-		if _, ok := c.getFSM(first.SessionID, first.TaskID); ok {
-			t.Fatalf("%s: terminal task was tracked again", stage)
-		}
-	}
-	check("cached marker")
-	c.releaseTerminalTask(first.SessionID, first.TaskID)
-	check("durable marker only")
-}
-
-func TestTerminalMarkerWithoutTaskHashTreatsOrderAsRetry(t *testing.T) {
-	store := kv.NewMemStore()
-	c, _ := newTaskTrackingCoordinator(t, store)
-	ctx := context.Background()
-	order := testPlaceholderOrder("session-1", "task-1")
-	// A marker written before the task_hash field existed.
-	legacy, err := json.Marshal(map[string]any{"version": terminalTaskVersion, "recipient": testUserAddress})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Set(kv.NSTerminalTask, taskKey(order.SessionID, order.TaskID), legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.CheckOrder(ctx, order); err != nil {
+	o := testPlaceholderOrder("session-1", "task-1")
+	if err := c.CheckOrder(context.Background(), o); !errors.Is(err, ErrDispatchUnavailable) {
 		t.Fatalf("CheckOrder = %v", err)
 	}
-	if err := c.OnOrder(ctx, order); err != nil {
+	if err := c.OnOrder(context.Background(), o); !errors.Is(err, ErrDispatchUnavailable) {
 		t.Fatalf("OnOrder = %v", err)
 	}
-	if _, ok := c.getFSM(order.SessionID, order.TaskID); ok {
-		t.Fatal("terminal task was tracked again")
+	if _, ok := c.getFSM(o.SessionID, o.TaskID); ok {
+		t.Fatal("a refused order created a task")
 	}
 }
 
-// The same order re-signed under another signature_chain_id has the same task_hash, so a second
-// OnOrder is an exact retry: it is accepted and the tracked task keeps the first SignedOrderV2.
+// OnOrder starts the task (ORDER_RECEIVED) and hands the order over; the dispatcher's accept and
+// failure become task events. A failed task is dropped, and a retry of its sequence starts again
+// on the same journal.
+func TestOnOrderHandsTheOrderToTheDispatcher(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	seedTestBuilderSet(c)
+	d := &fakeDispatcher{}
+	c.SetDispatcher(d)
+	ctx := context.Background()
+	o := testPlaceholderOrder("session-1", "task-1")
+	if err := c.CheckOrder(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.OnOrder(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.dispatched) != 1 || d.dispatched[0].TaskHash != o.TaskHash {
+		t.Fatalf("dispatched = %+v", d.dispatched)
+	}
+	c.DispatchFailed(o.SessionID, o.TaskID, dispatchdraw.ErrNoCapacity)
+	if _, ok := c.getFSM(o.SessionID, o.TaskID); ok {
+		t.Fatal("a failed dispatch kept its task")
+	}
+	retry := o
+	retry.TaskHash = strings.Repeat("b", 64)
+	if err := c.OnOrder(ctx, retry); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	c.DispatchAccepted(o.SessionID, o.TaskID, [32]byte{1}, "worker-1")
+	want := []string{EvOrderReceived, EvNoCapacity, EvOrderReceived, EvDispatchAccepted}
+	if got := eventCodes(c, o.SessionID, o.TaskID); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	fsm, ok := c.getFSM(o.SessionID, o.TaskID)
+	if !ok || fsm.order.TaskHash != retry.TaskHash || fsm.state != types.Pending {
+		t.Fatal("the retry is not the tracked Pending task")
+	}
+}
+
+// A refusal of the dispatcher leaves no task; a probe refusal is CheckOrder's answer.
+func TestDispatcherRefusals(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	seedTestBuilderSet(c)
+	d := &fakeDispatcher{probeErr: dispatchdraw.ErrNoCapacity, dispatchEr: errors.New("not reserved")}
+	c.SetDispatcher(d)
+	o := testPlaceholderOrder("session-1", "task-1")
+	if err := c.CheckOrder(context.Background(), o); !errors.Is(err, dispatchdraw.ErrNoCapacity) {
+		t.Fatalf("CheckOrder = %v", err)
+	}
+	if err := c.OnOrder(context.Background(), o); err == nil {
+		t.Fatal("OnOrder ignored the dispatcher's refusal")
+	}
+	if _, ok := c.getFSM(o.SessionID, o.TaskID); ok {
+		t.Fatal("a refused order kept its task")
+	}
+}
+
+// The same order re-signed under another signature_chain_id has the same task_hash: the tracked
+// task keeps the first SignedOrderV2.
 func TestOnOrderRetryUnderAnotherSignatureChainIDKeepsFirstOrder(t *testing.T) {
 	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	c.SetDispatcher(&fakeDispatcher{})
 	ctx := context.Background()
 	first := testPlaceholderOrder("session-1", "task-1")
 	resigned := testSignedOrder(testUserAddress)
@@ -136,24 +139,14 @@ func TestOnOrderRetryUnderAnotherSignatureChainIDKeepsFirstOrder(t *testing.T) {
 	}
 	retry := first
 	retry.SignedOrder = raw
-	if bytes.Equal(retry.SignedOrder, first.SignedOrder) {
-		t.Fatal("the retry should carry a differently signed order")
-	}
-
 	if err := c.OnOrder(ctx, first); err != nil {
 		t.Fatal(err)
-	}
-	if err := c.CheckOrder(ctx, retry); err != nil {
-		t.Fatalf("CheckOrder(retry under another signature_chain_id) = %v", err)
 	}
 	if err := c.OnOrder(ctx, retry); err != nil {
 		t.Fatalf("OnOrder(retry under another signature_chain_id) = %v", err)
 	}
 	fsm, ok := c.getFSM(first.SessionID, first.TaskID)
-	if !ok {
-		t.Fatal("tracked task disappeared")
-	}
-	if !bytes.Equal(fsm.order.SignedOrder, first.SignedOrder) {
+	if !ok || !bytes.Equal(fsm.order.SignedOrder, first.SignedOrder) {
 		t.Fatal("the retry replaced the first stored SignedOrderV2")
 	}
 }

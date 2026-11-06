@@ -16,7 +16,7 @@ enum ServiceKeyStatus {
   // Binding may authorize service submissions.
   // SERVICE_KEY_STATUS_ACTIVE identifies the corresponding protocol value.
   SERVICE_KEY_STATUS_ACTIVE = 1;
-  // Binding is revoked and authorizes nothing.
+  // Binding grants no live permission; retained proof identity remains usable.
   // SERVICE_KEY_STATUS_REVOKED identifies the corresponding protocol value.
   SERVICE_KEY_STATUS_REVOKED = 2;
 }
@@ -37,16 +37,10 @@ enum ServiceKeyRevocationReason {
   SERVICE_KEY_REVOCATION_REASON_GOVERNANCE_EMERGENCY = 3;
 }
 
-// ServiceKeyResponsibilityKind is the closed set of online responsibilities that
-// block MsgRotateServiceKey. The builder
-// stage kinds feed BuilderState/CortexNodeState.pending_stage_duty_count and the
-// challenge/evidence kinds feed pending_evidence_submission_count; task duty
-// liability is counted by active_task_liability_count and no longer stored as a
-// responsibility row.
-//
-// Value 4 was reassigned in the fresh Phase 0 schema. The removed evidence
-// request protocol has no compatibility alias or writer.
-// ServiceKeyResponsibilityKind defines the ServiceKeyResponsibilityKind wire type.
+// ServiceKeyResponsibilityKind attributes outstanding duties to stable operators.
+// Evidence rows retain their actual signed nonce. Only previous-generation
+// evidence responsibility blocks another registration; current group duties and
+// liability do not gate registration or fixed E+2 activation.
 enum ServiceKeyResponsibilityKind {
   // Never written; rejects zero-value rows.
   // SERVICE_KEY_RESPONSIBILITY_KIND_UNSPECIFIED identifies the corresponding protocol value.
@@ -63,7 +57,7 @@ enum ServiceKeyResponsibilityKind {
   // The selected Worker key remains provable through the output-evidence window.
   // SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE identifies the corresponding protocol value.
   SERVICE_KEY_RESPONSIBILITY_KIND_WORKER_OUTPUT_EVIDENCE = 4;
-  // Locked Task Builder is still exposed to objective BusEnvelope evidence for
+  // Locked Task Builder is still exposed to objective signed-stream evidence for
   // one task, so its service key must stay verifiable.
   //
   // Lifecycle, all inside one cache transaction
@@ -81,9 +75,8 @@ enum ServiceKeyResponsibilityKind {
   //             task_finality_height + max_evidence_retention_blocks and the
   //             evidence bodies are pruned, deletes the row/index and does the
   //             checked -1. It is the only first-time decrement of this kind.
-  // Therefore MsgRotateServiceKey stays blocked for the whole objective-evidence
-  // admissibility window: an operator cannot clear the counter first and rotate
-  // the accusable key away afterwards.
+  // Retain the bound proof identity through this window. Once it is previous,
+  // the outstanding evidence responsibility prevents another registration.
   // SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE identifies the corresponding protocol value.
   SERVICE_KEY_RESPONSIBILITY_KIND_BUS_OBJECTIVE_EVIDENCE = 5;
 }
@@ -118,7 +111,7 @@ enum ServiceBondStatus {
   // Bond is effective and may back duties.
   // SERVICE_BOND_STATUS_ACTIVE identifies the corresponding protocol value.
   SERVICE_BOND_STATUS_ACTIVE = 2;
-  // Operator is jailed; no new duty is assigned.
+  // Recoverable jail: candidate eligibility follows the nonzero jail factor.
   // SERVICE_BOND_STATUS_JAILED identifies the corresponding protocol value.
   SERVICE_BOND_STATUS_JAILED = 3;
   // Operator is unbonding to zero.
@@ -244,32 +237,6 @@ enum RoleFaultStatus {
   // Replaced by a later attribution.
   // ROLE_FAULT_STATUS_SUPERSEDED identifies the corresponding protocol value.
   ROLE_FAULT_STATUS_SUPERSEDED = 2;
-}
-
-// FaultKind is the closed objective fault kind of one role fault receipt (9.6b).
-enum FaultKind {
-  reserved 4;
-  reserved "FAULT_KIND_EVIDENCE_DEFAULT";
-
-  // Never written; rejects zero-value receipts.
-  // FAULT_KIND_UNSPECIFIED identifies the corresponding protocol value.
-  FAULT_KIND_UNSPECIFIED = 0;
-  // Assigned duty missed its deadline.
-  // FAULT_KIND_TIMEOUT identifies the corresponding protocol value.
-  FAULT_KIND_TIMEOUT = 1;
-  // Submitted material was objectively invalid.
-  // FAULT_KIND_INVALID_RESULT identifies the corresponding protocol value.
-  FAULT_KIND_INVALID_RESULT = 2;
-  // Two conflicting accepted submissions for one scope.
-  // FAULT_KIND_EQUIVOCATION identifies the corresponding protocol value.
-  FAULT_KIND_EQUIVOCATION = 3;
-  // Builder objective evidence was accepted against the operator.
-  // FAULT_KIND_BUILDER_OBJECTIVE_FAULT identifies the corresponding protocol value.
-  FAULT_KIND_BUILDER_OBJECTIVE_FAULT = 5;
-  // Reserved for the later verifier value-evidence admission upgrade.
-  FAULT_KIND_VERIFIER_VALUE_MISMATCH = 6;
-  // Reserved for objectively invalid Worker value evidence after activation.
-  FAULT_KIND_WORKER_VALUES_INVALID = 7;
 }
 
 // ParamsModuleV1 selects the owner of a parameter-update event.

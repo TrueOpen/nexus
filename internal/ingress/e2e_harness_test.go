@@ -63,9 +63,16 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 		"BUILDER|" + integrationBuilderAddress: streamServiceKey("BUILDER", integrationBuilderAddress, builderService),
 		"CORTEX|" + worker.Address():           streamServiceKey("CORTEX", worker.Address(), worker),
 	}}
+	session := testSessionID("session-e2e")
+	taskID := mustDeriveTaskID(t, session, 1)
+	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
+	// The Worker's accept of testDispatchTicket is held and its record admitted: the stream is
+	// authorized by it and delivered uncapped.
+	attempts := recordedAttempt(t, session, taskID, hex.EncodeToString(taskHash[:]), worker.Address(), testDispatchTicket)
 	authorizer, err := taskdata.NewAuthorizer(taskdata.AuthorizerConfig{
 		ChainID: "trueopen-localnet", BuilderAddress: integrationBuilderAddress, AddressPrefix: "trueopen",
 		RequestTTLBlocks: 20, RetentionLeaseBlocks: 50, SessionGrants: taskdata.SessionGrantEnv{Chain: testUserChain, MaxBlocks: 400},
+		Attempts: attempts,
 	}, backend, authority, builderService)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +84,7 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	dataService.SetOutputStreamConfig(taskdata.OutputStreamConfig{MaxLeaves: 8, MinFrameBytes: 2, MaxFrameBytes: 16, MaxAttachmentBytes: 8})
 	options := []Option{
 		WithPayloadMaxBytes(16), WithReadMaxBytes(16), WithTaskDataService(dataService),
-		WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend),
+		WithOutputStream(dataService, taskdata.NewOutputDispatcher(8), backend, attempts),
 	}
 	server, err := New(
 		slog.New(slog.NewTextHandler(os.Stderr, nil)), config.IngressConfig{},
@@ -91,9 +98,6 @@ func newE2EFixture(t *testing.T) (*streamFixture, *httptest.Server) {
 	httpServer.EnableHTTP2 = true
 	httpServer.StartTLS()
 	t.Cleanup(httpServer.Close)
-	session := testSessionID("session-e2e")
-	taskID := mustDeriveTaskID(t, session, 1)
-	taskHash := sha256.Sum256([]byte("accepted-task-" + taskID))
 	authority.task = chaincli.OnChainTask{
 		SessionID: session, TaskID: taskID, State: types.Assigned,
 		Assignment: chaincli.TaskAssignmentState{
@@ -137,11 +141,11 @@ func TestE2EHarness(t *testing.T) {
 	final := acc.Root()
 	finalSeq := uint64(len(texts) - 1)
 	reason := taskv1.FinishReasonV1_FINISH_REASON_V1_EOS_TOKEN
-	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", f.taskHash, finalSeq, final[:], uint32(reason))
+	digest, err := nodecontract.OutputFinSigningDigest("trueopen-localnet", f.taskHash, testDispatchTicket, finalSeq, final[:], uint32(reason))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fin := &nexusv1.OutputFinV1{FinalSeq: finalSeq, OutputMmrRoot: final[:], FinishReason: reason, WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:])}
+	fin := &nexusv1.OutputFinV1{FinalSeq: finalSeq, OutputMmrRoot: final[:], FinishReason: reason, WorkerSignature: signDigestRaw64(t, workerKeyHex, digest[:]), DispatchTicketHash: testDispatchTicket}
 	switch os.Getenv("E2E_FIN_MODE") {
 	case "unsigned": // pre-wire-v0.1.1 Worker: no reason, no signature
 		fin.FinishReason, fin.WorkerSignature = 0, nil

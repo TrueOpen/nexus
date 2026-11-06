@@ -27,8 +27,8 @@ type activeSet struct {
 	self    string             // this builder's address (from config); empty = identity not configured
 	epoch   uint64             // current roster epoch
 	members []types.BuilderRef // current active roster
-	// ref is the (builder_set_id, builder_set_hash) pair from one read. BusEnvelopeV1 fields 11/12 must come
-	// from the same read; two separate queries can assemble a nonexistent set at a term boundary.
+	// ref is the (builder_set_id, builder_set_hash) pair from one read; two separate queries can
+	// assemble a nonexistent set at a term boundary.
 	ref builderSetRef
 }
 
@@ -49,11 +49,15 @@ func (a *activeSet) Update(epoch uint64, members []types.BuilderRef, ref builder
 	a.mu.Unlock()
 }
 
-// Ref returns the current BuilderSet reference. A false second return value means nothing has been read from the chain yet.
-func (a *activeSet) Ref() (builderSetRef, bool) {
+// Snapshot returns the current BuilderSet reference and a copy of its members under one lock, so
+// both come from the same Update. A false third return value means nothing has been read from the
+// chain yet.
+func (a *activeSet) Snapshot() (builderSetRef, []types.BuilderRef, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.ref, a.ref.ID != "" && a.ref.Hash != ""
+	cp := make([]types.BuilderRef, len(a.members))
+	copy(cp, a.members)
+	return a.ref, cp, a.ref.ID != "" && a.ref.Hash != ""
 }
 
 // Epoch returns the current roster's epoch.

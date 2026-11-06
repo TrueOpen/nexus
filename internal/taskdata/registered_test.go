@@ -14,7 +14,7 @@ import (
 // The OUTPUT object of wire session_key_authorization_v1.json registered_output_metadata_body.
 func registeredOutputRef() ObjectRef {
 	return ObjectRef{
-		TaskHash:    "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+		TaskHash:    "da45ff5efe3f4477f4c460f080d67f6b6aedb2ec59dbea5513c1f8603db5705c",
 		SessionID:   "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
 		TaskID:      "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
 		Kind:        ObjectKindOutput,

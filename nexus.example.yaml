@@ -22,6 +22,14 @@ ingress:
   # and the chain reads per second allowed on cache misses (default 20).
   session_key_cache_ttl_blocks: 5
   session_key_lookups_per_second: 20
+  # BuilderSyncService requests a second, and their burst, from one source address: the other
+  # Builders of this Builder's groups sync their orders here (defaults 1000 and 2000).
+  builder_sync_requests_per_second: 1000
+  builder_sync_burst: 2000
+  # How long a Task Builders group member waits for its replica of a task the chain recorded to
+  # catch up before SubscribeOutput / ResumeOutput answer the retryable NEXUS_OUTPUT_REPLICA_NOT_READY
+  # (the SDK then retries or falls back to FetchTaskData(OUTPUT)). Below 10s; 0 or unset = 2s.
+  output_replica_wait: 2s
   # ingress terminates TLS itself; no front proxy and no CA-issued certificate is needed.
   # Order: `nexus tls init` generates a self-signed certificate (default <data_dir>/tls/) and prints the public key fingerprint →
   # the operator runs `nexus builder register` with the operator key to write the https address and fingerprint
@@ -51,7 +59,7 @@ output_delivery:
 # Capacity is reserved from the declared object size before Nexus accepts bytes.
 task_data:
   inline_max_bytes: 1048576
-  chunk_size_bytes: 262144
+  chunk_size_bytes: 262144 # at most 983040: an output frame must fit one 1 MiB Builder sync request
   max_range_bytes: 8388608
   max_blob_bytes: 1073741824
   spool_reservation_bytes: 4294967296
@@ -94,19 +102,74 @@ task_data:
     max_attachment_bytes: 65536
     subscriber_buffer_frames: 256
 
-nats:
-  servers:
-    - nats://127.0.0.1:4222         # production uses tls://host:4222
-  user: ""                          # dev only; production mode rejects username/password
-  password: ""
-  ca_file: ""                       # NATS server certificate / CA PEM; verified against it for tls://; dev empty = system root CAs, required in production
-  creds_file: ""                    # NATS creds (user JWT + nkey seed), replaces username/password; relative paths are relative to this file
-  sentinel_file: ""                 # AUTH account bearer user JWT (e.g. ./nats-sentinel.jwt), public, non-secret data, served to Cortex via GET /v1/nats/sentinel; relative paths are relative to this file; empty = route not served
-  advertise_servers: []             # NATS addresses served to Cortex with the sentinel, e.g. [tls://203.0.113.10:4222], together with the certificates of ca_file; needs sentinel_file; production needs tls:// and ca_file; empty = not served
-  stream_replicas: 1                # copies of the TRUEOPEN_TASK JetStream stream (1..5); more than 1 needs a clustered NATS and must not exceed its number of servers; an existing stream's higher count is never lowered
+# Direct dispatch: standing handraises from Cortex nodes, signed handraise roots and local
+# admission. These are off-chain parameters; the handraise timing and the accept timeout tiers must
+# be the same on every Builder of a network, and the handraise timing the same as the Cortex nodes'
+# (the values below match the shipped Cortex configuration). They are placeholders until calibrated.
+dispatch:
+  # A Cortex node re-signs an unchanged standing handraise this often.
+  handraise_heartbeat_ms: 10000
+  # A standing handraise not re-signed within this time leaves the roster; must exceed the heartbeat.
+  handraise_ttl_ms: 30000
+  # Minimum spacing of re-signs caused by a state change (free slots, profiles).
+  handraise_min_change_interval_ms: 500
+  # This Builder signs a new handraise root this often.
+  handraise_root_interval_ms: 500
+  # How far above this Builder's chain height a handraise's issued_height may be (this Builder
+  # may lag the Cortex by a few blocks).
+  handraise_issued_height_tolerance_blocks: 3
+  # Accept/reject wait of a dispatched ticket by the candidate's measured RTT; tiers increase in
+  # both values, an RTT above the last tier takes the last tier.
+  accept_timeout_ms_by_rtt_tier:
+    - max_rtt_ms: 50
+      accept_timeout_ms: 300
+    - max_rtt_ms: 150
+      accept_timeout_ms: 500
+    - max_rtt_ms: 300
+      accept_timeout_ms: 800
+  # Public RTT admission threshold: a handraise measured above it is not admitted and its root leaf
+  # records the RTT. 0 admits every RTT.
+  builder_rtt_admit_ms: 300
+  # A Worker whose signed rejects exceed this share of the tickets it received is not admitted for
+  # gpu_reject_rate_suspension_blocks blocks (also the measuring window). 0 disables the rule.
+  gpu_reject_rate_threshold: 0.5
+  gpu_reject_rate_suspension_blocks: 720
+  # Fewest tickets inside the window before a reject rate can suspend a Worker.
+  gpu_reject_rate_min_samples: 10
+  # Share of TIMEOUT skips flagged by the public statistics; statistics only.
+  builder_timeout_rate_threshold: 0.2
+  # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry.
+  record_gas_base: 200000
+  record_gas_per_entry: 300000
+  # Gas limit of a compensation rebuttal or challenge response: answer_gas_base plus
+  # answer_gas_per_byte per encoded byte of the message. Doubled (up to 8x) after an out-of-gas.
+  answer_gas_base: 300000
+  answer_gas_per_byte: 30
+
+# IngressAPI.SubmitModelSupportConfirmation: Cortex nodes hand this Builder their service-key-signed
+# model support confirmations (one per operator and epoch); the Builder account batches them into
+# MsgBatchConfirmModelSupport and pays the gas. Needs the account signer (identity keystore); without
+# it, or with enabled: false, the RPC is Unimplemented. Accepted confirmations are kept in data_dir
+# until the chain holds their DailySupport row or they can no longer be included.
+support_relay:
+  enabled: true
+  # Longest wait of an accepted confirmation before it is batched.
+  flush_interval: 5s
+  # This many held confirmations start a batch at once.
+  flush_items: 64
+  # Held confirmations beyond this are refused with RESOURCE_EXHAUSTED.
+  max_queued: 4096
+  # A confirmation must stay includable (before its expiry and its epoch's end) for this many blocks
+  # above the current height to be accepted or sent.
+  inclusion_margin_blocks: 3
+  # Gas limit of a batch: gas_base plus gas_per_confirmation per confirmation plus gas_per_model per
+  # model id. A batch that runs out of gas is split; a single confirmation is retried with more (up to 4x).
+  gas_base: 200000
+  gas_per_confirmation: 100000
+  gas_per_model: 50000
 
 # Production security switch: dev (default, behavior unchanged) | production.
-# production rejects: nats:// and user/password; non-loopback plaintext chain/hub grpc_addr;
+# production rejects: non-loopback plaintext chain/hub grpc_addr;
 # private_key_hex / private_key / keystore_password / service_keystore_password in identity;
 # ingress.tls.enabled=false. Private keys and passphrases always come from files.
 security:
@@ -134,7 +197,7 @@ chain:
     grace_blocks: 10
   # A Verifier commit or result relay answers only after its transaction executed in a
   # block, waiting at most block_interval × wait_blocks (capped at 20s: below the 60s
-  # Cortex relay call timeout and the 30s JetStream redelivery wait). No result in time
+  # Cortex relay call timeout). No result in time
   # is reported as a temporary failure and the Verifier retries.
   tx_confirm:
     block_interval: 5s
@@ -167,6 +230,25 @@ identity:
   service_keystore_file: ""
   service_keystore_password: ""
   service_keystore_password_file: ""
+  # A second service key: the replacement of a registered rotation, loaded ahead
+  # so the cutover at its effective height needs no restart. The chain binding
+  # decides which local key is current; after a cutover keep the retired key
+  # configured (here or as service_keystore_file) while tasks recorded before
+  # the cutover still need Builder messages under its nonce. Needs
+  # service_keystore_file. Env: NEXUS_NEXT_SERVICE_KEYSTORE_FILE,
+  # NEXUS_NEXT_SERVICE_KEYSTORE_PASSWORD_FILE.
+  next_service_keystore_file: ""
+  next_service_keystore_password_file: ""
+  # Builder VRF keys for direct dispatch: Ed25519 in the Cosmos keystore armor
+  # (key type ed25519), mode 0600, kept apart from the service key. List the
+  # key registered on chain now and any earlier key still needed for orders of
+  # an epoch it was active in; the chain's registered key picks the one used.
+  # The passphrase file (mode 0600) serves every listed key. Create a key with
+  # `nexus keys create-vrf-key` and register the last listed one with
+  # `nexus builder register-vrf-key`.
+  # Env: NEXUS_VRF_KEY_FILES (comma separated), NEXUS_VRF_KEY_PASSWORD_FILE.
+  vrf_key_files: []
+  vrf_key_password_file: ""
   # Production endpoint must be absolute HTTPS: turn on ingress.tls so Nexus
   # terminates TLS itself and clients can check tls_pubkey_hash.
   public_endpoint: ""
@@ -200,22 +282,3 @@ identity:
   # are still accepted so existing nexus.yaml files keep passing strict parsing.
   descriptor_validity_blocks: 100000
   descriptor_renew_before_blocks: 10000
-
-# NATS auth-callout service. Read only by `nexus natsauth`.
-# Runs on the same machine as NATS, started by whoever runs NATS. None of the three keys leaves the machine.
-# natsauth has no separate chain config: it reuses the top-level chain.chain_id / chain.grpc_addr to look up the Cortex on-chain identity;
-# both are required; a non-loopback chain.grpc_addr must be https://.
-natsauth:
-  nats:
-    servers: [tls://127.0.0.1:4222]
-    ca_file: ./nats-cert.pem            # NATS server certificate, taken from the handshake (openssl s_client)
-    creds_file: ./nats-auth.creds       # AUTH account user creds (nsc generate creds --account AUTH)
-  # Public key of the application account Cortex users land in (TRUEOPEN, the same account as nexus). The A... below is only a length/prefix placeholder,
-  # not a real public key; the real value comes from `nsc describe account TRUEOPEN`.
-  cortex_account_public_key: ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-  cortex_account_signing_key_file: ./trueopen-account.nk    # TRUEOPEN account signing key seed (nsc generate nkey --account; its public key must be registered as a TRUEOPEN signing key)
-  auth_account_signing_key_file: ./auth-account.nk       # AUTH account signing key seed
-  user_jwt_ttl_ms: 3600000              # ≤ 3,600,000
-  chain_query_cache_ttl_ms: 60000       # ≤ 60,000; only successful results are cached
-  max_clock_skew_ms: 300000
-  # xkey_file: ./auth-account.xk        # response encryption, not implemented in this version; a non-empty value is rejected by natsauth

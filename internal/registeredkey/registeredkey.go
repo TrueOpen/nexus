@@ -14,9 +14,11 @@
 //     checks, and the order's signed session_anchor_height must be at or after the key's
 //     registration height (else ErrKeyInvalid), and a nonzero spend cap must hold the committed
 //     spent amount plus the order's max_fee (else ErrSpendCapExceeded, also when the sum would
-//     overflow the chain's uint64 counter). In-flight orders are not counted. Passing is no
-//     admission: the Keeper remains the final authority. OrderSigner tells a registered-key order
-//     from a wallet order.
+//     overflow the chain's uint64 counter). Passing is no admission: the Keeper remains the final
+//     authority. OrderSigner tells a registered-key order from a wallet order.
+//   - CheckDispatchOrder is the stricter precheck of the Builder about to dispatch such an order:
+//     the key must outlive the order's record deadline, the spend cap counts the Builder's
+//     in-flight orders signed by the key, and a pending restriction is treated as effective.
 //
 // Requests never consume the spend cap.
 package registeredkey
@@ -63,6 +65,9 @@ type State struct {
 	SetHeight    uint64
 	SpendCap     string // decimal atomic units; "0" or empty is unlimited
 	Spent        string // decimal atomic units
+	// Pending is the registered key change not effective yet; nil when none. Only
+	// CheckDispatchOrder reads it.
+	Pending *PendingChange
 }
 
 // CheckRequest is the registered-key branch for a request on this session, signed by recovered

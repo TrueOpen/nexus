@@ -20,24 +20,31 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/coordinator"
+	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/hash32text"
+	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/outputdelivery"
+	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
+	"github.com/TrueOpen/nexus/internal/takeover"
+	"github.com/TrueOpen/nexus/internal/taskgroup"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // Handler is the application-level implementation behind IngressAPI, satisfied by the Coordinator.
 // Every task-level entry point carries the composite key session_id + task_id.
 type Handler interface {
-	// CheckOrder refuses, without changing state, an order that OnOrder would refuse for its
-	// version (a different task_hash for a tracked or terminal task). OpenTask calls it before
-	// storing the input.
+	// CheckOrder refuses, without changing state, an order that OnOrder would refuse (this Builder
+	// cannot dispatch, or no Worker can take the order now). OpenTask calls it before storing the
+	// input; which version of an order may be dispatched is the in-flight precheck's decision.
 	CheckOrder(ctx context.Context, o types.Order) error
 	OnOrder(ctx context.Context, o types.Order) error
+	// DispatchResult returns the signed dispatch result header of an order a Worker accepted and
+	// the chain has not recorded yet.
+	DispatchResult(ctx context.Context, sessionID, taskID string) (*nexusv1.DispatchResultHeaderV1, bool)
 	// OnInferReceipt accepts the selected Worker's signed InferReceipt.
 	// Acceptance means the Builder commits to relaying it; it does not wait for output/evidence upload and does not mean on-chain accepted.
 	// SessionForTask looks up session_id by task_id: wire relay requests carry only the on-chain
@@ -48,19 +55,15 @@ type Handler interface {
 	// (the initial relay implementation trusts the Builder). Return only means broadcast, not on-chain accepted.
 	OnVerifyCommit(ctx context.Context, sessionID, taskID string, commit *taskv1.VerifyCommitV1) (types.VerifyRelayAck, error)
 	OnVerifyResult(ctx context.Context, sessionID, taskID string, receipt *taskv1.ResultReceiptV3) (types.VerifyRelayAck, error)
-	SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error)
-	AckOutput(ctx context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error)
 	// TaskOwner returns the ordering user's address (authorization for streaming subscribe / ACK);
 	// returns types.ErrTaskNotFound for an unknown task.
 	TaskOwner(ctx context.Context, sessionID, taskID string) (string, error)
-	// FetchOutputRef issues bound credentials tiered by access_level only (deprecated):
-	// the OutputRef object was removed from the protocol, so there is no reference left to return.
-	FetchOutputRef(ctx context.Context, sessionID, taskID, requester string, level types.AccessLevel, usage string) (types.Credential, error)
+	// IsTaskTerminal reports whether the task is no longer in flight here: finished, failed or
+	// dropped.
+	IsTaskTerminal(sessionID, taskID string) bool
 	TaskStatus(ctx context.Context, sessionID, taskID string) (types.TaskStatus, error)
 	// TaskEvents subscribes to the event stream: replay after cursor + live channel + unsubscribe.
 	TaskEvents(ctx context.Context, sessionID, taskID string, fromCursor uint64) ([]types.TaskEvent, <-chan types.TaskEvent, func(), error)
-	// RefreshCredential exchanges an old credential for a new one (deprecated).
-	RefreshCredential(ctx context.Context, old types.Credential, recipient, usage string, requestedValidUntil int64) (types.Credential, error)
 	// PrepareChallenge assembles challenge inputs without submitting a verdict.
 	PrepareChallenge(ctx context.Context, sessionID, taskID, kind string) (types.ChallengePlan, error)
 }
@@ -90,6 +93,50 @@ type AuthParams struct {
 	// prechecked.
 	SessionKeys sdkauth.SessionKeys
 	FeeDenom    string
+	// Precheck, when set, is the dispatching Builder's OpenTask precheck (inflight.Prechecker): it
+	// replaces the registered-key order precheck above and also judges expiry, binding,
+	// freshness, sequence, in-flight limits and funds. FeeDenom must then be set.
+	Precheck OrderPrechecker
+	// Takeovers, when set with Precheck, takes the orders of sessions bound to another Builder
+	// (takeover.Manager): such an order registers a takeover instead of being refused.
+	Takeovers TakeoverIntake
+	// Rotation, when set with Precheck, reads this Builder's own pending service key rotation
+	// (handraise.ChainServiceKeys). While one is registered and not active, every new order, a
+	// takeover included, is refused with NEXUS_INGRESS_BUILDER_KEY_ROTATING before any other
+	// precheck; only an order this Builder already holds is answered.
+	Rotation BuilderRotation
+}
+
+// BuilderRotation reads the effective height of this Builder's registered service key
+// replacement, 0 when none is pending; handraise.ChainServiceKeys implements it from the chain
+// binding, so a restart during the wait still sees it.
+type BuilderRotation interface {
+	BuilderRotation(ctx context.Context) (uint64, error)
+}
+
+// TakeoverIntake takes the OpenTask orders of sessions bound to another Builder;
+// takeover.Manager implements it. Held answers an exact resend of an order held for a takeover
+// before any precheck; Admit decides an order the precheck found bound elsewhere and reserves the
+// session's takeover for it; Submit takes it once its input is stored, and Release undoes an
+// admission whose order failed before that.
+type TakeoverIntake interface {
+	Held(sessionID string, sequence uint64, taskHash string) (takeover.Admission, bool)
+	Admit(ctx context.Context, o types.Order, pre inflight.Order) (takeover.Admission, error)
+	Submit(ctx context.Context, o types.Order) error
+	Release(sessionID, taskHash string)
+}
+
+// OrderPrechecker is the OpenTask precheck of the dispatching Builder; inflight.Prechecker
+// implements it. Reserve enters an admitted order in the in-flight ledger right after the header
+// is validated, so concurrent orders of the session are judged with it while its input uploads;
+// Commit marks it handed over once the coordinator took the order, and Release undoes the
+// reservation when the order fails before that. Holds is the local idempotency alone: whether
+// this Builder already holds the same order.
+type OrderPrechecker interface {
+	Holds(sessionID string, sequence uint64, taskHash string) bool
+	Reserve(ctx context.Context, o inflight.Order) (inflight.Result, error)
+	Commit(r *inflight.Reservation) error
+	Release(r *inflight.Reservation) error
 }
 
 // service implements nexusv1connect.IngressAPIHandler, forwarding Connect requests to Handler.
@@ -102,6 +149,20 @@ type service struct {
 	taskData taskDataAPI
 	// outputStream non-nil means the streaming OUTPUT data plane is enabled (task_data.output_stream.enabled).
 	outputStream *outputStreamRuntime
+	// dispatchStream serves the Cortex dispatch streams (nil = Unimplemented).
+	dispatchStream dispatchStreamServer
+	// dispatchRosters serves GetDispatchRoster (nil = Unimplemented).
+	dispatchRosters DispatchRosters
+	// supportRelay serves SubmitModelSupportConfirmation (nil = Unimplemented).
+	supportRelay SupportRelay
+	// memberReplicas holds the tasks this Builder keeps as a Task Builders group member (nil =
+	// none); taskRecords confirms from the chain which tasks are recorded with this Builder in
+	// their group, and replicaWait bounds the wait for a replica of one to catch up.
+	memberReplicas MemberReplicas
+	taskRecords    *taskRecords
+	replicaWait    time.Duration
+	// metrics times the precheck and first output frames (nil = none).
+	metrics *opsmetrics.Registry
 }
 
 type serviceOption func(*service)
@@ -281,22 +342,6 @@ func (s *service) checkTaskEnvelope(
 	return s.verifyEnvelope(ctx, pb, c)
 }
 
-// errMethodRetired answers SubmitOrder, FetchOutputRef and RefreshCredential. They have no body
-// domain under SDKRequestEnvelopeV2, so they are refused before the request is parsed or any
-// signature is looked at; OpenTask and the Task data interface replace them.
-func errMethodRetired(method string) error {
-	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf(
-		"NEXUS_INGRESS_METHOD_RETIRED: %s is retired; use OpenTask and the Task data interface", method))
-}
-
-func (s *service) SubmitOrder(context.Context, *connect.Request[nexusv1.SubmitOrderRequest]) (*connect.Response[nexusv1.SubmitOrderResponse], error) {
-	return nil, errMethodRetired("SubmitOrder")
-}
-
-func (s *service) FetchOutputRef(context.Context, *connect.Request[nexusv1.FetchOutputRefRequest]) (*connect.Response[nexusv1.FetchOutputRefResponse], error) {
-	return nil, errMethodRetired("FetchOutputRef")
-}
-
 func (s *service) GetTaskStatus(ctx context.Context, req *connect.Request[nexusv1.GetTaskStatusRequest]) (*connect.Response[nexusv1.GetTaskStatusResponse], error) {
 	ids, err := parseTaskIDs(req.Msg.GetSessionId(), req.Msg.GetTaskId())
 	if err != nil {
@@ -315,68 +360,27 @@ func (s *service) GetTaskStatus(ctx context.Context, req *connect.Request[nexusv
 	}), nil
 }
 
+// SubscribeOutput and AckOutput serve only the streaming OUTPUT data plane: output is delivered as
+// Worker-signed stream frames, so with task_data.output_stream off both answer Unimplemented.
 func (s *service) SubscribeOutput(
 	ctx context.Context,
 	req *connect.Request[nexusv1.SubscribeOutputRequest],
 	stream *connect.ServerStream[nexusv1.SubscribeOutputResponse],
 ) error {
-	if s.outputStream != nil {
-		return s.subscribeOutputStream(ctx, req, stream)
+	if s.outputStream == nil {
+		return errOutputStreamDisabled
 	}
-	m := req.Msg
-	if m.GetSessionId() == "" || m.GetTaskId() == "" {
-		return connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_MALFORMED: session_id and task_id are required"))
-	}
-	requester, err := s.checkSubscribeEnvelope(ctx, m)
-	if err != nil {
-		return err
-	}
-	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
-	if err != nil {
-		return err
-	}
-	output, err := s.h.SubscribeOutput(ctx, ids.session, ids.task, requester)
-	if err != nil {
-		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-			return nil
-		}
-		return mapOutputDeliveryErr(err)
-	}
-	return stream.Send(&nexusv1.SubscribeOutputResponse{
-		OutputId: output.OutputID, SessionId: hash32text.FromInternal(output.SessionID), TaskId: hash32text.FromInternal(output.TaskID),
-		OutputText: output.Text, OutputHash: output.Hash,
-		CreatedAt: output.CreatedAt, ExpiresAt: output.ExpiresAt,
-	})
+	return s.subscribeOutputStream(ctx, req, stream)
 }
 
 func (s *service) AckOutput(
 	ctx context.Context,
 	req *connect.Request[nexusv1.AckOutputRequest],
 ) (*connect.Response[nexusv1.AckOutputResponse], error) {
-	if s.outputStream != nil {
-		return s.ackOutputStream(ctx, req)
+	if s.outputStream == nil {
+		return nil, errOutputStreamDisabled
 	}
-	m := req.Msg
-	if m.GetSessionId() == "" || m.GetTaskId() == "" || m.GetOutputId() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument,
-			errors.New("NEXUS_INGRESS_MALFORMED: session_id, task_id, and output_id are required"))
-	}
-	requester, err := s.checkAckEnvelope(ctx, m)
-	if err != nil {
-		return nil, err
-	}
-	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
-	if err != nil {
-		return nil, err
-	}
-	ack, err := s.h.AckOutput(ctx, ids.session, ids.task, m.GetOutputId(), requester)
-	if err != nil {
-		return nil, mapOutputDeliveryErr(err)
-	}
-	return connect.NewResponse(&nexusv1.AckOutputResponse{
-		Acked: ack.Acked, AlreadyAcked: ack.AlreadyAcked, AckedAt: ack.AckedAt,
-	}), nil
+	return s.ackOutputStream(ctx, req)
 }
 
 // GetTaskEvents is the SDK event stream (server streaming): replays history after cursor, then pushes live events
@@ -432,10 +436,6 @@ func (s *service) GetTaskEvents(ctx context.Context, req *connect.Request[nexusv
 	}
 }
 
-func (s *service) RefreshCredential(context.Context, *connect.Request[nexusv1.RefreshCredentialRequest]) (*connect.Response[nexusv1.RefreshCredentialResponse], error) {
-	return nil, errMethodRetired("RefreshCredential")
-}
-
 func (s *service) PrepareChallenge(ctx context.Context, req *connect.Request[nexusv1.PrepareChallengeRequest]) (*connect.Response[nexusv1.PrepareChallengeResponse], error) {
 	m := req.Msg
 	ids, err := parseTaskIDs(m.GetSessionId(), m.GetTaskId())
@@ -479,30 +479,6 @@ func mapPrepareChallengeErr(err error) error {
 
 // ---- error mapping (aligned with the SDK error code semantics) ----
 
-func mapOutputDeliveryErr(err error) error {
-	switch {
-	case errors.Is(err, outputdelivery.ErrUnauthorized):
-		return connect.NewError(connect.CodePermissionDenied, err)
-	case errors.Is(err, outputdelivery.ErrInvalidUTF8),
-		errors.Is(err, outputdelivery.ErrHashMismatch),
-		errors.Is(err, outputdelivery.ErrPlaintextRequired):
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	case errors.Is(err, outputdelivery.ErrTooLarge):
-		return connect.NewError(connect.CodeResourceExhausted, err)
-	case errors.Is(err, outputdelivery.ErrConflict),
-		errors.Is(err, outputdelivery.ErrExpired),
-		errors.Is(err, outputdelivery.ErrAlreadyAcked),
-		errors.Is(err, outputdelivery.ErrUnavailable):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, outputdelivery.ErrDeliveryFailure):
-		return connect.NewError(connect.CodeUnavailable, err)
-	case errors.Is(err, types.ErrTaskNotFound):
-		return connect.NewError(connect.CodeNotFound, err)
-	default:
-		return connect.NewError(connect.CodeInternal, err)
-	}
-}
-
 // ---- pb <-> types conversion ----
 
 func eventToPB(ev types.TaskEvent) *nexusv1.GetTaskEventsResponse {
@@ -512,20 +488,48 @@ func eventToPB(ev types.TaskEvent) *nexusv1.GetTaskEventsResponse {
 		TaskPhase:   ev.TaskPhase,
 		EventCode:   ev.EventCode,
 		ChainHeight: ev.ChainHeight,
+		Detail:      eventDetailToPB(ev.Detail),
 	}
 }
 
-// isLegacyOrderEnvelope distinguishes the two order_envelope encodings: the legacy canonical JSON always
-// starts with '{', while proto-encoded task.v1.SignedOrderV2 starts with the tag of field 1,
-// 0x0a; they cannot be confused. SubmitOrderRequest.order_envelope is already bytes, so the
-// new carrier needs no new proto field and the SDK request envelope's body digest is unchanged.
-func isLegacyOrderEnvelope(raw []byte) bool {
-	return len(raw) > 0 && raw[0] == '{'
+// eventDetailToPB is an event's detail with only the facts it has present; nil when it has none.
+func eventDetailToPB(d *types.TaskEventDetail) *nexusv1.TaskEventDetailV1 {
+	if d == nil || *d == (types.TaskEventDetail{}) {
+		return nil
+	}
+	text := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	hash := func(s string) []byte {
+		if s == "" {
+			return nil
+		}
+		b, err := hex.DecodeString(s)
+		if err != nil || len(b) != 32 {
+			return nil
+		}
+		return b
+	}
+	out := &nexusv1.TaskEventDetailV1{
+		BoundBuilder: text(d.BoundBuilder), RecordingBuilder: text(d.RecordingBuilder), RecordedTaskId: hash(d.RecordedTaskID),
+		CandidateBuilder: text(d.CandidateBuilder), DispatchTicketHash: hash(d.DispatchTicketHash),
+		WorkerOperatorAddress: text(d.WorkerOperatorAddress),
+	}
+	if d.TakeoverActivationHeight != 0 {
+		out.TakeoverActivationHeight = &d.TakeoverActivationHeight
+	}
+	if d.RejectCode != 0 {
+		code := taskv1.DispatchRejectCodeV1(d.RejectCode)
+		out.RejectCode = &code
+	}
+	return out
 }
 
 // parseSignedOrderEnvelope parses the SignedOrderV2 carrier of a TaskOrderV3.
-// It is the only valid input for the first-proposal scope branch of MsgSubmitWorkerHandraises: the user signature
-// covers the order-domain EIP-712 digest of TaskOrderV3; Nexus only validates structure and shape and forwards as is,
+// The user signature covers the order-domain EIP-712 digest of TaskOrderV3; Nexus only validates structure and shape and forwards as is,
 // never reconstructs the order and never verifies the signature (the Keeper verifies with the on-chain account public key).
 func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 	var signed taskv1.SignedOrderV2
@@ -583,44 +587,6 @@ func parseSignedOrderEnvelope(raw []byte) (types.Order, error) {
 
 func enumTaskType(t sharedv1.TaskType) string {
 	return strings.ToLower(strings.TrimPrefix(t.String(), "TASK_TYPE_"))
-}
-
-func parseOrderEnvelope(raw []byte, signatureScheme, userSignature string) (types.Order, error) {
-	if signatureScheme != "secp256k1" {
-		return types.Order{}, fmt.Errorf("unsupported signature_scheme %q", signatureScheme)
-	}
-	signature, err := hex.DecodeString(userSignature)
-	if err != nil || len(signature) != 64 || hex.EncodeToString(signature) != userSignature {
-		return types.Order{}, errors.New("user_signature must be 64-byte lowercase hex")
-	}
-	if !isLegacyOrderEnvelope(raw) {
-		return parseSignedOrderEnvelope(raw)
-	}
-	env, err := nodecontract.ParseAssignmentOrderEnvelope(string(raw))
-	if err != nil {
-		return types.Order{}, err
-	}
-	// The legacy JSON envelope has no TaskHash: it lacks chain_id / session_anchor_* / builder_set_* /
-	// generation_params, so the TRUEOPEN_TASK_ORDER_V3 preimage cannot be built and **no**
-	// canonical task_hash exists to fill in. The sha256(order_envelope) formerly filled in here was not a
-	// substitute but an alias, and has been removed.
-	//
-	// The consequence is explicit: an order with an empty task_hash is not broadcast (taskfsm.onOrder rejects it outright),
-	// which matches its original situation -- the first-proposal scope branch accepts only a SignedOrderV2, and
-	// legacy-envelope orders could never be submitted on-chain anyway. The only difference is that it now fails before broadcast
-	// instead of in workerHandraiseScope after enough hand-raises were collected.
-	return types.Order{
-		ModelID: env.ModelID, ProfileVersion: env.ProfileVersion, TaskType: env.TaskType,
-		Deadline: int64(env.DeadlineHeight), OrderEnvelope: string(raw),
-		SignatureScheme: signatureScheme, UserSignature: userSignature,
-		RewardBucket: env.RewardBucket, ProfileResourceTier: env.ProfileResourceTier,
-		InferInputUnitPriceBid: env.InferInputUnitPriceBid, InferOutputUnitPriceBid: env.InferOutputUnitPriceBid,
-		VerifyUnitPriceBid: env.VerifyUnitPriceBid, MaxFee: env.MaxFee, TxFeeReserve: env.TxFeeReserve,
-		InferFeeCap: env.InferFeeCap, VerifyFeeCap: env.VerifyFeeCap, OrderValue: env.OrderValue,
-		ValidAfterHeight: env.ValidAfterHeight, DeadlineHeight: env.DeadlineHeight,
-		PayloadHash: env.PayloadHash, InferTimeoutBlocks: env.InferTimeoutBlocks,
-		ReferenceBucketKey: env.ReferenceBucketKey, TimeoutBucketKey: env.TimeoutBucketKey,
-	}, nil
 }
 
 // verifyParticipantRoleSignature verifies Cortex's role signature. The presented key may be the
@@ -700,18 +666,25 @@ func mapPayloadErr(err error) error {
 	}
 }
 
+// mapOrderErr maps a refusal of a new order. An order that cannot dispatch yet
+// (NEXUS_INGRESS_DISPATCH_NOT_READY) is Unavailable like a state that could not be read: the SDK
+// waits and retries this Builder. When the height to retry at is known it is the
+// OpenTaskResponse detail's dispatch_available_height, and the message ends with it too.
+// NEXUS_INGRESS_BUILDER_KEY_ROTATING is mapped by mapKeyRotating.
 func mapOrderErr(err error) error {
+	var notReady *dispatchdraw.NotReadyError
 	switch {
-	case errors.Is(err, coordinator.ErrNotSelectedBuilder):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("NEXUS_INGRESS_NOT_SELECTED_BUILDER"))
-	case errors.Is(err, coordinator.ErrAdmissionUnavailable):
-		return connect.NewError(connect.CodeUnavailable, errors.New("NEXUS_INGRESS_STAGE1_UNAVAILABLE"))
-	case errors.Is(err, coordinator.ErrOrderReplacementUnsupported):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
-			"NEXUS_INGRESS_ORDER_REPLACEMENT_UNSUPPORTED: this Builder already tracks another version of the task; do not retry"))
-	case errors.Is(err, coordinator.ErrTaskTerminal):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(
-			"NEXUS_INGRESS_TASK_TERMINAL: the task already finished with another version; do not retry"))
+	case errors.Is(err, inflight.ErrBuilderKeyRotating):
+		return mapKeyRotating(err)
+	case errors.As(err, &notReady) && notReady.DispatchableHeight != 0:
+		height := notReady.DispatchableHeight
+		return withOpenTaskDetail(connect.NewError(connect.CodeUnavailable, err), &nexusv1.OpenTaskResponse{DispatchAvailableHeight: &height})
+	case errors.Is(err, coordinator.ErrDispatchUnavailable), errors.Is(err, inflight.ErrUnavailable),
+		errors.Is(err, dispatchdraw.ErrDispatchNotReady):
+		return connect.NewError(connect.CodeUnavailable, err)
+	case errors.Is(err, dispatchdraw.ErrNoCapacity), errors.Is(err, inflight.ErrOrderReplacementUnsupported),
+		errors.Is(err, taskgroup.ErrBuilderSetStale):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return mapPayloadErr(err)
 	}

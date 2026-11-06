@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "a30e5e8c1efbee0e2f2aba51ff99dbe156652605616442b4b9cf3ceffc53b541"
+	const want = "a3639f5a186fe97a41ea7d84fb3339e2b4fe95e3792be82cdf30de0a1a3f43ad"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -28,31 +28,14 @@ func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 // defines typed sub-messages
 // for the assignment and open-verify requests.
 func TestNodeDescriptorTaskMsgWire(t *testing.T) {
-	t.Run("worker handraise proposal wire", func(t *testing.T) {
-		// Scope is the WorkerHandraiseScopeV1 carrier (the oneof lives in the sub-message),
-		// handraises=2, submitter_address=3.
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 1, "scope", protoreflect.MessageKind, false)
-		assertContractOneof(t, "task.v1.WorkerHandraiseScopeV1", "scope", 1, 2)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 2, "handraises", protoreflect.MessageKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraises", 3, "submitter_address", protoreflect.StringKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 2, "proposal_digest", protoreflect.BytesKind, false)
-		assertContractField(t, "task.v1.MsgSubmitWorkerHandraisesResponse", 5, "stage_status", protoreflect.EnumKind, false)
-		// Handraise field order is part of the signing digest preimage.
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 7, "member", protoreflect.MessageKind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 8, "duty", protoreflect.EnumKind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 9, "service_authorization_nonce", protoreflect.Uint64Kind, false)
-		assertContractField(t, "task.v1.WorkerHandraiseV1", 11, "service_signature", protoreflect.BytesKind, false)
-		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
-		// The sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
-		assertContractFieldEnumType(t, "task.v1.WorkerHandraiseV1", 8, "shared.v1.Duty")
-		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
-	})
-
 	t.Run("verifier handraise proposal wire", func(t *testing.T) {
 		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 1, "task_id", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.MsgSubmitVerifierHandraises", 3, "submitter_address", protoreflect.StringKind, false)
 		assertContractField(t, "task.v1.VerifierHandraiseV1", 5, "infer_receipt_hash", protoreflect.BytesKind, false)
 		assertContractField(t, "task.v1.VerifierHandraiseV1", 13, "service_signature", protoreflect.BytesKind, false)
+		assertContractField(t, "task.v1.CandidateMemberRefV1", 3, "slot_version", protoreflect.Uint64Kind, false)
+		// The sole numeric authority for Duty is shared.v1 (same value range, different generated Go type).
+		assertContractFieldEnumType(t, "task.v1.VerifierHandraiseV1", 10, "shared.v1.Duty")
 	})
 
 	t.Run("typed stage receipts", func(t *testing.T) {
@@ -85,15 +68,17 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 2, "task_round", protoreflect.MessageKind, false)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 3, "", protoreflect.MessageKind, true)
 		assertContractField(t, "task.v1.DeadlineLocatorV1", 4, "session_lifecycle", protoreflect.MessageKind, false)
-		// DeadlineKindV1 4/11/12/13 are the kinds the nexus submit gate rejects by name
+		// DeadlineKindV1 4/11/12/13/14 are the kinds the nexus submit gate names
 		// (validateTaskDeadlineKind); EVIDENCE_REQUEST(3) / CHALLENGE_RESOLVE /
 		// CHALLENGE_CLOSE were removed.
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_ROUND_CLOSE", 4)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFY_FINAL", 11)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE", 12)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_EVIDENCE_CLEANUP", 13)
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE", 14)
 		for _, name := range []string{
 			"DEADLINE_KIND_V1_EVIDENCE_REQUEST", "DEADLINE_KIND_V1_CHALLENGE_RESOLVE", "DEADLINE_KIND_V1_CHALLENGE_CLOSE",
+			"DEADLINE_KIND_V1_SESSION_CHANGE_EFFECTIVE",
 		} {
 			assertContractEnumValueAbsent(t, "task.v1.DeadlineKindV1", name)
 		}
@@ -111,6 +96,9 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 			"task.v1.MsgSweepExpiredTask",
 			"task.v1.MsgFailSettle",
 			"task.v1.MsgAssign",
+			// Per-task Worker handraises and their proposal Msg were replaced by direct dispatch.
+			"task.v1.MsgSubmitWorkerHandraises",
+			"task.v1.WorkerHandraiseV1",
 			"task.v1.MsgOpenVerify",
 			"task.v1.MsgSettle",
 			// Local event enums and old States removed by the current wire.
@@ -165,8 +153,8 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractFieldMessageType(t, "task.v1.SubscribeTaskEventsResponse", 2, "shared.v1.StreamCheckpoint")
 		assertContractField(t, "shared.v1.StreamCheckpoint", 2, "chain_height", protoreflect.Uint64Kind, false)
 		// payload oneof field number == ProtocolEventCodeV1 value.
-		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED", 11)
-		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 11, "worker_assignment_finalized", protoreflect.MessageKind, false)
+		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_VERIFIER_ASSIGNMENT_FINALIZED", 13)
+		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 13, "verifier_assignment_finalized", protoreflect.MessageKind, false)
 		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED", 17)
 		assertContractField(t, "task.v1.TaskProtocolEventPayloadV1", 17, "result_accepted", protoreflect.MessageKind, false)
 		assertContractEnumValue(t, "shared.v1.ProtocolEventCodeV1", "PROTOCOL_EVENT_CODE_V1_TASK_SETTLED", 19)
@@ -320,14 +308,24 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 	}{
 		// BuilderState carries only identity + current service key + descriptor version +
 		// three pending counters; neither the admission status nor the fault counters are on this State.
-		// Everything after 12 must be empty, so the mirror cannot quietly grow a field with no authoritative source.
+		// 12..14 retain the one previous proof generation, 15 the explicit revoke cutoff; everything
+		// after must be empty, so the mirror cannot quietly grow a field with no authoritative source.
 		{message: "hub.v1.BuilderState", number: 2, name: "builder_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.BuilderState", number: 3, name: "current_service_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.BuilderState", number: 5, name: "current_service_key_status", kind: protoreflect.EnumKind},
 		{message: "hub.v1.BuilderState", number: 6, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
 		{message: "hub.v1.BuilderState", number: 8, name: "registered_height", kind: protoreflect.Uint64Kind},
 		{message: "hub.v1.BuilderState", number: 11, name: "pending_evidence_submission_count", kind: protoreflect.Uint32Kind},
-		{message: "hub.v1.BuilderState", number: 12, absent: true},
+		{message: "hub.v1.BuilderState", number: 12, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.BuilderState", number: 13, name: "previous_service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 14, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		// 15 is the explicit emergency-revoke cutoff of a REVOKED current key.
+		{message: "hub.v1.BuilderState", number: 15, name: "revoked_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.BuilderState", number: 16, absent: true},
+		{message: "hub.v1.CortexNodeState", number: 13, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.CortexNodeState", number: 15, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CortexNodeState", number: 16, name: "revoked_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CortexNodeState", number: 17, absent: true},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 1, name: "participant_type", kind: protoreflect.EnumKind},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 3, name: "descriptor", kind: protoreflect.MessageKind},
 		{message: "hub.v1.MsgUpdateServiceDescriptor", number: 4, name: "operator_address", kind: protoreflect.StringKind},
@@ -336,7 +334,16 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 4, name: "service_pubkey", kind: protoreflect.BytesKind},
 		{message: "hub.v1.CurrentServiceKeyViewV1", number: 5, name: "service_authorization_nonce", kind: protoreflect.Uint64Kind},
-		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, absent: true},
+		// 9 is the pending rotation; it never changes the current fields above until activation.
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 9, name: "pending_rotation", kind: protoreflect.MessageKind},
+		// 10..12 are the previous generation, present together.
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 10, name: "previous_service_pubkey", kind: protoreflect.BytesKind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 11, name: "previous_service_authorization_nonce", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 12, name: "previous_retired_height", kind: protoreflect.Uint64Kind},
+		// 13 is the explicit emergency-revoke cutoff of a REVOKED current key.
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 13, name: "revoked_height", kind: protoreflect.Uint64Kind},
+		{message: "hub.v1.CurrentServiceKeyViewV1", number: 14, absent: true},
+		{message: "hub.v1.PendingServiceKeyRotationState", number: 8, absent: true},
 		{message: "hub.v1.ServiceDescriptorState", number: 2, name: "operator_address", kind: protoreflect.StringKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 6, name: "descriptor_hash", kind: protoreflect.BytesKind},
 		{message: "hub.v1.ServiceDescriptorState", number: 8, absent: true},
@@ -349,13 +356,12 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 
 		// Every ACTIVE Task Msg names its stable operator/submitter address
 		// field explicitly; Builder identity copies are forbidden.
-		{message: "task.v1.MsgSubmitWorkerHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitInferReceipt", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSubmitVerifierHandraises", number: 3, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgReportDataUnavailable", number: 4, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSettleTask", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
 		{message: "task.v1.MsgSweepDeadline", number: 2, name: "submitter_address", kind: protoreflect.StringKind},
-		{message: "task.v1.WorkerHandraiseV1", number: 2, name: "chain_id", kind: protoreflect.StringKind},
+		{message: "task.v1.VerifierHandraiseV1", number: 2, name: "chain_id", kind: protoreflect.StringKind},
 		{message: "task.v1.InferReceiptV3", number: 5, name: "worker_operator_address", kind: protoreflect.StringKind},
 		{message: "task.v1.VerifyCommitV1", number: 5, name: "verifier_operator_address", kind: protoreflect.StringKind},
 		{message: "task.v1.SettlementFactsV1", number: 5, name: "settlement_duty_builder_operator", kind: protoreflect.StringKind},
@@ -372,7 +378,10 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "task.v1.TaskAssignmentViewV1", number: 19, name: "worker_infer_timeout_slash_bps", kind: protoreflect.Uint32Kind},
 		{message: "task.v1.TaskAssignmentViewV1", number: 20, name: "result_reveal_missing_slash_bps", kind: protoreflect.Uint32Kind},
 		{message: "task.v1.TaskAssignmentViewV1", number: 21, name: "min_stake_snapshot", kind: protoreflect.MessageKind},
-		{message: "task.v1.TaskAssignmentViewV1", number: 22, absent: true},
+		// 22..24 identify the recorded dispatch; nothing after it.
+		{message: "task.v1.TaskAssignmentViewV1", number: 22, name: "record_height", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 24, name: "dispatch_ticket_hash", kind: protoreflect.BytesKind},
+		{message: "task.v1.TaskAssignmentViewV1", number: 25, absent: true},
 		{message: "task.v1.InferReceiptState", number: 2, name: "winner_worker", kind: protoreflect.StringKind},
 		// generated_token_count is inserted at 7 and later fields shift back by one; 15 is the new output_leaf_count.
 		{message: "task.v1.InferReceiptState", number: 7, name: "generated_token_count", kind: protoreflect.Uint64Kind},
@@ -384,6 +393,15 @@ func TestNodeOperatorIdentityFieldContract(t *testing.T) {
 		{message: "task.v1.InferReceiptState", number: 20, absent: true},
 		{message: "task.v1.VerifierAssignmentState", number: 9, name: "selected_verifiers", kind: protoreflect.MessageKind},
 		{message: "task.v1.VerifierAssignmentState", number: 15, absent: true},
+		// The Session-frozen order lifetime, and the frozen body a session read returns with its version.
+		{message: "task.v1.DispatchParamsV1", number: 23, name: "max_order_lifetime_blocks", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.DispatchParamsV1", number: 24, absent: true},
+		{message: "task.v1.QuerySessionResponse", number: 2, name: "params", kind: protoreflect.MessageKind},
+		{message: "task.v1.QuerySessionResponse", number: 3, name: "params_version", kind: protoreflect.Uint64Kind},
+		{message: "task.v1.QuerySessionResponse", number: 4, absent: true},
+		// An automatic compensation exclusion names its reason; its attempt outcome stays UNSPECIFIED.
+		{message: "task.v1.EventDispatchCompensationRebutted", number: 8, name: "dismissal_reason", kind: protoreflect.EnumKind},
+		{message: "task.v1.EventDispatchCompensationRebutted", number: 9, absent: true},
 	}
 
 	for _, test := range tests {

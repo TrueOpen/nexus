@@ -13,14 +13,13 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
 )
 
 func settleSelection(session, task string, builders ...string) chaincli.StageBuilderSelectionState {
 	return chaincli.StageBuilderSelectionState{
-		SessionID: session, TaskID: task, Stage: prepareStageSettle,
+		SessionID: session, TaskID: task, Stage: settleSelectionStage,
 		SelectedBuilders: builders, SelectedHeight: 200,
 	}
 }
@@ -35,17 +34,16 @@ const (
 	rankPermissionless = rankRevealDeadline + 3*rankGraceBlocks
 )
 
-// newRankCoordinator builds a coordinator with the given self + roster (stub bus).
-func newRankCoordinator(t *testing.T, self string, members []types.BuilderRef) (*Coordinator, *fakeSubmitter, msgbus.Bus) {
+// newRankCoordinator builds a coordinator with the given self + roster.
+func newRankCoordinator(t *testing.T, self string, members []types.BuilderRef) (*Coordinator, *fakeSubmitter) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), self, testChainID)
-	_ = enableTestBusEnvelopes(c)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(), self, testChainID)
+	enableTestBuilderMessages(c)
 	sub := &fakeSubmitter{}
 	c.submit = sub
 	c.active.Update(1, members, testBuilderSetRef)
-	return c, sub, bus
+	return c, sub
 }
 
 // driveToSettleReady advances a task to Verifying with two Verifier results and the chain
@@ -53,11 +51,10 @@ func newRankCoordinator(t *testing.T, self string, members []types.BuilderRef) (
 func driveToSettleReady(t *testing.T, c *Coordinator, session, task string, selection *chaincli.StageBuilderSelectionState) {
 	t.Helper()
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "worker-1", Height: 101})
+	recordTestWinner(c, session, task, "worker-1", 101)
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-1", []byte("h"))); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
@@ -79,11 +76,11 @@ func driveToSettleReady(t *testing.T, c *Coordinator, session, task string, sele
 		fsm.mu.Unlock()
 	}
 	vals := [][]byte{[]byte("x1"), []byte("x2")}
-	if err := fsm.onVerifyResult(testVerifyResult(task, "v1", vals)); err != nil {
-		t.Fatalf("onVerifyResult v1: %v", err)
+	if _, err := fsm.relayVerifyResult(testVerifyResult(task, "v1", vals)); err != nil {
+		t.Fatalf("relay verify result v1: %v", err)
 	}
-	if err := fsm.onVerifyResult(testVerifyResult(task, "v2", vals)); err != nil {
-		t.Fatalf("onVerifyResult v2: %v", err)
+	if _, err := fsm.relayVerifyResult(testVerifyResult(task, "v2", vals)); err != nil {
+		t.Fatalf("relay verify result v2: %v", err)
 	}
 	markSettleReady(fsm, 0)
 }
@@ -105,7 +102,7 @@ func settleCount(s *fakeSubmitter) int {
 // TestSettleUsesFrozenBuilderOrder rank 2: it does not submit once the settlement inputs are ready; it takes
 // over only after the chain height passes the start of its own grace window.
 func TestSettleUsesFrozenBuilderOrder(t *testing.T) {
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-b"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-b"), nil)
 	selection := settleSelection("session-1", testTaskID("rank-task-1"), testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
 	driveToSettleReady(t, c, "session-1", testTaskID("rank-task-1"), &selection)
 	if settleCount(sub) != 0 {
@@ -123,7 +120,7 @@ func TestSettleUsesFrozenBuilderOrder(t *testing.T) {
 
 // TestSettleRank3WaitsTwoGraceWindows rank 3 must wait for both grace windows to pass.
 func TestSettleRank3WaitsTwoGraceWindows(t *testing.T) {
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-c"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-c"), nil)
 	selection := settleSelection("session-1", testTaskID("rank-task-3"), testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
 	driveToSettleReady(t, c, "session-1", testTaskID("rank-task-3"), &selection)
 	c.onNewBlock(rankRevealDeadline + 2*rankGraceBlocks - 1)
@@ -137,7 +134,7 @@ func TestSettleRank3WaitsTwoGraceWindows(t *testing.T) {
 }
 
 func TestMissingSettleSelectionNeverDefaultsToRankOne(t *testing.T) {
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-a"), nil)
 	driveToSettleReady(t, c, "session-1", testTaskID("rank-task-nil"), nil)
 	c.onNewBlock(rankPermissionless + 1)
 	if settleCount(sub) != 0 {
@@ -148,7 +145,7 @@ func TestMissingSettleSelectionNeverDefaultsToRankOne(t *testing.T) {
 // TestSettleBackupWithoutGraceBlocksStandsBy the grace block count is unknown (an old snapshot):
 // rank 2 does not invent a window of its own.
 func TestSettleBackupWithoutGraceBlocksStandsBy(t *testing.T) {
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-b"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-b"), nil)
 	selection := settleSelection("session-1", testTaskID("rank-task-ng"), testOperator("builder-a"), testOperator("builder-b"))
 	driveToSettleReady(t, c, "session-1", testTaskID("rank-task-ng"), &selection)
 	fsm, _ := c.getFSM("session-1", testTaskID("rank-task-ng"))
@@ -182,19 +179,11 @@ func TestRecoveredSettleSelectionKeepsRank(t *testing.T) {
 }
 
 // TestSettleRank1SubmitsOnceChainReady rank 1's slot has no start: the chain accepts its
-// settlement at any height up to reveal + grace once the task is ready to settle. It broadcasts
-// prepare before sending.
+// settlement at any height up to reveal + grace once the task is ready to settle.
 func TestSettleRank1SubmitsOnceChainReady(t *testing.T) {
 	session, task := "sess-r1", testTaskID("task-r1")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
-	c, sub, bus := newRankCoordinator(t, testOperator("builder-a"), nil)
-	var prepares captured
-	if _, err := bus.Subscribe(msgbus.SubjectBuilderPrepare(task), func(_ string, data []byte) error {
-		prepares.add(data)
-		return nil
-	}); err != nil {
-		t.Fatalf("subscribe prepare: %v", err)
-	}
+	c, sub := newRankCoordinator(t, testOperator("builder-a"), nil)
 
 	driveToSettleReady(t, c, session, task, &selection)
 	if settleCount(sub) != 0 {
@@ -204,18 +193,6 @@ func TestSettleRank1SubmitsOnceChainReady(t *testing.T) {
 	if settleCount(sub) != 1 {
 		t.Fatalf("rank 1 must submit once the chain reports the task ready, got %d", settleCount(sub))
 	}
-	if prepares.count() != 1 {
-		t.Fatalf("rank1 must broadcast prepare before submit, got %d", prepares.count())
-	}
-	// prepare is a nexus-internal signed message (prepare.go), not wrapped in BusEnvelopeV1;
-	// run it through the receiving codec for a full signature verification.
-	p, err := c.prepares.decode(context.Background(), prepares.last(), uint64(nowMS()))
-	if err != nil {
-		t.Fatalf("prepare notice does not verify: %v", err)
-	}
-	if p.Stage != prepareStageSettle || p.Submitter != c.active.self {
-		t.Fatalf("prepare notice fields: %+v", p)
-	}
 }
 
 // TestSettleOnlyInsideOwnSegment past its own slot it stops sending: by then the submitter has
@@ -224,7 +201,7 @@ func TestSettleRank1SubmitsOnceChainReady(t *testing.T) {
 func TestSettleOnlyInsideOwnSegment(t *testing.T) {
 	session, task := "sess-seg", testTaskID("task-seg")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-b"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-b"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 
 	c.onNewBlock(rankRevealDeadline + 2*rankGraceBlocks) // would execute inside rank 3's slot
@@ -248,7 +225,7 @@ func TestSettleOnlyInsideOwnSegment(t *testing.T) {
 func TestSettleRetriesNextBlockWhenNotSettled(t *testing.T) {
 	session, task := "sess-retry", testTaskID("task-retry")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-a"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 
 	c.onNewBlock(rankRevealDeadline)
@@ -270,7 +247,7 @@ func TestSettleRetriesNextBlockWhenNotSettled(t *testing.T) {
 func TestSettleRank2RetriesOnNextBlockAfterSubmitFailure(t *testing.T) {
 	session, task := "sess-r2", testTaskID("task-r2")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-b"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-b"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 
 	sub.mu.Lock()
@@ -294,7 +271,7 @@ func TestSettleRank2RetriesOnNextBlockAfterSubmitFailure(t *testing.T) {
 func TestSettleRank2StandsDownWhenSettled(t *testing.T) {
 	session, task := "sess-rs", testTaskID("task-rs")
 	selection := settleSelection(session, task, testOperator("builder-a"), testOperator("builder-b"), testOperator("builder-c"))
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-b"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-b"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 	// rank1 (someone else) settles on chain, ahead of rank2's window.
 	c.OnSettleAccepted(chaincli.SettleAccepted{
@@ -314,53 +291,16 @@ func TestSettleRank2StandsDownWhenSettled(t *testing.T) {
 	}
 }
 
-// TestProposalGroupGating ASSIGN proposal gate: outside the group it does not submit; inside
-// the group it submits right away (without waiting for others).
-func TestProposalGroupGating(t *testing.T) {
-	members := []types.BuilderRef{{Address: testOperator("builder-a")}, {Address: testOperator("builder-b")}}
-
-	feedHandraises := func(c *Coordinator, session, task string) {
-		if err := c.OnOrder(context.Background(), testCurrentOrder(session, task, testUserAddress)); err != nil {
-			t.Fatalf("OnOrder: %v", err)
-		}
-		fsm, _ := c.getFSM(session, task)
-		for _, w := range []string{"w1", "w2", "w3"} {
-			fsm.onWorkerHandraise(testWorkerHandraise(session, task, w))
-		}
-	}
-
-	// Outside the group: the roster is non-empty and self is not in it -> no AssignTx is submitted.
-	cOut, subOut, _ := newRankCoordinator(t, testOperator("builder-outsider"), members)
-	feedHandraises(cOut, "sess-po", testTaskID("task-po"))
-	subOut.mu.Lock()
-	nOut := len(subOut.assign)
-	subOut.mu.Unlock()
-	if nOut != 0 {
-		t.Fatalf("outsider must not submit AssignTx, got %d", nOut)
-	}
-
-	// Inside the group: submit immediately, with no rank wait (proposal window semantics).
-	cIn, subIn, _ := newRankCoordinator(t, testOperator("builder-a"), members)
-	feedHandraises(cIn, "sess-pi", testTaskID("task-pi"))
-	subIn.mu.Lock()
-	nIn := len(subIn.assign)
-	subIn.mu.Unlock()
-	if nIn != 1 {
-		t.Fatalf("group member must submit AssignTx immediately, got %d", nIn)
-	}
-}
-
 // TestSettleFollowsChainNotLocalResults whether to settle is the chain's call: local Verifier
 // results that disagree, or none at all, change nothing.
 func TestSettleFollowsChainNotLocalResults(t *testing.T) {
 	session, task := "sess-chain", testTaskID("task-chain")
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-a"), nil)
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: session, TaskID: task, Height: 100})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: session, TaskID: task, Winner: "worker-1", Height: 101})
+	recordTestWinner(c, session, task, "worker-1", 101)
 	if err := c.OnInferReceipt(ctx, testInferReceipt(session, task, "worker-1", []byte("h"))); err != nil {
 		t.Fatalf("OnInferReceipt: %v", err)
 	}
@@ -413,7 +353,7 @@ func TestSettleStageFromChain(t *testing.T) {
 func TestReconcileSettleStage(t *testing.T) {
 	session, task := "sess-stage", testTaskID("task-stage")
 	selection := settleSelection(session, task, testOperator("builder-a"))
-	c, sub, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
+	c, sub := newRankCoordinator(t, testOperator("builder-a"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 	fsm, _ := c.getFSM(session, task)
 	fsm.mu.Lock()
@@ -462,7 +402,7 @@ func TestReconcileSettleStage(t *testing.T) {
 func TestChallengeWindowCloseReconcilesTheTask(t *testing.T) {
 	session, task := "sess-cw", testTaskID("task-cw")
 	selection := settleSelection(session, task, testOperator("builder-a"))
-	c, _, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
+	c, _ := newRankCoordinator(t, testOperator("builder-a"), nil)
 	driveToSettleReady(t, c, session, task, &selection)
 	pending := func() bool {
 		c.reconcilePendingMu.Lock()
@@ -534,7 +474,7 @@ func TestPermissionlessSettleIsStaggeredByRank(t *testing.T) {
 	}
 	nodes := make([]node, len(builders))
 	for i, self := range builders {
-		c, sub, _ := newRankCoordinator(t, self, nil)
+		c, sub := newRankCoordinator(t, self, nil)
 		driveToSettleReady(t, c, session, task, &selection)
 		nodes[i] = node{c, sub}
 	}
@@ -575,7 +515,7 @@ func TestPermissionlessSettleBackupTakesOver(t *testing.T) {
 	subs := make([]*fakeSubmitter, 0, 2)
 	coords := make([]*Coordinator, 0, 2)
 	for _, self := range builders[1:] {
-		c, sub, _ := newRankCoordinator(t, self, nil)
+		c, sub := newRankCoordinator(t, self, nil)
 		driveToSettleReady(t, c, session, task, &selection)
 		coords, subs = append(coords, c), append(subs, sub)
 	}
@@ -611,7 +551,7 @@ func TestPermissionlessStaggerCountsFromFirstAcceptedHeight(t *testing.T) {
 	subs := make([]*simulatingSubmitter, len(builders))
 	coords := make([]*Coordinator, len(builders))
 	for i, self := range builders {
-		c, _, _ := newRankCoordinator(t, self, nil)
+		c, _ := newRankCoordinator(t, self, nil)
 		sub := &simulatingSubmitter{confirmSubmitter: newConfirmSubmitter(),
 			sim: chaincli.SimResult{OK: false, Error: "round 1 challenge window is still open"}}
 		c.submit = sub

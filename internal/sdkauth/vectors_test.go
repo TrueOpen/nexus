@@ -2,6 +2,7 @@ package sdkauth
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -157,7 +158,7 @@ func chainFor(t *testing.T, f accountSigning) *fakeChain {
 	}
 }
 
-// The five User Ingress body digests match wire's sdk_request_body_v1.json byte for byte.
+// The six User Ingress body digests match wire's sdk_request_body_v1.json byte for byte.
 func TestBodyDigestsMatchWire(t *testing.T) {
 	file := wirefixture.Load(t, filepath.Join("task", "sdk_request_body_v1.json"))
 	check := func(name string, got [32]byte, err error) {
@@ -182,7 +183,7 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	sub := file.Vector(t, "sdk_body_subscribe_output_v1", 0)
 	session := hash32text.Encode(sub.Field(t, "session_id").Bytes(t))
 	task := hash32text.Encode(sub.Field(t, "task_id").Bytes(t))
-	got, err = SubscribeOutputBody(session, task, nil)
+	got, err = SubscribeOutputBody(session, task, nil, nil)
 	check("sdk_body_subscribe_output_v1", got, err)
 
 	ack := file.Vector(t, "sdk_body_ack_output_v1", 0)
@@ -196,6 +197,46 @@ func TestBodyDigestsMatchWire(t *testing.T) {
 	evidence := challenge.Field(t, "local_evidence_digest").Fields[0].Bytes(t)
 	got, err = PrepareChallengeBody(session, task, challenge.Field(t, "challenge_kind").UTF8, evidence)
 	check("sdk_body_prepare_challenge_v1", got, err)
+
+	roster := file.Vector(t, "sdk_body_get_dispatch_roster_v1", 0)
+	got, err = GetDispatchRosterBody(hash32text.Encode(roster.Field(t, "session_id").Bytes(t)), hash32text.Encode(roster.Field(t, "task_id").Bytes(t)))
+	check("sdk_body_get_dispatch_roster_v1", got, err)
+}
+
+// ResumeOutput's body matches wire's vector with both optional fields present. SubscribeOutput has
+// the same field shapes under its own domain (only the domain keeps one from authorizing the
+// other), so its present-ticket branch is pinned by hashing the vector's encoded fields under the
+// subscribe domain.
+func TestResumeAndPresentTicketSubscribeBodiesMatchWire(t *testing.T) {
+	file := wirefixture.Load(t, filepath.Join("task", "sdk_request_body_v1.json"))
+	v := file.Vector(t, "sdk_body_resume_output_v1", 0)
+	session := hash32text.Encode(v.Field(t, "session_id").Bytes(t))
+	task := hash32text.Encode(v.Field(t, "task_id").Bytes(t))
+	resume := v.Field(t, "resume_after_seq").Fields[0].Uint64(t)
+	ticket := v.Field(t, "dispatch_ticket_hash").Fields[0].Bytes(t)
+	got, err := ResumeOutputBody(session, task, &resume, ticket)
+	if err != nil || got != v.Digest(t) {
+		t.Fatalf("resume body = %x, %v; want %s", got, err, v.DigestHex)
+	}
+	var fields [][]byte
+	for _, f := range v.Fields {
+		encoded, err := f.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields = append(fields, encoded)
+	}
+	want := sha256.Sum256(wirefixture.HFieldsPreimage(BodySubscribeOutputDomain, fields...))
+	got, err = SubscribeOutputBody(session, task, &resume, ticket)
+	if err != nil || got != want {
+		t.Fatalf("subscribe body with a ticket = %x, %v; want %x", got, err, want)
+	}
+	if _, err := SubscribeOutputBody(session, task, nil, ticket[:31]); err == nil {
+		t.Fatal("a 31-byte ticket was hashed")
+	}
+	if _, err := ResumeOutputBody(session, task, nil, []byte{}); err == nil {
+		t.Fatal("a present empty ticket was hashed")
+	}
 }
 
 // The wallet-signed OpenTask request: domain, hash_struct, digest and recovered signer match wire, and

@@ -4,8 +4,10 @@ package hub.v1;
 
 import "hub/v1/bridge.proto";
 import "hub/v1/common.proto";
+import "hub/v1/dispatch.proto";
 import "hub/v1/emergency_freeze.proto";
 import "hub/v1/model_profile_state.proto";
+import "hub/v1/participant_identity.proto";
 import "hub/v1/reward.proto";
 import "hub/v1/treasury.proto";
 import "shared/v1/amount.proto";
@@ -83,6 +85,9 @@ message ProtocolEventPayloadV1 {
     EventBridgeLimitsScheduled bridge_limits_scheduled = 125;
     EventBridgeLimitsActivated bridge_limits_activated = 126;
     EventBridgeSignerRotated bridge_signer_rotated = 127;
+    EventBuilderCompensationFunded builder_compensation_funded = 143;
+    EventBuilderVrfKeyRegistered builder_vrf_key_registered = 144;
+    EventServiceKeyRotationRegistered service_key_rotation_registered = 145;
   }
 }
 
@@ -242,7 +247,7 @@ message EventFaultRecorded {
   shared.v1.Duty duty = 1;
   string operator = 2;
   bytes fault_id = 3;
-  FaultKind fault_kind = 4;
+  shared.v1.FaultKind fault_kind = 4;
   optional bytes session_id_or_empty = 5;
   optional bytes task_id_or_empty = 6;
 }
@@ -355,12 +360,18 @@ message EventModelStateChanged {
   GovernanceReason reason = 5;
 }
 
-// EventServiceKeyRotated is event code 101.
+// EventServiceKeyRotationRegistered reports a proposal; current is unchanged.
+message EventServiceKeyRotationRegistered {
+  PendingServiceKeyRotationState pending_rotation = 1;
+}
+
+// EventServiceKeyRotated is event code 101, emitted only at actual epoch activation.
 message EventServiceKeyRotated {
   shared.v1.ParticipantType participant_type = 1;
   string operator = 2;
   string old_service_address = 3;
   string new_service_address = 4;
+  // Nonce of the newly activated key that just became current.
   uint64 authorization_nonce = 5;
 }
 
@@ -369,6 +380,7 @@ message EventServiceKeyRevoked {
   shared.v1.ParticipantType participant_type = 1;
   string operator = 2;
   string revoked_service_address = 3;
+  // Nonce of the key identified by revoked_service_address that was revoked.
   uint64 authorization_nonce = 4;
   ServiceKeyRevocationReason reason = 5;
 }

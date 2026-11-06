@@ -745,8 +745,14 @@ type CandidatePoolSnapshotState struct {
 	ExpiresHeight      uint64 `protobuf:"varint,14,opt,name=expires_height,json=expiresHeight,proto3" json:"expires_height,omitempty"`
 	TaskRefCount       uint32 `protobuf:"varint,15,opt,name=task_ref_count,json=taskRefCount,proto3" json:"task_ref_count,omitempty"`
 	PrunedHeight       uint64 `protobuf:"varint,16,opt,name=pruned_height,json=prunedHeight,proto3" json:"pruned_height,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Frozen together on activation; their sum must equal 1,000,000.
+	// Queries and dispatch challenges use these values, never current Task params.
+	// READY headers leave both unset. Retained activated headers preserve them
+	// through expiry and pruning. These are scoring facts, not pool-hash inputs.
+	WorkerStakeWeightPpm       uint32 `protobuf:"varint,17,opt,name=worker_stake_weight_ppm,json=workerStakeWeightPpm,proto3" json:"worker_stake_weight_ppm,omitempty"`
+	WorkerPerformanceWeightPpm uint32 `protobuf:"varint,18,opt,name=worker_performance_weight_ppm,json=workerPerformanceWeightPpm,proto3" json:"worker_performance_weight_ppm,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *CandidatePoolSnapshotState) Reset() {
@@ -891,6 +897,20 @@ func (x *CandidatePoolSnapshotState) GetPrunedHeight() uint64 {
 	return 0
 }
 
+func (x *CandidatePoolSnapshotState) GetWorkerStakeWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerStakeWeightPpm
+	}
+	return 0
+}
+
+func (x *CandidatePoolSnapshotState) GetWorkerPerformanceWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerPerformanceWeightPpm
+	}
+	return 0
+}
+
 // CandidatePoolActiveSegmentState is one fixed-width bitmap segment of an epoch
 // pool (key = (epoch, segment_index)). bitmap length is exactly
 // candidate_bitmap_segment_bytes; missing segments read as all-zero bytes of the
@@ -970,12 +990,13 @@ func (x *CandidatePoolActiveSegmentState) GetSegmentHash() []byte {
 // operator_address.
 // CandidatePoolMemberState defines the CandidatePoolMemberState wire type.
 type CandidatePoolMemberState struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Epoch           uint64                 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	Slot            uint32                 `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
-	SlotVersion     uint64                 `protobuf:"varint,3,opt,name=slot_version,json=slotVersion,proto3" json:"slot_version,omitempty"`
-	OperatorAddress string                 `protobuf:"bytes,4,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
-	BindingHash     []byte                 `protobuf:"bytes,5,opt,name=binding_hash,json=bindingHash,proto3" json:"binding_hash,omitempty"`
+	state           protoimpl.MessageState   `protogen:"open.v1"`
+	Epoch           uint64                   `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Slot            uint32                   `protobuf:"varint,2,opt,name=slot,proto3" json:"slot,omitempty"`
+	SlotVersion     uint64                   `protobuf:"varint,3,opt,name=slot_version,json=slotVersion,proto3" json:"slot_version,omitempty"`
+	OperatorAddress string                   `protobuf:"bytes,4,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	BindingHash     []byte                   `protobuf:"bytes,5,opt,name=binding_hash,json=bindingHash,proto3" json:"binding_hash,omitempty"`
+	WeightInputs    *CandidateWeightInputsV1 `protobuf:"bytes,6,opt,name=weight_inputs,json=weightInputs,proto3" json:"weight_inputs,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1041,6 +1062,13 @@ func (x *CandidatePoolMemberState) GetOperatorAddress() string {
 func (x *CandidatePoolMemberState) GetBindingHash() []byte {
 	if x != nil {
 		return x.BindingHash
+	}
+	return nil
+}
+
+func (x *CandidatePoolMemberState) GetWeightInputs() *CandidateWeightInputsV1 {
+	if x != nil {
+		return x.WeightInputs
 	}
 	return nil
 }
@@ -1400,8 +1428,11 @@ type CandidatePoolSnapshotViewV1 struct {
 	EffectiveHeight  uint64                      `protobuf:"varint,10,opt,name=effective_height,json=effectiveHeight,proto3" json:"effective_height,omitempty"`
 	ExpiresHeight    uint64                      `protobuf:"varint,11,opt,name=expires_height,json=expiresHeight,proto3" json:"expires_height,omitempty"`
 	PrunedHeight     *uint64                     `protobuf:"varint,12,opt,name=pruned_height,json=prunedHeight,proto3,oneof" json:"pruned_height,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The epoch header's immutable Worker scoring policy; both zero before activation.
+	WorkerStakeWeightPpm       uint32 `protobuf:"varint,13,opt,name=worker_stake_weight_ppm,json=workerStakeWeightPpm,proto3" json:"worker_stake_weight_ppm,omitempty"`
+	WorkerPerformanceWeightPpm uint32 `protobuf:"varint,14,opt,name=worker_performance_weight_ppm,json=workerPerformanceWeightPpm,proto3" json:"worker_performance_weight_ppm,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *CandidatePoolSnapshotViewV1) Reset() {
@@ -1518,6 +1549,20 @@ func (x *CandidatePoolSnapshotViewV1) GetPrunedHeight() uint64 {
 	return 0
 }
 
+func (x *CandidatePoolSnapshotViewV1) GetWorkerStakeWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerStakeWeightPpm
+	}
+	return 0
+}
+
+func (x *CandidatePoolSnapshotViewV1) GetWorkerPerformanceWeightPpm() uint32 {
+	if x != nil {
+		return x.WorkerPerformanceWeightPpm
+	}
+	return 0
+}
+
 // CandidatePoolMemberViewV1 is the Query-only verifiable join of one member row
 // and its immutable binding. The snapshot scope comes from the request.
 // CandidatePoolMemberViewV1 defines the CandidatePoolMemberViewV1 wire type.
@@ -1593,7 +1638,7 @@ var File_hub_v1_candidate_pool_proto protoreflect.FileDescriptor
 
 const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\n" +
-	"\x1bhub/v1/candidate_pool.proto\x12\x06hub.v1\"\xd3\x02\n" +
+	"\x1bhub/v1/candidate_pool.proto\x12\x06hub.v1\x1a\x15hub/v1/dispatch.proto\"\xd3\x02\n" +
 	"\x19CandidateSlotCurrentState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
@@ -1614,7 +1659,7 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x1aOperatorCandidateSlotState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
-	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\"\x95\x05\n" +
+	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\"\x8f\x06\n" +
 	"\x1aCandidatePoolSnapshotState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12\x1f\n" +
@@ -1633,18 +1678,21 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x10effective_height\x18\r \x01(\x04R\x0feffectiveHeight\x12%\n" +
 	"\x0eexpires_height\x18\x0e \x01(\x04R\rexpiresHeight\x12$\n" +
 	"\x0etask_ref_count\x18\x0f \x01(\rR\ftaskRefCount\x12#\n" +
-	"\rpruned_height\x18\x10 \x01(\x04R\fprunedHeight\"\x97\x01\n" +
+	"\rpruned_height\x18\x10 \x01(\x04R\fprunedHeight\x125\n" +
+	"\x17worker_stake_weight_ppm\x18\x11 \x01(\rR\x14workerStakeWeightPpm\x12A\n" +
+	"\x1dworker_performance_weight_ppm\x18\x12 \x01(\rR\x1aworkerPerformanceWeightPpm\"\x97\x01\n" +
 	"\x1fCandidatePoolActiveSegmentState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12#\n" +
 	"\rsegment_index\x18\x02 \x01(\rR\fsegmentIndex\x12\x16\n" +
 	"\x06bitmap\x18\x03 \x01(\fR\x06bitmap\x12!\n" +
-	"\fsegment_hash\x18\x04 \x01(\fR\vsegmentHash\"\xb5\x01\n" +
+	"\fsegment_hash\x18\x04 \x01(\fR\vsegmentHash\"\xfb\x01\n" +
 	"\x18CandidatePoolMemberState\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12!\n" +
 	"\fslot_version\x18\x03 \x01(\x04R\vslotVersion\x12)\n" +
 	"\x10operator_address\x18\x04 \x01(\tR\x0foperatorAddress\x12!\n" +
-	"\fbinding_hash\x18\x05 \x01(\fR\vbindingHash\"\xc1\x03\n" +
+	"\fbinding_hash\x18\x05 \x01(\fR\vbindingHash\x12D\n" +
+	"\rweight_inputs\x18\x06 \x01(\v2\x1f.hub.v1.CandidateWeightInputsV1R\fweightInputs\"\xc1\x03\n" +
 	"\x1dCandidatePoolBuildCursorState\x12!\n" +
 	"\ftarget_epoch\x18\x01 \x01(\x04R\vtargetEpoch\x12'\n" +
 	"\x0fsource_revision\x18\x02 \x01(\x04R\x0esourceRevision\x12!\n" +
@@ -1672,7 +1720,7 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\vsnapshot_id\x18\x02 \x01(\fR\n" +
 	"snapshotId\x12'\n" +
 	"\x0facquired_height\x18\x03 \x01(\x04R\x0eacquiredHeight\x12:\n" +
-	"\x06status\x18\x04 \x01(\x0e2\".hub.v1.CandidatePoolTaskRefStatusR\x06status\"\x9f\x04\n" +
+	"\x06status\x18\x04 \x01(\x0e2\".hub.v1.CandidatePoolTaskRefStatusR\x06status\"\x99\x05\n" +
 	"\x1bCandidatePoolSnapshotViewV1\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x1f\n" +
 	"\vsnapshot_id\x18\x02 \x01(\fR\n" +
@@ -1687,7 +1735,9 @@ const file_hub_v1_candidate_pool_proto_rawDesc = "" +
 	"\x10effective_height\x18\n" +
 	" \x01(\x04R\x0feffectiveHeight\x12%\n" +
 	"\x0eexpires_height\x18\v \x01(\x04R\rexpiresHeight\x12(\n" +
-	"\rpruned_height\x18\f \x01(\x04H\x01R\fprunedHeight\x88\x01\x01B\x13\n" +
+	"\rpruned_height\x18\f \x01(\x04H\x01R\fprunedHeight\x88\x01\x01\x125\n" +
+	"\x17worker_stake_weight_ppm\x18\r \x01(\rR\x14workerStakeWeightPpm\x12A\n" +
+	"\x1dworker_performance_weight_ppm\x18\x0e \x01(\rR\x1aworkerPerformanceWeightPpmB\x13\n" +
 	"\x11_published_heightB\x10\n" +
 	"\x0e_pruned_height\"\xb3\x01\n" +
 	"\x19CandidatePoolMemberViewV1\x12%\n" +
@@ -1762,21 +1812,23 @@ var file_hub_v1_candidate_pool_proto_goTypes = []any{
 	(*CandidatePoolTaskRefState)(nil),       // 16: hub.v1.CandidatePoolTaskRefState
 	(*CandidatePoolSnapshotViewV1)(nil),     // 17: hub.v1.CandidatePoolSnapshotViewV1
 	(*CandidatePoolMemberViewV1)(nil),       // 18: hub.v1.CandidatePoolMemberViewV1
+	(*CandidateWeightInputsV1)(nil),         // 19: hub.v1.CandidateWeightInputsV1
 }
 var file_hub_v1_candidate_pool_proto_depIdxs = []int32{
-	1, // 0: hub.v1.CandidateSlotCurrentState.status:type_name -> hub.v1.CandidateSlotStatus
-	0, // 1: hub.v1.CandidatePoolSnapshotState.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
-	2, // 2: hub.v1.CandidatePoolBuildCursorState.status:type_name -> hub.v1.CandidatePoolBuildCursorStatus
-	4, // 3: hub.v1.CandidatePoolBuildCursorState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
-	3, // 4: hub.v1.CandidatePoolBuildStatusState.status:type_name -> hub.v1.CandidatePoolBuildStatus
-	4, // 5: hub.v1.CandidatePoolBuildStatusState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
-	6, // 6: hub.v1.CandidatePoolTaskRefState.status:type_name -> hub.v1.CandidatePoolTaskRefStatus
-	0, // 7: hub.v1.CandidatePoolSnapshotViewV1.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	1,  // 0: hub.v1.CandidateSlotCurrentState.status:type_name -> hub.v1.CandidateSlotStatus
+	0,  // 1: hub.v1.CandidatePoolSnapshotState.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
+	19, // 2: hub.v1.CandidatePoolMemberState.weight_inputs:type_name -> hub.v1.CandidateWeightInputsV1
+	2,  // 3: hub.v1.CandidatePoolBuildCursorState.status:type_name -> hub.v1.CandidatePoolBuildCursorStatus
+	4,  // 4: hub.v1.CandidatePoolBuildCursorState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
+	3,  // 5: hub.v1.CandidatePoolBuildStatusState.status:type_name -> hub.v1.CandidatePoolBuildStatus
+	4,  // 6: hub.v1.CandidatePoolBuildStatusState.failure_reason:type_name -> hub.v1.CandidatePoolBuildFailureReason
+	6,  // 7: hub.v1.CandidatePoolTaskRefState.status:type_name -> hub.v1.CandidatePoolTaskRefStatus
+	0,  // 8: hub.v1.CandidatePoolSnapshotViewV1.status:type_name -> hub.v1.CandidatePoolSnapshotStatus
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_candidate_pool_proto_init() }
@@ -1784,6 +1836,7 @@ func file_hub_v1_candidate_pool_proto_init() {
 	if File_hub_v1_candidate_pool_proto != nil {
 		return
 	}
+	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_candidate_pool_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

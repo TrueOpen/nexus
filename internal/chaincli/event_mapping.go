@@ -35,10 +35,15 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 	}
 	sessionID := hex.EncodeToString(event.GetSessionId())
 	taskID := hex.EncodeToString(event.GetTaskId())
+	if taskID == "" {
+		// Phase 1 events may leave task_id to the payload, as on the role stream.
+		taskID = payloadTaskID(event)
+	}
 	if sessionID == "" {
 		return ChainEvent{}, fmt.Errorf("task event session_id is required")
 	}
-	if taskID == "" {
+	typed, typedErr := typedTaskEvent(event.GetPayload())
+	if taskID == "" && typed == nil && typedErr == nil {
 		if taskEventIsSessionScoped(event) || isSessionLifecycleSweep(event) {
 			return ChainEvent{}, errSessionScopedTaskEvent
 		}
@@ -57,21 +62,69 @@ func taskEventToChainEvent(event *taskv1.TaskEvent) (ChainEvent, error) {
 		return ChainEvent{}, err
 	}
 	code := protocolEventCodeName(event.GetCode())
-	return ChainEvent{
-		Type:             taskEventType(code),
-		EventCode:        code,
-		SessionID:        sessionID,
-		TaskID:           taskID,
-		Height:           int64(event.GetChainHeight()),
-		Attrs:            taskEventAttributes(event),
-		TaskNotification: true,
-	}, nil
+	var mapped ChainEvent
+	if taskID == "" {
+		// A Phase 1 session-level event: it concerns the session, not a task to reconcile.
+		mapped = ChainEvent{
+			Type:      EventSessionScoped,
+			EventCode: code,
+			SessionID: sessionID,
+			Height:    int64(event.GetChainHeight()),
+			Typed:     typed,
+		}
+	} else {
+		mapped = ChainEvent{
+			Type:             taskEventType(code),
+			EventCode:        code,
+			SessionID:        sessionID,
+			TaskID:           taskID,
+			Height:           int64(event.GetChainHeight()),
+			Attrs:            taskEventAttributes(event),
+			TaskNotification: true,
+			Typed:            typed,
+		}
+	}
+	if typedErr != nil {
+		return mapped, businessFieldError(fmt.Sprintf("task event %s", code), typedErr)
+	}
+	return mapped, nil
 }
 
-// errSessionScopedTaskEvent marks a valid session-level event the coordinator has no use
-// for (code 1 SESSION_CREATED, and code 20 DEADLINE_SWEPT for the session lifecycle
-// deadline): the wire payload has no task_id by design, and node still pushes it on the
-// task stream for session subscriptions. The
+// errEventBusinessField marks an event whose envelope is sound but whose typed payload has a bad
+// business field (an empty operator, a hash of the wrong length). The event is still delivered,
+// with Typed nil, and the cursor moves past it: consumers reconcile conservatively from Query.
+// Stopping the stream on it would resume at the same cursor forever and blind the Builder. Only
+// envelope problems (no cursor, a bad height, a payload that does not match the code, no payload)
+// stop a stream.
+var errEventBusinessField = errors.New("event payload has an invalid business field")
+
+func businessFieldError(event string, err error) error {
+	return fmt.Errorf("%s: %w: %v", event, errEventBusinessField, err)
+}
+
+// payloadTaskID is the task_id of the payload member numbered by the envelope's code, or "".
+func payloadTaskID(event *taskv1.TaskEvent) string {
+	payload := event.GetPayload()
+	if payload == nil {
+		return ""
+	}
+	message := payload.ProtoReflect()
+	field := message.WhichOneof(message.Descriptor().Oneofs().ByName("typed_event"))
+	if field == nil || int32(field.Number()) != int32(event.GetCode()) || field.Message() == nil {
+		return ""
+	}
+	inner := message.Get(field).Message()
+	taskField := inner.Descriptor().Fields().ByName("task_id")
+	if taskField == nil || taskField.Kind() != protoreflect.BytesKind || !inner.Has(taskField) {
+		return ""
+	}
+	return hex.EncodeToString(inner.Get(taskField).Bytes())
+}
+
+// errSessionScopedTaskEvent marks a valid session-level event without a typed Phase 1 mapping
+// (code 1 SESSION_CREATED; code 106 SESSION_KEY_UPDATED, which reaches the SessionStreamObserver
+// instead; code 20 DEADLINE_SWEPT for the session lifecycle deadline): the wire payload has no
+// task_id by design, and node still pushes it on the task stream for session subscriptions. The
 // subscription loop must advance the cursor past it and keep receiving, not treat it as a
 // bad envelope and drop the stream; otherwise a reconnect receives the same event from the
 // same position and backs off forever.
@@ -168,10 +221,6 @@ func validateTaskEventPayloadIdentity(payload protoreflect.Message, sessionID, t
 // wrong fact as a consensus fact.
 func taskEventType(code string) string {
 	switch code {
-	case "WORKER_HANDRAISES_ACCEPTED":
-		return EventAssignAccepted
-	case "WORKER_ASSIGNMENT_FINALIZED":
-		return EventAssignmentFinalized
 	case "VERIFIER_ASSIGNMENT_FINALIZED":
 		return EventOpenVerifyAccepted
 	case "COMMIT_ACCEPTED":
@@ -201,11 +250,6 @@ func protocolEventCodeName(code sharedv1.ProtocolEventCodeV1) string {
 func taskEventAttributes(event *taskv1.TaskEvent) map[string]string {
 	attrs := make(map[string]string)
 	switch payload := event.GetPayload().GetTypedEvent().(type) {
-	case *taskv1.TaskProtocolEventPayloadV1_WorkerAssignmentFinalized:
-		finalized := payload.WorkerAssignmentFinalized
-		attrs["winner_worker"] = finalized.GetWinnerWorker()
-		attrs["worker_operator_address"] = finalized.GetWinnerWorker()
-		attrs["infer_deadline_height"] = strconv.FormatUint(finalized.GetInferDeadline(), 10)
 	case *taskv1.TaskProtocolEventPayloadV1_VerifierAssignmentFinalized:
 		finalized := payload.VerifierAssignmentFinalized
 		attrs["selected_verifiers_hash"] = hex.EncodeToString(finalized.GetSelectedVerifiersHash())

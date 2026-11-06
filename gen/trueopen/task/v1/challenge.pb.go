@@ -643,8 +643,10 @@ type TaskRoundSummaryState struct {
 	Round2EffectRootOrZero32         []byte                 `protobuf:"bytes,12,opt,name=round2_effect_root_or_zero32,json=round2EffectRootOrZero32,proto3" json:"round2_effect_root_or_zero32,omitempty"`
 	TaskRoundSummaryHash             []byte                 `protobuf:"bytes,13,opt,name=task_round_summary_hash,json=taskRoundSummaryHash,proto3,oneof" json:"task_round_summary_hash,omitempty"`
 	VerifierValueEvidenceCloseHeight *uint64                `protobuf:"varint,14,opt,name=verifier_value_evidence_close_height,json=verifierValueEvidenceCloseHeight,proto3,oneof" json:"verifier_value_evidence_close_height,omitempty"`
-	unknownFields                    protoimpl.UnknownFields
-	sizeCache                        protoimpl.SizeCache
+	// Set by the close runner before finalization; absent means the window is not closed.
+	VerifierValueEvidenceWindowClosedHeight *uint64 `protobuf:"varint,15,opt,name=verifier_value_evidence_window_closed_height,json=verifierValueEvidenceWindowClosedHeight,proto3,oneof" json:"verifier_value_evidence_window_closed_height,omitempty"`
+	unknownFields                           protoimpl.UnknownFields
+	sizeCache                               protoimpl.SizeCache
 }
 
 func (x *TaskRoundSummaryState) Reset() {
@@ -775,6 +777,13 @@ func (x *TaskRoundSummaryState) GetVerifierValueEvidenceCloseHeight() uint64 {
 	return 0
 }
 
+func (x *TaskRoundSummaryState) GetVerifierValueEvidenceWindowClosedHeight() uint64 {
+	if x != nil && x.VerifierValueEvidenceWindowClosedHeight != nil {
+		return *x.VerifierValueEvidenceWindowClosedHeight
+	}
+	return 0
+}
+
 var File_task_v1_challenge_proto protoreflect.FileDescriptor
 
 const file_task_v1_challenge_proto_rawDesc = "" +
@@ -864,7 +873,7 @@ const file_task_v1_challenge_proto_rawDesc = "" +
 	"\x11next_apply_height\x18\x04 \x01(\x04R\x0fnextApplyHeight\x12#\n" +
 	"\rvisited_count\x18\x05 \x01(\x04R\fvisitedCount\x12#\n" +
 	"\rapplied_count\x18\x06 \x01(\x04R\fappliedCount\x12A\n" +
-	"\x13effect_pool_balance\x18\a \x01(\v2\x11.shared.v1.AmountR\x11effectPoolBalance\"\x8c\b\n" +
+	"\x13effect_pool_balance\x18\a \x01(\v2\x11.shared.v1.AmountR\x11effectPoolBalance\"\xa1\t\n" +
 	"\x15TaskRoundSummaryState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12(\n" +
 	"\x10max_closed_round\x18\x02 \x01(\rR\x0emaxClosedRound\x12(\n" +
@@ -880,14 +889,16 @@ const file_task_v1_challenge_proto_rawDesc = "" +
 	"\x0eround2_outcome\x18\v \x01(\x0e2\x19.shared.v1.RoundOutcomeV1H\x04R\rround2Outcome\x88\x01\x01\x12>\n" +
 	"\x1cround2_effect_root_or_zero32\x18\f \x01(\fR\x18round2EffectRootOrZero32\x12:\n" +
 	"\x17task_round_summary_hash\x18\r \x01(\fH\x05R\x14taskRoundSummaryHash\x88\x01\x01\x12S\n" +
-	"$verifier_value_evidence_close_height\x18\x0e \x01(\x04H\x06R verifierValueEvidenceCloseHeight\x88\x01\x01B\x18\n" +
+	"$verifier_value_evidence_close_height\x18\x0e \x01(\x04H\x06R verifierValueEvidenceCloseHeight\x88\x01\x01\x12b\n" +
+	",verifier_value_evidence_window_closed_height\x18\x0f \x01(\x04H\aR'verifierValueEvidenceWindowClosedHeight\x88\x01\x01B\x18\n" +
 	"\x16_challenge_open_heightB\x19\n" +
 	"\x17_challenge_close_heightB\x17\n" +
 	"\x15_rounds_closed_heightB!\n" +
 	"\x1f_settlement_facts_cutoff_heightB\x11\n" +
 	"\x0f_round2_outcomeB\x1a\n" +
 	"\x18_task_round_summary_hashB'\n" +
-	"%_verifier_value_evidence_close_heightB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"%_verifier_value_evidence_close_heightB/\n" +
+	"-_verifier_value_evidence_window_closed_heightB7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_challenge_proto_rawDescOnce sync.Once

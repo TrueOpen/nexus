@@ -18,7 +18,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
@@ -26,8 +25,6 @@ import (
 	"github.com/TrueOpen/nexus/gen/trueopen/nexus/v1/nexusv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
-	"github.com/TrueOpen/nexus/internal/outputdelivery"
-	"github.com/TrueOpen/nexus/internal/payloadstore"
 	"github.com/TrueOpen/nexus/internal/sdkauth"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/signer"
@@ -102,8 +99,6 @@ func TestPlaintextOutputProtoContract(t *testing.T) {
 		message protoreflect.Name
 		field   protoreflect.Name
 	}{
-		{"FetchOutputRefResponse", "output_ref"},
-		{"RefreshCredentialResponse", "output_ref"},
 		{"GetTaskDataMetadataResponse", "download_authorization"},
 		{"FetchTaskDataRequest", "authorization"},
 	} {
@@ -217,7 +212,6 @@ func TestTaskDataProtoContract(t *testing.T) {
 		client, server bool
 	}{
 		{"OpenTask", true, false},
-		{"ConfirmOpenTask", false, false},
 		{"GetTaskDataMetadata", false, false},
 		{"FetchTaskData", false, true},
 		{"UploadTaskResultObject", true, false},
@@ -267,9 +261,8 @@ func TestTaskDataProtoContract(t *testing.T) {
 	})
 }
 
-// TestSDKContractSurface pins the SDK method surface of the ingress API:
-// all 9 SDK methods present with the right streaming shape; the pre-existing SDK methods they supersede stay deprecated
-// until the members rule on a removal date (see the open items in README.md).
+// TestSDKContractSurface pins the SDK method surface of the ingress API: every SDK method present
+// with the right streaming shape, and the retired methods gone.
 func TestSDKContractSurface(t *testing.T) {
 	svc := nexusv1.File_nexus_v1_ingress_proto.Services().ByName("IngressAPI")
 	if svc == nil {
@@ -280,7 +273,6 @@ func TestSDKContractSurface(t *testing.T) {
 		client, server bool
 	}{
 		{"OpenTask", true, false},
-		{"ConfirmOpenTask", false, false},
 		{"GetTaskDataMetadata", false, false},
 		{"FetchTaskData", false, true},
 		{"SubscribeOutput", false, true},
@@ -299,14 +291,10 @@ func TestSDKContractSurface(t *testing.T) {
 		}
 	}
 	for _, name := range []protoreflect.Name{
-		"SubmitOrder", "FetchOutputRef", "RefreshCredential",
+		"SubmitOrder", "FetchOutputRef", "RefreshCredential", "ConfirmOpenTask",
 	} {
-		method := svc.Methods().ByName(name)
-		if method == nil {
-			t.Fatalf("superseded method %s descriptor missing", name)
-		}
-		if options, _ := method.Options().(*descriptorpb.MethodOptions); !options.GetDeprecated() {
-			t.Fatalf("superseded method %s must stay deprecated until removal is agreed", name)
+		if method := svc.Methods().ByName(name); method != nil {
+			t.Fatalf("retired method %s must be removed, got %v", name, method)
 		}
 	}
 }
@@ -336,13 +324,20 @@ func TestOutputStreamContractSurface(t *testing.T) {
 	}
 	msg := func(name protoreflect.Name) protoreflect.MessageDescriptor { return file.Messages().ByName(name) }
 	assertProtoFields(t, msg("OutputStreamHeaderV2"), map[protoreflect.Name]protoreflect.FieldNumber{
-		"session_id": 1, "task_id": 2, "task_hash": 3, "request_auth": 4, "attempt": 5, "stream_instance": 6,
+		"session_id": 1, "task_id": 2, "task_hash": 3, "request_auth": 4, "stream_instance": 6,
 		"user_recipient_pubkey": 7, "output_key_commitment": 8, "key_package_hash": 9, "worker_signature": 10,
+		"dispatch_ticket_hash": 11,
 	})
+	if msg("OutputStreamHeaderV2").Fields().ByName("attempt") != nil {
+		t.Fatal("OutputStreamHeaderV2.attempt must stay reserved: the dispatch ticket names the attempt")
+	}
 	assertProtoFields(t, msg("OutputChunkV1"), map[protoreflect.Name]protoreflect.FieldNumber{
 		"seq": 1, "text": 2, "mmr_root": 3, "worker_signature": 4, "attachment": 5, "attachment_signature": 6,
+		"cumulative_generated_tokens": 7, "dispatch_ticket_hash": 8,
 	})
-	assertProtoFields(t, msg("OutputFinV1"), map[protoreflect.Name]protoreflect.FieldNumber{"final_seq": 1, "output_mmr_root": 2})
+	assertProtoFields(t, msg("OutputFinV1"), map[protoreflect.Name]protoreflect.FieldNumber{
+		"final_seq": 1, "output_mmr_root": 2, "dispatch_ticket_hash": 5,
+	})
 	assertProtoFields(t, msg("UploadTaskOutputStreamRequest"), map[protoreflect.Name]protoreflect.FieldNumber{"header": 1, "chunk": 2, "fin": 3})
 	assertProtoFields(t, msg("OutputStreamProgressV1"), map[protoreflect.Name]protoreflect.FieldNumber{"last_seq": 1, "mmr_root": 2, "last_frame_short": 3})
 	if f := msg("OutputStreamProgressV1").Fields().ByName("last_seq"); f == nil || !f.HasPresence() {
@@ -353,7 +348,7 @@ func TestOutputStreamContractSurface(t *testing.T) {
 		"accepted": 1, "last_seq": 2, "output_mmr_root": 3, "leaf_count": 4,
 	})
 	assertProtoFields(t, msg("UploadTaskOutputStreamResponse"), map[protoreflect.Name]protoreflect.FieldNumber{"progress": 1, "result": 2})
-	assertProtoFields(t, msg("SubscribeOutputRequest"), map[protoreflect.Name]protoreflect.FieldNumber{"resume_after_seq": 4})
+	assertProtoFields(t, msg("SubscribeOutputRequest"), map[protoreflect.Name]protoreflect.FieldNumber{"resume_after_seq": 4, "dispatch_ticket_hash": 5})
 	assertProtoFields(t, msg("SubscribeOutputResponse"), map[protoreflect.Name]protoreflect.FieldNumber{"chunk": 8, "fin": 9})
 	if o := msg("SubscribeOutputResponse").Oneofs().ByName("frame"); o == nil || o.Fields().Len() != 2 {
 		t.Fatalf("SubscribeOutputResponse.frame oneof = %v", o)
@@ -365,10 +360,10 @@ func TestOutputStreamContractSurface(t *testing.T) {
 	if msg("SubmitInferReceiptResponse").Fields().ByName("output_storage_confirmation") != nil {
 		t.Fatal("output_storage_confirmation must stay reserved")
 	}
+	// Whole-text delivery is gone: output travels only as frames.
 	for _, name := range []protoreflect.Name{"output_id", "session_id", "task_id", "output_text", "output_hash", "created_at", "expires_at"} {
-		f := msg("SubscribeOutputResponse").Fields().ByName(name)
-		if opts, _ := f.Options().(*descriptorpb.FieldOptions); f == nil || !opts.GetDeprecated() {
-			t.Fatalf("SubscribeOutputResponse.%s must be deprecated (whole-text delivery is superseded by frames)", name)
+		if f := msg("SubscribeOutputResponse").Fields().ByName(name); f != nil {
+			t.Fatalf("SubscribeOutputResponse.%s must stay reserved", name)
 		}
 	}
 }
@@ -384,8 +379,10 @@ func TestPrepareChallengeHeightProtoContract(t *testing.T) {
 // fakeHandler records calls and returns controllable results.
 type fakeHandler struct {
 	taskOwner           string
+	taskTerminal        bool
 	lastOrder           types.Order
 	orderErr            error
+	dispatchResult      *nexusv1.DispatchResultHeaderV1
 	lastInferReceipt    types.InferReceiptSubmission
 	inferReceiptErr     error
 	lastVerifyCommit    *taskv1.VerifyCommitV1
@@ -395,8 +392,6 @@ type fakeHandler struct {
 	authorizedRequester string
 	events              []types.TaskEvent
 	live                chan types.TaskEvent
-	subscribeOutput     func(context.Context, string, string, string) (types.PlaintextOutput, error)
-	ackOutput           func(context.Context, string, string, string, string) (types.OutputAck, error)
 	onOrder             func(context.Context, types.Order) error
 	checkOrder          func(context.Context, types.Order) error
 	// sessionForTask is the lookup the wire relay path requires: the request carries only the on-chain message,
@@ -429,6 +424,10 @@ func (f *fakeHandler) OnOrder(ctx context.Context, o types.Order) error {
 	}
 	return f.orderErr
 }
+func (f *fakeHandler) DispatchResult(context.Context, string, string) (*nexusv1.DispatchResultHeaderV1, bool) {
+	return f.dispatchResult, f.dispatchResult != nil
+}
+
 func (f *fakeHandler) OnInferReceipt(_ context.Context, receipt types.InferReceiptSubmission) error {
 	f.lastInferReceipt = receipt
 	return f.inferReceiptErr
@@ -444,29 +443,6 @@ func (f *fakeHandler) OnVerifyResult(_ context.Context, _, _ string, receipt *ta
 	return f.verifyRelayAck, f.verifyRelayErr
 }
 
-func (f *fakeHandler) SubscribeOutput(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
-	if f.subscribeOutput != nil {
-		return f.subscribeOutput(ctx, sessionID, taskID, requester)
-	}
-	return types.PlaintextOutput{}, nil
-}
-
-func (f *fakeHandler) AckOutput(ctx context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error) {
-	if f.ackOutput != nil {
-		return f.ackOutput(ctx, sessionID, taskID, outputID, requester)
-	}
-	return types.OutputAck{}, nil
-}
-func (f *fakeHandler) FetchOutputRef(_ context.Context, _, _, requester string, level types.AccessLevel, usage string) (types.Credential, error) {
-	authorized := f.authorizedRequester
-	if authorized == "" {
-		authorized = "trueopen1authorized"
-	}
-	if level == types.AccessSealedKey && requester != authorized {
-		return types.Credential{}, types.ErrUnauthorized
-	}
-	return types.Credential{ID: "cred-1", Recipient: requester, Usage: usage, AccessLevel: level}, nil
-}
 func (f *fakeHandler) TaskStatus(_ context.Context, _, _ string) (types.TaskStatus, error) {
 	return types.TaskStatus{State: "VERIFYING", TaskPhase: "SAMPLE_READY"}, nil
 }
@@ -479,9 +455,6 @@ func (f *fakeHandler) TaskEvents(_ context.Context, _, _ string, fromCursor uint
 	}
 	return replay, f.live, func() {}, nil
 }
-func (f *fakeHandler) RefreshCredential(_ context.Context, old types.Credential, _, _ string, _ int64) (types.Credential, error) {
-	return old, nil
-}
 func (f *fakeHandler) PrepareChallenge(_ context.Context, _, _, _ string) (types.ChallengePlan, error) {
 	return types.ChallengePlan{ChallengeOpen: true, ChallengeCloseHeight: 42, RequiredEvidence: []string{"x"}}, nil
 }
@@ -492,6 +465,34 @@ func newTestClient(t *testing.T, h Handler, auth AuthParams) nexusv1connect.Ingr
 	path, handler := nexusv1connect.NewIngressAPIHandler(newService(h, auth))
 	mux.Handle(path, handler)
 	return nexusv1connect.NewIngressAPIClient(&http.Client{Transport: handlerRoundTripper{h: mux}}, "http://ingress.test")
+}
+
+// newStreamingTestClient serves the streaming OUTPUT data plane with an empty runtime: enough for
+// requests refused before the runtime is used.
+func newStreamingTestClient(t *testing.T, h Handler, auth AuthParams) nexusv1connect.IngressAPIClient {
+	t.Helper()
+	mux := http.NewServeMux()
+	path, handler := nexusv1connect.NewIngressAPIHandler(newService(h, auth, withOutputStream(&outputStreamRuntime{})))
+	mux.Handle(path, handler)
+	return nexusv1connect.NewIngressAPIClient(&http.Client{Transport: handlerRoundTripper{h: mux}}, "http://ingress.test")
+}
+
+// Without the streaming OUTPUT data plane there is no output delivery: SubscribeOutput and AckOutput
+// answer Unimplemented before reading the request.
+func TestOutputDeliveryNeedsOutputStream(t *testing.T) {
+	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
+		SessionId: wireID(testSessionID("session")), TaskId: wireID(testSessionID("task")),
+	})
+	if connect.CodeOf(result.err) != connect.CodeUnimplemented {
+		t.Fatalf("SubscribeOutput code = %v, err = %v", connect.CodeOf(result.err), result.err)
+	}
+	_, err := client.AckOutput(context.Background(), connect.NewRequest(&nexusv1.AckOutputRequest{
+		SessionId: wireID(testSessionID("session")), TaskId: wireID(testSessionID("task")), LastSeq: 1,
+	}))
+	if connect.CodeOf(err) != connect.CodeUnimplemented {
+		t.Fatalf("AckOutput code = %v, err = %v", connect.CodeOf(err), err)
+	}
 }
 
 func TestPrepareChallengeReturnsCloseHeight(t *testing.T) {
@@ -634,6 +635,7 @@ func validInferReceiptRequest(
 		SchemaVersion: nodecontract.InferReceiptSchemaVersionV3, ChainId: "trueopen-localnet",
 		TaskId: rawTaskID, TaskHash: bytes.Repeat([]byte{0x2a}, 32),
 		WorkerOperatorAddress: operator.Address(), ServiceAuthorizationNonce: 7,
+		DispatchTicketHash:     bytes.Repeat([]byte{0x7d}, 32),
 		GenerationParamsDigest: bytes.Repeat([]byte{0x3b}, 32),
 		OutputHash:             outputHash[:],
 		OutputSizeBytes:        uint64(len(output)),
@@ -936,77 +938,13 @@ func TestOperatorKeyFallbackIsGoneAndAuthorityFailureFailsClosed(t *testing.T) {
 	}
 }
 
-func canonicalOrderRequest(t *testing.T, user signer.Signer, sessionID string, sequence uint64, modelID string) *nexusv1.SubmitOrderRequest {
-	t.Helper()
-	payload := []byte("encrypted payload for " + sessionID + "/" + modelID)
-	payloadHash := sha256.Sum256(payload)
-	envelope := nodecontract.AssignmentOrderEnvelopeV1{
-		SchemaVersion: nodecontract.OrderEnvelopeSchemaV1, ModelID: modelID, ProfileVersion: 1, TaskType: "inference",
-		RewardBucket: 1, ProfileResourceTier: 2, InferInputUnitPriceBid: 2, InferOutputUnitPriceBid: 3, VerifyUnitPriceBid: 4,
-		MaxFee: 1000, TxFeeReserve: 100, InferFeeCap: 600, VerifyFeeCap: 300, OrderValue: 900,
-		ValidAfterHeight: 10, DeadlineHeight: 1000, PayloadHash: hex.EncodeToString(payloadHash[:]),
-		InferTimeoutBlocks: 20, ReferenceBucketKey: "reference-v1", TimeoutBucketKey: "timeout-v1",
-	}
-	raw, err := nodecontract.CanonicalAssignmentOrderEnvelope(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &nexusv1.SubmitOrderRequest{
-		OrderEnvelope: []byte(raw), PayloadRef: payloadstore.RefFor(payload), Payload: payload, SessionId: sessionID, OrderSequence: sequence,
-		UserAddress: user.Address(), SignatureScheme: "secp256k1",
-		Signature: mustSign(t, user, nodecontract.OrderSigningBytes("trueopen-localnet", user.Address(), sessionID, sequence, raw)),
-	}
-}
-
 func sha256Bytes(payload []byte) []byte {
 	sum := sha256.Sum256(payload)
 	return sum[:]
 }
 
-func TestSubscribeOutputWaitsAndStreamsOneResult(t *testing.T) {
-	sg := mustSigner(t, testKeyHex)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	fake := &fakeHandler{subscribeOutput: func(ctx context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
-		close(started)
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return types.PlaintextOutput{}, ctx.Err()
-		}
-		return types.PlaintextOutput{
-			OutputID: "output-1", SessionID: sessionID, TaskID: taskID,
-			Text: "hello", Hash: []byte("hash"), CreatedAt: 10, ExpiresAt: 20,
-		}, nil
-	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	session, task := testSessionID("session-stream"), testSessionID("task-stream")
-	wireSession, wireTask := wireID(session), wireID(task)
-	body := subscribeBody(t, wireSession, wireTask, nil)
-	req := &nexusv1.SubscribeOutputRequest{SessionId: wireSession, TaskId: wireTask}
-	req.RequestEnvelope = signedTaskEnvelope(
-		t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-		wireSession, wireTask, body, []byte("nonce-subscribe-wait"),
-	)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	result := receiveSubscribe(ctx, client, req)
-	select {
-	case <-started:
-	case <-ctx.Done():
-		t.Fatal("SubscribeOutput did not reach handler")
-	}
-	close(release)
-	got := <-result
-	// The handler receives the internal spelling; the deprecated whole-text response writes the ids back as 0x.
-	if got.err != nil || got.response.GetOutputId() != "output-1" || got.response.GetOutputText() != "hello" ||
-		got.response.GetSessionId() != wireSession || got.response.GetTaskId() != wireTask || got.response.GetCreatedAt() != 10 || got.response.GetExpiresAt() != 20 {
-		t.Fatalf("SubscribeOutput = %+v/%v", got.response, got.err)
-	}
-}
-
 func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
+	client := newStreamingTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false})
 	result := <-receiveSubscribe(context.Background(), client, &nexusv1.SubscribeOutputRequest{
 		SessionId: wireID(testSessionID("session")), TaskId: wireID(testSessionID("task")),
 	})
@@ -1017,7 +955,7 @@ func TestSubscribeOutputRequiresEnvelopeEvenInDevMode(t *testing.T) {
 
 func TestSubscribeOutputRejectsEnvelopeTaskMismatch(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
+	client := newStreamingTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
 	session, task := wireID(testSessionID("session")), wireID(testSessionID("task"))
 	req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
 	req.RequestEnvelope = signedTaskEnvelope(
@@ -1027,160 +965,6 @@ func TestSubscribeOutputRejectsEnvelopeTaskMismatch(t *testing.T) {
 	result := <-receiveSubscribe(context.Background(), client, req)
 	if connect.CodeOf(result.err) != connect.CodeInvalidArgument {
 		t.Fatalf("SubscribeOutput code = %v, err = %v", connect.CodeOf(result.err), result.err)
-	}
-}
-
-func TestSubscribeOutputMapsUnauthorizedAndExpired(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		code connect.Code
-	}{
-		{name: "unauthorized", err: outputdelivery.ErrUnauthorized, code: connect.CodePermissionDenied},
-		{name: "expired", err: outputdelivery.ErrExpired, code: connect.CodeFailedPrecondition},
-		{name: "shutdown", err: outputdelivery.ErrDeliveryFailure, code: connect.CodeUnavailable},
-	}
-	for index, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			sg := mustSigner(t, testKeyHex)
-			fake := &fakeHandler{subscribeOutput: func(context.Context, string, string, string) (types.PlaintextOutput, error) {
-				return types.PlaintextOutput{}, tc.err
-			}}
-			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			session, task := wireID(testSessionID("session")), wireID(testSessionID("task"))
-			req := &nexusv1.SubscribeOutputRequest{SessionId: session, TaskId: task}
-			req.RequestEnvelope = signedTaskEnvelope(
-				t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-				session, task, subscribeBody(t, session, task, nil), []byte{byte(index + 1)},
-			)
-			result := <-receiveSubscribe(context.Background(), client, req)
-			if connect.CodeOf(result.err) != tc.code {
-				t.Fatalf("code = %v, err = %v", connect.CodeOf(result.err), result.err)
-			}
-		})
-	}
-}
-
-func TestSubscribeOutputAuthorizationMatrix(t *testing.T) {
-	owner := mustSigner(t, testKeyHex)
-	other := mustSigner(t, workerKeyHex)
-	session, task := wireID(testSessionID("session-auth-matrix")), wireID(testSessionID("task-auth-matrix"))
-	fake := &fakeHandler{subscribeOutput: func(_ context.Context, sessionID, taskID, requester string) (types.PlaintextOutput, error) {
-		if requester != owner.Address() {
-			return types.PlaintextOutput{}, outputdelivery.ErrUnauthorized
-		}
-		return types.PlaintextOutput{
-			OutputID: "output-auth", SessionID: sessionID, TaskID: taskID, Text: "authorized",
-		}, nil
-	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain,
-		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen", RequireEnvelope: false,
-	})
-	body := subscribeBody(t, session, task, nil)
-	request := func(sg signer.Signer, nonce string) *nexusv1.SubscribeOutputRequest {
-		return &nexusv1.SubscribeOutputRequest{
-			SessionId: session,
-			TaskId:    task,
-			RequestEnvelope: signedTaskEnvelope(
-				t, sg, "SubscribeOutput", nexusv1connect.IngressAPISubscribeOutputProcedure,
-				session, task, body, []byte(nonce),
-			),
-		}
-	}
-
-	valid := request(owner, "nonce-auth-valid")
-	result := <-receiveSubscribe(context.Background(), client, valid)
-	if result.err != nil || result.response.GetOutputId() != "output-auth" {
-		t.Fatalf("valid owner result = %+v/%v", result.response, result.err)
-	}
-
-	denied := <-receiveSubscribe(context.Background(), client, request(other, "nonce-auth-other"))
-	if connect.CodeOf(denied.err) != connect.CodePermissionDenied || !strings.Contains(denied.err.Error(), outputdelivery.ErrUnauthorized.Error()) {
-		t.Fatalf("other account code = %v, err = %v", connect.CodeOf(denied.err), denied.err)
-	}
-
-	replayed := <-receiveSubscribe(context.Background(), client, valid)
-	if connect.CodeOf(replayed.err) != connect.CodeUnauthenticated || !strings.Contains(replayed.err.Error(), sdkauth.ErrReplay.Error()) {
-		t.Fatalf("replay code = %v, err = %v", connect.CodeOf(replayed.err), replayed.err)
-	}
-
-	expired := request(owner, "nonce-auth-expired")
-	expired.RequestEnvelope.ExpiryHeightOrTime = time.Now().Add(-time.Second).UnixMilli()
-	resignTaskEnvelope(t, owner, expired.RequestEnvelope)
-	expiredResult := <-receiveSubscribe(context.Background(), client, expired)
-	if connect.CodeOf(expiredResult.err) != connect.CodeDeadlineExceeded || !strings.Contains(expiredResult.err.Error(), sdkauth.ErrExpired.Error()) {
-		t.Fatalf("expired code = %v, err = %v", connect.CodeOf(expiredResult.err), expiredResult.err)
-	}
-}
-
-func TestAckOutputSignsBodyAndReturnsIdempotentResult(t *testing.T) {
-	sg := mustSigner(t, testKeyHex)
-	var gotSession, gotTask, gotOutputID, gotRequester string
-	fake := &fakeHandler{ackOutput: func(_ context.Context, sessionID, taskID, outputID, requester string) (types.OutputAck, error) {
-		gotSession, gotTask, gotOutputID, gotRequester = sessionID, taskID, outputID, requester
-		return types.OutputAck{Acked: true, AlreadyAcked: true, AckedAt: 42}, nil
-	}}
-	client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	session, task, outputID := testSessionID("session-ack"), testSessionID("task-ack"), "output-ack"
-	wireSession, wireTask := wireID(session), wireID(task)
-	req := &nexusv1.AckOutputRequest{SessionId: wireSession, TaskId: wireTask, OutputId: outputID}
-	req.RequestEnvelope = signedTaskEnvelope(
-		t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
-		wireSession, wireTask,
-		ackBody(t, wireSession, wireTask, 0),
-		[]byte("nonce-ack-success"),
-	)
-	resp, err := client.AckOutput(context.Background(), connect.NewRequest(req))
-	if err != nil || !resp.Msg.GetAcked() || !resp.Msg.GetAlreadyAcked() || resp.Msg.GetAckedAt() != 42 {
-		t.Fatalf("AckOutput = %+v/%v", resp, err)
-	}
-	// The handler receives the ids in the internal spelling.
-	if gotSession != session || gotTask != task || gotOutputID != outputID || gotRequester != sg.Address() {
-		t.Fatalf("handler args = %q/%q/%q/%q", gotSession, gotTask, gotOutputID, gotRequester)
-	}
-
-	// last_seq is signed (the deprecated output_id is not): changing it breaks the signature.
-	tampered := proto.Clone(req).(*nexusv1.AckOutputRequest)
-	tampered.LastSeq = 5
-	if _, err := client.AckOutput(context.Background(), connect.NewRequest(tampered)); connect.CodeOf(err) != connect.CodeUnauthenticated ||
-		!strings.Contains(err.Error(), sdkauth.ErrInvalidSignature.Error()) {
-		t.Fatalf("tampered AckOutput code = %v, err = %v", connect.CodeOf(err), err)
-	}
-}
-
-func TestAckOutputMapsStableErrors(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		code connect.Code
-	}{
-		{name: "unauthorized", err: outputdelivery.ErrUnauthorized, code: connect.CodePermissionDenied},
-		{name: "conflict", err: outputdelivery.ErrConflict, code: connect.CodeFailedPrecondition},
-		{name: "expired", err: outputdelivery.ErrExpired, code: connect.CodeFailedPrecondition},
-		{name: "already acked", err: outputdelivery.ErrAlreadyAcked, code: connect.CodeFailedPrecondition},
-		{name: "unavailable", err: outputdelivery.ErrUnavailable, code: connect.CodeFailedPrecondition},
-		{name: "storage", err: outputdelivery.ErrDeliveryFailure, code: connect.CodeUnavailable},
-		{name: "task missing", err: types.ErrTaskNotFound, code: connect.CodeNotFound},
-	}
-	for index, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			sg := mustSigner(t, testKeyHex)
-			fake := &fakeHandler{ackOutput: func(context.Context, string, string, string, string) (types.OutputAck, error) {
-				return types.OutputAck{}, tc.err
-			}}
-			client := newTestClient(t, fake, AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-			session, task, outputID := wireID(testSessionID("session")), wireID(testSessionID("task")), "output"
-			req := &nexusv1.AckOutputRequest{SessionId: session, TaskId: task, OutputId: outputID}
-			req.RequestEnvelope = signedTaskEnvelope(
-				t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
-				session, task,
-				ackBody(t, session, task, 0),
-				[]byte{byte(index + 20)},
-			)
-			if _, err := client.AckOutput(context.Background(), connect.NewRequest(req)); connect.CodeOf(err) != tc.code {
-				t.Fatalf("code = %v, err = %v", connect.CodeOf(err), err)
-			}
-		})
 	}
 }
 
@@ -1204,7 +988,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
 	}
-	live <- types.TaskEvent{Seq: 3, EventCode: "ASSIGNMENT_FINALIZED", State: "ASSIGNED", TaskPhase: "ASSIGNMENT_FINALIZED", ChainHeight: 101}
+	live <- types.TaskEvent{Seq: 3, EventCode: "DISPATCH_RECORDED", State: "ASSIGNED", TaskPhase: "ASSIGNMENT_FINALIZED", ChainHeight: 101}
 	close(live) // closing -> the stream ends normally
 
 	var got []*nexusv1.GetTaskEventsResponse
@@ -1214,7 +998,7 @@ func TestGetTaskEventsStream(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("stream err: %v", err)
 	}
-	if len(got) != 2 || got[0].GetCursor() != "2" || got[1].GetEventCode() != "ASSIGNMENT_FINALIZED" || got[1].GetChainHeight() != 101 {
+	if len(got) != 2 || got[0].GetCursor() != "2" || got[1].GetEventCode() != "DISPATCH_RECORDED" || got[1].GetChainHeight() != 101 {
 		t.Fatalf("stream events mismatch: %+v", got)
 	}
 }
@@ -1266,22 +1050,14 @@ func TestTaskIDsMustBePrefixedWithoutEnvelope(t *testing.T) {
 	}
 }
 
-// SubscribeOutput and AckOutput, on the legacy and the streaming data plane alike, refuse a bare
-// session_id or task_id with InvalidArgument: the SDK body digest cannot be computed over it, so the
-// request fails before its envelope is checked.
+// SubscribeOutput and AckOutput refuse a bare session_id or task_id with InvalidArgument: the SDK body
+// digest cannot be computed over it, so the request fails before its envelope is checked.
 func TestSubscribeAndAckRejectBareIDs(t *testing.T) {
 	sg := mustSigner(t, testKeyHex)
 	session, task := testSessionID("session-bare-ids"), testSessionID("task-bare-ids")
 	auth := AuthParams{Chain: testUserChain, ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"}
 	clients := map[string]nexusv1connect.IngressAPIClient{
-		"legacy": newTestClient(t, &fakeHandler{}, auth),
-		// The request is refused before the streaming runtime is used, so an empty runtime suffices.
-		"streaming": func() nexusv1connect.IngressAPIClient {
-			mux := http.NewServeMux()
-			path, handler := nexusv1connect.NewIngressAPIHandler(newService(&fakeHandler{}, auth, withOutputStream(&outputStreamRuntime{})))
-			mux.Handle(path, handler)
-			return nexusv1connect.NewIngressAPIClient(&http.Client{Transport: handlerRoundTripper{h: mux}}, "http://ingress.test")
-		}(),
+		"streaming": newStreamingTestClient(t, &fakeHandler{}, auth),
 	}
 	ids := map[string][2]string{
 		"bare session_id": {session, wireID(task)},
@@ -1307,7 +1083,7 @@ func TestSubscribeAndAckRejectBareIDs(t *testing.T) {
 				env := signedTaskEnvelope(t, sg, "AckOutput", nexusv1connect.IngressAPIAckOutputProcedure,
 					wireID(session), wireID(task), ackBody(t, wireID(session), wireID(task), 1), []byte("bare-ack-"+strconv.Itoa(nonce)))
 				_, err := client.AckOutput(context.Background(), connect.NewRequest(&nexusv1.AckOutputRequest{
-					SessionId: id[0], TaskId: id[1], OutputId: "output", LastSeq: 1, RequestEnvelope: env,
+					SessionId: id[0], TaskId: id[1], LastSeq: 1, RequestEnvelope: env,
 				}))
 				if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "must be 0x") {
 					t.Fatalf("code = %v, err = %v; want InvalidArgument naming the 0x spelling", connect.CodeOf(err), err)
@@ -1316,6 +1092,8 @@ func TestSubscribeAndAckRejectBareIDs(t *testing.T) {
 		}
 	}
 }
+
+func (h *fakeHandler) IsTaskTerminal(_, _ string) bool { return h.taskTerminal }
 
 func (h *fakeHandler) TaskOwner(_ context.Context, _, _ string) (string, error) {
 	if h.taskOwner == "" {
@@ -1327,7 +1105,7 @@ func (h *fakeHandler) TaskOwner(_ context.Context, _, _ string) (string, error) 
 // subscribeBody is the TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1 digest of a SubscribeOutput request.
 func subscribeBody(t *testing.T, sessionID, taskID string, resumeAfterSeq *uint64) []byte {
 	t.Helper()
-	body, err := sdkauth.SubscribeOutputBody(sessionID, taskID, resumeAfterSeq)
+	body, err := sdkauth.SubscribeOutputBody(sessionID, taskID, resumeAfterSeq, nil)
 	if err != nil {
 		t.Fatalf("subscribe body: %v", err)
 	}
@@ -1400,39 +1178,5 @@ func TestTaskEventsAndChallengeRequireOrderUser(t *testing.T) {
 				t.Fatalf("envelope for another task: code %v (%v), want invalid_argument", connect.CodeOf(err), err)
 			}
 		})
-	}
-}
-
-// SubmitOrder, FetchOutputRef and RefreshCredential are retired: each answers Unimplemented with
-// NEXUS_INGRESS_METHOD_RETIRED before the request is parsed, with or without an envelope.
-func TestRetiredMethods(t *testing.T) {
-	client := newTestClient(t, &fakeHandler{}, AuthParams{Chain: testUserChain,
-		ChainID: "trueopen-localnet", Bech32Prefix: "trueopen"})
-	ctx := context.Background()
-	calls := map[string]func() error{
-		"SubmitOrder empty": func() error {
-			_, err := client.SubmitOrder(ctx, connect.NewRequest(&nexusv1.SubmitOrderRequest{}))
-			return err
-		},
-		"SubmitOrder with envelope": func() error {
-			_, err := client.SubmitOrder(ctx, connect.NewRequest(&nexusv1.SubmitOrderRequest{
-				OrderEnvelope: []byte("x"), RequestEnvelope: &nexusv1.SDKRequestEnvelopeV2{Method: "SubmitOrder"},
-			}))
-			return err
-		},
-		"FetchOutputRef": func() error {
-			_, err := client.FetchOutputRef(ctx, connect.NewRequest(&nexusv1.FetchOutputRefRequest{SessionId: "s", TaskId: "t"}))
-			return err
-		},
-		"RefreshCredential": func() error {
-			_, err := client.RefreshCredential(ctx, connect.NewRequest(&nexusv1.RefreshCredentialRequest{}))
-			return err
-		},
-	}
-	for name, call := range calls {
-		err := call()
-		if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), "NEXUS_INGRESS_METHOD_RETIRED") {
-			t.Fatalf("%s: code %v, err %v; want unimplemented NEXUS_INGRESS_METHOD_RETIRED", name, connect.CodeOf(err), err)
-		}
 	}
 }

@@ -30,6 +30,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/gen/trueopen/task/v1/taskv1connect"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/signer"
 )
 
 func TestStartCommandStartsAndStopsWithCommandContext(t *testing.T) {
@@ -213,6 +214,9 @@ type fakeStartNode struct {
 	// `nexus start` only checks and never submits, so the query must read back what registration wrote.
 	descriptor        *hubv1.ServiceDescriptorV1
 	descriptorVersion uint64
+	// servicePubKey is the service key MsgRegisterBuilder registered: start reads its binding
+	// before anything is signed.
+	servicePubKey []byte
 }
 
 func (n *fakeStartNode) GetLatestBlock(context.Context, *connect.Request[cmtv1beta1.GetLatestBlockRequest]) (*connect.Response[cmtv1beta1.GetLatestBlockResponse], error) {
@@ -271,8 +275,25 @@ func (n *fakeStartNode) BuilderSet(_ context.Context, req *connect.Request[hubv1
 	}}), nil
 }
 
-func (n *fakeStartNode) CurrentServiceKey(context.Context, *connect.Request[hubv1.QueryCurrentServiceKeyRequest]) (*connect.Response[hubv1.QueryCurrentServiceKeyResponse], error) {
-	return nil, connect.NewError(connect.CodeNotFound, errors.New("service key not found"))
+func (n *fakeStartNode) CurrentServiceKey(_ context.Context, req *connect.Request[hubv1.QueryCurrentServiceKeyRequest]) (*connect.Response[hubv1.QueryCurrentServiceKeyResponse], error) {
+	n.mu.Lock()
+	pub := n.servicePubKey
+	n.mu.Unlock()
+	if !n.registered.Load() || len(pub) == 0 || req.Msg.GetParticipantType() != sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("service key not found"))
+	}
+	address, err := signer.AddressFromPubKey("trueopen", pub)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&hubv1.QueryCurrentServiceKeyResponse{Binding: &hubv1.CurrentServiceKeyViewV1{
+		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER, OperatorAddress: req.Msg.GetOperatorAddress(),
+		ServiceAddress: address, ServicePubkey: pub, ServiceAuthorizationNonce: 1,
+		ParticipantStatus: &hubv1.CurrentServiceKeyViewV1_BuilderServiceKeyStatus{
+			BuilderServiceKeyStatus: hubv1.ServiceKeyStatus_SERVICE_KEY_STATUS_ACTIVE,
+		},
+		CurrentDescriptorVersion: 1,
+	}}), nil
 }
 
 func (n *fakeStartNode) ServiceDescriptor(_ context.Context, req *connect.Request[hubv1.QueryServiceDescriptorRequest]) (*connect.Response[hubv1.QueryServiceDescriptorResponse], error) {
@@ -324,6 +345,7 @@ func (n *fakeStartNode) BroadcastTx(_ context.Context, req *connect.Request[txv1
 			if proto.Unmarshal(body.GetMessages()[0].GetValue(), &msg) == nil {
 				n.mu.Lock()
 				n.descriptor, n.descriptorVersion = msg.GetDescriptor_(), 1
+				n.servicePubKey = msg.GetServicePubkey()
 				n.mu.Unlock()
 			}
 			n.registered.Store(true)
@@ -362,6 +384,17 @@ func (fakeStartTaskQuery) Params(context.Context, *connect.Request[taskv1.QueryT
 	}}), nil
 }
 
+// fakeStartTaskEvents serves the Builder role event stream with no events: it stays open until the
+// client leaves.
+type fakeStartTaskEvents struct {
+	taskv1connect.UnimplementedTaskEventServiceHandler
+}
+
+func (fakeStartTaskEvents) SubscribeRoleEvents(ctx context.Context, _ *connect.Request[taskv1.SubscribeRoleEventsRequest], _ *connect.ServerStream[taskv1.SubscribeRoleEventsResponse]) error {
+	<-ctx.Done()
+	return nil
+}
+
 func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -378,6 +411,8 @@ func startFakeStartNode(t *testing.T, node *fakeStartNode) (string, func()) {
 	mux.Handle(hubPath, hubHandler)
 	taskPath, taskHandler := taskv1connect.NewQueryHandler(fakeStartTaskQuery{})
 	mux.Handle(taskPath, taskHandler)
+	eventsPath, eventsHandler := taskv1connect.NewTaskEventServiceHandler(fakeStartTaskEvents{})
+	mux.Handle(eventsPath, eventsHandler)
 	mux.Handle("/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", connect.NewUnaryHandler(
 		"/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock", node.GetLatestBlock,
 	))

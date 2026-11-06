@@ -28,53 +28,6 @@ func (k TaskKey) Validate() error {
 // ---- 1. Txs that nexus assembles, signs and broadcasts ----
 // These structs are encoded and signed, then submitted via BroadcastTx([]byte); field-level definitions live here.
 
-// AssignTx carries the Worker-duty handraise proposal that nexus relays as
-// MsgSubmitWorkerHandraises.
-//
-// SignedOrder / ExistingTask / WorkerHandraises are the only fields that reach
-// the chain: the chain requires every other assignment fact (Builder
-// operator, BuilderSet, Task Builders, pool hash, candidate weights, legal-set
-// hash, deadlines, thresholds) to be Keeper-derived, so they must not be sent as
-// request copies. The remaining legacy fields below stay as local coordination
-// state for builder-selection preparation, order admission and self-checks; they
-// are no longer part of the Msg wire.
-type AssignTx struct {
-	// SignedOrder is the user-signed SignedOrderV2 required for the first
-	// proposal of a Task.
-	SignedOrder *taskv1.SignedOrderV2 `json:"-"`
-	// ExistingTask addresses an already accepted Task for follow-up proposals.
-	ExistingTask *taskv1.ExistingTaskRefV1 `json:"-"`
-	// WorkerHandraises are Cortex-authored signed WorkerHandraiseV1 facts,
-	// ascending by slot and unique.
-	WorkerHandraises []*taskv1.WorkerHandraiseV1 `json:"-"`
-
-	BuilderOperatorAddress string `json:"builder_operator_address"`
-	SessionID              string `json:"session_id"`
-	TaskID                 string `json:"task_id"`
-	UserAddress            string `json:"user_address"`
-	OrderSequence          uint64 `json:"order_sequence"`
-	OrderEnvelope          string `json:"order_envelope"`
-	// TaskHash is the canonical identity of the candidate order (see types.Order.TaskHash).
-	// It only feeds local logs and snapshots; the on-chain copy lives in SignedOrder / ExistingTask,
-	// and the submitter checks the two agree before submitting.
-	TaskHash              string `json:"task_hash"`
-	SignatureScheme       string `json:"signature_scheme"`
-	UserSignature         string `json:"user_signature"`
-	MaxFee                uint64 `json:"max_fee"`
-	TxFeeReserve          uint64 `json:"tx_fee_reserve"`
-	AssignmentPriorityFee uint64 `json:"assignment_priority_fee"`
-	BuilderRank           uint64 `json:"builder_rank"`
-	BuilderSelectionProof string `json:"builder_selection_proof"`
-	CandidateSnapshotID   string `json:"candidate_snapshot_id"`
-	CandidateSetHash      string `json:"candidate_set_hash"`
-	WorkerHandraiseSet    string `json:"worker_handraise_set"`
-	MinWorkerHandraise    uint64 `json:"min_worker_handraise_required"`
-	ReservedFee           uint64 `json:"reserved_fee"`
-	InferDeadlineHeight   uint64 `json:"infer_deadline_height"`
-	ServiceSignature      string `json:"service_signature"`
-	Submitter             string `json:"submitter"`
-}
-
 // OpenVerifyTx carries the two contract messages that replace the old single
 // MsgOpenVerify: MsgSubmitInferReceipt and, once the Verifier window is
 // READY, MsgSubmitVerifierHandraises. The Verifier window, legal
@@ -256,8 +209,6 @@ type UpdateServiceDescriptorTx struct {
 const (
 	EventResyncRequired           = "ResyncRequired"              // local signal: re-check authoritative chain state after a new subscription is established
 	EventTaskStateChanged         = "TaskStateChanged"            // new-style Node task notification: must QueryTask before advancing
-	EventAssignAccepted           = "AssignAccepted"              // AssignTx included in a block, winner undecided → RANDOMNESS_PENDING
-	EventAssignmentFinalized      = "AssignmentFinalized"         // randomness settled, winner decided → triggers trueopen.assign to start work
 	EventOpenVerifyAccepted       = "OpenVerifyAccepted"          // formal Verifier set decided (no seed) → VERIFYING
 	EventSampleReady              = "SampleReady"                 // future beacon aggregates sample_seed → triggers trueopen.sample-ready
 	EventVerifyCommitAccepted     = "VerifyCommitAccepted"        // commit collection progress
@@ -269,35 +220,16 @@ const (
 	EventNewBlock                 = "NewBlock"                    // independent height polling signal, used for gap detection
 )
 
-// AssignAccepted: AssignTx included in a block (two-phase step one): enters randomness pending,
-// winner not yet decided, so no start-work notification is sent.
-type AssignAccepted struct {
-	SessionID   string             `json:"session_id"`
-	TaskID      string             `json:"task_id"`
-	AssignedSet []types.BuilderRef `json:"assigned_set"`
-	Height      int64              `json:"height"`
-}
-
-// AssignmentFinalized: randomness settled and winner decided (two-phase step two):
-// only after receiving it is the winner told to start work via trueopen.assign.
-type AssignmentFinalized struct {
-	SessionID  string `json:"session_id"`
-	TaskID     string `json:"task_id"`
-	Winner     string `json:"winner"`      // selected Worker address
-	AssignSeed []byte `json:"assign_seed"` // assignment randomness (lets the winner derivation be checked locally)
-	Height     int64  `json:"height"`
-	// InferDeadlineHeight is the chain-height deadline for the winner to deliver output (infer_deadline of
-	// the WorkerAssignmentFinalized event; the recovery path reads the same-named task snapshot field).
-	InferDeadlineHeight uint64 `json:"infer_deadline_height"`
-}
-
 // OpenVerifyAccepted: open-verify included in a block (no sample_seed; the seed arrives with the later SampleReady).
 type OpenVerifyAccepted struct {
-	SessionID string          `json:"session_id"`
-	TaskID    string          `json:"task_id"`
-	Verifiers []string        `json:"verifiers"` // formal Verifier set addresses
-	Deadlines types.Deadlines `json:"deadlines"` // commit/worker_reveal/reveal/verify
-	Height    int64           `json:"height"`
+	SessionID string   `json:"session_id"`
+	TaskID    string   `json:"task_id"`
+	Verifiers []string `json:"verifiers"` // formal Verifier set addresses
+	// Selected is the formal set with each Verifier's candidate slot, in the order of Verifiers,
+	// when the source carries it (QueryTask does, the event does not).
+	Selected  []SelectedVerifier `json:"selected,omitempty"`
+	Deadlines types.Deadlines    `json:"deadlines"` // commit/worker_reveal/reveal/verify
+	Height    int64              `json:"height"`
 }
 
 // SampleReady: the future proposer-VRF beacon aggregated the sample seed (SampleReadyIndex).
@@ -477,6 +409,35 @@ type ServiceKeyState struct {
 	AuthorizationNonce uint64 `json:"authorization_nonce"`
 	UpdatedHeight      uint64 `json:"updated_height"`
 	Status             string `json:"status"`
+	// RevokedHeight is the explicit emergency-revoke cutoff of a REVOKED current key, 0 when the
+	// key is ACTIVE or was revoked without one (terminal state): material it signed then proves
+	// only for an order context below this height.
+	RevokedHeight uint64 `json:"revoked_height,omitempty"`
+	// PendingRotation is a registered replacement key waiting for its activation epoch; nil when
+	// there is none. The fields above stay the current binding until it activates.
+	PendingRotation *PendingServiceKeyRotation `json:"pending_rotation,omitempty"`
+	// Previous is the one generation the last cutover retired; nil when there is none.
+	Previous *PreviousServiceKey `json:"previous,omitempty"`
+}
+
+// PreviousServiceKey is the generation a cutover replaced. It proves only material of orders
+// whose earliest_submit_height is below RetiredHeight and never authorizes live traffic.
+type PreviousServiceKey struct {
+	ServicePubKey      string `json:"service_pubkey"` // 33-byte compressed secp256k1, lowercase hex
+	AuthorizationNonce uint64 `json:"authorization_nonce"`
+	// RetiredHeight is the cutover height: the first block the replacement was current.
+	RetiredHeight uint64 `json:"retired_height"`
+}
+
+// PendingServiceKeyRotation is a registered, not yet active replacement of a service key. The
+// next key has no live or proof permission before EffectiveHeight.
+type PendingServiceKeyRotation struct {
+	NextServicePubKey      string `json:"next_service_pubkey"` // 33-byte compressed secp256k1, lowercase hex
+	NextAuthorizationNonce uint64 `json:"next_authorization_nonce"`
+	RegisteredHeight       uint64 `json:"registered_height"`
+	// EffectiveHeight is the fixed start of the second epoch after the registration's: the chain
+	// installs the next key before any transaction of that block, and nothing postpones it.
+	EffectiveHeight uint64 `json:"effective_height"`
 }
 
 // CortexNodeState is the stable Cortex identity row returned by QueryCortexNode (CortexNodeState).
@@ -543,14 +504,9 @@ type TaskAssignmentState struct {
 	BuilderRank                   uint64 `json:"builder_rank"`
 	BuilderSelectionProof         string `json:"builder_selection_proof"`
 	CandidateSnapshotID           string `json:"candidate_snapshot_id"`
-	CandidateSetHash              string `json:"candidate_set_hash"`
-	WorkerHandraiseSet            string `json:"worker_handraise_set"`
-	MinWorkerHandraiseRequired    uint64 `json:"min_worker_handraise_required"`
 	SelectedWorkerOperatorAddress string `json:"selected_worker_operator_address"`
 	ReservedFee                   uint64 `json:"reserved_fee"`
 	InferDeadlineHeight           uint64 `json:"infer_deadline_height"`
-	AssignAcceptHeight            uint64 `json:"assign_accept_height"`
-	AssignmentRandomnessHeight    uint64 `json:"assignment_randomness_height"`
 	WinnerConfirmHeight           uint64 `json:"winner_confirm_height"`
 	OrderValue                    uint64 `json:"order_value"`
 	InferFeeCap                   uint64 `json:"infer_fee_cap"`
@@ -710,6 +666,7 @@ type OnChainTask struct {
 	Winner             string                  `json:"winner,omitempty"`
 	AssignedSet        []types.BuilderRef      `json:"assigned_set,omitempty"`
 	Verifiers          []string                `json:"verifiers,omitempty"`
+	SelectedVerifiers  []SelectedVerifier      `json:"selected_verifiers,omitempty"`
 	SampleSeed         []byte                  `json:"sample_seed,omitempty"`
 	InferDeadline      int64                   `json:"infer_deadline,omitempty"`
 	Deadlines          types.Deadlines         `json:"deadlines"`
@@ -738,9 +695,18 @@ type OnChainTask struct {
 
 // VerifierRound is the part of one round's VerifierAssignmentState that task data authorization
 // needs: who was selected, and the two heights that tell whether the round's commit set is locked.
+// SelectedVerifier is one formal Verifier with the candidate slot it was selected in.
+type SelectedVerifier struct {
+	Operator    string `json:"operator"`
+	Slot        uint32 `json:"slot"`
+	SlotVersion uint64 `json:"slot_version"`
+}
+
 type VerifierRound struct {
 	VerifyRound uint32   `json:"verify_round"`
 	Verifiers   []string `json:"verifiers"`
+	// Selected carries the same Verifiers with their candidate slots.
+	Selected []SelectedVerifier `json:"selected,omitempty"`
 	// CommitDeadlineHeight is the last height at which a commit of this round can be accepted.
 	CommitDeadlineHeight uint64 `json:"commit_deadline_height"`
 	// RevealDeadlineHeight is written only when the round enters reveal, which on the fast path

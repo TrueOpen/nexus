@@ -1,0 +1,333 @@
+// Package drain is an optional drain an operator may run around a service key rotation of a
+// dispatching Builder.
+//
+// No drain is required: a rotation registered in one epoch becomes current at the start of the
+// second epoch after it, the retired key keeps proving the tickets, roots, records and Worker
+// answers of orders whose earliest_submit_height is below the cutover, and this process switches
+// to the registered replacement at the cutover without a restart when it holds that key
+// (identity.next_service_keystore_file). A drain only stops new work, for an operator who wants a
+// quiet Builder: while it lasts no new order is taken, no ticket issued and no takeover admitted
+// (the dispatcher and the takeover manager ask Draining). The orders in flight are accepted,
+// recorded or fail as usual and the group sync finishes. A held takeover whose entry has not gone
+// out yet cannot be on chain: it is ended as NO_CAPACITY when the drain begins (OnDraining), so its
+// user goes elsewhere at once. A takeover that went out is work from before the drain: it takes
+// effect and its order is walked with tickets as usual. The drain ends by itself once the chain
+// shows a new key current that this process holds, or when the operator ends it.
+//
+// The drain state is stored, so it survives a restart.
+package drain
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"math/big"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/kv"
+)
+
+// stateKey is the key of the drain state in kv.NSOps; stateVersion the layout of its value.
+const (
+	stateKey     = "drain"
+	stateVersion = 1
+)
+
+// Phase is where the Builder stands in a rotation.
+type Phase string
+
+const (
+	// PhaseServing: no drain; new work is taken.
+	PhaseServing Phase = "SERVING"
+	// PhaseDraining: no new work is taken and some remains.
+	PhaseDraining Phase = "DRAINING"
+	// PhaseDrained: nothing remains; the rotation may be submitted now.
+	PhaseDrained Phase = "DRAINED"
+	// PhaseRotationPending: the chain registered the replacement key; it waits for its
+	// activation height.
+	PhaseRotationPending Phase = "ROTATION_PENDING"
+)
+
+// SyncPending is what one group member has not acknowledged of one order's sync stream: Items
+// sync items, and Output when the recorded winner's output is not sealed at the member yet.
+type SyncPending struct {
+	SessionID string `json:"session_id"`
+	Sequence  uint64 `json:"sequence"`
+	TaskID    string `json:"task_id"`
+	Peer      string `json:"peer"`
+	Items     uint64 `json:"items"`
+	Output    bool   `json:"output"`
+}
+
+// Remaining is the work a drain waits for.
+type Remaining struct {
+	// InFlightOrders are the orders still dispatching or accepted and not recorded, with the sum
+	// of their max_fee in atomic units.
+	InFlightOrders int    `json:"in_flight_orders"`
+	InFlightMaxFee string `json:"in_flight_max_fee"`
+	// RecordEntries are the record outbox entries the chain has not resolved yet.
+	RecordEntries int `json:"record_entries"`
+	// Takeovers are the takeovers held as candidate.
+	Takeovers int `json:"takeovers"`
+	// SyncPending lists the sync items group members have not acknowledged.
+	SyncPending []SyncPending `json:"sync_pending,omitempty"`
+}
+
+// Empty reports whether nothing remains.
+func (r Remaining) Empty() bool {
+	return r.InFlightOrders == 0 && r.RecordEntries == 0 && r.Takeovers == 0 && len(r.SyncPending) == 0
+}
+
+// Sources read the work that remains.
+type Sources struct {
+	InFlight  func() (orders int, maxFee *big.Int)
+	Records   func() int
+	Takeovers func() int
+	Sync      func() []SyncPending
+}
+
+// Key is this Builder's BUILDER service binding as the chain shows it.
+type Key struct {
+	PubKey string `json:"service_pubkey"`
+	Nonce  uint64 `json:"service_authorization_nonce"`
+	// PendingNonce and PendingEffectiveHeight describe a registered replacement, 0 without one.
+	PendingNonce           uint64 `json:"pending_authorization_nonce,omitempty"`
+	PendingEffectiveHeight uint64 `json:"pending_effective_height,omitempty"`
+}
+
+// Status is the drain as Check found it.
+type Status struct {
+	Phase     Phase     `json:"phase"`
+	Since     time.Time `json:"since,omitzero"`
+	Complete  bool      `json:"complete"`
+	Remaining Remaining `json:"remaining"`
+	// Key is the binding read from the chain; nil when it could not be read.
+	Key     *Key   `json:"key,omitempty"`
+	Warning string `json:"warning,omitempty"`
+}
+
+// Config wires a Controller.
+type Config struct {
+	Store   kv.Store
+	Sources Sources
+	// Key reads this Builder's current BUILDER service binding from the chain.
+	Key func(ctx context.Context) (chaincli.ServiceKeyState, error)
+	// LocalPubKey is the compressed public key, lowercase hex, of the service key this process
+	// signs with now; Holds reports whether this process holds a key (lowercase hex).
+	LocalPubKey func() string
+	Holds       func(pubKeyHex string) bool
+	// OnDraining, when set, runs when the drain begins and on every Check while it lasts: it ends
+	// the held takeovers whose entry has not gone out.
+	OnDraining func()
+	// Now is nil for the system clock.
+	Now func() time.Time
+	Log *slog.Logger
+}
+
+// state is the stored drain.
+type state struct {
+	Version     int   `json:"version"`
+	Draining    bool  `json:"draining"`
+	SinceUnixMs int64 `json:"since_unix_ms,omitempty"`
+	// KeyPubKey is the key this process signed with when the drain began, KeyNonce the chain's
+	// binding nonce of it then (0 when it could not be read) and TargetNonce the nonce of a
+	// replacement already registered then (0 without one). A current key other than KeyPubKey,
+	// or a nonce other than KeyNonce or reaching TargetNonce, is the rotation.
+	KeyPubKey   string `json:"key_pubkey"`
+	KeyNonce    uint64 `json:"key_nonce,omitempty"`
+	TargetNonce uint64 `json:"target_nonce,omitempty"`
+}
+
+// rotated reports whether the chain's current binding k is the rotation the drain waits for.
+func (st state) rotated(k chaincli.ServiceKeyState) bool {
+	return k.ServicePubKey != st.KeyPubKey || st.KeyNonce != 0 && k.AuthorizationNonce != st.KeyNonce ||
+		st.TargetNonce != 0 && k.AuthorizationNonce >= st.TargetNonce
+}
+
+// Controller holds the drain state.
+type Controller struct {
+	cfg      Config
+	log      *slog.Logger
+	draining atomic.Bool
+
+	mu sync.Mutex
+	st state
+}
+
+// New loads the stored drain state. A state that cannot be read (malformed or of an unknown
+// version) is logged and taken as no drain: it must not stop the start, and the operator can
+// begin a drain again.
+func New(cfg Config) (*Controller, error) {
+	if cfg.Store == nil || cfg.Key == nil || cfg.LocalPubKey == nil || cfg.Holds == nil || cfg.Sources.InFlight == nil || cfg.Sources.Records == nil ||
+		cfg.Sources.Takeovers == nil || cfg.Sources.Sync == nil {
+		return nil, fmt.Errorf("drain needs a store, the key reader and every work source")
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	c := &Controller{cfg: cfg, log: cfg.Log}
+	if c.log == nil {
+		c.log = slog.New(slog.DiscardHandler)
+	}
+	raw, found, err := cfg.Store.GetWithError(kv.NSOps, stateKey)
+	if err != nil {
+		return nil, fmt.Errorf("read drain state: %w", err)
+	}
+	if found {
+		var st state
+		switch err := json.Unmarshal(raw, &st); {
+		case err != nil:
+			c.log.Error("stored drain state is malformed; serving without a drain", "err", err)
+		case st.Version != stateVersion:
+			c.log.Error("stored drain state has an unknown version; serving without a drain", "version", st.Version)
+		default:
+			c.st = st
+		}
+	}
+	c.draining.Store(c.st.Draining)
+	return c, nil
+}
+
+// Draining reports whether new work must be refused.
+func (c *Controller) Draining() bool { return c.draining.Load() }
+
+// Begin starts a drain, noting the current key binding; a drain under way is kept as it is.
+func (c *Controller) Begin(ctx context.Context) error {
+	c.mu.Lock()
+	draining := c.st.Draining
+	c.mu.Unlock()
+	if draining {
+		return nil
+	}
+	local := c.cfg.LocalPubKey()
+	next := state{Version: stateVersion, Draining: true, SinceUnixMs: c.cfg.Now().UnixMilli(), KeyPubKey: local}
+	if key, err := c.cfg.Key(ctx); err == nil {
+		if key.ServicePubKey == local {
+			next.KeyNonce = key.AuthorizationNonce
+		}
+		if p := key.PendingRotation; p != nil {
+			next.TargetNonce = p.NextAuthorizationNonce
+		}
+	}
+	c.mu.Lock()
+	if c.st.Draining {
+		c.mu.Unlock()
+		return nil
+	}
+	if err := c.storeLocked(next); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	c.mu.Unlock()
+	c.log.Info("drain begun: no new order, ticket or takeover until it ends", "key_nonce", next.KeyNonce)
+	c.onDraining()
+	return nil
+}
+
+func (c *Controller) onDraining() {
+	if c.cfg.OnDraining != nil {
+		c.cfg.OnDraining()
+	}
+}
+
+// End ends the drain; without one it does nothing.
+func (c *Controller) End() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.st.Draining {
+		return nil
+	}
+	if err := c.storeLocked(state{Version: stateVersion}); err != nil {
+		return err
+	}
+	c.log.Info("drain ended: new work is taken again")
+	return nil
+}
+
+func (c *Controller) storeLocked(next state) error {
+	raw, err := json.Marshal(next)
+	if err == nil {
+		err = c.cfg.Store.Set(kv.NSOps, stateKey, raw)
+	}
+	if err != nil {
+		return fmt.Errorf("store drain state: %w", err)
+	}
+	c.st = next
+	c.draining.Store(next.Draining)
+	return nil
+}
+
+// Check reads the remaining work and the key binding and returns the status. A drain whose key
+// rotated to a key this process holds ends here. A registered replacement this process does not
+// hold is warned about, drain or not: it could not sign after the cutover.
+func (c *Controller) Check(ctx context.Context) Status {
+	if c.Draining() {
+		c.onDraining()
+	}
+	s := Status{Phase: PhaseServing, Remaining: c.remaining()}
+	s.Complete = s.Remaining.Empty()
+	chainKey, keyErr := c.cfg.Key(ctx)
+	if keyErr == nil {
+		k := &Key{PubKey: chainKey.ServicePubKey, Nonce: chainKey.AuthorizationNonce}
+		if p := chainKey.PendingRotation; p != nil {
+			k.PendingNonce, k.PendingEffectiveHeight = p.NextAuthorizationNonce, p.EffectiveHeight
+		}
+		s.Key = k
+	}
+	if keyErr == nil {
+		if p := chainKey.PendingRotation; p != nil && !c.cfg.Holds(p.NextServicePubKey) {
+			s.Warning = fmt.Sprintf("the registered replacement service key is not held locally: configure identity.next_service_keystore_file "+
+				"before height %d, or this Builder cannot sign after the cutover", p.EffectiveHeight)
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.st.Draining {
+		return s
+	}
+	s.Since = time.UnixMilli(c.st.SinceUnixMs)
+	if keyErr != nil {
+		return c.workPhase(s)
+	}
+	switch {
+	case chainKey.PendingRotation != nil:
+		s.Phase = PhaseRotationPending
+		return s
+	case !c.st.rotated(chainKey):
+		return c.workPhase(s)
+	case !c.cfg.Holds(chainKey.ServicePubKey):
+		s = c.workPhase(s)
+		s.Warning = "the chain's current service key is not held locally: configure it as identity.service_keystore_file or identity.next_service_keystore_file"
+		return s
+	}
+	if err := c.storeLocked(state{Version: stateVersion}); err != nil {
+		c.log.Warn("drain end not stored", "err", err)
+		return c.workPhase(s)
+	}
+	c.log.Info("drain ended: the new service key is current", "key_nonce", chainKey.AuthorizationNonce)
+	s.Since = time.Time{}
+	return s
+}
+
+func (c *Controller) workPhase(s Status) Status {
+	s.Phase = PhaseDraining
+	if s.Complete {
+		s.Phase = PhaseDrained
+	}
+	return s
+}
+
+func (c *Controller) remaining() Remaining {
+	orders, maxFee := c.cfg.Sources.InFlight()
+	if maxFee == nil {
+		maxFee = new(big.Int)
+	}
+	return Remaining{
+		InFlightOrders: orders, InFlightMaxFee: maxFee.String(), RecordEntries: c.cfg.Sources.Records(),
+		Takeovers: c.cfg.Sources.Takeovers(), SyncPending: c.cfg.Sources.Sync(),
+	}
+}

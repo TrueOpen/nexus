@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package hub.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1";
+
+// BuilderCompensationAccountState defines the canonical BuilderCompensationAccountState fields.
+message BuilderCompensationAccountState {
+  string builder_address = 1;
+  shared.v1.Amount balance = 2;
+  shared.v1.Amount total_funded = 3;
+  shared.v1.Amount total_paid = 4;
+  shared.v1.Amount total_penalized = 5;
+}
+// MsgFundBuilderCompensation defines the canonical MsgFundBuilderCompensation fields.
+message MsgFundBuilderCompensation {
+  string builder_address = 1;
+  shared.v1.Amount amount = 2;
+  string signer_address = 3;
+}
+// MsgFundBuilderCompensationResponse defines the canonical MsgFundBuilderCompensationResponse fields.
+message MsgFundBuilderCompensationResponse {
+  shared.v1.Amount balance = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+// CandidateProfileWeightInputV1 is the authoritative model/profile-specific
+// eligibility input frozen in the snapshot. Match both model_id and
+// profile_version; never substitute the member-wide inference_capable flag.
+message CandidateProfileWeightInputV1 {
+  bytes model_id = 1;
+  uint32 profile_version = 2;
+  bool profile_support_fresh = 3;
+  shared.v1.Amount min_stake_snapshot = 4;
+  bool inference_capable = 5;
+}
+// CandidateWeightInputsV1 defines the canonical CandidateWeightInputsV1 fields.
+message CandidateWeightInputsV1 {
+  shared.v1.Amount active_bond = 1;
+  shared.v1.Amount available_bond = 2;
+  uint32 performance_score_ppm = 3;
+  uint32 performance_method_version = 4;
+  uint32 candidate_jail_factor_ppm = 5;
+  // Member-wide summary only. Dispatch for a profile uses that profile's flag.
+  bool inference_capable = 6;
+  bool unbonding = 7;
+  bool tombstoned = 8;
+  repeated CandidateProfileWeightInputV1 profiles = 9;
+}
+// CandidatePoolSnapshotMemberViewV1 reads only the frozen snapshot. With a
+// model/profile selector, fields 6/7 are projections of the matching profiles[]
+// entry, not independent live facts; candidate_weight uses that same entry and
+// the frozen member inputs and the snapshot header's Worker coefficients.
+// Never substitute current Task parameters. No match means
+// profile_support_fresh=false and zero
+// candidate_weight/min_stake_snapshot. Missing weight_inputs on an in-pool member
+// is an invalid snapshot, not permission to read current bond/support state.
+message CandidatePoolSnapshotMemberViewV1 {
+  bool in_pool = 1;
+  uint32 slot = 2;
+  uint64 slot_version = 3;
+  bytes binding_hash = 4;
+  optional CandidateWeightInputsV1 weight_inputs = 5;
+  optional bool profile_support_fresh = 6;
+  optional shared.v1.Amount min_stake_snapshot = 7;
+  optional uint64 candidate_weight = 8;
+}
+// QueryCandidatePoolSnapshotMemberRequest defines the canonical QueryCandidatePoolSnapshotMemberRequest fields.
+message QueryCandidatePoolSnapshotMemberRequest {
+  bytes snapshot_id = 1;
+  string operator_address = 2;
+  optional bytes model_id = 3;
+  optional uint32 profile_version = 4;
+}
+// QueryCandidatePoolSnapshotMemberResponse defines the canonical QueryCandidatePoolSnapshotMemberResponse fields.
+message QueryCandidatePoolSnapshotMemberResponse {
+  CandidatePoolSnapshotMemberViewV1 member = 1;
+}
+// QueryBuilderCompensationAccountRequest defines the canonical QueryBuilderCompensationAccountRequest fields.
+message QueryBuilderCompensationAccountRequest {
+  string builder_address = 1;
+}
+// QueryBuilderCompensationAccountResponse defines the canonical QueryBuilderCompensationAccountResponse fields.
+message QueryBuilderCompensationAccountResponse {
+  BuilderCompensationAccountState account = 1;
+}
+
+// EventBuilderCompensationFunded defines the canonical EventBuilderCompensationFunded fields.
+message EventBuilderCompensationFunded {
+  string builder = 1;
+  shared.v1.Amount amount = 2;
+  shared.v1.Amount balance = 3;
+}
+
+// DispatchFaultState defines the canonical DispatchFaultState fields.
+message DispatchFaultState {
+  string builder_address = 1;
+  // The challenge_id of the first upheld challenge in this objective scope.
+  // Scope deduplication excludes the challenger; no separate fault hash exists.
+  bytes fault_id = 2;
+  shared.v1.DispatchChallengeKindV1 kind = 3;
+  bytes task_id = 4;
+  bytes dispatch_record_hash = 5;
+  bytes challenged_ticket_hash_or_zero32 = 6;
+  // Actual independent penalty paid to Treasury after victim compensation.
+  shared.v1.Amount penalty_amount = 7;
+  // Configured penalty minus penalty_amount; excludes compensation shortfalls.
+  shared.v1.Amount unfilled_amount = 8;
+  optional string compensated_worker = 9;
+  // Actual victim compensation, paid first and counted in total_paid.
+  shared.v1.Amount compensated_amount = 10;
+  uint64 fault_height = 11;
+}
+
+// EventBuilderVrfKeyRegistered defines the canonical EventBuilderVrfKeyRegistered fields.
+message EventBuilderVrfKeyRegistered {
+  string builder = 1;
+  uint64 pending_from_epoch = 2;
+  uint64 vrf_authorization_nonce = 3;
+}

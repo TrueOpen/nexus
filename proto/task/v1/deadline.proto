@@ -54,8 +54,8 @@ enum DeadlineKindV1 {
   // DEADLINE_KIND_V1_WORKER_INFER identifies the corresponding protocol value.
   DEADLINE_KIND_V1_WORKER_INFER = 8;
   // Assignment randomness expiry; kind_priority 90.
-  // DEADLINE_KIND_V1_WORKER_ASSIGNMENT identifies the corresponding protocol value.
-  DEADLINE_KIND_V1_WORKER_ASSIGNMENT = 9;
+  reserved 9;
+  reserved "DEADLINE_KIND_V1_WORKER_ASSIGNMENT";
   // Session idle / close lifecycle sweep; kind_priority 100.
   // DEADLINE_KIND_V1_SESSION_LIFECYCLE identifies the corresponding protocol value.
   DEADLINE_KIND_V1_SESSION_LIFECYCLE = 10;
@@ -68,6 +68,14 @@ enum DeadlineKindV1 {
   // EvidenceCleanupIndex bounded cursor; kind_priority 110.
   // DEADLINE_KIND_V1_EVIDENCE_CLEANUP identifies the corresponding protocol value.
   DEADLINE_KIND_V1_EVIDENCE_CLEANUP = 13;
+  // Closes a Task's verifier value-evidence window; TaskDeadlineLocator, priority 30.
+  DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE = 14;
+  // DISPATCH_CHALLENGE_RESPONSE is an EndBlock-only deadline.
+  DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE = 15;
+  // DISPATCH_COMPENSATION_REBUTTAL is an EndBlock-only deadline.
+  DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL = 16;
+  // TAKEOVER_ACTIVATION is an EndBlock-only deadline.
+  DEADLINE_KIND_V1_TAKEOVER_ACTIVATION = 17;
 }
 
 // DeadlineTransitionCode is the closed transition reason carried by event

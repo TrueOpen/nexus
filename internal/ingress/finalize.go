@@ -201,6 +201,7 @@ func signedInferReceiptFromPB(pb *taskv1.InferReceiptV3, chainID string) (taskda
 		WorkerTokenKeyCommitment:  hex.EncodeToString(pb.GetWorkerTokenKeyCommitment()),
 		WorkerValueKeyCommitment:  hex.EncodeToString(pb.GetWorkerValueKeyCommitment()),
 		CiphertextOutputRoot:      hex.EncodeToString(pb.GetCiphertextOutputRoot()),
+		DispatchTicketHash:        hex.EncodeToString(pb.GetDispatchTicketHash()),
 	}, nil
 }
 

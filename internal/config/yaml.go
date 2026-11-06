@@ -64,26 +64,16 @@ type yamlPathFields struct {
 		} `yaml:"tls"`
 	} `yaml:"ingress"`
 	Identity struct {
-		KeystoreFile                *string `yaml:"keystore_file"`
-		KeystorePasswordFile        *string `yaml:"keystore_password_file"`
-		PrivateKeyFile              *string `yaml:"private_key_file"`
-		ServiceKeystoreFile         *string `yaml:"service_keystore_file"`
-		ServiceKeystorePasswordFile *string `yaml:"service_keystore_password_file"`
+		KeystoreFile                    *string   `yaml:"keystore_file"`
+		KeystorePasswordFile            *string   `yaml:"keystore_password_file"`
+		PrivateKeyFile                  *string   `yaml:"private_key_file"`
+		ServiceKeystoreFile             *string   `yaml:"service_keystore_file"`
+		ServiceKeystorePasswordFile     *string   `yaml:"service_keystore_password_file"`
+		NextServiceKeystoreFile         *string   `yaml:"next_service_keystore_file"`
+		NextServiceKeystorePasswordFile *string   `yaml:"next_service_keystore_password_file"`
+		VRFKeyFiles                     *[]string `yaml:"vrf_key_files"`
+		VRFKeyPasswordFile              *string   `yaml:"vrf_key_password_file"`
 	} `yaml:"identity"`
-	NATS struct {
-		CAFile       *string `yaml:"ca_file"`
-		CredsFile    *string `yaml:"creds_file"`
-		SentinelFile *string `yaml:"sentinel_file"`
-	} `yaml:"nats"`
-	NATSAuth struct {
-		NATS struct {
-			CAFile    *string `yaml:"ca_file"`
-			CredsFile *string `yaml:"creds_file"`
-		} `yaml:"nats"`
-		CortexAccountSigningKeyFile *string `yaml:"cortex_account_signing_key_file"`
-		AuthAccountSigningKeyFile   *string `yaml:"auth_account_signing_key_file"`
-		XKeyFile                    *string `yaml:"xkey_file"`
-	} `yaml:"natsauth"`
 }
 
 func resolveYAMLPaths(path string, data []byte, cfg *Config) error {
@@ -117,35 +107,25 @@ func resolveYAMLPaths(path string, data []byte, cfg *Config) error {
 	if fields.Identity.PrivateKeyFile != nil {
 		cfg.Identity.PrivateKeyFile = resolveRelativePath(baseDir, cfg.Identity.PrivateKeyFile)
 	}
-	if fields.NATS.CAFile != nil {
-		cfg.NATS.CAFile = resolveRelativePath(baseDir, cfg.NATS.CAFile)
-	}
-	if fields.NATS.CredsFile != nil {
-		cfg.NATS.CredsFile = resolveRelativePath(baseDir, cfg.NATS.CredsFile)
-	}
-	if fields.NATS.SentinelFile != nil {
-		cfg.NATS.SentinelFile = resolveRelativePath(baseDir, cfg.NATS.SentinelFile)
-	}
 	if fields.Identity.ServiceKeystoreFile != nil {
 		cfg.Identity.ServiceKeystoreFile = resolveRelativePath(baseDir, cfg.Identity.ServiceKeystoreFile)
 	}
 	if fields.Identity.ServiceKeystorePasswordFile != nil {
 		cfg.Identity.ServiceKeystorePasswordFile = resolveRelativePath(baseDir, cfg.Identity.ServiceKeystorePasswordFile)
 	}
-	if fields.NATSAuth.NATS.CAFile != nil {
-		cfg.NATSAuth.NATS.CAFile = resolveRelativePath(baseDir, cfg.NATSAuth.NATS.CAFile)
+	if fields.Identity.NextServiceKeystoreFile != nil {
+		cfg.Identity.NextServiceKeystoreFile = resolveRelativePath(baseDir, cfg.Identity.NextServiceKeystoreFile)
 	}
-	if fields.NATSAuth.NATS.CredsFile != nil {
-		cfg.NATSAuth.NATS.CredsFile = resolveRelativePath(baseDir, cfg.NATSAuth.NATS.CredsFile)
+	if fields.Identity.NextServiceKeystorePasswordFile != nil {
+		cfg.Identity.NextServiceKeystorePasswordFile = resolveRelativePath(baseDir, cfg.Identity.NextServiceKeystorePasswordFile)
 	}
-	if fields.NATSAuth.CortexAccountSigningKeyFile != nil {
-		cfg.NATSAuth.CortexAccountSigningKeyFile = resolveRelativePath(baseDir, cfg.NATSAuth.CortexAccountSigningKeyFile)
+	if fields.Identity.VRFKeyFiles != nil {
+		for i, f := range cfg.Identity.VRFKeyFiles {
+			cfg.Identity.VRFKeyFiles[i] = resolveRelativePath(baseDir, f)
+		}
 	}
-	if fields.NATSAuth.AuthAccountSigningKeyFile != nil {
-		cfg.NATSAuth.AuthAccountSigningKeyFile = resolveRelativePath(baseDir, cfg.NATSAuth.AuthAccountSigningKeyFile)
-	}
-	if fields.NATSAuth.XKeyFile != nil {
-		cfg.NATSAuth.XKeyFile = resolveRelativePath(baseDir, cfg.NATSAuth.XKeyFile)
+	if fields.Identity.VRFKeyPasswordFile != nil {
+		cfg.Identity.VRFKeyPasswordFile = resolveRelativePath(baseDir, cfg.Identity.VRFKeyPasswordFile)
 	}
 	return nil
 }

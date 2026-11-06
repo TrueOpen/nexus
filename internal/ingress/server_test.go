@@ -76,13 +76,6 @@ func TestServerRejectsOversizedPayloadBeforeService(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("oversized request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
 	}
-	// The retired procedures decode nothing but still refuse a large body instead of buffering it.
-	_, err = client.SubmitOrder(context.Background(), connect.NewRequest(&nexusv1.SubmitOrderRequest{
-		Payload: bytes.Repeat([]byte("x"), retiredMaxBodyBytes+1),
-	}))
-	if connect.CodeOf(err) != connect.CodeResourceExhausted {
-		t.Fatalf("oversized retired request code = %v, want ResourceExhausted: %v", connect.CodeOf(err), err)
-	}
 }
 
 func TestServerCapsRawHTTPBody(t *testing.T) {
@@ -98,7 +91,7 @@ func TestServerCapsRawHTTPBody(t *testing.T) {
 	t.Cleanup(server.Close)
 	req, err := http.NewRequest(
 		http.MethodPost,
-		server.URL+nexusv1connect.IngressAPISubmitOrderProcedure,
+		server.URL+nexusv1connect.IngressAPIGetTaskStatusProcedure,
 		bytes.NewReader(bytes.Repeat([]byte("x"), int(s.httpMaxBytes)+1)),
 	)
 	if err != nil {
@@ -137,31 +130,5 @@ func TestReadMaxUsesTaskDataChunkSizeAndStreamsAreNotTotalBodyCapped(t *testing.
 	s.handler().ServeHTTP(recorder, request)
 	if recorder.Code == http.StatusTooManyRequests {
 		t.Fatal("client-streaming OpenTask was capped by total HTTP body size")
-	}
-}
-
-// A retired procedure answers Unimplemented / NEXUS_INGRESS_METHOD_RETIRED even when its body is not
-// a valid message: it is refused before the request is parsed.
-func TestRetiredMethodsIgnoreTheBody(t *testing.T) {
-	s, err := New(slog.New(slog.NewTextHandler(io.Discard, nil)), config.IngressConfig{},
-		AuthParams{Chain: testUserChain}, &fakeHandler{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, procedure := range []string{
-		nexusv1connect.IngressAPISubmitOrderProcedure,
-		nexusv1connect.IngressAPIFetchOutputRefProcedure,
-		nexusv1connect.IngressAPIRefreshCredentialProcedure,
-	} {
-		for _, contentType := range []string{"application/proto", "application/json"} {
-			req := httptest.NewRequest(http.MethodPost, procedure, strings.NewReader("\xff\xfe not a message {"))
-			req.Header.Set("Content-Type", contentType)
-			rec := httptest.NewRecorder()
-			s.handler().ServeHTTP(rec, req)
-			body := rec.Body.String()
-			if !strings.Contains(body, "unimplemented") || !strings.Contains(body, "NEXUS_INGRESS_METHOD_RETIRED") {
-				t.Fatalf("%s %s: status %d body %s", procedure, contentType, rec.Code, body)
-			}
-		}
 	}
 }

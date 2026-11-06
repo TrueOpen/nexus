@@ -8,17 +8,14 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/TrueOpen/nexus/gen/bus/v1"
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/types"
 )
@@ -41,7 +38,7 @@ func newRecoveryCoordinator(t *testing.T, store kv.Store, opts ...Option) (*Coor
 		t.Fatalf("relay start: %v", err)
 	}
 	t.Cleanup(func() { _ = rl.Stop(context.Background()) })
-	c := New(log, msgbus.NewStub(log, nil), chaincli.NewStub(log, config.ChainConfig{}), rl, store, testBuilderSelf, testChainID, opts...)
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), rl, store, testBuilderSelf, testChainID, opts...)
 	sub := &fakeSubmitter{}
 	c.submit = sub
 	return c, sub, rl
@@ -155,7 +152,7 @@ func TestRecoveryResumesInFlightTask(t *testing.T) {
 		t.Fatalf("reopen pebble: %v", err)
 	}
 	t.Cleanup(func() { _ = store2.Close() })
-	c2, sub2, _ := newRecoveryCoordinator(t, store2)
+	c2, sub2, rl2 := newRecoveryCoordinator(t, store2)
 	if err := c2.Start(ctx); err != nil {
 		t.Fatalf("c2 start: %v", err)
 	}
@@ -167,21 +164,20 @@ func TestRecoveryResumesInFlightTask(t *testing.T) {
 		t.Fatalf("recovered status = %+v (%v), want VERIFYING/OPEN_VERIFY", st, err)
 	}
 
-	// Event history restored with continuous cursor semantics: original 5 entries + TASK_RECOVERED at seq 6.
+	// Event history restored with continuous cursor semantics: original 4 entries + TASK_RECOVERED at seq 5.
 	replay, _, cancel, err := c2.TaskEvents(ctx, session, task, 0)
 	if err != nil {
 		t.Fatalf("TaskEvents: %v", err)
 	}
 	defer cancel()
-	if len(replay) != 6 || replay[4].EventCode != EvOpenVerifyAccepted ||
-		replay[5].EventCode != EvTaskRecovered || replay[5].Seq != 6 {
+	if len(replay) != 5 || replay[3].EventCode != EvOpenVerifyAccepted ||
+		replay[4].EventCode != EvTaskRecovered || replay[4].Seq != 5 {
 		t.Fatalf("recovered events = %+v", replay)
 	}
 
-	// Escrow restored: the selected Verifier can still fetch the binding credential (the contract dropped OutputRef, so no reference is returned).
-	cred, err := c2.FetchOutputRef(ctx, session, task, "verifier-1", types.AccessSealedKey, "VERIFIER_FETCH")
-	if err != nil || cred.ID == "" {
-		t.Fatalf("custody not restored: cred=%+v err=%v", cred, err)
+	// Custody restored: the signed InferReceipt is still held.
+	if held, err := rl2.Serve(session, task, types.AccessPackage); err != nil || held.WorkerAddress == "" {
+		t.Fatalf("custody not restored: held=%+v err=%v", held, err)
 	}
 
 	// Keep advancing: the new process submits SettleTx once the chain reports the task ready
@@ -190,11 +186,11 @@ func TestRecoveryResumesInFlightTask(t *testing.T) {
 	c2.OnSampleReady(chaincli.SampleReady{SessionID: session, TaskID: task, SampleSeed: []byte("sample-seed"), Height: 210})
 	fsm, _ := c2.getFSM(session, task)
 	vals := [][]byte{[]byte("v")}
-	if err := fsm.onVerifyResult(testVerifyResult(task, "verifier-1", vals)); err != nil {
-		t.Fatalf("onVerifyResult verifier-1: %v", err)
+	if _, err := fsm.relayVerifyResult(testVerifyResult(task, "verifier-1", vals)); err != nil {
+		t.Fatalf("relay verify result verifier-1: %v", err)
 	}
-	if err := fsm.onVerifyResult(testVerifyResult(task, "verifier-2", vals)); err != nil {
-		t.Fatalf("onVerifyResult verifier-2: %v", err)
+	if _, err := fsm.relayVerifyResult(testVerifyResult(task, "verifier-2", vals)); err != nil {
+		t.Fatalf("relay verify result verifier-2: %v", err)
 	}
 	// Settlement ordering and grace blocks are both restored from the snapshot; timing still follows chain height.
 	c2.onNewBlock(rankRevealDeadline + 1)
@@ -296,7 +292,7 @@ func TestRecoveryDropsTerminalAndCorruptSnapshots(t *testing.T) {
 	}
 }
 
-func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
+func TestSnapshotRetainsCanonicalOrderAndReceiptInputs(t *testing.T) {
 	store := kv.NewMemStore()
 	c, _, _ := newRecoveryCoordinator(t, store)
 	order := types.Order{
@@ -305,16 +301,12 @@ func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
 		OrderEnvelope: `{"schema_version":"trueopen-order-envelope-v1"}`, TaskHash: testCanonicalTaskHash(testUserAddress),
 		SignatureScheme: "secp256k1", UserSignature: "user-signature", MaxFee: 1000,
 		InferTimeoutBlocks: 20,
-		Stage1BuilderRank:  2, Stage1SelectionProof: strings.Repeat("ab", 32),
-		SignedOrder: testSignedOrderBytes(testUserAddress),
+		SignedOrder:        testSignedOrderBytes(testUserAddress),
 	}
-	if err := c.OnOrder(context.Background(), order); err != nil {
+	if err := trackTestOrder(c, order); err != nil {
 		t.Fatal(err)
 	}
-	fsm, _ := c.getFSM(order.SessionID, order.TaskID)
-	fsm.onWorkerHandraise(testWorkerHandraise(order.SessionID, order.TaskID, "worker-1"))
-	c.OnAssignAccepted(chaincli.AssignAccepted{SessionID: order.SessionID, TaskID: order.TaskID, Height: 10})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{SessionID: order.SessionID, TaskID: order.TaskID, Winner: "worker-1", Height: 11})
+	recordTestWinner(c, order.SessionID, order.TaskID, "worker-1", 11)
 	if err := c.OnInferReceipt(context.Background(), testInferReceipt(order.SessionID, order.TaskID, "worker-1", []byte("output"))); err != nil {
 		t.Fatal(err)
 	}
@@ -330,14 +322,8 @@ func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
 	if snapshot.Order.OrderEnvelope != order.OrderEnvelope || snapshot.Order.UserSignature != order.UserSignature || snapshot.Order.MaxFee != 1000 {
 		t.Fatalf("order=%+v", snapshot.Order)
 	}
-	if snapshot.Order.Stage1BuilderRank != order.Stage1BuilderRank || snapshot.Order.Stage1SelectionProof != order.Stage1SelectionProof {
-		t.Fatalf("stage1 selection was not persisted: rank=%d proof=%q", snapshot.Order.Stage1BuilderRank, snapshot.Order.Stage1SelectionProof)
-	}
 	if snapshot.ProfileVersion != order.ProfileVersion || bytes.Contains(raw, []byte(`"profile_version":"`)) {
 		t.Fatalf("profile version was not persisted as an integer: snapshot=%d raw=%s", snapshot.ProfileVersion, raw)
-	}
-	if len(snapshot.WorkerHandraises) != 1 || len(snapshot.WorkerHandraises[0]) == 0 {
-		t.Fatalf("worker handraises=%+v", snapshot.WorkerHandraises)
 	}
 	if string(snapshot.InferReceipt.InferReceiptHash) != "infer-receipt" || len(snapshot.InferReceipt.WorkerServiceSignature) == 0 {
 		t.Fatalf("infer receipt=%+v", snapshot.InferReceipt)
@@ -346,7 +332,7 @@ func TestSnapshotRetainsCanonicalOrderHandraiseAndReceiptInputs(t *testing.T) {
 
 // TestRestoreDropsLegacySnapshotMaterial pins the version gate on the upgrade path: from v4 on,
 // hand-raise / verification-result data is frozen-wire proto bytes; those sections of pre-v4 snapshots
-// (old msgbus JSON payloads) are dropped wholesale; undecodable proto entries are dropped one by
+// (old JSON payloads) are dropped wholesale; undecodable proto entries are dropped one by
 // one. The data can be re-collected, so correctness wins over cache preservation.
 func TestRestoreDropsLegacySnapshotMaterial(t *testing.T) {
 	task := testTaskID("restore-legacy")
@@ -360,7 +346,6 @@ func TestRestoreDropsLegacySnapshotMaterial(t *testing.T) {
 		return &taskFSM{
 			log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 			taskID:        task,
-			workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 			verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
 			verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 			fullReveals:   make(map[string]bool),
@@ -403,7 +388,6 @@ func TestSaveWritesCurrentSnapshotVersion(t *testing.T) {
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 		sessionID:     "session-1",
 		taskID:        task,
-		workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
 		verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 		fullReveals:   make(map[string]bool),
@@ -421,7 +405,6 @@ func TestSaveWritesCurrentSnapshotVersion(t *testing.T) {
 	restored := &taskFSM{
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 		taskID:        task,
-		workerHR:      make(map[string]*taskv1.WorkerHandraiseV1),
 		verifierHR:    make(map[string]*taskv1.VerifierHandraiseV1),
 		verifyResults: make(map[string]*taskv1.ResultReceiptV3),
 		fullReveals:   make(map[string]bool),
@@ -432,10 +415,9 @@ func TestSaveWritesCurrentSnapshotVersion(t *testing.T) {
 	}
 }
 
-// Assignment finalized while offline: recovery on restart must re-send the start notification once,
-// otherwise the winner never learns its winner identity and infer deadline, and the task never
-// starts on the Worker side.
-func TestRecoveryPublishesMissedAssignmentNotify(t *testing.T) {
+// Dispatch recorded while offline: recovery on restart reads the winner and infer deadline from the
+// chain and moves the task to Assigned.
+func TestRecoveryRecordsWinnerFromChain(t *testing.T) {
 	store := kv.NewMemStore()
 	session, task := "sess-missed-assign", testTaskID("missed-assign")
 	snapshot := taskSnapshot{
@@ -461,19 +443,23 @@ func TestRecoveryPublishesMissedAssignmentNotify(t *testing.T) {
 		},
 	}
 	c, _, _ := newRecoveryCoordinator(t, store, WithTaskQuerier(querier))
-	enableTestBusEnvelopes(c)
-	sent := &captured{}
-	mustSub(t, c.bus, msgbus.SubjectWorkerAssignment(task), sent)
+	_, link := enableTestBuilderMessages(c)
 
 	if err := c.recoverTasks(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if sent.count() != 1 {
-		t.Fatalf("recovery published %d assignment notifications, want 1", sent.count())
+	fsm, ok := c.getFSM(session, task)
+	if !ok {
+		t.Fatal("recovered task is not tracked")
 	}
-	notify := decodeTestPayload[busv1.WorkerAssignmentNotifyV1](t, sent.last())
-	if notify.GetWinnerOperatorAddress() != testOperator("missed-winner") ||
-		notify.GetFinalizedHeight() != 15_201 || notify.GetInferDeadlineHeight() != 15_260 {
-		t.Fatalf("recovered notification mismatch: %+v", notify)
+	fsm.mu.Lock()
+	state, winner, inferDeadline := fsm.state, fsm.winner, fsm.inferDeadlineHeight
+	fsm.mu.Unlock()
+	if state != types.Assigned || winner != testOperator("missed-winner") || inferDeadline != 15_260 {
+		t.Fatalf("recovered task = state %s winner %q infer deadline %d", state, winner, inferDeadline)
+	}
+	// The Worker learned of its win from the dispatch itself: recovery sends nothing.
+	if len(link.frames) != 0 {
+		t.Fatalf("recovery sent %d frames, want 0", len(link.frames))
 	}
 }

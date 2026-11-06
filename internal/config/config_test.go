@@ -177,6 +177,11 @@ func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 	tests := map[string]TaskDataConfig{
 		"zero inline":       func() TaskDataConfig { v := valid; v.InlineMaxBytes = 0; return v }(),
 		"chunk above range": func() TaskDataConfig { v := valid; v.ChunkSizeBytes = v.MaxRangeBytes + 1; return v }(),
+		"chunk above builder sync frame": func() TaskDataConfig {
+			v := valid
+			v.ChunkSizeBytes = MaxBuilderSyncFrameBytes + 1
+			return v
+		}(),
 		"range above blob":  func() TaskDataConfig { v := valid; v.MaxRangeBytes = v.MaxBlobBytes + 1; return v }(),
 		"inline above blob": func() TaskDataConfig { v := valid; v.InlineMaxBytes = v.MaxBlobBytes + 1; return v }(),
 		"reserve below blob": func() TaskDataConfig {
@@ -196,6 +201,11 @@ func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("Validate(%+v) succeeded", cfg)
 			}
 		})
+	}
+	largest := valid
+	largest.ChunkSizeBytes = MaxBuilderSyncFrameBytes
+	if err := largest.Validate(); err != nil {
+		t.Fatalf("the largest chunk a builder sync request carries: %v", err)
 	}
 }
 
@@ -296,8 +306,6 @@ func TestLoadFileMergesDefaultsYAMLAndEnvironment(t *testing.T) {
 	path := filepath.Join(dir, "nexus.yaml")
 	err := os.WriteFile(path, []byte(`
 data_dir: ./state
-nats:
-  servers: [nats://yaml:4222]
 chain:
   grpc_addr: yaml-node:9090
   gas_limit: 300000
@@ -309,7 +317,6 @@ identity:
 	}
 	t.Setenv("NEXUS_CHAIN_GRPC", "env-node:9090")
 	t.Setenv("NEXUS_DATA_DIR", "")
-	t.Setenv("NEXUS_NATS_SERVERS", "")
 	t.Setenv("NEXUS_PRIVATE_KEY_FILE", "")
 
 	cfg, err := LoadFile(path)
@@ -321,9 +328,6 @@ identity:
 	}
 	if cfg.Chain.GasLimit != 300000 || cfg.Log.Level != "info" {
 		t.Fatalf("config = %+v", cfg)
-	}
-	if len(cfg.NATS.Servers) != 1 || cfg.NATS.Servers[0] != "nats://yaml:4222" {
-		t.Fatalf("nats servers = %#v", cfg.NATS.Servers)
 	}
 	if cfg.DataDir != filepath.Join(dir, "state") {
 		t.Fatalf("data dir = %q", cfg.DataDir)
@@ -385,23 +389,6 @@ func TestLoadFileReturnsMissingExplicitFileError(t *testing.T) {
 	_, err := LoadFile(path)
 	if err == nil || !strings.Contains(err.Error(), path) {
 		t.Fatalf("error = %v, want missing path", err)
-	}
-}
-
-// nats.sentinel_file behaves like ca_file / creds_file: a relative path in the YAML resolves against the directory holding the config file.
-func TestLoadFileResolvesNATSSentinelFileRelativeToConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "nexus.yaml")
-	if err := os.WriteFile(path, []byte("nats:\n  sentinel_file: ./nats-sentinel.jwt\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NEXUS_NATS_SENTINEL_FILE", "")
-	cfg, err := LoadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.NATS.SentinelFile != filepath.Join(dir, "nats-sentinel.jwt") {
-		t.Fatalf("sentinel file = %q", cfg.NATS.SentinelFile)
 	}
 }
 
@@ -550,40 +537,6 @@ func TestExampleYAMLMatchesSchema(t *testing.T) {
 	}
 }
 
-func TestNATSStreamReplicas(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nexus.yaml")
-	if err := os.WriteFile(path, []byte("nats:\n  stream_replicas: 3\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := LoadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.NATS.StreamReplicas != 3 || cfg.NATS.Replicas() != 3 {
-		t.Fatalf("stream_replicas = %d / %d, want 3", cfg.NATS.StreamReplicas, cfg.NATS.Replicas())
-	}
-	if (NATSConfig{}).Replicas() != 1 {
-		t.Fatal("unset stream_replicas must mean 1")
-	}
-	for _, n := range []int{0, 1, 3, MaxStreamReplicas} {
-		if err := (NATSConfig{StreamReplicas: n}).ValidateStream(); err != nil {
-			t.Fatalf("stream_replicas %d: %v", n, err)
-		}
-	}
-	for _, n := range []int{-1, MaxStreamReplicas + 1} {
-		if err := (NATSConfig{StreamReplicas: n}).ValidateStream(); err == nil {
-			t.Fatalf("stream_replicas %d accepted", n)
-		}
-		if err := (Config{NATS: NATSConfig{StreamReplicas: n}}).ValidateTransport(); err == nil {
-			t.Fatalf("transport validation accepted stream_replicas %d", n)
-		}
-	}
-	t.Setenv("NEXUS_NATS_STREAM_REPLICAS", "3")
-	if got := Load().NATS.StreamReplicas; got != 3 {
-		t.Fatalf("env stream_replicas = %d, want 3", got)
-	}
-}
-
 func TestSessionGrantBlocksDefaultAndLimit(t *testing.T) {
 	cfg := defaults()
 	if got := cfg.Ingress.SessionGrantBlocks(); got != DefaultMaxSessionGrantBlocks {
@@ -628,5 +581,91 @@ func TestExampleSessionKeySettings(t *testing.T) {
 	}
 	if cfg.Ingress.SessionKeyCacheTTLBlocks != 5 || cfg.Ingress.SessionKeyLookupsPerSecond != 20 {
 		t.Fatalf("example: ttl %d lookups %d", cfg.Ingress.SessionKeyCacheTTLBlocks, cfg.Ingress.SessionKeyLookupsPerSecond)
+	}
+}
+
+// The BuilderSyncService rate limit loads from the environment and the example, where it is the
+// default.
+func TestBuilderSyncRateLimitSettings(t *testing.T) {
+	cfg, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ingress.BuilderSyncRequestsPerSecond != 1000 || cfg.Ingress.BuilderSyncBurst != 2000 {
+		t.Fatalf("example: %d/s burst %d", cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst)
+	}
+	t.Setenv("NEXUS_INGRESS_BUILDER_SYNC_REQUESTS_PER_SECOND", "300")
+	t.Setenv("NEXUS_INGRESS_BUILDER_SYNC_BURST", "600")
+	cfg = Load()
+	if cfg.Ingress.BuilderSyncRequestsPerSecond != 300 || cfg.Ingress.BuilderSyncBurst != 600 {
+		t.Fatalf("env not applied: %d/s burst %d", cfg.Ingress.BuilderSyncRequestsPerSecond, cfg.Ingress.BuilderSyncBurst)
+	}
+}
+
+func TestLoadVRFKeyConfig(t *testing.T) {
+	t.Setenv("NEXUS_VRF_KEY_FILES", "/etc/nexus/vrf-2.key, /etc/nexus/vrf-1.key")
+	t.Setenv("NEXUS_VRF_KEY_PASSWORD_FILE", "/etc/nexus/vrf.pass")
+
+	cfg := Load()
+	if len(cfg.Identity.VRFKeyFiles) != 2 || cfg.Identity.VRFKeyFiles[0] != "/etc/nexus/vrf-2.key" || cfg.Identity.VRFKeyFiles[1] != "/etc/nexus/vrf-1.key" {
+		t.Fatalf("vrf key files = %q", cfg.Identity.VRFKeyFiles)
+	}
+	if cfg.Identity.VRFKeyPasswordFile != "/etc/nexus/vrf.pass" {
+		t.Fatalf("vrf key password file = %q", cfg.Identity.VRFKeyPasswordFile)
+	}
+}
+
+func TestLoadFileResolvesVRFKeyPathsAgainstTheConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nexus.yaml")
+	body := "identity:\n  vrf_key_files: [./vrf-2.key, /abs/vrf-1.key]\n  vrf_key_password_file: ./vrf.pass\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NEXUS_VRF_KEY_FILES", "")
+	t.Setenv("NEXUS_VRF_KEY_PASSWORD_FILE", "")
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(dir, "vrf-2.key"), "/abs/vrf-1.key"}
+	if len(cfg.Identity.VRFKeyFiles) != 2 || cfg.Identity.VRFKeyFiles[0] != want[0] || cfg.Identity.VRFKeyFiles[1] != want[1] {
+		t.Fatalf("vrf key files = %q, want %q", cfg.Identity.VRFKeyFiles, want)
+	}
+	if cfg.Identity.VRFKeyPasswordFile != filepath.Join(dir, "vrf.pass") {
+		t.Fatalf("vrf key password file = %q", cfg.Identity.VRFKeyPasswordFile)
+	}
+}
+
+// ingress.output_replica_wait defaults to 2s when unset, loads from the example and the
+// environment, and must be positive and below MaxOutputReplicaWait.
+func TestOutputReplicaWaitSettings(t *testing.T) {
+	cfg := defaults()
+	if got := cfg.Ingress.ReplicaWait(); got != DefaultOutputReplicaWait || DefaultOutputReplicaWait != 2*time.Second {
+		t.Fatalf("default wait = %v", got)
+	}
+	if err := cfg.ValidateTransport(); err != nil {
+		t.Fatalf("default wait: %v", err)
+	}
+	for _, bad := range []time.Duration{-time.Second, MaxOutputReplicaWait} {
+		cfg.Ingress.OutputReplicaWait = bad
+		if err := cfg.ValidateTransport(); err == nil {
+			t.Fatalf("wait %v was accepted", bad)
+		}
+	}
+	cfg.Ingress.OutputReplicaWait = MaxOutputReplicaWait - time.Millisecond
+	if err := cfg.ValidateTransport(); err != nil || cfg.Ingress.ReplicaWait() != MaxOutputReplicaWait-time.Millisecond {
+		t.Fatalf("wait just below the limit: %v", err)
+	}
+	example, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if example.Ingress.ReplicaWait() != 2*time.Second || example.Ingress.OutputReplicaWait != 2*time.Second {
+		t.Fatalf("example: %v", example.Ingress.OutputReplicaWait)
+	}
+	t.Setenv("NEXUS_INGRESS_OUTPUT_REPLICA_WAIT", "500ms")
+	if got := Load().Ingress.ReplicaWait(); got != 500*time.Millisecond {
+		t.Fatalf("env: %v", got)
 	}
 }

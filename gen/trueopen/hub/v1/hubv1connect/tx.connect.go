@@ -77,6 +77,9 @@ const (
 	MsgUpdateTimeoutBucketProcedure = "/hub.v1.Msg/UpdateTimeoutBucket"
 	// MsgRunRewardEpochProcedure is the fully-qualified name of the Msg's RunRewardEpoch RPC.
 	MsgRunRewardEpochProcedure = "/hub.v1.Msg/RunRewardEpoch"
+	// MsgFundBuilderCompensationProcedure is the fully-qualified name of the Msg's
+	// FundBuilderCompensation RPC.
+	MsgFundBuilderCompensationProcedure = "/hub.v1.Msg/FundBuilderCompensation"
 )
 
 // MsgClient is a client for the hub.v1.Msg service.
@@ -134,6 +137,8 @@ type MsgClient interface {
 	// runner-level summary event exists.
 	// RunRewardEpoch executes the RunRewardEpoch operation.
 	RunRewardEpoch(context.Context, *connect.Request[v1.MsgRunRewardEpoch]) (*connect.Response[v1.MsgRunRewardEpochResponse], error)
+	// FundBuilderCompensation executes the FundBuilderCompensation operation.
+	FundBuilderCompensation(context.Context, *connect.Request[v1.MsgFundBuilderCompensation]) (*connect.Response[v1.MsgFundBuilderCompensationResponse], error)
 }
 
 // NewMsgClient constructs a client for the hub.v1.Msg service. By default, it uses the Connect
@@ -267,6 +272,12 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			connect.WithSchema(msgMethods.ByName("RunRewardEpoch")),
 			connect.WithClientOptions(opts...),
 		),
+		fundBuilderCompensation: connect.NewClient[v1.MsgFundBuilderCompensation, v1.MsgFundBuilderCompensationResponse](
+			httpClient,
+			baseURL+MsgFundBuilderCompensationProcedure,
+			connect.WithSchema(msgMethods.ByName("FundBuilderCompensation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -292,6 +303,7 @@ type msgClient struct {
 	emergencyFreezeVote      *connect.Client[v1.MsgEmergencyFreezeVote, v1.MsgEmergencyFreezeVoteResponse]
 	updateTimeoutBucket      *connect.Client[v1.MsgUpdateTimeoutBucket, v1.MsgUpdateTimeoutBucketResponse]
 	runRewardEpoch           *connect.Client[v1.MsgRunRewardEpoch, v1.MsgRunRewardEpochResponse]
+	fundBuilderCompensation  *connect.Client[v1.MsgFundBuilderCompensation, v1.MsgFundBuilderCompensationResponse]
 }
 
 // UpdateHubParams calls hub.v1.Msg.UpdateHubParams.
@@ -394,6 +406,11 @@ func (c *msgClient) RunRewardEpoch(ctx context.Context, req *connect.Request[v1.
 	return c.runRewardEpoch.CallUnary(ctx, req)
 }
 
+// FundBuilderCompensation calls hub.v1.Msg.FundBuilderCompensation.
+func (c *msgClient) FundBuilderCompensation(ctx context.Context, req *connect.Request[v1.MsgFundBuilderCompensation]) (*connect.Response[v1.MsgFundBuilderCompensationResponse], error) {
+	return c.fundBuilderCompensation.CallUnary(ctx, req)
+}
+
 // MsgHandler is an implementation of the hub.v1.Msg service.
 type MsgHandler interface {
 	// UpdateHubParams applies one governance Hub params version.
@@ -449,6 +466,8 @@ type MsgHandler interface {
 	// runner-level summary event exists.
 	// RunRewardEpoch executes the RunRewardEpoch operation.
 	RunRewardEpoch(context.Context, *connect.Request[v1.MsgRunRewardEpoch]) (*connect.Response[v1.MsgRunRewardEpochResponse], error)
+	// FundBuilderCompensation executes the FundBuilderCompensation operation.
+	FundBuilderCompensation(context.Context, *connect.Request[v1.MsgFundBuilderCompensation]) (*connect.Response[v1.MsgFundBuilderCompensationResponse], error)
 }
 
 // NewMsgHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -578,6 +597,12 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		connect.WithSchema(msgMethods.ByName("RunRewardEpoch")),
 		connect.WithHandlerOptions(opts...),
 	)
+	msgFundBuilderCompensationHandler := connect.NewUnaryHandler(
+		MsgFundBuilderCompensationProcedure,
+		svc.FundBuilderCompensation,
+		connect.WithSchema(msgMethods.ByName("FundBuilderCompensation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/hub.v1.Msg/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MsgUpdateHubParamsProcedure:
@@ -620,6 +645,8 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgUpdateTimeoutBucketHandler.ServeHTTP(w, r)
 		case MsgRunRewardEpochProcedure:
 			msgRunRewardEpochHandler.ServeHTTP(w, r)
+		case MsgFundBuilderCompensationProcedure:
+			msgFundBuilderCompensationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -707,4 +734,8 @@ func (UnimplementedMsgHandler) UpdateTimeoutBucket(context.Context, *connect.Req
 
 func (UnimplementedMsgHandler) RunRewardEpoch(context.Context, *connect.Request[v1.MsgRunRewardEpoch]) (*connect.Response[v1.MsgRunRewardEpochResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Msg.RunRewardEpoch is not implemented"))
+}
+
+func (UnimplementedMsgHandler) FundBuilderCompensation(context.Context, *connect.Request[v1.MsgFundBuilderCompensation]) (*connect.Response[v1.MsgFundBuilderCompensationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Msg.FundBuilderCompensation is not implemented"))
 }

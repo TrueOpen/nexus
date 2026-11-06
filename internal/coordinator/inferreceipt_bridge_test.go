@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"testing"
 
-	wirebus "github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -16,11 +15,9 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/kv"
-	"github.com/TrueOpen/nexus/internal/msgbus"
 	"github.com/TrueOpen/nexus/internal/nodecontract"
 	"github.com/TrueOpen/nexus/internal/relay"
 	"github.com/TrueOpen/nexus/internal/signer"
-	"github.com/TrueOpen/nexus/internal/types"
 )
 
 // TestInferReceiptReachesChainAsMsgSubmitInferReceipt is the end-to-end gate of the receipt submit bridge:
@@ -37,7 +34,6 @@ import (
 // inclusion still needs the Node-side Task slice to switch the handler to InferReceiptV2.
 func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	bus := msgbus.NewStub(log, nil)
 	fake := &fakeSubmitter{}
 
 	workerService, err := signer.NewFromHex(testKeyHex, "trueopen")
@@ -46,9 +42,9 @@ func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 	}
 	winner := workerService.Address()
 
-	c := New(log, bus, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
+	c := New(log, chaincli.NewStub(log, config.ChainConfig{}), relay.NewMem(log), kv.NewMemStore(),
 		testBuilderSelf, testChainID)
-	keys := enableTestBusEnvelopes(c)
+	enableTestBuilderMessages(c)
 	c.submit = fake
 
 	const (
@@ -60,17 +56,10 @@ func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 	outputHash := outputHashSum[:]
 
 	ctx := context.Background()
-	if err := c.OnOrder(ctx, testCurrentOrder(session, task, testUserAddress)); err != nil {
-		t.Fatalf("OnOrder: %v", err)
+	if err := trackTestOrder(c, testCurrentOrder(session, task, testUserAddress)); err != nil {
+		t.Fatalf("trackTestOrder: %v", err)
 	}
-	c.OnAssignAccepted(chaincli.AssignAccepted{
-		SessionID: session, TaskID: task,
-		AssignedSet: []types.BuilderRef{{Address: testBuilderSelf, Endpoint: "https://b/1"}},
-		Height:      100,
-	})
-	c.OnAssignmentFinalized(chaincli.AssignmentFinalized{
-		SessionID: session, TaskID: task, Winner: winner, AssignSeed: []byte("assign-seed"), Height: 101,
-	})
+	recordTestWinner(c, session, task, winner, 101)
 
 	receipt := testInferReceipt(session, task, winner, outputHash)
 	digest, err := nodecontract.InferReceiptSigningDigestFromSubmission(receipt)
@@ -89,8 +78,9 @@ func TestInferReceiptReachesChainAsMsgSubmitInferReceipt(t *testing.T) {
 
 	for _, candidate := range []string{testOperator("verifier-1"), testOperator("verifier-2"), testOperator("verifier-3")} {
 		handraise := testVerifierHandraise(session, task, candidate, outputHash, digest[:])
-		publishEnvelope(t, bus, keys, candidate, msgbus.SubjectVerifierHandraiseV1(task),
-			wirebus.KindVerifierHandraise, handraise)
+		if err := c.HandleVerifierHandraise(ctx, candidate, handraise); err != nil {
+			t.Fatalf("HandleVerifierHandraise(%s): %v", candidate, err)
+		}
 	}
 	if len(fake.openVerify) != 1 {
 		t.Fatalf("expected 1 OpenVerifyTx, got %d", len(fake.openVerify))
