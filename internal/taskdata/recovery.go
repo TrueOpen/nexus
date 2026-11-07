@@ -101,14 +101,19 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 			records[key] = record
 		}
 	}
-	s.checkInputIndex(ctx, resolver)
+	s.checkInputIndex(ctx, resolver, records)
 	return s.removeUnreferencedBlobs(records)
 }
 
-// checkInputIndex reports, without changing anything, every INPUT index that names a missing object
-// or a version the resolver has no accepted order for. Such an index can be left by a release that
-// accepted an order replacement or indexed an INPUT before it was READY; the operator decides.
-func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver) {
+// checkInputIndex checks every INPUT index against the resolver's accepted orders. An index naming
+// a version without an accepted order can be left by a release that kept the index on a failed
+// version when a re-signed retry of the order turned READY: when exactly one other READY version
+// of the task has the accepted order, the index moves to it, as a version turning READY takes it
+// (indexInput). Otherwise it is left and warned about: a version whose order never reached the
+// chain is released by retention once its retention ends, and the index with it. An index naming a
+// missing object is only reported. records are all the metadata records; caller holds the
+// exclusive maintenance lock.
+func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver, records map[string]metadataRecord) {
 	suffix := "|" + ObjectKindInput.String()
 	var refs []ObjectRef
 	if err := s.backend.Scan(kv.NSTaskDataObjectIndex, func(indexKey string, raw []byte) bool {
@@ -137,11 +142,47 @@ func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver) 
 			s.log.Warn("task input index check failed", "session_id", ref.SessionID, "task_id", ref.TaskID, "err", err)
 			continue
 		}
-		if !accepted {
-			s.log.Error("task input index names a version without an accepted order; left unchanged",
+		if accepted {
+			continue
+		}
+		target, found, err := acceptedReadyVersion(ctx, resolver, ref, records)
+		if err != nil {
+			s.log.Warn("task input index check failed", "session_id", ref.SessionID, "task_id", ref.TaskID, "err", err)
+			continue
+		}
+		if !found {
+			s.log.Warn("task input index names a version without an accepted order and no other version has one; left for retention",
 				"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash, "content_hash", ref.ContentHash)
+			continue
+		}
+		if err := s.indexInput(target, true); err != nil {
+			s.log.Warn("task input index not moved to the accepted version", "session_id", ref.SessionID, "task_id", ref.TaskID,
+				"task_hash", target.TaskHash, "err", err)
 		}
 	}
+}
+
+// acceptedReadyVersion is the only READY INPUT version of ref's task, other than ref, that the
+// resolver has an accepted order for; found is false when there is none or more than one.
+func acceptedReadyVersion(ctx context.Context, resolver RecoveryResolver, ref ObjectRef, records map[string]metadataRecord) (ObjectKey, bool, error) {
+	var target ObjectKey
+	count := 0
+	for _, record := range records {
+		key := record.Metadata.Key
+		if record.Metadata.State != StateReady || key.Kind != ObjectKindInput || key == ref ||
+			key.SessionID != ref.SessionID || key.TaskID != ref.TaskID {
+			continue
+		}
+		accepted, err := resolver.HasAcceptedOrder(ctx, key)
+		if err != nil {
+			return ObjectKey{}, false, err
+		}
+		if accepted {
+			target = key
+			count++
+		}
+	}
+	return target, count == 1, nil
 }
 
 // Sweep promotes or drops quarantined objects, applies the retention decision of every READY
