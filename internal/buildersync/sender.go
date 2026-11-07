@@ -160,8 +160,10 @@ type event struct {
 	recorded *attempt.Attempt
 	tries    int
 	// waitsInput is set while the change waits for its order's input to be marked ready: it is
-	// applied again at the next drain, not only on the prune ticks.
+	// applied again at the next drain, not only on the prune ticks. warned is set once the wait
+	// was logged as a warning.
 	waitsInput bool
+	warned     bool
 }
 
 // errInputNotReady is the current order version's input not found in the store yet: OpenTask
@@ -520,7 +522,9 @@ func (s *Sender) drain() {
 }
 
 // settled forgets a change that applied, and keeps one that failed to be applied again on the
-// next prune ticks, up to maxChangeRetries times.
+// next prune ticks, up to maxChangeRetries of them (tries counts the prune ticks, not the
+// drains). A change waiting for its input is quiet for the first half of them: an input still
+// missing after that may be gone, which is logged once as a warning.
 func (s *Sender) settled(ev event, err error) {
 	key := ev.key()
 	s.qmu.Lock()
@@ -531,8 +535,14 @@ func (s *Sender) settled(ev event, err error) {
 	}
 	ev.waitsInput = errors.Is(err, errInputNotReady)
 	if ev.waitsInput && ev.tries < maxChangeRetries {
+		if ev.tries >= maxChangeRetries/2 && !ev.warned {
+			ev.warned = true
+			s.log.Warn("order change still waits for its input to be ready; the input may be gone", "change", key,
+				"prune_ticks", ev.tries, "give_up_after", maxChangeRetries, "err", err)
+		} else {
+			s.log.Debug("order change waits for its input to be ready", "change", key)
+		}
 		s.redo[key] = ev
-		s.log.Debug("order change waits for its input to be ready", "change", key)
 		return
 	}
 	s.failures.Add(1)

@@ -97,7 +97,7 @@ func TestChangeBeforeTheInputIsReadyWaitsForIt(t *testing.T) {
 	}
 }
 
-// A change still missing its input after the retries is given up as before.
+// A change still missing its input after maxChangeRetries prune ticks is given up as before.
 func TestChangeWhoseInputNeverComesIsGivenUp(t *testing.T) {
 	e := newEnv(t)
 	f := e.fx
@@ -109,6 +109,38 @@ func TestChangeWhoseInputNeverComesIsGivenUp(t *testing.T) {
 	for i := 0; i < maxChangeRetries; i++ {
 		e.s.retryFailed()
 		e.s.drain()
+	}
+	if !strings.Contains(logs.String(), "given up after retries") {
+		t.Fatalf("change not given up: %s", logs.String())
+	}
+}
+
+// A change whose input stays missing is quiet only for the first half of its prune ticks: then it
+// is logged once as a warning (the input may be gone), however often drains apply it again, and
+// it is given up after maxChangeRetries prune ticks.
+func TestChangeWaitingForItsInputWarnsOnceHalfwayThrough(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	var logs bytes.Buffer
+	e.s.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	e.s.cfg.Inputs = StoredInputs{Store: e.dData}
+	e.s.OrderChanged(f.issued())
+	e.s.drain()
+	const warning = "order change still waits for its input"
+	for tick := 1; tick <= maxChangeRetries; tick++ {
+		e.s.retryFailed()
+		e.s.drain()
+		e.s.drain() // drains between prune ticks apply it again too
+		warned := strings.Count(logs.String(), warning)
+		switch {
+		case tick < maxChangeRetries/2 && logs.Len() != 0:
+			t.Fatalf("prune tick %d: logged while quiet: %s", tick, logs.String())
+		case tick >= maxChangeRetries/2 && warned != 1:
+			t.Fatalf("prune tick %d: warned %d times, want once: %s", tick, warned, logs.String())
+		}
+	}
+	if !strings.Contains(logs.String(), "level=WARN msg=\""+warning) {
+		t.Fatalf("not a warning: %s", logs.String())
 	}
 	if !strings.Contains(logs.String(), "given up after retries") {
 		t.Fatalf("change not given up: %s", logs.String())
