@@ -11,8 +11,22 @@ import (
 
 type OrderRecoveryState interface {
 	HasAcceptedOrder(context.Context, ObjectKey) (bool, error)
+	// HasTerminatedOrder reports whether the order of an INPUT version ended on this Builder: its
+	// task is terminal, or the version was dropped before it reached the chain.
 	HasTerminatedOrder(context.Context, ObjectKey) (bool, error)
+	// HasLiveTask reports whether this Builder still tracks a task for the INPUT's (session, task),
+	// in memory or by its snapshot, whatever its version.
+	HasLiveTask(context.Context, ObjectKey) (bool, error)
 }
+
+// preChainInputReleaseMarginBlocks is how far past its retention height the chain must be before
+// an INPUT the chain does not know is released, whether a local end of its order was recorded or
+// not. The retention height of such an INPUT is its order's expiry (or, for a group member's copy,
+// the order's evidence retention, which is later), and the chain refuses to record an order past
+// its expiry. The same version may still be recorded at the expiry block, by this Builder or by
+// another one after a takeover ended here; the margin covers the height and the task query being
+// read from nodes at different heights.
+const preChainInputReleaseMarginBlocks = 100
 
 // CleanupAuthority reads the chain's evidence cleanup progress for a task.
 type CleanupAuthority interface {
@@ -96,7 +110,10 @@ func (p *RecoveryPolicy) RevalidatePrepared(ctx context.Context, metadata Metada
 // no open round, max_evidence_retention_blocks) are not recomputed here.
 //
 // A task the chain does not know is only legitimate for an INPUT whose order never reached the
-// chain; it follows the pre-chain lease and the local order termination.
+// chain; it is released once the chain is preChainInputReleaseMarginBlocks past its retention
+// height, when its order ended here (terminal task or dropped version) or, with no local end of
+// its order (stored before dropped orders were marked, a marker that was not written, or a group
+// member's copy), when this Builder tracks no task for it.
 func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, height uint64) (RetentionDecision, error) {
 	if height == 0 {
 		return RetentionDecision{}, fmt.Errorf("%w: retention height", ErrMalformed)
@@ -116,7 +133,8 @@ func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, heigh
 	if !errors.Is(err, chaincli.ErrNotFound) || metadata.Key.Kind != ObjectKindInput {
 		return RetentionDecision{}, fmt.Errorf("%w: retention cleanup query", ErrAuthorityUnavailable)
 	}
-	if metadata.RetainUntilHeight == 0 || height < metadata.RetainUntilHeight {
+	release := metadata.RetainUntilHeight + preChainInputReleaseMarginBlocks
+	if metadata.RetainUntilHeight == 0 || release < metadata.RetainUntilHeight || height < release {
 		return RetentionDecision{Status: RetentionActive}, nil
 	}
 	terminated, terminalErr := p.orders.HasTerminatedOrder(ctx, metadata.Key)
@@ -124,7 +142,13 @@ func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, heigh
 		return RetentionDecision{}, fmt.Errorf("%w: local order state", ErrAuthorityUnavailable)
 	}
 	if !terminated {
-		return RetentionDecision{Status: RetentionActive}, nil
+		live, liveErr := p.orders.HasLiveTask(ctx, metadata.Key)
+		if liveErr != nil {
+			return RetentionDecision{}, fmt.Errorf("%w: local task state", ErrAuthorityUnavailable)
+		}
+		if live {
+			return RetentionDecision{Status: RetentionActive}, nil
+		}
 	}
 	return RetentionDecision{
 		Status: RetentionEligibleForCleanup, RetainUntilHeight: metadata.RetainUntilHeight, Delete: true,

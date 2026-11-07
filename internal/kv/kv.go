@@ -25,6 +25,10 @@ const (
 	NSPayload         Namespace = "payload"
 	NSPayloadCleanup  Namespace = "payload_cleanup"
 	NSTerminalTask    Namespace = "terminal_task"
+	// NSAbandonedOrder marks an order version this Builder dropped before it reached the chain, so
+	// its INPUT is released once its retention ends; key = session_id|task_id|task_hash (package
+	// coordinator).
+	NSAbandonedOrder Namespace = "abandoned_order"
 	// NSTaskSession is the task_id -> session_id index. A relay request carries only the
 	// on-chain message body, the on-chain task_id contains no session, and the FSM is keyed by (session, task).
 	NSTaskSession      Namespace = "task_session"

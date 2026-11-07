@@ -187,7 +187,8 @@ func TestSweepRetentionDeleteClearsInputIndex(t *testing.T) {
 	}
 }
 
-// Recover reports, without changing it, an INPUT index naming a version that has no accepted order.
+// Recover reports, without changing it, an INPUT index naming a version that has no accepted order
+// when no other version has one: retention releases the version once its retention ends.
 func TestRecoverReportsInputIndexWithoutAcceptedOrder(t *testing.T) {
 	var logs bytes.Buffer
 	store, _, _ := newTestStore(t, testStoreConfig())
@@ -200,8 +201,11 @@ func TestRecoverReportsInputIndexWithoutAcceptedOrder(t *testing.T) {
 	if err := store.Recover(context.Background(), recoveryResolver{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(logs.String(), "task input index names a version without an accepted order") {
-		t.Fatalf("missing index check log: %s", logs.String())
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "task input index names a version without an accepted order") {
+		t.Fatalf("missing index check warning: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("index check logged an error: %s", logs.String())
 	}
 	if ref, found := resolvedInput(t, store); !found || ref != input.Key {
 		t.Fatalf("index check changed the index: %#v, %t", ref, found)
@@ -213,5 +217,69 @@ func TestRecoverReportsInputIndexWithoutAcceptedOrder(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "task input index") {
 		t.Fatalf("index check logged for an accepted version: %s", logs.String())
+	}
+}
+
+// An INPUT index left on an earlier version by a release that kept it when a re-signed retry
+// turned READY moves at startup to the READY version with an accepted order, as a version turning
+// READY takes it; with no accepted version the index is left, warned about once per version.
+func TestRecoverMovesStaleInputIndexToTheAcceptedVersion(t *testing.T) {
+	var logs bytes.Buffer
+	store, _, _ := newTestStore(t, testStoreConfig())
+	store.log = slog.New(slog.NewTextHandler(&logs, nil))
+	body := []byte("abcdefgh")
+	failed := prepareObject(t, store, testHeader(body), body)
+	if _, err := store.MarkReady(context.Background(), failed.Key); err != nil {
+		t.Fatal(err)
+	}
+	retried := prepareObject(t, store, otherVersion([]byte("12345678")), []byte("12345678"))
+	if _, err := store.MarkReady(context.Background(), retried.Key); err != nil {
+		t.Fatal(err)
+	}
+	stale := func() {
+		t.Helper()
+		if err := store.indexInput(failed.Key, true); err != nil {
+			t.Fatal(err)
+		}
+		logs.Reset()
+	}
+
+	// No version has an accepted order: the index stays, for retention to release both versions.
+	stale()
+	if err := store.Recover(context.Background(), recoveryResolver{}); err != nil {
+		t.Fatal(err)
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != failed.Key {
+		t.Fatalf("index with no accepted version = %#v, %t; want it left", ref, found)
+	}
+	if got := strings.Count(logs.String(), "level=WARN"); got != 1 || strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("index with no accepted version logged %d warnings: %s", got, logs.String())
+	}
+
+	// The retried version has the accepted order: it takes the index.
+	stale()
+	accepted := recoveryResolver{accepted: map[string]bool{objectKeyString(retried.Key): true}}
+	if err := store.Recover(context.Background(), accepted); err != nil {
+		t.Fatal(err)
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != retried.Key {
+		t.Fatalf("index after Recover = %#v, %t; want the accepted version", ref, found)
+	}
+	if strings.Contains(logs.String(), "level=WARN") || strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("index move logged a warning or an error: %s", logs.String())
+	}
+	if metadata, err := store.Metadata(context.Background(), failed.Key); err != nil || metadata.State != StateReady {
+		t.Fatalf("earlier version = %+v, %v; want it kept for retention", metadata, err)
+	}
+
+	// An index check that cannot ask about the other versions changes nothing.
+	stale()
+	if err := store.Recover(context.Background(), recoveryResolver{
+		accepted: map[string]bool{objectKeyString(retried.Key): true}, acceptedErr: errors.New("authority unavailable"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != failed.Key {
+		t.Fatalf("index after a failed check = %#v, %t; want it left", ref, found)
 	}
 }
