@@ -106,8 +106,19 @@ type pendingResultRecord struct {
 }
 
 // save writes the current state to the KV. Caller must hold the lock. No-op when persist is not wired (tests build the fsm directly).
-func (f *taskFSM) save() error {
-	if f.persist == nil {
+func (f *taskFSM) save() error { return f.saveWith(f.persist) }
+
+// saveDeferred is save without waiting for the disk: the caller makes a synced write of the
+// order's own before anything outside the process relies on the snapshot (kv.WriteDeferred).
+func (f *taskFSM) saveDeferred() error {
+	if f.persistDeferred == nil {
+		return f.save()
+	}
+	return f.saveWith(f.persistDeferred)
+}
+
+func (f *taskFSM) saveWith(persist func(taskSnapshot) error) error {
+	if persist == nil {
 		return nil
 	}
 	sn := taskSnapshot{
@@ -209,7 +220,7 @@ func (f *taskFSM) save() error {
 	if f.events != nil {
 		sn.Events = f.events.snapshot()
 	}
-	return f.persist(sn)
+	return persist(sn)
 }
 
 // snapshotInput names the INPUT version of a recovered task. A snapshot without an order names

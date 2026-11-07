@@ -84,11 +84,10 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 }
 
 // finish tells the observer and the Recorder about an order that left DISPATCHING. It runs with
-// no order locked.
+// no order locked. The winner of an accepted order is already in the attempt book.
 func (d *Dispatcher) finish(ctx context.Context, out done) {
 	switch {
 	case out.accepted != nil:
-		d.accepted(out.accepted)
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
 		if err := d.cfg.Recorder.Record(ctx, out.accepted); err != nil {
 			d.log.Error("dispatch entry not handed to the recorder", "session_id", out.session, "order_sequence", out.sequence, "err", err)
@@ -99,6 +98,31 @@ func (d *Dispatcher) finish(ctx context.Context, out done) {
 		return
 	}
 	d.kickParked(out.session)
+}
+
+// finishLater runs finish off the caller's goroutine. The accept handler uses it so the stream
+// acknowledges the accept and reads the Worker's next frame, its input request, without waiting
+// for the observer's and the Recorder's writes. A crash before they ran loses nothing the restart
+// does not rebuild: recover hands every accepted order to the Recorder again, and the observer's
+// DISPATCH_ACCEPTED event was never kept across a crash between the accept and its write.
+func (d *Dispatcher) finishLater(out done) {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		d.finish(context.Background(), out)
+		return
+	}
+	d.wg.Add(1)
+	d.mu.Unlock()
+	run := func() {
+		defer d.wg.Done()
+		d.finish(context.Background(), out)
+	}
+	if d.cfg.Background != nil {
+		d.cfg.Background(run)
+		return
+	}
+	go run()
 }
 
 // accepted hands an accepted order's winner to the attempt book.
@@ -297,10 +321,25 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	// The precheck admits an order whose earliest_submit_height is at most one block above the
 	// head, and it is dispatched at once: its record lands at earliest_submit_height at the
 	// earliest anyway. A round never opens earlier, so a root that can prove an omission (at least
-	// two blocks below earliest_submit_height) was signed before the round opened.
+	// two blocks below earliest_submit_height) was signed before the round opened. The cached head
+	// follows the chain's height events, which may trail the chain by a poll interval: it is read
+	// again before the order waits for the next event.
 	if head+1 < esh {
+		head = d.refreshHead(ctx, o, head)
+	}
+	if head+1 < esh {
+		if o.eshWaitSince.IsZero() {
+			o.eshWaitSince = d.clock.Now()
+			d.log.Debug("order waits for its earliest_submit_height", "session_id", st.SessionID, "order_sequence", st.Sequence,
+				"earliest_submit_height", esh, "head", head)
+		}
 		o.parked = true
 		return false, done{}
+	}
+	if !o.eshWaitSince.IsZero() {
+		d.log.Info("order waited for its earliest_submit_height", "session_id", st.SessionID, "order_sequence", st.Sequence,
+			"earliest_submit_height", esh, "head", head, "wait_ms", d.clock.Now().Sub(o.eshWaitSince).Milliseconds())
+		o.eshWaitSince = time.Time{}
 	}
 	if !o.waited && !o.takenAt.IsZero() {
 		d.cfg.Metrics.ObserveStage(opsmetrics.StageWaitESH, d.clock.Now().Sub(o.takenAt))
@@ -390,6 +429,36 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	o.roster, o.rosterRound = roster, nextRound(st)
 	st.BoundChangeHeight, st.NewRound = bound, false
 	return true, done{}
+}
+
+const (
+	// headRefreshInterval bounds how often an order waiting for its earliest_submit_height reads
+	// the chain head, and headRefreshTimeout one read.
+	headRefreshInterval = 250 * time.Millisecond
+	headRefreshTimeout  = time.Second
+)
+
+// refreshHead reads the chain head for an order whose earliest_submit_height is ahead of the
+// cached head, at most once per headRefreshInterval, and returns the higher of head and the head
+// read. Caller holds o.mu.
+func (d *Dispatcher) refreshHead(ctx context.Context, o *order, head uint64) uint64 {
+	r, ok := d.cfg.Sessions.(headRefresher)
+	if !ok {
+		return head
+	}
+	now := d.clock.Now()
+	if !o.headReadAt.IsZero() && now.Sub(o.headReadAt) < headRefreshInterval {
+		return head
+	}
+	o.headReadAt = now
+	ctx, cancel := context.WithTimeout(ctx, headRefreshTimeout)
+	defer cancel()
+	fresh, err := r.RefreshHead(ctx)
+	if err != nil {
+		d.log.Debug("chain head not read for an order waiting for its earliest_submit_height", "session_id", o.st.SessionID,
+			"order_sequence", o.st.Sequence, "err", err)
+	}
+	return max(head, fresh)
 }
 
 // roundsBinding is the bound_change_height the stored rounds' tickets commit: every round of an
@@ -487,7 +556,16 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	}
 	round.Attempts = append(round.Attempts, a)
 	st.Cursor = cand.Rank + 1
-	if err := saveState(d.cfg.Store, st); err != nil {
+	// The ticket of a reachable member is stored without waiting for the disk: the stream hub
+	// stores the offer with a synced write before the offer can leave the process, which makes
+	// the ticket durable first (kv.WriteDeferred). A crash before that loses a ticket nobody saw,
+	// and the restart offers the candidate a new one. A ticket timed out unsent goes to the group
+	// sync at once, so it is stored synced.
+	save := saveState
+	if reachable {
+		save = saveStateDeferred
+	}
+	if err := save(d.cfg.Store, st); err != nil {
 		*st = *prev
 		return false, err
 	}

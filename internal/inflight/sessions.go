@@ -222,6 +222,15 @@ func (c *SessionCache) CurrentHeight(ctx context.Context) (uint64, error) {
 	return c.Head(), nil
 }
 
+// RefreshHead reads the head from the chain, raises the cached head to it and returns the cached
+// head; a failed read is ErrUnavailable and leaves the head as it was.
+func (c *SessionCache) RefreshHead(ctx context.Context) (uint64, error) {
+	if _, err := c.readHead(ctx); err != nil {
+		return c.Head(), err
+	}
+	return c.Head(), nil
+}
+
 // readHead reads the head from the chain and reports whether it is above the cached one; a
 // failed read is ErrUnavailable.
 func (c *SessionCache) readHead(ctx context.Context) (bool, error) {

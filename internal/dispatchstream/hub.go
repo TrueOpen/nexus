@@ -183,6 +183,9 @@ type Hub struct {
 	mu       sync.Mutex
 	stopped  bool
 	sessions map[string]*session
+	// sendMu holds, per Cortex operator, the lock SendBatch takes around storing its messages, so
+	// the operator's messages are stored and queued one batch at a time while h.mu is free.
+	sendMu map[string]*sync.Mutex
 	// pending holds, per Cortex operator, the unacknowledged downlink messages in send order; the
 	// stream_session namespace holds the same entries durably.
 	pending map[string][]*pendingMessage
@@ -208,6 +211,7 @@ func New(log *slog.Logger, cfg Config, keys CortexKeys, store kv.Store, opts ...
 		now:              time.Now,
 		handraiseKeyWarn: lograte.Limiter{Every: handraiseKeyWarnInterval},
 		sessions:         make(map[string]*session),
+		sendMu:           make(map[string]*sync.Mutex),
 		pending:          make(map[string][]*pendingMessage),
 		nextSeq:          make(map[string]uint64),
 		retained:         make(map[retainKey]*retainedMessage),

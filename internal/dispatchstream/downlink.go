@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"google.golang.org/protobuf/proto"
 
@@ -100,18 +101,103 @@ func encodeDownlink(frame *nexusv1.DispatchStreamFrameV1) ([]byte, error) {
 
 // Send queues one Builder-signed message to operator's stream. It returns once the message is
 // stored and queued, not when it is delivered; ErrNotConnected when operator has no stream.
-func (h *Hub) Send(_ context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
-	raw, err := encodeDownlink(frame)
-	if err != nil {
-		return err
+func (h *Hub) Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
+	return h.SendBatch(ctx, operator, []*nexusv1.DispatchStreamFrameV1{frame})
+}
+
+// SendBatch queues Builder-signed messages to operator's stream, in order. They are stored in one
+// synced write before any is queued, so none can leave the process before all are durable. It
+// returns once they are stored and queued; ErrNotConnected when operator has no stream.
+//
+// The store runs without the hub's lock, which every stream's sender, every ack and every other
+// Cortex's messages need: only the operator's own batches wait for each other. A stream that
+// binds or ends meanwhile is handled as for a message stored just before: the messages are queued
+// to the operator's stream bound once they are stored, or kept for its next one.
+func (h *Hub) SendBatch(_ context.Context, operator string, frames []*nexusv1.DispatchStreamFrameV1) error {
+	if len(frames) == 0 {
+		return nil
+	}
+	raws := make([][]byte, len(frames))
+	for i, frame := range frames {
+		raw, err := encodeDownlink(frame)
+		if err != nil {
+			return err
+		}
+		raws[i] = raw
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	s, ok := h.sessions[operator]
-	if !ok {
+	if _, ok := h.sessions[operator]; !ok {
+		h.mu.Unlock()
 		return fmt.Errorf("%w: %s", ErrNotConnected, operator)
 	}
-	return h.enqueueLocked(s, raw)
+	lock := h.sendMu[operator]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		h.sendMu[operator] = lock
+	}
+	h.mu.Unlock()
+	lock.Lock()
+	defer lock.Unlock()
+
+	h.mu.Lock()
+	first := h.nextSeq[operator]
+	h.nextSeq[operator] = first + uint64(len(raws))
+	ops := make([]kv.WriteOp, 0, len(raws))
+	messages := make([]*pendingMessage, len(raws))
+	for i, raw := range raws {
+		messages[i] = &pendingMessage{seq: first + uint64(i), raw: raw}
+		ops = append(ops, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, messages[i].seq), Val: raw})
+	}
+	// The oldest messages beyond the retention are dropped in the same write.
+	dropped := map[uint64]bool{}
+	pending := h.pending[operator]
+	for i := 0; len(pending)-i+len(raws) > h.cfg.MaxPending && i < len(pending); i++ {
+		dropped[pending[i].seq] = true
+		ops = append(ops, kv.WriteOp{NS: kv.NSStreamSession, Key: outKey(operator, pending[i].seq), Delete: true})
+	}
+	h.mu.Unlock()
+
+	if err := h.store.WriteBatch(ops...); err != nil {
+		return fmt.Errorf("store dispatch stream message: %w", err)
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(dropped) > 0 {
+		h.log.Warn("dispatch stream retention full; dropping the oldest unacknowledged messages",
+			"operator", operator, "dropped", len(dropped))
+		kept := h.pending[operator][:0:0]
+		for _, m := range h.pending[operator] {
+			if !dropped[m.seq] {
+				kept = append(kept, m)
+			}
+		}
+		h.pending[operator] = kept
+	}
+	h.pending[operator] = insertBySeq(h.pending[operator], messages)
+	s, ok := h.sessions[operator]
+	if !ok {
+		return nil
+	}
+	for _, m := range messages {
+		if err := s.queueLocked(m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertBySeq adds messages, in seq order, to pending, kept in seq order: a message stored under
+// the hub's lock (a broadcast) may have taken a later seq and joined pending meanwhile.
+func insertBySeq(pending, messages []*pendingMessage) []*pendingMessage {
+	at := len(pending)
+	for at > 0 && pending[at-1].seq > messages[0].seq {
+		at--
+	}
+	out := make([]*pendingMessage, 0, len(pending)+len(messages))
+	out = append(out, pending[:at]...)
+	out = append(out, messages...)
+	return append(out, pending[at:]...)
 }
 
 // SendAll queues one Builder-signed message to every connected stream and returns how many it
@@ -223,6 +309,10 @@ func (h *Hub) giveRetainedLocked(s *session, r *retainedMessage) error {
 }
 
 // ackLocked releases every message the Cortex acknowledged on stream s. Caller holds h.mu.
+//
+// The release does not wait for the disk (kv.WriteDeferred). A crash that loses it sends those
+// messages again, byte for byte, on the Cortex's next stream, which a Cortex already gets for an
+// ack in flight at a crash; nothing else reads them.
 func (h *Hub) ackLocked(s *session, acked uint64) error {
 	operator := s.operator
 	var keep []*pendingMessage
@@ -237,7 +327,7 @@ func (h *Hub) ackLocked(s *session, acked uint64) error {
 	if len(release) == 0 {
 		return nil
 	}
-	if err := h.store.WriteBatch(release...); err != nil {
+	if err := kv.WriteDeferred(h.store, release...); err != nil {
 		return fmt.Errorf("%w: release acknowledged dispatch stream messages: %v", ErrTransient, err)
 	}
 	for _, m := range h.pending[operator] {

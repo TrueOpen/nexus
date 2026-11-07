@@ -111,7 +111,11 @@ func ParamsFromChain(dispatch *taskv1.DispatchParamsV1, weights *taskv1.Candidat
 
 // Streams is the Cortex stream hub the dispatcher offers tickets and input through.
 type Streams interface {
+	// Send stores the message with a synced write of the dispatcher's store before it returns and
+	// before the message can leave the process; the ticket of an offer relies on it.
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
+	// SendBatch is Send for several messages, in order, stored in one synced write.
+	SendBatch(ctx context.Context, operator string, frames []*nexusv1.DispatchStreamFrameV1) error
 	Connected(operator string) bool
 	RTT(operator string) (time.Duration, bool)
 }
@@ -144,6 +148,11 @@ type Drawer interface {
 type Sessions interface {
 	Lookup(ctx context.Context, sessionID string) (inflight.Session, uint64, error)
 	Head() uint64
+}
+
+// headRefresher is a Sessions that can read the chain head on demand (inflight.SessionCache).
+type headRefresher interface {
+	RefreshHead(ctx context.Context) (uint64, error)
 }
 
 // Keys reads service key bindings from the chain and gates ticket issuance.
@@ -308,6 +317,11 @@ type order struct {
 	takenAt  time.Time
 	waited   bool
 	ticketAt time.Time
+	// eshWaitSince is when the order started waiting for the head to reach its
+	// earliest_submit_height minus one (zero while it does not wait); headReadAt is when it last
+	// read the head from the chain for that.
+	eshWaitSince time.Time
+	headReadAt   time.Time
 }
 
 func (o *order) key() string { return stateKey(o.st.SessionID, o.st.Sequence) }
@@ -448,7 +462,12 @@ func (d *Dispatcher) sessionOrders(sessionID string) []*order {
 // Dispatch takes over an order the in-flight precheck reserved (or a retry of a failed one): it
 // stores the order's dispatch state, commits the ledger reservation and starts walking it in the
 // background. Nothing is offered before both are written, so an order whose commit was lost by a
-// crash has no ticket out and is dropped on restart.
+// crash has no ticket out and is dropped on restart. The state does not wait for the disk: the
+// commit right after it is a synced write and makes it durable first (kv.WriteDeferred). A crash
+// before the commit loses the state with the reservation, as if the order never arrived, or
+// keeps an uncommitted pair, which the restart drops; a state lost under an entry already
+// committed (nothing reserved anew) leaves no ticket out either, since every ticket is stored with
+// a synced write before it is offered, and the restart marks such an entry failed.
 func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
@@ -477,7 +496,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		st.Phase, st.FailReason, st.NewRound = phaseDispatching, "", true
 		st.Accept, st.AcceptDigest, st.Record = nil, nil, nil
 		st.Windows = windows
-		if err := saveState(d.cfg.Store, st); err != nil {
+		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			existing.st = prev
 			existing.mu.Unlock()
 			return err
@@ -493,7 +512,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 			SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
 			SignedOrder: o.SignedOrder, Phase: phaseDispatching, Windows: windows,
 		}
-		if err := saveState(d.cfg.Store, st); err != nil {
+		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			return err
 		}
 		existing = &order{st: st, signed: &signed, takenAt: d.clock.Now()}

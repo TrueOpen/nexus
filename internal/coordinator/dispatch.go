@@ -134,9 +134,12 @@ func (c *Coordinator) OnOrder(ctx context.Context, o types.Order) error {
 			c.abandonTask(key, fsm)
 			return err
 		}
+		// ORDER_RECEIVED does not wait for the disk: the dispatcher commits the order with a
+		// synced write before any ticket goes out, which makes the snapshot durable first. A crash
+		// before that commit loses both, and the order with them.
 		fsm.mu.Lock()
 		fsm.emit(EvOrderReceived, 0)
-		err := fsm.save()
+		err := fsm.saveDeferred()
 		fsm.mu.Unlock()
 		if err != nil {
 			c.abandonTask(key, fsm)

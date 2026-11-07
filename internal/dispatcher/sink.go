@@ -83,9 +83,15 @@ func (d *Dispatcher) answered(from dispatchstream.Origin, hash []byte, chainID s
 // HandleDispatchAccept takes a Worker's accept. Only the ticket out, answered before its accept
 // deadline on the Builder's clock while the order can still be recorded in time, can win; any
 // other accept is DISPATCH_TICKET_CLOSED. The winner ends the walk: the order is ACCEPTED in the
-// ledger, the Worker's local free slots drop by one, the record is signed and the dispatch entry
-// goes to the Recorder. A state that cannot be stored leaves the accept unacknowledged
-// (ErrTransient) so the Cortex sends it again.
+// ledger, the Worker's local free slots drop by one, the record is signed, the winner goes to the
+// attempt book and, in the background (finishLater), the dispatch entry to the Recorder. A state
+// that cannot be stored leaves the accept unacknowledged (ErrTransient) so the Cortex sends it
+// again.
+//
+// Only the accepted state, with its evidence, is a synced write before the accept is answered.
+// The ledger's ACCEPTED and the book's PENDING winner do not wait for the disk: recover derives
+// both again from that state (an accepted state under a committed entry is marked ACCEPTED and
+// handed to the book and the Recorder).
 func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstream.Origin, m *taskv1.DispatchAcceptV1) error {
 	o, a, ticket, err := d.answered(from, m.GetDispatchTicketHash(), m.GetChainId(), m.GetTaskId(), m.GetTaskHash(), m.GetMember(), m.GetSchemaVersion())
 	if err != nil {
@@ -169,7 +175,8 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		return nil
 	}
 	d.log.Info("dispatch accepted", "session_id", out.session, "order_sequence", out.sequence, "worker", out.worker, "rank", a.Rank)
-	d.finish(ctx, out)
+	d.accepted(out.accepted)
+	d.finishLater(out)
 	return nil
 }
 
@@ -240,7 +247,9 @@ func (d *Dispatcher) HandleDispatchInputRequest(ctx context.Context, from dispat
 }
 
 // sendInput sends the input as signed chunks answering the ticket of ticketHash, whose nonce is
-// ticketNonce. Each chunk is signed with the current service key.
+// ticketNonce. Each chunk is signed with the current service key. The chunks go to the stream as
+// one batch: one synced write for the whole input instead of one per chunk; the stream keeps every
+// chunk until the Cortex acknowledged it either way, so the memory held is the same.
 func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID, taskHash string, rawTaskID, ticketHash, inputHash []byte, ticketNonce uint64) error {
 	input, size, err := d.cfg.Inputs.OpenInput(ctx, sessionID, taskID, taskHash)
 	if err != nil {
@@ -253,6 +262,7 @@ func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID,
 		return fmt.Errorf("%w: input of %d bytes cannot be served", ErrInputRefused, size)
 	}
 	buf := make([]byte, chunk)
+	frames := make([]*nexusv1.DispatchStreamFrameV1, 0, count)
 	for index := uint64(0); index < count; index++ {
 		n := min(chunk, size-index*chunk)
 		if _, err := io.ReadFull(input, buf[:n]); err != nil {
@@ -270,10 +280,10 @@ func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID,
 		if _, _, err := signInputResponse(d.cfg.Signer.Key(), ticketNonce, resp); err != nil {
 			return fmt.Errorf("%w: %v", dispatchstream.ErrTransient, err)
 		}
-		frame := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: resp}}
-		if err := d.cfg.Streams.Send(ctx, operator, frame); err != nil {
-			return fmt.Errorf("%w: send input: %v", dispatchstream.ErrTransient, err)
-		}
+		frames = append(frames, &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: resp}})
+	}
+	if err := d.cfg.Streams.SendBatch(ctx, operator, frames); err != nil {
+		return fmt.Errorf("%w: send input: %v", dispatchstream.ErrTransient, err)
 	}
 	return nil
 }

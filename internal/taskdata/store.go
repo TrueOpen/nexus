@@ -75,6 +75,15 @@ func WithDirectorySync(syncFn func(string) error) Option {
 	}
 }
 
+// WithFileSync replaces the fsync of a spool file before it becomes a blob.
+func WithFileSync(syncFn func(*os.File) error) Option {
+	return func(s *Store) {
+		if syncFn != nil {
+			s.fileSync = syncFn
+		}
+	}
+}
+
 type Store struct {
 	log           *slog.Logger
 	root          string
@@ -82,6 +91,7 @@ type Store struct {
 	cfg           Config
 	diskUsage     diskUsageFunc
 	directorySync func(string) error
+	fileSync      func(*os.File) error
 
 	mu           sync.Mutex
 	maintenance  sync.RWMutex
@@ -106,6 +116,10 @@ type metadataRecord struct {
 	BlobHash string   `json:"blob_hash"`
 }
 
+// reservationRecord names the spool file of an upload in progress. Recovery removes every spool
+// file, named by a reservation or not, and every reservation, so the record is written and
+// removed without waiting for the disk, and the bytes written so far (Written) are kept in memory
+// only.
 type reservationRecord struct {
 	ID        string       `json:"id"`
 	Header    UploadHeader `json:"header"`
@@ -171,7 +185,7 @@ func NewStore(log *slog.Logger, root string, backend kv.Store, cfg Config, optio
 	}
 	store := &Store{
 		log: log, root: root, backend: backend, cfg: cfg, diskUsage: filesystemUsage, directorySync: syncDirectory,
-		reservations: make(map[string]*reservationState), activeKeys: make(map[string]string),
+		fileSync: (*os.File).Sync, reservations: make(map[string]*reservationState), activeKeys: make(map[string]string),
 		outputStreams: make(map[string]*OutputStream),
 	}
 	for _, option := range options {
@@ -224,26 +238,22 @@ func (s *Store) Begin(_ context.Context, header UploadHeader) (*Upload, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: reservation id: %v", ErrStorage, err)
 	}
+	// Neither the spool file's directory entry nor its reservation needs to reach the disk now:
+	// recovery removes every spool file and every reservation, so after a crash an upload in
+	// progress leaves nothing behind whichever of the two survived.
 	spoolPath := filepath.Join(s.root, "spool", id+".part")
 	file, err := os.OpenFile(spoolPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("%w: create spool: %v", ErrStorage, err)
 	}
-	if err := s.directorySync(filepath.Dir(spoolPath)); err != nil {
-		_ = file.Close()
-		_ = os.Remove(spoolPath)
-		_ = s.directorySync(filepath.Dir(spoolPath))
-		return nil, fmt.Errorf("%w: sync spool directory: %v", ErrStorage, err)
-	}
 	record := reservationRecord{ID: id, Header: header, SpoolPath: spoolPath}
 	raw, err := json.Marshal(record)
 	if err == nil {
-		err = s.backend.Set(kv.NSTaskDataReservation, id, raw)
+		err = kv.WriteDeferred(s.backend, kv.WriteOp{NS: kv.NSTaskDataReservation, Key: id, Val: raw})
 	}
 	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(spoolPath)
-		_ = s.directorySync(filepath.Dir(spoolPath))
 		return nil, fmt.Errorf("%w: persist reservation: %v", ErrStorage, err)
 	}
 	s.reservations[id] = &reservationState{record: record}
@@ -288,7 +298,22 @@ func (u *Upload) WriteChunk(chunk []byte) error {
 	return nil
 }
 
-func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
+// Prepare checks the received bytes, makes them a durable blob and stores the object's PREPARED
+// metadata, synced.
+func (u *Upload) Prepare(ctx context.Context) (Metadata, error) {
+	return u.prepare(ctx, false)
+}
+
+// prepareInput is Prepare for an OpenTask INPUT whose metadata write does not wait for the disk.
+// The blob is durable before it either way. The caller writes, synced, the dispatcher's commit of
+// the order (or a rollback) before anything outside the process can learn of the input: that write
+// makes the metadata durable too (kv.WriteDeferred). A crash before it loses the metadata together
+// with the order's commit, and recovery removes the blob nothing refers to.
+func (u *Upload) prepareInput(ctx context.Context) (Metadata, error) {
+	return u.prepare(ctx, true)
+}
+
+func (u *Upload) prepare(_ context.Context, deferMetadata bool) (Metadata, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.done {
@@ -328,7 +353,7 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 		manifest = parsed
 	}
 	u.manifest = manifest
-	if err := u.file.Sync(); err != nil {
+	if err := u.store.fileSync(u.file); err != nil {
 		u.abortLocked()
 		return Metadata{}, fmt.Errorf("%w: sync spool: %v", ErrStorage, err)
 	}
@@ -348,11 +373,8 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 		return Metadata{}, fmt.Errorf("%w: object key was deleted", ErrConflict)
 	}
 	if u.idempotent {
+		// A spool file that comes back after a crash is removed by recovery.
 		_ = os.Remove(u.spoolPath)
-		if err := u.store.directorySync(filepath.Dir(u.spoolPath)); err != nil {
-			u.abortLocked()
-			return Metadata{}, fmt.Errorf("%w: sync spool directory: %v", ErrStorage, err)
-		}
 		u.done = true
 		u.store.releaseReservation(u.id, u.header)
 		meta, err := u.store.metadataLocked(u.header.Key)
@@ -380,10 +402,9 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 		u.abortLocked()
 		return Metadata{}, fmt.Errorf("%w: commit blob: %v", ErrStorage, err)
 	}
-	if err := u.store.directorySync(filepath.Dir(u.spoolPath)); err != nil {
-		u.abortLocked()
-		return Metadata{}, fmt.Errorf("%w: sync spool directory: %v", ErrStorage, err)
-	}
+	// Only the blob's directory entry must be durable before the metadata names it. The spool
+	// entry the rename removed needs no sync: if it comes back after a crash, recovery removes it
+	// as a spool file without reservation, which leaves the blob's own entry alone.
 	if err := u.store.directorySync(filepath.Dir(blobPath)); err != nil {
 		u.abortLocked()
 		return Metadata{}, fmt.Errorf("%w: sync blob directory: %v", ErrStorage, err)
@@ -403,7 +424,11 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 	record := metadataRecord{Metadata: meta, BlobHash: blobHash}
 	raw, err := json.Marshal(record)
 	if err == nil {
-		err = u.store.backend.Set(kv.NSTaskDataMetadata, objectKeyString(u.header.Key), raw)
+		if deferMetadata {
+			err = kv.WriteDeferred(u.store.backend, kv.WriteOp{NS: kv.NSTaskDataMetadata, Key: objectKeyString(u.header.Key), Val: raw})
+		} else {
+			err = u.store.backend.Set(kv.NSTaskDataMetadata, objectKeyString(u.header.Key), raw)
+		}
 		// Reported even when the index write below fails: the metadata naming the blob is stored.
 		u.store.noteBlobReferenced(blobHash)
 	}
@@ -828,6 +853,8 @@ func (s *Store) tombstoneRecord(key string) (tombstoneRecord, bool, error) {
 	return record, true, nil
 }
 
+// updateWritten records the bytes an upload wrote so far, in memory only: they count against the
+// disk watermark (remainingReservedLocked), and recovery does not read them.
 func (s *Store) updateWritten(id string, written uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -836,13 +863,6 @@ func (s *Store) updateWritten(id string, written uint64) error {
 		return fmt.Errorf("%w: reservation disappeared", ErrStorage)
 	}
 	state.record.Written = written
-	raw, err := json.Marshal(state.record)
-	if err != nil {
-		return fmt.Errorf("%w: encode reservation progress: %v", ErrStorage, err)
-	}
-	if err := s.backend.Set(kv.NSTaskDataReservation, id, raw); err != nil {
-		return fmt.Errorf("%w: persist reservation progress: %v", ErrStorage, err)
-	}
 	return nil
 }
 
@@ -860,7 +880,8 @@ func (s *Store) releaseReservation(id string, header UploadHeader) {
 	} else {
 		s.reserved = 0
 	}
-	if err := s.backend.Delete(kv.NSTaskDataReservation, id); err != nil {
+	// A reservation that survives a crash is removed by recovery, with its spool file if any.
+	if err := kv.WriteDeferred(s.backend, kv.WriteOp{NS: kv.NSTaskDataReservation, Key: id, Delete: true}); err != nil {
 		s.log.Error("task data reservation cleanup failed", "reservation_id", id, "err", err)
 	}
 }

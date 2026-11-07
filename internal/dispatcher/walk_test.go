@@ -1025,17 +1025,32 @@ func (s *roundFailingStore) setFail(v bool) {
 	s.mu.Unlock()
 }
 
-func (s *roundFailingStore) Set(ns kv.Namespace, key string, val []byte) error {
+func (s *roundFailingStore) refuses(ns kv.Namespace, val []byte) bool {
 	s.mu.Lock()
 	fail := s.fail
 	s.mu.Unlock()
 	if fail && ns == kv.NSDispatch {
 		var st orderState
-		if json.Unmarshal(val, &st) == nil && len(st.Rounds) > 0 {
+		return json.Unmarshal(val, &st) == nil && len(st.Rounds) > 0
+	}
+	return false
+}
+
+func (s *roundFailingStore) Set(ns kv.Namespace, key string, val []byte) error {
+	if s.refuses(ns, val) {
+		return errors.New("disk full")
+	}
+	return s.Store.Set(ns, key, val)
+}
+
+// WriteBatch refuses the same writes: a ticket written without waiting for the disk comes here.
+func (s *roundFailingStore) WriteBatch(ops ...kv.WriteOp) error {
+	for _, op := range ops {
+		if s.refuses(op.NS, op.Val) {
 			return errors.New("disk full")
 		}
 	}
-	return s.Store.Set(ns, key, val)
+	return s.Store.WriteBatch(ops...)
 }
 
 // Stickiness is decided from the roster round 0 actually binds: a first ticket that could not be

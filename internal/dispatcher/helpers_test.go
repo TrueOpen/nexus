@@ -161,6 +161,9 @@ type fakeStreams struct {
 	sendErr      error
 	// onSend runs on every send, as the time queueing a frame takes.
 	onSend func()
+	// durable, when set, receives a synced write of every frame before it counts as sent, as the
+	// stream hub stores every downlink message before queuing it.
+	durable kv.Store
 }
 
 func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
@@ -175,7 +178,48 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 	if s.onSend != nil {
 		s.onSend()
 	}
+	if s.durable != nil {
+		raw, err := proto.Marshal(frame)
+		if err == nil {
+			err = s.durable.Set(kv.NSStreamSession, fmt.Sprintf("fake|%s|%d", operator, len(s.sent)), raw)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	s.sent = append(s.sent, sent{operator, proto.Clone(frame).(*nexusv1.DispatchStreamFrameV1)})
+	return nil
+}
+
+// SendBatch sends frames like Send, storing them in one synced write when durable is set.
+func (s *fakeStreams) SendBatch(_ context.Context, operator string, frames []*nexusv1.DispatchStreamFrameV1) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sendErr != nil {
+		return s.sendErr
+	}
+	if s.disconnected[operator] {
+		return dispatchstream.ErrNotConnected
+	}
+	if s.durable != nil {
+		ops := make([]kv.WriteOp, 0, len(frames))
+		for i, frame := range frames {
+			raw, err := proto.Marshal(frame)
+			if err != nil {
+				return err
+			}
+			ops = append(ops, kv.WriteOp{NS: kv.NSStreamSession, Key: fmt.Sprintf("fake|%s|%d", operator, len(s.sent)+i), Val: raw})
+		}
+		if err := s.durable.WriteBatch(ops...); err != nil {
+			return err
+		}
+	}
+	for _, frame := range frames {
+		if s.onSend != nil {
+			s.onSend()
+		}
+		s.sent = append(s.sent, sent{operator, proto.Clone(frame).(*nexusv1.DispatchStreamFrameV1)})
+	}
 	return nil
 }
 
@@ -507,6 +551,8 @@ type env struct {
 	syncer     *fakeSync
 	metrics    *opsmetrics.Registry
 	draining   atomic.Bool
+	// latest is the chain head the session cache reads; 0 reads testESH.
+	latest atomic.Uint64
 	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
 	takeoverOrders bool
 	signer         servicekey.Signer
@@ -573,7 +619,12 @@ func (e *env) open(store kv.Store) {
 		e.t.Fatal(err)
 	}
 	e.sessions, err = inflight.NewSessionCache(inflight.SessionCacheConfig{
-		Read: e.chain.read, LatestHeight: func(context.Context) (uint64, error) { return testESH, nil },
+		Read: e.chain.read, LatestHeight: func(context.Context) (uint64, error) {
+			if h := e.latest.Load(); h != 0 {
+				return h, nil
+			}
+			return testESH, nil
+		},
 		Ledger: e.ledger, LookupsPerSecond: 1_000_000,
 	})
 	if err != nil {
