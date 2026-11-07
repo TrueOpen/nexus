@@ -112,9 +112,9 @@ func (noCleanupYet) QueryEvidenceCleanup(context.Context, string) (chaincli.Evid
 // retentionAuthority is the Task Chain authority the retention decision needs no call of.
 type retentionAuthority struct{ taskdata.Authority }
 
-// The input of an order dropped before the chain is released by the retention sweep once its
-// retention height (the order's expiry) is reached, and not before; a retried version of the same
-// task keeps its own input.
+// The input of an order dropped before the chain is released by the retention sweep once the chain
+// is the release margin past its retention height (the order's expiry), and not before; a retried
+// version of the same task keeps its own input.
 func TestDroppedOrderInputIsReleasedAtItsRetentionHeight(t *testing.T) {
 	backend := kv.NewMemStore()
 	taskStore, payloads := newCoordinatorTaskData(t, backend)
@@ -141,17 +141,20 @@ func TestDroppedOrderInputIsReleasedAtItsRetentionHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := taskStore.Sweep(ctx, 99, policy); err != nil {
-		t.Fatal(err)
+	// Released 100 blocks past its retention height (the release margin), not before.
+	for _, height := range []uint64{99, 100, 199} {
+		if err := taskStore.Sweep(ctx, height, policy); err != nil {
+			t.Fatal(err)
+		}
+		if inputDeleted(t, taskStore, firstInput) {
+			t.Fatalf("the dropped version's input was released at %d, before its retention height and margin", height)
+		}
 	}
-	if inputDeleted(t, taskStore, firstInput) {
-		t.Fatal("the dropped version's input was released before its retention height")
-	}
-	if err := taskStore.Sweep(ctx, 100, policy); err != nil {
+	if err := taskStore.Sweep(ctx, 200, policy); err != nil {
 		t.Fatal(err)
 	}
 	if !inputDeleted(t, taskStore, firstInput) {
-		t.Fatal("the dropped version's input was kept past its retention height")
+		t.Fatal("the dropped version's input was kept past its retention height and margin")
 	}
 	if inputDeleted(t, taskStore, retryInput) {
 		t.Fatal("the retried version's input was released with the dropped one")
