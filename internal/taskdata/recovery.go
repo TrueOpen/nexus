@@ -22,6 +22,11 @@ type RetentionDecision struct {
 
 type RecoveryResolver interface {
 	HasAcceptedOrder(context.Context, ObjectKey) (bool, error)
+	// HeldAsMember reports whether an INPUT version is a copy this Builder stored as a member of
+	// the task's Task Builders group for an order another Builder dispatched, or, once the member
+	// record is gone, the version the chain accepted. HasAcceptedOrder only knows this Builder's
+	// own orders.
+	HeldAsMember(context.Context, ObjectKey) (bool, error)
 	RevalidatePrepared(context.Context, Metadata) (bool, error)
 	Retention(context.Context, Metadata, uint64) (RetentionDecision, error)
 }
@@ -109,10 +114,10 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver) error {
 // a version without an accepted order can be left by a release that kept the index on a failed
 // version when a re-signed retry of the order turned READY: when exactly one other READY version
 // of the task has the accepted order, the index moves to it, as a version turning READY takes it
-// (indexInput). Otherwise it is left and warned about: a version whose order never reached the
-// chain is released by retention once its retention ends, and the index with it. An index naming a
-// missing object is only reported. records are all the metadata records; caller holds the
-// exclusive maintenance lock.
+// (indexInput). Otherwise it is left and, unless it names a copy held as a group member, warned
+// about: a version whose order never reached the chain is released by retention once its retention
+// ends, and the index with it. An index naming a missing object is only reported. records are all
+// the metadata records; caller holds the exclusive maintenance lock.
 func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver, records map[string]metadataRecord) {
 	suffix := "|" + ObjectKindInput.String()
 	var refs []ObjectRef
@@ -151,8 +156,14 @@ func (s *Store) checkInputIndex(ctx context.Context, resolver RecoveryResolver, 
 			continue
 		}
 		if !found {
+			held, err := resolver.HeldAsMember(ctx, ref)
+			if err == nil && held {
+				s.log.Debug("task input index names a copy held as a group member",
+					"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash)
+				continue
+			}
 			s.log.Warn("task input index names a version without an accepted order and no other version has one; left for retention",
-				"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash, "content_hash", ref.ContentHash)
+				"session_id", ref.SessionID, "task_id", ref.TaskID, "task_hash", ref.TaskHash, "content_hash", ref.ContentHash, "err", err)
 			continue
 		}
 		if err := s.indexInput(target, true); err != nil {

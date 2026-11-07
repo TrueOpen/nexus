@@ -13,6 +13,8 @@ import (
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchevidence"
 	"github.com/TrueOpen/nexus/internal/dispatchresponse"
+	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
 // answerChain is the chain a member's responder reads.
@@ -162,5 +164,83 @@ func TestMemberAnswersRosterRequestsFromTheSyncedCopy(t *testing.T) {
 	if len(resp.GetRounds()) != 1 || resp.GetRounds()[0].GetHandraiseRoot().GetBuilderAddress() != e.d.op ||
 		!proto.Equal(resp.GetRounds()[0].GetRoster(), &roster) {
 		t.Fatalf("GetDispatchRoster from the copy = %v", resp)
+	}
+}
+
+// HeldAsMember answers taskdata recovery for the input copies a member stores: the stored version
+// of the task's synced order, and once the chain recorded the order only the recorded winner's.
+func TestHeldAsMemberNamesTheStoredCopy(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	ctx := context.Background()
+	key := taskdata.ObjectKey{
+		TaskHash: hexOf(f.taskHash), SessionID: f.sessionHex(), TaskID: f.taskHex(), Kind: taskdata.ObjectKindInput,
+		ContentHash: taskdata.InputContentHash(hexOf(sumOf(f.input))),
+	}
+	held := func(k taskdata.ObjectKey) bool {
+		t.Helper()
+		ok, err := e.member.r.HeldAsMember(ctx, k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if held(key) {
+		t.Fatal("held before any sync")
+	}
+
+	e.s.OrderChanged(f.issued())
+	e.sync()
+	if !held(key) {
+		t.Fatal("stored copy of an order not recorded yet is not held")
+	}
+	other := key
+	other.TaskHash = hexOf(fill(0x6f))
+	otherSession := key
+	otherSession.SessionID = hexOf(fill(0x7a))
+	otherContent := key
+	otherContent.ContentHash = hexOf(fill(0x7b))
+	for name, k := range map[string]taskdata.ObjectKey{"version": other, "session": otherSession, "content": otherContent} {
+		if held(k) {
+			t.Fatalf("another %s is held", name)
+		}
+	}
+
+	f.putAccepted()
+	f.recordOnChain()
+	e.s.OrderChanged(f.accepted())
+	e.s.Recorded(f.recordedAttempt())
+	e.sync()
+	if c := e.copyOf(); c == nil || !c.Recorded {
+		t.Fatalf("copy not recorded: %+v", c)
+	}
+	if !held(key) {
+		t.Fatal("stored copy of the recorded winner is not held")
+	}
+
+	// Recorded with another version's winner: the copy is not the accepted one.
+	mk := memberKey(e.d.op, f.sessionHex(), f.sequence)
+	m, found, err := e.member.r.loadMember(mk)
+	if err != nil || !found {
+		t.Fatalf("member stream = %v, %v", found, err)
+	}
+	m.Winner.TaskHash = other.TaskHash
+	ops, err := memberOps(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.member.store.WriteBatch(ops...); err != nil {
+		t.Fatal(err)
+	}
+	if held(key) {
+		t.Fatal("copy of a version that is not the recorded winner is held")
+	}
+
+	// A pruned member stream holds nothing.
+	if err := e.member.store.WriteBatch(kv.WriteOp{NS: kv.NSBuilderSyncMember, Key: memberTaskPrefix + f.taskHex(), Delete: true}); err != nil {
+		t.Fatal(err)
+	}
+	if held(key) {
+		t.Fatal("held without a member stream")
 	}
 }

@@ -28,6 +28,12 @@ type OrderRecoveryState interface {
 // read from nodes at different heights.
 const preChainInputReleaseMarginBlocks = 100
 
+// MemberCopies answers whether an INPUT version is a copy this Builder stored as a member of the
+// task's Task Builders group (buildersync.Receiver).
+type MemberCopies interface {
+	HeldAsMember(context.Context, ObjectKey) (bool, error)
+}
+
 // CleanupAuthority reads the chain's evidence cleanup progress for a task.
 type CleanupAuthority interface {
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (chaincli.EvidenceCleanupStatus, error)
@@ -43,6 +49,7 @@ type RecoveryPolicy struct {
 	authority  Authority
 	cleanup    CleanupAuthority
 	orders     OrderRecoveryState
+	members    MemberCopies
 
 	// cleanupMu guards the cleanup query cache. A task whose cleanup has started stays
 	// started, so it is cached until the cache is cleared; a task not scheduled yet is cached
@@ -65,6 +72,36 @@ func NewRecoveryPolicy(authority Authority, cleanup CleanupAuthority, authorizer
 
 func (p *RecoveryPolicy) HasAcceptedOrder(ctx context.Context, key ObjectKey) (bool, error) {
 	return p.orders.HasAcceptedOrder(ctx, key)
+}
+
+// SetMemberCopies wires the member side of the group sync, built after the policy. It is called
+// before the policy is first used; without it HeldAsMember only asks the chain.
+func (p *RecoveryPolicy) SetMemberCopies(members MemberCopies) { p.members = members }
+
+// HeldAsMember reports whether key is an INPUT copy this Builder holds as a group member: one its
+// member record of the task names, else, since member records are pruned before the copies they
+// stored are released, the version the chain accepted for the task. A task the chain does not know
+// holds no copy; any other failure is returned.
+func (p *RecoveryPolicy) HeldAsMember(ctx context.Context, key ObjectKey) (bool, error) {
+	if key.Kind != ObjectKindInput || key.SessionID == "" || key.TaskID == "" {
+		return false, ErrMalformed
+	}
+	if p.members != nil {
+		held, err := p.members.HeldAsMember(ctx, key)
+		if err != nil || held {
+			return held, err
+		}
+	}
+	task, err := p.authority.QueryTask(ctx, chaincli.TaskKey{SessionID: key.SessionID, TaskID: key.TaskID})
+	if errors.Is(err, chaincli.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || task.SessionID != key.SessionID || task.TaskID != key.TaskID {
+		return false, fmt.Errorf("%w: current task", ErrAuthorityUnavailable)
+	}
+	accepted := task.Assignment
+	return accepted.AcceptedTaskHash != "" && accepted.AcceptedTaskHash == key.TaskHash &&
+		(accepted.AcceptedInputHash == "" || InputContentHash(accepted.AcceptedInputHash) == key.ContentHash), nil
 }
 
 func (p *RecoveryPolicy) RevalidatePrepared(ctx context.Context, metadata Metadata) (bool, error) {

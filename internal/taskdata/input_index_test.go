@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/nexus/internal/chaincli"
 )
 
 // otherVersion returns the header of another INPUT version of the same task.
@@ -281,5 +283,136 @@ func TestRecoverMovesStaleInputIndexToTheAcceptedVersion(t *testing.T) {
 	}
 	if ref, found := resolvedInput(t, store); !found || ref != failed.Key {
 		t.Fatalf("index after a failed check = %#v, %t; want it left", ref, found)
+	}
+}
+
+// A group member keeps no order of its own for the input copies it stores of another Builder's
+// orders: an index naming such a copy is not warned about, as long as the copy is held as a member
+// (or the chain accepted that version); a check that fails warns as before and changes nothing.
+func TestRecoverSkipsInputIndexOfAMemberCopy(t *testing.T) {
+	var logs bytes.Buffer
+	store, _, _ := newTestStore(t, testStoreConfig())
+	store.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	body := []byte("abcdefgh")
+	input := prepareObject(t, store, testHeader(body), body)
+	if _, err := store.MarkReady(context.Background(), input.Key); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Recover(context.Background(), recoveryResolver{held: map[string]bool{objectKeyString(input.Key): true}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "task input index names a copy held as a group member") {
+		t.Fatalf("member copy index check logged: %s", logs.String())
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != input.Key {
+		t.Fatalf("member copy index = %#v, %t; want it left", ref, found)
+	}
+
+	logs.Reset()
+	if err := store.Recover(context.Background(), recoveryResolver{heldErr: errors.New("authority unavailable")}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "task input index names a version without an accepted order") {
+		t.Fatalf("failed member check did not warn: %s", logs.String())
+	}
+	if ref, found := resolvedInput(t, store); !found || ref != input.Key {
+		t.Fatalf("index after a failed member check = %#v, %t; want it left", ref, found)
+	}
+}
+
+// fakeMemberCopies answers HeldAsMember from a fixed set of keys.
+type fakeMemberCopies struct {
+	held  map[string]bool
+	err   error
+	calls int
+}
+
+func (f *fakeMemberCopies) HeldAsMember(_ context.Context, key ObjectKey) (bool, error) {
+	f.calls++
+	return f.held[objectKeyString(key)], f.err
+}
+
+// Through the recovery policy: a copy the member stream holds, or one whose member stream is
+// pruned but whose version the chain accepted, is not warned about; an index naming a version
+// whose order never reached the chain still is.
+func TestRecoverWithPolicyWarnsOnlyForAStaleIndex(t *testing.T) {
+	var logs bytes.Buffer
+	store, _, _ := newTestStore(t, testStoreConfig())
+	store.log = slog.New(slog.NewTextHandler(&logs, nil))
+	body := []byte("abcdefgh")
+	input := prepareObject(t, store, testHeader(body), body)
+	if _, err := store.MarkReady(context.Background(), input.Key); err != nil {
+		t.Fatal(err)
+	}
+	authority := &fakeAuthority{height: 100, taskErr: chaincli.ErrNotFound}
+	policy, err := NewRecoveryPolicy(authority, &fakeCleanup{err: chaincli.ErrNotFound}, nil, recoveryOrderState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := &fakeMemberCopies{held: map[string]bool{}}
+	policy.SetMemberCopies(members)
+	recoverLogs := func() string {
+		t.Helper()
+		logs.Reset()
+		if err := store.Recover(context.Background(), policy); err != nil {
+			t.Fatal(err)
+		}
+		if ref, found := resolvedInput(t, store); !found || ref != input.Key {
+			t.Fatalf("index = %#v, %t; want it left", ref, found)
+		}
+		return logs.String()
+	}
+
+	// The member stream holds the copy.
+	members.held[objectKeyString(input.Key)] = true
+	if got := recoverLogs(); strings.Contains(got, "level=WARN") {
+		t.Fatalf("held member copy warned: %s", got)
+	}
+
+	// The member stream is pruned; the chain accepted this version.
+	delete(members.held, objectKeyString(input.Key))
+	authority.taskErr = nil
+	authority.task = chaincli.OnChainTask{SessionID: testSessionID, TaskID: testTaskID, Assignment: chaincli.TaskAssignmentState{
+		AcceptedTaskHash: input.Key.TaskHash, AcceptedInputHash: input.Key.ContentHash,
+	}}
+	if got := recoverLogs(); strings.Contains(got, "level=WARN") {
+		t.Fatalf("copy of the chain's accepted version warned: %s", got)
+	}
+
+	// The chain accepted another version, or does not know the task: a stale index, warned about.
+	authority.task.Assignment.AcceptedTaskHash = strings.Repeat("6f", 32)
+	if got := recoverLogs(); !strings.Contains(got, "task input index names a version without an accepted order") {
+		t.Fatalf("index of a version the chain did not accept was not warned about: %s", got)
+	}
+	authority.task.Assignment.AcceptedTaskHash = input.Key.TaskHash
+	authority.task.Assignment.AcceptedInputHash = strings.Repeat("7a", 32)
+	if got := recoverLogs(); !strings.Contains(got, "task input index names a version without an accepted order") {
+		t.Fatalf("index of another input than the chain's accepted one was not warned about: %s", got)
+	}
+	authority.taskErr = chaincli.ErrNotFound
+	if got := recoverLogs(); !strings.Contains(got, "task input index names a version without an accepted order") {
+		t.Fatalf("pre-chain index was not warned about: %s", got)
+	}
+
+	// A member stream that cannot be read warns, without asking the chain.
+	members.err = errors.New("kv unavailable")
+	authority.taskErr = nil
+	authority.task.Assignment.AcceptedInputHash = input.Key.ContentHash
+	if got := recoverLogs(); !strings.Contains(got, "task input index names a version without an accepted order") {
+		t.Fatalf("failed member check was not warned about: %s", got)
+	}
+
+	// Without member copies wired (no order path), only the chain is asked.
+	members.err = nil
+	bare, err := NewRecoveryPolicy(authority, &fakeCleanup{err: chaincli.ErrNotFound}, nil, recoveryOrderState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held, err := bare.HeldAsMember(context.Background(), input.Key); err != nil || !held {
+		t.Fatalf("chain-only HeldAsMember = %t, %v", held, err)
+	}
+	authority.taskErr = errors.New("node unavailable")
+	if held, err := bare.HeldAsMember(context.Background(), input.Key); err == nil || held {
+		t.Fatalf("HeldAsMember with the chain down = %t, %v", held, err)
 	}
 }

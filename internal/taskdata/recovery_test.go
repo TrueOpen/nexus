@@ -17,13 +17,19 @@ type recoveryResolver struct {
 	accepted      map[string]bool
 	revalidate    map[string]bool
 	retention     map[string]RetentionDecision
+	held          map[string]bool
 	acceptedErr   error
 	revalidateErr error
 	retentionErr  error
+	heldErr       error
 }
 
 func (r recoveryResolver) HasAcceptedOrder(_ context.Context, key ObjectKey) (bool, error) {
 	return r.accepted[objectKeyString(key)], r.acceptedErr
+}
+
+func (r recoveryResolver) HeldAsMember(_ context.Context, key ObjectKey) (bool, error) {
+	return r.held[objectKeyString(key)], r.heldErr
 }
 
 func (r recoveryResolver) RevalidatePrepared(_ context.Context, metadata Metadata) (bool, error) {
