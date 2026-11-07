@@ -111,6 +111,8 @@ func ParamsFromChain(dispatch *taskv1.DispatchParamsV1, weights *taskv1.Candidat
 
 // Streams is the Cortex stream hub the dispatcher offers tickets and input through.
 type Streams interface {
+	// Send stores the message with a synced write of the dispatcher's store before it returns and
+	// before the message can leave the process; the ticket of an offer relies on it.
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
 	Connected(operator string) bool
 	RTT(operator string) (time.Duration, bool)

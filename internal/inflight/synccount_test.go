@@ -33,7 +33,7 @@ func TestLedgerSyncCountPerOrder(t *testing.T) {
 	if err := f.ledger.MarkAccepted(testSession, 5); err != nil {
 		t.Fatal(err)
 	}
-	step("accept", cost{synced: 1})
+	step("accept", cost{deferred: 1})
 }
 
 // A reservation is written without waiting for the disk. A crash before the order's commit (the

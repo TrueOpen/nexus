@@ -84,11 +84,10 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 }
 
 // finish tells the observer and the Recorder about an order that left DISPATCHING. It runs with
-// no order locked.
+// no order locked. The winner of an accepted order is already in the attempt book.
 func (d *Dispatcher) finish(ctx context.Context, out done) {
 	switch {
 	case out.accepted != nil:
-		d.accepted(out.accepted)
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
 		if err := d.cfg.Recorder.Record(ctx, out.accepted); err != nil {
 			d.log.Error("dispatch entry not handed to the recorder", "session_id", out.session, "order_sequence", out.sequence, "err", err)
@@ -99,6 +98,31 @@ func (d *Dispatcher) finish(ctx context.Context, out done) {
 		return
 	}
 	d.kickParked(out.session)
+}
+
+// finishLater runs finish off the caller's goroutine. The accept handler uses it so the stream
+// acknowledges the accept and reads the Worker's next frame, its input request, without waiting
+// for the observer's and the Recorder's writes. A crash before they ran loses nothing the restart
+// does not rebuild: recover hands every accepted order to the Recorder again, and the observer's
+// DISPATCH_ACCEPTED event was never kept across a crash between the accept and its write.
+func (d *Dispatcher) finishLater(out done) {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		d.finish(context.Background(), out)
+		return
+	}
+	d.wg.Add(1)
+	d.mu.Unlock()
+	run := func() {
+		defer d.wg.Done()
+		d.finish(context.Background(), out)
+	}
+	if d.cfg.Background != nil {
+		d.cfg.Background(run)
+		return
+	}
+	go run()
 }
 
 // accepted hands an accepted order's winner to the attempt book.
@@ -487,7 +511,16 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 	}
 	round.Attempts = append(round.Attempts, a)
 	st.Cursor = cand.Rank + 1
-	if err := saveState(d.cfg.Store, st); err != nil {
+	// The ticket of a reachable member is stored without waiting for the disk: the stream hub
+	// stores the offer with a synced write before the offer can leave the process, which makes
+	// the ticket durable first (kv.WriteDeferred). A crash before that loses a ticket nobody saw,
+	// and the restart offers the candidate a new one. A ticket timed out unsent goes to the group
+	// sync at once, so it is stored synced.
+	save := saveState
+	if reachable {
+		save = saveStateDeferred
+	}
+	if err := save(d.cfg.Store, st); err != nil {
 		*st = *prev
 		return false, err
 	}

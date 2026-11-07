@@ -204,6 +204,10 @@ func (b *Book) MaxPrerecordTokens() uint64 { return b.maxPrerecord.Load() }
 // nothing; a ticket voided before its accept arrived is dropped; a RECORDED attempt is never
 // replaced (ErrRecordedWithAnotherTicket). A PENDING attempt of another ticket should have been
 // voided first: it is replaced, and that is logged as an error.
+//
+// The PENDING attempt is stored without waiting for the disk (kv.WriteDeferred): it is derived
+// from the dispatcher's accepted state, stored synced before, and the dispatcher's restart hands
+// every accepted order to Accepted again, which signs the same header anew.
 func (b *Book) Accepted(w Winner) error {
 	ticketHash, err := digestOf(ticketName, w.Ticket)
 	if err != nil {
@@ -247,7 +251,7 @@ func (b *Book) Accepted(w Winner) error {
 				"task_id", a.TaskID, "replaced_ticket", hex.EncodeToString(cur.TicketHash[:]), "ticket", hex.EncodeToString(ticketHash[:]))
 		}
 	}
-	return b.setLocked(a, Pending)
+	return b.setWithLocked(a, Pending, func(op kv.WriteOp) error { return kv.WriteDeferred(b.store, op) })
 }
 
 // Voided removes a PENDING attempt whose winner ticket a binding change voided and keeps it aside
@@ -426,6 +430,11 @@ func (b *Book) Forget(taskID string) {
 // setLocked signs a's header at status, stores a as its task's attempt and tells the watchers.
 // Caller holds b.mu.
 func (b *Book) setLocked(a *Attempt, status Status) error {
+	return b.setWithLocked(a, status, func(op kv.WriteOp) error { return b.store.Set(op.NS, op.Key, op.Val) })
+}
+
+// setWithLocked is setLocked storing a with write. Caller holds b.mu.
+func (b *Book) setWithLocked(a *Attempt, status Status, write func(kv.WriteOp) error) error {
 	h := &nexusv1.DispatchResultHeaderV1{
 		WinnerTicket: &taskv1.DispatchTicketV1{}, Accept: &taskv1.DispatchAcceptV1{}, RecordStatus: status,
 	}
@@ -445,7 +454,7 @@ func (b *Book) setLocked(a *Attempt, status Status) error {
 	if err != nil {
 		return fmt.Errorf("encode dispatch attempt: %w", err)
 	}
-	if err := b.store.Set(kv.NSDispatchAttempt, a.TaskID, raw); err != nil {
+	if err := write(kv.WriteOp{NS: kv.NSDispatchAttempt, Key: a.TaskID, Val: raw}); err != nil {
 		return fmt.Errorf("write dispatch attempt: %w", err)
 	}
 	b.byTask[a.TaskID] = a

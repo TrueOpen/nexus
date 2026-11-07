@@ -263,11 +263,16 @@ func (l *Ledger) put(sessionID string, e Entry) error {
 }
 
 func (l *Ledger) putLocked(sessionID string, e Entry) error {
+	return l.putWithLocked(sessionID, e, l.store.WriteBatch)
+}
+
+// putWithLocked writes e with write and then takes it in memory.
+func (l *Ledger) putWithLocked(sessionID string, e Entry, write func(...kv.WriteOp) error) error {
 	op, err := putOp(sessionID, e)
 	if err != nil {
 		return err
 	}
-	if err := l.store.WriteBatch(op); err != nil {
+	if err := write(op); err != nil {
 		return fmt.Errorf("write in-flight order: %w", err)
 	}
 	l.sessionLocked(sessionID).orders[e.Sequence] = &e
@@ -277,10 +282,10 @@ func (l *Ledger) putLocked(sessionID string, e Entry) error {
 func (l *Ledger) setState(sessionID string, seq uint64, state State) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.setStateLocked(sessionID, seq, state)
+	return l.setStateLocked(sessionID, seq, state, l.store.WriteBatch)
 }
 
-func (l *Ledger) setStateLocked(sessionID string, seq uint64, state State) error {
+func (l *Ledger) setStateLocked(sessionID string, seq uint64, state State, write func(...kv.WriteOp) error) error {
 	s := l.sessions[sessionID]
 	if s == nil || s.orders[seq] == nil {
 		return fmt.Errorf("%w: session %s sequence %d", ErrUnknownOrder, sessionID, seq)
@@ -290,12 +295,17 @@ func (l *Ledger) setStateLocked(sessionID string, seq uint64, state State) error
 	}
 	e := *s.orders[seq]
 	e.State, e.Committed = state, true
-	return l.putLocked(sessionID, e)
+	return l.putWithLocked(sessionID, e, write)
 }
 
-// MarkAccepted records that a Worker accepted a ticket of the order.
+// MarkAccepted records that a Worker accepted a ticket of the order. The write does not wait for
+// the disk (kv.WriteDeferred): the dispatcher stores the accepted state synced first, and its
+// restart marks the entry of an accepted state ACCEPTED again, so a crash that loses this write
+// loses nothing.
 func (l *Ledger) MarkAccepted(sessionID string, seq uint64) error {
-	return l.setState(sessionID, seq, StateAccepted)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.setStateLocked(sessionID, seq, StateAccepted, func(ops ...kv.WriteOp) error { return kv.WriteDeferred(l.store, ops...) })
 }
 
 // MarkDispatching records that an accepted ticket of the order was voided before its record (the
@@ -469,7 +479,7 @@ func (l *Ledger) cancelled(sessionID string, seq uint64) error {
 		return nil
 	}
 	if e := s.orders[seq]; e != nil && e.State != StateRecorded && e.State != StateFailed {
-		if err := l.setStateLocked(sessionID, seq, StateFailed); err != nil {
+		if err := l.setStateLocked(sessionID, seq, StateFailed, l.store.WriteBatch); err != nil {
 			return err
 		}
 	}

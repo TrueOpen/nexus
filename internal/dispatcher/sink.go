@@ -83,9 +83,15 @@ func (d *Dispatcher) answered(from dispatchstream.Origin, hash []byte, chainID s
 // HandleDispatchAccept takes a Worker's accept. Only the ticket out, answered before its accept
 // deadline on the Builder's clock while the order can still be recorded in time, can win; any
 // other accept is DISPATCH_TICKET_CLOSED. The winner ends the walk: the order is ACCEPTED in the
-// ledger, the Worker's local free slots drop by one, the record is signed and the dispatch entry
-// goes to the Recorder. A state that cannot be stored leaves the accept unacknowledged
-// (ErrTransient) so the Cortex sends it again.
+// ledger, the Worker's local free slots drop by one, the record is signed, the winner goes to the
+// attempt book and, in the background (finishLater), the dispatch entry to the Recorder. A state
+// that cannot be stored leaves the accept unacknowledged (ErrTransient) so the Cortex sends it
+// again.
+//
+// Only the accepted state, with its evidence, is a synced write before the accept is answered.
+// The ledger's ACCEPTED and the book's PENDING winner do not wait for the disk: recover derives
+// both again from that state (an accepted state under a committed entry is marked ACCEPTED and
+// handed to the book and the Recorder).
 func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstream.Origin, m *taskv1.DispatchAcceptV1) error {
 	o, a, ticket, err := d.answered(from, m.GetDispatchTicketHash(), m.GetChainId(), m.GetTaskId(), m.GetTaskHash(), m.GetMember(), m.GetSchemaVersion())
 	if err != nil {
@@ -169,7 +175,8 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		return nil
 	}
 	d.log.Info("dispatch accepted", "session_id", out.session, "order_sequence", out.sequence, "worker", out.worker, "rank", a.Rank)
-	d.finish(ctx, out)
+	d.accepted(out.accepted)
+	d.finishLater(out)
 	return nil
 }
 

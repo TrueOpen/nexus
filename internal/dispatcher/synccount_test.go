@@ -1,9 +1,12 @@
 package dispatcher
 
 import (
+	"bytes"
 	"context"
 	"testing"
+	"time"
 
+	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/kv/kvtest"
@@ -63,13 +66,13 @@ func TestSyncedWritesPerOrderUntilTheWorkerHasItsInput(t *testing.T) {
 	e.dispatch(o)
 	steps.step("dispatch", syncCost{Synced: 1, Deferred: 1})
 	runBackground()
-	steps.step("offer", syncCost{Synced: 2})
+	steps.step("offer", syncCost{Synced: 1, Deferred: 1})
 	_, ticket, hash := e.lastOffer()
 	accept, from := e.acceptMsg(ticket, hash)
 	if err := e.d.HandleDispatchAccept(context.Background(), from, accept); err != nil {
 		t.Fatal(err)
 	}
-	steps.step("accept", syncCost{Synced: 3})
+	steps.step("accept", syncCost{Synced: 1, Deferred: 2})
 	request := &nexusv1InputRequest{ticket: ticket, hash: hash}
 	if err := e.d.HandleDispatchInputRequest(context.Background(), from, request.msg(from.Digest[:])); err != nil {
 		t.Fatal(err)
@@ -141,5 +144,71 @@ func TestCrashAfterTheDispatchCommitResumesTheOrder(t *testing.T) {
 	}
 	if n := len(e.streams.offers()); n != 1 {
 		t.Fatalf("%d offers after the restart, want 1", n)
+	}
+}
+
+// A crash once the accept was answered, before the work handed to the background ran: the accept
+// is durable, and the restart rebuilds what the background and the deferred writes would have
+// left: the order ACCEPTED in the ledger, its winner PENDING in the attempt book and the same
+// dispatch entry handed to the Recorder.
+func TestCrashAfterTheAcceptRebuildsTheAcceptedOrder(t *testing.T) {
+	e, store, _ := newCountingEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.d.cfg.Background = func(f func()) { f() }
+	e.d.kick(stateKey(s, 0))
+	var held []func()
+	e.d.cfg.Background = func(f func()) { held = append(held, f) }
+	e.accept()
+	e.recorder = &fakeRecorder{}
+	e.crashTo(store.Crash())
+	if e.ledgerState(o) != inflight.StateAccepted {
+		t.Fatalf("ledger after the crash = %v", e.ledgerState(o))
+	}
+	if a, ok := e.attempts.Current(o.TaskID); !ok || a.Status != attempt.Pending {
+		t.Fatalf("attempt after the crash = %+v %v", a, ok)
+	}
+	if b := e.onlyBundle(); b.SessionID != s || b.Sequence != 0 {
+		t.Fatalf("bundle after the crash = %+v", b)
+	}
+}
+
+// A crash while the offer is being stored, the ticket written to the order's state without
+// waiting for the disk: neither reached the disk, the ticket never left the process, and the
+// restart offers a new one, which is the only ticket the order holds.
+func TestCrashWhileTheOfferIsStoredIssuesTheTicketAgain(t *testing.T) {
+	e, store, runBackground := newCountingEnv(t)
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	var atOffer *kvtest.Store
+	store.BeforeSync = func(ops []kv.WriteOp) {
+		if atOffer == nil && ops[0].NS == kv.NSStreamSession {
+			atOffer = store.Crash()
+		}
+	}
+	runBackground()
+	if atOffer == nil {
+		t.Fatal("the offer was not stored with a synced write")
+	}
+	e.clock.advance(time.Millisecond) // a new ticket differs in its accept deadline
+	e.crashTo(atOffer)
+	states, err := loadStates(e.store)
+	if err != nil || len(states) != 1 {
+		t.Fatalf("dispatch states after the crash: %d %v", len(states), err)
+	}
+	var tickets [][]byte
+	for _, r := range states[0].Rounds {
+		for _, a := range r.Attempts {
+			tickets = append(tickets, a.Hash)
+		}
+	}
+	if n := len(e.streams.offers()); n != 2 {
+		t.Fatalf("%d offers, want the one lost with the crash and a new one", n)
+	}
+	_, _, hash := e.lastOffer()
+	if len(tickets) != 1 || !bytes.Equal(tickets[0], hash[:]) {
+		t.Fatalf("stored tickets %x, want only the one offered after the restart %x", tickets, hash)
 	}
 }
