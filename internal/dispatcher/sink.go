@@ -247,7 +247,9 @@ func (d *Dispatcher) HandleDispatchInputRequest(ctx context.Context, from dispat
 }
 
 // sendInput sends the input as signed chunks answering the ticket of ticketHash, whose nonce is
-// ticketNonce. Each chunk is signed with the current service key.
+// ticketNonce. Each chunk is signed with the current service key. The chunks go to the stream as
+// one batch: one synced write for the whole input instead of one per chunk; the stream keeps every
+// chunk until the Cortex acknowledged it either way, so the memory held is the same.
 func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID, taskHash string, rawTaskID, ticketHash, inputHash []byte, ticketNonce uint64) error {
 	input, size, err := d.cfg.Inputs.OpenInput(ctx, sessionID, taskID, taskHash)
 	if err != nil {
@@ -260,6 +262,7 @@ func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID,
 		return fmt.Errorf("%w: input of %d bytes cannot be served", ErrInputRefused, size)
 	}
 	buf := make([]byte, chunk)
+	frames := make([]*nexusv1.DispatchStreamFrameV1, 0, count)
 	for index := uint64(0); index < count; index++ {
 		n := min(chunk, size-index*chunk)
 		if _, err := io.ReadFull(input, buf[:n]); err != nil {
@@ -277,10 +280,10 @@ func (d *Dispatcher) sendInput(ctx context.Context, operator, sessionID, taskID,
 		if _, _, err := signInputResponse(d.cfg.Signer.Key(), ticketNonce, resp); err != nil {
 			return fmt.Errorf("%w: %v", dispatchstream.ErrTransient, err)
 		}
-		frame := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: resp}}
-		if err := d.cfg.Streams.Send(ctx, operator, frame); err != nil {
-			return fmt.Errorf("%w: send input: %v", dispatchstream.ErrTransient, err)
-		}
+		frames = append(frames, &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: resp}})
+	}
+	if err := d.cfg.Streams.SendBatch(ctx, operator, frames); err != nil {
+		return fmt.Errorf("%w: send input: %v", dispatchstream.ErrTransient, err)
 	}
 	return nil
 }

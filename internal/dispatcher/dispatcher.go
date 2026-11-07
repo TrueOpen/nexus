@@ -114,6 +114,8 @@ type Streams interface {
 	// Send stores the message with a synced write of the dispatcher's store before it returns and
 	// before the message can leave the process; the ticket of an offer relies on it.
 	Send(ctx context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error
+	// SendBatch is Send for several messages, in order, stored in one synced write.
+	SendBatch(ctx context.Context, operator string, frames []*nexusv1.DispatchStreamFrameV1) error
 	Connected(operator string) bool
 	RTT(operator string) (time.Duration, bool)
 }

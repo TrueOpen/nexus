@@ -80,7 +80,7 @@ func TestSyncedWritesPerOrderUntilTheWorkerHasItsInput(t *testing.T) {
 	if n := len(e.streams.inputResponses()); n != 3 {
 		t.Fatalf("%d input chunks, want 3", n)
 	}
-	steps.step("input", syncCost{Synced: 3})
+	steps.step("input", syncCost{Synced: 1})
 	runBackground()
 	steps.step("after accept", syncCost{})
 	if len(e.recorder.recorded()) != 1 {

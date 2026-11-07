@@ -191,6 +191,38 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 	return nil
 }
 
+// SendBatch sends frames like Send, storing them in one synced write when durable is set.
+func (s *fakeStreams) SendBatch(_ context.Context, operator string, frames []*nexusv1.DispatchStreamFrameV1) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sendErr != nil {
+		return s.sendErr
+	}
+	if s.disconnected[operator] {
+		return dispatchstream.ErrNotConnected
+	}
+	if s.durable != nil {
+		ops := make([]kv.WriteOp, 0, len(frames))
+		for i, frame := range frames {
+			raw, err := proto.Marshal(frame)
+			if err != nil {
+				return err
+			}
+			ops = append(ops, kv.WriteOp{NS: kv.NSStreamSession, Key: fmt.Sprintf("fake|%s|%d", operator, len(s.sent)+i), Val: raw})
+		}
+		if err := s.durable.WriteBatch(ops...); err != nil {
+			return err
+		}
+	}
+	for _, frame := range frames {
+		if s.onSend != nil {
+			s.onSend()
+		}
+		s.sent = append(s.sent, sent{operator, proto.Clone(frame).(*nexusv1.DispatchStreamFrameV1)})
+	}
+	return nil
+}
+
 func (s *fakeStreams) Connected(operator string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
