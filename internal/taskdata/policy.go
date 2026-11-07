@@ -11,8 +11,21 @@ import (
 
 type OrderRecoveryState interface {
 	HasAcceptedOrder(context.Context, ObjectKey) (bool, error)
+	// HasTerminatedOrder reports whether the order of an INPUT version ended on this Builder: its
+	// task is terminal, or the version was dropped before it reached the chain.
 	HasTerminatedOrder(context.Context, ObjectKey) (bool, error)
+	// HasLiveTask reports whether this Builder still tracks a task for the INPUT's (session, task),
+	// in memory or by its snapshot, whatever its version.
+	HasLiveTask(context.Context, ObjectKey) (bool, error)
 }
+
+// unmarkedInputReleaseMarginBlocks is how far past its retention height the chain must be before
+// an INPUT the chain does not know, with no local end of its order and no task tracked for it, is
+// released. The retention height of such an INPUT is its order's expiry (or, for a group member's
+// copy, the order's evidence retention, which is later), and the chain refuses to record an order
+// past its expiry; the margin only covers the height and the task query being read from nodes at
+// different heights.
+const unmarkedInputReleaseMarginBlocks = 100
 
 // CleanupAuthority reads the chain's evidence cleanup progress for a task.
 type CleanupAuthority interface {
@@ -96,7 +109,10 @@ func (p *RecoveryPolicy) RevalidatePrepared(ctx context.Context, metadata Metada
 // no open round, max_evidence_retention_blocks) are not recomputed here.
 //
 // A task the chain does not know is only legitimate for an INPUT whose order never reached the
-// chain; it follows the pre-chain lease and the local order termination.
+// chain; it follows the pre-chain lease and the local order termination. An INPUT with no local
+// end of its order (stored before dropped orders were marked, a marker that was not written, or a
+// group member's copy) is released once the chain is unmarkedInputReleaseMarginBlocks past its
+// retention height, unless this Builder still tracks a task for it.
 func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, height uint64) (RetentionDecision, error) {
 	if height == 0 {
 		return RetentionDecision{}, fmt.Errorf("%w: retention height", ErrMalformed)
@@ -124,7 +140,14 @@ func (p *RecoveryPolicy) Retention(ctx context.Context, metadata Metadata, heigh
 		return RetentionDecision{}, fmt.Errorf("%w: local order state", ErrAuthorityUnavailable)
 	}
 	if !terminated {
-		return RetentionDecision{Status: RetentionActive}, nil
+		live, liveErr := p.orders.HasLiveTask(ctx, metadata.Key)
+		if liveErr != nil {
+			return RetentionDecision{}, fmt.Errorf("%w: local task state", ErrAuthorityUnavailable)
+		}
+		release := metadata.RetainUntilHeight + unmarkedInputReleaseMarginBlocks
+		if live || release < metadata.RetainUntilHeight || height < release {
+			return RetentionDecision{Status: RetentionActive}, nil
+		}
 	}
 	return RetentionDecision{
 		Status: RetentionEligibleForCleanup, RetainUntilHeight: metadata.RetainUntilHeight, Delete: true,

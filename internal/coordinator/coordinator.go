@@ -771,6 +771,24 @@ func (c *Coordinator) HasTerminatedOrder(_ context.Context, key taskdata.ObjectK
 	return !live && err == nil, err
 }
 
+// HasLiveTask reports whether this Builder tracks a task for the INPUT's (session, task), in memory
+// or by its snapshot, whatever its version: taskdata then keeps an INPUT the chain does not know
+// even past its retention height.
+func (c *Coordinator) HasLiveTask(_ context.Context, key taskdata.ObjectKey) (bool, error) {
+	if key.Kind != taskdata.ObjectKindInput || key.SessionID == "" || key.TaskID == "" {
+		return false, taskdata.ErrMalformed
+	}
+	encoded := taskKey(key.SessionID, key.TaskID)
+	c.mu.RLock()
+	_, tracked := c.tasks[encoded]
+	c.mu.RUnlock()
+	if tracked {
+		return true, nil
+	}
+	_, found, err := c.kv.GetWithError(kv.NSTask, encoded)
+	return found, err
+}
+
 // tracksOrderVersion reports whether the task key is tracked, in memory or by its snapshot, with
 // taskHash as its order or its chain-accepted version.
 func (c *Coordinator) tracksOrderVersion(key, taskHash string) (bool, error) {

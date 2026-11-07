@@ -160,3 +160,49 @@ func TestDroppedOrderInputIsReleasedAtItsRetentionHeight(t *testing.T) {
 		t.Fatalf("input index = %#v, %v; want the retried version", ref, err)
 	}
 }
+
+// An input with no local end of its order (dropped by a release that marked nothing) is released
+// once the chain is past its retention height by the margin, and never while a task is tracked
+// for it, in memory or by its snapshot after a restart.
+func TestUnmarkedInputIsReleasedOnlyWhenNoTaskIsTracked(t *testing.T) {
+	backend := kv.NewMemStore()
+	taskStore, payloads := newCoordinatorTaskData(t, backend)
+	c, _ := newTaskTrackingCoordinator(t, backend)
+	c.payloads = payloads
+	c.SetDispatcher(&fakeDispatcher{})
+	ctx := context.Background()
+	sweep := func(c *Coordinator, height uint64) {
+		t.Helper()
+		policy, err := taskdata.NewRecoveryPolicy(retentionAuthority{}, noCleanupYet{}, nil, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := taskStore.Sweep(ctx, height, policy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unmarked := taskPayloadOrder(t, testPayloadSession, testPayloadTask, testUserAddress, []byte("unmarked input"), 100)
+	unmarkedInput := stageOrderInput(t, taskStore, unmarked, []byte("unmarked input"), true)
+	tracked := taskPayloadOrder(t, testPayloadSession, strings.Repeat("3c", 32), testUserAddress, []byte("tracked input"), 100)
+	trackedInput := stageOrderInput(t, taskStore, tracked, []byte("tracked input"), true)
+	if err := c.OnOrder(ctx, tracked); err != nil {
+		t.Fatal(err)
+	}
+
+	sweep(c, 100)
+	if inputDeleted(t, taskStore, unmarkedInput) || inputDeleted(t, taskStore, trackedInput) {
+		t.Fatal("an input with no local end of its order was released at its retention height")
+	}
+	sweep(c, 10000)
+	if !inputDeleted(t, taskStore, unmarkedInput) {
+		t.Fatal("an input with no local end of its order and no task was kept past its retention")
+	}
+	if inputDeleted(t, taskStore, trackedInput) {
+		t.Fatal("the input of a tracked task was released")
+	}
+	restarted, _ := newTaskTrackingCoordinator(t, backend)
+	sweep(restarted, 20000)
+	if inputDeleted(t, taskStore, trackedInput) {
+		t.Fatal("the input of a task with a snapshot was released after a restart")
+	}
+}

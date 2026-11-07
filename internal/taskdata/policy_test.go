@@ -3,6 +3,7 @@ package taskdata
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -11,7 +12,9 @@ import (
 type recoveryOrderState struct {
 	accepted bool
 	terminal bool
+	live     bool
 	err      error
+	liveErr  error
 }
 
 func (s recoveryOrderState) HasAcceptedOrder(context.Context, ObjectKey) (bool, error) {
@@ -20,6 +23,10 @@ func (s recoveryOrderState) HasAcceptedOrder(context.Context, ObjectKey) (bool, 
 
 func (s recoveryOrderState) HasTerminatedOrder(context.Context, ObjectKey) (bool, error) {
 	return s.terminal, s.err
+}
+
+func (s recoveryOrderState) HasLiveTask(context.Context, ObjectKey) (bool, error) {
+	return s.live, s.liveErr
 }
 
 func TestRecoveryPolicyRevalidatesPreparedUploaderAndAcceptedReceipt(t *testing.T) {
@@ -173,5 +180,67 @@ func TestRecoveryPolicyRetentionFailsClosedForMissingNonInputAndQueryOutage(t *t
 	cleanup.err = errors.New("node offline")
 	if _, err := policy.Retention(context.Background(), readyMetadata(ObjectKindInput), 200); !errors.Is(err, ErrAuthorityUnavailable) {
 		t.Fatalf("query outage error = %v", err)
+	}
+}
+
+// An INPUT the chain does not know, with no local end of its order (stored by a release that
+// marked no dropped order, a marker that was not written, or a group member's copy), is released
+// once the chain is unmarkedInputReleaseMarginBlocks past its retention height and this Builder
+// tracks no task for it; never while it does, nor while the chain holds the task.
+func TestRecoveryPolicyReleasesUnmarkedPreChainInputPastItsRetention(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	input := readyMetadata(ObjectKindInput)
+	input.RetainUntilHeight = 130
+	release := input.RetainUntilHeight + unmarkedInputReleaseMarginBlocks
+	decide := func(cleanup *fakeCleanup, orders recoveryOrderState, metadata Metadata, height uint64) (RetentionDecision, error) {
+		t.Helper()
+		policy, err := NewRecoveryPolicy(fx.authority, cleanup, fx.authorizer, orders)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return policy.Retention(context.Background(), metadata, height)
+	}
+	notOnChain := func() *fakeCleanup { return &fakeCleanup{err: chaincli.ErrNotFound} }
+
+	for _, height := range []uint64{input.RetainUntilHeight - 1, input.RetainUntilHeight, release - 1} {
+		decision, err := decide(notOnChain(), recoveryOrderState{}, input, height)
+		if err != nil || decision.Status != RetentionActive || decision.Delete {
+			t.Fatalf("unmarked input at %d = %+v, %v; want kept until %d", height, decision, err, release)
+		}
+	}
+	decision, err := decide(notOnChain(), recoveryOrderState{}, input, release)
+	if err != nil || decision.Status != RetentionEligibleForCleanup || !decision.Delete || decision.RetainUntilHeight != input.RetainUntilHeight {
+		t.Fatalf("unmarked input at %d = %+v, %v; want released", release, decision, err)
+	}
+	if !validRetentionDecision(decision, release) {
+		t.Fatalf("release decision is rejected by the sweep: %+v", decision)
+	}
+
+	// A task still tracked here keeps it, however late; an unreadable local state fails closed.
+	decision, err = decide(notOnChain(), recoveryOrderState{live: true}, input, release+100000)
+	if err != nil || decision.Delete {
+		t.Fatalf("input of a tracked task = %+v, %v; want kept", decision, err)
+	}
+	if _, err := decide(notOnChain(), recoveryOrderState{liveErr: errors.New("disk")}, input, release); !errors.Is(err, ErrAuthorityUnavailable) {
+		t.Fatalf("unreadable local task state error = %v", err)
+	}
+	// A task the chain holds follows the chain's cleanup only.
+	decision, err = decide(&fakeCleanup{status: chaincli.EvidenceCleanupNotScheduled}, recoveryOrderState{}, input, release+100000)
+	if err != nil || decision.Delete {
+		t.Fatalf("input of a task on chain = %+v, %v; want kept", decision, err)
+	}
+	// A retention height whose margin overflows is never released by the fallback.
+	far := input
+	far.RetainUntilHeight = math.MaxUint64 - unmarkedInputReleaseMarginBlocks/2
+	decision, err = decide(notOnChain(), recoveryOrderState{}, far, math.MaxUint64)
+	if err != nil || decision.Delete {
+		t.Fatalf("input with an overflowing release height = %+v, %v; want kept", decision, err)
+	}
+	// An input without a retention height is never released by it either.
+	unleased := input
+	unleased.RetainUntilHeight = 0
+	decision, err = decide(notOnChain(), recoveryOrderState{}, unleased, release)
+	if err != nil || decision.Delete {
+		t.Fatalf("input without a retention height = %+v, %v; want kept", decision, err)
 	}
 }
