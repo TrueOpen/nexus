@@ -1,6 +1,7 @@
 package buildersync
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/kv"
+	"github.com/TrueOpen/nexus/internal/taskdata"
 )
 
 // memberStream is how far this Builder, as a group member, applied the sync stream of one order
@@ -172,6 +174,29 @@ func (r *Receiver) Replica(sessionID, taskID string) (attempt.Attempt, bool) {
 	copy(a.TicketHash[:], w.TicketHash)
 	copy(a.AcceptDigest[:], w.AcceptDigest)
 	return a, true
+}
+
+// HeldAsMember reports whether key is an INPUT copy this Builder stored as a member of the task's
+// Task Builders group: the task's synced order stored that version's input and, once the chain
+// recorded the order, that version is the recorded winner's. It is false once the member stream is
+// pruned (after its retention), while the copy is kept until the chain cleans the task up.
+func (r *Receiver) HeldAsMember(_ context.Context, key taskdata.ObjectKey) (bool, error) {
+	if key.Kind != taskdata.ObjectKindInput || key.TaskID == "" {
+		return false, taskdata.ErrMalformed
+	}
+	member, found, err := r.cfg.Store.GetWithError(kv.NSBuilderSyncMember, memberTaskPrefix+key.TaskID)
+	if err != nil || !found {
+		return false, err
+	}
+	m, found, err := r.loadMember(string(member))
+	if err != nil || !found || m.SessionID != key.SessionID {
+		return false, err
+	}
+	input := m.Inputs[key.TaskHash]
+	if input == nil || !input.Stored || taskdata.InputContentHash(hexOf(input.InputHash)) != key.ContentHash {
+		return false, nil
+	}
+	return !m.Recorded || (m.Winner != nil && m.Winner.TaskHash == key.TaskHash), nil
 }
 
 // memberOfTask finds the member stream of a task through the task index.
