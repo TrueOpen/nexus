@@ -161,6 +161,9 @@ type fakeStreams struct {
 	sendErr      error
 	// onSend runs on every send, as the time queueing a frame takes.
 	onSend func()
+	// durable, when set, receives a synced write of every frame before it counts as sent, as the
+	// stream hub stores every downlink message before queuing it.
+	durable kv.Store
 }
 
 func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.DispatchStreamFrameV1) error {
@@ -174,6 +177,15 @@ func (s *fakeStreams) Send(_ context.Context, operator string, frame *nexusv1.Di
 	}
 	if s.onSend != nil {
 		s.onSend()
+	}
+	if s.durable != nil {
+		raw, err := proto.Marshal(frame)
+		if err == nil {
+			err = s.durable.Set(kv.NSStreamSession, fmt.Sprintf("fake|%s|%d", operator, len(s.sent)), raw)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	s.sent = append(s.sent, sent{operator, proto.Clone(frame).(*nexusv1.DispatchStreamFrameV1)})
 	return nil

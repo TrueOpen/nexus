@@ -75,6 +75,15 @@ func WithDirectorySync(syncFn func(string) error) Option {
 	}
 }
 
+// WithFileSync replaces the fsync of a spool file before it becomes a blob.
+func WithFileSync(syncFn func(*os.File) error) Option {
+	return func(s *Store) {
+		if syncFn != nil {
+			s.fileSync = syncFn
+		}
+	}
+}
+
 type Store struct {
 	log           *slog.Logger
 	root          string
@@ -82,6 +91,7 @@ type Store struct {
 	cfg           Config
 	diskUsage     diskUsageFunc
 	directorySync func(string) error
+	fileSync      func(*os.File) error
 
 	mu           sync.Mutex
 	maintenance  sync.RWMutex
@@ -171,7 +181,7 @@ func NewStore(log *slog.Logger, root string, backend kv.Store, cfg Config, optio
 	}
 	store := &Store{
 		log: log, root: root, backend: backend, cfg: cfg, diskUsage: filesystemUsage, directorySync: syncDirectory,
-		reservations: make(map[string]*reservationState), activeKeys: make(map[string]string),
+		fileSync: (*os.File).Sync, reservations: make(map[string]*reservationState), activeKeys: make(map[string]string),
 		outputStreams: make(map[string]*OutputStream),
 	}
 	for _, option := range options {
@@ -328,7 +338,7 @@ func (u *Upload) Prepare(_ context.Context) (Metadata, error) {
 		manifest = parsed
 	}
 	u.manifest = manifest
-	if err := u.file.Sync(); err != nil {
+	if err := u.store.fileSync(u.file); err != nil {
 		u.abortLocked()
 		return Metadata{}, fmt.Errorf("%w: sync spool: %v", ErrStorage, err)
 	}
