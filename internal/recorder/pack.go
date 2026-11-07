@@ -112,9 +112,15 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 			entries[j] = kept[i]
 			msg.Entries = append(msg.Entries, msgs[i])
 		}
-		gas := gasFactor * (r.cfg.GasBase + r.cfg.GasPerEntry*uint64(len(entries)))
+		gas := gasFactor * r.recordGas(msg)
 		r.submit(ctx, height, msg, entries, gas)
 	}
+}
+
+// recordGas is the gas a record message needs at gas factor 1: the base, a share per entry and a
+// share per encoded byte, which the chain charges for what the record stores.
+func (r *Recorder) recordGas(msg *taskv1.MsgRecordDispatch) uint64 {
+	return r.cfg.GasBase + r.cfg.GasPerEntry*uint64(len(msg.GetEntries())) + r.cfg.GasPerByte*uint64(proto.Size(msg))
 }
 
 // submit signs and broadcasts one record transaction. Each signed transaction is stored, and its

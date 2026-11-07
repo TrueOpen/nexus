@@ -178,13 +178,13 @@ func (r *Recorder) applyResult(ctx context.Context, tx txRecord, res chaincli.Tx
 		if r.verifyByQuery(ctx, tx) {
 			// Every entry is recorded with its own ticket: the chain executed the batch and only
 			// the result encoding failed, which no smaller batch or pause would change.
-			r.succeeded()
+			r.succeeded(tx.Hash)
 		} else {
 			r.unattributable(len(tx.Objects), uint64(res.Height), err.Error())
 		}
 		return
 	}
-	r.succeeded()
+	r.succeeded(tx.Hash)
 	var fx effects
 	var replays, conflicts []string
 	r.mu.Lock()

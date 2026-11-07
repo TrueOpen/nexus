@@ -794,25 +794,24 @@ func (s *Store) outputFrames(key ObjectKey, afterSeq *uint64, maxBytes int) ([]O
 	if err != nil || !found {
 		return nil, err
 	}
-	path := s.streamPath(record.SpoolID)
-	if record.Sealed {
-		// Once sealed the metadata lives under the full object ref key, not the stream key. The ref is
-		// the one recorded when the stream was opened (it carries task_hash) — the key the subscriber
-		// passes in has only session and task.
-		objectKey := record.Key
-		objectKey.ContentHash = record.ContentHash
-		meta, metaFound, err := s.metadataRecord(objectKeyString(objectKey))
-		if err != nil {
-			return nil, err
+	file, err := s.openStreamData(record)
+	if errors.Is(err, os.ErrNotExist) && !record.Sealed {
+		// Finish moves the spool to the blob store and then marks the record sealed, both under
+		// s.mu: the record read above may predate a Finish that has moved the spool since. Once
+		// s.mu is free that Finish is done; the record read again names the data as it is now.
+		// An open file outlives a later rename.
+		s.mu.Lock()
+		record, found, err = s.outputStreamRecord(encoded)
+		if err == nil && found {
+			file, err = s.openStreamData(record)
 		}
-		if !metaFound {
-			return nil, fmt.Errorf("%w: sealed stream without metadata", ErrStorage)
+		s.mu.Unlock()
+		if err == nil && !found {
+			return nil, nil
 		}
-		path = s.blobPath(meta.BlobHash)
 	}
-	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: open stream data: %v", ErrStorage, err)
+		return nil, err
 	}
 	defer file.Close()
 	var attach *os.File
@@ -878,6 +877,32 @@ func (s *Store) outputFrames(key ObjectKey, afterSeq *uint64, maxBytes int) ([]O
 		}})
 	}
 	return frames, nil
+}
+
+// openStreamData opens the chunk text of a stream: the spool while it is in progress, the blob
+// once sealed. A missing file comes back wrapping os.ErrNotExist.
+func (s *Store) openStreamData(record outputStreamRecord) (*os.File, error) {
+	path := s.streamPath(record.SpoolID)
+	if record.Sealed {
+		// Once sealed the metadata lives under the full object ref key, not the stream key. The ref is
+		// the one recorded when the stream was opened (it carries task_hash) — the key the subscriber
+		// passes in has only session and task.
+		objectKey := record.Key
+		objectKey.ContentHash = record.ContentHash
+		meta, metaFound, err := s.metadataRecord(objectKeyString(objectKey))
+		if err != nil {
+			return nil, err
+		}
+		if !metaFound {
+			return nil, fmt.Errorf("%w: sealed stream without metadata", ErrStorage)
+		}
+		path = s.blobPath(meta.BlobHash)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: open stream data: %w", ErrStorage, err)
+	}
+	return file, nil
 }
 
 func readSection(file *os.File, offset, length uint64) ([]byte, error) {

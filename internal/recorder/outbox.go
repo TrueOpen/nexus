@@ -68,6 +68,8 @@ type txRecord struct {
 	// replay is set after a restart: the transaction is broadcast again, as stored, the first
 	// time the chain does not show it.
 	replay bool
+	// succeeded is set once the transaction counted as executed for the sizing (succeeded).
+	succeeded bool
 }
 
 func entryKey(objectID string) string { return entryPrefix + objectID }

@@ -138,9 +138,12 @@ dispatch:
   gpu_reject_rate_min_samples: 10
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
-  # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry.
+  # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry
+  # plus record_gas_per_byte per encoded byte of the message (0 leaves the size out); the chain
+  # charges most of a record per byte it stores. Doubled (up to 8x) after an out-of-gas.
   record_gas_base: 200000
-  record_gas_per_entry: 300000
+  record_gas_per_entry: 150000
+  record_gas_per_byte: 150
   # Gas limit of a compensation rebuttal or challenge response: answer_gas_base plus
   # answer_gas_per_byte per encoded byte of the message. Doubled (up to 8x) after an out-of-gas.
   answer_gas_base: 300000

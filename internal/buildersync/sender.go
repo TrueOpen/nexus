@@ -159,7 +159,14 @@ type event struct {
 	view     *dispatchevidence.Order
 	recorded *attempt.Attempt
 	tries    int
+	// waitsInput is set while the change waits for its order's input to be marked ready: it is
+	// applied again at the next drain, not only on the prune ticks.
+	waitsInput bool
 }
+
+// errInputNotReady is the current order version's input not found in the store yet: OpenTask
+// hands the order to the dispatcher before it marks the input ready.
+var errInputNotReady = errors.New("the order's input is not ready yet")
 
 // key names the order and kind of the change: a later change of the same kind supersedes it.
 func (ev event) key() string {
@@ -477,8 +484,20 @@ func (s *Sender) HandleChainEvent(ev chaincli.ChainEvent) {
 	}
 }
 
-// drain turns the queued changes into items.
+// drain turns the queued changes into items, first those waiting for their input.
 func (s *Sender) drain() {
+	s.qmu.Lock()
+	var waiting []event
+	for key, ev := range s.redo {
+		if ev.waitsInput {
+			waiting = append(waiting, ev)
+			delete(s.redo, key)
+		}
+	}
+	if len(waiting) > 0 {
+		s.queue = append(waiting, s.queue...)
+	}
+	s.qmu.Unlock()
 	for {
 		s.qmu.Lock()
 		if len(s.queue) == 0 {
@@ -508,6 +527,12 @@ func (s *Sender) settled(ev event, err error) {
 	defer s.qmu.Unlock()
 	if err == nil {
 		delete(s.redo, key)
+		return
+	}
+	ev.waitsInput = errors.Is(err, errInputNotReady)
+	if ev.waitsInput && ev.tries < maxChangeRetries {
+		s.redo[key] = ev
+		s.log.Debug("order change waits for its input to be ready", "change", key)
 		return
 	}
 	s.failures.Add(1)
@@ -772,6 +797,9 @@ func attemptItem(a dispatchevidence.Attempt, accept []byte) (*nexusv1.BuilderSyn
 // inputItems are the input of the order version cut into pieces.
 func (s *Sender) inputItems(ctx context.Context, view *dispatchevidence.Order, order *taskv1.TaskOrderV3) ([]*nexusv1.BuilderSyncItemV1, error) {
 	data, mediaType, err := s.cfg.Inputs.ReadInput(ctx, view.SessionID, view.TaskID, view.TaskHash)
+	if errors.Is(err, taskdata.ErrNotFound) {
+		return nil, fmt.Errorf("input of the order: %w: %w", errInputNotReady, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("input of the order: %w", err)
 	}

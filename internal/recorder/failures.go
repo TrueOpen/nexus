@@ -23,7 +23,8 @@ type refusalClass int
 const (
 	// refusalOther: unexplained; the entries go out again unchanged until it repeats.
 	refusalOther refusalClass = iota
-	// refusalOutOfGas: the batch needs more gas than it had; smaller batches with more gas each.
+	// refusalOutOfGas: the batch needs more gas than it had; the same batch with more gas, and
+	// smaller batches only once the gas is at its highest.
 	refusalOutOfGas
 	// refusalFatal: the submitter itself is refused (unauthorized, unfunded, invalid key);
 	// sending again changes nothing until the account or key does.
@@ -69,9 +70,13 @@ func (r *Recorder) refused(res chaincli.TxResult, entries int, height uint64) {
 	code := fmt.Sprintf("%s/%d", res.Codespace, res.Code)
 	switch classify(res) {
 	case refusalOutOfGas:
-		r.shrinkLocked(entries)
+		// The gas follows the entries and bytes of a batch, so a smaller batch alone does not get
+		// more gas per byte: halving helps only once the factor cannot grow.
+		if s.gasFactor >= maxGasFactor && entries > 1 {
+			r.shrinkLocked(entries)
+		}
 		s.gasFactor = min(max(s.gasFactor, 1)*2, maxGasFactor)
-		r.log.Error("record transaction out of gas; smaller batches with more gas follow (raise dispatch.record_gas_per_entry)",
+		r.log.Error("record transaction out of gas; it goes again with more gas (raise dispatch.record_gas_per_byte)",
 			"entries", entries, "max_entries", s.maxEntries, "gas_factor", s.gasFactor)
 	case refusalFatal:
 		r.stopLocked(height, code+": "+res.RawLog)
@@ -120,11 +125,23 @@ func (r *Recorder) stopLocked(height uint64, why string) {
 		"retry_height", r.sizing.stoppedUntil)
 }
 
-// succeeded takes an executed record transaction: the streak ends and lowered limits come back by
-// halves.
-func (r *Recorder) succeeded() {
+// succeeded takes the executed record transaction hash: the streak ends and lowered limits come
+// back by halves. A transaction counts once, whether its result or a dispatch_recorded event of an
+// entry it carries comes first.
+func (r *Recorder) succeeded(hash string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.succeededLocked(hash)
+}
+
+// succeededLocked is succeeded with r.mu held.
+func (r *Recorder) succeededLocked(hash string) {
+	if tx := r.txs[hash]; tx != nil {
+		if tx.succeeded {
+			return
+		}
+		tx.succeeded = true
+	}
 	s := &r.sizing
 	s.streak, s.streakCode = 0, ""
 	if s.maxEntries != 0 {

@@ -260,7 +260,7 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	}
 	od.Recorder, err = recorder.New(recorder.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger,
-		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry,
+		GasBase: deps.Config.RecordGasBase, GasPerEntry: deps.Config.RecordGasPerEntry, GasPerByte: deps.Config.RecordGasPerByte,
 		Chain: recordChain{deps.TaskChain, txs}, Tx: deps.Records, Tasks: deps.Tasks, Attempts: syncedAttempts{deps.Attempts, od.Sync},
 		Streams: deps.Direct.Streams, Gate: od.Gate, Evidence: od.Evidence, Metrics: deps.Metrics, Log: deps.Log,
 	}, params.record)
