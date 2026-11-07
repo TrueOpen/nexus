@@ -55,7 +55,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	r.mu.Lock()
 	var waiting []*entry
 	for _, e := range r.entries {
-		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !e.Held {
+		if e.Tx == "" && !e.Withdrawn && r.deadlineLocked(e) > height && !e.Held && !r.outOfGas[e.ObjectID] {
 			e.packing = true
 			waiting = append(waiting, e)
 		}
@@ -188,7 +188,7 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 	}
 	r.log.Warn("record transaction not sent; its entries go out at the next block", "entries", len(entries), "err", err)
 	if errors.As(err, &se) && se.Definitive && se.Result.Code != 0 {
-		r.refused(se.Result, len(entries), gasFactor, gasLimit, height)
+		r.refused(se.Result, objects, gasFactor, gasLimit, height)
 	}
 	if current != "" {
 		r.requeue(current)

@@ -142,7 +142,8 @@ dispatch:
   # plus record_gas_per_byte per encoded byte of the message (0 leaves the size out); the chain
   # charges most of a record per byte it stores. Doubled (up to 8x) after an out-of-gas, and halved
   # again after 8 transactions in a row succeed with the raised gas; never above record_gas_max
-  # (a batch still out of gas at the cap is split).
+  # (a batch still out of gas at the cap is split; a single entry still out of gas at the highest
+  # gas is logged as an error, not sent again, and rejected as late at its record deadline).
   record_gas_base: 200000
   record_gas_per_entry: 150000
   record_gas_per_byte: 150

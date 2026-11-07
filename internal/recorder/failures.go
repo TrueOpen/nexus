@@ -77,16 +77,23 @@ type sizing struct {
 	stopReason   string
 }
 
-// refused takes the refusal of a record transaction of entries entries, sent with gas factor
+// refused takes the refusal of a record transaction of the entries objects, sent with gas factor
 // factor and gas limit gas, at height.
-func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, gas, height uint64) {
+func (r *Recorder) refused(res chaincli.TxResult, objects []string, factor, gas, height uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := &r.sizing
+	entries := len(objects)
 	code := fmt.Sprintf("%s/%d", res.Codespace, res.Code)
 	switch classify(res) {
 	case refusalOutOfGas:
 		factor = max(factor, 1)
+		if entries == 1 && r.atGasCeiling(factor, gas) {
+			// No more gas to give it and nothing to split: sending it again every block would
+			// only pay for the same refusal.
+			r.giveUpOutOfGasLocked(objects[0], gas)
+			return
+		}
 		if factor < max(s.gasFactor, 1) {
 			// Sent before the factor was raised: the raise already covers it.
 			r.log.Warn("record transaction out of gas at a gas factor already raised; it goes again with the current one",
@@ -110,6 +117,18 @@ func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, gas, heig
 	default:
 		r.repeatedLocked(code, res.RawLog, entries, height)
 	}
+}
+
+// giveUpOutOfGasLocked stops sending the entry objectID, out of gas alone at the highest gas, and
+// logs it once. Caller holds r.mu.
+func (r *Recorder) giveUpOutOfGasLocked(objectID string, gas uint64) {
+	e := r.entries[objectID]
+	if e == nil || r.outOfGas[objectID] {
+		return
+	}
+	r.outOfGas[objectID] = true
+	r.log.Error("dispatch entry out of gas at the highest record gas; it is not sent again and is rejected as late at its deadline (raise dispatch.record_gas_per_byte or record_gas_max and restart)",
+		"session_id", e.SessionID, "order_sequence", e.Sequence, "object_id", objectID, "gas", gas, "deadline", r.deadlineLocked(e))
 }
 
 // unattributable takes an executed record transaction of entries entries whose results could not

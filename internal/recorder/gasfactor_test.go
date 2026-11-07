@@ -1,7 +1,10 @@
 package recorder
 
 import (
+	"bytes"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
@@ -130,5 +133,57 @@ func TestRecordGasIsCapped(t *testing.T) {
 		if gas > e.gasMax {
 			t.Fatalf("gas %d above the cap %d", gas, e.gasMax)
 		}
+	}
+}
+
+// A single entry still out of gas at the highest gas is not sent again every block: it is logged
+// once as an error and left unsent, like an entry too large to record, and is rejected as late at
+// its deadline. The other entries keep going out.
+func TestSingleEntryOutOfGasAtTheHighestGasGivesUp(t *testing.T) {
+	e := newEnv(t)
+	logs := &bytes.Buffer{}
+	e.r.log = slog.New(slog.NewTextHandler(logs, nil))
+	a := bundle(0xaa, 0, 1, 30)
+	e.record(a)
+	height := uint64(10)
+	e.block(height)
+	for factor := uint64(1); factor <= maxGasFactor; factor *= 2 {
+		msg, raw := e.lastSent()
+		if gas := e.tx.gas[len(e.tx.gas)-1]; gas != factor*recordGas(msg) {
+			t.Fatalf("factor %d: gas %d", factor, gas)
+		}
+		e.fail(raw, int64(height+1), "sdk", 11)
+		height++
+		sent := len(e.tx.gas)
+		e.block(height)
+		if again := len(e.tx.gas) > sent; again != (factor < maxGasFactor) {
+			t.Fatalf("out of gas at factor %d: sent again %v", factor, again)
+		}
+	}
+	sent := len(e.tx.gas)
+	for i := 0; i < 5; i++ {
+		height++
+		e.block(height)
+	}
+	if n := len(e.tx.gas); n != sent {
+		t.Fatalf("%d more record transactions of the entry out of gas at the highest gas", n-sent)
+	}
+	if n := strings.Count(logs.String(), "dispatch entry out of gas at the highest record gas"); n != 1 {
+		t.Fatalf("give-up logged %d times, want once:\n%s", n, logs)
+	}
+	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "session_id="+a.SessionID) {
+		t.Fatalf("give-up not logged as an error naming the entry:\n%s", logs)
+	}
+	// Another entry still goes out.
+	e.record(bundle(0xbb, 0, 2, 100))
+	height++
+	e.block(height)
+	if msg, _ := e.lastSent(); !reflect.DeepEqual(entriesOf(msg), []string{"bb/0"}) {
+		t.Fatalf("sent %v, want only the other entry", entriesOf(msg))
+	}
+	// At its deadline the entry is rejected as late.
+	e.block(31)
+	if want := []taskReport{{taskID: a.TaskID, code: codeLate}}; !reflect.DeepEqual(e.tasks.rejected, want) {
+		t.Fatalf("rejected %v, want %v", e.tasks.rejected, want)
 	}
 }
