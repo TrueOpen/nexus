@@ -14,6 +14,10 @@ import (
 // session|task composite key or a subject name, which satisfy this naturally).
 // Writes use pebble.Sync. Besides rebuildable task snapshots, this store also keeps held credential keys and plaintext
 // delivery state that cannot be recovered from the chain, so a successful return must mean the data is already durable.
+// WriteBatchDeferred is the one exception, for callers that follow it with a synced write (see WriteDeferred): pebble
+// appends every commit to one write-ahead log in commit order and a synced commit syncs the log up to itself (a log
+// that is rotated out is synced when it is closed), so recovery replays a prefix of the commits that holds every
+// commit acknowledged as synced.
 type pebbleStore struct {
 	log *slog.Logger
 	db  *pebble.DB
@@ -27,7 +31,11 @@ type pebbleStore struct {
 
 // NewPebble opens (or creates) the pebble store under dir.
 func NewPebble(dir string, log *slog.Logger) (Store, error) {
-	db, err := pebble.Open(dir, &pebble.Options{Logger: pebbleQuietLogger{}})
+	return openPebble(dir, &pebble.Options{Logger: pebbleQuietLogger{}}, log)
+}
+
+func openPebble(dir string, opts *pebble.Options, log *slog.Logger) (Store, error) {
+	db, err := pebble.Open(dir, opts)
 	if err != nil {
 		return nil, fmt.Errorf("kv: open pebble at %s: %w", dir, err)
 	}
@@ -97,6 +105,10 @@ func (s *pebbleStore) Delete(ns Namespace, key string) error {
 // WriteBatch commits through a single pebble batch: a pebble batch is atomic, so a crash halfway leaves either
 // everything or nothing, never an intermediate state where the frame record is durable but the progress lags behind.
 func (s *pebbleStore) WriteBatch(ops ...WriteOp) error {
+	return s.writeBatch(pebble.Sync, ops)
+}
+
+func (s *pebbleStore) writeBatch(opts *pebble.WriteOptions, ops []WriteOp) error {
 	if len(ops) == 0 {
 		return nil
 	}
@@ -118,11 +130,16 @@ func (s *pebbleStore) WriteBatch(ops ...WriteOp) error {
 			return err
 		}
 	}
-	if err := batch.Commit(pebble.Sync); err != nil {
+	if err := batch.Commit(opts); err != nil {
 		s.log.Warn("kv batch commit failed", "ops", len(ops), "err", err)
 		return err
 	}
 	return nil
+}
+
+// WriteBatchDeferred commits like WriteBatch without waiting for the write-ahead log to be synced.
+func (s *pebbleStore) WriteBatchDeferred(ops ...WriteOp) error {
+	return s.writeBatch(pebble.NoSync, ops)
 }
 
 func (s *pebbleStore) Scan(ns Namespace, fn func(key string, val []byte) bool) error {

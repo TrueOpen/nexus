@@ -138,6 +138,28 @@ type Store interface {
 	Close() error
 }
 
+// DeferredWriter is implemented by a Store that can apply a batch without waiting for it to be
+// durable (see WriteDeferred).
+type DeferredWriter interface {
+	WriteBatchDeferred(ops ...WriteOp) error
+}
+
+// WriteDeferred applies ops atomically, like Store.WriteBatch, and makes them visible at once, but
+// does not wait for them to reach the disk. A store that cannot defer writes them synced.
+//
+// The store keeps one ordered log of writes: a crash loses a suffix of it, never a write in the
+// middle, and every synced write that returns (Set, Delete, WriteBatch, from any caller) makes
+// every write before it durable too. A deferred write is therefore durable once a later synced
+// write returned, and a crash before that loses it together with everything written after it.
+// Use it only where that is safe: a synced write on the same path follows before anything outside
+// the process can learn of the change, or the change is rebuilt on restart.
+func WriteDeferred(s Store, ops ...WriteOp) error {
+	if d, ok := s.(DeferredWriter); ok {
+		return d.WriteBatchDeferred(ops...)
+	}
+	return s.WriteBatch(ops...)
+}
+
 // WriteOp is one operation in a batch write: Delete true means delete the key, otherwise write Val.
 type WriteOp struct {
 	NS     Namespace
@@ -199,6 +221,9 @@ func (s *memStore) WriteBatch(ops ...WriteOp) error {
 	}
 	return nil
 }
+
+// WriteBatchDeferred is WriteBatch: the in-memory store has no disk to wait for.
+func (s *memStore) WriteBatchDeferred(ops ...WriteOp) error { return s.WriteBatch(ops...) }
 
 func (s *memStore) Delete(ns Namespace, key string) error {
 	s.mu.Lock()
