@@ -4,9 +4,11 @@ package config
 
 import (
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -438,11 +440,64 @@ type ChainConfig struct {
 	GasLimit  uint64 `yaml:"gas_limit"`  // gas limit per Tx (fixed value until gas estimation is wired in)
 	FeeDenom  string `yaml:"fee_denom"`  // fee denom; empty = no fee (zero-fee devnet)
 	FeeAmount string `yaml:"fee_amount"` // fee amount (big integer as string)
+	// GasPrice, a decimal amount of fee_denom per unit of gas (e.g. "0.025"), makes every
+	// transaction pay gas_limit × gas_price (rounded up) instead of fee_amount, so a transaction
+	// sent with more gas (a record after an out-of-gas) still meets the chain's
+	// minimum-gas-prices. Empty or 0 keeps the fixed fee_amount.
+	GasPrice string `yaml:"gas_price"`
 
 	// DeadlineSweep decides whether this Builder actively submits MsgSweepDeadline.
 	DeadlineSweep DeadlineSweepConfig `yaml:"deadline_sweep"`
 	// TxConfirm bounds how long a Verifier commit or result relay waits for its block result.
 	TxConfirm TxConfirmConfig `yaml:"tx_confirm"`
+}
+
+// gasPricePattern is a plain non-negative decimal.
+var gasPricePattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+
+// gasPrice returns gas_price, nil when it is unset or zero (or does not parse; ValidateFee
+// reports that).
+func (c ChainConfig) gasPrice() *big.Rat {
+	price := strings.TrimSpace(c.GasPrice)
+	if !gasPricePattern.MatchString(price) {
+		return nil
+	}
+	r, ok := new(big.Rat).SetString(price)
+	if !ok || r.Sign() == 0 {
+		return nil
+	}
+	return r
+}
+
+// ValidateFee checks gas_price: a plain non-negative decimal, and fee_denom set when it is
+// positive.
+func (c ChainConfig) ValidateFee() error {
+	price := strings.TrimSpace(c.GasPrice)
+	if price == "" {
+		return nil
+	}
+	if !gasPricePattern.MatchString(price) {
+		return fmt.Errorf("chain gas_price %q must be a non-negative decimal amount of fee_denom per gas", c.GasPrice)
+	}
+	if c.gasPrice() != nil && strings.TrimSpace(c.FeeDenom) == "" {
+		return fmt.Errorf("chain gas_price %q needs fee_denom", c.GasPrice)
+	}
+	return nil
+}
+
+// TxFee is the fee amount, in fee_denom, of a transaction with gasLimit: gasLimit × gas_price
+// rounded up while gas_price is set and positive, fee_amount otherwise.
+func (c ChainConfig) TxFee(gasLimit uint64) string {
+	price := c.gasPrice()
+	if price == nil {
+		return c.FeeAmount
+	}
+	fee := new(big.Rat).Mul(new(big.Rat).SetUint64(gasLimit), price)
+	q, m := new(big.Int).QuoRem(fee.Num(), fee.Denom(), new(big.Int))
+	if m.Sign() != 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	return q.String()
 }
 
 // MaxTxConfirmWait caps block_interval × wait_blocks. The wait sits inside a Cortex relay call,
@@ -668,6 +723,7 @@ func applyEnv(cfg *Config) {
 	cfg.Chain.GasLimit = uint64(envInt("NEXUS_TX_GAS_LIMIT", int(cfg.Chain.GasLimit)))
 	cfg.Chain.FeeDenom = env("NEXUS_TX_FEE_DENOM", cfg.Chain.FeeDenom)
 	cfg.Chain.FeeAmount = env("NEXUS_TX_FEE_AMOUNT", cfg.Chain.FeeAmount)
+	cfg.Chain.GasPrice = env("NEXUS_TX_GAS_PRICE", cfg.Chain.GasPrice)
 	cfg.Chain.DeadlineSweep.Enabled = envBool("NEXUS_DEADLINE_SWEEP_ENABLED", cfg.Chain.DeadlineSweep.Enabled)
 	cfg.Chain.DeadlineSweep.GraceBlocks = envUint64("NEXUS_DEADLINE_SWEEP_GRACE_BLOCKS", cfg.Chain.DeadlineSweep.GraceBlocks)
 	cfg.Chain.TxConfirm.BlockInterval = envDuration("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", cfg.Chain.TxConfirm.BlockInterval)

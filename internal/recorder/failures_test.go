@@ -77,7 +77,7 @@ func TestDefaultRecordGasCoversARealisticEntry(t *testing.T) {
 }
 
 // Out of gas asks for more gas, not a smaller batch: the same entries go out again together with
-// twice the gas, and the gas comes back as transactions succeed.
+// twice the gas, and the gas comes back once gasStepDownSuccesses transactions succeeded with it.
 func TestOutOfGasRaisesTheGasOfTheSameBatch(t *testing.T) {
 	e := newEnv(t)
 	e.recordFour()
@@ -93,12 +93,24 @@ func TestOutOfGasRaisesTheGasOfTheSameBatch(t *testing.T) {
 		t.Fatalf("gas after out of gas = %d, want %d", e.tx.gas[1], 2*recordGas(msgs[1]))
 	}
 	e.chain.execute(raws[1], executed(t, msgs[1], 12, ok(), ok(), ok(), ok()))
-	e.block(12)
-	e.record(bundle(0xee, 0, 5, 50), bundle(0xef, 0, 6, 50), bundle(0xf0, 0, 7, 50), bundle(0xf1, 0, 8, 50))
-	e.block(13)
-	msgs, _ = e.tx.sent()
-	if len(msgs) != 3 || len(msgs[2].GetEntries()) != 4 || e.tx.gas[2] != recordGas(msgs[2]) {
-		t.Fatalf("limits not restored: %d messages, last of %d entries, gas %d", len(msgs), len(msgs[len(msgs)-1].GetEntries()), e.tx.gas[len(e.tx.gas)-1])
+	height := uint64(12)
+	for i := 1; i < gasStepDownSuccesses; i++ {
+		e.block(height)
+		e.record(bundle(byte(0x20+i), 0, byte(0x20+i), 100))
+		e.block(height + 1)
+		msg, raw := e.lastSent()
+		if gas := e.tx.gas[len(e.tx.gas)-1]; gas != 2*recordGas(msg) {
+			t.Fatalf("after %d successes: gas %d, want %d", i, gas, 2*recordGas(msg))
+		}
+		e.chain.execute(raw, executed(t, msg, int64(height+2), ok()))
+		height += 2
+	}
+	e.block(height)
+	e.record(bundle(0xee, 0, 5, 100), bundle(0xef, 0, 6, 100), bundle(0xf0, 0, 7, 100), bundle(0xf1, 0, 8, 100))
+	e.block(height + 1)
+	msg, _ := e.lastSent()
+	if len(msg.GetEntries()) != 4 || e.tx.gas[len(e.tx.gas)-1] != recordGas(msg) {
+		t.Fatalf("limits not restored: last of %d entries, gas %d", len(msg.GetEntries()), e.tx.gas[len(e.tx.gas)-1])
 	}
 }
 
@@ -159,9 +171,10 @@ func TestSizingComesBackWhenTheRecordedEventResolvesTheEntries(t *testing.T) {
 	if len(e.tasks.recorded) != 4 {
 		t.Fatalf("recorded %d entries by event", len(e.tasks.recorded))
 	}
-	// Each of the two transactions counts once: 8 -> 2, cap 2 -> 8.
-	if max, factor := e.r.limits(e.params.MaxEntries); max != 8 || factor != 2 {
-		t.Fatalf("after the events: max entries %d, gas factor %d", max, factor)
+	// Each of the two transactions counts once: cap 2 -> 8; two successes do not lower the gas
+	// factor yet.
+	if max, factor := e.r.limits(e.params.MaxEntries); max != 8 || factor != maxGasFactor || e.r.sizing.gasWins != 2 {
+		t.Fatalf("after the events: max entries %d, gas factor %d, %d successes", max, factor, e.r.sizing.gasWins)
 	}
 	// Their results, read at the next block, do not count again.
 	msgs, raws := e.tx.sent()
@@ -169,13 +182,14 @@ func TestSizingComesBackWhenTheRecordedEventResolvesTheEntries(t *testing.T) {
 	e.chain.execute(raws[n-2], executed(t, msgs[n-2], int64(height+1), ok(), ok()))
 	e.chain.execute(raws[n-1], executed(t, msgs[n-1], int64(height+1), ok(), ok()))
 	e.block(height + 1)
-	if max, factor := e.r.limits(e.params.MaxEntries); max != 8 || factor != 2 {
-		t.Fatalf("after the results: max entries %d, gas factor %d", max, factor)
+	if max, factor := e.r.limits(e.params.MaxEntries); max != 8 || factor != maxGasFactor || e.r.sizing.gasWins != 2 {
+		t.Fatalf("after the results: max entries %d, gas factor %d, %d successes", max, factor, e.r.sizing.gasWins)
 	}
 }
 
-// A single-entry record out of gas that the event resolves leaves the next record at the normal
-// gas, the case seen on chain: the retry with doubled gas lands, its event comes first.
+// A single-entry record out of gas whose retry the event resolves counts that retry as a success
+// toward the normal gas, the case seen on chain: the retry with doubled gas lands, its event comes
+// first. With the successes before it, the next record goes out at the normal gas.
 func TestOutOfGasRetryResolvedByEventRestoresNormalGas(t *testing.T) {
 	e := newEnv(t)
 	a := bundle(0xaa, 0, 1, 50)
@@ -188,6 +202,7 @@ func TestOutOfGasRetryResolvedByEventRestoresNormalGas(t *testing.T) {
 	if e.tx.gas[1] != 2*recordGas(msg) {
 		t.Fatalf("retry gas = %d, want %d", e.tx.gas[1], 2*recordGas(msg))
 	}
+	e.r.sizing.gasWins = gasStepDownSuccesses - 1 // the other successes at factor 2 so far
 	e.r.HandleChainEvent(chaincli.ChainEvent{Height: 12, Typed: chaincli.DispatchRecorded{
 		SessionID: a.SessionID, OrderSequence: a.Sequence, TicketHash: a.Entry.GetRecord().GetDispatchTicketHash()}})
 	e.block(12)

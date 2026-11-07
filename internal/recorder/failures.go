@@ -15,6 +15,10 @@ const (
 	fatalRetryBlocks = 10
 	// maxGasFactor bounds how far out-of-gas refusals raise the gas of record transactions.
 	maxGasFactor = 8
+	// gasStepDownSuccesses is how many transactions sent at the raised gas factor must succeed in
+	// a row before it is halved. Halving after one success would, for a batch that needs a gas in
+	// between two factors, run every other transaction out of gas.
+	gasStepDownSuccesses = 8
 )
 
 // refusalClass is what a refused record transaction asks of the next one.
@@ -41,10 +45,19 @@ func classify(res chaincli.TxResult) refusalClass {
 		return refusalOther
 	}
 	switch res.Code {
-	case 4, 5, 8, 13: // unauthorized, insufficient funds, invalid pubkey, insufficient fee
+	case 4, 5, 8, codeInsufficientFee: // unauthorized, insufficient funds, invalid pubkey, insufficient fee
 		return refusalFatal
 	}
 	return refusalOther
+}
+
+// codeInsufficientFee is the cosmos-sdk code of a fee below the chain's minimum gas price.
+const codeInsufficientFee = 13
+
+// atGasCeiling reports whether a record transaction sent with gas factor factor and gas limit gas
+// had the most gas a record gets: the highest factor, or the GasMax cap.
+func (r *Recorder) atGasCeiling(factor, gas uint64) bool {
+	return factor >= maxGasFactor || r.cfg.GasMax != 0 && gas >= r.cfg.GasMax
 }
 
 // sizing is the local limit deterministic refusals put on record transactions, and the stop a
@@ -52,8 +65,10 @@ func classify(res chaincli.TxResult) refusalClass {
 type sizing struct {
 	// maxEntries is the lowered entry cap, 0 when params.MaxEntries applies.
 	maxEntries uint32
-	// gasFactor multiplies the gas of every record transaction; 0 counts as 1.
+	// gasFactor multiplies the gas of every record transaction; 0 counts as 1. gasWins counts the
+	// transactions sent at gasFactor that succeeded since it last changed.
 	gasFactor uint64
+	gasWins   int
 	// streak counts consecutive refusals with streakCode.
 	streak     int
 	streakCode string
@@ -62,27 +77,58 @@ type sizing struct {
 	stopReason   string
 }
 
-// refused takes the refusal of a record transaction of entries entries at height.
-func (r *Recorder) refused(res chaincli.TxResult, entries int, height uint64) {
+// refused takes the refusal of a record transaction of the entries objects, sent with gas factor
+// factor and gas limit gas, at height.
+func (r *Recorder) refused(res chaincli.TxResult, objects []string, factor, gas, height uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := &r.sizing
+	entries := len(objects)
 	code := fmt.Sprintf("%s/%d", res.Codespace, res.Code)
 	switch classify(res) {
 	case refusalOutOfGas:
+		factor = max(factor, 1)
+		if entries == 1 && r.atGasCeiling(factor, gas) {
+			// No more gas to give it and nothing to split: sending it again every block would
+			// only pay for the same refusal.
+			r.giveUpOutOfGasLocked(objects[0], gas)
+			return
+		}
+		if factor < max(s.gasFactor, 1) {
+			// Sent before the factor was raised: the raise already covers it.
+			r.log.Warn("record transaction out of gas at a gas factor already raised; it goes again with the current one",
+				"entries", entries, "tx_gas_factor", factor, "gas_factor", max(s.gasFactor, 1))
+			return
+		}
 		// The gas follows the entries and bytes of a batch, so a smaller batch alone does not get
-		// more gas per byte: halving helps only once the factor cannot grow.
-		if s.gasFactor >= maxGasFactor && entries > 1 {
+		// more gas per byte: halving helps only once the gas cannot grow.
+		if r.atGasCeiling(factor, gas) && entries > 1 {
 			r.shrinkLocked(entries)
 		}
-		s.gasFactor = min(max(s.gasFactor, 1)*2, maxGasFactor)
+		s.gasFactor, s.gasWins = min(factor*2, maxGasFactor), 0
 		r.log.Error("record transaction out of gas; it goes again with more gas (raise dispatch.record_gas_per_byte)",
 			"entries", entries, "max_entries", s.maxEntries, "gas_factor", s.gasFactor)
 	case refusalFatal:
-		r.stopLocked(height, code+": "+res.RawLog)
+		why := code + ": " + res.RawLog
+		if res.Code == codeInsufficientFee {
+			why += " (with a chain minimum gas price, set chain.gas_price so the fee follows the gas)"
+		}
+		r.stopLocked(height, why)
 	default:
 		r.repeatedLocked(code, res.RawLog, entries, height)
 	}
+}
+
+// giveUpOutOfGasLocked stops sending the entry objectID, out of gas alone at the highest gas, and
+// logs it once. Caller holds r.mu.
+func (r *Recorder) giveUpOutOfGasLocked(objectID string, gas uint64) {
+	e := r.entries[objectID]
+	if e == nil || r.outOfGas[objectID] {
+		return
+	}
+	r.outOfGas[objectID] = true
+	r.log.Error("dispatch entry out of gas at the highest record gas; it is not sent again and is rejected as late at its deadline (raise dispatch.record_gas_per_byte or record_gas_max and restart)",
+		"session_id", e.SessionID, "order_sequence", e.Sequence, "object_id", objectID, "gas", gas, "deadline", r.deadlineLocked(e))
 }
 
 // unattributable takes an executed record transaction of entries entries whose results could not
@@ -125,9 +171,11 @@ func (r *Recorder) stopLocked(height uint64, why string) {
 		"retry_height", r.sizing.stoppedUntil)
 }
 
-// succeeded takes the executed record transaction hash: the streak ends and lowered limits come
-// back by halves. A transaction counts once, whether its result or a dispatch_recorded event of an
-// entry it carries comes first.
+// succeeded takes the executed record transaction hash: the streak ends and a lowered entry cap
+// comes back by halves; the gas factor is halved once gasStepDownSuccesses transactions sent with
+// it succeeded in a row (one sent with another factor says nothing about the current one). A
+// transaction counts once, whether its result or a dispatch_recorded event of an entry it carries
+// comes first.
 func (r *Recorder) succeeded(hash string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,7 +184,8 @@ func (r *Recorder) succeeded(hash string) {
 
 // succeededLocked is succeeded with r.mu held.
 func (r *Recorder) succeededLocked(hash string) {
-	if tx := r.txs[hash]; tx != nil {
+	tx := r.txs[hash]
+	if tx != nil {
 		if tx.succeeded {
 			return
 		}
@@ -149,8 +198,10 @@ func (r *Recorder) succeededLocked(hash string) {
 			s.maxEntries = 0
 		}
 	}
-	if s.gasFactor > 1 {
-		s.gasFactor /= 2
+	if s.gasFactor > 1 && tx != nil && max(tx.GasFactor, 1) == s.gasFactor {
+		if s.gasWins++; s.gasWins >= gasStepDownSuccesses {
+			s.gasFactor, s.gasWins = s.gasFactor/2, 0
+		}
 	}
 }
 

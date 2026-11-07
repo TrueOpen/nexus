@@ -293,6 +293,9 @@ type Dispatcher struct {
 	// unbooked holds the winners the attempt book could not take, by task; each block retries them.
 	unbookedMu sync.Mutex
 	unbooked   map[string]attempt.Winner
+
+	// headReading is set while readHeadLater's chain head read is under way.
+	headReading atomic.Bool
 }
 
 // order is one order's state with what is rebuilt from it in memory. Locks: an order's mutex may
@@ -318,10 +321,8 @@ type order struct {
 	waited   bool
 	ticketAt time.Time
 	// eshWaitSince is when the order started waiting for the head to reach its
-	// earliest_submit_height minus one (zero while it does not wait); headReadAt is when it last
-	// read the head from the chain for that.
+	// earliest_submit_height minus one (zero while it does not wait).
 	eshWaitSince time.Time
-	headReadAt   time.Time
 }
 
 func (o *order) key() string { return stateKey(o.st.SessionID, o.st.Sequence) }
@@ -402,6 +403,17 @@ func (d *Dispatcher) kick(key string) {
 		return
 	}
 	go run()
+}
+
+// allOrders returns the orders this Dispatcher holds.
+func (d *Dispatcher) allOrders() []*order {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	orders := make([]*order, 0, len(d.orders))
+	for _, o := range d.orders {
+		orders = append(orders, o)
+	}
+	return orders
 }
 
 func (d *Dispatcher) get(key string) *order {

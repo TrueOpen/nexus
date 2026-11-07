@@ -145,8 +145,9 @@ type Config struct {
 	// the dispatcher no longer holds it, but challenges on the recorded order may come.
 	Evidence RecordedEvidence
 	// GasBase, GasPerEntry and GasPerByte give a record transaction its gas limit: GasBase plus
-	// GasPerEntry for each entry plus GasPerByte for each encoded byte of the message.
-	GasBase, GasPerEntry, GasPerByte uint64
+	// GasPerEntry for each entry plus GasPerByte for each encoded byte of the message, times the
+	// gas factor, at most GasMax (0: no cap).
+	GasBase, GasPerEntry, GasPerByte, GasMax uint64
 	// Metrics takes the record stage timings and outcomes; nil keeps none.
 	Metrics *opsmetrics.Registry
 	Log     *slog.Logger
@@ -163,6 +164,10 @@ type Recorder struct {
 	entries  map[string]*entry    // object id -> unresolved entry
 	txs      map[string]*txRecord // tx hash -> transaction
 	tooLarge map[string]bool      // entries already reported as too large to send
+	// outOfGas holds the entries a record transaction of their own ran out of gas with at the
+	// highest gas: like one too large, such an entry is not sent again and is rejected as late at
+	// its deadline (a restart, with a higher gas setting, tries it again).
+	outOfGas map[string]bool
 	// withdrawn holds the winner tickets withdrawn before their Record, with the head then.
 	withdrawn map[string]uint64
 	// sizing is what deterministic transaction failures did to the batch size and gas.
@@ -197,7 +202,7 @@ func New(cfg Config, params Params) (*Recorder, error) {
 		return nil, err
 	}
 	r := &Recorder{
-		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{}, withdrawn: map[string]uint64{},
+		cfg: cfg, log: cfg.Log, entries: entries, txs: txs, tooLarge: map[string]bool{}, outOfGas: map[string]bool{}, withdrawn: map[string]uint64{},
 		queuedAt: map[string]time.Time{}, sentAt: map[string]time.Time{},
 		wake: make(chan struct{}, 1), stop: make(chan struct{}),
 	}
@@ -444,6 +449,7 @@ func (r *Recorder) removeLocked(e *entry, ops *[]kv.WriteOp) {
 	delete(r.entries, e.ObjectID)
 	delete(r.queuedAt, e.ObjectID)
 	delete(r.sentAt, e.ObjectID)
+	delete(r.outOfGas, e.ObjectID)
 	*ops = append(*ops, deleteOp(entryKey(e.ObjectID)))
 }
 

@@ -83,7 +83,7 @@ func (r *Recorder) checkTxs(ctx context.Context, height uint64) {
 			r.log.Warn("record transaction refused by the chain", "tx_hash", tx.Hash,
 				"code", res.Code, "codespace", res.Codespace, "raw_log", res.RawLog)
 			r.cfg.Gate.markStale()
-			r.refused(res, len(tx.Objects), height)
+			r.refused(res, tx.Objects, tx.GasFactor, tx.GasLimit, height)
 			r.requeue(tx.Hash)
 		default:
 			r.applyResult(ctx, tx, res)

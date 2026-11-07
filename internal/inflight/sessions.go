@@ -99,6 +99,11 @@ type SessionCache struct {
 	unknown  map[string]*list.Element
 	unknowns *list.List // of unknownSession, oldest at the front
 	budget   readBudget
+
+	// headMu guards the RefreshHead read under way and when the last one started.
+	headMu     sync.Mutex
+	headCall   *headRead
+	headReadAt time.Time
 }
 
 // sessionRead is a cold read other lookups of the session wait for.
@@ -222,13 +227,46 @@ func (c *SessionCache) CurrentHeight(ctx context.Context) (uint64, error) {
 	return c.Head(), nil
 }
 
+// HeadRefreshInterval is the least time between two chain reads of RefreshHead, shared by all its
+// callers.
+const HeadRefreshInterval = 250 * time.Millisecond
+
+// headRead is a RefreshHead read other callers wait for.
+type headRead struct {
+	done chan struct{}
+	err  error
+}
+
 // RefreshHead reads the head from the chain, raises the cached head to it and returns the cached
-// head; a failed read is ErrUnavailable and leaves the head as it was.
+// head; a failed read is ErrUnavailable and leaves the head as it was. Concurrent callers share
+// one read, and a call within HeadRefreshInterval of the start of the last read reads nothing and
+// returns the cached head. A caller whose ctx ends while it waits for another's read returns at
+// once.
 func (c *SessionCache) RefreshHead(ctx context.Context) (uint64, error) {
-	if _, err := c.readHead(ctx); err != nil {
-		return c.Head(), err
+	c.headMu.Lock()
+	if call := c.headCall; call != nil {
+		c.headMu.Unlock()
+		select {
+		case <-call.done:
+			return c.Head(), call.err
+		case <-ctx.Done():
+			return c.Head(), fmt.Errorf("%w: latest height: %v", ErrUnavailable, ctx.Err())
+		}
 	}
-	return c.Head(), nil
+	now := c.cfg.Now()
+	if !c.headReadAt.IsZero() && now.Sub(c.headReadAt) < HeadRefreshInterval {
+		c.headMu.Unlock()
+		return c.Head(), nil
+	}
+	call := &headRead{done: make(chan struct{})}
+	c.headCall, c.headReadAt = call, now
+	c.headMu.Unlock()
+	_, call.err = c.readHead(ctx)
+	c.headMu.Lock()
+	c.headCall = nil
+	c.headMu.Unlock()
+	close(call.done)
+	return c.Head(), call.err
 }
 
 // readHead reads the head from the chain and reports whether it is above the cached one; a

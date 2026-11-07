@@ -160,8 +160,10 @@ type event struct {
 	recorded *attempt.Attempt
 	tries    int
 	// waitsInput is set while the change waits for its order's input to be marked ready: it is
-	// applied again at the next drain, not only on the prune ticks.
+	// applied again at the next drain, not only on the prune ticks. warned is set once the wait
+	// was logged as a warning.
 	waitsInput bool
+	warned     bool
 }
 
 // errInputNotReady is the current order version's input not found in the store yet: OpenTask
@@ -404,9 +406,10 @@ type Outstanding struct {
 // records and result headers in it keep the generation that signed them, which members accept for
 // orders below that generation's retirement.
 func (s *Sender) Outstanding() []Outstanding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// The queue is guarded by qmu alone; it is read before s.mu is taken, so neither lock is held
+	// while waiting for the other.
 	var out []Outstanding
+	s.qmu.Lock()
 	for _, ev := range s.queue {
 		switch {
 		case ev.view != nil:
@@ -415,6 +418,9 @@ func (s *Sender) Outstanding() []Outstanding {
 			out = append(out, Outstanding{SessionID: ev.recorded.SessionID, Sequence: ev.recorded.Sequence, TaskID: ev.recorded.TaskID})
 		}
 	}
+	s.qmu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, st := range s.streams {
 		for _, peer := range st.Peers {
 			o := Outstanding{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Peer: peer}
@@ -520,7 +526,9 @@ func (s *Sender) drain() {
 }
 
 // settled forgets a change that applied, and keeps one that failed to be applied again on the
-// next prune ticks, up to maxChangeRetries times.
+// next prune ticks, up to maxChangeRetries of them (tries counts the prune ticks, not the
+// drains). A change waiting for its input is quiet for the first half of them: an input still
+// missing after that may be gone, which is logged once as a warning.
 func (s *Sender) settled(ev event, err error) {
 	key := ev.key()
 	s.qmu.Lock()
@@ -531,8 +539,14 @@ func (s *Sender) settled(ev event, err error) {
 	}
 	ev.waitsInput = errors.Is(err, errInputNotReady)
 	if ev.waitsInput && ev.tries < maxChangeRetries {
+		if ev.tries >= maxChangeRetries/2 && !ev.warned {
+			ev.warned = true
+			s.log.Warn("order change still waits for its input to be ready; the input may be gone", "change", key,
+				"prune_ticks", ev.tries, "give_up_after", maxChangeRetries, "err", err)
+		} else {
+			s.log.Debug("order change waits for its input to be ready", "change", key)
+		}
 		s.redo[key] = ev
-		s.log.Debug("order change waits for its input to be ready", "change", key)
 		return
 	}
 	s.failures.Add(1)

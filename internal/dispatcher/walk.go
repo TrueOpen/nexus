@@ -69,6 +69,8 @@ type done struct {
 	session  string
 	sequence uint64
 	taskID   string
+	// readHead asks for a chain head read: the order waits for its earliest_submit_height.
+	readHead bool
 }
 
 // advance runs one step of an order and acts on its outcome.
@@ -86,6 +88,9 @@ func (d *Dispatcher) advance(ctx context.Context, key string) {
 // finish tells the observer and the Recorder about an order that left DISPATCHING. It runs with
 // no order locked. The winner of an accepted order is already in the attempt book.
 func (d *Dispatcher) finish(ctx context.Context, out done) {
+	if out.readHead {
+		d.readHeadLater()
+	}
 	switch {
 	case out.accepted != nil:
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
@@ -186,17 +191,24 @@ func (d *Dispatcher) kickParked(sessionID string) {
 // onBlock lets every parked order try again at a new head.
 func (d *Dispatcher) onBlock() {
 	d.retryUnbooked()
-	d.mu.Lock()
-	orders := make([]*order, 0, len(d.orders))
-	for _, o := range d.orders {
-		orders = append(orders, o)
-	}
-	d.mu.Unlock()
-	for _, o := range orders {
+	for _, o := range d.allOrders() {
 		o.mu.Lock()
 		parked := o.parked
 		o.mu.Unlock()
 		if parked {
+			d.kick(o.key())
+		}
+	}
+}
+
+// kickESHWaiters lets the orders parked for their earliest_submit_height try again: a head read
+// raised the head.
+func (d *Dispatcher) kickESHWaiters() {
+	for _, o := range d.allOrders() {
+		o.mu.Lock()
+		waits := o.parked && !o.eshWaitSince.IsZero()
+		o.mu.Unlock()
+		if waits {
 			d.kick(o.key())
 		}
 	}
@@ -322,11 +334,9 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	// head, and it is dispatched at once: its record lands at earliest_submit_height at the
 	// earliest anyway. A round never opens earlier, so a root that can prove an omission (at least
 	// two blocks below earliest_submit_height) was signed before the round opened. The cached head
-	// follows the chain's height events, which may trail the chain by a poll interval: it is read
-	// again before the order waits for the next event.
-	if head+1 < esh {
-		head = d.refreshHead(ctx, o, head)
-	}
+	// follows the chain's height events, which may trail the chain by a poll interval: the order
+	// parks and asks for a head read, made once its lock is released (readHeadLater); a read that
+	// raises the head tries it again before the next event.
 	if head+1 < esh {
 		if o.eshWaitSince.IsZero() {
 			o.eshWaitSince = d.clock.Now()
@@ -334,7 +344,7 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 				"earliest_submit_height", esh, "head", head)
 		}
 		o.parked = true
-		return false, done{}
+		return false, done{readHead: true}
 	}
 	if !o.eshWaitSince.IsZero() {
 		d.log.Info("order waited for its earliest_submit_height", "session_id", st.SessionID, "order_sequence", st.Sequence,
@@ -431,34 +441,47 @@ func (d *Dispatcher) openRound(ctx context.Context, o *order) (bool, done) {
 	return true, done{}
 }
 
-const (
-	// headRefreshInterval bounds how often an order waiting for its earliest_submit_height reads
-	// the chain head, and headRefreshTimeout one read.
-	headRefreshInterval = 250 * time.Millisecond
-	headRefreshTimeout  = time.Second
-)
+// headRefreshTimeout bounds one chain head read of readHeadLater.
+const headRefreshTimeout = time.Second
 
-// refreshHead reads the chain head for an order whose earliest_submit_height is ahead of the
-// cached head, at most once per headRefreshInterval, and returns the higher of head and the head
-// read. Caller holds o.mu.
-func (d *Dispatcher) refreshHead(ctx context.Context, o *order, head uint64) uint64 {
+// readHeadLater reads the chain head off the caller's goroutine for the orders waiting for their
+// earliest_submit_height, and tries them again when the read raised the head. It runs with no
+// order locked, so a slow chain holds up no block event and no decided order kicking them; one
+// read at most is under way, and the session cache spaces the reads of all orders
+// (inflight.HeadRefreshInterval). An order parked while a read is under way is tried again when
+// that read raised the head, or at the next block event.
+func (d *Dispatcher) readHeadLater() {
 	r, ok := d.cfg.Sessions.(headRefresher)
-	if !ok {
-		return head
+	if !ok || !d.headReading.CompareAndSwap(false, true) {
+		return
 	}
-	now := d.clock.Now()
-	if !o.headReadAt.IsZero() && now.Sub(o.headReadAt) < headRefreshInterval {
-		return head
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		d.headReading.Store(false)
+		return
 	}
-	o.headReadAt = now
-	ctx, cancel := context.WithTimeout(ctx, headRefreshTimeout)
-	defer cancel()
-	fresh, err := r.RefreshHead(ctx)
-	if err != nil {
-		d.log.Debug("chain head not read for an order waiting for its earliest_submit_height", "session_id", o.st.SessionID,
-			"order_sequence", o.st.Sequence, "err", err)
+	d.wg.Add(1)
+	d.mu.Unlock()
+	run := func() {
+		defer d.wg.Done()
+		before := d.cfg.Sessions.Head()
+		ctx, cancel := context.WithTimeout(context.Background(), headRefreshTimeout)
+		head, err := r.RefreshHead(ctx)
+		cancel()
+		d.headReading.Store(false)
+		if err != nil {
+			d.log.Debug("chain head not read for the orders waiting for their earliest_submit_height", "err", err)
+		}
+		if head > before {
+			d.kickESHWaiters()
+		}
 	}
-	return max(head, fresh)
+	if d.cfg.Background != nil {
+		d.cfg.Background(run)
+		return
+	}
+	go run()
 }
 
 // roundsBinding is the bound_change_height the stored rounds' tickets commit: every round of an
@@ -759,7 +782,7 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 			}
 			d.log.Info("binding changed; tickets voided, rounds restart", "session_id", st.SessionID, "order_sequence", st.Sequence, "bound_change_height", boundChangeHeight)
 			stepOut := d.step(ctx, o)
-			out.accepted, out.failed = stepOut.accepted, stepOut.failed
+			out.accepted, out.failed, out.readHead = stepOut.accepted, stepOut.failed, stepOut.readHead
 		}
 		o.mu.Unlock()
 		d.finish(ctx, out)
