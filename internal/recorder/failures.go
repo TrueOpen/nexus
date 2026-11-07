@@ -45,10 +45,19 @@ func classify(res chaincli.TxResult) refusalClass {
 		return refusalOther
 	}
 	switch res.Code {
-	case 4, 5, 8, 13: // unauthorized, insufficient funds, invalid pubkey, insufficient fee
+	case 4, 5, 8, codeInsufficientFee: // unauthorized, insufficient funds, invalid pubkey, insufficient fee
 		return refusalFatal
 	}
 	return refusalOther
+}
+
+// codeInsufficientFee is the cosmos-sdk code of a fee below the chain's minimum gas price.
+const codeInsufficientFee = 13
+
+// atGasCeiling reports whether a record transaction sent with gas factor factor and gas limit gas
+// had the most gas a record gets: the highest factor, or the GasMax cap.
+func (r *Recorder) atGasCeiling(factor, gas uint64) bool {
+	return factor >= maxGasFactor || r.cfg.GasMax != 0 && gas >= r.cfg.GasMax
 }
 
 // sizing is the local limit deterministic refusals put on record transactions, and the stop a
@@ -69,8 +78,8 @@ type sizing struct {
 }
 
 // refused takes the refusal of a record transaction of entries entries, sent with gas factor
-// factor, at height.
-func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, height uint64) {
+// factor and gas limit gas, at height.
+func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, gas, height uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := &r.sizing
@@ -85,15 +94,19 @@ func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, height ui
 			return
 		}
 		// The gas follows the entries and bytes of a batch, so a smaller batch alone does not get
-		// more gas per byte: halving helps only once the factor cannot grow.
-		if factor >= maxGasFactor && entries > 1 {
+		// more gas per byte: halving helps only once the gas cannot grow.
+		if r.atGasCeiling(factor, gas) && entries > 1 {
 			r.shrinkLocked(entries)
 		}
 		s.gasFactor, s.gasWins = min(factor*2, maxGasFactor), 0
 		r.log.Error("record transaction out of gas; it goes again with more gas (raise dispatch.record_gas_per_byte)",
 			"entries", entries, "max_entries", s.maxEntries, "gas_factor", s.gasFactor)
 	case refusalFatal:
-		r.stopLocked(height, code+": "+res.RawLog)
+		why := code + ": " + res.RawLog
+		if res.Code == codeInsufficientFee {
+			why += " (with a chain minimum gas price, set chain.gas_price so the fee follows the gas)"
+		}
+		r.stopLocked(height, why)
 	default:
 		r.repeatedLocked(code, res.RawLog, entries, height)
 	}

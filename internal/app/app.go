@@ -213,6 +213,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 	if err := cfg.Chain.TxConfirm.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Chain.ValidateFee(); err != nil {
+		return nil, err
+	}
 	if err := cfg.ValidateSecurity(); err != nil {
 		return nil, err
 	}

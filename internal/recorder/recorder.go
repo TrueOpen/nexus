@@ -145,8 +145,9 @@ type Config struct {
 	// the dispatcher no longer holds it, but challenges on the recorded order may come.
 	Evidence RecordedEvidence
 	// GasBase, GasPerEntry and GasPerByte give a record transaction its gas limit: GasBase plus
-	// GasPerEntry for each entry plus GasPerByte for each encoded byte of the message.
-	GasBase, GasPerEntry, GasPerByte uint64
+	// GasPerEntry for each entry plus GasPerByte for each encoded byte of the message, times the
+	// gas factor, at most GasMax (0: no cap).
+	GasBase, GasPerEntry, GasPerByte, GasMax uint64
 	// Metrics takes the record stage timings and outcomes; nil keeps none.
 	Metrics *opsmetrics.Registry
 	Log     *slog.Logger

@@ -140,10 +140,13 @@ dispatch:
   builder_timeout_rate_threshold: 0.2
   # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry
   # plus record_gas_per_byte per encoded byte of the message (0 leaves the size out); the chain
-  # charges most of a record per byte it stores. Doubled (up to 8x) after an out-of-gas.
+  # charges most of a record per byte it stores. Doubled (up to 8x) after an out-of-gas, and halved
+  # again after 8 transactions in a row succeed with the raised gas; never above record_gas_max
+  # (a batch still out of gas at the cap is split).
   record_gas_base: 200000
   record_gas_per_entry: 150000
   record_gas_per_byte: 150
+  record_gas_max: 20000000
   # Gas limit of a compensation rebuttal or challenge response: answer_gas_base plus
   # answer_gas_per_byte per encoded byte of the message. Doubled (up to 8x) after an out-of-gas.
   answer_gas_base: 300000
@@ -187,6 +190,11 @@ chain:
   gas_limit: 200000
   fee_denom: utrueopen
   fee_amount: "5000"
+  # Decimal fee_denom per unit of gas (env NEXUS_TX_GAS_PRICE). When set above 0, every transaction
+  # pays gas_limit x gas_price (rounded up) instead of fee_amount, so a record sent again with more
+  # gas still meets the node's minimum-gas-prices. Set it to at least that minimum on any chain
+  # with a non-zero minimum-gas-prices; empty or 0 keeps the fixed fee_amount.
+  gas_price: ""
   # MsgSweepDeadline is the single public deadline runner:
   # any account may submit it and the runner pays its own gas, so acting as that
   # runner is an operational choice, not a protocol duty. Default off — nexus only

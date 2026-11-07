@@ -49,10 +49,7 @@ func (s *defaultSubmitter) SubmitRecordDispatch(ctx context.Context, msg *taskv1
 		return chaincli.TxResult{}, prepareSubmissionError("MsgRecordDispatch: submitter_address must be the service account %s", s.signer.Address())
 	}
 	build := func(p chaincli.TxParams) ([]byte, error) {
-		if gasLimit != 0 {
-			p.GasLimit = gasLimit
-		}
-		return chaincli.BuildRecordDispatchTx(s.signer, p, msg)
+		return chaincli.BuildRecordDispatchTx(s.signer, s.withGas(p, gasLimit), msg)
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
@@ -65,7 +62,7 @@ func (s *defaultSubmitter) SubmitRebutDispatchCompensation(ctx context.Context, 
 		return chaincli.TxResult{}, prepareSubmissionError("MsgRebutDispatchCompensation: service signer is required")
 	}
 	build := func(p chaincli.TxParams) ([]byte, error) {
-		return chaincli.BuildRebutDispatchCompensationTx(s.signer, withGas(p, gasLimit), msg)
+		return chaincli.BuildRebutDispatchCompensationTx(s.signer, s.withGas(p, gasLimit), msg)
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
@@ -78,17 +75,18 @@ func (s *defaultSubmitter) SubmitRespondDispatchChallenge(ctx context.Context, m
 		return chaincli.TxResult{}, prepareSubmissionError("MsgRespondDispatchChallenge: service signer is required")
 	}
 	build := func(p chaincli.TxParams) ([]byte, error) {
-		return chaincli.BuildRespondDispatchChallengeTx(s.signer, withGas(p, gasLimit), msg)
+		return chaincli.BuildRespondDispatchChallengeTx(s.signer, s.withGas(p, gasLimit), msg)
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()
 	return s.submitBuiltLocked(ctx, "MsgRespondDispatchChallenge", chaincli.TypeURLMsgRespondDispatchChallenge, build, nil)
 }
 
-// withGas sets gasLimit on p unless it is 0.
-func withGas(p chaincli.TxParams, gasLimit uint64) chaincli.TxParams {
+// withGas sets gasLimit on p unless it is 0, with the fee for it (chain gas_price).
+func (s *defaultSubmitter) withGas(p chaincli.TxParams, gasLimit uint64) chaincli.TxParams {
 	if gasLimit != 0 {
 		p.GasLimit = gasLimit
+		p.FeeAmount = s.chainCfg.TxFee(gasLimit)
 	}
 	return p
 }

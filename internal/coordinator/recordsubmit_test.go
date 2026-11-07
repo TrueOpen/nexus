@@ -255,3 +255,39 @@ func (c *addressChain) AccountInfo(_ context.Context, address string) (chaincli.
 	c.seqChain.accSeq = c.seqs[address]
 	return chaincli.AccountInfo{AccountNumber: 7, Sequence: c.seqs[address]}, nil
 }
+
+// With a gas price configured, a record transaction's fee follows its gas limit: twice the gas
+// pays twice the fee, so a raised gas still meets the chain's minimum gas price.
+func TestRecordSubmitterFeeFollowsTheGasWithAGasPrice(t *testing.T) {
+	sg, err := signer.NewFromHex(testKeyHex, "trueopen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := &seqChain{accSeq: 1}
+	cfg := config.ChainConfig{ChainID: "trueopen-localnet", GasLimit: 200000, FeeDenom: "utrueopen", FeeAmount: "5000", GasPrice: "0.025"}
+	sub := NewRecordSubmitter(slog.New(slog.DiscardHandler), chain, sg, cfg, nil)
+	p := &persisted{chain: chain}
+	for _, gas := range []uint64{650_000, 1_300_000} {
+		if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), gas, p.persist); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, want := range []string{"16250", "32500"} {
+		_, auth := decodeBuilderTx(t, p.raws[i])
+		if len(auth.Fee.Amount) != 1 || auth.Fee.Amount[0].Denom != "utrueopen" || auth.Fee.Amount[0].Amount != want {
+			t.Fatalf("tx %d (gas %d): fee %v, want %s utrueopen", i, auth.Fee.GasLimit, auth.Fee.Amount, want)
+		}
+	}
+
+	// Without a gas price the fixed fee stays.
+	cfg.GasPrice = ""
+	chain = &seqChain{accSeq: 1}
+	sub = NewRecordSubmitter(slog.New(slog.DiscardHandler), chain, sg, cfg, nil)
+	p = &persisted{chain: chain}
+	if _, err := sub.SubmitRecordDispatch(context.Background(), recordMsg(sg.Address()), 1_300_000, p.persist); err != nil {
+		t.Fatal(err)
+	}
+	if _, auth := decodeBuilderTx(t, p.raws[0]); auth.Fee.Amount[0].Amount != "5000" {
+		t.Fatalf("fee without a gas price = %v, want the fixed 5000", auth.Fee.Amount)
+	}
+}

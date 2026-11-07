@@ -451,8 +451,9 @@ type env struct {
 	metrics  *opsmetrics.Registry
 	r        *Recorder
 	params   Params
-	// gasBase, gasPerEntry and gasPerByte are the record gas formula the recorder is built with.
-	gasBase, gasPerEntry, gasPerByte uint64
+	// gasBase, gasPerEntry and gasPerByte are the record gas formula the recorder is built with,
+	// gasMax its cap (0 none).
+	gasBase, gasPerEntry, gasPerByte, gasMax uint64
 }
 
 func newEnv(t *testing.T) *env {
@@ -500,7 +501,7 @@ func (e *env) open() {
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: servicekey.Static(e.signer, testServiceNonce), Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
 		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: e.gasBase, GasPerEntry: e.gasPerEntry, GasPerByte: e.gasPerByte,
-		Metrics: e.metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		GasMax: e.gasMax, Metrics: e.metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {
 		e.t.Fatal(err)

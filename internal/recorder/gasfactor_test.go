@@ -1,7 +1,10 @@
 package recorder
 
 import (
+	"reflect"
 	"testing"
+
+	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 )
 
 // answerByGas executes the record transaction last sent at height+1: out of gas below need (a
@@ -85,5 +88,47 @@ func TestGasFactorFollowsTheFactorEachTransactionWasSentWith(t *testing.T) {
 	}
 	if wins := f.r.sizing.gasWins; wins != 0 {
 		t.Fatalf("a factor-1 success counted toward lowering factor 2 (%d)", wins)
+	}
+}
+
+// The gas of a record transaction never exceeds GasMax: a raised factor stops at the cap, and a
+// batch out of gas at the cap is halved, since more factor gives it no more gas.
+func TestRecordGasIsCapped(t *testing.T) {
+	probe := newEnv(t)
+	probe.recordFour()
+	probe.block(10)
+	msg, _ := probe.lastSent()
+	formula := recordGas(msg)
+
+	e := newEnv(t)
+	e.gasMax = formula + formula/2 // room for 1.5 times the formula's gas
+	e.open()
+	msgs := func() []*taskv1.MsgRecordDispatch { m, _ := e.tx.sent(); return m }
+	e.recordFour()
+	e.block(10)
+	if gas := e.tx.gas[0]; gas != formula {
+		t.Fatalf("gas at factor 1 = %d, want %d", gas, formula)
+	}
+	_, raw := e.lastSent()
+	e.fail(raw, 11, "sdk", 11)
+	e.block(11)
+	if gas := e.tx.gas[len(e.tx.gas)-1]; gas != e.gasMax {
+		t.Fatalf("gas at factor 2 = %d, want the cap %d", gas, e.gasMax)
+	}
+	if got := entriesOf(msgs()[len(msgs())-1]); !reflect.DeepEqual(got, four()) {
+		t.Fatalf("resent %v, want the same batch", got)
+	}
+	_, raw = e.lastSent()
+	e.fail(raw, 12, "sdk", 11)
+	e.block(12)
+	m := msgs()
+	n := len(m)
+	if !reflect.DeepEqual(entriesOf(m[n-2]), four()[:2]) || !reflect.DeepEqual(entriesOf(m[n-1]), four()[2:]) {
+		t.Fatalf("out of gas at the cap: %v then %v, want the batch halved", entriesOf(m[n-2]), entriesOf(m[n-1]))
+	}
+	for _, gas := range e.tx.gas {
+		if gas > e.gasMax {
+			t.Fatalf("gas %d above the cap %d", gas, e.gasMax)
+		}
 	}
 }

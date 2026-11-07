@@ -34,7 +34,7 @@ func (s *defaultSubmitter) SubmitBatchConfirmModelSupport(ctx context.Context, m
 		return chaincli.TxResult{}, prepareSubmissionError("MsgBatchConfirmModelSupport: account signer is required")
 	}
 	build := func(p chaincli.TxParams) ([]byte, error) {
-		return chaincli.BuildBatchConfirmModelSupportTx(s.signer, withGas(p, gasLimit), msg)
+		return chaincli.BuildBatchConfirmModelSupportTx(s.signer, s.withGas(p, gasLimit), msg)
 	}
 	s.seqMu.Lock()
 	defer s.seqMu.Unlock()

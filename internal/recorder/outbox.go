@@ -68,6 +68,8 @@ type txRecord struct {
 	// GasFactor is the gas factor the transaction was signed with; 0 (stored before it was kept)
 	// counts as 1.
 	GasFactor uint64 `json:"gas_factor,omitempty"`
+	// GasLimit is the gas limit it was signed with; 0 when stored before it was kept.
+	GasLimit uint64 `json:"gas_limit,omitempty"`
 	// replay is set after a restart: the transaction is broadcast again, as stored, the first
 	// time the chain does not show it.
 	replay bool

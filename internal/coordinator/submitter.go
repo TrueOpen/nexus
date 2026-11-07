@@ -705,7 +705,7 @@ func (s *defaultSubmitter) txParams() chaincli.TxParams {
 		Sequence:      s.sequence,
 		GasLimit:      s.chainCfg.GasLimit,
 		FeeDenom:      s.chainCfg.FeeDenom,
-		FeeAmount:     s.chainCfg.FeeAmount,
+		FeeAmount:     s.chainCfg.TxFee(s.chainCfg.GasLimit),
 	}
 }
 

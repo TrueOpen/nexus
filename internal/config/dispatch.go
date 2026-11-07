@@ -54,6 +54,10 @@ type DispatchConfig struct {
 	RecordGasBase     uint64 `yaml:"record_gas_base"`
 	RecordGasPerEntry uint64 `yaml:"record_gas_per_entry"`
 	RecordGasPerByte  uint64 `yaml:"record_gas_per_byte"`
+	// RecordGasMax caps the gas limit of a record transaction, also once out-of-gas refusals
+	// raised it: it bounds what one record transaction can cost with chain.gas_price. A batch
+	// still out of gas at the cap is split.
+	RecordGasMax uint64 `yaml:"record_gas_max"`
 	// AnswerGasBase and AnswerGasPerByte give a compensation rebuttal or dispatch challenge
 	// response its gas limit: AnswerGasBase + AnswerGasPerByte for each encoded byte of the Msg
 	// (it carries a whole record or roster). An answer that runs out of gas goes again with more.
@@ -89,6 +93,7 @@ func defaultDispatch() DispatchConfig {
 		RecordGasBase:                        200_000,
 		RecordGasPerEntry:                    150_000,
 		RecordGasPerByte:                     150,
+		RecordGasMax:                         20_000_000,
 		AnswerGasBase:                        300_000,
 		AnswerGasPerByte:                     30,
 	}
@@ -134,6 +139,9 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch record_gas_base and record_gas_per_entry must be between 1 and %d", maxRecordGas)
 	case c.RecordGasPerByte > maxRecordGasPerByte:
 		return fmt.Errorf("dispatch record_gas_per_byte must not exceed %d", maxRecordGasPerByte)
+	case c.RecordGasMax < c.RecordGasBase+c.RecordGasPerEntry || c.RecordGasMax > maxRecordGas:
+		return fmt.Errorf("dispatch record_gas_max must be between record_gas_base + record_gas_per_entry (%d) and %d",
+			c.RecordGasBase+c.RecordGasPerEntry, maxRecordGas)
 	case c.AnswerGasBase == 0 || c.AnswerGasBase > maxRecordGas || c.AnswerGasPerByte == 0 || c.AnswerGasPerByte > maxRecordGas:
 		return fmt.Errorf("dispatch answer_gas_base and answer_gas_per_byte must be between 1 and %d", maxRecordGas)
 	}
