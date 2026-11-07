@@ -56,6 +56,22 @@ type terminalTaskRecord struct {
 	TaskHash string `json:"task_hash,omitempty"`
 }
 
+const abandonedOrderVersion = 1
+
+// abandonedOrderRecord marks an order version dropped before it reached the chain (NSAbandonedOrder,
+// keyed by abandonedOrderKey). Its input is kept for a resend until its retention height and then
+// released; the marker only ends that version, never the task or another version of it.
+type abandonedOrderRecord struct {
+	Version int `json:"version"`
+	// ContentHash is the INPUT content hash the version carries.
+	ContentHash string `json:"content_hash"`
+}
+
+// abandonedOrderKey is the NSAbandonedOrder key of an order version: session_id|task_id|task_hash.
+func abandonedOrderKey(sessionID, taskID, taskHash string) string {
+	return taskKey(sessionID, taskID) + "|" + taskHash
+}
+
 type payloadCleanupRecord struct {
 	Version   int    `json:"version"`
 	SessionID string `json:"session_id"`
@@ -726,14 +742,71 @@ func (c *Coordinator) HasAcceptedOrder(_ context.Context, key taskdata.ObjectKey
 	return record.TaskHash == "" || record.TaskHash == key.TaskHash, nil
 }
 
-// HasTerminatedOrder requires a durable terminal marker; absence from the
-// in-memory task map alone is not enough evidence to delete task input.
+// HasTerminatedOrder reports whether the order of the INPUT version key ended on this Builder:
+// its task has a durable terminal marker, or this version was dropped before it reached the chain
+// (abandoned marker) and is not ordered again. Absence from the in-memory task map alone is not
+// enough evidence to delete task input.
 func (c *Coordinator) HasTerminatedOrder(_ context.Context, key taskdata.ObjectKey) (bool, error) {
 	if key.Kind != taskdata.ObjectKindInput || key.SessionID == "" || key.TaskID == "" {
 		return false, taskdata.ErrMalformed
 	}
-	_, found, err := c.kv.GetWithError(kv.NSTerminalTask, taskKey(key.SessionID, key.TaskID))
-	return found, err
+	encoded := taskKey(key.SessionID, key.TaskID)
+	_, found, err := c.kv.GetWithError(kv.NSTerminalTask, encoded)
+	if err != nil || found || key.TaskHash == "" {
+		return found, err
+	}
+	raw, found, err := c.kv.GetWithError(kv.NSAbandonedOrder, abandonedOrderKey(key.SessionID, key.TaskID, key.TaskHash))
+	if err != nil || !found {
+		return false, err
+	}
+	var record abandonedOrderRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.Version != abandonedOrderVersion {
+		return false, fmt.Errorf("invalid abandoned order marker %q", abandonedOrderKey(key.SessionID, key.TaskID, key.TaskHash))
+	}
+	if record.ContentHash != key.ContentHash {
+		return false, nil
+	}
+	// The same version ordered again (an exact resend) is live until it ends once more.
+	live, err := c.tracksOrderVersion(encoded, key.TaskHash)
+	return !live && err == nil, err
+}
+
+// tracksOrderVersion reports whether the task key is tracked, in memory or by its snapshot, with
+// taskHash as its order or its chain-accepted version.
+func (c *Coordinator) tracksOrderVersion(key, taskHash string) (bool, error) {
+	c.mu.RLock()
+	fsm, ok := c.tasks[key]
+	c.mu.RUnlock()
+	if ok && fsm.order.TaskHash == taskHash {
+		return true, nil
+	}
+	raw, found, err := c.kv.GetWithError(kv.NSTask, key)
+	if err != nil || !found {
+		return false, err
+	}
+	var sn taskSnapshot
+	if err := json.Unmarshal(raw, &sn); err != nil {
+		return false, fmt.Errorf("decode task snapshot %q: %w", key, err)
+	}
+	return sn.Order.TaskHash == taskHash ||
+		(len(sn.AcceptedTaskHash) == hash32Len && hex.EncodeToString(sn.AcceptedTaskHash) == taskHash), nil
+}
+
+// markOrderAbandoned records that the order version o was dropped before it reached the chain. A
+// failed write only delays the input's release: retention then waits for the fallback past the
+// version's retention height.
+func (c *Coordinator) markOrderAbandoned(o types.Order) {
+	if o.SessionID == "" || o.TaskID == "" || o.TaskHash == "" {
+		return
+	}
+	key := abandonedOrderKey(o.SessionID, o.TaskID, o.TaskHash)
+	raw, err := json.Marshal(abandonedOrderRecord{Version: abandonedOrderVersion, ContentHash: taskdata.InputContentHash(o.PayloadHash)})
+	if err == nil {
+		err = c.kv.Set(kv.NSAbandonedOrder, key, raw)
+	}
+	if err != nil {
+		c.log.Warn("abandoned order marker not written; its input waits for the retention fallback", "key", key, "err", err)
+	}
 }
 
 // orderInput names the INPUT version an order carries: its task_hash and the INPUT object's
@@ -1306,8 +1379,10 @@ func (c *Coordinator) removeTask(key string) string {
 }
 
 // abandonTask drops a task that never reached the chain, with any receipt staged for it and the
-// output stream of its unrecorded attempt. Its journal is kept so the user can see why it was
-// rejected; with no output tombstone nothing releases it (a known, low-volume leak).
+// output stream of its unrecorded attempt. Its order version is marked abandoned before the
+// snapshot goes, so its input, kept for a resend, is released once its retention ends. Its journal
+// is kept so the user can see why it was rejected; with no output tombstone nothing releases it (a
+// known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 	c.dropStagedReceipt(key)
 	c.retireAbandonedAttempt(expected.sessionID, expected.taskID)
@@ -1325,6 +1400,7 @@ func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 		c.taskEvents.UntrackTaskEvents(trackedKey)
 	}
 	if removed {
+		c.markOrderAbandoned(expected.order)
 		if err := c.kv.Delete(kv.NSTask, key); err != nil {
 			c.log.Warn("abandoned task snapshot delete failed", "key", key, "err", err)
 		}
