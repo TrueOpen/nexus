@@ -553,6 +553,8 @@ type env struct {
 	draining   atomic.Bool
 	// latest is the chain head the session cache reads; 0 reads testESH.
 	latest atomic.Uint64
+	// onLatest, when set, runs on every head read of the session cache before it answers.
+	onLatest func()
 	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
 	takeoverOrders bool
 	signer         servicekey.Signer
@@ -620,6 +622,9 @@ func (e *env) open(store kv.Store) {
 	}
 	e.sessions, err = inflight.NewSessionCache(inflight.SessionCacheConfig{
 		Read: e.chain.read, LatestHeight: func(context.Context) (uint64, error) {
+			if e.onLatest != nil {
+				e.onLatest()
+			}
 			if h := e.latest.Load(); h != 0 {
 				return h, nil
 			}
