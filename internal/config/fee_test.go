@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // With gas_price set, a transaction's fee is gas_limit × gas_price rounded up; without it the
 // fixed fee_amount applies whatever the gas.
@@ -43,15 +47,19 @@ func TestValidateFee(t *testing.T) {
 	}
 }
 
-// record_gas_max defaults to a cap above a full batch at the formula's gas and must hold at least
-// one entry.
+// record_gas_max defaults to DefaultRecordGasMax, also when it is 0 (a config built without it,
+// or a yaml that sets 0); a value set must hold at least one entry.
 func TestRecordGasMax(t *testing.T) {
 	d := defaultDispatch()
-	if d.RecordGasMax == 0 {
-		t.Fatal("no default record_gas_max")
+	if d.RecordGasMax != DefaultRecordGasMax || d.RecordGasCap() != DefaultRecordGasMax {
+		t.Fatalf("default record_gas_max %d, cap %d", d.RecordGasMax, d.RecordGasCap())
 	}
 	if err := d.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	d.RecordGasMax = 0
+	if err := d.Validate(); err != nil || d.RecordGasCap() != DefaultRecordGasMax {
+		t.Fatalf("record_gas_max 0: err %v, cap %d; want the default", err, d.RecordGasCap())
 	}
 	d.RecordGasMax = d.RecordGasBase + d.RecordGasPerEntry - 1
 	if err := d.Validate(); err == nil {
@@ -60,5 +68,24 @@ func TestRecordGasMax(t *testing.T) {
 	d.RecordGasMax = maxRecordGas + 1
 	if err := d.Validate(); err == nil {
 		t.Fatal("record_gas_max above the bound accepted")
+	}
+}
+
+// A deployed yaml without record_gas_max (or gas_price) still loads and gets the default.
+func TestYAMLWithoutRecordGasMaxGetsTheDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nexus.yaml")
+	yaml := "dispatch:\n  record_gas_base: 200000\n  record_gas_per_entry: 150000\n  record_gas_per_byte: 150\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Dispatch.RecordGasMax != DefaultRecordGasMax || cfg.Chain.GasPrice != "" {
+		t.Fatalf("record_gas_max %d, gas_price %q; want the defaults", cfg.Dispatch.RecordGasMax, cfg.Chain.GasPrice)
+	}
+	if err := cfg.Dispatch.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

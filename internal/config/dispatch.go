@@ -56,7 +56,7 @@ type DispatchConfig struct {
 	RecordGasPerByte  uint64 `yaml:"record_gas_per_byte"`
 	// RecordGasMax caps the gas limit of a record transaction, also once out-of-gas refusals
 	// raised it: it bounds what one record transaction can cost with chain.gas_price. A batch
-	// still out of gas at the cap is split.
+	// still out of gas at the cap is split. 0 is DefaultRecordGasMax (RecordGasCap).
 	RecordGasMax uint64 `yaml:"record_gas_max"`
 	// AnswerGasBase and AnswerGasPerByte give a compensation rebuttal or dispatch challenge
 	// response its gas limit: AnswerGasBase + AnswerGasPerByte for each encoded byte of the Msg
@@ -93,10 +93,22 @@ func defaultDispatch() DispatchConfig {
 		RecordGasBase:                        200_000,
 		RecordGasPerEntry:                    150_000,
 		RecordGasPerByte:                     150,
-		RecordGasMax:                         20_000_000,
+		RecordGasMax:                         DefaultRecordGasMax,
 		AnswerGasBase:                        300_000,
 		AnswerGasPerByte:                     30,
 	}
+}
+
+// DefaultRecordGasMax is the record transaction gas cap when dispatch.record_gas_max is unset or 0.
+const DefaultRecordGasMax = 20_000_000
+
+// RecordGasCap returns the record transaction gas cap: RecordGasMax, or DefaultRecordGasMax when
+// it is 0.
+func (c DispatchConfig) RecordGasCap() uint64 {
+	if c.RecordGasMax == 0 {
+		return DefaultRecordGasMax
+	}
+	return c.RecordGasMax
 }
 
 // Upper bounds of the dispatch windows: a value beyond them is a unit mistake (seconds for
@@ -139,7 +151,7 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch record_gas_base and record_gas_per_entry must be between 1 and %d", maxRecordGas)
 	case c.RecordGasPerByte > maxRecordGasPerByte:
 		return fmt.Errorf("dispatch record_gas_per_byte must not exceed %d", maxRecordGasPerByte)
-	case c.RecordGasMax < c.RecordGasBase+c.RecordGasPerEntry || c.RecordGasMax > maxRecordGas:
+	case c.RecordGasMax != 0 && (c.RecordGasMax < c.RecordGasBase+c.RecordGasPerEntry || c.RecordGasMax > maxRecordGas):
 		return fmt.Errorf("dispatch record_gas_max must be between record_gas_base + record_gas_per_entry (%d) and %d",
 			c.RecordGasBase+c.RecordGasPerEntry, maxRecordGas)
 	case c.AnswerGasBase == 0 || c.AnswerGasBase > maxRecordGas || c.AnswerGasPerByte == 0 || c.AnswerGasPerByte > maxRecordGas:
