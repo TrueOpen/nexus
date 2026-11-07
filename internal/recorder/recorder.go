@@ -144,9 +144,9 @@ type Config struct {
 	// Evidence, when set, is told about an entry the chain admitted after its ticket was withdrawn:
 	// the dispatcher no longer holds it, but challenges on the recorded order may come.
 	Evidence RecordedEvidence
-	// GasBase and GasPerEntry give a record transaction its gas limit: GasBase plus GasPerEntry
-	// for each entry.
-	GasBase, GasPerEntry uint64
+	// GasBase, GasPerEntry and GasPerByte give a record transaction its gas limit: GasBase plus
+	// GasPerEntry for each entry plus GasPerByte for each encoded byte of the message.
+	GasBase, GasPerEntry, GasPerByte uint64
 	// Metrics takes the record stage timings and outcomes; nil keeps none.
 	Metrics *opsmetrics.Registry
 	Log     *slog.Logger
@@ -382,6 +382,11 @@ func (r *Recorder) HandleChainEvent(ev chaincli.ChainEvent) {
 	var ops []kv.WriteOp
 	for _, e := range r.entries {
 		if !e.Takeover && e.SessionID == t.SessionID && e.Sequence == t.OrderSequence && string(e.TicketHash) == string(t.TicketHash) {
+			// The transaction carrying the entry executed: its result may never be read once
+			// every entry it carries is resolved, so the sizing comes back here too.
+			if e.Tx != "" {
+				r.succeededLocked(e.Tx)
+			}
 			r.recordLocked(e, uint64(ev.Height), &ops, &fx)
 		}
 	}

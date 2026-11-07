@@ -38,6 +38,7 @@ const (
 	testChainID     = "trueopen-recorder-test"
 	testGasBase     = 1000
 	testGasPerEntry = 100
+	testGasPerByte  = 2
 	worker          = "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8"
 	builder         = "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3"
 )
@@ -450,6 +451,8 @@ type env struct {
 	metrics  *opsmetrics.Registry
 	r        *Recorder
 	params   Params
+	// gasBase, gasPerEntry and gasPerByte are the record gas formula the recorder is built with.
+	gasBase, gasPerEntry, gasPerByte uint64
 }
 
 func newEnv(t *testing.T) *env {
@@ -462,7 +465,8 @@ func newEnv(t *testing.T) *env {
 		t: t, store: kv.NewMemStore(), signer: s,
 		chain: &fakeChain{txs: map[[32]byte]chaincli.TxResult{}, records: map[orderKey]*taskv1.DispatchRecordState{}},
 		tx:    &fakeSubmitter{}, account: &accountReader{balance: "1000"},
-		params: Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100)},
+		params:  Params{MaxEntries: 16, MaxBytes: 1 << 20, MinCompensation: big.NewInt(100)},
+		gasBase: testGasBase, gasPerEntry: testGasPerEntry, gasPerByte: testGasPerByte,
 	}
 	e.open()
 	return e
@@ -495,7 +499,7 @@ func (e *env) open() {
 	e.gate = NewGate(GateConfig{Keys: e.keys, Builder: builder, Account: e.account.read, MinBalance: e.params.MinCompensation})
 	r, err := New(Config{
 		ChainID: testChainID, Builder: builder, Signer: servicekey.Static(e.signer, testServiceNonce), Store: e.store, Ledger: e.ledger, Chain: e.chain, Tx: e.tx,
-		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: testGasBase, GasPerEntry: testGasPerEntry,
+		Tasks: e.tasks, Attempts: book, Streams: e.streams, Gate: e.gate, Evidence: e.evidence, GasBase: e.gasBase, GasPerEntry: e.gasPerEntry, GasPerByte: e.gasPerByte,
 		Metrics: e.metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, e.params)
 	if err != nil {

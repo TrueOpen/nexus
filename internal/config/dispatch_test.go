@@ -13,7 +13,7 @@ func TestDispatchDefaultsAreValid(t *testing.T) {
 		got.HandraiseRootIntervalMs != 500 || got.BuilderRTTAdmitMs != 300 || got.GPURejectRateThreshold != 0.5 ||
 		got.GPURejectRateSuspensionBlocks != 720 || got.BuilderTimeoutRateThreshold != 0.2 ||
 		len(got.AcceptTimeoutMsByRTTTier) != 3 || got.GPURejectRateMinSamples != 10 || got.HandraiseIssuedHeightToleranceBlocks != 3 ||
-		got.RecordGasBase != 200_000 || got.RecordGasPerEntry != 300_000 || got.AnswerGasBase != 300_000 || got.AnswerGasPerByte != 30 {
+		got.RecordGasBase != 200_000 || got.RecordGasPerEntry != 150_000 || got.RecordGasPerByte != 150 || got.AnswerGasBase != 300_000 || got.AnswerGasPerByte != 30 {
 		t.Fatalf("dispatch defaults = %+v", got)
 	}
 	if err := got.Validate(); err != nil {
@@ -45,6 +45,7 @@ func TestDispatchValidateRejectsInvalidCombinations(t *testing.T) {
 		"zero record gas base":      func(c *DispatchConfig) { c.RecordGasBase = 0 },
 		"zero record gas per entry": func(c *DispatchConfig) { c.RecordGasPerEntry = 0 },
 		"record gas too large":      func(c *DispatchConfig) { c.RecordGasPerEntry = maxRecordGas + 1 },
+		"record gas per byte large": func(c *DispatchConfig) { c.RecordGasPerByte = maxRecordGasPerByte + 1 },
 		"zero answer gas base":      func(c *DispatchConfig) { c.AnswerGasBase = 0 },
 		"zero answer gas per byte":  func(c *DispatchConfig) { c.AnswerGasPerByte = 0 },
 		"answer gas too large":      func(c *DispatchConfig) { c.AnswerGasBase = maxRecordGas + 1 },

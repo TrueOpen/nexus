@@ -47,10 +47,13 @@ type DispatchConfig struct {
 	// BuilderTimeoutRateThreshold is the share (0..1) of TIMEOUT skips among tickets above which the
 	// public statistics flag this Builder; it is statistics only.
 	BuilderTimeoutRateThreshold float64 `yaml:"builder_timeout_rate_threshold"`
-	// RecordGasBase and RecordGasPerEntry give a MsgRecordDispatch transaction its gas limit:
-	// RecordGasBase + RecordGasPerEntry for each entry it carries.
+	// RecordGasBase, RecordGasPerEntry and RecordGasPerByte give a MsgRecordDispatch transaction
+	// its gas limit: RecordGasBase + RecordGasPerEntry for each entry it carries +
+	// RecordGasPerByte for each encoded byte of the Msg (the chain charges most of a record per
+	// byte it stores). 0 per byte leaves the size out.
 	RecordGasBase     uint64 `yaml:"record_gas_base"`
 	RecordGasPerEntry uint64 `yaml:"record_gas_per_entry"`
+	RecordGasPerByte  uint64 `yaml:"record_gas_per_byte"`
 	// AnswerGasBase and AnswerGasPerByte give a compensation rebuttal or dispatch challenge
 	// response its gas limit: AnswerGasBase + AnswerGasPerByte for each encoded byte of the Msg
 	// (it carries a whole record or roster). An answer that runs out of gas goes again with more.
@@ -84,7 +87,8 @@ func defaultDispatch() DispatchConfig {
 
 		HandraiseIssuedHeightToleranceBlocks: 3,
 		RecordGasBase:                        200_000,
-		RecordGasPerEntry:                    300_000,
+		RecordGasPerEntry:                    150_000,
+		RecordGasPerByte:                     150,
 		AnswerGasBase:                        300_000,
 		AnswerGasPerByte:                     30,
 	}
@@ -100,6 +104,7 @@ const (
 	maxBuilderRTTAdmitMs        = 60_000
 	maxAcceptTimeoutMsByRTTTier = 60_000
 	maxRecordGas                = 100_000_000
+	maxRecordGasPerByte         = 100_000
 )
 
 func (c DispatchConfig) Validate() error {
@@ -127,6 +132,8 @@ func (c DispatchConfig) Validate() error {
 		return fmt.Errorf("dispatch handraise_issued_height_tolerance_blocks must not exceed %d", maxIssuedHeightTolerance)
 	case c.RecordGasBase == 0 || c.RecordGasBase > maxRecordGas || c.RecordGasPerEntry == 0 || c.RecordGasPerEntry > maxRecordGas:
 		return fmt.Errorf("dispatch record_gas_base and record_gas_per_entry must be between 1 and %d", maxRecordGas)
+	case c.RecordGasPerByte > maxRecordGasPerByte:
+		return fmt.Errorf("dispatch record_gas_per_byte must not exceed %d", maxRecordGasPerByte)
 	case c.AnswerGasBase == 0 || c.AnswerGasBase > maxRecordGas || c.AnswerGasPerByte == 0 || c.AnswerGasPerByte > maxRecordGas:
 		return fmt.Errorf("dispatch answer_gas_base and answer_gas_per_byte must be between 1 and %d", maxRecordGas)
 	}
