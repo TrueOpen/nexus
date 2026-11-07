@@ -3,6 +3,7 @@ package buildersync
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -44,5 +45,30 @@ func TestOutstandingListsWhatMembersHaveNotAcknowledged(t *testing.T) {
 		if o.Peer == e.m.op {
 			t.Fatalf("M holds everything but is listed: %+v", o)
 		}
+	}
+}
+
+// Outstanding reads the queue under its own lock: changes handed over while it lists them are no
+// data race (run with -race).
+func TestOutstandingWhileChangesAreQueued(t *testing.T) {
+	e := newEnv(t)
+	f := e.fx
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			e.s.OrderChanged(f.issued())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			_ = e.s.Outstanding()
+		}
+	}()
+	wg.Wait()
+	if got := e.s.Outstanding(); len(got) != 200 {
+		t.Fatalf("%d queued changes listed, want 200", len(got))
 	}
 }

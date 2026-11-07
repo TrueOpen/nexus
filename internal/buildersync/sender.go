@@ -406,9 +406,10 @@ type Outstanding struct {
 // records and result headers in it keep the generation that signed them, which members accept for
 // orders below that generation's retirement.
 func (s *Sender) Outstanding() []Outstanding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// The queue is guarded by qmu alone; it is read before s.mu is taken, so neither lock is held
+	// while waiting for the other.
 	var out []Outstanding
+	s.qmu.Lock()
 	for _, ev := range s.queue {
 		switch {
 		case ev.view != nil:
@@ -417,6 +418,9 @@ func (s *Sender) Outstanding() []Outstanding {
 			out = append(out, Outstanding{SessionID: ev.recorded.SessionID, Sequence: ev.recorded.Sequence, TaskID: ev.recorded.TaskID})
 		}
 	}
+	s.qmu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, st := range s.streams {
 		for _, peer := range st.Peers {
 			o := Outstanding{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Peer: peer}
