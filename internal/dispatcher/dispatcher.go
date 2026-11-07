@@ -150,6 +150,11 @@ type Sessions interface {
 	Head() uint64
 }
 
+// headRefresher is a Sessions that can read the chain head on demand (inflight.SessionCache).
+type headRefresher interface {
+	RefreshHead(ctx context.Context) (uint64, error)
+}
+
 // Keys reads service key bindings from the chain and gates ticket issuance.
 type Keys interface {
 	// CheckBuilderKey fails with a *handraise.RotationPendingError while this Builder's own
@@ -312,6 +317,11 @@ type order struct {
 	takenAt  time.Time
 	waited   bool
 	ticketAt time.Time
+	// eshWaitSince is when the order started waiting for the head to reach its
+	// earliest_submit_height minus one (zero while it does not wait); headReadAt is when it last
+	// read the head from the chain for that.
+	eshWaitSince time.Time
+	headReadAt   time.Time
 }
 
 func (o *order) key() string { return stateKey(o.st.SessionID, o.st.Sequence) }

@@ -551,6 +551,8 @@ type env struct {
 	syncer     *fakeSync
 	metrics    *opsmetrics.Registry
 	draining   atomic.Bool
+	// latest is the chain head the session cache reads; 0 reads testESH.
+	latest atomic.Uint64
 	// takeoverOrders reserves the orders as a takeover's order, as the takeover's activation does.
 	takeoverOrders bool
 	signer         servicekey.Signer
@@ -617,7 +619,12 @@ func (e *env) open(store kv.Store) {
 		e.t.Fatal(err)
 	}
 	e.sessions, err = inflight.NewSessionCache(inflight.SessionCacheConfig{
-		Read: e.chain.read, LatestHeight: func(context.Context) (uint64, error) { return testESH, nil },
+		Read: e.chain.read, LatestHeight: func(context.Context) (uint64, error) {
+			if h := e.latest.Load(); h != 0 {
+				return h, nil
+			}
+			return testESH, nil
+		},
 		Ledger: e.ledger, LookupsPerSecond: 1_000_000,
 	})
 	if err != nil {
