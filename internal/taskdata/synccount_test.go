@@ -3,6 +3,7 @@ package taskdata
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/TrueOpen/nexus/internal/kv"
 	"github.com/TrueOpen/nexus/internal/kv/kvtest"
 )
 
@@ -86,7 +88,7 @@ func TestInputIntakeSyncCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	intake := counter.now()
-	if want := (syncCount{Synced: 5, Deferred: 0, Files: 1, Dirs: 3}); intake != want {
+	if want := (syncCount{Synced: 0, Deferred: 3, Files: 1, Dirs: 1}); intake != want {
 		t.Fatalf("input intake cost %+v, want %+v", intake, want)
 	}
 	if _, err := service.MarkInputReady(ctx, header.Key); err != nil {
@@ -108,7 +110,44 @@ func TestOpenTaskNonceSyncCount(t *testing.T) {
 	if err := a.AuthorizeOpenTaskRequest(context.Background(), fx.user.Address(), bytes.Repeat([]byte{3}, 16), 110, 1000); err != nil {
 		t.Fatal(err)
 	}
-	if backend.Synced() != 1 || backend.Deferred() != 0 {
-		t.Fatalf("OpenTask nonce cost synced %d deferred %d, want 1 and 0", backend.Synced(), backend.Deferred())
+	if backend.Synced() != 0 || backend.Deferred() != 1 {
+		t.Fatalf("OpenTask nonce cost synced %d deferred %d, want 0 and 1", backend.Synced(), backend.Deferred())
+	}
+}
+
+// An OpenTask nonce survives a crash once the request's own synced write (the order's commit)
+// followed it, and a clean restart either way. A crash before that write loses the nonce together
+// with everything the request did: the replay is then the same request again.
+func TestOpenTaskNonceCrashRecovery(t *testing.T) {
+	fx := newAuthorizerFixture(t)
+	ctx := context.Background()
+	backend := kvtest.New()
+	a, err := NewAuthorizer(fx.authorizer.cfg, backend, fx.authority, fx.service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := bytes.Repeat([]byte{4}, 16)
+	if err := a.AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); err != nil {
+		t.Fatal(err)
+	}
+	reopen := func(store kv.Store) *Authorizer {
+		t.Helper()
+		reopened, err := NewAuthorizer(fx.authorizer.cfg, store, fx.authority, fx.service)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reopened
+	}
+	if err := reopen(backend).AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay after a clean restart = %v", err)
+	}
+	if err := reopen(backend.Crash()).AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); err != nil {
+		t.Fatalf("a request that left nothing durable is judged afresh after a crash: %v", err)
+	}
+	if err := backend.Set(kv.NSInflight, "order/commit", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := reopen(backend.Crash()).AuthorizeOpenTaskRequest(ctx, fx.user.Address(), nonce, 110, 1000); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay after a crash past the order's commit = %v", err)
 	}
 }

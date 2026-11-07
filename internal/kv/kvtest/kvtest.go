@@ -12,6 +12,10 @@ import (
 // writes; WriteBatchDeferred is not. Like the pebble store, a crash keeps every write up to the
 // last synced one and loses the rest (see kv.WriteDeferred).
 type Store struct {
+	// BeforeSync, when set, is called with the ops of every synced write before it is applied, so a
+	// test can take Crash() at the instant before that write lands. It must not write to the store.
+	BeforeSync func(ops []kv.WriteOp)
+
 	mu       sync.Mutex
 	live     kv.Store
 	log      [][]kv.WriteOp
@@ -60,6 +64,9 @@ func (s *Store) write(synced bool, ops []kv.WriteOp) error {
 	for i, op := range ops {
 		op.Val = append([]byte(nil), op.Val...)
 		entry[i] = op
+	}
+	if synced && s.BeforeSync != nil {
+		s.BeforeSync(entry)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

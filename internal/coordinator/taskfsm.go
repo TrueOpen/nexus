@@ -208,6 +208,9 @@ type taskFSM struct {
 	// (some unit tests construct the fsm directly).
 	persist   func(taskSnapshot) error // write KV after every state transition
 	unpersist func()                   // clear KV once the task reaches a terminal state
+	// persistDeferred writes like persist without waiting for the disk (kv.WriteDeferred); nil
+	// falls back to persist.
+	persistDeferred func(taskSnapshot) error
 
 	// currentEpoch returns the epoch of the last observed chain height, false when unknown.
 	currentEpoch func() (uint64, bool)

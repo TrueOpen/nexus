@@ -25,7 +25,7 @@ func TestLedgerSyncCountPerOrder(t *testing.T) {
 		last = now
 	}
 	res := f.reserve(t, order(5))
-	step("reserve", cost{synced: 1})
+	step("reserve", cost{deferred: 1})
 	if err := f.p.Commit(res.Reservation); err != nil {
 		t.Fatal(err)
 	}
@@ -34,4 +34,43 @@ func TestLedgerSyncCountPerOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	step("accept", cost{synced: 1})
+}
+
+// A reservation is written without waiting for the disk. A crash before the order's commit (the
+// next synced write) leaves the ledger as before the request: no entry for a new order, the failed
+// attempt for a retry, which the next resend may retry again. Once committed, it survives.
+func TestReservationCrashRecovery(t *testing.T) {
+	f := newFixture(t, nil)
+	store := kvtest.New()
+	f.store = store
+	f.restart(t)
+	reopen := func() *Ledger {
+		t.Helper()
+		l, err := NewLedger(store.Crash())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	res := f.reserve(t, order(5))
+	if _, ok := reopen().Get(testSession, 5); ok {
+		t.Fatal("an uncommitted reservation survived a crash before any synced write")
+	}
+	if err := f.p.Commit(res.Reservation); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := reopen().Get(testSession, 5); !ok || !e.Committed || e.TaskHash != "hash5" {
+		t.Fatalf("committed order after a crash = %+v %v", e, ok)
+	}
+	if err := f.ledger.MarkFailed(testSession, 5); err != nil {
+		t.Fatal(err)
+	}
+	retry := order(5)
+	retry.TaskHash = "resigned"
+	if res := f.reserve(t, retry); !res.Retry {
+		t.Fatalf("retry = %+v", res)
+	}
+	if e, ok := reopen().Get(testSession, 5); !ok || e.State != StateFailed || e.TaskHash != "hash5" {
+		t.Fatalf("after a crash before the retry's commit the failed attempt is back: %+v %v", e, ok)
+	}
 }

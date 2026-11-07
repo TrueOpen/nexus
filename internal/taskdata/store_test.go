@@ -97,7 +97,9 @@ func TestStorePersistsPreparedThenReadyAndReadsExactRange(t *testing.T) {
 	}
 }
 
-func TestStoreSyncsSpoolDirectoryAcrossReservationAndCommit(t *testing.T) {
+// Only the blob's directory is synced: recovery removes every spool file, so neither creating one
+// nor renaming it away needs its directory synced.
+func TestStoreSyncsOnlyTheBlobDirectory(t *testing.T) {
 	var synced []string
 	store, _, _ := newTestStore(t, testStoreConfig(), WithDirectorySync(func(path string) error {
 		synced = append(synced, path)
@@ -116,9 +118,8 @@ func TestStoreSyncsSpoolDirectoryAcrossReservationAndCommit(t *testing.T) {
 	if _, err := upload.Prepare(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	spoolRoot := filepath.Join(store.root, "spool")
 	blobRoot := filepath.Dir(store.blobPath(testHeader(body).SemanticHash))
-	if len(synced) != 3 || synced[0] != spoolRoot || synced[1] != spoolRoot || synced[2] != blobRoot {
+	if len(synced) != 1 || synced[0] != blobRoot {
 		t.Fatalf("synced directories = %v", synced)
 	}
 }

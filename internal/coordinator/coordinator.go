@@ -636,21 +636,10 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 			}
 		},
 		persist: func(sn taskSnapshot) error {
-			b, err := json.Marshal(sn)
-			if err != nil {
-				c.log.Warn("task snapshot encode failed", "task_id", sn.TaskID, "err", err)
-				return err
-			}
-			if err := c.kv.Set(kv.NSTask, key, b); err != nil {
-				c.log.Warn("task snapshot persist failed (recovery will rebuild from chain)", "task_id", sn.TaskID, "err", err)
-				return err
-			}
-			// Index and snapshot share one source: written only after the snapshot write succeeds; recovery rebuilds it from the snapshot too.
-			if err := c.kv.Set(kv.NSTaskSession, sn.TaskID, []byte(sn.SessionID)); err != nil {
-				c.log.Warn("task session index persist failed", "task_id", sn.TaskID, "err", err)
-				return err
-			}
-			return nil
+			return c.persistTaskSnapshot(key, sn, c.kv.WriteBatch)
+		},
+		persistDeferred: func(sn taskSnapshot) error {
+			return c.persistTaskSnapshot(key, sn, func(ops ...kv.WriteOp) error { return kv.WriteDeferred(c.kv, ops...) })
 		},
 		unpersist: func() {
 			c.deleteTaskSnapshot(key)
@@ -664,6 +653,25 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		c.requestTaskReconcile(o.SessionID, o.TaskID, 0, "read submitted transaction result")
 	}
 	return fsm
+}
+
+// persistTaskSnapshot writes the task's snapshot and its task_id -> session_id index with write,
+// in one batch: the index never names a snapshot that is not stored, nor lags one that is;
+// recovery rebuilds the index from the snapshot too.
+func (c *Coordinator) persistTaskSnapshot(key string, sn taskSnapshot, write func(...kv.WriteOp) error) error {
+	b, err := json.Marshal(sn)
+	if err != nil {
+		c.log.Warn("task snapshot encode failed", "task_id", sn.TaskID, "err", err)
+		return err
+	}
+	if err := write(
+		kv.WriteOp{NS: kv.NSTask, Key: key, Val: b},
+		kv.WriteOp{NS: kv.NSTaskSession, Key: sn.TaskID, Val: []byte(sn.SessionID)},
+	); err != nil {
+		c.log.Warn("task snapshot persist failed (recovery will rebuild from chain)", "task_id", sn.TaskID, "err", err)
+		return err
+	}
+	return nil
 }
 
 func (c *Coordinator) beginCallback() bool {

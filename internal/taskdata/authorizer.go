@@ -526,7 +526,7 @@ func (a *Authorizer) checkFreshness(ctx context.Context, request RequestAuth, he
 		return err
 	}
 	if request.RequesterKind == RequesterKindUser {
-		return a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height)
+		return a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height, true)
 	}
 	return nil
 }
@@ -694,7 +694,7 @@ func (a *Authorizer) consumeRequestNonce(request RequestAuth, height uint64) err
 	if request.RequesterKind == RequesterKindUser {
 		return nil
 	}
-	err := a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height)
+	err := a.consumeNonce("request", request.RequesterAddress, request.RequestNonce, request.ExpiryHeight, height, true)
 	if errors.Is(err, ErrReplay) {
 		return fmt.Errorf("%w: request replay", ErrUnauthorized)
 	}
@@ -723,7 +723,12 @@ func (a *Authorizer) AuthorizeOpenTaskRequest(ctx context.Context, requester str
 	if height > orderExpireHeight {
 		return fmt.Errorf("%w: height %d is past order_expire_height %d", ErrOrderExpired, height, orderExpireHeight)
 	}
-	return a.consumeNonce("sdk_open_task", requester, nonce, expiry, height)
+	// The nonce record does not wait for the disk. Every OpenTask that changes anything ends in a
+	// synced write before its answer: the dispatcher's commit of the order (or the takeover's
+	// record), then the input turning READY; that write makes the record durable too. A crash
+	// before it loses the record only together with everything the request did, so a replay is
+	// that same request again, judged afresh, and the order's sequence still admits it only once.
+	return a.consumeNonce("sdk_open_task", requester, nonce, expiry, height, false)
 }
 
 // currentTask queries the chain using only the Task identity in the key, so validation goes only
@@ -753,7 +758,9 @@ func validateExpiry(height, expiry, window uint64) error {
 	return nil
 }
 
-func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry, height uint64) error {
+// consumeNonce records the request nonce until its expiry, refusing one already used. With durable
+// false the record is written with kv.WriteDeferred.
+func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry, height uint64, durable bool) error {
 	keyBytes, _ := frame4([]byte(domain), []byte(a.cfg.ChainID), []byte(requester), nonce)
 	digest := sha256.Sum256(keyBytes)
 	key := hex.EncodeToString(digest[:])
@@ -793,7 +800,11 @@ func (a *Authorizer) consumeNonce(domain, requester string, nonce []byte, expiry
 	ops = append(ops,
 		kv.WriteOp{NS: kv.NSTaskDataReplay, Key: key, Val: encoded[:]},
 		kv.WriteOp{NS: kv.NSTaskDataReplayExpiry, Key: replayExpiryKey(expiry, key)})
-	if err := a.backend.WriteBatch(ops...); err != nil {
+	write := a.backend.WriteBatch
+	if !durable {
+		write = func(ops ...kv.WriteOp) error { return kv.WriteDeferred(a.backend, ops...) }
+	}
+	if err := write(ops...); err != nil {
 		return fmt.Errorf("%w: persist replay record", ErrStorage)
 	}
 	return nil

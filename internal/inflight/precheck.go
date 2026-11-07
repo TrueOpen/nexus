@@ -338,7 +338,11 @@ func (p *Prechecker) judgeLocked(o Order, session Session, head uint64, params P
 		}
 		ops = append(ops, op)
 	}
-	if err := l.store.WriteBatch(ops...); err != nil {
+	// The reservation does not wait for the disk: until Commit a restart releases it anyway, and
+	// a crash that loses it leaves the ledger as it was before the request (with the failed
+	// attempt it replaced or the suspension it ended), which the next resend is judged against
+	// like any request. Commit is a synced write and makes it durable first (kv.WriteDeferred).
+	if err := kv.WriteDeferred(l.store, ops...); err != nil {
 		return Result{}, fmt.Errorf("write in-flight order: %w", err)
 	}
 	stored := l.sessionLocked(o.SessionID)

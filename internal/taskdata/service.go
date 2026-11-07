@@ -83,11 +83,14 @@ func (s *Service) BeginInput(ctx context.Context, header UploadHeader) (*Upload,
 	return s.store.Begin(ctx, header)
 }
 
+// PrepareInput stores the OpenTask input as PREPARED. Its metadata write does not wait for the
+// disk: the caller hands the order to the coordinator, whose dispatcher commits it with a synced
+// write before any ticket goes out, or rolls the input back (see Upload.prepareInput).
 func (s *Service) PrepareInput(ctx context.Context, upload *Upload) (Metadata, error) {
 	if upload == nil || upload.header.Key.Kind != ObjectKindInput {
 		return Metadata{}, ErrMalformed
 	}
-	return upload.Prepare(ctx)
+	return upload.prepareInput(ctx)
 }
 
 func (s *Service) MarkInputReady(ctx context.Context, key ObjectKey) (Metadata, error) {

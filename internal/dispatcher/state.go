@@ -181,6 +181,19 @@ func saveState(store kv.Store, s *orderState) error {
 	return nil
 }
 
+// saveStateDeferred writes s without waiting for the disk (kv.WriteDeferred); the caller makes a
+// synced write before anything outside the process can rely on it.
+func saveStateDeferred(store kv.Store, s *orderState) error {
+	op, err := saveStateOp(s)
+	if err != nil {
+		return err
+	}
+	if err := kv.WriteDeferred(store, op); err != nil {
+		return fmt.Errorf("write dispatch state: %w", err)
+	}
+	return nil
+}
+
 func saveStateOp(s *orderState) (kv.WriteOp, error) {
 	raw, err := json.Marshal(s)
 	if err != nil {

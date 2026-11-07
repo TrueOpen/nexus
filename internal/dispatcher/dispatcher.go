@@ -448,7 +448,12 @@ func (d *Dispatcher) sessionOrders(sessionID string) []*order {
 // Dispatch takes over an order the in-flight precheck reserved (or a retry of a failed one): it
 // stores the order's dispatch state, commits the ledger reservation and starts walking it in the
 // background. Nothing is offered before both are written, so an order whose commit was lost by a
-// crash has no ticket out and is dropped on restart.
+// crash has no ticket out and is dropped on restart. The state does not wait for the disk: the
+// commit right after it is a synced write and makes it durable first (kv.WriteDeferred). A crash
+// before the commit loses the state with the reservation, as if the order never arrived, or
+// keeps an uncommitted pair, which the restart drops; a state lost under an entry already
+// committed (nothing reserved anew) leaves no ticket out either, since every ticket is stored with
+// a synced write before it is offered, and the restart marks such an entry failed.
 func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	var signed taskv1.SignedOrderV2
 	if err := proto.Unmarshal(o.SignedOrder, &signed); err != nil || signed.GetOrder() == nil {
@@ -477,7 +482,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		st.Phase, st.FailReason, st.NewRound = phaseDispatching, "", true
 		st.Accept, st.AcceptDigest, st.Record = nil, nil, nil
 		st.Windows = windows
-		if err := saveState(d.cfg.Store, st); err != nil {
+		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			existing.st = prev
 			existing.mu.Unlock()
 			return err
@@ -493,7 +498,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 			SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
 			SignedOrder: o.SignedOrder, Phase: phaseDispatching, Windows: windows,
 		}
-		if err := saveState(d.cfg.Store, st); err != nil {
+		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			return err
 		}
 		existing = &order{st: st, signed: &signed, takenAt: d.clock.Now()}
