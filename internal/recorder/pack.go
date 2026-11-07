@@ -112,8 +112,7 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 			entries[j] = kept[i]
 			msg.Entries = append(msg.Entries, msgs[i])
 		}
-		gas := gasFactor * r.recordGas(msg)
-		r.submit(ctx, height, msg, entries, gas)
+		r.submit(ctx, height, msg, entries, gasFactor*r.recordGas(msg), gasFactor)
 	}
 }
 
@@ -123,11 +122,12 @@ func (r *Recorder) recordGas(msg *taskv1.MsgRecordDispatch) uint64 {
 	return r.cfg.GasBase + r.cfg.GasPerEntry*uint64(len(msg.GetEntries())) + r.cfg.GasPerByte*uint64(proto.Size(msg))
 }
 
-// submit signs and broadcasts one record transaction. Each signed transaction is stored, and its
+// submit signs and broadcasts one record transaction, with gasLimit (gasFactor times the formula's
+// gas). Each signed transaction is stored, and its
 // entries point at it, before it is broadcast. A transaction refused before it reached the
 // mempool is dropped and its entries wait for the next block; one whose broadcast outcome is
 // unknown is followed on chain.
-func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRecordDispatch, entries []*entry, gasLimit uint64) {
+func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRecordDispatch, entries []*entry, gasLimit, gasFactor uint64) {
 	objects := make([]string, len(entries))
 	for i, e := range entries {
 		objects[i] = e.ObjectID
@@ -135,7 +135,7 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 	var current string
 	persist := func(raw []byte) error {
 		sum := sha256.Sum256(raw)
-		tx := &txRecord{Hash: hex.EncodeToString(sum[:]), Raw: append([]byte(nil), raw...), Objects: objects, SentHeight: height}
+		tx := &txRecord{Hash: hex.EncodeToString(sum[:]), Raw: append([]byte(nil), raw...), Objects: objects, SentHeight: height, GasFactor: gasFactor}
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		op, err := putOp(txKey(tx.Hash), tx)
@@ -184,7 +184,7 @@ func (r *Recorder) submit(ctx context.Context, height uint64, msg *taskv1.MsgRec
 	}
 	r.log.Warn("record transaction not sent; its entries go out at the next block", "entries", len(entries), "err", err)
 	if errors.As(err, &se) && se.Definitive && se.Result.Code != 0 {
-		r.refused(se.Result, len(entries), height)
+		r.refused(se.Result, len(entries), gasFactor, height)
 	}
 	if current != "" {
 		r.requeue(current)

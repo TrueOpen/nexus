@@ -65,6 +65,9 @@ type txRecord struct {
 	Objects []string `json:"objects"`
 	// SentHeight is the head when the transaction was last broadcast.
 	SentHeight uint64 `json:"sent_height"`
+	// GasFactor is the gas factor the transaction was signed with; 0 (stored before it was kept)
+	// counts as 1.
+	GasFactor uint64 `json:"gas_factor,omitempty"`
 	// replay is set after a restart: the transaction is broadcast again, as stored, the first
 	// time the chain does not show it.
 	replay bool

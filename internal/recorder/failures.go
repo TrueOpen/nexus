@@ -15,6 +15,10 @@ const (
 	fatalRetryBlocks = 10
 	// maxGasFactor bounds how far out-of-gas refusals raise the gas of record transactions.
 	maxGasFactor = 8
+	// gasStepDownSuccesses is how many transactions sent at the raised gas factor must succeed in
+	// a row before it is halved. Halving after one success would, for a batch that needs a gas in
+	// between two factors, run every other transaction out of gas.
+	gasStepDownSuccesses = 8
 )
 
 // refusalClass is what a refused record transaction asks of the next one.
@@ -52,8 +56,10 @@ func classify(res chaincli.TxResult) refusalClass {
 type sizing struct {
 	// maxEntries is the lowered entry cap, 0 when params.MaxEntries applies.
 	maxEntries uint32
-	// gasFactor multiplies the gas of every record transaction; 0 counts as 1.
+	// gasFactor multiplies the gas of every record transaction; 0 counts as 1. gasWins counts the
+	// transactions sent at gasFactor that succeeded since it last changed.
 	gasFactor uint64
+	gasWins   int
 	// streak counts consecutive refusals with streakCode.
 	streak     int
 	streakCode string
@@ -62,20 +68,28 @@ type sizing struct {
 	stopReason   string
 }
 
-// refused takes the refusal of a record transaction of entries entries at height.
-func (r *Recorder) refused(res chaincli.TxResult, entries int, height uint64) {
+// refused takes the refusal of a record transaction of entries entries, sent with gas factor
+// factor, at height.
+func (r *Recorder) refused(res chaincli.TxResult, entries int, factor, height uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := &r.sizing
 	code := fmt.Sprintf("%s/%d", res.Codespace, res.Code)
 	switch classify(res) {
 	case refusalOutOfGas:
+		factor = max(factor, 1)
+		if factor < max(s.gasFactor, 1) {
+			// Sent before the factor was raised: the raise already covers it.
+			r.log.Warn("record transaction out of gas at a gas factor already raised; it goes again with the current one",
+				"entries", entries, "tx_gas_factor", factor, "gas_factor", max(s.gasFactor, 1))
+			return
+		}
 		// The gas follows the entries and bytes of a batch, so a smaller batch alone does not get
 		// more gas per byte: halving helps only once the factor cannot grow.
-		if s.gasFactor >= maxGasFactor && entries > 1 {
+		if factor >= maxGasFactor && entries > 1 {
 			r.shrinkLocked(entries)
 		}
-		s.gasFactor = min(max(s.gasFactor, 1)*2, maxGasFactor)
+		s.gasFactor, s.gasWins = min(factor*2, maxGasFactor), 0
 		r.log.Error("record transaction out of gas; it goes again with more gas (raise dispatch.record_gas_per_byte)",
 			"entries", entries, "max_entries", s.maxEntries, "gas_factor", s.gasFactor)
 	case refusalFatal:
@@ -125,9 +139,11 @@ func (r *Recorder) stopLocked(height uint64, why string) {
 		"retry_height", r.sizing.stoppedUntil)
 }
 
-// succeeded takes the executed record transaction hash: the streak ends and lowered limits come
-// back by halves. A transaction counts once, whether its result or a dispatch_recorded event of an
-// entry it carries comes first.
+// succeeded takes the executed record transaction hash: the streak ends and a lowered entry cap
+// comes back by halves; the gas factor is halved once gasStepDownSuccesses transactions sent with
+// it succeeded in a row (one sent with another factor says nothing about the current one). A
+// transaction counts once, whether its result or a dispatch_recorded event of an entry it carries
+// comes first.
 func (r *Recorder) succeeded(hash string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,7 +152,8 @@ func (r *Recorder) succeeded(hash string) {
 
 // succeededLocked is succeeded with r.mu held.
 func (r *Recorder) succeededLocked(hash string) {
-	if tx := r.txs[hash]; tx != nil {
+	tx := r.txs[hash]
+	if tx != nil {
 		if tx.succeeded {
 			return
 		}
@@ -149,8 +166,10 @@ func (r *Recorder) succeededLocked(hash string) {
 			s.maxEntries = 0
 		}
 	}
-	if s.gasFactor > 1 {
-		s.gasFactor /= 2
+	if s.gasFactor > 1 && tx != nil && max(tx.GasFactor, 1) == s.gasFactor {
+		if s.gasWins++; s.gasWins >= gasStepDownSuccesses {
+			s.gasFactor, s.gasWins = s.gasFactor/2, 0
+		}
 	}
 }
 
