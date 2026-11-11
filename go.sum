@@ -442,8 +442,8 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
-github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-b3dcaa556f83 h1:qxlYudA6Tzjl/YJx0vIiP0gV5Cl48HID83htT/6w1oA=
-github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-b3dcaa556f83/go.mod h1:CHGgSYdH+0kK6yMcyk6obRVBX2r3wPvGzvlrudSPsgU=
+github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-8fca60413c82 h1:XaCT/qqNSuaaOmB0fnmjHBMGYBghwBmE+jW6QxBIwUY=
+github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-8fca60413c82/go.mod h1:CHGgSYdH+0kK6yMcyk6obRVBX2r3wPvGzvlrudSPsgU=
 github.com/zondax/golem v0.27.0 h1:IbBjGIXF3SoGOZHsILJvIM/F/ylwJzMcHAcggiqniPw=
 github.com/zondax/golem v0.27.0/go.mod h1:AmorCgJPt00L8xN1VrMBe13PSifoZksnQ1Ge906bu4A=
 github.com/zondax/hid v0.9.2 h1:WCJFnEDMiqGF64nlZz28E9qLVZ0KSJ7xpc5DLEyma2U=

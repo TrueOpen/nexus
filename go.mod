@@ -114,4 +114,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/TrueOpen/wire => github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-b3dcaa556f83
+replace github.com/TrueOpen/wire => github.com/yuqi19880516-ship-it/wire v0.5.2-0.20261111023910-8fca60413c82
