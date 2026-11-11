@@ -143,6 +143,26 @@ func (s *orderState) winner() *attemptState {
 	return nil
 }
 
+// skipSummary tells how the order's skipped attempts ended, for a failure reason: a caller
+// must be able to tell an order nobody answered in time from one the Workers rejected.
+// Unreachable counts the tickets that were never offered.
+func (s *orderState) skipSummary() string {
+	var timedOut, unreachable, rejected int
+	for i := range s.Rounds {
+		for j := range s.Rounds[i].Attempts {
+			switch a := &s.Rounds[i].Attempts[j]; {
+			case a.Outcome == outcomeRejected:
+				rejected++
+			case a.Outcome == outcomeTimeout && a.Sent:
+				timedOut++
+			case a.Outcome == outcomeTimeout:
+				unreachable++
+			}
+		}
+	}
+	return fmt.Sprintf("attempts: %d timed out, %d unreachable, %d rejected", timedOut, unreachable, rejected)
+}
+
 // attemptByHash finds the attempt of a ticket hash.
 func (s *orderState) attemptByHash(hash []byte) *attemptState {
 	for i := range s.Rounds {

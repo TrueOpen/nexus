@@ -119,14 +119,16 @@ dispatch:
   # may lag the Cortex by a few blocks).
   handraise_issued_height_tolerance_blocks: 3
   # Accept/reject wait of a dispatched ticket by the candidate's measured RTT; tiers increase in
-  # both values, an RTT above the last tier takes the last tier.
+  # both values, an RTT above the last tier takes the last tier. The wait covers the Worker's
+  # evaluation of the offer, not only the round trip; a Worker that answers after it counts as a
+  # skip. Every Builder of a network should run the same tiers.
   accept_timeout_ms_by_rtt_tier:
     - max_rtt_ms: 50
-      accept_timeout_ms: 300
+      accept_timeout_ms: 1500
     - max_rtt_ms: 150
-      accept_timeout_ms: 500
+      accept_timeout_ms: 2000
     - max_rtt_ms: 300
-      accept_timeout_ms: 800
+      accept_timeout_ms: 2500
   # Public RTT admission threshold: a handraise measured above it is not admitted and its root leaf
   # records the RTT. 0 admits every RTT.
   builder_rtt_admit_ms: 300

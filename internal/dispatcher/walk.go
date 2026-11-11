@@ -272,12 +272,12 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		}
 		params := d.params.Load()
 		if st.Skips > params.MaxSkips {
-			return d.fail(o, fmt.Errorf("%w: %d skips", dispatchdraw.ErrNoCapacity, st.Skips))
+			return d.fail(o, fmt.Errorf("%w: %d skips (%s)", dispatchdraw.ErrNoCapacity, st.Skips, st.skipSummary()))
 		}
 		cand, ok := o.draw.Next(o.roster, st.Cursor)
 		if !ok {
 			d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(len(o.draw.Members))-min(uint64(st.Cursor), uint64(len(o.draw.Members))))
-			return d.fail(o, fmt.Errorf("%w: no member of round %d left after rank %d", dispatchdraw.ErrNoCapacity, o.rosterRound, st.Cursor))
+			return d.fail(o, fmt.Errorf("%w: no member of round %d left after rank %d (%s)", dispatchdraw.ErrNoCapacity, o.rosterRound, st.Cursor, st.skipSummary()))
 		}
 		d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(cand.Rank-min(cand.Rank, st.Cursor)))
 		offered, err := d.issue(ctx, o, cand)

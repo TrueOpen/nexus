@@ -642,6 +642,7 @@ func (d *Dispatcher) exhaustedRetry(ctx context.Context, o types.Order, epoch di
 	failed := st.Phase == phaseFailed && st.Epoch != nil && st.Epoch.Number == epoch.Number
 	binding, stored := roundsBinding(st)
 	bound, members, cursor, skips := st.BoundChangeHeight, uint64(len(st.Members)), uint64(st.Cursor), st.Skips
+	summary := st.skipSummary()
 	prev.mu.Unlock()
 	if !failed || !stored {
 		return nil
@@ -653,9 +654,9 @@ func (d *Dispatcher) exhaustedRetry(ctx context.Context, o types.Order, epoch di
 	exhausted := &dispatchdraw.EpochExhaustedError{Epoch: epoch.Number}
 	switch maxSkips := d.params.Load().MaxSkips; {
 	case skips > maxSkips:
-		exhausted.Reason = fmt.Sprintf("the earlier attempts of the sequence took %d skips, past max_skips %d", skips, maxSkips)
+		exhausted.Reason = fmt.Sprintf("the earlier attempts of the sequence took %d skips, past max_skips %d (%s)", skips, maxSkips, summary)
 	case cursor >= members:
-		exhausted.Reason = fmt.Sprintf("no member of the order is left after rank %d of %d", cursor, members)
+		exhausted.Reason = fmt.Sprintf("no member of the order is left after rank %d of %d (%s)", cursor, members, summary)
 	default:
 		return nil
 	}

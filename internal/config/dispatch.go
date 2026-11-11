@@ -26,7 +26,10 @@ type DispatchConfig struct {
 	HandraiseRootIntervalMs uint64 `yaml:"handraise_root_interval_ms"`
 	// AcceptTimeoutMsByRTTTier is how long a dispatched ticket waits for an accept or reject, by
 	// the candidate's measured RTT. Tiers are ordered by MaxRTTMs; an RTT above the last tier
-	// takes the last tier.
+	// takes the last tier. The wait covers the Worker's evaluation of the offer, not only the
+	// round trip: the defaults leave it well over a second, since a Worker that answers after
+	// the deadline counts as a skip and an order whose every member timed out cannot be
+	// dispatched again before the next epoch.
 	AcceptTimeoutMsByRTTTier []RTTTierConfig `yaml:"accept_timeout_ms_by_rtt_tier"`
 	// BuilderRTTAdmitMs is this Builder's public RTT admission threshold: a standing handraise whose
 	// measured RTT exceeds it is not admitted and its root leaf carries the RTT. 0 admits every RTT.
@@ -79,9 +82,9 @@ func defaultDispatch() DispatchConfig {
 		HandraiseMinChangeIntervalMs: 500,
 		HandraiseRootIntervalMs:      500,
 		AcceptTimeoutMsByRTTTier: []RTTTierConfig{
-			{MaxRTTMs: 50, AcceptTimeoutMs: 300},
-			{MaxRTTMs: 150, AcceptTimeoutMs: 500},
-			{MaxRTTMs: 300, AcceptTimeoutMs: 800},
+			{MaxRTTMs: 50, AcceptTimeoutMs: 1500},
+			{MaxRTTMs: 150, AcceptTimeoutMs: 2000},
+			{MaxRTTMs: 300, AcceptTimeoutMs: 2500},
 		},
 		BuilderRTTAdmitMs:             300,
 		GPURejectRateThreshold:        0.5,
