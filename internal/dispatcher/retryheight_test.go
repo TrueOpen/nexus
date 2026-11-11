@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
@@ -40,7 +41,7 @@ func TestProbeRefusesARetryPastTheLastMember(t *testing.T) {
 	if exhausted.Epoch != testEpoch.Number || exhausted.RetryHeight != nextEpoch.ReferenceHeight {
 		t.Fatalf("exhausted = %+v", exhausted)
 	}
-	want := fmt.Sprintf("%v: epoch %d: no member of the order is left after rank 3 of 3; dispatchable_height=%d",
+	want := fmt.Sprintf("%v: epoch %d: no member of the order is left after rank 3 of 3 (attempts: 0 timed out, 0 unreachable, 3 rejected); dispatchable_height=%d",
 		dispatchdraw.ErrNoCapacity, testEpoch.Number, nextEpoch.ReferenceHeight)
 	if err.Error() != want {
 		t.Fatalf("probe = %q\nwant    %q", err, want)
@@ -52,6 +53,30 @@ func TestProbeRefusesARetryPastTheLastMember(t *testing.T) {
 	e.drawer.mu.Unlock()
 	if err := e.d.Probe(context.Background(), retry); err != nil {
 		t.Fatalf("probe in the next epoch = %v", err)
+	}
+}
+
+// The refusal tells an order nobody answered in time from one the Workers rejected: every member
+// of the order timed out here, and the reason says so.
+func TestProbeRetryRefusalNamesTimeouts(t *testing.T) {
+	e := newEnv(t)
+	e.d.SetParams(Params{MaxSkips: 10, Sticky: e.params.Sticky, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64})
+	s := e.session(0xaa, 0)
+	o := e.order(s, 0, 1)
+	e.dispatch(o)
+	e.reject()
+	for range 2 {
+		_, ticket, _ := e.lastOffer()
+		e.clock.advance(time.Duration(ticket.GetAcceptDeadlineMs()-uint64(e.clock.Now().UnixMilli())) * time.Millisecond)
+	}
+	if e.ledgerState(o) != inflight.StateFailed {
+		t.Fatal("not failed")
+	}
+	err := e.d.Probe(context.Background(), e.order(s, 0, 2))
+	want := fmt.Sprintf("%v: epoch %d: no member of the order is left after rank 3 of 3 (attempts: 2 timed out, 0 unreachable, 1 rejected); dispatchable_height=%d",
+		dispatchdraw.ErrNoCapacity, testEpoch.Number, nextEpoch.ReferenceHeight)
+	if err == nil || err.Error() != want {
+		t.Fatalf("probe = %v\nwant    %q", err, want)
 	}
 }
 
@@ -73,7 +98,7 @@ func TestProbeRefusesARetryPastMaxSkips(t *testing.T) {
 	if !errors.As(err, &exhausted) || exhausted.RetryHeight != nextEpoch.ReferenceHeight {
 		t.Fatalf("probe = %v", err)
 	}
-	want := fmt.Sprintf("%v: epoch %d: the earlier attempts of the sequence took 1 skips, past max_skips 0; dispatchable_height=%d",
+	want := fmt.Sprintf("%v: epoch %d: the earlier attempts of the sequence took 1 skips, past max_skips 0 (attempts: 0 timed out, 0 unreachable, 1 rejected); dispatchable_height=%d",
 		dispatchdraw.ErrNoCapacity, testEpoch.Number, nextEpoch.ReferenceHeight)
 	if err.Error() != want {
 		t.Fatalf("probe = %q\nwant    %q", err, want)
