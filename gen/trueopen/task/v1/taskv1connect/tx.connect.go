@@ -66,6 +66,11 @@ const (
 	// MsgRegisterAnchorVoteKeyProcedure is the fully-qualified name of the Msg's RegisterAnchorVoteKey
 	// RPC.
 	MsgRegisterAnchorVoteKeyProcedure = "/task.v1.Msg/RegisterAnchorVoteKey"
+	// MsgSealAnchorEpochProcedure is the fully-qualified name of the Msg's SealAnchorEpoch RPC.
+	MsgSealAnchorEpochProcedure = "/task.v1.Msg/SealAnchorEpoch"
+	// MsgSubmitAnchorContentVoteProcedure is the fully-qualified name of the Msg's
+	// SubmitAnchorContentVote RPC.
+	MsgSubmitAnchorContentVoteProcedure = "/task.v1.Msg/SubmitAnchorContentVote"
 	// MsgReportDataUnavailableProcedure is the fully-qualified name of the Msg's ReportDataUnavailable
 	// RPC.
 	MsgReportDataUnavailableProcedure = "/task.v1.Msg/ReportDataUnavailable"
@@ -152,6 +157,10 @@ type MsgClient interface {
 	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
 	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
 	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
+	// SealAnchorEpoch closes a Worker's B1 proving epoch and fixes its x beacon height (ADR-0040 v7).
+	SealAnchorEpoch(context.Context, *connect.Request[v1.MsgSealAnchorEpoch]) (*connect.Response[v1.MsgSealAnchorEpochResponse], error)
+	// SubmitAnchorContentVote records a bonded validator's content verdict (ADR-0040 v7).
+	SubmitAnchorContentVote(context.Context, *connect.Request[v1.MsgSubmitAnchorContentVote]) (*connect.Response[v1.MsgSubmitAnchorContentVoteResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -287,6 +296,18 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgRegisterAnchorVoteKeyProcedure,
 			connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
+			connect.WithClientOptions(opts...),
+		),
+		sealAnchorEpoch: connect.NewClient[v1.MsgSealAnchorEpoch, v1.MsgSealAnchorEpochResponse](
+			httpClient,
+			baseURL+MsgSealAnchorEpochProcedure,
+			connect.WithSchema(msgMethods.ByName("SealAnchorEpoch")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorContentVote: connect.NewClient[v1.MsgSubmitAnchorContentVote, v1.MsgSubmitAnchorContentVoteResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorContentVoteProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorContentVote")),
 			connect.WithClientOptions(opts...),
 		),
 		reportDataUnavailable: connect.NewClient[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse](
@@ -427,6 +448,8 @@ type msgClient struct {
 	submitAnchorAuditResult         *connect.Client[v1.MsgSubmitAnchorAuditResult, v1.MsgSubmitAnchorAuditResultResponse]
 	submitAnchorValidatorVote       *connect.Client[v1.MsgSubmitAnchorValidatorVote, v1.MsgSubmitAnchorValidatorVoteResponse]
 	registerAnchorVoteKey           *connect.Client[v1.MsgRegisterAnchorVoteKey, v1.MsgRegisterAnchorVoteKeyResponse]
+	sealAnchorEpoch                 *connect.Client[v1.MsgSealAnchorEpoch, v1.MsgSealAnchorEpochResponse]
+	submitAnchorContentVote         *connect.Client[v1.MsgSubmitAnchorContentVote, v1.MsgSubmitAnchorContentVoteResponse]
 	reportDataUnavailable           *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
 	submitBuilderEvidence           *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
 	submitVerifyCommit              *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
@@ -512,6 +535,16 @@ func (c *msgClient) SubmitAnchorValidatorVote(ctx context.Context, req *connect.
 // RegisterAnchorVoteKey calls task.v1.Msg.RegisterAnchorVoteKey.
 func (c *msgClient) RegisterAnchorVoteKey(ctx context.Context, req *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
 	return c.registerAnchorVoteKey.CallUnary(ctx, req)
+}
+
+// SealAnchorEpoch calls task.v1.Msg.SealAnchorEpoch.
+func (c *msgClient) SealAnchorEpoch(ctx context.Context, req *connect.Request[v1.MsgSealAnchorEpoch]) (*connect.Response[v1.MsgSealAnchorEpochResponse], error) {
+	return c.sealAnchorEpoch.CallUnary(ctx, req)
+}
+
+// SubmitAnchorContentVote calls task.v1.Msg.SubmitAnchorContentVote.
+func (c *msgClient) SubmitAnchorContentVote(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorContentVote]) (*connect.Response[v1.MsgSubmitAnchorContentVoteResponse], error) {
+	return c.submitAnchorContentVote.CallUnary(ctx, req)
 }
 
 // ReportDataUnavailable calls task.v1.Msg.ReportDataUnavailable.
@@ -646,6 +679,10 @@ type MsgHandler interface {
 	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
 	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
 	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
+	// SealAnchorEpoch closes a Worker's B1 proving epoch and fixes its x beacon height (ADR-0040 v7).
+	SealAnchorEpoch(context.Context, *connect.Request[v1.MsgSealAnchorEpoch]) (*connect.Response[v1.MsgSealAnchorEpochResponse], error)
+	// SubmitAnchorContentVote records a bonded validator's content verdict (ADR-0040 v7).
+	SubmitAnchorContentVote(context.Context, *connect.Request[v1.MsgSubmitAnchorContentVote]) (*connect.Response[v1.MsgSubmitAnchorContentVoteResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -777,6 +814,18 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgRegisterAnchorVoteKeyProcedure,
 		svc.RegisterAnchorVoteKey,
 		connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSealAnchorEpochHandler := connect.NewUnaryHandler(
+		MsgSealAnchorEpochProcedure,
+		svc.SealAnchorEpoch,
+		connect.WithSchema(msgMethods.ByName("SealAnchorEpoch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorContentVoteHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorContentVoteProcedure,
+		svc.SubmitAnchorContentVote,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorContentVote")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgReportDataUnavailableHandler := connect.NewUnaryHandler(
@@ -927,6 +976,10 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgSubmitAnchorValidatorVoteHandler.ServeHTTP(w, r)
 		case MsgRegisterAnchorVoteKeyProcedure:
 			msgRegisterAnchorVoteKeyHandler.ServeHTTP(w, r)
+		case MsgSealAnchorEpochProcedure:
+			msgSealAnchorEpochHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorContentVoteProcedure:
+			msgSubmitAnchorContentVoteHandler.ServeHTTP(w, r)
 		case MsgReportDataUnavailableProcedure:
 			msgReportDataUnavailableHandler.ServeHTTP(w, r)
 		case MsgSubmitBuilderEvidenceProcedure:
@@ -1026,6 +1079,14 @@ func (UnimplementedMsgHandler) SubmitAnchorValidatorVote(context.Context, *conne
 
 func (UnimplementedMsgHandler) RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RegisterAnchorVoteKey is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SealAnchorEpoch(context.Context, *connect.Request[v1.MsgSealAnchorEpoch]) (*connect.Response[v1.MsgSealAnchorEpochResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SealAnchorEpoch is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorContentVote(context.Context, *connect.Request[v1.MsgSubmitAnchorContentVote]) (*connect.Response[v1.MsgSubmitAnchorContentVoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorContentVote is not implemented"))
 }
 
 func (UnimplementedMsgHandler) ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error) {

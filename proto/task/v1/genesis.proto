@@ -102,6 +102,9 @@ message GenesisState {
   repeated AnchorAuditState anchor_audits = 94;
   repeated AnchorValidatorVoteState anchor_validator_votes = 95;
   repeated AnchorVoteKeyState anchor_vote_keys = 96;
+  // Anchor content votes and sealed B1 epochs (ADR-0040 v7).
+  repeated AnchorContentVoteState anchor_content_votes = 97;
+  repeated AnchorEpochState anchor_epochs = 98;
 }
 
 // TaskParamsHistoryState retains one superseded parameter body. Version zero

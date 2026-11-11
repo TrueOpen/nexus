@@ -51,6 +51,10 @@ service Msg {
   rpc SubmitAnchorValidatorVote(MsgSubmitAnchorValidatorVote) returns (MsgSubmitAnchorValidatorVoteResponse);
   // RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
   rpc RegisterAnchorVoteKey(MsgRegisterAnchorVoteKey) returns (MsgRegisterAnchorVoteKeyResponse);
+  // SealAnchorEpoch closes a Worker's B1 proving epoch and fixes its x beacon height (ADR-0040 v7).
+  rpc SealAnchorEpoch(MsgSealAnchorEpoch) returns (MsgSealAnchorEpochResponse);
+  // SubmitAnchorContentVote records a bonded validator's content verdict (ADR-0040 v7).
+  rpc SubmitAnchorContentVote(MsgSubmitAnchorContentVote) returns (MsgSubmitAnchorContentVoteResponse);
   // ReportDataUnavailable records one selected Verifier's data-availability report.
   rpc ReportDataUnavailable(MsgReportDataUnavailable) returns (MsgReportDataUnavailableResponse);
   // SubmitBuilderEvidence accepts one closed typed objective Builder proof.

@@ -42,6 +42,10 @@ service Query {
   rpc AnchorAuditsPending(QueryAnchorAuditsPendingRequest) returns (QueryAnchorAuditsPendingResponse);
   // AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
   rpc AnchorVoteKey(QueryAnchorVoteKeyRequest) returns (QueryAnchorVoteKeyResponse);
+  // AnchorEpoch returns one sealed B1 epoch and its x beacon (ADR-0040 v7).
+  rpc AnchorEpoch(QueryAnchorEpochRequest) returns (QueryAnchorEpochResponse);
+  // AnchorContentVotes returns the content votes and tally of one task's anchor audit (ADR-0040 v7).
+  rpc AnchorContentVotes(QueryAnchorContentVotesRequest) returns (QueryAnchorContentVotesResponse);
   // WorkerEvidence returns one compact objective-evidence receipt.
   rpc WorkerEvidence(QueryWorkerEvidenceRequest) returns (QueryWorkerEvidenceResponse);
   // VerifierValueEvidence pages accepted compact receipts, ordered by position.

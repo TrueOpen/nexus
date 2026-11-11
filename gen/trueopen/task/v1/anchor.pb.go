@@ -100,6 +100,10 @@ const (
 	// The receipt's commitments could not be sampled (malformed token commitment);
 	// the audit is final REJECT at sampling (ADR-0040 v6).
 	AnchorResultSourceV1_ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT AnchorResultSourceV1 = 4
+	// Content track only (ADR-0040 v7): the content verdict was closed without a vote
+	// because the compute verdict of the same audit is REJECT; the Worker is slashed
+	// once, by the compute track.
+	AnchorResultSourceV1_ANCHOR_RESULT_SOURCE_V1_COMPUTE_REJECTED AnchorResultSourceV1 = 5
 )
 
 // Enum value maps for AnchorResultSourceV1.
@@ -110,6 +114,7 @@ var (
 		2: "ANCHOR_RESULT_SOURCE_V1_VALIDATOR_VOTE",
 		3: "ANCHOR_RESULT_SOURCE_V1_TIMEOUT",
 		4: "ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT",
+		5: "ANCHOR_RESULT_SOURCE_V1_COMPUTE_REJECTED",
 	}
 	AnchorResultSourceV1_value = map[string]int32{
 		"ANCHOR_RESULT_SOURCE_V1_UNSPECIFIED":        0,
@@ -117,6 +122,7 @@ var (
 		"ANCHOR_RESULT_SOURCE_V1_VALIDATOR_VOTE":     2,
 		"ANCHOR_RESULT_SOURCE_V1_TIMEOUT":            3,
 		"ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT": 4,
+		"ANCHOR_RESULT_SOURCE_V1_COMPUTE_REJECTED":   5,
 	}
 )
 
@@ -145,6 +151,68 @@ func (x AnchorResultSourceV1) Number() protoreflect.EnumNumber {
 // Deprecated: Use AnchorResultSourceV1.Descriptor instead.
 func (AnchorResultSourceV1) EnumDescriptor() ([]byte, []int) {
 	return file_task_v1_anchor_proto_rawDescGZIP(), []int{1}
+}
+
+// AnchorContentVerdictV1 is the content-integrity verdict of an anchor audit
+// (ADR-0040 v7, B1 gradient certification): whether the committed trajectory is
+// the registered model's own decoding, judged by the direction statistic z on
+// gradients certified with beacon rows Y_x = x * W. It is a separate track from
+// the compute verdict (AnchorVerdictV1) with its own deadline, tally and slash.
+type AnchorContentVerdictV1 int32
+
+const (
+	// ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED identifies the corresponding protocol value.
+	AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED AnchorContentVerdictV1 = 0
+	// Every certified gradient identity, glue VJP and direction statistic holds.
+	AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_PASS AnchorContentVerdictV1 = 1
+	// The content check failed (or the Worker withheld the B1 material it owed):
+	// the Worker's bond D is slashed by anchor_content_reject_slash_bps and it is jailed.
+	AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_REJECT_CONTENT AnchorContentVerdictV1 = 2
+	// The validators could not judge; never attributable to the Worker, nothing is slashed.
+	AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_NO_VERDICT AnchorContentVerdictV1 = 3
+)
+
+// Enum value maps for AnchorContentVerdictV1.
+var (
+	AnchorContentVerdictV1_name = map[int32]string{
+		0: "ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED",
+		1: "ANCHOR_CONTENT_VERDICT_V1_PASS",
+		2: "ANCHOR_CONTENT_VERDICT_V1_REJECT_CONTENT",
+		3: "ANCHOR_CONTENT_VERDICT_V1_NO_VERDICT",
+	}
+	AnchorContentVerdictV1_value = map[string]int32{
+		"ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED":    0,
+		"ANCHOR_CONTENT_VERDICT_V1_PASS":           1,
+		"ANCHOR_CONTENT_VERDICT_V1_REJECT_CONTENT": 2,
+		"ANCHOR_CONTENT_VERDICT_V1_NO_VERDICT":     3,
+	}
+)
+
+func (x AnchorContentVerdictV1) Enum() *AnchorContentVerdictV1 {
+	p := new(AnchorContentVerdictV1)
+	*p = x
+	return p
+}
+
+func (x AnchorContentVerdictV1) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AnchorContentVerdictV1) Descriptor() protoreflect.EnumDescriptor {
+	return file_task_v1_anchor_proto_enumTypes[2].Descriptor()
+}
+
+func (AnchorContentVerdictV1) Type() protoreflect.EnumType {
+	return &file_task_v1_anchor_proto_enumTypes[2]
+}
+
+func (x AnchorContentVerdictV1) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AnchorContentVerdictV1.Descriptor instead.
+func (AnchorContentVerdictV1) EnumDescriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{2}
 }
 
 // AnchorPositionVerdictV1 is the auditor's verdict on one sampled position.
@@ -210,6 +278,80 @@ func (x *AnchorPositionVerdictV1) GetReason() string {
 	return ""
 }
 
+// AnchorContentPositionVerdictV1 is one validator's content verdict on one sampled position.
+type AnchorContentPositionVerdictV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// position is the sampled row.
+	Position uint64 `protobuf:"varint,1,opt,name=position,proto3" json:"position,omitempty"`
+	// verdict is the content verdict at the position.
+	Verdict AnchorContentVerdictV1 `protobuf:"varint,2,opt,name=verdict,proto3,enum=task.v1.AnchorContentVerdictV1" json:"verdict,omitempty"`
+	// z_micro is the direction statistic z times 10^6 (informational; the input of the
+	// cross-task CUSUM of AnchorWorkerCusumState once it is enforced).
+	ZMicro int64 `protobuf:"zigzag64,3,opt,name=z_micro,json=zMicro,proto3" json:"z_micro,omitempty"`
+	// reason is a short diagnostic; informational, not consensus.
+	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnchorContentPositionVerdictV1) Reset() {
+	*x = AnchorContentPositionVerdictV1{}
+	mi := &file_task_v1_anchor_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnchorContentPositionVerdictV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnchorContentPositionVerdictV1) ProtoMessage() {}
+
+func (x *AnchorContentPositionVerdictV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnchorContentPositionVerdictV1.ProtoReflect.Descriptor instead.
+func (*AnchorContentPositionVerdictV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AnchorContentPositionVerdictV1) GetPosition() uint64 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *AnchorContentPositionVerdictV1) GetVerdict() AnchorContentVerdictV1 {
+	if x != nil {
+		return x.Verdict
+	}
+	return AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *AnchorContentPositionVerdictV1) GetZMicro() int64 {
+	if x != nil {
+		return x.ZMicro
+	}
+	return 0
+}
+
+func (x *AnchorContentPositionVerdictV1) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 // AnchorVoteTallyV1 is the running validator-vote tally of one anchor audit, in
 // units of staking voting power as of the last validator-set update.
 type AnchorVoteTallyV1 struct {
@@ -230,7 +372,7 @@ type AnchorVoteTallyV1 struct {
 
 func (x *AnchorVoteTallyV1) Reset() {
 	*x = AnchorVoteTallyV1{}
-	mi := &file_task_v1_anchor_proto_msgTypes[1]
+	mi := &file_task_v1_anchor_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -242,7 +384,7 @@ func (x *AnchorVoteTallyV1) String() string {
 func (*AnchorVoteTallyV1) ProtoMessage() {}
 
 func (x *AnchorVoteTallyV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[1]
+	mi := &file_task_v1_anchor_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -255,7 +397,7 @@ func (x *AnchorVoteTallyV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnchorVoteTallyV1.ProtoReflect.Descriptor instead.
 func (*AnchorVoteTallyV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{1}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AnchorVoteTallyV1) GetPassPower() uint64 {
@@ -310,7 +452,7 @@ type AnchorValidatorVoteState struct {
 
 func (x *AnchorValidatorVoteState) Reset() {
 	*x = AnchorValidatorVoteState{}
-	mi := &file_task_v1_anchor_proto_msgTypes[2]
+	mi := &file_task_v1_anchor_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -322,7 +464,7 @@ func (x *AnchorValidatorVoteState) String() string {
 func (*AnchorValidatorVoteState) ProtoMessage() {}
 
 func (x *AnchorValidatorVoteState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[2]
+	mi := &file_task_v1_anchor_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -335,7 +477,7 @@ func (x *AnchorValidatorVoteState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnchorValidatorVoteState.ProtoReflect.Descriptor instead.
 func (*AnchorValidatorVoteState) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{2}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AnchorValidatorVoteState) GetTaskId() []byte {
@@ -465,13 +607,47 @@ type AnchorAuditState struct {
 	EpochManifestHash []byte `protobuf:"bytes,33,opt,name=epoch_manifest_hash,json=epochManifestHash,proto3" json:"epoch_manifest_hash,omitempty"`
 	// epoch_manifest_uri locates the epoch manifest in DA.
 	EpochManifestUri string `protobuf:"bytes,34,opt,name=epoch_manifest_uri,json=epochManifestUri,proto3" json:"epoch_manifest_uri,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Height by which the content verdict must be final; zero when the audit has no content
+	// track (anchor_content_verdict_window_blocks was zero at sampling). Fixed at sampling as
+	// verdict_deadline_height + anchor_content_verdict_window_blocks.
+	ContentVerdictDeadlineHeight uint64 `protobuf:"varint,35,opt,name=content_verdict_deadline_height,json=contentVerdictDeadlineHeight,proto3" json:"content_verdict_deadline_height,omitempty"`
+	// content_verdict is the final content verdict (UNSPECIFIED while open).
+	ContentVerdict AnchorContentVerdictV1 `protobuf:"varint,36,opt,name=content_verdict,json=contentVerdict,proto3,enum=task.v1.AnchorContentVerdictV1" json:"content_verdict,omitempty"`
+	// content_result_source names who finalized the content verdict.
+	ContentResultSource AnchorResultSourceV1 `protobuf:"varint,37,opt,name=content_result_source,json=contentResultSource,proto3,enum=task.v1.AnchorResultSourceV1" json:"content_result_source,omitempty"`
+	// content_result_height is when the content verdict became final (zero while open).
+	ContentResultHeight uint64 `protobuf:"varint,38,opt,name=content_result_height,json=contentResultHeight,proto3" json:"content_result_height,omitempty"`
+	// content_tally is the running content-vote tally (AnchorVoteTallyV1.reject_power counts
+	// REJECT_CONTENT).
+	ContentTally *AnchorVoteTallyV1 `protobuf:"bytes,39,opt,name=content_tally,json=contentTally,proto3" json:"content_tally,omitempty"`
+	// content_result_reason is a short diagnostic of the final content verdict.
+	ContentResultReason string `protobuf:"bytes,40,opt,name=content_result_reason,json=contentResultReason,proto3" json:"content_result_reason,omitempty"`
+	// Role-fault id of the content slash (anchor_content_reject).
+	ContentWorkerFaultId []byte `protobuf:"bytes,41,opt,name=content_worker_fault_id,json=contentWorkerFaultId,proto3" json:"content_worker_fault_id,omitempty"`
+	// Opening-set freeze height of this task's B1 epoch: the height of the MsgSealAnchorEpoch
+	// that fixed the epoch's members (zero: unsealed). No opening is accepted for a sealed task
+	// at or after x_beacon_height, and no task can join a sealed epoch.
+	EpochSealHeight uint64 `protobuf:"varint,42,opt,name=epoch_seal_height,json=epochSealHeight,proto3" json:"epoch_seal_height,omitempty"`
+	// B1 beacon height of the epoch: open freeze (seal) height + 1, which is always above the
+	// highest opening height of the epoch's tasks. Every opening of the epoch (with its g and
+	// v_int rows) is on chain before it.
+	XBeaconHeight uint64 `protobuf:"varint,43,opt,name=x_beacon_height,json=xBeaconHeight,proto3" json:"x_beacon_height,omitempty"`
+	// x_beacon is the chain beacon randomness at x_beacon_height (the hub beacon that also
+	// drives verifier selection: proposer VRF, or the block-hash placeholder before VRF is
+	// required), recorded with the Worker's proof. Off chain, x is derived from (chain_id,
+	// epoch_manifest_hash, x_beacon, module key, row index).
+	XBeacon []byte `protobuf:"bytes,44,opt,name=x_beacon,json=xBeacon,proto3" json:"x_beacon,omitempty"`
+	// worker_proof_x_bound is true when the recorded proof declared Y_x rows bound to x_beacon_height.
+	WorkerProofXBound bool `protobuf:"varint,45,opt,name=worker_proof_x_bound,json=workerProofXBound,proto3" json:"worker_proof_x_bound,omitempty"`
+	// content_verdicts are the per-position content verdicts of the deciding side.
+	ContentVerdicts []*AnchorContentPositionVerdictV1 `protobuf:"bytes,46,rep,name=content_verdicts,json=contentVerdicts,proto3" json:"content_verdicts,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AnchorAuditState) Reset() {
 	*x = AnchorAuditState{}
-	mi := &file_task_v1_anchor_proto_msgTypes[3]
+	mi := &file_task_v1_anchor_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +659,7 @@ func (x *AnchorAuditState) String() string {
 func (*AnchorAuditState) ProtoMessage() {}
 
 func (x *AnchorAuditState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[3]
+	mi := &file_task_v1_anchor_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +672,7 @@ func (x *AnchorAuditState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnchorAuditState.ProtoReflect.Descriptor instead.
 func (*AnchorAuditState) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{3}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AnchorAuditState) GetTaskId() []byte {
@@ -737,6 +913,411 @@ func (x *AnchorAuditState) GetEpochManifestUri() string {
 	return ""
 }
 
+func (x *AnchorAuditState) GetContentVerdictDeadlineHeight() uint64 {
+	if x != nil {
+		return x.ContentVerdictDeadlineHeight
+	}
+	return 0
+}
+
+func (x *AnchorAuditState) GetContentVerdict() AnchorContentVerdictV1 {
+	if x != nil {
+		return x.ContentVerdict
+	}
+	return AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *AnchorAuditState) GetContentResultSource() AnchorResultSourceV1 {
+	if x != nil {
+		return x.ContentResultSource
+	}
+	return AnchorResultSourceV1_ANCHOR_RESULT_SOURCE_V1_UNSPECIFIED
+}
+
+func (x *AnchorAuditState) GetContentResultHeight() uint64 {
+	if x != nil {
+		return x.ContentResultHeight
+	}
+	return 0
+}
+
+func (x *AnchorAuditState) GetContentTally() *AnchorVoteTallyV1 {
+	if x != nil {
+		return x.ContentTally
+	}
+	return nil
+}
+
+func (x *AnchorAuditState) GetContentResultReason() string {
+	if x != nil {
+		return x.ContentResultReason
+	}
+	return ""
+}
+
+func (x *AnchorAuditState) GetContentWorkerFaultId() []byte {
+	if x != nil {
+		return x.ContentWorkerFaultId
+	}
+	return nil
+}
+
+func (x *AnchorAuditState) GetEpochSealHeight() uint64 {
+	if x != nil {
+		return x.EpochSealHeight
+	}
+	return 0
+}
+
+func (x *AnchorAuditState) GetXBeaconHeight() uint64 {
+	if x != nil {
+		return x.XBeaconHeight
+	}
+	return 0
+}
+
+func (x *AnchorAuditState) GetXBeacon() []byte {
+	if x != nil {
+		return x.XBeacon
+	}
+	return nil
+}
+
+func (x *AnchorAuditState) GetWorkerProofXBound() bool {
+	if x != nil {
+		return x.WorkerProofXBound
+	}
+	return false
+}
+
+func (x *AnchorAuditState) GetContentVerdicts() []*AnchorContentPositionVerdictV1 {
+	if x != nil {
+		return x.ContentVerdicts
+	}
+	return nil
+}
+
+// AnchorContentVoteState is one bonded validator's content vote on a Worker's anchor proof
+// (ADR-0040 v7). Separate from AnchorValidatorVoteState: a validator votes once per track.
+type AnchorContentVoteState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// task_id names the audit.
+	TaskId []byte `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// validator_operator_address is the voting validator.
+	ValidatorOperatorAddress string `protobuf:"bytes,2,opt,name=validator_operator_address,json=validatorOperatorAddress,proto3" json:"validator_operator_address,omitempty"`
+	// voter_address signed the vote (operator account or registered vote address).
+	VoterAddress string `protobuf:"bytes,3,opt,name=voter_address,json=voterAddress,proto3" json:"voter_address,omitempty"`
+	// verdict is the validator's content verdict.
+	Verdict AnchorContentVerdictV1 `protobuf:"varint,4,opt,name=verdict,proto3,enum=task.v1.AnchorContentVerdictV1" json:"verdict,omitempty"`
+	// proof_hash is the Worker proof the validator checked.
+	ProofHash []byte `protobuf:"bytes,5,opt,name=proof_hash,json=proofHash,proto3" json:"proof_hash,omitempty"`
+	// x_beacon is the B1 beacon the validator checked the Y_x rows against.
+	XBeacon []byte `protobuf:"bytes,6,opt,name=x_beacon,json=xBeacon,proto3" json:"x_beacon,omitempty"`
+	// height is when the vote was recorded.
+	Height uint64 `protobuf:"varint,7,opt,name=height,proto3" json:"height,omitempty"`
+	// power is the validator's last voting power at the vote.
+	Power uint64 `protobuf:"varint,8,opt,name=power,proto3" json:"power,omitempty"`
+	// verdicts are the per-position content verdicts.
+	Verdicts      []*AnchorContentPositionVerdictV1 `protobuf:"bytes,9,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnchorContentVoteState) Reset() {
+	*x = AnchorContentVoteState{}
+	mi := &file_task_v1_anchor_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnchorContentVoteState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnchorContentVoteState) ProtoMessage() {}
+
+func (x *AnchorContentVoteState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnchorContentVoteState.ProtoReflect.Descriptor instead.
+func (*AnchorContentVoteState) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AnchorContentVoteState) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *AnchorContentVoteState) GetValidatorOperatorAddress() string {
+	if x != nil {
+		return x.ValidatorOperatorAddress
+	}
+	return ""
+}
+
+func (x *AnchorContentVoteState) GetVoterAddress() string {
+	if x != nil {
+		return x.VoterAddress
+	}
+	return ""
+}
+
+func (x *AnchorContentVoteState) GetVerdict() AnchorContentVerdictV1 {
+	if x != nil {
+		return x.Verdict
+	}
+	return AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *AnchorContentVoteState) GetProofHash() []byte {
+	if x != nil {
+		return x.ProofHash
+	}
+	return nil
+}
+
+func (x *AnchorContentVoteState) GetXBeacon() []byte {
+	if x != nil {
+		return x.XBeacon
+	}
+	return nil
+}
+
+func (x *AnchorContentVoteState) GetHeight() uint64 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *AnchorContentVoteState) GetPower() uint64 {
+	if x != nil {
+		return x.Power
+	}
+	return 0
+}
+
+func (x *AnchorContentVoteState) GetVerdicts() []*AnchorContentPositionVerdictV1 {
+	if x != nil {
+		return x.Verdicts
+	}
+	return nil
+}
+
+// AnchorEpochState is a Worker's sealed B1 proving epoch (ADR-0040 v7), keyed by its epoch
+// manifest hash. Sealing freezes the epoch's opening set; the x beacon comes from the block
+// after the freeze, so neither the openings (with their g and v_int rows) nor the membership
+// can depend on x.
+type AnchorEpochState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// epoch_manifest_hash is sha256 of the canonical epoch manifest; it is the epoch id.
+	EpochManifestHash []byte `protobuf:"bytes,1,opt,name=epoch_manifest_hash,json=epochManifestHash,proto3" json:"epoch_manifest_hash,omitempty"`
+	// worker is the winner Worker operator of every member task.
+	Worker string `protobuf:"bytes,2,opt,name=worker,proto3" json:"worker,omitempty"`
+	// task_ids lists the member tasks, strictly ascending.
+	TaskIds [][]byte `protobuf:"bytes,3,rep,name=task_ids,json=taskIds,proto3" json:"task_ids,omitempty"`
+	// max_opening_height is the highest opening height among the members.
+	MaxOpeningHeight uint64 `protobuf:"varint,4,opt,name=max_opening_height,json=maxOpeningHeight,proto3" json:"max_opening_height,omitempty"`
+	// seal_height is the opening-set freeze height (the height of the MsgSealAnchorEpoch).
+	SealHeight uint64 `protobuf:"varint,5,opt,name=seal_height,json=sealHeight,proto3" json:"seal_height,omitempty"`
+	// x_beacon_height = seal_height + 1 (> max_opening_height).
+	XBeaconHeight uint64 `protobuf:"varint,6,opt,name=x_beacon_height,json=xBeaconHeight,proto3" json:"x_beacon_height,omitempty"`
+	// x_beacon is the chain beacon randomness at x_beacon_height (see AnchorAuditState.x_beacon);
+	// empty until the first member proof records it. QueryAnchorEpoch returns it as soon as the
+	// height exists.
+	XBeacon       []byte `protobuf:"bytes,7,opt,name=x_beacon,json=xBeacon,proto3" json:"x_beacon,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnchorEpochState) Reset() {
+	*x = AnchorEpochState{}
+	mi := &file_task_v1_anchor_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnchorEpochState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnchorEpochState) ProtoMessage() {}
+
+func (x *AnchorEpochState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnchorEpochState.ProtoReflect.Descriptor instead.
+func (*AnchorEpochState) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *AnchorEpochState) GetEpochManifestHash() []byte {
+	if x != nil {
+		return x.EpochManifestHash
+	}
+	return nil
+}
+
+func (x *AnchorEpochState) GetWorker() string {
+	if x != nil {
+		return x.Worker
+	}
+	return ""
+}
+
+func (x *AnchorEpochState) GetTaskIds() [][]byte {
+	if x != nil {
+		return x.TaskIds
+	}
+	return nil
+}
+
+func (x *AnchorEpochState) GetMaxOpeningHeight() uint64 {
+	if x != nil {
+		return x.MaxOpeningHeight
+	}
+	return 0
+}
+
+func (x *AnchorEpochState) GetSealHeight() uint64 {
+	if x != nil {
+		return x.SealHeight
+	}
+	return 0
+}
+
+func (x *AnchorEpochState) GetXBeaconHeight() uint64 {
+	if x != nil {
+		return x.XBeaconHeight
+	}
+	return 0
+}
+
+func (x *AnchorEpochState) GetXBeacon() []byte {
+	if x != nil {
+		return x.XBeacon
+	}
+	return nil
+}
+
+// AnchorWorkerCusumState is the specified (not yet enforced) cross-task CUSUM of one Worker's
+// direction statistic (ADR-0040 v7 spec, enforcement planned for v8). For every final content
+// verdict the chain would take the per-position z of the deciding side (median over the
+// validators of that side), and update S <- max(0, S + z - k) with reference value k
+// (calibrated on the honest z distribution, which must be zero-mean); S >= h raises an alarm
+// that jails the Worker pending a full re-audit. Detects a Worker that keeps every single
+// position under the per-position threshold but shifts the mean (noise-filled cheap decoding).
+type AnchorWorkerCusumState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// worker is the Worker operator.
+	Worker string `protobuf:"bytes,1,opt,name=worker,proto3" json:"worker,omitempty"`
+	// statistic_micro is S times 10^6.
+	StatisticMicro int64 `protobuf:"varint,2,opt,name=statistic_micro,json=statisticMicro,proto3" json:"statistic_micro,omitempty"`
+	// samples counts the positions folded into S.
+	Samples uint64 `protobuf:"varint,3,opt,name=samples,proto3" json:"samples,omitempty"`
+	// last_task_id is the last audit folded in.
+	LastTaskId []byte `protobuf:"bytes,4,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"`
+	// last_update_height is when S last changed.
+	LastUpdateHeight uint64 `protobuf:"varint,5,opt,name=last_update_height,json=lastUpdateHeight,proto3" json:"last_update_height,omitempty"`
+	// alarm_height is the height S first crossed h (zero: no alarm).
+	AlarmHeight   uint64 `protobuf:"varint,6,opt,name=alarm_height,json=alarmHeight,proto3" json:"alarm_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnchorWorkerCusumState) Reset() {
+	*x = AnchorWorkerCusumState{}
+	mi := &file_task_v1_anchor_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnchorWorkerCusumState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnchorWorkerCusumState) ProtoMessage() {}
+
+func (x *AnchorWorkerCusumState) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnchorWorkerCusumState.ProtoReflect.Descriptor instead.
+func (*AnchorWorkerCusumState) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AnchorWorkerCusumState) GetWorker() string {
+	if x != nil {
+		return x.Worker
+	}
+	return ""
+}
+
+func (x *AnchorWorkerCusumState) GetStatisticMicro() int64 {
+	if x != nil {
+		return x.StatisticMicro
+	}
+	return 0
+}
+
+func (x *AnchorWorkerCusumState) GetSamples() uint64 {
+	if x != nil {
+		return x.Samples
+	}
+	return 0
+}
+
+func (x *AnchorWorkerCusumState) GetLastTaskId() []byte {
+	if x != nil {
+		return x.LastTaskId
+	}
+	return nil
+}
+
+func (x *AnchorWorkerCusumState) GetLastUpdateHeight() uint64 {
+	if x != nil {
+		return x.LastUpdateHeight
+	}
+	return 0
+}
+
+func (x *AnchorWorkerCusumState) GetAlarmHeight() uint64 {
+	if x != nil {
+		return x.AlarmHeight
+	}
+	return 0
+}
+
 // AnchorVoteKeyState delegates anchor votes of one validator to a hot vote address,
 // so the operator key can stay offline (ADR-0040 v6).
 type AnchorVoteKeyState struct {
@@ -753,7 +1334,7 @@ type AnchorVoteKeyState struct {
 
 func (x *AnchorVoteKeyState) Reset() {
 	*x = AnchorVoteKeyState{}
-	mi := &file_task_v1_anchor_proto_msgTypes[4]
+	mi := &file_task_v1_anchor_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -765,7 +1346,7 @@ func (x *AnchorVoteKeyState) String() string {
 func (*AnchorVoteKeyState) ProtoMessage() {}
 
 func (x *AnchorVoteKeyState) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[4]
+	mi := &file_task_v1_anchor_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -778,7 +1359,7 @@ func (x *AnchorVoteKeyState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnchorVoteKeyState.ProtoReflect.Descriptor instead.
 func (*AnchorVoteKeyState) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{4}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AnchorVoteKeyState) GetValidatorOperatorAddress() string {
@@ -822,7 +1403,7 @@ type MsgSubmitAnchorOpening struct {
 
 func (x *MsgSubmitAnchorOpening) Reset() {
 	*x = MsgSubmitAnchorOpening{}
-	mi := &file_task_v1_anchor_proto_msgTypes[5]
+	mi := &file_task_v1_anchor_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -834,7 +1415,7 @@ func (x *MsgSubmitAnchorOpening) String() string {
 func (*MsgSubmitAnchorOpening) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorOpening) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[5]
+	mi := &file_task_v1_anchor_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -847,7 +1428,7 @@ func (x *MsgSubmitAnchorOpening) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorOpening.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorOpening) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MsgSubmitAnchorOpening) GetTaskId() []byte {
@@ -909,7 +1490,7 @@ type MsgSubmitAnchorOpeningResponse struct {
 
 func (x *MsgSubmitAnchorOpeningResponse) Reset() {
 	*x = MsgSubmitAnchorOpeningResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[6]
+	mi := &file_task_v1_anchor_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +1502,7 @@ func (x *MsgSubmitAnchorOpeningResponse) String() string {
 func (*MsgSubmitAnchorOpeningResponse) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorOpeningResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[6]
+	mi := &file_task_v1_anchor_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +1515,7 @@ func (x *MsgSubmitAnchorOpeningResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorOpeningResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorOpeningResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{6}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MsgSubmitAnchorOpeningResponse) GetStatus() v1.MutationStatusV1 {
@@ -960,13 +1541,17 @@ type MsgSubmitAnchorProof struct {
 	EpochManifestHash []byte `protobuf:"bytes,7,opt,name=epoch_manifest_hash,json=epochManifestHash,proto3" json:"epoch_manifest_hash,omitempty"`
 	// epoch_manifest_uri locates the epoch manifest in DA.
 	EpochManifestUri string `protobuf:"bytes,8,opt,name=epoch_manifest_uri,json=epochManifestUri,proto3" json:"epoch_manifest_uri,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// x_beacon_height declares that the proof contains the B1 beacon rows Y_x = x * W of the
+	// sealed epoch (ADR-0040 v7). It must equal the task's recorded x_beacon_height and the
+	// chain must have reached it; zero declares a compute-only proof without Y_x rows.
+	XBeaconHeight uint64 `protobuf:"varint,9,opt,name=x_beacon_height,json=xBeaconHeight,proto3" json:"x_beacon_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MsgSubmitAnchorProof) Reset() {
 	*x = MsgSubmitAnchorProof{}
-	mi := &file_task_v1_anchor_proto_msgTypes[7]
+	mi := &file_task_v1_anchor_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -978,7 +1563,7 @@ func (x *MsgSubmitAnchorProof) String() string {
 func (*MsgSubmitAnchorProof) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorProof) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[7]
+	mi := &file_task_v1_anchor_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -991,7 +1576,7 @@ func (x *MsgSubmitAnchorProof) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorProof.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorProof) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{7}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MsgSubmitAnchorProof) GetTaskId() []byte {
@@ -1050,6 +1635,13 @@ func (x *MsgSubmitAnchorProof) GetEpochManifestUri() string {
 	return ""
 }
 
+func (x *MsgSubmitAnchorProof) GetXBeaconHeight() uint64 {
+	if x != nil {
+		return x.XBeaconHeight
+	}
+	return 0
+}
+
 // MsgSubmitAnchorProofResponse defines the MsgSubmitAnchorProofResponse wire type.
 type MsgSubmitAnchorProofResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1060,7 +1652,7 @@ type MsgSubmitAnchorProofResponse struct {
 
 func (x *MsgSubmitAnchorProofResponse) Reset() {
 	*x = MsgSubmitAnchorProofResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[8]
+	mi := &file_task_v1_anchor_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1664,7 @@ func (x *MsgSubmitAnchorProofResponse) String() string {
 func (*MsgSubmitAnchorProofResponse) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorProofResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[8]
+	mi := &file_task_v1_anchor_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1677,7 @@ func (x *MsgSubmitAnchorProofResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorProofResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorProofResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{8}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MsgSubmitAnchorProofResponse) GetStatus() v1.MutationStatusV1 {
@@ -1112,7 +1704,7 @@ type MsgSubmitAnchorAuditResult struct {
 
 func (x *MsgSubmitAnchorAuditResult) Reset() {
 	*x = MsgSubmitAnchorAuditResult{}
-	mi := &file_task_v1_anchor_proto_msgTypes[9]
+	mi := &file_task_v1_anchor_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1124,7 +1716,7 @@ func (x *MsgSubmitAnchorAuditResult) String() string {
 func (*MsgSubmitAnchorAuditResult) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorAuditResult) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[9]
+	mi := &file_task_v1_anchor_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1137,7 +1729,7 @@ func (x *MsgSubmitAnchorAuditResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorAuditResult.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorAuditResult) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MsgSubmitAnchorAuditResult) GetTaskId() []byte {
@@ -1186,7 +1778,7 @@ type MsgSubmitAnchorAuditResultResponse struct {
 
 func (x *MsgSubmitAnchorAuditResultResponse) Reset() {
 	*x = MsgSubmitAnchorAuditResultResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[10]
+	mi := &file_task_v1_anchor_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1198,7 +1790,7 @@ func (x *MsgSubmitAnchorAuditResultResponse) String() string {
 func (*MsgSubmitAnchorAuditResultResponse) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorAuditResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[10]
+	mi := &file_task_v1_anchor_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1211,7 +1803,7 @@ func (x *MsgSubmitAnchorAuditResultResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MsgSubmitAnchorAuditResultResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorAuditResultResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{10}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MsgSubmitAnchorAuditResultResponse) GetTaskVerdict() AnchorVerdictV1 {
@@ -1247,7 +1839,7 @@ type MsgSubmitAnchorValidatorVote struct {
 
 func (x *MsgSubmitAnchorValidatorVote) Reset() {
 	*x = MsgSubmitAnchorValidatorVote{}
-	mi := &file_task_v1_anchor_proto_msgTypes[11]
+	mi := &file_task_v1_anchor_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1851,7 @@ func (x *MsgSubmitAnchorValidatorVote) String() string {
 func (*MsgSubmitAnchorValidatorVote) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorValidatorVote) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[11]
+	mi := &file_task_v1_anchor_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1864,7 @@ func (x *MsgSubmitAnchorValidatorVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgSubmitAnchorValidatorVote.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorValidatorVote) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{11}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MsgSubmitAnchorValidatorVote) GetTaskId() []byte {
@@ -1341,7 +1933,7 @@ type MsgSubmitAnchorValidatorVoteResponse struct {
 
 func (x *MsgSubmitAnchorValidatorVoteResponse) Reset() {
 	*x = MsgSubmitAnchorValidatorVoteResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[12]
+	mi := &file_task_v1_anchor_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1353,7 +1945,7 @@ func (x *MsgSubmitAnchorValidatorVoteResponse) String() string {
 func (*MsgSubmitAnchorValidatorVoteResponse) ProtoMessage() {}
 
 func (x *MsgSubmitAnchorValidatorVoteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[12]
+	mi := &file_task_v1_anchor_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1366,7 +1958,7 @@ func (x *MsgSubmitAnchorValidatorVoteResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use MsgSubmitAnchorValidatorVoteResponse.ProtoReflect.Descriptor instead.
 func (*MsgSubmitAnchorValidatorVoteResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{12}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MsgSubmitAnchorValidatorVoteResponse) GetTaskVerdict() AnchorVerdictV1 {
@@ -1411,7 +2003,7 @@ type MsgRegisterAnchorVoteKey struct {
 
 func (x *MsgRegisterAnchorVoteKey) Reset() {
 	*x = MsgRegisterAnchorVoteKey{}
-	mi := &file_task_v1_anchor_proto_msgTypes[13]
+	mi := &file_task_v1_anchor_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1423,7 +2015,7 @@ func (x *MsgRegisterAnchorVoteKey) String() string {
 func (*MsgRegisterAnchorVoteKey) ProtoMessage() {}
 
 func (x *MsgRegisterAnchorVoteKey) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[13]
+	mi := &file_task_v1_anchor_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1436,7 +2028,7 @@ func (x *MsgRegisterAnchorVoteKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgRegisterAnchorVoteKey.ProtoReflect.Descriptor instead.
 func (*MsgRegisterAnchorVoteKey) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{13}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MsgRegisterAnchorVoteKey) GetValidatorOperatorAddress() string {
@@ -1470,7 +2062,7 @@ type MsgRegisterAnchorVoteKeyResponse struct {
 
 func (x *MsgRegisterAnchorVoteKeyResponse) Reset() {
 	*x = MsgRegisterAnchorVoteKeyResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[14]
+	mi := &file_task_v1_anchor_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1482,7 +2074,7 @@ func (x *MsgRegisterAnchorVoteKeyResponse) String() string {
 func (*MsgRegisterAnchorVoteKeyResponse) ProtoMessage() {}
 
 func (x *MsgRegisterAnchorVoteKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[14]
+	mi := &file_task_v1_anchor_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1495,10 +2087,309 @@ func (x *MsgRegisterAnchorVoteKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MsgRegisterAnchorVoteKeyResponse.ProtoReflect.Descriptor instead.
 func (*MsgRegisterAnchorVoteKeyResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{14}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MsgRegisterAnchorVoteKeyResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
+// MsgSealAnchorEpoch freezes the opening set of a Worker's B1 proving epoch (ADR-0040 v7):
+// every member task must be selected, opened, not yet proved and not yet sealed, and belong to
+// the signer's Worker. The chain records x_beacon_height = freeze (seal) height + 1.
+// The outer Cosmos signer is the winner Worker's current service address.
+type MsgSealAnchorEpoch struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// epoch_manifest_hash is the 32-byte hash of the canonical epoch manifest (the epoch id); the
+	// chain treats it as opaque and requires every member proof to name it.
+	EpochManifestHash []byte `protobuf:"bytes,1,opt,name=epoch_manifest_hash,json=epochManifestHash,proto3" json:"epoch_manifest_hash,omitempty"`
+	// task_ids lists the member tasks, strictly ascending.
+	TaskIds [][]byte `protobuf:"bytes,2,rep,name=task_ids,json=taskIds,proto3" json:"task_ids,omitempty"`
+	// submitter_address is the winner Worker's current service address.
+	SubmitterAddress string `protobuf:"bytes,3,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MsgSealAnchorEpoch) Reset() {
+	*x = MsgSealAnchorEpoch{}
+	mi := &file_task_v1_anchor_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSealAnchorEpoch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSealAnchorEpoch) ProtoMessage() {}
+
+func (x *MsgSealAnchorEpoch) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSealAnchorEpoch.ProtoReflect.Descriptor instead.
+func (*MsgSealAnchorEpoch) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *MsgSealAnchorEpoch) GetEpochManifestHash() []byte {
+	if x != nil {
+		return x.EpochManifestHash
+	}
+	return nil
+}
+
+func (x *MsgSealAnchorEpoch) GetTaskIds() [][]byte {
+	if x != nil {
+		return x.TaskIds
+	}
+	return nil
+}
+
+func (x *MsgSealAnchorEpoch) GetSubmitterAddress() string {
+	if x != nil {
+		return x.SubmitterAddress
+	}
+	return ""
+}
+
+// MsgSealAnchorEpochResponse reports the epoch's B1 beacon height.
+type MsgSealAnchorEpochResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// x_beacon_height is the height whose beacon derives x.
+	XBeaconHeight uint64 `protobuf:"varint,1,opt,name=x_beacon_height,json=xBeaconHeight,proto3" json:"x_beacon_height,omitempty"`
+	// status reports whether the seal changed state.
+	Status        v1.MutationStatusV1 `protobuf:"varint,2,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgSealAnchorEpochResponse) Reset() {
+	*x = MsgSealAnchorEpochResponse{}
+	mi := &file_task_v1_anchor_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSealAnchorEpochResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSealAnchorEpochResponse) ProtoMessage() {}
+
+func (x *MsgSealAnchorEpochResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSealAnchorEpochResponse.ProtoReflect.Descriptor instead.
+func (*MsgSealAnchorEpochResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *MsgSealAnchorEpochResponse) GetXBeaconHeight() uint64 {
+	if x != nil {
+		return x.XBeaconHeight
+	}
+	return 0
+}
+
+func (x *MsgSealAnchorEpochResponse) GetStatus() v1.MutationStatusV1 {
+	if x != nil {
+		return x.Status
+	}
+	return v1.MutationStatusV1(0)
+}
+
+// MsgSubmitAnchorContentVote is a bonded consensus validator's content verdict on the Worker's
+// recorded anchor proof (ADR-0040 v7). Same signer rule as MsgSubmitAnchorValidatorVote. The
+// content track opens once the task has settled on its compute verdict; the content verdict is
+// final once one side holds >= 2/3 of the last total voting power.
+type MsgSubmitAnchorContentVote struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// task_id names the audit.
+	TaskId []byte `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	// proof_hash must be the Worker's recorded proof.
+	ProofHash []byte `protobuf:"bytes,2,opt,name=proof_hash,json=proofHash,proto3" json:"proof_hash,omitempty"`
+	// x_beacon must be the recorded B1 beacon, or empty when the proof is not x-bound.
+	XBeacon []byte `protobuf:"bytes,3,opt,name=x_beacon,json=xBeacon,proto3" json:"x_beacon,omitempty"`
+	// verdict is the validator's content verdict.
+	Verdict AnchorContentVerdictV1 `protobuf:"varint,4,opt,name=verdict,proto3,enum=task.v1.AnchorContentVerdictV1" json:"verdict,omitempty"`
+	// verdicts are optional per-position content verdicts.
+	Verdicts []*AnchorContentPositionVerdictV1 `protobuf:"bytes,5,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	// validator_operator_address is the voting validator.
+	ValidatorOperatorAddress string `protobuf:"bytes,6,opt,name=validator_operator_address,json=validatorOperatorAddress,proto3" json:"validator_operator_address,omitempty"`
+	// submitter_address is the operator account or its registered vote address.
+	SubmitterAddress string `protobuf:"bytes,7,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MsgSubmitAnchorContentVote) Reset() {
+	*x = MsgSubmitAnchorContentVote{}
+	mi := &file_task_v1_anchor_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSubmitAnchorContentVote) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSubmitAnchorContentVote) ProtoMessage() {}
+
+func (x *MsgSubmitAnchorContentVote) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSubmitAnchorContentVote.ProtoReflect.Descriptor instead.
+func (*MsgSubmitAnchorContentVote) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *MsgSubmitAnchorContentVote) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+func (x *MsgSubmitAnchorContentVote) GetProofHash() []byte {
+	if x != nil {
+		return x.ProofHash
+	}
+	return nil
+}
+
+func (x *MsgSubmitAnchorContentVote) GetXBeacon() []byte {
+	if x != nil {
+		return x.XBeacon
+	}
+	return nil
+}
+
+func (x *MsgSubmitAnchorContentVote) GetVerdict() AnchorContentVerdictV1 {
+	if x != nil {
+		return x.Verdict
+	}
+	return AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *MsgSubmitAnchorContentVote) GetVerdicts() []*AnchorContentPositionVerdictV1 {
+	if x != nil {
+		return x.Verdicts
+	}
+	return nil
+}
+
+func (x *MsgSubmitAnchorContentVote) GetValidatorOperatorAddress() string {
+	if x != nil {
+		return x.ValidatorOperatorAddress
+	}
+	return ""
+}
+
+func (x *MsgSubmitAnchorContentVote) GetSubmitterAddress() string {
+	if x != nil {
+		return x.SubmitterAddress
+	}
+	return ""
+}
+
+// MsgSubmitAnchorContentVoteResponse reports the content track after the vote.
+type MsgSubmitAnchorContentVoteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// content_verdict is the content verdict (UNSPECIFIED while open).
+	ContentVerdict AnchorContentVerdictV1 `protobuf:"varint,1,opt,name=content_verdict,json=contentVerdict,proto3,enum=task.v1.AnchorContentVerdictV1" json:"content_verdict,omitempty"`
+	// finalized is true once the content verdict is final.
+	Finalized bool `protobuf:"varint,2,opt,name=finalized,proto3" json:"finalized,omitempty"`
+	// tally is the running content tally.
+	Tally *AnchorVoteTallyV1 `protobuf:"bytes,3,opt,name=tally,proto3" json:"tally,omitempty"`
+	// status reports whether the vote changed state.
+	Status        v1.MutationStatusV1 `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) Reset() {
+	*x = MsgSubmitAnchorContentVoteResponse{}
+	mi := &file_task_v1_anchor_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MsgSubmitAnchorContentVoteResponse) ProtoMessage() {}
+
+func (x *MsgSubmitAnchorContentVoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MsgSubmitAnchorContentVoteResponse.ProtoReflect.Descriptor instead.
+func (*MsgSubmitAnchorContentVoteResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) GetContentVerdict() AnchorContentVerdictV1 {
+	if x != nil {
+		return x.ContentVerdict
+	}
+	return AnchorContentVerdictV1_ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) GetFinalized() bool {
+	if x != nil {
+		return x.Finalized
+	}
+	return false
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) GetTally() *AnchorVoteTallyV1 {
+	if x != nil {
+		return x.Tally
+	}
+	return nil
+}
+
+func (x *MsgSubmitAnchorContentVoteResponse) GetStatus() v1.MutationStatusV1 {
 	if x != nil {
 		return x.Status
 	}
@@ -1511,14 +2402,17 @@ type QueryAnchorAuditsPendingRequest struct {
 	// start_after resumes after this task id (exclusive); empty starts at the beginning.
 	StartAfter []byte `protobuf:"bytes,1,opt,name=start_after,json=startAfter,proto3" json:"start_after,omitempty"`
 	// limit caps the page (default 100, maximum 500).
-	Limit         uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	Limit uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// content selects the content track (ADR-0040 v7): settled audits whose content verdict is
+	// still open, instead of audits awaiting the compute verdict.
+	Content       bool `protobuf:"varint,3,opt,name=content,proto3" json:"content,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryAnchorAuditsPendingRequest) Reset() {
 	*x = QueryAnchorAuditsPendingRequest{}
-	mi := &file_task_v1_anchor_proto_msgTypes[15]
+	mi := &file_task_v1_anchor_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1530,7 +2424,7 @@ func (x *QueryAnchorAuditsPendingRequest) String() string {
 func (*QueryAnchorAuditsPendingRequest) ProtoMessage() {}
 
 func (x *QueryAnchorAuditsPendingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[15]
+	mi := &file_task_v1_anchor_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1543,7 +2437,7 @@ func (x *QueryAnchorAuditsPendingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorAuditsPendingRequest.ProtoReflect.Descriptor instead.
 func (*QueryAnchorAuditsPendingRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{15}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *QueryAnchorAuditsPendingRequest) GetStartAfter() []byte {
@@ -1560,6 +2454,13 @@ func (x *QueryAnchorAuditsPendingRequest) GetLimit() uint32 {
 	return 0
 }
 
+func (x *QueryAnchorAuditsPendingRequest) GetContent() bool {
+	if x != nil {
+		return x.Content
+	}
+	return false
+}
+
 // QueryAnchorAuditsPendingResponse lists sampled, selected, not yet final audits by task id.
 type QueryAnchorAuditsPendingResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
@@ -1572,7 +2473,7 @@ type QueryAnchorAuditsPendingResponse struct {
 
 func (x *QueryAnchorAuditsPendingResponse) Reset() {
 	*x = QueryAnchorAuditsPendingResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[16]
+	mi := &file_task_v1_anchor_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1584,7 +2485,7 @@ func (x *QueryAnchorAuditsPendingResponse) String() string {
 func (*QueryAnchorAuditsPendingResponse) ProtoMessage() {}
 
 func (x *QueryAnchorAuditsPendingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[16]
+	mi := &file_task_v1_anchor_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1597,7 +2498,7 @@ func (x *QueryAnchorAuditsPendingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorAuditsPendingResponse.ProtoReflect.Descriptor instead.
 func (*QueryAnchorAuditsPendingResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{16}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *QueryAnchorAuditsPendingResponse) GetAudits() []*AnchorAuditState {
@@ -1624,7 +2525,7 @@ type QueryAnchorVoteKeyRequest struct {
 
 func (x *QueryAnchorVoteKeyRequest) Reset() {
 	*x = QueryAnchorVoteKeyRequest{}
-	mi := &file_task_v1_anchor_proto_msgTypes[17]
+	mi := &file_task_v1_anchor_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1636,7 +2537,7 @@ func (x *QueryAnchorVoteKeyRequest) String() string {
 func (*QueryAnchorVoteKeyRequest) ProtoMessage() {}
 
 func (x *QueryAnchorVoteKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[17]
+	mi := &file_task_v1_anchor_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1649,7 +2550,7 @@ func (x *QueryAnchorVoteKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorVoteKeyRequest.ProtoReflect.Descriptor instead.
 func (*QueryAnchorVoteKeyRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{17}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *QueryAnchorVoteKeyRequest) GetValidatorOperatorAddress() string {
@@ -1669,7 +2570,7 @@ type QueryAnchorVoteKeyResponse struct {
 
 func (x *QueryAnchorVoteKeyResponse) Reset() {
 	*x = QueryAnchorVoteKeyResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[18]
+	mi := &file_task_v1_anchor_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1681,7 +2582,7 @@ func (x *QueryAnchorVoteKeyResponse) String() string {
 func (*QueryAnchorVoteKeyResponse) ProtoMessage() {}
 
 func (x *QueryAnchorVoteKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[18]
+	mi := &file_task_v1_anchor_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1694,7 +2595,7 @@ func (x *QueryAnchorVoteKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorVoteKeyResponse.ProtoReflect.Descriptor instead.
 func (*QueryAnchorVoteKeyResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{18}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *QueryAnchorVoteKeyResponse) GetVoteKey() *AnchorVoteKeyState {
@@ -1714,7 +2615,7 @@ type QueryAnchorVotesRequest struct {
 
 func (x *QueryAnchorVotesRequest) Reset() {
 	*x = QueryAnchorVotesRequest{}
-	mi := &file_task_v1_anchor_proto_msgTypes[19]
+	mi := &file_task_v1_anchor_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1726,7 +2627,7 @@ func (x *QueryAnchorVotesRequest) String() string {
 func (*QueryAnchorVotesRequest) ProtoMessage() {}
 
 func (x *QueryAnchorVotesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[19]
+	mi := &file_task_v1_anchor_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1739,7 +2640,7 @@ func (x *QueryAnchorVotesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorVotesRequest.ProtoReflect.Descriptor instead.
 func (*QueryAnchorVotesRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{19}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *QueryAnchorVotesRequest) GetTaskId() []byte {
@@ -1760,7 +2661,7 @@ type QueryAnchorVotesResponse struct {
 
 func (x *QueryAnchorVotesResponse) Reset() {
 	*x = QueryAnchorVotesResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[20]
+	mi := &file_task_v1_anchor_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1772,7 +2673,7 @@ func (x *QueryAnchorVotesResponse) String() string {
 func (*QueryAnchorVotesResponse) ProtoMessage() {}
 
 func (x *QueryAnchorVotesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[20]
+	mi := &file_task_v1_anchor_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1785,7 +2686,7 @@ func (x *QueryAnchorVotesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorVotesResponse.ProtoReflect.Descriptor instead.
 func (*QueryAnchorVotesResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{20}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *QueryAnchorVotesResponse) GetVotes() []*AnchorValidatorVoteState {
@@ -1812,7 +2713,7 @@ type QueryAnchorAuditRequest struct {
 
 func (x *QueryAnchorAuditRequest) Reset() {
 	*x = QueryAnchorAuditRequest{}
-	mi := &file_task_v1_anchor_proto_msgTypes[21]
+	mi := &file_task_v1_anchor_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1824,7 +2725,7 @@ func (x *QueryAnchorAuditRequest) String() string {
 func (*QueryAnchorAuditRequest) ProtoMessage() {}
 
 func (x *QueryAnchorAuditRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[21]
+	mi := &file_task_v1_anchor_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1837,7 +2738,7 @@ func (x *QueryAnchorAuditRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorAuditRequest.ProtoReflect.Descriptor instead.
 func (*QueryAnchorAuditRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{21}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *QueryAnchorAuditRequest) GetTaskId() []byte {
@@ -1857,7 +2758,7 @@ type QueryAnchorAuditResponse struct {
 
 func (x *QueryAnchorAuditResponse) Reset() {
 	*x = QueryAnchorAuditResponse{}
-	mi := &file_task_v1_anchor_proto_msgTypes[22]
+	mi := &file_task_v1_anchor_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1869,7 +2770,7 @@ func (x *QueryAnchorAuditResponse) String() string {
 func (*QueryAnchorAuditResponse) ProtoMessage() {}
 
 func (x *QueryAnchorAuditResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_anchor_proto_msgTypes[22]
+	mi := &file_task_v1_anchor_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1882,12 +2783,214 @@ func (x *QueryAnchorAuditResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryAnchorAuditResponse.ProtoReflect.Descriptor instead.
 func (*QueryAnchorAuditResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_anchor_proto_rawDescGZIP(), []int{22}
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *QueryAnchorAuditResponse) GetAudit() *AnchorAuditState {
 	if x != nil {
 		return x.Audit
+	}
+	return nil
+}
+
+// QueryAnchorEpochRequest names one sealed B1 epoch.
+type QueryAnchorEpochRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// epoch_manifest_hash is the epoch id.
+	EpochManifestHash []byte `protobuf:"bytes,1,opt,name=epoch_manifest_hash,json=epochManifestHash,proto3" json:"epoch_manifest_hash,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *QueryAnchorEpochRequest) Reset() {
+	*x = QueryAnchorEpochRequest{}
+	mi := &file_task_v1_anchor_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAnchorEpochRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAnchorEpochRequest) ProtoMessage() {}
+
+func (x *QueryAnchorEpochRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAnchorEpochRequest.ProtoReflect.Descriptor instead.
+func (*QueryAnchorEpochRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *QueryAnchorEpochRequest) GetEpochManifestHash() []byte {
+	if x != nil {
+		return x.EpochManifestHash
+	}
+	return nil
+}
+
+// QueryAnchorEpochResponse returns the epoch and its x beacon once derivable.
+type QueryAnchorEpochResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// epoch is the sealed epoch record.
+	Epoch *AnchorEpochState `protobuf:"bytes,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	// x_beacon is the beacon randomness; empty while the chain has not reached x_beacon_height.
+	XBeacon       []byte `protobuf:"bytes,2,opt,name=x_beacon,json=xBeacon,proto3" json:"x_beacon,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryAnchorEpochResponse) Reset() {
+	*x = QueryAnchorEpochResponse{}
+	mi := &file_task_v1_anchor_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAnchorEpochResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAnchorEpochResponse) ProtoMessage() {}
+
+func (x *QueryAnchorEpochResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAnchorEpochResponse.ProtoReflect.Descriptor instead.
+func (*QueryAnchorEpochResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *QueryAnchorEpochResponse) GetEpoch() *AnchorEpochState {
+	if x != nil {
+		return x.Epoch
+	}
+	return nil
+}
+
+func (x *QueryAnchorEpochResponse) GetXBeacon() []byte {
+	if x != nil {
+		return x.XBeacon
+	}
+	return nil
+}
+
+// QueryAnchorContentVotesRequest names one task.
+type QueryAnchorContentVotesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// task_id names the audit.
+	TaskId        []byte `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryAnchorContentVotesRequest) Reset() {
+	*x = QueryAnchorContentVotesRequest{}
+	mi := &file_task_v1_anchor_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAnchorContentVotesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAnchorContentVotesRequest) ProtoMessage() {}
+
+func (x *QueryAnchorContentVotesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAnchorContentVotesRequest.ProtoReflect.Descriptor instead.
+func (*QueryAnchorContentVotesRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *QueryAnchorContentVotesRequest) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+// QueryAnchorContentVotesResponse lists the content votes and the content tally of one audit.
+type QueryAnchorContentVotesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// votes are the recorded content votes.
+	Votes []*AnchorContentVoteState `protobuf:"bytes,1,rep,name=votes,proto3" json:"votes,omitempty"`
+	// tally is the content tally.
+	Tally         *AnchorVoteTallyV1 `protobuf:"bytes,2,opt,name=tally,proto3" json:"tally,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryAnchorContentVotesResponse) Reset() {
+	*x = QueryAnchorContentVotesResponse{}
+	mi := &file_task_v1_anchor_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryAnchorContentVotesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryAnchorContentVotesResponse) ProtoMessage() {}
+
+func (x *QueryAnchorContentVotesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_anchor_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryAnchorContentVotesResponse.ProtoReflect.Descriptor instead.
+func (*QueryAnchorContentVotesResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_anchor_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *QueryAnchorContentVotesResponse) GetVotes() []*AnchorContentVoteState {
+	if x != nil {
+		return x.Votes
+	}
+	return nil
+}
+
+func (x *QueryAnchorContentVotesResponse) GetTally() *AnchorVoteTallyV1 {
+	if x != nil {
+		return x.Tally
 	}
 	return nil
 }
@@ -1900,7 +3003,12 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\x17AnchorPositionVerdictV1\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\x04R\bposition\x122\n" +
 	"\averdict\x18\x02 \x01(\x0e2\x18.task.v1.AnchorVerdictV1R\averdict\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xbf\x01\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xa8\x01\n" +
+	"\x1eAnchorContentPositionVerdictV1\x12\x1a\n" +
+	"\bposition\x18\x01 \x01(\x04R\bposition\x129\n" +
+	"\averdict\x18\x02 \x01(\x0e2\x1f.task.v1.AnchorContentVerdictV1R\averdict\x12\x17\n" +
+	"\az_micro\x18\x03 \x01(\x12R\x06zMicro\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xbf\x01\n" +
 	"\x11AnchorVoteTallyV1\x12\x1d\n" +
 	"\n" +
 	"pass_power\x18\x01 \x01(\x04R\tpassPower\x12!\n" +
@@ -1919,7 +3027,7 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"proof_hash\x18\x05 \x01(\fR\tproofHash\x12\x16\n" +
 	"\x06height\x18\x06 \x01(\x04R\x06height\x12\x14\n" +
 	"\x05power\x18\a \x01(\x04R\x05power\x12<\n" +
-	"\bverdicts\x18\b \x03(\v2 .task.v1.AnchorPositionVerdictV1R\bverdicts\"\xda\v\n" +
+	"\bverdicts\x18\b \x03(\v2 .task.v1.AnchorPositionVerdictV1R\bverdicts\"\x92\x11\n" +
 	"\x10AnchorAuditState\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x18\n" +
 	"\asampled\x18\x02 \x01(\bR\asampled\x12\x1c\n" +
@@ -1958,7 +3066,47 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\x0eslashable_bond\x18\x1f \x01(\x04R\rslashableBond\x12*\n" +
 	"\x11anchor_commit_uri\x18  \x01(\tR\x0fanchorCommitUri\x12.\n" +
 	"\x13epoch_manifest_hash\x18! \x01(\fR\x11epochManifestHash\x12,\n" +
-	"\x12epoch_manifest_uri\x18\" \x01(\tR\x10epochManifestUri\"\x8d\x01\n" +
+	"\x12epoch_manifest_uri\x18\" \x01(\tR\x10epochManifestUri\x12E\n" +
+	"\x1fcontent_verdict_deadline_height\x18# \x01(\x04R\x1ccontentVerdictDeadlineHeight\x12H\n" +
+	"\x0fcontent_verdict\x18$ \x01(\x0e2\x1f.task.v1.AnchorContentVerdictV1R\x0econtentVerdict\x12Q\n" +
+	"\x15content_result_source\x18% \x01(\x0e2\x1d.task.v1.AnchorResultSourceV1R\x13contentResultSource\x122\n" +
+	"\x15content_result_height\x18& \x01(\x04R\x13contentResultHeight\x12?\n" +
+	"\rcontent_tally\x18' \x01(\v2\x1a.task.v1.AnchorVoteTallyV1R\fcontentTally\x122\n" +
+	"\x15content_result_reason\x18( \x01(\tR\x13contentResultReason\x125\n" +
+	"\x17content_worker_fault_id\x18) \x01(\fR\x14contentWorkerFaultId\x12*\n" +
+	"\x11epoch_seal_height\x18* \x01(\x04R\x0fepochSealHeight\x12&\n" +
+	"\x0fx_beacon_height\x18+ \x01(\x04R\rxBeaconHeight\x12\x19\n" +
+	"\bx_beacon\x18, \x01(\fR\axBeacon\x12/\n" +
+	"\x14worker_proof_x_bound\x18- \x01(\bR\x11workerProofXBound\x12R\n" +
+	"\x10content_verdicts\x18. \x03(\v2'.task.v1.AnchorContentPositionVerdictV1R\x0fcontentVerdicts\"\xfc\x02\n" +
+	"\x16AnchorContentVoteState\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12<\n" +
+	"\x1avalidator_operator_address\x18\x02 \x01(\tR\x18validatorOperatorAddress\x12#\n" +
+	"\rvoter_address\x18\x03 \x01(\tR\fvoterAddress\x129\n" +
+	"\averdict\x18\x04 \x01(\x0e2\x1f.task.v1.AnchorContentVerdictV1R\averdict\x12\x1d\n" +
+	"\n" +
+	"proof_hash\x18\x05 \x01(\fR\tproofHash\x12\x19\n" +
+	"\bx_beacon\x18\x06 \x01(\fR\axBeacon\x12\x16\n" +
+	"\x06height\x18\a \x01(\x04R\x06height\x12\x14\n" +
+	"\x05power\x18\b \x01(\x04R\x05power\x12C\n" +
+	"\bverdicts\x18\t \x03(\v2'.task.v1.AnchorContentPositionVerdictV1R\bverdicts\"\x87\x02\n" +
+	"\x10AnchorEpochState\x12.\n" +
+	"\x13epoch_manifest_hash\x18\x01 \x01(\fR\x11epochManifestHash\x12\x16\n" +
+	"\x06worker\x18\x02 \x01(\tR\x06worker\x12\x19\n" +
+	"\btask_ids\x18\x03 \x03(\fR\ataskIds\x12,\n" +
+	"\x12max_opening_height\x18\x04 \x01(\x04R\x10maxOpeningHeight\x12\x1f\n" +
+	"\vseal_height\x18\x05 \x01(\x04R\n" +
+	"sealHeight\x12&\n" +
+	"\x0fx_beacon_height\x18\x06 \x01(\x04R\rxBeaconHeight\x12\x19\n" +
+	"\bx_beacon\x18\a \x01(\fR\axBeacon\"\xe6\x01\n" +
+	"\x16AnchorWorkerCusumState\x12\x16\n" +
+	"\x06worker\x18\x01 \x01(\tR\x06worker\x12'\n" +
+	"\x0fstatistic_micro\x18\x02 \x01(\x03R\x0estatisticMicro\x12\x18\n" +
+	"\asamples\x18\x03 \x01(\x04R\asamples\x12 \n" +
+	"\flast_task_id\x18\x04 \x01(\fR\n" +
+	"lastTaskId\x12,\n" +
+	"\x12last_update_height\x18\x05 \x01(\x04R\x10lastUpdateHeight\x12!\n" +
+	"\falarm_height\x18\x06 \x01(\x04R\valarmHeight\"\x8d\x01\n" +
 	"\x12AnchorVoteKeyState\x12<\n" +
 	"\x1avalidator_operator_address\x18\x01 \x01(\tR\x18validatorOperatorAddress\x12!\n" +
 	"\fvote_address\x18\x02 \x01(\tR\vvoteAddress\x12\x16\n" +
@@ -1973,7 +3121,7 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\x11submitter_address\x18\x06 \x01(\tR\x10submitterAddress\x12*\n" +
 	"\x11anchor_commit_uri\x18\a \x01(\tR\x0fanchorCommitUri\"U\n" +
 	"\x1eMsgSubmitAnchorOpeningResponse\x123\n" +
-	"\x06status\x18\x01 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xc3\x02\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xeb\x02\n" +
 	"\x14MsgSubmitAnchorProof\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12!\n" +
 	"\fopening_hash\x18\x02 \x01(\fR\vopeningHash\x12\x1d\n" +
@@ -1983,7 +3131,8 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\tproof_uri\x18\x05 \x01(\tR\bproofUri\x12+\n" +
 	"\x11submitter_address\x18\x06 \x01(\tR\x10submitterAddress\x12.\n" +
 	"\x13epoch_manifest_hash\x18\a \x01(\fR\x11epochManifestHash\x12,\n" +
-	"\x12epoch_manifest_uri\x18\b \x01(\tR\x10epochManifestUri\"S\n" +
+	"\x12epoch_manifest_uri\x18\b \x01(\tR\x10epochManifestUri\x12&\n" +
+	"\x0fx_beacon_height\x18\t \x01(\x04R\rxBeaconHeight\"S\n" +
 	"\x1cMsgSubmitAnchorProofResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xe2\x01\n" +
 	"\x1aMsgSubmitAnchorAuditResult\x12\x17\n" +
@@ -2015,11 +3164,33 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\fvote_address\x18\x02 \x01(\tR\vvoteAddress\x12+\n" +
 	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"W\n" +
 	" MsgRegisterAnchorVoteKeyResponse\x123\n" +
-	"\x06status\x18\x01 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"X\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\x8c\x01\n" +
+	"\x12MsgSealAnchorEpoch\x12.\n" +
+	"\x13epoch_manifest_hash\x18\x01 \x01(\fR\x11epochManifestHash\x12\x19\n" +
+	"\btask_ids\x18\x02 \x03(\fR\ataskIds\x12+\n" +
+	"\x11submitter_address\x18\x03 \x01(\tR\x10submitterAddress\"y\n" +
+	"\x1aMsgSealAnchorEpochResponse\x12&\n" +
+	"\x0fx_beacon_height\x18\x01 \x01(\x04R\rxBeaconHeight\x123\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xda\x02\n" +
+	"\x1aMsgSubmitAnchorContentVote\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1d\n" +
+	"\n" +
+	"proof_hash\x18\x02 \x01(\fR\tproofHash\x12\x19\n" +
+	"\bx_beacon\x18\x03 \x01(\fR\axBeacon\x129\n" +
+	"\averdict\x18\x04 \x01(\x0e2\x1f.task.v1.AnchorContentVerdictV1R\averdict\x12C\n" +
+	"\bverdicts\x18\x05 \x03(\v2'.task.v1.AnchorContentPositionVerdictV1R\bverdicts\x12<\n" +
+	"\x1avalidator_operator_address\x18\x06 \x01(\tR\x18validatorOperatorAddress\x12+\n" +
+	"\x11submitter_address\x18\a \x01(\tR\x10submitterAddress\"\xf3\x01\n" +
+	"\"MsgSubmitAnchorContentVoteResponse\x12H\n" +
+	"\x0fcontent_verdict\x18\x01 \x01(\x0e2\x1f.task.v1.AnchorContentVerdictV1R\x0econtentVerdict\x12\x1c\n" +
+	"\tfinalized\x18\x02 \x01(\bR\tfinalized\x120\n" +
+	"\x05tally\x18\x03 \x01(\v2\x1a.task.v1.AnchorVoteTallyV1R\x05tally\x123\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"r\n" +
 	"\x1fQueryAnchorAuditsPendingRequest\x12\x1f\n" +
 	"\vstart_after\x18\x01 \x01(\fR\n" +
 	"startAfter\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"i\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\bR\acontent\"i\n" +
 	" QueryAnchorAuditsPendingResponse\x121\n" +
 	"\x06audits\x18\x01 \x03(\v2\x19.task.v1.AnchorAuditStateR\x06audits\x12\x12\n" +
 	"\x04next\x18\x02 \x01(\fR\x04next\"Y\n" +
@@ -2035,18 +3206,34 @@ const file_task_v1_anchor_proto_rawDesc = "" +
 	"\x17QueryAnchorAuditRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\"K\n" +
 	"\x18QueryAnchorAuditResponse\x12/\n" +
-	"\x05audit\x18\x01 \x01(\v2\x19.task.v1.AnchorAuditStateR\x05audit*\x90\x01\n" +
+	"\x05audit\x18\x01 \x01(\v2\x19.task.v1.AnchorAuditStateR\x05audit\"I\n" +
+	"\x17QueryAnchorEpochRequest\x12.\n" +
+	"\x13epoch_manifest_hash\x18\x01 \x01(\fR\x11epochManifestHash\"f\n" +
+	"\x18QueryAnchorEpochResponse\x12/\n" +
+	"\x05epoch\x18\x01 \x01(\v2\x19.task.v1.AnchorEpochStateR\x05epoch\x12\x19\n" +
+	"\bx_beacon\x18\x02 \x01(\fR\axBeacon\"9\n" +
+	"\x1eQueryAnchorContentVotesRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\"\x8a\x01\n" +
+	"\x1fQueryAnchorContentVotesResponse\x125\n" +
+	"\x05votes\x18\x01 \x03(\v2\x1f.task.v1.AnchorContentVoteStateR\x05votes\x120\n" +
+	"\x05tally\x18\x02 \x01(\v2\x1a.task.v1.AnchorVoteTallyV1R\x05tally*\x90\x01\n" +
 	"\x0fAnchorVerdictV1\x12!\n" +
 	"\x1dANCHOR_VERDICT_V1_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16ANCHOR_VERDICT_V1_PASS\x10\x01\x12\x1c\n" +
 	"\x18ANCHOR_VERDICT_V1_REJECT\x10\x02\x12 \n" +
-	"\x1cANCHOR_VERDICT_V1_NO_VERDICT\x10\x03*\xe6\x01\n" +
+	"\x1cANCHOR_VERDICT_V1_NO_VERDICT\x10\x03*\x94\x02\n" +
 	"\x14AnchorResultSourceV1\x12'\n" +
 	"#ANCHOR_RESULT_SOURCE_V1_UNSPECIFIED\x10\x00\x12$\n" +
 	" ANCHOR_RESULT_SOURCE_V1_VERIFIER\x10\x01\x12*\n" +
 	"&ANCHOR_RESULT_SOURCE_V1_VALIDATOR_VOTE\x10\x02\x12#\n" +
 	"\x1fANCHOR_RESULT_SOURCE_V1_TIMEOUT\x10\x03\x12.\n" +
-	"*ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT\x10\x04B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
+	"*ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT\x10\x04\x12,\n" +
+	"(ANCHOR_RESULT_SOURCE_V1_COMPUTE_REJECTED\x10\x05*\xbf\x01\n" +
+	"\x16AnchorContentVerdictV1\x12)\n" +
+	"%ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eANCHOR_CONTENT_VERDICT_V1_PASS\x10\x01\x12,\n" +
+	"(ANCHOR_CONTENT_VERDICT_V1_REJECT_CONTENT\x10\x02\x12(\n" +
+	"$ANCHOR_CONTENT_VERDICT_V1_NO_VERDICT\x10\x03B7Z5github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1b\x06proto3"
 
 var (
 	file_task_v1_anchor_proto_rawDescOnce sync.Once
@@ -2060,65 +3247,94 @@ func file_task_v1_anchor_proto_rawDescGZIP() []byte {
 	return file_task_v1_anchor_proto_rawDescData
 }
 
-var file_task_v1_anchor_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_task_v1_anchor_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_task_v1_anchor_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_task_v1_anchor_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_task_v1_anchor_proto_goTypes = []any{
 	(AnchorVerdictV1)(0),                         // 0: task.v1.AnchorVerdictV1
 	(AnchorResultSourceV1)(0),                    // 1: task.v1.AnchorResultSourceV1
-	(*AnchorPositionVerdictV1)(nil),              // 2: task.v1.AnchorPositionVerdictV1
-	(*AnchorVoteTallyV1)(nil),                    // 3: task.v1.AnchorVoteTallyV1
-	(*AnchorValidatorVoteState)(nil),             // 4: task.v1.AnchorValidatorVoteState
-	(*AnchorAuditState)(nil),                     // 5: task.v1.AnchorAuditState
-	(*AnchorVoteKeyState)(nil),                   // 6: task.v1.AnchorVoteKeyState
-	(*MsgSubmitAnchorOpening)(nil),               // 7: task.v1.MsgSubmitAnchorOpening
-	(*MsgSubmitAnchorOpeningResponse)(nil),       // 8: task.v1.MsgSubmitAnchorOpeningResponse
-	(*MsgSubmitAnchorProof)(nil),                 // 9: task.v1.MsgSubmitAnchorProof
-	(*MsgSubmitAnchorProofResponse)(nil),         // 10: task.v1.MsgSubmitAnchorProofResponse
-	(*MsgSubmitAnchorAuditResult)(nil),           // 11: task.v1.MsgSubmitAnchorAuditResult
-	(*MsgSubmitAnchorAuditResultResponse)(nil),   // 12: task.v1.MsgSubmitAnchorAuditResultResponse
-	(*MsgSubmitAnchorValidatorVote)(nil),         // 13: task.v1.MsgSubmitAnchorValidatorVote
-	(*MsgSubmitAnchorValidatorVoteResponse)(nil), // 14: task.v1.MsgSubmitAnchorValidatorVoteResponse
-	(*MsgRegisterAnchorVoteKey)(nil),             // 15: task.v1.MsgRegisterAnchorVoteKey
-	(*MsgRegisterAnchorVoteKeyResponse)(nil),     // 16: task.v1.MsgRegisterAnchorVoteKeyResponse
-	(*QueryAnchorAuditsPendingRequest)(nil),      // 17: task.v1.QueryAnchorAuditsPendingRequest
-	(*QueryAnchorAuditsPendingResponse)(nil),     // 18: task.v1.QueryAnchorAuditsPendingResponse
-	(*QueryAnchorVoteKeyRequest)(nil),            // 19: task.v1.QueryAnchorVoteKeyRequest
-	(*QueryAnchorVoteKeyResponse)(nil),           // 20: task.v1.QueryAnchorVoteKeyResponse
-	(*QueryAnchorVotesRequest)(nil),              // 21: task.v1.QueryAnchorVotesRequest
-	(*QueryAnchorVotesResponse)(nil),             // 22: task.v1.QueryAnchorVotesResponse
-	(*QueryAnchorAuditRequest)(nil),              // 23: task.v1.QueryAnchorAuditRequest
-	(*QueryAnchorAuditResponse)(nil),             // 24: task.v1.QueryAnchorAuditResponse
-	(v1.MutationStatusV1)(0),                     // 25: shared.v1.MutationStatusV1
+	(AnchorContentVerdictV1)(0),                  // 2: task.v1.AnchorContentVerdictV1
+	(*AnchorPositionVerdictV1)(nil),              // 3: task.v1.AnchorPositionVerdictV1
+	(*AnchorContentPositionVerdictV1)(nil),       // 4: task.v1.AnchorContentPositionVerdictV1
+	(*AnchorVoteTallyV1)(nil),                    // 5: task.v1.AnchorVoteTallyV1
+	(*AnchorValidatorVoteState)(nil),             // 6: task.v1.AnchorValidatorVoteState
+	(*AnchorAuditState)(nil),                     // 7: task.v1.AnchorAuditState
+	(*AnchorContentVoteState)(nil),               // 8: task.v1.AnchorContentVoteState
+	(*AnchorEpochState)(nil),                     // 9: task.v1.AnchorEpochState
+	(*AnchorWorkerCusumState)(nil),               // 10: task.v1.AnchorWorkerCusumState
+	(*AnchorVoteKeyState)(nil),                   // 11: task.v1.AnchorVoteKeyState
+	(*MsgSubmitAnchorOpening)(nil),               // 12: task.v1.MsgSubmitAnchorOpening
+	(*MsgSubmitAnchorOpeningResponse)(nil),       // 13: task.v1.MsgSubmitAnchorOpeningResponse
+	(*MsgSubmitAnchorProof)(nil),                 // 14: task.v1.MsgSubmitAnchorProof
+	(*MsgSubmitAnchorProofResponse)(nil),         // 15: task.v1.MsgSubmitAnchorProofResponse
+	(*MsgSubmitAnchorAuditResult)(nil),           // 16: task.v1.MsgSubmitAnchorAuditResult
+	(*MsgSubmitAnchorAuditResultResponse)(nil),   // 17: task.v1.MsgSubmitAnchorAuditResultResponse
+	(*MsgSubmitAnchorValidatorVote)(nil),         // 18: task.v1.MsgSubmitAnchorValidatorVote
+	(*MsgSubmitAnchorValidatorVoteResponse)(nil), // 19: task.v1.MsgSubmitAnchorValidatorVoteResponse
+	(*MsgRegisterAnchorVoteKey)(nil),             // 20: task.v1.MsgRegisterAnchorVoteKey
+	(*MsgRegisterAnchorVoteKeyResponse)(nil),     // 21: task.v1.MsgRegisterAnchorVoteKeyResponse
+	(*MsgSealAnchorEpoch)(nil),                   // 22: task.v1.MsgSealAnchorEpoch
+	(*MsgSealAnchorEpochResponse)(nil),           // 23: task.v1.MsgSealAnchorEpochResponse
+	(*MsgSubmitAnchorContentVote)(nil),           // 24: task.v1.MsgSubmitAnchorContentVote
+	(*MsgSubmitAnchorContentVoteResponse)(nil),   // 25: task.v1.MsgSubmitAnchorContentVoteResponse
+	(*QueryAnchorAuditsPendingRequest)(nil),      // 26: task.v1.QueryAnchorAuditsPendingRequest
+	(*QueryAnchorAuditsPendingResponse)(nil),     // 27: task.v1.QueryAnchorAuditsPendingResponse
+	(*QueryAnchorVoteKeyRequest)(nil),            // 28: task.v1.QueryAnchorVoteKeyRequest
+	(*QueryAnchorVoteKeyResponse)(nil),           // 29: task.v1.QueryAnchorVoteKeyResponse
+	(*QueryAnchorVotesRequest)(nil),              // 30: task.v1.QueryAnchorVotesRequest
+	(*QueryAnchorVotesResponse)(nil),             // 31: task.v1.QueryAnchorVotesResponse
+	(*QueryAnchorAuditRequest)(nil),              // 32: task.v1.QueryAnchorAuditRequest
+	(*QueryAnchorAuditResponse)(nil),             // 33: task.v1.QueryAnchorAuditResponse
+	(*QueryAnchorEpochRequest)(nil),              // 34: task.v1.QueryAnchorEpochRequest
+	(*QueryAnchorEpochResponse)(nil),             // 35: task.v1.QueryAnchorEpochResponse
+	(*QueryAnchorContentVotesRequest)(nil),       // 36: task.v1.QueryAnchorContentVotesRequest
+	(*QueryAnchorContentVotesResponse)(nil),      // 37: task.v1.QueryAnchorContentVotesResponse
+	(v1.MutationStatusV1)(0),                     // 38: shared.v1.MutationStatusV1
 }
 var file_task_v1_anchor_proto_depIdxs = []int32{
 	0,  // 0: task.v1.AnchorPositionVerdictV1.verdict:type_name -> task.v1.AnchorVerdictV1
-	0,  // 1: task.v1.AnchorValidatorVoteState.verdict:type_name -> task.v1.AnchorVerdictV1
-	2,  // 2: task.v1.AnchorValidatorVoteState.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
-	2,  // 3: task.v1.AnchorAuditState.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
-	0,  // 4: task.v1.AnchorAuditState.task_verdict:type_name -> task.v1.AnchorVerdictV1
-	1,  // 5: task.v1.AnchorAuditState.result_source:type_name -> task.v1.AnchorResultSourceV1
-	3,  // 6: task.v1.AnchorAuditState.tally:type_name -> task.v1.AnchorVoteTallyV1
-	25, // 7: task.v1.MsgSubmitAnchorOpeningResponse.status:type_name -> shared.v1.MutationStatusV1
-	25, // 8: task.v1.MsgSubmitAnchorProofResponse.status:type_name -> shared.v1.MutationStatusV1
-	2,  // 9: task.v1.MsgSubmitAnchorAuditResult.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
-	0,  // 10: task.v1.MsgSubmitAnchorAuditResultResponse.task_verdict:type_name -> task.v1.AnchorVerdictV1
-	25, // 11: task.v1.MsgSubmitAnchorAuditResultResponse.status:type_name -> shared.v1.MutationStatusV1
-	0,  // 12: task.v1.MsgSubmitAnchorValidatorVote.verdict:type_name -> task.v1.AnchorVerdictV1
-	2,  // 13: task.v1.MsgSubmitAnchorValidatorVote.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
-	0,  // 14: task.v1.MsgSubmitAnchorValidatorVoteResponse.task_verdict:type_name -> task.v1.AnchorVerdictV1
-	3,  // 15: task.v1.MsgSubmitAnchorValidatorVoteResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
-	25, // 16: task.v1.MsgSubmitAnchorValidatorVoteResponse.status:type_name -> shared.v1.MutationStatusV1
-	25, // 17: task.v1.MsgRegisterAnchorVoteKeyResponse.status:type_name -> shared.v1.MutationStatusV1
-	5,  // 18: task.v1.QueryAnchorAuditsPendingResponse.audits:type_name -> task.v1.AnchorAuditState
-	6,  // 19: task.v1.QueryAnchorVoteKeyResponse.vote_key:type_name -> task.v1.AnchorVoteKeyState
-	4,  // 20: task.v1.QueryAnchorVotesResponse.votes:type_name -> task.v1.AnchorValidatorVoteState
-	3,  // 21: task.v1.QueryAnchorVotesResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
-	5,  // 22: task.v1.QueryAnchorAuditResponse.audit:type_name -> task.v1.AnchorAuditState
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	2,  // 1: task.v1.AnchorContentPositionVerdictV1.verdict:type_name -> task.v1.AnchorContentVerdictV1
+	0,  // 2: task.v1.AnchorValidatorVoteState.verdict:type_name -> task.v1.AnchorVerdictV1
+	3,  // 3: task.v1.AnchorValidatorVoteState.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
+	3,  // 4: task.v1.AnchorAuditState.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
+	0,  // 5: task.v1.AnchorAuditState.task_verdict:type_name -> task.v1.AnchorVerdictV1
+	1,  // 6: task.v1.AnchorAuditState.result_source:type_name -> task.v1.AnchorResultSourceV1
+	5,  // 7: task.v1.AnchorAuditState.tally:type_name -> task.v1.AnchorVoteTallyV1
+	2,  // 8: task.v1.AnchorAuditState.content_verdict:type_name -> task.v1.AnchorContentVerdictV1
+	1,  // 9: task.v1.AnchorAuditState.content_result_source:type_name -> task.v1.AnchorResultSourceV1
+	5,  // 10: task.v1.AnchorAuditState.content_tally:type_name -> task.v1.AnchorVoteTallyV1
+	4,  // 11: task.v1.AnchorAuditState.content_verdicts:type_name -> task.v1.AnchorContentPositionVerdictV1
+	2,  // 12: task.v1.AnchorContentVoteState.verdict:type_name -> task.v1.AnchorContentVerdictV1
+	4,  // 13: task.v1.AnchorContentVoteState.verdicts:type_name -> task.v1.AnchorContentPositionVerdictV1
+	38, // 14: task.v1.MsgSubmitAnchorOpeningResponse.status:type_name -> shared.v1.MutationStatusV1
+	38, // 15: task.v1.MsgSubmitAnchorProofResponse.status:type_name -> shared.v1.MutationStatusV1
+	3,  // 16: task.v1.MsgSubmitAnchorAuditResult.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
+	0,  // 17: task.v1.MsgSubmitAnchorAuditResultResponse.task_verdict:type_name -> task.v1.AnchorVerdictV1
+	38, // 18: task.v1.MsgSubmitAnchorAuditResultResponse.status:type_name -> shared.v1.MutationStatusV1
+	0,  // 19: task.v1.MsgSubmitAnchorValidatorVote.verdict:type_name -> task.v1.AnchorVerdictV1
+	3,  // 20: task.v1.MsgSubmitAnchorValidatorVote.verdicts:type_name -> task.v1.AnchorPositionVerdictV1
+	0,  // 21: task.v1.MsgSubmitAnchorValidatorVoteResponse.task_verdict:type_name -> task.v1.AnchorVerdictV1
+	5,  // 22: task.v1.MsgSubmitAnchorValidatorVoteResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
+	38, // 23: task.v1.MsgSubmitAnchorValidatorVoteResponse.status:type_name -> shared.v1.MutationStatusV1
+	38, // 24: task.v1.MsgRegisterAnchorVoteKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	38, // 25: task.v1.MsgSealAnchorEpochResponse.status:type_name -> shared.v1.MutationStatusV1
+	2,  // 26: task.v1.MsgSubmitAnchorContentVote.verdict:type_name -> task.v1.AnchorContentVerdictV1
+	4,  // 27: task.v1.MsgSubmitAnchorContentVote.verdicts:type_name -> task.v1.AnchorContentPositionVerdictV1
+	2,  // 28: task.v1.MsgSubmitAnchorContentVoteResponse.content_verdict:type_name -> task.v1.AnchorContentVerdictV1
+	5,  // 29: task.v1.MsgSubmitAnchorContentVoteResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
+	38, // 30: task.v1.MsgSubmitAnchorContentVoteResponse.status:type_name -> shared.v1.MutationStatusV1
+	7,  // 31: task.v1.QueryAnchorAuditsPendingResponse.audits:type_name -> task.v1.AnchorAuditState
+	11, // 32: task.v1.QueryAnchorVoteKeyResponse.vote_key:type_name -> task.v1.AnchorVoteKeyState
+	6,  // 33: task.v1.QueryAnchorVotesResponse.votes:type_name -> task.v1.AnchorValidatorVoteState
+	5,  // 34: task.v1.QueryAnchorVotesResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
+	7,  // 35: task.v1.QueryAnchorAuditResponse.audit:type_name -> task.v1.AnchorAuditState
+	9,  // 36: task.v1.QueryAnchorEpochResponse.epoch:type_name -> task.v1.AnchorEpochState
+	8,  // 37: task.v1.QueryAnchorContentVotesResponse.votes:type_name -> task.v1.AnchorContentVoteState
+	5,  // 38: task.v1.QueryAnchorContentVotesResponse.tally:type_name -> task.v1.AnchorVoteTallyV1
+	39, // [39:39] is the sub-list for method output_type
+	39, // [39:39] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_anchor_proto_init() }
@@ -2131,8 +3347,8 @@ func file_task_v1_anchor_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_anchor_proto_rawDesc), len(file_task_v1_anchor_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   23,
+			NumEnums:      3,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

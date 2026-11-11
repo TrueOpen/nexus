@@ -56,6 +56,11 @@ const (
 	QueryAnchorAuditsPendingProcedure = "/task.v1.Query/AnchorAuditsPending"
 	// QueryAnchorVoteKeyProcedure is the fully-qualified name of the Query's AnchorVoteKey RPC.
 	QueryAnchorVoteKeyProcedure = "/task.v1.Query/AnchorVoteKey"
+	// QueryAnchorEpochProcedure is the fully-qualified name of the Query's AnchorEpoch RPC.
+	QueryAnchorEpochProcedure = "/task.v1.Query/AnchorEpoch"
+	// QueryAnchorContentVotesProcedure is the fully-qualified name of the Query's AnchorContentVotes
+	// RPC.
+	QueryAnchorContentVotesProcedure = "/task.v1.Query/AnchorContentVotes"
 	// QueryWorkerEvidenceProcedure is the fully-qualified name of the Query's WorkerEvidence RPC.
 	QueryWorkerEvidenceProcedure = "/task.v1.Query/WorkerEvidence"
 	// QueryVerifierValueEvidenceProcedure is the fully-qualified name of the Query's
@@ -152,6 +157,10 @@ type QueryClient interface {
 	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
 	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
 	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
+	// AnchorEpoch returns one sealed B1 epoch and its x beacon (ADR-0040 v7).
+	AnchorEpoch(context.Context, *connect.Request[v1.QueryAnchorEpochRequest]) (*connect.Response[v1.QueryAnchorEpochResponse], error)
+	// AnchorContentVotes returns the content votes and tally of one task's anchor audit (ADR-0040 v7).
+	AnchorContentVotes(context.Context, *connect.Request[v1.QueryAnchorContentVotesRequest]) (*connect.Response[v1.QueryAnchorContentVotesResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -285,6 +294,18 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryAnchorVoteKeyProcedure,
 			connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorEpoch: connect.NewClient[v1.QueryAnchorEpochRequest, v1.QueryAnchorEpochResponse](
+			httpClient,
+			baseURL+QueryAnchorEpochProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorEpoch")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorContentVotes: connect.NewClient[v1.QueryAnchorContentVotesRequest, v1.QueryAnchorContentVotesResponse](
+			httpClient,
+			baseURL+QueryAnchorContentVotesProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorContentVotes")),
 			connect.WithClientOptions(opts...),
 		),
 		workerEvidence: connect.NewClient[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse](
@@ -465,6 +486,8 @@ type queryClient struct {
 	anchorVotes                         *connect.Client[v1.QueryAnchorVotesRequest, v1.QueryAnchorVotesResponse]
 	anchorAuditsPending                 *connect.Client[v1.QueryAnchorAuditsPendingRequest, v1.QueryAnchorAuditsPendingResponse]
 	anchorVoteKey                       *connect.Client[v1.QueryAnchorVoteKeyRequest, v1.QueryAnchorVoteKeyResponse]
+	anchorEpoch                         *connect.Client[v1.QueryAnchorEpochRequest, v1.QueryAnchorEpochResponse]
+	anchorContentVotes                  *connect.Client[v1.QueryAnchorContentVotesRequest, v1.QueryAnchorContentVotesResponse]
 	workerEvidence                      *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
 	verifierValueEvidence               *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
 	verifierCandidateWindow             *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
@@ -547,6 +570,16 @@ func (c *queryClient) AnchorAuditsPending(ctx context.Context, req *connect.Requ
 // AnchorVoteKey calls task.v1.Query.AnchorVoteKey.
 func (c *queryClient) AnchorVoteKey(ctx context.Context, req *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
 	return c.anchorVoteKey.CallUnary(ctx, req)
+}
+
+// AnchorEpoch calls task.v1.Query.AnchorEpoch.
+func (c *queryClient) AnchorEpoch(ctx context.Context, req *connect.Request[v1.QueryAnchorEpochRequest]) (*connect.Response[v1.QueryAnchorEpochResponse], error) {
+	return c.anchorEpoch.CallUnary(ctx, req)
+}
+
+// AnchorContentVotes calls task.v1.Query.AnchorContentVotes.
+func (c *queryClient) AnchorContentVotes(ctx context.Context, req *connect.Request[v1.QueryAnchorContentVotesRequest]) (*connect.Response[v1.QueryAnchorContentVotesResponse], error) {
+	return c.anchorContentVotes.CallUnary(ctx, req)
 }
 
 // WorkerEvidence calls task.v1.Query.WorkerEvidence.
@@ -713,6 +746,10 @@ type QueryHandler interface {
 	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
 	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
 	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
+	// AnchorEpoch returns one sealed B1 epoch and its x beacon (ADR-0040 v7).
+	AnchorEpoch(context.Context, *connect.Request[v1.QueryAnchorEpochRequest]) (*connect.Response[v1.QueryAnchorEpochResponse], error)
+	// AnchorContentVotes returns the content votes and tally of one task's anchor audit (ADR-0040 v7).
+	AnchorContentVotes(context.Context, *connect.Request[v1.QueryAnchorContentVotesRequest]) (*connect.Response[v1.QueryAnchorContentVotesResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -842,6 +879,18 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryAnchorVoteKeyProcedure,
 		svc.AnchorVoteKey,
 		connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorEpochHandler := connect.NewUnaryHandler(
+		QueryAnchorEpochProcedure,
+		svc.AnchorEpoch,
+		connect.WithSchema(queryMethods.ByName("AnchorEpoch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorContentVotesHandler := connect.NewUnaryHandler(
+		QueryAnchorContentVotesProcedure,
+		svc.AnchorContentVotes,
+		connect.WithSchema(queryMethods.ByName("AnchorContentVotes")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryWorkerEvidenceHandler := connect.NewUnaryHandler(
@@ -1030,6 +1079,10 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryAnchorAuditsPendingHandler.ServeHTTP(w, r)
 		case QueryAnchorVoteKeyProcedure:
 			queryAnchorVoteKeyHandler.ServeHTTP(w, r)
+		case QueryAnchorEpochProcedure:
+			queryAnchorEpochHandler.ServeHTTP(w, r)
+		case QueryAnchorContentVotesProcedure:
+			queryAnchorContentVotesHandler.ServeHTTP(w, r)
 		case QueryWorkerEvidenceProcedure:
 			queryWorkerEvidenceHandler.ServeHTTP(w, r)
 		case QueryVerifierValueEvidenceProcedure:
@@ -1135,6 +1188,14 @@ func (UnimplementedQueryHandler) AnchorAuditsPending(context.Context, *connect.R
 
 func (UnimplementedQueryHandler) AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorVoteKey is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorEpoch(context.Context, *connect.Request[v1.QueryAnchorEpochRequest]) (*connect.Response[v1.QueryAnchorEpochResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorEpoch is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorContentVotes(context.Context, *connect.Request[v1.QueryAnchorContentVotesRequest]) (*connect.Response[v1.QueryAnchorContentVotesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorContentVotes is not implemented"))
 }
 
 func (UnimplementedQueryHandler) WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error) {

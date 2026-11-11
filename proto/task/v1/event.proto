@@ -428,3 +428,15 @@ message EventAnchorVerdictFinalized {
   uint64 total_power = 6;
   string reason = 7;
 }
+
+// EventAnchorContentVerdictFinalized is emitted when the content verdict of an anchor audit
+// becomes final (ADR-0040 v7): by validator vote, by its deadline, or closed by a compute REJECT.
+message EventAnchorContentVerdictFinalized {
+  bytes task_id = 1;
+  AnchorContentVerdictV1 verdict = 2;
+  AnchorResultSourceV1 source = 3;
+  uint64 pass_power = 4;
+  uint64 reject_power = 5;
+  uint64 total_power = 6;
+  string reason = 7;
+}
