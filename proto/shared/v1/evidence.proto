@@ -23,6 +23,9 @@ enum EvidenceKind {
   EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING = 3;
   // Selected Worker A-level input and generated token-ID opening.
   EVIDENCE_KIND_WORKER_TOKEN_OPENING = 4;
+  // Selected Worker anchor-commitment opening (ADR-0040): the engine-side
+  // per-position per-layer anchor Merkle root committed at inference time.
+  EVIDENCE_KIND_WORKER_ANCHOR_OPENING = 5;
 }
 
 // InferEvidenceRequirementV1 freezes one evidence kind required from the

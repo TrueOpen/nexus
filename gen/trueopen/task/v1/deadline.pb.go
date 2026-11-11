@@ -78,6 +78,9 @@ const (
 	DeadlineKindV1_DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL DeadlineKindV1 = 16
 	// TAKEOVER_ACTIVATION is an EndBlock-only deadline.
 	DeadlineKindV1_DEADLINE_KIND_V1_TAKEOVER_ACTIVATION DeadlineKindV1 = 17
+	// Settlement is held until the anchor audit verdict is final (ADR-0040 v4);
+	// kind_priority 41. Values 14-17 belong to the Phase 1 dispatch contract.
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_VERDICT DeadlineKindV1 = 18
 )
 
 // Enum value maps for DeadlineKindV1.
@@ -99,6 +102,7 @@ var (
 		15: "DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE",
 		16: "DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL",
 		17: "DEADLINE_KIND_V1_TAKEOVER_ACTIVATION",
+		18: "DEADLINE_KIND_V1_ANCHOR_VERDICT",
 	}
 	DeadlineKindV1_value = map[string]int32{
 		"DEADLINE_KIND_V1_UNSPECIFIED":                          0,
@@ -117,6 +121,7 @@ var (
 		"DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE":          15,
 		"DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL":       16,
 		"DEADLINE_KIND_V1_TAKEOVER_ACTIVATION":                  17,
+		"DEADLINE_KIND_V1_ANCHOR_VERDICT":                       18,
 	}
 )
 
@@ -726,7 +731,7 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x18MsgSweepDeadlineResponse\x12\x18\n" +
 	"\avisited\x18\x01 \x01(\rR\avisited\x12\x1a\n" +
 	"\badvanced\x18\x02 \x01(\rR\badvanced\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xc7\x05\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xec\x05\n" +
 	"\x0eDeadlineKindV1\x12 \n" +
 	"\x1cDEADLINE_KIND_V1_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEADLINE_KIND_V1_TASK_FINALITY\x10\x01\x12$\n" +
@@ -744,7 +749,8 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"5DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE\x10\x0e\x120\n" +
 	",DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE\x10\x0f\x123\n" +
 	"/DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL\x10\x10\x12(\n" +
-	"$DEADLINE_KIND_V1_TAKEOVER_ACTIVATION\x10\x11\"\x04\b\t\x10\t*\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT*\xe5\x04\n" +
+	"$DEADLINE_KIND_V1_TAKEOVER_ACTIVATION\x10\x11\x12#\n" +
+	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x12\"\x04\b\t\x10\t*\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT*\xe5\x04\n" +
 	"\x16DeadlineTransitionCode\x12(\n" +
 	"$DEADLINE_TRANSITION_CODE_UNSPECIFIED\x10\x00\x123\n" +
 	"/DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE\x10\x01\x123\n" +

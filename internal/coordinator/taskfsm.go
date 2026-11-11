@@ -1620,8 +1620,11 @@ type settleStage struct {
 
 // settleStageFrom reads the settlement facts out of a chain TaskStage.
 func settleStageFrom(stage chaincli.TaskStage) settleStage {
+	// ADR-0040 v4: while the chain holds settlement for the anchor audit verdict it reports
+	// ANCHOR_VERDICT as the next deadline; a settlement sent before then is refused, so do
+	// not simulate one every block. The periodic reconciliation re-reads the stage.
 	out := settleStage{ready: stage.TaskPhase == "SETTLING" && stage.SettlementStatus == "NONE" &&
-		stage.FinalityStatus == "PENDING"}
+		stage.FinalityStatus == "PENDING" && stage.NextDeadlineKind != "ANCHOR_VERDICT"}
 	if out.ready && stage.NextDeadlineKind == "TASK_SETTLEMENT" {
 		out.deadline = stage.NextDeadlineHeight
 	}

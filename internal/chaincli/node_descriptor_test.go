@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "a3639f5a186fe97a41ea7d84fb3339e2b4fe95e3792be82cdf30de0a1a3f43ad"
+	const want = "d9ebf9c1ef01357f2d20ee5b598d49d01597b4062b8cb5ff1b39ebf0fba6c0e0"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -76,6 +76,9 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_CHALLENGE_WINDOW_CLOSE", 12)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_EVIDENCE_CLEANUP", 13)
 		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_VERIFIER_VALUE_EVIDENCE_WINDOW_CLOSE", 14)
+		// ANCHOR_VERDICT (ADR-0040) sits after the Phase 1 dispatch kinds 14-17; the settle gate
+		// (settleStageFrom) names it.
+		assertContractEnumValue(t, "task.v1.DeadlineKindV1", "DEADLINE_KIND_V1_ANCHOR_VERDICT", 18)
 		for _, name := range []string{
 			"DEADLINE_KIND_V1_EVIDENCE_REQUEST", "DEADLINE_KIND_V1_CHALLENGE_RESOLVE", "DEADLINE_KIND_V1_CHALLENGE_CLOSE",
 			"DEADLINE_KIND_V1_SESSION_CHANGE_EFFECTIVE",
