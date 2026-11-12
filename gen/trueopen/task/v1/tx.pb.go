@@ -25,7 +25,7 @@ var File_task_v1_tx_proto protoreflect.FileDescriptor
 
 const file_task_v1_tx_proto_rawDesc = "" +
 	"\n" +
-	"\x10task/v1/tx.proto\x12\atask.v1\x1a'shared/v1/evidence_responsibility.proto\x1a\x1etask/v1/builder_evidence.proto\x1a\x16task/v1/deadline.proto\x1a\x1ctask/v1/msg_assignment.proto\x1a\x1btask/v1/msg_challenge.proto\x1a\x1atask/v1/msg_dispatch.proto\x1a\x19task/v1/msg_session.proto\x1a\x1ctask/v1/msg_settlement.proto\x1a\x1etask/v1/msg_verification.proto2\xee\x15\n" +
+	"\x10task/v1/tx.proto\x12\atask.v1\x1a'shared/v1/evidence_responsibility.proto\x1a\x14task/v1/anchor.proto\x1a\x1etask/v1/builder_evidence.proto\x1a\x16task/v1/deadline.proto\x1a\x1ctask/v1/msg_assignment.proto\x1a\x1btask/v1/msg_challenge.proto\x1a\x1atask/v1/msg_dispatch.proto\x1a\x19task/v1/msg_session.proto\x1a\x1ctask/v1/msg_settlement.proto\x1a\x1etask/v1/msg_verification.proto2\xb3\x1b\n" +
 	"\x03Msg\x12V\n" +
 	"\x10UpdateTaskParams\x12\x1c.task.v1.MsgUpdateTaskParams\x1a$.task.v1.MsgUpdateTaskParamsResponse\x12M\n" +
 	"\rCreateSession\x12\x19.task.v1.MsgCreateSession\x1a!.task.v1.MsgCreateSessionResponse\x12V\n" +
@@ -34,7 +34,14 @@ const file_task_v1_tx_proto_rawDesc = "" +
 	"\x12SubmitInferReceipt\x12\x1e.task.v1.MsgSubmitInferReceipt\x1a&.task.v1.MsgSubmitInferReceiptResponse\x12b\n" +
 	"\x14SubmitWorkerEvidence\x12 .task.v1.MsgSubmitWorkerEvidence\x1a(.task.v1.MsgSubmitWorkerEvidenceResponse\x12w\n" +
 	"\x1bSubmitVerifierValueEvidence\x12'.task.v1.MsgSubmitVerifierValueEvidence\x1a/.task.v1.MsgSubmitVerifierValueEvidenceResponse\x12n\n" +
-	"\x18SubmitVerifierHandraises\x12$.task.v1.MsgSubmitVerifierHandraises\x1a,.task.v1.MsgSubmitVerifierHandraisesResponse\x12e\n" +
+	"\x18SubmitVerifierHandraises\x12$.task.v1.MsgSubmitVerifierHandraises\x1a,.task.v1.MsgSubmitVerifierHandraisesResponse\x12_\n" +
+	"\x13SubmitAnchorOpening\x12\x1f.task.v1.MsgSubmitAnchorOpening\x1a'.task.v1.MsgSubmitAnchorOpeningResponse\x12Y\n" +
+	"\x11SubmitAnchorProof\x12\x1d.task.v1.MsgSubmitAnchorProof\x1a%.task.v1.MsgSubmitAnchorProofResponse\x12k\n" +
+	"\x17SubmitAnchorAuditResult\x12#.task.v1.MsgSubmitAnchorAuditResult\x1a+.task.v1.MsgSubmitAnchorAuditResultResponse\x12q\n" +
+	"\x19SubmitAnchorValidatorVote\x12%.task.v1.MsgSubmitAnchorValidatorVote\x1a-.task.v1.MsgSubmitAnchorValidatorVoteResponse\x12e\n" +
+	"\x15RegisterAnchorVoteKey\x12!.task.v1.MsgRegisterAnchorVoteKey\x1a).task.v1.MsgRegisterAnchorVoteKeyResponse\x12S\n" +
+	"\x0fSealAnchorEpoch\x12\x1b.task.v1.MsgSealAnchorEpoch\x1a#.task.v1.MsgSealAnchorEpochResponse\x12k\n" +
+	"\x17SubmitAnchorContentVote\x12#.task.v1.MsgSubmitAnchorContentVote\x1a+.task.v1.MsgSubmitAnchorContentVoteResponse\x12e\n" +
 	"\x15ReportDataUnavailable\x12!.task.v1.MsgReportDataUnavailable\x1a).task.v1.MsgReportDataUnavailableResponse\x12h\n" +
 	"\x15SubmitBuilderEvidence\x12!.task.v1.MsgSubmitBuilderEvidence\x1a,.shared.v1.BuilderObjectiveEvidenceReceiptV2\x12\\\n" +
 	"\x12SubmitVerifyCommit\x12\x1e.task.v1.MsgSubmitVerifyCommit\x1a&.task.v1.MsgSubmitVerifyCommitResponse\x12k\n" +
@@ -66,54 +73,68 @@ var file_task_v1_tx_proto_goTypes = []any{
 	(*MsgSubmitWorkerEvidence)(nil),                    // 5: task.v1.MsgSubmitWorkerEvidence
 	(*MsgSubmitVerifierValueEvidence)(nil),             // 6: task.v1.MsgSubmitVerifierValueEvidence
 	(*MsgSubmitVerifierHandraises)(nil),                // 7: task.v1.MsgSubmitVerifierHandraises
-	(*MsgReportDataUnavailable)(nil),                   // 8: task.v1.MsgReportDataUnavailable
-	(*MsgSubmitBuilderEvidence)(nil),                   // 9: task.v1.MsgSubmitBuilderEvidence
-	(*MsgSubmitVerifyCommit)(nil),                      // 10: task.v1.MsgSubmitVerifyCommit
-	(*MsgBatchSubmitVerifyCommit)(nil),                 // 11: task.v1.MsgBatchSubmitVerifyCommit
-	(*MsgSubmitVerifyResult)(nil),                      // 12: task.v1.MsgSubmitVerifyResult
-	(*MsgBatchSubmitVerifyResult)(nil),                 // 13: task.v1.MsgBatchSubmitVerifyResult
-	(*MsgOpenChallengeRound)(nil),                      // 14: task.v1.MsgOpenChallengeRound
-	(*MsgSettleTask)(nil),                              // 15: task.v1.MsgSettleTask
-	(*MsgSweepDeadline)(nil),                           // 16: task.v1.MsgSweepDeadline
-	(*MsgRecordDispatch)(nil),                          // 17: task.v1.MsgRecordDispatch
-	(*MsgClaimDispatchCompensation)(nil),               // 18: task.v1.MsgClaimDispatchCompensation
-	(*MsgRebutDispatchCompensation)(nil),               // 19: task.v1.MsgRebutDispatchCompensation
-	(*MsgChallengeDispatchOmission)(nil),               // 20: task.v1.MsgChallengeDispatchOmission
-	(*MsgChallengeDispatchDraw)(nil),                   // 21: task.v1.MsgChallengeDispatchDraw
-	(*MsgChallengeDispatchSkip)(nil),                   // 22: task.v1.MsgChallengeDispatchSkip
-	(*MsgReportDispatchRosterUnavailable)(nil),         // 23: task.v1.MsgReportDispatchRosterUnavailable
-	(*MsgChallengeDispatchDoubleDispatch)(nil),         // 24: task.v1.MsgChallengeDispatchDoubleDispatch
-	(*MsgRespondDispatchChallenge)(nil),                // 25: task.v1.MsgRespondDispatchChallenge
-	(*MsgDepositSession)(nil),                          // 26: task.v1.MsgDepositSession
-	(*MsgWithdrawSession)(nil),                         // 27: task.v1.MsgWithdrawSession
-	(*MsgUpdateTaskParamsResponse)(nil),                // 28: task.v1.MsgUpdateTaskParamsResponse
-	(*MsgCreateSessionResponse)(nil),                   // 29: task.v1.MsgCreateSessionResponse
-	(*MsgUpdateSessionKeyResponse)(nil),                // 30: task.v1.MsgUpdateSessionKeyResponse
-	(*MsgCancelOrderResponse)(nil),                     // 31: task.v1.MsgCancelOrderResponse
-	(*MsgSubmitInferReceiptResponse)(nil),              // 32: task.v1.MsgSubmitInferReceiptResponse
-	(*MsgSubmitWorkerEvidenceResponse)(nil),            // 33: task.v1.MsgSubmitWorkerEvidenceResponse
-	(*MsgSubmitVerifierValueEvidenceResponse)(nil),     // 34: task.v1.MsgSubmitVerifierValueEvidenceResponse
-	(*MsgSubmitVerifierHandraisesResponse)(nil),        // 35: task.v1.MsgSubmitVerifierHandraisesResponse
-	(*MsgReportDataUnavailableResponse)(nil),           // 36: task.v1.MsgReportDataUnavailableResponse
-	(*v1.BuilderObjectiveEvidenceReceiptV2)(nil),       // 37: shared.v1.BuilderObjectiveEvidenceReceiptV2
-	(*MsgSubmitVerifyCommitResponse)(nil),              // 38: task.v1.MsgSubmitVerifyCommitResponse
-	(*MsgBatchSubmitVerifyCommitResponse)(nil),         // 39: task.v1.MsgBatchSubmitVerifyCommitResponse
-	(*MsgSubmitVerifyResultResponse)(nil),              // 40: task.v1.MsgSubmitVerifyResultResponse
-	(*MsgBatchSubmitVerifyResultResponse)(nil),         // 41: task.v1.MsgBatchSubmitVerifyResultResponse
-	(*MsgOpenChallengeRoundResponse)(nil),              // 42: task.v1.MsgOpenChallengeRoundResponse
-	(*MsgSettleTaskResponse)(nil),                      // 43: task.v1.MsgSettleTaskResponse
-	(*MsgSweepDeadlineResponse)(nil),                   // 44: task.v1.MsgSweepDeadlineResponse
-	(*MsgRecordDispatchResponse)(nil),                  // 45: task.v1.MsgRecordDispatchResponse
-	(*MsgClaimDispatchCompensationResponse)(nil),       // 46: task.v1.MsgClaimDispatchCompensationResponse
-	(*MsgRebutDispatchCompensationResponse)(nil),       // 47: task.v1.MsgRebutDispatchCompensationResponse
-	(*MsgChallengeDispatchOmissionResponse)(nil),       // 48: task.v1.MsgChallengeDispatchOmissionResponse
-	(*MsgChallengeDispatchDrawResponse)(nil),           // 49: task.v1.MsgChallengeDispatchDrawResponse
-	(*MsgChallengeDispatchSkipResponse)(nil),           // 50: task.v1.MsgChallengeDispatchSkipResponse
-	(*MsgReportDispatchRosterUnavailableResponse)(nil), // 51: task.v1.MsgReportDispatchRosterUnavailableResponse
-	(*MsgChallengeDispatchDoubleDispatchResponse)(nil), // 52: task.v1.MsgChallengeDispatchDoubleDispatchResponse
-	(*MsgRespondDispatchChallengeResponse)(nil),        // 53: task.v1.MsgRespondDispatchChallengeResponse
-	(*MsgDepositSessionResponse)(nil),                  // 54: task.v1.MsgDepositSessionResponse
-	(*MsgWithdrawSessionResponse)(nil),                 // 55: task.v1.MsgWithdrawSessionResponse
+	(*MsgSubmitAnchorOpening)(nil),                     // 8: task.v1.MsgSubmitAnchorOpening
+	(*MsgSubmitAnchorProof)(nil),                       // 9: task.v1.MsgSubmitAnchorProof
+	(*MsgSubmitAnchorAuditResult)(nil),                 // 10: task.v1.MsgSubmitAnchorAuditResult
+	(*MsgSubmitAnchorValidatorVote)(nil),               // 11: task.v1.MsgSubmitAnchorValidatorVote
+	(*MsgRegisterAnchorVoteKey)(nil),                   // 12: task.v1.MsgRegisterAnchorVoteKey
+	(*MsgSealAnchorEpoch)(nil),                         // 13: task.v1.MsgSealAnchorEpoch
+	(*MsgSubmitAnchorContentVote)(nil),                 // 14: task.v1.MsgSubmitAnchorContentVote
+	(*MsgReportDataUnavailable)(nil),                   // 15: task.v1.MsgReportDataUnavailable
+	(*MsgSubmitBuilderEvidence)(nil),                   // 16: task.v1.MsgSubmitBuilderEvidence
+	(*MsgSubmitVerifyCommit)(nil),                      // 17: task.v1.MsgSubmitVerifyCommit
+	(*MsgBatchSubmitVerifyCommit)(nil),                 // 18: task.v1.MsgBatchSubmitVerifyCommit
+	(*MsgSubmitVerifyResult)(nil),                      // 19: task.v1.MsgSubmitVerifyResult
+	(*MsgBatchSubmitVerifyResult)(nil),                 // 20: task.v1.MsgBatchSubmitVerifyResult
+	(*MsgOpenChallengeRound)(nil),                      // 21: task.v1.MsgOpenChallengeRound
+	(*MsgSettleTask)(nil),                              // 22: task.v1.MsgSettleTask
+	(*MsgSweepDeadline)(nil),                           // 23: task.v1.MsgSweepDeadline
+	(*MsgRecordDispatch)(nil),                          // 24: task.v1.MsgRecordDispatch
+	(*MsgClaimDispatchCompensation)(nil),               // 25: task.v1.MsgClaimDispatchCompensation
+	(*MsgRebutDispatchCompensation)(nil),               // 26: task.v1.MsgRebutDispatchCompensation
+	(*MsgChallengeDispatchOmission)(nil),               // 27: task.v1.MsgChallengeDispatchOmission
+	(*MsgChallengeDispatchDraw)(nil),                   // 28: task.v1.MsgChallengeDispatchDraw
+	(*MsgChallengeDispatchSkip)(nil),                   // 29: task.v1.MsgChallengeDispatchSkip
+	(*MsgReportDispatchRosterUnavailable)(nil),         // 30: task.v1.MsgReportDispatchRosterUnavailable
+	(*MsgChallengeDispatchDoubleDispatch)(nil),         // 31: task.v1.MsgChallengeDispatchDoubleDispatch
+	(*MsgRespondDispatchChallenge)(nil),                // 32: task.v1.MsgRespondDispatchChallenge
+	(*MsgDepositSession)(nil),                          // 33: task.v1.MsgDepositSession
+	(*MsgWithdrawSession)(nil),                         // 34: task.v1.MsgWithdrawSession
+	(*MsgUpdateTaskParamsResponse)(nil),                // 35: task.v1.MsgUpdateTaskParamsResponse
+	(*MsgCreateSessionResponse)(nil),                   // 36: task.v1.MsgCreateSessionResponse
+	(*MsgUpdateSessionKeyResponse)(nil),                // 37: task.v1.MsgUpdateSessionKeyResponse
+	(*MsgCancelOrderResponse)(nil),                     // 38: task.v1.MsgCancelOrderResponse
+	(*MsgSubmitInferReceiptResponse)(nil),              // 39: task.v1.MsgSubmitInferReceiptResponse
+	(*MsgSubmitWorkerEvidenceResponse)(nil),            // 40: task.v1.MsgSubmitWorkerEvidenceResponse
+	(*MsgSubmitVerifierValueEvidenceResponse)(nil),     // 41: task.v1.MsgSubmitVerifierValueEvidenceResponse
+	(*MsgSubmitVerifierHandraisesResponse)(nil),        // 42: task.v1.MsgSubmitVerifierHandraisesResponse
+	(*MsgSubmitAnchorOpeningResponse)(nil),             // 43: task.v1.MsgSubmitAnchorOpeningResponse
+	(*MsgSubmitAnchorProofResponse)(nil),               // 44: task.v1.MsgSubmitAnchorProofResponse
+	(*MsgSubmitAnchorAuditResultResponse)(nil),         // 45: task.v1.MsgSubmitAnchorAuditResultResponse
+	(*MsgSubmitAnchorValidatorVoteResponse)(nil),       // 46: task.v1.MsgSubmitAnchorValidatorVoteResponse
+	(*MsgRegisterAnchorVoteKeyResponse)(nil),           // 47: task.v1.MsgRegisterAnchorVoteKeyResponse
+	(*MsgSealAnchorEpochResponse)(nil),                 // 48: task.v1.MsgSealAnchorEpochResponse
+	(*MsgSubmitAnchorContentVoteResponse)(nil),         // 49: task.v1.MsgSubmitAnchorContentVoteResponse
+	(*MsgReportDataUnavailableResponse)(nil),           // 50: task.v1.MsgReportDataUnavailableResponse
+	(*v1.BuilderObjectiveEvidenceReceiptV2)(nil),       // 51: shared.v1.BuilderObjectiveEvidenceReceiptV2
+	(*MsgSubmitVerifyCommitResponse)(nil),              // 52: task.v1.MsgSubmitVerifyCommitResponse
+	(*MsgBatchSubmitVerifyCommitResponse)(nil),         // 53: task.v1.MsgBatchSubmitVerifyCommitResponse
+	(*MsgSubmitVerifyResultResponse)(nil),              // 54: task.v1.MsgSubmitVerifyResultResponse
+	(*MsgBatchSubmitVerifyResultResponse)(nil),         // 55: task.v1.MsgBatchSubmitVerifyResultResponse
+	(*MsgOpenChallengeRoundResponse)(nil),              // 56: task.v1.MsgOpenChallengeRoundResponse
+	(*MsgSettleTaskResponse)(nil),                      // 57: task.v1.MsgSettleTaskResponse
+	(*MsgSweepDeadlineResponse)(nil),                   // 58: task.v1.MsgSweepDeadlineResponse
+	(*MsgRecordDispatchResponse)(nil),                  // 59: task.v1.MsgRecordDispatchResponse
+	(*MsgClaimDispatchCompensationResponse)(nil),       // 60: task.v1.MsgClaimDispatchCompensationResponse
+	(*MsgRebutDispatchCompensationResponse)(nil),       // 61: task.v1.MsgRebutDispatchCompensationResponse
+	(*MsgChallengeDispatchOmissionResponse)(nil),       // 62: task.v1.MsgChallengeDispatchOmissionResponse
+	(*MsgChallengeDispatchDrawResponse)(nil),           // 63: task.v1.MsgChallengeDispatchDrawResponse
+	(*MsgChallengeDispatchSkipResponse)(nil),           // 64: task.v1.MsgChallengeDispatchSkipResponse
+	(*MsgReportDispatchRosterUnavailableResponse)(nil), // 65: task.v1.MsgReportDispatchRosterUnavailableResponse
+	(*MsgChallengeDispatchDoubleDispatchResponse)(nil), // 66: task.v1.MsgChallengeDispatchDoubleDispatchResponse
+	(*MsgRespondDispatchChallengeResponse)(nil),        // 67: task.v1.MsgRespondDispatchChallengeResponse
+	(*MsgDepositSessionResponse)(nil),                  // 68: task.v1.MsgDepositSessionResponse
+	(*MsgWithdrawSessionResponse)(nil),                 // 69: task.v1.MsgWithdrawSessionResponse
 }
 var file_task_v1_tx_proto_depIdxs = []int32{
 	0,  // 0: task.v1.Msg.UpdateTaskParams:input_type -> task.v1.MsgUpdateTaskParams
@@ -124,56 +145,70 @@ var file_task_v1_tx_proto_depIdxs = []int32{
 	5,  // 5: task.v1.Msg.SubmitWorkerEvidence:input_type -> task.v1.MsgSubmitWorkerEvidence
 	6,  // 6: task.v1.Msg.SubmitVerifierValueEvidence:input_type -> task.v1.MsgSubmitVerifierValueEvidence
 	7,  // 7: task.v1.Msg.SubmitVerifierHandraises:input_type -> task.v1.MsgSubmitVerifierHandraises
-	8,  // 8: task.v1.Msg.ReportDataUnavailable:input_type -> task.v1.MsgReportDataUnavailable
-	9,  // 9: task.v1.Msg.SubmitBuilderEvidence:input_type -> task.v1.MsgSubmitBuilderEvidence
-	10, // 10: task.v1.Msg.SubmitVerifyCommit:input_type -> task.v1.MsgSubmitVerifyCommit
-	11, // 11: task.v1.Msg.BatchSubmitVerifyCommit:input_type -> task.v1.MsgBatchSubmitVerifyCommit
-	12, // 12: task.v1.Msg.SubmitVerifyResult:input_type -> task.v1.MsgSubmitVerifyResult
-	13, // 13: task.v1.Msg.BatchSubmitVerifyResult:input_type -> task.v1.MsgBatchSubmitVerifyResult
-	14, // 14: task.v1.Msg.OpenChallengeRound:input_type -> task.v1.MsgOpenChallengeRound
-	15, // 15: task.v1.Msg.SettleTask:input_type -> task.v1.MsgSettleTask
-	16, // 16: task.v1.Msg.SweepDeadline:input_type -> task.v1.MsgSweepDeadline
-	17, // 17: task.v1.Msg.RecordDispatch:input_type -> task.v1.MsgRecordDispatch
-	18, // 18: task.v1.Msg.ClaimDispatchCompensation:input_type -> task.v1.MsgClaimDispatchCompensation
-	19, // 19: task.v1.Msg.RebutDispatchCompensation:input_type -> task.v1.MsgRebutDispatchCompensation
-	20, // 20: task.v1.Msg.ChallengeDispatchOmission:input_type -> task.v1.MsgChallengeDispatchOmission
-	21, // 21: task.v1.Msg.ChallengeDispatchDraw:input_type -> task.v1.MsgChallengeDispatchDraw
-	22, // 22: task.v1.Msg.ChallengeDispatchSkip:input_type -> task.v1.MsgChallengeDispatchSkip
-	23, // 23: task.v1.Msg.ReportDispatchRosterUnavailable:input_type -> task.v1.MsgReportDispatchRosterUnavailable
-	24, // 24: task.v1.Msg.ChallengeDispatchDoubleDispatch:input_type -> task.v1.MsgChallengeDispatchDoubleDispatch
-	25, // 25: task.v1.Msg.RespondDispatchChallenge:input_type -> task.v1.MsgRespondDispatchChallenge
-	26, // 26: task.v1.Msg.DepositSession:input_type -> task.v1.MsgDepositSession
-	27, // 27: task.v1.Msg.WithdrawSession:input_type -> task.v1.MsgWithdrawSession
-	28, // 28: task.v1.Msg.UpdateTaskParams:output_type -> task.v1.MsgUpdateTaskParamsResponse
-	29, // 29: task.v1.Msg.CreateSession:output_type -> task.v1.MsgCreateSessionResponse
-	30, // 30: task.v1.Msg.UpdateSessionKey:output_type -> task.v1.MsgUpdateSessionKeyResponse
-	31, // 31: task.v1.Msg.CancelOrder:output_type -> task.v1.MsgCancelOrderResponse
-	32, // 32: task.v1.Msg.SubmitInferReceipt:output_type -> task.v1.MsgSubmitInferReceiptResponse
-	33, // 33: task.v1.Msg.SubmitWorkerEvidence:output_type -> task.v1.MsgSubmitWorkerEvidenceResponse
-	34, // 34: task.v1.Msg.SubmitVerifierValueEvidence:output_type -> task.v1.MsgSubmitVerifierValueEvidenceResponse
-	35, // 35: task.v1.Msg.SubmitVerifierHandraises:output_type -> task.v1.MsgSubmitVerifierHandraisesResponse
-	36, // 36: task.v1.Msg.ReportDataUnavailable:output_type -> task.v1.MsgReportDataUnavailableResponse
-	37, // 37: task.v1.Msg.SubmitBuilderEvidence:output_type -> shared.v1.BuilderObjectiveEvidenceReceiptV2
-	38, // 38: task.v1.Msg.SubmitVerifyCommit:output_type -> task.v1.MsgSubmitVerifyCommitResponse
-	39, // 39: task.v1.Msg.BatchSubmitVerifyCommit:output_type -> task.v1.MsgBatchSubmitVerifyCommitResponse
-	40, // 40: task.v1.Msg.SubmitVerifyResult:output_type -> task.v1.MsgSubmitVerifyResultResponse
-	41, // 41: task.v1.Msg.BatchSubmitVerifyResult:output_type -> task.v1.MsgBatchSubmitVerifyResultResponse
-	42, // 42: task.v1.Msg.OpenChallengeRound:output_type -> task.v1.MsgOpenChallengeRoundResponse
-	43, // 43: task.v1.Msg.SettleTask:output_type -> task.v1.MsgSettleTaskResponse
-	44, // 44: task.v1.Msg.SweepDeadline:output_type -> task.v1.MsgSweepDeadlineResponse
-	45, // 45: task.v1.Msg.RecordDispatch:output_type -> task.v1.MsgRecordDispatchResponse
-	46, // 46: task.v1.Msg.ClaimDispatchCompensation:output_type -> task.v1.MsgClaimDispatchCompensationResponse
-	47, // 47: task.v1.Msg.RebutDispatchCompensation:output_type -> task.v1.MsgRebutDispatchCompensationResponse
-	48, // 48: task.v1.Msg.ChallengeDispatchOmission:output_type -> task.v1.MsgChallengeDispatchOmissionResponse
-	49, // 49: task.v1.Msg.ChallengeDispatchDraw:output_type -> task.v1.MsgChallengeDispatchDrawResponse
-	50, // 50: task.v1.Msg.ChallengeDispatchSkip:output_type -> task.v1.MsgChallengeDispatchSkipResponse
-	51, // 51: task.v1.Msg.ReportDispatchRosterUnavailable:output_type -> task.v1.MsgReportDispatchRosterUnavailableResponse
-	52, // 52: task.v1.Msg.ChallengeDispatchDoubleDispatch:output_type -> task.v1.MsgChallengeDispatchDoubleDispatchResponse
-	53, // 53: task.v1.Msg.RespondDispatchChallenge:output_type -> task.v1.MsgRespondDispatchChallengeResponse
-	54, // 54: task.v1.Msg.DepositSession:output_type -> task.v1.MsgDepositSessionResponse
-	55, // 55: task.v1.Msg.WithdrawSession:output_type -> task.v1.MsgWithdrawSessionResponse
-	28, // [28:56] is the sub-list for method output_type
-	0,  // [0:28] is the sub-list for method input_type
+	8,  // 8: task.v1.Msg.SubmitAnchorOpening:input_type -> task.v1.MsgSubmitAnchorOpening
+	9,  // 9: task.v1.Msg.SubmitAnchorProof:input_type -> task.v1.MsgSubmitAnchorProof
+	10, // 10: task.v1.Msg.SubmitAnchorAuditResult:input_type -> task.v1.MsgSubmitAnchorAuditResult
+	11, // 11: task.v1.Msg.SubmitAnchorValidatorVote:input_type -> task.v1.MsgSubmitAnchorValidatorVote
+	12, // 12: task.v1.Msg.RegisterAnchorVoteKey:input_type -> task.v1.MsgRegisterAnchorVoteKey
+	13, // 13: task.v1.Msg.SealAnchorEpoch:input_type -> task.v1.MsgSealAnchorEpoch
+	14, // 14: task.v1.Msg.SubmitAnchorContentVote:input_type -> task.v1.MsgSubmitAnchorContentVote
+	15, // 15: task.v1.Msg.ReportDataUnavailable:input_type -> task.v1.MsgReportDataUnavailable
+	16, // 16: task.v1.Msg.SubmitBuilderEvidence:input_type -> task.v1.MsgSubmitBuilderEvidence
+	17, // 17: task.v1.Msg.SubmitVerifyCommit:input_type -> task.v1.MsgSubmitVerifyCommit
+	18, // 18: task.v1.Msg.BatchSubmitVerifyCommit:input_type -> task.v1.MsgBatchSubmitVerifyCommit
+	19, // 19: task.v1.Msg.SubmitVerifyResult:input_type -> task.v1.MsgSubmitVerifyResult
+	20, // 20: task.v1.Msg.BatchSubmitVerifyResult:input_type -> task.v1.MsgBatchSubmitVerifyResult
+	21, // 21: task.v1.Msg.OpenChallengeRound:input_type -> task.v1.MsgOpenChallengeRound
+	22, // 22: task.v1.Msg.SettleTask:input_type -> task.v1.MsgSettleTask
+	23, // 23: task.v1.Msg.SweepDeadline:input_type -> task.v1.MsgSweepDeadline
+	24, // 24: task.v1.Msg.RecordDispatch:input_type -> task.v1.MsgRecordDispatch
+	25, // 25: task.v1.Msg.ClaimDispatchCompensation:input_type -> task.v1.MsgClaimDispatchCompensation
+	26, // 26: task.v1.Msg.RebutDispatchCompensation:input_type -> task.v1.MsgRebutDispatchCompensation
+	27, // 27: task.v1.Msg.ChallengeDispatchOmission:input_type -> task.v1.MsgChallengeDispatchOmission
+	28, // 28: task.v1.Msg.ChallengeDispatchDraw:input_type -> task.v1.MsgChallengeDispatchDraw
+	29, // 29: task.v1.Msg.ChallengeDispatchSkip:input_type -> task.v1.MsgChallengeDispatchSkip
+	30, // 30: task.v1.Msg.ReportDispatchRosterUnavailable:input_type -> task.v1.MsgReportDispatchRosterUnavailable
+	31, // 31: task.v1.Msg.ChallengeDispatchDoubleDispatch:input_type -> task.v1.MsgChallengeDispatchDoubleDispatch
+	32, // 32: task.v1.Msg.RespondDispatchChallenge:input_type -> task.v1.MsgRespondDispatchChallenge
+	33, // 33: task.v1.Msg.DepositSession:input_type -> task.v1.MsgDepositSession
+	34, // 34: task.v1.Msg.WithdrawSession:input_type -> task.v1.MsgWithdrawSession
+	35, // 35: task.v1.Msg.UpdateTaskParams:output_type -> task.v1.MsgUpdateTaskParamsResponse
+	36, // 36: task.v1.Msg.CreateSession:output_type -> task.v1.MsgCreateSessionResponse
+	37, // 37: task.v1.Msg.UpdateSessionKey:output_type -> task.v1.MsgUpdateSessionKeyResponse
+	38, // 38: task.v1.Msg.CancelOrder:output_type -> task.v1.MsgCancelOrderResponse
+	39, // 39: task.v1.Msg.SubmitInferReceipt:output_type -> task.v1.MsgSubmitInferReceiptResponse
+	40, // 40: task.v1.Msg.SubmitWorkerEvidence:output_type -> task.v1.MsgSubmitWorkerEvidenceResponse
+	41, // 41: task.v1.Msg.SubmitVerifierValueEvidence:output_type -> task.v1.MsgSubmitVerifierValueEvidenceResponse
+	42, // 42: task.v1.Msg.SubmitVerifierHandraises:output_type -> task.v1.MsgSubmitVerifierHandraisesResponse
+	43, // 43: task.v1.Msg.SubmitAnchorOpening:output_type -> task.v1.MsgSubmitAnchorOpeningResponse
+	44, // 44: task.v1.Msg.SubmitAnchorProof:output_type -> task.v1.MsgSubmitAnchorProofResponse
+	45, // 45: task.v1.Msg.SubmitAnchorAuditResult:output_type -> task.v1.MsgSubmitAnchorAuditResultResponse
+	46, // 46: task.v1.Msg.SubmitAnchorValidatorVote:output_type -> task.v1.MsgSubmitAnchorValidatorVoteResponse
+	47, // 47: task.v1.Msg.RegisterAnchorVoteKey:output_type -> task.v1.MsgRegisterAnchorVoteKeyResponse
+	48, // 48: task.v1.Msg.SealAnchorEpoch:output_type -> task.v1.MsgSealAnchorEpochResponse
+	49, // 49: task.v1.Msg.SubmitAnchorContentVote:output_type -> task.v1.MsgSubmitAnchorContentVoteResponse
+	50, // 50: task.v1.Msg.ReportDataUnavailable:output_type -> task.v1.MsgReportDataUnavailableResponse
+	51, // 51: task.v1.Msg.SubmitBuilderEvidence:output_type -> shared.v1.BuilderObjectiveEvidenceReceiptV2
+	52, // 52: task.v1.Msg.SubmitVerifyCommit:output_type -> task.v1.MsgSubmitVerifyCommitResponse
+	53, // 53: task.v1.Msg.BatchSubmitVerifyCommit:output_type -> task.v1.MsgBatchSubmitVerifyCommitResponse
+	54, // 54: task.v1.Msg.SubmitVerifyResult:output_type -> task.v1.MsgSubmitVerifyResultResponse
+	55, // 55: task.v1.Msg.BatchSubmitVerifyResult:output_type -> task.v1.MsgBatchSubmitVerifyResultResponse
+	56, // 56: task.v1.Msg.OpenChallengeRound:output_type -> task.v1.MsgOpenChallengeRoundResponse
+	57, // 57: task.v1.Msg.SettleTask:output_type -> task.v1.MsgSettleTaskResponse
+	58, // 58: task.v1.Msg.SweepDeadline:output_type -> task.v1.MsgSweepDeadlineResponse
+	59, // 59: task.v1.Msg.RecordDispatch:output_type -> task.v1.MsgRecordDispatchResponse
+	60, // 60: task.v1.Msg.ClaimDispatchCompensation:output_type -> task.v1.MsgClaimDispatchCompensationResponse
+	61, // 61: task.v1.Msg.RebutDispatchCompensation:output_type -> task.v1.MsgRebutDispatchCompensationResponse
+	62, // 62: task.v1.Msg.ChallengeDispatchOmission:output_type -> task.v1.MsgChallengeDispatchOmissionResponse
+	63, // 63: task.v1.Msg.ChallengeDispatchDraw:output_type -> task.v1.MsgChallengeDispatchDrawResponse
+	64, // 64: task.v1.Msg.ChallengeDispatchSkip:output_type -> task.v1.MsgChallengeDispatchSkipResponse
+	65, // 65: task.v1.Msg.ReportDispatchRosterUnavailable:output_type -> task.v1.MsgReportDispatchRosterUnavailableResponse
+	66, // 66: task.v1.Msg.ChallengeDispatchDoubleDispatch:output_type -> task.v1.MsgChallengeDispatchDoubleDispatchResponse
+	67, // 67: task.v1.Msg.RespondDispatchChallenge:output_type -> task.v1.MsgRespondDispatchChallengeResponse
+	68, // 68: task.v1.Msg.DepositSession:output_type -> task.v1.MsgDepositSessionResponse
+	69, // 69: task.v1.Msg.WithdrawSession:output_type -> task.v1.MsgWithdrawSessionResponse
+	35, // [35:70] is the sub-list for method output_type
+	0,  // [0:35] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -184,6 +219,7 @@ func file_task_v1_tx_proto_init() {
 	if File_task_v1_tx_proto != nil {
 		return
 	}
+	file_task_v1_anchor_proto_init()
 	file_task_v1_builder_evidence_proto_init()
 	file_task_v1_deadline_proto_init()
 	file_task_v1_msg_assignment_proto_init()

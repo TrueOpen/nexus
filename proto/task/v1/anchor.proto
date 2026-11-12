@@ -1,0 +1,533 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/common.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// AnchorVerdictV1 is the verdict of the anchor commitment audit (ADR-0040) on
+// one sampled position, or on the whole task after all positions are judged.
+// AnchorVerdictV1 defines the AnchorVerdictV1 wire type.
+enum AnchorVerdictV1 {
+  // ANCHOR_VERDICT_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ANCHOR_VERDICT_V1_UNSPECIFIED = 0;
+  // Every anchor, recurrent-state recomputation, direction statistic, glue row
+  // and token rule holds at the position.
+  ANCHOR_VERDICT_V1_PASS = 1;
+  // At least one rule failed at the position: the Worker did not compute it
+  // with the registered weights under the registered precision class.
+  ANCHOR_VERDICT_V1_REJECT = 2;
+  // The auditor could not judge the position (missing material, proof not
+  // established); attributable to the verifier, never to the Worker.
+  ANCHOR_VERDICT_V1_NO_VERDICT = 3;
+}
+
+// AnchorPositionVerdictV1 is the auditor's verdict on one sampled position.
+// AnchorPositionVerdictV1 defines the AnchorPositionVerdictV1 wire type.
+message AnchorPositionVerdictV1 {
+  uint64 position = 1;
+  AnchorVerdictV1 verdict = 2;
+  // Short diagnostic (rule name and statistic); informational, not consensus.
+  string reason = 3;
+}
+
+// AnchorResultSourceV1 names who finalized the anchor verdict of a task.
+enum AnchorResultSourceV1 {
+  // No final verdict yet.
+  ANCHOR_RESULT_SOURCE_V1_UNSPECIFIED = 0;
+  // A selected round-1 Verifier's MsgSubmitAnchorAuditResult (ADR-0040 v1; advisory since v4).
+  ANCHOR_RESULT_SOURCE_V1_VERIFIER = 1;
+  // Consensus validators reached >= 2/3 of the last bonded voting power on one verdict (v4).
+  ANCHOR_RESULT_SOURCE_V1_VALIDATOR_VOTE = 2;
+  // verdict_deadline_height passed without a final vote: REJECT when the Worker never
+  // opened or never proved, NO_VERDICT when the validators did not reach 2/3 on a proof.
+  ANCHOR_RESULT_SOURCE_V1_TIMEOUT = 3;
+  // The receipt's commitments could not be sampled (malformed token commitment);
+  // the audit is final REJECT at sampling (ADR-0040 v6).
+  ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT = 4;
+  // Content track only (ADR-0040 v7): the content verdict was closed without a vote
+  // because the compute verdict of the same audit is REJECT; the Worker is slashed
+  // once, by the compute track.
+  ANCHOR_RESULT_SOURCE_V1_COMPUTE_REJECTED = 5;
+}
+
+// AnchorContentVerdictV1 is the content-integrity verdict of an anchor audit
+// (ADR-0040 v7, B1 gradient certification): whether the committed trajectory is
+// the registered model's own decoding, judged by the direction statistic z on
+// gradients certified with beacon rows Y_x = x * W. It is a separate track from
+// the compute verdict (AnchorVerdictV1) with its own deadline, tally and slash.
+enum AnchorContentVerdictV1 {
+  // ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ANCHOR_CONTENT_VERDICT_V1_UNSPECIFIED = 0;
+  // Every certified gradient identity, glue VJP and direction statistic holds.
+  ANCHOR_CONTENT_VERDICT_V1_PASS = 1;
+  // The content check failed (or the Worker withheld the B1 material it owed):
+  // the Worker's bond D is slashed by anchor_content_reject_slash_bps and it is jailed.
+  ANCHOR_CONTENT_VERDICT_V1_REJECT_CONTENT = 2;
+  // The validators could not judge; never attributable to the Worker, nothing is slashed.
+  ANCHOR_CONTENT_VERDICT_V1_NO_VERDICT = 3;
+}
+
+// AnchorContentPositionVerdictV1 is one validator's content verdict on one sampled position.
+message AnchorContentPositionVerdictV1 {
+  // position is the sampled row.
+  uint64 position = 1;
+  // verdict is the content verdict at the position.
+  AnchorContentVerdictV1 verdict = 2;
+  // z_micro is the direction statistic z times 10^6 (informational; the input of the
+  // cross-task CUSUM of AnchorWorkerCusumState once it is enforced).
+  sint64 z_micro = 3;
+  // reason is a short diagnostic; informational, not consensus.
+  string reason = 4;
+}
+
+// AnchorVoteTallyV1 is the running validator-vote tally of one anchor audit, in
+// units of staking voting power as of the last validator-set update.
+message AnchorVoteTallyV1 {
+  // pass_power is the summed voting power of PASS votes.
+  uint64 pass_power = 1;
+  // reject_power is the summed voting power of REJECT votes.
+  uint64 reject_power = 2;
+  // no_verdict_power is the summed voting power of NO_VERDICT votes.
+  uint64 no_verdict_power = 3;
+  // total_power is the last total bonded voting power at the latest vote.
+  uint64 total_power = 4;
+  // vote_count is the number of recorded votes.
+  uint32 vote_count = 5;
+}
+
+// AnchorValidatorVoteState is one bonded validator's vote on a Worker's anchor proof.
+message AnchorValidatorVoteState {
+  bytes task_id = 1;
+  string validator_operator_address = 2;
+  string voter_address = 3;
+  AnchorVerdictV1 verdict = 4;
+  bytes proof_hash = 5;
+  uint64 height = 6;
+  uint64 power = 7;
+  repeated AnchorPositionVerdictV1 verdicts = 8;
+}
+
+// AnchorAuditState is the per-task record of the anchor commitment audit
+// (ADR-0040, first slice): the positions the chain sampled from the beacon,
+// the Worker's opening hash and the auditor's verdicts. The anchor commitment
+// itself is the WORKER_ANCHOR_OPENING entry of the accepted InferReceipt.
+// AnchorAuditState defines the AnchorAuditState wire type.
+message AnchorAuditState {
+  bytes task_id = 1;
+  // Whether the beacon selected this task for an opening.
+  bool sampled = 2;
+  // Sampled positions, strictly ascending, each in [0, rows).
+  repeated uint64 positions = 3;
+  // Randomness the sample was derived from.
+  bytes sample_beacon = 4;
+  uint64 sample_height = 5;
+  // Opening material hash (sha256 of the exact bytes) once the Worker opened.
+  bytes opening_hash = 6;
+  uint64 opening_size_bytes = 7;
+  // Where the material can be fetched; devnet accepts file:// and http(s)://.
+  string opening_uri = 8;
+  uint64 opening_height = 9;
+  string result_verifier_operator_address = 10;
+  repeated AnchorPositionVerdictV1 verdicts = 11;
+  // sha256 of the proof package (zero bytes when the auditor recomputed
+  // directly with the weights instead of proving).
+  bytes proof_hash = 12;
+  uint64 result_height = 13;
+  AnchorVerdictV1 task_verdict = 14;
+  // Worker-produced proof package covering the sampled positions (ADR-0040
+  // v2: the Worker proves on its own CPU while it keeps serving; a Verifier
+  // checks the proof without the weights). Zero/empty until submitted.
+  bytes worker_proof_hash = 15;
+  uint64 worker_proof_size_bytes = 16;
+  string worker_proof_uri = 17;
+  uint64 worker_proof_height = 18;
+  // Captured at sampling so the audit outlives the task's receipt and
+  // assignment records (which the chain prunes once the task is terminal).
+  string winner_worker = 19;
+  repeated string selected_verifiers = 20;
+  // Height by which a final verdict must exist; settlement of a PASS round waits until
+  // then (or until the validators finalize earlier). Zero on audits sampled before v4.
+  uint64 verdict_deadline_height = 21;
+  AnchorResultSourceV1 result_source = 22;
+  AnchorVoteTallyV1 tally = 23;
+  string result_reason = 24;
+  // Role-fault id of the Worker slash applied at settlement on a REJECT verdict.
+  bytes worker_fault_id = 25;
+  // Audit probability of this task in basis points (ADR-0040 v5): derived at sampling
+  // from the order value R and the Worker's slashable bond D = active_bond * anchor_reject_slash_bps:
+  // s = k*R / (D + k*R), floored at anchor_audit_min_rate_bps. A larger bond buys a lower rate.
+  uint32 audit_rate_bps = 26;
+  // selected is the beacon coin at audit_rate_bps: only selected tasks open, prove, vote and
+  // hold settlement; an unselected task settles on the round-1 verdict alone.
+  bool selected = 27;
+  // audit_basis spells out R, D and the coin for audit.
+  string audit_basis = 28;
+  // Height by which the Worker's opening must be recorded (ADR-0040 v6); later openings are refused.
+  uint64 opening_deadline_height = 29;
+  // Height by which the Worker's proof must be recorded (ADR-0040 v6); later proofs are refused.
+  uint64 proof_deadline_height = 30;
+  // Slashable base D fixed at sampling: the Worker's effective active bond then (ADR-0040 v6).
+  // A REJECT or TIMEOUT slash is requested against D, so bond moved out after sampling
+  // is reached through the unbonding queue.
+  uint64 slashable_bond = 31;
+  // anchor_commit_uri locates the Worker's anchor_commit artifact in DA; its digest is the
+  // receipt's WORKER_ANCHOR_OPENING commitment.
+  string anchor_commit_uri = 32;
+  // epoch_manifest_hash is sha256 of the canonical epoch manifest the Worker's proof covers.
+  bytes epoch_manifest_hash = 33;
+  // epoch_manifest_uri locates the epoch manifest in DA.
+  string epoch_manifest_uri = 34;
+
+  // ---- content track (ADR-0040 v7) ----
+
+  // Height by which the content verdict must be final; zero when the audit has no content
+  // track (anchor_content_verdict_window_blocks was zero at sampling). Fixed at sampling as
+  // verdict_deadline_height + anchor_content_verdict_window_blocks.
+  uint64 content_verdict_deadline_height = 35;
+  // content_verdict is the final content verdict (UNSPECIFIED while open).
+  AnchorContentVerdictV1 content_verdict = 36;
+  // content_result_source names who finalized the content verdict.
+  AnchorResultSourceV1 content_result_source = 37;
+  // content_result_height is when the content verdict became final (zero while open).
+  uint64 content_result_height = 38;
+  // content_tally is the running content-vote tally (AnchorVoteTallyV1.reject_power counts
+  // REJECT_CONTENT).
+  AnchorVoteTallyV1 content_tally = 39;
+  // content_result_reason is a short diagnostic of the final content verdict.
+  string content_result_reason = 40;
+  // Role-fault id of the content slash (anchor_content_reject).
+  bytes content_worker_fault_id = 41;
+  // Opening-set freeze height of this task's B1 epoch: the height of the MsgSealAnchorEpoch
+  // that fixed the epoch's members (zero: unsealed). No opening is accepted for a sealed task
+  // at or after x_beacon_height, and no task can join a sealed epoch.
+  uint64 epoch_seal_height = 42;
+  // B1 beacon height of the epoch: open freeze (seal) height + 1, which is always above the
+  // highest opening height of the epoch's tasks. Every opening of the epoch (with its g and
+  // v_int rows) is on chain before it.
+  uint64 x_beacon_height = 43;
+  // x_beacon is the chain beacon randomness at x_beacon_height (the hub beacon that also
+  // drives verifier selection: proposer VRF, or the block-hash placeholder before VRF is
+  // required), recorded with the Worker's proof. Off chain, x is derived from (chain_id,
+  // epoch_manifest_hash, x_beacon, module key, row index).
+  bytes x_beacon = 44;
+  // worker_proof_x_bound is true when the recorded proof declared Y_x rows bound to x_beacon_height.
+  bool worker_proof_x_bound = 45;
+  // content_verdicts are the per-position content verdicts of the deciding side.
+  repeated AnchorContentPositionVerdictV1 content_verdicts = 46;
+}
+
+// AnchorContentVoteState is one bonded validator's content vote on a Worker's anchor proof
+// (ADR-0040 v7). Separate from AnchorValidatorVoteState: a validator votes once per track.
+message AnchorContentVoteState {
+  // task_id names the audit.
+  bytes task_id = 1;
+  // validator_operator_address is the voting validator.
+  string validator_operator_address = 2;
+  // voter_address signed the vote (operator account or registered vote address).
+  string voter_address = 3;
+  // verdict is the validator's content verdict.
+  AnchorContentVerdictV1 verdict = 4;
+  // proof_hash is the Worker proof the validator checked.
+  bytes proof_hash = 5;
+  // x_beacon is the B1 beacon the validator checked the Y_x rows against.
+  bytes x_beacon = 6;
+  // height is when the vote was recorded.
+  uint64 height = 7;
+  // power is the validator's last voting power at the vote.
+  uint64 power = 8;
+  // verdicts are the per-position content verdicts.
+  repeated AnchorContentPositionVerdictV1 verdicts = 9;
+}
+
+// AnchorEpochState is a Worker's sealed B1 proving epoch (ADR-0040 v7), keyed by its epoch
+// manifest hash. Sealing freezes the epoch's opening set; the x beacon comes from the block
+// after the freeze, so neither the openings (with their g and v_int rows) nor the membership
+// can depend on x.
+message AnchorEpochState {
+  // epoch_manifest_hash is sha256 of the canonical epoch manifest; it is the epoch id.
+  bytes epoch_manifest_hash = 1;
+  // worker is the winner Worker operator of every member task.
+  string worker = 2;
+  // task_ids lists the member tasks, strictly ascending.
+  repeated bytes task_ids = 3;
+  // max_opening_height is the highest opening height among the members.
+  uint64 max_opening_height = 4;
+  // seal_height is the opening-set freeze height (the height of the MsgSealAnchorEpoch).
+  uint64 seal_height = 5;
+  // x_beacon_height = seal_height + 1 (> max_opening_height).
+  uint64 x_beacon_height = 6;
+  // x_beacon is the chain beacon randomness at x_beacon_height (see AnchorAuditState.x_beacon);
+  // empty until the first member proof records it. QueryAnchorEpoch returns it as soon as the
+  // height exists.
+  bytes x_beacon = 7;
+}
+
+// AnchorWorkerCusumState is the specified (not yet enforced) cross-task CUSUM of one Worker's
+// direction statistic (ADR-0040 v7 spec, enforcement planned for v8). For every final content
+// verdict the chain would take the per-position z of the deciding side (median over the
+// validators of that side), and update S <- max(0, S + z - k) with reference value k
+// (calibrated on the honest z distribution, which must be zero-mean); S >= h raises an alarm
+// that jails the Worker pending a full re-audit. Detects a Worker that keeps every single
+// position under the per-position threshold but shifts the mean (noise-filled cheap decoding).
+message AnchorWorkerCusumState {
+  // worker is the Worker operator.
+  string worker = 1;
+  // statistic_micro is S times 10^6.
+  int64 statistic_micro = 2;
+  // samples counts the positions folded into S.
+  uint64 samples = 3;
+  // last_task_id is the last audit folded in.
+  bytes last_task_id = 4;
+  // last_update_height is when S last changed.
+  uint64 last_update_height = 5;
+  // alarm_height is the height S first crossed h (zero: no alarm).
+  uint64 alarm_height = 6;
+}
+
+// AnchorVoteKeyState delegates anchor votes of one validator to a hot vote address,
+// so the operator key can stay offline (ADR-0040 v6).
+message AnchorVoteKeyState {
+  // validator_operator_address is the delegating validator.
+  string validator_operator_address = 1;
+  // vote_address may sign MsgSubmitAnchorValidatorVote for the validator.
+  string vote_address = 2;
+  // height is when the delegation was recorded.
+  uint64 height = 3;
+}
+
+// MsgSubmitAnchorOpening records the Worker's opening of the sampled
+// positions: the material hash, its size and where it can be fetched. The
+// outer Cosmos signer is the winner Worker's current service address.
+// MsgSubmitAnchorOpening defines the MsgSubmitAnchorOpening wire type.
+message MsgSubmitAnchorOpening {
+  bytes task_id = 1;
+  repeated uint64 positions = 2;
+  bytes opening_hash = 3;
+  uint64 opening_size_bytes = 4;
+  string opening_uri = 5;
+  string submitter_address = 6;
+  // anchor_commit_uri locates the anchor_commit artifact in DA (ADR-0040 v6).
+  string anchor_commit_uri = 7;
+}
+
+// MsgSubmitAnchorOpeningResponse defines the MsgSubmitAnchorOpeningResponse wire type.
+message MsgSubmitAnchorOpeningResponse {
+  shared.v1.MutationStatusV1 status = 1;
+}
+
+// MsgSubmitAnchorProof records the Worker's proof package over its recorded
+// opening: the proof hash, its size and where it can be fetched. The outer
+// Cosmos signer is the winner Worker's current service address.
+// MsgSubmitAnchorProof defines the MsgSubmitAnchorProof wire type.
+message MsgSubmitAnchorProof {
+  bytes task_id = 1;
+  bytes opening_hash = 2;
+  bytes proof_hash = 3;
+  uint64 proof_size_bytes = 4;
+  string proof_uri = 5;
+  string submitter_address = 6;
+  // epoch_manifest_hash is sha256 of the canonical epoch manifest (ADR-0040 v6).
+  bytes epoch_manifest_hash = 7;
+  // epoch_manifest_uri locates the epoch manifest in DA.
+  string epoch_manifest_uri = 8;
+  // x_beacon_height declares that the proof contains the B1 beacon rows Y_x = x * W of the
+  // sealed epoch (ADR-0040 v7). It must equal the task's recorded x_beacon_height and the
+  // chain must have reached it; zero declares a compute-only proof without Y_x rows.
+  uint64 x_beacon_height = 9;
+}
+
+// MsgSubmitAnchorProofResponse defines the MsgSubmitAnchorProofResponse wire type.
+message MsgSubmitAnchorProofResponse {
+  shared.v1.MutationStatusV1 status = 1;
+}
+
+// MsgSubmitAnchorAuditResult records the auditor's per-position verdicts over
+// the opening whose hash it names. The outer Cosmos signer is a selected
+// Verifier's current service address.
+// MsgSubmitAnchorAuditResult defines the MsgSubmitAnchorAuditResult wire type.
+message MsgSubmitAnchorAuditResult {
+  bytes task_id = 1;
+  bytes opening_hash = 2;
+  repeated AnchorPositionVerdictV1 verdicts = 3;
+  bytes proof_hash = 4;
+  string submitter_address = 5;
+}
+
+// MsgSubmitAnchorAuditResultResponse defines the MsgSubmitAnchorAuditResultResponse wire type.
+message MsgSubmitAnchorAuditResultResponse {
+  AnchorVerdictV1 task_verdict = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+
+// MsgSubmitAnchorValidatorVote is a bonded consensus validator's verdict on the Worker's
+// recorded anchor proof (ADR-0040 v4). The signer must be the validator operator's account
+// or the vote address it registered with MsgRegisterAnchorVoteKey (v6).
+// The verdict is final once one side holds >= 2/3 of the last bonded voting power.
+message MsgSubmitAnchorValidatorVote {
+  bytes task_id = 1;
+  bytes opening_hash = 2;
+  bytes proof_hash = 3;
+  AnchorVerdictV1 verdict = 4;
+  repeated AnchorPositionVerdictV1 verdicts = 5;
+  string validator_operator_address = 6;
+  string submitter_address = 7;
+}
+
+// MsgSubmitAnchorValidatorVoteResponse reports the audit after the vote.
+message MsgSubmitAnchorValidatorVoteResponse {
+  // task_verdict is the audit verdict (UNSPECIFIED while open).
+  AnchorVerdictV1 task_verdict = 1;
+  // finalized is true once the verdict is final.
+  bool finalized = 2;
+  // tally is the running tally.
+  AnchorVoteTallyV1 tally = 3;
+  // status reports whether the vote changed state.
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// MsgRegisterAnchorVoteKey lets a validator operator delegate its anchor votes to a hot
+// vote address (ADR-0040 v6). The signer is the validator operator's account; an empty
+// vote_address clears the delegation.
+message MsgRegisterAnchorVoteKey {
+  string validator_operator_address = 1;
+  string vote_address = 2;
+  string submitter_address = 3;
+}
+
+// MsgRegisterAnchorVoteKeyResponse defines the MsgRegisterAnchorVoteKeyResponse wire type.
+message MsgRegisterAnchorVoteKeyResponse {
+  shared.v1.MutationStatusV1 status = 1;
+}
+
+// MsgSealAnchorEpoch freezes the opening set of a Worker's B1 proving epoch (ADR-0040 v7):
+// every member task must be selected, opened, not yet proved and not yet sealed, and belong to
+// the signer's Worker. The chain records x_beacon_height = freeze (seal) height + 1.
+// The outer Cosmos signer is the winner Worker's current service address.
+message MsgSealAnchorEpoch {
+  // epoch_manifest_hash is the 32-byte hash of the canonical epoch manifest (the epoch id); the
+  // chain treats it as opaque and requires every member proof to name it.
+  bytes epoch_manifest_hash = 1;
+  // task_ids lists the member tasks, strictly ascending.
+  repeated bytes task_ids = 2;
+  // submitter_address is the winner Worker's current service address.
+  string submitter_address = 3;
+}
+
+// MsgSealAnchorEpochResponse reports the epoch's B1 beacon height.
+message MsgSealAnchorEpochResponse {
+  // x_beacon_height is the height whose beacon derives x.
+  uint64 x_beacon_height = 1;
+  // status reports whether the seal changed state.
+  shared.v1.MutationStatusV1 status = 2;
+}
+
+// MsgSubmitAnchorContentVote is a bonded consensus validator's content verdict on the Worker's
+// recorded anchor proof (ADR-0040 v7). Same signer rule as MsgSubmitAnchorValidatorVote. The
+// content track opens once the task has settled on its compute verdict; the content verdict is
+// final once one side holds >= 2/3 of the last total voting power.
+message MsgSubmitAnchorContentVote {
+  // task_id names the audit.
+  bytes task_id = 1;
+  // proof_hash must be the Worker's recorded proof.
+  bytes proof_hash = 2;
+  // x_beacon must be the recorded B1 beacon, or empty when the proof is not x-bound.
+  bytes x_beacon = 3;
+  // verdict is the validator's content verdict.
+  AnchorContentVerdictV1 verdict = 4;
+  // verdicts are optional per-position content verdicts.
+  repeated AnchorContentPositionVerdictV1 verdicts = 5;
+  // validator_operator_address is the voting validator.
+  string validator_operator_address = 6;
+  // submitter_address is the operator account or its registered vote address.
+  string submitter_address = 7;
+}
+
+// MsgSubmitAnchorContentVoteResponse reports the content track after the vote.
+message MsgSubmitAnchorContentVoteResponse {
+  // content_verdict is the content verdict (UNSPECIFIED while open).
+  AnchorContentVerdictV1 content_verdict = 1;
+  // finalized is true once the content verdict is final.
+  bool finalized = 2;
+  // tally is the running content tally.
+  AnchorVoteTallyV1 tally = 3;
+  // status reports whether the vote changed state.
+  shared.v1.MutationStatusV1 status = 4;
+}
+
+// QueryAnchorAuditsPendingRequest pages over audits awaiting a final verdict.
+message QueryAnchorAuditsPendingRequest {
+  // start_after resumes after this task id (exclusive); empty starts at the beginning.
+  bytes start_after = 1;
+  // limit caps the page (default 100, maximum 500).
+  uint32 limit = 2;
+  // content selects the content track (ADR-0040 v7): settled audits whose content verdict is
+  // still open, instead of audits awaiting the compute verdict.
+  bool content = 3;
+}
+
+// QueryAnchorAuditsPendingResponse lists sampled, selected, not yet final audits by task id.
+message QueryAnchorAuditsPendingResponse {
+  repeated AnchorAuditState audits = 1;
+  // next is the start_after of the following page; empty at the end.
+  bytes next = 2;
+}
+
+// QueryAnchorVoteKeyRequest names one validator.
+message QueryAnchorVoteKeyRequest {
+  string validator_operator_address = 1;
+}
+
+// QueryAnchorVoteKeyResponse returns the validator's vote delegation.
+message QueryAnchorVoteKeyResponse {
+  AnchorVoteKeyState vote_key = 1;
+}
+
+// QueryAnchorVotesRequest names one task.
+message QueryAnchorVotesRequest {
+  bytes task_id = 1;
+}
+
+// QueryAnchorVotesResponse lists the validator votes and the tally of one audit.
+message QueryAnchorVotesResponse {
+  repeated AnchorValidatorVoteState votes = 1;
+  AnchorVoteTallyV1 tally = 2;
+}
+
+// QueryAnchorAuditRequest defines the QueryAnchorAuditRequest wire type.
+message QueryAnchorAuditRequest {
+  bytes task_id = 1;
+}
+
+// QueryAnchorAuditResponse defines the QueryAnchorAuditResponse wire type.
+message QueryAnchorAuditResponse {
+  AnchorAuditState audit = 1;
+}
+
+// QueryAnchorEpochRequest names one sealed B1 epoch.
+message QueryAnchorEpochRequest {
+  // epoch_manifest_hash is the epoch id.
+  bytes epoch_manifest_hash = 1;
+}
+
+// QueryAnchorEpochResponse returns the epoch and its x beacon once derivable.
+message QueryAnchorEpochResponse {
+  // epoch is the sealed epoch record.
+  AnchorEpochState epoch = 1;
+  // x_beacon is the beacon randomness; empty while the chain has not reached x_beacon_height.
+  bytes x_beacon = 2;
+}
+
+// QueryAnchorContentVotesRequest names one task.
+message QueryAnchorContentVotesRequest {
+  // task_id names the audit.
+  bytes task_id = 1;
+}
+
+// QueryAnchorContentVotesResponse lists the content votes and the content tally of one audit.
+message QueryAnchorContentVotesResponse {
+  // votes are the recorded content votes.
+  repeated AnchorContentVoteState votes = 1;
+  // tally is the content tally.
+  AnchorVoteTallyV1 tally = 2;
+}

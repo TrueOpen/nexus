@@ -687,6 +687,34 @@ type VerificationParamsV1 struct {
 	WorkerInferTimeoutSlashBps  uint32                 `protobuf:"varint,1,opt,name=worker_infer_timeout_slash_bps,json=workerInferTimeoutSlashBps,proto3" json:"worker_infer_timeout_slash_bps,omitempty"`
 	ResultRevealMissingSlashBps uint32                 `protobuf:"varint,4,opt,name=result_reveal_missing_slash_bps,json=resultRevealMissingSlashBps,proto3" json:"result_reveal_missing_slash_bps,omitempty"`
 	BuilderFaultSlashBps        uint32                 `protobuf:"varint,5,opt,name=builder_fault_slash_bps,json=builderFaultSlashBps,proto3" json:"builder_fault_slash_bps,omitempty"`
+	// Basis points of the slashable bond D (fixed at sampling) taken when the
+	// validators REJECT the Worker's anchor proof (ADR-0040 v6). Zero disables it.
+	AnchorRejectSlashBps uint32 `protobuf:"varint,7,opt,name=anchor_reject_slash_bps,json=anchorRejectSlashBps,proto3" json:"anchor_reject_slash_bps,omitempty"`
+	// Validator voting window after the proof deadline (ADR-0040 v6). Must be > 0.
+	AnchorVerdictWindowBlocks uint64 `protobuf:"varint,8,opt,name=anchor_verdict_window_blocks,json=anchorVerdictWindowBlocks,proto3" json:"anchor_verdict_window_blocks,omitempty"`
+	// Floor of the per-task audit probability in basis points.
+	AnchorAuditMinRateBps uint32 `protobuf:"varint,9,opt,name=anchor_audit_min_rate_bps,json=anchorAuditMinRateBps,proto3" json:"anchor_audit_min_rate_bps,omitempty"`
+	// Risk margin k (basis points) in s = k*R / (D + k*R); 10000 = 1x.
+	AnchorAuditRiskMarginBps uint32 `protobuf:"varint,10,opt,name=anchor_audit_risk_margin_bps,json=anchorAuditRiskMarginBps,proto3" json:"anchor_audit_risk_margin_bps,omitempty"`
+	// Blocks after sampling within which the Worker must record its opening. Must be > 0.
+	AnchorOpenWindowBlocks uint64 `protobuf:"varint,11,opt,name=anchor_open_window_blocks,json=anchorOpenWindowBlocks,proto3" json:"anchor_open_window_blocks,omitempty"`
+	// Blocks after the opening deadline within which the Worker must record its proof. Must be > 0.
+	AnchorProofWindowBlocks uint64 `protobuf:"varint,12,opt,name=anchor_proof_window_blocks,json=anchorProofWindowBlocks,proto3" json:"anchor_proof_window_blocks,omitempty"`
+	// Basis points of D taken when the Worker never opened or never proved by the deadline.
+	AnchorTimeoutSlashBps uint32 `protobuf:"varint,13,opt,name=anchor_timeout_slash_bps,json=anchorTimeoutSlashBps,proto3" json:"anchor_timeout_slash_bps,omitempty"`
+	// Positions sampled per selected audit (ADR-0040 v7). Must be in [1, 64]; bodies recorded
+	// before v7 carry zero and sample the former fixed 2.
+	AnchorPositionsPerTask uint32 `protobuf:"varint,14,opt,name=anchor_positions_per_task,json=anchorPositionsPerTask,proto3" json:"anchor_positions_per_task,omitempty"`
+	// Minimum bond multiple M (ADR-0040 v7): a Worker whose slashable bond D (effective active
+	// bond at sampling) is below M times the order value R is audited at 100% instead of
+	// s = kR/(D+kR). The content-track deterrent needs D >= 40 R; zero disables the guard.
+	AnchorMinBondMultiple uint32 `protobuf:"varint,15,opt,name=anchor_min_bond_multiple,json=anchorMinBondMultiple,proto3" json:"anchor_min_bond_multiple,omitempty"`
+	// Content verdict window after the compute verdict deadline (ADR-0040 v7, blocks). Zero
+	// disables the content track for audits sampled under this body.
+	AnchorContentVerdictWindowBlocks uint64 `protobuf:"varint,16,opt,name=anchor_content_verdict_window_blocks,json=anchorContentVerdictWindowBlocks,proto3" json:"anchor_content_verdict_window_blocks,omitempty"`
+	// Basis points of D taken, and the Worker jailed, when the content verdict is REJECT_CONTENT
+	// (validators rejected the content, or the Worker withheld its B1 material).
+	AnchorContentRejectSlashBps uint32 `protobuf:"varint,17,opt,name=anchor_content_reject_slash_bps,json=anchorContentRejectSlashBps,proto3" json:"anchor_content_reject_slash_bps,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -738,6 +766,83 @@ func (x *VerificationParamsV1) GetResultRevealMissingSlashBps() uint32 {
 func (x *VerificationParamsV1) GetBuilderFaultSlashBps() uint32 {
 	if x != nil {
 		return x.BuilderFaultSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorRejectSlashBps() uint32 {
+	if x != nil {
+		return x.AnchorRejectSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerdictWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorVerdictWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorAuditMinRateBps() uint32 {
+	if x != nil {
+		return x.AnchorAuditMinRateBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorAuditRiskMarginBps() uint32 {
+	if x != nil {
+		return x.AnchorAuditRiskMarginBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorOpenWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorOpenWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorProofWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorProofWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorTimeoutSlashBps() uint32 {
+	if x != nil {
+		return x.AnchorTimeoutSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorPositionsPerTask() uint32 {
+	if x != nil {
+		return x.AnchorPositionsPerTask
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorMinBondMultiple() uint32 {
+	if x != nil {
+		return x.AnchorMinBondMultiple
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorContentVerdictWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorContentVerdictWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorContentRejectSlashBps() uint32 {
+	if x != nil {
+		return x.AnchorContentRejectSlashBps
 	}
 	return 0
 }
@@ -1825,11 +1930,23 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\ak_stake\x18\t \x01(\rR\x06kStake\x127\n" +
 	"\x18candidate_weight_ppm_max\x18\n" +
 	" \x01(\rR\x15candidateWeightPpmMax\x12U\n" +
-	"(max_weighted_draw_attempts_per_selection\x18\v \x01(\rR#maxWeightedDrawAttemptsPerSelection\"\xcc\x02\n" +
+	"(max_weighted_draw_attempts_per_selection\x18\v \x01(\rR#maxWeightedDrawAttemptsPerSelection\"\xf9\a\n" +
 	"\x14VerificationParamsV1\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x01 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
 	"\x1fresult_reveal_missing_slash_bps\x18\x04 \x01(\rR\x1bresultRevealMissingSlashBps\x125\n" +
-	"\x17builder_fault_slash_bps\x18\x05 \x01(\rR\x14builderFaultSlashBpsJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\xc0\b\n" +
+	"\x17builder_fault_slash_bps\x18\x05 \x01(\rR\x14builderFaultSlashBps\x125\n" +
+	"\x17anchor_reject_slash_bps\x18\a \x01(\rR\x14anchorRejectSlashBps\x12?\n" +
+	"\x1canchor_verdict_window_blocks\x18\b \x01(\x04R\x19anchorVerdictWindowBlocks\x128\n" +
+	"\x19anchor_audit_min_rate_bps\x18\t \x01(\rR\x15anchorAuditMinRateBps\x12>\n" +
+	"\x1canchor_audit_risk_margin_bps\x18\n" +
+	" \x01(\rR\x18anchorAuditRiskMarginBps\x129\n" +
+	"\x19anchor_open_window_blocks\x18\v \x01(\x04R\x16anchorOpenWindowBlocks\x12;\n" +
+	"\x1aanchor_proof_window_blocks\x18\f \x01(\x04R\x17anchorProofWindowBlocks\x127\n" +
+	"\x18anchor_timeout_slash_bps\x18\r \x01(\rR\x15anchorTimeoutSlashBps\x129\n" +
+	"\x19anchor_positions_per_task\x18\x0e \x01(\rR\x16anchorPositionsPerTask\x127\n" +
+	"\x18anchor_min_bond_multiple\x18\x0f \x01(\rR\x15anchorMinBondMultiple\x12N\n" +
+	"$anchor_content_verdict_window_blocks\x18\x10 \x01(\x04R anchorContentVerdictWindowBlocks\x12D\n" +
+	"\x1fanchor_content_reject_slash_bps\x18\x11 \x01(\rR\x1banchorContentRejectSlashBpsJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\xc0\b\n" +
 	"\x15EvidenceLimitParamsV1\x12A\n" +
 	"\x1dmax_evidence_retention_blocks\x18\x02 \x01(\x04R\x1amaxEvidenceRetentionBlocks\x12Y\n" +
 	"*max_infer_evidence_commitments_per_receipt\x18\x03 \x01(\rR%maxInferEvidenceCommitmentsPerReceipt\x12J\n" +

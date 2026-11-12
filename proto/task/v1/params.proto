@@ -103,6 +103,34 @@ message VerificationParamsV1 {
   uint32 worker_infer_timeout_slash_bps = 1;
   uint32 result_reveal_missing_slash_bps = 4;
   uint32 builder_fault_slash_bps = 5;
+  // Basis points of the slashable bond D (fixed at sampling) taken when the
+  // validators REJECT the Worker's anchor proof (ADR-0040 v6). Zero disables it.
+  uint32 anchor_reject_slash_bps = 7;
+  // Validator voting window after the proof deadline (ADR-0040 v6). Must be > 0.
+  uint64 anchor_verdict_window_blocks = 8;
+  // Floor of the per-task audit probability in basis points.
+  uint32 anchor_audit_min_rate_bps = 9;
+  // Risk margin k (basis points) in s = k*R / (D + k*R); 10000 = 1x.
+  uint32 anchor_audit_risk_margin_bps = 10;
+  // Blocks after sampling within which the Worker must record its opening. Must be > 0.
+  uint64 anchor_open_window_blocks = 11;
+  // Blocks after the opening deadline within which the Worker must record its proof. Must be > 0.
+  uint64 anchor_proof_window_blocks = 12;
+  // Basis points of D taken when the Worker never opened or never proved by the deadline.
+  uint32 anchor_timeout_slash_bps = 13;
+  // Positions sampled per selected audit (ADR-0040 v7). Must be in [1, 64]; bodies recorded
+  // before v7 carry zero and sample the former fixed 2.
+  uint32 anchor_positions_per_task = 14;
+  // Minimum bond multiple M (ADR-0040 v7): a Worker whose slashable bond D (effective active
+  // bond at sampling) is below M times the order value R is audited at 100% instead of
+  // s = kR/(D+kR). The content-track deterrent needs D >= 40 R; zero disables the guard.
+  uint32 anchor_min_bond_multiple = 15;
+  // Content verdict window after the compute verdict deadline (ADR-0040 v7, blocks). Zero
+  // disables the content track for audits sampled under this body.
+  uint64 anchor_content_verdict_window_blocks = 16;
+  // Basis points of D taken, and the Worker jailed, when the content verdict is REJECT_CONTENT
+  // (validators rejected the content, or the Worker withheld its B1 material).
+  uint32 anchor_content_reject_slash_bps = 17;
 }
 
 // EvidenceLimitParamsV1 bounds evidence payloads and supported version catalogs.

@@ -42,6 +42,9 @@ const (
 	EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING EvidenceKind = 3
 	// Selected Worker A-level input and generated token-ID opening.
 	EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING EvidenceKind = 4
+	// Selected Worker anchor-commitment opening (ADR-0040): the engine-side
+	// per-position per-layer anchor Merkle root committed at inference time.
+	EvidenceKind_EVIDENCE_KIND_WORKER_ANCHOR_OPENING EvidenceKind = 5
 )
 
 // Enum value maps for EvidenceKind.
@@ -52,6 +55,7 @@ var (
 		2: "EVIDENCE_KIND_VERIFIER_VALUE_OPENING",
 		3: "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING",
 		4: "EVIDENCE_KIND_WORKER_TOKEN_OPENING",
+		5: "EVIDENCE_KIND_WORKER_ANCHOR_OPENING",
 	}
 	EvidenceKind_value = map[string]int32{
 		"EVIDENCE_KIND_UNSPECIFIED":             0,
@@ -59,6 +63,7 @@ var (
 		"EVIDENCE_KIND_VERIFIER_VALUE_OPENING":  2,
 		"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
 		"EVIDENCE_KIND_WORKER_TOKEN_OPENING":    4,
+		"EVIDENCE_KIND_WORKER_ANCHOR_OPENING":   5,
 	}
 )
 
@@ -218,13 +223,14 @@ const file_shared_v1_evidence_proto_rawDesc = "" +
 	"\x16max_encoded_size_bytes\x18\x03 \x01(\x04R\x13maxEncodedSizeBytes\"\x98\x01\n" +
 	"\x10EvidenceSchemaV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12]\n" +
-	"\x17required_infer_evidence\x18\x02 \x03(\v2%.shared.v1.InferEvidenceRequirementV1R\x15requiredInferEvidence*\xd2\x01\n" +
+	"\x17required_infer_evidence\x18\x02 \x03(\v2%.shared.v1.InferEvidenceRequirementV1R\x15requiredInferEvidence*\xfb\x01\n" +
 	"\fEvidenceKind\x12\x1d\n" +
 	"\x19EVIDENCE_KIND_UNSPECIFIED\x10\x00\x12&\n" +
 	"\"EVIDENCE_KIND_WORKER_VALUE_OPENING\x10\x01\x12(\n" +
 	"$EVIDENCE_KIND_VERIFIER_VALUE_OPENING\x10\x02\x12)\n" +
 	"%EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING\x10\x03\x12&\n" +
-	"\"EVIDENCE_KIND_WORKER_TOKEN_OPENING\x10\x04B;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
+	"\"EVIDENCE_KIND_WORKER_TOKEN_OPENING\x10\x04\x12'\n" +
+	"#EVIDENCE_KIND_WORKER_ANCHOR_OPENING\x10\x05B;Z9github.com/TrueOpen/nexus/gen/trueopen/shared/v1;sharedv1b\x06proto3"
 
 var (
 	file_shared_v1_evidence_proto_rawDescOnce sync.Once

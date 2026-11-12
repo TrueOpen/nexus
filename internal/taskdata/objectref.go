@@ -79,6 +79,8 @@ const (
 	EvidenceKindWorkerValueOpening   EvidenceKind = 1
 	EvidenceKindVerifierValueOpening EvidenceKind = 2
 	EvidenceKindWorkerTokenOpening   EvidenceKind = 4
+	// EvidenceKindWorkerAnchorOpening is the Worker's C-level anchor bundle (ADR-0040).
+	EvidenceKindWorkerAnchorOpening EvidenceKind = 5
 )
 
 // String is the name a manifest's evidence_kind carries.
@@ -90,6 +92,8 @@ func (k EvidenceKind) String() string {
 		return "VERIFIER_VALUE_OPENING"
 	case EvidenceKindWorkerTokenOpening:
 		return "WORKER_TOKEN_OPENING"
+	case EvidenceKindWorkerAnchorOpening:
+		return "WORKER_ANCHOR_OPENING"
 	default:
 		return ""
 	}
@@ -99,7 +103,7 @@ func (k EvidenceKind) String() string {
 func (k EvidenceKind) belongsTo(producer EvidenceProducerKind) bool {
 	switch producer {
 	case EvidenceProducerWorker:
-		return k == EvidenceKindWorkerValueOpening || k == EvidenceKindWorkerTokenOpening
+		return k == EvidenceKindWorkerValueOpening || k == EvidenceKindWorkerTokenOpening || k == EvidenceKindWorkerAnchorOpening
 	case EvidenceProducerVerifier:
 		return k == EvidenceKindVerifierValueOpening
 	default:
