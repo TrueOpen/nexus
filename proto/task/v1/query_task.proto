@@ -11,6 +11,7 @@ import "task/v1/deadline.proto";
 import "task/v1/epoch_summary.proto";
 import "task/v1/evidence.proto";
 import "task/v1/open_verify.proto";
+import "task/v1/params.proto";
 import "task/v1/session.proto";
 import "task/v1/settlement.proto";
 import "task/v1/value_evidence.proto";
@@ -221,6 +222,32 @@ message QueryTaskRequest {
 // QueryTaskResponse returns the composite Task view.
 message QueryTaskResponse {
   TaskViewV1 task = 1;
+}
+
+// QueryTaskFrozenParamsRequest selects one Task whose frozen parameters are read.
+message QueryTaskFrozenParamsRequest {
+  bytes task_id = 1;
+}
+
+// QueryTaskFrozenParamsResponse returns the parameter version the Task bound
+// when it was accepted and that version's complete body. It exists because
+// current parameters, and the version a Session froze at its own creation, can
+// both differ from the Task's: a client pricing a challenge round needs
+// selected_verifier_count, challenge_verifier_count and challenge_open_bond as
+// the chain will read them for this Task.
+//
+// An active Task and a terminal Task that has not been compacted return their
+// bound version; version 0 is valid. Existence follows the Task row: a missing
+// Task row, whether compacted or never accepted, is NotFound, and the terminal
+// summary carries no parameters. The binding is released with the Task at the
+// final compaction step. A live Task without a binding, or a bound version whose
+// body is missing, is Internal; neither is ever answered with current
+// parameters. A non-canonical task_id is InvalidArgument. The query only reads
+// the existing binding and adds no state.
+message QueryTaskFrozenParamsResponse {
+  TaskParamsV1 params = 1;
+  // The Task's bound parameter version.
+  uint64 params_version = 2;
 }
 
 // QueryTaskStageRequest selects one Task's stage projection.
