@@ -324,8 +324,8 @@ func TestSettleFollowsChainNotLocalResults(t *testing.T) {
 	}
 }
 
-// TestSettleStageFromChain only SETTLING, not settled and not final is ready; the settlement
-// deadline is taken only from a TASK_SETTLEMENT next deadline.
+// TestSettleStageFromChain only SETTLING, not settled, not final and not held for an anchor audit
+// verdict is ready; the settlement deadline is taken only from a TASK_SETTLEMENT next deadline.
 func TestSettleStageFromChain(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -340,6 +340,9 @@ func TestSettleStageFromChain(t *testing.T) {
 			NextDeadlineKind: "CHALLENGE_WINDOW_CLOSE", NextDeadlineHeight: 80}, settleStage{}},
 		{"settled", chaincli.TaskStage{TaskPhase: "SETTLING", SettlementStatus: "SETTLED_PASS", FinalityStatus: "PENDING"}, settleStage{}},
 		{"final", chaincli.TaskStage{TaskPhase: "SETTLING", SettlementStatus: "NONE", FinalityStatus: "FINAL"}, settleStage{}},
+		// The chain refuses a settlement until the anchor audit verdict is final.
+		{"anchor verdict pending", chaincli.TaskStage{TaskPhase: "SETTLING", SettlementStatus: "NONE", FinalityStatus: "PENDING",
+			NextDeadlineKind: "ANCHOR_VERDICT", NextDeadlineHeight: 95}, settleStage{}},
 	}
 	for _, test := range tests {
 		if got := settleStageFrom(test.stage); got != test.want {
