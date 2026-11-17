@@ -42,7 +42,8 @@ const (
 	EvidenceKind_EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING EvidenceKind = 3
 	// Selected Worker A-level input and generated token-ID opening.
 	EvidenceKind_EVIDENCE_KIND_WORKER_TOKEN_OPENING EvidenceKind = 4
-	// Selected Worker C-level anchor commitment opening (ADR-0040).
+	// Selected Worker anchor-commitment opening (ADR-0040): the engine-side
+	// per-position per-layer anchor Merkle root committed at inference time.
 	EvidenceKind_EVIDENCE_KIND_WORKER_ANCHOR_OPENING EvidenceKind = 5
 )
 
