@@ -18,6 +18,8 @@ service Query {
   rpc Params(QueryTaskParamsRequest) returns (QueryTaskParamsResponse);
   // Task returns the composite view of one task.
   rpc Task(QueryTaskRequest) returns (QueryTaskResponse);
+  // TaskFrozenParams returns the parameters frozen when one task was accepted.
+  rpc TaskFrozenParams(QueryTaskFrozenParamsRequest) returns (QueryTaskFrozenParamsResponse);
   // TaskStage returns the stage and next-deadline projection of one task.
   rpc TaskStage(QueryTaskStageRequest) returns (QueryTaskStageResponse);
   // TaskAssignment returns the Worker assignment projection of one task.

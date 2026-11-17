@@ -37,6 +37,8 @@ const (
 	QueryParamsProcedure = "/task.v1.Query/Params"
 	// QueryTaskProcedure is the fully-qualified name of the Query's Task RPC.
 	QueryTaskProcedure = "/task.v1.Query/Task"
+	// QueryTaskFrozenParamsProcedure is the fully-qualified name of the Query's TaskFrozenParams RPC.
+	QueryTaskFrozenParamsProcedure = "/task.v1.Query/TaskFrozenParams"
 	// QueryTaskStageProcedure is the fully-qualified name of the Query's TaskStage RPC.
 	QueryTaskStageProcedure = "/task.v1.Query/TaskStage"
 	// QueryTaskAssignmentProcedure is the fully-qualified name of the Query's TaskAssignment RPC.
@@ -120,6 +122,8 @@ type QueryClient interface {
 	Params(context.Context, *connect.Request[v1.QueryTaskParamsRequest]) (*connect.Response[v1.QueryTaskParamsResponse], error)
 	// Task returns the composite view of one task.
 	Task(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// TaskFrozenParams returns the parameters frozen when one task was accepted.
+	TaskFrozenParams(context.Context, *connect.Request[v1.QueryTaskFrozenParamsRequest]) (*connect.Response[v1.QueryTaskFrozenParamsResponse], error)
 	// TaskStage returns the stage and next-deadline projection of one task.
 	TaskStage(context.Context, *connect.Request[v1.QueryTaskStageRequest]) (*connect.Response[v1.QueryTaskStageResponse], error)
 	// TaskAssignment returns the Worker assignment projection of one task.
@@ -214,6 +218,12 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryTaskProcedure,
 			connect.WithSchema(queryMethods.ByName("Task")),
+			connect.WithClientOptions(opts...),
+		),
+		taskFrozenParams: connect.NewClient[v1.QueryTaskFrozenParamsRequest, v1.QueryTaskFrozenParamsResponse](
+			httpClient,
+			baseURL+QueryTaskFrozenParamsProcedure,
+			connect.WithSchema(queryMethods.ByName("TaskFrozenParams")),
 			connect.WithClientOptions(opts...),
 		),
 		taskStage: connect.NewClient[v1.QueryTaskStageRequest, v1.QueryTaskStageResponse](
@@ -415,6 +425,7 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 type queryClient struct {
 	params                              *connect.Client[v1.QueryTaskParamsRequest, v1.QueryTaskParamsResponse]
 	task                                *connect.Client[v1.QueryTaskRequest, v1.QueryTaskResponse]
+	taskFrozenParams                    *connect.Client[v1.QueryTaskFrozenParamsRequest, v1.QueryTaskFrozenParamsResponse]
 	taskStage                           *connect.Client[v1.QueryTaskStageRequest, v1.QueryTaskStageResponse]
 	taskAssignment                      *connect.Client[v1.QueryTaskAssignmentRequest, v1.QueryTaskAssignmentResponse]
 	taskBudget                          *connect.Client[v1.QueryTaskBudgetRequest, v1.QueryTaskBudgetResponse]
@@ -457,6 +468,11 @@ func (c *queryClient) Params(ctx context.Context, req *connect.Request[v1.QueryT
 // Task calls task.v1.Query.Task.
 func (c *queryClient) Task(ctx context.Context, req *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
 	return c.task.CallUnary(ctx, req)
+}
+
+// TaskFrozenParams calls task.v1.Query.TaskFrozenParams.
+func (c *queryClient) TaskFrozenParams(ctx context.Context, req *connect.Request[v1.QueryTaskFrozenParamsRequest]) (*connect.Response[v1.QueryTaskFrozenParamsResponse], error) {
+	return c.taskFrozenParams.CallUnary(ctx, req)
 }
 
 // TaskStage calls task.v1.Query.TaskStage.
@@ -625,6 +641,8 @@ type QueryHandler interface {
 	Params(context.Context, *connect.Request[v1.QueryTaskParamsRequest]) (*connect.Response[v1.QueryTaskParamsResponse], error)
 	// Task returns the composite view of one task.
 	Task(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error)
+	// TaskFrozenParams returns the parameters frozen when one task was accepted.
+	TaskFrozenParams(context.Context, *connect.Request[v1.QueryTaskFrozenParamsRequest]) (*connect.Response[v1.QueryTaskFrozenParamsResponse], error)
 	// TaskStage returns the stage and next-deadline projection of one task.
 	TaskStage(context.Context, *connect.Request[v1.QueryTaskStageRequest]) (*connect.Response[v1.QueryTaskStageResponse], error)
 	// TaskAssignment returns the Worker assignment projection of one task.
@@ -715,6 +733,12 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryTaskProcedure,
 		svc.Task,
 		connect.WithSchema(queryMethods.ByName("Task")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryTaskFrozenParamsHandler := connect.NewUnaryHandler(
+		QueryTaskFrozenParamsProcedure,
+		svc.TaskFrozenParams,
+		connect.WithSchema(queryMethods.ByName("TaskFrozenParams")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryTaskStageHandler := connect.NewUnaryHandler(
@@ -915,6 +939,8 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryParamsHandler.ServeHTTP(w, r)
 		case QueryTaskProcedure:
 			queryTaskHandler.ServeHTTP(w, r)
+		case QueryTaskFrozenParamsProcedure:
+			queryTaskFrozenParamsHandler.ServeHTTP(w, r)
 		case QueryTaskStageProcedure:
 			queryTaskStageHandler.ServeHTTP(w, r)
 		case QueryTaskAssignmentProcedure:
@@ -994,6 +1020,10 @@ func (UnimplementedQueryHandler) Params(context.Context, *connect.Request[v1.Que
 
 func (UnimplementedQueryHandler) Task(context.Context, *connect.Request[v1.QueryTaskRequest]) (*connect.Response[v1.QueryTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.Task is not implemented"))
+}
+
+func (UnimplementedQueryHandler) TaskFrozenParams(context.Context, *connect.Request[v1.QueryTaskFrozenParamsRequest]) (*connect.Response[v1.QueryTaskFrozenParamsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.TaskFrozenParams is not implemented"))
 }
 
 func (UnimplementedQueryHandler) TaskStage(context.Context, *connect.Request[v1.QueryTaskStageRequest]) (*connect.Response[v1.QueryTaskStageResponse], error) {

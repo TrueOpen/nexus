@@ -969,6 +969,119 @@ func (x *QueryTaskResponse) GetTask() *TaskViewV1 {
 	return nil
 }
 
+// QueryTaskFrozenParamsRequest selects one Task whose frozen parameters are read.
+type QueryTaskFrozenParamsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryTaskFrozenParamsRequest) Reset() {
+	*x = QueryTaskFrozenParamsRequest{}
+	mi := &file_task_v1_query_task_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTaskFrozenParamsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTaskFrozenParamsRequest) ProtoMessage() {}
+
+func (x *QueryTaskFrozenParamsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_task_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTaskFrozenParamsRequest.ProtoReflect.Descriptor instead.
+func (*QueryTaskFrozenParamsRequest) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *QueryTaskFrozenParamsRequest) GetTaskId() []byte {
+	if x != nil {
+		return x.TaskId
+	}
+	return nil
+}
+
+// QueryTaskFrozenParamsResponse returns the parameter version the Task bound
+// when it was accepted and that version's complete body. It exists because
+// current parameters, and the version a Session froze at its own creation, can
+// both differ from the Task's: a client pricing a challenge round needs
+// selected_verifier_count, challenge_verifier_count and challenge_open_bond as
+// the chain will read them for this Task.
+//
+// An active Task and a terminal Task that has not been compacted return their
+// bound version; version 0 is valid. Existence follows the Task row: a missing
+// Task row, whether compacted or never accepted, is NotFound, and the terminal
+// summary carries no parameters. The binding is released with the Task at the
+// final compaction step. A live Task without a binding, or a bound version whose
+// body is missing, is Internal; neither is ever answered with current
+// parameters. A non-canonical task_id is InvalidArgument. The query only reads
+// the existing binding and adds no state.
+type QueryTaskFrozenParamsResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Params *TaskParamsV1          `protobuf:"bytes,1,opt,name=params,proto3" json:"params,omitempty"`
+	// The Task's bound parameter version.
+	ParamsVersion uint64 `protobuf:"varint,2,opt,name=params_version,json=paramsVersion,proto3" json:"params_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryTaskFrozenParamsResponse) Reset() {
+	*x = QueryTaskFrozenParamsResponse{}
+	mi := &file_task_v1_query_task_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryTaskFrozenParamsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryTaskFrozenParamsResponse) ProtoMessage() {}
+
+func (x *QueryTaskFrozenParamsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_query_task_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryTaskFrozenParamsResponse.ProtoReflect.Descriptor instead.
+func (*QueryTaskFrozenParamsResponse) Descriptor() ([]byte, []int) {
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *QueryTaskFrozenParamsResponse) GetParams() *TaskParamsV1 {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *QueryTaskFrozenParamsResponse) GetParamsVersion() uint64 {
+	if x != nil {
+		return x.ParamsVersion
+	}
+	return 0
+}
+
 // QueryTaskStageRequest selects one Task's stage projection.
 type QueryTaskStageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -979,7 +1092,7 @@ type QueryTaskStageRequest struct {
 
 func (x *QueryTaskStageRequest) Reset() {
 	*x = QueryTaskStageRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[9]
+	mi := &file_task_v1_query_task_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -991,7 +1104,7 @@ func (x *QueryTaskStageRequest) String() string {
 func (*QueryTaskStageRequest) ProtoMessage() {}
 
 func (x *QueryTaskStageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[9]
+	mi := &file_task_v1_query_task_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1004,7 +1117,7 @@ func (x *QueryTaskStageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskStageRequest.ProtoReflect.Descriptor instead.
 func (*QueryTaskStageRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{9}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *QueryTaskStageRequest) GetTaskId() []byte {
@@ -1024,7 +1137,7 @@ type QueryTaskStageResponse struct {
 
 func (x *QueryTaskStageResponse) Reset() {
 	*x = QueryTaskStageResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[10]
+	mi := &file_task_v1_query_task_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1036,7 +1149,7 @@ func (x *QueryTaskStageResponse) String() string {
 func (*QueryTaskStageResponse) ProtoMessage() {}
 
 func (x *QueryTaskStageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[10]
+	mi := &file_task_v1_query_task_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1049,7 +1162,7 @@ func (x *QueryTaskStageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskStageResponse.ProtoReflect.Descriptor instead.
 func (*QueryTaskStageResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{10}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *QueryTaskStageResponse) GetStage() *TaskStageViewV1 {
@@ -1069,7 +1182,7 @@ type QueryTaskAssignmentRequest struct {
 
 func (x *QueryTaskAssignmentRequest) Reset() {
 	*x = QueryTaskAssignmentRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[11]
+	mi := &file_task_v1_query_task_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1081,7 +1194,7 @@ func (x *QueryTaskAssignmentRequest) String() string {
 func (*QueryTaskAssignmentRequest) ProtoMessage() {}
 
 func (x *QueryTaskAssignmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[11]
+	mi := &file_task_v1_query_task_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1094,7 +1207,7 @@ func (x *QueryTaskAssignmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskAssignmentRequest.ProtoReflect.Descriptor instead.
 func (*QueryTaskAssignmentRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{11}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *QueryTaskAssignmentRequest) GetTaskId() []byte {
@@ -1114,7 +1227,7 @@ type QueryTaskAssignmentResponse struct {
 
 func (x *QueryTaskAssignmentResponse) Reset() {
 	*x = QueryTaskAssignmentResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[12]
+	mi := &file_task_v1_query_task_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1126,7 +1239,7 @@ func (x *QueryTaskAssignmentResponse) String() string {
 func (*QueryTaskAssignmentResponse) ProtoMessage() {}
 
 func (x *QueryTaskAssignmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[12]
+	mi := &file_task_v1_query_task_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1139,7 +1252,7 @@ func (x *QueryTaskAssignmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskAssignmentResponse.ProtoReflect.Descriptor instead.
 func (*QueryTaskAssignmentResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{12}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *QueryTaskAssignmentResponse) GetAssignment() *TaskAssignmentViewV1 {
@@ -1163,7 +1276,7 @@ type QueryTaskBudgetRequest struct {
 
 func (x *QueryTaskBudgetRequest) Reset() {
 	*x = QueryTaskBudgetRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[13]
+	mi := &file_task_v1_query_task_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1288,7 @@ func (x *QueryTaskBudgetRequest) String() string {
 func (*QueryTaskBudgetRequest) ProtoMessage() {}
 
 func (x *QueryTaskBudgetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[13]
+	mi := &file_task_v1_query_task_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1301,7 @@ func (x *QueryTaskBudgetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskBudgetRequest.ProtoReflect.Descriptor instead.
 func (*QueryTaskBudgetRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{13}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *QueryTaskBudgetRequest) GetTaskId() []byte {
@@ -1210,7 +1323,7 @@ type QueryTaskBudgetResponse struct {
 
 func (x *QueryTaskBudgetResponse) Reset() {
 	*x = QueryTaskBudgetResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[14]
+	mi := &file_task_v1_query_task_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1222,7 +1335,7 @@ func (x *QueryTaskBudgetResponse) String() string {
 func (*QueryTaskBudgetResponse) ProtoMessage() {}
 
 func (x *QueryTaskBudgetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[14]
+	mi := &file_task_v1_query_task_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1235,7 +1348,7 @@ func (x *QueryTaskBudgetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskBudgetResponse.ProtoReflect.Descriptor instead.
 func (*QueryTaskBudgetResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{14}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *QueryTaskBudgetResponse) GetBudget() *TaskBudgetState {
@@ -1257,7 +1370,7 @@ type QueryTaskBuildersRequest struct {
 
 func (x *QueryTaskBuildersRequest) Reset() {
 	*x = QueryTaskBuildersRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[15]
+	mi := &file_task_v1_query_task_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1382,7 @@ func (x *QueryTaskBuildersRequest) String() string {
 func (*QueryTaskBuildersRequest) ProtoMessage() {}
 
 func (x *QueryTaskBuildersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[15]
+	mi := &file_task_v1_query_task_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1395,7 @@ func (x *QueryTaskBuildersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskBuildersRequest.ProtoReflect.Descriptor instead.
 func (*QueryTaskBuildersRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{15}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *QueryTaskBuildersRequest) GetTaskId() []byte {
@@ -1326,7 +1439,7 @@ type QueryTaskBuildersResponse struct {
 
 func (x *QueryTaskBuildersResponse) Reset() {
 	*x = QueryTaskBuildersResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[16]
+	mi := &file_task_v1_query_task_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1338,7 +1451,7 @@ func (x *QueryTaskBuildersResponse) String() string {
 func (*QueryTaskBuildersResponse) ProtoMessage() {}
 
 func (x *QueryTaskBuildersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[16]
+	mi := &file_task_v1_query_task_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1351,7 +1464,7 @@ func (x *QueryTaskBuildersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskBuildersResponse.ProtoReflect.Descriptor instead.
 func (*QueryTaskBuildersResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{16}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *QueryTaskBuildersResponse) GetSelection() *TaskBuilderSelectionViewV1 {
@@ -1376,7 +1489,7 @@ type QueryTaskFailureClassRequest struct {
 
 func (x *QueryTaskFailureClassRequest) Reset() {
 	*x = QueryTaskFailureClassRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[17]
+	mi := &file_task_v1_query_task_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1388,7 +1501,7 @@ func (x *QueryTaskFailureClassRequest) String() string {
 func (*QueryTaskFailureClassRequest) ProtoMessage() {}
 
 func (x *QueryTaskFailureClassRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[17]
+	mi := &file_task_v1_query_task_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1401,7 +1514,7 @@ func (x *QueryTaskFailureClassRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskFailureClassRequest.ProtoReflect.Descriptor instead.
 func (*QueryTaskFailureClassRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{17}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *QueryTaskFailureClassRequest) GetTaskId() []byte {
@@ -1431,7 +1544,7 @@ type QueryTaskFailureClassResponse struct {
 
 func (x *QueryTaskFailureClassResponse) Reset() {
 	*x = QueryTaskFailureClassResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[18]
+	mi := &file_task_v1_query_task_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1443,7 +1556,7 @@ func (x *QueryTaskFailureClassResponse) String() string {
 func (*QueryTaskFailureClassResponse) ProtoMessage() {}
 
 func (x *QueryTaskFailureClassResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[18]
+	mi := &file_task_v1_query_task_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1456,7 +1569,7 @@ func (x *QueryTaskFailureClassResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryTaskFailureClassResponse.ProtoReflect.Descriptor instead.
 func (*QueryTaskFailureClassResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{18}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *QueryTaskFailureClassResponse) GetFailure() *TaskFailureClassState {
@@ -1476,7 +1589,7 @@ type QueryEvidenceCleanupRequest struct {
 
 func (x *QueryEvidenceCleanupRequest) Reset() {
 	*x = QueryEvidenceCleanupRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[19]
+	mi := &file_task_v1_query_task_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1488,7 +1601,7 @@ func (x *QueryEvidenceCleanupRequest) String() string {
 func (*QueryEvidenceCleanupRequest) ProtoMessage() {}
 
 func (x *QueryEvidenceCleanupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[19]
+	mi := &file_task_v1_query_task_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1501,7 +1614,7 @@ func (x *QueryEvidenceCleanupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEvidenceCleanupRequest.ProtoReflect.Descriptor instead.
 func (*QueryEvidenceCleanupRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{19}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *QueryEvidenceCleanupRequest) GetTaskId() []byte {
@@ -1523,7 +1636,7 @@ type QueryEvidenceCleanupResponse struct {
 
 func (x *QueryEvidenceCleanupResponse) Reset() {
 	*x = QueryEvidenceCleanupResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[20]
+	mi := &file_task_v1_query_task_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1535,7 +1648,7 @@ func (x *QueryEvidenceCleanupResponse) String() string {
 func (*QueryEvidenceCleanupResponse) ProtoMessage() {}
 
 func (x *QueryEvidenceCleanupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[20]
+	mi := &file_task_v1_query_task_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1548,7 +1661,7 @@ func (x *QueryEvidenceCleanupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEvidenceCleanupResponse.ProtoReflect.Descriptor instead.
 func (*QueryEvidenceCleanupResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{20}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *QueryEvidenceCleanupResponse) GetCleanup() *TaskCleanupProgressViewV1 {
@@ -1568,7 +1681,7 @@ type QueryEpochTaskSummaryRequest struct {
 
 func (x *QueryEpochTaskSummaryRequest) Reset() {
 	*x = QueryEpochTaskSummaryRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[21]
+	mi := &file_task_v1_query_task_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1580,7 +1693,7 @@ func (x *QueryEpochTaskSummaryRequest) String() string {
 func (*QueryEpochTaskSummaryRequest) ProtoMessage() {}
 
 func (x *QueryEpochTaskSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[21]
+	mi := &file_task_v1_query_task_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1593,7 +1706,7 @@ func (x *QueryEpochTaskSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEpochTaskSummaryRequest.ProtoReflect.Descriptor instead.
 func (*QueryEpochTaskSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{21}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *QueryEpochTaskSummaryRequest) GetEpoch() uint64 {
@@ -1614,7 +1727,7 @@ type QueryEpochTaskSummaryResponse struct {
 
 func (x *QueryEpochTaskSummaryResponse) Reset() {
 	*x = QueryEpochTaskSummaryResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[22]
+	mi := &file_task_v1_query_task_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1739,7 @@ func (x *QueryEpochTaskSummaryResponse) String() string {
 func (*QueryEpochTaskSummaryResponse) ProtoMessage() {}
 
 func (x *QueryEpochTaskSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[22]
+	mi := &file_task_v1_query_task_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1752,7 @@ func (x *QueryEpochTaskSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEpochTaskSummaryResponse.ProtoReflect.Descriptor instead.
 func (*QueryEpochTaskSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{22}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *QueryEpochTaskSummaryResponse) GetReceipt() *EpochTaskSummaryReceiptState {
@@ -1664,7 +1777,7 @@ type QueryRoleActiveTasksRequest struct {
 
 func (x *QueryRoleActiveTasksRequest) Reset() {
 	*x = QueryRoleActiveTasksRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[23]
+	mi := &file_task_v1_query_task_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1676,7 +1789,7 @@ func (x *QueryRoleActiveTasksRequest) String() string {
 func (*QueryRoleActiveTasksRequest) ProtoMessage() {}
 
 func (x *QueryRoleActiveTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[23]
+	mi := &file_task_v1_query_task_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1689,7 +1802,7 @@ func (x *QueryRoleActiveTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRoleActiveTasksRequest.ProtoReflect.Descriptor instead.
 func (*QueryRoleActiveTasksRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{23}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *QueryRoleActiveTasksRequest) GetOperatorAddress() string {
@@ -1726,7 +1839,7 @@ type QueryRoleActiveTasksResponse struct {
 
 func (x *QueryRoleActiveTasksResponse) Reset() {
 	*x = QueryRoleActiveTasksResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[24]
+	mi := &file_task_v1_query_task_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1738,7 +1851,7 @@ func (x *QueryRoleActiveTasksResponse) String() string {
 func (*QueryRoleActiveTasksResponse) ProtoMessage() {}
 
 func (x *QueryRoleActiveTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[24]
+	mi := &file_task_v1_query_task_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1751,7 +1864,7 @@ func (x *QueryRoleActiveTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRoleActiveTasksResponse.ProtoReflect.Descriptor instead.
 func (*QueryRoleActiveTasksResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{24}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *QueryRoleActiveTasksResponse) GetTasks() []*ActiveTaskRefV1 {
@@ -1780,7 +1893,7 @@ type QueryWorkerEvidenceRequest struct {
 
 func (x *QueryWorkerEvidenceRequest) Reset() {
 	*x = QueryWorkerEvidenceRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[25]
+	mi := &file_task_v1_query_task_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1792,7 +1905,7 @@ func (x *QueryWorkerEvidenceRequest) String() string {
 func (*QueryWorkerEvidenceRequest) ProtoMessage() {}
 
 func (x *QueryWorkerEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[25]
+	mi := &file_task_v1_query_task_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1805,7 +1918,7 @@ func (x *QueryWorkerEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryWorkerEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*QueryWorkerEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{25}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *QueryWorkerEvidenceRequest) GetTaskId() []byte {
@@ -1839,7 +1952,7 @@ type QueryWorkerEvidenceResponse struct {
 
 func (x *QueryWorkerEvidenceResponse) Reset() {
 	*x = QueryWorkerEvidenceResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[26]
+	mi := &file_task_v1_query_task_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1851,7 +1964,7 @@ func (x *QueryWorkerEvidenceResponse) String() string {
 func (*QueryWorkerEvidenceResponse) ProtoMessage() {}
 
 func (x *QueryWorkerEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[26]
+	mi := &file_task_v1_query_task_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1864,7 +1977,7 @@ func (x *QueryWorkerEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryWorkerEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*QueryWorkerEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{26}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *QueryWorkerEvidenceResponse) GetReceipt() *WorkerEvidenceReceiptState {
@@ -1887,7 +2000,7 @@ type QueryVerifierValueEvidenceRequest struct {
 
 func (x *QueryVerifierValueEvidenceRequest) Reset() {
 	*x = QueryVerifierValueEvidenceRequest{}
-	mi := &file_task_v1_query_task_proto_msgTypes[27]
+	mi := &file_task_v1_query_task_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1899,7 +2012,7 @@ func (x *QueryVerifierValueEvidenceRequest) String() string {
 func (*QueryVerifierValueEvidenceRequest) ProtoMessage() {}
 
 func (x *QueryVerifierValueEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[27]
+	mi := &file_task_v1_query_task_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1912,7 +2025,7 @@ func (x *QueryVerifierValueEvidenceRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryVerifierValueEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*QueryVerifierValueEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{27}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *QueryVerifierValueEvidenceRequest) GetTaskId() []byte {
@@ -1954,7 +2067,7 @@ type QueryVerifierValueEvidenceResponse struct {
 
 func (x *QueryVerifierValueEvidenceResponse) Reset() {
 	*x = QueryVerifierValueEvidenceResponse{}
-	mi := &file_task_v1_query_task_proto_msgTypes[28]
+	mi := &file_task_v1_query_task_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1966,7 +2079,7 @@ func (x *QueryVerifierValueEvidenceResponse) String() string {
 func (*QueryVerifierValueEvidenceResponse) ProtoMessage() {}
 
 func (x *QueryVerifierValueEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_query_task_proto_msgTypes[28]
+	mi := &file_task_v1_query_task_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1979,7 +2092,7 @@ func (x *QueryVerifierValueEvidenceResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use QueryVerifierValueEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*QueryVerifierValueEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_task_v1_query_task_proto_rawDescGZIP(), []int{28}
+	return file_task_v1_query_task_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *QueryVerifierValueEvidenceResponse) GetReceipts() []*VerifierValueEvidenceReceiptState {
@@ -2000,7 +2113,7 @@ var File_task_v1_query_task_proto protoreflect.FileDescriptor
 
 const file_task_v1_query_task_proto_rawDesc = "" +
 	"\n" +
-	"\x18task/v1/query_task.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1ashared/v1/query_page.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x16task/v1/deadline.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x19task/v1/open_verify.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/value_evidence.proto\"\xa9\n" +
+	"\x18task/v1/query_task.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x1ashared/v1/query_page.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x16task/v1/deadline.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/value_evidence.proto\"\xa9\n" +
 	"\n" +
 	"\x14TaskAssignmentViewV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x127\n" +
@@ -2084,7 +2197,12 @@ const file_task_v1_query_task_proto_rawDesc = "" +
 	"\x10QueryTaskRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\"<\n" +
 	"\x11QueryTaskResponse\x12'\n" +
-	"\x04task\x18\x01 \x01(\v2\x13.task.v1.TaskViewV1R\x04task\"0\n" +
+	"\x04task\x18\x01 \x01(\v2\x13.task.v1.TaskViewV1R\x04task\"7\n" +
+	"\x1cQueryTaskFrozenParamsRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\fR\x06taskId\"u\n" +
+	"\x1dQueryTaskFrozenParamsResponse\x12-\n" +
+	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12%\n" +
+	"\x0eparams_version\x18\x02 \x01(\x04R\rparamsVersion\"0\n" +
 	"\x15QueryTaskStageRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\"H\n" +
 	"\x16QueryTaskStageResponse\x12.\n" +
@@ -2156,7 +2274,7 @@ func file_task_v1_query_task_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_query_task_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_query_task_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_task_v1_query_task_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_task_v1_query_task_proto_goTypes = []any{
 	(TaskCleanupStatus)(0),                     // 0: task.v1.TaskCleanupStatus
 	(*TaskAssignmentViewV1)(nil),               // 1: task.v1.TaskAssignmentViewV1
@@ -2168,91 +2286,95 @@ var file_task_v1_query_task_proto_goTypes = []any{
 	(*TaskCleanupProgressViewV1)(nil),          // 7: task.v1.TaskCleanupProgressViewV1
 	(*QueryTaskRequest)(nil),                   // 8: task.v1.QueryTaskRequest
 	(*QueryTaskResponse)(nil),                  // 9: task.v1.QueryTaskResponse
-	(*QueryTaskStageRequest)(nil),              // 10: task.v1.QueryTaskStageRequest
-	(*QueryTaskStageResponse)(nil),             // 11: task.v1.QueryTaskStageResponse
-	(*QueryTaskAssignmentRequest)(nil),         // 12: task.v1.QueryTaskAssignmentRequest
-	(*QueryTaskAssignmentResponse)(nil),        // 13: task.v1.QueryTaskAssignmentResponse
-	(*QueryTaskBudgetRequest)(nil),             // 14: task.v1.QueryTaskBudgetRequest
-	(*QueryTaskBudgetResponse)(nil),            // 15: task.v1.QueryTaskBudgetResponse
-	(*QueryTaskBuildersRequest)(nil),           // 16: task.v1.QueryTaskBuildersRequest
-	(*QueryTaskBuildersResponse)(nil),          // 17: task.v1.QueryTaskBuildersResponse
-	(*QueryTaskFailureClassRequest)(nil),       // 18: task.v1.QueryTaskFailureClassRequest
-	(*QueryTaskFailureClassResponse)(nil),      // 19: task.v1.QueryTaskFailureClassResponse
-	(*QueryEvidenceCleanupRequest)(nil),        // 20: task.v1.QueryEvidenceCleanupRequest
-	(*QueryEvidenceCleanupResponse)(nil),       // 21: task.v1.QueryEvidenceCleanupResponse
-	(*QueryEpochTaskSummaryRequest)(nil),       // 22: task.v1.QueryEpochTaskSummaryRequest
-	(*QueryEpochTaskSummaryResponse)(nil),      // 23: task.v1.QueryEpochTaskSummaryResponse
-	(*QueryRoleActiveTasksRequest)(nil),        // 24: task.v1.QueryRoleActiveTasksRequest
-	(*QueryRoleActiveTasksResponse)(nil),       // 25: task.v1.QueryRoleActiveTasksResponse
-	(*QueryWorkerEvidenceRequest)(nil),         // 26: task.v1.QueryWorkerEvidenceRequest
-	(*QueryWorkerEvidenceResponse)(nil),        // 27: task.v1.QueryWorkerEvidenceResponse
-	(*QueryVerifierValueEvidenceRequest)(nil),  // 28: task.v1.QueryVerifierValueEvidenceRequest
-	(*QueryVerifierValueEvidenceResponse)(nil), // 29: task.v1.QueryVerifierValueEvidenceResponse
-	(AssignmentStatus)(0),                      // 30: task.v1.AssignmentStatus
-	(*v1.Amount)(nil),                          // 31: shared.v1.Amount
-	(v1.StoredBodyStatus)(0),                   // 32: shared.v1.StoredBodyStatus
-	(*TaskCoreState)(nil),                      // 33: task.v1.TaskCoreState
-	(*TaskRoundSummaryState)(nil),              // 34: task.v1.TaskRoundSummaryState
-	(*VerifierAssignmentState)(nil),            // 35: task.v1.VerifierAssignmentState
-	(*TaskTerminalSummaryState)(nil),           // 36: task.v1.TaskTerminalSummaryState
-	(TaskPhase)(0),                             // 37: task.v1.TaskPhase
-	(ReceiptStatus)(0),                         // 38: task.v1.ReceiptStatus
-	(VerificationStatus)(0),                    // 39: task.v1.VerificationStatus
-	(SettlementStatus)(0),                      // 40: task.v1.SettlementStatus
-	(v1.TaskFinalityStatusV1)(0),               // 41: shared.v1.TaskFinalityStatusV1
-	(DeadlineKindV1)(0),                        // 42: task.v1.DeadlineKindV1
-	(TaskCleanupPhase)(0),                      // 43: task.v1.TaskCleanupPhase
-	(*TaskBudgetState)(nil),                    // 44: task.v1.TaskBudgetState
-	(*TaskFailureClassState)(nil),              // 45: task.v1.TaskFailureClassState
-	(*EpochTaskSummaryReceiptState)(nil),       // 46: task.v1.EpochTaskSummaryReceiptState
-	(v1.Duty)(0),                               // 47: shared.v1.Duty
-	(*v1.QueryPageRequestV1)(nil),              // 48: shared.v1.QueryPageRequestV1
-	(*v1.QueryPageResponseV1)(nil),             // 49: shared.v1.QueryPageResponseV1
-	(*WorkerEvidenceReceiptState)(nil),         // 50: task.v1.WorkerEvidenceReceiptState
-	(*VerifierValueEvidenceReceiptState)(nil),  // 51: task.v1.VerifierValueEvidenceReceiptState
+	(*QueryTaskFrozenParamsRequest)(nil),       // 10: task.v1.QueryTaskFrozenParamsRequest
+	(*QueryTaskFrozenParamsResponse)(nil),      // 11: task.v1.QueryTaskFrozenParamsResponse
+	(*QueryTaskStageRequest)(nil),              // 12: task.v1.QueryTaskStageRequest
+	(*QueryTaskStageResponse)(nil),             // 13: task.v1.QueryTaskStageResponse
+	(*QueryTaskAssignmentRequest)(nil),         // 14: task.v1.QueryTaskAssignmentRequest
+	(*QueryTaskAssignmentResponse)(nil),        // 15: task.v1.QueryTaskAssignmentResponse
+	(*QueryTaskBudgetRequest)(nil),             // 16: task.v1.QueryTaskBudgetRequest
+	(*QueryTaskBudgetResponse)(nil),            // 17: task.v1.QueryTaskBudgetResponse
+	(*QueryTaskBuildersRequest)(nil),           // 18: task.v1.QueryTaskBuildersRequest
+	(*QueryTaskBuildersResponse)(nil),          // 19: task.v1.QueryTaskBuildersResponse
+	(*QueryTaskFailureClassRequest)(nil),       // 20: task.v1.QueryTaskFailureClassRequest
+	(*QueryTaskFailureClassResponse)(nil),      // 21: task.v1.QueryTaskFailureClassResponse
+	(*QueryEvidenceCleanupRequest)(nil),        // 22: task.v1.QueryEvidenceCleanupRequest
+	(*QueryEvidenceCleanupResponse)(nil),       // 23: task.v1.QueryEvidenceCleanupResponse
+	(*QueryEpochTaskSummaryRequest)(nil),       // 24: task.v1.QueryEpochTaskSummaryRequest
+	(*QueryEpochTaskSummaryResponse)(nil),      // 25: task.v1.QueryEpochTaskSummaryResponse
+	(*QueryRoleActiveTasksRequest)(nil),        // 26: task.v1.QueryRoleActiveTasksRequest
+	(*QueryRoleActiveTasksResponse)(nil),       // 27: task.v1.QueryRoleActiveTasksResponse
+	(*QueryWorkerEvidenceRequest)(nil),         // 28: task.v1.QueryWorkerEvidenceRequest
+	(*QueryWorkerEvidenceResponse)(nil),        // 29: task.v1.QueryWorkerEvidenceResponse
+	(*QueryVerifierValueEvidenceRequest)(nil),  // 30: task.v1.QueryVerifierValueEvidenceRequest
+	(*QueryVerifierValueEvidenceResponse)(nil), // 31: task.v1.QueryVerifierValueEvidenceResponse
+	(AssignmentStatus)(0),                      // 32: task.v1.AssignmentStatus
+	(*v1.Amount)(nil),                          // 33: shared.v1.Amount
+	(v1.StoredBodyStatus)(0),                   // 34: shared.v1.StoredBodyStatus
+	(*TaskCoreState)(nil),                      // 35: task.v1.TaskCoreState
+	(*TaskRoundSummaryState)(nil),              // 36: task.v1.TaskRoundSummaryState
+	(*VerifierAssignmentState)(nil),            // 37: task.v1.VerifierAssignmentState
+	(*TaskTerminalSummaryState)(nil),           // 38: task.v1.TaskTerminalSummaryState
+	(TaskPhase)(0),                             // 39: task.v1.TaskPhase
+	(ReceiptStatus)(0),                         // 40: task.v1.ReceiptStatus
+	(VerificationStatus)(0),                    // 41: task.v1.VerificationStatus
+	(SettlementStatus)(0),                      // 42: task.v1.SettlementStatus
+	(v1.TaskFinalityStatusV1)(0),               // 43: shared.v1.TaskFinalityStatusV1
+	(DeadlineKindV1)(0),                        // 44: task.v1.DeadlineKindV1
+	(TaskCleanupPhase)(0),                      // 45: task.v1.TaskCleanupPhase
+	(*TaskParamsV1)(nil),                       // 46: task.v1.TaskParamsV1
+	(*TaskBudgetState)(nil),                    // 47: task.v1.TaskBudgetState
+	(*TaskFailureClassState)(nil),              // 48: task.v1.TaskFailureClassState
+	(*EpochTaskSummaryReceiptState)(nil),       // 49: task.v1.EpochTaskSummaryReceiptState
+	(v1.Duty)(0),                               // 50: shared.v1.Duty
+	(*v1.QueryPageRequestV1)(nil),              // 51: shared.v1.QueryPageRequestV1
+	(*v1.QueryPageResponseV1)(nil),             // 52: shared.v1.QueryPageResponseV1
+	(*WorkerEvidenceReceiptState)(nil),         // 53: task.v1.WorkerEvidenceReceiptState
+	(*VerifierValueEvidenceReceiptState)(nil),  // 54: task.v1.VerifierValueEvidenceReceiptState
 }
 var file_task_v1_query_task_proto_depIdxs = []int32{
-	30, // 0: task.v1.TaskAssignmentViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
-	31, // 1: task.v1.TaskAssignmentViewV1.min_stake_snapshot:type_name -> shared.v1.Amount
-	32, // 2: task.v1.TaskBuilderSelectionViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
-	33, // 3: task.v1.TaskActiveBundleV1.core:type_name -> task.v1.TaskCoreState
+	32, // 0: task.v1.TaskAssignmentViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
+	33, // 1: task.v1.TaskAssignmentViewV1.min_stake_snapshot:type_name -> shared.v1.Amount
+	34, // 2: task.v1.TaskBuilderSelectionViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
+	35, // 3: task.v1.TaskActiveBundleV1.core:type_name -> task.v1.TaskCoreState
 	1,  // 4: task.v1.TaskActiveBundleV1.assignment:type_name -> task.v1.TaskAssignmentViewV1
-	34, // 5: task.v1.TaskActiveBundleV1.round_summary:type_name -> task.v1.TaskRoundSummaryState
-	35, // 6: task.v1.TaskActiveBundleV1.round1_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
-	35, // 7: task.v1.TaskActiveBundleV1.round2_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
+	36, // 5: task.v1.TaskActiveBundleV1.round_summary:type_name -> task.v1.TaskRoundSummaryState
+	37, // 6: task.v1.TaskActiveBundleV1.round1_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
+	37, // 7: task.v1.TaskActiveBundleV1.round2_verifier_assignment:type_name -> task.v1.VerifierAssignmentState
 	3,  // 8: task.v1.TaskViewV1.active:type_name -> task.v1.TaskActiveBundleV1
-	36, // 9: task.v1.TaskViewV1.terminal:type_name -> task.v1.TaskTerminalSummaryState
-	37, // 10: task.v1.TaskStageViewV1.task_phase:type_name -> task.v1.TaskPhase
-	30, // 11: task.v1.TaskStageViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
-	38, // 12: task.v1.TaskStageViewV1.receipt_status:type_name -> task.v1.ReceiptStatus
-	39, // 13: task.v1.TaskStageViewV1.verification_status:type_name -> task.v1.VerificationStatus
-	40, // 14: task.v1.TaskStageViewV1.settlement_status:type_name -> task.v1.SettlementStatus
-	41, // 15: task.v1.TaskStageViewV1.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
-	42, // 16: task.v1.TaskStageViewV1.next_deadline_kind:type_name -> task.v1.DeadlineKindV1
-	37, // 17: task.v1.ActiveTaskRefV1.task_phase:type_name -> task.v1.TaskPhase
+	38, // 9: task.v1.TaskViewV1.terminal:type_name -> task.v1.TaskTerminalSummaryState
+	39, // 10: task.v1.TaskStageViewV1.task_phase:type_name -> task.v1.TaskPhase
+	32, // 11: task.v1.TaskStageViewV1.assignment_status:type_name -> task.v1.AssignmentStatus
+	40, // 12: task.v1.TaskStageViewV1.receipt_status:type_name -> task.v1.ReceiptStatus
+	41, // 13: task.v1.TaskStageViewV1.verification_status:type_name -> task.v1.VerificationStatus
+	42, // 14: task.v1.TaskStageViewV1.settlement_status:type_name -> task.v1.SettlementStatus
+	43, // 15: task.v1.TaskStageViewV1.finality_status:type_name -> shared.v1.TaskFinalityStatusV1
+	44, // 16: task.v1.TaskStageViewV1.next_deadline_kind:type_name -> task.v1.DeadlineKindV1
+	39, // 17: task.v1.ActiveTaskRefV1.task_phase:type_name -> task.v1.TaskPhase
 	0,  // 18: task.v1.TaskCleanupProgressViewV1.status:type_name -> task.v1.TaskCleanupStatus
-	43, // 19: task.v1.TaskCleanupProgressViewV1.phase:type_name -> task.v1.TaskCleanupPhase
+	45, // 19: task.v1.TaskCleanupProgressViewV1.phase:type_name -> task.v1.TaskCleanupPhase
 	4,  // 20: task.v1.QueryTaskResponse.task:type_name -> task.v1.TaskViewV1
-	5,  // 21: task.v1.QueryTaskStageResponse.stage:type_name -> task.v1.TaskStageViewV1
-	1,  // 22: task.v1.QueryTaskAssignmentResponse.assignment:type_name -> task.v1.TaskAssignmentViewV1
-	44, // 23: task.v1.QueryTaskBudgetResponse.budget:type_name -> task.v1.TaskBudgetState
-	2,  // 24: task.v1.QueryTaskBuildersResponse.selection:type_name -> task.v1.TaskBuilderSelectionViewV1
-	45, // 25: task.v1.QueryTaskFailureClassResponse.failure:type_name -> task.v1.TaskFailureClassState
-	7,  // 26: task.v1.QueryEvidenceCleanupResponse.cleanup:type_name -> task.v1.TaskCleanupProgressViewV1
-	46, // 27: task.v1.QueryEpochTaskSummaryResponse.receipt:type_name -> task.v1.EpochTaskSummaryReceiptState
-	47, // 28: task.v1.QueryRoleActiveTasksRequest.duty:type_name -> shared.v1.Duty
-	48, // 29: task.v1.QueryRoleActiveTasksRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	6,  // 30: task.v1.QueryRoleActiveTasksResponse.tasks:type_name -> task.v1.ActiveTaskRefV1
-	49, // 31: task.v1.QueryRoleActiveTasksResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	50, // 32: task.v1.QueryWorkerEvidenceResponse.receipt:type_name -> task.v1.WorkerEvidenceReceiptState
-	48, // 33: task.v1.QueryVerifierValueEvidenceRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	51, // 34: task.v1.QueryVerifierValueEvidenceResponse.receipts:type_name -> task.v1.VerifierValueEvidenceReceiptState
-	49, // 35: task.v1.QueryVerifierValueEvidenceResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	36, // [36:36] is the sub-list for method output_type
-	36, // [36:36] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	46, // 21: task.v1.QueryTaskFrozenParamsResponse.params:type_name -> task.v1.TaskParamsV1
+	5,  // 22: task.v1.QueryTaskStageResponse.stage:type_name -> task.v1.TaskStageViewV1
+	1,  // 23: task.v1.QueryTaskAssignmentResponse.assignment:type_name -> task.v1.TaskAssignmentViewV1
+	47, // 24: task.v1.QueryTaskBudgetResponse.budget:type_name -> task.v1.TaskBudgetState
+	2,  // 25: task.v1.QueryTaskBuildersResponse.selection:type_name -> task.v1.TaskBuilderSelectionViewV1
+	48, // 26: task.v1.QueryTaskFailureClassResponse.failure:type_name -> task.v1.TaskFailureClassState
+	7,  // 27: task.v1.QueryEvidenceCleanupResponse.cleanup:type_name -> task.v1.TaskCleanupProgressViewV1
+	49, // 28: task.v1.QueryEpochTaskSummaryResponse.receipt:type_name -> task.v1.EpochTaskSummaryReceiptState
+	50, // 29: task.v1.QueryRoleActiveTasksRequest.duty:type_name -> shared.v1.Duty
+	51, // 30: task.v1.QueryRoleActiveTasksRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	6,  // 31: task.v1.QueryRoleActiveTasksResponse.tasks:type_name -> task.v1.ActiveTaskRefV1
+	52, // 32: task.v1.QueryRoleActiveTasksResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	53, // 33: task.v1.QueryWorkerEvidenceResponse.receipt:type_name -> task.v1.WorkerEvidenceReceiptState
+	51, // 34: task.v1.QueryVerifierValueEvidenceRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	54, // 35: task.v1.QueryVerifierValueEvidenceResponse.receipts:type_name -> task.v1.VerifierValueEvidenceReceiptState
+	52, // 36: task.v1.QueryVerifierValueEvidenceResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_query_task_proto_init() }
@@ -2267,6 +2389,7 @@ func file_task_v1_query_task_proto_init() {
 	file_task_v1_epoch_summary_proto_init()
 	file_task_v1_evidence_proto_init()
 	file_task_v1_open_verify_proto_init()
+	file_task_v1_params_proto_init()
 	file_task_v1_session_proto_init()
 	file_task_v1_settlement_proto_init()
 	file_task_v1_value_evidence_proto_init()
@@ -2283,7 +2406,7 @@ func file_task_v1_query_task_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_query_task_proto_rawDesc), len(file_task_v1_query_task_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "a3639f5a186fe97a41ea7d84fb3339e2b4fe95e3792be82cdf30de0a1a3f43ad"
+	const want = "b6ef46a5b2240c02e8705b308b7a784c4d8cb890985900ed2054668b2c0de390"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
